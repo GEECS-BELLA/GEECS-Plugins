@@ -44,6 +44,12 @@ _MAX_FILES_PER_DIR = 30
 #: Cap on figure candidates gathered/listed.
 _MAX_FIGURE_CANDIDATES = 60
 
+#: Payload budgets for get_scan_analysis (osprey-side audit ask): one
+#: task's display_files list and the number of device dirs listed —
+#: truncation is flagged, never silent.
+_MAX_DISPLAY_FILES_PER_TASK = 20
+_MAX_OUTPUT_DIRS = 40
+
 #: Longest image edge after downscaling (agent context, not archival).
 _MAX_FIGURE_EDGE_PX = 1024
 
@@ -155,17 +161,22 @@ def _read_task_statuses(scan_folder: Path) -> dict[str, dict]:
             display_files = document.get("display_files") or []
             if not isinstance(display_files, list):
                 display_files = []
-            statuses[entry.stem] = {
+            display_files = [name for name in display_files if isinstance(name, str)]
+            record = {
                 "state": document.get("state"),
                 "error": document.get("error"),
                 "claimed_by": document.get("claimed_by"),
                 "heartbeat_age_s": _heartbeat_age_s(
                     document.get("last_heartbeat"), now
                 ),
-                "display_files": [
-                    name for name in display_files if isinstance(name, str)
-                ],
+                # Payload budget (osprey-side audit ask, 2026-08-24): the
+                # writer owns this list's length; cap what one task can
+                # put into a tool answer.
+                "display_files": display_files[:_MAX_DISPLAY_FILES_PER_TASK],
             }
+            if len(display_files) > _MAX_DISPLAY_FILES_PER_TASK:
+                record["display_files_truncated"] = True
+            statuses[entry.stem] = record
         except Exception as exc:  # a torn write mid-heartbeat is not our error
             statuses[entry.stem] = {"state": "unreadable", "detail": str(exc)}
     return statuses
@@ -185,8 +196,14 @@ def _get_scan_analysis_impl(scan_number: int, day: str | None) -> str:
         )
     tasks = _read_task_statuses(scan_folder)
     outputs: dict[str, dict] = {}
+    outputs_truncated = False
     if analysis_folder.is_dir():
         for entry in sorted(analysis_folder.iterdir()):
+            if len(outputs) >= _MAX_OUTPUT_DIRS:
+                # Payload budget: a pathological analysis tree must not
+                # balloon the answer (osprey-side audit ask).
+                outputs_truncated = True
+                break
             if entry.is_dir():
                 # The production layout nests analyzer subdirs
                 # (Scan<NNN>/<device>/<Analyzer>/files) — a one-level
@@ -208,6 +225,7 @@ def _get_scan_analysis_impl(scan_number: int, day: str | None) -> str:
                 top["n_files"] += 1
                 if len(top["files"]) < _MAX_FILES_PER_DIR:
                     top["files"].append(entry.name)
+    extra = {"outputs_truncated": True} if outputs_truncated else {}
     return errors.make_ok(
         scan_number=int(scan_number),
         scan_folder=str(scan_folder),
@@ -215,6 +233,7 @@ def _get_scan_analysis_impl(scan_number: int, day: str | None) -> str:
         analysis_present=analysis_folder.is_dir(),
         tasks=tasks,
         outputs=outputs,
+        **extra,
     )
 
 
@@ -325,9 +344,9 @@ def _gather_figure_candidates(scan_folder: Path, analysis_folder: Path) -> list[
 
 
 def _relative_label(path: Path, analysis_folder: Path) -> str:
-    """A candidate's agent-facing name (relative to the analysis folder)."""
+    """A candidate's agent-facing name (relative, POSIX separators)."""
     try:
-        return str(path.relative_to(analysis_folder))
+        return path.relative_to(analysis_folder).as_posix()
     except ValueError:
         return path.name
 
@@ -337,9 +356,23 @@ def _relative_label(path: Path, analysis_folder: Path) -> str:
 #: refuses instead of decoding hundreds of MB in the server process.
 _MAX_FIGURE_PIXELS = 64_000_000
 
+#: Thumbnail bounds (the opt-in ``thumbnail=true`` return — the only
+#: path that puts image bytes through model context, so it is bounded
+#: hard: ≤768 px longest edge, JPEG q80 ≈ 30–60 KB for a matplotlib
+#: summary).  The first web-UI integration blew a haiku-tier context on
+#: a 247 KB inline PNG (osprey-side finding, 2026-08-24) — inline image
+#: content is never the default again.
+_THUMBNAIL_EDGE_PX = 768
+_THUMBNAIL_JPEG_QUALITY = 80
 
-def _load_downscaled_png(path: Path) -> bytes:
-    """The figure as PNG bytes, longest edge capped (context, not archive)."""
+#: Byte cap for the raw ``/figures/`` route (streams the original file,
+#: never through model context — the cap is a DoS guard, not a context
+#: budget).
+_MAX_ROUTE_FILE_BYTES = 50_000_000
+
+
+def _load_thumbnail_jpeg(path: Path) -> bytes:
+    """The figure as bounded JPEG bytes (model context, not archive)."""
     import io
 
     from PIL import Image as PILImage
@@ -351,19 +384,101 @@ def _load_downscaled_png(path: Path) -> bytes:
                 f"over the {_MAX_FIGURE_PIXELS / 1e6:.0f} MP decode cap"
             )
         image.load()
-        if max(image.size) > _MAX_FIGURE_EDGE_PX:
-            image.thumbnail((_MAX_FIGURE_EDGE_PX, _MAX_FIGURE_EDGE_PX))
-        if image.mode not in ("RGB", "RGBA", "L"):
+        if max(image.size) > _THUMBNAIL_EDGE_PX:
+            image.thumbnail((_THUMBNAIL_EDGE_PX, _THUMBNAIL_EDGE_PX))
+        if image.mode != "RGB":
             image = image.convert("RGB")
         buffer = io.BytesIO()
-        image.save(buffer, format="PNG")
+        image.save(buffer, format="JPEG", quality=_THUMBNAIL_JPEG_QUALITY)
         return buffer.getvalue()
 
 
-def _get_scan_figure_impl(scan_number: int, name: str | None, day: str | None):
-    """One figure as image content, or the candidate list to choose from."""
+def _day_string(tag) -> str:
+    """The resolved day as YYYY-MM-DD (the route's day segment)."""
+    return f"{int(tag.year):04d}-{int(tag.month):02d}-{int(tag.day):02d}"
+
+
+def _figure_url(day: str, scan_number: int, label: str) -> str:
+    """The SERVER-RELATIVE fetch URL for one figure.
+
+    Relative by design: the server binds 0.0.0.0 and cannot know its
+    advertised host, and baking an address into results would break the
+    planned service re-homing.  Clients resolve it against the MCP base
+    URL they already hold (the profile's ``url:`` minus the ``/mcp``
+    path).
+    """
+    from urllib.parse import quote
+
+    return f"/figures/{day}/{int(scan_number)}/{quote(label, safe='/')}"
+
+
+def _share_relative(path: Path) -> str:
+    r"""The path relative to the GEECS data root (POSIX), else absolute.
+
+    The *primary* file handle in tool results — never a ``Z:\\`` or
+    ``/mnt/`` form (osprey-side ask): clients resolve it against their
+    own mount of the share.
+    """
+    from geecs_data_utils import ScanPaths
+
+    base = _base_directory()
+    if base is None and ScanPaths.paths_config is not None:
+        base = ScanPaths.paths_config.base_path
+    if base is not None:
+        try:
+            return path.relative_to(Path(base).resolve()).as_posix()
+        except ValueError:
+            pass
+    return path.as_posix()
+
+
+def _figure_metadata(path: Path, label: str, day: str, scan_number: int) -> dict:
+    """One figure's reference record (no image bytes)."""
+    from PIL import Image as PILImage
+
+    width = height = None
     try:
-        _tag, scan_folder, analysis_folder = _resolve_folders(scan_number, day)
+        with PILImage.open(path) as image:  # header read only — no decode
+            width, height = image.width, image.height
+    except Exception:
+        logger.debug("figure header unreadable: %s", path, exc_info=True)
+    return {
+        "figure": label,
+        "day": day,
+        "scan_number": int(scan_number),
+        "share_relative_path": _share_relative(path),
+        "bytes": path.stat().st_size,
+        "width": width,
+        "height": height,
+        "figure_url": _figure_url(day, scan_number, label),
+    }
+
+
+def _candidate_listing(paths, analysis_folder: Path, day: str, scan_number: int):
+    """Compact reference entries for a candidate list (cheap stats only)."""
+    entries = []
+    for path in paths:
+        label = _relative_label(path, analysis_folder)
+        try:
+            size = path.stat().st_size
+        except OSError:
+            size = None
+        entries.append(
+            {
+                "figure": label,
+                "bytes": size,
+                "figure_url": _figure_url(day, scan_number, label),
+            }
+        )
+    return entries
+
+
+def _get_scan_figure_impl(
+    scan_number: int, name: str | None, day: str | None, thumbnail: bool
+):
+    """Figure reference (default) / bounded thumbnail / candidate list."""
+    try:
+        tag, scan_folder, analysis_folder = _resolve_folders(scan_number, day)
     except ValueError as exc:
         return errors.make_error("invalid_request", str(exc))
     except RuntimeError as exc:
@@ -379,6 +494,7 @@ def _get_scan_figure_impl(scan_number: int, name: str | None, day: str | None):
             f"no figures found for Scan{int(scan_number):03d} "
             f"(analysis folder: {analysis_folder})",
         )
+    resolved_day = _day_string(tag)
     labels = [_relative_label(path, analysis_folder) for path in candidates]
     if name is None:
         if len(candidates) == 1:
@@ -386,7 +502,9 @@ def _get_scan_figure_impl(scan_number: int, name: str | None, day: str | None):
         else:
             return errors.make_ok(
                 message="multiple figures — call again with name=<one of these>",
-                figures=labels,
+                figures=_candidate_listing(
+                    candidates, analysis_folder, resolved_day, scan_number
+                ),
             )
     else:
         matches = [
@@ -401,24 +519,91 @@ def _get_scan_figure_impl(scan_number: int, name: str | None, day: str | None):
         if len(matches) > 1:
             return errors.make_ok(
                 message=f"{name!r} is ambiguous — pick one",
-                figures=[_relative_label(p, analysis_folder) for p in matches],
+                figures=_candidate_listing(
+                    matches, analysis_folder, resolved_day, scan_number
+                ),
             )
         chosen = matches[0]
-    from fastmcp.utilities.types import Image
+    if thumbnail:
+        from fastmcp.utilities.types import Image
 
-    return Image(data=_load_downscaled_png(chosen), format="png")
+        return Image(data=_load_thumbnail_jpeg(chosen), format="jpeg")
+    meta = _figure_metadata(
+        chosen, _relative_label(chosen, analysis_folder), resolved_day, scan_number
+    )
+    return errors.make_ok(
+        message=(
+            "figure reference — fetch the full-resolution bytes from "
+            "figure_url (relative to the MCP server's base URL) or the "
+            "share_relative_path; pass thumbnail=true only when the "
+            "model itself needs to see it"
+        ),
+        **meta,
+    )
 
 
 @mcp.tool(name=tool_names.GET_SCAN_FIGURE)
 async def get_scan_figure(
-    scan_number: int, name: str | None = None, day: str | None = None
+    scan_number: int,
+    name: str | None = None,
+    day: str | None = None,
+    thumbnail: bool = False,
 ):
-    """Fetch one rendered analysis figure for a scan, as an image.
+    """Locate one rendered analysis figure for a scan.
 
-    With no ``name`` and exactly one figure, returns it; otherwise
-    returns the candidate list to pick from (``name`` matches by
-    substring of the listed path). Images are downscaled to ≤1024 px on
-    the longest edge — ask for the analysis folder path via
-    get_scan_analysis when the full-resolution file is needed.
+    Default return is a REFERENCE, not the image: the figure's name,
+    dimensions, byte size, its path relative to the GEECS data root,
+    and ``figure_url`` — a server-relative HTTP route serving the
+    original file bytes (resolve against the MCP base URL). Fetch the
+    URL and save it as a local artifact instead of pulling pixels
+    through the model. ``thumbnail=true`` returns a bounded preview
+    (≤768 px JPEG) as image content — use it only when the figure must
+    actually be looked at. With no ``name`` and several figures, the
+    candidate list (with URLs) comes back to pick from; ``name``
+    matches by substring.
     """
-    return await _run_guarded(_get_scan_figure_impl, scan_number, name, day)
+    return await _run_guarded(_get_scan_figure_impl, scan_number, name, day, thumbnail)
+
+
+async def _serve_figure_route(request):
+    """GET /figures/{day}/{scan_number}/{label:path} — the raw file bytes.
+
+    The fetch counterpart of ``get_scan_figure``'s ``figure_url``:
+    serves the ORIGINAL figure (it bypasses model context, so no
+    downscale), bounded by exactly the same candidate set as the tool —
+    only files the scan's own analysis folder legitimately offers, by
+    exact label match — plus a byte cap.  Registered on the FastMCP
+    app, so it is live under ``--transport http`` and simply never
+    reachable over stdio.  Never raises: every failure is a plain
+    status response.
+    """
+    from starlette.responses import FileResponse, PlainTextResponse
+
+    try:
+        day = request.path_params["day"]
+        try:
+            scan_number = int(request.path_params["scan_number"])
+        except (TypeError, ValueError):
+            return PlainTextResponse("scan_number must be an integer", status_code=400)
+        label = request.path_params["label"]
+        try:
+            tag, scan_folder, analysis_folder = _resolve_folders(scan_number, day)
+        except (ValueError, RuntimeError) as exc:
+            return PlainTextResponse(str(exc), status_code=400)
+        if not scan_folder.is_dir():
+            return PlainTextResponse("no such scan", status_code=404)
+        for path in _gather_figure_candidates(scan_folder, analysis_folder):
+            if _relative_label(path, analysis_folder) == label:
+                if path.stat().st_size > _MAX_ROUTE_FILE_BYTES:
+                    return PlainTextResponse("figure too large", status_code=413)
+                media = "image/png" if path.suffix.lower() == ".png" else "image/jpeg"
+                return FileResponse(path, media_type=media)
+        return PlainTextResponse("no such figure", status_code=404)
+    except Exception:
+        logger.exception("figure route failed")
+        return PlainTextResponse("internal error", status_code=500)
+
+
+mcp.custom_route("/figures/{day}/{scan_number}/{label:path}", methods=["GET"])(
+    _serve_figure_route
+)

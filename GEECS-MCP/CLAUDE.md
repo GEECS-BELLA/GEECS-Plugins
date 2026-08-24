@@ -78,9 +78,19 @@ geecs_mcp/
                   #   no stop — the console's #653 rules)
   analysis/       # the analysis domain (#675)
     read_tools.py # get_scan_analysis (task statuses from
-                  #   analysis_status/ + the output tree) and
-                  #   get_scan_figure (a display_files/py-image figure,
-                  #   downscaled, returned as MCP image content).
+                  #   analysis_status/ + the output tree, payload-
+                  #   budgeted with explicit *_truncated flags) and
+                  #   get_scan_figure — a figure REFERENCE by default
+                  #   (label, dims, bytes, share-relative path,
+                  #   server-relative figure_url), 0.6.0 payload
+                  #   doctrine: a 247 KB inline PNG blew a haiku-tier
+                  #   agent context in the first web-UI integration, so
+                  #   image bytes ride model context ONLY via the
+                  #   opt-in thumbnail=true (≤768 px JPEG).  The
+                  #   /figures/{day}/{scan}/{label} custom route on the
+                  #   same server streams the ORIGINAL bytes (bounded
+                  #   by the tool's own candidate set + a byte cap) for
+                  #   clients to fetch-and-save as artifacts.
                   #   STRICTLY read-only over the data share: pure
                   #   ScanPaths static builders ONLY — the instance
                   #   get_analysis_folder() silently mkdirs and must

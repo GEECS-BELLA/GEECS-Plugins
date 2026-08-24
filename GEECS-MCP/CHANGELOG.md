@@ -4,6 +4,41 @@ All notable changes to `geecs-mcp` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.6.0] - 2026-08-24
+
+Payload discipline for figures (osprey-side integration finding: an
+inline 247 KB PNG forced context compaction on the deployment's
+haiku-tier agent — image bytes never ride model context by default
+again).
+
+### Changed
+
+- **`get_scan_figure` returns a REFERENCE by default**: figure label,
+  pixel dimensions (header read, no decode), byte size, a
+  share-relative path (POSIX, relative to the GEECS data root — never a
+  `Z:\` or `/mnt/` primary handle), and `figure_url`.  Candidate and
+  ambiguity listings carry the same reference entries (label, bytes,
+  URL) instead of bare names.  `thumbnail=true` opts into bounded inline
+  image content: ≤768 px longest edge, JPEG q80 — the only path that
+  decodes, still behind the 64 MP decode cap.
+
+### Added
+
+- **`GET /figures/{day}/{scan_number}/{label}`** on the same HTTP
+  server: streams the ORIGINAL figure bytes (bypasses model context, so
+  no downscale) for clients to fetch and save as local artifacts.
+  Bounded by exactly the tool's candidate set (the scan's own analysis
+  folder, exact label match) plus a 50 MB byte cap; never raises (plain
+  4xx/5xx text).  The tool's `figure_url` is SERVER-RELATIVE by design —
+  clients resolve it against the MCP base URL they already hold, so no
+  advertised host is baked into results and service re-homing stays a
+  client-config-only change.  Unreachable over stdio (no HTTP app), by
+  construction.
+- **Payload budgets on `get_scan_analysis`** (the audit ask): one
+  task's `display_files` listing caps at 20 and the outputs listing at
+  40 device dirs, each with an explicit `*_truncated` flag — truncation
+  is never silent.
+
 ## [0.5.1] - 2026-08-24
 
 First-deployment live findings (qserver-box HTTP service, real netapp

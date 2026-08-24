@@ -118,10 +118,9 @@ def test_windows_display_files_localize_and_serve(share):
     (scan_folder / "analysis_status" / "amp2.yaml").write_text(
         yaml.safe_dump({"state": "done", "display_files": [win_entry]})
     )
-    from fastmcp.utilities.types import Image
-
-    result = read_tools._get_scan_figure_impl(7, "avg_visual", DAY)
-    assert isinstance(result, Image)
+    result = _load(read_tools._get_scan_figure_impl(7, "avg_visual", DAY, False))
+    assert result["ok"]
+    assert result["figure"] == "UC_Amp2/Array2DScanAnalyzer/avg_visual.png"
 
 
 def test_unlocalizable_windows_entry_never_kills_the_tool(share):
@@ -132,10 +131,8 @@ def test_unlocalizable_windows_entry_never_kills_the_tool(share):
     (scan_folder / "analysis_status" / "weird.yaml").write_text(
         yaml.safe_dump({"state": "done", "display_files": ["C:\\Temp\\oddball.png"]})
     )
-    from fastmcp.utilities.types import Image
-
-    result = read_tools._get_scan_figure_impl(7, "summary", DAY)
-    assert isinstance(result, Image)
+    result = _load(read_tools._get_scan_figure_impl(7, "summary", DAY, False))
+    assert result["ok"] and result["figure"] == "UC_TopView/summary.png"
 
 
 def test_localize_display_entry_unit_contract(share):
@@ -181,10 +178,8 @@ def test_pathological_entries_hit_the_guard_not_the_tool(share):
     (scan_folder / "analysis_status" / "pathological.yaml").write_text(
         yaml.safe_dump({"state": "done", "display_files": [giant, nullbyte]})
     )
-    from fastmcp.utilities.types import Image
-
-    result = read_tools._get_scan_figure_impl(7, "summary", DAY)
-    assert isinstance(result, Image)
+    result = _load(read_tools._get_scan_figure_impl(7, "summary", DAY, False))
+    assert result["ok"] and result["figure"] == "UC_TopView/summary.png"
 
 
 # ---------------------------------------------------------------------------
@@ -284,17 +279,18 @@ def test_figure_candidates_bounded_to_the_scans_analysis_folder(
         )
     )
     for probe in ("secret", "other_secret", "raw_secret"):
-        result = _load(read_tools._get_scan_figure_impl(7, probe, DAY))
+        result = _load(read_tools._get_scan_figure_impl(7, probe, DAY, False))
         assert not result["ok"] and result["error_kind"] == "not_found", probe
 
 
-def test_figure_decode_cap_refuses_giant_images(share, monkeypatch):
+def test_figure_decode_cap_refuses_giant_thumbnails(share, monkeypatch):
     # The cap raises in the impl; at the tool layer the shared guard turns
     # it into an internal_error envelope (pinned separately) — here we pin
-    # that the cap actually fires before any full decode.
+    # that the cap fires before any full decode.  Only the thumbnail path
+    # decodes at all since 0.6.0 (the reference default reads headers).
     monkeypatch.setattr(read_tools, "_MAX_FIGURE_PIXELS", 100)
     with pytest.raises(ValueError, match="decode cap"):
-        read_tools._get_scan_figure_impl(7, "summary", DAY)
+        read_tools._get_scan_figure_impl(7, "summary", DAY, True)
 
 
 def test_analysis_bad_day_is_invalid_request(share):
@@ -313,15 +309,32 @@ def test_analysis_without_experiment_is_invalid_request(share, monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def test_single_figure_returns_downscaled_image(share):
+def test_single_figure_returns_a_reference_not_pixels(share):
+    # The 0.6.0 default: metadata + fetch URL, NO image content — a
+    # 247 KB inline PNG blew a haiku-tier agent context in the first
+    # web-UI integration (osprey-side finding, 2026-08-24).
+    result = _load(read_tools._get_scan_figure_impl(7, None, DAY, False))
+    assert result["ok"]
+    assert result["figure"] == "UC_TopView/summary.png"
+    assert result["day"] == DAY
+    assert result["width"] == 2000 and result["height"] == 500
+    assert result["bytes"] > 0
+    # Share-relative, POSIX, never an absolute /mnt or Z:\ handle.
+    assert result["share_relative_path"].startswith("TestExp/Y2026/")
+    assert not result["share_relative_path"].startswith("/")
+    # Server-relative fetch route.
+    assert result["figure_url"] == f"/figures/{DAY}/7/UC_TopView/summary.png"
+
+
+def test_thumbnail_returns_bounded_jpeg(share):
     from fastmcp.utilities.types import Image
     from PIL import Image as PILImage
 
-    result = read_tools._get_scan_figure_impl(7, None, DAY)
+    result = read_tools._get_scan_figure_impl(7, None, DAY, True)
     assert isinstance(result, Image)
     with PILImage.open(io.BytesIO(result.data)) as image:
-        assert max(image.size) <= read_tools._MAX_FIGURE_EDGE_PX
-        assert image.format == "PNG"
+        assert max(image.size) <= read_tools._THUMBNAIL_EDGE_PX
+        assert image.format == "JPEG"
 
 
 def test_multiple_figures_list_candidates(share):
@@ -329,20 +342,40 @@ def test_multiple_figures_list_candidates(share):
 
     _, analysis_folder = _tree_paths(share)
     PILImage.new("RGB", (10, 10)).save(analysis_folder / "UC_TopView" / "extra.png")
-    result = _load(read_tools._get_scan_figure_impl(7, None, DAY))
-    assert result["ok"] and sorted(result["figures"]) == [
-        "UC_TopView/extra.png",
-        "UC_TopView/summary.png",
-    ]
+    result = _load(read_tools._get_scan_figure_impl(7, None, DAY, False))
+    assert result["ok"]
+    labels = sorted(f["figure"] for f in result["figures"])
+    assert labels == ["UC_TopView/extra.png", "UC_TopView/summary.png"]
+    for entry in result["figures"]:
+        assert entry["figure_url"].startswith(f"/figures/{DAY}/7/")
+        assert entry["bytes"] > 0
 
-    picked = read_tools._get_scan_figure_impl(7, "extra", DAY)
-    from fastmcp.utilities.types import Image
+    picked = _load(read_tools._get_scan_figure_impl(7, "extra", DAY, False))
+    assert picked["ok"] and picked["figure"] == "UC_TopView/extra.png"
 
-    assert isinstance(picked, Image)
+
+def test_figure_route_serves_the_original_bytes(share):
+    from starlette.testclient import TestClient
+
+    from geecs_mcp.server import create_server
+
+    app = create_server().http_app()
+    with TestClient(app) as client:
+        r = client.get(f"/figures/{DAY}/7/UC_TopView/summary.png")
+        assert r.status_code == 200
+        assert r.headers["content-type"].startswith("image/png")
+        original = (_tree_paths(share)[1] / "UC_TopView" / "summary.png").read_bytes()
+        assert r.content == original  # ORIGINAL bytes — no downscale
+        # Only labels the candidate set offers are served.
+        assert client.get(f"/figures/{DAY}/7/UC_TopView/results.csv").status_code == 404
+        # The client URL-normalizes ".." into a malformed scan segment —
+        # either way it must be a clean 4xx, never a 500 or a file.
+        assert client.get(f"/figures/{DAY}/7/../escape.png").status_code in (400, 404)
+        assert client.get("/figures/not-a-day/7/x.png").status_code == 400
 
 
 def test_figure_no_match_names_the_available(share):
-    result = _load(read_tools._get_scan_figure_impl(7, "nope", DAY))
+    result = _load(read_tools._get_scan_figure_impl(7, "nope", DAY, False))
     assert not result["ok"] and result["error_kind"] == "not_found"
     assert "summary.png" in result["message"]
 
@@ -354,7 +387,7 @@ def test_no_figures_is_not_found(share):
     (scan_folder / "analysis_status" / "topview_baseline.yaml").write_text(
         yaml.safe_dump({"state": "done", "display_files": []})
     )
-    result = _load(read_tools._get_scan_figure_impl(7, None, DAY))
+    result = _load(read_tools._get_scan_figure_impl(7, None, DAY, False))
     assert not result["ok"] and result["error_kind"] == "not_found"
 
 
