@@ -85,6 +85,108 @@ def _mtimes(root: Path) -> set:
     return {(p, p.stat().st_mtime_ns) for p in root.rglob("*")}
 
 
+def test_outputs_walk_the_nested_analyzer_tree(share):
+    # The production layout is Scan<NNN>/<device>/<Analyzer>/files (live
+    # deployment finding 2026-08-24: a one-level listing read every
+    # device dir as n_files: 0).
+    _, analysis_folder = _tree_paths(share)
+    nested = analysis_folder / "U_BCaveMagSpec" / "Array1DScanAnalyzer"
+    nested.mkdir(parents=True)
+    (nested / "waterfall.png").write_bytes(b"not-a-real-png")
+    (nested / "per_shot.csv").write_text("a\n1\n")
+    result = _load(read_tools._get_scan_analysis_impl(7, DAY))
+    magspec = result["outputs"]["U_BCaveMagSpec"]
+    assert magspec["n_files"] == 2
+    assert "Array1DScanAnalyzer/waterfall.png" in magspec["files"]
+
+
+def test_windows_display_files_localize_and_serve(share):
+    # Production statuses are written by the WINDOWS analysis machines:
+    # display_files carry Z:\...\analysis\Scan<NNN>\... paths.  On the
+    # Linux service host these must re-root onto the local analysis
+    # folder — the live deployment crashed on the raw entry (2026-08-24).
+    from PIL import Image as PILImage
+
+    scan_folder, analysis_folder = _tree_paths(share)
+    win_dir = analysis_folder / "UC_Amp2" / "Array2DScanAnalyzer"
+    win_dir.mkdir(parents=True)
+    PILImage.new("RGB", (10, 10)).save(win_dir / "avg_visual.png")
+    win_entry = (
+        "Z:\\data\\Undulator\\Y2026\\08-Aug\\26_0822\\analysis\\Scan007"
+        "\\UC_Amp2\\Array2DScanAnalyzer\\avg_visual.png"
+    )
+    (scan_folder / "analysis_status" / "amp2.yaml").write_text(
+        yaml.safe_dump({"state": "done", "display_files": [win_entry]})
+    )
+    from fastmcp.utilities.types import Image
+
+    result = read_tools._get_scan_figure_impl(7, "avg_visual", DAY)
+    assert isinstance(result, Image)
+
+
+def test_unlocalizable_windows_entry_never_kills_the_tool(share):
+    # An entry with no analysis\Scan<NNN> tail (or any per-entry stat
+    # blow-up) is skipped — the tree-scan fallback must still serve
+    # (the live crash aborted candidate gathering entirely).
+    scan_folder, _ = _tree_paths(share)
+    (scan_folder / "analysis_status" / "weird.yaml").write_text(
+        yaml.safe_dump({"state": "done", "display_files": ["C:\\Temp\\oddball.png"]})
+    )
+    from fastmcp.utilities.types import Image
+
+    result = read_tools._get_scan_figure_impl(7, "summary", DAY)
+    assert isinstance(result, Image)
+
+
+def test_localize_display_entry_unit_contract(share):
+    # The localization itself, asserted directly (verify pass on this
+    # PR: the end-to-end tests could not tell "localized and served"
+    # from "dropped and rescued by the tree fallback").
+    _, analysis_folder = _tree_paths(share)
+    win = (
+        "Z:\\data\\Undulator\\Y2026\\08-Aug\\26_0822\\analysis\\Scan007"
+        "\\UC_Amp2\\Array2DScanAnalyzer\\avg_visual.png"
+    )
+    localized = read_tools._localize_display_entry(win, analysis_folder)
+    assert (
+        localized
+        == analysis_folder / "UC_Amp2" / "Array2DScanAnalyzer" / "avg_visual.png"
+    )
+    # No analysis\Scan<NNN> tail -> None (skipped, warned).
+    assert (
+        read_tools._localize_display_entry("C:\\Temp\\oddball.png", analysis_folder)
+        is None
+    )
+    # A POSIX entry passes through untouched.
+    posix = str(analysis_folder / "UC_TopView" / "summary.png")
+    assert read_tools._localize_display_entry(posix, analysis_folder) == Path(posix)
+
+
+def test_pathological_entries_hit_the_guard_not_the_tool(share):
+    # The guard itself (verify pass on this PR — the earlier fixtures
+    # were too tame to raise on a local fs):
+    # 1. a localized tail whose filename exceeds NAME_MAX -> the stat
+    #    raises ENAMETOOLONG (the live crash's mechanism, reproducible
+    #    on any fs);
+    # 2. an embedded null byte -> resolve() raises ValueError, which the
+    #    original except OSError let through (review finding).
+    # Both must skip the entry; the tree fallback must still serve.
+    scan_folder, _ = _tree_paths(share)
+    giant = (
+        "Z:\\data\\Undulator\\Y2026\\08-Aug\\26_0822\\analysis\\Scan007\\"
+        + "x" * 300
+        + ".png"
+    )
+    nullbyte = "evil\x00name.png"
+    (scan_folder / "analysis_status" / "pathological.yaml").write_text(
+        yaml.safe_dump({"state": "done", "display_files": [giant, nullbyte]})
+    )
+    from fastmcp.utilities.types import Image
+
+    result = read_tools._get_scan_figure_impl(7, "summary", DAY)
+    assert isinstance(result, Image)
+
+
 # ---------------------------------------------------------------------------
 # get_scan_analysis
 # ---------------------------------------------------------------------------
