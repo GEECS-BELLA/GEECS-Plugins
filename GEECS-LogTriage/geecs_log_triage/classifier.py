@@ -46,6 +46,12 @@ CLASSIFICATION_MAP: dict[str, Classification] = {
     "GeecsDeviceCommandRejected": Classification.HARDWARE_ISSUE,
     "GeecsDeviceExeTimeout": Classification.HARDWARE_ISSUE,
     "GeecsDeviceCommandFailed": Classification.HARDWARE_ISSUE,
+    # ophyd-async connect failures (the CA device layer): a device whose
+    # PVs never connected.  In scan.log since GeecsBluesky 0.51.0 made the
+    # file the complete record (#620/#621) — soft-telemetry drops carry
+    # the full traceback.  The expected-soft-drop guard in classify()
+    # takes precedence for the tolerated case.
+    "NotConnectedError": Classification.HARDWARE_ISSUE,
     # Python builtins commonly indicating a code bug.
     "KeyError": Classification.BUG_CANDIDATE,
     "AttributeError": Classification.BUG_CANDIDATE,
@@ -128,6 +134,15 @@ def classify(
     Classification
         The triage category.
     """
+    # Engine-tolerated soft-telemetry drop (#621): the WARNING's own
+    # message marks it ("soft tier — never aborts the scan", from
+    # GeecsBluesky session.telemetry), and the attached NotConnectedError
+    # traceback is expected — checked BEFORE the exception-type map so a
+    # standing ghost device (the DB orphan-row situation) doesn't file as
+    # a fresh hardware issue on every scan.
+    if "soft tier — never aborts the scan" in entry.message:
+        return Classification.EXPECTED_CONDITION
+
     if exception_type and exception_type in CLASSIFICATION_MAP:
         return CLASSIFICATION_MAP[exception_type]
 

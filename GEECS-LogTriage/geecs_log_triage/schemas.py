@@ -37,6 +37,12 @@ class Classification(str, Enum):
     CONFIG_ISSUE = "config_issue"
     HARDWARE_ISSUE = "hardware_issue"
     OPERATOR_ERROR = "operator_error"
+    #: A condition the engine tolerates BY DESIGN (e.g. a soft-telemetry
+    #: device dropped at scan start — the WARNING carries a full traceback
+    #: but the scan proceeds unharmed).  Grouped and rendered last so
+    #: standing conditions don't masquerade as per-scan hardware issues
+    #: (#621); Stage 2 must not file these.
+    EXPECTED_CONDITION = "expected_condition"
     UNKNOWN = "unknown"
 
 
