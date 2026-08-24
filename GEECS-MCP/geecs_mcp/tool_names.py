@@ -20,8 +20,15 @@ SCAN_PROGRESS = "scan_progress"
 SUBMIT_SCAN = "submit_scan"
 STOP_SCAN = "stop_scan"
 CLEAR_QUEUE = "clear_queue"
+RUN_ACTION = "run_action"
+DESCRIBE_ACTION = "describe_action"
+MOVE_SCAN_VARIABLE = "move_scan_variable"
+PAUSE_SCAN = "pause_scan"
+RESUME_SCAN = "resume_scan"
 
 #: Read-only tools (R) — safe to auto-allow in profile.yml.
+#: describe_action is R by effect (a worker-side dry-run that changes
+#: nothing), though it does require an idle manager to answer.
 READ_TOOLS = (
     SCAN_STATUS,
     SCAN_HISTORY,
@@ -29,20 +36,27 @@ READ_TOOLS = (
     LIST_SCAN_CONFIGS,
     VALIDATE_SCAN_REQUEST,
     SCAN_PROGRESS,
+    DESCRIBE_ACTION,
 )
 
 #: Queueing tools (Q) — `ask` interactively; listed in `write_tools`
 #: (hook_config.json, from the profile's `config:`) for the headless
 #: gate (hook presets do NOT attach to custom servers — see STOP_TOOLS
-#: below / DEPLOYMENT.md).
+#: below / DEPLOYMENT.md).  resume_scan is Q, not S: it *restarts*
+#: motion/acquisition (and retries the failed move), so it belongs
+#: behind the headless gate like any other go verb.
 QUEUE_TOOLS = (
     SUBMIT_SCAN,
     CLEAR_QUEUE,
+    RUN_ACTION,
+    MOVE_SCAN_VARIABLE,
+    RESUME_SCAN,
 )
 
 #: Stop direction (S) — `ask` only, and NEVER listed in `write_tools`:
 #: exempt by omission from the headless gate BY DESIGN, and outside the
 #: interactive kill switch because it does not cover custom servers
 #: (upstream gap) — so a halt is never blocked on any path.  VERIFIED
-#: osprey semantics 2026-08-22; see deploy/DEPLOYMENT.md.
-STOP_TOOLS = (STOP_SCAN,)
+#: osprey semantics 2026-08-22; see deploy/DEPLOYMENT.md.  pause_scan
+#: joins stop_scan here: a pause makes the machine strictly quieter.
+STOP_TOOLS = (STOP_SCAN, PAUSE_SCAN)

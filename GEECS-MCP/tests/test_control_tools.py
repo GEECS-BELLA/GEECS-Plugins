@@ -49,6 +49,19 @@ class _FakeClient:
     submit_ok: bool = True
     stop_result: tuple = (True, "stop requested (from paused)")
     cleared: int = 0
+    # v2 seams
+    doc_addr: str | None = None
+    info_addr: str | None = None
+    actions_submitted: list = field(default_factory=list)
+    action_ok: bool = True
+    action_pending: list = field(default_factory=list)
+    describe_steps: list = field(default_factory=list)
+    describe_error: str | None = None
+    moves: list = field(default_factory=list)
+    move_error: str | None = None
+    move_result: dict = field(default_factory=lambda: {"variable": "jet_z"})
+    pause_result: tuple = (True, "pause requested")
+    resume_result: tuple = (True, "resumed")
 
     def status(self):
         return SimpleNamespace(
@@ -87,6 +100,40 @@ class _FakeClient:
     def clear_queue(self):
         self.cleared += 1
         return True, "queue cleared"
+
+    def submit_action(self, name):
+        self.actions_submitted.append(name)
+        if self.action_pending:
+            return SimpleNamespace(
+                ok=False,
+                message="queue not empty",
+                item_uid=None,
+                pending_items=list(self.action_pending),
+            )
+        if self.action_ok:
+            return SimpleNamespace(
+                ok=True, message="queued", item_uid="act-1", pending_items=[]
+            )
+        return SimpleNamespace(
+            ok=False, message="unknown action", item_uid=None, pending_items=[]
+        )
+
+    def describe_action(self, name):
+        if self.describe_error:
+            raise RuntimeError(self.describe_error)
+        return list(self.describe_steps)
+
+    def move_variable(self, name, value):
+        if self.move_error:
+            raise RuntimeError(self.move_error)
+        self.moves.append((name, value))
+        return dict(self.move_result)
+
+    def request_pause(self):
+        return self.pause_result
+
+    def request_resume(self):
+        return self.resume_result
 
 
 @pytest.fixture
@@ -354,7 +401,208 @@ def test_scan_progress_shapes(wired):
     assert result["state"] == "unknown" and "timeout" in result["detail"]
 
 
-def test_all_v1_tools_registered():
+# ---------------------------------------------------------------------------
+# run_action / describe_action (v2)
+# ---------------------------------------------------------------------------
+
+
+def test_run_action_happy_path(wired):
+    result = _load(control_tools._run_action_impl("Insert Screen"))
+    assert result["ok"] and result["item_uid"] == "act-1"
+    assert wired.actions_submitted == ["Insert Screen"]
+    assert result["submitted_as"] == runtime.client_identity()
+
+
+def test_run_action_refused_while_scan_active(wired):
+    # Submitting mid-scan would silently queue the action to auto-run the
+    # moment the scan finishes — the guard this pins.
+    wired.re_state = "running"
+    result = _load(control_tools._run_action_impl("Insert Screen"))
+    assert result["error_kind"] == "policy_refusal" and "idle-only" in result["message"]
+    assert wired.actions_submitted == []
+
+
+def test_run_action_pending_items_surfaced(wired):
+    wired.action_pending = [
+        {"item_uid": "old", "name": "geecs_scan_request_plan", "user": "console"}
+    ]
+    result = _load(control_tools._run_action_impl("Insert Screen"))
+    assert result["error_kind"] == "policy_refusal"
+    assert result["pending_items"][0]["item_uid"] == "old"
+
+
+def test_run_action_blank_name_refused(wired):
+    result = _load(control_tools._run_action_impl("  "))
+    assert result["error_kind"] == "invalid_request"
+
+
+def test_run_action_worker_refusal_verbatim(wired):
+    wired.action_ok = False
+    result = _load(control_tools._run_action_impl("Bogus"))
+    assert result["error_kind"] == "worker_refused"
+    assert result["message"] == "unknown action"
+
+
+def test_describe_action_returns_steps(wired):
+    wired.describe_steps = [
+        {"kind": "set", "device": "U_Screen4", "variable": "position", "value": "IN"}
+    ]
+    result = _load(control_tools._describe_action_impl("Insert Screen"))
+    assert result["ok"] and result["step_count"] == 1
+    assert result["steps"][0]["device"] == "U_Screen4"
+
+
+def test_describe_action_failure_is_worker_refused(wired):
+    wired.describe_error = "manager busy: RE state is running"
+    result = _load(control_tools._describe_action_impl("Insert Screen"))
+    assert result["error_kind"] == "worker_refused" and "busy" in result["message"]
+
+
+# ---------------------------------------------------------------------------
+# move_scan_variable (v2)
+# ---------------------------------------------------------------------------
+
+
+def test_move_variable_happy_path(wired):
+    result = _load(control_tools._move_scan_variable_impl("jet_z", 12.5))
+    assert result["ok"] and result["requested"] == 12.5
+    assert result["result"] == {"variable": "jet_z"}
+    assert wired.moves == [("jet_z", 12.5)]
+
+
+def test_move_variable_nonfinite_refused(wired):
+    for bad in (float("nan"), float("inf")):
+        result = _load(control_tools._move_scan_variable_impl("jet_z", bad))
+        assert result["error_kind"] == "invalid_request"
+    assert wired.moves == []
+
+
+def test_move_variable_non_number_refused(wired):
+    result = _load(control_tools._move_scan_variable_impl("jet_z", "twelve"))
+    assert result["error_kind"] == "invalid_request"
+    assert wired.moves == []
+
+
+def test_move_variable_worker_failure_verbatim(wired):
+    wired.move_error = "manual-move lock held"
+    result = _load(control_tools._move_scan_variable_impl("jet_z", 1.0))
+    assert result["error_kind"] == "worker_refused" and "lock" in result["message"]
+
+
+# ---------------------------------------------------------------------------
+# pause_scan / resume_scan (v2)
+# ---------------------------------------------------------------------------
+
+
+def test_pause_own_scan_proceeds(wired):
+    wired.re_state = "running"
+    wired.running = {"item_uid": "r1", "user": runtime.client_identity()}
+    result = _load(control_tools._pause_scan_impl(False))
+    assert result["ok"] and result["forced"] is False
+
+
+def test_pause_nothing_running(wired):
+    result = _load(control_tools._pause_scan_impl(False))
+    assert result["error_kind"] == "invalid_request" and "idle" in result["message"]
+
+
+def test_pause_foreign_scan_refused_then_forced(wired):
+    wired.re_state = "running"
+    wired.running = {"item_uid": "r1", "user": "geecs-console"}
+    result = _load(control_tools._pause_scan_impl(False))
+    assert result["error_kind"] == "policy_refusal"
+    assert "geecs-console" in result["message"]
+    result = _load(control_tools._pause_scan_impl(True))
+    assert result["ok"] and result["forced"] is True
+
+
+def test_pause_failure_is_worker_refused(wired):
+    wired.re_state = "running"
+    wired.pause_result = (False, "no plan is running")
+    result = _load(control_tools._pause_scan_impl(False))
+    assert result["error_kind"] == "worker_refused"
+
+
+def test_resume_requires_paused(wired):
+    wired.re_state = "running"
+    result = _load(control_tools._resume_scan_impl(False))
+    assert result["error_kind"] == "invalid_request" and "running" in result["message"]
+
+
+def test_resume_own_paused_scan(wired):
+    wired.re_state = "paused"
+    wired.running = {"item_uid": "r1", "user": runtime.client_identity()}
+    result = _load(control_tools._resume_scan_impl(False))
+    assert result["ok"] and result["message"] == "resumed"
+
+
+def test_resume_foreign_scan_refused_then_forced(wired):
+    wired.re_state = "paused"
+    wired.running = {"item_uid": "r1", "user": "geecs-console"}
+    result = _load(control_tools._resume_scan_impl(False))
+    assert result["error_kind"] == "policy_refusal"
+    result = _load(control_tools._resume_scan_impl(True))
+    assert result["ok"] and result["forced"] is True
+
+
+# ---------------------------------------------------------------------------
+# scan_progress + the stream picture (v2)
+# ---------------------------------------------------------------------------
+
+
+class _FakeCache:
+    def __init__(self, snapshot):
+        self._snapshot = snapshot
+        self.started_with = None
+
+    def ensure_started(self, doc_addr, info_addr):
+        self.started_with = (doc_addr, info_addr)
+
+    def snapshot(self):
+        return dict(self._snapshot)
+
+
+def test_scan_progress_merges_stream_picture(wired, monkeypatch):
+    from geecs_mcp.scans import progress_stream
+
+    wired.re_state = "running"
+    wired.doc_addr = "localhost:5568"
+    wired.info_addr = "tcp://localhost:60625"
+    cache = _FakeCache(
+        {
+            "available": True,
+            "detail": "",
+            "scan_number": 42,
+            "shots_done": 30,
+            "shots_total": 55,
+            "paused_reason": "stale from an earlier pause",
+        }
+    )
+    monkeypatch.setattr(progress_stream, "get_progress_cache", lambda: cache)
+    result = _load(control_tools._scan_progress_impl())
+    assert cache.started_with == ("localhost:5568", "tcp://localhost:60625")
+    assert result["stream"]["shots_done"] == 30
+    assert result["stream"]["shots_total"] == 55
+    # The sticky failed-move reason is only shown while actually paused.
+    assert "paused_reason" not in result["stream"]
+
+    wired.re_state = "paused"
+    result = _load(control_tools._scan_progress_impl())
+    assert result["stream"]["paused_reason"] == "stale from an earlier pause"
+
+
+def test_scan_progress_survives_stream_failure(wired, monkeypatch):
+    from geecs_mcp.scans import progress_stream
+
+    def boom():
+        raise RuntimeError("stream exploded")
+
+    monkeypatch.setattr(progress_stream, "get_progress_cache", boom)
+    result = _load(control_tools._scan_progress_impl())
+    assert result["ok"] and result["stream"]["available"] is False
+
+
+def test_all_control_tools_registered():
     import anyio
 
     from geecs_mcp import tool_names

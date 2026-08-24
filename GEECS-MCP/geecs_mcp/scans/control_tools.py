@@ -1,4 +1,4 @@
-"""The v1 control tools: submit, stop, clear-queue, and poll progress.
+"""The control tools: submit, stop, clear-queue, progress, and the v2 verbs.
 
 Same conventions as :mod:`.read_tools` (sync ``_*_impl`` = the tested
 surface, async wrappers via the guard, JSON envelopes, engine text
@@ -20,6 +20,14 @@ planning doc §2):
 - ``clear_queue`` is the one verb that removes items — explicit,
   approval-gated recovery from the failed-item-at-front state; nothing
   clears implicitly.
+
+The v2 verbs (#676) extend the same doctrine: ``run_action`` /
+``move_scan_variable`` are idle-only writes gated like submission
+(``describe_action`` is their read-only preview), ``pause_scan`` joins
+the halt family (never behind the headless gate — see
+``tool_names.STOP_TOOLS``), ``resume_scan`` restarts motion so it gates
+like a submission, and ``scan_progress`` grows the best-effort
+document-stream picture (:mod:`.progress_stream`).
 """
 
 from __future__ import annotations
@@ -299,12 +307,252 @@ async def clear_queue() -> str:
 
 
 # ---------------------------------------------------------------------------
-# scan_progress (poll-shaped, read-only)
+# run_action / describe_action
 # ---------------------------------------------------------------------------
 
 
+def _run_action_impl(name: str) -> str:
+    """Queue the named ActionPlan (idle-only, same etiquette as submit)."""
+    if not name or not name.strip():
+        return errors.make_error("invalid_request", "pass the action plan's name")
+    client = runtime.get_queue_client()
+    status = client.status()
+    if not status.connected:
+        return errors.make_error("manager_unreachable", status.detail)
+    # Actions ride the queue: submitting while a scan runs would silently
+    # queue the action to auto-run the moment the scan finishes (the queue
+    # is already started) — refuse instead, exactly like submit_scan.
+    if status.re_state not in (None, "idle"):
+        return errors.make_error(
+            "policy_refusal",
+            f"a scan is active (RE state: {status.re_state}) — actions are "
+            "idle-only; wait for it or stop it first",
+        )
+    result = client.submit_action(name)
+    if not result.ok:
+        if result.pending_items:
+            return errors.make_error(
+                "policy_refusal",
+                result.message,
+                pending_items=[
+                    {
+                        "item_uid": item.get("item_uid"),
+                        "plan": item.get("name"),
+                        "user": item.get("user"),
+                    }
+                    for item in result.pending_items
+                ],
+            )
+        return errors.make_error(
+            "worker_refused", result.message or "action submission refused"
+        )
+    return errors.make_ok(
+        item_uid=result.item_uid,
+        message=result.message,
+        submitted_as=runtime.client_identity(),
+    )
+
+
+@mcp.tool(name=tool_names.RUN_ACTION)
+async def run_action(name: str) -> str:
+    """Run a named action plan on demand (idle-only).
+
+    Actions are the experiment's configured rituals (insert a screen,
+    block the laser, …) — list them with list_scan_configs and preview
+    the exact steps with describe_action first. Refuses while a scan is
+    active or anything is queued. Returns the queue item_uid; observe
+    completion with scan_progress / scan_history.
+    """
+    return await _run_guarded(_run_action_impl, name)
+
+
+def _describe_action_impl(name: str) -> str:
+    """Dry-run the named action against the worker's configs (idle-only)."""
+    if not name or not name.strip():
+        return errors.make_error("invalid_request", "pass the action plan's name")
+    client = runtime.get_queue_client()
+    status = client.status()
+    if not status.connected:
+        return errors.make_error("manager_unreachable", status.detail)
+    try:
+        steps = client.describe_action(name)
+    except Exception as exc:
+        return errors.make_error("worker_refused", str(exc))
+    steps = list(steps or [])
+    return errors.make_ok(action=name, step_count=len(steps), steps=steps)
+
+
+@mcp.tool(name=tool_names.DESCRIBE_ACTION)
+async def describe_action(name: str) -> str:
+    """Preview a named action plan's resolved steps without running it.
+
+    A worker-side dry-run against the live configs — the flattened
+    device writes/waits the action would perform, in order. Read-only,
+    but needs an idle manager to answer (refused mid-scan).
+    """
+    return await _run_guarded(_describe_action_impl, name)
+
+
+# ---------------------------------------------------------------------------
+# move_scan_variable
+# ---------------------------------------------------------------------------
+
+
+def _move_scan_variable_impl(name: str, value: float) -> str:
+    """One manual scan-variable move on the worker (idle-only, blocking)."""
+    import math
+
+    if not name or not name.strip():
+        return errors.make_error("invalid_request", "pass the scan variable's name")
+    try:
+        target = float(value)
+    except (TypeError, ValueError):
+        return errors.make_error("invalid_request", f"value {value!r} is not a number")
+    if not math.isfinite(target):
+        return errors.make_error("invalid_request", f"value {value!r} is not finite")
+    client = runtime.get_queue_client()
+    status = client.status()
+    if not status.connected:
+        return errors.make_error("manager_unreachable", status.detail)
+    try:
+        result = client.move_variable(name, target)
+    except Exception as exc:
+        return errors.make_error("worker_refused", str(exc))
+    return errors.make_ok(variable=name, requested=target, result=result)
+
+
+@mcp.tool(name=tool_names.MOVE_SCAN_VARIABLE)
+async def move_scan_variable(name: str, value: float) -> str:
+    """Move one scan variable to a value, outside any scan.
+
+    ``name`` is a scan-variable name from list_scan_configs (plain,
+    confirm, or pseudo — the worker resolves it exactly as a scan axis
+    would, limits and confirmation included). Idle-only (the manager
+    refuses while a scan runs) and BLOCKING: the call returns when the
+    move completes or fails, up to ~120 s. The result carries the
+    worker's move report verbatim.
+    """
+    return await _run_guarded(_move_scan_variable_impl, name, value)
+
+
+# ---------------------------------------------------------------------------
+# pause_scan / resume_scan
+# ---------------------------------------------------------------------------
+
+
+def _running_scan_owner(client) -> str | None:
+    """The running item's submitted-as identity, fail-open on read failure."""
+    try:
+        running = client.running_item()
+    except Exception:
+        logger.debug("running-item read failed before pause/resume", exc_info=True)
+        return None
+    return (running or {}).get("user") or None
+
+
+def _pause_scan_impl(force: bool) -> str:
+    """Ownership-gated deferred pause (the halt family, like stop)."""
+    client = runtime.get_queue_client()
+    status = client.status()
+    if not status.connected:
+        return errors.make_error("manager_unreachable", status.detail)
+    if status.re_state != "running":
+        return errors.make_error(
+            "invalid_request", f"nothing to pause (RE state: {status.re_state})"
+        )
+    owner = _running_scan_owner(client)
+    foreign = bool(owner and owner != runtime.client_identity())
+    if foreign and not force:
+        return errors.make_error(
+            "policy_refusal",
+            f"the running scan was submitted by {owner!r} — pass "
+            "force=true only if the operator explicitly asks for the pause",
+        )
+    ok, message = client.request_pause()
+    if not ok:
+        return errors.make_error("worker_refused", message)
+    return errors.make_ok(message=message, forced=bool(force and foreign))
+
+
+@mcp.tool(name=tool_names.PAUSE_SCAN)
+async def pause_scan(force: bool = False) -> str:
+    """Pause the running scan at the next checkpoint (deferred pause).
+
+    The in-flight shot and any in-flight move always finish first (1–2
+    shots of latency — the architectural floor). Nothing is lost: resume
+    continues exactly where the scan paused; stop ends it gracefully with
+    partial data. Refuses a scan submitted by another client (named in
+    the refusal) unless ``force=true`` — pass force only when the
+    operator explicitly asks.
+    """
+    return await _run_guarded(_pause_scan_impl, force)
+
+
+def _resume_scan_impl(force: bool) -> str:
+    """Ownership-gated resume from the paused state."""
+    client = runtime.get_queue_client()
+    status = client.status()
+    if not status.connected:
+        return errors.make_error("manager_unreachable", status.detail)
+    if status.re_state != "paused":
+        return errors.make_error(
+            "invalid_request", f"nothing to resume (RE state: {status.re_state})"
+        )
+    owner = _running_scan_owner(client)
+    foreign = bool(owner and owner != runtime.client_identity())
+    if foreign and not force:
+        return errors.make_error(
+            "policy_refusal",
+            f"the paused scan was submitted by {owner!r} — pass "
+            "force=true only if the operator explicitly asks for the resume",
+        )
+    ok, message = client.request_resume()
+    if not ok:
+        return errors.make_error("worker_refused", message)
+    return errors.make_ok(message=message, forced=bool(force and foreign))
+
+
+@mcp.tool(name=tool_names.RESUME_SCAN)
+async def resume_scan(force: bool = False) -> str:
+    """Resume a paused scan (nothing replays; a failed move is retried).
+
+    Check scan_progress first — a scan paused on a failed axis move
+    reports the reason, and resuming retries that exact move. This
+    restarts motion and acquisition, so it is gated like a submission.
+    Refuses a scan submitted by another client unless ``force=true`` —
+    pass force only when the operator explicitly asks.
+    """
+    return await _run_guarded(_resume_scan_impl, force)
+
+
+# ---------------------------------------------------------------------------
+# scan_progress (read-only: manager poll + best-effort document stream)
+# ---------------------------------------------------------------------------
+
+
+def _stream_snapshot(client, re_state: str | None) -> dict:
+    """The document-stream picture, started lazily from the client's addrs.
+
+    Best-effort BY DESIGN: ``available=false`` (with the reason) when the
+    stream cannot be consumed, and the poll fields stand alone.  The
+    sticky ``paused_reason`` (the console-text stream's failed-move line)
+    is only surfaced while the RE is actually paused — after a resume the
+    stale reason would read as current.
+    """
+    from geecs_mcp.scans import progress_stream
+
+    cache = progress_stream.get_progress_cache()
+    cache.ensure_started(
+        getattr(client, "doc_addr", None), getattr(client, "info_addr", None)
+    )
+    snapshot = cache.snapshot()
+    if re_state != "paused":
+        snapshot.pop("paused_reason", None)
+    return snapshot
+
+
 def _scan_progress_impl() -> str:
-    """Coarse poll: RE state, the running item, and the last outcome."""
+    """Manager poll (authoritative) + the per-shot stream picture (best-effort)."""
     client = runtime.get_queue_client()
     status = client.status()
     if not status.connected:
@@ -334,21 +582,30 @@ def _scan_progress_impl() -> str:
             }
     except Exception:
         logger.debug("history read failed in progress poll", exc_info=True)
+    try:
+        stream = _stream_snapshot(client, status.re_state)
+    except Exception:  # the poll answer must never die on the stream extra
+        logger.debug("stream snapshot failed in progress poll", exc_info=True)
+        stream = {"available": False, "detail": "stream snapshot failed"}
     return errors.make_ok(
         state=status.re_state or "idle",
         running_item=running,
         items_in_queue=status.items_in_queue,
         last_completed=last,
+        stream=stream,
     )
 
 
 @mcp.tool(name=tool_names.SCAN_PROGRESS)
 async def scan_progress() -> str:
-    """Poll-shaped progress for the current scan.
+    """Progress for the current scan: manager state + per-shot counts.
 
-    RE state (idle/running/paused/…), the running item (with its
-    submitting client), queue depth, and the last completed item's
-    outcome. Coarse by design in v1 — per-shot counts arrive with the
-    document-stream upgrade (v2).
+    The manager poll is authoritative: RE state (idle/running/paused/…),
+    the running item (with its submitting client), queue depth, and the
+    last completed item's outcome. ``stream`` adds the document-stream
+    picture when available — scan number, shots done / planned total,
+    and (while paused) the failed-move reason; ``stream.available=false``
+    means only the poll fields apply (one manager runs one scan at a
+    time, so the stream's latest run IS the running scan).
     """
     return await _run_guarded(_scan_progress_impl)

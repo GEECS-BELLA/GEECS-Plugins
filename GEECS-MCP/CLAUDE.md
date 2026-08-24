@@ -68,7 +68,13 @@ geecs_mcp/
                   #   tested surface
     control_tools.py # the v1 verbs: submit (cap + etiquette + the
                   #   acknowledge-warnings loop), stop (ownership),
-                  #   clear_queue, scan_progress
+                  #   clear_queue, scan_progress — plus the v2 verbs:
+                  #   run_action/describe_action, move_scan_variable,
+                  #   pause_scan/resume_scan (ownership like stop)
+    progress_stream.py # ProgressCache — the best-effort document-stream
+                  #   + console-text-stream picture behind scan_progress
+                  #   (daemon threads, zmq never touched cross-thread,
+                  #   no stop — the console's #653 rules)
 ```
 
 ## Conventions
@@ -118,8 +124,22 @@ geecs_mcp/
   `[mcp] client_identity` (deployment-owned, e.g.
   `osprey-htu-assistant`) and MUST match on the queue item and the
   `SubmissionRecord` — the ownership check compares against it.
-- **v2**: actions, moves, pause/resume, doc-stream `scan_progress`
-  (per-shot counts, paused reasons from the console-text stream).
+- **v2 (built — issue #676)**: `run_action` (Q; idle-only — an active
+  RE state refuses, because a mid-scan submission would silently queue
+  the action to auto-run when the scan finishes) with `describe_action`
+  (R; worker dry-run, needs an idle manager), `move_scan_variable` (Q;
+  the worker's `geecs_move_variable`, idle-only + blocking ≤ ~120 s,
+  non-finite values refused), `pause_scan` (S — the halt family, never
+  in `write_tools`) and `resume_scan` (Q — it restarts motion and
+  retries a failed move, so it gates like a submission), both with
+  stop's ownership etiquette (`force` only for genuinely foreign scans,
+  `forced` marks only those).  `scan_progress` gains the best-effort
+  `stream` picture from `scans/progress_stream.py`: start-doc totals
+  (`num_points × shots_per_step`, `max_iterations` fallback),
+  primary-stream `seq_num` → shots done, stop-doc exit status, and the
+  console-text stream's failed-move line as the paused reason
+  (surfaced only while actually paused — sticky otherwise).  The
+  manager poll stays authoritative; `stream.available=false` names why.
 
 ## Testing
 

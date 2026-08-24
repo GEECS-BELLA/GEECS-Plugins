@@ -29,22 +29,29 @@ the interactive writes kill switch does not cover custom-server tools
 either (the framework's deny augmentation walks its own
 `FRAMEWORK_SERVERS` only). The actual gates are therefore:
 
-- **Interactive**: the native `ask` permission prompt on the three
-  control verbs — a human sees every `submit_scan`/`stop_scan`/
-  `clear_queue` call with its arguments (this is also the backstop for
-  the acknowledge-warnings residual). `stop_scan` is NOT behind the
-  kill switch on either path: interactively because the kill switch
-  does not cover custom servers (upstream gap), headless by the
-  deliberate `write_tools` omission below — halts are never blocked.
+- **Interactive**: the native `ask` permission prompt on every control
+  verb — a human sees each `submit_scan`/`stop_scan`/`clear_queue`/
+  `run_action`/`move_scan_variable`/`pause_scan`/`resume_scan` call
+  with its arguments (this is also the backstop for the
+  acknowledge-warnings residual). The halt family (`stop_scan`,
+  `pause_scan`) is NOT behind the kill switch on either path:
+  interactively because the kill switch does not cover custom servers
+  (upstream gap), headless by the deliberate `write_tools` omission
+  below — halts are never blocked.
 - **Headless** (`osprey query`): the framework reads
   `hook_config.json`'s `write_tools` (populated from the profile's
-  `config:`) — list `submit_scan` and `clear_queue` there and
-  **deliberately NOT `stop_scan`**: exempt by omission, so a halt is
-  never blocked on any path (the deployed htu profile is the working
-  example: `write_tools: [mcp__geecs__submit_scan,
-  mcp__geecs__clear_queue]`).  This is the ONLY headless gate — a
-  profile without those two entries leaves an unattended agent's
-  submits ungated.
+  `config:`) — list every `tool_names.QUEUE_TOOLS` entry there
+  (`submit_scan`, `clear_queue`, and since 0.5.0 `run_action`,
+  `move_scan_variable`, `resume_scan` — resume restarts motion, so it
+  gates like a submission) and **deliberately NOT the halt family**
+  (`stop_scan`, `pause_scan`): exempt by omission, so a halt is never
+  blocked on any path. E.g. `write_tools: [mcp__geecs__submit_scan,
+  mcp__geecs__clear_queue, mcp__geecs__run_action,
+  mcp__geecs__move_scan_variable, mcp__geecs__resume_scan]` (the
+  deployed htu profile predates 0.5.0 and lists the first two —
+  extend it when the v2 verbs deploy).  This is the ONLY headless
+  gate — a profile missing these entries leaves an unattended agent's
+  writes ungated.
 
 Two upstream osprey issues (to be filed from the osprey side): the
 silent acceptance of unknown keys like `hooks:` on custom-server

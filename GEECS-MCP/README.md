@@ -6,16 +6,22 @@ bluesky-queueserver RE Manager, the configs repo, and the Tiled archive.
 Future domains (health, DB metadata, log triage, analysis) register on
 the same server.
 
-**v0 + v1 (current).** Read-only: `scan_status`, `scan_history`,
+**v0 + v1 + v2 (current).** Read-only: `scan_status`, `scan_history`,
 `get_scan_result`, `list_scan_configs`, `validate_scan_request`,
-`scan_progress`. Control (put these under OSPREY `ask`; list them in `config:` `write_tools` for headless):
-`submit_scan` (one scan in flight, 1,000-shot cap, preflight warnings
-need explicit acknowledgement), `stop_scan` (graceful; `force` for
-another client's scan is approval territory), `clear_queue` (the one
-remover). Gating semantics — what osprey actually enforces for custom
-servers — are documented in `deploy/DEPLOYMENT.md` (verified: hook
-presets and the interactive kill switch do NOT apply; the native ask
-prompt is the interactive gate).
+`scan_progress` (with per-shot counts and paused reasons from the
+worker's streams, best-effort), `describe_action` (dry-run preview).
+Control (put these under OSPREY `ask`; list the `QUEUE_TOOLS` in
+`config:` `write_tools` for headless): `submit_scan` (one scan in
+flight, 1,000-shot cap, preflight warnings need explicit
+acknowledgement), `run_action` (idle-only queue item),
+`move_scan_variable` (idle-only, blocking), `resume_scan` (restarts
+motion — gated like a submission), `clear_queue` (the one remover); the
+halt family — `stop_scan` and `pause_scan` (graceful; `force` for
+another client's scan is approval territory) — is deliberately never
+behind the headless gate. Gating semantics — what osprey actually
+enforces for custom servers — are documented in `deploy/DEPLOYMENT.md`
+(verified: hook presets and the interactive kill switch do NOT apply;
+the native ask prompt is the interactive gate).
 
 ## Run
 
