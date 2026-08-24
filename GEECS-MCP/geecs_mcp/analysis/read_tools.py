@@ -302,9 +302,12 @@ def _gather_figure_candidates(scan_folder: Path, analysis_folder: Path) -> list[
             if path not in seen and path.is_file():
                 seen.add(path)
                 candidates.append(path)
-        except OSError:
-            # e.g. a stat on a pathologically-shaped name (EINVAL on the
-            # NFS mount) — skip the entry, never the tool.
+        except (OSError, ValueError):
+            # OSError: a stat on a pathologically-shaped name (EINVAL on
+            # the NFS mount, ENAMETOOLONG on any fs).  ValueError:
+            # resolve() on an embedded null byte — legal YAML, so
+            # reachable from the writable share (review finding on this
+            # PR).  Skip the entry, never the tool.
             logger.warning("figure candidate unreadable, skipped: %s", path)
 
     for status in _read_task_statuses(scan_folder).values():

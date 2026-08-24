@@ -138,6 +138,55 @@ def test_unlocalizable_windows_entry_never_kills_the_tool(share):
     assert isinstance(result, Image)
 
 
+def test_localize_display_entry_unit_contract(share):
+    # The localization itself, asserted directly (verify pass on this
+    # PR: the end-to-end tests could not tell "localized and served"
+    # from "dropped and rescued by the tree fallback").
+    _, analysis_folder = _tree_paths(share)
+    win = (
+        "Z:\\data\\Undulator\\Y2026\\08-Aug\\26_0822\\analysis\\Scan007"
+        "\\UC_Amp2\\Array2DScanAnalyzer\\avg_visual.png"
+    )
+    localized = read_tools._localize_display_entry(win, analysis_folder)
+    assert (
+        localized
+        == analysis_folder / "UC_Amp2" / "Array2DScanAnalyzer" / "avg_visual.png"
+    )
+    # No analysis\Scan<NNN> tail -> None (skipped, warned).
+    assert (
+        read_tools._localize_display_entry("C:\\Temp\\oddball.png", analysis_folder)
+        is None
+    )
+    # A POSIX entry passes through untouched.
+    posix = str(analysis_folder / "UC_TopView" / "summary.png")
+    assert read_tools._localize_display_entry(posix, analysis_folder) == Path(posix)
+
+
+def test_pathological_entries_hit_the_guard_not_the_tool(share):
+    # The guard itself (verify pass on this PR — the earlier fixtures
+    # were too tame to raise on a local fs):
+    # 1. a localized tail whose filename exceeds NAME_MAX -> the stat
+    #    raises ENAMETOOLONG (the live crash's mechanism, reproducible
+    #    on any fs);
+    # 2. an embedded null byte -> resolve() raises ValueError, which the
+    #    original except OSError let through (review finding).
+    # Both must skip the entry; the tree fallback must still serve.
+    scan_folder, _ = _tree_paths(share)
+    giant = (
+        "Z:\\data\\Undulator\\Y2026\\08-Aug\\26_0822\\analysis\\Scan007\\"
+        + "x" * 300
+        + ".png"
+    )
+    nullbyte = "evil\x00name.png"
+    (scan_folder / "analysis_status" / "pathological.yaml").write_text(
+        yaml.safe_dump({"state": "done", "display_files": [giant, nullbyte]})
+    )
+    from fastmcp.utilities.types import Image
+
+    result = read_tools._get_scan_figure_impl(7, "summary", DAY)
+    assert isinstance(result, Image)
+
+
 # ---------------------------------------------------------------------------
 # get_scan_analysis
 # ---------------------------------------------------------------------------
