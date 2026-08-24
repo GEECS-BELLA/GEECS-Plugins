@@ -34,8 +34,11 @@ mcp = FastMCP(
         "scan needs force=true and an operator's say-so), clear_queue "
         "(the only remover), scan_progress. Analysis domain: "
         "get_scan_analysis (task statuses + output tree) and "
-        "get_scan_figure (a rendered summary figure as an image). Names "
-        "must come from list_scan_configs — never invent catalog names."
+        "get_scan_figure (a figure REFERENCE — metadata plus a fetch "
+        "URL served by this same server; thumbnail=true for a bounded "
+        "inline preview, never pull full figures through context). "
+        "Names must come from list_scan_configs — never invent catalog "
+        "names."
     ),
 )
 
