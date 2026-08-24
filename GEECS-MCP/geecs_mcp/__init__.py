@@ -6,4 +6,4 @@ v1 control verbs — submit/stop/clear/progress) today; future domains
 ``CLAUDE.md`` for the domain roadmap and the safety doctrine.
 """
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"

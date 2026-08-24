@@ -32,14 +32,19 @@ mcp = FastMCP(
         "submit_scan (one scan in flight, capped, preflight warnings need "
         "explicit acknowledgement), stop_scan (graceful; another client's "
         "scan needs force=true and an operator's say-so), clear_queue "
-        "(the only remover), scan_progress. Names must come from "
-        "list_scan_configs — never invent catalog names."
+        "(the only remover), scan_progress. Analysis domain: "
+        "get_scan_analysis (task statuses + output tree) and "
+        "get_scan_figure (a rendered summary figure as an image). Names "
+        "must come from list_scan_configs — never invent catalog names."
     ),
 )
 
 
 def create_server() -> FastMCP:
     """Register every tool module and return the server."""
+    from geecs_mcp.analysis import (  # noqa: F401 — self-registers
+        read_tools as analysis_read_tools,
+    )
     from geecs_mcp.scans import (  # noqa: F401 — self-register
         control_tools,
         read_tools,

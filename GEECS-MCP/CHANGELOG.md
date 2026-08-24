@@ -4,6 +4,27 @@ All notable changes to `geecs-mcp` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.4.0] - 2026-08-22
+
+### Added
+
+- **The analysis domain** (#675 — the top post-promotion ask, closing
+  "scan → analyze → present"): `get_scan_analysis` (per-analyzer task
+  statuses from `analysis_status/*.yaml` — tolerantly parsed, the
+  schema is ScanAnalysis-owned — plus the capped analysis output tree)
+  and `get_scan_figure` (a rendered summary figure as actual MCP image
+  content, ≤1024 px longest edge via pillow; `display_files` routed
+  first, then tree images; ambiguous → the candidate list).  Both
+  read-only/auto-allow.  **Strictly read-only over the data share**:
+  only ScanPaths' pure static path builders (the instance
+  `get_analysis_folder()` silently `os.makedirs` and is banned here),
+  pinned by a nothing-created-on-miss test.  Requires `[Paths]
+  geecs_data` + the mounted share on the serving host; an unconfigured
+  host refuses honestly (live-verified) after a one-time
+  `reload_paths_config()` init (live-run finding: the class attribute
+  starts `None` and raised instead of degrading).
+- `pillow` declared (figure downscaling).
+
 ## [0.3.0] - 2026-08-22
 
 ### Changed

@@ -17,6 +17,8 @@ GET_SCAN_RESULT = "get_scan_result"
 LIST_SCAN_CONFIGS = "list_scan_configs"
 VALIDATE_SCAN_REQUEST = "validate_scan_request"
 SCAN_PROGRESS = "scan_progress"
+GET_SCAN_ANALYSIS = "get_scan_analysis"
+GET_SCAN_FIGURE = "get_scan_figure"
 SUBMIT_SCAN = "submit_scan"
 STOP_SCAN = "stop_scan"
 CLEAR_QUEUE = "clear_queue"
@@ -29,6 +31,8 @@ READ_TOOLS = (
     LIST_SCAN_CONFIGS,
     VALIDATE_SCAN_REQUEST,
     SCAN_PROGRESS,
+    GET_SCAN_ANALYSIS,
+    GET_SCAN_FIGURE,
 )
 
 #: Queueing tools (Q) — `ask` interactively; listed in `write_tools`

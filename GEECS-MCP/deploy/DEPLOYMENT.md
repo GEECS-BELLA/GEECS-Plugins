@@ -18,7 +18,8 @@ mcp_servers:
     transport: http
     permissions:
       allow: [scan_status, scan_history, get_scan_result,
-              list_scan_configs, validate_scan_request, scan_progress]
+              list_scan_configs, validate_scan_request, scan_progress,
+              get_scan_analysis, get_scan_figure]
       ask:   [submit_scan, stop_scan, clear_queue]
 ```
 

@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "geecs-mcp"
-version = "0.3.0"
+version = "0.4.0"
 description = "MCP server exposing GEECS scan submission, monitoring, and config discovery to AI agents (OSPREY)"
 authors = ["Sam Barber <sbarber@lbl.gov>"]
 readme = "README.md"
@@ -17,6 +17,9 @@ fastmcp = ">=2.0"
 # Imported directly (the to-thread tool dispatch) — declared, not ridden
 # transitively via fastmcp (review finding).
 anyio = ">=4.0"
+
+# Figure downscaling (analysis domain) — imported directly, declared.
+pillow = ">=10.0"
 
 # The queue client + pre-submit preflight (geecs_bluesky.qs_client) and the
 # config resolver/listings.  qs-client pulls bluesky-queueserver-api; ca
