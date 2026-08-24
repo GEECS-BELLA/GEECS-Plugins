@@ -86,7 +86,11 @@ running service), `systemctl restart geecs-mcp`.
 
 Interim security posture: no transport auth, lab-network-internal —
 identical to the manager's control socket; issue #660 (CurveZMQ / fleet
-auth) covers the eventual answer for both.
+auth) covers the eventual answer for both.  This covers the
+``/figures/{day}/{scan}/{label}`` route too (0.6.0): it serves raw
+analysis-figure bytes off the data share on the same port, bounded to
+each scan's own analysis folder with a 50 MB cap — same posture, same
+eventual auth answer.
 
 ## Per-machine stdio (dev loop / single host)
 

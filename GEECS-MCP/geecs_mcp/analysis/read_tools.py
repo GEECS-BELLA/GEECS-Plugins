@@ -50,9 +50,6 @@ _MAX_FIGURE_CANDIDATES = 60
 _MAX_DISPLAY_FILES_PER_TASK = 20
 _MAX_OUTPUT_DIRS = 40
 
-#: Longest image edge after downscaling (agent context, not archival).
-_MAX_FIGURE_EDGE_PX = 1024
-
 _IMAGE_SUFFIXES = (".png", ".jpg", ".jpeg")
 
 
@@ -329,6 +326,9 @@ def _gather_figure_candidates(scan_folder: Path, analysis_folder: Path) -> list[
             # PR).  Skip the entry, never the tool.
             logger.warning("figure candidate unreadable, skipped: %s", path)
 
+    # NOTE: the statuses' display_files lists arrive payload-capped (20
+    # per task) — the cap deliberately bounds discovery here too; a
+    # figure past the cap is still found by the tree scan below.
     for status in _read_task_statuses(scan_folder).values():
         for name in status.get("display_files") or []:
             localized = _localize_display_entry(str(name), analysis_folder)
@@ -344,9 +344,21 @@ def _gather_figure_candidates(scan_folder: Path, analysis_folder: Path) -> list[
 
 
 def _relative_label(path: Path, analysis_folder: Path) -> str:
-    """A candidate's agent-facing name (relative, POSIX separators)."""
+    """A candidate's agent-facing name (relative, POSIX separators).
+
+    Candidates arrive RESOLVED (``_add`` resolves before bounding), so
+    the folder must be resolved too before ``relative_to`` — with a
+    symlinked base path, an unresolved folder would fail every
+    ``relative_to`` and collapse all labels to colliding basenames
+    (#687 review finding 3: the route's exact match would then serve
+    the first collision — wrong bytes under the right name).
+    """
     try:
-        return path.relative_to(analysis_folder).as_posix()
+        root = analysis_folder.resolve()
+    except OSError:
+        root = analysis_folder
+    try:
+        return path.relative_to(root).as_posix()
     except ValueError:
         return path.name
 
@@ -437,17 +449,19 @@ def _figure_metadata(path: Path, label: str, day: str, scan_number: int) -> dict
     from PIL import Image as PILImage
 
     width = height = None
+    size = None
     try:
+        size = path.stat().st_size
         with PILImage.open(path) as image:  # header read only — no decode
             width, height = image.width, image.height
-    except Exception:
+    except Exception:  # a vanished/unreadable file degrades the fields
         logger.debug("figure header unreadable: %s", path, exc_info=True)
     return {
         "figure": label,
         "day": day,
         "scan_number": int(scan_number),
         "share_relative_path": _share_relative(path),
-        "bytes": path.stat().st_size,
+        "bytes": size,
         "width": width,
         "height": height,
         "figure_url": _figure_url(day, scan_number, label),
@@ -565,6 +579,27 @@ async def get_scan_figure(
     return await _run_guarded(_get_scan_figure_impl, scan_number, name, day, thumbnail)
 
 
+def _locate_figure(day: str, scan_number: int, label: str):
+    """The route's SYNC lookup: ``(status_code, detail)`` or a file Path.
+
+    Runs in a worker thread (see :func:`_serve_figure_route`) — every
+    filesystem touch here can hang on the share's mount timeout, and
+    must never do so on the event loop.
+    """
+    try:
+        _tag, scan_folder, analysis_folder = _resolve_folders(scan_number, day)
+    except (ValueError, RuntimeError) as exc:
+        return (400, str(exc))
+    if not scan_folder.is_dir():
+        return (404, "no such scan")
+    for path in _gather_figure_candidates(scan_folder, analysis_folder):
+        if _relative_label(path, analysis_folder) == label:
+            if path.stat().st_size > _MAX_ROUTE_FILE_BYTES:
+                return (413, "figure too large")
+            return path
+    return (404, "no such figure")
+
+
 async def _serve_figure_route(request):
     """GET /figures/{day}/{scan_number}/{label:path} — the raw file bytes.
 
@@ -572,11 +607,20 @@ async def _serve_figure_route(request):
     serves the ORIGINAL figure (it bypasses model context, so no
     downscale), bounded by exactly the same candidate set as the tool —
     only files the scan's own analysis folder legitimately offers, by
-    exact label match — plus a byte cap.  Registered on the FastMCP
-    app, so it is live under ``--transport http`` and simply never
-    reachable over stdio.  Never raises: every failure is a plain
+    exact label match — plus a byte cap.  The label is only ever
+    COMPARED against candidate labels, never used to build a path, so
+    traversal sequences can only fail to match.  Registered on the
+    FastMCP app, so it is live under ``--transport http`` and simply
+    never reachable over stdio.  Never raises: every failure is a plain
     status response.
+
+    The share lookup runs via ``anyio.to_thread`` — fastmcp runs async
+    endpoints directly on the event loop, and one hung NFS stat here
+    would otherwise stall EVERY request on the server, including the
+    halt verbs (#687 review finding 1; the tools already thread via
+    ``_run_guarded``).
     """
+    import anyio.to_thread
     from starlette.responses import FileResponse, PlainTextResponse
 
     try:
@@ -586,19 +630,14 @@ async def _serve_figure_route(request):
         except (TypeError, ValueError):
             return PlainTextResponse("scan_number must be an integer", status_code=400)
         label = request.path_params["label"]
-        try:
-            tag, scan_folder, analysis_folder = _resolve_folders(scan_number, day)
-        except (ValueError, RuntimeError) as exc:
-            return PlainTextResponse(str(exc), status_code=400)
-        if not scan_folder.is_dir():
-            return PlainTextResponse("no such scan", status_code=404)
-        for path in _gather_figure_candidates(scan_folder, analysis_folder):
-            if _relative_label(path, analysis_folder) == label:
-                if path.stat().st_size > _MAX_ROUTE_FILE_BYTES:
-                    return PlainTextResponse("figure too large", status_code=413)
-                media = "image/png" if path.suffix.lower() == ".png" else "image/jpeg"
-                return FileResponse(path, media_type=media)
-        return PlainTextResponse("no such figure", status_code=404)
+        located = await anyio.to_thread.run_sync(
+            _locate_figure, day, scan_number, label
+        )
+        if isinstance(located, tuple):
+            status, detail = located
+            return PlainTextResponse(detail, status_code=status)
+        media = "image/png" if located.suffix.lower() == ".png" else "image/jpeg"
+        return FileResponse(located, media_type=media)
     except Exception:
         logger.exception("figure route failed")
         return PlainTextResponse("internal error", status_code=500)

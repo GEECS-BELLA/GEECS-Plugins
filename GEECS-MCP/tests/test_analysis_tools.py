@@ -85,6 +85,40 @@ def _mtimes(root: Path) -> set:
     return {(p, p.stat().st_mtime_ns) for p in root.rglob("*")}
 
 
+def test_payload_caps_truncate_with_explicit_flags(share):
+    # The 0.6.0 payload budgets (#687 review finding 4: the caps shipped
+    # untested): >20 display_files per task and >40 output dirs both
+    # truncate WITH a flag — never silently.
+    scan_folder, analysis_folder = _tree_paths(share)
+    many = [f"/somewhere/fig_{i:03d}.png" for i in range(30)]
+    (scan_folder / "analysis_status" / "prolific.yaml").write_text(
+        yaml.safe_dump({"state": "done", "display_files": many})
+    )
+    for i in range(45):
+        (analysis_folder / f"Device_{i:02d}").mkdir()
+    result = _load(read_tools._get_scan_analysis_impl(7, DAY))
+    prolific = result["tasks"]["prolific"]
+    assert len(prolific["display_files"]) == read_tools._MAX_DISPLAY_FILES_PER_TASK
+    assert prolific["display_files_truncated"] is True
+    # An un-truncated task carries no flag.
+    assert "display_files_truncated" not in result["tasks"]["topview_baseline"]
+    assert len(result["outputs"]) == read_tools._MAX_OUTPUT_DIRS
+    assert result["outputs_truncated"] is True
+
+
+def test_route_label_is_compared_never_pathed(share):
+    # Pin the comparison-only property directly (#687 review: the
+    # TestClient ".." probe is neutered by httpx URL normalization) —
+    # a crafted traversal label reaching the handler can only fail to
+    # match a candidate, never address a file.
+    located = read_tools._locate_figure(DAY, 7, "../escape.png")
+    assert located == (404, "no such figure")
+    located = read_tools._locate_figure(DAY, 7, "/etc/passwd")
+    assert located == (404, "no such figure")
+    located = read_tools._locate_figure(DAY, 7, "UC_TopView/summary.png")
+    assert isinstance(located, Path) and located.name == "summary.png"
+
+
 def test_outputs_walk_the_nested_analyzer_tree(share):
     # The production layout is Scan<NNN>/<device>/<Analyzer>/files (live
     # deployment finding 2026-08-24: a one-level listing read every
