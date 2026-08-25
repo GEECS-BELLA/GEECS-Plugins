@@ -122,8 +122,9 @@ server entry with the same conventions.
 ## The safety model
 
 Every tool belongs to one of three classes, and the class determines how
-it is gated (the constants live in `geecs_mcp/tool_names.py`, so
-permission lists import symbols rather than retyping strings):
+it is gated (`geecs_mcp/tool_names.py` is the one place the names and
+class groupings are spelled; anything listing tool names elsewhere is
+kept in step with it):
 
 - **R — read-only.** Status, listings, results, figures, dry-runs. Safe
   to auto-allow; calling them changes nothing.
