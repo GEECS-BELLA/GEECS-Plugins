@@ -839,6 +839,10 @@ class GeecsCaGateway:
                     logger.info("%s: subscription live", dev.name)
                 await self._set_connected(dev.name, True)
                 backoff = self._reconnect_min
+                # A fresh down episode starts with a prompt first resolve —
+                # leftover holdoff from a previous episode must not delay
+                # discovering a genuine move by minutes.
+                resolve_holdoff = 0
                 # Wait for an actual disconnect — the listener task ends when the
                 # socket closes. A device merely going quiet is NOT a drop; poll
                 # so we stay cleanly cancellable at the sleep.
