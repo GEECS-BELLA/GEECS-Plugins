@@ -217,6 +217,94 @@ class TestResetClearsStaleFields:
         assert status.last_heartbeat is None
 
 
+class TestClaimGate:
+    """The atomic per-task claim gate (#690 P1: no double-run)."""
+
+    def _folder(self, tmp_path: Path) -> Path:
+        scan_folder = tmp_path / "Scan042"
+        (scan_folder / STATUS_DIR_NAME).mkdir(parents=True)
+        return scan_folder
+
+    def test_exclusive_second_acquire_fails(self, tmp_path):
+        from scan_analysis.task_queue import release_claim, try_acquire_claim
+
+        folder = self._folder(tmp_path)
+        assert try_acquire_claim(folder, "diag", "host:1")
+        assert not try_acquire_claim(folder, "diag", "host:2")
+        release_claim(folder, "diag")
+        assert try_acquire_claim(folder, "diag", "host:2")
+
+    def test_stale_holder_lock_is_broken(self, tmp_path):
+        import os as os_mod
+
+        from scan_analysis.task_queue import try_acquire_claim
+
+        folder = self._folder(tmp_path)
+        lock = folder / STATUS_DIR_NAME / "diag.claim"
+        lock.write_text("dead-host:9 2026-08-22T00:00:00+00:00\n")
+        old = datetime.now(timezone.utc).timestamp() - (CLAIM_STALE_AFTER_SECONDS + 60)
+        os_mod.utime(lock, (old, old))
+        assert try_acquire_claim(folder, "diag", "host:2")
+
+    def test_lock_with_live_status_claim_is_respected(self, tmp_path):
+        from scan_analysis.task_queue import try_acquire_claim
+
+        folder = self._folder(tmp_path)
+        (folder / STATUS_DIR_NAME / "diag.claim").write_text("other\n")
+        _write_status(
+            folder / STATUS_DIR_NAME,
+            TaskStatus(
+                analyzer_id="diag",
+                priority=0,
+                state="claimed",
+                last_heartbeat=_iso(datetime.now(timezone.utc)),
+            ),
+        )
+        assert not try_acquire_claim(folder, "diag", "host:2")
+
+    def test_missing_scan_folder_never_created(self, tmp_path):
+        from scan_analysis.task_queue import try_acquire_claim
+
+        missing = tmp_path / "Scan777"
+        assert not try_acquire_claim(missing, "diag", "host:1")
+        assert not missing.exists()  # the invariant: never create
+
+    def test_run_worklist_skips_a_task_another_runner_holds(
+        self, tmp_path, monkeypatch
+    ):
+        """The end-to-end pin for the #690 double-run race: a held claim
+        gate makes run_worklist skip the task without touching it."""
+        from scan_analysis.task_queue import run_worklist, try_acquire_claim
+
+        scan_folder = self._folder(tmp_path)
+        _write_status(
+            scan_folder / STATUS_DIR_NAME,
+            TaskStatus(analyzer_id="diag", priority=1, state="queued"),
+        )
+        import scan_analysis.task_queue as tq
+
+        monkeypatch.setattr(
+            tq.ScanPaths,
+            "get_scan_folder_path",
+            staticmethod(lambda tag, base_directory=None: scan_folder),
+        )
+        assert try_acquire_claim(scan_folder, "diag", "other-runner:1")
+
+        ran: list[str] = []
+        analyzer = SimpleNamespace(
+            id="diag",
+            priority=1,
+            device_name="diag",
+            run_analysis=lambda tag: ran.append("ran"),
+            cleanup=lambda: None,
+        )
+        tag = ScanTag(year=2025, month=1, day=1, number=42, experiment="Test")
+        run_worklist([(1, tag, analyzer)])
+        assert ran == []  # skipped — the other runner owns the claim
+        (status,) = read_statuses(scan_folder)
+        assert status.state == "queued"  # untouched
+
+
 class TestPublicQueueHelpers:
     """The exported helpers external queue clients consume (#686)."""
 

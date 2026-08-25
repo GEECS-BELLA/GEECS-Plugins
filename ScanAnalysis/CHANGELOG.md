@@ -18,6 +18,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   timestamp semantics.  Pure refactor + exports; behavior unchanged,
   pinned by `TestPublicQueueHelpers`.
 
+- **Atomic per-task claim gate in `run_worklist`** (#690 review, Codex
+  P1: two runners whose worklists both saw `queued` would each
+  overwrite the status to `claimed` and run the same analyzer into the
+  same output files — the check-then-claim was a pure race, and the MCP
+  verb spawns workers at call time).  `try_acquire_claim` /
+  `release_claim` (both public): an `O_CREAT|O_EXCL` lock file at
+  `analysis_status/<id>.claim` — the "future multi-app can add lock
+  files" extension the module docstring reserved.  Exactly one runner
+  passes per task; a loser skips with a log line.  Liveness stays in
+  the status heartbeat (`claim_is_active`), with the lock's own mtime
+  covering the instant before the claimed row lands; a dead holder's
+  lock is broken.  Lock files are invisible to status readers
+  (`read_statuses` globs `*.yaml`).  The gate never creates a missing
+  scan folder (invariant pinned).  Pinned by `TestClaimGate`, incl. an
+  end-to-end run_worklist skip.
+
 ### Fixed
 
 - `reset_status_for_scan` now writes a genuinely fresh queued record:

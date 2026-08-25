@@ -1,10 +1,14 @@
 """
 Lightweight task queue for scan analysis.
 
-Single-app assumptions:
-- No cross-process locking (safe to run one app). Future multi-app can add lock files.
+Assumptions:
 - Per-scan status files stored under `<scan_folder>/analysis_status/<analyzer_id>.yaml`.
 - Worklist sorted by (priority, scan_number).
+- Claims are cross-process exclusive since 1.16.0: `run_worklist` passes
+  each task through the `try_acquire_claim` gate (an O_EXCL lock file
+  beside the status YAML), so concurrent runners — the MCP verb's
+  detached workers, a future fleet — never double-run one task; liveness
+  stays in the status heartbeat, and a dead holder's lock is broken.
 
 States: queued -> claimed -> done/failed/no_data.
 """
@@ -186,6 +190,97 @@ def analyzer_task_id(analyzer: object) -> str:
     return analyzer_id or (
         f"{analyzer.__class__.__name__}_{getattr(analyzer, 'device_name', '')}"
     )
+
+
+def _claim_lock_path(scan_folder: Path, analyzer_id: str) -> Path:
+    return _status_dir(scan_folder) / f"{analyzer_id}.claim"
+
+
+def try_acquire_claim(scan_folder: Path, analyzer_id: str, owner: str) -> bool:
+    """Atomically acquire the exclusive claim gate for one task.
+
+    The check-then-claim in :func:`run_worklist` used to be a pure race:
+    two runners whose worklists both saw ``queued`` would each overwrite
+    the status to ``claimed`` and run the same analyzer into the same
+    output files (surfaced by the #690 review — the MCP verb spawns
+    workers at call time, so near-simultaneous calls hit the window the
+    old polling fleet rarely did).  The gate is an ``O_CREAT | O_EXCL``
+    lock file at ``analysis_status/<id>.claim`` — exactly the "future
+    multi-app can add lock files" extension this module's docstring
+    reserved.
+
+    Liveness stays where it always was — the STATUS row's heartbeat: on a
+    lock collision the holder counts as alive while
+    :func:`claim_is_active` says so, or (covering the instant between
+    lock-acquire and the claimed-status write) while the lock file itself
+    is younger than ``CLAIM_STALE_AFTER_SECONDS``.  A dead holder's lock
+    is broken and the acquire retried once.
+
+    Parameters
+    ----------
+    scan_folder : Path
+        The scan folder (must already exist — never created here).
+    analyzer_id : str
+        The task id (the status-file stem).
+    owner : str
+        Identifier written into the lock file (host:pid), for forensics.
+
+    Returns
+    -------
+    bool
+        True when this caller now holds the claim gate; False when a
+        live runner holds it (skip the task) or the scan folder is not
+        visible.
+    """
+    if not _require_scan_folder(scan_folder):
+        return False
+    _status_dir(scan_folder).mkdir(exist_ok=True)
+    lock = _claim_lock_path(scan_folder, analyzer_id)
+    for attempt in (0, 1):
+        try:
+            fd = os.open(str(lock), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            with os.fdopen(fd, "w") as f:
+                f.write(f"{owner} {datetime.now(timezone.utc).isoformat()}\n")
+            return True
+        except FileExistsError:
+            if attempt:
+                return False
+            status_path = _status_path(scan_folder, analyzer_id)
+            if status_path.exists() and claim_is_active(
+                TaskStatus.from_file(status_path)
+            ):
+                return False
+            try:
+                # No live claim in the status row: alive only if the lock
+                # itself is fresh (its holder may not have written the
+                # claimed row yet).  mtime vs local clock tolerates the
+                # usual cross-machine skew at the 180 s threshold.
+                age = datetime.now(timezone.utc).timestamp() - lock.stat().st_mtime
+            except OSError:
+                continue  # lock vanished under us — retry the acquire
+            if age <= CLAIM_STALE_AFTER_SECONDS:
+                return False
+            logger.warning(
+                "breaking stale claim lock %s (age %.0fs, holder dead)", lock, age
+            )
+            try:
+                lock.unlink()
+            except OSError:
+                return False  # someone else broke/won it — let them have it
+        except OSError:
+            logger.warning("could not create claim lock %s", lock, exc_info=True)
+            return False
+    return False
+
+
+def release_claim(scan_folder: Path, analyzer_id: str) -> None:
+    """Release the claim gate taken by :func:`try_acquire_claim` (idempotent)."""
+    try:
+        _claim_lock_path(scan_folder, analyzer_id).unlink()
+    except FileNotFoundError:
+        pass
+    except OSError:
+        logger.debug("could not remove claim lock for %s", analyzer_id, exc_info=True)
 
 
 def _write_atomic(path: Path, content: str) -> None:
@@ -513,6 +608,18 @@ def run_worklist(
         )
         analyzer_id = analyzer_task_id(analyzer)
 
+        owner = f"{socket.gethostname()}:{os.getpid()}"
+        # The atomic claim gate: exactly one runner passes per task (a
+        # loser here means another live runner owns it — skip, never
+        # double-run the same analyzer into the same output files).
+        if not try_acquire_claim(scan_folder, analyzer_id, owner):
+            logger.info(
+                "run_worklist: %s on scan %s is claimed by a live runner "
+                "(or the folder is not visible); skipping",
+                analyzer_id,
+                tag,
+            )
+            continue
         logger.info(
             "run_worklist: claiming scan=%s analyzer=%s priority=%s dry_run=%s",
             tag,
@@ -520,7 +627,6 @@ def run_worklist(
             priority,
             dry_run,
         )
-        owner = f"{socket.gethostname()}:{os.getpid()}"
         now_iso = datetime.now(timezone.utc).isoformat()
         update_status(
             scan_folder,
@@ -614,6 +720,7 @@ def run_worklist(
         finally:
             stop_event.set()  # idempotent safety net
             hb_thread.join(timeout=HEARTBEAT_INTERVAL_SECONDS)  # safe to join twice
+            release_claim(scan_folder, analyzer_id)
             analyzer.cleanup()
 
 

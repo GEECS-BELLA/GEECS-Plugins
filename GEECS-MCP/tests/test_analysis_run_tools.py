@@ -30,8 +30,10 @@ DAY = "2026-08-22"
 def _fresh_runtime(monkeypatch):
     runtime.clear_runtime_cache()
     monkeypatch.setattr(runtime, "get_experiment", lambda: "TestExp")
+    run_tools._dispatched.clear()
     yield
     runtime.clear_runtime_cache()
+    run_tools._dispatched.clear()
 
 
 def _load(payload) -> dict:
@@ -283,6 +285,63 @@ class TestExistingStatusRows:
         assert _tree_snapshot(share) == before_tree
         assert path.read_bytes() == before_content  # not even a rewrite
         assert spawned == []
+
+    def test_second_call_in_the_preclaim_window_refuses(
+        self, share, configs, spawned, monkeypatch
+    ):
+        """Codex P1 (#690): a second run_scan_analysis call while the
+        first worker is dispatched but has not claimed yet must not
+        double-start — and the refusal is side-effect-free."""
+        monkeypatch.setattr(run_tools, "_pid_alive", lambda pid: True)
+        first = _load(
+            run_tools._run_scan_analysis_impl(7, DAY, "test_diag", None, False, False)
+        )
+        assert first["ok"] and first["started"]
+        before = _tree_snapshot(share)
+        second = _load(
+            run_tools._run_scan_analysis_impl(7, DAY, "test_diag", None, False, False)
+        )
+        assert not second["ok"]
+        assert second["error_kind"] == "policy_refusal"
+        assert "dispatched" in second["message"]
+        assert _tree_snapshot(share) == before
+        assert len(spawned) == 1  # exactly one worker
+
+    def test_dead_dispatched_worker_allows_redispatch(
+        self, share, configs, spawned, monkeypatch
+    ):
+        """A worker that died pre-claim (pid gone) must not block retries."""
+        monkeypatch.setattr(run_tools, "_pid_alive", lambda pid: False)
+        run_tools._run_scan_analysis_impl(7, DAY, "test_diag", None, False, False)
+        second = _load(
+            run_tools._run_scan_analysis_impl(7, DAY, "test_diag", None, False, False)
+        )
+        assert second["ok"] and second["started"]
+        assert len(spawned) == 2
+
+    def test_claimed_tasks_release_the_dispatch_ledger(
+        self, share, configs, spawned, monkeypatch
+    ):
+        """Once the worker claims (rows leave queued), the ledger no longer
+        gates — the heartbeat-based active-claim refusal takes over."""
+        from datetime import datetime, timezone
+
+        monkeypatch.setattr(run_tools, "_pid_alive", lambda pid: True)
+        run_tools._run_scan_analysis_impl(7, DAY, "test_diag", None, False, False)
+        # The worker claims: the status row leaves "queued".
+        _seed_status(
+            share,
+            "test_diag",
+            state="claimed",
+            claimed_by="worker",
+            last_heartbeat=datetime.now(timezone.utc).isoformat(),
+        )
+        second = _load(
+            run_tools._run_scan_analysis_impl(7, DAY, "test_diag", None, False, False)
+        )
+        assert not second["ok"]
+        assert second["error_kind"] == "policy_refusal"
+        assert "already running" in second["message"]  # the claim path, not the ledger
 
     def test_stale_claim_is_runnable_again(self, share, configs, spawned):
         """A claim whose runner died (old heartbeat) does not block."""

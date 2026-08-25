@@ -38,6 +38,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
     the server starts normally.  New consumed config:
     `SCAN_ANALYSIS_CONFIG_DIR` / `[Paths] scan_analysis_configs_path`
     (see `deploy/DEPLOYMENT.md`).
+  - **The pre-claim double-start window is closed** (Codex P1): the
+    realistic vector — a second call into this server while the first
+    worker is still importing its stack — refuses via an in-process
+    dispatch ledger (side-effect-free, before any status write; entries
+    expire when the pid dies, the tasks leave `queued`, or after the
+    queue's own 180 s staleness bound), and the cross-process backstop
+    is ScanAnalysis 1.16.0's atomic claim gate in `run_worklist` (a
+    losing worker skips the task instead of double-running it).
   - Review-hardened status semantics (adversarial findings 1–2): the
     rerun flags reset `failed`/`done` (and stale-claimed) rows to
     queued *server-side* (`reset_status_for_scan`), so the dead-worker

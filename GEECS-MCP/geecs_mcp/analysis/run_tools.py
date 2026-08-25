@@ -46,6 +46,8 @@ import logging
 import os
 import subprocess
 import sys
+import threading
+import time
 from pathlib import Path
 from typing import Any, Optional
 
@@ -81,6 +83,27 @@ def _config_root() -> Optional[Path]:
     from geecs_data_utils.config_roots import scan_analysis_config
 
     return scan_analysis_config.base_dir
+
+
+#: In-process dispatch ledger: scan-folder str -> (worker pid, task ids,
+#: spawn monotonic time).  Closes the pre-claim double-start window for
+#: the realistic vector — two calls into THIS server (agent retries,
+#: parallel tool dispatch) — before a worker has even been spawned; the
+#: cross-process backstop is ScanAnalysis 1.16.0's atomic claim gate in
+#: ``run_worklist`` (a losing worker skips, never double-runs).  Entries
+#: expire when the worker pid dies, when its tasks leave ``queued``, or
+#: after ``CLAIM_STALE_AFTER_SECONDS`` (pid-reuse bound).
+_dispatched: dict[str, tuple[int, frozenset, float]] = {}
+_dispatch_lock = threading.Lock()
+
+
+def _pid_alive(pid: int) -> bool:
+    """Best-effort liveness of a spawned worker (module seam for tests)."""
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    return True
 
 
 def _spawn_worker(payload: dict) -> int:
@@ -268,6 +291,31 @@ def _run_scan_analysis_impl(
             f"{tag.number} (claimed, heartbeat fresh) — poll "
             "get_scan_analysis and retry after it finishes",
         )
+    # The pre-claim window (a just-spawned worker importing its stack has
+    # not claimed yet, so the rows still read queued): the in-process
+    # dispatch ledger refuses a second call for the same still-queued
+    # tasks — also before any status write, so this refusal is
+    # side-effect-free too.
+    with _dispatch_lock:
+        entry = _dispatched.get(str(scan_folder))
+        if entry is not None:
+            pid, pending, spawned_at = entry
+            overlap = [
+                tid
+                for tid in task_ids
+                if tid in pending and (tid not in pre or pre[tid].state == "queued")
+            ]
+            fresh = (
+                time.monotonic() - spawned_at
+            ) <= task_queue.CLAIM_STALE_AFTER_SECONDS
+            if overlap and fresh and _pid_alive(pid):
+                return errors.make_error(
+                    "policy_refusal",
+                    f"a worker (pid {pid}) was already dispatched for "
+                    f"task(s) {overlap} on scan {tag.number} and has not "
+                    "claimed yet — poll get_scan_analysis before retrying",
+                )
+            _dispatched.pop(str(scan_folder), None)
     # Server-side status bookkeeping BEFORE the spawn, so every requested
     # task is visibly queued even if the worker dies pre-claim: init the
     # missing rows, and — the rerun paths — reset done/failed (and
@@ -327,6 +375,8 @@ def _run_scan_analysis_impl(
         "base_directory": str(base) if base is not None else None,
     }
     pid = _spawn_worker(payload)
+    with _dispatch_lock:
+        _dispatched[str(scan_folder)] = (pid, frozenset(runnable), time.monotonic())
     logger.info(
         "run_scan_analysis: scan %s (%s) -> %d task(s), worker pid %s",
         tag.number,
