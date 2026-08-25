@@ -38,6 +38,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
     the server starts normally.  New consumed config:
     `SCAN_ANALYSIS_CONFIG_DIR` / `[Paths] scan_analysis_configs_path`
     (see `deploy/DEPLOYMENT.md`).
+  - Review-hardened status semantics (adversarial findings 1–2): the
+    rerun flags reset `failed`/`done` (and stale-claimed) rows to
+    queued *server-side* (`reset_status_for_scan`), so the dead-worker
+    visibility contract holds on every path; a task another runner is
+    actively working (fresh heartbeat — ScanAnalysis 1.16.0's
+    `claim_is_active`) refuses the call (`policy_refusal`) instead of
+    double-running into the same output files; the envelope reports
+    `tasks` (what this call runs) vs `skipped` (done/failed without
+    their rerun flag), and an all-skipped call is an honest
+    `started: false` no-op with no worker spawned.  Task ids come from
+    ScanAnalysis's exported `analyzer_task_id` (no mirrored
+    derivation), and the server-side validation builds analyzers
+    through the same `run_worker.build_analyzers` the worker executes.
 
 ## [0.6.0] - 2026-08-24
 

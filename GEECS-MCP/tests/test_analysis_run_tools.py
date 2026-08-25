@@ -213,6 +213,88 @@ class TestRun:
         assert payload["rerun_completed"] is True
 
 
+def _seed_status(share: Path, analyzer_id: str, **fields) -> Path:
+    status_dir = _scan_folder(share) / "analysis_status"
+    status_dir.mkdir(exist_ok=True)
+    path = status_dir / f"{analyzer_id}.yaml"
+    path.write_text(
+        yaml.safe_dump({"analyzer_id": analyzer_id, "priority": 5, **fields})
+    )
+    return path
+
+
+class TestExistingStatusRows:
+    """The rerun/concurrency contract over pre-existing status rows."""
+
+    def test_rerun_failed_resets_the_row_to_queued_before_spawn(
+        self, share, configs, spawned
+    ):
+        """The dead-worker visibility contract holds on the rerun path:
+        the failed row is re-queued server-side, so a worker that dies
+        pre-claim leaves a visible queued row, not the stale failure."""
+        path = _seed_status(
+            share, "test_diag", state="failed", error="old failure text"
+        )
+        result = _load(
+            run_tools._run_scan_analysis_impl(7, DAY, "test_diag", None, True, False)
+        )
+        assert result["ok"] and result["started"]
+        assert result["tasks"] == ["test_diag"]
+        status = yaml.safe_load(path.read_text())
+        assert status["state"] == "queued"
+        assert status["error"] is None
+        assert len(spawned) == 1
+
+    def test_done_without_rerun_flag_is_skipped_and_nothing_spawns(
+        self, share, configs, spawned
+    ):
+        _seed_status(share, "test_diag", state="done")
+        result = _load(
+            run_tools._run_scan_analysis_impl(7, DAY, "test_diag", None, False, False)
+        )
+        assert result["ok"]
+        assert result["started"] is False
+        assert result["tasks"] == []
+        assert result["skipped"] == {"test_diag": "done"}
+        assert "rerun" in result["note"]
+        assert spawned == []
+
+    def test_actively_claimed_task_refuses_the_call(self, share, configs, spawned):
+        """Two near-simultaneous calls must not double-run one task."""
+        from datetime import datetime, timezone
+
+        _seed_status(
+            share,
+            "test_diag",
+            state="claimed",
+            claimed_by="another-runner",
+            last_heartbeat=datetime.now(timezone.utc).isoformat(),
+        )
+        result = _load(
+            run_tools._run_scan_analysis_impl(7, DAY, "test_diag", None, False, False)
+        )
+        assert not result["ok"]
+        assert result["error_kind"] == "policy_refusal"
+        assert "already running" in result["message"]
+        assert spawned == []
+
+    def test_stale_claim_is_runnable_again(self, share, configs, spawned):
+        """A claim whose runner died (old heartbeat) does not block."""
+        _seed_status(
+            share,
+            "test_diag",
+            state="claimed",
+            claimed_by="dead-runner",
+            last_heartbeat="2026-08-22T00:00:00+00:00",
+        )
+        result = _load(
+            run_tools._run_scan_analysis_impl(7, DAY, "test_diag", None, False, False)
+        )
+        assert result["ok"] and result["started"]
+        assert result["tasks"] == ["test_diag"]
+        assert len(spawned) == 1
+
+
 # ---------------------------------------------------------------------------
 # listings
 # ---------------------------------------------------------------------------

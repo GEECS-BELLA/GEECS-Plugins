@@ -18,7 +18,9 @@ from scan_analysis.task_queue import (
     STATUS_DIR_NAME,
     TaskStatus,
     _is_stale,
+    analyzer_task_id,
     build_worklist,
+    claim_is_active,
     extract_scan_number,
     init_status_for_scan,
     read_statuses,
@@ -169,6 +171,91 @@ class TestIsStale:
             last_heartbeat=None,
         )
         assert _is_stale(ts, self.now)
+
+
+class TestResetClearsStaleFields:
+    def test_reset_writes_a_genuinely_fresh_queued_record(self, tmp_path, monkeypatch):
+        """Reset must clear error/claim/heartbeat, not just flip the state —
+        update_status's keep-on-None semantics silently defeated the old
+        implementation, leaving the stale error to survive onto the
+        rerun's done row."""
+        from scan_analysis.task_queue import reset_status_for_scan
+
+        scan_folder = tmp_path / "Scan042"
+        scan_folder.mkdir()
+        _write_status(
+            scan_folder / STATUS_DIR_NAME,
+            TaskStatus(
+                analyzer_id="diag",
+                priority=7,
+                state="failed",
+                error="old failure",
+                claimed_by="dead-runner",
+                claimed_at="2026-08-22T00:00:00+00:00",
+                last_heartbeat="2026-08-22T00:00:00+00:00",
+            ),
+        )
+        import scan_analysis.task_queue as tq
+
+        monkeypatch.setattr(
+            tq.ScanPaths,
+            "get_scan_folder_path",
+            staticmethod(lambda tag, base_directory=None: scan_folder),
+        )
+        tag = ScanTag(year=2025, month=1, day=1, number=42, experiment="Test")
+        reset_status_for_scan(
+            tag,
+            [SimpleNamespace(id="diag", priority=7)],
+            states_to_reset=("failed",),
+        )
+        (status,) = read_statuses(scan_folder)
+        assert status.state == "queued"
+        assert status.priority == 7
+        assert status.error is None
+        assert status.claimed_by is None
+        assert status.claimed_at is None
+        assert status.last_heartbeat is None
+
+
+class TestPublicQueueHelpers:
+    """The exported helpers external queue clients consume (#686)."""
+
+    def test_claim_is_active_is_the_inverse_of_stale_for_claims(self):
+        fresh = TaskStatus(
+            analyzer_id="a",
+            priority=0,
+            state="claimed",
+            last_heartbeat=_iso(datetime.now(timezone.utc)),
+        )
+        stale = TaskStatus(analyzer_id="a", priority=0, state="claimed")
+        queued = TaskStatus(analyzer_id="a", priority=0, state="queued")
+        assert claim_is_active(fresh)
+        assert not claim_is_active(stale)
+        assert not claim_is_active(queued)
+
+    def test_analyzer_task_id_derivation_chain(self):
+        assert analyzer_task_id(SimpleNamespace(id="my_diag")) == "my_diag"
+        assert analyzer_task_id(SimpleNamespace(device_name="UC_Cam")) == "UC_Cam"
+        empty = SimpleNamespace(id="", device_name="UC_Cam")
+        assert analyzer_task_id(empty) == "SimpleNamespace_UC_Cam"
+
+    def test_analyzer_task_id_matches_what_init_writes(self, tmp_path, monkeypatch):
+        """The exported derivation and init_status_for_scan agree — the
+        drift this export exists to prevent."""
+        scan_folder = tmp_path / "Scan042"
+        scan_folder.mkdir()
+        import scan_analysis.task_queue as tq
+
+        monkeypatch.setattr(
+            tq.ScanPaths,
+            "get_scan_folder_path",
+            staticmethod(lambda tag, base_directory=None: scan_folder),
+        )
+        tag = ScanTag(year=2025, month=1, day=1, number=42, experiment="Test")
+        analyzer = SimpleNamespace(id="pin_check", priority=3)
+        init_status_for_scan(tag, [analyzer], base_directory=tmp_path)
+        (status,) = read_statuses(scan_folder)
+        assert status.analyzer_id == analyzer_task_id(analyzer)
 
 
 # ---------------------------------------------------------------------------

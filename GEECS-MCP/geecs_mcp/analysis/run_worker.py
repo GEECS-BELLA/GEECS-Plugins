@@ -20,6 +20,43 @@ import sys
 from pathlib import Path
 
 
+def build_analyzers(analyzer: str | None, group: str | None, config_root: Path) -> list:
+    """Construct the analyzer(s) for one request — THE shared builder.
+
+    Called by the tool (validation: the names resolve AND the classes
+    import on this host) and by the worker (the actual instances it
+    runs) — one implementation, so the pre-flight validation can never
+    drift from what the worker executes.
+
+    Parameters
+    ----------
+    analyzer : str or None
+        A diagnostic ID; exactly one of ``analyzer``/``group`` is set
+        (the tool enforces this before calling).
+    group : str or None
+        An analysis-group name.
+    config_root : Path
+        The scan-analysis configs root (``analyzers/`` + ``groups/``).
+
+    Returns
+    -------
+    list
+        Runnable ScanAnalyzer instances, in execution order.
+    """
+    if analyzer:
+        from image_analysis.config import load_diagnostic
+        from scan_analysis.config import create_scan_analyzer
+
+        return [
+            create_scan_analyzer(
+                load_diagnostic(analyzer, config_dir=config_root), id=analyzer
+            )
+        ]
+    from scan_analysis.task_queue import load_analyzers_from_config
+
+    return load_analyzers_from_config(group, config_dir=config_root)
+
+
 def main(argv: list[str] | None = None) -> None:
     """Run the worklist described by the JSON payload in ``argv[0]``."""
     logging.basicConfig(level=logging.INFO)
@@ -39,20 +76,7 @@ def main(argv: list[str] | None = None) -> None:
     raw_base = payload.get("base_directory")
     base = Path(raw_base) if raw_base else None
 
-    if payload.get("analyzer"):
-        from image_analysis.config import load_diagnostic
-        from scan_analysis.config import create_scan_analyzer
-
-        analyzers = [
-            create_scan_analyzer(
-                load_diagnostic(payload["analyzer"], config_dir=root),
-                id=payload["analyzer"],
-            )
-        ]
-    else:
-        from scan_analysis.task_queue import load_analyzers_from_config
-
-        analyzers = load_analyzers_from_config(payload["group"], config_dir=root)
+    analyzers = build_analyzers(payload.get("analyzer"), payload.get("group"), root)
 
     from scan_analysis import task_queue
 

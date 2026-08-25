@@ -78,7 +78,14 @@ The verb also needs the data share writable (analysis outputs +
 `analysis_status/` inside *existing* scan folders only — a missing
 scan folder is refused, never created), and each run burns CPU on this
 host in a detached worker process — mind the systemd unit's resource
-caps if agent-triggered analysis becomes routine.
+caps if agent-triggered analysis becomes routine.  Note the worker's
+detachment is session-level, not cgroup-level: **a systemd service
+restart kills mid-run analysis workers** (default
+`KillMode=control-group`).  That is recoverable, not silent — the
+task's claim goes stale after 180 s and a repeat `run_scan_analysis`
+re-runs it; in `get_scan_analysis` a dead worker shows as a task stuck
+`queued` (died before claiming) or `claimed` with a growing
+`heartbeat_age_s` (died mid-run).
 
 Two upstream osprey issues (to be filed from the osprey side): the
 silent acceptance of unknown keys like `hooks:` on custom-server

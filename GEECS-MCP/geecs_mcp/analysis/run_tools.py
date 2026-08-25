@@ -83,18 +83,6 @@ def _config_root() -> Optional[Path]:
     return scan_analysis_config.base_dir
 
 
-def _analyzer_id(analyzer: Any) -> str:
-    """The status-file id for *analyzer* — task_queue's own derivation.
-
-    Mirrors ``init_status_for_scan`` exactly so the envelope's task list
-    names the same files the worker will claim.
-    """
-    analyzer_id = getattr(analyzer, "id", getattr(analyzer, "device_name", "unknown"))
-    return analyzer_id or (
-        f"{analyzer.__class__.__name__}_{getattr(analyzer, 'device_name', '')}"
-    )
-
-
 def _spawn_worker(payload: dict) -> int:
     """Launch the detached run_worker subprocess; return its pid.
 
@@ -137,16 +125,20 @@ def _listing_impl(kind: str) -> str:
     except ValueError as exc:  # duplicate stems — a configs-repo defect
         return errors.make_error("invalid_request", str(exc))
     names = sorted(index)
+    # count = distinct config FILES: discover_groups indexes each group
+    # under two accepted names (bare stem + namespace/stem), and an agent
+    # asking "how many groups exist" must not get double.
     payload: dict[str, Any] = {
         kind: names[:_MAX_LISTED_NAMES],
-        "count": len(names),
+        "count": len(set(index.values())),
         "truncated": len(names) > _MAX_LISTED_NAMES,
         "config_root": str(root),
     }
     if kind == "groups":
-        # discover_groups indexes each group under its bare stem AND its
-        # namespace-qualified form — every listed name is accepted.
-        payload["note"] = "names include both bare stems and namespace/stem forms"
+        payload["note"] = (
+            "names include both bare stems and namespace/stem forms — "
+            "every listed name is accepted; count is distinct groups"
+        )
     return errors.make_ok(**payload)
 
 
@@ -209,9 +201,6 @@ def _run_scan_analysis_impl(
         )
     try:
         from scan_analysis import task_queue
-        from scan_analysis.config import create_scan_analyzer
-
-        from image_analysis.config import load_diagnostic
     except ImportError as exc:
         return errors.make_error("invalid_request", f"{_EXTRA_HINT}: {exc}")
     root = _config_root()
@@ -230,19 +219,16 @@ def _run_scan_analysis_impl(
             f"scan folder does not exist: {scan_folder} — analysis never "
             "creates scan folders; check the scan number/day",
         )
-    # Build the analyzer(s) now, in-server: this validates the name, the
-    # YAML, the image-analyzer class path — and this HOST.  A diagnostic
-    # needing a Windows-only SDK fails its import here and is refused
-    # before anything is enqueued.
+    # Build the analyzer(s) now, in-server, through the SAME builder the
+    # worker runs (run_worker.build_analyzers — one implementation, so
+    # this validation can never drift from the execution): validates the
+    # name, the YAML, the image-analyzer class path — and this HOST.  A
+    # diagnostic needing a Windows-only SDK fails its import here and is
+    # refused before anything is enqueued.
+    from geecs_mcp.analysis.run_worker import build_analyzers
+
     try:
-        if analyzer:
-            analyzers = [
-                create_scan_analyzer(
-                    load_diagnostic(analyzer, config_dir=root), id=analyzer
-                )
-            ]
-        else:
-            analyzers = task_queue.load_analyzers_from_config(group, config_dir=root)
+        analyzers = build_analyzers(analyzer, group, root)
     except (FileNotFoundError, KeyError) as exc:
         # An unknown diagnostic stem raises KeyError (with the known-names
         # list in the message), an unknown group FileNotFoundError.
@@ -262,10 +248,67 @@ def _run_scan_analysis_impl(
         return errors.make_error(
             "invalid_request", f"group {group!r} resolved to zero analyzers"
         )
+    task_ids = [task_queue.analyzer_task_id(a) for a in analyzers]
     base = read_tools._base_directory()
-    # Server-side init (idempotent): a worker that dies pre-claim leaves
-    # visible queued rows for get_scan_analysis instead of silence.
+    # Server-side status bookkeeping BEFORE the spawn, so every requested
+    # task is visibly queued even if the worker dies pre-claim: init the
+    # missing rows, and — the rerun paths — reset done/failed (and
+    # stale-claimed) rows to queued; reset refuses to touch a live claim.
     task_queue.init_status_for_scan(tag, analyzers, base_directory=base)
+    reset_states = tuple(
+        state
+        for state, wanted in (("failed", rerun_failed), ("done", rerun_completed))
+        if wanted
+    )
+    if reset_states:
+        task_queue.reset_status_for_scan(
+            tag,
+            analyzers,
+            base_directory=base,
+            states_to_reset=reset_states + ("claimed",),
+        )
+    # Classify what this call will actually run: a task another runner is
+    # actively working (fresh heartbeat) refuses the whole call — two
+    # workers claiming the same task would run the same analysis twice
+    # into the same output files; done/failed rows without their rerun
+    # flag are reported as skipped, not silently re-listed as work.
+    statuses = {s.analyzer_id: s for s in task_queue.read_statuses(scan_folder)}
+    active = [
+        tid
+        for tid in task_ids
+        if tid in statuses and task_queue.claim_is_active(statuses[tid])
+    ]
+    if active:
+        return errors.make_error(
+            "policy_refusal",
+            f"analysis already running for task(s) {active} on scan "
+            f"{tag.number} (claimed, heartbeat fresh) — poll "
+            "get_scan_analysis and retry after it finishes",
+        )
+    # Any remaining "claimed" is stale (active ones refused above) —
+    # build_worklist reclaims those, so they count as runnable.
+    runnable = [
+        tid
+        for tid in task_ids
+        if tid not in statuses or statuses[tid].state in ("queued", "claimed")
+    ]
+    skipped = {tid: statuses[tid].state for tid in task_ids if tid not in runnable}
+    common = {
+        "scan_number": tag.number,
+        "day": f"{tag.year:04d}-{tag.month:02d}-{tag.day:02d}",
+        "scan_folder": str(scan_folder),
+    }
+    if not runnable:
+        return errors.make_ok(
+            started=False,
+            tasks=[],
+            skipped=skipped,
+            note=(
+                "nothing to run — every requested task is already "
+                "done/failed; pass rerun_completed/rerun_failed to re-run"
+            ),
+            **common,
+        )
     payload = {
         "year": tag.year,
         "month": tag.month,
@@ -280,26 +323,27 @@ def _run_scan_analysis_impl(
         "base_directory": str(base) if base is not None else None,
     }
     pid = _spawn_worker(payload)
-    task_ids = [_analyzer_id(a) for a in analyzers]
     logger.info(
         "run_scan_analysis: scan %s (%s) -> %d task(s), worker pid %s",
         tag.number,
         analyzer or group,
-        len(task_ids),
+        len(runnable),
         pid,
     )
     return errors.make_ok(
         started=True,
         worker_pid=pid,
-        scan_number=tag.number,
-        day=f"{tag.year:04d}-{tag.month:02d}-{tag.day:02d}",
-        scan_folder=str(scan_folder),
-        tasks=task_ids,
+        tasks=runnable,
+        skipped=skipped,
         note=(
             "analysis runs detached — poll get_scan_analysis for task "
-            "states (queued → claimed → done/failed/no_data; a task "
-            "stuck 'queued' means the worker died before claiming)"
+            "states (queued → claimed → done/failed/no_data).  A task "
+            "stuck 'queued' means the worker died before claiming; "
+            "'claimed' with a growing heartbeat_age_s means it died "
+            "mid-run (the claim goes stale after 180 s and a repeat "
+            "call re-runs it)"
         ),
+        **common,
     )
 
 

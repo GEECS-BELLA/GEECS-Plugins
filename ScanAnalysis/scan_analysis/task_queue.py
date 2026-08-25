@@ -136,6 +136,58 @@ def _is_stale(status: TaskStatus, now: datetime) -> bool:
     return (now - last).total_seconds() > CLAIM_STALE_AFTER_SECONDS
 
 
+def claim_is_active(status: TaskStatus, now: Optional[datetime] = None) -> bool:
+    """True when *status* is a claimed task whose runner looks alive.
+
+    The public face of the staleness rule (heartbeat/claim age vs
+    ``CLAIM_STALE_AFTER_SECONDS``) for external queue clients — e.g. the
+    GEECS-MCP ``run_scan_analysis`` verb refuses to double-run a task
+    another runner is actively working (#686) — so consumers never
+    re-derive the timestamp semantics.
+
+    Parameters
+    ----------
+    status : TaskStatus
+        The task status to inspect.
+    now : datetime, optional
+        Reference time (aware, UTC); defaults to the current time.
+
+    Returns
+    -------
+    bool
+        True for a claimed task with a fresh heartbeat; False for any
+        other state, and for a claimed task gone stale (reclaimable).
+    """
+    return status.state == "claimed" and not _is_stale(
+        status, now or datetime.now(timezone.utc)
+    )
+
+
+def analyzer_task_id(analyzer: object) -> str:
+    """The status-file id for *analyzer* — THE one derivation.
+
+    Every id-consuming site (init/reset/build/run and external clients
+    such as GEECS-MCP) must call this rather than restating the
+    fallback chain — mirrored copies of this shape have shipped drift
+    before.
+
+    Parameters
+    ----------
+    analyzer : object
+        A ScanAnalyzer-like object (``id``/``device_name`` attributes
+        honored, class-name fallback otherwise).
+
+    Returns
+    -------
+    str
+        The id used for ``analysis_status/<id>.yaml``.
+    """
+    analyzer_id = getattr(analyzer, "id", getattr(analyzer, "device_name", "unknown"))
+    return analyzer_id or (
+        f"{analyzer.__class__.__name__}_{getattr(analyzer, 'device_name', '')}"
+    )
+
+
 def _write_atomic(path: Path, content: str) -> None:
     """Write content to path, atomically where the OS supports it.
 
@@ -184,14 +236,7 @@ def init_status_for_scan(
     status_dir.mkdir(exist_ok=True)
 
     for analyzer in analyzers:
-        analyzer_id = getattr(
-            analyzer, "id", getattr(analyzer, "device_name", "unknown")
-        )
-        # If analyzer objects have no id, fall back to class name + device
-        analyzer_id = (
-            analyzer_id
-            or f"{analyzer.__class__.__name__}_{getattr(analyzer, 'device_name', '')}"
-        )
+        analyzer_id = analyzer_task_id(analyzer)
         path = _status_path(scan_folder, analyzer_id)
         if path.exists():
             continue
@@ -361,13 +406,7 @@ def reset_status_for_scan(
     )
     statuses = {s.analyzer_id: s for s in read_statuses(scan_folder)}
     for analyzer in analyzers:
-        analyzer_id = getattr(
-            analyzer, "id", getattr(analyzer, "device_name", "unknown")
-        )
-        analyzer_id = (
-            analyzer_id
-            or f"{analyzer.__class__.__name__}_{getattr(analyzer, 'device_name', '')}"
-        )
+        analyzer_id = analyzer_task_id(analyzer)
         if analyzer_id in skip_ids:
             continue
         if only_ids is not None and analyzer_id not in only_ids:
@@ -380,15 +419,17 @@ def reset_status_for_scan(
                 if not _is_stale(st, now):
                     # Live claimed task – do not reset to queued.
                     continue
-            update_status(
-                scan_folder,
-                analyzer_id,
-                priority=st.priority,
-                state="queued",
-                error=None,
-                claimed_by=None,
-                claimed_at=None,
-                last_heartbeat=None,
+            # A fresh queued record, written directly: update_status treats
+            # None as "keep current", so routing the reset through it left
+            # the stale error/claimed_by/heartbeat fields on the re-queued
+            # row (and the old error then survived onto the rerun's done
+            # row).  Only the priority carries over.
+            fresh = TaskStatus(
+                analyzer_id=analyzer_id, priority=st.priority, state="queued"
+            )
+            _write_atomic(
+                _status_path(scan_folder, analyzer_id),
+                yaml.safe_dump(fresh.to_dict()),
             )
 
 
@@ -417,13 +458,7 @@ def build_worklist(
         )
         statuses = {s.analyzer_id: s for s in read_statuses(scan_folder)}
         for analyzer in analyzers:
-            analyzer_id = getattr(
-                analyzer, "id", getattr(analyzer, "device_name", "unknown")
-            )
-            analyzer_id = (
-                analyzer_id
-                or f"{analyzer.__class__.__name__}_{getattr(analyzer, 'device_name', '')}"
-            )
+            analyzer_id = analyzer_task_id(analyzer)
             st = statuses.get(analyzer_id)
             include = st is None or st.state == "queued"
             eligible_for_rerun = analyzer_id not in skip_ids and (
@@ -476,13 +511,7 @@ def run_worklist(
         scan_folder = ScanPaths.get_scan_folder_path(
             tag=tag, base_directory=base_directory
         )
-        analyzer_id = getattr(
-            analyzer, "id", getattr(analyzer, "device_name", "unknown")
-        )
-        analyzer_id = (
-            analyzer_id
-            or f"{analyzer.__class__.__name__}_{getattr(analyzer, 'device_name', '')}"
-        )
+        analyzer_id = analyzer_task_id(analyzer)
 
         logger.info(
             "run_worklist: claiming scan=%s analyzer=%s priority=%s dry_run=%s",
