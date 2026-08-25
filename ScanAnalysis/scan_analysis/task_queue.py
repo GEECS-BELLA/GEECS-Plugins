@@ -211,6 +211,19 @@ def _break_stale_lock(lock: Path) -> bool:
     certainly dead, and its breaker only ever removes a *stale* main
     lock).
 
+    Accepted floor (review round 5, do not engineer further): POSIX/SMB
+    offer no compare-and-remove primitive over path names, so *any*
+    check-then-remove scheme retains a syscall-granularity window in
+    which a cleaner acts on a path whose file was just recreated.  Here
+    that residue requires a breaker killed inside its milliseconds-wide
+    sentinel window, plus 180 s elapsing, plus two independent
+    syscall-granularity straddles in cascade — and even then each holder
+    re-checks the main lock's age before removing it and final admission
+    is the main-lock ``O_EXCL``.  Further rounds of the same pattern
+    cannot reach zero; the same class covers the standard unfenced-lease
+    hazard (a holder stalling past the heartbeat window can be reclaimed
+    and later resume).
+
     Returns
     -------
     bool
