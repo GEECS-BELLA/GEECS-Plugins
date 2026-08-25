@@ -85,16 +85,26 @@ def _config_root() -> Optional[Path]:
     return scan_analysis_config.base_dir
 
 
-#: In-process dispatch ledger: scan-folder str -> (worker pid, task ids,
-#: spawn monotonic time).  Closes the pre-claim double-start window for
+#: In-process dispatch ledger: ``(scan-folder str, task id)`` -> (worker
+#: pid, monotonic time).  Closes the pre-claim double-start window for
 #: the realistic vector — two calls into THIS server (agent retries,
 #: parallel tool dispatch) — before a worker has even been spawned; the
 #: cross-process backstop is ScanAnalysis 1.16.0's atomic claim gate in
-#: ``run_worklist`` (a losing worker skips, never double-runs).  Entries
-#: expire when the worker pid dies, when its tasks leave ``queued``, or
-#: after ``CLAIM_STALE_AFTER_SECONDS`` (pid-reuse bound).
-_dispatched: dict[str, tuple[int, frozenset, float]] = {}
+#: ``run_worklist`` (a losing worker skips, never double-runs).  Keyed
+#: per task, not per scan (one scan can legitimately carry two live
+#: pre-claim workers for different analyzers — review round 4).  An
+#: entry blocks while its pid is alive (or still ``_RESERVED``: written
+#: under the lock at check time, so two truly concurrent calls cannot
+#: both pass before either records) and it is younger than
+#: ``CLAIM_STALE_AFTER_SECONDS`` (the pid-reuse bound); dead/expired
+#: entries are evicted on the next look — never live ones.
+_dispatched: dict[tuple[str, str], tuple[int, float]] = {}
 _dispatch_lock = threading.Lock()
+
+#: Sentinel pid for a ledger entry reserved at check time, replaced by
+#: the real worker pid right after the spawn (released if the call ends
+#: without spawning).
+_RESERVED = -1
 
 
 def _pid_alive(pid: int) -> bool:
@@ -295,27 +305,82 @@ def _run_scan_analysis_impl(
     # not claimed yet, so the rows still read queued): the in-process
     # dispatch ledger refuses a second call for the same still-queued
     # tasks — also before any status write, so this refusal is
-    # side-effect-free too.
+    # side-effect-free too.  The window tasks (still queued/absent) are
+    # RESERVED under the same lock hold that checked them, so two truly
+    # concurrent calls cannot both pass; entries are evicted only when
+    # dead or expired — never a live entry for a non-overlapping task
+    # (both were review-round-4 findings, one reproduced).
+    scan_key = str(scan_folder)
+    window_ids = [
+        tid for tid in task_ids if tid not in pre or pre[tid].state == "queued"
+    ]
+    now_mono = time.monotonic()
+    reserved: list[tuple[str, str]] = []
     with _dispatch_lock:
-        entry = _dispatched.get(str(scan_folder))
-        if entry is not None:
-            pid, pending, spawned_at = entry
-            overlap = [
-                tid
-                for tid in task_ids
-                if tid in pending and (tid not in pre or pre[tid].state == "queued")
-            ]
-            fresh = (
-                time.monotonic() - spawned_at
-            ) <= task_queue.CLAIM_STALE_AFTER_SECONDS
-            if overlap and fresh and _pid_alive(pid):
-                return errors.make_error(
-                    "policy_refusal",
-                    f"a worker (pid {pid}) was already dispatched for "
-                    f"task(s) {overlap} on scan {tag.number} and has not "
-                    "claimed yet — poll get_scan_analysis before retrying",
-                )
-            _dispatched.pop(str(scan_folder), None)
+        blocked = []
+        for tid in window_ids:
+            entry = _dispatched.get((scan_key, tid))
+            if entry is None:
+                continue
+            pid, stamped = entry
+            fresh = (now_mono - stamped) <= task_queue.CLAIM_STALE_AFTER_SECONDS
+            if fresh and (pid == _RESERVED or _pid_alive(pid)):
+                blocked.append(tid)
+            else:
+                _dispatched.pop((scan_key, tid), None)  # dead/expired only
+        if blocked:
+            return errors.make_error(
+                "policy_refusal",
+                f"a worker was already dispatched for task(s) {blocked} on "
+                f"scan {tag.number} and has not claimed yet — poll "
+                "get_scan_analysis before retrying",
+            )
+        for tid in window_ids:
+            _dispatched[(scan_key, tid)] = (_RESERVED, now_mono)
+            reserved.append((scan_key, tid))
+    try:
+        return _finish_run_dispatch(
+            task_queue,
+            tag,
+            scan_folder,
+            base,
+            analyzers,
+            task_ids,
+            analyzer,
+            group,
+            rerun_failed,
+            rerun_completed,
+            root,
+            reserved,
+        )
+    finally:
+        # Release any reservation the spawn did not convert to a real
+        # pid (refused/no-op/raise paths) — never a converted entry.
+        with _dispatch_lock:
+            for key in reserved:
+                if _dispatched.get(key, (None,))[0] == _RESERVED:
+                    _dispatched.pop(key, None)
+
+
+def _finish_run_dispatch(
+    task_queue,
+    tag,
+    scan_folder: Path,
+    base: Optional[Path],
+    analyzers: list,
+    task_ids: list,
+    analyzer: Optional[str],
+    group: Optional[str],
+    rerun_failed: bool,
+    rerun_completed: bool,
+    root: Path,
+    reserved: list,
+) -> str:
+    """The post-reservation half of ``_run_scan_analysis_impl``.
+
+    Split out so the reservation release lives in exactly one
+    ``finally`` around this call.
+    """
     # Server-side status bookkeeping BEFORE the spawn, so every requested
     # task is visibly queued even if the worker dies pre-claim: init the
     # missing rows, and — the rerun paths — reset done/failed (and
@@ -376,7 +441,10 @@ def _run_scan_analysis_impl(
     }
     pid = _spawn_worker(payload)
     with _dispatch_lock:
-        _dispatched[str(scan_folder)] = (pid, frozenset(runnable), time.monotonic())
+        stamped = time.monotonic()
+        for key in reserved:
+            if key[1] in runnable:
+                _dispatched[key] = (pid, stamped)  # reservation -> real pid
     logger.info(
         "run_scan_analysis: scan %s (%s) -> %d task(s), worker pid %s",
         tag.number,

@@ -269,6 +269,50 @@ class TestClaimGate:
         assert not try_acquire_claim(missing, "diag", "host:1")
         assert not missing.exists()  # the invariant: never create
 
+    def test_break_is_single_breaker(self, tmp_path):
+        """A live breaker sentinel makes a second breaker back off — the
+        two-breaker TOCTOU (B unlinking A's fresh lock) is closed."""
+        import os as os_mod
+
+        from scan_analysis.task_queue import try_acquire_claim
+
+        folder = self._folder(tmp_path)
+        lock = folder / STATUS_DIR_NAME / "diag.claim"
+        lock.write_text("dead-host:9\n")
+        old = datetime.now(timezone.utc).timestamp() - (CLAIM_STALE_AFTER_SECONDS + 60)
+        os_mod.utime(lock, (old, old))
+        # A live breaker holds the sentinel right now:
+        (folder / STATUS_DIR_NAME / "diag.claim.breaking").write_text("breaker\n")
+        assert not try_acquire_claim(folder, "diag", "host:2")
+        assert lock.exists()  # nothing was unlinked by the loser
+
+    def test_crashed_breaker_sentinel_is_broken_by_age(self, tmp_path):
+        import os as os_mod
+
+        from scan_analysis.task_queue import try_acquire_claim
+
+        folder = self._folder(tmp_path)
+        lock = folder / STATUS_DIR_NAME / "diag.claim"
+        sentinel = folder / STATUS_DIR_NAME / "diag.claim.breaking"
+        lock.write_text("dead-host:9\n")
+        sentinel.write_text("dead-breaker\n")
+        old = datetime.now(timezone.utc).timestamp() - (CLAIM_STALE_AFTER_SECONDS + 60)
+        os_mod.utime(lock, (old, old))
+        os_mod.utime(sentinel, (old, old))
+        assert try_acquire_claim(folder, "diag", "host:2")
+        assert not sentinel.exists()  # cleaned up on the way through
+
+    def test_breaker_respects_a_lock_that_went_fresh(self, tmp_path):
+        """The sentinel-held re-check: a lock re-created (fresh mtime)
+        between the caller's staleness stat and the break must survive."""
+        from scan_analysis.task_queue import _break_stale_lock
+
+        folder = self._folder(tmp_path)
+        lock = folder / STATUS_DIR_NAME / "diag.claim"
+        lock.write_text("live-holder\n")  # fresh mtime = now
+        assert not _break_stale_lock(lock)
+        assert lock.exists()
+
     def test_run_worklist_skips_a_task_another_runner_holds(
         self, tmp_path, monkeypatch
     ):

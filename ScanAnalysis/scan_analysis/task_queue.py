@@ -21,6 +21,7 @@ import re
 import socket
 import tempfile
 import threading
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -196,6 +197,65 @@ def _claim_lock_path(scan_folder: Path, analyzer_id: str) -> Path:
     return _status_dir(scan_folder) / f"{analyzer_id}.claim"
 
 
+def _break_stale_lock(lock: Path) -> bool:
+    """Break a stale claim lock under a single-breaker sentinel.
+
+    A bare re-stat-then-unlink cannot close the two-breaker race (breaker
+    B stats the old stale lock, breaker A unlinks it and creates a fresh
+    one, B then unlinks A's *live* lock — both acquire).  So breaking is
+    itself exclusive: only the ``O_EXCL`` creator of ``<lock>.breaking``
+    may unlink, and it re-checks the lock's age *while holding the
+    sentinel* — a lock that became fresh meanwhile is respected.  A
+    crashed breaker's sentinel is itself broken by age (the recursion
+    grounds here: the sentinel lives milliseconds, so an old one is
+    certainly dead, and its breaker only ever removes a *stale* main
+    lock).
+
+    Returns
+    -------
+    bool
+        True when the path is clear for an acquire attempt (the stale
+        lock was removed, or was already gone); False when another
+        breaker holds the sentinel or the lock turned out to be live.
+    """
+    sentinel = Path(str(lock) + ".breaking")
+    try:
+        sentinel_age = time.time() - sentinel.stat().st_mtime
+    except OSError:
+        pass  # no sentinel — proceed to claim it
+    else:
+        if sentinel_age <= CLAIM_STALE_AFTER_SECONDS:
+            return False  # a live breaker owns this — back off
+        try:
+            sentinel.unlink()  # crashed breaker's leftover
+        except OSError:
+            return False
+    try:
+        fd = os.open(str(sentinel), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except OSError:
+        return False  # lost the sentinel race — back off
+    try:
+        os.close(fd)
+        try:
+            lock_age = time.time() - lock.stat().st_mtime
+        except OSError:
+            return True  # lock already gone — path clear
+        if lock_age <= CLAIM_STALE_AFTER_SECONDS:
+            return False  # re-acquired while we raced here — respect it
+        try:
+            lock.unlink()
+        except FileNotFoundError:
+            pass
+        except OSError:
+            return False
+        return True
+    finally:
+        try:
+            sentinel.unlink()
+        except OSError:
+            pass
+
+
 def try_acquire_claim(scan_folder: Path, analyzer_id: str, owner: str) -> bool:
     """Atomically acquire the exclusive claim gate for one task.
 
@@ -255,7 +315,7 @@ def try_acquire_claim(scan_folder: Path, analyzer_id: str, owner: str) -> bool:
                 # itself is fresh (its holder may not have written the
                 # claimed row yet).  mtime vs local clock tolerates the
                 # usual cross-machine skew at the 180 s threshold.
-                age = datetime.now(timezone.utc).timestamp() - lock.stat().st_mtime
+                age = time.time() - lock.stat().st_mtime
             except OSError:
                 continue  # lock vanished under us — retry the acquire
             if age <= CLAIM_STALE_AFTER_SECONDS:
@@ -263,10 +323,8 @@ def try_acquire_claim(scan_folder: Path, analyzer_id: str, owner: str) -> bool:
             logger.warning(
                 "breaking stale claim lock %s (age %.0fs, holder dead)", lock, age
             )
-            try:
-                lock.unlink()
-            except OSError:
-                return False  # someone else broke/won it — let them have it
+            if not _break_stale_lock(lock):
+                return False  # another breaker owns it, or it went live
         except OSError:
             logger.warning("could not create claim lock %s", lock, exc_info=True)
             return False

@@ -319,6 +319,62 @@ class TestExistingStatusRows:
         assert second["ok"] and second["started"]
         assert len(spawned) == 2
 
+    def test_unrelated_dispatch_does_not_evict_the_ledger(
+        self, share, configs, spawned, monkeypatch
+    ):
+        """Review round 4 (reproduced): dispatching a DIFFERENT analyzer
+        on the same scan must not evict the first worker's live entry —
+        the ledger is keyed per task, and only dead/expired entries go."""
+        monkeypatch.setattr(run_tools, "_pid_alive", lambda pid: True)
+        (configs / "analyzers" / "HTU" / "test_diag_b.yaml").write_text(
+            yaml.safe_dump(
+                {
+                    "name": "test_diag_b",
+                    "image_analyzer": _BEAM,
+                    "image": {"type": "camera", "bit_depth": 16},
+                    "scan": {},
+                }
+            )
+        )
+        first = _load(
+            run_tools._run_scan_analysis_impl(7, DAY, "test_diag", None, False, False)
+        )
+        assert first["ok"] and first["started"]
+        second = _load(
+            run_tools._run_scan_analysis_impl(7, DAY, "test_diag_b", None, False, False)
+        )
+        assert second["ok"] and second["started"]  # different task: allowed
+        third = _load(
+            run_tools._run_scan_analysis_impl(7, DAY, "test_diag", None, False, False)
+        )
+        assert not third["ok"]
+        assert third["error_kind"] == "policy_refusal"  # first entry survived
+        assert len(spawned) == 2
+
+    def test_failed_spawn_releases_the_reservation(
+        self, share, configs, spawned, monkeypatch
+    ):
+        """A call that reserves but never spawns (raise mid-way) must not
+        leave a phantom reservation blocking the retry."""
+        monkeypatch.setattr(run_tools, "_pid_alive", lambda pid: True)
+
+        def boom(payload):
+            raise RuntimeError("spawn exploded")
+
+        monkeypatch.setattr(run_tools, "_spawn_worker", boom)
+        with pytest.raises(RuntimeError):
+            run_tools._run_scan_analysis_impl(7, DAY, "test_diag", None, False, False)
+        # Retry with a working spawn: the reservation must be gone.
+        calls: list[dict] = []
+        monkeypatch.setattr(
+            run_tools, "_spawn_worker", lambda p: calls.append(p) or 4242
+        )
+        retry = _load(
+            run_tools._run_scan_analysis_impl(7, DAY, "test_diag", None, False, False)
+        )
+        assert retry["ok"] and retry["started"]
+        assert len(calls) == 1
+
     def test_claimed_tasks_release_the_dispatch_ledger(
         self, share, configs, spawned, monkeypatch
     ):
