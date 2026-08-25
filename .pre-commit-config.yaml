@@ -64,6 +64,15 @@ repos:
 
   - repo: local
     hooks:
+      # A lock generated from inside a session worktree records that
+      # worktree's absolute path in the geecs-bluesky extras lines and
+      # dangles when the worktree is removed — always run `poetry lock`
+      # from the main checkout (PR #690 finding 6).
+      - id: poetry-lock-no-worktree-paths
+        name: poetry.lock free of session-worktree paths
+        language: pygrep
+        entry: '\.claude/worktrees/'
+        files: poetry\.lock$
       - id: jupyter-notebook-clear-output
         name: jupyter-notebook-jupyter-clear
         files: \.ipynb$

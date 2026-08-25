@@ -4,6 +4,15 @@ All notable changes to `geecs-mcp` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.6.1] - 2026-08-24
+
+### Fixed
+
+- `poetry.lock` regenerated from the main checkout: the geecs-bluesky
+  extras lines referenced a deleted `.claude/worktrees/` session
+  worktree (the lock had been generated from inside one), leaving
+  dangling absolute paths.  Lock-file refresh only — no code change.
+
 ## [0.6.0] - 2026-08-24
 
 Payload discipline for figures (osprey-side integration finding: an
