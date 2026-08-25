@@ -3,6 +3,27 @@
 All notable changes to `geecs-core` are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and semantic versioning.
 
+## [0.3.0] - 2026-08-24
+
+### Added
+
+- **TCP keepalive on `GeecsTcpSubscriber`, on by default** (issue #611 —
+  the half-open-socket blind spot; live incident 2026-08-17, u_s1h): the
+  subscription is read-only after the `Wait>>` command, so an ungracefully
+  dead peer (host crash, power cycle, a partition that eats the FIN/RST)
+  used to leave the listener waiting forever on a half-open socket, with
+  readbacks frozen at valid-stale values and no alarm.  With keepalive the
+  OS probes the idle peer and a dead one resets the connection, ending the
+  listener — the supervised-reconnect path.  Probes are answered by a live
+  peer's TCP stack even when its application is silent, so the "silence is
+  not a drop" doctrine is preserved.  New constructor knobs `keepalive`
+  (default True), `keepalive_idle_s` (30), `keepalive_interval_s` (10),
+  `keepalive_count` (3) — dead-peer detection in roughly a minute where
+  the platform exposes the tuning (Linux/macOS; a bare `SO_KEEPALIVE`
+  fallback with OS defaults elsewhere).  Tuning failures are logged and
+  never fail the connect.  Pinned by `test_keepalive_enabled_by_default` /
+  `test_keepalive_can_be_disabled`.
+
 ## [0.2.0] - 2026-08-20
 
 ### Added

@@ -114,8 +114,9 @@ derived_channels:
     seen: dict[str, GatewayConfig] = {}
 
     class FakeGateway:
-        def __init__(self, config: GatewayConfig) -> None:
+        def __init__(self, config: GatewayConfig, **kwargs: object) -> None:
             seen["config"] = config
+            seen["init_kwargs"] = kwargs
             self.pvdb = {}
 
         async def run(self) -> bool:

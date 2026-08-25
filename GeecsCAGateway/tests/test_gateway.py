@@ -265,6 +265,115 @@ async def test_reconnect_and_validity() -> None:
         await gw.close()
 
 
+async def test_subscription_socket_has_keepalive() -> None:
+    """The live subscription socket carries SO_KEEPALIVE (PV_CONTRACT §5:
+    the half-open blind spot is closed by TCP keepalive — issue #611)."""
+    device = FakeGeecsDevice(
+        DEVICE, variables={"Position": 7.5, "acq_timestamp": 1000.0}
+    )
+    async with FakeGeecsServer(device) as srv:
+        gw = GeecsCaGateway(_config(srv.host, srv.port))
+        await gw.connect()
+        await gw.subscribe()
+        try:
+            assert await _wait_until(lambda: DEVICE in gw._subs)
+            sock = gw._subs[DEVICE]._writer.get_extra_info("socket")
+            assert sock.getsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE) != 0
+        finally:
+            await gw.close()
+
+
+async def test_endpoint_re_resolve_heals_moved_device() -> None:
+    """A device that re-registers on a new port heals once backoff hits its
+    ceiling and the resolver reports the move — no gateway restart (#611)."""
+    port_a, port_b = _free_port(), _free_port()
+    endpoint = {"port": port_a}
+
+    def resolver(name: str) -> tuple[str, int]:
+        assert name == DEVICE
+        return "127.0.0.1", endpoint["port"]
+
+    device = FakeGeecsDevice(
+        DEVICE, variables={"Position": 7.5, "acq_timestamp": 1000.0}
+    )
+    srv = await _start_on_port(device, port_a)
+    gw = GeecsCaGateway(
+        _config("127.0.0.1", port_a),
+        reconnect_min_s=0.1,
+        reconnect_max_s=0.2,
+        endpoint_resolver=resolver,
+    )
+    await gw.connect()
+    await gw.subscribe()
+    rb = gw.pvdb[f"{DEVICE_PV}:position"]
+    try:
+        assert await _wait_until(lambda: rb.value == pytest.approx(7.5))
+
+        # The device moves: old endpoint dies, new one appears on port B.
+        await srv.stop()
+        device2 = FakeGeecsDevice(
+            DEVICE, variables={"Position": 9.0, "acq_timestamp": 1001.0}
+        )
+        srv2 = await _start_on_port(device2, port_b)
+        endpoint["port"] = port_b
+        try:
+            assert await _wait_until(
+                lambda: int(rb.severity) == int(AlarmSeverity.NO_ALARM)
+                and rb.value == pytest.approx(9.0)
+            )
+            # The UDP set client followed the move too.
+            assert await _wait_until(lambda: gw._udp[DEVICE]._port == port_b)
+        finally:
+            await srv2.stop()
+    finally:
+        await gw.close()
+
+
+async def test_endpoint_resolver_failure_keeps_old_endpoint() -> None:
+    """A raising resolver (DB down) degrades to the pre-resolve behavior:
+    the supervisor keeps retrying the last known endpoint and still
+    recovers when the device returns there."""
+    port = _free_port()
+
+    def resolver(name: str) -> tuple[str, int]:
+        raise RuntimeError("DB unreachable")
+
+    device = FakeGeecsDevice(
+        DEVICE, variables={"Position": 7.5, "acq_timestamp": 1000.0}
+    )
+    srv = await _start_on_port(device, port)
+    gw = GeecsCaGateway(
+        _config("127.0.0.1", port),
+        reconnect_min_s=0.1,
+        reconnect_max_s=0.2,
+        endpoint_resolver=resolver,
+    )
+    await gw.connect()
+    await gw.subscribe()
+    rb = gw.pvdb[f"{DEVICE_PV}:position"]
+    try:
+        assert await _wait_until(lambda: rb.value == pytest.approx(7.5))
+        await srv.stop()
+        assert await _wait_until(
+            lambda: int(rb.severity) == int(AlarmSeverity.INVALID_ALARM)
+        )
+        # Long enough for several ceiling-rate retries, each with a failing
+        # resolve — none of which may crash the supervisor or move the dial.
+        device2 = FakeGeecsDevice(
+            DEVICE, variables={"Position": 9.0, "acq_timestamp": 1001.0}
+        )
+        srv2 = await _start_on_port(device2, port)
+        try:
+            assert await _wait_until(
+                lambda: int(rb.severity) == int(AlarmSeverity.NO_ALARM)
+                and rb.value == pytest.approx(9.0)
+            )
+        finally:
+            await srv2.stop()
+    finally:
+        await gw.close()
+
+
 async def test_value_alarm_limits_set_live_readback_severity() -> None:
     """Curated scalar limits set MINOR/MAJOR severity on live values."""
     cfg = _alarm_config()

@@ -24,6 +24,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+import socket
 import struct
 from typing import Any, Callable, Awaitable, Collection, Sequence
 
@@ -32,6 +33,49 @@ from ._coerce import coerce_scalar
 logger = logging.getLogger(__name__)
 
 Callback = Callable[[dict[str, Any]], Awaitable[None] | None]
+
+
+def _apply_keepalive(
+    sock: socket.socket, idle_s: float, interval_s: float, count: int
+) -> None:
+    """Enable TCP keepalive on *sock*, tuned where the platform allows.
+
+    Why: the subscription is read-only after the ``Wait>>`` command, so the
+    OS never sends on it — an *ungracefully* dead peer (host crash, power
+    cycle, a partition that eats the FIN/RST) leaves a half-open socket the
+    listener waits on forever, with readbacks frozen at valid-stale values
+    (live incident 2026-08-17, u_s1h; issue #611).  Keepalive probes are
+    answered by the peer's TCP stack even when the application is silent,
+    so a legitimately idle GEECS device is never disturbed — only a truly
+    dead peer fails the probes, which surfaces as a connection reset ending
+    the listener (the supervised-reconnect path).
+
+    Tuning knobs are platform-guarded: ``TCP_KEEPIDLE`` (Linux, newer
+    Windows) / ``TCP_KEEPALIVE`` (macOS) for the idle time, then
+    ``TCP_KEEPINTVL`` / ``TCP_KEEPCNT`` where present.  Where only
+    ``SO_KEEPALIVE`` exists the OS defaults apply (typically ~2 h — still
+    strictly better than never).  A tuning failure is logged and ignored;
+    it must never fail the connect.
+    """
+    try:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+    except OSError:
+        logger.warning("could not enable TCP keepalive", exc_info=True)
+        return
+    idle = max(1, round(idle_s))
+    interval = max(1, round(interval_s))
+    probes = max(1, int(count))
+    try:
+        if hasattr(socket, "TCP_KEEPIDLE"):
+            sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, idle)
+        elif hasattr(socket, "TCP_KEEPALIVE"):  # macOS spelling of the idle knob
+            sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPALIVE, idle)
+        if hasattr(socket, "TCP_KEEPINTVL"):
+            sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, interval)
+        if hasattr(socket, "TCP_KEEPCNT"):
+            sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, probes)
+    except OSError:
+        logger.warning("could not tune TCP keepalive timing", exc_info=True)
 
 
 def _compile_frame_pattern(variables: Sequence[str]) -> re.Pattern[str] | None:
@@ -80,6 +124,19 @@ class GeecsTcpSubscriber:
         Device TCP port (same as UDP port for GEECS devices).
     connect_timeout:
         Seconds allowed for the initial TCP connection.
+    keepalive:
+        Enable TCP keepalive on the connection (default True) — the OS
+        probes an idle peer, so an *ungracefully* dead one (host crash,
+        power cycle, FIN-eating partition) resets the connection instead
+        of leaving it half-open with the listener waiting forever (issue
+        #611).  Probes never disturb a live-but-quiet device, so the
+        "silence is not a drop" doctrine is preserved.
+    keepalive_idle_s, keepalive_interval_s, keepalive_count:
+        Probe timing where the platform exposes it (see
+        :func:`_apply_keepalive`): start probing after ``idle`` seconds of
+        silence, every ``interval`` seconds, declaring the peer dead after
+        ``count`` unanswered probes — defaults detect a dead peer in
+        roughly a minute.
     """
 
     def __init__(
@@ -87,10 +144,18 @@ class GeecsTcpSubscriber:
         host: str,
         port: int,
         connect_timeout: float = 5.0,
+        keepalive: bool = True,
+        keepalive_idle_s: float = 30.0,
+        keepalive_interval_s: float = 10.0,
+        keepalive_count: int = 3,
     ) -> None:
         self._host = host
         self._port = port
         self.connect_timeout = connect_timeout
+        self._keepalive = keepalive
+        self._keepalive_idle_s = keepalive_idle_s
+        self._keepalive_interval_s = keepalive_interval_s
+        self._keepalive_count = keepalive_count
 
         self._reader: asyncio.StreamReader | None = None
         self._writer: asyncio.StreamWriter | None = None
@@ -98,11 +163,20 @@ class GeecsTcpSubscriber:
         self._warned_missing_variables: set[str] = set()
 
     async def connect(self) -> None:
-        """Open the TCP connection."""
+        """Open the TCP connection (keepalive-enabled unless disabled)."""
         self._reader, self._writer = await asyncio.wait_for(
             asyncio.open_connection(self._host, self._port),
             timeout=self.connect_timeout,
         )
+        if self._keepalive:
+            sock = self._writer.get_extra_info("socket")
+            if sock is not None:
+                _apply_keepalive(
+                    sock,
+                    self._keepalive_idle_s,
+                    self._keepalive_interval_s,
+                    self._keepalive_count,
+                )
         logger.debug("TCP connected to %s:%s", self._host, self._port)
 
     async def close(self) -> None:
