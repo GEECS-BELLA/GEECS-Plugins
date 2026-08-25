@@ -63,6 +63,17 @@ class TestListing:
         listing = ConsoleConfigs("Bella").listing()
         assert listing.optimization_configs == []
 
+    def test_unreadable_experiments_root_degrades_with_message(
+        self, tmp_path, monkeypatch
+    ):
+        """An I/O failure enumerating experiments degrades, never raises."""
+        missing = tmp_path / "not-there"
+        monkeypatch.setattr(configs_module, "_configs_base", lambda: missing)
+        listing = ConsoleConfigs("HTU").listing()
+        assert listing.experiments == []
+        assert listing.save_sets == []
+        assert "unreadable" in (listing.message or "")
+
 
 class TestOptimizationSpecLoading:
     def test_new_schema_document_loads_directly(self, configs_tree):
