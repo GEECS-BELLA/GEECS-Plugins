@@ -133,3 +133,7 @@ derived_channels:
 
     assert restart is False
     assert seen["config"].derived_channels[0].device == "U_ChamberVac"
+    # The production endpoint-resolver wiring (#611) — without this pin,
+    # dropping the kwarg from _run would silently disable re-resolve in
+    # production while every gateway-level test injects its own resolver.
+    assert seen["init_kwargs"]["endpoint_resolver"] is entry._db_endpoint_resolver

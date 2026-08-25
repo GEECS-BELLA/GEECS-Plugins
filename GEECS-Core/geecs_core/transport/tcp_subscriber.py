@@ -338,6 +338,12 @@ class GeecsTcpSubscriber:
             logger.debug("TCP connection closed by server")
         except asyncio.CancelledError:
             pass
+        except OSError as exc:
+            # The ungraceful peer-death path — e.g. ConnectionResetError from
+            # a keepalive-detected dead peer (#611) or an RST from a rebooted
+            # host.  Ordinary connection loss, not "unexpected": the caller's
+            # supervisor owns the once-per-episode down logging.
+            logger.info("TCP connection to %s:%s lost: %s", self._host, self._port, exc)
         except Exception:
             logger.exception("unexpected error in TCP listener")
 

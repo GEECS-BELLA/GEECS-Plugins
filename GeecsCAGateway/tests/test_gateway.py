@@ -317,9 +317,12 @@ async def test_endpoint_re_resolve_heals_moved_device() -> None:
         srv2 = await _start_on_port(device2, port_b)
         endpoint["port"] = port_b
         try:
+            # Generous timeout: a first resolve can race the move (returning
+            # the old port) and the next one waits out the holdoff cycles.
             assert await _wait_until(
                 lambda: int(rb.severity) == int(AlarmSeverity.NO_ALARM)
-                and rb.value == pytest.approx(9.0)
+                and rb.value == pytest.approx(9.0),
+                timeout=12.0,
             )
             # The UDP set client followed the move too.
             assert await _wait_until(lambda: gw._udp[DEVICE]._port == port_b)

@@ -399,10 +399,13 @@ class GeecsCaGateway:
             try:
                 udp = self._udp.get(device_name)
                 if udp is None:
-                    # UDP bind failed at startup (see connect()) — fail the
-                    # caput with a clear cause rather than a KeyError.
+                    # No client: UDP bind failed at startup (see connect()),
+                    # or an endpoint-move rebind failed / is in flight
+                    # (_rebuild_udp) — fail the caput with a clear cause
+                    # rather than a KeyError.
                     raise GeecsConnectionError(
-                        f"{device_name}: no UDP client (bind failed at startup); "
+                        f"{device_name}: no UDP client (bind failed at startup, "
+                        f"or endpoint rebind failed/in progress); "
                         f"cannot forward set of {geecs_var!r}"
                     )
                 return await udp.set(geecs_var, value, timeout=self._set_timeout)
@@ -813,6 +816,8 @@ class GeecsCaGateway:
         # The effective endpoint — startup value until a re-resolve (below)
         # learns the device moved.
         host, port = dev.host, dev.port
+        # Ceiling cycles to skip between DB endpoint re-resolves (see below).
+        resolve_holdoff = 0
         while not self._closing:
             sub = GeecsTcpSubscriber(host, port)
             try:
@@ -869,23 +874,32 @@ class GeecsCaGateway:
             # Once the backoff hits its ceiling the outage is not a blip —
             # re-ask the DB where the device lives now, so an app that
             # re-registered on a different endpoint heals without a gateway
-            # restart (#611 adjacent gap).  Not on every retry: during a
-            # network partition the DB is likely unreachable too, and the
-            # resolve (off-loop, but bounded) must not pace the fast retries.
+            # restart (#611 adjacent gap).  Throttled twice over: never
+            # during the backoff climb (a blip must not pay a DB query, and
+            # during a partition the DB is likely down too — the bounded
+            # off-loop resolve must not pace the fast retries), and at the
+            # ceiling only every ``_ENDPOINT_RESOLVE_HOLDOFF_CYCLES``-th
+            # cycle — a device left off overnight must not hold a ~once-a-
+            # cycle MySQL connection churn open indefinitely.
             if self._endpoint_resolver is not None and backoff >= self._reconnect_max:
-                resolved = await self._resolve_endpoint(dev.name)
-                if resolved is not None and resolved != (host, port):
-                    logger.warning(
-                        "%s: endpoint moved %s:%s -> %s:%s (DB re-resolve); "
-                        "redialing there",
-                        dev.name,
-                        host,
-                        port,
-                        *resolved,
-                    )
-                    host, port = resolved
-                    await self._rebuild_udp(dev.name, host, port)
-                    backoff = self._reconnect_min  # dial the new endpoint promptly
+                if resolve_holdoff > 0:
+                    resolve_holdoff -= 1
+                else:
+                    resolve_holdoff = self._ENDPOINT_RESOLVE_HOLDOFF_CYCLES
+                    resolved = await self._resolve_endpoint(dev.name)
+                    if resolved is not None and resolved != (host, port):
+                        logger.warning(
+                            "%s: endpoint moved %s:%s -> %s:%s (DB re-resolve); "
+                            "redialing there",
+                            dev.name,
+                            host,
+                            port,
+                            *resolved,
+                        )
+                        host, port = resolved
+                        await self._rebuild_udp(dev.name, host, port)
+                        backoff = self._reconnect_min  # dial the new one promptly
+                        resolve_holdoff = 0
             await asyncio.sleep(backoff)
             backoff = min(backoff * 2, self._reconnect_max)
 
@@ -893,6 +907,12 @@ class GeecsCaGateway:
     #: MySQL round trip, small enough that an unreachable DB (partitions take
     #: the DB down with the devices) cannot stall a supervisor for long.
     _ENDPOINT_RESOLVE_TIMEOUT_S = 10.0
+
+    #: Ceiling cycles between DB endpoint re-resolves per down device — at the
+    #: default 30 s ceiling this is one MySQL query per ~5 min per device, so
+    #: a rack left off overnight costs a trickle, not a per-cycle connection
+    #: churn (each ``GeecsDb`` query opens a fresh connection).
+    _ENDPOINT_RESOLVE_HOLDOFF_CYCLES = 10
 
     async def _resolve_endpoint(self, device_name: str) -> tuple[str, int] | None:
         """Re-query the device's endpoint off-loop; ``None`` keeps the old one.
