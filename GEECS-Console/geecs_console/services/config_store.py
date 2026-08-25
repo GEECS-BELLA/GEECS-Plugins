@@ -7,10 +7,13 @@ trigger profiles, the scan-variable catalog, and the action library.
 selection, configs-root and folder resolution, the experiment-name guard,
 and safe YAML read/write with status-bar-ready errors.
 :class:`NamedConfigStore` adds the file-per-name surface (name validation,
-``.yml`` twin fallback, sorted listing, delete) the preset / save-set /
-trigger-profile trio share.  Each concrete store keeps its own error
-class, folder constants, and schema-specific load/save logic in its own
-module.
+``.yml`` twin fallback, delete) the preset / save-set / trigger-profile
+trio share; its listing delegates to ``ConfigsRepoResolver``'s public
+listing methods (the one folder-scan implementation, #666 — each subclass
+names its method via :attr:`NamedConfigStore.RESOLVER_LISTING`).  Each
+concrete store keeps its own error class and schema-specific load/save
+logic in its own module; folder names come from the resolver's class
+constants.
 
 Directory creation policy — the canonical statement for every store:
 creating a config directory with ``mkdir(parents=True, exist_ok=True)``
@@ -24,8 +27,8 @@ module namespace: every store module imports ``_configs_base`` from
 reads that binding at call time — so tests can monkeypatch
 ``<store module>._configs_base`` per store, exactly as before the
 extraction.  (This module deliberately does not import
-:mod:`~geecs_console.services.configs`, which imports :func:`yaml_stems`
-from here.)
+:mod:`~geecs_console.services.configs` — the dependency runs the other
+way for the ``_configs_base`` seam.)
 """
 
 from __future__ import annotations
@@ -44,26 +47,6 @@ _CONFIGS_REPO_MISSING = (
     "config.ini [Paths] scanner_config_root_path."
 )
 _NO_EXPERIMENT = "No experiment selected."
-
-
-def yaml_stems(folder: Path) -> list[str]:
-    """List the YAML file stems in *folder*, sorted; empty when absent.
-
-    Parameters
-    ----------
-    folder : Path
-        The directory to scan (need not exist).
-
-    Returns
-    -------
-    list of str
-        Sorted stems of the ``.yaml``/``.yml`` files in *folder*.
-    """
-    if not folder.is_dir():
-        return []
-    return sorted(
-        path.stem for path in folder.iterdir() if path.suffix in (".yaml", ".yml")
-    )
 
 
 class ExperimentConfigStore:
@@ -272,6 +255,10 @@ class NamedConfigStore(ExperimentConfigStore):
     LABEL: str
     """The message label for not-found/delete texts (e.g. ``"Trigger profile"``)."""
 
+    RESOLVER_LISTING: str
+    """The ``ConfigsRepoResolver`` listing method for this store's config kind
+    (e.g. ``"list_presets"``) — :meth:`list_names` delegates to it."""
+
     def _path(self, name: str) -> Path:
         """Return the YAML path for config *name*, validating the name.
 
@@ -335,6 +322,12 @@ class NamedConfigStore(ExperimentConfigStore):
     def list_names(self) -> list[str]:
         """List the saved config names, sorted.
 
+        Delegates the folder scan to ``ConfigsRepoResolver``'s public
+        listing method (:attr:`RESOLVER_LISTING`), built over the same
+        experiments root this store resolves — so the resolver scans
+        exactly the tree the store reads and writes, the
+        ``_configs_base`` monkeypatch seam included.
+
         Returns
         -------
         list of str
@@ -347,10 +340,12 @@ class NamedConfigStore(ExperimentConfigStore):
             The store's :attr:`ERROR` when the experiment name would escape
             the experiments root; a merely *missing* folder is not an error.
         """
-        folder = self._folder()
-        if folder is None:
+        if self._folder() is None:
             return []
-        return yaml_stems(folder)
+        from geecs_bluesky.config_resolver import ConfigsRepoResolver
+
+        resolver = ConfigsRepoResolver(self._experiment, experiments_root=self._root())
+        return getattr(resolver, self.RESOLVER_LISTING)()
 
     def delete(self, name: str) -> None:
         """Delete config *name*.

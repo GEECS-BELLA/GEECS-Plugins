@@ -29,11 +29,14 @@ from pathlib import Path
 import yaml
 from pydantic import ValidationError
 
+# A light import chain (yaml + pydantic models) — safe at module level;
+# the folder name has one owner, the resolver's class constant.
+from geecs_bluesky.config_resolver import ConfigsRepoResolver
 from geecs_console.services.config_store import NamedConfigStore
 
 # The base resolves the configs root through this module's namespace, so
 # tests can monkeypatch ``trigger_profile_store._configs_base``.
-from geecs_console.services.configs import TRIGGER_FOLDER, _configs_base  # noqa: F401
+from geecs_console.services.configs import _configs_base  # noqa: F401
 from geecs_schemas import TriggerProfile
 from geecs_schemas.convert import SchemaConversionError, convert_shot_control
 
@@ -47,10 +50,11 @@ class TriggerProfileStoreError(RuntimeError):
 class TriggerProfileStore(NamedConfigStore):
     """Load/save named trigger profiles for one experiment."""
 
-    FOLDER = TRIGGER_FOLDER
+    FOLDER = ConfigsRepoResolver.TRIGGER_FOLDER
     NOUN = "Profile"
     LABEL = "Trigger profile"
     ERROR = TriggerProfileStoreError
+    RESOLVER_LISTING = "list_trigger_profiles"
 
     def _read_document(self, name: str) -> tuple[dict, Path]:
         """Read profile *name*'s raw YAML mapping (shared by load/is_legacy).
