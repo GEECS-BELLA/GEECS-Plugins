@@ -18,7 +18,9 @@ from scan_analysis.task_queue import (
     STATUS_DIR_NAME,
     TaskStatus,
     _is_stale,
+    analyzer_task_id,
     build_worklist,
+    claim_is_active,
     extract_scan_number,
     init_status_for_scan,
     read_statuses,
@@ -169,6 +171,223 @@ class TestIsStale:
             last_heartbeat=None,
         )
         assert _is_stale(ts, self.now)
+
+
+class TestResetClearsStaleFields:
+    def test_reset_writes_a_genuinely_fresh_queued_record(self, tmp_path, monkeypatch):
+        """Reset must clear error/claim/heartbeat, not just flip the state —
+        update_status's keep-on-None semantics silently defeated the old
+        implementation, leaving the stale error to survive onto the
+        rerun's done row."""
+        from scan_analysis.task_queue import reset_status_for_scan
+
+        scan_folder = tmp_path / "Scan042"
+        scan_folder.mkdir()
+        _write_status(
+            scan_folder / STATUS_DIR_NAME,
+            TaskStatus(
+                analyzer_id="diag",
+                priority=7,
+                state="failed",
+                error="old failure",
+                claimed_by="dead-runner",
+                claimed_at="2026-08-22T00:00:00+00:00",
+                last_heartbeat="2026-08-22T00:00:00+00:00",
+            ),
+        )
+        import scan_analysis.task_queue as tq
+
+        monkeypatch.setattr(
+            tq.ScanPaths,
+            "get_scan_folder_path",
+            staticmethod(lambda tag, base_directory=None: scan_folder),
+        )
+        tag = ScanTag(year=2025, month=1, day=1, number=42, experiment="Test")
+        reset_status_for_scan(
+            tag,
+            [SimpleNamespace(id="diag", priority=7)],
+            states_to_reset=("failed",),
+        )
+        (status,) = read_statuses(scan_folder)
+        assert status.state == "queued"
+        assert status.priority == 7
+        assert status.error is None
+        assert status.claimed_by is None
+        assert status.claimed_at is None
+        assert status.last_heartbeat is None
+
+
+class TestClaimGate:
+    """The atomic per-task claim gate (#690 P1: no double-run)."""
+
+    def _folder(self, tmp_path: Path) -> Path:
+        scan_folder = tmp_path / "Scan042"
+        (scan_folder / STATUS_DIR_NAME).mkdir(parents=True)
+        return scan_folder
+
+    def test_exclusive_second_acquire_fails(self, tmp_path):
+        from scan_analysis.task_queue import release_claim, try_acquire_claim
+
+        folder = self._folder(tmp_path)
+        assert try_acquire_claim(folder, "diag", "host:1")
+        assert not try_acquire_claim(folder, "diag", "host:2")
+        release_claim(folder, "diag")
+        assert try_acquire_claim(folder, "diag", "host:2")
+
+    def test_stale_holder_lock_is_broken(self, tmp_path):
+        import os as os_mod
+
+        from scan_analysis.task_queue import try_acquire_claim
+
+        folder = self._folder(tmp_path)
+        lock = folder / STATUS_DIR_NAME / "diag.claim"
+        lock.write_text("dead-host:9 2026-08-22T00:00:00+00:00\n")
+        old = datetime.now(timezone.utc).timestamp() - (CLAIM_STALE_AFTER_SECONDS + 60)
+        os_mod.utime(lock, (old, old))
+        assert try_acquire_claim(folder, "diag", "host:2")
+
+    def test_lock_with_live_status_claim_is_respected(self, tmp_path):
+        from scan_analysis.task_queue import try_acquire_claim
+
+        folder = self._folder(tmp_path)
+        (folder / STATUS_DIR_NAME / "diag.claim").write_text("other\n")
+        _write_status(
+            folder / STATUS_DIR_NAME,
+            TaskStatus(
+                analyzer_id="diag",
+                priority=0,
+                state="claimed",
+                last_heartbeat=_iso(datetime.now(timezone.utc)),
+            ),
+        )
+        assert not try_acquire_claim(folder, "diag", "host:2")
+
+    def test_missing_scan_folder_never_created(self, tmp_path):
+        from scan_analysis.task_queue import try_acquire_claim
+
+        missing = tmp_path / "Scan777"
+        assert not try_acquire_claim(missing, "diag", "host:1")
+        assert not missing.exists()  # the invariant: never create
+
+    def test_break_is_single_breaker(self, tmp_path):
+        """A live breaker sentinel makes a second breaker back off — the
+        two-breaker TOCTOU (B unlinking A's fresh lock) is closed."""
+        import os as os_mod
+
+        from scan_analysis.task_queue import try_acquire_claim
+
+        folder = self._folder(tmp_path)
+        lock = folder / STATUS_DIR_NAME / "diag.claim"
+        lock.write_text("dead-host:9\n")
+        old = datetime.now(timezone.utc).timestamp() - (CLAIM_STALE_AFTER_SECONDS + 60)
+        os_mod.utime(lock, (old, old))
+        # A live breaker holds the sentinel right now:
+        (folder / STATUS_DIR_NAME / "diag.claim.breaking").write_text("breaker\n")
+        assert not try_acquire_claim(folder, "diag", "host:2")
+        assert lock.exists()  # nothing was unlinked by the loser
+
+    def test_crashed_breaker_sentinel_is_broken_by_age(self, tmp_path):
+        import os as os_mod
+
+        from scan_analysis.task_queue import try_acquire_claim
+
+        folder = self._folder(tmp_path)
+        lock = folder / STATUS_DIR_NAME / "diag.claim"
+        sentinel = folder / STATUS_DIR_NAME / "diag.claim.breaking"
+        lock.write_text("dead-host:9\n")
+        sentinel.write_text("dead-breaker\n")
+        old = datetime.now(timezone.utc).timestamp() - (CLAIM_STALE_AFTER_SECONDS + 60)
+        os_mod.utime(lock, (old, old))
+        os_mod.utime(sentinel, (old, old))
+        assert try_acquire_claim(folder, "diag", "host:2")
+        assert not sentinel.exists()  # cleaned up on the way through
+
+    def test_breaker_respects_a_lock_that_went_fresh(self, tmp_path):
+        """The sentinel-held re-check: a lock re-created (fresh mtime)
+        between the caller's staleness stat and the break must survive."""
+        from scan_analysis.task_queue import _break_stale_lock
+
+        folder = self._folder(tmp_path)
+        lock = folder / STATUS_DIR_NAME / "diag.claim"
+        lock.write_text("live-holder\n")  # fresh mtime = now
+        assert not _break_stale_lock(lock)
+        assert lock.exists()
+
+    def test_run_worklist_skips_a_task_another_runner_holds(
+        self, tmp_path, monkeypatch
+    ):
+        """The end-to-end pin for the #690 double-run race: a held claim
+        gate makes run_worklist skip the task without touching it."""
+        from scan_analysis.task_queue import run_worklist, try_acquire_claim
+
+        scan_folder = self._folder(tmp_path)
+        _write_status(
+            scan_folder / STATUS_DIR_NAME,
+            TaskStatus(analyzer_id="diag", priority=1, state="queued"),
+        )
+        import scan_analysis.task_queue as tq
+
+        monkeypatch.setattr(
+            tq.ScanPaths,
+            "get_scan_folder_path",
+            staticmethod(lambda tag, base_directory=None: scan_folder),
+        )
+        assert try_acquire_claim(scan_folder, "diag", "other-runner:1")
+
+        ran: list[str] = []
+        analyzer = SimpleNamespace(
+            id="diag",
+            priority=1,
+            device_name="diag",
+            run_analysis=lambda tag: ran.append("ran"),
+            cleanup=lambda: None,
+        )
+        tag = ScanTag(year=2025, month=1, day=1, number=42, experiment="Test")
+        run_worklist([(1, tag, analyzer)])
+        assert ran == []  # skipped — the other runner owns the claim
+        (status,) = read_statuses(scan_folder)
+        assert status.state == "queued"  # untouched
+
+
+class TestPublicQueueHelpers:
+    """The exported helpers external queue clients consume (#686)."""
+
+    def test_claim_is_active_is_the_inverse_of_stale_for_claims(self):
+        fresh = TaskStatus(
+            analyzer_id="a",
+            priority=0,
+            state="claimed",
+            last_heartbeat=_iso(datetime.now(timezone.utc)),
+        )
+        stale = TaskStatus(analyzer_id="a", priority=0, state="claimed")
+        queued = TaskStatus(analyzer_id="a", priority=0, state="queued")
+        assert claim_is_active(fresh)
+        assert not claim_is_active(stale)
+        assert not claim_is_active(queued)
+
+    def test_analyzer_task_id_derivation_chain(self):
+        assert analyzer_task_id(SimpleNamespace(id="my_diag")) == "my_diag"
+        assert analyzer_task_id(SimpleNamespace(device_name="UC_Cam")) == "UC_Cam"
+        empty = SimpleNamespace(id="", device_name="UC_Cam")
+        assert analyzer_task_id(empty) == "SimpleNamespace_UC_Cam"
+
+    def test_analyzer_task_id_matches_what_init_writes(self, tmp_path, monkeypatch):
+        """The exported derivation and init_status_for_scan agree — the
+        drift this export exists to prevent."""
+        scan_folder = tmp_path / "Scan042"
+        scan_folder.mkdir()
+        import scan_analysis.task_queue as tq
+
+        monkeypatch.setattr(
+            tq.ScanPaths,
+            "get_scan_folder_path",
+            staticmethod(lambda tag, base_directory=None: scan_folder),
+        )
+        tag = ScanTag(year=2025, month=1, day=1, number=42, experiment="Test")
+        analyzer = SimpleNamespace(id="pin_check", priority=3)
+        init_status_for_scan(tag, [analyzer], base_directory=tmp_path)
+        (status,) = read_statuses(scan_folder)
+        assert status.analyzer_id == analyzer_task_id(analyzer)
 
 
 # ---------------------------------------------------------------------------

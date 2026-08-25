@@ -19,6 +19,9 @@ VALIDATE_SCAN_REQUEST = "validate_scan_request"
 SCAN_PROGRESS = "scan_progress"
 GET_SCAN_ANALYSIS = "get_scan_analysis"
 GET_SCAN_FIGURE = "get_scan_figure"
+LIST_ANALYZERS = "list_analyzers"
+LIST_ANALYSIS_GROUPS = "list_analysis_groups"
+RUN_SCAN_ANALYSIS = "run_scan_analysis"
 SUBMIT_SCAN = "submit_scan"
 STOP_SCAN = "stop_scan"
 CLEAR_QUEUE = "clear_queue"
@@ -40,6 +43,8 @@ READ_TOOLS = (
     SCAN_PROGRESS,
     GET_SCAN_ANALYSIS,
     GET_SCAN_FIGURE,
+    LIST_ANALYZERS,
+    LIST_ANALYSIS_GROUPS,
     DESCRIBE_ACTION,
 )
 
@@ -49,12 +54,17 @@ READ_TOOLS = (
 #: below / DEPLOYMENT.md).  resume_scan is Q, not S: it *restarts*
 #: motion/acquisition (and retries the failed move), so it belongs
 #: behind the headless gate like any other go verb.
+#: run_scan_analysis is Q by effect, not by queueing semantics: it writes
+#: to the data share (analysis outputs + analysis_status/ inside an
+#: EXISTING scan folder) and burns CPU on the box shared with the
+#: production manager (#686).
 QUEUE_TOOLS = (
     SUBMIT_SCAN,
     CLEAR_QUEUE,
     RUN_ACTION,
     MOVE_SCAN_VARIABLE,
     RESUME_SCAN,
+    RUN_SCAN_ANALYSIS,
 )
 
 #: Stop direction (S) — `ask` only, and NEVER listed in `write_tools`:

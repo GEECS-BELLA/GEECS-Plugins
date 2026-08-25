@@ -4,6 +4,62 @@ All notable changes to `geecs-mcp` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.7.0] - 2026-08-24
+
+### Added
+
+- **The analysis-domain execution slice** (issue #686, owner request —
+  restores the post-migration-dormant analysis capability through the
+  new architecture; ScanAnalysis as-is is the backend by owner decision
+  2026-08-24, with the verb surface kept backend-neutral and
+  `analysis_status/` as the progress contract so the Tiled-based stack
+  can slot in behind the same tools later):
+  - `run_scan_analysis(scan_number, day?, analyzer|group, rerun_failed,
+    rerun_completed)` — Q-class (native `ask` + `write_tools`),
+    submit-and-poll: validates everything refusable *before* side
+    effects (exactly-one selector, configs root, the scan folder EXISTS
+    — the cross-package invariant, pinned by a nothing-created test —
+    and the analyzers construct on this host, so a Windows-only-SDK
+    diagnostic is refused up front instead of half-running), initializes
+    the status YAMLs server-side (a dead worker leaves visible queued
+    rows, never silence), then spawns a detached worker subprocess
+    (`analysis/run_worker.py`) driving ScanAnalysis's own task queue
+    (claim/heartbeat/stale-reclaim).  Poll with the existing
+    `get_scan_analysis`; figures via `get_scan_figure`.  Google-Doc
+    upload stays hard-off.
+  - `list_analyzers` / `list_analysis_groups` — R-class listings over
+    the configs repo's `analyzers/`/`groups/` trees
+    (`discover_analyzers`/`discover_groups`), so agents name
+    diagnostics instead of guessing (payload-capped, truncation
+    flagged).
+  - New optional `analysis-run` extra (ScanAnalysis path dep — heavy
+    via ImageAnalysis, hence an extra mirroring GeecsBluesky's
+    pattern); without it the three tools refuse naming the extra and
+    the server starts normally.  New consumed config:
+    `SCAN_ANALYSIS_CONFIG_DIR` / `[Paths] scan_analysis_configs_path`
+    (see `deploy/DEPLOYMENT.md`).
+  - **The pre-claim double-start window is closed** (Codex P1): the
+    realistic vector — a second call into this server while the first
+    worker is still importing its stack — refuses via an in-process
+    dispatch ledger (side-effect-free, before any status write; entries
+    expire when the pid dies, the tasks leave `queued`, or after the
+    queue's own 180 s staleness bound), and the cross-process backstop
+    is ScanAnalysis 1.16.0's atomic claim gate in `run_worklist` (a
+    losing worker skips the task instead of double-running it).
+  - Review-hardened status semantics (adversarial findings 1–2): the
+    rerun flags reset `failed`/`done` (and stale-claimed) rows to
+    queued *server-side* (`reset_status_for_scan`), so the dead-worker
+    visibility contract holds on every path; a task another runner is
+    actively working (fresh heartbeat — ScanAnalysis 1.16.0's
+    `claim_is_active`) refuses the call (`policy_refusal`) instead of
+    double-running into the same output files; the envelope reports
+    `tasks` (what this call runs) vs `skipped` (done/failed without
+    their rerun flag), and an all-skipped call is an honest
+    `started: false` no-op with no worker spawned.  Task ids come from
+    ScanAnalysis's exported `analyzer_task_id` (no mirrored
+    derivation), and the server-side validation builds analyzers
+    through the same `run_worker.build_analyzers` the worker executes.
+
 ## [0.6.0] - 2026-08-24
 
 Payload discipline for figures (osprey-side integration finding: an

@@ -215,6 +215,14 @@ Enables multiple `LiveTaskRunner` processes to divide work without conflicts.
 4. A claimed task is considered **stale** after 180s without a heartbeat update
 5. Other runners can re-claim stale tasks — safe parallelism without a central
    coordinator
+6. **Claims are atomic since 1.16.0** (`try_acquire_claim`/`release_claim`,
+   an `O_CREAT|O_EXCL` lock file at `analysis_status/<id>.claim` —
+   invisible to status readers, which glob `*.yaml`): two runners whose
+   worklists both saw `queued` can no longer double-run one task
+   (previously a pure check-then-claim race; surfaced when GEECS-MCP's
+   `run_scan_analysis` began spawning workers at call time, #690).
+   Liveness stays in the status heartbeat (`claim_is_active`, public);
+   a dead holder's lock is broken automatically
 
 ### `TaskStatus` fields
 

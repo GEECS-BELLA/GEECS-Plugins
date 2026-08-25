@@ -3,6 +3,54 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.16.0] — 2026-08-24
+
+### Added
+
+- Two public task-queue helpers for external queue clients (the
+  GEECS-MCP `run_scan_analysis` verb, #686 — the first out-of-package
+  status *writer* consumer): `task_queue.analyzer_task_id(analyzer)` —
+  THE status-file id derivation, now called by all four internal sites
+  (init/reset/build/run) instead of four inlined copies — and
+  `task_queue.claim_is_active(status, now=None)` — the public face of
+  the claim-staleness rule (`CLAIM_STALE_AFTER_SECONDS`), so clients
+  refusing to double-run an actively-claimed task never re-derive the
+  timestamp semantics.  Pure refactor + exports; behavior unchanged,
+  pinned by `TestPublicQueueHelpers`.
+
+- **Atomic per-task claim gate in `run_worklist`** (#690 review, Codex
+  P1: two runners whose worklists both saw `queued` would each
+  overwrite the status to `claimed` and run the same analyzer into the
+  same output files — the check-then-claim was a pure race, and the MCP
+  verb spawns workers at call time).  `try_acquire_claim` /
+  `release_claim` (both public): an `O_CREAT|O_EXCL` lock file at
+  `analysis_status/<id>.claim` — the "future multi-app can add lock
+  files" extension the module docstring reserved.  Exactly one runner
+  passes per task; a loser skips with a log line.  Liveness stays in
+  the status heartbeat (`claim_is_active`), with the lock's own mtime
+  covering the instant before the claimed row lands; a dead holder's
+  lock is broken.  Lock files are invisible to status readers
+  (`read_statuses` globs `*.yaml`).  The gate never creates a missing
+  scan folder (invariant pinned).  Pinned by `TestClaimGate`, incl. an
+  end-to-end run_worklist skip.
+
+### Fixed
+
+- `reset_status_for_scan` now writes a genuinely fresh queued record:
+  it previously routed the reset through `update_status`, whose
+  keep-on-None semantics silently kept the stale `error`,
+  `claimed_by`, `claimed_at`, and `last_heartbeat` fields on the
+  re-queued row — and the old error text then survived onto the
+  rerun's `done` row (found by #690's adversarial review path).
+  Priority still carries over; pinned by
+  `TestResetClearsStaleFields`.  Two deliberate consequences: the
+  fresh record drops `display_files` for the re-queued window (a
+  re-queued task genuinely has no current outputs), and the direct
+  write means a scan folder vanishing mid-reset (SMB blip) now raises
+  to the caller instead of `update_status`'s log-and-skip — nothing is
+  created either way (the invariant holds), but callers driving reset
+  in a loop should expect the exception.
+
 ## [1.15.1] — 2026-07-16
 
 ### Changed

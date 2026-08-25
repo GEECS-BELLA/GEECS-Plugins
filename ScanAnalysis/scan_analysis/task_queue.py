@@ -1,10 +1,14 @@
 """
 Lightweight task queue for scan analysis.
 
-Single-app assumptions:
-- No cross-process locking (safe to run one app). Future multi-app can add lock files.
+Assumptions:
 - Per-scan status files stored under `<scan_folder>/analysis_status/<analyzer_id>.yaml`.
 - Worklist sorted by (priority, scan_number).
+- Claims are cross-process exclusive since 1.16.0: `run_worklist` passes
+  each task through the `try_acquire_claim` gate (an O_EXCL lock file
+  beside the status YAML), so concurrent runners — the MCP verb's
+  detached workers, a future fleet — never double-run one task; liveness
+  stays in the status heartbeat, and a dead holder's lock is broken.
 
 States: queued -> claimed -> done/failed/no_data.
 """
@@ -17,6 +21,7 @@ import re
 import socket
 import tempfile
 import threading
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -136,6 +141,231 @@ def _is_stale(status: TaskStatus, now: datetime) -> bool:
     return (now - last).total_seconds() > CLAIM_STALE_AFTER_SECONDS
 
 
+def claim_is_active(status: TaskStatus, now: Optional[datetime] = None) -> bool:
+    """True when *status* is a claimed task whose runner looks alive.
+
+    The public face of the staleness rule (heartbeat/claim age vs
+    ``CLAIM_STALE_AFTER_SECONDS``) for external queue clients — e.g. the
+    GEECS-MCP ``run_scan_analysis`` verb refuses to double-run a task
+    another runner is actively working (#686) — so consumers never
+    re-derive the timestamp semantics.
+
+    Parameters
+    ----------
+    status : TaskStatus
+        The task status to inspect.
+    now : datetime, optional
+        Reference time (aware, UTC); defaults to the current time.
+
+    Returns
+    -------
+    bool
+        True for a claimed task with a fresh heartbeat; False for any
+        other state, and for a claimed task gone stale (reclaimable).
+    """
+    return status.state == "claimed" and not _is_stale(
+        status, now or datetime.now(timezone.utc)
+    )
+
+
+def analyzer_task_id(analyzer: object) -> str:
+    """The status-file id for *analyzer* — THE one derivation.
+
+    Every id-consuming site (init/reset/build/run and external clients
+    such as GEECS-MCP) must call this rather than restating the
+    fallback chain — mirrored copies of this shape have shipped drift
+    before.
+
+    Parameters
+    ----------
+    analyzer : object
+        A ScanAnalyzer-like object (``id``/``device_name`` attributes
+        honored, class-name fallback otherwise).
+
+    Returns
+    -------
+    str
+        The id used for ``analysis_status/<id>.yaml``.
+    """
+    analyzer_id = getattr(analyzer, "id", getattr(analyzer, "device_name", "unknown"))
+    return analyzer_id or (
+        f"{analyzer.__class__.__name__}_{getattr(analyzer, 'device_name', '')}"
+    )
+
+
+def _claim_lock_path(scan_folder: Path, analyzer_id: str) -> Path:
+    return _status_dir(scan_folder) / f"{analyzer_id}.claim"
+
+
+def _break_stale_lock(lock: Path) -> bool:
+    """Break a stale claim lock under a single-breaker sentinel.
+
+    A bare re-stat-then-unlink cannot close the two-breaker race (breaker
+    B stats the old stale lock, breaker A unlinks it and creates a fresh
+    one, B then unlinks A's *live* lock — both acquire).  So breaking is
+    itself exclusive: only the ``O_EXCL`` creator of ``<lock>.breaking``
+    may unlink, and it re-checks the lock's age *while holding the
+    sentinel* — a lock that became fresh meanwhile is respected.  A
+    crashed breaker's sentinel is itself broken by age (the recursion
+    grounds here: the sentinel lives milliseconds, so an old one is
+    certainly dead, and its breaker only ever removes a *stale* main
+    lock).
+
+    Accepted floor (review round 5, do not engineer further): POSIX/SMB
+    offer no compare-and-remove primitive over path names, so *any*
+    check-then-remove scheme retains a syscall-granularity window in
+    which a cleaner acts on a path whose file was just recreated.  Here
+    that residue requires a breaker killed inside its milliseconds-wide
+    sentinel window, plus 180 s elapsing, plus two independent
+    syscall-granularity straddles in cascade — and even then each holder
+    re-checks the main lock's age before removing it and final admission
+    is the main-lock ``O_EXCL``.  Further rounds of the same pattern
+    cannot reach zero; the same class covers the standard unfenced-lease
+    hazard (a holder stalling past the heartbeat window can be reclaimed
+    and later resume).
+
+    Returns
+    -------
+    bool
+        True when the path is clear for an acquire attempt (the stale
+        lock was removed, or was already gone); False when another
+        breaker holds the sentinel or the lock turned out to be live.
+    """
+    sentinel = Path(str(lock) + ".breaking")
+    try:
+        sentinel_age = time.time() - sentinel.stat().st_mtime
+    except OSError:
+        pass  # no sentinel — proceed to claim it
+    else:
+        if sentinel_age <= CLAIM_STALE_AFTER_SECONDS:
+            return False  # a live breaker owns this — back off
+        # A crashed breaker's leftover.  Removed by ATOMIC RENAME to a
+        # unique tombstone, not unlink: a bare check-then-unlink here
+        # would repeat the TOCTOU one level up (two cleaners both
+        # stat-stale, the slow one unlinking the fast one's *fresh*
+        # sentinel — the cascade the round-5 review constructed).  Rename
+        # admits exactly one winner; the loser's rename raises and backs
+        # off.
+        tomb = Path(f"{sentinel}.{os.getpid()}.{time.monotonic_ns()}")
+        try:
+            sentinel.rename(tomb)
+        except OSError:
+            return False  # lost the cleanup race — back off
+        try:
+            tomb.unlink()
+        except OSError:
+            pass
+    try:
+        fd = os.open(str(sentinel), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except OSError:
+        return False  # lost the sentinel race — back off
+    try:
+        os.close(fd)
+        try:
+            lock_age = time.time() - lock.stat().st_mtime
+        except OSError:
+            return True  # lock already gone — path clear
+        if lock_age <= CLAIM_STALE_AFTER_SECONDS:
+            return False  # re-acquired while we raced here — respect it
+        try:
+            lock.unlink()
+        except FileNotFoundError:
+            pass
+        except OSError:
+            return False
+        return True
+    finally:
+        try:
+            sentinel.unlink()
+        except OSError:
+            pass
+
+
+def try_acquire_claim(scan_folder: Path, analyzer_id: str, owner: str) -> bool:
+    """Atomically acquire the exclusive claim gate for one task.
+
+    The check-then-claim in :func:`run_worklist` used to be a pure race:
+    two runners whose worklists both saw ``queued`` would each overwrite
+    the status to ``claimed`` and run the same analyzer into the same
+    output files (surfaced by the #690 review — the MCP verb spawns
+    workers at call time, so near-simultaneous calls hit the window the
+    old polling fleet rarely did).  The gate is an ``O_CREAT | O_EXCL``
+    lock file at ``analysis_status/<id>.claim`` — exactly the "future
+    multi-app can add lock files" extension this module's docstring
+    reserved.
+
+    Liveness stays where it always was — the STATUS row's heartbeat: on a
+    lock collision the holder counts as alive while
+    :func:`claim_is_active` says so, or (covering the instant between
+    lock-acquire and the claimed-status write) while the lock file itself
+    is younger than ``CLAIM_STALE_AFTER_SECONDS``.  A dead holder's lock
+    is broken and the acquire retried once.
+
+    Parameters
+    ----------
+    scan_folder : Path
+        The scan folder (must already exist — never created here).
+    analyzer_id : str
+        The task id (the status-file stem).
+    owner : str
+        Identifier written into the lock file (host:pid), for forensics.
+
+    Returns
+    -------
+    bool
+        True when this caller now holds the claim gate; False when a
+        live runner holds it (skip the task) or the scan folder is not
+        visible.
+    """
+    if not _require_scan_folder(scan_folder):
+        return False
+    _status_dir(scan_folder).mkdir(exist_ok=True)
+    lock = _claim_lock_path(scan_folder, analyzer_id)
+    for attempt in (0, 1):
+        try:
+            fd = os.open(str(lock), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            with os.fdopen(fd, "w") as f:
+                f.write(f"{owner} {datetime.now(timezone.utc).isoformat()}\n")
+            return True
+        except FileExistsError:
+            if attempt:
+                return False
+            status_path = _status_path(scan_folder, analyzer_id)
+            if status_path.exists() and claim_is_active(
+                TaskStatus.from_file(status_path)
+            ):
+                return False
+            try:
+                # No live claim in the status row: alive only if the lock
+                # itself is fresh (its holder may not have written the
+                # claimed row yet).  mtime vs local clock tolerates the
+                # usual cross-machine skew at the 180 s threshold.
+                age = time.time() - lock.stat().st_mtime
+            except OSError:
+                continue  # lock vanished under us — retry the acquire
+            if age <= CLAIM_STALE_AFTER_SECONDS:
+                return False
+            logger.warning(
+                "breaking stale claim lock %s (age %.0fs, holder dead)", lock, age
+            )
+            if not _break_stale_lock(lock):
+                return False  # another breaker owns it, or it went live
+        except OSError:
+            logger.warning("could not create claim lock %s", lock, exc_info=True)
+            return False
+    return False
+
+
+def release_claim(scan_folder: Path, analyzer_id: str) -> None:
+    """Release the claim gate taken by :func:`try_acquire_claim` (idempotent)."""
+    try:
+        _claim_lock_path(scan_folder, analyzer_id).unlink()
+    except FileNotFoundError:
+        pass
+    except OSError:
+        logger.debug("could not remove claim lock for %s", analyzer_id, exc_info=True)
+
+
 def _write_atomic(path: Path, content: str) -> None:
     """Write content to path, atomically where the OS supports it.
 
@@ -184,14 +414,7 @@ def init_status_for_scan(
     status_dir.mkdir(exist_ok=True)
 
     for analyzer in analyzers:
-        analyzer_id = getattr(
-            analyzer, "id", getattr(analyzer, "device_name", "unknown")
-        )
-        # If analyzer objects have no id, fall back to class name + device
-        analyzer_id = (
-            analyzer_id
-            or f"{analyzer.__class__.__name__}_{getattr(analyzer, 'device_name', '')}"
-        )
+        analyzer_id = analyzer_task_id(analyzer)
         path = _status_path(scan_folder, analyzer_id)
         if path.exists():
             continue
@@ -361,13 +584,7 @@ def reset_status_for_scan(
     )
     statuses = {s.analyzer_id: s for s in read_statuses(scan_folder)}
     for analyzer in analyzers:
-        analyzer_id = getattr(
-            analyzer, "id", getattr(analyzer, "device_name", "unknown")
-        )
-        analyzer_id = (
-            analyzer_id
-            or f"{analyzer.__class__.__name__}_{getattr(analyzer, 'device_name', '')}"
-        )
+        analyzer_id = analyzer_task_id(analyzer)
         if analyzer_id in skip_ids:
             continue
         if only_ids is not None and analyzer_id not in only_ids:
@@ -380,15 +597,17 @@ def reset_status_for_scan(
                 if not _is_stale(st, now):
                     # Live claimed task – do not reset to queued.
                     continue
-            update_status(
-                scan_folder,
-                analyzer_id,
-                priority=st.priority,
-                state="queued",
-                error=None,
-                claimed_by=None,
-                claimed_at=None,
-                last_heartbeat=None,
+            # A fresh queued record, written directly: update_status treats
+            # None as "keep current", so routing the reset through it left
+            # the stale error/claimed_by/heartbeat fields on the re-queued
+            # row (and the old error then survived onto the rerun's done
+            # row).  Only the priority carries over.
+            fresh = TaskStatus(
+                analyzer_id=analyzer_id, priority=st.priority, state="queued"
+            )
+            _write_atomic(
+                _status_path(scan_folder, analyzer_id),
+                yaml.safe_dump(fresh.to_dict()),
             )
 
 
@@ -417,13 +636,7 @@ def build_worklist(
         )
         statuses = {s.analyzer_id: s for s in read_statuses(scan_folder)}
         for analyzer in analyzers:
-            analyzer_id = getattr(
-                analyzer, "id", getattr(analyzer, "device_name", "unknown")
-            )
-            analyzer_id = (
-                analyzer_id
-                or f"{analyzer.__class__.__name__}_{getattr(analyzer, 'device_name', '')}"
-            )
+            analyzer_id = analyzer_task_id(analyzer)
             st = statuses.get(analyzer_id)
             include = st is None or st.state == "queued"
             eligible_for_rerun = analyzer_id not in skip_ids and (
@@ -476,14 +689,20 @@ def run_worklist(
         scan_folder = ScanPaths.get_scan_folder_path(
             tag=tag, base_directory=base_directory
         )
-        analyzer_id = getattr(
-            analyzer, "id", getattr(analyzer, "device_name", "unknown")
-        )
-        analyzer_id = (
-            analyzer_id
-            or f"{analyzer.__class__.__name__}_{getattr(analyzer, 'device_name', '')}"
-        )
+        analyzer_id = analyzer_task_id(analyzer)
 
+        owner = f"{socket.gethostname()}:{os.getpid()}"
+        # The atomic claim gate: exactly one runner passes per task (a
+        # loser here means another live runner owns it — skip, never
+        # double-run the same analyzer into the same output files).
+        if not try_acquire_claim(scan_folder, analyzer_id, owner):
+            logger.info(
+                "run_worklist: %s on scan %s is claimed by a live runner "
+                "(or the folder is not visible); skipping",
+                analyzer_id,
+                tag,
+            )
+            continue
         logger.info(
             "run_worklist: claiming scan=%s analyzer=%s priority=%s dry_run=%s",
             tag,
@@ -491,7 +710,6 @@ def run_worklist(
             priority,
             dry_run,
         )
-        owner = f"{socket.gethostname()}:{os.getpid()}"
         now_iso = datetime.now(timezone.utc).isoformat()
         update_status(
             scan_folder,
@@ -585,6 +803,7 @@ def run_worklist(
         finally:
             stop_event.set()  # idempotent safety net
             hb_thread.join(timeout=HEARTBEAT_INTERVAL_SECONDS)  # safe to join twice
+            release_claim(scan_folder, analyzer_id)
             analyzer.cleanup()
 
 

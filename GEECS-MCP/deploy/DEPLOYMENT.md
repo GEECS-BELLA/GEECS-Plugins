@@ -53,11 +53,39 @@ either (the framework's deny augmentation walks its own
   (`stop_scan`, `pause_scan`): exempt by omission, so a halt is never
   blocked on any path. E.g. `write_tools: [mcp__geecs__submit_scan,
   mcp__geecs__clear_queue, mcp__geecs__run_action,
-  mcp__geecs__move_scan_variable, mcp__geecs__resume_scan]` (the
+  mcp__geecs__move_scan_variable, mcp__geecs__resume_scan,
+  mcp__geecs__run_scan_analysis]` (the
   deployed htu profile predates 0.5.0 and lists the first two —
-  extend it when the v2 verbs deploy).  This is the ONLY headless
+  extend it when the v2 verbs and 0.7.0's `run_scan_analysis`
+  deploy).  This is the ONLY headless
   gate — a profile missing these entries leaves an unattended agent's
   writes ungated.
+
+**Analysis execution (0.7.0, #686)** — `run_scan_analysis` needs two
+things on the serving host, both optional (the tools refuse with a
+clear message when absent, the server always starts):
+
+- The `analysis-run` extra installed (`pip install
+  '<checkout>/GEECS-MCP[analysis-run]'` / `poetry install -E
+  analysis-run`) — pulls ScanAnalysis + ImageAnalysis (scipy/opencv,
+  heavy; this is why it is an extra).
+- The scan-analysis configs root: `SCAN_ANALYSIS_CONFIG_DIR` env var,
+  or config.ini `[Paths] scan_analysis_configs_path` (the
+  GEECS-Plugins-Configs checkout holding `analyzers/` + `groups/`) —
+  the same resolution every ScanAnalysis consumer uses.
+
+The verb also needs the data share writable (analysis outputs +
+`analysis_status/` inside *existing* scan folders only — a missing
+scan folder is refused, never created), and each run burns CPU on this
+host in a detached worker process — mind the systemd unit's resource
+caps if agent-triggered analysis becomes routine.  Note the worker's
+detachment is session-level, not cgroup-level: **a systemd service
+restart kills mid-run analysis workers** (default
+`KillMode=control-group`).  That is recoverable, not silent — the
+task's claim goes stale after 180 s and a repeat `run_scan_analysis`
+re-runs it; in `get_scan_analysis` a dead worker shows as a task stuck
+`queued` (died before claiming) or `claimed` with a growing
+`heartbeat_age_s` (died mid-run).
 
 Two upstream osprey issues (to be filed from the osprey side): the
 silent acceptance of unknown keys like `hooks:` on custom-server
