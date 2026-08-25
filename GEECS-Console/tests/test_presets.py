@@ -12,6 +12,13 @@ from geecs_console.services.presets import PRESET_FOLDER, PresetStore, PresetSto
 from geecs_schemas import ScanRequest, ScanRequestMode
 
 
+def test_preset_folder_is_the_on_disk_contract() -> None:
+    """Pin the folder name as a literal: ``PRESET_FOLDER`` now binds to the
+    resolver's constant, so without this pin a rename there would leave every
+    suite green while deployed consoles list/write a different folder."""
+    assert PRESET_FOLDER == "presets"
+
+
 def one_d_request(variable="jet_x", description="") -> ScanRequest:
     return build_scan_request(
         ConsoleFormState(

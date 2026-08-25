@@ -5,11 +5,12 @@ Names come from ``ConfigsRepoResolver``'s listing surface (the resolver's
 the one implementation every queue client shares since #666); validation
 happens on demand through the same resolver — listing is cheap and never
 parses YAML, resolving a specific name does.  Offline-safety is
-first-class: a missing configs root (or ``geecs-bluesky`` unimportable)
-degrades to empty listings plus a status message, never an exception out
-of this module's listing surface.  Folder names come from the resolver's
-class constants (``ConfigsRepoResolver.OPTIMIZER_FOLDER`` etc.) — this
-module keeps no folder-name constants of its own.
+first-class: a missing configs root, an I/O blip on a mounted share, or a
+resolver that cannot be built all degrade to empty listings plus a status
+message — never an exception out of this module's listing surface.
+Folder names come from the resolver's class constants
+(``ConfigsRepoResolver.OPTIMIZER_FOLDER`` etc.) — this module keeps no
+folder-name constants of its own.
 """
 
 from __future__ import annotations
@@ -126,7 +127,14 @@ class ConsoleConfigs:
                     "or config.ini [Paths] scanner_config_root_path."
                 )
             )
-        experiments = sorted(p.name for p in base.iterdir() if p.is_dir())
+        try:
+            experiments = sorted(p.name for p in base.iterdir() if p.is_dir())
+        except OSError as exc:  # I/O blip on a mounted share — degrade, never raise
+            logger.info("experiments listing failed: %s", exc)
+            return ConfigListing(
+                configs_root=base,
+                message=f"Configs repo unreadable ({base}): {exc}",
+            )
         if not self._experiment:
             return ConfigListing(
                 experiments=experiments,

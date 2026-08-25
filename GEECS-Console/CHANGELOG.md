@@ -20,9 +20,11 @@ semantic.
   folder names come from the resolver's class constants
   (`ConfigsRepoResolver.OPTIMIZER_FOLDER` — no third name).  Listing
   behavior is identical (sorted stems, both suffixes, missing → empty),
-  and an I/O failure mid-scan now reads as an empty listing instead of
-  a raise (the resolver's never-raise contract — the console's listing
-  docstring always promised this).
+  and an I/O failure anywhere in the listing surface — the kind folders
+  (via the resolver's never-raise contract) and the experiments
+  enumeration (now guarded too) — reads as an empty listing plus a
+  status message instead of a raise, which the listing docstring always
+  promised.
 - **The R3 shot-count label uses the schema's derivation** (issue #679,
   the #671 follow-up): `request_builder._position_count` is deleted;
   `estimate_total_shots` counts axis positions via the schema's
