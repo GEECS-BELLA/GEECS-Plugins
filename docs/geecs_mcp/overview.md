@@ -131,8 +131,10 @@ permission lists import symbols rather than retyping strings):
   `submit_scan`, `clear_queue`, `run_action`, `move_scan_variable`,
   `resume_scan`, `run_scan_analysis`. Interactively these surface a
   native *ask* prompt (a human sees each call with its arguments before
-  it runs); headless/unattended operation gates them through an explicit
-  `write_tools` allowlist in the agent framework's configuration.
+  it runs); headless/unattended operation gates them through the agent
+  framework's explicit `write_tools` list (a tool listed there is
+  gated when no human is watching; the gating semantics live in
+  `deploy/DEPLOYMENT.md`).
 - **S — stop direction.** `stop_scan` and `pause_scan`. These are asked
   about interactively but **deliberately never listed in `write_tools`**
   — a halt must never be blocked on any path. Making the machine quieter

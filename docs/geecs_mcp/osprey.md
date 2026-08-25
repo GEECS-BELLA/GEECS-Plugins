@@ -1,6 +1,6 @@
 # Leveraging OSPREY
 
-[OSPREY](https://github.com/als-computing/osprey) is an agent framework
+[OSPREY](https://github.com/als-apg/osprey) is an agent framework
 for accelerators developed at the ALS: it hosts an operator-facing AI
 assistant, gives it facility tools (EPICS channel access, archiver
 lookups, logbooks), and enforces per-tool permissions around everything
@@ -36,9 +36,11 @@ code — the entire integration surface is configuration.
 OSPREY registers the server as a *custom MCP server* in its build profile
 (`profile.yml`): either a `command:` that launches the server over stdio,
 or the URL of the central HTTP service — one server process on the lab
-server that every OSPREY machine shares. Permission lists in the profile
-import the server's `tool_names` constants rather than retyping strings,
-so a renamed tool cannot silently strand a permission entry.
+server that every OSPREY machine shares. The profile's permission lists
+mirror the server's `geecs_mcp/tool_names.py` constants — the two are
+kept in sync by hand when a verb lands (the deployment doc carries the
+update-both warning), and Python-side consumers import the constants
+directly so a rename cannot silently strand an entry there.
 
 Gating has two layers, and the distinction matters (the semantics were
 verified against OSPREY directly; details and the exact `write_tools`
@@ -47,9 +49,12 @@ list live in `GEECS-MCP/deploy/DEPLOYMENT.md`):
 - **Interactive sessions**: every control verb surfaces OSPREY's native
   *ask* prompt — a human sees the tool name and its arguments and
   approves each call.
-- **Headless runs**: the profile's `write_tools` allowlist is the gate.
-  Every queueing verb is listed there; the stop family deliberately is
-  **not**, so a halt is never blocked on any path.
+- **Headless runs**: the profile's `write_tools` list is the gate — a
+  tool *listed* there is gated for unattended operation; a tool omitted
+  is ungated. The design lists every queueing verb and deliberately
+  omits the stop family, so a halt is never blocked on any path (the
+  exact current list lives in `deploy/DEPLOYMENT.md` — keep it in step
+  as verbs land).
 
 Each deployment sets a client identity (for the HTU assistant:
 `osprey-htu-assistant`) that is stamped onto every queue item and

@@ -63,7 +63,7 @@ item.
 
 The stop family is the deliberate exception to headless gating: halting
 must work on every path, so `stop_scan`/`pause_scan` are never listed in
-a `write_tools` allowlist and never blocked.
+the `write_tools` gate and are never blocked.
 
 ## The submit-and-poll lifecycle
 
