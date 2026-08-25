@@ -79,6 +79,18 @@ case, but the right fix is to launch from the repo root.
 Remove worktrees after their PR is merged unless they are intentionally
 long-lived for a distinct development stream.
 
+**Never run `poetry lock` from inside a session worktree.** Poetry
+serializes the geecs-bluesky extras as absolute `file://` URLs resolved
+from wherever the lock runs, so a worktree-generated lock embeds that
+worktree's path — which dangles when the worktree is removed. A
+pre-commit hook (`poetry-lock-no-worktree-paths`) rejects any
+`poetry.lock` containing `.claude/worktrees/`. If your worktree PR needs
+a relock, run `poetry lock` in the same package directory of the **main
+checkout** and copy the resulting lock into the worktree (the output is
+byte-identical apart from that path prefix, so stripping the
+`/.claude/worktrees/<name>` prefix from a worktree-generated lock is an
+equivalent fix).
+
 `geecs-plugins-bluesky` (a sibling directory of this checkout) is **no longer
 a worktree** — it has been promoted to its own standalone clone with an
 independent `.git`, sharing only the `GEECS-BELLA/GEECS-Plugins` origin. Treat
