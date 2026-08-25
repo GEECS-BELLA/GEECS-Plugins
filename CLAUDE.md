@@ -79,6 +79,20 @@ case, but the right fix is to launch from the repo root.
 Remove worktrees after their PR is merged unless they are intentionally
 long-lived for a distinct development stream.
 
+**Never run `poetry lock` from inside a session worktree.** Poetry
+serializes the geecs-bluesky extras as absolute `file://` URLs resolved
+from wherever the lock runs, so a worktree-generated lock embeds that
+worktree's path — which dangles when the worktree is removed. A
+pre-commit hook (`poetry-lock-no-worktree-paths`) rejects any
+`poetry.lock` containing `.claude/worktrees/`. If your worktree PR needs
+a relock, relock inside the worktree and then strip the
+`/.claude/worktrees/<name>` prefix from the generated lock — that is the
+general remedy, correct even when the PR itself edited a
+`pyproject.toml` (the usual reason a relock is needed, and a state the
+main checkout does not have). Only when no pyproject changed is running
+`poetry lock` in the same package directory of the **main checkout** and
+copying the lock over an equivalent shortcut.
+
 `geecs-plugins-bluesky` (a sibling directory of this checkout) is **no longer
 a worktree** — it has been promoted to its own standalone clone with an
 independent `.git`, sharing only the `GEECS-BELLA/GEECS-Plugins` origin. Treat

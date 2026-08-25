@@ -1674,9 +1674,9 @@ geecs-schemas = {path = "../GEECS-Schemas", develop = true}
 ophyd-async = ">=0.19.3,<1.0"
 
 [package.extras]
-analysis = ["imageanalysis @ file:///Users/samuelbarber/Desktop/Code/Github_repos/GEECS-Plugins/.claude/worktrees/post-analysis-data-acquisition-56707a/ImageAnalysis"]
+analysis = ["imageanalysis @ file:///Users/samuelbarber/Desktop/Code/Github_repos/GEECS-Plugins/ImageAnalysis"]
 ca = ["aioca (>=1.7)"]
-optimize = ["gest-api (>=0.1)", "imageanalysis @ file:///Users/samuelbarber/Desktop/Code/Github_repos/GEECS-Plugins/.claude/worktrees/post-analysis-data-acquisition-56707a/ImageAnalysis", "scananalysis @ file:///Users/samuelbarber/Desktop/Code/Github_repos/GEECS-Plugins/.claude/worktrees/post-analysis-data-acquisition-56707a/ScanAnalysis", "xopt (>=3.1,<4.0)"]
+optimize = ["gest-api (>=0.1)", "imageanalysis @ file:///Users/samuelbarber/Desktop/Code/Github_repos/GEECS-Plugins/ImageAnalysis", "scananalysis @ file:///Users/samuelbarber/Desktop/Code/Github_repos/GEECS-Plugins/ScanAnalysis", "xopt (>=3.1,<4.0)"]
 qs-client = ["bluesky-queueserver-api (>=0.0.13,<0.0.14)"]
 qserver = ["bluesky-queueserver (>=0.0.25,<0.0.26)"]
 tiled = ["tiled[client] (>=0.2)"]
@@ -1687,7 +1687,7 @@ url = "../GeecsBluesky"
 
 [[package]]
 name = "geecs-core"
-version = "0.2.0"
+version = "0.3.0"
 description = "The GEECS access library: UDP/TCP wire protocol, experiment database, PV naming contract, exceptions, the wire-protocol test double, and the entry-level GeecsDevice client"
 optional = false
 python-versions = ">=3.11,<3.12"
@@ -5812,7 +5812,7 @@ crt = ["botocore[crt] (>=1.37.4,<2.0a.0)"]
 
 [[package]]
 name = "scananalysis"
-version = "1.15.1"
+version = "1.16.0"
 description = "Modules for performing analyses routines on full scans"
 optional = true
 python-versions = ">=3.11,<3.12"

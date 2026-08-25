@@ -1027,7 +1027,7 @@ tqdm = ["tqdm"]
 
 [[package]]
 name = "geecs-bluesky"
-version = "0.58.0"
+version = "0.62.0"
 description = "Bluesky / ophyd-async bridge for the GEECS control system"
 optional = false
 python-versions = ">=3.11,<3.12"
@@ -1046,9 +1046,9 @@ ophyd-async = ">=0.19.3,<1.0"
 tiled = {version = ">=0.2", extras = ["client"], optional = true}
 
 [package.extras]
-analysis = ["imageanalysis @ file:///Users/samuelbarber/Desktop/Code/Github_repos/GEECS-Plugins/.claude/worktrees/angry-lederberg-436e6d/ImageAnalysis"]
+analysis = ["imageanalysis @ file:///Users/samuelbarber/Desktop/Code/Github_repos/GEECS-Plugins/ImageAnalysis"]
 ca = ["aioca (>=1.7)"]
-optimize = ["gest-api (>=0.1)", "imageanalysis @ file:///Users/samuelbarber/Desktop/Code/Github_repos/GEECS-Plugins/.claude/worktrees/angry-lederberg-436e6d/ImageAnalysis", "scananalysis @ file:///Users/samuelbarber/Desktop/Code/Github_repos/GEECS-Plugins/.claude/worktrees/angry-lederberg-436e6d/ScanAnalysis", "xopt (>=3.1,<4.0)"]
+optimize = ["gest-api (>=0.1)", "imageanalysis @ file:///Users/samuelbarber/Desktop/Code/Github_repos/GEECS-Plugins/ImageAnalysis", "scananalysis @ file:///Users/samuelbarber/Desktop/Code/Github_repos/GEECS-Plugins/ScanAnalysis", "xopt (>=3.1,<4.0)"]
 qs-client = ["bluesky-queueserver-api (>=0.0.13,<0.0.14)"]
 qserver = ["bluesky-queueserver (>=0.0.25,<0.0.26)"]
 tiled = ["tiled[client] (>=0.2)"]
@@ -1059,7 +1059,7 @@ url = "../GeecsBluesky"
 
 [[package]]
 name = "geecs-core"
-version = "0.2.0"
+version = "0.3.0"
 description = "The GEECS access library: UDP/TCP wire protocol, experiment database, PV naming contract, exceptions, the wire-protocol test double, and the entry-level GeecsDevice client"
 optional = false
 python-versions = ">=3.11,<3.12"
@@ -1109,7 +1109,7 @@ url = "../GEECS-Data-Utils"
 
 [[package]]
 name = "geecs-schemas"
-version = "0.10.2"
+version = "0.11.0"
 description = "Versioned Pydantic schemas for GEECS scanner configs (scan requests, save sets, scan variables, trigger profiles, action plans) plus legacy-YAML converters."
 optional = false
 python-versions = ">=3.11,<3.12"
