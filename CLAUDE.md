@@ -85,11 +85,13 @@ from wherever the lock runs, so a worktree-generated lock embeds that
 worktree's path — which dangles when the worktree is removed. A
 pre-commit hook (`poetry-lock-no-worktree-paths`) rejects any
 `poetry.lock` containing `.claude/worktrees/`. If your worktree PR needs
-a relock, run `poetry lock` in the same package directory of the **main
-checkout** and copy the resulting lock into the worktree (the output is
-byte-identical apart from that path prefix, so stripping the
-`/.claude/worktrees/<name>` prefix from a worktree-generated lock is an
-equivalent fix).
+a relock, relock inside the worktree and then strip the
+`/.claude/worktrees/<name>` prefix from the generated lock — that is the
+general remedy, correct even when the PR itself edited a
+`pyproject.toml` (the usual reason a relock is needed, and a state the
+main checkout does not have). Only when no pyproject changed is running
+`poetry lock` in the same package directory of the **main checkout** and
+copying the lock over an equivalent shortcut.
 
 `geecs-plugins-bluesky` (a sibling directory of this checkout) is **no longer
 a worktree** — it has been promoted to its own standalone clone with an
