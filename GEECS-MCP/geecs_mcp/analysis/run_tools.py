@@ -311,9 +311,22 @@ def _run_scan_analysis_impl(
     # dead or expired — never a live entry for a non-overlapping task
     # (both were review-round-4 findings, one reproduced).
     scan_key = str(scan_folder)
-    window_ids = [
-        tid for tid in task_ids if tid not in pre or pre[tid].state == "queued"
-    ]
+
+    def _window_eligible(tid: str) -> bool:
+        # Everything this call could actually dispatch (round-5 review:
+        # the window must mirror the runnable classification, or rerun
+        # and stale-claim-reclaim dispatches escape the ledger): absent
+        # or queued rows; claimed rows (active ones were refused above,
+        # so any reaching here is stale ⇒ reclaimable); and done/failed
+        # rows their rerun flag will re-queue.
+        st = pre.get(tid)
+        if st is None or st.state in ("queued", "claimed"):
+            return True
+        if st.state == "failed" and rerun_failed:
+            return True
+        return st.state == "done" and rerun_completed
+
+    window_ids = [tid for tid in task_ids if _window_eligible(tid)]
     now_mono = time.monotonic()
     reserved: list[tuple[str, str]] = []
     with _dispatch_lock:

@@ -226,10 +226,22 @@ def _break_stale_lock(lock: Path) -> bool:
     else:
         if sentinel_age <= CLAIM_STALE_AFTER_SECONDS:
             return False  # a live breaker owns this — back off
+        # A crashed breaker's leftover.  Removed by ATOMIC RENAME to a
+        # unique tombstone, not unlink: a bare check-then-unlink here
+        # would repeat the TOCTOU one level up (two cleaners both
+        # stat-stale, the slow one unlinking the fast one's *fresh*
+        # sentinel — the cascade the round-5 review constructed).  Rename
+        # admits exactly one winner; the loser's rename raises and backs
+        # off.
+        tomb = Path(f"{sentinel}.{os.getpid()}.{time.monotonic_ns()}")
         try:
-            sentinel.unlink()  # crashed breaker's leftover
+            sentinel.rename(tomb)
         except OSError:
-            return False
+            return False  # lost the cleanup race — back off
+        try:
+            tomb.unlink()
+        except OSError:
+            pass
     try:
         fd = os.open(str(sentinel), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
     except OSError:

@@ -351,6 +351,26 @@ class TestExistingStatusRows:
         assert third["error_kind"] == "policy_refusal"  # first entry survived
         assert len(spawned) == 2
 
+    def test_rerun_dispatch_is_also_ledger_guarded(
+        self, share, configs, spawned, monkeypatch
+    ):
+        """Round-5 review (reproduced): a rerun dispatch (failed row in
+        the pre-snapshot) must enter the ledger window too — an identical
+        second rerun call in the pre-claim window refuses."""
+        monkeypatch.setattr(run_tools, "_pid_alive", lambda pid: True)
+        _seed_status(share, "test_diag", state="failed", error="x")
+        first = _load(
+            run_tools._run_scan_analysis_impl(7, DAY, "test_diag", None, True, False)
+        )
+        assert first["ok"] and first["started"]
+        second = _load(
+            run_tools._run_scan_analysis_impl(7, DAY, "test_diag", None, True, False)
+        )
+        assert not second["ok"]
+        assert second["error_kind"] == "policy_refusal"
+        assert "dispatched" in second["message"]
+        assert len(spawned) == 1
+
     def test_failed_spawn_releases_the_reservation(
         self, share, configs, spawned, monkeypatch
     ):
