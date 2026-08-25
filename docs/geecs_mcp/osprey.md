@@ -12,14 +12,21 @@ MCP server is how that assistant reaches GEECS.
 The integration deliberately splits along the
 [write-surface doctrine](overview.md#where-it-sits-in-the-architecture):
 
-- **Raw EPICS channels — OSPREY's own tools, read-only.** BELLA is an
-  EPICS facility as far as OSPREY is concerned, via the
+- **Raw EPICS channels — OSPREY's own tools.** BELLA is an EPICS
+  facility as far as OSPREY is concerned, via the
   [GEECS Gateway](../geecs_gateway/client_overview.md)'s PVs. The
-  assistant can read any served channel with the framework's generic
-  tools; it does not write them.
-- **GEECS-semantic operations — this MCP server.** Scans, configs,
-  results, analysis: everything that changes machine state or needs the
-  GEECS vocabulary goes through the server's gated verbs.
+  assistant reads any served channel with the framework's generic tools,
+  and can set individual setpoints by writing the `:SP` PVs through
+  OSPREY's own write tool — bounded by a limits database (extracted from
+  the GEECS device limits) and OSPREY's own permission gating.
+- **GEECS-semantic operations — this MCP server.** Scans, actions,
+  manual moves with scan-identical completion semantics, configs,
+  results, analysis: anything that needs the GEECS vocabulary goes
+  through the server's gated verbs. The raw `:SP` path deliberately
+  stays a simple bounded knob — it bypasses the GEECS client-side
+  hardening (put-failure visibility, confirm/pseudo semantics, mid-scan
+  refusals), so the richer the operation, the more it belongs behind an
+  MCP verb.
 
 The GEECS MCP server never imports OSPREY and OSPREY never imports GEECS
 code — the entire integration surface is configuration.

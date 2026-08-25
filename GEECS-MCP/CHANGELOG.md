@@ -4,6 +4,17 @@ All notable changes to `geecs-mcp` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.7.2] - 2026-08-25
+
+### Changed
+
+- Docs-only: the write-surface doctrine statement in `CLAUDE.md` amended
+  to match deployed practice (owner correction on docs PR #692): osprey's
+  own EPICS write tool sets gateway `:SP` PVs directly, bounded by its
+  limits database — "raw gateway PVs are read-only to the agent" was
+  stale.  The surviving rule: GEECS-semantic writes are MCP verbs only,
+  and the MCP does no raw PV I/O of its own.
+
 ## [0.7.1] - 2026-08-25
 
 ### Fixed

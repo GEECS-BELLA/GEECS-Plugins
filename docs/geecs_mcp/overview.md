@@ -49,7 +49,9 @@ matter:
 
 The MCP server exposes exactly these GEECS-semantic surfaces. It
 deliberately does **not** duplicate raw-PV channel tools — the agent
-framework's own EPICS tools cover that, read-only.
+framework's own EPICS tools cover channel-level access, including
+bounded setpoint writes (see the
+[division of labour](osprey.md#the-division-of-labour)).
 
 ## Where it sits in the architecture
 
@@ -86,10 +88,15 @@ flowchart LR
 
 Two standing doctrines shape everything above:
 
-- **Write-surface doctrine.** Agent writes to the machine go through MCP
-  verbs only. Raw gateway PVs are read-only to the agent; anything that
-  changes machine state is a named, gated tool with its own refusal
-  logic. Scans stay in the GEECS engine.
+- **Write-surface doctrine.** GEECS-*semantic* writes — scans, actions,
+  manual moves, analysis — go through MCP verbs only, each a named,
+  gated tool with its own refusal logic, and scans stay in the GEECS
+  engine. Channel-level setpoint writes are deliberately *not* MCP
+  territory: the agent framework's own EPICS write tool can set gateway
+  `:SP` PVs directly, bounded by its limits database and gating — but
+  that raw path bypasses the GEECS client-side hardening (put-failure
+  visibility, confirm/pseudo semantics, mid-scan refusals), which is
+  exactly why operations with GEECS semantics belong behind an MCP verb.
 - **A client, never an engine.** The server imports only the shared
   public seams, never engine internals. If a tool needs something
   private, the right move is to promote a small public module in
