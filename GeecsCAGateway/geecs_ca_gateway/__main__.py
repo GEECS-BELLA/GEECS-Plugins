@@ -96,6 +96,19 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def _db_endpoint_resolver(device_name: str) -> tuple[str, int]:
+    """Re-query a device's ``(ip, port)`` from the GEECS DB.
+
+    Passed to the gateway as its ``endpoint_resolver`` (issue #611: a device
+    app that re-registers on a new endpoint heals without a gateway restart).
+    Called off the event loop by the supervisor, which treats a raise as
+    "keep the last known endpoint" — no guarding needed here.
+    """
+    from geecs_core.db.geecs_db import GeecsDb
+
+    return GeecsDb.find_device(device_name)
+
+
 async def _run(
     experiment: str,
     *,
@@ -121,7 +134,7 @@ async def _run(
             len(config.derived_channels),
             path,
         )
-    gateway = GeecsCaGateway(config)
+    gateway = GeecsCaGateway(config, endpoint_resolver=_db_endpoint_resolver)
     logger.info(
         "serving %d PV(s) across %d device(s) for experiment %r",
         len(gateway.pvdb),

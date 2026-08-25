@@ -3,12 +3,12 @@
 import pytest
 
 from geecs_console.services import configs as configs_module
-from geecs_console.services.configs import (
-    OPTIMIZATION_FOLDER,
-    ConsoleConfigs,
-    ConsoleConfigsError,
-)
+from geecs_console.services.configs import ConsoleConfigs, ConsoleConfigsError
 from geecs_schemas import OptimizationSpec
+
+# The on-disk contract (the resolver's OPTIMIZER_FOLDER) — a literal so the
+# test pins the actual folder name, not whatever the constant drifts to.
+OPTIMIZATION_FOLDER = "optimizer_configs"
 
 NEW_SCHEMA_YAML = """\
 variables:
@@ -62,6 +62,17 @@ class TestListing:
         (configs_tree / "Bella").mkdir()
         listing = ConsoleConfigs("Bella").listing()
         assert listing.optimization_configs == []
+
+    def test_unreadable_experiments_root_degrades_with_message(
+        self, tmp_path, monkeypatch
+    ):
+        """An I/O failure enumerating experiments degrades, never raises."""
+        missing = tmp_path / "not-there"
+        monkeypatch.setattr(configs_module, "_configs_base", lambda: missing)
+        listing = ConsoleConfigs("HTU").listing()
+        assert listing.experiments == []
+        assert listing.save_sets == []
+        assert "unreadable" in (listing.message or "")
 
 
 class TestOptimizationSpecLoading:

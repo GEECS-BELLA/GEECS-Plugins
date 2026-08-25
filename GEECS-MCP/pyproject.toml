@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "geecs-mcp"
-version = "0.6.1"
+version = "0.7.1"
 description = "MCP server exposing GEECS scan submission, monitoring, and config discovery to AI agents (OSPREY)"
 authors = ["Sam Barber <sbarber@lbl.gov>"]
 readme = "README.md"
@@ -36,6 +36,16 @@ geecs-data-utils = { path = "../GEECS-Data-Utils", develop = true, extras = ["ti
 
 # The one submission shape (ScanRequest) — validation at the tool boundary.
 geecs-schemas = { path = "../GEECS-Schemas", develop = true }
+
+# On-demand ScanAnalysis execution (#686: run_scan_analysis + the
+# analyzer/group listings) — heavy (scipy/opencv/scikit-image ride in via
+# ImageAnalysis), so it is an extra mirroring GeecsBluesky's
+# analysis/optimize pattern.  Without it the run/listing tools refuse with
+# a clear message naming the extra; the server always starts.
+scananalysis = { path = "../ScanAnalysis", develop = true, optional = true }
+
+[tool.poetry.extras]
+analysis-run = ["scananalysis"]
 
 [tool.poetry.group.dev.dependencies]
 pytest = ">=7.0"

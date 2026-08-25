@@ -11,8 +11,11 @@ Domain roadmap (add as they earn their keep, never speculatively):
 `scans/` (built: v0 read + v1 control), then candidates in rough value
 order — `health/` (gateway/Tiled/DB probes, read-only), `db/`
 (device-variable metadata lookups), `logs/` (the /triage analysis as a
-tool), `analysis/` (FIRST SLICE BUILT — the #675 figure/results verbs
-over the ScanAnalysis output tree; deeper analysis-over-Tiled later;
+tool), `analysis/` (READ + EXECUTION BUILT — the #675 figure/results verbs
+over the ScanAnalysis output tree, and the #686 `run_scan_analysis`
+execution slice (0.7.0) with ScanAnalysis-as-is as the backend by owner
+decision; deeper analysis-over-Tiled later — the verb surface is
+backend-neutral so it slots in behind the same tools;
 pure-numpy analysis is cross-platform; capabilities needing **Windows-only acquisition SDKs**
 do NOT force this server onto Windows — they become a small *satellite
 MCP server* on a Windows box (the PVA-gateway camera-server precedent),
@@ -97,6 +100,25 @@ geecs_mcp/
                   #   never be used here; pinned by a nothing-created
                   #   test.  Needs [Paths] geecs_data + the share
                   #   mounted on the serving host (degrades honestly)
+    run_tools.py  # the execution slice (#686, 0.7.0): run_scan_analysis
+                  #   (Q — validate-then-refuse BEFORE side effects:
+                  #   exactly-one selector, configs root, scan folder
+                  #   EXISTS (never created), analyzers construct on
+                  #   this host so Windows-SDK diagnostics refuse up
+                  #   front; statuses initialized server-side; then a
+                  #   detached run_worker subprocess drives ScanAnalysis's
+                  #   own task queue) + list_analyzers /
+                  #   list_analysis_groups (R).  ScanAnalysis-as-is is
+                  #   the backend BY OWNER DECISION 2026-08-24 — verb
+                  #   surface backend-neutral, analysis_status/ = the
+                  #   progress contract, so the Tiled stack can slot in
+                  #   later.  Rides the optional analysis-run extra;
+                  #   gdoc upload hard-off (an outward publish needs its
+                  #   own gated verb)
+    run_worker.py # the detached worker: one JSON argv payload ->
+                  #   build_worklist + run_worklist for one scan; stdio
+                  #   dropped — the status YAMLs are the observable
+                  #   surface
 ```
 
 ## Conventions

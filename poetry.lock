@@ -1075,7 +1075,7 @@ url = "GeecsBluesky"
 
 [[package]]
 name = "geecs-core"
-version = "0.2.0"
+version = "0.3.0"
 description = "The GEECS access library: UDP/TCP wire protocol, experiment database, PV naming contract, exceptions, the wire-protocol test double, and the entry-level GeecsDevice client"
 optional = false
 python-versions = ">=3.11,<3.12"
@@ -5093,7 +5093,7 @@ crt = ["botocore[crt] (>=1.37.4,<2.0a.0)"]
 
 [[package]]
 name = "scananalysis"
-version = "1.15.1"
+version = "1.16.0"
 description = "Modules for performing analyses routines on full scans"
 optional = false
 python-versions = ">=3.11,<3.12"

@@ -22,6 +22,9 @@ from pathlib import Path
 
 from pydantic import ValidationError
 
+# A light import chain (yaml + pydantic models) — safe at module level;
+# the folder name has one owner, the resolver's class constant.
+from geecs_bluesky.config_resolver import ConfigsRepoResolver
 from geecs_console.services.config_store import NamedConfigStore
 
 # The base resolves the configs root through this module's namespace, so
@@ -31,7 +34,7 @@ from geecs_schemas import ScanRequest
 
 logger = logging.getLogger(__name__)
 
-PRESET_FOLDER = "presets"
+PRESET_FOLDER = ConfigsRepoResolver.PRESET_FOLDER
 
 
 class PresetStoreError(RuntimeError):
@@ -45,6 +48,7 @@ class PresetStore(NamedConfigStore):
     NOUN = "Preset"
     LABEL = "Preset"
     ERROR = PresetStoreError
+    RESOLVER_LISTING = "list_presets"
 
     def load(self, name: str) -> ScanRequest:
         """Load preset *name* as a validated :class:`ScanRequest`.

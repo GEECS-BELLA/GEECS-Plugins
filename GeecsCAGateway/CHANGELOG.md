@@ -3,6 +3,42 @@
 All notable changes to `geecs-ca-gateway` are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and semantic versioning.
 
+## [0.20.0] - 2026-08-24
+
+### Added
+
+- **The half-open-socket blind spot is closed** (issue #611; live incident
+  2026-08-17, u_s1h — readbacks frozen at valid-stale values, `:SP` writes
+  working, no alarm, for the want of a TCP FIN).  Two mechanisms:
+  - **TCP keepalive on every subscription socket** (geecs-core 0.3.0's
+    `GeecsTcpSubscriber` default): an ungracefully dead peer now resets
+    the connection within about a minute, which surfaces as the ordinary
+    drop path — INVALID readbacks, `CONNECTED` MAJOR, supervised
+    reconnect.  Quiet-but-live devices are never disturbed ("silence is
+    not a drop" preserved).  Contract-pinned by
+    `test_subscription_socket_has_keepalive`; PV_CONTRACT §5 updated.
+  - **Endpoint re-resolve at the backoff ceiling** (the adjacent gap):
+    once a device's reconnect backoff hits its cap, the supervisor
+    re-queries the device's `(host, port)` from the GEECS DB (off-loop,
+    10 s budget) before further dials, so a device app that re-registered
+    on a different endpoint heals without a gateway restart — and its UDP
+    set client follows the move (`_rebuild_udp`; setter closures resolve
+    the client at call time).  A failed re-resolve (DB down mid-partition)
+    keeps the last known endpoint — exactly the old behavior.  Production
+    wiring: `__main__` passes `GeecsDb.find_device`; the
+    `endpoint_resolver` constructor param is injectable and `None`
+    disables.  Pinned by `test_endpoint_re_resolve_heals_moved_device` /
+    `test_endpoint_resolver_failure_keeps_old_endpoint`; PV_CONTRACT §7
+    and DEPLOYMENT.md updated (restart remains the resync mechanism for
+    added/removed devices and variables).
+
+  Deliberately NOT built from the issue's proposal list: app-level
+  last-push-age probing (keepalive detects dead peers at the transport
+  level without interpreting application silence) and the per-device
+  `last_push_age` diagnostic PV (with self-healing subscriptions the
+  frozen state it would surface no longer persists) — both cheap to add
+  later if a real case asks for them.
+
 ## [0.19.1] - 2026-08-21
 
 ### Changed

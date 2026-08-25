@@ -1059,7 +1059,7 @@ url = "../GeecsBluesky"
 
 [[package]]
 name = "geecs-core"
-version = "0.2.0"
+version = "0.3.0"
 description = "The GEECS access library: UDP/TCP wire protocol, experiment database, PV naming contract, exceptions, the wire-protocol test double, and the entry-level GeecsDevice client"
 optional = false
 python-versions = ">=3.11,<3.12"

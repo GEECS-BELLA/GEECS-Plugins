@@ -17,7 +17,7 @@ import asyncio
 import logging
 import math
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Callable
 
 from caproto import (
     AlarmSeverity,
@@ -131,9 +131,12 @@ class GeecsCaGateway:
     A device merely going *quiet* is not treated as a drop: GEECS devices are
     legitimately silent for seconds (waiting on triggers, slow online analysis,
     toggled), so silence just ages the PV timestamp rather than forcing a
-    (pointless) reconnect.  The remaining gap — a device hard-powered-off with the
-    socket left open (no TCP FIN) — is best handled by TCP keepalive, a future
-    refinement; app-level silence-guessing conflates "slow" with "dead".
+    (pointless) reconnect.  The former blind spot — a device hard-powered-off
+    with the socket left open (no TCP FIN) — is closed by TCP keepalive on the
+    subscription socket (``GeecsTcpSubscriber``'s default since geecs-core
+    0.3.0; issue #611, live incident 2026-08-17): the OS probes the idle peer,
+    a dead one resets the connection, and the supervisor reconnects.  Probes
+    never disturb a live-but-quiet device, so silence still is not a drop.
 
     Parameters
     ----------
@@ -146,6 +149,14 @@ class GeecsCaGateway:
         sets block until convergence, so this must cover the slowest legitimate
         move; the default matches CaMotor's 30 s move budget in GeecsBluesky
         (see ``_SET_EXE_TIMEOUT``). Gets are unaffected.
+    endpoint_resolver : callable, optional
+        ``device_name -> (host, port) | None`` — re-queried (off-loop, with a
+        timeout) once a device's reconnect backoff hits its ceiling, so a
+        device app that re-registered on a different endpoint heals without a
+        gateway restart (the #611 adjacent gap).  ``None``/a raise keeps the
+        last known endpoint.  Production wiring passes
+        ``GeecsDb.find_device``; the default ``None`` disables re-resolve
+        (startup endpoints are retried forever, the pre-0.20 behavior).
     """
 
     def __init__(
@@ -155,11 +166,13 @@ class GeecsCaGateway:
         reconnect_min_s: float = 0.5,
         reconnect_max_s: float = 30.0,
         set_timeout_s: float = _SET_EXE_TIMEOUT,
+        endpoint_resolver: Callable[[str], tuple[str, int] | None] | None = None,
     ) -> None:
         self.config = config
         self._reconnect_min = reconnect_min_s
         self._reconnect_max = reconnect_max_s
         self._set_timeout = set_timeout_s
+        self._endpoint_resolver = endpoint_resolver
         self._supervisors: list[asyncio.Task] = []
         # device name -> {geecs_var -> last value written} for deadband suppression
         self._last_written: dict[str, dict[str, Any]] = {}
@@ -386,10 +399,13 @@ class GeecsCaGateway:
             try:
                 udp = self._udp.get(device_name)
                 if udp is None:
-                    # UDP bind failed at startup (see connect()) — fail the
-                    # caput with a clear cause rather than a KeyError.
+                    # No client: UDP bind failed at startup (see connect()),
+                    # or an endpoint-move rebind failed / is in flight
+                    # (_rebuild_udp) — fail the caput with a clear cause
+                    # rather than a KeyError.
                     raise GeecsConnectionError(
-                        f"{device_name}: no UDP client (bind failed at startup); "
+                        f"{device_name}: no UDP client (bind failed at startup, "
+                        f"or endpoint rebind failed/in progress); "
                         f"cannot forward set of {geecs_var!r}"
                     )
                 return await udp.set(geecs_var, value, timeout=self._set_timeout)
@@ -797,8 +813,13 @@ class GeecsCaGateway:
         }
         callback = self._make_callback(dev)
         backoff = self._reconnect_min
+        # The effective endpoint — startup value until a re-resolve (below)
+        # learns the device moved.
+        host, port = dev.host, dev.port
+        # Ceiling cycles to skip between DB endpoint re-resolves (see below).
+        resolve_holdoff = 0
         while not self._closing:
-            sub = GeecsTcpSubscriber(dev.host, dev.port)
+            sub = GeecsTcpSubscriber(host, port)
             try:
                 await sub.connect()
                 self._subs[dev.name] = sub
@@ -818,6 +839,10 @@ class GeecsCaGateway:
                     logger.info("%s: subscription live", dev.name)
                 await self._set_connected(dev.name, True)
                 backoff = self._reconnect_min
+                # A fresh down episode starts with a prompt first resolve —
+                # leftover holdoff from a previous episode must not delay
+                # discovering a genuine move by minutes.
+                resolve_holdoff = 0
                 # Wait for an actual disconnect — the listener task ends when the
                 # socket closes. A device merely going quiet is NOT a drop; poll
                 # so we stay cleanly cancellable at the sleep.
@@ -850,8 +875,115 @@ class GeecsCaGateway:
                     dev.name,
                     self._reconnect_max,
                 )
+            # Once the backoff hits its ceiling the outage is not a blip —
+            # re-ask the DB where the device lives now, so an app that
+            # re-registered on a different endpoint heals without a gateway
+            # restart (#611 adjacent gap).  Throttled twice over: never
+            # during the backoff climb (a blip must not pay a DB query, and
+            # during a partition the DB is likely down too — the bounded
+            # off-loop resolve must not pace the fast retries), and at the
+            # ceiling only every ``_ENDPOINT_RESOLVE_HOLDOFF_CYCLES``-th
+            # cycle — a device left off overnight must not hold a ~once-a-
+            # cycle MySQL connection churn open indefinitely.
+            if self._endpoint_resolver is not None and backoff >= self._reconnect_max:
+                if resolve_holdoff > 0:
+                    resolve_holdoff -= 1
+                else:
+                    resolve_holdoff = self._ENDPOINT_RESOLVE_HOLDOFF_CYCLES
+                    resolved = await self._resolve_endpoint(dev.name)
+                    if resolved is not None and resolved != (host, port):
+                        logger.warning(
+                            "%s: endpoint moved %s:%s -> %s:%s (DB re-resolve); "
+                            "redialing there",
+                            dev.name,
+                            host,
+                            port,
+                            *resolved,
+                        )
+                        host, port = resolved
+                        await self._rebuild_udp(dev.name, host, port)
+                        backoff = self._reconnect_min  # dial the new one promptly
+                        resolve_holdoff = 0
             await asyncio.sleep(backoff)
             backoff = min(backoff * 2, self._reconnect_max)
+
+    #: Budget for one off-loop DB endpoint lookup — generous enough for a lab
+    #: MySQL round trip, small enough that an unreachable DB (partitions take
+    #: the DB down with the devices) cannot stall a supervisor for long.
+    _ENDPOINT_RESOLVE_TIMEOUT_S = 10.0
+
+    #: Ceiling cycles between DB endpoint re-resolves per down device — at the
+    #: default 30 s ceiling this is one MySQL query per ~5 min per device, so
+    #: a rack left off overnight costs a trickle, not a per-cycle connection
+    #: churn (each ``GeecsDb`` query opens a fresh connection).
+    _ENDPOINT_RESOLVE_HOLDOFF_CYCLES = 10
+
+    async def _resolve_endpoint(self, device_name: str) -> tuple[str, int] | None:
+        """Re-query the device's endpoint off-loop; ``None`` keeps the old one.
+
+        Any failure — resolver raise (DB down), timeout, or a malformed
+        result — degrades to "no change": the supervisor keeps retrying the
+        last known endpoint, exactly the pre-resolve behavior.
+        """
+        assert self._endpoint_resolver is not None
+        try:
+            resolved = await asyncio.wait_for(
+                asyncio.to_thread(self._endpoint_resolver, device_name),
+                timeout=self._ENDPOINT_RESOLVE_TIMEOUT_S,
+            )
+        except Exception as exc:
+            logger.info(
+                "%s: endpoint re-resolve failed (%s); keeping the last known endpoint",
+                device_name,
+                exc,
+            )
+            return None
+        if resolved is None:
+            return None
+        try:
+            host, port = resolved
+            return str(host), int(port)
+        except (TypeError, ValueError):
+            logger.warning(
+                "%s: endpoint resolver returned %r (expected (host, port)); "
+                "keeping the last known endpoint",
+                device_name,
+                resolved,
+            )
+            return None
+
+    async def _rebuild_udp(self, device_name: str, host: str, port: int) -> None:
+        """Point the device's UDP set client at a new endpoint.
+
+        The setter closures look ``self._udp`` up at call time, so swapping
+        the entry heals setpoint writes along with the subscription.  A
+        failed rebuild leaves sets broken exactly as a startup bind failure
+        does (logged loudly; readbacks unaffected).
+        """
+        old = self._udp.pop(device_name, None)
+        if old is not None:
+            try:
+                await old.close()
+            except Exception:
+                logger.debug(
+                    "%s: closing stale UDP client failed", device_name, exc_info=True
+                )
+        udp = GeecsUdpClient(host, port, device_name=device_name)
+        try:
+            await udp.connect()
+        except OSError:
+            logger.error(
+                "%s: UDP rebind to %s:%s failed — setpoint writes stay broken "
+                "until the endpoint resolves again or the gateway restarts",
+                device_name,
+                host,
+                port,
+                exc_info=True,
+            )
+            await udp.close()
+            return
+        self._udp[device_name] = udp
+        logger.info("%s: UDP set client re-pointed at %s:%s", device_name, host, port)
 
     async def _set_connected(self, device: str, connected: bool) -> None:
         """Update the device's CONNECTED PV and the gateway connected-count."""

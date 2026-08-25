@@ -36,8 +36,12 @@ mcp = FastMCP(
         "get_scan_analysis (task statuses + output tree) and "
         "get_scan_figure (a figure REFERENCE — metadata plus a fetch "
         "URL served by this same server; thumbnail=true for a bounded "
-        "inline preview, never pull full figures through context). "
-        "Names must come from list_scan_configs — never invent catalog "
+        "inline preview, never pull full figures through context), "
+        "run_scan_analysis (execute a ScanAnalysis diagnostic or group "
+        "for one existing scan, detached — poll get_scan_analysis for "
+        "progress; analyzer/group names come from list_analyzers / "
+        "list_analysis_groups). "
+        "Names must come from the listing tools — never invent catalog "
         "names."
     ),
 )
@@ -45,8 +49,9 @@ mcp = FastMCP(
 
 def create_server() -> FastMCP:
     """Register every tool module and return the server."""
-    from geecs_mcp.analysis import (  # noqa: F401 — self-registers
+    from geecs_mcp.analysis import (  # noqa: F401 — self-register
         read_tools as analysis_read_tools,
+        run_tools as analysis_run_tools,
     )
     from geecs_mcp.scans import (  # noqa: F401 — self-register
         control_tools,
