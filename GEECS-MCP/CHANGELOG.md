@@ -4,6 +4,41 @@ All notable changes to `geecs-mcp` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.7.0] - 2026-08-24
+
+### Added
+
+- **The analysis-domain execution slice** (issue #686, owner request —
+  restores the post-migration-dormant analysis capability through the
+  new architecture; ScanAnalysis as-is is the backend by owner decision
+  2026-08-24, with the verb surface kept backend-neutral and
+  `analysis_status/` as the progress contract so the Tiled-based stack
+  can slot in behind the same tools later):
+  - `run_scan_analysis(scan_number, day?, analyzer|group, rerun_failed,
+    rerun_completed)` — Q-class (native `ask` + `write_tools`),
+    submit-and-poll: validates everything refusable *before* side
+    effects (exactly-one selector, configs root, the scan folder EXISTS
+    — the cross-package invariant, pinned by a nothing-created test —
+    and the analyzers construct on this host, so a Windows-only-SDK
+    diagnostic is refused up front instead of half-running), initializes
+    the status YAMLs server-side (a dead worker leaves visible queued
+    rows, never silence), then spawns a detached worker subprocess
+    (`analysis/run_worker.py`) driving ScanAnalysis's own task queue
+    (claim/heartbeat/stale-reclaim).  Poll with the existing
+    `get_scan_analysis`; figures via `get_scan_figure`.  Google-Doc
+    upload stays hard-off.
+  - `list_analyzers` / `list_analysis_groups` — R-class listings over
+    the configs repo's `analyzers/`/`groups/` trees
+    (`discover_analyzers`/`discover_groups`), so agents name
+    diagnostics instead of guessing (payload-capped, truncation
+    flagged).
+  - New optional `analysis-run` extra (ScanAnalysis path dep — heavy
+    via ImageAnalysis, hence an extra mirroring GeecsBluesky's
+    pattern); without it the three tools refuse naming the extra and
+    the server starts normally.  New consumed config:
+    `SCAN_ANALYSIS_CONFIG_DIR` / `[Paths] scan_analysis_configs_path`
+    (see `deploy/DEPLOYMENT.md`).
+
 ## [0.6.0] - 2026-08-24
 
 Payload discipline for figures (osprey-side integration finding: an
