@@ -465,7 +465,13 @@ sudo systemctl enable --now geecs-ca-gateway
   queries, so PVs appear within seconds of start.
 - A **restart is also the upgrade and the DB-resync mechanism**: `git pull &&
   poetry install && systemctl restart geecs-ca-gateway` — matching the
-  existing GEECS master-GUI reboot pattern for device-set changes.
+  existing GEECS master-GUI reboot pattern for device-set changes. Two former
+  reasons to bounce the gateway heal on their own since 0.20.0 (#611): a
+  half-open subscription (frozen readbacks, working `:SP`, no alarm — TCP
+  keepalive now resets it within about a minute), and a device app
+  re-registered on a different endpoint (re-resolved from the DB once the
+  reconnect backoff hits its ceiling). Restart remains the mechanism for
+  added/removed devices and variables.
 - **DB edits don't need shell access**: any CA client can write the
   `[experiment:]cagateway:restart` PV (devIocStats `SYSRESET` pattern) and
   the gateway exits with code 86, which the unit's `RestartForceExitStatus`

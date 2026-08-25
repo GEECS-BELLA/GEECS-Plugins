@@ -114,8 +114,9 @@ derived_channels:
     seen: dict[str, GatewayConfig] = {}
 
     class FakeGateway:
-        def __init__(self, config: GatewayConfig) -> None:
+        def __init__(self, config: GatewayConfig, **kwargs: object) -> None:
             seen["config"] = config
+            seen["init_kwargs"] = kwargs
             self.pvdb = {}
 
         async def run(self) -> bool:
@@ -132,3 +133,7 @@ derived_channels:
 
     assert restart is False
     assert seen["config"].derived_channels[0].device == "U_ChamberVac"
+    # The production endpoint-resolver wiring (#611) — without this pin,
+    # dropping the kwarg from _run would silently disable re-resolve in
+    # production while every gateway-level test injects its own resolver.
+    assert seen["init_kwargs"]["endpoint_resolver"] is entry._db_endpoint_resolver

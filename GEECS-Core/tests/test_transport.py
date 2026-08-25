@@ -110,6 +110,31 @@ class TestUdpClient:
 
 
 class TestTcpSubscriber:
+    async def test_keepalive_enabled_by_default(
+        self, fake_device: FakeGeecsDevice
+    ) -> None:
+        """The connected socket has SO_KEEPALIVE set (the #611 half-open fix)."""
+        import socket as socket_mod
+
+        async with FakeGeecsServer(fake_device) as srv:
+            async with GeecsTcpSubscriber(srv.host, srv.port) as sub:
+                sock = sub._writer.get_extra_info("socket")
+                assert (
+                    sock.getsockopt(socket_mod.SOL_SOCKET, socket_mod.SO_KEEPALIVE) != 0
+                )
+
+    async def test_keepalive_can_be_disabled(
+        self, fake_device: FakeGeecsDevice
+    ) -> None:
+        import socket as socket_mod
+
+        async with FakeGeecsServer(fake_device) as srv:
+            async with GeecsTcpSubscriber(srv.host, srv.port, keepalive=False) as sub:
+                sock = sub._writer.get_extra_info("socket")
+                assert (
+                    sock.getsockopt(socket_mod.SOL_SOCKET, socket_mod.SO_KEEPALIVE) == 0
+                )
+
     async def test_receives_updates(self, fake_device: FakeGeecsDevice) -> None:
         received: list[dict] = []
 

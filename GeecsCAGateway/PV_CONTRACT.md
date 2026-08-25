@@ -525,9 +525,15 @@ otherwise run a second independent limit evaluator on every write.
   (DESIGN.md "Honest gaps").
 - A device merely going *quiet* raises no alarm and does not age severity —
   GEECS devices are legitimately silent for seconds (waiting on triggers, slow
-  online analysis). Only an actual socket drop marks INVALID. The known gap —
-  hard power-off with the socket left open (no TCP FIN) — is deferred to TCP
-  keepalive.
+  online analysis). Only an actual socket drop marks INVALID. The former gap —
+  hard power-off with the socket left open (no TCP FIN) — is closed since
+  0.20.0 by TCP keepalive on the subscription socket (pinned by
+  `test_subscription_socket_has_keepalive`): the OS probes the idle peer and a
+  dead one resets the connection, which surfaces as the ordinary drop path
+  above. Detection latency is the keepalive budget (roughly a minute with the
+  defaults: 30 s idle + 3 probes × 10 s), not instant. Probes are answered by
+  a live peer's TCP stack even when the application is silent, so quiet
+  devices still never alarm.
 - Setpoint PVs carry no alarm semantics; a failed put raises at the client
   instead.
 
@@ -597,6 +603,13 @@ refuse the value before ever putting.
   supervisor retries with exponential backoff (0.5 s → 30 s cap by default),
   and the PVs sit at INVALID / `CONNECTED=Disconnected` until the device
   appears. Down/up transitions are logged once per episode, not per attempt.
+- Once a device's backoff hits its ceiling, the supervisor re-queries the
+  device's endpoint from the GEECS DB before further dials (0.20.0, pinned by
+  `test_endpoint_re_resolve_heals_moved_device`) — a device app that
+  re-registered on a different host/port heals without a gateway restart, and
+  its UDP set client follows the move. A failed re-resolve (DB unreachable)
+  keeps the last known endpoint; restarting the gateway remains the resync
+  mechanism for everything else (added/removed devices and variables).
 - Whole-experiment config build (`from_geecs_experiment`) skips (with a
   warning) any device whose spec cannot be built from the DB.
 
@@ -669,6 +682,7 @@ that branch and are part of this contract's target behavior.
 | PV stamped with device time; timestamp PVs carry raw LabVIEW value | `test_gateway.py::test_pv_timestamp_from_systimestamp`, `::test_timestamp_vars_exposed_as_pvs_with_raw_value` |
 | `0.0` pre-acquisition placeholder | `test_pv_contract.py::test_float_readback_initializes_to_zero_placeholder` |
 | Frame ordering: data before timestamps *(PR #452)* | `test_gateway.py::test_callback_posts_timestamp_variables_last` |
+| Subscription socket keepalive (half-open detection, #611); reconnect endpoint re-resolve at backoff ceiling, resolver failure keeps old endpoint | `test_gateway.py::test_subscription_socket_has_keepalive`, `::test_endpoint_re_resolve_heals_moved_device`, `::test_endpoint_resolver_failure_keeps_old_endpoint`; `GEECS-Core/tests/test_transport.py::TestTcpSubscriber::test_keepalive_enabled_by_default`, `::test_keepalive_can_be_disabled` |
 | Derived-channel manifest kind and numeric output PV metadata | `test_derived_channels.py::test_derived_pvdb_has_numeric_readback_and_manifest` |
 | Derived-channel expression subset and cross-device `stale_after` schema rule | `test_derived_channels.py::test_expression_evaluator_supports_convectron_formula`, `::test_expression_evaluator_supports_status_logic`, `::test_expression_evaluator_bool_ops_publish_binary_floats`, `::test_expression_evaluator_rejects_non_numeric_python`, `::test_derived_channel_schema_requires_stale_after_for_cross_device` |
 | Derived values evaluate from one source frame; derived-only inputs are subscribed without raw PVs | `test_derived_channels.py::test_derived_channel_updates_from_same_source_frame`, `::test_derived_only_input_is_subscribed_without_raw_pv` |
