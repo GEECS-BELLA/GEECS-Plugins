@@ -260,22 +260,28 @@ class TestExistingStatusRows:
         assert spawned == []
 
     def test_actively_claimed_task_refuses_the_call(self, share, configs, spawned):
-        """Two near-simultaneous calls must not double-run one task."""
+        """Two near-simultaneous calls must not double-run one task —
+        and the refusal is side-effect-free: it happens before init/reset,
+        so a rerun flag on the refused call must not re-queue anything."""
         from datetime import datetime, timezone
 
-        _seed_status(
+        path = _seed_status(
             share,
             "test_diag",
             state="claimed",
             claimed_by="another-runner",
             last_heartbeat=datetime.now(timezone.utc).isoformat(),
         )
+        before_tree = _tree_snapshot(share)
+        before_content = path.read_bytes()
         result = _load(
-            run_tools._run_scan_analysis_impl(7, DAY, "test_diag", None, False, False)
+            run_tools._run_scan_analysis_impl(7, DAY, "test_diag", None, True, True)
         )
         assert not result["ok"]
         assert result["error_kind"] == "policy_refusal"
         assert "already running" in result["message"]
+        assert _tree_snapshot(share) == before_tree
+        assert path.read_bytes() == before_content  # not even a rewrite
         assert spawned == []
 
     def test_stale_claim_is_runnable_again(self, share, configs, spawned):
@@ -305,12 +311,16 @@ class TestListings:
         result = _load(run_tools._list_analyzers_impl())
         assert result["ok"]
         assert result["analyzers"] == ["test_diag", "windows_only"]
+        assert result["count"] == 2
         assert result["truncated"] is False
 
     def test_list_groups_indexes_both_name_forms(self, configs):
         result = _load(run_tools._list_analysis_groups_impl())
         assert result["ok"]
         assert set(result["groups"]) == {"baseline", "HTU/baseline"}
+        # count = distinct group FILES, not accepted names — one group
+        # listed under two name forms must not read as two groups.
+        assert result["count"] == 1
 
     def test_listings_refuse_without_root(self, monkeypatch):
         monkeypatch.setattr(run_tools, "_config_root", lambda: None)

@@ -27,7 +27,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   re-queued row — and the old error text then survived onto the
   rerun's `done` row (found by #690's adversarial review path).
   Priority still carries over; pinned by
-  `TestResetClearsStaleFields`.
+  `TestResetClearsStaleFields`.  Two deliberate consequences: the
+  fresh record drops `display_files` for the re-queued window (a
+  re-queued task genuinely has no current outputs), and the direct
+  write means a scan folder vanishing mid-reset (SMB blip) now raises
+  to the caller instead of `update_status`'s log-and-skip — nothing is
+  created either way (the invariant holds), but callers driving reset
+  in a loop should expect the exception.
 
 ## [1.15.1] — 2026-07-16
 

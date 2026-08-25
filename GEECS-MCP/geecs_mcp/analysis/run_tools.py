@@ -250,6 +250,24 @@ def _run_scan_analysis_impl(
         )
     task_ids = [task_queue.analyzer_task_id(a) for a in analyzers]
     base = read_tools._base_directory()
+    # The active-claim refusal comes FIRST, before any status write, so a
+    # refused call is side-effect-free: a task another runner is actively
+    # working (fresh heartbeat) refuses the whole call — two workers
+    # claiming the same task would run the same analysis twice into the
+    # same output files.  (Resetting first would re-queue the scan's other
+    # rows and then refuse, leaving rows that read exactly like the
+    # "worker died before claiming" signature.)
+    pre = {s.analyzer_id: s for s in task_queue.read_statuses(scan_folder)}
+    active = [
+        tid for tid in task_ids if tid in pre and task_queue.claim_is_active(pre[tid])
+    ]
+    if active:
+        return errors.make_error(
+            "policy_refusal",
+            f"analysis already running for task(s) {active} on scan "
+            f"{tag.number} (claimed, heartbeat fresh) — poll "
+            "get_scan_analysis and retry after it finishes",
+        )
     # Server-side status bookkeeping BEFORE the spawn, so every requested
     # task is visibly queued even if the worker dies pre-claim: init the
     # missing rows, and — the rerun paths — reset done/failed (and
@@ -267,24 +285,10 @@ def _run_scan_analysis_impl(
             base_directory=base,
             states_to_reset=reset_states + ("claimed",),
         )
-    # Classify what this call will actually run: a task another runner is
-    # actively working (fresh heartbeat) refuses the whole call — two
-    # workers claiming the same task would run the same analysis twice
-    # into the same output files; done/failed rows without their rerun
-    # flag are reported as skipped, not silently re-listed as work.
+    # Classify what this call will actually run from the post-init/reset
+    # states: done/failed rows without their rerun flag are reported as
+    # skipped, not silently re-listed as work.
     statuses = {s.analyzer_id: s for s in task_queue.read_statuses(scan_folder)}
-    active = [
-        tid
-        for tid in task_ids
-        if tid in statuses and task_queue.claim_is_active(statuses[tid])
-    ]
-    if active:
-        return errors.make_error(
-            "policy_refusal",
-            f"analysis already running for task(s) {active} on scan "
-            f"{tag.number} (claimed, heartbeat fresh) — poll "
-            "get_scan_analysis and retry after it finishes",
-        )
     # Any remaining "claimed" is stale (active ones refused above) —
     # build_worklist reclaims those, so they count as runnable.
     runnable = [
