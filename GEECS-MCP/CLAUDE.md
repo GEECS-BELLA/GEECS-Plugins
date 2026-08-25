@@ -32,10 +32,18 @@ conventions), `archiver/` when that project reactivates.
   `devices/*`) — when a tool needs something private, promote it into a
   small public module in GeecsBluesky instead (the #668 discipline: the
   engine splits emerge from real seams, not guesses).
-- **Write-surface doctrine** (standing, 2026-07-23): agent writes go
-  through MCP verbs only; scans stay in the GEECS engine — the MCP
-  submits ScanRequests, never drives devices shot-by-shot; raw gateway
-  PVs are read-only to the agent.
+- **Write-surface doctrine** (2026-07-23, amended 2026-08-25 to match
+  deployed practice — owner correction): GEECS-*semantic* writes (scans,
+  actions, manual moves, analysis) go through MCP verbs only; scans stay
+  in the GEECS engine — the MCP submits ScanRequests, never drives
+  devices shot-by-shot, and does no raw PV I/O of its own.  Channel-level
+  setpoint writes (`caput` to `:SP` PVs) are NOT MCP territory: osprey's
+  own EPICS write tool performs them, bounded by osprey's limits database
+  and its own gating.  That raw path bypasses the GEECS client-side
+  hardening (put-failure visibility, wire conventions, confirm/pseudo
+  semantics, mid-scan refusals — only device limits + gateway atomicity
+  hold server-side), which is why anything with GEECS semantics still
+  belongs behind an MCP verb.
 - **No osprey imports.**  The integration surface is `profile.yml` +
   stdio or HTTP (`deploy/DEPLOYMENT.md` — central HTTP on the qserver
   box is the multi-machine mode; stdio is the dev loop);

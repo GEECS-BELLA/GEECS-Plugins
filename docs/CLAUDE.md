@@ -8,7 +8,7 @@ The site is organised into top-level tabs in `mkdocs.yml`'s `nav:`. The
 canonical ordering is:
 
 ```
-Home → Tutorials → Acquisition → Analysis → Platform → Skills
+Home → Tutorials → Acquisition → Analysis → Platform → Agentic Tooling
 ```
 
 The middle three are **purpose groups**, not one-tab-per-package. Each
@@ -37,8 +37,11 @@ that one-tab-per-package sprawl is exactly what the purpose grouping replaced.
 
 The Tutorials tab is the cross-package, user-facing entry point — it holds
 the end-to-end walkthroughs (currently Analysis; Acquisition is stubbed
-— see `tutorials/acquisition.md`). Skills
-sits last because it's experimental tooling rather than core suite.
+— see `tutorials/acquisition.md`). Agentic Tooling sits last: the
+AI-agent surfaces rather than core suite, in two sections with distinct
+audiences — the GEECS MCP Server (agents operating the lab) and Skills
+(agents developing the code) — behind a landing page at
+`docs/agentic/index.md`.
 
 ## When to put what where
 
