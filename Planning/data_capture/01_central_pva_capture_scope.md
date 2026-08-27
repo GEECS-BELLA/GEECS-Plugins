@@ -274,6 +274,20 @@ handoff, systemd unit, the all-cameras save-set stress test.
 
 ### Phase 4 — read side (medium)
 
+**STATUS: BUILT, REVIEWED (adversarial 8 findings + codex clean, all
+dispositioned), MERGED 2026-08-27 (PR #696).** geecs-data-utils 0.14.0
+(`io/scan_stack.py` + `ShotRef`), ImageAnalysis 1.12.0 (`load_image`
+ShotRef branch), ScanAnalysis 1.17.0 (opt-in `data_format: device_hdf5`
+with unconditional per-shot-file fallback — default byte-for-byte
+unchanged). End-to-end verified against the real Scan003 daemon stack.
+Compression landed same day (PR #695: shuffle+gzip-1 — stacks now
+~20% smaller than the PNG set). Known opt-in hazard (documented in the
+field docs): analyzers deriving per-shot output names from
+`file_path.stem` (MagSpec, LineStitcher) must not opt in — a runtime
+guard is a follow-up candidate. Deferred to the stack-only world:
+background pre-pass enumeration, `infer_device_ext`/expected-asset
+guards, per-bin bulk reads.
+
 - `geecs_data_utils/io/scan_stack.py`: `read_shot(path, shot)`,
   `list_shots(path)`, open-handle cache; naming/index contract documented in
   `native_files.py` (the declared source of truth) alongside the two existing
