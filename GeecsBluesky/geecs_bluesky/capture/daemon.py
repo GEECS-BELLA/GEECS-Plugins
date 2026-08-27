@@ -30,8 +30,8 @@ Design constraints this module enforces (scope doc,
   second thread.
 - Every frame is accounted: the per-device counter identity is
   ``received == written + duplicates_dropped + stale_skipped +
-  shape_errors + queue_drops + late_frames + writer_create_failures``
-  (see ``FORMAT.md``).
+  shape_errors + queue_drops + late_frames + writer_create_failures +
+  append_failures`` (see ``FORMAT.md``).
 - Phase-1 dual-write doctrine: the LV per-shot file save stays ON; this
   daemon runs alongside and its files are the diff surface, so a daemon
   failure can never lose data.
@@ -91,6 +91,7 @@ class _DeviceCapture:
     queue_drops: int = 0
     late_frames: int = 0
     writer_create_failures: int = 0
+    append_failures: int = 0
     disconnect_events: int = 0
     initial_disconnect_absorbed: bool = False
 
@@ -105,6 +106,7 @@ class _DeviceCapture:
             "queue_drops": self.queue_drops,
             "late_frames": self.late_frames,
             "writer_create_failures": self.writer_create_failures,
+            "append_failures": self.append_failures,
             "disconnect_events": self.disconnect_events,
         }
 
@@ -234,6 +236,8 @@ class ScanCaptureSession:
                     dev.shape_errors += 1
                 logger.warning("capture %s: frame shape mismatch dropped", device)
             except Exception:  # noqa: BLE001 - one bad frame must not kill the scan
+                with self._lock:
+                    dev.append_failures += 1
                 logger.exception("capture %s: writer append failed", device)
 
     def _create_writer(self, dev: _DeviceCapture, acq_ts: float) -> bool:
@@ -398,7 +402,7 @@ class CaptureDaemon:
             logger.info(
                 "capture reconciliation %s: written=%d received=%d dup=%d "
                 "stale=%d shape_err=%d q_drops=%d late=%d create_fail=%d "
-                "disconnects=%d",
+                "append_fail=%d disconnects=%d",
                 device,
                 counters["frames_written"],
                 counters["frames_received"],
@@ -408,6 +412,7 @@ class CaptureDaemon:
                 counters["queue_drops"],
                 counters["late_frames"],
                 counters["writer_create_failures"],
+                counters["append_failures"],
                 counters["disconnect_events"],
             )
 

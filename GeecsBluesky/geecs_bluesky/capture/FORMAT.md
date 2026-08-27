@@ -20,7 +20,8 @@ Root attributes: `schema` (`"geecs-capture/1"`), `device`, `experiment`,
 `scan_number`, `source_pv`, `created` (Unix s), and — written at finalize —
 the per-device reconciliation counters `frames_received`, `frames_written`,
 `duplicates_dropped`, `stale_skipped`, `shape_errors`, `queue_drops`,
-`late_frames`, `writer_create_failures`, `disconnect_events`, plus
+`late_frames`, `writer_create_failures`, `append_failures`,
+`disconnect_events`, plus
 `finalized` (bool; absent means the daemon died mid-scan, a wedged writer
 prevented safe finalization, or the file belongs to a session closed by a
 mismatched/missing stop document — the tail of `/frames` is still valid up
@@ -31,8 +32,12 @@ to `N`).
 ```
 frames_received == frames_written + duplicates_dropped + stale_skipped
                  + shape_errors + queue_drops + late_frames
-                 + writer_create_failures
+                 + writer_create_failures + append_failures
 ```
+
+`append_failures` counts frames the writer accepted but could not append
+(an HDF5/NAS write error) — the file's `/frames` tail stays valid; the
+frame is lost from the stack but never from the books.
 
 `late_frames` counts frames delivered after session close (p4p can hand a
 few in-flight events to the callback after unsubscribe) or left unwritten

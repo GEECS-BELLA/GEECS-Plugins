@@ -121,6 +121,7 @@ def test_full_scan_capture_flow(tmp_path) -> None:
             + f.attrs["queue_drops"]
             + f.attrs["late_frames"]
             + f.attrs["writer_create_failures"]
+            + f.attrs["append_failures"]
         )
 
 
@@ -245,6 +246,55 @@ def test_queue_overflow_is_counted_per_device(tmp_path, monkeypatch) -> None:
         + counters["queue_drops"]
         + counters["late_frames"]
         + counters["writer_create_failures"]
+        + counters["append_failures"]
+    )
+
+
+def test_append_failure_is_counted(tmp_path) -> None:
+    """A writer append error (HDF5/NAS blip) lands in append_failures."""
+
+    class FlakyWriter:
+        def __init__(self, *args, **kwargs) -> None:
+            self.calls = 0
+
+        def append(self, frame, acq_ts, recv_ts) -> None:
+            self.calls += 1
+            if self.calls == 1:
+                raise OSError("simulated NAS write failure")
+
+        def finalize(self, counters) -> int:
+            return self.calls - 1
+
+        def abort(self) -> None:
+            pass
+
+    source = FakeSource()
+    daemon = CaptureDaemon(
+        experiment="Undulator",
+        targets=_targets(),
+        source_factory=lambda: source,
+        writer_factory=FlakyWriter,
+    )
+    daemon("start", _start_doc(tmp_path))
+    frame = np.full((2, 2), 1, dtype=np.uint16)
+    source.on_frame("UC_CamA", frame, 1001.0, 1001.5)  # append raises
+    source.on_frame("UC_CamA", frame, 1002.0, 1002.5)  # append succeeds
+
+    session = daemon._session
+    daemon("stop", {"run_start": "run-1"})
+    counters = session._devices["UC_CamA"].counters()
+    assert counters["append_failures"] == 1
+    assert counters["frames_written"] == 1
+    assert counters["frames_received"] == 2
+    assert counters["frames_received"] == (
+        counters["frames_written"]
+        + counters["duplicates_dropped"]
+        + counters["stale_skipped"]
+        + counters["shape_errors"]
+        + counters["queue_drops"]
+        + counters["late_frames"]
+        + counters["writer_create_failures"]
+        + counters["append_failures"]
     )
 
 

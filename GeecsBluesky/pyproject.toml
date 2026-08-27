@@ -72,6 +72,10 @@ bluesky-queueserver-api = { version = "^0.0.13", optional = true }
 # (h5py, the v0 container behind the FrameStackWriter seam — FORMAT.md).
 p4p = { version = ">=4.1", optional = true }
 h5py = { version = ">=3.8", optional = true }
+# The daemon's document stream (bluesky.callbacks.zmq.RemoteDispatcher)
+# needs pyzmq, which bluesky does NOT hard-depend on — without this a pure
+# `--extras capture` install fails at daemon start (codex gate P1).
+pyzmq = { version = ">=24", optional = true }
 
 [tool.poetry.extras]
 tiled = ["tiled"]
@@ -80,7 +84,7 @@ ca = ["aioca"]
 optimize = ["xopt", "gest-api", "scananalysis", "imageanalysis"]
 qserver = ["bluesky-queueserver"]
 qs-client = ["bluesky-queueserver-api"]
-capture = ["p4p", "h5py"]
+capture = ["p4p", "h5py", "pyzmq"]
 
 [tool.poetry.scripts]
 geecs-capture-daemon = "geecs_bluesky.capture.__main__:main"
