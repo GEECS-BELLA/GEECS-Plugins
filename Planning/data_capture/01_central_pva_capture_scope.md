@@ -93,11 +93,25 @@ content.
    scan-gated capture must window by timestamp/doc-stream boundaries,
    not by "frames are flowing".
 
-Raw probe records: `/tmp/probe-run/results/` on the worker box (G1
-JSONL + G2 deep/shallow JSONLs, session scratchpad copy kept).
-Not yet measured: camera-server CPU/RAM under sustained subscription
-(fold into the 200-shot statistical run), MonitorFIFO behavior at >1 Hz
-burst (only relevant for the 5 Hz future).
+**Statistical + load run (same day): Scan002 26_0827, 200-shot strict
+noscan, with deep PVA monitors on ALL 11 cameras hosted by the same
+server (192.168.6.100, BellaCam43-HTU).** Results: 200 PNGs ground
+truth; G1 200 distinct acq_timestamps; scanned camera's PVA stream
+200/200 exact; **every one of the other 10 cameras also delivered
+200/200 distinct frames in-window** (all free-run at 1 Hz continuously)
+— ~2,200 frames across 11 concurrent streams, zero drops, max
+inter-delivery gap 1.52 s. Camera-server load measured over ssh during
+the run: **~9% total CPU, gateway python process 172 MB working set,
+9 GB / 16.7 GB RAM free** — sustained full-fleet subscription is a
+non-event for the host. Aggregate egress ~8 MB/s (11 × 600×600×2B ×
+1 Hz), as predicted.
+
+Raw probe records: `/tmp/probe-run/results/` + `/tmp/probe-run2/` on
+the worker box (session scratchpad copies kept). Still not measured:
+MonitorFIFO behavior at >1 Hz burst (only relevant for the 5 Hz
+future); camera-server load while *saving* 11 cameras' PNGs
+simultaneously (the dual-write condition — fold into Phase-2
+acceptance with a purpose-built all-cameras save set).
 
 ## Where loss and blindness live today (audit facts)
 
