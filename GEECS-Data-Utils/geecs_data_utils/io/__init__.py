@@ -22,15 +22,29 @@ from geecs_data_utils.io.images import (
     read_imaq_png_image,
     read_tsv_file,
 )
+from geecs_data_utils.io.scan_stack import (
+    LABVIEW_EPOCH_OFFSET,
+    ShotRef,
+    find_stack_file,
+    is_stack_file,
+    read_shot,
+    read_stack_timestamps,
+)
 
 __all__ = [
     "Data1DConfig",
     "Data1DResult",
     "Data1DType",
+    "LABVIEW_EPOCH_OFFSET",
+    "ShotRef",
     "decode_imaq_image_string",
+    "find_stack_file",
+    "is_stack_file",
     "load_image_from_h5",
     "read_1d_data",
     "read_imaq_image",
     "read_imaq_png_image",
+    "read_shot",
+    "read_stack_timestamps",
     "read_tsv_file",
 ]

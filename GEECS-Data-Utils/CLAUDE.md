@@ -16,6 +16,13 @@ geecs_data_utils/
   config_base.py               # ConfigDirManager: generic config directory management
   config_roots.py              # Singleton instances for image/scan analysis config dirs
   utils.py                     # month_to_int, SysPath, ConfigurationError
+  io/                          # generic path->ndarray readers (images, 1D,
+                               #   IMAQ decode) + scan_stack.py: reader for
+                               #   per-device capture frame stacks
+                               #   (geecs-capture/*, contract in GeecsBluesky/
+                               #   geecs_bluesky/capture/FORMAT.md) incl.
+                               #   ShotRef — a Path carrying a frame index
+                               #   for per-shot pipelines (pickle-safe)
   plotting_utils.py            # Simple matplotlib helpers for binned data
   scans_database/
     database.py                # ScanDatabase: filter + load Parquet dataset

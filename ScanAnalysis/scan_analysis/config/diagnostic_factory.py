@@ -181,6 +181,8 @@ def _wrap_in_scan_analyzer(
     }
     if scan_cfg.file_tail is not None:
         wrapper_kwargs["file_tail"] = scan_cfg.file_tail
+    if scan_cfg.data_format is not None:
+        wrapper_kwargs["data_format"] = scan_cfg.data_format
 
     try:
         analyzer = wrapper_class(**wrapper_kwargs)
