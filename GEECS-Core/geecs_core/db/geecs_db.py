@@ -556,6 +556,37 @@ class GeecsDb:
         return {name: (ip.strip(), int(port)) for name, ip, port in rows}
 
     @classmethod
+    def get_experiment_device_types(
+        cls, experiment: str, *, enabled_only: bool = True
+    ) -> dict[str, str]:
+        """Return ``{device: devicetype}`` for an experiment — one query.
+
+        The batch counterpart of :meth:`get_device_type`: devicetypes for every
+        device in *experiment* in a single connection, so devicetype-keyed
+        selection (e.g. picking every "Point Grey Camera") doesn't open one
+        MySQL connection per device.
+
+        Parameters
+        ----------
+        experiment:
+            GEECS experiment name.
+        enabled_only:
+            Restrict to devices enabled in the experiment (default true).
+        """
+        query = (
+            "SELECT DISTINCT d.name, d.devicetype "
+            "FROM expt_device ed "
+            "JOIN device d ON d.name = ed.device "
+            "WHERE ed.expt = %s"
+        )
+        if enabled_only:
+            query += " AND LOWER(ed.enabled) = 'yes'"
+        query += " ORDER BY d.name"
+        rows = _query(query, (experiment,))
+
+        return {name: (dtype or "").strip() for name, dtype in rows}
+
+    @classmethod
     def get_experiment_device_variables(
         cls, experiment: str, *, enabled_only: bool = True
     ) -> dict[str, list[dict]]:

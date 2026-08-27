@@ -4,6 +4,28 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.64.0] - 2026-08-27
+
+### Added
+
+- **`geecs_bluesky.capture` — the central PVA image-capture daemon**
+  (`capture` extra: p4p + h5py; CLI `geecs-capture-daemon`). Scan-gated
+  capture per the arc scope doc
+  (`Planning/data_capture/01_central_pva_capture_scope.md`): consumes the
+  worker's 0MQ document stream (`[qserver] doc_addr`), and for every run
+  with `nonscalar_save_paths` subscribes deep-queue PVA monitors on the
+  run's capture-eligible cameras (devicetype registry, v0 = Point Grey),
+  dedupes on `acq_timestamp` (idle re-push), drops the gateway's stale
+  pre-scan cached frame, and trail-flushes one `<device>.h5` frame stack
+  (schema `geecs-capture/1`, `capture/FORMAT.md`; container swappable
+  behind the `FrameStackWriter` protocol) into the engine-created device
+  dirs — the daemon never creates directories (cross-package invariant).
+  Finalize stamps per-device reconciliation counters into the file and
+  logs them (the dual-write diff seed). Runs ALONGSIDE the LV per-shot
+  file save (Phase-1 dual-write doctrine — a daemon failure cannot lose
+  data). Requires geecs-core ≥0.4.0
+  (`GeecsDb.get_experiment_device_types` batch query).
+
 ## [0.63.0] - 2026-08-27
 
 ### Added

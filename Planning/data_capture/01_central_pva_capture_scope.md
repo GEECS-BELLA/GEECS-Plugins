@@ -230,6 +230,15 @@ Output: probe report → design-lock addendum to this doc.
   chunked per shot, aligned shot-number + timestamp datasets, device metadata
   as attrs, light/no compression — consumers read arrays directly, no IMAQ
   decode at read time.
+- **(Sam) No container handcuffs**: HDF5 is the v0 *implementation* behind
+  the `FrameStackWriter` protocol (`geecs_bluesky/capture/writer.py`), not
+  the contract. The contract = `capture/FORMAT.md` + the `schema` attribute
+  stamped in every file (`geecs-capture/1`); a future container (e.g. Zarr)
+  is a new writer implementation + a reader branch, no daemon changes.
+  GEECS-Schemas stays out of it (it owns *config* vocabulary; data-file
+  contracts follow the `EVENT_SCHEMA.md` precedent — a versioned doc beside
+  the code, schema key in the data). Revisit a `capture_mode` format field
+  only if Phase 3 shows a real need.
 - **Dual-write validation tool**: per-scan diff (HDF5 vs PNGs — count, shot
   IDs, optionally pixel checksum). Runs continuously; its accumulated record
   is the deprecation evidence.
