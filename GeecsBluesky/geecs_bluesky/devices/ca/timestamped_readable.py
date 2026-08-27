@@ -48,6 +48,12 @@ class CaTimestampedReadable(
     save_nonscalar_data : bool
         Create the ``localsavingpath`` / ``save`` CA control signals for native
         file saving (same contract as the CA generic detector).
+    save_control_only : bool
+        Capture-owned camera mode (native_image_save toggle off): create
+        ONLY the ``save`` CA control signal — no ``localsavingpath``, no
+        save-path column, no asset docs — so the run wrapper can actively
+        command ``save="off"`` at scan start. Ignored (forced False) when
+        ``save_nonscalar_data`` is true.
     acq_timestamp_variable : str
         GEECS variable that advances per shot (default ``"acq_timestamp"``).
     """

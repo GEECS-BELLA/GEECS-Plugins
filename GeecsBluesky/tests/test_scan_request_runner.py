@@ -2500,6 +2500,29 @@ def test_native_image_save_off_wires_through_runner(
     assert [d for d, _k in session.devices] == ["U_Cam", "U_Cam2", "U_Slow"]
 
 
+def test_native_image_save_off_wires_contributor_branch(
+    legacy_resolver, monkeypatch
+) -> None:
+    """Free-run: the non-reference contributor branch threads the flag too."""
+    import geecs_bluesky.scan_request_runner as runner_mod
+
+    def _select_u_cam2(experiment, devices_config, *, provider=None):
+        return [d for d in devices_config if d == "U_Cam2"]
+
+    monkeypatch.setattr(runner_mod, "select_capture_devices", _select_u_cam2)
+    session = _SaveRecordingSession()
+    run_scan_request(
+        session,
+        _noscan_request(acquisition="free_run", native_image_save=False),
+        legacy_resolver,
+    )
+    # U_Cam is the reference (detector); U_Cam2 becomes a contributor and
+    # must carry the control-only flag through that branch.
+    assert dict(session.devices)["U_Cam2"] == "contributor"
+    assert session.control_only_flags["U_Cam2"] is True
+    assert session.save_flags["U_Cam2"] is False
+
+
 def test_native_image_save_on_leaves_saving_and_still_publishes_list(
     legacy_resolver, monkeypatch
 ) -> None:
