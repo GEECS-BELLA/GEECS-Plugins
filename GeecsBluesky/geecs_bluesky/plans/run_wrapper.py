@@ -220,6 +220,16 @@ def geecs_run_wrapper(
         md["geecs_scalar_headers"] = scalar_headers
     md.update(extra_md or {})
 
+    # Engine-side dir creation for capture-owned camera dirs (the capture
+    # daemon never mkdirs — cross-package invariant), BEFORE the start doc
+    # is emitted so the daemon's writers find them on the first frame. With
+    # native saving off these devices skip save_enable_plan's makedirs;
+    # exist_ok covers the dual-write overlap when both run.
+    capture_names = md.get("capture_devices")
+    if scan_folder is not None and isinstance(capture_names, (list, tuple)):
+        for name in capture_names:
+            os.makedirs(os.path.join(scan_folder, str(name)), exist_ok=True)
+
     wrapped = bpp.inject_md_wrapper(plan, md)
 
     if not saving:

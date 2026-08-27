@@ -4,6 +4,36 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.66.0] - 2026-08-27
+
+### Added
+
+- **The `native_image_save` toggle** (capture arc Phase 3, redesigned per
+  owner decision — one devicetype-scoped switch instead of per-save-set
+  `capture_mode` vocabulary): whether capture-eligible cameras (the
+  capture registry's devicetypes, v0 = Point Grey) write native per-shot
+  files, or the capture daemon owns their images. Experiment-wide default
+  in `ExperimentDefaults` (geecs-schemas 0.12.0, default ON), tri-state
+  per-scan override on `ScanRequest` (the `background_telemetry`
+  pattern). Both execution paths (headless runner + queue plan) resolve
+  it identically; with the toggle off, captured cameras stay full scan
+  participants (scalars, shot-id columns, strict rows) and only the
+  native save + PNG asset docs are suppressed. Eligibility comes from
+  the failure-tolerant `GeecsDbDeviceTypes` provider (new in
+  `db_runtime`) — a DB blip means nothing is eligible and native saving
+  stays on (fail-open keeps data). The run picture records
+  `capture_devices` + `native_image_save`; `geecs_run_wrapper` creates
+  the capture device dirs engine-side BEFORE the start doc (the daemon
+  never mkdirs), and the capture daemon now prefers the explicit
+  `capture_devices` start-doc key over inferring from
+  `nonscalar_save_paths` (which captured cameras leave entirely when
+  native saving is off). Optimize-mode scans keep native saving
+  regardless (v0). Deprecation (Phase 6) is now just flipping the
+  experiment default after dual-write evidence. Deploy order: the WORKER
+  upgrades before any client submits with the new field (`extra="forbid"`
+  on a ≤0.11-schemas worker rejects the unknown key — the
+  `background_telemetry` precedent).
+
 ## [0.65.0] - 2026-08-27
 
 ### Changed

@@ -324,3 +324,55 @@ def select_telemetry_variables(
         if variables:
             selected[device] = list(variables)
     return selected
+
+
+@dataclass
+class GeecsDbDeviceTypes:
+    """Batch ``{device: devicetype}`` for one experiment — failure-tolerant.
+
+    Wraps :meth:`GeecsDb.get_experiment_device_types` (one connection),
+    cached on first use.  A DB failure degrades to an empty mapping with one
+    warning — consumers treating "unknown devicetype" as "not
+    capture-eligible" therefore fail open: native image saving is never
+    switched off because the DB blipped.
+
+    Parameters
+    ----------
+    experiment : str
+        GEECS experiment name.
+    enabled_only : bool
+        Restrict to devices enabled in the experiment (default true).
+    db : type, optional
+        The ``GeecsDb`` class (injectable for tests); imported lazily by
+        default.
+    """
+
+    experiment: str
+    enabled_only: bool = True
+    db: object | None = None
+    _types: Optional[dict[str, str]] = field(default=None, init=False)
+
+    def _geecs_db(self) -> object:
+        if self.db is not None:
+            return self.db
+        from geecs_core.db.geecs_db import GeecsDb
+
+        self.db = GeecsDb
+        return GeecsDb
+
+    def by_device(self) -> dict[str, str]:
+        """Return ``{device: devicetype}`` (cached; empty on DB failure)."""
+        if self._types is None:
+            try:
+                self._types = self._geecs_db().get_experiment_device_types(
+                    self.experiment, enabled_only=self.enabled_only
+                )
+            except Exception:
+                logger.warning(
+                    "Could not read devicetypes for experiment %r; no device "
+                    "is capture-eligible this run (native saving unaffected)",
+                    self.experiment,
+                    exc_info=True,
+                )
+                self._types = {}
+        return self._types

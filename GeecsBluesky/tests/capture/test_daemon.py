@@ -317,6 +317,122 @@ def test_initial_disconnect_absorbed_before_frames(tmp_path) -> None:
         assert f.attrs["disconnect_events"] == 1
 
 
+def test_start_doc_capture_devices_key_preferred(tmp_path) -> None:
+    """The engine's explicit capture list wins over nonscalar_save_paths."""
+    source = FakeSource()
+    daemon = CaptureDaemon(
+        experiment="Undulator", targets=_targets(), source_factory=lambda: source
+    )
+    scan_dir = tmp_path / "ScanYYY"
+    (scan_dir / "UC_CamB").mkdir(parents=True)  # engine's pre-start-doc mkdir
+    daemon(
+        "start",
+        {
+            "uid": "run-cap",
+            "time": 1000.0,
+            "scan_number": 8,
+            "scan_folder": str(scan_dir),
+            "capture_devices": ["UC_CamB"],
+            "native_image_save": False,
+            # With native saving off, captured cams are NOT here; some other
+            # (non-capture) device may be — must be ignored:
+            "nonscalar_save_paths": {"U_Scope": str(scan_dir / "U_Scope")},
+        },
+    )
+    assert [t.device for t in source.subscribed] == ["UC_CamB"]
+
+    frame = np.full((2, 2), 4, dtype=np.uint16)
+    source.on_frame("UC_CamB", frame, 1001.0, 1001.5)
+    _wait_written(scan_dir / "UC_CamB" / "UC_CamB.h5", 1)
+    daemon("stop", {"run_start": "run-cap"})
+    with h5py.File(scan_dir / "UC_CamB" / "UC_CamB.h5", "r") as f:
+        assert bool(f.attrs["finalized"]) is True
+
+
+def test_engine_listed_device_without_daemon_target_errors_loudly(
+    tmp_path, caplog
+) -> None:
+    """A capture device the daemon has no target for must never be silent.
+
+    (Review finding 1: added after daemon start / skipped at discovery —
+    with native saving off, that camera's images would exist NOWHERE.)
+    """
+    source = FakeSource()
+    daemon = CaptureDaemon(
+        experiment="Undulator", targets=_targets(), source_factory=lambda: source
+    )
+    scan_dir = tmp_path / "ScanZZZ"
+    (scan_dir / "UC_CamA").mkdir(parents=True)
+    (scan_dir / "UC_NewCam").mkdir(parents=True)
+    with caplog.at_level("ERROR"):
+        daemon(
+            "start",
+            {
+                "uid": "run-miss",
+                "time": 1000.0,
+                "scan_folder": str(scan_dir),
+                "capture_devices": ["UC_CamA", "UC_NewCam"],
+                "native_image_save": False,
+            },
+        )
+    assert [t.device for t in source.subscribed] == ["UC_CamA"]
+    messages = [r.message for r in caplog.records if "UC_NewCam" in r.message]
+    assert messages, "missing-target device must be named in an ERROR"
+    assert any("NOT being recorded ANYWHERE" in m for m in messages)
+    daemon("stop", {"run_start": "run-miss"})
+
+
+def test_fallback_list_with_proprietary_devices_never_false_alarms(
+    tmp_path, caplog
+) -> None:
+    """nonscalar_save_paths legitimately contains HASO/scope devices the
+    daemon shouldn't target — the missing-target error must NOT fire there
+    (codex finding 2)."""
+    source = FakeSource()
+    daemon = CaptureDaemon(
+        experiment="Undulator", targets=_targets(), source_factory=lambda: source
+    )
+    scan_dir = tmp_path / "ScanFB"
+    (scan_dir / "UC_CamA").mkdir(parents=True)
+    with caplog.at_level("ERROR"):
+        daemon(
+            "start",
+            {
+                "uid": "run-fb",
+                "time": 1000.0,
+                "scan_folder": str(scan_dir),
+                # No capture_devices key (older engine) — fallback inference.
+                "nonscalar_save_paths": {
+                    "UC_CamA": str(scan_dir / "UC_CamA"),
+                    "U_Haso": str(scan_dir / "U_Haso"),
+                },
+            },
+        )
+    assert [t.device for t in source.subscribed] == ["UC_CamA"]
+    assert not [r for r in caplog.records if r.levelname == "ERROR"]
+    daemon("stop", {"run_start": "run-fb"})
+
+
+def test_start_doc_empty_capture_list_means_no_session(tmp_path) -> None:
+    """Explicit empty capture list = engine says nothing is capture-eligible."""
+    source = FakeSource()
+    daemon = CaptureDaemon(
+        experiment="Undulator", targets=_targets(), source_factory=lambda: source
+    )
+    daemon(
+        "start",
+        {
+            "uid": "run-empty",
+            "time": 1000.0,
+            "scan_folder": str(tmp_path),
+            "capture_devices": [],
+            "nonscalar_save_paths": {"UC_CamA": str(tmp_path / "UC_CamA")},
+        },
+    )
+    assert source.subscribed == []
+    daemon("stop", {"run_start": "run-empty"})
+
+
 def test_start_without_save_paths_ignored(tmp_path) -> None:
     """Runs that save nothing (or non-scan runs) open no session."""
     source = FakeSource()

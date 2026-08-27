@@ -71,6 +71,14 @@ append).
 - **Append-per-frame with flush** (trailing flush): a crash loses at most
   the un-flushed tail, never the scan.
 - The daemon **never creates directories**: the engine's save-enable plan
-  owns `scans/ScanNNN/<device>/` creation; a missing directory means the
-  device is skipped loudly (cross-package invariant — analysis/services
-  never create scan folders).
+  owns `scans/ScanNNN/<device>/` creation (and, for capture-owned devices
+  under the `native_image_save` toggle, `geecs_run_wrapper` creates them
+  pre-start-doc); a missing directory means the device is skipped loudly
+  (cross-package invariant — analysis/services never create scan folders).
+- **Toggle-off assumption (documented, not enforced)**: with
+  `native_image_save` off, the scan writes neither `localsavingpath` nor
+  `save` to captured cameras — it *assumes* their LV save flag is already
+  off (the normal end state of every scan's finalize). A camera whose flag
+  was left on out-of-band would keep writing native files to its stale
+  previous path. Commanding `save=off` for captured devices at scan start
+  is recorded follow-up hardening.

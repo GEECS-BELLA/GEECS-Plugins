@@ -131,6 +131,20 @@ class ExperimentDefaults(VersionedSchemaModel):
             "their own 'background_telemetry' setting."
         ),
     )
+    native_image_save: bool = Field(
+        True,
+        description=(
+            "Whether capture-eligible cameras (Point Grey — the devicetypes "
+            "the central PVA capture daemon owns) write their native "
+            "per-shot image files. On by default: flipping this off is the "
+            "PNG-deprecation step, taken only after accumulated dual-write "
+            "evidence that the capture daemon's per-device frame stacks are "
+            "lossless for this experiment. Devices with proprietary formats "
+            "(HASO, scope traces) keep their native save regardless of this "
+            "flag. Individual scans can override with their own "
+            "'native_image_save' setting."
+        ),
+    )
     description: str = Field(
         "",
         description="Optional note about what these defaults are for.",
