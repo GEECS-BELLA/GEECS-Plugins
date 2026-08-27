@@ -240,7 +240,8 @@ handoff, systemd unit, the all-cameras save-set stress test.
   Phase 5), daemon heartbeat.
 - **(Sam) HDF5 stores decoded arrays**: `(N, H, W)` uint16/uint8 dataset
   chunked per shot, aligned shot-number + timestamp datasets, device metadata
-  as attrs, light/no compression — consumers read arrays directly, no IMAQ
+  as attrs, light compression (shuffle+gzip-1, empirically chosen 2026-08-27) —
+  consumers read arrays directly, no IMAQ
   decode at read time.
 - **(Sam) No container handcuffs**: HDF5 is the v0 *implementation* behind
   the `FrameStackWriter` protocol (`geecs_bluesky/capture/writer.py`), not
