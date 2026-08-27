@@ -3,7 +3,7 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [0.4.4] - 2026-08-27
+## [0.4.4] — 2026-08-27
 
 ### Fixed
 
@@ -15,7 +15,6 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   timestamp (the capture daemon's dedupe, the analysis `acq_timestamp`
   join). Found by the capture-arc audit (2026-08-27); reaches the fleet
   on next service restart (pull-on-restart launcher).
-
 
 ## [0.4.3] — 2026-08-20
 
