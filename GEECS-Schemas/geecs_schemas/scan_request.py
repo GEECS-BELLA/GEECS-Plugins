@@ -556,6 +556,21 @@ class ScanRequest(VersionedSchemaModel):
             "true/false to override for this scan."
         ),
     )
+    native_image_save: Optional[bool] = Field(
+        None,
+        description=(
+            "Whether capture-eligible cameras (Point Grey — the devicetypes "
+            "the central PVA capture daemon owns) write their native per-shot "
+            "image files during this scan. When false, those cameras' images "
+            "are recorded only by the capture daemon's per-device frame "
+            "stack (one HDF5 per camera per scan); all other devices — "
+            "proprietary formats like the HASO, scope traces — keep their "
+            "native save regardless. Leave unset to inherit the experiment "
+            "default; set true/false to override for this scan (e.g. force "
+            "native files back on for one scan while the capture path is "
+            "being validated)."
+        ),
+    )
     trigger_profile: Optional[str] = Field(
         None,
         description=(

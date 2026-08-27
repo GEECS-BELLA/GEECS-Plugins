@@ -81,6 +81,9 @@ from geecs_bluesky.scan_request_runner import (
     _build_request_detectors,
     _defaults_flag,
     _preflight_connected,
+    apply_native_image_save_off,
+    resolve_native_image_save,
+    select_capture_devices,
     _preflight_unserved,
     assemble_action_slots,
     build_action_registry,
@@ -520,6 +523,16 @@ def _scan_request_body(
         if request.background_telemetry is not None
         else _defaults_flag(defaults, "background_telemetry", True)
     )
+    native_image_save = resolve_native_image_save(request, defaults)
+    capture_devices = select_capture_devices(
+        getattr(session, "experiment", ""), devices_config
+    )
+    if capture_devices and not native_image_save:
+        devices_config = apply_native_image_save_off(devices_config, capture_devices)
+        logger.info(
+            "native_image_save=off: capture daemon owns images for %s",
+            ", ".join(capture_devices),
+        )
 
     # ---- phase 2: worker-side construction (connects deferred) -----------
     factories = _DeferredConnectFactories(session)
@@ -587,6 +600,8 @@ def _scan_request_body(
         dropped_unserved_devices=dropped_unserved_devices,
         disconnected_devices=disconnected_devices,
         telemetry_selected=telemetry_selected if telemetry_enabled else {},
+        capture_devices=capture_devices,
+        native_image_save=native_image_save,
     )
     if request.mode is ScanRequestMode.NOSCAN:
         motor_arg: Any = None

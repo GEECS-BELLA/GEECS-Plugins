@@ -354,8 +354,27 @@ class CaptureDaemon:
             logger.exception("capture daemon failed handling %s document", name)
 
     def _on_start(self, doc: Document) -> None:
-        save_paths = doc.get("nonscalar_save_paths")
-        if not isinstance(save_paths, Mapping) or not save_paths:
+        # Prefer the engine's explicit capture list (md["capture_devices"] +
+        # scan_folder — present since the native_image_save toggle landed;
+        # with native saving off, captured cameras leave
+        # nonscalar_save_paths entirely). Fall back to the LV-saving list
+        # for older engines (dual-write inference).
+        save_paths: Mapping[str, object] | None = None
+        capture_names = doc.get("capture_devices")
+        scan_folder = doc.get("scan_folder")
+        if (
+            isinstance(capture_names, (list, tuple))
+            and isinstance(scan_folder, str)
+            and scan_folder
+        ):
+            save_paths = {
+                str(name): str(Path(scan_folder) / str(name)) for name in capture_names
+            }
+        else:
+            raw = doc.get("nonscalar_save_paths")
+            if isinstance(raw, Mapping):
+                save_paths = raw
+        if not save_paths:
             return
         uid = doc.get("uid")
         if not isinstance(uid, str):

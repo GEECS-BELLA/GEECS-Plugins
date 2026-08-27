@@ -554,7 +554,16 @@ document stream. `geecs_bluesky/capture/` consumes the live-PV path to
 build per-scan frame stacks ALONGSIDE the LV file save (the dual-write
 phase of `Planning/data_capture/01_central_pva_capture_scope.md` — Phase-0
 probes measured the unmodified gateway lossless at 1 Hz); the LV file path
-remains the system of record until the arc's deprecation phase.
+remains the system of record until the arc's deprecation phase. That
+deprecation is the **`native_image_save` toggle** (0.66.0): one
+devicetype-scoped switch (ExperimentDefaults default + ScanRequest
+tri-state override) deciding whether capture-eligible cameras (the
+capture registry's devicetypes) write native files at all — eligibility
+via the fail-open `db_runtime.GeecsDbDeviceTypes` provider, capture list
+published as the `capture_devices` start-doc key (EVENT_SCHEMA.md), and
+`geecs_run_wrapper` creating those device dirs pre-start-doc (the daemon
+never mkdirs). Proprietary-format devices (HASO, scopes) keep native
+saving regardless, forever.
 
 ## Test Infrastructure
 

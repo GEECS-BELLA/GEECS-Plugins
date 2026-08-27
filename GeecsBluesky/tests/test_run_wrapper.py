@@ -205,3 +205,46 @@ def test_save_enable_plan_alone(tmp_path) -> None:
     assert det.localsavingpath.sets == [str(save_dir)]
     assert det.save.sets == ["on"]
     assert save_dir.is_dir()
+
+
+def test_wrapper_creates_capture_device_dirs_before_start_doc(tmp_path) -> None:
+    """md capture_devices → engine-side mkdir, pre-start-doc, exist_ok."""
+    (tmp_path / "UC_Existing").mkdir()
+    seen_at_start: dict = {}
+
+    def _spy(name, doc):
+        if name == "start":
+            # Dirs must already exist when the start doc is emitted (the
+            # capture daemon's writers find them on the first frame).
+            seen_at_start["dirs"] = [
+                (tmp_path / d).is_dir() for d in ("UC_CamA", "UC_Existing")
+            ]
+
+    RE = RunEngine()
+    RE.subscribe(_spy)
+    RE(
+        geecs_run_wrapper(
+            _tiny_run(),
+            experiment="Undulator",
+            scan_number=9,
+            scan_folder=str(tmp_path),
+            extra_md={
+                "capture_devices": ["UC_CamA", "UC_Existing"],
+                "native_image_save": False,
+            },
+        )
+    )
+    assert seen_at_start["dirs"] == [True, True]
+    assert (tmp_path / "UC_CamA").is_dir()
+
+
+def test_wrapper_no_capture_dirs_without_scan_folder() -> None:
+    """No scan folder claimed → no dir creation attempted (no crash)."""
+    start = _run_capture_start(
+        geecs_run_wrapper(
+            _tiny_run(),
+            experiment="Undulator",
+            extra_md={"capture_devices": ["UC_CamA"]},
+        )
+    )
+    assert start["capture_devices"] == ["UC_CamA"]
