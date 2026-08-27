@@ -3,6 +3,22 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.17.0] — 2026-08-27
+
+### Added
+
+- **Opt-in capture-stack data source** (`data_format: device_hdf5` on a
+  diagnostic's `scan:` block, threaded factory → Array1D/Array2D →
+  `SingleDeviceScanAnalyzer`): shots join into the per-device capture
+  frame stack (`<device>/<device>.h5`, the capture daemon's dual-write
+  output) by the same canonical-millisecond `acq_timestamp` join as the
+  per-shot-file strategy, mapping each shot to a `ShotRef` that the
+  existing per-shot pipeline resolves via `ImageAnalyzer.load_image`.
+  Every failure shape (no stack, wrong schema, no timestamp column,
+  zero joins) falls back to the per-shot-file strategies — the default
+  (`data_format` unset) is byte-for-byte today's behavior, so scans and
+  facilities without stacks are unaffected.
+
 ## [1.16.0] — 2026-08-24
 
 ### Added

@@ -187,6 +187,19 @@ class ScanRuntimeConfig(BaseModel):
         Filename suffix used to match this device's data files
         (``".png"``, ``".tdms"``, ``"_postprocessed.tsv"``). When
         ``None``, the ScanAnalyzer wrapper uses its own default.
+    data_format : str, optional
+        Data-source selection: ``"device_hdf5"`` opts this diagnostic in
+        to the per-device capture frame stack
+        (``<device>/<device>.h5``, written by the capture daemon —
+        ``GeecsBluesky/geecs_bluesky/capture/FORMAT.md``), with automatic
+        fallback to per-shot files when no stack exists. ``None`` (the
+        default) and ``"per_shot_files"`` keep today's per-shot-file
+        behavior unchanged. WARNING: only opt in diagnostics whose
+        analyzers use the base ``load_image`` and do NOT derive per-shot
+        output names from ``file_path`` — with a stack, every shot shares
+        one path, so stem-derived outputs (e.g. MagSpec's ``-interp/``
+        files, LineStitcher's filename parsing) would silently overwrite
+        each other across shots.
     renderer_kwargs : dict
         Extra options forwarded to the dimension-specific renderer
         (colormap mode, waterfall sort key, etc.).
@@ -209,6 +222,7 @@ class ScanRuntimeConfig(BaseModel):
     gdoc_slot: Optional[int] = Field(default=None, ge=0, le=3)
     device: Optional[str] = None
     file_tail: Optional[str] = None
+    data_format: Optional[Literal["per_shot_files", "device_hdf5"]] = None
     renderer_kwargs: Dict[str, Any] = Field(default_factory=dict)
     background_source: Optional[BackgroundSource] = None
 

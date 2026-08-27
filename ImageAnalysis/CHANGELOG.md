@@ -3,6 +3,17 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.12.0] — 2026-08-27
+
+### Added
+
+- **`ImageAnalyzer.load_image` resolves capture-stack `ShotRef`s** — a
+  `geecs_data_utils.io.scan_stack.ShotRef` (a path into a per-device
+  capture frame stack carrying its shot index) loads that single frame
+  via one HDF5 chunk read. Transparent to subclass overrides for other
+  formats and to list loading; per-shot-file paths behave exactly as
+  before.
+
 ## [1.11.1] — 2026-07-16
 
 ### Changed

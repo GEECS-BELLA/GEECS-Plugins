@@ -79,6 +79,12 @@ ScanRuntimeConfig                 # Validates the scan: dict (diagnostic_models.
   gdoc_slot: Optional[int]        # 0-3 → table cell; None → hyperlink upload
   device: Optional[str]           # Data-subfolder override (defaults to name)
   file_tail: Optional[str]        # Filename suffix matching this device's files
+  data_format: Optional[...]      # "device_hdf5" opts in to the capture frame
+                                  #   stack (auto-fallback to per-shot files);
+                                  #   WARNING: only for analyzers that use base
+                                  #   load_image and don't derive per-shot
+                                  #   output names from file_path (see
+                                  #   diagnostic_models.py field docs)
   renderer_kwargs: dict           # Extra renderer options (colormap mode, ...)
   background_source: Optional[BackgroundSource]
                                   # scan_number | from_current_scan | autodetect

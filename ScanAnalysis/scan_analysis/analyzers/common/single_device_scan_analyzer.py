@@ -42,6 +42,11 @@ from geecs_data_utils import (
     timestamp_key,
     timestamp_key_candidates,
 )
+from geecs_data_utils.io.scan_stack import (
+    ShotRef,
+    find_stack_file,
+    read_stack_timestamps,
+)
 
 from scan_analysis.base import DataUnavailableWarning, ScanAnalyzer
 
@@ -123,6 +128,7 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
         use_injected_data: bool = False,
         output_name: Optional[str] = None,
         metric_suffix: str = "",
+        data_format: Optional[Literal["per_shot_files", "device_hdf5"]] = None,
     ):
         """Initialize the analyzer and validate concurrency constraints."""
         if not device_name:
@@ -146,6 +152,11 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
         self.flag_save_data = flag_save_data
         self.file_tail = file_tail
         self.analysis_mode = analysis_mode
+        # Data-source selection (capture arc, Planning/data_capture/):
+        # "device_hdf5" opts in to the per-device capture frame stack
+        # (<device>/<device>.h5) with automatic fallback to per-shot files;
+        # None/"per_shot_files" is today's behavior, unchanged.
+        self.data_format = data_format
 
         # Output identifier (#412). The diagnostic factory passes
         # ``effective_output_name`` (= the diagnostic's ``output_name`` if
@@ -297,7 +308,9 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
         """
         Build a mapping from shot number to data file path.
 
-        Two strategies, selected automatically by the metadata present:
+        Three strategies: the capture-stack join (config-selected via
+        ``data_format="device_hdf5"``, with unconditional fallback), then
+        two selected automatically by the metadata present:
 
         - **acq_timestamp join** (Bluesky-produced scans): when the auxiliary
           frame carries this device's ``acq_timestamp`` column, each shot's
@@ -336,6 +349,22 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
             return
 
         logger.info(f"self.file_tail: {self.file_tail}")
+
+        # Opt-in capture-stack strategy (data_format="device_hdf5"): map
+        # shots into the per-device HDF5 frame stack the capture daemon
+        # writes. Zero mappings (no stack, no timestamp column, no joins)
+        # fall back to the per-shot file strategies below — the old basis
+        # keeps working unconditionally.
+        # getattr: instances built without __init__ (the test harness's
+        # cheap-instance pattern, notebook shims) default to per-shot files.
+        if (
+            getattr(self, "data_format", None) == "device_hdf5"
+            and self._map_shots_from_stack()
+        ):
+            expected_shots = set(self.auxiliary_data["Shotnumber"].values)
+            for m in sorted(expected_shots - set(self._data_file_map.keys())):
+                logger.warning(f"No stack frame found for shot {m}")
+            return
 
         ts_column = self._acq_timestamp_column()
         if ts_column is not None:
@@ -494,6 +523,89 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
             if file is not None:
                 self._data_file_map[shot_num] = file
                 logger.info(f"Mapped file for shot {shot_num}: {file}")
+
+    def _map_shots_from_stack(self) -> bool:
+        """Join shots into the capture frame stack, if one exists.
+
+        Mirrors :meth:`_map_files_by_acq_timestamp`'s canonical-millisecond
+        join: the stack stores Unix-epoch timestamps (its contract,
+        ``GeecsBluesky/geecs_bluesky/capture/FORMAT.md``), converted here to
+        the LabVIEW epoch of the auxiliary frame's ``acq_timestamp`` column.
+        Each joined shot maps to a :class:`ShotRef` — a path into the stack
+        carrying the frame index — which travels through the existing
+        per-shot pipeline and is resolved to pixels by
+        ``ImageAnalyzer.load_image``.
+
+        Returns
+        -------
+        bool
+            True when at least one shot mapped (the caller then skips the
+            per-shot-file strategies); False means "no usable stack" and the
+            caller falls back.
+        """
+        stack = find_stack_file(self.path_dict["data"])
+        if stack is None:
+            logger.warning(
+                "data_format='device_hdf5' but no capture stack in %s — "
+                "falling back to per-shot files",
+                self.path_dict["data"],
+            )
+            return False
+        ts_column = self._acq_timestamp_column()
+        if ts_column is None:
+            logger.warning(
+                "Capture stack %s present but the auxiliary frame has no "
+                "acq_timestamp column for %s — falling back to per-shot files",
+                stack,
+                self.device_name,
+            )
+            return False
+        try:
+            stack_ts = read_stack_timestamps(stack, labview_epoch=True)
+        except (OSError, KeyError) as exc:
+            # A malformed stack (missing dataset) or a share hiccup between
+            # is_stack_file's open and this read must fall back, not fail
+            # the task — the dual-write PNGs are right there.
+            logger.warning(
+                "Capture stack %s unreadable (%s) — falling back to per-shot files",
+                stack,
+                exc,
+            )
+            return False
+        frames_by_ms: dict[int, int] = {}
+        for idx, ts in enumerate(stack_ts):
+            # keep-first on duplicate ms keys (deterministic; the daemon
+            # dedupes identical timestamps upstream)
+            frames_by_ms.setdefault(timestamp_key(float(ts)), idx)
+        valid_column = self._matching_valid_column()
+        for _, row in self.auxiliary_data.iterrows():
+            shot_num = int(row["Shotnumber"])
+            if valid_column is not None and not bool(row[valid_column]):
+                continue
+            try:
+                ts = float(row[ts_column])
+            except (TypeError, ValueError):
+                continue
+            if not np.isfinite(ts) or ts <= 0:
+                continue
+            for candidate_key in timestamp_key_candidates(timestamp_key(ts)):
+                idx = frames_by_ms.get(candidate_key)
+                if idx is not None:
+                    self._data_file_map[shot_num] = ShotRef(stack, idx)
+                    break
+        if self._data_file_map:
+            logger.info(
+                "Mapped %d shot(s) into capture stack %s",
+                len(self._data_file_map),
+                stack,
+            )
+            return True
+        logger.warning(
+            "Capture stack %s joined zero shots (timestamp mismatch?) — "
+            "falling back to per-shot files",
+            stack,
+        )
+        return False
 
     def _probe_expected_file(
         self, data_dir: Path, file_device: str, key: int

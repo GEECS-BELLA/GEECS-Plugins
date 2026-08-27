@@ -16,6 +16,7 @@ else:
 import logging
 
 from geecs_data_utils.io.images import read_imaq_image
+from geecs_data_utils.io.scan_stack import ShotRef, read_shot
 
 logger = logging.getLogger(__name__)
 
@@ -130,6 +131,11 @@ class ImageAnalyzer:
         override ``load_image`` for custom file formats (e.g. ``.himg``)
         automatically get list support for free.
 
+        A :class:`geecs_data_utils.io.scan_stack.ShotRef` (a path into a
+        capture frame stack carrying its shot index) resolves to that single
+        frame — one chunk read from the per-device HDF5 stack, transparent
+        to subclass overrides for other formats.
+
         Parameters
         ----------
         file_path : Union[Path, list[Path]]
@@ -143,6 +149,9 @@ class ImageAnalyzer:
         """
         if isinstance(file_path, list):
             return [self.load_image(p) for p in file_path]
+
+        if isinstance(file_path, ShotRef):
+            return read_shot(file_path)
 
         image = read_imaq_image(file_path)
 
