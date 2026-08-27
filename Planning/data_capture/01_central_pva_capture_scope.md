@@ -203,6 +203,18 @@ Output: probe report → design-lock addendum to this doc.
 
 ### Phase 2 — capture daemon (new component, medium-large)
 
+**STATUS: v0 BUILT, REVIEWED (adversarial 14 findings + codex 2 P1s, all
+dispositioned), and LIVE-ACCEPTED 2026-08-27 (PR #694, merged).**
+GeecsBluesky 0.64.0 `geecs_bluesky/capture/` + GEECS-Core 0.4.0 batch
+devicetype query. Acceptance: Scan003 26_0827 dual-write — all 10 LV PNG
+acq_timestamps present in the HDF5 (zero missing), counter identity
+closed exactly, one attributable pre-save-window extra (free-running
+camera), lazy-writer creation validated live (create_fail=2 pre-mkdir
+frames, no shot lost). Key build-time discovery (review HIGH): the
+engine creates device dirs AFTER the start doc → writers are lazy on
+first accepted frame. Remaining Phase-2 items: RAM-buffer analysis
+handoff, systemd unit, the all-cameras save-set stress test.
+
 - **(Sam) Lives in GeecsBluesky** — the daemon code as an importable
   subpackage behind an optional extra at `geecs_bluesky/capture/` (the
   `qs_client` pattern), accepting that its release cadence rides with the
