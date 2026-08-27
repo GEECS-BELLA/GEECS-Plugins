@@ -194,7 +194,12 @@ class ScanRuntimeConfig(BaseModel):
         ``GeecsBluesky/geecs_bluesky/capture/FORMAT.md``), with automatic
         fallback to per-shot files when no stack exists. ``None`` (the
         default) and ``"per_shot_files"`` keep today's per-shot-file
-        behavior unchanged.
+        behavior unchanged. WARNING: only opt in diagnostics whose
+        analyzers use the base ``load_image`` and do NOT derive per-shot
+        output names from ``file_path`` — with a stack, every shot shares
+        one path, so stem-derived outputs (e.g. MagSpec's ``-interp/``
+        files, LineStitcher's filename parsing) would silently overwrite
+        each other across shots.
     renderer_kwargs : dict
         Extra options forwarded to the dimension-specific renderer
         (colormap mode, waterfall sort key, etc.).

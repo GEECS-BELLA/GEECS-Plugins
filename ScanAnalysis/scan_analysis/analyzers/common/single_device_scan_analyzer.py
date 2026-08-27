@@ -308,7 +308,9 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
         """
         Build a mapping from shot number to data file path.
 
-        Two strategies, selected automatically by the metadata present:
+        Three strategies: the capture-stack join (config-selected via
+        ``data_format="device_hdf5"``, with unconditional fallback), then
+        two selected automatically by the metadata present:
 
         - **acq_timestamp join** (Bluesky-produced scans): when the auxiliary
           frame carries this device's ``acq_timestamp`` column, each shot's
@@ -558,9 +560,22 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
                 self.device_name,
             )
             return False
-        stack_ts = read_stack_timestamps(stack, labview_epoch=True)
+        try:
+            stack_ts = read_stack_timestamps(stack, labview_epoch=True)
+        except (OSError, KeyError) as exc:
+            # A malformed stack (missing dataset) or a share hiccup between
+            # is_stack_file's open and this read must fall back, not fail
+            # the task — the dual-write PNGs are right there.
+            logger.warning(
+                "Capture stack %s unreadable (%s) — falling back to per-shot files",
+                stack,
+                exc,
+            )
+            return False
         frames_by_ms: dict[int, int] = {}
         for idx, ts in enumerate(stack_ts):
+            # keep-first on duplicate ms keys (deterministic; the daemon
+            # dedupes identical timestamps upstream)
             frames_by_ms.setdefault(timestamp_key(float(ts)), idx)
         valid_column = self._matching_valid_column()
         for _, row in self.auxiliary_data.iterrows():

@@ -49,15 +49,34 @@ class ShotRef(_PathBase):
     ``shot_index`` for the loader that resolves it to pixels. Pickles
     correctly (process-pool analysis workers receive real ``ShotRef``
     objects).
+
+    Two deliberate limits: *derived* paths (``ref.parent``,
+    ``ref.with_suffix(...)``) are plain paths semantically — they carry no
+    ``shot_index`` and must not be fed to :func:`read_shot`; and equality/
+    hash are the path's (two refs to different frames of one stack compare
+    equal) — never key a cache by ``ShotRef`` alone.
     """
 
     __slots__ = ("shot_index",)
 
     def __new__(cls, path: "str | Path", shot_index: int) -> "ShotRef":
         """Create a ref to frame *shot_index* of the stack at *path*."""
+        # 3.11 parses the path in __new__; 3.12+ accepts-and-ignores args
+        # there (parsing moved to __init__, handled below).
         self = super().__new__(cls, path)
         self.shot_index = int(shot_index)
         return self
+
+    def __init__(self, path: "str | Path", shot_index: int) -> None:
+        """Forward only the path to pathlib (3.12+ parses in __init__)."""
+        try:
+            super().__init__(path)  # type: ignore[call-arg]
+        except TypeError:
+            super().__init__()  # 3.11: object.__init__ — parsing already done
+
+    def with_segments(self, *segments):  # pragma: no cover - 3.12+ cloning
+        """Derive plain Paths (3.12+ clone hook) — the index dies with the ref."""
+        return _PathBase(*segments)
 
     def __reduce__(self):
         """Pickle as (path, shot_index) — Path's own reduce drops the index."""
@@ -105,9 +124,9 @@ def read_stack_timestamps(path: Path, *, labview_epoch: bool = False) -> np.ndar
 
     Parameters
     ----------
-    path:
+    path : Path
         The stack file.
-    labview_epoch:
+    labview_epoch : bool
         When true, convert from the stored Unix seconds to LabVIEW-epoch
         seconds (the convention of s-file columns and native filenames).
     """
@@ -123,9 +142,11 @@ def read_shot(ref: "ShotRef | Path", shot_index: int | None = None) -> np.ndarra
     plus an explicit *shot_index*.
     """
     if shot_index is None:
-        if not isinstance(ref, ShotRef):
+        # getattr: a path *derived* from a ShotRef (ref.parent / name) keeps
+        # the type on 3.11 but has no index — refuse it cleanly.
+        shot_index = getattr(ref, "shot_index", None)
+        if shot_index is None:
             raise TypeError("read_shot needs a ShotRef or an explicit shot_index")
-        shot_index = ref.shot_index
     with h5py.File(ref, "r") as f:
         frames = f["frames"]
         if not 0 <= shot_index < frames.shape[0]:

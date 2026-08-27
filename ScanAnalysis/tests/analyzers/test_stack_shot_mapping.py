@@ -136,6 +136,34 @@ class TestStackJoin:
         sa._build_data_file_map()
         assert sa._data_file_map == {1: png}
 
+    def test_corrupt_stack_missing_timestamps_falls_back(self, tmp_path):
+        # Valid schema + frames but no /acq_timestamp dataset: the read
+        # raises inside the strategy, which must fall back — never fail
+        # the task (review finding 1).
+        ts = [3866137959.524]
+        device_dir = tmp_path / DEVICE
+        device_dir.mkdir(parents=True)
+        with h5py.File(device_dir / f"{DEVICE}.h5", "w") as f:
+            f.attrs["schema"] = "geecs-capture/1"
+            f.create_dataset("frames", data=np.zeros((1, 3, 3), dtype=np.uint16))
+        png = device_dir / f"{DEVICE}_3866137959.524.png"
+        png.write_bytes(b"")
+        sa = _make_analyzer(device_dir, _aux(ts))
+        sa._build_data_file_map()
+        assert sa._data_file_map == {1: png}
+
+    def test_no_timestamp_column_falls_back(self, tmp_path):
+        # Stack present but the aux frame has no acq_timestamp column for
+        # this device: fall back to legacy shot-number mapping.
+        device_dir = tmp_path / DEVICE
+        _write_stack(device_dir, [3866137959.524])
+        png = device_dir / f"Scan001_{DEVICE}_001.png"
+        png.write_bytes(b"")
+        aux = pd.DataFrame({"Shotnumber": [1], "Bin #": [1]})
+        sa = _make_analyzer(device_dir, aux)
+        sa._build_data_file_map()
+        assert sa._data_file_map == {1: png}
+
     def test_valid_column_false_skips_row(self, tmp_path):
         ts = [3866137959.524, 3866137960.525]
         device_dir = tmp_path / DEVICE

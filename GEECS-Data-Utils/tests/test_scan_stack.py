@@ -90,3 +90,12 @@ def test_shotref_behaves_as_path_and_pickles(tmp_path) -> None:
     assert clone.shot_index == 1
     assert str(clone) == str(path)
     assert (read_shot(clone) == 1).all()
+
+
+def test_derived_shotref_refused_cleanly(tmp_path) -> None:
+    """Paths derived from a ShotRef carry no index — clean TypeError."""
+    path = _write_stack(tmp_path / "UC_Cam")
+    ref = ShotRef(path, 1)
+    derived = ref.parent / path.name  # ShotRef-typed on 3.11, no index
+    with pytest.raises(TypeError):
+        read_shot(derived)
