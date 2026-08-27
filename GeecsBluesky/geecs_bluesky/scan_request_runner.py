@@ -1204,6 +1204,7 @@ def _build_request_detectors(
     for device_name, cfg in devices_config.items():
         variables = list(cfg.get("variable_list") or [])
         save = bool(cfg.get("save_nonscalar_data", False))
+        save_control_only = bool(cfg.get("save_control_only", False))
         synchronous = bool(cfg.get("synchronous", False))
         if not synchronous:
             if not variables:
@@ -1212,13 +1213,29 @@ def _build_request_detectors(
                     device_name,
                 )
                 continue
-            detectors.append(session.snapshot(device_name, variables))
+            detectors.append(
+                session.snapshot(
+                    device_name, variables, save_control_only=save_control_only
+                )
+            )
         elif free_run and reference_assigned:
             detectors.append(
-                session.contributor(device_name, variables, save_images=save)
+                session.contributor(
+                    device_name,
+                    variables,
+                    save_images=save,
+                    save_control_only=save_control_only,
+                )
             )
         else:
-            detectors.append(session.detector(device_name, variables, save_images=save))
+            detectors.append(
+                session.detector(
+                    device_name,
+                    variables,
+                    save_images=save,
+                    save_control_only=save_control_only,
+                )
+            )
             reference_assigned = True
     return detectors
 
@@ -1283,6 +1300,11 @@ def apply_native_image_save_off(
     for name in capture_devices:
         if name in updated:
             updated[name]["save_nonscalar_data"] = False
+            # Active off-write surface: the detector gets ONLY the `save`
+            # control child, and the run wrapper commands "off" at scan
+            # start — a flag left on out-of-band must never keep writing
+            # native files to a stale path (codex finding on PR #697).
+            updated[name]["save_control_only"] = True
     return updated
 
 

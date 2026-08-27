@@ -232,6 +232,17 @@ def geecs_run_wrapper(
 
     wrapped = bpp.inject_md_wrapper(plan, md)
 
+    # Active save-off for capture-owned cameras (save_control_only devices):
+    # a save flag left on out-of-band must never keep writing native files
+    # to a stale path during a toggle-off scan. Eager — turning OFF needs no
+    # trigger windowing, unlike save-on.
+    off_args: list = []
+    for dev in devices or []:
+        if getattr(dev, "_save_control_only", False) and hasattr(dev, "save"):
+            off_args.extend([dev.save, "off"])
+    if off_args:
+        yield from bps.mv(*off_args)
+
     if not saving:
         yield from wrapped
         return

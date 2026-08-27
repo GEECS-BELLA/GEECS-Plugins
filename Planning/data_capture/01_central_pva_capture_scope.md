@@ -298,6 +298,14 @@ per-device deprecation choreography.
 - Capture-availability preflight check (free-form check name in the
   existing `PreflightOutcome` vocabulary — `scan_request.py:417-421`) —
   refuse/warn when the toggle is off but the daemon looks absent.
+- Review notes on the active save-off (PR #699): (a) an *asynchronous*
+  capture-eligible camera would be config-marked but the snapshot branch
+  drops the flag — no off-write (pre-existing shape; matters only if
+  async Point Grey configs ever exist); (b) toggle-off scans require the
+  gateway to serve `device:save`(+`:SP`) for captured cameras — unserved
+  dies loudly in the pre-claim connect batch (~20 s NotConnectedError),
+  which `UnservedVariablesCheck` cannot pre-warn about (it inspects
+  save-set variable lists, not control children).
 - **Asset-doc design wrinkle (recorded 2026-08-27, decide with the
   `GEECS_HDF5_STACK` spec work):** the daemon owns frame indices, but
   Resource/Datum documents are emitted by the device/engine during the

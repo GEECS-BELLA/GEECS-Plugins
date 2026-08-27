@@ -75,10 +75,8 @@ append).
   under the `native_image_save` toggle, `geecs_run_wrapper` creates them
   pre-start-doc); a missing directory means the device is skipped loudly
   (cross-package invariant — analysis/services never create scan folders).
-- **Toggle-off assumption (documented, not enforced)**: with
-  `native_image_save` off, the scan writes neither `localsavingpath` nor
-  `save` to captured cameras — it *assumes* their LV save flag is already
-  off (the normal end state of every scan's finalize). A camera whose flag
-  was left on out-of-band would keep writing native files to its stale
-  previous path. Commanding `save=off` for captured devices at scan start
-  is recorded follow-up hardening.
+- **Toggle-off actively commands `save="off"`** (GeecsBluesky 0.67.0):
+  captured cameras are built `save_control_only` — only the `save` control
+  child exists (no `localsavingpath`, no save-path column, no asset docs)
+  — and the run wrapper writes `off` eagerly at scan start, so a flag left
+  on out-of-band can never keep writing native files to a stale path.

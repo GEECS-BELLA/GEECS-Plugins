@@ -47,6 +47,12 @@ class CaGenericDetector(ShotIdSupport, NonScalarSaveSupport, CaTriggerable):
         Create the ``localsavingpath`` / ``save`` CA control signals so the run
         wrapper can turn native file saving on/off; events then carry the
         ``nonscalar_save_path`` column (and asset docs when configured).
+    save_control_only : bool
+        Capture-owned camera mode (native_image_save toggle off): create
+        ONLY the ``save`` CA control signal — no ``localsavingpath``, no
+        save-path column, no asset docs — so the run wrapper can actively
+        command ``save="off"`` at scan start. Ignored (forced False) when
+        ``save_nonscalar_data`` is true.
     acq_timestamp_variable : str
         GEECS variable that advances per shot (default ``"acq_timestamp"``).
     """
@@ -59,6 +65,7 @@ class CaGenericDetector(ShotIdSupport, NonScalarSaveSupport, CaTriggerable):
         experiment: str | None = None,
         name: str = "detector",
         save_nonscalar_data: bool = False,
+        save_control_only: bool = False,
         acq_timestamp_variable: str = "acq_timestamp",
     ) -> None:
         # Must be set before CaTriggerable.__init__ builds the children (it
@@ -94,6 +101,15 @@ class CaGenericDetector(ShotIdSupport, NonScalarSaveSupport, CaTriggerable):
                     attr,
                     epics_signal_rw(str, readback, setpoint_pv(readback)),
                 )
+        # Capture-owned camera (native_image_save toggle off): no native
+        # saving, no save-path column, no asset docs — but the scan must be
+        # able to actively command save="off" (a flag left on out-of-band
+        # would otherwise write files to a stale path). Only the `save`
+        # control child exists; localsavingpath is deliberately absent.
+        self._save_control_only = save_control_only and not save_nonscalar_data
+        if self._save_control_only:
+            readback = ca_pv(experiment, device, "save")
+            self.save = epics_signal_rw(str, readback, setpoint_pv(readback))
 
     @property
     def last_acq_timestamp(self) -> float | None:
