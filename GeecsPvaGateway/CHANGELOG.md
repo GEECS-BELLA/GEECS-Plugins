@@ -3,6 +3,19 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.4.4] — 2026-08-27
+
+### Fixed
+
+- **Timestamp plausibility checked post-epoch-conversion** in
+  `_frame_timestamp` (parity with the CA gateway's PV_CONTRACT ladder):
+  a LabVIEW value in `(0, offset]` previously became a *negative* Unix
+  timestamp on the published NTNDArray instead of falling through to
+  receive time — poisoning any consumer keying frames on the PVA
+  timestamp (the capture daemon's dedupe, the analysis `acq_timestamp`
+  join). Found by the capture-arc audit (2026-08-27); reaches the fleet
+  on next service restart (pull-on-restart launcher).
+
 ## [0.4.3] — 2026-08-20
 
 ### Changed
