@@ -4,6 +4,23 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.63.0] - 2026-08-27
+
+### Added
+
+- **`capture/probes/` — Phase-0 measurement kit for the central PVA
+  image-capture arc** (`Planning/data_capture/01_central_pva_capture_scope.md`):
+  `probe_g1_shot_counter.py` (subscribes to a device's GEECS TCP push
+  stream, records per-update shot counter / `acq_timestamp` /
+  image-payload size to JSONL with a gap+interval summary) and
+  `probe_g2_pva_deep_queue.py` (deep- and shallow-queue p4p monitors on
+  a camera NTNDArray PV, delivery counts to JSONL).  Standalone
+  operational scripts run from the GeecsPvaGateway env (the eventual
+  capture daemon will live in the `geecs_bluesky.capture` package —
+  these are its empirical gates, not package code).  Both gates PASSED
+  live 2026-08-27 at 1 Hz (10-shot + 200-shot strict scans, 11-camera
+  concurrent load): results recorded in the scope doc.
+
 ## [0.62.0] - 2026-08-23
 
 ### Added

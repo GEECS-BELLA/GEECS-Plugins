@@ -23,6 +23,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import logging
 import statistics
 import sys
 import time
@@ -54,8 +55,10 @@ class ProbeRecorder:
         self.out = out_path.open("w")
         self.updates = 0
         self.image_updates = 0
+        self.empty_payload_updates = 0
         self.shots: list[int] = []
         self.recv_times: list[float] = []
+        self.disconnected_at: float | None = None
         self._t0 = time.time()
 
     def on_update(self, update: dict[str, Any]) -> None:
@@ -68,15 +71,20 @@ class ProbeRecorder:
             "shot": shot,
             "acq_timestamp": update.get("acq_timestamp"),
             "systimestamp": update.get("systimestamp"),
-            "has_image": blob is not None,
+            "has_image": bool(blob),
             "image_bytes": len(blob) if isinstance(blob, str) else None,
             "keys": sorted(k for k in update if k != self.image_var),
         }
         self.out.write(json.dumps(rec) + "\n")
         self.out.flush()
         self.updates += 1
-        if blob is not None:
+        if blob:
             self.image_updates += 1
+        elif blob is not None:
+            # Present-but-empty payload: measured behavior for remote
+            # subscribers (images ship only to host-local ones) — count
+            # separately so image_updates never inflates on a remote host.
+            self.empty_payload_updates += 1
         if isinstance(shot, int):
             self.shots.append(shot)
         self.recv_times.append(now)
@@ -103,6 +111,8 @@ class ProbeRecorder:
         return {
             "updates": self.updates,
             "image_updates": self.image_updates,
+            "empty_payload_updates": self.empty_payload_updates,
+            "shot_updates": len(self.shots),
             "distinct_shots": len(set(self.shots)),
             "shot_min": min(self.shots) if self.shots else None,
             "shot_max": max(self.shots) if self.shots else None,
@@ -114,6 +124,9 @@ class ProbeRecorder:
             if intervals
             else None,
             "interval_max_s": round(max(intervals), 4) if intervals else None,
+            "interval_note": "intervals span the whole session (connect ramp "
+            "and idle 1 Hz pushes included) — window offline for scan cadence",
+            "stream_disconnected_early_at": self.disconnected_at,
         }
 
     def close(self) -> None:
@@ -150,9 +163,9 @@ async def main() -> int:
     )
     print(f"G1 probe: {args.device} @ {host}:{port}, var={image_var!r} -> {out_path}")
 
-    rec = ProbeRecorder(image_var, out_path)
     sub = GeecsTcpSubscriber(host, port)
     await sub.connect()
+    rec = ProbeRecorder(image_var, out_path)
     try:
         await sub.subscribe(
             [image_var, "acq_timestamp", "systimestamp"],
@@ -160,21 +173,35 @@ async def main() -> int:
             text_variables={image_var},
             include_shot=True,
         )
-        try:
-            await asyncio.sleep(args.duration)
-        except (KeyboardInterrupt, asyncio.CancelledError):
-            pass
+        # A silently-dead socket must never masquerade as "the device
+        # stopped pushing": race the duration against disconnect and
+        # record which one ended the session.
+        sleep_task = asyncio.create_task(asyncio.sleep(args.duration))
+        drop_task = asyncio.create_task(sub.wait_disconnected())
+        done, pending = await asyncio.wait(
+            {sleep_task, drop_task}, return_when=asyncio.FIRST_COMPLETED
+        )
+        for t in pending:
+            t.cancel()
+        if drop_task in done:
+            rec.disconnected_at = round(time.time() - rec._t0, 2)
+            print("!!! TCP stream DISCONNECTED before the duration elapsed")
     finally:
         await sub.close()
         summary = rec.summary()
         rec.close()
         print("\n=== G1 SUMMARY ===")
         print(json.dumps(summary, indent=2))
-        # Verdict guidance, not judgment: gaps==0 over a full strict scan is
-        # the lossless-source signal; gaps>0 means LV-side loss (or non-scan
-        # counter behavior — interpret against what the scan was doing).
+        # Interpretation guidance lives in README.md (key on distinct
+        # acq_timestamps; the wire shot counter is Master-Control-owned).
     return 0
 
 
 if __name__ == "__main__":
-    raise SystemExit(asyncio.run(main()))
+    logging.basicConfig(
+        level=logging.INFO, format="%(levelname)s %(name)s: %(message)s"
+    )
+    try:
+        raise SystemExit(asyncio.run(main()))
+    except KeyboardInterrupt:
+        raise SystemExit(130) from None

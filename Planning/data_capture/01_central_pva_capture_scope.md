@@ -70,8 +70,9 @@ HTU-NoGas, `UC_Amp4_IR_input`), probes on the interim Linux worker box
 | G2 PVA shallow (default) | 10 distinct | identical to deep |
 
 **Verdicts.** G1: the LV feed emits every triggered frame (timestamp
-proof; the wire shot counter also ticked 0→10 but is Master-Control-only
-per the owner — key on timestamps). G2: no client-side squash at 1 Hz —
+proof; the wire shot counter also advanced 0→10 across the run — 11
+values including the pre-scan 0 — but is Master-Control-only per the
+owner: key on timestamps). G2: no client-side squash at 1 Hz —
 even the default queue delivered everything; the unmodified gateway is
 empirically lossless at HTU's operating rate. The Phase-1 bounded-queue
 work is therefore **margin engineering for bursts/5 Hz, not a
@@ -95,7 +96,7 @@ content.
 
 **Statistical + load run (same day): Scan002 26_0827, 200-shot strict
 noscan, with deep PVA monitors on ALL 11 cameras hosted by the same
-server (192.168.6.100, BellaCam43-HTU).** Results: 200 PNGs ground
+server (192.168.6.100, the Amp-chain camera server).** Results: 200 PNGs ground
 truth; G1 200 distinct acq_timestamps; scanned camera's PVA stream
 200/200 exact; **every one of the other 10 cameras also delivered
 200/200 distinct frames in-window** (all free-run at 1 Hz continuously)
@@ -121,7 +122,8 @@ acceptance with a purpose-built all-cameras save set).
   file path, not this stream" — `GeecsPvaGateway/CLAUDE.md:66-71`). This
   feature revises that written contract.
 - A capture client **cannot detect a gap today**: NTNDArray `uniqueId` is
-  hardcoded 0 (p4p `nt/ndarray.py:168`), no NTAttributes populated, timestamp
+  hardcoded 0 (p4p `NTNDArray.wrap` — line varies by p4p version), no
+  NTAttributes populated, timestamp
   repeats if the device repeats it.
 - **Zero telemetry**: no frames-received/dropped/decode-failure counters
   anywhere; only three instance PVs (version/heartbeat/restart —
@@ -198,10 +200,13 @@ Output: probe report → design-lock addendum to this doc.
 
 ### Phase 2 — capture daemon (new component, medium-large)
 
-- **(Sam) Lives in `GeecsBluesky/capture/`** — a subpackage behind an
-  optional extra (the `qserver/` pattern), accepting that the daemon's
-  release cadence rides with the engine's; systemd unit on the services box
-  (template: `qserver/deploy/`).
+- **(Sam) Lives in GeecsBluesky** — the daemon code as an importable
+  subpackage behind an optional extra at `geecs_bluesky/capture/` (the
+  `qs_client` pattern), accepting that its release cadence rides with the
+  engine's; launch/deploy assets top-level beside `qserver/` (that dir
+  pattern is non-package tooling — the Phase-0 probes at
+  `GeecsBluesky/capture/probes/` already live that way); systemd unit on
+  the services box (template: `qserver/deploy/`).
 - **(Sam) Scan-gated subscriptions** — subscribe on the scan boundary
   (pre-arm when a scan enters the queue where possible), discard the stale
   first frame, release after stop; preserves the fleet's idle-when-unwatched

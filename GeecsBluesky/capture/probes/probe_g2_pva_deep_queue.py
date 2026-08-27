@@ -22,6 +22,13 @@ Run from the GeecsPvaGateway poetry env (has p4p + geecs-core):
 
 Note: EPICS_PVA_ADDR_LIST is set in-process from the device's DB endpoint IP
 before p4p is imported — no shell env setup needed.
+
+Reading the output (details in README.md): ``disconnect_events: 1`` on a
+healthy run is the initial not-yet-connected notification, not instability;
+a dead or misnamed PV shows ``disconnect_events: 1, updates: 0``.
+``--image-var`` defaults to ``"image"`` and is NOT validated against the DB —
+a differently-named image variable produces the dead-PV signature. Compare
+``distinct_pv_timestamps``, never raw ``updates``.
 """
 
 from __future__ import annotations
@@ -48,9 +55,10 @@ class MonitorRecorder:
         self.lock = threading.Lock()
         self.updates = 0
         self.disconnects = 0
+        self.distinct_ts: set[float] = set()
         self._t0 = time.time()
 
-    def __call__(self, value: Any) -> None:
+    def __call__(self, value: Any) -> None:  # p4p ntndarray or Disconnected
         """Handle one monitor delivery (update or Disconnected event)."""
         now = time.time()
         with self.lock:
@@ -62,6 +70,8 @@ class MonitorRecorder:
                 return
             self.updates += 1
             ts = getattr(value, "timestamp", None)
+            if ts is not None:
+                self.distinct_ts.add(float(ts))
             rec = {
                 "recv": round(now, 6),
                 "n": self.updates,
@@ -143,23 +153,23 @@ def main() -> int:
             s.close()
         ctx.close()
         print("\n=== G2 SUMMARY ===")
+        print(
+            "note: raw updates include the initial cached/stale frame and "
+            "idle re-pushes (unchanged timestamp) — compare "
+            "distinct_pv_timestamps windowed to the scan; see README.md"
+        )
         for r in recs:
             print(
                 json.dumps(
                     {
                         "monitor": r.label,
                         "updates": r.updates,
+                        "distinct_pv_timestamps": len(r.distinct_ts),
                         "disconnect_events": r.disconnects,
                     }
                 )
             )
             r.close()
-        # Interpretation: first update per monitor is the gateway's cached
-        # stale frame / placeholder — subtract 1 before comparing. deep ≈ G1
-        # image_updates ⇒ chain lossless at this rate with a deep queue;
-        # deep ≈ shallow < G1 ⇒ gateway slot is the dropper (queue fix
-        # needed); deep > shallow ⇒ client queueSize is honored (single-PV
-        # lossless design viable).
     return 0
 
 
