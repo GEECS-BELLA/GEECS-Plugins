@@ -102,6 +102,13 @@ class Hdf5StackWriter:
                 maxshape=(None, *frame.shape),
                 chunks=(1, *frame.shape),
                 dtype=frame.dtype,
+                # Built-in filters only (every HDF5 reader decodes them, no
+                # plugin dependency): shuffle + gzip-1 measured 2.04 MB vs
+                # 7.92 raw vs ~2.5 PNG on real Scan003 frames at 3.9 ms/frame
+                # — beats the LV PNGs while staying self-describing.
+                shuffle=True,
+                compression="gzip",
+                compression_opts=1,
             )
         if frame.shape != self._frames.shape[1:]:
             # A mid-scan ROI/binning change breaks the stack contract —

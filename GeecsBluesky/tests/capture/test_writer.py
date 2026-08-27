@@ -38,6 +38,8 @@ def test_writer_appends_and_finalizes(tmp_path) -> None:
         assert f.attrs["duplicates_dropped"] == 1
         assert f["frames"].shape == (3, 4, 5)
         assert f["frames"].dtype == np.uint16
+        assert f["frames"].compression == "gzip"
+        assert f["frames"].shuffle is True
         assert list(f["acq_timestamp"][:]) == [1000.0, 1001.0, 1002.0]
         assert list(f["recv_timestamp"][:]) == [2000.0, 2001.0, 2002.0]
         assert (f["frames"][2] == 2).all()

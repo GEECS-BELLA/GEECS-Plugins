@@ -4,6 +4,16 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.64.1] - 2026-08-27
+
+### Changed
+
+- **Capture frame stacks are now compressed** (shuffle + gzip level 1,
+  built-in HDF5 filters — readable everywhere, self-describing, schema
+  unchanged at `geecs-capture/1`). Measured on real Scan003 frames:
+  2.04 MB vs 7.92 MB raw vs ~2.5 MB for the equivalent LV PNGs, at
+  3.9 ms/frame write cost (negligible at 1–5 Hz).
+
 ## [0.64.0] - 2026-08-27
 
 ### Added

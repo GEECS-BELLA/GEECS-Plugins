@@ -12,7 +12,7 @@ the `schema` attribute, never on the file extension alone.
 
 | Path | Content |
 |---|---|
-| `/frames` | `(N, H, W)` image stack, native dtype, chunked `(1, H, W)`, appended per frame |
+| `/frames` | `(N, H, W)` image stack, native dtype, chunked `(1, H, W)`, appended per frame; shuffle + gzip-1 (built-in filters — readable by any HDF5 library; the file self-describes its filters, so readers need no knowledge of this choice and the schema stays `geecs-capture/1`) |
 | `/acq_timestamp` | `(N,)` float64 — the device acquisition timestamp (Unix s; PVA timestamp = LabVIEW time − 2082844800), the universal join key |
 | `/recv_timestamp` | `(N,)` float64 — daemon receive time (Unix s), diagnostic only |
 
