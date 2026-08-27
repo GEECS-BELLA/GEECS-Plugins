@@ -1037,6 +1037,11 @@ def build_step_scan_spec(
         # pre-start-doc, engine-side.
         md["capture_devices"] = list(capture_devices)
         md["native_image_save"] = bool(native_image_save)
+    elif not native_image_save:
+        # Off was requested but nothing was eligible (DB blip / no registry
+        # cameras): record the unhonored intent so the run's provenance —
+        # and the dual-write diff — can see the request was inert.
+        md["native_image_save"] = False
     if dropped_unserved:
         # Provenance: variables (and whole devices) dropped by the
         # unserved-variables pre-flight — the run proceeded without them.
@@ -1720,12 +1725,21 @@ def run_scan_request(
     capture_devices = select_capture_devices(
         getattr(session, "experiment", ""), devices_config
     )
-    if capture_devices and not native_image_save:
-        devices_config = apply_native_image_save_off(devices_config, capture_devices)
-        logger.info(
-            "native_image_save=off: capture daemon owns images for %s",
-            ", ".join(capture_devices),
-        )
+    if not native_image_save:
+        if capture_devices:
+            devices_config = apply_native_image_save_off(
+                devices_config, capture_devices
+            )
+            logger.info(
+                "native_image_save=off: capture daemon owns images for %s",
+                ", ".join(capture_devices),
+            )
+        else:
+            logger.warning(
+                "native_image_save=off requested but no capture-eligible "
+                "devices resolved (DB unreachable, or no registry-devicetype "
+                "cameras in the save set) — native saving unchanged"
+            )
 
     created: list = []
     try:

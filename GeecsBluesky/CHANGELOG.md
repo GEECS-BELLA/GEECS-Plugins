@@ -29,7 +29,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `nonscalar_save_paths` (which captured cameras leave entirely when
   native saving is off). Optimize-mode scans keep native saving
   regardless (v0). Deprecation (Phase 6) is now just flipping the
-  experiment default after dual-write evidence.
+  experiment default after dual-write evidence. Deploy order: the WORKER
+  upgrades before any client submits with the new field (`extra="forbid"`
+  on a ≤0.11-schemas worker rejects the unknown key — the
+  `background_telemetry` precedent).
 
 ## [0.65.0] - 2026-08-27
 

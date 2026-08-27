@@ -361,6 +361,16 @@ experiment default to off, after the evidence gate.
 
 - Gate: N weeks of dual-write with zero diff mismatches (the Phase 2 diff
   CLI's record).
+- **HARD precondition (review of PR #697, finding 2): an engine-checkable
+  daemon-liveness signal** before the experiment default ever flips —
+  today the engine suppresses native saving blind to daemon process
+  death, a disconnected doc stream (missed start doc = whole scan
+  uncaptured, zero evidence), or PVA-down-while-CA-healthy. Candidate
+  shapes: daemon heartbeat PV consumed by a capture-availability
+  preflight check, or a daemon-written liveness marker. Per-scan
+  toggle-off use before then is human-supervised: the operator confirms
+  the daemon's session-open line names every capture device and
+  reconciliation shows frames_written == shots.
 - Flip: the `ExperimentDefaults` toggle → PG cameras stop writing PNGs
   (`save_images=False` at `_build_request_detectors`,
   `scan_request_runner.py:1204-1206` — the downstream save-toggle

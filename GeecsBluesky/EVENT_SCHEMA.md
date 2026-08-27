@@ -31,7 +31,7 @@ Added by the run wrapper (`geecs_run_wrapper`) when a scan number is claimed:
 | `scan_folder` | Absolute path of the claimed `scans/ScanNNN/` folder |
 | `nonscalar_save_paths` | device → save dir map (when non-scalar saving is active) |
 | `capture_devices` | capture-eligible camera names for the PVA capture daemon (present when the scan has any; the daemon prefers this over inferring from `nonscalar_save_paths`, composing paths as `scan_folder/<device>`) |
-| `native_image_save` | the effective toggle (present alongside `capture_devices`): whether those cameras also wrote native per-shot files, or the daemon's frame stacks are their only image record |
+| `native_image_save` | the effective toggle: whether capture-eligible cameras also wrote native per-shot files, or the daemon's frame stacks are their only image record. Present alongside `capture_devices` — and additionally recorded as `false` alone when off was requested but nothing was eligible (DB blip / no registry cameras), so an inert request stays visible in provenance |
 | `geecs_scalar_headers` | event data-key → legacy `Device Variable` header map (see note) |
 | `bluesky_backend` | `true` |
 

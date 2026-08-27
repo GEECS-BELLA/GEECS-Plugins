@@ -527,12 +527,21 @@ def _scan_request_body(
     capture_devices = select_capture_devices(
         getattr(session, "experiment", ""), devices_config
     )
-    if capture_devices and not native_image_save:
-        devices_config = apply_native_image_save_off(devices_config, capture_devices)
-        logger.info(
-            "native_image_save=off: capture daemon owns images for %s",
-            ", ".join(capture_devices),
-        )
+    if not native_image_save:
+        if capture_devices:
+            devices_config = apply_native_image_save_off(
+                devices_config, capture_devices
+            )
+            logger.info(
+                "native_image_save=off: capture daemon owns images for %s",
+                ", ".join(capture_devices),
+            )
+        else:
+            logger.warning(
+                "native_image_save=off requested but no capture-eligible "
+                "devices resolved (DB unreachable, or no registry-devicetype "
+                "cameras in the save set) — native saving unchanged"
+            )
 
     # ---- phase 2: worker-side construction (connects deferred) -----------
     factories = _DeferredConnectFactories(session)

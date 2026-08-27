@@ -349,6 +349,39 @@ def test_start_doc_capture_devices_key_preferred(tmp_path) -> None:
         assert bool(f.attrs["finalized"]) is True
 
 
+def test_engine_listed_device_without_daemon_target_errors_loudly(
+    tmp_path, caplog
+) -> None:
+    """A capture device the daemon has no target for must never be silent.
+
+    (Review finding 1: added after daemon start / skipped at discovery —
+    with native saving off, that camera's images would exist NOWHERE.)
+    """
+    source = FakeSource()
+    daemon = CaptureDaemon(
+        experiment="Undulator", targets=_targets(), source_factory=lambda: source
+    )
+    scan_dir = tmp_path / "ScanZZZ"
+    (scan_dir / "UC_CamA").mkdir(parents=True)
+    (scan_dir / "UC_NewCam").mkdir(parents=True)
+    with caplog.at_level("ERROR"):
+        daemon(
+            "start",
+            {
+                "uid": "run-miss",
+                "time": 1000.0,
+                "scan_folder": str(scan_dir),
+                "capture_devices": ["UC_CamA", "UC_NewCam"],
+                "native_image_save": False,
+            },
+        )
+    assert [t.device for t in source.subscribed] == ["UC_CamA"]
+    messages = [r.message for r in caplog.records if "UC_NewCam" in r.message]
+    assert messages, "missing-target device must be named in an ERROR"
+    assert any("NOT being recorded ANYWHERE" in m for m in messages)
+    daemon("stop", {"run_start": "run-miss"})
+
+
 def test_start_doc_empty_capture_list_means_no_session(tmp_path) -> None:
     """Explicit empty capture list = engine says nothing is capture-eligible."""
     source = FakeSource()

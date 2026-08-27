@@ -376,6 +376,25 @@ class CaptureDaemon:
                 save_paths = raw
         if not save_paths:
             return
+        # The engine selects at scan time; our targets were discovered at
+        # daemon start. A device the engine lists but we cannot serve (added/
+        # fixed after startup, or skipped at discovery) would otherwise be
+        # SILENTLY uncaptured — with native saving off, its images would
+        # exist nowhere. Say so, loudly.
+        known = {t.device for t in self._targets}
+        missing = sorted(set(save_paths) - known)
+        if missing:
+            native_off = doc.get("native_image_save") is False
+            logger.error(
+                "capture: engine lists device(s) this daemon has no target "
+                "for (added after daemon start?): %s%s — restart the daemon "
+                "to re-discover",
+                ", ".join(missing),
+                " — NATIVE SAVING IS OFF: their images are NOT being "
+                "recorded ANYWHERE for this scan"
+                if native_off
+                else "",
+            )
         uid = doc.get("uid")
         if not isinstance(uid, str):
             return

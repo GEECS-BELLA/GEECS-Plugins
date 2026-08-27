@@ -2412,3 +2412,69 @@ def test_optimize_should_abort_probe_reaches_session_optimize(
     )
     assert uid == "uid-opt"
     assert session.optimize_kwargs["should_abort"] is probe
+
+
+class _SaveRecordingSession(_FakeSession):
+    """FakeSession that also records each detector's save_images flag.
+
+    Deliberately carries NO ``experiment`` attribute: that keeps the
+    DB-backed preflights and providers inert (hermetic), so the toggle
+    wiring is pinned by monkeypatching the selection seam — which is
+    unit-tested against a fake provider in test_native_image_save.py.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.save_flags: dict[str, bool] = {}
+
+    def detector(self, device, variables, *, save_images=False, name=None):
+        self.save_flags[device] = save_images
+        return super().detector(device, variables, save_images=save_images)
+
+    def contributor(self, device, variables, *, save_images=False, name=None):
+        self.save_flags[device] = save_images
+        return super().contributor(device, variables, save_images=save_images)
+
+
+def _select_u_cam(experiment, devices_config, *, provider=None):
+    """Selection stand-in: U_Cam is the one capture-eligible camera."""
+    return [d for d in devices_config if d == "U_Cam"]
+
+
+def test_native_image_save_off_wires_through_runner(
+    legacy_resolver, monkeypatch
+) -> None:
+    """Toggle-off end-to-end: only the registry-devicetype camera loses its
+    native save; md carries the capture list; nothing else changes."""
+    import geecs_bluesky.scan_request_runner as runner_mod
+
+    monkeypatch.setattr(runner_mod, "select_capture_devices", _select_u_cam)
+    session = _SaveRecordingSession()
+    run_scan_request(
+        session,
+        _noscan_request(acquisition="strict", native_image_save=False),
+        legacy_resolver,
+    )
+    # U_Cam is Point Grey → suppressed; U_Cam2 keeps whatever the save set said.
+    assert session.save_flags["U_Cam"] is False
+    md = session.scan_kwargs["md"]
+    assert md["capture_devices"] == ["U_Cam"]
+    assert md["native_image_save"] is False
+    # Role/order untouched: same device list as the plain strict test.
+    assert [d for d, _k in session.devices] == ["U_Cam", "U_Cam2", "U_Slow"]
+
+
+def test_native_image_save_on_leaves_saving_and_still_publishes_list(
+    legacy_resolver, monkeypatch
+) -> None:
+    """Dual-write default: saving untouched, capture list still published."""
+    import geecs_bluesky.scan_request_runner as runner_mod
+
+    monkeypatch.setattr(runner_mod, "select_capture_devices", _select_u_cam)
+    session = _SaveRecordingSession()
+    run_scan_request(session, _noscan_request(acquisition="strict"), legacy_resolver)
+    md = session.scan_kwargs["md"]
+    assert md["capture_devices"] == ["U_Cam"]
+    assert md["native_image_save"] is True
+    # The save set's own save flag is preserved (whatever it was).
+    assert "U_Cam" in session.save_flags
