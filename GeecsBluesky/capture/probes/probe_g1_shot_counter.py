@@ -57,6 +57,7 @@ class ProbeRecorder:
         self.image_updates = 0
         self.empty_payload_updates = 0
         self.shots: list[int] = []
+        self.acq_timestamps: set[float] = set()
         self.recv_times: list[float] = []
         self.disconnected_at: float | None = None
         self._t0 = time.time()
@@ -87,6 +88,9 @@ class ProbeRecorder:
             self.empty_payload_updates += 1
         if isinstance(shot, int):
             self.shots.append(shot)
+        acq = update.get("acq_timestamp")
+        if isinstance(acq, (int, float)):
+            self.acq_timestamps.add(float(acq))
         self.recv_times.append(now)
         print(
             f"[{now - self._t0:8.2f}s] shot={shot} "
@@ -112,6 +116,7 @@ class ProbeRecorder:
             "updates": self.updates,
             "image_updates": self.image_updates,
             "empty_payload_updates": self.empty_payload_updates,
+            "distinct_acq_timestamps": len(self.acq_timestamps),
             "shot_updates": len(self.shots),
             "distinct_shots": len(set(self.shots)),
             "shot_min": min(self.shots) if self.shots else None,

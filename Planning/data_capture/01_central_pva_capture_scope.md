@@ -116,9 +116,12 @@ acceptance with a purpose-built all-cameras save set).
 
 ## Where loss and blindness live today (audit facts)
 
-- The only gateway-side drop point: `_CameraWorker._on_frame`/`_publish`
-  (`server.py:199-228`) — a latest-wins **dict slot** per variable, depth 1,
-  overwrite silent. Documented as contract ("Completeness lives in the GEECS
+- Gateway-side loss has two modes: the primary drop point is
+  `_CameraWorker._on_frame`/`_publish` (`server.py:199-228`) — a
+  latest-wins **dict slot** per variable, depth 1, overwrite silent — and
+  separately a frame whose decode or post raises is logged and skipped
+  (`server.py:214-228`), i.e. decode/post failure is a loss mode of its
+  own, not just telemetry blindness (both get counters in Phase 1). Documented as contract ("Completeness lives in the GEECS
   file path, not this stream" — `GeecsPvaGateway/CLAUDE.md:66-71`). This
   feature revises that written contract.
 - A capture client **cannot detect a gap today**: NTNDArray `uniqueId` is
@@ -290,6 +293,11 @@ Output: probe report → design-lock addendum to this doc.
   at `_build_request_detectors` (`scan_request_runner.py:1204-1206`) — the
   downstream save-toggle machinery skips them automatically
   (`session.py:1592` gates on `_save_nonscalar_data`).
+- Probe sunset: `capture/probes/` stays in-tree through the arc (it is the
+  independent re-verification instrument for Phases 1–2 and the 5 Hz
+  question); once the daemon's telemetry + the dual-write diff tool fully
+  absorb that role post-deprecation, prune the probes (the Planning-prune
+  ritual) — deliberate, not speculative.
 
 ## Effort estimate (honest)
 
