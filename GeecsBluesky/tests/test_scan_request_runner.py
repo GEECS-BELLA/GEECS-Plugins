@@ -123,7 +123,7 @@ class _FakeSession:
     ):
         return self._make(device, "contributor")
 
-    def snapshot(self, device, variables, *, name=None):
+    def snapshot(self, device, variables, *, save_control_only=False, name=None):
         return self._make(device, "snapshot")
 
     def motor(self, device, variable, *, name=None, **kwargs):
@@ -2470,6 +2470,10 @@ class _SaveRecordingSession(_FakeSession):
         self.control_only_flags[device] = save_control_only
         return super().contributor(device, variables, save_images=save_images)
 
+    def snapshot(self, device, variables, *, save_control_only=False, name=None):
+        self.control_only_flags[device] = save_control_only
+        return super().snapshot(device, variables)
+
 
 def _select_u_cam(experiment, devices_config, *, provider=None):
     """Selection stand-in: U_Cam is the one capture-eligible camera."""
@@ -2521,6 +2525,27 @@ def test_native_image_save_off_wires_contributor_branch(
     assert dict(session.devices)["U_Cam2"] == "contributor"
     assert session.control_only_flags["U_Cam2"] is True
     assert session.save_flags["U_Cam2"] is False
+
+
+def test_native_image_save_off_wires_snapshot_branch(
+    legacy_resolver, monkeypatch
+) -> None:
+    """An async capture-owned camera gets the off-write surface too
+    (codex P2 on #699 — the snapshot branch used to drop the flag)."""
+    import geecs_bluesky.scan_request_runner as runner_mod
+
+    def _select_u_slow(experiment, devices_config, *, provider=None):
+        return [d for d in devices_config if d == "U_Slow"]
+
+    monkeypatch.setattr(runner_mod, "select_capture_devices", _select_u_slow)
+    session = _SaveRecordingSession()
+    run_scan_request(
+        session,
+        _noscan_request(acquisition="strict", native_image_save=False),
+        legacy_resolver,
+    )
+    assert dict(session.devices)["U_Slow"] == "snapshot"
+    assert session.control_only_flags["U_Slow"] is True
 
 
 def test_native_image_save_on_leaves_saving_and_still_publishes_list(

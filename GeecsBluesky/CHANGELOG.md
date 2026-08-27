@@ -17,7 +17,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   out-of-band can no longer write native files to a stale path during
   a toggle-off scan. Threaded config → `_build_request_detectors` →
   `session.detector`/`contributor` → the device classes;
-  `apply_native_image_save_off` sets the flag automatically.
+  `apply_native_image_save_off` sets the flag automatically — on ALL
+  three role branches including snapshot (codex P2: an async
+  capture-owned camera previously dropped the flag silently).
 
 ## [0.66.0] - 2026-08-27
 

@@ -1213,7 +1213,11 @@ def _build_request_detectors(
                     device_name,
                 )
                 continue
-            detectors.append(session.snapshot(device_name, variables))
+            detectors.append(
+                session.snapshot(
+                    device_name, variables, save_control_only=save_control_only
+                )
+            )
         elif free_run and reference_assigned:
             detectors.append(
                 session.contributor(

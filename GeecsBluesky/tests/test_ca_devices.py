@@ -870,3 +870,17 @@ class TestSaveControlOnly:
         assert con._save_control_only is True
         assert hasattr(con, "save")
         assert not hasattr(con, "localsavingpath")
+
+    def test_snapshot_save_control_only_shape(self) -> None:
+        from geecs_bluesky.devices.ca import CaSnapshotReadable
+
+        snap = CaSnapshotReadable(
+            "UC_Amp4_IR_input",
+            ["exposure"],
+            experiment="Undulator",
+            name="caps",
+            save_control_only=True,
+        )
+        assert snap._save_control_only is True
+        assert hasattr(snap, "save")
+        assert not hasattr(snap, "localsavingpath")

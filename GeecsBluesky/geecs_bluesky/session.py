@@ -349,6 +349,7 @@ class GeecsSession:
         device: str,
         variables: list[str],
         *,
+        save_control_only: bool = False,
         name: str | None = None,
     ) -> CaSnapshotReadable:
         """Asynchronous readback sampled once per event row."""
@@ -356,6 +357,7 @@ class GeecsSession:
             CaSnapshotReadable(
                 device,
                 variables,
+                save_control_only=save_control_only,
                 experiment=self.experiment,
                 name=name or safe_name(device),
             )

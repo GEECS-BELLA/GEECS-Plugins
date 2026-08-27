@@ -68,7 +68,7 @@ class _RecordingSession:
     ):
         return self._make("contributor", device, variables)
 
-    def snapshot(self, device, variables, *, name=None):
+    def snapshot(self, device, variables, *, save_control_only=False, name=None):
         return self._make("snapshot", device, variables)
 
     def settable(self, device, variable, *, name=None):
