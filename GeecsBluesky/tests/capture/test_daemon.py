@@ -382,6 +382,37 @@ def test_engine_listed_device_without_daemon_target_errors_loudly(
     daemon("stop", {"run_start": "run-miss"})
 
 
+def test_fallback_list_with_proprietary_devices_never_false_alarms(
+    tmp_path, caplog
+) -> None:
+    """nonscalar_save_paths legitimately contains HASO/scope devices the
+    daemon shouldn't target — the missing-target error must NOT fire there
+    (codex finding 2)."""
+    source = FakeSource()
+    daemon = CaptureDaemon(
+        experiment="Undulator", targets=_targets(), source_factory=lambda: source
+    )
+    scan_dir = tmp_path / "ScanFB"
+    (scan_dir / "UC_CamA").mkdir(parents=True)
+    with caplog.at_level("ERROR"):
+        daemon(
+            "start",
+            {
+                "uid": "run-fb",
+                "time": 1000.0,
+                "scan_folder": str(scan_dir),
+                # No capture_devices key (older engine) — fallback inference.
+                "nonscalar_save_paths": {
+                    "UC_CamA": str(scan_dir / "UC_CamA"),
+                    "U_Haso": str(scan_dir / "U_Haso"),
+                },
+            },
+        )
+    assert [t.device for t in source.subscribed] == ["UC_CamA"]
+    assert not [r for r in caplog.records if r.levelname == "ERROR"]
+    daemon("stop", {"run_start": "run-fb"})
+
+
 def test_start_doc_empty_capture_list_means_no_session(tmp_path) -> None:
     """Explicit empty capture list = engine says nothing is capture-eligible."""
     source = FakeSource()
