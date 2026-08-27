@@ -4,7 +4,7 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [0.64.1] - 2026-08-27
+## [0.65.0] - 2026-08-27
 
 ### Changed
 
@@ -12,7 +12,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   built-in HDF5 filters — readable everywhere, self-describing, schema
   unchanged at `geecs-capture/1`). Measured on real Scan003 frames:
   2.04 MB vs 7.92 MB raw vs ~2.5 MB for the equivalent LV PNGs, at
-  3.9 ms/frame write cost (negligible at 1–5 Hz).
+  3.9 ms/frame write cost on 600×600 frames; cost scales with frame
+  size (~25 ms/frame measured at 1025×1281) — trivial at 1 Hz fleet-wide;
+  a hypothetical many-large-camera 5 Hz scan could saturate the single
+  writer thread, degrading to counted queue_drops (per-device writer
+  threads are the future remedy).
 
 ## [0.64.0] - 2026-08-27
 
