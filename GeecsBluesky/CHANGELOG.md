@@ -4,6 +4,21 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.67.0] - 2026-08-27
+
+### Added
+
+- **Active save-off for capture-owned cameras** (codex finding C1 on
+  PR #697): with `native_image_save` off, captured cameras are built
+  `save_control_only` — only the `save` control child exists (no
+  `localsavingpath`, no save-path column, no asset docs) — and
+  `geecs_run_wrapper` eagerly commands `save="off"` at scan start
+  (turning off needs no trigger windowing). A save flag left on
+  out-of-band can no longer write native files to a stale path during
+  a toggle-off scan. Threaded config → `_build_request_detectors` →
+  `session.detector`/`contributor` → the device classes;
+  `apply_native_image_save_off` sets the flag automatically.
+
 ## [0.66.0] - 2026-08-27
 
 ### Added

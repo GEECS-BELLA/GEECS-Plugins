@@ -821,3 +821,52 @@ def test_saving_device_surfaces_acq_timestamp_in_sfile_headers() -> None:
     assert contributor._column_headers["con-acq_timestamp"] == (
         "UC_TopView acq_timestamp"
     )
+
+
+class TestSaveControlOnly:
+    """Capture-owned cameras: a save control child, nothing else save-shaped."""
+
+    def test_detector_save_control_only_shape(self) -> None:
+        det = CaGenericDetector(
+            "UC_Amp4_IR_input",
+            ["centroidx"],
+            experiment="Undulator",
+            name="cap",
+            save_nonscalar_data=False,
+            save_control_only=True,
+        )
+        assert det._save_control_only is True
+        assert det._save_nonscalar_data is False
+        assert hasattr(det, "save")
+        assert not hasattr(det, "localsavingpath")
+        # No save-path column header (that rides save_nonscalar_data).
+        assert not any("acq_timestamp" in k for k in det._column_headers)
+
+    def test_save_nonscalar_wins_over_control_only(self) -> None:
+        """A (mis)configured both-flags device stays a full native saver."""
+        det = CaGenericDetector(
+            "UC_Amp4_IR_input",
+            ["centroidx"],
+            experiment="Undulator",
+            name="both",
+            save_nonscalar_data=True,
+            save_control_only=True,
+        )
+        assert det._save_nonscalar_data is True
+        assert det._save_control_only is False
+        assert hasattr(det, "localsavingpath")
+
+    def test_contributor_save_control_only_shape(self) -> None:
+        from geecs_bluesky.devices.ca import CaTimestampedReadable
+
+        con = CaTimestampedReadable(
+            "UC_Amp4_IR_input",
+            ["centroidx"],
+            experiment="Undulator",
+            name="capc",
+            save_nonscalar_data=False,
+            save_control_only=True,
+        )
+        assert con._save_control_only is True
+        assert hasattr(con, "save")
+        assert not hasattr(con, "localsavingpath")

@@ -248,3 +248,41 @@ def test_wrapper_no_capture_dirs_without_scan_folder() -> None:
         )
     )
     assert start["capture_devices"] == ["UC_CamA"]
+
+
+class _FakeCaptureOwnedDetector:
+    """A save_control_only device: only the save control child exists."""
+
+    def __init__(self, name: str) -> None:
+        self.name = name
+        self._save_control_only = True
+        self.save = _RecordingSignal(f"{name}-save")
+
+
+def test_wrapper_commands_save_off_for_capture_owned_devices(tmp_path) -> None:
+    """Toggle-off cameras get an eager save='off' write (codex #697 C1)."""
+    cam = _FakeCaptureOwnedDetector("uc_cam")
+    saver = _FakeSavingDetector("topcam")
+    RE = RunEngine()
+    RE(
+        geecs_run_wrapper(
+            _tiny_run(),
+            experiment="Undulator",
+            scan_number=11,
+            scan_folder=str(tmp_path),
+            saving_detectors=[(saver, str(tmp_path / "TOPCAM"))],
+            devices=[cam, saver],
+        )
+    )
+    assert cam.save.sets == ["off"]
+    # The native saver's bracket is untouched: on at start, off at finalize.
+    assert saver.save.sets == ["on", "off"]
+
+
+def test_wrapper_no_off_write_without_marked_devices() -> None:
+    """Plain devices never receive stray save writes."""
+    plain = _FakeHeaderedDevice("plain", {"k": "v"})
+    start = _run_capture_start(
+        geecs_run_wrapper(_tiny_run(), experiment="Undulator", devices=[plain])
+    )
+    assert start["experiment"] == "Undulator"  # ran cleanly, nothing to assert off

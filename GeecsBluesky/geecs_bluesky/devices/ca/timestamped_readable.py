@@ -60,6 +60,7 @@ class CaTimestampedReadable(
         experiment: str | None = None,
         name: str = "timestamped",
         save_nonscalar_data: bool = False,
+        save_control_only: bool = False,
         acq_timestamp_variable: str = "acq_timestamp",
     ) -> None:
         self._acq_timestamp_variable = acq_timestamp_variable
@@ -86,6 +87,12 @@ class CaTimestampedReadable(
                     attr,
                     epics_signal_rw(str, readback, setpoint_pv(readback)),
                 )
+        # Capture-owned camera: `save` control child only (active off-write
+        # surface), no localsavingpath — see CaGenericDetector for rationale.
+        self._save_control_only = save_control_only and not save_nonscalar_data
+        if self._save_control_only:
+            readback = ca_pv(experiment, device, "save")
+            self.save = epics_signal_rw(str, readback, setpoint_pv(readback))
 
     @property
     def last_acq_timestamp(self) -> float | None:

@@ -46,10 +46,26 @@ class _RecordingSession:
         self.device_calls.append((kind, device, list(variables)))
         return SimpleNamespace(_geecs_device_name=device, kind=kind)
 
-    def detector(self, device, variables, *, save_images=False, name=None):
+    def detector(
+        self,
+        device,
+        variables,
+        *,
+        save_images=False,
+        save_control_only=False,
+        name=None,
+    ):
         return self._make("detector", device, variables)
 
-    def contributor(self, device, variables, *, save_images=False, name=None):
+    def contributor(
+        self,
+        device,
+        variables,
+        *,
+        save_images=False,
+        save_control_only=False,
+        name=None,
+    ):
         return self._make("contributor", device, variables)
 
     def snapshot(self, device, variables, *, name=None):

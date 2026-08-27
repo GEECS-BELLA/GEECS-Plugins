@@ -101,10 +101,26 @@ class _FakeSession:
         self.devices.append((device, kind))
         return _FakeDevice(device, kind)
 
-    def detector(self, device, variables, *, save_images=False, name=None):
+    def detector(
+        self,
+        device,
+        variables,
+        *,
+        save_images=False,
+        save_control_only=False,
+        name=None,
+    ):
         return self._make(device, "detector")
 
-    def contributor(self, device, variables, *, save_images=False, name=None):
+    def contributor(
+        self,
+        device,
+        variables,
+        *,
+        save_images=False,
+        save_control_only=False,
+        name=None,
+    ):
         return self._make(device, "contributor")
 
     def snapshot(self, device, variables, *, name=None):
@@ -2426,13 +2442,32 @@ class _SaveRecordingSession(_FakeSession):
     def __init__(self) -> None:
         super().__init__()
         self.save_flags: dict[str, bool] = {}
+        self.control_only_flags: dict[str, bool] = {}
 
-    def detector(self, device, variables, *, save_images=False, name=None):
+    def detector(
+        self,
+        device,
+        variables,
+        *,
+        save_images=False,
+        save_control_only=False,
+        name=None,
+    ):
         self.save_flags[device] = save_images
+        self.control_only_flags[device] = save_control_only
         return super().detector(device, variables, save_images=save_images)
 
-    def contributor(self, device, variables, *, save_images=False, name=None):
+    def contributor(
+        self,
+        device,
+        variables,
+        *,
+        save_images=False,
+        save_control_only=False,
+        name=None,
+    ):
         self.save_flags[device] = save_images
+        self.control_only_flags[device] = save_control_only
         return super().contributor(device, variables, save_images=save_images)
 
 
@@ -2457,6 +2492,7 @@ def test_native_image_save_off_wires_through_runner(
     )
     # U_Cam is Point Grey → suppressed; U_Cam2 keeps whatever the save set said.
     assert session.save_flags["U_Cam"] is False
+    assert session.control_only_flags["U_Cam"] is True  # active off-write surface
     md = session.scan_kwargs["md"]
     assert md["capture_devices"] == ["U_Cam"]
     assert md["native_image_save"] is False

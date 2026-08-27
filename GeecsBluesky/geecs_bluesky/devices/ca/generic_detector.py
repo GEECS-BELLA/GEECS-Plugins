@@ -59,6 +59,7 @@ class CaGenericDetector(ShotIdSupport, NonScalarSaveSupport, CaTriggerable):
         experiment: str | None = None,
         name: str = "detector",
         save_nonscalar_data: bool = False,
+        save_control_only: bool = False,
         acq_timestamp_variable: str = "acq_timestamp",
     ) -> None:
         # Must be set before CaTriggerable.__init__ builds the children (it
@@ -94,6 +95,15 @@ class CaGenericDetector(ShotIdSupport, NonScalarSaveSupport, CaTriggerable):
                     attr,
                     epics_signal_rw(str, readback, setpoint_pv(readback)),
                 )
+        # Capture-owned camera (native_image_save toggle off): no native
+        # saving, no save-path column, no asset docs — but the scan must be
+        # able to actively command save="off" (a flag left on out-of-band
+        # would otherwise write files to a stale path). Only the `save`
+        # control child exists; localsavingpath is deliberately absent.
+        self._save_control_only = save_control_only and not save_nonscalar_data
+        if self._save_control_only:
+            readback = ca_pv(experiment, device, "save")
+            self.save = epics_signal_rw(str, readback, setpoint_pv(readback))
 
     @property
     def last_acq_timestamp(self) -> float | None:
