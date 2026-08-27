@@ -256,21 +256,53 @@ handoff, systemd unit, the all-cameras save-set stress test.
   IDs, optionally pixel checksum). Runs continuously; its accumulated record
   is the deprecation evidence.
 
-### Phase 3 — engine + schema integration (medium)
+### Phase 3 — engine + schema integration (medium) — REDESIGNED 2026-08-27
 
-- Eligibility provider (above) feeding `save_set_to_devices_config`
-  (`scan_request_runner.py:169`) with `device_type`/`centrally_captured`.
-- Capture-availability preflight check (free-form check name in the existing
-  `PreflightOutcome` vocabulary — `scan_request.py:417-421`).
-- Tiled: new `GEECS_HDF5_STACK` asset spec + registry entry + per-shot Datum
-  (`datum_kwargs={"frame": i}`) or run-scoped StreamResource; **relax the
-  descriptor patch** at `tiled_integration.py:54-67` for the new spec (today
-  it strips external registration or the run aborts on stop).
-- `SaveSetEntry.capture_mode` lands here as a **reserved field** (precedent:
-  `at_scan_start`/`at_scan_end`, `save_set.py:213-240`). Schema-change
-  ritual: optional-with-default (extra="forbid" corpus), add to
-  `compose_save_sets` explicit constructor (`convert/presets.py:152-166`,
-  conflict → raise like `role`), docgen regen + example, golden fixtures.
+**(Sam) The devicetype toggle replaces `capture_mode`.** Insight: the LV
+per-shot save infrastructure is permanent regardless (HASO, scopes —
+proprietary formats keep `save=on` forever), so image-saving ownership
+never actually needs per-save-set-entry vocabulary. The only real
+decision is one devicetype-scoped switch: *do Point Grey cameras write
+native PNGs, or does the capture daemon own their images?* The save
+set's `images: true` keeps meaning "this device's images are wanted";
+the toggle changes who writes them for capture-eligible devicetypes.
+This deletes the former plan's `SaveSetEntry.capture_mode` reserved
+field, its `compose_save_sets` merge semantics, and Phase 6's
+per-device deprecation choreography.
+
+- **Schema**: `native_image_save` (name TBD) — experiment-wide default in
+  `ExperimentDefaults`, tri-state per-scan override on `ScanRequest`
+  (`None` = inherit; the `background_telemetry` pattern,
+  `scan_request.py:546-558`). Default ON — nothing changes until an
+  experiment flips it on dual-write evidence; the per-scan override is
+  the operational escape hatch. Per-camera opt-out deliberately NOT
+  built (all capture-eligible cameras switch together); a per-entry
+  override can be added additively if a single camera ever needs it.
+- **Eligibility provider**: failure-tolerant db_runtime provider over
+  `GeecsDb.get_experiment_device_types` (built, GEECS-Core 0.4.0)
+  intersected with the capture registry (`CAPTURE_DEVICE_TYPES`).
+- **Engine seams** (the three couplings that make this "a toggle plus
+  three seams"):
+  1. With native save off, PG cameras leave `nonscalar_save_paths` (it
+     lists LV-*saving* detectors) — the engine must publish the capture
+     list explicitly: a `capture_save_paths` start-doc md key; the
+     daemon prefers it, falling back to `nonscalar_save_paths` ∩
+     registry (backward compatible).
+  2. Device-dir creation: `save_enable_plan`'s `makedirs`
+     (`run_wrapper.py:121`) only runs for saving detectors — the engine
+     must still create dirs for captured-unsaved cameras (engine-side,
+     invariant intact; the daemon still never mkdirs).
+  3. Asset documents: `NonScalarSaveSupport`'s save-path column +
+     PNG-pointing Resource/Datum docs are suppressed for
+     captured-unsaved devices (or switched to the HDF5 spec below).
+- Capture-availability preflight check (free-form check name in the
+  existing `PreflightOutcome` vocabulary — `scan_request.py:417-421`) —
+  refuse/warn when the toggle is off but the daemon looks absent.
+- Tiled: new `GEECS_HDF5_STACK` asset spec + registry entry + per-shot
+  Datum (`datum_kwargs={"frame": i}`) or run-scoped StreamResource;
+  **relax the descriptor patch** at `tiled_integration.py:54-67` for the
+  new spec (today it strips external registration or the run aborts on
+  stop).
 
 ### Phase 4 — read side (medium)
 
@@ -321,14 +353,19 @@ guards, per-bin bulk reads.
   chain (`plans/step_scan.py:201` → `orchestration.py:83` →
   `session.py:654` → `scan_request_plan.py:625`).
 
-### Phase 6 — PNG deprecation (small, per device)
+### Phase 6 — PNG deprecation (small — one toggle flip per experiment)
 
-- Gate: N weeks of dual-write with zero diff mismatches (the Phase 2 tool's
-  record).
-- Flip: `capture_mode` becomes live; `save_images` off for captured devices
-  at `_build_request_detectors` (`scan_request_runner.py:1204-1206`) — the
-  downstream save-toggle machinery skips them automatically
-  (`session.py:1592` gates on `_save_nonscalar_data`).
+REDESIGNED with Phase 3 (2026-08-27, Sam): deprecation is no longer
+per-device choreography — it is flipping the Phase-3 `native_image_save`
+experiment default to off, after the evidence gate.
+
+- Gate: N weeks of dual-write with zero diff mismatches (the Phase 2 diff
+  CLI's record).
+- Flip: the `ExperimentDefaults` toggle → PG cameras stop writing PNGs
+  (`save_images=False` at `_build_request_detectors`,
+  `scan_request_runner.py:1204-1206` — the downstream save-toggle
+  machinery skips them automatically, `session.py:1592`); the per-scan
+  tri-state override remains the day-to-day escape hatch.
 - Probe sunset: `capture/probes/` stays in-tree through the arc (it is the
   independent re-verification instrument for Phases 1–2 and the 5 Hz
   question); once the daemon's telemetry + the dual-write diff tool fully
