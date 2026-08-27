@@ -45,11 +45,22 @@ RESTART_EXIT_CODE = 86
 
 
 def _frame_timestamp(update: dict) -> float:
-    """Frame time from the GEECS timestamp ladder, else receive time."""
+    """Frame time from the GEECS timestamp ladder, else receive time.
+
+    Plausibility is checked on the *converted* (post-epoch-offset) value,
+    matching the CA gateway's contract (PV_CONTRACT.md "Timestamp ladder"):
+    a LabVIEW value in ``(0, offset]`` — a device counting from boot, or a
+    zeroed channel — must fall through to receive time, never become a
+    negative Unix timestamp (which would poison downstream consumers that
+    key frames on the PVA timestamp, e.g. the capture daemon's dedupe and
+    the analysis-side ``acq_timestamp`` join).
+    """
     for var in _TIMESTAMP_VARS:
         value = update.get(var)
-        if isinstance(value, (int, float)) and value > 0:
-            return float(value) - _LABVIEW_EPOCH_OFFSET
+        if isinstance(value, (int, float)):
+            converted = float(value) - _LABVIEW_EPOCH_OFFSET
+            if converted > 0:
+                return converted
     return time.time()
 
 
