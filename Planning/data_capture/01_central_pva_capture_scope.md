@@ -56,6 +56,49 @@ per variable (e.g. `…:image:all`) is required.
 
 Both gates are answered by **Phase 0** below — one lab afternoon.
 
+## Phase 0 results (2026-08-27, live — G1/G2 PASS at 1 Hz)
+
+Run: Scan001 26_0827 (strict noscan, 10 shots, save set Amp4In, trigger
+HTU-NoGas, `UC_Amp4_IR_input`), probes on the interim Linux worker box
+(lab network, where the daemon will live). Reconciliation:
+
+| Leg | In-window frames | acq_timestamp match vs PNGs |
+|---|---|---|
+| LV PNGs (ground truth) | 10 | — |
+| G1 device TCP feed | 10 distinct | exact, all 10 |
+| G2 PVA deep (`queueSize=100`) | 10 distinct | exact, to the ms |
+| G2 PVA shallow (default) | 10 distinct | identical to deep |
+
+**Verdicts.** G1: the LV feed emits every triggered frame (timestamp
+proof; the wire shot counter also ticked 0→10 but is Master-Control-only
+per the owner — key on timestamps). G2: no client-side squash at 1 Hz —
+even the default queue delivered everything; the unmodified gateway is
+empirically lossless at HTU's operating rate. The Phase-1 bounded-queue
+work is therefore **margin engineering for bursts/5 Hz, not a
+prerequisite**; counters/observability remain the substantive Phase-1
+content.
+
+**Secondary findings.**
+1. **Idle re-push**: after a scan the device resumes the 1 Hz state push
+   re-sending the last frame with an *unchanged* acq_timestamp; the
+   gateway re-posts it (3 duplicate posts observed post-scan). The
+   capture daemon MUST dedupe on acq_timestamp (already the join-key
+   doctrine).
+2. **Remote TCP image payloads are empty even during acquisition**
+   (0 bytes on every update, scan included), while the gateway's
+   host-local subscription receives full blobs — images ship only to
+   local subscribers. Direct remote-TCP capture is confirmed non-viable;
+   PVA is the only capture path (as designed).
+3. The device pushes state at exactly 1 Hz continuously, scans or not —
+   scan-gated capture must window by timestamp/doc-stream boundaries,
+   not by "frames are flowing".
+
+Raw probe records: `/tmp/probe-run/results/` on the worker box (G1
+JSONL + G2 deep/shallow JSONLs, session scratchpad copy kept).
+Not yet measured: camera-server CPU/RAM under sustained subscription
+(fold into the 200-shot statistical run), MonitorFIFO behavior at >1 Hz
+burst (only relevant for the 5 Hz future).
+
 ## Where loss and blindness live today (audit facts)
 
 - The only gateway-side drop point: `_CameraWorker._on_frame`/`_publish`
