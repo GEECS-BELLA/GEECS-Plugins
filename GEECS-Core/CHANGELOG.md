@@ -3,6 +3,16 @@
 All notable changes to `geecs-core` are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and semantic versioning.
 
+## [0.4.0] - 2026-08-27
+
+### Added
+
+- **`GeecsDb.get_experiment_device_types(experiment, *, enabled_only=True)`**
+  — batch `{device: devicetype}` for an experiment in one connection, the
+  batch counterpart of `get_device_type` (mirrors `get_experiment_devices`).
+  First consumer: the capture daemon's devicetype-keyed camera discovery
+  (GeecsBluesky `geecs_bluesky.capture`).
+
 ## [0.3.0] - 2026-08-24
 
 ### Added

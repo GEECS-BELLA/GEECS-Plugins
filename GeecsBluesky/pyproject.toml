@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "geecs-bluesky"
-version = "0.63.0"
+version = "0.64.0"
 description = "Bluesky / ophyd-async bridge for the GEECS control system"
 authors = ["Sam Barber <sbarber@lbl.gov>"]
 readme = "README.md"
@@ -66,6 +66,13 @@ bluesky-queueserver = { version = "^0.0.25", optional = true }
 # add. Optional so the worker and headless installs don't carry it.
 bluesky-queueserver-api = { version = "^0.0.13", optional = true }
 
+# The capture daemon (geecs_bluesky/capture/): PVA image subscription (p4p —
+# the same client library the PVA gateway serves; consumed as a network
+# service, no gateway code imported) and the per-device frame-stack writer
+# (h5py, the v0 container behind the FrameStackWriter seam — FORMAT.md).
+p4p = { version = ">=4.1", optional = true }
+h5py = { version = ">=3.8", optional = true }
+
 [tool.poetry.extras]
 tiled = ["tiled"]
 analysis = ["imageanalysis"]
@@ -73,6 +80,10 @@ ca = ["aioca"]
 optimize = ["xopt", "gest-api", "scananalysis", "imageanalysis"]
 qserver = ["bluesky-queueserver"]
 qs-client = ["bluesky-queueserver-api"]
+capture = ["p4p", "h5py"]
+
+[tool.poetry.scripts]
+geecs-capture-daemon = "geecs_bluesky.capture.__main__:main"
 
 [tool.poetry.group.dev.dependencies]
 pytest = ">=7.0"

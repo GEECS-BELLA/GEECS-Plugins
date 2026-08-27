@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "geecs-core"
-version = "0.3.0"
+version = "0.4.0"
 description = "The GEECS access library: UDP/TCP wire protocol, experiment database, PV naming contract, exceptions, the wire-protocol test double, and the entry-level GeecsDevice client"
 authors = ["Sam Barber <sbarber@lbl.gov>"]
 readme = "README.md"
