@@ -16,6 +16,7 @@ from __future__ import annotations
 import logging
 import os
 import threading
+import time
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, Protocol
 
@@ -123,10 +124,9 @@ class _MonitorHandler:
 
     def __call__(self, value: Any) -> None:  # p4p ntndarray or Disconnected
         """Handle one monitor delivery on a p4p worker thread."""
-        import time
-
         if isinstance(value, Exception):
-            # Includes the initial not-yet-connected Disconnected event.
+            # Includes the initial not-yet-connected Disconnected event
+            # (absorbed by the session so healthy scans count 0 — FORMAT.md).
             self._on_connection(self._device, False)
             return
         ts = getattr(value, "timestamp", None)

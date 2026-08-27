@@ -11,13 +11,27 @@ engine-created ``scans/ScanNNN/<device>/`` directories.
 Design constraints this module enforces (scope doc,
 ``Planning/data_capture/01_central_pva_capture_scope.md``):
 
-- The daemon NEVER creates scan folders or device directories — a missing
-  directory skips that device loudly (cross-package invariant).
+- The daemon NEVER creates scan folders or device directories — and because
+  the engine creates the device dirs *after* the start document (the
+  save-enable plan runs post-trigger-setup under ``defer_save_on``), writers
+  are constructed **lazily on the first accepted frame**, on the writer
+  thread. First frames can only arrive after save-on, so the directory
+  exists by then; a still-missing directory drops that device's frames with
+  a counted failure, never a ``mkdir``.
 - Frames dedupe on ``acq_timestamp`` (the device re-pushes its last frame
   with an unchanged timestamp when idle) and frames older than the run
-  start are the gateway's cached pre-scan frame — skipped, counted.
-- Writing happens on ONE thread (h5py is not thread-safe); PVA callbacks
-  enqueue into a bounded queue whose overflow is counted, never silent.
+  start are the gateway's cached pre-scan frame — skipped, counted. The
+  gateway's ``(1,1)`` placeholder initial post carries timestamp 0.0 and is
+  therefore always stale-filtered before it could fix dataset geometry.
+- Every h5py call happens on ONE thread (the writer thread), except
+  finalize/abort which run strictly after that thread has been joined; if
+  the join times out (wedged writer — e.g. a NAS hang inside a flush), the
+  files are left un-finalized and untouched rather than contended from a
+  second thread.
+- Every frame is accounted: the per-device counter identity is
+  ``received == written + duplicates_dropped + stale_skipped +
+  shape_errors + queue_drops + late_frames + writer_create_failures``
+  (see ``FORMAT.md``).
 - Phase-1 dual-write doctrine: the LV per-shot file save stays ON; this
   daemon runs alongside and its files are the diff surface, so a daemon
   failure can never lose data.
@@ -29,10 +43,10 @@ import logging
 import queue
 import threading
 import time
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING
 
 from .discovery import CameraTarget
 from .subscriber import FrameSource
@@ -47,7 +61,10 @@ Document = Mapping[str, object]
 
 # Frames stamped earlier than run start minus this margin are the gateway's
 # cached pre-scan frame (or clock skew); the t0-sync doctrine bounds
-# inter-machine skew well under this.
+# inter-machine skew well under this. Caveats documented in FORMAT.md: a
+# viewer-held gate can keep the pre-scan cache <2 s old, and a camera-server
+# clock lagging by >2 s would drop real first frames — both show up as
+# attributable counter entries, not silent loss.
 STALE_MARGIN_S = 2.0
 
 # At 1 Hz the queue never holds more than a few frames; the bound exists so
@@ -61,14 +78,35 @@ WriterFactory = Callable[..., FrameStackWriter]
 class _DeviceCapture:
     """Per-device state within one scan."""
 
-    writer: FrameStackWriter
+    target: CameraTarget
+    save_dir: Path
+    writer: FrameStackWriter | None = None
+    writer_failure_logged: bool = False
     seen_ts: set[float] = field(default_factory=set)
     received: int = 0
     written: int = 0
     duplicates_dropped: int = 0
     stale_skipped: int = 0
     shape_errors: int = 0
+    queue_drops: int = 0
+    late_frames: int = 0
+    writer_create_failures: int = 0
     disconnect_events: int = 0
+    initial_disconnect_absorbed: bool = False
+
+    def counters(self) -> dict[str, int]:
+        """Snapshot the reconciliation counters (call with the session lock held)."""
+        return {
+            "frames_received": self.received,
+            "frames_written": self.written,
+            "duplicates_dropped": self.duplicates_dropped,
+            "stale_skipped": self.stale_skipped,
+            "shape_errors": self.shape_errors,
+            "queue_drops": self.queue_drops,
+            "late_frames": self.late_frames,
+            "writer_create_failures": self.writer_create_failures,
+            "disconnect_events": self.disconnect_events,
+        }
 
 
 class ScanCaptureSession:
@@ -87,48 +125,50 @@ class ScanCaptureSession:
         writer_factory: WriterFactory = Hdf5StackWriter,
     ) -> None:
         self.run_uid = run_uid
+        self._experiment = experiment
+        self._scan_number = scan_number
         self._start_time = start_time
+        self._writer_factory = writer_factory
         self._devices: dict[str, _DeviceCapture] = {}
         self._queue: queue.Queue[tuple[str, "np.ndarray", float, float] | None] = (
             queue.Queue(maxsize=WRITER_QUEUE_MAX)
         )
-        self._queue_drops = 0
+        self._closing = threading.Event()
         self._lock = threading.Lock()
         self._source = source
 
-        captured: list[CameraTarget] = []
         for target in targets:
             save_path = save_paths.get(target.device)
             if save_path is None:
                 continue
-            try:
-                writer = writer_factory(
-                    Path(save_path),
-                    device=target.device,
-                    experiment=experiment,
-                    scan_number=scan_number,
-                    source_pv=target.pv,
-                )
-            except FileNotFoundError as exc:
-                # Never create the dir — the engine owns it. Skip loudly.
-                logger.error("capture skipping %s: %s", target.device, exc)
-                continue
-            self._devices[target.device] = _DeviceCapture(writer=writer)
-            captured.append(target)
+            # No writer construction here: at start-doc time the engine has
+            # not created the device dirs yet (save-enable runs later).
+            self._devices[target.device] = _DeviceCapture(
+                target=target, save_dir=Path(save_path)
+            )
 
         self._writer_thread = threading.Thread(
             target=self._drain, name="capture-writer", daemon=True
         )
         self._writer_thread.start()
-        if captured:
-            self._source.subscribe(captured, self._on_frame, self._on_connection)
+        if self._devices:
+            try:
+                self._source.subscribe(
+                    [dev.target for dev in self._devices.values()],
+                    self._on_frame,
+                    self._on_connection,
+                )
+            except Exception:
+                # Fail the session cleanly: stop the writer thread first so
+                # nothing leaks, then let the daemon's catch log it.
+                self._stop_writer_thread()
+                raise
         logger.info(
-            "capture session %s: scan %s, %d/%d cameras (%s)",
+            "capture session %s: scan %s, %d camera(s): %s",
             run_uid[:8],
             scan_number,
-            len(captured),
-            len(targets),
-            ", ".join(t.device for t in captured) or "none",
+            len(self._devices),
+            ", ".join(sorted(self._devices)) or "none",
         )
 
     # -- callbacks (p4p threads) -------------------------------------------
@@ -152,54 +192,120 @@ class ScanCaptureSession:
             self._queue.put_nowait((device, frame, acq_ts, recv_ts))
         except queue.Full:
             with self._lock:
-                self._queue_drops += 1
+                dev.queue_drops += 1
                 dev.seen_ts.discard(acq_ts)  # not written — keep books honest
             logger.error("capture writer queue full — dropped %s frame", device)
 
     def _on_connection(self, device: str, connected: bool) -> None:
         dev = self._devices.get(device)
-        if dev is not None and not connected:
-            with self._lock:
-                dev.disconnect_events += 1
+        if dev is None or connected:
+            return
+        with self._lock:
+            # p4p's notify_disconnect delivers one initial Disconnected at
+            # subscribe time on every healthy monitor — absorb it so
+            # disconnect_events counts real losses only (FORMAT.md).
+            if not dev.initial_disconnect_absorbed and dev.received == 0:
+                dev.initial_disconnect_absorbed = True
+                return
+            dev.disconnect_events += 1
 
-    # -- writer thread ------------------------------------------------------
+    # -- writer thread (the ONLY thread that touches h5py while running) ----
 
     def _drain(self) -> None:
         while True:
-            item = self._queue.get()
+            try:
+                item = self._queue.get(timeout=0.5)
+            except queue.Empty:
+                if self._closing.is_set():
+                    return
+                continue
             if item is None:
                 return
             device, frame, acq_ts, recv_ts = item
             dev = self._devices[device]
+            if dev.writer is None and not self._create_writer(dev, acq_ts):
+                continue
             try:
-                dev.writer.append(frame, acq_ts, recv_ts)
-                dev.written += 1
+                dev.writer.append(frame, acq_ts, recv_ts)  # type: ignore[union-attr]
+                with self._lock:
+                    dev.written += 1
             except ValueError:
-                dev.shape_errors += 1
+                with self._lock:
+                    dev.shape_errors += 1
                 logger.warning("capture %s: frame shape mismatch dropped", device)
             except Exception:  # noqa: BLE001 - one bad frame must not kill the scan
                 logger.exception("capture %s: writer append failed", device)
+
+    def _create_writer(self, dev: _DeviceCapture, acq_ts: float) -> bool:
+        """Lazily build *dev*'s writer; on failure drop the frame, counted."""
+        try:
+            dev.writer = self._writer_factory(
+                dev.save_dir,
+                device=dev.target.device,
+                experiment=self._experiment,
+                scan_number=self._scan_number,
+                source_pv=dev.target.pv,
+            )
+            return True
+        except Exception:  # noqa: BLE001 - incl. FileNotFoundError, OSError, h5py errors
+            with self._lock:
+                dev.writer_create_failures += 1
+                dev.seen_ts.discard(acq_ts)
+            if not dev.writer_failure_logged:
+                dev.writer_failure_logged = True
+                logger.error(
+                    "capture %s: writer creation failed (dir %s) — frames will "
+                    "drop, counted, until it succeeds; the daemon never "
+                    "creates directories",
+                    dev.target.device,
+                    dev.save_dir,
+                    exc_info=True,
+                )
+            return False
+
+    def _stop_writer_thread(self) -> bool:
+        """Signal and join the writer thread; return True if it exited."""
+        try:
+            self._queue.put_nowait(None)
+        except queue.Full:
+            pass  # the closing event below still ends the drain loop
+        self._closing.set()
+        self._writer_thread.join(timeout=30.0)
+        return not self._writer_thread.is_alive()
 
     # -- lifecycle ----------------------------------------------------------
 
     def close(self, *, finalized: bool) -> dict[str, dict[str, int]]:
         """Unsubscribe, drain, finalize (or abort) writers; return counters."""
         self._source.close()
-        self._queue.put(None)
-        self._writer_thread.join(timeout=30.0)
-        if self._writer_thread.is_alive():
-            logger.error("capture writer thread did not drain within 30 s")
+        drained = self._stop_writer_thread()
+        if not drained:
+            logger.error(
+                "capture writer thread did not drain within 30 s — leaving "
+                "files un-finalized and untouched (a wedged writer may still "
+                "hold the HDF5 lock)"
+            )
+        # Frames still in the queue were never written: late deliveries after
+        # unsubscribe (p4p can deliver a few in-flight events after close())
+        # or residue behind a wedged writer. Count them so the books close.
+        while True:
+            try:
+                item = self._queue.get_nowait()
+            except queue.Empty:
+                break
+            if item is None:
+                continue
+            dev = self._devices.get(item[0])
+            if dev is not None:
+                with self._lock:
+                    dev.late_frames += 1
         summary: dict[str, dict[str, int]] = {}
         for device, dev in self._devices.items():
-            counters = {
-                "frames_written": dev.written,
-                "frames_received": dev.received,
-                "duplicates_dropped": dev.duplicates_dropped,
-                "stale_skipped": dev.stale_skipped,
-                "shape_errors": dev.shape_errors,
-                "writer_queue_drops": self._queue_drops,
-                "disconnect_events": dev.disconnect_events,
-            }
+            with self._lock:
+                counters = dev.counters()
+            summary[device] = counters
+            if dev.writer is None or not drained:
+                continue  # no file, or unsafe to touch it from this thread
             try:
                 if finalized:
                     dev.writer.finalize(counters)
@@ -207,7 +313,6 @@ class ScanCaptureSession:
                     dev.writer.abort()
             except Exception:  # noqa: BLE001 - close every writer regardless
                 logger.exception("capture %s: writer close failed", device)
-            summary[device] = counters
         return summary
 
 
@@ -279,25 +384,30 @@ class CaptureDaemon:
         if session is None:
             return
         run_start = doc.get("run_start")
-        if isinstance(run_start, str) and run_start != session.run_uid:
+        matched = not isinstance(run_start, str) or run_start == session.run_uid
+        if not matched:
             logger.warning(
-                "stop for %s does not match open session %s — closing anyway",
-                run_start[:8],
+                "stop for %s does not match open session %s — closing "
+                "UN-finalized (never stamp the wrong run's files)",
+                str(run_start)[:8],
                 session.run_uid[:8],
             )
-        summary = session.close(finalized=True)
+        summary = session.close(finalized=matched)
         self._session = None
         for device, counters in sorted(summary.items()):
             logger.info(
                 "capture reconciliation %s: written=%d received=%d dup=%d "
-                "stale=%d shape_err=%d q_drops=%d disconnects=%d",
+                "stale=%d shape_err=%d q_drops=%d late=%d create_fail=%d "
+                "disconnects=%d",
                 device,
                 counters["frames_written"],
                 counters["frames_received"],
                 counters["duplicates_dropped"],
                 counters["stale_skipped"],
                 counters["shape_errors"],
-                counters["writer_queue_drops"],
+                counters["queue_drops"],
+                counters["late_frames"],
+                counters["writer_create_failures"],
                 counters["disconnect_events"],
             )
 

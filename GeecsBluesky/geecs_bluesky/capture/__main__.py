@@ -5,6 +5,12 @@ document stream (the worker's 0MQ proxy out-port, from the shared
 ``[qserver]`` config's ``doc_addr``) into a long-running ``CaptureDaemon``.
 Requires the ``capture`` extra (p4p + h5py) and, for the document stream,
 the worker's proxy reachable on the network.
+
+Deployment constraint: the start document's ``nonscalar_save_paths`` are
+composed on the WORKER's filesystem view, so the daemon must run on the
+worker box (or a machine sharing its exact mount layout). Discovery hits
+the GEECS DB at startup — off-network this fails after the bounded DB
+connect timeout.
 """
 
 from __future__ import annotations

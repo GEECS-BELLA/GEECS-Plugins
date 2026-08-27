@@ -18,10 +18,34 @@ the `schema` attribute, never on the file extension alone.
 
 Root attributes: `schema` (`"geecs-capture/1"`), `device`, `experiment`,
 `scan_number`, `source_pv`, `created` (Unix s), and — written at finalize —
-the reconciliation counters `frames_written`, `duplicates_dropped`,
-`stale_skipped`, `writer_queue_drops`, `disconnect_events`, `finalized`
-(bool; absent/False means the daemon died mid-scan and the tail of
-`/frames` is still valid up to `N`).
+the per-device reconciliation counters `frames_received`, `frames_written`,
+`duplicates_dropped`, `stale_skipped`, `shape_errors`, `queue_drops`,
+`late_frames`, `writer_create_failures`, `disconnect_events`, plus
+`finalized` (bool; absent means the daemon died mid-scan, a wedged writer
+prevented safe finalization, or the file belongs to a session closed by a
+mismatched/missing stop document — the tail of `/frames` is still valid up
+to `N`).
+
+**The counter identity** (every received frame lands in exactly one bucket):
+
+```
+frames_received == frames_written + duplicates_dropped + stale_skipped
+                 + shape_errors + queue_drops + late_frames
+                 + writer_create_failures
+```
+
+`late_frames` counts frames delivered after session close (p4p can hand a
+few in-flight events to the callback after unsubscribe) or left unwritten
+behind a wedged writer. `disconnect_events` counts **real** connection
+losses only — the initial not-yet-connected event p4p delivers on every
+healthy subscription is absorbed, so a clean scan reads 0.
+
+Writers are created **lazily on the first accepted frame** (the engine
+creates `scans/ScanNNN/<device>/` after the start document, in the
+save-enable plan): a device that accepts no frames produces **no file at
+all** — readers must treat an absent `<device>.h5` as "not captured", not
+as an error. A file always contains `/frames` (created with the first
+append).
 
 ## Semantics
 
@@ -30,8 +54,15 @@ the reconciliation counters `frames_written`, `duplicates_dropped`,
   gateway re-posts it. A frame whose timestamp was already written is
   dropped and counted.
 - **Stale-window filter**: frames stamped earlier than the run's start-doc
-  `time` minus a small margin are the gateway's cached pre-scan frame —
-  skipped and counted, never written.
+  `time` minus a small margin (2 s) are the gateway's cached pre-scan frame
+  — skipped and counted, never written. The gateway's `(1,1)` placeholder
+  initial post carries timestamp 0.0 and is always filtered. Two documented
+  caveats: (a) if another PVA client (e.g. a live viewer) holds the
+  gateway's gate open between scans, the pre-scan cache refreshes at 1 Hz
+  and a <2 s-old cached frame can pass the filter — it then appears in the
+  stack but not in the LV files, showing as a +1 in the dual-write diff;
+  (b) a camera-server clock lagging the worker by >2 s would stale-drop
+  real first frames — visible as `stale_skipped` > the expected 0–1.
 - **Append-per-frame with flush** (trailing flush): a crash loses at most
   the un-flushed tail, never the scan.
 - The daemon **never creates directories**: the engine's save-enable plan

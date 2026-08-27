@@ -49,6 +49,7 @@ def discover_capture_cameras(experiment: str) -> list[CameraTarget]:
     """
     device_types = GeecsDb.get_experiment_device_types(experiment)
     endpoints = GeecsDb.get_experiment_devices(experiment)
+    device_variables = GeecsDb.get_experiment_device_variables(experiment)
     targets: list[CameraTarget] = []
     for device, dtype in sorted(device_types.items()):
         image_var = CAPTURE_DEVICE_TYPES.get(dtype)
@@ -62,6 +63,18 @@ def discover_capture_cameras(experiment: str) -> list[CameraTarget]:
                 dtype,
             )
             continue
+        # Loud-warning cross-check: the registry hardcodes the image variable
+        # per devicetype; a device whose DB variables don't include it shows
+        # the silent dead-PV signature (0 frames) at capture time.
+        var_names = {m.get("name") for m in device_variables.get(device, [])}
+        if var_names and image_var not in var_names:
+            logger.warning(
+                "capture %s: registry image variable %r not among its DB "
+                "variables — expect a dead PV (0 frames) unless the registry "
+                "mapping is corrected",
+                device,
+                image_var,
+            )
         targets.append(
             CameraTarget(
                 device=device,
