@@ -298,6 +298,20 @@ per-device deprecation choreography.
 - Capture-availability preflight check (free-form check name in the
   existing `PreflightOutcome` vocabulary — `scan_request.py:417-421`) —
   refuse/warn when the toggle is off but the daemon looks absent.
+- **Asset-doc design wrinkle (recorded 2026-08-27, decide with the
+  `GEECS_HDF5_STACK` spec work):** the daemon owns frame indices, but
+  Resource/Datum documents are emitted by the device/engine during the
+  run — and index ≠ shot number by doctrine (dedupe, stale filter,
+  pre-window extras, missed triggers all shift the mapping; the
+  per-index `/acq_timestamp` dataset is the join key, never position).
+  Options for per-event Datums: engine-predicted indices (fragile),
+  daemon index assignment deterministic-by-contract (= count of
+  accepted frames, checkable), a StreamResource emitted near stop when
+  the mapping is known, or Tiled-side post-registration via the
+  timestamp join. Entangled with the descriptor-patch relaxation — no
+  doc emission before Tiled stops stripping it. Until then, per-event
+  image identification for captured cameras lives in the timestamp
+  join (Phase 4's mechanism), not in asset documents.
 - Tiled: new `GEECS_HDF5_STACK` asset spec + registry entry + per-shot
   Datum (`datum_kwargs={"frame": i}`) or run-scoped StreamResource;
   **relax the descriptor patch** at `tiled_integration.py:54-67` for the
