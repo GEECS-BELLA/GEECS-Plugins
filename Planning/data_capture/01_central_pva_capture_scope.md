@@ -400,10 +400,23 @@ experiment default to off, after the evidence gate.
   (`GeecsBluesky/capture/deploy/`) and the `geecs-capture-diff`
   evidence CLI (analysis-join-exact ±1 ms tolerance; JSONL log; exit
   0/1/2 = clean/mismatch/operational) — the Phase-6 gate's instrument.
-  OWED (VPN-gated): live systemd deployment + nohup retirement, a diff
-  run over Scans 003–005 seeding the evidence log, and a
-  heartbeat-gated toggle-off scan (refuse daemon-down / pass
-  daemon-up).
+  **LIVE DEPLOYMENT EXECUTED 2026-08-28** (all four owed items closed):
+  daemon runs under user-level systemd on the worker box from the
+  `~/qs-checkout` production checkout at the branch tip (nohup spike
+  daemon retired; unit at `~/.config/systemd/user/geecs-capture.service`,
+  39 cameras discovered; lingering still to enable —
+  `loginctl enable-linger` needs the owner); SIGTERM tombstone
+  verified live (`systemctl --user stop` → heartbeat file gone
+  immediately); evidence log seeded at
+  `~/.local/state/geecs-capture/diff-evidence.jsonl` — diff over
+  26_0827 Scans 001–005: 003/005 **pass 10/10 pixel-identical**, 004
+  capture_only, 001/002 no_stack (pre-daemon), exit 0; heartbeat-gated
+  toggle-off scan verified BOTH directions on 26_0828 (daemon stopped →
+  exact pre-claim refusal naming UC_Amp4_IR_input, scan_ids=[], NO
+  folder created; daemon started → Scan001 ran PNG-free: folder holds
+  only the h5 stack (also live-proves #699's eager save-off),
+  reconciliation identity closed 12=10+1+1, diff verdict capture_only,
+  exit 0).
 - Flip: the `ExperimentDefaults` toggle → PG cameras stop writing PNGs
   (`save_images=False` at `_build_request_detectors`,
   `scan_request_runner.py:1204-1206` — the downstream save-toggle
