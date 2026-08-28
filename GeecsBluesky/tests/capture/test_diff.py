@@ -63,6 +63,37 @@ def test_pass_verdict_and_stack_only_extra(tmp_path):
     assert (result.png_only, result.stack_only) == (0, 1)
 
 
+def test_boundary_rounded_timestamp_still_matches(tmp_path):
+    """A stack timestamp one canonical millisecond off its PNG still pairs.
+
+    The rounding-boundary class: the epoch/wire float round-trip can land
+    the stack key one integer away from the filename key. The join must
+    apply the analysis join's ±1 ms candidate tolerance, or such frames
+    become false png_only+stack_only mismatch pairs.
+    """
+    device_dir = tmp_path / "Scan006" / "UC_Cam"
+    frames = [np.full((3, 3), 5, dtype=np.uint16)]
+    _write_stack(device_dir, [TS[0] + 0.001], frames)  # one ms past the PNG
+    _touch_pngs(device_dir, TS[:1])
+    reader = _reader_by_index(device_dir, TS[:1], frames)
+    result = diff_device_dir(device_dir, png_reader=reader)
+    assert result.verdict == "pass"
+    assert (result.matched, result.png_only, result.stack_only) == (1, 0, 0)
+
+
+def test_dtype_wrap_is_not_identical(tmp_path):
+    """An out-of-range PNG value must not wrap into a false 'identical'."""
+    device_dir = tmp_path / "Scan007" / "UC_Cam"
+    frames = [np.full((3, 3), 1, dtype=np.uint8)]
+    _write_stack(device_dir, TS[:1], frames)
+    _touch_pngs(device_dir, TS[:1])
+    # 257 wraps to 1 under a uint8 cast — the comparison must see 257.
+    reader = _reader_by_index(device_dir, TS[:1], [np.full((3, 3), 257, np.uint16)])
+    result = diff_device_dir(device_dir, png_reader=reader)
+    assert result.verdict == "mismatch"
+    assert result.pixel_identical == 0
+
+
 def test_png_only_is_a_mismatch(tmp_path):
     """A frame LV saved that capture missed fails the scan."""
     device_dir = tmp_path / "Scan002" / "UC_Cam"
@@ -127,3 +158,23 @@ def test_cli_exit_code_and_log(tmp_path, monkeypatch):
     )
     assert main([str(scan), "--log", str(log)]) == 1
     assert len(log.read_text().splitlines()) == 2
+
+
+def test_cli_operational_error_exits_2_and_continues(tmp_path, monkeypatch):
+    """An unreadable scan path is exit 2 (not a mismatch) and doesn't stop the sweep."""
+    scan = tmp_path / "Scan008"
+    device_dir = scan / "UC_Cam"
+    frames = [np.full((3, 3), 1, dtype=np.uint16)]
+    _write_stack(device_dir, TS[:1], frames)
+    _touch_pngs(device_dir, TS[:1])
+
+    import geecs_bluesky.capture.diff as diff_mod
+
+    monkeypatch.setattr(
+        diff_mod, "_default_png_reader", lambda p: np.full((3, 3), 1, np.uint16)
+    )
+    log = tmp_path / "evidence.jsonl"
+    missing = tmp_path / "ScanDoesNotExist"
+    assert main([str(missing), str(scan), "--log", str(log)]) == 2
+    row = json.loads(log.read_text().splitlines()[0])
+    assert row["verdict"] == "pass"  # the good scan still got diffed and logged

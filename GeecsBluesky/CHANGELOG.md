@@ -11,21 +11,37 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **The arc-end production trio** (promotion prerequisites,
   `Planning/data_capture/01_central_pva_capture_scope.md`):
   1. **Daemon-liveness preflight** — `capture/heartbeat.py` (daemon
-     touches a JSON heartbeat every 10 s from a side thread; engine's
+     writes a JSON heartbeat every 10 s from a side thread; engine's
      `preflight_capture_liveness` REFUSES a toggle-off scan pre-claim,
      fail-closed, when the heartbeat is missing/stale — with native
      saving off, a dead daemon means images exist nowhere). Wired in
-     both execution paths; the heartbeat file inherits the existing
-     shared-filesystem deployment constraint. Proves process liveness
-     only; subscription health stays covered by reconciliation counters.
+     both execution paths (the queue path pinned by its own test).
+     Review hardening: the payload carries the monitored **device
+     roster** and the preflight refuses toggle-off scans whose capture
+     devices the daemon isn't covering (a daemon started before a
+     camera joined the DB); the daemon **removes the heartbeat on
+     clean shutdown** so `systemctl stop` refuses immediately instead
+     of after the 30 s stale window; the beat thread survives any
+     write exception; a relative `[capture] heartbeat_path` override
+     is rejected (it would split writer from reader by CWD). The check
+     is host-local (same host + service user as the daemon — stated in
+     the refusal message); proves process liveness only — subscription
+     health stays covered by reconciliation counters.
   2. **systemd deployment kit** — `capture/deploy/geecs-capture.service`
      + `DEPLOYMENT.md` (the qserver pattern; co-location with the worker
-     is a stated requirement; migration = copy unit + install).
+     is a stated requirement; migration = copy unit + install; runbook
+     covers toggle-off restart hazards and the recurring diff sweep).
   3. **Dual-write diff CLI** — `geecs-capture-diff` (`capture/diff.py`):
-     per scan/device, canonical-ms timestamp join of stack vs native
-     PNGs with per-pair IMAQ-decoded pixel comparison; verdicts
-     pass/mismatch/capture_only/no_stack; JSONL evidence log via
-     `--log`; exit 1 on mismatch. Weeks of clean log = the Phase-6 gate.
+     per scan/device, the analysis join's exact contract — canonical-ms
+     timestamp keys **plus its ±1 ms candidate tolerance** (review
+     Monte-Carlo: without candidates, epoch/wire float round-trips at
+     the rounding boundary produce false mismatch pairs) — with
+     per-pair IMAQ-decoded pixel comparison under numpy promotion (no
+     dtype cast: a cast can wrap values and mask a real difference);
+     verdicts pass/mismatch/capture_only/no_stack; incremental JSONL
+     evidence log via `--log`; exit 1 = mismatch, 2 = operational
+     error (unreadable scan path — the sweep continues past it).
+     Weeks of clean log = the Phase-6 gate.
 
 ## [0.67.0] - 2026-08-27
 

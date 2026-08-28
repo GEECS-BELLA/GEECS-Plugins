@@ -77,13 +77,18 @@ def main(argv: list[str] | None = None) -> int:
     import threading
     import time
 
-    from .heartbeat import HEARTBEAT_PERIOD_S, write_heartbeat
+    from .heartbeat import HEARTBEAT_PERIOD_S, clear_heartbeat, write_heartbeat
+
+    target_names = [t.device for t in targets]
 
     def _beat() -> None:
         while True:
             try:
-                write_heartbeat(len(targets))
-            except OSError:
+                write_heartbeat(target_names)
+            except Exception:
+                # Broad on purpose: any uncaught error would kill this
+                # thread permanently while the daemon keeps capturing —
+                # a silent path to perpetual toggle-off refusal.
                 logger.warning("heartbeat write failed", exc_info=True)
             time.sleep(HEARTBEAT_PERIOD_S)
 
@@ -104,6 +109,9 @@ def main(argv: list[str] | None = None) -> int:
         pass
     finally:
         daemon.shutdown()
+        # Tombstone: a clean stop (systemctl stop, Ctrl-C) must refuse
+        # toggle-off scans immediately, not after the stale window.
+        clear_heartbeat()
     return 0
 
 

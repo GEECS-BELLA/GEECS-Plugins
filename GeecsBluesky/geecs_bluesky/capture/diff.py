@@ -3,8 +3,8 @@
 The Phase-6 evidence engine. For every device folder in a scan that holds
 a capture stack, join the
 stack's per-frame ``acq_timestamp``s against the native per-shot files'
-filename timestamps (the same canonical-millisecond keys the analysis join
-uses) and pixel-compare every matched pair (IMAQ-decoded PNG vs stack
+filename timestamps — the analysis join's exact contract: canonical
+millisecond keys plus its \u00b11 ms candidate tolerance — and pixel-compare every matched pair (IMAQ-decoded PNG vs stack
 frame — proven bit-identical on healthy dual-writes). One verdict line per
 device, optionally appended to a JSONL evidence log; a non-zero exit on
 any mismatch. Weeks of clean log entries are the PNG-deprecation gate
@@ -39,7 +39,11 @@ from geecs_data_utils.io.scan_stack import (
     read_shot,
     read_stack_timestamps,
 )
-from geecs_data_utils.native_files import filename_timestamp_regex, timestamp_key
+from geecs_data_utils.native_files import (
+    filename_timestamp_regex,
+    timestamp_key,
+    timestamp_key_candidates,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -92,34 +96,55 @@ def diff_device_dir(
         return DeviceDiff(scan, device_dir.name, 0, 0, len(pngs_by_key), 0, "no_stack")
 
     stack_ts = read_stack_timestamps(stack, labview_epoch=True)
-    stack_by_key = {timestamp_key(float(ts)): i for i, ts in enumerate(stack_ts)}
+    stack_by_key: dict[int, int] = {}
+    for i, ts in enumerate(stack_ts):
+        # keep-first on duplicates — parity with the analysis join
+        stack_by_key.setdefault(timestamp_key(float(ts)), i)
 
     if not pngs_by_key:
         return DeviceDiff(
             scan, device_dir.name, 0, 0, 0, len(stack_by_key), "capture_only"
         )
 
-    matched_keys = sorted(set(stack_by_key) & set(pngs_by_key))
-    png_only = len(set(pngs_by_key) - set(stack_by_key))
-    stack_only = len(set(stack_by_key) - set(pngs_by_key))
+    # The join mirrors the analysis join exactly: exact canonical-ms keys
+    # first, then ±1 ms candidate pairing for the rounding-boundary class
+    # (review of this PR Monte-Carlo'd the epoch/wire float round-trip:
+    # without candidates, boundary keys become false mismatch pairs).
+    pairs: list[tuple[int, int]] = []  # (png_key, stack_index)
+    residual_stack = dict(stack_by_key)
+    residual_png = dict(pngs_by_key)
+    for key in sorted(set(stack_by_key) & set(pngs_by_key)):
+        pairs.append((key, stack_by_key[key]))
+        residual_stack.pop(key, None)
+        residual_png.pop(key, None)
+    for key in sorted(residual_png):
+        for candidate in timestamp_key_candidates(key):
+            if candidate in residual_stack:
+                pairs.append((key, residual_stack.pop(candidate)))
+                residual_png.pop(key)
+                break
+    png_only = len(residual_png)
+    stack_only = len(residual_stack)
     identical = 0
-    for key in matched_keys:
-        frame = read_shot(ShotRef(stack, stack_by_key[key]))
-        png = np.asarray(png_reader(pngs_by_key[key]))
-        if frame.shape == png.shape and np.array_equal(frame, png.astype(frame.dtype)):
+    for png_key, stack_index in pairs:
+        frame = read_shot(ShotRef(stack, stack_index))
+        png = np.asarray(png_reader(pngs_by_key[png_key]))
+        # No dtype cast: a cast can wrap out-of-range values and mask a
+        # real difference; numpy's promotion compares values correctly.
+        if frame.shape == png.shape and np.array_equal(frame, png):
             identical += 1
         else:
             logger.error(
                 "%s/%s: pixel mismatch at timestamp key %d",
                 scan,
                 device_dir.name,
-                key,
+                png_key,
             )
-    verdict = "pass" if png_only == 0 and identical == len(matched_keys) else "mismatch"
+    verdict = "pass" if png_only == 0 and identical == len(pairs) else "mismatch"
     return DeviceDiff(
         scan,
         device_dir.name,
-        len(matched_keys),
+        len(pairs),
         identical,
         png_only,
         stack_only,
@@ -151,25 +176,37 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
-    failed = False
-    records: list[dict] = []
-    for scan in args.scans:
-        for result in diff_scan(Path(scan)):
-            row = {"checked_at": time.time(), **asdict(result)}
-            records.append(row)
-            print(
-                f"{result.scan} {result.device}: {result.verdict} "
-                f"(matched={result.matched} identical={result.pixel_identical} "
-                f"png_only={result.png_only} stack_only={result.stack_only})"
-            )
-            if result.verdict == "mismatch":
-                failed = True
-    if args.log and records:
-        log_path = Path(args.log).expanduser()
-        with log_path.open("a") as f:
-            for row in records:
-                f.write(json.dumps(row) + "\n")
-    return 1 if failed else 0
+    mismatch = False
+    op_error = False
+    log_file = Path(args.log).expanduser().open("a") if args.log else None
+    try:
+        for scan in args.scans:
+            try:
+                results = diff_scan(Path(scan))
+            except OSError as exc:
+                # Operational failure (missing path, unmounted share) is NOT
+                # a mismatch — distinct exit code, sweep continues.
+                logger.error("%s: unreadable (%s)", scan, exc)
+                op_error = True
+                continue
+            for result in results:
+                row = {"checked_at": time.time(), **asdict(result)}
+                print(
+                    f"{result.scan} {result.device}: {result.verdict} "
+                    f"(matched={result.matched} "
+                    f"identical={result.pixel_identical} "
+                    f"png_only={result.png_only} "
+                    f"stack_only={result.stack_only})"
+                )
+                if result.verdict == "mismatch":
+                    mismatch = True
+                if log_file is not None:
+                    log_file.write(json.dumps(row) + "\n")
+                    log_file.flush()
+    finally:
+        if log_file is not None:
+            log_file.close()
+    return 1 if mismatch else (2 if op_error else 0)
 
 
 if __name__ == "__main__":

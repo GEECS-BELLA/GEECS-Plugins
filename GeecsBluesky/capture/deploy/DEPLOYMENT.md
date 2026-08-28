@@ -33,8 +33,11 @@ the worker and the daemon move together.
 3. Verify: `journalctl -u geecs-capture -n 5` shows the discovery line
    ("capture discovery: N eligible cameras") and the running banner; the
    heartbeat file appears at `~/.local/state/geecs-capture/heartbeat.json`
-   (override: `[capture] heartbeat_path` in the shared config.ini) and its
-   timestamp refreshes every ~10 s.
+   **in the service user's home** — under sudo that is NOT your own `~`
+   (override: `[capture] heartbeat_path` in the shared config.ini, absolute
+   paths only) — and its timestamp refreshes every ~10 s. On a clean stop
+   the daemon removes the file, so toggle-off scans are refused
+   immediately, not after the 30 s stale window.
 
 ## Operational contract
 
@@ -47,11 +50,28 @@ the worker and the daemon move together.
 - One reconciliation log line per scan per camera (`journalctl`); the
   counter identity is documented in `geecs_bluesky/capture/FORMAT.md`.
 - Restarting is always safe between scans (`systemctl restart
-  geecs-capture`); a restart mid-scan loses that scan's capture only —
-  native files (dual-write) are untouched.
+  geecs-capture`). A restart mid-scan loses that scan's capture; on a
+  **dual-write** scan the native files are untouched, but on a
+  **toggle-off** scan there are no native files — a mid-scan restart
+  loses those images outright, so never restart while a toggle-off scan
+  is running. (A daemon killed without cleanup — SIGKILL, power loss —
+  leaves its heartbeat behind for up to 30 s, during which a toggle-off
+  submission would still pass preflight; a clean stop removes it.)
 - **Restart the daemon after camera roster changes** (devices added to the
-  experiment, devicetype fixes): targets are discovered at startup, and
-  the daemon errors loudly on engine-listed devices it has no target for.
+  experiment, devicetype fixes): targets are discovered at startup, the
+  daemon errors loudly on engine-listed devices it has no target for, and
+  the engine's toggle-off preflight refuses scans whose capture devices
+  are missing from the heartbeat's roster.
+- The Phase-6 evidence log is produced by a recurring `geecs-capture-diff`
+  sweep — schedule it, e.g. a service-user cron line diffing yesterday's
+  scans nightly:
+
+  ```
+  15 6 * * * cd /opt/geecs/GEECS-Plugins/GeecsBluesky && <poetry> run geecs-capture-diff <yesterday's scans dir>/Scan* --log ~/.local/state/geecs-capture/diff-evidence.jsonl
+  ```
+
+  (exit 0 clean, 1 on a mismatch, 2 on operational errors such as an
+  unmounted share — alert on non-zero.)
 - Upgrades: `git pull` in the checkout + `systemctl restart geecs-capture`
   (the env is editable-installed; re-run poetry install only when
   dependencies changed).
