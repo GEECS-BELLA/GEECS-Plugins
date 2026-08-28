@@ -40,8 +40,12 @@ Added by the run wrapper (`geecs_run_wrapper`) when a scan number is claimed:
 `Device Variable` header (`UC_Wavemeter Wavelength (nm)`). `safe_name()` mangling
 is irreversible, so this map is the only way to recover legacy headers; it backs
 the Tiled→s-file exporter (`geecs_data_utils.tiled_export`). Only true device
-signals appear — derived companion columns (`-acq_timestamp`, `-shot_id`, …) are
-excluded by construction. A **pseudo scan variable's** motor column is the one
+signals appear — derived companion columns (`-shot_id`, …) are excluded by
+construction, with one deliberate exception: a **file-producing device**
+(native saving on, or a capture-owned camera under the `native_image_save`
+toggle) surfaces its `-acq_timestamp` column so its files — per-shot
+natives or capture-stack frames — join back to scan rows by it (the
+ScanAnalysis `device_hdf5` join key; legacy parity for native savers). A **pseudo scan variable's** motor column is the one
 exception to the `Device Variable` header shape: its recorded value is the
 demanded pseudo number (no physical readback of its own), so its header is the
 catalog friendly name verbatim (e.g. `ALine_e_beam_angle_offset_x`), and the
