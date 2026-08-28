@@ -82,6 +82,7 @@ from geecs_bluesky.scan_request_runner import (
     _defaults_flag,
     _preflight_connected,
     apply_native_image_save_off,
+    preflight_capture_liveness,
     resolve_native_image_save,
     select_capture_devices,
     _preflight_unserved,
@@ -529,6 +530,7 @@ def _scan_request_body(
     )
     if not native_image_save:
         if capture_devices:
+            preflight_capture_liveness(capture_devices, native_image_save)
             devices_config = apply_native_image_save_off(
                 devices_config, capture_devices
             )

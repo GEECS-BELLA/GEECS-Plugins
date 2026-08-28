@@ -1285,6 +1285,40 @@ def select_capture_devices(
     ]
 
 
+def preflight_capture_liveness(
+    capture_devices: list[str], native_image_save: bool
+) -> None:
+    """Refuse a toggle-off scan when the capture daemon looks absent.
+
+    Pre-claim and fail-CLOSED (the opposite convention from the DB
+    providers, deliberately): with native saving off, a dead daemon means
+    the captured cameras' images exist NOWHERE — refusing before a scan
+    number is burned is the only safe answer. Only consulted when the
+    operator explicitly requested off and capture devices exist; the
+    default dual-write path never touches it.
+    """
+    if native_image_save or not capture_devices:
+        return
+    from geecs_bluesky.capture.heartbeat import (
+        STALE_AFTER_S,
+        daemon_looks_alive,
+        heartbeat_age,
+        heartbeat_path,
+    )
+
+    if daemon_looks_alive():
+        return
+    age = heartbeat_age()
+    raise GeecsConfigurationError(
+        "native_image_save=off refused: the capture daemon looks absent "
+        f"(heartbeat {heartbeat_path()} "
+        f"{'missing/unreadable' if age is None else f'{age:.0f}s old'}, "
+        f"stale after {STALE_AFTER_S:.0f}s) — with native saving off, "
+        f"{', '.join(capture_devices)} would be recorded NOWHERE. Start "
+        "the capture daemon, or run with native_image_save unset/true."
+    )
+
+
 def apply_native_image_save_off(
     devices_config: dict[str, dict[str, Any]], capture_devices: list[str]
 ) -> dict[str, dict[str, Any]]:
@@ -1749,6 +1783,7 @@ def run_scan_request(
     )
     if not native_image_save:
         if capture_devices:
+            preflight_capture_liveness(capture_devices, native_image_save)
             devices_config = apply_native_image_save_off(
                 devices_config, capture_devices
             )

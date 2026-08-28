@@ -72,6 +72,23 @@ def main(argv: list[str] | None = None) -> int:
         source_factory=lambda: P4pFrameSource(queue_size=args.queue_size),
     )
 
+    # Liveness heartbeat: the engine's toggle-off preflight refuses scans
+    # when this goes stale — start it before the dispatcher blocks.
+    import threading
+    import time
+
+    from .heartbeat import HEARTBEAT_PERIOD_S, write_heartbeat
+
+    def _beat() -> None:
+        while True:
+            try:
+                write_heartbeat(len(targets))
+            except OSError:
+                logger.warning("heartbeat write failed", exc_info=True)
+            time.sleep(HEARTBEAT_PERIOD_S)
+
+    threading.Thread(target=_beat, name="capture-heartbeat", daemon=True).start()
+
     from bluesky.callbacks.zmq import RemoteDispatcher
 
     dispatcher = RemoteDispatcher(doc_addr)

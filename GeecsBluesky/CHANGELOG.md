@@ -4,6 +4,29 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.68.0] - 2026-08-28
+
+### Added
+
+- **The arc-end production trio** (promotion prerequisites,
+  `Planning/data_capture/01_central_pva_capture_scope.md`):
+  1. **Daemon-liveness preflight** — `capture/heartbeat.py` (daemon
+     touches a JSON heartbeat every 10 s from a side thread; engine's
+     `preflight_capture_liveness` REFUSES a toggle-off scan pre-claim,
+     fail-closed, when the heartbeat is missing/stale — with native
+     saving off, a dead daemon means images exist nowhere). Wired in
+     both execution paths; the heartbeat file inherits the existing
+     shared-filesystem deployment constraint. Proves process liveness
+     only; subscription health stays covered by reconciliation counters.
+  2. **systemd deployment kit** — `capture/deploy/geecs-capture.service`
+     + `DEPLOYMENT.md` (the qserver pattern; co-location with the worker
+     is a stated requirement; migration = copy unit + install).
+  3. **Dual-write diff CLI** — `geecs-capture-diff` (`capture/diff.py`):
+     per scan/device, canonical-ms timestamp join of stack vs native
+     PNGs with per-pair IMAQ-decoded pixel comparison; verdicts
+     pass/mismatch/capture_only/no_stack; JSONL evidence log via
+     `--log`; exit 1 on mismatch. Weeks of clean log = the Phase-6 gate.
+
 ## [0.67.0] - 2026-08-27
 
 ### Added
