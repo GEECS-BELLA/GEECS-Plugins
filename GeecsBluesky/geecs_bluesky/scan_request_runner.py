@@ -1325,16 +1325,25 @@ def preflight_capture_liveness(
             "the capture daemon, or run with native_image_save unset/true."
         )
     roster = payload.get("targets")
-    if isinstance(roster, list):
-        missing = sorted(set(capture_devices) - {str(t) for t in roster})
-        if missing:
-            raise GeecsConfigurationError(
-                "native_image_save=off refused: the capture daemon is alive "
-                f"but not monitoring {', '.join(missing)} (its heartbeat "
-                "roster predates them) — their images would be recorded "
-                "NOWHERE. Restart the capture daemon to re-discover the "
-                "roster, or run with native_image_save unset/true."
-            )
+    if not isinstance(roster, list):
+        # The daemon always writes a device-name roster; a fresh heartbeat
+        # without one is corrupt or from something that is not the daemon —
+        # fail closed, coverage cannot be verified (codex gate P2).
+        raise GeecsConfigurationError(
+            "native_image_save=off refused: the heartbeat at "
+            f"{heartbeat_path()} carries no device roster, so coverage of "
+            f"{', '.join(capture_devices)} cannot be verified. Restart the "
+            "capture daemon, or run with native_image_save unset/true."
+        )
+    missing = sorted(set(capture_devices) - {str(t) for t in roster})
+    if missing:
+        raise GeecsConfigurationError(
+            "native_image_save=off refused: the capture daemon is alive "
+            f"but not monitoring {', '.join(missing)} (its heartbeat "
+            "roster predates them) — their images would be recorded "
+            "NOWHERE. Restart the capture daemon to re-discover the "
+            "roster, or run with native_image_save unset/true."
+        )
 
 
 def apply_native_image_save_off(

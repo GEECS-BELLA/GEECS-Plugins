@@ -87,13 +87,48 @@ def test_preflight_passes_with_live_daemon(monkeypatch) -> None:
     preflight_capture_liveness(["UC_Cam"], native_image_save=False)
 
 
-def test_preflight_tolerates_rosterless_payload(monkeypatch) -> None:
-    """A payload without a target list (older daemon) skips the coverage check."""
+def test_preflight_refuses_rosterless_payload(monkeypatch) -> None:
+    """A fresh payload without a target roster is corrupt state — fail closed.
+
+    The daemon always writes a device-name roster (codex gate P2): with no
+    roster, coverage cannot be verified, so tolerating it could disable
+    native saving for devices nothing is monitoring.
+    """
     _point_preflight_at(monkeypatch, {"time": time.time()})
-    preflight_capture_liveness(["UC_Cam"], native_image_save=False)
+    with pytest.raises(GeecsConfigurationError, match="no device roster"):
+        preflight_capture_liveness(["UC_Cam"], native_image_save=False)
 
 
 def test_preflight_inert_on_default_path() -> None:
     """Toggle on (or no capture devices): never consulted, never refuses."""
     preflight_capture_liveness(["UC_Cam"], native_image_save=True)
     preflight_capture_liveness([], native_image_save=False)
+
+
+def test_sigterm_runs_finally_cleanup(tmp_path) -> None:
+    """SIGTERM must reach the finally block — the systemctl-stop tombstone.
+
+    Python's default SIGTERM action kills the process WITHOUT running
+    ``finally`` (codex gate P1); the daemon installs a handler converting
+    it to ``SystemExit``. Simulate the daemon's structure: install, block,
+    receive a real SIGTERM, verify the cleanup ran.
+    """
+    import os
+    import signal
+
+    from geecs_bluesky.capture.__main__ import _install_sigterm_handler
+
+    previous = signal.getsignal(signal.SIGTERM)
+    hb = tmp_path / "heartbeat.json"
+    write_heartbeat(["UC_Cam"], path=hb)
+    try:
+        _install_sigterm_handler()
+        with pytest.raises(SystemExit):
+            try:
+                os.kill(os.getpid(), signal.SIGTERM)
+                time.sleep(5)  # interrupted by the handler's SystemExit
+            finally:
+                clear_heartbeat(path=hb)
+    finally:
+        signal.signal(signal.SIGTERM, previous)
+    assert not hb.exists()

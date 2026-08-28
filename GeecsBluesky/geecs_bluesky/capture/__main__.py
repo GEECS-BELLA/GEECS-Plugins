@@ -94,6 +94,12 @@ def main(argv: list[str] | None = None) -> int:
 
     threading.Thread(target=_beat, name="capture-heartbeat", daemon=True).start()
 
+    # systemctl stop sends SIGTERM, whose default action kills the process
+    # WITHOUT running the finally below — the tombstone would never fire
+    # on exactly the deployment path it exists for (codex gate P1). Convert
+    # it to SystemExit so the cleanup runs.
+    _install_sigterm_handler()
+
     from bluesky.callbacks.zmq import RemoteDispatcher
 
     dispatcher = RemoteDispatcher(doc_addr)
@@ -113,6 +119,24 @@ def main(argv: list[str] | None = None) -> int:
         # toggle-off scans immediately, not after the stale window.
         clear_heartbeat()
     return 0
+
+
+def _install_sigterm_handler() -> None:
+    """Make SIGTERM raise ``SystemExit`` so ``finally`` cleanup runs.
+
+    Only possible from the main thread; anywhere else (an embedding test
+    harness) the default disposition stays and cleanup relies on the
+    heartbeat's stale window instead.
+    """
+    import signal
+
+    def _terminate(signum, frame):  # noqa: ARG001 - signal handler signature
+        raise SystemExit(0)
+
+    try:
+        signal.signal(signal.SIGTERM, _terminate)
+    except ValueError:
+        logger.warning("not on the main thread — SIGTERM cleanup not installed")
 
 
 if __name__ == "__main__":

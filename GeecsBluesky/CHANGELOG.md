@@ -21,8 +21,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
      devices the daemon isn't covering (a daemon started before a
      camera joined the DB); the daemon **removes the heartbeat on
      clean shutdown** so `systemctl stop` refuses immediately instead
-     of after the 30 s stale window; the beat thread survives any
-     write exception; a relative `[capture] heartbeat_path` override
+     of after the 30 s stale window — including under SIGTERM, which
+     the daemon converts to `SystemExit` so the cleanup actually runs
+     (codex gate P1: Python's default SIGTERM action skips `finally`,
+     so systemd's stop signal would have left the heartbeat behind); a
+     fresh heartbeat **without a device roster is refused** as corrupt
+     state, not tolerated (codex gate P2 — coverage cannot be
+     verified); the beat thread survives any write exception; a
+     relative `[capture] heartbeat_path` override
      is rejected (it would split writer from reader by CWD). The check
      is host-local (same host + service user as the daemon — stated in
      the refusal message); proves process liveness only — subscription
