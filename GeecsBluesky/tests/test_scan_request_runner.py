@@ -2487,6 +2487,9 @@ def test_native_image_save_off_wires_through_runner(
     native save; md carries the capture list; nothing else changes."""
     import geecs_bluesky.scan_request_runner as runner_mod
 
+    monkeypatch.setattr(  # daemon heartbeat absent in tests — bypass refusal
+        runner_mod, "preflight_capture_liveness", lambda *a, **k: None
+    )
     monkeypatch.setattr(runner_mod, "select_capture_devices", _select_u_cam)
     session = _SaveRecordingSession()
     run_scan_request(
@@ -2513,6 +2516,9 @@ def test_native_image_save_off_wires_contributor_branch(
     def _select_u_cam2(experiment, devices_config, *, provider=None):
         return [d for d in devices_config if d == "U_Cam2"]
 
+    monkeypatch.setattr(  # daemon heartbeat absent in tests — bypass refusal
+        runner_mod, "preflight_capture_liveness", lambda *a, **k: None
+    )
     monkeypatch.setattr(runner_mod, "select_capture_devices", _select_u_cam2)
     session = _SaveRecordingSession()
     run_scan_request(
@@ -2537,6 +2543,9 @@ def test_native_image_save_off_wires_snapshot_branch(
     def _select_u_slow(experiment, devices_config, *, provider=None):
         return [d for d in devices_config if d == "U_Slow"]
 
+    monkeypatch.setattr(  # daemon heartbeat absent in tests — bypass refusal
+        runner_mod, "preflight_capture_liveness", lambda *a, **k: None
+    )
     monkeypatch.setattr(runner_mod, "select_capture_devices", _select_u_slow)
     session = _SaveRecordingSession()
     run_scan_request(
@@ -2554,6 +2563,9 @@ def test_native_image_save_on_leaves_saving_and_still_publishes_list(
     """Dual-write default: saving untouched, capture list still published."""
     import geecs_bluesky.scan_request_runner as runner_mod
 
+    monkeypatch.setattr(  # daemon heartbeat absent in tests — bypass refusal
+        runner_mod, "preflight_capture_liveness", lambda *a, **k: None
+    )
     monkeypatch.setattr(runner_mod, "select_capture_devices", _select_u_cam)
     session = _SaveRecordingSession()
     run_scan_request(session, _noscan_request(acquisition="strict"), legacy_resolver)
