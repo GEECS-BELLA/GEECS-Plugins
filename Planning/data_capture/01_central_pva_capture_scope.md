@@ -385,14 +385,25 @@ experiment default to off, after the evidence gate.
   CLI's record).
 - **HARD precondition (review of PR #697, finding 2): an engine-checkable
   daemon-liveness signal** before the experiment default ever flips —
-  today the engine suppresses native saving blind to daemon process
-  death, a disconnected doc stream (missed start doc = whole scan
-  uncaptured, zero evidence), or PVA-down-while-CA-healthy. Candidate
-  shapes: daemon heartbeat PV consumed by a capture-availability
-  preflight check, or a daemon-written liveness marker. Per-scan
-  toggle-off use before then is human-supervised: the operator confirms
-  the daemon's session-open line names every capture device and
-  reconciliation shows frames_written == shots.
+  **BUILT AND MERGED (PR #700, 0.68.0, 2026-08-28)**: the daemon writes a
+  heartbeat file (10 s period, 30 s stale, device roster in the payload,
+  removed on clean stop incl. SIGTERM) and `preflight_capture_liveness`
+  refuses toggle-off scans pre-claim, fail-closed, on missing/stale
+  heartbeat OR a roster not covering every capture device (both
+  execution paths, pinned by tests). Residual gaps — daemon killed
+  without cleanup reads alive ≤30 s; mid-scan death on a toggle-off
+  scan is caught only by reconciliation — are documented in the module
+  and runbook. The doc-stream/PVA health gap remains covered by
+  reconciliation counters, not the heartbeat (deliberate: between scans
+  no documents flow, so there is no cheap doc-side freshness signal).
+  #700 also shipped the systemd deployment kit
+  (`GeecsBluesky/capture/deploy/`) and the `geecs-capture-diff`
+  evidence CLI (analysis-join-exact ±1 ms tolerance; JSONL log; exit
+  0/1/2 = clean/mismatch/operational) — the Phase-6 gate's instrument.
+  OWED (VPN-gated): live systemd deployment + nohup retirement, a diff
+  run over Scans 003–005 seeding the evidence log, and a
+  heartbeat-gated toggle-off scan (refuse daemon-down / pass
+  daemon-up).
 - Flip: the `ExperimentDefaults` toggle → PG cameras stop writing PNGs
   (`save_images=False` at `_build_request_detectors`,
   `scan_request_runner.py:1204-1206` — the downstream save-toggle
