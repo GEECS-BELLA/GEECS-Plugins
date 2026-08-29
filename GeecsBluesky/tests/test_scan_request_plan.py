@@ -333,7 +333,7 @@ def test_toggle_off_without_daemon_heartbeat_refuses_before_claim(
         lambda experiment: claims.append(experiment) or (None, None),
     )
     monkeypatch.setattr(
-        "geecs_bluesky.plans.scan_request_plan.select_capture_devices",
+        "geecs_bluesky.scan_request_runner.select_capture_devices",
         lambda experiment, devices_config: ["UC_Cam"],
     )
     import geecs_bluesky.capture.heartbeat as hb_mod

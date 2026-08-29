@@ -340,7 +340,13 @@ field docs): analyzers deriving per-shot output names from
 `file_path.stem` (MagSpec, LineStitcher) must not opt in — a runtime
 guard is a follow-up candidate. Deferred to the stack-only world:
 background pre-pass enumeration, `infer_device_ext`/expected-asset
-guards, per-bin bulk reads.
+guards, per-bin bulk reads, and the **open-handle cache** (listed in the
+design below but deliberately NOT shipped — ultra review of #693 flagged
+the drift: `read_shot` reopens the stack per shot, N opens per N-shot
+analyzer pass. Cheap per open, deferred until a `device_hdf5` diagnostic
+measurably hurts; the design is a per-process cache inside
+`scan_stack.py` keyed on path — each ProcessPool worker amortizes its
+own share; any design must handle h5py's non-thread-safety).
 
 - `geecs_data_utils/io/scan_stack.py`: `read_shot(path, shot)`,
   `list_shots(path)`, open-handle cache; naming/index contract documented in
