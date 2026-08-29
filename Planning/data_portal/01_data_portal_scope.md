@@ -39,7 +39,20 @@ scans, before any format migration asks anyone to change habits.
   (RunDetail → scan folder path; exactly the join the resource viewer
   needs) and `metadata_rows` are module-level, Qt-free functions in
   `browser_window.py`. They move down into `tiled_catalog` (phase 2)
-  so both front-ends share them.
+  so both front-ends share them. Caveat: `resolve_scan_folder` is
+  Qt-free but not console-free — its fallback path calls
+  `geecs_console.services.ops_paths.todays_scan_folder`, itself a thin
+  offline-first wrapper over `ScanPaths.get_daily_scan_folder`, so the
+  move re-bases that fallback on data-utils directly and brings the
+  scan-folder-invariant pin (`test_browser_scan_folder.py`'s
+  tree-untouched test) along into the data-utils suite.
+- **The per-shot filename join** — (run, device, shot) → file is not
+  just folder + save-path column: the GEECS filename convention and its
+  edge handling already live in `geecs_data_utils.scan_paths`
+  (`ScanPaths.build_asset_path`, `infer_device_ext`), with production
+  usage — including the directory-scan `file_map` fallback for
+  nonconforming names — in `geecs_bluesky/assets/readback.py`. Phase 4
+  consumes these; it does not re-derive the convention.
 
 ## Architecture
 
@@ -131,10 +144,13 @@ this — it insulates users from it.
 2. **`portal/catalog-helpers`** — move `resolve_scan_folder` +
    `metadata_rows` from `browser_window.py` down to
    `geecs_data_utils.tiled_catalog`; console imports updated
-   (Data-Utils minor, Console patch). Mechanical, no behavior change.
+   (Data-Utils minor, Console patch). Near-mechanical, behavior
+   preserved — includes re-basing `resolve_scan_folder`'s fallback off
+   `ops_paths` onto data-utils and moving the tree-untouched invariant
+   pin down with it (see "What already exists").
 3. **`portal/scaffold`** — new top-level `GEECS-DataPortal/` package
-   (per the placement rule: a service joining multiple packages gets
-   its own package): FastAPI app over `ScanCatalog`, day/experiment
+   (per repo precedent for services that join multiple packages:
+   GEECS-MCP, the gateways): FastAPI app over `ScanCatalog`, day/experiment
    picker, filterable run list, run detail with metadata + scalar
    plots. Hermetic tests on `StubCatalog`.
 4. **`portal/resource-viewer`** — the image endpoints and gallery:
