@@ -55,9 +55,11 @@ column) · `/run/{uid}/plot.png?y=&x=` (server-rendered scalar plot) ·
 ## Deployment
 
 Runs on the queueserver worker host next to the capture daemon (default
-port **8200**; Tiled is :8000, GEECS-MCP :8100).  The systemd unit +
-runbook land in `deploy/` (phase 5 of the arc); until then
-`geecs-data-portal --experiment <name>` serves directly.
+port **8200**; Tiled is :8000, GEECS-MCP :8100).  The systemd unit is
+`deploy/geecs-data-portal.service`; the runbook is `DEPLOYMENT.md`; the
+fleet map (`docs/platform/fleet_map.md`) carries the service row and
+must move in the same PR as any deployment change.
+`geecs-data-portal --experiment <name>` serves directly for development.
 
 ## The resource viewer (`resources.py`, arc phase 4)
 

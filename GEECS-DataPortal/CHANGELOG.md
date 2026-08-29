@@ -3,6 +3,18 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.3.0] - 2026-08-29
+
+### Added
+
+- Deployment (portal arc phase 5): `deploy/geecs-data-portal.service`
+  systemd unit (generic-account template, site specifics live in the
+  `/etc/systemd/system` copy — CA-gateway precedent) and
+  `DEPLOYMENT.md` runbook (prerequisites, own-checkout install,
+  foreground smoke test, unit install, upgrade, troubleshooting).
+  Fleet map promoted from *planned additions* to a deployed service
+  row (worker host, HTTP 8200, `GET /health`).
+
 ## [0.2.0] - 2026-08-29
 
 ### Added
