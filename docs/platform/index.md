@@ -4,6 +4,10 @@ The access-and-contract layer everything else sits on: how you talk to
 GEECS devices, how GEECS is exposed to the wider EPICS ecosystem, and how a
 scan and its data are described.
 
+Looking for what is actually *deployed* — which host runs which service,
+on what port, with what health check, and how they all link together?
+Start at the **[Fleet Map](fleet_map.md)**.
+
 <div class="grid cards" markdown>
 
 -   :material-lan-connect:{ .lg .middle } **GEECS-Core**
