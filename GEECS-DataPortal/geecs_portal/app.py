@@ -72,27 +72,56 @@ def _parse_day(day: str) -> date:
         return date.today()
 
 
-def _acq_timestamp(detail, device: str, shot: int) -> Optional[float]:
+def _run_day(detail, day: str) -> date:
+    """The day used to re-base a run's scan folder — the run's OWN day.
+
+    The start document's time is authoritative: trusting the caller's
+    ``day`` (or defaulting to today) would let a bookmarked link resolve
+    a *different* scan's same-numbered folder, since GEECS scan numbers
+    restart daily.
+    """
+    start_time = getattr(detail.summary, "start_time", 0.0) or 0.0
+    if start_time > 0:
+        try:
+            return datetime.fromtimestamp(start_time).date()
+        except (OverflowError, OSError, ValueError):
+            pass
+    return _parse_day(day)
+
+
+def _acq_timestamp(detail, device: str, shot: int) -> tuple[Optional[float], bool]:
     """The event row's ``acq_timestamp`` for *device* at 1-based *shot*.
 
-    Joins the device folder name to its schema-safe event column
-    (lowercase, spaces to underscores).  Returns ``None`` when the run
-    has no table, the shot is out of range, or the device has no
-    timestamp column — the resource layer then falls back to ordinal
-    file order.
+    Column matching goes through
+    :func:`geecs_data_utils.tiled_schema.device_acq_timestamp_column`
+    (schema-safe normalization — never re-derived here).
+
+    Returns
+    -------
+    tuple of (float or None, bool)
+        ``(value, column_present)``.  No column → ``(None, False)`` and
+        the resource layer may fall back to ordinal file order; column
+        present but the row invalid (NaN / non-positive: the device
+        missed this shot) → ``(None, True)`` — the caller must refuse
+        rather than serve a neighbouring shot's image.
     """
+    import math
+
     frame = detail.data
     if frame is None or shot < 1 or shot > len(frame):
-        return None
-    wanted = f"{device.lower().replace(' ', '_')}-acq_timestamp"
-    for column in frame.columns:
-        if str(column) == wanted:
-            try:
-                value = float(frame[column].iloc[shot - 1])
-            except (TypeError, ValueError):
-                return None
-            return value if value > 0 else None
-    return None
+        return (None, False)
+    column = schema_map.device_acq_timestamp_column(
+        [str(c) for c in frame.columns], device
+    )
+    if column is None:
+        return (None, False)
+    try:
+        value = float(frame[column].iloc[shot - 1])
+    except (TypeError, ValueError):
+        return (None, True)
+    if not math.isfinite(value) or value <= 0:
+        return (None, True)
+    return (value, True)
 
 
 def _default_x(detail, columns: list[str]) -> str:
@@ -203,7 +232,7 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
         x_column = x if x in columns else ""
         if selected and not x:
             x_column = _default_x(detail, columns)
-        folder = resolve_scan_folder(detail, _parse_day(day))
+        folder = resolve_scan_folder(detail, _run_day(detail, day))
         devices = resources.image_devices(folder) if folder else []
         sel_device = device if device in devices else ""
         kind, kind_path = (
@@ -239,12 +268,15 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
             raise HTTPException(
                 status_code=404, detail=f"run not found: {exc}"
             ) from exc
-        folder = resolve_scan_folder(detail, _parse_day(day))
+        folder = resolve_scan_folder(detail, _run_day(detail, day))
         if folder is None:
             raise HTTPException(status_code=404, detail="scan folder not resolvable")
-        result = resources.load_shot_image(
-            folder, device, shot, acq_timestamp=_acq_timestamp(detail, device, shot)
-        )
+        acq, column_present = _acq_timestamp(detail, device, shot)
+        if column_present and acq is None:
+            raise HTTPException(
+                status_code=404, detail="device missed this shot (no timestamp)"
+            )
+        result = resources.load_shot_image(folder, device, shot, acq_timestamp=acq)
         if result.png is None:
             raise HTTPException(status_code=404, detail=result.reason or result.kind)
         return Response(content=result.png, media_type="image/png")

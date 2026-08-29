@@ -152,3 +152,41 @@ class TestPlottableColumns:
         assert numeric_series(frame, "missing") is None
         assert numeric_series(frame, "cam-dead") is None
         assert numeric_series(frame, "cam-label") is None
+
+
+class TestDeviceAcqTimestampColumn:
+    """Schema-safe device→column matching (the ScanAnalysis rule)."""
+
+    COLUMNS = [
+        "uc_amp4_ir_input-acq_timestamp",
+        "ts_uc_amp4_ir_input-acq_timestamp",
+        "telemetry_uc_other-acq_timestamp",
+        "u_bcavemagspec_interpspec-acq_timestamp",
+        "uc_amp4_ir_input-maxcounts",
+    ]
+
+    def test_folder_stem_matches_schema_safe_column(self):
+        from geecs_data_utils.tiled_schema import device_acq_timestamp_column
+
+        assert (
+            device_acq_timestamp_column(self.COLUMNS, "UC_Amp4_IR_input")
+            == "uc_amp4_ir_input-acq_timestamp"
+        )
+
+    def test_hyphenated_diagnostic_stem_matches(self):
+        from geecs_data_utils.tiled_schema import device_acq_timestamp_column
+
+        assert (
+            device_acq_timestamp_column(self.COLUMNS, "U_BCaveMagSpec-interpSpec")
+            == "u_bcavemagspec_interpspec-acq_timestamp"
+        )
+
+    def test_companion_and_telemetry_prefixes_never_match(self):
+        from geecs_data_utils.tiled_schema import device_acq_timestamp_column
+
+        assert device_acq_timestamp_column(self.COLUMNS, "uc_other") is None
+
+    def test_unknown_device_is_none(self):
+        from geecs_data_utils.tiled_schema import device_acq_timestamp_column
+
+        assert device_acq_timestamp_column(self.COLUMNS, "nope") is None

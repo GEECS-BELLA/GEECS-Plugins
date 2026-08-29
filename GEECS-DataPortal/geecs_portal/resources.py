@@ -25,16 +25,22 @@ from typing import Optional
 import numpy as np
 
 from geecs_data_utils.io.scan_stack import (
-    LABVIEW_EPOCH_OFFSET,
     find_stack_file,
     read_shot,
+    read_stack_timestamps,
+)
+from geecs_data_utils.native_files import (
+    filename_timestamp_regex,
+    native_file_name_from_key,
+    timestamp_key,
+    timestamp_key_candidates,
 )
 from geecs_data_utils.scan_paths import ScanPaths
 
 logger = logging.getLogger(__name__)
 
 #: Extensions the portal renders from native per-shot files.
-_RENDERABLE_EXTS = {"png", "tif", "tiff", "h5", "npy"}
+_RENDERABLE_EXTS = {"png", "tif", "tiff", "h5"}
 
 #: Vendor-SDK formats: never rendered, reported as a path (Tier C).
 _VENDOR_EXTS = {"himg", "has"}
@@ -44,9 +50,6 @@ _NON_DEVICE_DIRS = {"analysis_status"}
 
 #: Display normalization percentiles (robust to hot pixels).
 _P_LO, _P_HI = 1.0, 99.7
-
-#: Max |file stamp − expected stamp| for a timestamp-named file match (s).
-_TS_MATCH_TOLERANCE_S = 1.0
 
 
 @dataclass(frozen=True)
@@ -102,7 +105,7 @@ def to_display_png(array: np.ndarray) -> bytes:
     """
     from PIL import Image
 
-    data = np.asarray(array, dtype=np.float64)
+    data = np.asarray(array, dtype=np.float32)
     finite = data[np.isfinite(data)]
     if finite.size:
         lo, hi = np.percentile(finite, [_P_LO, _P_HI])
@@ -118,37 +121,69 @@ def to_display_png(array: np.ndarray) -> bytes:
     return buffer.getvalue()
 
 
-def _timestamped_files(device_dir: Path, device: str, ext: str) -> list:
-    """Bluesky-native files ``<device>_<labview_seconds>.<ext>``, time order.
+def _vendor_only(device_dir: Path) -> bool:
+    """Whether the device saves only vendor-SDK files (Tier C, e.g. HASO).
 
-    The native saver names files by LabVIEW acquisition timestamp rather
-    than the legacy ``ScanNNN_device_shot`` convention (the still-open
-    filename-compatibility question recorded in
-    ``GeecsBluesky/TILED_SETUP.md``) — production Bluesky scans use this
-    form today.
-
-    Returns
-    -------
-    list of (float, Path)
-        ``(labview_seconds, path)`` sorted by timestamp.
+    Needed because ``infer_device_ext`` only recognises its own accepted
+    extension set — a ``.has``-only folder would otherwise read as a
+    missing-png device instead of getting its Tier C path card.
     """
-    prefix = f"{device}_"
-    out = []
+    saw_vendor = False
     try:
-        entries = sorted(device_dir.iterdir())
+        entries = device_dir.iterdir()
     except OSError:
-        return []
+        return False
     for entry in entries:
-        name = entry.name
-        if not (name.startswith(prefix) and name.endswith(f".{ext}")):
+        if not entry.is_file():
             continue
-        stamp_text = name[len(prefix) : -(len(ext) + 1)]
-        try:
-            out.append((float(stamp_text), entry))
-        except ValueError:
-            continue
-    out.sort(key=lambda pair: pair[0])
-    return out
+        ext = entry.suffix.lstrip(".").lower()
+        if ext in _RENDERABLE_EXTS:
+            return False
+        if ext in _VENDOR_EXTS:
+            saw_vendor = True
+    return saw_vendor
+
+
+def _native_file_for_timestamp(
+    device_dir: Path, stem: str, ext: str, acq_timestamp: float
+) -> Optional[Path]:
+    """Exact native-file probe for one row timestamp — never a neighbour.
+
+    Direct stat probes over `geecs_data_utils.native_files`'
+    millisecond-canonical candidate names (the ±1 ms neighbours are
+    ``%.3f`` rendering canonicalisation, not a tolerance — a missing
+    shot must read as missing, never as the adjacent shot's image).
+    Filenames carry the device's own ``acq_timestamp`` double verbatim,
+    the same value the event row records, so no epoch conversion applies.
+    """
+    for key in timestamp_key_candidates(timestamp_key(acq_timestamp)):
+        candidate = device_dir / native_file_name_from_key(stem, key, f".{ext}")
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def _ordinal_native_file(device_dir: Path, ext: str, shot: int) -> Optional[Path]:
+    """No-metadata fallback: the *shot*-th timestamp-named file in order.
+
+    Only used when the run's event table offers no ``acq_timestamp`` for
+    the device — ordinal order can misalign on free-run orphan frames,
+    which is why the timestamp join is always preferred.
+    """
+    pattern = filename_timestamp_regex(f".{ext}")
+    stamped = []
+    try:
+        entries = list(device_dir.iterdir())
+    except OSError:
+        return None
+    for entry in entries:
+        match = pattern.search(entry.name)
+        if match:
+            stamped.append((float(match.group("ts")), entry))
+    stamped.sort(key=lambda pair: pair[0])
+    if len(stamped) >= shot:
+        return stamped[shot - 1][1]
+    return None
 
 
 def load_shot_image(
@@ -171,8 +206,8 @@ def load_shot_image(
         index is ``shot - 1`` — dual-written stacks follow the same
         trigger sequence).
     acq_timestamp : float, optional
-        The event row's device ``acq_timestamp`` (LabVIEW or Unix
-        epoch — both accepted).  Used
+        The event row's device ``acq_timestamp`` double (the GEECS wire
+        convention — the same value native filenames render).  Used
         to join Bluesky-native timestamp-named files exactly; without
         it those fall back to ordinal order (orphan between-step frames
         can shift the ordinal join — pass the timestamp when the event
@@ -191,11 +226,33 @@ def load_shot_image(
     stack = find_stack_file(device_dir)
     if stack is not None:
         try:
-            frame = read_shot(stack, shot - 1)
+            if acq_timestamp is not None:
+                # The canonical-millisecond join (ScanAnalysis parity):
+                # /acq_timestamp is the stack's universal join key — the
+                # stack stores Unix epoch, the event row the device's
+                # LabVIEW-epoch double, so read converted.
+                stamps = read_stack_timestamps(stack, labview_epoch=True)
+                keys = {timestamp_key(float(s)): i for i, s in enumerate(stamps)}
+                index = None
+                for key in timestamp_key_candidates(timestamp_key(acq_timestamp)):
+                    if key in keys:
+                        index = keys[key]
+                        break
+                if index is None:
+                    return ShotImage(
+                        kind="missing",
+                        path=stack,
+                        reason="no stack frame for this shot",
+                    )
+            else:
+                index = shot - 1
+            frame = read_shot(stack, index)
             return ShotImage(kind="stack", png=to_display_png(frame), path=stack)
         except (IndexError, OSError, ValueError) as exc:
             return ShotImage(kind="missing", path=stack, reason=f"stack: {exc}")
 
+    if _vendor_only(device_dir):
+        return ShotImage(kind="vendor", path=device_dir, reason="vendor SDK format")
     paths = ScanPaths(folder=scan_folder)
     ext = paths.infer_device_ext(device)
     native = paths.build_asset_path(shot=shot, device=device, ext=ext)
@@ -204,22 +261,10 @@ def load_shot_image(
     if ext not in _RENDERABLE_EXTS:
         return ShotImage(kind="vendor", path=native, reason=f"no renderer for .{ext}")
     if not native.is_file():
-        stamped = _timestamped_files(device_dir, device, ext)
-        chosen = None
-        if stamped and acq_timestamp:
-            # Event rows carry the GEECS wire convention (LabVIEW epoch,
-            # matching the filenames directly — verified live); Unix-epoch
-            # sources (the capture stack) need the offset. Accept either.
-            expected = (acq_timestamp, acq_timestamp + LABVIEW_EPOCH_OFFSET)
-
-            def _distance(pair):
-                return min(abs(pair[0] - value) for value in expected)
-
-            best = min(stamped, key=_distance)
-            if _distance(best) <= _TS_MATCH_TOLERANCE_S:
-                chosen = best[1]
-        elif stamped and len(stamped) >= shot:
-            chosen = stamped[shot - 1][1]
+        if acq_timestamp is not None:
+            chosen = _native_file_for_timestamp(device_dir, device, ext, acq_timestamp)
+        else:
+            chosen = _ordinal_native_file(device_dir, ext, shot)
         if chosen is None:
             return ShotImage(kind="missing", path=native, reason="file not found")
         native = chosen
@@ -257,6 +302,8 @@ def device_kind(scan_folder: Path, device: str) -> tuple[str, Optional[Path]]:
     stack = find_stack_file(device_dir)
     if stack is not None:
         return ("stack", stack)
+    if _vendor_only(device_dir):
+        return ("vendor", device_dir)
     ext = ScanPaths(folder=scan_folder).infer_device_ext(device)
     if ext in _VENDOR_EXTS or ext not in _RENDERABLE_EXTS:
         return ("vendor", device_dir)

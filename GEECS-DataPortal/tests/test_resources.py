@@ -42,28 +42,45 @@ def scan_folder(tmp_path):
     stacked.mkdir()
     import h5py
 
+    from geecs_data_utils.io.scan_stack import LABVIEW_EPOCH_OFFSET
+
+    from test_app import _LV
+
     with h5py.File(stacked / "UC_StackCam.h5", "w") as handle:
         handle.attrs["schema"] = "geecs-capture/1"
-        frames = np.zeros((3, 6, 6), dtype=np.uint16)
-        frames[:, 2, 2] = [100, 200, 300]
+        # FOUR frames: a leading pre-scan extra (FORMAT.md caveat a) that
+        # must NOT shift the timestamp join. Identity marker per index.
+        frames = np.zeros((4, 6, 6), dtype=np.uint16)
+        for index in range(4):
+            frames[index, 0, index] = 1000
         handle.create_dataset("frames", data=frames, chunks=(1, 6, 6))
-        handle.create_dataset("acq_timestamp", data=np.array([1.0, 2.0, 3.0]))
+        # Stack stores UNIX epoch (its contract); event rows are LabVIEW.
+        labview = np.array([_LV + 0.5, _LV + 1.0, _LV + 2.0, _LV + 3.0])
+        handle.create_dataset("acq_timestamp", data=labview - LABVIEW_EPOCH_OFFSET)
 
     vendor = folder / "U_HasoWFS"
     vendor.mkdir()
     (vendor / "Scan002_U_HasoWFS_001.himg").write_bytes(b"proprietary")
 
-    # Bluesky-native saver naming: <device>_<labview_seconds>.png — the
+    # Bluesky-native saver naming: <device>_<acq_timestamp:.3f>.png — the
     # form production Bluesky scans write today (no legacy filenames).
-    from geecs_data_utils.io.scan_stack import LABVIEW_EPOCH_OFFSET
+    # Timestamps are the device's own LabVIEW-epoch double, identical to
+    # the event row's cam-acq_timestamp values.
+    from test_app import _LV
 
     native_ts = folder / "cam"
     native_ts.mkdir()
-    ts_image = np.zeros((5, 5), dtype=np.uint16)
-    ts_image[2, 2] = 1000
-    for unix_ts in (1.0, 2.0, 3.0):  # matches the test frame's cam-acq_timestamp
-        stamp = unix_ts + LABVIEW_EPOCH_OFFSET
-        Image.fromarray(ts_image).save(native_ts / f"cam_{stamp:.3f}.png")
+    for shot_index in (1, 2, 3):  # matches the frame's cam-acq_timestamp
+        ts_image = np.zeros((5, 5), dtype=np.uint16)
+        ts_image[0, shot_index] = 1000  # identity marker per shot
+        Image.fromarray(ts_image).save(
+            native_ts / f"cam_{_LV + float(shot_index):.3f}.png"
+        )
+
+    # Vendor tier without any infer-recognisable extension (.has only).
+    haslift = folder / "U_HasoLift"
+    haslift.mkdir()
+    (haslift / f"U_HasoLift_{_LV + 1.0:.3f}.has").write_bytes(b"proprietary")
 
     return folder
 
@@ -81,6 +98,7 @@ class TestResourcesLayer:
         assert resources.image_devices(scan_folder) == [
             "UC_StackCam",
             "UC_TestCam",
+            "U_HasoLift",
             "U_HasoWFS",
             "cam",
         ]
@@ -94,6 +112,30 @@ class TestResourcesLayer:
         result = resources.load_shot_image(scan_folder, "UC_StackCam", 2)
         assert result.kind == "stack"
         assert result.png.startswith(b"\x89PNG")
+
+    def test_stack_timestamp_join_skips_leading_extra_frame(self, scan_folder):
+        """FORMAT.md caveat (a): a pre-scan frame in the stack must not
+        shift the join — acq T+2 is frame index 2, not shot−1 = 1."""
+        import io as _io
+
+        from test_app import _LV
+
+        result = resources.load_shot_image(
+            scan_folder, "UC_StackCam", 2, acq_timestamp=_LV + 2.0
+        )
+        assert result.kind == "stack"
+        rendered = np.asarray(Image.open(_io.BytesIO(result.png)))
+        row, col = np.unravel_index(np.argmax(rendered), rendered.shape)
+        assert (row, col) == (0, 2)  # frame identity, not just PNG magic
+
+    def test_stack_timestamp_no_match_is_missing(self, scan_folder):
+        from test_app import _LV
+
+        result = resources.load_shot_image(
+            scan_folder, "UC_StackCam", 2, acq_timestamp=_LV + 9.0
+        )
+        assert result.kind == "missing"
+        assert "no stack frame" in result.reason
 
     def test_vendor_device_reports_path_not_pixels(self, scan_folder):
         result = resources.load_shot_image(scan_folder, "U_HasoWFS", 1)
@@ -117,26 +159,44 @@ class TestResourcesLayer:
         assert resources.device_kind(scan_folder, "UC_StackCam")[0] == "stack"
         assert resources.device_kind(scan_folder, "UC_TestCam")[0] == "native"
         assert resources.device_kind(scan_folder, "U_HasoWFS")[0] == "vendor"
+        # .has-only folder: not in infer_device_ext's accepted set, must
+        # still land on the Tier C card, never "missing png"
+        assert resources.device_kind(scan_folder, "U_HasoLift")[0] == "vendor"
+
+    def test_has_only_device_gets_vendor_card_not_missing(self, scan_folder):
+        result = resources.load_shot_image(scan_folder, "U_HasoLift", 1)
+        assert result.kind == "vendor"
 
     def test_timestamp_named_file_joined_by_acq_timestamp(self, scan_folder):
-        result = resources.load_shot_image(scan_folder, "cam", 1, acq_timestamp=2.0)
-        assert result.kind == "native"
-        assert result.png.startswith(b"\x89PNG")
-        assert "_" in result.path.name and result.path.name.endswith(".png")
-        # acq_timestamp 2.0 must select the middle file, not the ordinal first
-        from geecs_data_utils.io.scan_stack import LABVIEW_EPOCH_OFFSET
+        import io as _io
 
-        assert result.path.name == f"cam_{2.0 + LABVIEW_EPOCH_OFFSET:.3f}.png"
+        from test_app import _LV
+
+        result = resources.load_shot_image(
+            scan_folder, "cam", 1, acq_timestamp=_LV + 2.0
+        )
+        assert result.kind == "native"
+        # exact canonical-key file, and pixel identity (shot 2's marker)
+        assert result.path.name == f"cam_{_LV + 2.0:.3f}.png"
+        rendered = np.asarray(Image.open(_io.BytesIO(result.png)))
+        row, col = np.unravel_index(np.argmax(rendered), rendered.shape)
+        assert (row, col) == (0, 2)
 
     def test_timestamp_named_file_ordinal_fallback(self, scan_folder):
-        from geecs_data_utils.io.scan_stack import LABVIEW_EPOCH_OFFSET
+        from test_app import _LV
 
         result = resources.load_shot_image(scan_folder, "cam", 3)
         assert result.kind == "native"
-        assert result.path.name == f"cam_{3.0 + LABVIEW_EPOCH_OFFSET:.3f}.png"
+        assert result.path.name == f"cam_{_LV + 3.0:.3f}.png"
 
-    def test_timestamp_mismatch_is_missing_not_wrong_image(self, scan_folder):
-        result = resources.load_shot_image(scan_folder, "cam", 1, acq_timestamp=500.0)
+    def test_missing_shot_never_serves_a_neighbour(self, scan_folder):
+        """A 0.4 s-away neighbour exists; the exact-key join must refuse
+        (millisecond canonicalisation is not a tolerance window)."""
+        from test_app import _LV
+
+        result = resources.load_shot_image(
+            scan_folder, "cam", 1, acq_timestamp=_LV + 2.4
+        )
         assert result.kind == "missing"
 
     def test_flat_image_renders_black_not_crash(self):
@@ -164,12 +224,29 @@ class TestGalleryRoutes:
         assert "image.png?device=U_HasoWFS" not in response.text
 
     def test_image_endpoint_joins_timestamp_files_via_event_row(self, scan_folder):
-        # The test frame carries cam-acq_timestamp [1.0, 2.0, 3.0]; shot=2
-        # must serve the 2.0-stamped file through the full route.
+        # The frame carries cam-acq_timestamp LabVIEW doubles; shot=2 must
+        # serve shot 2's file through the full route, pixel-verified.
+        import io as _io
+
         client = _gallery_client(scan_folder)
         response = client.get("/run/uid-002/image.png?device=cam&shot=2")
         assert response.status_code == 200
         assert response.headers["content-type"] == "image/png"
+        rendered = np.asarray(Image.open(_io.BytesIO(response.content)))
+        row, col = np.unravel_index(np.argmax(rendered), rendered.shape)
+        assert (row, col) == (0, 2)
+
+    def test_row_invalid_timestamp_404s_never_a_neighbour(self, scan_folder):
+        # Column present but the device missed the shot (NaN row): refuse.
+        catalog = FakeCatalog()
+        detail = _detail(2)
+        detail.start_doc["scan_folder"] = str(scan_folder)
+        detail.data.loc[1, "cam-acq_timestamp"] = float("nan")
+        catalog.details["uid-002"] = detail
+        client = TestClient(create_app(catalog))
+        response = client.get("/run/uid-002/image.png?device=cam&shot=2")
+        assert response.status_code == 404
+        assert "missed" in response.json()["detail"]
 
     def test_image_endpoint_serves_native_and_stack(self, scan_folder):
         client = _gallery_client(scan_folder)

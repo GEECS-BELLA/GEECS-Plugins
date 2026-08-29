@@ -62,12 +62,17 @@ runbook land in `deploy/` (phase 5 of the arc); until then
 ## The resource viewer (`resources.py`, arc phase 4)
 
 (run, device, shot) → displayable image, per the scope doc's tiering:
-capture HDF5 stacks first (`geecs_data_utils.io.scan_stack`; frame
-index = shot − 1 — dual-written stacks follow the same trigger
-sequence), else native files via
-`ScanPaths.build_asset_path`/`infer_device_ext` + `read_imaq_image`
-(never re-derive the filename convention), vendor-SDK formats
-(`.himg`/`.has`) as a path card, never rendered.  Display rendering is
+capture HDF5 stacks first (`geecs_data_utils.io.scan_stack` — joined by
+`read_stack_timestamps` + `native_files` millisecond keys against the
+event row's `acq_timestamp`, ScanAnalysis parity; NEVER by frame
+ordinal when a timestamp is available — pre-scan extra frames shift
+ordinals, FORMAT.md caveat a), else native files via `native_files`
+exact stat-probes (legacy `ScanNNN_device_shot` names tried first;
+`read_imaq_image` loads pixels; never re-derive the filename
+convention), vendor-SDK formats (`.himg`/`.has`) as a path card, never
+rendered.  The event column matches through
+`tiled_schema.device_acq_timestamp_column`; a device that missed the
+shot 404s — a missing shot must never render a neighbour's image.  Display rendering is
 percentile-windowed (1–99.7) 16-bit → 8-bit PNG.  **Lazy per-shot
 loading is a hard rule** (the NAS pathology is file count) — never
 eager-thumbnail a scan from native files.  Device names are validated

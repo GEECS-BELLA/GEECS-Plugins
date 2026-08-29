@@ -3,6 +3,17 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.18.0] - 2026-08-29
+
+### Added
+
+- `tiled_schema.device_acq_timestamp_column` — schema-safe matching of a
+  device name / on-disk folder stem to its `-acq_timestamp` event column
+  (runs of non-alphanumerics collapse to underscores, the ScanAnalysis
+  matching rule).  Added on portal-arc phase-4 review: the portal was
+  re-deriving `safe_name` with a spaces-only mangle that silently missed
+  hyphenated diagnostic stems and degraded to ordinal file joins.
+
 ## [0.17.0] - 2026-08-29
 
 ### Changed
