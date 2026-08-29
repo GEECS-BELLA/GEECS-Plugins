@@ -1,9 +1,12 @@
 # GEECS Data Portal — deployment runbook
 
-One service, one host: the portal runs on the services host (interim:
-the queueserver worker box — the same machine as Tiled and GEECS-MCP,
-so ports read `:8000` Tiled, `:8100` MCP, **`:8200` portal**). Anyone
-on the lab network then browses to `http://<host>:8200/`.
+One service, one host: the portal runs on the worker host — the fleet
+map (`docs/platform/fleet_map.md`) is the authority on which machine
+that is at any given time. On the interim box it happens to share a
+machine with Tiled and GEECS-MCP, so the ports read `:8000` Tiled,
+`:8100` MCP, **`:8200` portal** — but only the portal's own port is
+load-bearing; nothing below assumes Tiled is local. Anyone on the lab
+network browses to `http://<host>:8200/`.
 
 The portal is **read-only by doctrine** (see `CLAUDE.md`): it renders
 the Tiled catalog and reads per-shot files off the data share, and must
@@ -27,11 +30,20 @@ the code path itself — pinned by the package's tree-untouched tests.
 
 The portal runs from its own repo checkout so it can be upgraded
 without touching the checkouts other services run from (the
-queueserver-worker precedent; paths below assume the checkout is
-`~/GEECS-Plugins` — substitute yours):
+queueserver-worker precedent). Give the checkout a portal-specific
+name — on a box that also runs the CA gateway, a checkout named plain
+`~/GEECS-Plugins` is likely the *gateway's* running checkout, and this
+runbook's Upgrade step must never `git pull` that one. Paths below
+assume `~/GEECS-Plugins-portal` — substitute yours.
+
+**Run every command in this section as the service account** (the
+`User=` of the unit): Poetry keys the project venv under the invoking
+user's cache, so an env installed by an admin account is invisible to
+the service and the unit crash-loops on an empty env while admin-side
+checks pass.
 
 ```bash
-cd ~/GEECS-Plugins/GEECS-DataPortal
+cd ~/GEECS-Plugins-portal/GEECS-DataPortal
 poetry env use python3.11
 poetry install
 ```
@@ -67,7 +79,7 @@ journalctl -u geecs-data-portal -n 20
 ## Upgrade
 
 ```bash
-cd ~/GEECS-Plugins && git pull
+cd ~/GEECS-Plugins-portal && git pull
 cd GEECS-DataPortal && poetry install
 sudo systemctl restart geecs-data-portal
 ```
@@ -79,7 +91,7 @@ sudo systemctl restart geecs-data-portal
 | `/health` reports a catalog error | Tiled down, or `[tiled]` uri/api_key wrong — `curl http://<tiled-host>:8000/api/v1/` |
 | Day pages load, images 404 | share not mounted (or moved) at `geecs_data_local_base_path`; a 404 on one shot with others fine is the exact-match rule working (that device missed the shot) |
 | Slow day listings | measure `list_runs` against the catalog first — the fix is a portal-side cache, not a schema change (scope doc, open questions) |
-| Unit exits immediately at boot | Tiled not up yet — `Restart=on-failure` retries; check `journalctl -u geecs-data-portal` |
+| Unit crash-loops at start | wrong absolute Poetry path in `ExecStart` (`status` shows 203/EXEC); env installed by a different account than `User=` (empty venv — reinstall as the service account); or port 8200 already taken. A down Tiled does **not** exit the service — that shows up as the `/health` row above |
 
 The fleet-map page (`docs/platform/fleet_map.md`) carries the
 service's row — host, port, health check — and must be updated in the

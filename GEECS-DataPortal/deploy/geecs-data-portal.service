@@ -30,7 +30,9 @@ Type=simple
 User=geecs
 # Poetry resolves its cache/venvs under $HOME; systemd does not always set it.
 Environment=HOME=/home/geecs
-WorkingDirectory=/home/geecs/GEECS-Plugins/GEECS-DataPortal
+# Portal-specific checkout — never the one another service (e.g. the CA
+# gateway) runs from; see DEPLOYMENT.md § Install.
+WorkingDirectory=/home/geecs/GEECS-Plugins-portal/GEECS-DataPortal
 ExecStart=/home/geecs/.local/bin/poetry run geecs-data-portal --experiment Undulator
 Restart=on-failure
 RestartSec=10
