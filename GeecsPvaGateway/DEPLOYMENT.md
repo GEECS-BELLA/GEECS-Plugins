@@ -85,6 +85,15 @@ wheels, no version files. Rollout:
 git pull            # advance the pin (or: git checkout <rev> to roll back)
 ```
 
+**Package-list changes need a per-box step**: `launch.bat` is copied
+locally at bootstrap, so a change to its pip package list (e.g. the
+GEECS-Core addition, 0.4.5) does NOT reach a box via `:restart` alone —
+either re-run the bootstrap console paste (copies the fixed launcher) or
+one-time-install the new package into the box's venv from a console
+session (the ssh session's token cannot read the share; a logged-in
+console can). Restarting a box whose launcher predates the current
+package list can crash-loop it.
+
 Then restart instances **via the `:restart` PV**, one host at a time
 (restarting one box first and watching it come back clean before the rest is
 cheap insurance):

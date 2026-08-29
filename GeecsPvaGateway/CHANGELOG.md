@@ -3,6 +3,21 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.4.5] - 2026-08-29
+
+### Fixed
+
+- **`deploy/launch.bat` installs GEECS-Core** — the pull-on-restart
+  package list predated the geecs-core split (2026-08-20), so the first
+  post-split fleet restart installed a gateway that imports `geecs_core`
+  without installing it: an NSSM crash loop (found live on the canary
+  during the capture-arc 0.4.4 rollout; healed by installing GEECS-Core
+  into the venv, which persists across restarts). **Fleet operational
+  note: every box bootstrapped before this fix carries the old local
+  `launch.bat` — do NOT `:restart` such a box onto a post-split source
+  clone until it has GEECS-Core in its venv (one console pip line) or
+  has been re-bootstrapped (which copies the fixed launcher).**
+
 ## [0.4.4] — 2026-08-27
 
 ### Fixed
