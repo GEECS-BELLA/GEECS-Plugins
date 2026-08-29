@@ -3,6 +3,19 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.16.0] - 2026-08-29
+
+### Added
+
+- `tiled_schema.plottable_columns` / `tiled_schema.numeric_series` — the
+  ONE scalar-plot pick-list rule for front-ends over the catalog
+  (console scan browser B4, data portal): machinery excluded via
+  `data_columns`, plottability by tolerant coercion per the
+  dtype-tolerant telemetry contract (numeric strings plot; all-NaN and
+  non-numeric columns do not).  Added on portal-arc phase-3 review — the
+  portal was re-deriving the semantics with a raw dtype check and
+  diverging from the console.
+
 ## [0.15.0] - 2026-08-29
 
 ### Added

@@ -77,9 +77,13 @@ Three properties carry the design:
    in v1. That is what makes "anyone on the network" safe with no auth
    story, and keeps the service solo-maintainable.
 3. **Python-native, no build chain (Sam, standing doctrine).** FastAPI +
-   server-rendered templates + light JS (Plotly for scalar plots). No
-   npm. One `poetry install`, one systemd unit, a `deploy/` runbook —
-   the same service pattern as the gateways and the qserver.
+   server-rendered templates. No npm. One `poetry install`, one systemd
+   unit, a `deploy/` runbook — the same service pattern as the gateways
+   and the qserver. *(Amended in phase 3, flagged for owner veto on the
+   scaffold PR: scalar plots are server-rendered matplotlib PNGs, not
+   the Plotly originally noted here — control-room machines may lack
+   internet for CDN assets and vendoring Plotly is a build-chain smell;
+   revisit only if interactivity is wanted.)*
 
 ### The resource viewer (the genuinely new piece)
 

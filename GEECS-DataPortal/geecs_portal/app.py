@@ -14,27 +14,29 @@ Architecture rules (see this package's ``CLAUDE.md`` and
   of the protocol; tests inject fakes, ``__main__`` injects
   ``TiledScanCatalog.from_config()``.  This module never imports
   ``tiled``.
+- **Column semantics live in ``geecs_data_utils.tiled_schema``** — the
+  pick list is :func:`~geecs_data_utils.tiled_schema.plottable_columns`
+  and coercion is :func:`~geecs_data_utils.tiled_schema.numeric_series`,
+  shared with the console's B4 so the two front-ends cannot drift.
 - **No build chain** — server-rendered Jinja2 templates, plots rendered
-  server-side to PNG with matplotlib (Agg); no npm, no CDN.
+  server-side to PNG via the matplotlib object API (thread-safe: no
+  pyplot global state on FastAPI's threadpool); no npm, no CDN.
 """
 
 from __future__ import annotations
 
 import io
 import logging
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
-import matplotlib
-
-matplotlib.use("Agg")  # before pyplot: headless server, no display
-
-import matplotlib.pyplot as plt
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
+from matplotlib.figure import Figure
 from starlette.requests import Request
 
+from geecs_data_utils import tiled_schema as schema_map
 from geecs_data_utils.tiled_catalog import ScanCatalog, metadata_rows
 
 logger = logging.getLogger(__name__)
@@ -47,8 +49,6 @@ _PLOT_MAX_ROWS = 100_000
 
 def _fmt_hhmm(epoch: float) -> str:
     """Format epoch seconds as local ``HH:MM`` ("" for 0/invalid)."""
-    from datetime import datetime
-
     if not epoch:
         return ""
     try:
@@ -57,16 +57,12 @@ def _fmt_hhmm(epoch: float) -> str:
         return ""
 
 
-def _numeric_columns(detail) -> list[str]:
-    """Column names of the run's numeric event columns, frame order."""
-    if detail.data is None:
-        return []
-    frame = detail.data
-    return [
-        str(name)
-        for name in frame.columns
-        if frame[name].dtype.kind in "fiu"  # float / int / unsigned
-    ]
+def _default_x(detail, columns: list[str]) -> str:
+    """The console-parity default X: the scan variable on stepped scans."""
+    if not schema_map.is_stepped_scan(detail.start_doc):
+        return ""
+    scan_vars = schema_map.scan_variable_columns(columns, detail.start_doc)
+    return scan_vars[0] if scan_vars else ""
 
 
 def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI:
@@ -99,8 +95,22 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
         """Redirect to today's day view."""
         return f"/day/{date.today().isoformat()}"
 
+    @app.get("/go", response_class=RedirectResponse)
+    def go(day: str = "", experiment: str = "") -> str:
+        """The day/experiment picker form's target: redirect to the day view."""
+        try:
+            selected = date.fromisoformat(day) if day else date.today()
+        except ValueError:
+            selected = date.today()
+        from urllib.parse import urlencode
+
+        query = f"?{urlencode({'experiment': experiment})}" if experiment else ""
+        return f"/day/{selected.isoformat()}{query}"
+
     @app.get("/day/{day}", response_class=HTMLResponse)
-    def day_view(request: Request, day: str, experiment: str = "") -> HTMLResponse:
+    def day_view(
+        request: Request, day: str, experiment: str = "", filter: str = ""
+    ) -> HTMLResponse:
         """The run list for one day (newest first, as the catalog lists)."""
         try:
             selected = date.fromisoformat(day)
@@ -113,6 +123,9 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
         except Exception as exc:  # noqa: BLE001 — surface, don't 500
             logger.warning("day listing failed: %s", exc)
             runs, error = [], f"catalog error: {exc}"
+        needle = filter.strip().lower()
+        if needle:
+            runs = [run for run in runs if needle in run.filter_text()]
         return templates.TemplateResponse(
             request,
             "day.html",
@@ -121,6 +134,7 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
                 "prev_day": (selected - timedelta(days=1)).isoformat(),
                 "next_day": (selected + timedelta(days=1)).isoformat(),
                 "experiment": exp,
+                "filter": filter,
                 "rows": [(run, _fmt_hhmm(run.start_time)) for run in runs],
                 "error": error,
             },
@@ -135,14 +149,20 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
         y: str = "",
         x: str = "",
     ) -> HTMLResponse:
-        """One run: metadata rows, plottable-column links, selected plot."""
+        """One run: metadata rows, plottable-column picker, selected plot."""
         try:
             detail = catalog.load_run(uid)
         except Exception as exc:  # noqa: BLE001 — surface, don't 500
             raise HTTPException(
                 status_code=404, detail=f"run not found: {exc}"
             ) from exc
-        columns = _numeric_columns(detail)
+        columns = (
+            [] if detail.data is None else schema_map.plottable_columns(detail.data)
+        )
+        selected = y if y in columns else ""
+        x_column = x if x in columns else ""
+        if selected and not x:
+            x_column = _default_x(detail, columns)
         return templates.TemplateResponse(
             request,
             "run.html",
@@ -152,14 +172,18 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
                 "experiment": experiment or default_experiment,
                 "rows": metadata_rows(detail),
                 "columns": columns,
-                "selected": y if y in columns else "",
-                "x_column": x if x in columns else "",
+                "selected": selected,
+                "x_column": x_column,
             },
         )
 
     @app.get("/run/{uid}/plot.png")
     def run_plot(uid: str, y: str, x: str = "") -> Response:
-        """Server-rendered scalar plot: *y* column vs *x* (default row index)."""
+        """Server-rendered scalar plot: *y* column vs *x* (default row index).
+
+        Uses the matplotlib object API (``Figure``, never pyplot) — no
+        global figure registry, safe on FastAPI's threadpool.
+        """
         try:
             detail = catalog.load_run(uid)
         except Exception as exc:  # noqa: BLE001
@@ -169,26 +193,29 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
         if detail.data is None:
             raise HTTPException(status_code=404, detail="run has no event rows")
         frame = detail.data.head(_PLOT_MAX_ROWS)
-        numeric = set(_numeric_columns(detail))
-        if y not in numeric:
-            raise HTTPException(status_code=404, detail=f"no numeric column {y!r}")
-        if x and x not in numeric:
-            raise HTTPException(status_code=404, detail=f"no numeric column {x!r}")
-        fig, ax = plt.subplots(figsize=(7.5, 4.0), dpi=110)
-        try:
-            if x:
-                ax.plot(frame[x], frame[y], ".", markersize=4)
-                ax.set_xlabel(x)
-            else:
-                ax.plot(frame[y].to_numpy(), ".", markersize=4)
-                ax.set_xlabel("row")
-            ax.set_ylabel(y)
-            ax.grid(True, alpha=0.3)
-            fig.tight_layout()
-            buffer = io.BytesIO()
-            fig.savefig(buffer, format="png")
-        finally:
-            plt.close(fig)
+        y_series = schema_map.numeric_series(frame, y)
+        if y_series is None:
+            raise HTTPException(status_code=404, detail=f"no plottable column {y!r}")
+        x_series = None
+        if x:
+            x_series = schema_map.numeric_series(frame, x)
+            if x_series is None:
+                raise HTTPException(
+                    status_code=404, detail=f"no plottable column {x!r}"
+                )
+        fig = Figure(figsize=(7.5, 4.0), dpi=110)
+        ax = fig.subplots()
+        if x_series is not None:
+            ax.plot(x_series, y_series, ".", markersize=4)
+            ax.set_xlabel(x)
+        else:
+            ax.plot(y_series.to_numpy(), ".", markersize=4)
+            ax.set_xlabel("row")
+        ax.set_ylabel(y)
+        ax.grid(True, alpha=0.3)
+        fig.tight_layout()
+        buffer = io.BytesIO()
+        fig.savefig(buffer, format="png")
         return Response(content=buffer.getvalue(), media_type="image/png")
 
     return app

@@ -140,6 +140,62 @@ def data_columns(columns: Sequence[str]) -> list[str]:
     return [c for c in columns if not is_id_column(c) and not is_companion_column(c)]
 
 
+def plottable_columns(frame: Any) -> list[str]:
+    """Return the columns of *frame* offered as scalar-plot picks.
+
+    The ONE pick-list rule shared by the scalar-plotting front-ends (the
+    console scan browser's B4, the data portal): schema machinery (row
+    identity + companion columns) is excluded via :func:`data_columns`,
+    and plottability is tolerant coercion per the dtype-tolerant
+    telemetry contract ("never assume numeric") — an object-typed column
+    of numeric strings is plottable, an all-NaN/all-string column is not.
+
+    Parameters
+    ----------
+    frame : pandas.DataFrame
+        A run's event table.
+
+    Returns
+    -------
+    list of str
+        Data columns with at least one finite numeric value, frame order.
+    """
+    return [
+        column
+        for column in data_columns([str(c) for c in frame.columns])
+        if numeric_series(frame, column) is not None
+    ]
+
+
+def numeric_series(frame: Any, column: str) -> Optional[Any]:
+    """Coerce one column of *frame* to floats, or ``None`` if not plottable.
+
+    Parameters
+    ----------
+    frame : pandas.DataFrame
+        A run's event table.
+    column : str
+        The column to coerce.
+
+    Returns
+    -------
+    pandas.Series or None
+        The column via ``pd.to_numeric(errors="coerce")`` when it exists
+        and holds at least one finite value; ``None`` otherwise (absent,
+        all-NaN, or non-numeric — dtype-tolerant telemetry contract).
+    """
+    if column not in frame.columns:
+        return None
+    import math
+
+    import pandas as pd
+
+    series = pd.to_numeric(frame[column], errors="coerce")
+    if not any(math.isfinite(float(v)) for v in series.tolist()):
+        return None
+    return series
+
+
 def telemetry_columns(columns: Sequence[str]) -> list[str]:
     """Return the Tier-2 telemetry data columns (drift-analysis candidates).
 

@@ -19,9 +19,15 @@ this package; the architecture rules below are its distillation.
   (`resolve_scan_folder`, `metadata_rows`, `daily_scan_folder`) come
   from GEECS-Data-Utils — never re-implement them here (the console
   scan browser shares them; import-identity is pinned console-side).
+- **Column semantics live in `geecs_data_utils.tiled_schema`.**  The
+  plot pick list is `plottable_columns`, coercion is `numeric_series` —
+  shared with the console's B4 so the two front-ends cannot drift.
+  Never interpret event-schema column names or dtypes in this package.
 - **No build chain.**  Server-rendered Jinja2 templates + minimal inline
-  CSS; plots are server-side matplotlib (Agg) PNGs.  No npm, no CDN
-  assets (control-room machines may lack internet).
+  CSS; plots are server-side matplotlib PNGs via the **object API**
+  (`matplotlib.figure.Figure`, never pyplot — no global figure registry
+  on FastAPI's threadpool).  No npm, no CDN assets (control-room
+  machines may lack internet).
 - **Hermetic tests.**  `tests/` drives the app through
   `fastapi.testclient.TestClient` over fake catalogs — no network, no
   data root, no config.ini.  Catalog failures must surface in the page

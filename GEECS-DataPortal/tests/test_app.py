@@ -42,16 +42,22 @@ def _start_doc(scan_number: int, **extra) -> dict:
     return doc
 
 
-def _detail(scan_number: int = 2, with_data: bool = True) -> RunDetail:
-    start = _start_doc(scan_number)
+def _detail(
+    scan_number: int = 2, with_data: bool = True, motor: str | None = None
+) -> RunDetail:
+    start = _start_doc(scan_number, motor=motor)
     stop = {"time": start["time"] + 30.0, "exit_status": "success"}
     data = None
     if with_data:
         data = pd.DataFrame(
             {
-                "scan_event_index": [0, 1, 2],
+                "scan_event_index": [0, 1, 2],  # id machinery: never a pick
                 "cam-MaxCounts": [10.0, 12.5, 11.0],
+                "cam-acq_timestamp": [1.0, 2.0, 3.0],  # companion: never a pick
                 "cam-label": ["a", "b", "c"],  # non-numeric: never plottable
+                "telemetry_dev-val": ["1.5", "2.5", "3.5"],  # dtype-tolerant
+                "cam-dead": [float("nan")] * 3,  # all-NaN: not plottable
+                "mono": [4.0, 5.0, 6.0],  # scan-variable readback
             }
         )
     return RunDetail(
@@ -134,6 +140,25 @@ class TestDayView:
         assert response.status_code in (302, 307)
         assert response.headers["location"].startswith("/day/")
 
+    def test_go_form_redirects_to_day(self):
+        response = _client().get(
+            "/go?day=2026-07-12&experiment=Bella PW", follow_redirects=False
+        )
+        assert response.status_code in (302, 307)
+        assert response.headers["location"] == "/day/2026-07-12?experiment=Bella+PW"
+
+    def test_filter_narrows_run_list(self):
+        client = _client(FakeCatalog(), default_experiment="Undulator")
+        response = client.get(f"/day/{TEST_DAY.isoformat()}?filter=scan 001")
+        assert "Scan 001" in response.text
+        assert "Scan 002" not in response.text
+
+    def test_experiment_with_space_is_urlencoded_in_links(self):
+        client = _client(FakeCatalog())
+        response = client.get(f"/day/{TEST_DAY.isoformat()}?experiment=Bella PW")
+        assert "experiment=Bella%20PW" in response.text
+        assert "experiment=Bella PW" not in response.text
+
 
 class TestRunView:
     def test_metadata_rows_render(self):
@@ -142,10 +167,28 @@ class TestRunView:
         assert "Scan 002" in response.text
         assert "success" in response.text
 
-    def test_numeric_columns_listed_non_numeric_omitted(self):
+    def test_pick_list_is_schema_shared_semantics(self):
         response = _client().get("/run/uid-002")
         assert "cam-MaxCounts" in response.text
-        assert "cam-label" not in response.text
+        assert "telemetry_dev-val" in response.text  # numeric strings plot
+        assert "cam-label" not in response.text  # non-numeric
+        assert "cam-dead" not in response.text  # all-NaN
+        assert "scan_event_index" not in response.text  # id machinery
+        assert "cam-acq_timestamp" not in response.text  # companion machinery
+
+    def test_stepped_scan_defaults_x_to_scan_variable(self):
+        catalog = FakeCatalog()
+        catalog.details["uid-007"] = _detail(7, motor="mono")
+        response = _client(catalog).get("/run/uid-007?y=cam-MaxCounts")
+        assert "plot.png?y=cam-MaxCounts&amp;x=mono" in response.text
+
+    def test_explicit_x_wins_over_stepped_default(self):
+        catalog = FakeCatalog()
+        catalog.details["uid-007"] = _detail(7, motor="mono")
+        response = _client(catalog).get(
+            "/run/uid-007?y=cam-MaxCounts&x=telemetry_dev-val"
+        )
+        assert "plot.png?y=cam-MaxCounts&amp;x=telemetry_dev-val" in response.text
 
     def test_selected_column_embeds_plot(self):
         response = _client().get("/run/uid-002?y=cam-MaxCounts")
@@ -171,6 +214,14 @@ class TestPlot:
 
     def test_non_numeric_column_is_404(self):
         assert _client().get("/run/uid-002/plot.png?y=cam-label").status_code == 404
+
+    def test_all_nan_column_is_404(self):
+        assert _client().get("/run/uid-002/plot.png?y=cam-dead").status_code == 404
+
+    def test_numeric_string_telemetry_plots(self):
+        response = _client().get("/run/uid-002/plot.png?y=telemetry_dev-val")
+        assert response.status_code == 200
+        assert response.content.startswith(b"\x89PNG")
 
     def test_dataless_run_is_404(self):
         catalog = FakeCatalog()
