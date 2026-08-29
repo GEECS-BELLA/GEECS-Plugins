@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}{{ day.isoformat() }} — GEECS Data Portal{% endblock %}
+{% block content %}
+<div class="nav">
+  <a href="/day/{{ prev_day }}?experiment={{ experiment }}">&larr; {{ prev_day }}</a>
+  <h1>{{ day.isoformat() }}</h1>
+  <a href="/day/{{ next_day }}?experiment={{ experiment }}">{{ next_day }} &rarr;</a>
+  <span class="dim">{{ experiment or "(no experiment)" }}</span>
+</div>
+{% if error %}<p class="error">{{ error }}</p>{% endif %}
+{% if rows %}
+<table>
+  <tr><th>Scan</th><th>Time</th><th>Mode</th><th>Description</th><th>Shots</th><th>Status</th></tr>
+  {% for run, time_text in rows %}
+  <tr>
+    <td><a href="/run/{{ run.uid }}?day={{ day.isoformat() }}&amp;experiment={{ experiment }}">
+      {%- if run.scan_number is not none %}Scan {{ "%03d"|format(run.scan_number) }}{% else %}{{ run.uid[:8] }}{% endif -%}
+    </a></td>
+    <td class="mono">{{ time_text }}</td>
+    <td>{{ run.mode }}</td>
+    <td>{{ run.description }}</td>
+    <td class="mono">{{ run.shots if run.shots is not none else "" }}</td>
+    <td class="mono">{{ run.exit_status or "" }}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% elif not error %}
+<p class="dim">No scans recorded for this day.</p>
+{% endif %}
+{% endblock %}

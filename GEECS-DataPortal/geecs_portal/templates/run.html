@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Run {{ uid[:8] }} — GEECS Data Portal{% endblock %}
+{% block content %}
+<div class="nav">
+  {% if day %}<a href="/day/{{ day }}?experiment={{ experiment }}">&larr; {{ day }}</a>{% endif %}
+  <h1>{% for field, value in rows %}{% if field == "Scan" %}{{ value }}{% endif %}{% endfor %}</h1>
+  <span class="dim mono">{{ uid }}</span>
+</div>
+
+<h2>Metadata</h2>
+<table>
+  {% for field, value in rows %}
+  <tr><th>{{ field }}</th><td class="mono">{{ value }}</td></tr>
+  {% endfor %}
+</table>
+
+{% if columns %}
+<h2>Scalars</h2>
+<p class="dim">Pick a column to plot against the row sequence:</p>
+<p>
+  {% for column in columns %}
+  <a class="mono" href="/run/{{ uid }}?y={{ column | urlencode }}&amp;day={{ day }}&amp;experiment={{ experiment }}">{{ column }}</a>{{ " · " if not loop.last }}
+  {% endfor %}
+</p>
+{% if selected %}
+<img class="plot" src="/run/{{ uid }}/plot.png?y={{ selected | urlencode }}{% if x_column %}&amp;x={{ x_column | urlencode }}{% endif %}" alt="{{ selected }}">
+{% endif %}
+{% else %}
+<p class="dim">This run recorded no numeric event columns.</p>
+{% endif %}
+{% endblock %}
