@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}{{ day.isoformat() }} — GEECS Data Portal{% endblock %}
+{% block content %}
+<div class="nav">
+  <a href="/day/{{ prev_day }}?experiment={{ experiment | urlencode }}">&larr; {{ prev_day }}</a>
+  <h1>{{ day.isoformat() }}</h1>
+  <a href="/day/{{ next_day }}?experiment={{ experiment | urlencode }}">{{ next_day }} &rarr;</a>
+</div>
+<form class="nav" method="get" action="/go">
+  <input type="date" name="day" value="{{ day.isoformat() }}">
+  <input type="text" name="experiment" value="{{ experiment }}" placeholder="experiment">
+  <button type="submit">Go</button>
+</form>
+<form class="nav" method="get" action="/day/{{ day.isoformat() }}">
+  <input type="hidden" name="experiment" value="{{ experiment }}">
+  <input type="text" name="filter" value="{{ filter }}" placeholder="filter — scan number, mode, status, description, save set">
+  <button type="submit">Filter</button>
+  {% if filter %}<a href="/day/{{ day.isoformat() }}?experiment={{ experiment | urlencode }}">clear</a>{% endif %}
+</form>
+{% if error %}<p class="error">{{ error }}</p>{% endif %}
+{% if rows %}
+<table>
+  <tr><th>Scan</th><th>Time</th><th>Mode</th><th>Description</th><th>Shots</th><th>Status</th></tr>
+  {% for run, time_text in rows %}
+  <tr>
+    <td><a href="/run/{{ run.uid }}?day={{ day.isoformat() }}&amp;experiment={{ experiment | urlencode }}">
+      {%- if run.scan_number is not none %}Scan {{ "%03d"|format(run.scan_number) }}{% else %}{{ run.uid[:8] }}{% endif -%}
+    </a></td>
+    <td class="mono">{{ time_text }}</td>
+    <td>{{ run.mode }}</td>
+    <td>{{ run.description }}</td>
+    <td class="mono">{{ run.shots if run.shots is not none else "" }}</td>
+    <td class="mono">{{ run.exit_status or "" }}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% elif not error %}
+<p class="dim">{% if filter %}No scans match the filter.{% else %}No scans recorded for this day.{% endif %}</p>
+{% endif %}
+{% endblock %}

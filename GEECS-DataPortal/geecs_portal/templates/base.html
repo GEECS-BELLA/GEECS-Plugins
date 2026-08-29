@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}GEECS Data Portal{% endblock %}</title>
+<style>
+  :root {
+    --bg: #12161a; --panel: #1a2026; --panel2: #20272e; --line: #2c353d;
+    --ink: #dde4ea; --dim: #8a95a0; --accent: #4cc2b4;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  header {
+    background: var(--panel); border-bottom: 1px solid var(--line);
+    padding: 0.6rem 1.2rem; display: flex; gap: 1rem; align-items: baseline;
+  }
+  header .brand { font-weight: 600; color: var(--accent); }
+  header .sub { color: var(--dim); font-size: 12px; }
+  main { max-width: 68rem; margin: 1.2rem auto; padding: 0 1.2rem; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  table { border-collapse: collapse; width: 100%; background: var(--panel); }
+  th, td { padding: 0.4rem 0.7rem; border-bottom: 1px solid var(--panel2); text-align: left; }
+  th { color: var(--dim); font-size: 12px; font-weight: 600; }
+  tr:hover td { background: var(--panel2); }
+  .nav { display: flex; gap: 1rem; align-items: baseline; margin: 0 0 1rem; }
+  .error { color: #cf5347; font-family: ui-monospace, monospace; font-size: 12px; }
+  .dim { color: var(--dim); }
+  .mono { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 12px; }
+  img.plot { max-width: 100%; background: #fff; border: 1px solid var(--line); border-radius: 4px; }
+  h1 { font-size: 1.25rem; } h2 { font-size: 1rem; color: var(--dim); }
+</style>
+</head>
+<body>
+<header>
+  <span class="brand">GEECS Data Portal</span>
+  <span class="sub">read-only scan browser</span>
+</header>
+<main>
+{% block content %}{% endblock %}
+</main>
+</body>
+</html>

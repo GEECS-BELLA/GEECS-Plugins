@@ -35,6 +35,14 @@ jobs:
           poetry run pytest GEECS-Data-Utils/tests -m "not integration and not gui" --tb=short -q
           poetry run pytest GEECS-Schemas/tests -m "not integration and not gui" --tb=short -q
 
+      - name: Install GEECS-DataPortal dependencies
+        working-directory: GEECS-DataPortal
+        run: poetry install --with dev
+
+      - name: Run GEECS-DataPortal tests
+        working-directory: GEECS-DataPortal
+        run: poetry run pytest tests --tb=short -q
+
       - name: Install GEECS-Core dependencies
         working-directory: GEECS-Core
         run: poetry install --with dev
