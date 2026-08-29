@@ -479,7 +479,12 @@ def resolve_scan_folder(detail: RunDetail, day: date) -> Optional[Path]:
     metadata_folder = detail.start_doc.get("scan_folder")
     if metadata_folder:
         candidate = Path(str(metadata_folder))
-        return candidate if candidate.is_dir() else None
+        if candidate.is_dir():
+            return candidate
+        # The recorded path is host-specific (the scanner host's mount,
+        # e.g. /mnt/... recorded by the Linux worker, read from a client
+        # whose share mounts at /Volumes/... or Z:) — fall through and
+        # re-base via this host's own daily path instead of giving up.
     scan_number = detail.summary.scan_number
     if scan_number is None:
         return None

@@ -122,6 +122,49 @@ def is_acq_timestamp_column(column: str) -> bool:
     return column.endswith(_ACQ_TIMESTAMP_SUFFIX)
 
 
+def _normalize_token(name: str) -> str:
+    """Collapse a name to a lowercase ``_``-separated matching token."""
+    import re
+
+    return re.sub(r"[^a-z0-9]+", "_", str(name).lower()).strip("_")
+
+
+def device_acq_timestamp_column(columns: Sequence[str], device: str) -> Optional[str]:
+    """Find *device*'s own ``acq_timestamp`` event column, or ``None``.
+
+    The event column keys by the schema-safe device name while callers
+    often hold the on-disk folder stem — hyphens, case, and suffix
+    punctuation differ.  Both sides normalize by collapsing runs of
+    non-alphanumerics to single underscores (the same matching rule
+    ScanAnalysis's reader uses), so ``U_BCaveMagSpec-interpSpec``
+    matches ``u_bcavemagspec_interpspec-acq_timestamp``.  Telemetry and
+    ``ts_``-companion spellings never match (their prefixes carry extra
+    tokens).
+
+    Parameters
+    ----------
+    columns : sequence of str
+        All event-stream column names.
+    device : str
+        Device name or on-disk device folder stem.
+
+    Returns
+    -------
+    str or None
+        The matching ``<dev>-acq_timestamp`` column name, or ``None``
+        when the run has no timestamp column for this device.
+    """
+    token = _normalize_token(device)
+    for column in columns:
+        name = str(column)
+        if not name.endswith(_ACQ_TIMESTAMP_SUFFIX):
+            continue
+        prefix = name[: -len(_ACQ_TIMESTAMP_SUFFIX)]
+        if _normalize_token(prefix) == token:
+            return name
+    return None
+
+
 def data_columns(columns: Sequence[str]) -> list[str]:
     """Return the measurement columns — data variables, machinery excluded.
 

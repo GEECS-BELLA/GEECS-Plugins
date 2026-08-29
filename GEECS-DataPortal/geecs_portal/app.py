@@ -29,6 +29,7 @@ import io
 import logging
 from datetime import date, datetime, timedelta
 from pathlib import Path
+from typing import Optional
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
@@ -37,7 +38,13 @@ from matplotlib.figure import Figure
 from starlette.requests import Request
 
 from geecs_data_utils import tiled_schema as schema_map
-from geecs_data_utils.tiled_catalog import ScanCatalog, metadata_rows
+from geecs_data_utils.tiled_catalog import (
+    ScanCatalog,
+    metadata_rows,
+    resolve_scan_folder,
+)
+
+from geecs_portal import resources
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +62,66 @@ def _fmt_hhmm(epoch: float) -> str:
         return datetime.fromtimestamp(epoch).strftime("%H:%M")
     except (OverflowError, OSError, ValueError):
         return ""
+
+
+def _parse_day(day: str) -> date:
+    """Parse an ISO day query param, falling back to today."""
+    try:
+        return date.fromisoformat(day) if day else date.today()
+    except ValueError:
+        return date.today()
+
+
+def _run_day(detail, day: str) -> date:
+    """The day used to re-base a run's scan folder — the run's OWN day.
+
+    The start document's time is authoritative: trusting the caller's
+    ``day`` (or defaulting to today) would let a bookmarked link resolve
+    a *different* scan's same-numbered folder, since GEECS scan numbers
+    restart daily.
+    """
+    start_time = getattr(detail.summary, "start_time", 0.0) or 0.0
+    if start_time > 0:
+        try:
+            return datetime.fromtimestamp(start_time).date()
+        except (OverflowError, OSError, ValueError):
+            pass
+    return _parse_day(day)
+
+
+def _acq_timestamp(detail, device: str, shot: int) -> tuple[Optional[float], bool]:
+    """The event row's ``acq_timestamp`` for *device* at 1-based *shot*.
+
+    Column matching goes through
+    :func:`geecs_data_utils.tiled_schema.device_acq_timestamp_column`
+    (schema-safe normalization — never re-derived here).
+
+    Returns
+    -------
+    tuple of (float or None, bool)
+        ``(value, column_present)``.  No column → ``(None, False)`` and
+        the resource layer may fall back to ordinal file order; column
+        present but the row invalid (NaN / non-positive: the device
+        missed this shot) → ``(None, True)`` — the caller must refuse
+        rather than serve a neighbouring shot's image.
+    """
+    import math
+
+    frame = detail.data
+    if frame is None or shot < 1 or shot > len(frame):
+        return (None, False)
+    column = schema_map.device_acq_timestamp_column(
+        [str(c) for c in frame.columns], device
+    )
+    if column is None:
+        return (None, False)
+    try:
+        value = float(frame[column].iloc[shot - 1])
+    except (TypeError, ValueError):
+        return (None, True)
+    if not math.isfinite(value) or value <= 0:
+        return (None, True)
+    return (value, True)
 
 
 def _default_x(detail, columns: list[str]) -> str:
@@ -148,8 +215,10 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
         experiment: str = "",
         y: str = "",
         x: str = "",
+        device: str = "",
+        shot: int = 1,
     ) -> HTMLResponse:
-        """One run: metadata rows, plottable-column picker, selected plot."""
+        """One run: metadata, plottable-column picker + plot, image gallery."""
         try:
             detail = catalog.load_run(uid)
         except Exception as exc:  # noqa: BLE001 — surface, don't 500
@@ -163,6 +232,13 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
         x_column = x if x in columns else ""
         if selected and not x:
             x_column = _default_x(detail, columns)
+        folder = resolve_scan_folder(detail, _run_day(detail, day))
+        devices = resources.image_devices(folder) if folder else []
+        sel_device = device if device in devices else ""
+        kind, kind_path = (
+            resources.device_kind(folder, sel_device) if sel_device else ("", None)
+        )
+        shot = max(1, shot)
         return templates.TemplateResponse(
             request,
             "run.html",
@@ -174,8 +250,36 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
                 "columns": columns,
                 "selected": selected,
                 "x_column": x_column,
+                "devices": devices,
+                "sel_device": sel_device,
+                "kind": kind,
+                "kind_path": str(kind_path) if kind_path else "",
+                "shot": shot,
+                "total_shots": detail.summary.shots,
             },
         )
+
+    @app.get("/run/{uid}/image.png")
+    def run_image(uid: str, device: str, shot: int = 1, day: str = "") -> Response:
+        """One device shot rendered for display (stack or native file)."""
+        try:
+            detail = catalog.load_run(uid)
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(
+                status_code=404, detail=f"run not found: {exc}"
+            ) from exc
+        folder = resolve_scan_folder(detail, _run_day(detail, day))
+        if folder is None:
+            raise HTTPException(status_code=404, detail="scan folder not resolvable")
+        acq, column_present = _acq_timestamp(detail, device, shot)
+        if column_present and acq is None:
+            raise HTTPException(
+                status_code=404, detail="device missed this shot (no timestamp)"
+            )
+        result = resources.load_shot_image(folder, device, shot, acq_timestamp=acq)
+        if result.png is None:
+            raise HTTPException(status_code=404, detail=result.reason or result.kind)
+        return Response(content=result.png, media_type="image/png")
 
     @app.get("/run/{uid}/plot.png")
     def run_plot(uid: str, y: str, x: str = "") -> Response:

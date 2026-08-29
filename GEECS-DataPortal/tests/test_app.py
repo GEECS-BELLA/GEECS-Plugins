@@ -18,6 +18,9 @@ from geecs_portal.app import create_app
 
 TEST_DAY = date(2026, 7, 12)
 
+#: LabVIEW-epoch base for acq_timestamp fixtures (the wire convention).
+_LV = 3_870_000_000.0
+
 
 def _epoch(hour: int, minute: int = 0) -> float:
     return datetime(
@@ -53,7 +56,7 @@ def _detail(
             {
                 "scan_event_index": [0, 1, 2],  # id machinery: never a pick
                 "cam-MaxCounts": [10.0, 12.5, 11.0],
-                "cam-acq_timestamp": [1.0, 2.0, 3.0],  # companion: never a pick
+                "cam-acq_timestamp": [_LV + 1.0, _LV + 2.0, _LV + 3.0],  # companion
                 "cam-label": ["a", "b", "c"],  # non-numeric: never plottable
                 "telemetry_dev-val": ["1.5", "2.5", "3.5"],  # dtype-tolerant
                 "cam-dead": [float("nan")] * 3,  # all-NaN: not plottable

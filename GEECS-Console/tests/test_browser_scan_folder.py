@@ -34,7 +34,15 @@ class TestScanFolderResolutionInvariant:
         detail = make_detail(scan_folder=str(scan_dir))
         assert resolve_scan_folder(detail, TEST_DAY) == scan_dir
 
-    def test_missing_folder_returns_none_and_touches_nothing(self, tmp_path):
+    def test_missing_folder_returns_none_and_touches_nothing(
+        self, tmp_path, monkeypatch
+    ):
+        from geecs_data_utils import scan_paths as scan_paths_mod
+
+        # Hermetic: a stale metadata path now falls through to the daily
+        # fallback (host-specific-mount re-basing), which must not reach
+        # the real config.ini data root in tests.
+        monkeypatch.setattr(scan_paths_mod, "daily_scan_folder", lambda *a, **k: None)
         day_root = tmp_path / "data"
         day_root.mkdir()
         missing = day_root / "Y2026" / "07-Jul" / "26_0712" / "scans" / "Scan002"

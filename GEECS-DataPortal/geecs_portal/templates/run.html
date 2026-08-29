@@ -48,4 +48,35 @@
 {% else %}
 <p class="dim">This run recorded no plottable scalar columns.</p>
 {% endif %}
+
+{% if devices %}
+<h2>Images</h2>
+<p>
+  {% for dev in devices %}
+  <a class="mono" href="/run/{{ uid }}?device={{ dev | urlencode }}&amp;shot=1&amp;day={{ day | urlencode }}&amp;experiment={{ experiment | urlencode }}">{{ dev }}</a>{{ " · " if not loop.last }}
+  {% endfor %}
+</p>
+{% if sel_device %}
+{% if kind == "vendor" %}
+<p class="dim">{{ sel_device }} saves a vendor-SDK format the portal cannot
+render. Files live at:</p>
+<p class="mono">{{ kind_path }}</p>
+{% else %}
+<form class="nav" method="get" action="/run/{{ uid }}">
+  <input type="hidden" name="device" value="{{ sel_device }}">
+  <input type="hidden" name="day" value="{{ day }}">
+  <input type="hidden" name="experiment" value="{{ experiment }}">
+  {% if shot > 1 %}<a href="/run/{{ uid }}?device={{ sel_device | urlencode }}&amp;shot={{ shot - 1 }}&amp;day={{ day | urlencode }}&amp;experiment={{ experiment | urlencode }}">&larr; prev</a>{% endif %}
+  <label class="dim">shot
+    <input type="number" name="shot" value="{{ shot }}" min="1" style="width: 5rem">
+  </label>
+  <button type="submit">Show</button>
+  <a href="/run/{{ uid }}?device={{ sel_device | urlencode }}&amp;shot={{ shot + 1 }}&amp;day={{ day | urlencode }}&amp;experiment={{ experiment | urlencode }}">next &rarr;</a>
+  {% if total_shots %}<span class="dim mono">of ~{{ total_shots }}</span>{% endif %}
+  <span class="dim mono">{{ kind }}</span>
+</form>
+<img class="plot" src="/run/{{ uid }}/image.png?device={{ sel_device | urlencode }}&amp;shot={{ shot }}&amp;day={{ day | urlencode }}" alt="{{ sel_device }} shot {{ shot }}">
+{% endif %}
+{% endif %}
+{% endif %}
 {% endblock %}

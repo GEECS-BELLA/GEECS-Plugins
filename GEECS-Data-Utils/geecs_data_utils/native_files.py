@@ -28,6 +28,10 @@ This module is the single source of truth for that contract.  Its consumers
 - ``geecs_bluesky.optimization.session_bridge`` — the *waiter* side: blocks
   an optimization iteration until the bin's expected native files are
   visible on the data server.
+- ``geecs_portal.resources`` (GEECS-DataPortal) — the *viewer* side: exact
+  stat-probes for one shot's file from the event row's ``acq_timestamp``
+  (candidate keys), regex listing only for the no-metadata ordinal
+  fallback.
 
 Millisecond canonicalization
 ----------------------------
