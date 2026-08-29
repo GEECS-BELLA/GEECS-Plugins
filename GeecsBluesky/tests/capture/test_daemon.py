@@ -495,3 +495,70 @@ def test_daemon_shutdown_closes_open_session(tmp_path) -> None:
     assert source.closed
     with h5py.File(tmp_path / "ScanXXX" / "UC_CamA" / "UC_CamA.h5", "r") as f:
         assert "finalized" not in f.attrs
+
+
+def test_frame_delivered_during_close_counts_late(tmp_path) -> None:
+    """An in-flight delivery after close() begins lands in late_frames.
+
+    Review of PR #693 (F1): p4p can deliver frames after source.close()
+    returns; one arriving between the residue drain and the counter
+    snapshot previously landed in NO bucket, breaking the identity
+    stamped into the finalized file.
+    """
+
+    class InFlightSource(FakeSource):
+        def close(self) -> None:
+            super().close()
+            # Worst case: delivery lands during session teardown.
+            self.on_frame(
+                "UC_CamA", np.full((3, 3), 9, dtype=np.uint16), 1005.0, 1005.5
+            )
+
+    source = InFlightSource()
+    daemon = CaptureDaemon(
+        experiment="Undulator", targets=_targets(), source_factory=lambda: source
+    )
+    daemon("start", _start_doc(tmp_path))
+    source.on_frame("UC_CamA", np.full((3, 3), 5, dtype=np.uint16), 1001.0, 1001.5)
+    stack = tmp_path / "ScanXXX" / "UC_CamA" / "UC_CamA.h5"
+    _wait_written(stack, 1)
+    session = daemon._session
+    daemon("stop", {"run_start": "run-1"})
+
+    counters = session._devices["UC_CamA"].counters()
+    assert counters["frames_received"] == 2
+    assert counters["late_frames"] == 1
+    assert counters["frames_written"] == 1
+    with h5py.File(stack, "r") as f:
+        assert f.attrs["finalized"]
+        assert f.attrs["late_frames"] == 1
+        assert f.attrs["frames_received"] == (
+            f.attrs["frames_written"]
+            + f.attrs["duplicates_dropped"]
+            + f.attrs["stale_skipped"]
+            + f.attrs["shape_errors"]
+            + f.attrs["queue_drops"]
+            + f.attrs["late_frames"]
+            + f.attrs["writer_create_failures"]
+            + f.attrs["append_failures"]
+        )
+
+
+def test_partial_subscribe_failure_closes_the_source(tmp_path) -> None:
+    """A subscribe exception must close the source (PR #693 review F2).
+
+    Leaked monitors from a partial subscribe would hold the gateway's
+    subscription gate open for the daemon's lifetime.
+    """
+
+    class ExplodingSource(FakeSource):
+        def subscribe(self, targets, on_frame, on_connection) -> None:
+            raise RuntimeError("monitor construction failed")
+
+    source = ExplodingSource()
+    daemon = CaptureDaemon(
+        experiment="Undulator", targets=_targets(), source_factory=lambda: source
+    )
+    daemon("start", _start_doc(tmp_path))  # best-effort: logged, not raised
+    assert daemon._session is None
+    assert source.closed

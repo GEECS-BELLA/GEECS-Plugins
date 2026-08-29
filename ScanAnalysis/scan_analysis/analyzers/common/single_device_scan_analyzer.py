@@ -562,10 +562,13 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
             return False
         try:
             stack_ts = read_stack_timestamps(stack, labview_epoch=True)
-        except (OSError, KeyError) as exc:
-            # A malformed stack (missing dataset) or a share hiccup between
-            # is_stack_file's open and this read must fall back, not fail
-            # the task — the dual-write PNGs are right there.
+        except Exception as exc:
+            # ANY unreadable stack must fall back, not fail the task — the
+            # dual-write PNGs are right there. Broad on purpose (review of
+            # PR #693): a malformed-but-schema-valid stack can raise
+            # TypeError (acq_timestamp as a group) or ValueError (string
+            # dtype), not just OSError/KeyError, and the whole point of
+            # this strategy is that its failure shapes are recoverable.
             logger.warning(
                 "Capture stack %s unreadable (%s) — falling back to per-shot files",
                 stack,

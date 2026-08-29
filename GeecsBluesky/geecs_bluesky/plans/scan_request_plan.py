@@ -482,6 +482,14 @@ def _scan_request_body(
     strict = request.acquisition is AcquisitionMode.STRICT
 
     if request.mode is ScanRequestMode.OPTIMIZE:
+        if request.native_image_save is False:
+            # v0: optimize keeps native saving unconditionally (evaluators
+            # read per-shot files) — never discard the override silently.
+            logger.warning(
+                "optimize mode keeps native image saving — the request's "
+                "native_image_save=false is ignored (v0: evaluators read "
+                "per-shot files)"
+            )
         return (
             yield from _optimize_request_body(
                 session,

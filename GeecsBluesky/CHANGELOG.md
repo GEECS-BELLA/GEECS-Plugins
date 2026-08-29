@@ -4,6 +4,60 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.68.2] - 2026-08-28
+
+### Fixed
+
+Pre-promotion adversarial review of PR #693 (six dimension-scoped
+fresh-context reviewers over the full master diff) — fix wave:
+
+- **Counter-identity race at session close**: a p4p in-flight frame
+  delivered after `close()` began could land in NO reconciliation
+  bucket, breaking the identity stamped into the finalized file. The
+  closing flag is now set (under the lock) before unsubscribing, and
+  `_on_frame` diverts such frames to `late_frames` atomically. Pinned.
+- **Partial subscribe failure leaked the p4p context**: monitors 0..k-1
+  stayed live forever, holding the gateway's subscription gate open for
+  the daemon's lifetime. The session's failure path now closes the
+  source. Pinned.
+- **Heartbeat tombstone resurrection race**: a beat mid-write during
+  shutdown could atomically replace the heartbeat back into existence
+  after the unlink. The beat thread now takes a stop event and is
+  joined before `clear_heartbeat()`.
+- **`finalize()` no longer leaks the HDF5 handle** when attr stamping
+  fails (end-of-scan share blip) — the file closes regardless and is
+  simply un-finalized, which readers already tolerate.
+- **`geecs-capture-diff --log` creates its parent directory** — a fresh
+  host's first cron sweep no longer tracebacks (exit 1 misread as a
+  mismatch) on the missing state dir.
+- **systemd unit: `RestartPreventExitStatus=2`** — permanent
+  misconfiguration (exit 2: bad flags, no config, no eligible cameras)
+  no longer restart-loops forever.
+- **Optimize mode logs a WARNING when it ignores an explicit
+  `native_image_save=false`** (both execution paths) — v0 keeps native
+  saving for optimize unconditionally; never silently.
+
+### Documentation
+
+- FORMAT.md truth-ups: pre-start-doc dir creation (0.66.0) replaces the
+  stale "after the start document" claims (daemon docstring too); a
+  first-append-failed file is valid-but-empty (`/acq_timestamp`, no
+  `/frames`); `scan_number` attr is conditional; dedupe is on accepted
+  (not written) timestamps with the create-vs-append retry asymmetry
+  stated; the 0.4.4 receive-time-fallback dedupe signature documented.
+- heartbeat docstring names the wedged-writer residual gap (h5py global
+  lock — heartbeat stays green while later scans' writes block); feeding
+  writer health into the beat is the designed pre-Phase-6 hardening.
+- DEPLOYMENT.md: **upgrade the PVA gateway fleet to >=0.4.4 before any
+  toggle-off scan** (a 0.4.3 box stale-filters 100% of a broken-ladder
+  camera's frames); poetry install also needed when console scripts are
+  added.
+- EVENT_SCHEMA.md: the acq_timestamp column exception covers the sync
+  roles only — async (snapshot-role) capture-owned cameras surface no
+  such column (tracked with #702). CLAUDE.md capture entry: pyzmq +
+  both CLIs. discovery docstring: three batched queries, not two.
+  probes README heading repaired; subscriber env-mutation comment.
+
 ## [0.68.1] - 2026-08-28
 
 ### Fixed

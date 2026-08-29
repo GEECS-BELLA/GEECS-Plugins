@@ -1742,6 +1742,16 @@ def run_scan_request(
         # log loudly, and record the skip in run metadata (never silent).
         # Rationale: GeecsBluesky/CLAUDE.md (engine consolidation).
         skipped_actions = {k: v for k, v in resolved_actions.items() if v}
+        if request.native_image_save is False:
+            # v0: optimize keeps native saving unconditionally (its
+            # evaluators read per-shot files from disk). Never silent —
+            # once an experiment default flips off, every optimize scan
+            # overrides it and the operator must be able to see that.
+            logger.warning(
+                "optimize mode keeps native image saving — the request's "
+                "native_image_save=false is ignored (v0: evaluators read "
+                "per-shot files)"
+            )
         return _run_optimize_request(
             session,
             request,

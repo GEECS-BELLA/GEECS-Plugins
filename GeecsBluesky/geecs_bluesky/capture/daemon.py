@@ -1,7 +1,8 @@
 """The capture daemon: scan-gated central image capture over PVA.
 
 One ``CaptureDaemon`` consumes the worker's Bluesky document stream and, for
-every run whose start document carries ``nonscalar_save_paths``, opens a
+every run whose start document names capture targets (``capture_devices``
+preferred; ``nonscalar_save_paths`` as the dual-write fallback), opens a
 ``ScanCaptureSession``: PVA subscriptions on the run's capture-eligible
 cameras (scan-gated per the design decision — the gateway's gate opens on
 first subscriber), an ``acq_timestamp`` dedupe + stale-window filter, and a
@@ -11,13 +12,13 @@ engine-created ``scans/ScanNNN/<device>/`` directories.
 Design constraints this module enforces (scope doc,
 ``Planning/data_capture/01_central_pva_capture_scope.md``):
 
-- The daemon NEVER creates scan folders or device directories — and because
-  the engine creates the device dirs *after* the start document (the
-  save-enable plan runs post-trigger-setup under ``defer_save_on``), writers
-  are constructed **lazily on the first accepted frame**, on the writer
-  thread. First frames can only arrive after save-on, so the directory
-  exists by then; a still-missing directory drops that device's frames with
-  a counted failure, never a ``mkdir``.
+- The daemon NEVER creates scan folders or device directories.
+  ``geecs_run_wrapper`` creates every capture-listed device dir
+  pre-start-doc (0.66.0), but writers are still constructed **lazily on
+  the first accepted frame**, on the writer thread — defense in depth
+  from the era when the save-enable plan created dirs post-start-doc; a
+  still-missing directory drops that device's frames with a counted
+  failure, never a ``mkdir``.
 - Frames dedupe on ``acq_timestamp`` (the device re-pushes its last frame
   with an unchanged timestamp when idle) and frames older than the run
   start are the gateway's cached pre-scan frame — skipped, counted. The
@@ -143,8 +144,8 @@ class ScanCaptureSession:
             save_path = save_paths.get(target.device)
             if save_path is None:
                 continue
-            # No writer construction here: at start-doc time the engine has
-            # not created the device dirs yet (save-enable runs later).
+            # No writer construction here: lazy creation on first accepted
+            # frame (see the module docstring — defense in depth).
             self._devices[target.device] = _DeviceCapture(
                 target=target, save_dir=Path(save_path)
             )
@@ -161,9 +162,13 @@ class ScanCaptureSession:
                     self._on_connection,
                 )
             except Exception:
-                # Fail the session cleanly: stop the writer thread first so
-                # nothing leaks, then let the daemon's catch log it.
+                # Fail the session cleanly: stop the writer thread AND close
+                # the source (a partial subscribe leaves monitors 0..k-1 live
+                # and the p4p context open — leaked, they hold the gateway's
+                # subscription gate open for the daemon's lifetime), then let
+                # the daemon's catch log it.
                 self._stop_writer_thread()
+                self._source.close()
                 raise
         logger.info(
             "capture session %s: scan %s, %d camera(s): %s",
@@ -183,6 +188,14 @@ class ScanCaptureSession:
             return
         with self._lock:
             dev.received += 1
+            if self._closing.is_set():
+                # Session closing: nothing will ever drain the queue again,
+                # so an in-flight delivery must land in a bucket HERE or the
+                # counter identity breaks (review of PR #693). The put stays
+                # inside this lock so the check-then-enqueue is atomic
+                # against close() setting the flag.
+                dev.late_frames += 1
+                return
             if acq_ts < self._start_time - STALE_MARGIN_S:
                 dev.stale_skipped += 1
                 return
@@ -190,13 +203,12 @@ class ScanCaptureSession:
                 dev.duplicates_dropped += 1
                 return
             dev.seen_ts.add(acq_ts)
-        try:
-            self._queue.put_nowait((device, frame, acq_ts, recv_ts))
-        except queue.Full:
-            with self._lock:
+            try:
+                self._queue.put_nowait((device, frame, acq_ts, recv_ts))
+            except queue.Full:
                 dev.queue_drops += 1
                 dev.seen_ts.discard(acq_ts)  # not written — keep books honest
-            logger.error("capture writer queue full — dropped %s frame", device)
+                logger.error("capture writer queue full — dropped %s frame", device)
 
     def _on_connection(self, device: str, connected: bool) -> None:
         dev = self._devices.get(device)
@@ -281,6 +293,11 @@ class ScanCaptureSession:
 
     def close(self, *, finalized: bool) -> dict[str, dict[str, int]]:
         """Unsubscribe, drain, finalize (or abort) writers; return counters."""
+        # Divert in-flight deliveries to late_frames BEFORE unsubscribing:
+        # p4p can hand over a few frames after close() returns, and a frame
+        # enqueued after the drain below would land in no bucket.
+        with self._lock:
+            self._closing.set()
         self._source.close()
         drained = self._stop_writer_thread()
         if not drained:

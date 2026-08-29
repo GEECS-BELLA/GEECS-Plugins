@@ -162,7 +162,8 @@ geecs_bluesky/
                             #   published to Tiled, ImageAnalyzerAdapter, camera
                             #   end-to-end analysis over archived Tiled runs
   capture/                  # the central PVA image-capture daemon (`capture`
-                            #   extra: p4p + h5py; CLI geecs-capture-daemon):
+                            #   extra: p4p + h5py + pyzmq; CLIs
+                            #   geecs-capture-daemon + geecs-capture-diff):
                             #   scan-gated doc-stream consumer → deep-queue
                             #   PVA monitors on the run's Point Grey cameras
                             #   → acq_timestamp dedupe + stale filter → one

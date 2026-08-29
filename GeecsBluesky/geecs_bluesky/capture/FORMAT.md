@@ -45,19 +45,31 @@ behind a wedged writer. `disconnect_events` counts **real** connection
 losses only — the initial not-yet-connected event p4p delivers on every
 healthy subscription is absorbed, so a clean scan reads 0.
 
-Writers are created **lazily on the first accepted frame** (the engine
-creates `scans/ScanNNN/<device>/` after the start document, in the
-save-enable plan): a device that accepts no frames produces **no file at
-all** — readers must treat an absent `<device>.h5` as "not captured", not
-as an error. A file always contains `/frames` (created with the first
-append).
+Writers are created **lazily on the first accepted frame**: a device
+that accepts no frames produces **no file at all** — readers must treat
+an absent `<device>.h5` as "not captured", not as an error. (Since
+0.66.0, `geecs_run_wrapper` creates every capture-listed device dir
+**pre-start-doc**, dual-write and toggle-off alike; lazy creation is kept
+as defense in depth against a dir that still fails to appear.) `/frames`
+is created with the first successful append — a file whose very first
+append failed carries `/acq_timestamp` but no `/frames`; readers must
+treat that as valid-but-empty. `scan_number` is stamped only when the
+start doc carried an integer scan number.
 
 ## Semantics
 
 - **Dedupe by `acq_timestamp`**: the device re-pushes its last frame at
   1 Hz with an unchanged timestamp when idle (measured 2026-08-27), and the
-  gateway re-posts it. A frame whose timestamp was already written is
-  dropped and counted.
+  gateway re-posts it. Dedupe is on *accepted* (not written) timestamps:
+  an append-failed frame's timestamp stays claimed, so its idle re-push
+  counts as a duplicate rather than retrying (a partial append may have
+  landed rows); a writer-*creation* failure releases the timestamp so
+  re-pushes retry. Note the PVA gateway's receive-time fallback
+  (0.4.4: an implausible device timestamp is replaced with gateway
+  `time.time()`): a camera with a broken timestamp ladder gets a fresh
+  timestamp per re-push, so its idle frames are never deduped — the
+  signature is a stack with ~1 Hz receive-time stamps and a failing
+  s-file join for that camera; attributable, never silent.
 - **Stale-window filter**: frames stamped earlier than the run's start-doc
   `time` minus a small margin (2 s) are the gateway's cached pre-scan frame
   — skipped and counted, never written. The gateway's `(1,1)` placeholder
@@ -70,11 +82,12 @@ append).
   real first frames — visible as `stale_skipped` > the expected 0–1.
 - **Append-per-frame with flush** (trailing flush): a crash loses at most
   the un-flushed tail, never the scan.
-- The daemon **never creates directories**: the engine's save-enable plan
-  owns `scans/ScanNNN/<device>/` creation (and, for capture-owned devices
-  under the `native_image_save` toggle, `geecs_run_wrapper` creates them
-  pre-start-doc); a missing directory means the device is skipped loudly
-  (cross-package invariant — analysis/services never create scan folders).
+- The daemon **never creates directories**: `geecs_run_wrapper` creates
+  every capture-listed `scans/ScanNNN/<device>/` dir pre-start-doc
+  (dual-write and toggle-off alike; the save-enable plan covers the
+  legacy non-capture path); a missing directory means the device is
+  skipped loudly (cross-package invariant — analysis/services never
+  create scan folders).
 - **Toggle-off actively commands `save="off"`** (GeecsBluesky 0.67.0):
   captured cameras are built `save_control_only` — only the `save` control
   child exists (no `localsavingpath`, no save-path column, no asset docs)

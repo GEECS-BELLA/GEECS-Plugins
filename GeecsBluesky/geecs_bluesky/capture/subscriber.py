@@ -75,6 +75,9 @@ class P4pFrameSource:
             if self._ctx is not None:
                 raise RuntimeError("P4pFrameSource is already subscribed")
             addr_list = " ".join(sorted({t.server_ip for t in targets}))
+            # Daemon-process-global by design: this source runs in its own
+            # standalone process. Instantiating one inside another process
+            # (e.g. the worker) would clobber that process's PVA config.
             os.environ["EPICS_PVA_ADDR_LIST"] = addr_list
             os.environ["EPICS_PVA_AUTO_ADDR_LIST"] = "NO"
             from p4p.client.thread import Context

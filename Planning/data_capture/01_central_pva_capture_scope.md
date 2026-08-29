@@ -422,6 +422,27 @@ experiment default to off, after the evidence gate.
   `scan_request_runner.py:1204-1206` — the downstream save-toggle
   machinery skips them automatically, `session.py:1592`); the per-scan
   tri-state override remains the day-to-day escape hatch.
+- **Pre-flip hardening list (2026-08-28 whole-diff review of the
+  promotion PR #693 — six dimension reviewers; items that must land
+  before the experiment default ever flips, none blocking promotion):**
+  1. *Writer health in the heartbeat*: a wedged writer thread (h5py
+     process-global lock across a hung NAS call) blocks all later
+     sessions' writes while the heartbeat stays green — feed queue
+     depth / last-append age into the beat so the preflight refuses.
+  2. *PVA fleet >=0.4.4 before toggle-off* (runbook line landed): a
+     0.4.3 box stale-filters 100% of a broken-ladder camera's frames.
+  3. *`background_source` directives glob per-shot files* — on a
+     PNG-free scan a `device_hdf5` diagnostic using
+     `from_current_scan`/`scan_number` backgrounds finds no images;
+     needs a stack-aware background loader.
+  4. *Async (snapshot-role) capture-owned cameras* surface no
+     acq_timestamp join column and (empty variable_list) can escape
+     the eager save-off — both tracked in issue #702; capture cameras
+     are synchronous in production.
+  5. *Optimize provenance*: optimize ignores the toggle (WARNING
+     logged since 0.68.2, both paths) and publishes no
+     `capture_devices` key — revisit when optimize-mode scans should
+     participate in capture.
 - Probe sunset: `capture/probes/` stays in-tree through the arc (it is the
   independent re-verification instrument for Phases 1–2 and the 5 Hz
   question); once the daemon's telemetry + the dual-write diff tool fully

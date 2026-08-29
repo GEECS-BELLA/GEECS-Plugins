@@ -45,7 +45,12 @@ construction, with one deliberate exception: a **file-producing device**
 (native saving on, or a capture-owned camera under the `native_image_save`
 toggle) surfaces its `-acq_timestamp` column so its files — per-shot
 natives or capture-stack frames — join back to scan rows by it (the
-ScanAnalysis `device_hdf5` join key; legacy parity for native savers). A **pseudo scan variable's** motor column is the one
+ScanAnalysis `device_hdf5` join key; legacy parity for native savers).
+The exception covers the SYNC roles only: an asynchronous (snapshot-role)
+capture-owned camera has no acq_timestamp machinery and surfaces no such
+column — its stack cannot be row-joined unless the save set lists
+`acq_timestamp` explicitly (known gap, tracked with issue #702; capture
+cameras are synchronous in production). A **pseudo scan variable's** motor column is the one
 exception to the `Device Variable` header shape: its recorded value is the
 demanded pseudo number (no physical readback of its own), so its header is the
 catalog friendly name verbatim (e.g. `ALine_e_beam_angle_offset_x`), and the

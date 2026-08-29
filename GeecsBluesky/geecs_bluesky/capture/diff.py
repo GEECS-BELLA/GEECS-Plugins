@@ -178,7 +178,13 @@ def main(argv: list[str] | None = None) -> int:
 
     mismatch = False
     op_error = False
-    log_file = Path(args.log).expanduser().open("a") if args.log else None
+    log_file = None
+    if args.log:
+        log_path = Path(args.log).expanduser()
+        # Evidence-log state dir, never scan data — a fresh host's first
+        # cron sweep must not traceback on a missing parent.
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        log_file = log_path.open("a")
     try:
         for scan in args.scans:
             try:

@@ -3,6 +3,18 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.17.1] - 2026-08-28
+
+### Fixed
+
+- The `device_hdf5` stack strategy's fallback is now truly
+  unconditional: the stack-read guard catches `Exception`, not just
+  `(OSError, KeyError)` — a malformed-but-schema-valid stack (e.g.
+  `acq_timestamp` as a group → `TypeError`, string dtype →
+  `ValueError`) previously escaped the catch and failed the analysis
+  task instead of falling back to the per-shot files sitting in the
+  same folder (PR #693 pre-promotion review).
+
 ## [1.17.0] — 2026-08-27
 
 ### Added
