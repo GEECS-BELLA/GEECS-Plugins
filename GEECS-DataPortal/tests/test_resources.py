@@ -109,9 +109,16 @@ class TestResourcesLayer:
         assert result.png.startswith(b"\x89PNG")
 
     def test_stack_shot_renders_png(self, scan_folder):
+        import io as _io
+
         result = resources.load_shot_image(scan_folder, "UC_StackCam", 2)
         assert result.kind == "stack"
         assert result.png.startswith(b"\x89PNG")
+        # No-timestamp ordinal fallback: shot 2 = frame index 1, pinned by
+        # the identity marker (an off-by-one here must fail).
+        rendered = np.asarray(Image.open(_io.BytesIO(result.png)))
+        row, col = np.unravel_index(np.argmax(rendered), rendered.shape)
+        assert (row, col) == (0, 1)
 
     def test_stack_timestamp_join_skips_leading_extra_frame(self, scan_folder):
         """FORMAT.md caveat (a): a pre-scan frame in the stack must not
@@ -284,3 +291,34 @@ class TestGalleryRoutes:
         assert response.status_code == 200
         assert "Images" not in response.text
         assert client.get("/run/uid-002/image.png?device=x&shot=1").status_code == 404
+
+
+class TestRunDayResolution:
+    """The fall-through re-basing must use the run's OWN day, never the
+    caller's ``day`` param (bookmarked links; scan numbers restart daily)."""
+
+    def _recording_client(self, monkeypatch):
+        from geecs_data_utils import scan_paths as scan_paths_mod
+
+        seen = {}
+
+        def recorder(experiment="", base_path=None, day=None):
+            seen["day"] = day
+            return None
+
+        monkeypatch.setattr(scan_paths_mod, "daily_scan_folder", recorder)
+        return TestClient(create_app(FakeCatalog())), seen
+
+    def test_no_day_param_uses_the_runs_own_day(self, monkeypatch):
+        from test_app import TEST_DAY
+
+        client, seen = self._recording_client(monkeypatch)
+        client.get("/run/uid-002")
+        assert seen["day"] == TEST_DAY
+
+    def test_wrong_day_param_is_ignored(self, monkeypatch):
+        from test_app import TEST_DAY
+
+        client, seen = self._recording_client(monkeypatch)
+        client.get("/run/uid-002?day=2030-01-01")
+        assert seen["day"] == TEST_DAY
