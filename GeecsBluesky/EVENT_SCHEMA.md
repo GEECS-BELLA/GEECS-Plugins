@@ -30,6 +30,8 @@ Added by the run wrapper (`geecs_run_wrapper`) when a scan number is claimed:
 | `scan_id` | Same value as `scan_number` (Bluesky-native display field; see note) |
 | `scan_folder` | Absolute path of the claimed `scans/ScanNNN/` folder |
 | `nonscalar_save_paths` | device → save dir map (when non-scalar saving is active) |
+| `capture_devices` | capture-eligible camera names for the PVA capture daemon (present when the scan has any; the daemon prefers this over inferring from `nonscalar_save_paths`, composing paths as `scan_folder/<device>`) |
+| `native_image_save` | the effective toggle: whether capture-eligible cameras also wrote native per-shot files, or the daemon's frame stacks are their only image record. Present alongside `capture_devices` — and additionally recorded as `false` alone when off was requested but nothing was eligible (DB blip / no registry cameras), so an inert request stays visible in provenance |
 | `geecs_scalar_headers` | event data-key → legacy `Device Variable` header map (see note) |
 | `bluesky_backend` | `true` |
 
@@ -38,8 +40,17 @@ Added by the run wrapper (`geecs_run_wrapper`) when a scan number is claimed:
 `Device Variable` header (`UC_Wavemeter Wavelength (nm)`). `safe_name()` mangling
 is irreversible, so this map is the only way to recover legacy headers; it backs
 the Tiled→s-file exporter (`geecs_data_utils.tiled_export`). Only true device
-signals appear — derived companion columns (`-acq_timestamp`, `-shot_id`, …) are
-excluded by construction. A **pseudo scan variable's** motor column is the one
+signals appear — derived companion columns (`-shot_id`, …) are excluded by
+construction, with one deliberate exception: a **file-producing device**
+(native saving on, or a capture-owned camera under the `native_image_save`
+toggle) surfaces its `-acq_timestamp` column so its files — per-shot
+natives or capture-stack frames — join back to scan rows by it (the
+ScanAnalysis `device_hdf5` join key; legacy parity for native savers).
+The exception covers the SYNC roles only: an asynchronous (snapshot-role)
+capture-owned camera has no acq_timestamp machinery and surfaces no such
+column — its stack cannot be row-joined unless the save set lists
+`acq_timestamp` explicitly (known gap, tracked with issue #702; capture
+cameras are synchronous in production). A **pseudo scan variable's** motor column is the one
 exception to the `Device Variable` header shape: its recorded value is the
 demanded pseudo number (no physical readback of its own), so its header is the
 catalog friendly name verbatim (e.g. `ALine_e_beam_angle_offset_x`), and the

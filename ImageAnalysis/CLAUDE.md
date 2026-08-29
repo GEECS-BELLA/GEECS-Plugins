@@ -67,7 +67,9 @@ class ImageAnalyzer:
     run_analyze_image_asynchronously: bool = False
 
     def load_image(self, file_path: Path) -> Array1D | Array2D:
-        # Default: read_imaq_image() — override for custom formats (TDMS, HDF5, CSV)
+        # Default: read_imaq_image() — override for custom formats (TDMS, HDF5, CSV).
+        # A geecs_data_utils ShotRef (capture frame stack + shot index)
+        # resolves to that single frame before the default reader runs.
 
     def analyze_image(self, image, auxiliary_data=None) -> ImageAnalyzerResult:
         # Must implement — the main per-shot analysis method

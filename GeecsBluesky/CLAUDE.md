@@ -161,6 +161,19 @@ geecs_bluesky/
                             #   FeatureRow, provenance), derived analysis runs
                             #   published to Tiled, ImageAnalyzerAdapter, camera
                             #   end-to-end analysis over archived Tiled runs
+  capture/                  # the central PVA image-capture daemon (`capture`
+                            #   extra: p4p + h5py + pyzmq; CLIs
+                            #   geecs-capture-daemon + geecs-capture-diff):
+                            #   scan-gated doc-stream consumer → deep-queue
+                            #   PVA monitors on the run's Point Grey cameras
+                            #   → acq_timestamp dedupe + stale filter → one
+                            #   <device>.h5 frame stack per scan (FORMAT.md,
+                            #   schema geecs-capture/1; container swappable
+                            #   behind FrameStackWriter). NEVER creates scan
+                            #   dirs; dual-writes beside the LV file save.
+                            #   Arc scope: Planning/data_capture/. Phase-0
+                            #   probes = GeecsBluesky/capture/probes/
+                            #   (top-level operational scripts, NOT package)
   assets/                   # External asset helpers for native GEECS files
                             #   (handlers, readback, registry)
   epics_env.py              # Applies [epics] ca_addr_list from the shared config
@@ -530,14 +543,28 @@ the gateway's CA PVs; it imports geecs-core's library modules (`GeecsDb`,
 the server.  See `GEECS-Core/DESIGN.md` and `GeecsCAGateway/README.md` for
 the protocol details that used to be documented here.
 
-**Images: two paths, deliberately separate.** Per-shot *scan data* stays on
+**Images: two paths, deliberately separate — plus the capture daemon
+dual-writing across them (2026-08-27).** Per-shot *scan data* stays on
 the file path — the LabVIEW device writes files, this package's asset
 registry/handlers reference them, Tiled serves them post-hoc. *Live* frames
 are NTNDArray PVs over pvAccess served by `GeecsPvaGateway/` (distributed,
 per camera server, same `pv_naming` namespace). ophyd-async speaks PVA
 natively, so a live-image signal is a stock EPICS signal when a use case
 wants one — never a bespoke transport, and never 2 MB frames through the
-document stream.
+document stream. `geecs_bluesky/capture/` consumes the live-PV path to
+build per-scan frame stacks ALONGSIDE the LV file save (the dual-write
+phase of `Planning/data_capture/01_central_pva_capture_scope.md` — Phase-0
+probes measured the unmodified gateway lossless at 1 Hz); the LV file path
+remains the system of record until the arc's deprecation phase. That
+deprecation is the **`native_image_save` toggle** (0.66.0): one
+devicetype-scoped switch (ExperimentDefaults default + ScanRequest
+tri-state override) deciding whether capture-eligible cameras (the
+capture registry's devicetypes) write native files at all — eligibility
+via the fail-open `db_runtime.GeecsDbDeviceTypes` provider, capture list
+published as the `capture_devices` start-doc key (EVENT_SCHEMA.md), and
+`geecs_run_wrapper` creating those device dirs pre-start-doc (the daemon
+never mkdirs). Proprietary-format devices (HASO, scopes) keep native
+saving regardless, forever.
 
 ## Test Infrastructure
 

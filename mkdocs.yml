@@ -93,6 +93,7 @@ nav:
 
   - Platform:
       - platform/index.md
+      - Fleet Map: platform/fleet_map.md
       - GEECS-Core:
           - Overview: geecs_core/overview.md
           - Examples:

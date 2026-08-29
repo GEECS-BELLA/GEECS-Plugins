@@ -19,6 +19,7 @@
   "background_telemetry": null,
   "description": "Focus Scan",
   "mode": "step",
+  "native_image_save": null,
   "optimization": null,
   "save_sets": [
     "LP-FocusDiagnostics"

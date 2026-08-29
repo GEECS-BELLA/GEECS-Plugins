@@ -5,6 +5,31 @@ All notable changes to GEECS-Schemas are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.1] - 2026-08-28
+
+### Changed
+
+- `ScanRequest.native_image_save` description now states the two engine
+  behaviors an operator hits with `false`: the fail-closed pre-claim
+  refusal when the capture daemon looks absent/uncovering, and the
+  fail-open inert case (no capture-eligible cameras resolve — native
+  saving proceeds unchanged, warned). Schema reference regenerated.
+
+## [0.12.0] - 2026-08-27
+
+### Added
+
+- **`native_image_save`** — `ExperimentDefaults.native_image_save: bool`
+  (default true) + `ScanRequest.native_image_save: Optional[bool]`
+  (tri-state override, the `background_telemetry` pattern): whether
+  capture-eligible cameras (Point Grey — the devicetypes the central PVA
+  capture daemon owns) write native per-shot image files, or the daemon's
+  per-device frame stacks are their only image record. Flipping the
+  experiment default off is the PNG-deprecation step of the capture arc
+  (`Planning/data_capture/01_central_pva_capture_scope.md`); proprietary
+  formats (HASO, scopes) keep their native save regardless. Schema
+  reference + golden fixtures regenerated.
+
 ## [0.11.0] - 2026-08-22
 
 ### Added

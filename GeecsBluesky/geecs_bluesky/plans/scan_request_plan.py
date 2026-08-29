@@ -92,6 +92,7 @@ from geecs_bluesky.scan_request_runner import (
     metadata_submission,
     merge_optimizer_device_requirements,
     prefetch_action_signals,
+    resolve_and_apply_capture_toggle,
     resolve_movable_target,
     resolve_save_sets_and_rituals,
     save_set_to_devices_config,
@@ -478,6 +479,14 @@ def _scan_request_body(
     strict = request.acquisition is AcquisitionMode.STRICT
 
     if request.mode is ScanRequestMode.OPTIMIZE:
+        if request.native_image_save is False:
+            # v0: optimize keeps native saving unconditionally (evaluators
+            # read per-shot files) — never discard the override silently.
+            logger.warning(
+                "optimize mode keeps native image saving — the request's "
+                "native_image_save=false is ignored (v0: evaluators read "
+                "per-shot files)"
+            )
         return (
             yield from _optimize_request_body(
                 session,
@@ -519,6 +528,9 @@ def _scan_request_body(
         request.background_telemetry
         if request.background_telemetry is not None
         else _defaults_flag(defaults, "background_telemetry", True)
+    )
+    devices_config, capture_devices, native_image_save = (
+        resolve_and_apply_capture_toggle(request, defaults, devices_config, session)
     )
 
     # ---- phase 2: worker-side construction (connects deferred) -----------
@@ -587,6 +599,8 @@ def _scan_request_body(
         dropped_unserved_devices=dropped_unserved_devices,
         disconnected_devices=disconnected_devices,
         telemetry_selected=telemetry_selected if telemetry_enabled else {},
+        capture_devices=capture_devices,
+        native_image_save=native_image_save,
     )
     if request.mode is ScanRequestMode.NOSCAN:
         motor_arg: Any = None

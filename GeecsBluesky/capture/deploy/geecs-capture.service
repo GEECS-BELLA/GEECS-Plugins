@@ -1,0 +1,39 @@
+# Template unit for the GEECS central PVA capture daemon.
+# Copy to /etc/systemd/system/geecs-capture.service on the worker host (the
+# daemon MUST run on the machine sharing the queueserver worker's filesystem
+# view — the start doc's save paths and the liveness heartbeat both assume
+# it), then replace every /opt/geecs/GEECS-Plugins placeholder with that
+# host's checkout path before enabling the unit.
+
+[Unit]
+Description=GEECS PVA capture daemon (per-device frame stacks)
+# Not a hard dependency: the daemon reconnects to the doc stream on its own,
+# but ordering after the qserver keeps clean-boot logs tidy.
+After=network-online.target geecs-qserver.service
+Wants=network-online.target
+
+[Service]
+Type=exec
+
+# Public repo placeholder only. Use the same unprivileged service account as
+# the queueserver (shared filesystem view, shared config.ini).
+User=geecs
+
+WorkingDirectory=/opt/geecs/GEECS-Plugins/GeecsBluesky
+
+# Placeholder: the GEECS experiment name.
+Environment="GEECS_CAPTURE_EXPERIMENT=Undulator"
+
+# Poetry's ABSOLUTE path is required (systemd PATH omits ~/.local/bin) —
+# locate it as the service user with `command -v poetry` and paste it here.
+# --doc-addr defaults to the shared config's [qserver] doc_addr; pass it
+# explicitly if the worker's proxy is not on this host's localhost:5568.
+ExecStart=/home/geecs/.local/bin/poetry run geecs-capture-daemon --experiment ${GEECS_CAPTURE_EXPERIMENT}
+Restart=on-failure
+RestartSec=5
+# Exit 2 = permanent misconfiguration (bad flags, no [qserver] config, no
+# eligible cameras) — restarting cannot fix it, so don't loop forever.
+RestartPreventExitStatus=2
+
+[Install]
+WantedBy=multi-user.target

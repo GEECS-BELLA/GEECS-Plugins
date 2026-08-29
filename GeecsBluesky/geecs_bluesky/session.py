@@ -310,6 +310,7 @@ class GeecsSession:
         variables: list[str],
         *,
         save_images: bool = False,
+        save_control_only: bool = False,
         name: str | None = None,
     ) -> CaGenericDetector:
         """Triggered detector (free-run reference / strict triggered role)."""
@@ -319,6 +320,7 @@ class GeecsSession:
             experiment=self.experiment,
             name=name or safe_name(device),
             save_nonscalar_data=save_images,
+            save_control_only=save_control_only,
         )
         return self._connect(det)
 
@@ -328,6 +330,7 @@ class GeecsSession:
         variables: list[str],
         *,
         save_images: bool = False,
+        save_control_only: bool = False,
         name: str | None = None,
     ) -> CaTimestampedReadable:
         """Free-run contributor (non-blocking, reference-relative labeling)."""
@@ -337,6 +340,7 @@ class GeecsSession:
             experiment=self.experiment,
             name=name or safe_name(device),
             save_nonscalar_data=save_images,
+            save_control_only=save_control_only,
         )
         return self._connect(det)
 
@@ -345,6 +349,7 @@ class GeecsSession:
         device: str,
         variables: list[str],
         *,
+        save_control_only: bool = False,
         name: str | None = None,
     ) -> CaSnapshotReadable:
         """Asynchronous readback sampled once per event row."""
@@ -352,6 +357,7 @@ class GeecsSession:
             CaSnapshotReadable(
                 device,
                 variables,
+                save_control_only=save_control_only,
                 experiment=self.experiment,
                 name=name or safe_name(device),
             )

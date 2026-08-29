@@ -3,6 +3,20 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.14.0] - 2026-08-27
+
+### Added
+
+- **`io/scan_stack.py` — reader for per-device capture frame stacks**
+  (`geecs-capture/*`, the contract in
+  `GeecsBluesky/geecs_bluesky/capture/FORMAT.md`): `find_stack_file` /
+  `is_stack_file` (schema-attribute dispatch, never extension),
+  `read_stack_timestamps` (with LabVIEW-epoch conversion via the new
+  `LABVIEW_EPOCH_OFFSET` constant), `read_shot` (one chunk read), and
+  `ShotRef` — a `Path` subclass carrying a frame index that travels
+  per-shot analysis pipelines (pickles correctly for process pools).
+  Read-only by design: producing stacks is the capture daemon's job.
+
 ## [0.13.6] - 2026-08-20
 
 ### Changed

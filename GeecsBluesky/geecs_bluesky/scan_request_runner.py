@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import itertools
 import logging
+import time
 from collections.abc import Mapping
 from dataclasses import dataclass
 from contextlib import nullcontext
@@ -52,6 +53,7 @@ from geecs_bluesky.config_resolver import (  # noqa: F401
     ConfigsRepoResolver,
 )
 from geecs_bluesky.db_runtime import (
+    GeecsDbDeviceTypes,
     GeecsDbScalarPolicy,
     GeecsDbServedSetProvider,
     ScalarPolicyProvider,
@@ -1000,6 +1002,8 @@ def build_step_scan_spec(
     dropped_unserved_devices: list[str],
     disconnected_devices: list[str],
     telemetry_selected: Mapping[str, list[str]],
+    capture_devices: list[str] | None = None,
+    native_image_save: bool = True,
 ) -> StepScanSpec:
     """Assemble the pure run picture of a step/noscan request.
 
@@ -1027,6 +1031,18 @@ def build_step_scan_spec(
     md: dict[str, Any] = {"scan_request_mode": request.mode.value}
     # Provenance: which named save sets were unioned for this scan.
     md["save_sets"] = list(request.save_sets)
+    if capture_devices:
+        # The capture daemon's device list (it prefers this over inferring
+        # from nonscalar_save_paths) + the effective toggle, for provenance
+        # and the dual-write diff. run_wrapper mkdirs these device dirs
+        # pre-start-doc, engine-side.
+        md["capture_devices"] = list(capture_devices)
+        md["native_image_save"] = bool(native_image_save)
+    elif not native_image_save:
+        # Off was requested but nothing was eligible (DB blip / no registry
+        # cameras): record the unhonored intent so the run's provenance —
+        # and the dual-write diff — can see the request was inert.
+        md["native_image_save"] = False
     if dropped_unserved:
         # Provenance: variables (and whole devices) dropped by the
         # unserved-variables pre-flight — the run proceeded without them.
@@ -1189,6 +1205,7 @@ def _build_request_detectors(
     for device_name, cfg in devices_config.items():
         variables = list(cfg.get("variable_list") or [])
         save = bool(cfg.get("save_nonscalar_data", False))
+        save_control_only = bool(cfg.get("save_control_only", False))
         synchronous = bool(cfg.get("synchronous", False))
         if not synchronous:
             if not variables:
@@ -1197,15 +1214,159 @@ def _build_request_detectors(
                     device_name,
                 )
                 continue
-            detectors.append(session.snapshot(device_name, variables))
+            detectors.append(
+                session.snapshot(
+                    device_name, variables, save_control_only=save_control_only
+                )
+            )
         elif free_run and reference_assigned:
             detectors.append(
-                session.contributor(device_name, variables, save_images=save)
+                session.contributor(
+                    device_name,
+                    variables,
+                    save_images=save,
+                    save_control_only=save_control_only,
+                )
             )
         else:
-            detectors.append(session.detector(device_name, variables, save_images=save))
+            detectors.append(
+                session.detector(
+                    device_name,
+                    variables,
+                    save_images=save,
+                    save_control_only=save_control_only,
+                )
+            )
             reference_assigned = True
     return detectors
+
+
+# ---------------------------------------------------------------------------
+# Native-image-save toggle (capture arc, Planning/data_capture/): whether
+# capture-eligible cameras write native per-shot files or the capture daemon
+# owns their images. One devicetype-scoped decision, never per-entry config.
+# ---------------------------------------------------------------------------
+
+
+def resolve_native_image_save(request: ScanRequest, defaults: Any) -> bool:
+    """Effective native-image-save flag: request override else experiment default."""
+    return (
+        request.native_image_save
+        if request.native_image_save is not None
+        else _defaults_flag(defaults, "native_image_save", True)
+    )
+
+
+def select_capture_devices(
+    experiment: str,
+    devices_config: dict[str, dict[str, Any]],
+    *,
+    provider: Any | None = None,
+) -> list[str]:
+    """Image-saving devices whose devicetype the capture daemon owns.
+
+    Devicetypes come from the failure-tolerant
+    :class:`~geecs_bluesky.db_runtime.GeecsDbDeviceTypes` provider — a DB
+    failure yields an empty mapping, so nothing is capture-eligible and
+    native saving is never switched off on a DB blip (fail-open keeps data).
+    """
+    from geecs_bluesky.capture.discovery import CAPTURE_DEVICE_TYPES
+
+    if provider is None:
+        if not experiment:
+            # No experiment context (hermetic sessions, defensive) — nothing
+            # is capture-eligible; native saving stays untouched.
+            return []
+        provider = GeecsDbDeviceTypes(experiment)
+    types = provider.by_device()
+    return [
+        name
+        for name, cfg in devices_config.items()
+        if cfg.get("save_nonscalar_data") and types.get(name) in CAPTURE_DEVICE_TYPES
+    ]
+
+
+def preflight_capture_liveness(
+    capture_devices: list[str], native_image_save: bool
+) -> None:
+    """Refuse a toggle-off scan when the capture daemon looks absent.
+
+    Pre-claim and fail-CLOSED (the opposite convention from the DB
+    providers, deliberately): with native saving off, a dead daemon means
+    the captured cameras' images exist NOWHERE — refusing before a scan
+    number is burned is the only safe answer. Beyond freshness, the
+    heartbeat's ``targets`` roster must cover every requested capture
+    device — a daemon started before a camera joined the DB roster is
+    alive but not monitoring it, which is the same nowhere. Only consulted
+    when the operator explicitly requested off and capture devices exist;
+    the default dual-write path never touches it.
+    """
+    if native_image_save or not capture_devices:
+        return
+    from geecs_bluesky.capture.heartbeat import (
+        STALE_AFTER_S,
+        heartbeat_path,
+        read_heartbeat,
+    )
+
+    payload = read_heartbeat()
+    age = (
+        max(0.0, time.time() - float(payload["time"])) if payload is not None else None
+    )
+    if age is None or age > STALE_AFTER_S:
+        raise GeecsConfigurationError(
+            "native_image_save=off refused: the capture daemon looks absent "
+            f"(heartbeat {heartbeat_path()} "
+            f"{'missing/unreadable' if age is None else f'{age:.0f}s old'}, "
+            f"stale after {STALE_AFTER_S:.0f}s; the check reads the daemon's "
+            "heartbeat on THIS host — a daemon on another machine cannot "
+            "satisfy it) — with native saving off, "
+            f"{', '.join(capture_devices)} would be recorded NOWHERE. Start "
+            "the capture daemon, or run with native_image_save unset/true."
+        )
+    roster = payload.get("targets")
+    if not isinstance(roster, list):
+        # The daemon always writes a device-name roster; a fresh heartbeat
+        # without one is corrupt or from something that is not the daemon —
+        # fail closed, coverage cannot be verified (codex gate P2).
+        raise GeecsConfigurationError(
+            "native_image_save=off refused: the heartbeat at "
+            f"{heartbeat_path()} carries no device roster, so coverage of "
+            f"{', '.join(capture_devices)} cannot be verified. Restart the "
+            "capture daemon, or run with native_image_save unset/true."
+        )
+    missing = sorted(set(capture_devices) - {str(t) for t in roster})
+    if missing:
+        raise GeecsConfigurationError(
+            "native_image_save=off refused: the capture daemon is alive "
+            f"but not monitoring {', '.join(missing)} (its heartbeat "
+            "roster predates them) — their images would be recorded "
+            "NOWHERE. Restart the capture daemon to re-discover the "
+            "roster, or run with native_image_save unset/true."
+        )
+
+
+def apply_native_image_save_off(
+    devices_config: dict[str, dict[str, Any]], capture_devices: list[str]
+) -> dict[str, dict[str, Any]]:
+    """Return a copy of *devices_config* with native saving off for *capture_devices*.
+
+    The devices stay full scan participants (scalars, shot-id columns,
+    strict-row membership); only the native file save — ``localsavingpath``
+    / ``save`` writes and the PNG-pointing asset documents — is suppressed
+    (``session._configure_saving`` gates on the resulting
+    ``save_nonscalar_data``).
+    """
+    updated = {name: dict(cfg) for name, cfg in devices_config.items()}
+    for name in capture_devices:
+        if name in updated:
+            updated[name]["save_nonscalar_data"] = False
+            # Active off-write surface: the detector gets ONLY the `save`
+            # control child, and the run wrapper commands "off" at scan
+            # start — a flag left on out-of-band must never keep writing
+            # native files to a stale path (codex finding on PR #697).
+            updated[name]["save_control_only"] = True
+    return updated
 
 
 # ---------------------------------------------------------------------------
@@ -1463,6 +1624,44 @@ def _stopped_during_init(
     return True
 
 
+def resolve_and_apply_capture_toggle(
+    request: "ScanRequest",
+    defaults: Any,
+    devices_config: dict[str, dict[str, Any]],
+    session: Any,
+) -> tuple[dict[str, dict[str, Any]], list[str], bool]:
+    """Resolve the ``native_image_save`` toggle and apply it — the ONE block.
+
+    Shared by both execution paths (the headless runner and the queue
+    plan) like every other prologue step, so the toggle contract cannot
+    drift between them (ultra review of PR #693). Returns the possibly
+    rewritten devices config, the capture-eligible device list, and the
+    effective flag. Refuses toggle-off pre-claim via
+    :func:`preflight_capture_liveness`.
+    """
+    native_image_save = resolve_native_image_save(request, defaults)
+    capture_devices = select_capture_devices(
+        getattr(session, "experiment", ""), devices_config
+    )
+    if not native_image_save:
+        if capture_devices:
+            preflight_capture_liveness(capture_devices, native_image_save)
+            devices_config = apply_native_image_save_off(
+                devices_config, capture_devices
+            )
+            logger.info(
+                "native_image_save=off: capture daemon owns images for %s",
+                ", ".join(capture_devices),
+            )
+        else:
+            logger.warning(
+                "native_image_save=off requested but no capture-eligible "
+                "devices resolved (DB unreachable, or no registry-devicetype "
+                "cameras in the save set) — native saving unchanged"
+            )
+    return devices_config, capture_devices, native_image_save
+
+
 def run_scan_request(
     session: Any,
     request: ScanRequest,
@@ -1581,6 +1780,16 @@ def run_scan_request(
         # log loudly, and record the skip in run metadata (never silent).
         # Rationale: GeecsBluesky/CLAUDE.md (engine consolidation).
         skipped_actions = {k: v for k, v in resolved_actions.items() if v}
+        if request.native_image_save is False:
+            # v0: optimize keeps native saving unconditionally (its
+            # evaluators read per-shot files from disk). Never silent —
+            # once an experiment default flips off, every optimize scan
+            # overrides it and the operator must be able to see that.
+            logger.warning(
+                "optimize mode keeps native image saving — the request's "
+                "native_image_save=false is ignored (v0: evaluators read "
+                "per-shot files)"
+            )
         return _run_optimize_request(
             session,
             request,
@@ -1641,6 +1850,10 @@ def run_scan_request(
         request.background_telemetry
         if request.background_telemetry is not None
         else _defaults_flag(defaults, "background_telemetry", True)
+    )
+
+    devices_config, capture_devices, native_image_save = (
+        resolve_and_apply_capture_toggle(request, defaults, devices_config, session)
     )
 
     created: list = []
@@ -1707,6 +1920,8 @@ def run_scan_request(
             dropped_unserved_devices=dropped_unserved_devices,
             disconnected_devices=disconnected_devices,
             telemetry_selected=telemetry_selected if telemetry_enabled else {},
+            capture_devices=capture_devices,
+            native_image_save=native_image_save,
         )
 
         # The last pre-claim checkpoint: the claim happens inside

@@ -322,6 +322,29 @@ def test_strict_without_trigger_profile_refuses_before_claim(
     assert claims == []
 
 
+def test_toggle_off_without_daemon_heartbeat_refuses_before_claim(
+    resolver, monkeypatch
+) -> None:
+    """The queue path runs the capture liveness preflight — fail-closed, pre-claim."""
+    session = _mock_session()
+    claims: list = []
+    monkeypatch.setattr(
+        "geecs_bluesky.plans.scan_request_plan.claim_scan_number",
+        lambda experiment: claims.append(experiment) or (None, None),
+    )
+    monkeypatch.setattr(
+        "geecs_bluesky.scan_request_runner.select_capture_devices",
+        lambda experiment, devices_config: ["UC_Cam"],
+    )
+    import geecs_bluesky.capture.heartbeat as hb_mod
+
+    monkeypatch.setattr(hb_mod, "read_heartbeat", lambda **kw: None)
+    request = _noscan_request(native_image_save=False).model_dump()
+    with pytest.raises(GeecsConfigurationError, match="NOWHERE"):
+        session.RE(geecs_scan_request_plan(request, session=session, resolver=resolver))
+    assert claims == [], "a refused toggle-off scan must burn no scan number"
+
+
 def test_optimize_mode_without_a_loader_is_refused_loudly_after_validation(
     resolver, monkeypatch
 ) -> None:

@@ -114,6 +114,7 @@ class Array1DScanAnalyzer(SingleDeviceScanAnalyzer):
         use_injected_data: bool = False,
         output_name: Optional[str] = None,
         metric_suffix: str = "",
+        data_format: Optional[Literal["per_shot_files", "device_hdf5"]] = None,
     ):
         """Initialize the analyzer with an ImageAnalyzer and Line1DRenderer.
 
@@ -183,6 +184,7 @@ class Array1DScanAnalyzer(SingleDeviceScanAnalyzer):
             use_injected_data=use_injected_data,
             output_name=output_name,
             metric_suffix=metric_suffix,
+            data_format=data_format,
         )
 
     def _get_renderer_config(self):

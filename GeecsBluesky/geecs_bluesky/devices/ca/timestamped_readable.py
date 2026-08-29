@@ -48,6 +48,12 @@ class CaTimestampedReadable(
     save_nonscalar_data : bool
         Create the ``localsavingpath`` / ``save`` CA control signals for native
         file saving (same contract as the CA generic detector).
+    save_control_only : bool
+        Capture-owned camera mode (native_image_save toggle off): create
+        ONLY the ``save`` CA control signal — no ``localsavingpath``, no
+        save-path column, no asset docs — so the run wrapper can actively
+        command ``save="off"`` at scan start. Ignored (forced False) when
+        ``save_nonscalar_data`` is true.
     acq_timestamp_variable : str
         GEECS variable that advances per shot (default ``"acq_timestamp"``).
     """
@@ -60,6 +66,7 @@ class CaTimestampedReadable(
         experiment: str | None = None,
         name: str = "timestamped",
         save_nonscalar_data: bool = False,
+        save_control_only: bool = False,
         acq_timestamp_variable: str = "acq_timestamp",
     ) -> None:
         self._acq_timestamp_variable = acq_timestamp_variable
@@ -70,13 +77,18 @@ class CaTimestampedReadable(
             if var != acq_timestamp_variable
         }
         self._save_nonscalar_data = save_nonscalar_data
-        if save_nonscalar_data:
+        if save_nonscalar_data or save_control_only:
             # A file/image-saving device surfaces acq_timestamp as an s-file
             # column so saved files tie back to scan rows (legacy parity); a
             # pure-scalar device keeps it as an excluded companion column.
+            # A capture-owned camera (save_control_only) produces files too —
+            # its stack frames join to rows by this column (ScanAnalysis
+            # device_hdf5), so it must survive the toggle (found live,
+            # 26_0828 Scan001).
             self._column_headers[f"{name}-{safe_name(acq_timestamp_variable)}"] = (
                 f"{device} {acq_timestamp_variable}"
             )
+        if save_nonscalar_data:
             # Writable controls, not readable signals: read the gateway
             # readback, write the :SP setpoint (→ GEECS UDP set).
             for attr in ("localsavingpath", "save"):
@@ -86,6 +98,12 @@ class CaTimestampedReadable(
                     attr,
                     epics_signal_rw(str, readback, setpoint_pv(readback)),
                 )
+        # Capture-owned camera: `save` control child only (active off-write
+        # surface), no localsavingpath — see CaGenericDetector for rationale.
+        self._save_control_only = save_control_only and not save_nonscalar_data
+        if self._save_control_only:
+            readback = ca_pv(experiment, device, "save")
+            self.save = epics_signal_rw(str, readback, setpoint_pv(readback))
 
     @property
     def last_acq_timestamp(self) -> float | None:

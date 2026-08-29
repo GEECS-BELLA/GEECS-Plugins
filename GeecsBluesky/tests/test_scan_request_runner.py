@@ -101,13 +101,29 @@ class _FakeSession:
         self.devices.append((device, kind))
         return _FakeDevice(device, kind)
 
-    def detector(self, device, variables, *, save_images=False, name=None):
+    def detector(
+        self,
+        device,
+        variables,
+        *,
+        save_images=False,
+        save_control_only=False,
+        name=None,
+    ):
         return self._make(device, "detector")
 
-    def contributor(self, device, variables, *, save_images=False, name=None):
+    def contributor(
+        self,
+        device,
+        variables,
+        *,
+        save_images=False,
+        save_control_only=False,
+        name=None,
+    ):
         return self._make(device, "contributor")
 
-    def snapshot(self, device, variables, *, name=None):
+    def snapshot(self, device, variables, *, save_control_only=False, name=None):
         return self._make(device, "snapshot")
 
     def motor(self, device, variable, *, name=None, **kwargs):
@@ -2412,3 +2428,149 @@ def test_optimize_should_abort_probe_reaches_session_optimize(
     )
     assert uid == "uid-opt"
     assert session.optimize_kwargs["should_abort"] is probe
+
+
+class _SaveRecordingSession(_FakeSession):
+    """FakeSession that also records each detector's save_images flag.
+
+    Deliberately carries NO ``experiment`` attribute: that keeps the
+    DB-backed preflights and providers inert (hermetic), so the toggle
+    wiring is pinned by monkeypatching the selection seam — which is
+    unit-tested against a fake provider in test_native_image_save.py.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.save_flags: dict[str, bool] = {}
+        self.control_only_flags: dict[str, bool] = {}
+
+    def detector(
+        self,
+        device,
+        variables,
+        *,
+        save_images=False,
+        save_control_only=False,
+        name=None,
+    ):
+        self.save_flags[device] = save_images
+        self.control_only_flags[device] = save_control_only
+        return super().detector(device, variables, save_images=save_images)
+
+    def contributor(
+        self,
+        device,
+        variables,
+        *,
+        save_images=False,
+        save_control_only=False,
+        name=None,
+    ):
+        self.save_flags[device] = save_images
+        self.control_only_flags[device] = save_control_only
+        return super().contributor(device, variables, save_images=save_images)
+
+    def snapshot(self, device, variables, *, save_control_only=False, name=None):
+        self.control_only_flags[device] = save_control_only
+        return super().snapshot(device, variables)
+
+
+def _select_u_cam(experiment, devices_config, *, provider=None):
+    """Selection stand-in: U_Cam is the one capture-eligible camera."""
+    return [d for d in devices_config if d == "U_Cam"]
+
+
+def test_native_image_save_off_wires_through_runner(
+    legacy_resolver, monkeypatch
+) -> None:
+    """Toggle-off end-to-end: only the registry-devicetype camera loses its
+    native save; md carries the capture list; nothing else changes."""
+    import geecs_bluesky.scan_request_runner as runner_mod
+
+    monkeypatch.setattr(  # daemon heartbeat absent in tests — bypass refusal
+        runner_mod, "preflight_capture_liveness", lambda *a, **k: None
+    )
+    monkeypatch.setattr(runner_mod, "select_capture_devices", _select_u_cam)
+    session = _SaveRecordingSession()
+    run_scan_request(
+        session,
+        _noscan_request(acquisition="strict", native_image_save=False),
+        legacy_resolver,
+    )
+    # U_Cam is Point Grey → suppressed; U_Cam2 keeps whatever the save set said.
+    assert session.save_flags["U_Cam"] is False
+    assert session.control_only_flags["U_Cam"] is True  # active off-write surface
+    md = session.scan_kwargs["md"]
+    assert md["capture_devices"] == ["U_Cam"]
+    assert md["native_image_save"] is False
+    # Role/order untouched: same device list as the plain strict test.
+    assert [d for d, _k in session.devices] == ["U_Cam", "U_Cam2", "U_Slow"]
+
+
+def test_native_image_save_off_wires_contributor_branch(
+    legacy_resolver, monkeypatch
+) -> None:
+    """Free-run: the non-reference contributor branch threads the flag too."""
+    import geecs_bluesky.scan_request_runner as runner_mod
+
+    def _select_u_cam2(experiment, devices_config, *, provider=None):
+        return [d for d in devices_config if d == "U_Cam2"]
+
+    monkeypatch.setattr(  # daemon heartbeat absent in tests — bypass refusal
+        runner_mod, "preflight_capture_liveness", lambda *a, **k: None
+    )
+    monkeypatch.setattr(runner_mod, "select_capture_devices", _select_u_cam2)
+    session = _SaveRecordingSession()
+    run_scan_request(
+        session,
+        _noscan_request(acquisition="free_run", native_image_save=False),
+        legacy_resolver,
+    )
+    # U_Cam is the reference (detector); U_Cam2 becomes a contributor and
+    # must carry the control-only flag through that branch.
+    assert dict(session.devices)["U_Cam2"] == "contributor"
+    assert session.control_only_flags["U_Cam2"] is True
+    assert session.save_flags["U_Cam2"] is False
+
+
+def test_native_image_save_off_wires_snapshot_branch(
+    legacy_resolver, monkeypatch
+) -> None:
+    """An async capture-owned camera gets the off-write surface too
+    (codex P2 on #699 — the snapshot branch used to drop the flag)."""
+    import geecs_bluesky.scan_request_runner as runner_mod
+
+    def _select_u_slow(experiment, devices_config, *, provider=None):
+        return [d for d in devices_config if d == "U_Slow"]
+
+    monkeypatch.setattr(  # daemon heartbeat absent in tests — bypass refusal
+        runner_mod, "preflight_capture_liveness", lambda *a, **k: None
+    )
+    monkeypatch.setattr(runner_mod, "select_capture_devices", _select_u_slow)
+    session = _SaveRecordingSession()
+    run_scan_request(
+        session,
+        _noscan_request(acquisition="strict", native_image_save=False),
+        legacy_resolver,
+    )
+    assert dict(session.devices)["U_Slow"] == "snapshot"
+    assert session.control_only_flags["U_Slow"] is True
+
+
+def test_native_image_save_on_leaves_saving_and_still_publishes_list(
+    legacy_resolver, monkeypatch
+) -> None:
+    """Dual-write default: saving untouched, capture list still published."""
+    import geecs_bluesky.scan_request_runner as runner_mod
+
+    monkeypatch.setattr(  # daemon heartbeat absent in tests — bypass refusal
+        runner_mod, "preflight_capture_liveness", lambda *a, **k: None
+    )
+    monkeypatch.setattr(runner_mod, "select_capture_devices", _select_u_cam)
+    session = _SaveRecordingSession()
+    run_scan_request(session, _noscan_request(acquisition="strict"), legacy_resolver)
+    md = session.scan_kwargs["md"]
+    assert md["capture_devices"] == ["U_Cam"]
+    assert md["native_image_save"] is True
+    # The save set's own save flag is preserved (whatever it was).
+    assert "U_Cam" in session.save_flags

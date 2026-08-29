@@ -4,6 +4,225 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.68.2] - 2026-08-28
+
+### Fixed
+
+Pre-promotion adversarial review of PR #693 (six dimension-scoped
+fresh-context reviewers over the full master diff) — fix wave:
+
+- **Counter-identity race at session close**: a p4p in-flight frame
+  delivered after `close()` began could land in NO reconciliation
+  bucket, breaking the identity stamped into the finalized file. The
+  closing flag is now set (under the lock) before unsubscribing, and
+  `_on_frame` diverts such frames to `late_frames` atomically. Pinned.
+- **Partial subscribe failure leaked the p4p context**: monitors 0..k-1
+  stayed live forever, holding the gateway's subscription gate open for
+  the daemon's lifetime. The session's failure path now closes the
+  source. Pinned.
+- **Heartbeat tombstone resurrection race**: a beat mid-write during
+  shutdown could atomically replace the heartbeat back into existence
+  after the unlink. The beat thread now takes a stop event and is
+  joined before `clear_heartbeat()`.
+- **`finalize()` no longer leaks the HDF5 handle** when attr stamping
+  fails (end-of-scan share blip) — the file closes regardless and is
+  simply un-finalized, which readers already tolerate.
+- **`geecs-capture-diff --log` creates its parent directory** — a fresh
+  host's first cron sweep no longer tracebacks (exit 1 misread as a
+  mismatch) on the missing state dir.
+- **systemd unit: `RestartPreventExitStatus=2`** — permanent
+  misconfiguration (exit 2: bad flags, no config, no eligible cameras)
+  no longer restart-loops forever.
+- **Optimize mode logs a WARNING when it ignores an explicit
+  `native_image_save=false`** (both execution paths) — v0 keeps native
+  saving for optimize unconditionally; never silently.
+
+### Documentation
+
+- FORMAT.md truth-ups: pre-start-doc dir creation (0.66.0) replaces the
+  stale "after the start document" claims (daemon docstring too); a
+  first-append-failed file is valid-but-empty (`/acq_timestamp`, no
+  `/frames`); `scan_number` attr is conditional; dedupe is on accepted
+  (not written) timestamps with the create-vs-append retry asymmetry
+  stated; the 0.4.4 receive-time-fallback dedupe signature documented.
+- heartbeat docstring names the wedged-writer residual gap (h5py global
+  lock — heartbeat stays green while later scans' writes block); feeding
+  writer health into the beat is the designed pre-Phase-6 hardening.
+- DEPLOYMENT.md: **upgrade the PVA gateway fleet to >=0.4.4 before any
+  toggle-off scan** (a 0.4.3 box stale-filters 100% of a broken-ladder
+  camera's frames); poetry install also needed when console scripts are
+  added.
+- EVENT_SCHEMA.md: the acq_timestamp column exception covers the sync
+  roles only — async (snapshot-role) capture-owned cameras surface no
+  such column (tracked with #702). CLAUDE.md capture entry: pyzmq +
+  both CLIs. discovery docstring: three batched queries, not two.
+  probes README heading repaired; subscriber env-mutation comment.
+
+## [0.68.1] - 2026-08-28
+
+### Fixed
+
+- **Toggle-off scans keep the `acq_timestamp` s-file column** — the
+  stack join key. `save_control_only` devices (capture-owned cameras)
+  reused the pure-scalar column rule, so the s-file carried no
+  `<Device> acq_timestamp` column and ScanAnalysis's `device_hdf5`
+  strategy had nothing to join on: the whole scan's images were
+  orphaned from analysis. Found LIVE on the first real
+  stack-analysis run (26_0828 Scan001 — PNG-free, so the fallback
+  couldn't mask it; the prior test suite had pinned the buggy shape
+  as correct). A capture-owned camera is a file-producing device:
+  the column now survives the toggle on both sync roles
+  (`CaGenericDetector`, `CaTimestampedReadable`); the
+  `localsavingpath`/`save` native-save children still ride
+  `save_nonscalar_data` only. Async (snapshot) capture-owned cameras
+  still have no acq column — a pre-existing property of the snapshot
+  role, noted, not changed here.
+
+## [0.68.0] - 2026-08-28
+
+### Added
+
+- **The arc-end production trio** (promotion prerequisites,
+  `Planning/data_capture/01_central_pva_capture_scope.md`):
+  1. **Daemon-liveness preflight** — `capture/heartbeat.py` (daemon
+     writes a JSON heartbeat every 10 s from a side thread; engine's
+     `preflight_capture_liveness` REFUSES a toggle-off scan pre-claim,
+     fail-closed, when the heartbeat is missing/stale — with native
+     saving off, a dead daemon means images exist nowhere). Wired in
+     both execution paths (the queue path pinned by its own test).
+     Review hardening: the payload carries the monitored **device
+     roster** and the preflight refuses toggle-off scans whose capture
+     devices the daemon isn't covering (a daemon started before a
+     camera joined the DB); the daemon **removes the heartbeat on
+     clean shutdown** so `systemctl stop` refuses immediately instead
+     of after the 30 s stale window — including under SIGTERM, which
+     the daemon converts to `SystemExit` so the cleanup actually runs
+     (codex gate P1: Python's default SIGTERM action skips `finally`,
+     so systemd's stop signal would have left the heartbeat behind); a
+     fresh heartbeat **without a device roster is refused** as corrupt
+     state, not tolerated (codex gate P2 — coverage cannot be
+     verified); the beat thread survives any write exception; a
+     relative `[capture] heartbeat_path` override
+     is rejected (it would split writer from reader by CWD). The check
+     is host-local (same host + service user as the daemon — stated in
+     the refusal message); proves process liveness only — subscription
+     health stays covered by reconciliation counters.
+  2. **systemd deployment kit** — `capture/deploy/geecs-capture.service`
+     + `DEPLOYMENT.md` (the qserver pattern; co-location with the worker
+     is a stated requirement; migration = copy unit + install; runbook
+     covers toggle-off restart hazards and the recurring diff sweep).
+  3. **Dual-write diff CLI** — `geecs-capture-diff` (`capture/diff.py`):
+     per scan/device, the analysis join's exact contract — canonical-ms
+     timestamp keys **plus its ±1 ms candidate tolerance** (review
+     Monte-Carlo: without candidates, epoch/wire float round-trips at
+     the rounding boundary produce false mismatch pairs) — with
+     per-pair IMAQ-decoded pixel comparison under numpy promotion (no
+     dtype cast: a cast can wrap values and mask a real difference);
+     verdicts pass/mismatch/capture_only/no_stack; incremental JSONL
+     evidence log via `--log`; exit 1 = mismatch, 2 = operational
+     error (unreadable scan path — the sweep continues past it).
+     Weeks of clean log = the Phase-6 gate.
+
+## [0.67.0] - 2026-08-27
+
+### Added
+
+- **Active save-off for capture-owned cameras** (codex finding C1 on
+  PR #697): with `native_image_save` off, captured cameras are built
+  `save_control_only` — only the `save` control child exists (no
+  `localsavingpath`, no save-path column, no asset docs) — and
+  `geecs_run_wrapper` eagerly commands `save="off"` at scan start
+  (turning off needs no trigger windowing). A save flag left on
+  out-of-band can no longer write native files to a stale path during
+  a toggle-off scan. Threaded config → `_build_request_detectors` →
+  `session.detector`/`contributor` → the device classes;
+  `apply_native_image_save_off` sets the flag automatically — on ALL
+  three role branches including snapshot (codex P2: an async
+  capture-owned camera previously dropped the flag silently).
+
+## [0.66.0] - 2026-08-27
+
+### Added
+
+- **The `native_image_save` toggle** (capture arc Phase 3, redesigned per
+  owner decision — one devicetype-scoped switch instead of per-save-set
+  `capture_mode` vocabulary): whether capture-eligible cameras (the
+  capture registry's devicetypes, v0 = Point Grey) write native per-shot
+  files, or the capture daemon owns their images. Experiment-wide default
+  in `ExperimentDefaults` (geecs-schemas 0.12.0, default ON), tri-state
+  per-scan override on `ScanRequest` (the `background_telemetry`
+  pattern). Both execution paths (headless runner + queue plan) resolve
+  it identically; with the toggle off, captured cameras stay full scan
+  participants (scalars, shot-id columns, strict rows) and only the
+  native save + PNG asset docs are suppressed. Eligibility comes from
+  the failure-tolerant `GeecsDbDeviceTypes` provider (new in
+  `db_runtime`) — a DB blip means nothing is eligible and native saving
+  stays on (fail-open keeps data). The run picture records
+  `capture_devices` + `native_image_save`; `geecs_run_wrapper` creates
+  the capture device dirs engine-side BEFORE the start doc (the daemon
+  never mkdirs), and the capture daemon now prefers the explicit
+  `capture_devices` start-doc key over inferring from
+  `nonscalar_save_paths` (which captured cameras leave entirely when
+  native saving is off). Optimize-mode scans keep native saving
+  regardless (v0). Deprecation (Phase 6) is now just flipping the
+  experiment default after dual-write evidence. Deploy order: the WORKER
+  upgrades before any client submits with the new field (`extra="forbid"`
+  on a ≤0.11-schemas worker rejects the unknown key — the
+  `background_telemetry` precedent).
+
+## [0.65.0] - 2026-08-27
+
+### Changed
+
+- **Capture frame stacks are now compressed** (shuffle + gzip level 1,
+  built-in HDF5 filters — readable everywhere, self-describing, schema
+  unchanged at `geecs-capture/1`). Measured on real Scan003 frames:
+  2.04 MB vs 7.92 MB raw vs ~2.5 MB for the equivalent LV PNGs, at
+  3.9 ms/frame write cost on 600×600 frames; cost scales with frame
+  size (~25 ms/frame measured at 1025×1281) — trivial at 1 Hz fleet-wide;
+  a hypothetical many-large-camera 5 Hz scan could saturate the single
+  writer thread, degrading to counted queue_drops (per-device writer
+  threads are the future remedy).
+
+## [0.64.0] - 2026-08-27
+
+### Added
+
+- **`geecs_bluesky.capture` — the central PVA image-capture daemon**
+  (`capture` extra: p4p + h5py; CLI `geecs-capture-daemon`). Scan-gated
+  capture per the arc scope doc
+  (`Planning/data_capture/01_central_pva_capture_scope.md`): consumes the
+  worker's 0MQ document stream (`[qserver] doc_addr`), and for every run
+  with `nonscalar_save_paths` subscribes deep-queue PVA monitors on the
+  run's capture-eligible cameras (devicetype registry, v0 = Point Grey),
+  dedupes on `acq_timestamp` (idle re-push), drops the gateway's stale
+  pre-scan cached frame, and trail-flushes one `<device>.h5` frame stack
+  (schema `geecs-capture/1`, `capture/FORMAT.md`; container swappable
+  behind the `FrameStackWriter` protocol) into the engine-created device
+  dirs — the daemon never creates directories (cross-package invariant).
+  Finalize stamps per-device reconciliation counters into the file and
+  logs them (the dual-write diff seed). Runs ALONGSIDE the LV per-shot
+  file save (Phase-1 dual-write doctrine — a daemon failure cannot lose
+  data). Requires geecs-core ≥0.4.0
+  (`GeecsDb.get_experiment_device_types` batch query).
+
+## [0.63.0] - 2026-08-27
+
+### Added
+
+- **`capture/probes/` — Phase-0 measurement kit for the central PVA
+  image-capture arc** (`Planning/data_capture/01_central_pva_capture_scope.md`):
+  `probe_g1_shot_counter.py` (subscribes to a device's GEECS TCP push
+  stream, records per-update shot counter / `acq_timestamp` /
+  image-payload size to JSONL with a gap+interval summary) and
+  `probe_g2_pva_deep_queue.py` (deep- and shallow-queue p4p monitors on
+  a camera NTNDArray PV, delivery counts to JSONL).  Standalone
+  operational scripts run from the GeecsPvaGateway env (the eventual
+  capture daemon will live in the `geecs_bluesky.capture` package —
+  these are its empirical gates, not package code).  Both gates PASSED
+  live 2026-08-27 at 1 Hz (10-shot + 200-shot strict scans, 11-camera
+  concurrent load): results recorded in the scope doc.
+
 ## [0.62.0] - 2026-08-23
 
 ### Added

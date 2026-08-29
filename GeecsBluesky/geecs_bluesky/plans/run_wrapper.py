@@ -220,7 +220,28 @@ def geecs_run_wrapper(
         md["geecs_scalar_headers"] = scalar_headers
     md.update(extra_md or {})
 
+    # Engine-side dir creation for capture-owned camera dirs (the capture
+    # daemon never mkdirs — cross-package invariant), BEFORE the start doc
+    # is emitted so the daemon's writers find them on the first frame. With
+    # native saving off these devices skip save_enable_plan's makedirs;
+    # exist_ok covers the dual-write overlap when both run.
+    capture_names = md.get("capture_devices")
+    if scan_folder is not None and isinstance(capture_names, (list, tuple)):
+        for name in capture_names:
+            os.makedirs(os.path.join(scan_folder, str(name)), exist_ok=True)
+
     wrapped = bpp.inject_md_wrapper(plan, md)
+
+    # Active save-off for capture-owned cameras (save_control_only devices):
+    # a save flag left on out-of-band must never keep writing native files
+    # to a stale path during a toggle-off scan. Eager — turning OFF needs no
+    # trigger windowing, unlike save-on.
+    off_args: list = []
+    for dev in devices or []:
+        if getattr(dev, "_save_control_only", False) and hasattr(dev, "save"):
+            off_args.extend([dev.save, "off"])
+    if off_args:
+        yield from bps.mv(*off_args)
 
     if not saving:
         yield from wrapped

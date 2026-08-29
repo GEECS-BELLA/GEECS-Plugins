@@ -179,6 +179,36 @@ def test_get_experiment_devices_batches_endpoints(monkeypatch) -> None:
     assert "enabled" not in queries[0][0]
 
 
+def test_get_experiment_device_types_batches_types(monkeypatch) -> None:
+    """One query returns every device's devicetype; enabled filter in SQL."""
+    queries: list = []
+    _patch_rows(
+        monkeypatch,
+        [
+            ("UC_Amp4_IR_input", " Point Grey Camera "),
+            ("U_S1H", "EMQ_TDK"),
+            ("U_Odd", None),
+        ],
+        queries,
+    )
+
+    result = GeecsDb.get_experiment_device_types("Undulator")
+    assert result == {
+        "UC_Amp4_IR_input": "Point Grey Camera",
+        "U_S1H": "EMQ_TDK",
+        "U_Odd": "",
+    }
+    assert len(queries) == 1
+    query, params = queries[0]
+    assert params == ("Undulator",)
+    assert "d.devicetype" in query
+    assert "LOWER(ed.enabled) = 'yes'" in query
+
+    queries.clear()
+    GeecsDb.get_experiment_device_types("Undulator", enabled_only=False)
+    assert "enabled" not in queries[0][0]
+
+
 def _patch_query_sequence(
     monkeypatch, responses: list[list[tuple]], queries: list
 ) -> None:

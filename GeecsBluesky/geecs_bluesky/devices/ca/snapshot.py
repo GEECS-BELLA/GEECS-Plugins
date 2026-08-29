@@ -12,9 +12,9 @@ from __future__ import annotations
 import logging
 
 from ophyd_async.core import StandardReadable
-from ophyd_async.epics.core import epics_signal_r
+from ophyd_async.epics.core import epics_signal_r, epics_signal_rw
 
-from geecs_bluesky.devices.ca._pv import ca_pv
+from geecs_bluesky.devices.ca._pv import ca_pv, setpoint_pv
 from geecs_bluesky.utils import safe_name
 
 logger = logging.getLogger(__name__)
@@ -45,6 +45,7 @@ class CaSnapshotReadable(StandardReadable):
         experiment: str | None = None,
         name: str = "snapshot",
         datatype: type = float,
+        save_control_only: bool = False,
     ) -> None:
         if isinstance(variable_list, str):
             variable_list = [variable_list]
@@ -60,6 +61,14 @@ class CaSnapshotReadable(StandardReadable):
         self._column_headers = {
             f"{name}-{safe_name(var)}": f"{device} {var}" for var in variable_list
         }
+        # Capture-owned camera in a snapshot role: same active off-write
+        # surface as the sync detectors (codex P2 on PR #699) — only the
+        # `save` control child, created outside add_children_as_readables
+        # so it never enters event rows.
+        self._save_control_only = save_control_only
+        if save_control_only:
+            readback = ca_pv(experiment, device, "save")
+            self.save = epics_signal_rw(str, readback, setpoint_pv(readback))
 
     async def disconnect(self) -> None:
         """Per-scan teardown hook (the runner's ``session.disconnect`` cleanup).
