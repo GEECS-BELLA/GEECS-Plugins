@@ -473,3 +473,24 @@ class TestMetadataRows:
         rows = dict(metadata_rows(detail))
         assert rows["Exit status"] == "success"
         assert rows["Duration"] == "42 s"
+
+
+class TestResolveScanFolderFallbackInvariant:
+    """The fallback branch, too, is read-only (mutation-verified gap: a
+    mkdir inserted after the daily-folder join must fail this test)."""
+
+    def test_fallback_missing_scan_dir_returns_none_and_touches_nothing(
+        self, tmp_path, monkeypatch
+    ):
+        from geecs_data_utils import scan_paths as scan_paths_mod
+
+        daily = tmp_path / "scans"
+        daily.mkdir()  # the daily folder exists; Scan002 does not
+        monkeypatch.setattr(
+            scan_paths_mod,
+            "daily_scan_folder",
+            lambda experiment="", base_path=None, day=None: daily,
+        )
+        before = _tree_snapshot(tmp_path)
+        assert resolve_scan_folder(_detail(), TEST_DAY) is None
+        assert _tree_snapshot(tmp_path) == before  # tree untouched

@@ -94,11 +94,12 @@ def todays_scan_folder(
 ) -> Optional[Path]:
     """Build today's daily ``scans/`` folder path — read-only, never creates.
 
-    Uses ``geecs_data_utils.ScanPaths.get_daily_scan_folder`` (imported
-    lazily), which is pure path construction: no directory is created or
-    touched here, and the returned path may not exist yet — the caller
-    checks ``is_dir()`` and reports "no scans today" instead of creating
-    anything (repo scan-folder invariant).
+    Delegates to ``geecs_data_utils.scan_paths.daily_scan_folder``
+    (imported lazily; the offline-first companion this function was
+    re-based onto in the portal arc), which is pure path construction:
+    no directory is created or touched here, and the returned path may
+    not exist yet — the caller checks ``is_dir()`` and reports "no scans
+    today" instead of creating anything (repo scan-folder invariant).
 
     Parameters
     ----------

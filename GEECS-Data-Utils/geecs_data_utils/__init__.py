@@ -54,6 +54,7 @@ from geecs_data_utils.tiled_export import (
     build_legacy_scalar_dataframe,
     write_scalar_files_from_tiled,
 )
+from geecs_data_utils.scan_paths import daily_scan_folder
 from geecs_data_utils.tiled_catalog import (
     CatalogStatus,
     RunDetail,
@@ -61,6 +62,8 @@ from geecs_data_utils.tiled_catalog import (
     ScanCatalog,
     StubCatalog,
     TiledScanCatalog,
+    metadata_rows,
+    resolve_scan_folder,
 )
 
 __all__ = [
@@ -105,4 +108,8 @@ __all__ = [
     "ScanCatalog",
     "StubCatalog",
     "TiledScanCatalog",
+    "metadata_rows",
+    "resolve_scan_folder",
+    # scan paths (offline-first daily-folder companion)
+    "daily_scan_folder",
 ]
