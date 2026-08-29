@@ -117,6 +117,11 @@ class Hdf5StackWriter:
                 f"frame shape {frame.shape} != stack shape {self._frames.shape[1:]}"
             )
         n = self._n
+        # Datasets are resized/assigned sequentially; an exception mid-way
+        # can leave /frames one row longer than /acq_timestamp. _n is only
+        # advanced at the end, so the next append reuses the index (self-
+        # heals); readers keying off /acq_timestamp length never see the
+        # orphan row.
         self._frames.resize(n + 1, axis=0)
         self._frames[n] = frame
         self._acq.resize(n + 1, axis=0)
@@ -128,10 +133,15 @@ class Hdf5StackWriter:
 
     def finalize(self, counters: dict[str, int]) -> int:
         """Stamp *counters* + ``finalized=True`` and close; return frame count."""
-        for key, value in counters.items():
-            self._h5.attrs[key] = value
-        self._h5.attrs["finalized"] = True
-        self._h5.close()
+        try:
+            for key, value in counters.items():
+                self._h5.attrs[key] = value
+            self._h5.attrs["finalized"] = True
+        finally:
+            # A failed attr stamp (end-of-scan share blip) must not leak the
+            # handle in a long-lived daemon — close regardless; the file is
+            # then simply un-finalized, which readers already tolerate.
+            self._h5.close()
         return self._n
 
     def abort(self) -> None:

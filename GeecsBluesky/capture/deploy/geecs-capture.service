@@ -31,6 +31,9 @@ Environment="GEECS_CAPTURE_EXPERIMENT=Undulator"
 ExecStart=/home/geecs/.local/bin/poetry run geecs-capture-daemon --experiment ${GEECS_CAPTURE_EXPERIMENT}
 Restart=on-failure
 RestartSec=5
+# Exit 2 = permanent misconfiguration (bad flags, no [qserver] config, no
+# eligible cameras) — restarting cannot fix it, so don't loop forever.
+RestartPreventExitStatus=2
 
 [Install]
 WantedBy=multi-user.target

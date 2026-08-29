@@ -81,10 +81,6 @@ from geecs_bluesky.scan_request_runner import (
     _build_request_detectors,
     _defaults_flag,
     _preflight_connected,
-    apply_native_image_save_off,
-    preflight_capture_liveness,
-    resolve_native_image_save,
-    select_capture_devices,
     _preflight_unserved,
     assemble_action_slots,
     build_action_registry,
@@ -96,6 +92,7 @@ from geecs_bluesky.scan_request_runner import (
     metadata_submission,
     merge_optimizer_device_requirements,
     prefetch_action_signals,
+    resolve_and_apply_capture_toggle,
     resolve_movable_target,
     resolve_save_sets_and_rituals,
     save_set_to_devices_config,
@@ -482,6 +479,14 @@ def _scan_request_body(
     strict = request.acquisition is AcquisitionMode.STRICT
 
     if request.mode is ScanRequestMode.OPTIMIZE:
+        if request.native_image_save is False:
+            # v0: optimize keeps native saving unconditionally (evaluators
+            # read per-shot files) — never discard the override silently.
+            logger.warning(
+                "optimize mode keeps native image saving — the request's "
+                "native_image_save=false is ignored (v0: evaluators read "
+                "per-shot files)"
+            )
         return (
             yield from _optimize_request_body(
                 session,
@@ -524,26 +529,9 @@ def _scan_request_body(
         if request.background_telemetry is not None
         else _defaults_flag(defaults, "background_telemetry", True)
     )
-    native_image_save = resolve_native_image_save(request, defaults)
-    capture_devices = select_capture_devices(
-        getattr(session, "experiment", ""), devices_config
+    devices_config, capture_devices, native_image_save = (
+        resolve_and_apply_capture_toggle(request, defaults, devices_config, session)
     )
-    if not native_image_save:
-        if capture_devices:
-            preflight_capture_liveness(capture_devices, native_image_save)
-            devices_config = apply_native_image_save_off(
-                devices_config, capture_devices
-            )
-            logger.info(
-                "native_image_save=off: capture daemon owns images for %s",
-                ", ".join(capture_devices),
-            )
-        else:
-            logger.warning(
-                "native_image_save=off requested but no capture-eligible "
-                "devices resolved (DB unreachable, or no registry-devicetype "
-                "cameras in the save set) — native saving unchanged"
-            )
 
     # ---- phase 2: worker-side construction (connects deferred) -----------
     factories = _DeferredConnectFactories(session)

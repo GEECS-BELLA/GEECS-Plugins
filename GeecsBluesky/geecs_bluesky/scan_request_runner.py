@@ -1624,6 +1624,44 @@ def _stopped_during_init(
     return True
 
 
+def resolve_and_apply_capture_toggle(
+    request: "ScanRequest",
+    defaults: Any,
+    devices_config: dict[str, dict[str, Any]],
+    session: Any,
+) -> tuple[dict[str, dict[str, Any]], list[str], bool]:
+    """Resolve the ``native_image_save`` toggle and apply it — the ONE block.
+
+    Shared by both execution paths (the headless runner and the queue
+    plan) like every other prologue step, so the toggle contract cannot
+    drift between them (ultra review of PR #693). Returns the possibly
+    rewritten devices config, the capture-eligible device list, and the
+    effective flag. Refuses toggle-off pre-claim via
+    :func:`preflight_capture_liveness`.
+    """
+    native_image_save = resolve_native_image_save(request, defaults)
+    capture_devices = select_capture_devices(
+        getattr(session, "experiment", ""), devices_config
+    )
+    if not native_image_save:
+        if capture_devices:
+            preflight_capture_liveness(capture_devices, native_image_save)
+            devices_config = apply_native_image_save_off(
+                devices_config, capture_devices
+            )
+            logger.info(
+                "native_image_save=off: capture daemon owns images for %s",
+                ", ".join(capture_devices),
+            )
+        else:
+            logger.warning(
+                "native_image_save=off requested but no capture-eligible "
+                "devices resolved (DB unreachable, or no registry-devicetype "
+                "cameras in the save set) — native saving unchanged"
+            )
+    return devices_config, capture_devices, native_image_save
+
+
 def run_scan_request(
     session: Any,
     request: ScanRequest,
@@ -1742,6 +1780,16 @@ def run_scan_request(
         # log loudly, and record the skip in run metadata (never silent).
         # Rationale: GeecsBluesky/CLAUDE.md (engine consolidation).
         skipped_actions = {k: v for k, v in resolved_actions.items() if v}
+        if request.native_image_save is False:
+            # v0: optimize keeps native saving unconditionally (its
+            # evaluators read per-shot files from disk). Never silent —
+            # once an experiment default flips off, every optimize scan
+            # overrides it and the operator must be able to see that.
+            logger.warning(
+                "optimize mode keeps native image saving — the request's "
+                "native_image_save=false is ignored (v0: evaluators read "
+                "per-shot files)"
+            )
         return _run_optimize_request(
             session,
             request,
@@ -1804,26 +1852,9 @@ def run_scan_request(
         else _defaults_flag(defaults, "background_telemetry", True)
     )
 
-    native_image_save = resolve_native_image_save(request, defaults)
-    capture_devices = select_capture_devices(
-        getattr(session, "experiment", ""), devices_config
+    devices_config, capture_devices, native_image_save = (
+        resolve_and_apply_capture_toggle(request, defaults, devices_config, session)
     )
-    if not native_image_save:
-        if capture_devices:
-            preflight_capture_liveness(capture_devices, native_image_save)
-            devices_config = apply_native_image_save_off(
-                devices_config, capture_devices
-            )
-            logger.info(
-                "native_image_save=off: capture daemon owns images for %s",
-                ", ".join(capture_devices),
-            )
-        else:
-            logger.warning(
-                "native_image_save=off requested but no capture-eligible "
-                "devices resolved (DB unreachable, or no registry-devicetype "
-                "cameras in the save set) — native saving unchanged"
-            )
 
     created: list = []
     try:

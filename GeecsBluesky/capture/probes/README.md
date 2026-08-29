@@ -27,8 +27,9 @@ confuse the two homes.
   default shallow monitor. Subscribing opens the gateway's gate (activates
   the upstream LabVIEW stream), same as a Phoebus viewer.
 
-## Interpreting the numbers (this section is the owner — trust it over
-## stale comments elsewhere)
+## Interpreting the numbers
+
+(This section is the owner — trust it over stale comments elsewhere.)
 
 - **Key every comparison on distinct timestamps**, never raw update counts:
   G1's `distinct` acq_timestamps (windowed to the scan) vs G2's

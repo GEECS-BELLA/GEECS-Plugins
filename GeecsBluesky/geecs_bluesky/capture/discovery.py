@@ -9,7 +9,7 @@ without importing any gateway code (dependency-graph rule: gateways are
 consumed as services, never imported).
 
 Uses the batch ``GeecsDb.get_experiment_device_types`` /
-``get_experiment_devices`` queries — two connections total, never one per
+``get_experiment_devices`` queries — three batched connections total, never one per
 device.
 """
 
@@ -44,7 +44,7 @@ class CameraTarget:
 def discover_capture_cameras(experiment: str) -> list[CameraTarget]:
     """Return every capture-eligible camera in *experiment*, sorted by device.
 
-    Two batched DB queries; a device whose endpoint row is missing is
+    Three batched DB queries; a device whose endpoint row is missing is
     skipped with a warning (it cannot be reached over PVA anyway).
     """
     device_types = GeecsDb.get_experiment_device_types(experiment)

@@ -75,14 +75,14 @@ def main(argv: list[str] | None = None) -> int:
     # Liveness heartbeat: the engine's toggle-off preflight refuses scans
     # when this goes stale — start it before the dispatcher blocks.
     import threading
-    import time
 
     from .heartbeat import HEARTBEAT_PERIOD_S, clear_heartbeat, write_heartbeat
 
     target_names = [t.device for t in targets]
+    beat_stop = threading.Event()
 
     def _beat() -> None:
-        while True:
+        while not beat_stop.is_set():
             try:
                 write_heartbeat(target_names)
             except Exception:
@@ -90,9 +90,10 @@ def main(argv: list[str] | None = None) -> int:
                 # thread permanently while the daemon keeps capturing —
                 # a silent path to perpetual toggle-off refusal.
                 logger.warning("heartbeat write failed", exc_info=True)
-            time.sleep(HEARTBEAT_PERIOD_S)
+            beat_stop.wait(HEARTBEAT_PERIOD_S)
 
-    threading.Thread(target=_beat, name="capture-heartbeat", daemon=True).start()
+    beat_thread = threading.Thread(target=_beat, name="capture-heartbeat", daemon=True)
+    beat_thread.start()
 
     # systemctl stop sends SIGTERM, whose default action kills the process
     # WITHOUT running the finally below — the tombstone would never fire
@@ -115,6 +116,12 @@ def main(argv: list[str] | None = None) -> int:
         pass
     finally:
         daemon.shutdown()
+        # Stop and JOIN the beat thread before removing the heartbeat: a
+        # beat mid-write during shutdown would otherwise atomically replace
+        # the file back into existence after the unlink, resurrecting a
+        # fresh-looking heartbeat behind a dead process.
+        beat_stop.set()
+        beat_thread.join(timeout=5.0)
         # Tombstone: a clean stop (systemctl stop, Ctrl-C) must refuse
         # toggle-off scans immediately, not after the stale window.
         clear_heartbeat()

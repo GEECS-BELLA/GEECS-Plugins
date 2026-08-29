@@ -568,7 +568,14 @@ class ScanRequest(VersionedSchemaModel):
             "native save regardless. Leave unset to inherit the experiment "
             "default; set true/false to override for this scan (e.g. force "
             "native files back on for one scan while the capture path is "
-            "being validated)."
+            "being validated). Two engine behaviors to expect when false: "
+            "the scan is REFUSED before a scan number is claimed if the "
+            "capture daemon looks absent or is not monitoring every "
+            "capture camera (fail-closed — start the daemon or drop the "
+            "override), and the request is silently inert when no "
+            "capture-eligible cameras resolve (DB unreachable, or none in "
+            "the save set) — native saving then proceeds unchanged, with a "
+            "warning in the scan log."
         ),
     )
     trigger_profile: Optional[str] = Field(

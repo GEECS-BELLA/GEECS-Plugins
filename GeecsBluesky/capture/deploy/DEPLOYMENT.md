@@ -73,8 +73,14 @@ the worker and the daemon move together.
   (exit 0 clean, 1 on a mismatch, 2 on operational errors such as an
   unmounted share — alert on non-zero.)
 - Upgrades: `git pull` in the checkout + `systemctl restart geecs-capture`
-  (the env is editable-installed; re-run poetry install only when
-  dependencies changed).
+  (the env is editable-installed; re-run poetry install when dependencies
+  changed — or when console scripts were added, since bin stubs are
+  generated at install time).
+- **Upgrade the PVA gateway fleet to >=0.4.4 before any toggle-off scan.**
+  On 0.4.3 a camera with a broken timestamp ladder publishes negative
+  timestamps, so the daemon stale-filters 100% of its frames — harmless
+  under dual-write, but with native saving off those images would exist
+  nowhere, and the liveness preflight cannot see gateway versions.
 
 ## Migration to a new host
 
