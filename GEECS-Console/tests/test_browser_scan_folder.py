@@ -1,18 +1,25 @@
 """Pin the browser's scan-folder resolution invariant: read-only, never creates.
 
-The pure catalog/schema/drift layer lives in ``geecs_data_utils`` and is
-tested there; what stays here is the browser's own B3 resolver
-(``resolve_scan_folder``) and its repo-invariant pin — opening a scan
-folder must never bring one into existence (analysis/GUI code is a
-consumer of scan folders, never a producer).
+``resolve_scan_folder`` moved down to ``geecs_data_utils.tiled_catalog``
+(portal arc phase 2) where its core invariant tests now live; what stays
+here is the browser-path pin — the window resolves through the shared
+implementation (import identity) and opening a scan folder through the
+browser import path must never bring one into existence (analysis/GUI
+code is a consumer of scan folders, never a producer).
 """
 
 from __future__ import annotations
 
+from geecs_data_utils import tiled_catalog
 from geecs_data_utils.tiled_catalog import RunDetail, summary_from_metadata
 
 from geecs_console.browser.browser_window import resolve_scan_folder
 from fake_catalog import TEST_DAY, make_detail
+
+
+def test_resolver_is_the_shared_data_utils_implementation():
+    """The browser must not grow a shadowing resolver of its own."""
+    assert resolve_scan_folder is tiled_catalog.resolve_scan_folder
 
 
 def _tree_snapshot(root):

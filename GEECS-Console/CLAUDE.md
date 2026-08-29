@@ -510,15 +510,22 @@ Rules (inherit all Architecture rules above, plus):
 - **`pyqtgraph` is imported lazily** with
   `os.environ.setdefault("PYQTGRAPH_QT_LIB", "PySide6")` set first (the
   `_pg()` helper) so it can never bind a stray PyQt install.
-- **Open scan folder is strictly read-only** (`resolve_scan_folder`):
-  run-metadata `scan_folder` first, else `ops_paths.todays_scan_folder`
-  for the *selected* date + `ScanNNN`; only an existing dir is returned,
-  nothing on the scans path is ever created (repo scan-folder invariant,
-  pinned by tree-untouched tests in `tests/test_browser_scan_folder.py`).
+- **Open scan folder is strictly read-only** (`resolve_scan_folder` —
+  since the portal arc phase 2 this lives in
+  `geecs_data_utils.tiled_catalog`, shared with the data portal; the
+  browser imports it and must not grow a shadowing resolver, pinned by
+  an import-identity test): run-metadata `scan_folder` first, else the
+  daily path for the *selected* date + `ScanNNN` via
+  `geecs_data_utils.scan_paths.daily_scan_folder`; only an existing dir
+  is returned, nothing on the scans path is ever created (repo
+  scan-folder invariant — core tree-untouched tests live in the
+  data-utils suite, the browser-path pin in
+  `tests/test_browser_scan_folder.py`).
 - **B7 (scan metadata) renders from the already-loaded `RunDetail` only**
-  (`metadata_rows`, a pure function over summary + start/stop docs) —
-  never a second Tiled fetch; absent/empty keys are omitted, not rendered
-  blank, so legacy/aborted runs get a shorter list.
+  (`metadata_rows` — also moved to `geecs_data_utils.tiled_catalog`, a
+  pure function over summary + start/stop docs) — never a second Tiled
+  fetch; absent/empty keys are omitted, not rendered blank, so
+  legacy/aborted runs get a shorter list.
 
 Kit boundary — shared-intent console modules the browser imports (the
 shared-package candidates for a future extraction; extend these rather

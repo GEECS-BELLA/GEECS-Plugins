@@ -3,6 +3,22 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.15.0] - 2026-08-29
+
+### Added
+
+- `tiled_catalog.resolve_scan_folder` and `tiled_catalog.metadata_rows` —
+  the console scan browser's RunDetail helpers moved down (portal arc
+  phase 2) so the scan browser and the data portal share one
+  implementation.  `resolve_scan_folder` is strictly read-only (repo
+  scan-folder invariant; the tree-untouched pin now lives in this
+  package's suite).
+- `scan_paths.daily_scan_folder` — offline-first module-level companion
+  to `ScanPaths.get_daily_scan_folder` (returns `None` instead of
+  raising when the data root or experiment is unresolvable; never
+  creates directories).  Re-based from the console's
+  `ops_paths.todays_scan_folder`, which now delegates here.
+
 ## [0.14.0] - 2026-08-27
 
 ### Added
