@@ -11,8 +11,9 @@ the manual.
 
 !!! note "Snapshot"
     Reflects the fleet as of **August 2026**. Deployed and running: the
-    CA gateway, the GEECS DB, Tiled, the PVA image gateways, and the
-    queueserver worker (on an interim host). Documented here ahead of
+    CA gateway, the GEECS DB, Tiled, the PVA image gateways, the
+    queueserver worker (on an interim host), and the GEECS Data Portal.
+    Documented here ahead of
     deployment: the GEECS-MCP HTTP service and the capture daemon
     (which lands with the central-PVA-capture arc). When a service
     moves, deploys, or a new one lands, update this page in the same
@@ -40,6 +41,7 @@ flowchart TB
         qs["Queueserver stack<br/>RE Manager :60615 / :60625<br/>doc stream :5568<br/>Redis (loopback)"]
         mcp["GEECS-MCP server<br/>:8100 (HTTP mode — pending deploy)"]
         capture["Capture daemon<br/>(geecs-capture — pending deploy)"]
+        portal["GEECS Data Portal<br/>:8200 (GEECS-DataPortal)"]
     end
 
     subgraph camsrv["Camera servers ×9 (Windows)"]
@@ -79,6 +81,9 @@ flowchart TB
     tiled -- "HTTP API / web UI" --> browser
     tiled -- "catalog reads" --> console
     tiled -- "catalog reads" --> nb
+    tiled -- "catalog reads" --> portal
+    nas -- "SMB mount" --> portal
+    portal -- "HTTP :8200" --> browser
     nas -- "SMB mount" --> nb
 ```
 
@@ -87,8 +92,7 @@ Arrows follow the **primary flow of data or commands** over each link
 setpoint writes travel against the readback arrows, over the same
 connections.
 
-Planned additions (not yet deployed): the **GEECS Data Portal** — a
-read-only scan-browsing web app joining Tiled and the data share — and a
+Planned additions (not yet deployed): a
 consolidated services server that will absorb the central-server roles
 above (the queueserver worker and capture daemon move together — their
 co-location is a requirement, not a convenience).
@@ -102,6 +106,7 @@ co-location is a requirement, not a convenience).
 | Queueserver worker (RE Manager + Redis + doc proxy) | the worker host (interim box; the runbook targets a dedicated host) | ZMQ 60615 (control), 60625 (console stream), 5568 (documents); Redis loopback-only | systemd `geecs-qserver` | `qserver status` from any client env | [GeecsBluesky/qserver/deploy/DEPLOYMENT.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsBluesky/qserver/deploy/DEPLOYMENT.md) |
 | GEECS-MCP server — *HTTP mode pending deploy* | the worker host (co-located by design; stdio mode runs per-machine today) | HTTP 8100 (`/mcp`) | systemd (HTTP mode) | tool call `scan_status` from an agent | [GEECS-MCP/deploy/DEPLOYMENT.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GEECS-MCP/deploy/DEPLOYMENT.md) |
 | Capture daemon (`geecs_bluesky.capture`) — *pending deploy* | the queueserver worker host (co-location is a **requirement**: shared filesystem view + local heartbeat) | consumes doc stream (5568) + pvAccess; no listening port | systemd `geecs-capture` | heartbeat file refreshing every ~10 s (`~/.local/state/geecs-capture/heartbeat.json` in the service user's home); discovery line in `journalctl -u geecs-capture` | [GeecsBluesky/capture/deploy/DEPLOYMENT.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsBluesky/capture/deploy/DEPLOYMENT.md) |
+| GEECS Data Portal (GEECS-DataPortal) | the worker host (interim box; moves with the services-server consolidation) | HTTP 8200 | systemd `geecs-data-portal` | `GET /health` (catalog probe); any day page in a browser | [GEECS-DataPortal/DEPLOYMENT.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GEECS-DataPortal/DEPLOYMENT.md) |
 | PVA image gateways (GeecsPvaGateway) | each camera server (9 hosts) | pvAccess TCP 5075 / UDP 5076 | NSSM service `GeecsPvaGateway` (auto-start, pull-on-restart) | fleet status Phoebus screen (`deploy/fleet_status.bob`) | [GeecsPvaGateway/DEPLOYMENT.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsPvaGateway/DEPLOYMENT.md) |
 | GEECS MySQL DB | 192.168.6.14 | 3306 | LabVIEW/GEECS infrastructure (not managed by this repo) | any `GeecsDb` client connect | — |
 | Data share (NAS) | NAS appliance | SMB | storage infrastructure (not managed by this repo) | mount visible, scan folders resolvable | — |
@@ -144,7 +149,9 @@ whether eligible cameras also write native files, while
 proprietary-format devices — HASO, scopes — always keep native saving).
 Analysis reads any of these surfaces: files via the mounted share,
 frame stacks via `geecs_data_utils` `scan_stack`, scalars and metadata
-via Tiled.
+via Tiled. The Data Portal is the zero-install reader over the same
+surfaces — runs and scalars from the catalog, per-shot files from the
+share — for anyone with a browser.
 
 ## Client configuration in one place
 
