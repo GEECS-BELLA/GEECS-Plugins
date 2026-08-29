@@ -56,7 +56,8 @@ first-order concerns.
 
 Every data point of pars 2–4 plotted vs the independent variable
 (par 1), unbinned.  Sub-tabs: Fit · par L2 · L2L3 · All3 · cf file ·
-histogram.  Interactive: zoom, cursor readout, reset xy bounds,
+histogram.  Interactive: zoom, cursor readout, reset xy bounds (not
+visible in the slide — from the owner's description),
 "autoscale/both same scale", per-axis lock toggles, plot-width control,
 Clipboard buttons, "pretty PDF" export.  (Portal equivalent today: the
 run view's scalar plot — single-line, no zoom; multi-line overlay and
@@ -69,9 +70,10 @@ bars** ("Error bar type xy: Quarter Percentiles"; owner believes the
 bin's center point is the **median** — verify against source).
 Controls: fixed/auto bin interval, use-bin#, same-scale, subtract-mean,
 axis format/precision, autoscale modes.  Sub-tabs: triple · double ·
-single · errors · data (the numbers behind the plot).  Side panels:
-**Fitting** and **peak/valley** analysis ("xy analysis: gauss prop" +
-analyze), and an **Export** panel (send binned data to Origin with
+single · errors · data (the numbers behind the plot).  The right-hand
+panel has **Export** · **Fitting** · **peak/valley** sub-tabs; a
+separate "xy analysis: gauss prop" + analyze control group sits at the
+tab's bottom-left.  The Export sub-tab (send binned data to Origin with
 graph/worksheet templates, axis names/units; "pretty PDF or export
 txt").  This is the workflow the portal's analysis tab must nail
 first.
