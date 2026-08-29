@@ -4,6 +4,17 @@ All notable changes to GEECS-Console are documented here.  Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is
 semantic.
 
+## [0.24.3] - 2026-08-29
+
+### Changed
+
+- Scan browser: `resolve_scan_folder` and `metadata_rows` moved down to
+  `geecs_data_utils.tiled_catalog` (portal arc phase 2 — shared with the
+  data portal); the browser imports them (import-identity pinned in
+  `tests/test_browser_scan_folder.py`).  `ops_paths.todays_scan_folder`
+  now delegates to `geecs_data_utils.scan_paths.daily_scan_folder`
+  (behavior preserved).
+
 ## [0.24.2] - 2026-08-25
 
 ### Fixed

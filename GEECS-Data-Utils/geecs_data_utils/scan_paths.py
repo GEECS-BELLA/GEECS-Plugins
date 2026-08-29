@@ -828,6 +828,65 @@ class ScanPaths:
 
 ScanPaths.reload_paths_config()
 
+
+def daily_scan_folder(
+    experiment: str = "",
+    base_path: Optional[Path] = None,
+    day: Optional[date] = None,
+) -> Optional[Path]:
+    """Build a day's daily ``scans/`` folder path — read-only, never creates.
+
+    The offline-first module-level companion to
+    :meth:`ScanPaths.get_daily_scan_folder`: pure path construction that
+    returns ``None`` instead of raising when the data root or experiment
+    is unresolvable, so GUI/portal callers can report "no scans" rather
+    than crash.  No directory is created or touched, and the returned
+    path may not exist yet — the caller checks ``is_dir()`` (repo
+    scan-folder invariant: analysis/GUI code is a consumer of scan
+    folders, never a producer).
+
+    Parameters
+    ----------
+    experiment : str, optional
+        The experiment name; falls back to the ``config.ini`` default
+        experiment when empty.
+    base_path : Path, optional
+        The data root; defaults to the ``GeecsPathsConfig`` base path.
+        Tests pass a tmp path.
+    day : datetime.date, optional
+        The date to resolve (tests pin it); defaults to today.
+
+    Returns
+    -------
+    Path or None
+        The candidate ``.../{YY_MMDD}/scans`` path (existing or not), or
+        ``None`` when the data root or the experiment is unresolvable.
+    """
+    paths_config = ScanPaths.paths_config
+    if base_path is None:
+        if paths_config is None:
+            return None
+        base_path = Path(paths_config.base_path)
+    resolved_experiment = experiment or (
+        getattr(paths_config, "experiment", None) or ""
+    )
+    if not resolved_experiment:
+        return None
+    resolved_day = day if day is not None else date.today()
+    try:
+        tag = ScanPaths.get_scan_tag(
+            resolved_day.year,
+            resolved_day.month,
+            resolved_day.day,
+            0,
+            experiment=resolved_experiment,
+        )
+        return ScanPaths.get_daily_scan_folder(tag=tag, base_directory=base_path)
+    except Exception as exc:  # noqa: BLE001 — offline-first: report, don't raise
+        logger.info("daily scan folder unresolvable: %s", exc)
+        return None
+
+
 if __name__ == "__main__":
     test_tag = ScanPaths.get_scan_tag(2025, 6, 5, number=31, experiment="Undulator")
     sp = ScanPaths(tag=test_tag)

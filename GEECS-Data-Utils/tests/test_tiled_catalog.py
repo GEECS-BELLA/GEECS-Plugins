@@ -6,11 +6,15 @@ from datetime import date, datetime
 
 import pytest
 
+from geecs_data_utils.scan_paths import daily_scan_folder
 from geecs_data_utils.tiled_catalog import (
     CatalogStatus,
+    RunDetail,
     StubCatalog,
     TiledScanCatalog,
+    metadata_rows,
     read_tiled_config,
+    resolve_scan_folder,
     summary_from_metadata,
 )
 
@@ -358,3 +362,114 @@ class TestProbe:
         catalog = TiledScanCatalog()
         with pytest.raises(RuntimeError, match="No Tiled URI"):
             catalog.load_run("uid-001")
+
+
+# ----------------------------------------------------------------------
+# Moved-down browser helpers (portal arc phase 2): resolve_scan_folder,
+# daily_scan_folder, metadata_rows
+# ----------------------------------------------------------------------
+
+
+def _detail(scan_number=2, scan_folder=None, **extra) -> RunDetail:
+    start = _start_doc(scan_number, **extra)
+    if scan_folder is not None:
+        start["scan_folder"] = scan_folder
+    return RunDetail(
+        summary=summary_from_metadata(start["uid"], start, {}),
+        start_doc=start,
+        stop_doc={},
+        data=None,
+    )
+
+
+def _tree_snapshot(root):
+    """Every path under *root*, for before/after comparison."""
+    return sorted(str(p) for p in root.rglob("*"))
+
+
+class TestResolveScanFolderInvariant:
+    """The repo scan-folder invariant: resolution is read-only, never creates."""
+
+    def test_existing_metadata_folder_resolves(self, tmp_path):
+        scan_dir = tmp_path / "scans" / "Scan002"
+        scan_dir.mkdir(parents=True)
+        detail = _detail(scan_folder=str(scan_dir))
+        assert resolve_scan_folder(detail, TEST_DAY) == scan_dir
+
+    def test_missing_folder_returns_none_and_touches_nothing(self, tmp_path):
+        missing = tmp_path / "Y2026" / "07-Jul" / "26_0712" / "scans" / "Scan002"
+        detail = _detail(scan_folder=str(missing))
+        before = _tree_snapshot(tmp_path)
+        assert resolve_scan_folder(detail, TEST_DAY) is None
+        assert _tree_snapshot(tmp_path) == before  # tree untouched
+
+    def test_no_scan_number_and_no_metadata_returns_none(self, tmp_path):
+        start = _start_doc(2)
+        start.pop("scan_number")
+        detail = RunDetail(
+            summary=summary_from_metadata("u", start, {}),
+            start_doc=start,
+            stop_doc={},
+            data=None,
+        )
+        before = _tree_snapshot(tmp_path)
+        assert resolve_scan_folder(detail, TEST_DAY) is None
+        assert _tree_snapshot(tmp_path) == before
+
+    def test_fallback_uses_daily_scan_folder(self, tmp_path, monkeypatch):
+        from geecs_data_utils import scan_paths as scan_paths_mod
+
+        daily = tmp_path / "scans"
+        (daily / "Scan002").mkdir(parents=True)
+        seen = {}
+
+        def fake_daily(experiment="", base_path=None, day=None):
+            seen["experiment"], seen["day"] = experiment, day
+            return daily
+
+        monkeypatch.setattr(scan_paths_mod, "daily_scan_folder", fake_daily)
+        assert resolve_scan_folder(_detail(), TEST_DAY) == daily / "Scan002"
+        assert seen == {"experiment": "Undulator", "day": TEST_DAY}
+
+
+class TestDailyScanFolder:
+    def test_builds_path_without_creating_anything(self, tmp_path):
+        result = daily_scan_folder("Undulator", base_path=tmp_path, day=TEST_DAY)
+        assert (
+            result == tmp_path / "Undulator" / "Y2026" / "07-Jul" / "26_0712" / "scans"
+        )
+        assert _tree_snapshot(tmp_path) == []  # pure construction
+
+    def test_unresolvable_experiment_returns_none(self, tmp_path, monkeypatch):
+        from geecs_data_utils.scan_paths import ScanPaths
+
+        monkeypatch.setattr(ScanPaths, "paths_config", None)
+        assert daily_scan_folder("", base_path=tmp_path, day=TEST_DAY) is None
+
+    def test_no_config_and_no_base_path_returns_none(self, monkeypatch):
+        from geecs_data_utils.scan_paths import ScanPaths
+
+        monkeypatch.setattr(ScanPaths, "paths_config", None)
+        assert daily_scan_folder("Undulator", day=TEST_DAY) is None
+
+
+class TestMetadataRows:
+    def test_rows_present_and_absent_keys_omitted(self):
+        rows = dict(metadata_rows(_detail(scan_number=7)))
+        assert rows["Scan"] == "Scan 007"
+        assert rows["Experiment"] == "Undulator"
+        assert rows["Exit status"] == "no stop document"
+        assert "Description" not in rows  # empty source key omitted
+
+    def test_stop_document_rows(self):
+        start = _start_doc(3)
+        stop = {"time": start["time"] + 42.0, "exit_status": "success"}
+        detail = RunDetail(
+            summary=summary_from_metadata("u", start, stop),
+            start_doc=start,
+            stop_doc=stop,
+            data=None,
+        )
+        rows = dict(metadata_rows(detail))
+        assert rows["Exit status"] == "success"
+        assert rows["Duration"] == "42 s"
