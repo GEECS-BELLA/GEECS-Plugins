@@ -839,11 +839,36 @@ class TestSaveControlOnly:
         assert det._save_nonscalar_data is False
         assert hasattr(det, "save")
         assert not hasattr(det, "localsavingpath")
-        # No save-path column header (that rides save_nonscalar_data).
-        assert not any("acq_timestamp" in k for k in det._column_headers)
+        # The acq_timestamp column SURVIVES the toggle: the capture stack's
+        # frames join to scan rows by it (ScanAnalysis device_hdf5) — its
+        # absence orphaned a live toggle-off scan's images from analysis
+        # (26_0828 Scan001).
+        assert det._column_headers["cap-acq_timestamp"] == (
+            "UC_Amp4_IR_input acq_timestamp"
+        )
+
+    def test_contributor_save_control_only_keeps_join_column(self) -> None:
+        con = CaTimestampedReadable(
+            "UC_Amp4_IR_input",
+            ["centroidx"],
+            experiment="Undulator",
+            name="capc",
+            save_nonscalar_data=False,
+            save_control_only=True,
+        )
+        assert con._save_control_only is True
+        assert hasattr(con, "save")
+        assert not hasattr(con, "localsavingpath")
+        assert con._column_headers["capc-acq_timestamp"] == (
+            "UC_Amp4_IR_input acq_timestamp"
+        )
 
     def test_save_nonscalar_wins_over_control_only(self) -> None:
-        """A (mis)configured both-flags device stays a full native saver."""
+        """A (mis)configured both-flags device stays a full native saver.
+
+        The acq_timestamp join column is present via either operand of the
+        gate's ``or`` — asserted below so neither side can silently drop it.
+        """
         det = CaGenericDetector(
             "UC_Amp4_IR_input",
             ["centroidx"],
@@ -855,6 +880,9 @@ class TestSaveControlOnly:
         assert det._save_nonscalar_data is True
         assert det._save_control_only is False
         assert hasattr(det, "localsavingpath")
+        assert det._column_headers["both-acq_timestamp"] == (
+            "UC_Amp4_IR_input acq_timestamp"
+        )
 
     def test_contributor_save_control_only_shape(self) -> None:
         from geecs_bluesky.devices.ca import CaTimestampedReadable

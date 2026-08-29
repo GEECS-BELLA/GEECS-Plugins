@@ -77,13 +77,18 @@ class CaTimestampedReadable(
             if var != acq_timestamp_variable
         }
         self._save_nonscalar_data = save_nonscalar_data
-        if save_nonscalar_data:
+        if save_nonscalar_data or save_control_only:
             # A file/image-saving device surfaces acq_timestamp as an s-file
             # column so saved files tie back to scan rows (legacy parity); a
             # pure-scalar device keeps it as an excluded companion column.
+            # A capture-owned camera (save_control_only) produces files too —
+            # its stack frames join to rows by this column (ScanAnalysis
+            # device_hdf5), so it must survive the toggle (found live,
+            # 26_0828 Scan001).
             self._column_headers[f"{name}-{safe_name(acq_timestamp_variable)}"] = (
                 f"{device} {acq_timestamp_variable}"
             )
+        if save_nonscalar_data:
             # Writable controls, not readable signals: read the gateway
             # readback, write the :SP setpoint (→ GEECS UDP set).
             for attr in ("localsavingpath", "save"):

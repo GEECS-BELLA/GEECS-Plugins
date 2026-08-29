@@ -4,6 +4,26 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.68.1] - 2026-08-28
+
+### Fixed
+
+- **Toggle-off scans keep the `acq_timestamp` s-file column** — the
+  stack join key. `save_control_only` devices (capture-owned cameras)
+  reused the pure-scalar column rule, so the s-file carried no
+  `<Device> acq_timestamp` column and ScanAnalysis's `device_hdf5`
+  strategy had nothing to join on: the whole scan's images were
+  orphaned from analysis. Found LIVE on the first real
+  stack-analysis run (26_0828 Scan001 — PNG-free, so the fallback
+  couldn't mask it; the prior test suite had pinned the buggy shape
+  as correct). A capture-owned camera is a file-producing device:
+  the column now survives the toggle on both sync roles
+  (`CaGenericDetector`, `CaTimestampedReadable`); the
+  `localsavingpath`/`save` native-save children still ride
+  `save_nonscalar_data` only. Async (snapshot) capture-owned cameras
+  still have no acq column — a pre-existing property of the snapshot
+  role, noted, not changed here.
+
 ## [0.68.0] - 2026-08-28
 
 ### Added

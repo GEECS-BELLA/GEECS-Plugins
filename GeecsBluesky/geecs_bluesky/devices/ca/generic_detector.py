@@ -81,15 +81,21 @@ class CaGenericDetector(ShotIdSupport, NonScalarSaveSupport, CaTriggerable):
             if var != acq_timestamp_variable
         }
         self._save_nonscalar_data = save_nonscalar_data
-        if save_nonscalar_data:
+        if save_nonscalar_data or save_control_only:
             # A file/image-saving device surfaces acq_timestamp as an s-file
             # column so saved files tie back to scan rows (legacy parity — the
             # saved filenames are stamped with it, and an images-only device
             # otherwise contributes no scalar column at all). For a pure-scalar
             # device acq_timestamp stays an excluded companion column.
+            # A capture-owned camera (save_control_only) is a file-producing
+            # device too — its stack frames join to rows BY this column
+            # (ScanAnalysis device_hdf5 strategy), so dropping it orphans
+            # the whole scan's images from analysis (found live, 26_0828
+            # Scan001: toggle-off s-file had no join key, stack unmapped).
             self._column_headers[f"{name}-{safe_name(acq_timestamp_variable)}"] = (
                 f"{device} {acq_timestamp_variable}"
             )
+        if save_nonscalar_data:
             # Writable controls, not readable signals (mirrors the direct
             # NonScalarSaveSupport._init_save_signals): read the gateway
             # readback, write the :SP setpoint (→ GEECS UDP set). Requires the
