@@ -396,12 +396,31 @@ class TestResolveScanFolderInvariant:
         detail = _detail(scan_folder=str(scan_dir))
         assert resolve_scan_folder(detail, TEST_DAY) == scan_dir
 
-    def test_missing_folder_returns_none_and_touches_nothing(self, tmp_path):
+    def test_missing_folder_returns_none_and_touches_nothing(
+        self, tmp_path, monkeypatch
+    ):
+        from geecs_data_utils import scan_paths as scan_paths_mod
+
+        # Hermetic: the miss now falls through to the daily fallback, which
+        # must not reach the real config.ini data root here.
+        monkeypatch.setattr(scan_paths_mod, "daily_scan_folder", lambda *a, **k: None)
         missing = tmp_path / "Y2026" / "07-Jul" / "26_0712" / "scans" / "Scan002"
         detail = _detail(scan_folder=str(missing))
         before = _tree_snapshot(tmp_path)
         assert resolve_scan_folder(detail, TEST_DAY) is None
         assert _tree_snapshot(tmp_path) == before  # tree untouched
+
+    def test_foreign_host_metadata_path_rebases_via_daily_fallback(
+        self, tmp_path, monkeypatch
+    ):
+        from geecs_data_utils import scan_paths as scan_paths_mod
+
+        daily = tmp_path / "scans"
+        (daily / "Scan002").mkdir(parents=True)
+        monkeypatch.setattr(scan_paths_mod, "daily_scan_folder", lambda *a, **k: daily)
+        # A path recorded on another host's mount (the worker's /mnt view).
+        detail = _detail(scan_folder="/mnt/other-host/scans/Scan002")
+        assert resolve_scan_folder(detail, TEST_DAY) == daily / "Scan002"
 
     def test_no_scan_number_and_no_metadata_returns_none(self, tmp_path):
         start = _start_doc(2)

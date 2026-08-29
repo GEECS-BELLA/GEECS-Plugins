@@ -59,13 +59,18 @@ port **8200**; Tiled is :8000, GEECS-MCP :8100).  The systemd unit +
 runbook land in `deploy/` (phase 5 of the arc); until then
 `geecs-data-portal --experiment <name>` serves directly.
 
-## Planned next (the arc's phase 4 — resource viewer)
+## The resource viewer (`resources.py`, arc phase 4)
 
-Image endpoints: (run, device, shot) → file path via
-`resolve_scan_folder` + the event row's save-path columns +
-`ScanPaths.build_asset_path`/`infer_device_ext` (never re-derive the
-filename convention), 16-bit → display PNG normalization, and
-`geecs_data_utils.io.scan_stack` for capture-daemon HDF5 stacks.  Tier
-degradation per the scope doc: HDF5 → gallery, Linux-readable native →
-gallery, vendor-SDK formats (`.himg`) → metadata card + path.  Lazy
-per-shot loading is a hard rule (the NAS pathology is file count).
+(run, device, shot) → displayable image, per the scope doc's tiering:
+capture HDF5 stacks first (`geecs_data_utils.io.scan_stack`; frame
+index = shot − 1 — dual-written stacks follow the same trigger
+sequence), else native files via
+`ScanPaths.build_asset_path`/`infer_device_ext` + `read_imaq_image`
+(never re-derive the filename convention), vendor-SDK formats
+(`.himg`/`.has`) as a path card, never rendered.  Display rendering is
+percentile-windowed (1–99.7) 16-bit → 8-bit PNG.  **Lazy per-shot
+loading is a hard rule** (the NAS pathology is file count) — never
+eager-thumbnail a scan from native files.  Device names are validated
+against the scan folder's actual subfolders (path-traversal guard), and
+every lookup — hit or miss — must leave the tree untouched (pinned in
+`tests/test_resources.py`).

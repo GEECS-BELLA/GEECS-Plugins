@@ -3,6 +3,19 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.17.0] - 2026-08-29
+
+### Changed
+
+- `tiled_catalog.resolve_scan_folder`: a recorded `scan_folder` start-doc
+  path that does not exist on THIS host no longer short-circuits to
+  `None` — it falls through to the daily-path fallback, re-basing onto
+  the local data root.  The recorded path is host-specific (the Linux
+  worker records `/mnt/...`; clients mount the share at `/Volumes/...`
+  or `Z:`), so the old behavior made every cross-host consumer (portal
+  gallery, console Open button off the worker) fail spuriously.  Found
+  live on the portal-arc phase-4 smoke against real runs.
+
 ## [0.16.0] - 2026-08-29
 
 ### Added
