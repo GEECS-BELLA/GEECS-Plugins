@@ -145,11 +145,36 @@ def _ordinal_native_file(device_dir: Path, ext: str, shot: int) -> Optional[Path
     return None
 
 
+def _stack_shot_from_memory(
+    index_map: dict, frames, shot: int, acq_timestamp: Optional[float], path=None
+) -> ShotImage:
+    """Render one shot from cached stack data (no filesystem access)."""
+    from geecs_data_utils.io.scan_stack import frame_index_for_timestamp
+
+    if acq_timestamp is not None:
+        index = frame_index_for_timestamp(index_map, acq_timestamp)
+        if index is None:
+            return ShotImage(
+                kind="missing", path=path, reason="no stack frame for this shot"
+            )
+    else:
+        index = shot - 1
+        if not 0 <= index < len(frames):
+            return ShotImage(
+                kind="missing",
+                path=path,
+                reason=f"stack: shot {shot} outside {len(frames)} frames",
+            )
+    return ShotImage(kind="stack", png=to_display_png(frames[index]), path=path)
+
+
 def load_shot_image(
     scan_folder: Path,
     device: str,
     shot: int,
     acq_timestamp: Optional[float] = None,
+    data_cache=None,
+    cache_key: Optional[tuple[str, str]] = None,
 ) -> ShotImage:
     """Resolve and render one device shot from an existing scan folder.
 
@@ -172,12 +197,29 @@ def load_shot_image(
         can shift the ordinal join — pass the timestamp when the event
         table is at hand).
 
+    data_cache : ShotDataCache, optional
+        The per-``(uid, device)`` pixel cache (``geecs_portal.cache``).
+        Pass ONLY for completed runs — their data is immutable.
+    cache_key : tuple of (str, str), optional
+        The cache key (``uid``, ``device``); required with *data_cache*.
+
     Returns
     -------
     ShotImage
         Rendered PNG bytes, or the tiered refusal (vendor path /
         missing reason).
     """
+    caching = data_cache is not None and cache_key is not None
+    if caching and shot >= 1:
+        # Fast paths: a cached entry was created after full validation,
+        # so a hit serves with zero filesystem access.
+        stack_hit = data_cache.stack_entry(cache_key)
+        if stack_hit is not None:
+            return _stack_shot_from_memory(*stack_hit, shot, acq_timestamp)
+        cached = data_cache.native_shot(cache_key, shot)
+        if cached is not None:
+            return ShotImage(kind="native", png=to_display_png(cached))
+
     kind = device_kind(scan_folder, device)
     if kind.kind == "missing":
         return ShotImage(kind="missing", reason=kind.reason or "unknown device")
@@ -188,6 +230,17 @@ def load_shot_image(
     if kind.kind == "stack":
         stack = kind.path
         try:
+            if caching:
+                # Eager within-scan load (owner doctrine): the whole
+                # frames array in one open; navigation never reopens.
+                # None = not admissible (un-finalized tail-race window,
+                # or over the per-entry cap) — serve per shot from disk.
+                admitted = data_cache.stack_frames(cache_key, stack)
+                if admitted is not None:
+                    index_map, frames = admitted
+                    return _stack_shot_from_memory(
+                        index_map, frames, shot, acq_timestamp, path=stack
+                    )
             if acq_timestamp is not None:
                 # The canonical-millisecond join, ONE file open — the
                 # shared keep-first contract lives in
@@ -246,9 +299,14 @@ def load_shot_image(
     try:
         from geecs_data_utils.io.images import read_imaq_image
 
+        array = read_imaq_image(native)
+        if caching and cacheable:
+            # Never cache an ordinal (listing-order) resolution — the
+            # same rule as the no-long-cache header.
+            data_cache.store_native_shot(cache_key, shot, array)
         return ShotImage(
             kind="native",
-            png=to_display_png(read_imaq_image(native)),
+            png=to_display_png(array),
             path=native,
             cacheable=cacheable,
         )

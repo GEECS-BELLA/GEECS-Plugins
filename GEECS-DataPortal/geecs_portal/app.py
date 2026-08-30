@@ -47,6 +47,7 @@ from geecs_data_utils.tiled_catalog import (
 )
 
 from geecs_portal import resources
+from geecs_portal.cache import ShotDataCache
 
 logger = logging.getLogger(__name__)
 
@@ -161,6 +162,10 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
     """
     app = FastAPI(title="GEECS Data Portal", docs_url=None, redoc_url=None)
     templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
+    # Per-app pixel cache: completed runs' shot data kept in memory so
+    # within-scan navigation never re-reads the share (owner doctrine,
+    # 2026-08-29 — lazy stays the rule ACROSS scans only).
+    data_cache = ShotDataCache()
 
     def _load_run(uid: str):
         """Load one run, mapping failures to honest HTTP status codes.
@@ -279,6 +284,39 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
             kind, kind_path = "", None
         n_rows = None if detail.data is None else len(detail.data)
         shot = max(1, min(shot, n_rows) if n_rows else shot)
+        if (
+            kind == "native"
+            and folder is not None
+            and n_rows
+            and detail.summary.exit_status
+            and detail.data is not None
+            and schema_map.device_acq_timestamp_column(
+                [str(c) for c in detail.data.columns], sel_device
+            )
+            is not None
+        ):
+            # Background-warm the whole diagnostic (timestamp-joined shots
+            # only — ordinal resolutions are never cached), so stepping
+            # through shots serves from memory.
+            warm_key = (uid, sel_device)
+            warm_folder, warm_device, warm_detail = folder, sel_device, detail
+
+            def _warm_one(s: int) -> None:
+                acq_s, present = _acq_timestamp(warm_detail, warm_device, s)
+                if acq_s is None:
+                    return  # device missed the shot (or no column)
+                resources.load_shot_image(
+                    warm_folder,
+                    warm_device,
+                    s,
+                    acq_timestamp=acq_s,
+                    data_cache=data_cache,
+                    cache_key=warm_key,
+                )
+
+            data_cache.warm_native(
+                warm_key, _warm_one, list(range(1, min(n_rows, 2000) + 1))
+            )
         state = {
             "day": day,
             "experiment": experiment or default_experiment,
@@ -331,7 +369,15 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
             raise HTTPException(
                 status_code=404, detail="device missed this shot (no timestamp)"
             )
-        result = resources.load_shot_image(folder, device, shot, acq_timestamp=acq)
+        complete = bool(detail.summary.exit_status)
+        result = resources.load_shot_image(
+            folder,
+            device,
+            shot,
+            acq_timestamp=acq,
+            data_cache=data_cache if complete else None,
+            cache_key=(uid, device) if complete else None,
+        )
         if result.png is None:
             raise HTTPException(status_code=404, detail=result.reason or result.kind)
         headers = (
