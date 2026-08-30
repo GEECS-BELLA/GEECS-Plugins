@@ -17,7 +17,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   keep-last), the native probe is the shared `probe_native_file`, and
   the day view's time cells use the shared `fmt_time_of_day`.
   `run_view` passes its device listing into `device_kind` (no second
-  directory scan per page). Behavior preserved.
+  directory scan per page). Behavior preserved, with one improvement:
+  in a non-canonical (dev/scratch) scan folder the gallery badge now
+  classifies vendor/unrenderable/native correctly (the tier probe no
+  longer needs `ScanPaths`) instead of showing a missing card; native
+  loads there still degrade to the layout card, never a 500.
 
 ## [0.4.0] - 2026-08-29
 

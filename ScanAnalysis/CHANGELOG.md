@@ -15,7 +15,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   → `io.scan_stack.stack_frame_index_map` / `frame_index_for_timestamp`.
   Behavior preserved (the shared helpers encode this analyzer's own
   semantics — keep-first duplicates, exact-key ±1 ms canonicalisation,
-  direct stat probes).
+  direct stat probes) — with one deliberate alignment: the listing-based
+  `files_by_ms` fallback map is now ALSO keep-first on duplicate ms keys
+  (was keep-last; reachable only by two distinct filenames rendering the
+  same millisecond), matching the shared join contract.
 
 ## [1.17.1] - 2026-08-28
 
