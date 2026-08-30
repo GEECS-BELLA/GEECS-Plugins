@@ -54,7 +54,7 @@ def _detail(
     if with_data:
         data = pd.DataFrame(
             {
-                "scan_event_index": [0, 1, 2],  # id machinery: never a pick
+                "scan_event_index": [1, 2, 3],  # id machinery (1-based per schema)
                 "cam-MaxCounts": [10.0, 12.5, 11.0],
                 "cam-acq_timestamp": [_LV + 1.0, _LV + 2.0, _LV + 3.0],  # companion
                 "cam-label": ["a", "b", "c"],  # non-numeric: never plottable
@@ -188,32 +188,40 @@ class TestRunView:
         assert "Scan 002" in response.text
         assert "success" in response.text
 
-    def test_pick_list_is_schema_shared_semantics(self):
+    def test_page_has_tabs_and_the_vendored_plotly(self):
         response = _client().get("/run/uid-002")
-        assert "cam-MaxCounts" in response.text
-        assert "telemetry_dev-val" in response.text  # numeric strings plot
-        assert "cam-label" not in response.text  # non-numeric
-        assert "cam-dead" not in response.text  # all-NaN
-        assert "scan_event_index" not in response.text  # id machinery
-        assert "cam-acq_timestamp" not in response.text  # companion machinery
+        assert 'data-pane="overview"' in response.text
+        assert 'data-pane="plot"' in response.text
+        assert 'data-pane="images"' in response.text
+        # The one committed JS asset — version-pinned, served locally.
+        assert "/static/plotly-cartesian-" in response.text
 
-    def test_stepped_scan_defaults_x_to_scan_variable(self):
-        catalog = FakeCatalog()
-        catalog.details["uid-007"] = _detail(7, motor="mono")
-        response = _client(catalog).get("/run/uid-007?y=cam-MaxCounts")
-        assert "plot.png?y=cam-MaxCounts&amp;x=mono" in response.text
+    def test_vendored_plotly_is_served(self):
+        response = _client().get("/static/plotly-cartesian-3.1.1.min.js")
+        assert response.status_code == 200
+        assert "plotly.js" in response.text[:200]
 
-    def test_explicit_x_wins_over_stepped_default(self):
-        catalog = FakeCatalog()
-        catalog.details["uid-007"] = _detail(7, motor="mono")
-        response = _client(catalog).get(
-            "/run/uid-007?y=cam-MaxCounts&x=telemetry_dev-val"
+    def test_scan_stepper_neighbours_from_the_days_listing(self):
+        # uid-001 is the older run (listing is newest first): its only
+        # neighbour is uid-002 as "next"; uid-002 has uid-001 as "prev".
+        client = _client(FakeCatalog(), default_experiment="Undulator")
+        older = client.get("/run/uid-001")
+        assert "/run/uid-002?" in older.text
+        newer = client.get("/run/uid-002")
+        assert "/run/uid-001?" in newer.text
+
+    def test_analysis_state_rides_the_stepper_links(self):
+        client = _client(FakeCatalog(), default_experiment="Undulator")
+        response = client.get(
+            "/run/uid-001?y=cam-MaxCounts&y=mono&view=bin"
+            "&filters=%7B%22groups%22%3A%5B%5D%7D&tab=plot"
         )
-        assert "plot.png?y=cam-MaxCounts&amp;x=telemetry_dev-val" in response.text
-
-    def test_selected_column_embeds_plot(self):
-        response = _client().get("/run/uid-002?y=cam-MaxCounts")
-        assert 'src="/run/uid-002/plot.png?y=cam-MaxCounts"' in response.text
+        stepper_line = next(
+            line for line in response.text.splitlines() if "/run/uid-002?" in line
+        )
+        assert "y=cam-MaxCounts" in stepper_line and "y=mono" in stepper_line
+        assert "view=bin" in stepper_line
+        assert "filters=" in stepper_line
 
     def test_unknown_run_is_404(self):
         assert _client().get("/run/nope").status_code == 404
@@ -310,3 +318,168 @@ class TestPlot:
         catalog.details["uid-009"] = _detail(9, with_data=False)
         client = _client(catalog)
         assert client.get("/run/uid-009/plot.png?y=cam-MaxCounts").status_code == 404
+
+
+class TestAnalysisApi:
+    """The /api JSON endpoints: one-liners over the data-utils primitives."""
+
+    _FILTERS = (
+        '{"groups":[{"conditions":'
+        '[{"column":"cam-MaxCounts","low":10.5,"high":13.0}]}]}'
+    )
+
+    def test_columns_carries_provenance_and_schema_semantics(self):
+        payload = _client().get("/api/run/uid-002/columns").json()
+        names = {c["name"] for c in payload["columns"]}
+        assert "cam-MaxCounts" in names
+        assert "telemetry_dev-val" in names  # numeric strings plot
+        assert "cam-label" not in names  # non-numeric
+        assert "cam-dead" not in names  # all-NaN
+        assert "scan_event_index" not in names  # id machinery
+        assert "cam-acq_timestamp" not in names  # companion machinery
+        # No s-file resolvable for the fake: everything is run-doc.
+        assert {c["provenance"] for c in payload["columns"]} == {"run"}
+        assert payload["total"] == 3
+
+    def test_columns_default_x_is_the_scan_variable(self):
+        catalog = FakeCatalog()
+        catalog.details["uid-007"] = _detail(7, motor="mono")
+        payload = _client(catalog).get("/api/run/uid-007/columns").json()
+        assert payload["default_x"] == "mono"
+
+    def test_frame_returns_series_and_shot_key(self):
+        payload = (
+            _client().get("/api/run/uid-002/frame?cols=cam-MaxCounts&x=mono").json()
+        )
+        assert payload["series"]["cam-MaxCounts"] == [10.0, 12.5, 11.0]
+        assert payload["series"]["mono"] == [4.0, 5.0, 6.0]
+        assert payload["shot"] == [1.0, 2.0, 3.0]  # 1-based scan_event_index
+        assert payload["pass"] == 3 and payload["total"] == 3
+        assert "scan_frame" in payload["code"]
+
+    def test_frame_applies_filters(self):
+        payload = (
+            _client()
+            .get(
+                "/api/run/uid-002/frame",
+                params={"cols": "cam-MaxCounts", "filters": self._FILTERS},
+            )
+            .json()
+        )
+        assert payload["series"]["cam-MaxCounts"] == [12.5, 11.0]
+        assert payload["pass"] == 2 and payload["total"] == 3
+        assert "apply_filters" in payload["code"]
+
+    def test_filters_that_empty_the_frame_are_not_a_404(self):
+        response = _client().get(
+            "/api/run/uid-002/frame",
+            params={
+                "cols": "cam-MaxCounts",
+                "filters": '{"groups":[{"conditions":'
+                '[{"column":"cam-MaxCounts","low":-2.0,"high":-1.0}]}]}',
+            },
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["series"]["cam-MaxCounts"] == []
+        assert payload["pass"] == 0
+
+    def test_binned_hand_computed_identity_bins(self):
+        payload = (
+            _client()
+            .get(
+                "/api/run/uid-002/binned",
+                params={"cols": "cam-MaxCounts", "bincfg": '{"bin_col":"mono"}'},
+            )
+            .json()
+        )
+        assert payload["bins"] == [4.0, 5.0, 6.0]
+        assert payload["counts"] == [1, 1, 1]
+        series = payload["series"]["cam-MaxCounts"]
+        assert series["center"] == [10.0, 12.5, 11.0]
+        assert series["err_low"] == [0.0, 0.0, 0.0]  # one shot per bin
+        assert "bin_frame" in payload["code"]
+        assert "BinningConfig" in payload["code"]
+
+    def test_binned_missing_bin_column_is_404(self):
+        # The fixture has no "Bin #" column — the default config must
+        # refuse honestly, not 500.
+        response = _client().get(
+            "/api/run/uid-002/binned", params={"cols": "cam-MaxCounts"}
+        )
+        assert response.status_code == 404
+        assert "bin column" in response.json()["detail"]
+
+    def test_filter_count(self):
+        payload = (
+            _client()
+            .get("/api/run/uid-002/filter-count", params={"filters": self._FILTERS})
+            .json()
+        )
+        assert payload == {"pass": 2, "total": 3}
+
+    def test_bad_filters_json_is_400(self):
+        response = _client().get(
+            "/api/run/uid-002/frame",
+            params={"cols": "cam-MaxCounts", "filters": "{not json"},
+        )
+        assert response.status_code == 400
+        assert "filters" in response.json()["detail"]
+
+    def test_unknown_filter_column_is_400(self):
+        response = _client().get(
+            "/api/run/uid-002/filter-count",
+            params={
+                "filters": '{"groups":[{"conditions":'
+                '[{"column":"nope","low":0,"high":1}]}]}'
+            },
+        )
+        assert response.status_code == 400
+
+    def test_unknown_bincfg_field_is_400(self):
+        response = _client().get(
+            "/api/run/uid-002/binned",
+            params={"cols": "cam-MaxCounts", "bincfg": '{"surprise": 1}'},
+        )
+        assert response.status_code == 400
+        assert "unknown fields" in response.json()["detail"]
+
+    def test_out_of_vocabulary_err_is_400(self):
+        response = _client().get(
+            "/api/run/uid-002/binned",
+            params={"cols": "cam-MaxCounts", "bincfg": '{"err": "bogus"}'},
+        )
+        assert response.status_code == 400
+
+    def test_unknown_column_is_404(self):
+        response = _client().get("/api/run/uid-002/frame?cols=nope")
+        assert response.status_code == 404
+
+    def test_more_than_four_y_columns_is_400(self):
+        query = "&".join(f"cols=c{i}" for i in range(5))
+        response = _client().get(f"/api/run/uid-002/frame?{query}")
+        assert response.status_code == 400
+        assert "at most 4" in response.json()["detail"]
+
+    def test_completed_run_json_is_immutable(self):
+        response = _client().get("/api/run/uid-002/columns")
+        assert "immutable" in response.headers["cache-control"]
+
+    def test_api_outage_is_503(self):
+        response = _client(DownCatalog()).get("/api/run/uid-002/columns")
+        assert response.status_code == 503
+
+    def test_api_unknown_run_is_404(self):
+        assert _client().get("/api/run/nope/columns").status_code == 404
+
+    def test_nan_values_serialize_as_null(self):
+        # cam-dead is all-NaN and unplottable, but a partial-NaN column
+        # must serialize NaN as null (valid JSON), never bare NaN.
+        catalog = FakeCatalog()
+        detail = _detail(7)
+        detail.data.loc[1, "cam-MaxCounts"] = float("nan")
+        catalog.details["uid-007"] = detail
+        response = _client(catalog).get("/api/run/uid-007/frame?cols=cam-MaxCounts")
+        assert response.status_code == 200
+        assert b"NaN" not in response.content
+        assert response.json()["series"]["cam-MaxCounts"] == [10.0, None, 11.0]

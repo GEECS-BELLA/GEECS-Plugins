@@ -312,7 +312,9 @@ class TestGalleryRoutes:
         client = TestClient(create_app(catalog))
         response = client.get("/run/uid-002")
         assert response.status_code == 200
-        assert "Images" not in response.text
+        # The Images tab exists but offers no device links.
+        assert "No image device folders resolvable" in response.text
+        assert "?device=" not in response.text.replace("&amp;device=", "")
         assert client.get("/run/uid-002/image.png?device=x&shot=1").status_code == 404
 
 
@@ -377,12 +379,11 @@ class TestStickyState:
         response = _gallery_client(scan_folder).get(
             "/run/uid-002?y=cam-MaxCounts&device=UC_TestCam&shot=2"
         )
-        # column links keep the selected device + shot
-        assert "y=cam-MaxCounts" in response.text
-        column_link = next(
-            line for line in response.text.splitlines() if "y=telemetry_dev-val" in line
+        # device links keep the plot selection
+        device_link = next(
+            line for line in response.text.splitlines() if "device=UC_StackCam" in line
         )
-        assert "device=UC_TestCam" in column_link
+        assert "y=cam-MaxCounts" in device_link
         # shot prev/next links keep the plot selection
         nav_lines = [
             line
@@ -415,7 +416,43 @@ class TestStickyState:
         run_page = client.get(
             f"/run/uid-001?day={TEST_DAY.isoformat()}&filter=scan 001"
         )
+        # the rail's day link is the way home — it must carry the filter
         back_link = next(
-            line for line in run_page.text.splitlines() if "&larr;" in line
+            line
+            for line in run_page.text.splitlines()
+            if f'href="/day/{TEST_DAY.isoformat()}?' in line
         )
         assert "filter=scan" in back_link
+
+
+class TestUnionColumns:
+    """The /api pick list unions the s-file with the event table."""
+
+    def test_sfile_columns_join_with_provenance(self, scan_folder):
+        day_dir = scan_folder.parent.parent
+        (day_dir / "analysis").mkdir()
+        (day_dir / "analysis" / "s2.txt").write_text(
+            "Shotnumber\tU_ICT charge\n1\t20.0\n2\t21.0\n3\t19.5\n"
+        )
+        client = _gallery_client(scan_folder)
+        payload = client.get("/api/run/uid-002/columns").json()
+        by_name = {c["name"]: c["provenance"] for c in payload["columns"]}
+        assert by_name["cam-MaxCounts"] == "run"
+        assert by_name["U_ICT charge"] == "sfile"
+        # And the union frame is filterable on the s-file column.
+        count = client.get(
+            "/api/run/uid-002/filter-count",
+            params={
+                "filters": '{"groups":[{"conditions":'
+                '[{"column":"U_ICT charge","low":19.9,"high":30}]}]}'
+            },
+        ).json()
+        assert count == {"pass": 2, "total": 3}
+
+    def test_union_lookup_leaves_the_tree_untouched(self, scan_folder):
+        # No analysis/ dir: the s-file probe must not create one (reads
+        # never write — the analysis-folder doctrine's read side).
+        before = _tree_snapshot(scan_folder.parent.parent)
+        client = _gallery_client(scan_folder)
+        assert client.get("/api/run/uid-002/columns").status_code == 200
+        assert _tree_snapshot(scan_folder.parent.parent) == before
