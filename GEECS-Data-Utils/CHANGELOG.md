@@ -3,6 +3,22 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.22.0] - 2026-08-30
+
+### Added
+
+Analysis-tabs wave W1b: `data/row_filters.py` — GEECSplotter's
+"outer OR, inner AND" filter model as Pydantic vocabulary
+(`RowFilters` → named `FilterGroup`s of `FilterCondition`s, each a
+`within`/`outside` inclusive bounds pair) with `filter_mask` (the
+composable pass mask — `.sum()` is the live count) and `apply_filters`.
+Comparison kernel shared with `cleaning._OPERATORS`; NaN handling is an
+**explicit** `nan_policy` (`exclude` fails the condition under both
+modes — the complement must not silently pass NaN — `keep` passes;
+replaces the legacy op-dependent behavior for this path); disabled and
+empty groups are ignored, and no active groups is the identity, never
+an empty result. JSON round-trip pinned (the endpoint/URL/config form).
+
 ## [0.21.0] - 2026-08-30
 
 ### Added
