@@ -21,14 +21,20 @@ is reproducible in a notebook by calling the same primitive.*
 
 ## Recon findings that shape the plan
 
-1. **`ScanData.binned_scalars` has no production consumers.** Grep:
-   only its definition, two error strings in `plotting_utils`, and one
-   share-dependent integration test. `GEECS-Data-Utils/CLAUDE.md`'s
-   claims that ScanAnalysis renderers consume it and that a
-   `sd.bin(config)` method exists are both **false** (ScanAnalysis bins
-   independently; the method was never written). Consequence: the
-   binning implementation can be rewritten freely — no migration.
-   (This PR fixes the two CLAUDE.md falsehoods.)
+1. **`ScanData.binned_scalars` has almost no consumers.** Grep: its
+   definition, two error strings in `plotting_utils`, one
+   share-dependent integration test, and one docs example notebook
+   (`docs/geecs_data_utils/examples/basic_usage.ipynb` —
+   `set_binning_config` → `binned_scalars` → `plot_binned`).
+   `GEECS-Data-Utils/CLAUDE.md`'s claims that ScanAnalysis renderers
+   consume it and that a `sd.bin(config)` method exists are both
+   **false** (ScanAnalysis bins independently; the method was never
+   written — this PR fixes both). Owner confirms (2026-08-30): the
+   binning that is actually exercised in production is the *image-side*
+   per-bin path in ScanAnalysis, and most of this layer is in light use
+   generally — so the scalar-binning implementation can be rewritten
+   freely; the `ScanData` delegate keeps the notebook working and W1c
+   refreshes it to the new API.
 2. **The s-file is read in three independent places** with three copies
    of the `s{number}.txt` path convention: `scan_data.py` (`read_csv`
    via ScanPaths), `ScanAnalysis/base.py:296` (its own `read_csv`,
@@ -147,8 +153,9 @@ models — the same objects the notebook snippet shows. Every endpoint's
 2. **W1b `data-utils/row-filter-groups`** — the OR-of-AND filter model
    lowering onto `apply_row_filters`; explicit NaN policy; pass-count.
 3. **W1c `data-utils/bin-frame`** — the pure `bin_frame` rewrite +
-   `sd.bin(cfg)` delegate + err-mode unit tests (+ CLAUDE.md truth-up
-   if not already landed with this doc).
+   `sd.bin(cfg)` delegate + err-mode unit tests + the
+   `basic_usage.ipynb` docs-notebook refresh onto the new API
+   (notebook hygiene per docs/CLAUDE.md).
 4. **W1d `portal/plotly-plot-tab`** — vendored Plotly (doctrine
    amendment in CLAUDE.md), the rail (steppers, filter chips + popup),
    the Plot tab (per-shot ⇄ binned, multi-Y ≤ 4, gear popup,
