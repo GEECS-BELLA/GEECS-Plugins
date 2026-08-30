@@ -12,12 +12,18 @@ Analysis-tabs wave W1b: `data/row_filters.py` — GEECSplotter's
 (`RowFilters` → named `FilterGroup`s of `FilterCondition`s, each a
 `within`/`outside` inclusive bounds pair) with `filter_mask` (the
 composable pass mask — `.sum()` is the live count) and `apply_filters`.
-Comparison kernel shared with `cleaning._OPERATORS`; NaN handling is an
-**explicit** `nan_policy` (`exclude` fails the condition under both
-modes — the complement must not silently pass NaN — `keep` passes;
-replaces the legacy op-dependent behavior for this path); disabled and
-empty groups are ignored, and no active groups is the identity, never
-an empty result. JSON round-trip pinned (the endpoint/URL/config form).
+Deliberately NOT lowered onto `apply_row_filters` (a mask-returning,
+OR-capable, explicit-NaN primitive can't be built on the AND-only
+frame-returning kernel; the legacy tuple vocabulary stays for its
+consumers — composing `RowFilters` into `DatasetBuilder` is future
+work). NaN handling is an **explicit** `nan_policy` (`exclude` fails
+the condition under both modes — the complement must not silently pass
+NaN — `keep` passes); NaN bounds are refused at validation (±inf stays
+legal for half-open ranges); datetime/timedelta columns and duplicated
+labels are refused loudly per the `numeric_series` coercion doctrine.
+Disabled and empty groups are ignored, and no active groups is the
+identity, never an empty result. JSON round-trip pinned (the
+endpoint/URL/config form).
 
 ## [0.21.0] - 2026-08-30
 

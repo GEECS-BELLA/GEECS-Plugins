@@ -8,12 +8,26 @@ LabVIEW tool's "outer indexes OR, inner AND" semantics, as Pydantic
 models so the same object serializes into an endpoint query, a saved
 analysis config, and the "show the code" snippet.
 
-Comparison semantics reuse :mod:`geecs_data_utils.data.cleaning`'s
-operator table (the proven kernel); what this module adds is the
-grouping algebra, the ``outside`` complement, and an **explicit** NaN
-policy — the legacy ``apply_row_filters`` behavior was op-dependent
-(comparisons drop NaN rows, ``!=`` keeps them), which is exactly why
-the policy is now a declared field.
+This module deliberately does **not** lower onto
+:func:`geecs_data_utils.data.cleaning.apply_row_filters` (the 03 design
+doc's original sketch): a mask-returning, OR-capable, explicit-NaN
+primitive cannot be built on an AND-only frame-returning kernel, so the
+comparisons are written inline here.  The legacy tuple vocabulary stays
+for its existing consumers (``DatasetBuilder.prepare_frame`` still
+takes ``list[RowFilterSpec]``; composing :class:`RowFilters` into the
+dataset pipeline is future work).  The NaN policy is a declared field
+precisely because the legacy behavior was op-dependent (comparisons
+drop NaN rows, ``!=`` keeps them).
+
+Coercion follows the package's established doctrine
+(``tiled_schema.numeric_series``): datetime/timedelta columns and
+duplicated column labels are refused loudly rather than silently
+compared as nanosecond integers.
+
+Porting fidelity note: GEECSplotter has per-*condition* enable toggles;
+this model carries enable at the *group* level (the 03 design's
+explicit choice) — importing a saved LabVIEW filter set drops disabled
+condition rows rather than carrying their disabled state.
 """
 
 from __future__ import annotations
@@ -21,8 +35,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, List, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
-
-from geecs_data_utils.data.cleaning import _OPERATORS
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     import pandas as pd
@@ -47,6 +59,13 @@ class FilterCondition(BaseModel):
 
     @model_validator(mode="after")
     def _ordered_bounds(self) -> "FilterCondition":
+        import math
+
+        # NaN bounds silently match nothing (NaN comparisons are all
+        # False, so low > high never trips) — refuse them here. ±inf
+        # stays legal: half-open ranges are legitimate.
+        if math.isnan(self.low) or math.isnan(self.high):
+            raise ValueError(f"NaN bound for column {self.column!r}")
         if self.low > self.high:
             raise ValueError(
                 f"low ({self.low}) must not exceed high ({self.high}) "
@@ -95,7 +114,7 @@ class RowFilters(BaseModel):
 def _condition_mask(
     frame: "pd.DataFrame", condition: FilterCondition, nan_policy: str
 ) -> "pd.Series":
-    """Boolean mask for one condition (shared comparison kernel)."""
+    """Boolean mask for one condition."""
     if condition.column not in frame.columns:
         raise ValueError(
             f"filter column {condition.column!r} not in the frame "
@@ -103,10 +122,22 @@ def _condition_mask(
         )
     import pandas as pd
 
-    series = pd.to_numeric(frame[condition.column], errors="coerce")
-    inside = _OPERATORS[">="](series, condition.low) & _OPERATORS["<="](
-        series, condition.high
-    )
+    raw = frame[condition.column]
+    if not isinstance(raw, pd.Series):
+        # Duplicated column label — refuse with OUR message, not an
+        # opaque pandas TypeError (numeric_series parity).
+        raise ValueError(f"filter column {condition.column!r} is duplicated")
+    if pd.api.types.is_datetime64_any_dtype(raw) or pd.api.types.is_timedelta64_dtype(
+        raw
+    ):
+        # Coercing would compare ~1e18 nanosecond integers against the
+        # bounds — wrong-but-plausible results (numeric_series doctrine).
+        raise ValueError(
+            f"filter column {condition.column!r} is a datetime/timedelta "
+            "column — not filterable by numeric bounds"
+        )
+    series = pd.to_numeric(raw, errors="coerce")
+    inside = (series >= condition.low) & (series <= condition.high)
     mask = inside if condition.mode == "within" else ~inside
     is_nan = series.isna()
     if nan_policy == "keep":

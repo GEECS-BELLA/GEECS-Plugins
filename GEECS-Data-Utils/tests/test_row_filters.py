@@ -84,6 +84,42 @@ class TestConditions:
         with pytest.raises(ValidationError):
             _cond("charge", 40, 10)
 
+    def test_nan_bounds_refused_but_inf_is_legal(self):
+        # NaN bounds silently match nothing (comparisons all-False, and
+        # low > high never trips on NaN) — refused at validation. ±inf
+        # stays legal: half-open ranges.
+        with pytest.raises(ValidationError):
+            _cond("charge", float("nan"), 5.0)
+        with pytest.raises(ValidationError):
+            RowFilters.model_validate_json(
+                '{"groups":[{"conditions":[{"column":"charge","low":NaN,"high":5.0}]}]}'
+            )
+        half_open = RowFilters(
+            groups=[FilterGroup(conditions=[_cond("charge", 30, float("inf"))])]
+        )
+        assert filter_mask(_frame(), half_open).tolist() == [
+            False,
+            False,
+            True,
+            False,
+            True,
+        ]
+
+    def test_datetime_column_refused_not_silently_compared(self):
+        # numeric_series doctrine: coercion would compare ~1e18 ns ints
+        # against the bounds — wrong-but-plausible, so refuse loudly.
+        frame = _frame()
+        frame["when"] = pd.to_datetime(["2026-08-29"] * 5)
+        filters = RowFilters(groups=[FilterGroup(conditions=[_cond("when", 0, 1e10)])])
+        with pytest.raises(ValueError, match="datetime"):
+            filter_mask(frame, filters)
+
+    def test_duplicated_column_label_refused_with_our_message(self):
+        dup = pd.DataFrame([[1.0, 2.0]], columns=["a", "a"])
+        filters = RowFilters(groups=[FilterGroup(conditions=[_cond("a", 0, 5)])])
+        with pytest.raises(ValueError, match="duplicated"):
+            filter_mask(dup, filters)
+
 
 class TestAlgebra:
     def test_conditions_and_within_a_group(self):
