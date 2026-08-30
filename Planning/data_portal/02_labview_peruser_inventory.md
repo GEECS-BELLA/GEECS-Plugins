@@ -106,7 +106,13 @@ FileType/mode whose output feeds BOTH this tab and the Binned plot tab
 |---|---|---|---|
 | U1 | All seven un-screenshotted tabs | **unknown → owner** | One line each from the owner: used / not used / what it does. MultiScan is presumptively M2/§4 (cross-scan, deferred). Anything unused: drop. | |
 
-## Proposed wave plan (falls out of the rulings)
+## Proposed wave plan (superseded)
+
+*This section is **superseded by ruling 1 below and the wave plan in
+`03_analysis_tabs_design.md`**: the "Confirm or reorder" question was
+answered by the merged-Plot-tab ruling (per-shot ⇄ binned ship together
+in the first Plot tab), and top-N-per-bin moved out of wave 1 per
+ruling 8. Kept for the record of the original proposal.*
 
 **Flagged departure for the owner to confirm**: notes.md ranks the
 binned plot #1 ("the workflow the portal's analysis tab must nail
@@ -130,6 +136,44 @@ first release, waves 1 and 2's plotting halves can ship together.
 - **Wave 3** — fitting (B4), cross-scan (M2), and whatever U1 surfaces.
 - **Parallel track** — the historic-MC ingester (settled §5), sized
   separately.
+
+## Post-mockup rulings (2026-08-30 — supersede individual rows where they conflict)
+
+The owner reviewed and accepted an interactive mockup (the "GEECS
+Analysis Tabs" artifact, v4) through four iterations; these rulings are
+now the design of record, refined further in
+`03_analysis_tabs_design.md` (the backend decomposition):
+
+1. **One Plot tab** replaces the separate 2-Parameter/Binned tabs (§03
+   + §04 above): per-shot ⇄ binned is a display toggle over the same
+   data; bin settings live behind a ⚙ popup. Multi-Y up to 4 columns.
+2. **The popup pattern is the expansion mechanism**: the rail shows
+   *named summaries* (filter chips, default names "filter N"); editing
+   happens in popup widgets; per-window ⚙ gears carry settings.
+   Capability grows behind popups, never as rail clutter.
+3. **Images promoted to its own tab** (per-shot stepper ⇄ per-bin
+   averaged grid); the Overview tab is metadata only; the old run
+   page's quick plotter is removed.
+4. **Ephemeral analysis processing**: Images and Traces get a
+   `processing: raw | <diagnostic config>` selector running
+   ImageAnalysis's image half in-process — read-only by construction
+   (never the ScanAnalysis writing pipeline; no s-file columns, no
+   analysis tree). Derived scalars feed the Plot tab as a third column
+   provenance, `computed`.
+5. **A sparse landing page** (experiment/day/scan entry + a *scaffolded,
+   not implemented* analysis-configs card — storage/schema deliberately
+   deferred).
+6. **Scan and day steppers live in the rail** and swap identity in
+   place — filters, columns, and tab persist across scan/day hops; the
+   day page is the entry point only.
+7. **Traces default to a rastered waterfall** (color = intensity),
+   line-stack as the option; the tab stays a placeholder pending the
+   trace-propagation question.
+8. **Top-N-per-bin (M9)** evicted from the rail; returns later inside
+   the filters popup.
+9. **"Show the code" kept on every plot** (owner: loved).
+10. **Multi-user needs nothing**: the app is stateless (all view state
+    in the URL); one port = independent per-browser instances.
 
 ## To pin against the LabVIEW source (owner shares out-of-band, never committed)
 
