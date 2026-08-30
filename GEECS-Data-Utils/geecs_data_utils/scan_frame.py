@@ -197,7 +197,9 @@ def scan_frame(
 
     # One row per shot is the contract: duplicate keys (corruption or
     # hand edits — producers write unique 1..N) keep the FIRST row,
-    # matching the shared keep-first join doctrine.
+    # matching the shared keep-first join doctrine. NA keys collapse
+    # too (pandas treats <NA> duplicates as equal) — blank-Shotnumber
+    # rows aren't shots, so one survivor is the honest rendering.
     dupes = right["_shot_key"].duplicated(keep="first")
     if bool(dupes.any()):
         logger.warning(
