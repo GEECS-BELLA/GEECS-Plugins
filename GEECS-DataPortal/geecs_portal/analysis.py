@@ -76,13 +76,19 @@ _BIN_BOOLS = ("right", "scale_to_sigma")
 def _bin_number(key: str, value: object, kind: type) -> object:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise BadParam(f"bad bincfg param: {key} must be a number")
+    # json.loads admits NaN/Infinity literals and unbounded ints — all
+    # three must 400 here, not overflow later.
+    try:
+        as_float = float(value)
+    except OverflowError as exc:
+        raise BadParam(f"bad bincfg param: {key} must be finite") from exc
+    if not math.isfinite(as_float):
+        raise BadParam(f"bad bincfg param: {key} must be finite")
     if kind is int:
-        if float(value) != int(value):
+        if isinstance(value, float) and not value.is_integer():
             raise BadParam(f"bad bincfg param: {key} must be an integer")
         return int(value)
-    if not math.isfinite(float(value)):
-        raise BadParam(f"bad bincfg param: {key} must be finite")
-    return float(value)
+    return as_float
 
 
 def parse_bincfg(raw: str) -> BinningConfig:
@@ -121,7 +127,11 @@ def parse_bincfg(raw: str) -> BinningConfig:
     if unknown:
         raise BadParam(f"bad bincfg param: unknown fields {sorted(unknown)}")
     for key, allowed in _BIN_CHOICES.items():
-        if key in payload and payload[key] not in allowed:
+        # isinstance first: an unhashable value (list/dict) would raise
+        # a raw TypeError out of the set-membership test.
+        if key in payload and (
+            not isinstance(payload[key], str) or payload[key] not in allowed
+        ):
             raise BadParam(f"bad bincfg param: {key} must be one of {sorted(allowed)}")
     if "bin_col" in payload and not isinstance(payload["bin_col"], str):
         raise BadParam("bad bincfg param: bin_col must be a string")

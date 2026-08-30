@@ -500,6 +500,13 @@ class TestAnalysisApi:
             '{"bin_col":3}',  # non-string
             '{"bin_edges":[1]}',  # < 2 edges
             '{"value_cols":"v"}',  # bare string, not a list
+            '{"dropna":[]}',  # unhashable into a choice field
+            '{"err":{"a":1}}',  # unhashable into a choice field
+            '{"agg":[1,2]}',  # unhashable into a choice field
+            '{"ddof":NaN}',  # json.loads admits NaN literals
+            '{"ddof":Infinity}',  # ... and Infinity
+            '{"min_count":1e400}',  # float overflow to inf
+            '{"quantile_bins":' + "9" * 400 + "}",  # unbounded int
         ]
         for bincfg in bad:
             response = client.get(
