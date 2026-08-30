@@ -488,6 +488,11 @@ def resolve_scan_folder(detail: RunDetail, day: date) -> Optional[Path]:
     scan_number = detail.summary.scan_number
     if scan_number is None:
         return None
+    # An experiment-less run must not re-base: daily_scan_folder would
+    # substitute the host config's default experiment, and that tree's
+    # same-numbered ScanNNN is a different scan's data.
+    if not detail.summary.experiment:
+        return None
     from geecs_data_utils.scan_paths import daily_scan_folder
 
     daily = daily_scan_folder(detail.summary.experiment, day=day)

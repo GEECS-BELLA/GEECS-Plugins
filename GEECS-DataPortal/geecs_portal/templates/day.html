@@ -2,13 +2,14 @@
 {% block title %}{{ day.isoformat() }} — GEECS Data Portal{% endblock %}
 {% block content %}
 <div class="nav">
-  <a href="/day/{{ prev_day }}?experiment={{ experiment | urlencode }}">&larr; {{ prev_day }}</a>
+  <a href="/day/{{ prev_day }}?{{ qs() }}">&larr; {{ prev_day }}</a>
   <h1>{{ day.isoformat() }}</h1>
-  <a href="/day/{{ next_day }}?experiment={{ experiment | urlencode }}">{{ next_day }} &rarr;</a>
+  <a href="/day/{{ next_day }}?{{ qs() }}">{{ next_day }} &rarr;</a>
 </div>
 <form class="nav" method="get" action="/go">
   <input type="date" name="day" value="{{ day.isoformat() }}">
   <input type="text" name="experiment" value="{{ experiment }}" placeholder="experiment">
+  {% if filter %}<input type="hidden" name="filter" value="{{ filter }}">{% endif %}
   <button type="submit">Go</button>
 </form>
 <form class="nav" method="get" action="/day/{{ day.isoformat() }}">

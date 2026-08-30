@@ -3,6 +3,46 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.4.0] - 2026-08-29
+
+### Fixed
+
+Review-fix wave (max-effort #712 review findings):
+
+- A shot beyond the run's recorded event rows now 404s instead of
+  falling back to ordinal indexing — the fallback could serve an orphan
+  frame (pre-scan stack extras) labeled as a shot that never happened.
+  The gallery's "next →" link is bounded by the event-row count and the
+  shot input clamps.
+- A Tiled outage now returns 503 "catalog unavailable" from the run
+  routes instead of 404 "run not found" (`KeyError` alone means unknown
+  uid).
+- A run with no usable start time no longer resolves via today's daily
+  folder (same-numbered scan hazard) — an explicit `day` param or
+  nothing.
+- Non-canonical recorded scan folders and malformed capture stacks
+  (missing/mistyped `/acq_timestamp`) degrade to the missing card / 404
+  instead of 500 (`ValueError`/`KeyError`/`TypeError` now caught).
+- Sticky query state: every template link builds its query through one
+  helper — the plot selection survives shot stepping and device picks,
+  the day filter survives prev/next-day navigation.
+- `.dat`/`.tdms` devices get an honest "unrenderable" card instead of a
+  false "vendor-SDK format" label (new tier kind).
+- Plot axis labels render with `parse_math=False` (a `$` in a GEECS
+  column name would 500 at savefig).
+
+### Added
+
+- Caching headers on `plot.png`/`image.png`: completed runs are
+  immutable per URL, still-running runs revalidate.
+- systemd unit pins `TZ` (daily folders are named by the scanner
+  host's local date; a UTC-defaulted server would resolve evening scans
+  into the next day) + runbook troubleshooting row.
+- Hermetic-test guard: an autouse fixture keeps the suite off the real
+  `config.ini` data root (`TestRunView` previously statted the share on
+  developer machines); the test fake now lists runs newest-first per
+  the catalog contract, with an ordering pin.
+
 ## [0.3.0] - 2026-08-29
 
 ### Added

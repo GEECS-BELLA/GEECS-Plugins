@@ -4,6 +4,24 @@ All notable changes to GEECS-Console are documented here.  Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is
 semantic.
 
+## [0.24.4] - 2026-08-29
+
+### Changed
+
+- Scan browser Open button inherits Data-Utils 0.19.0's guard: a run
+  whose start doc names no experiment no longer re-bases through the
+  host config's default experiment (it resolves as not-found instead).
+  Clarifies 0.24.3's record: the shared `resolve_scan_folder`'s 0.17.0
+  fall-through *did* change Open-button behavior for stale recorded
+  paths (they now re-base via the daily path instead of failing) —
+  "behavior preserved" there applied only to `todays_scan_folder`.
+
+### Added
+
+- Import-identity pin for `metadata_rows` (alongside the existing
+  `resolve_scan_folder` pin) — a console-local re-implementation now
+  fails the suite instead of silently drifting the two front-ends.
+
 ## [0.24.3] - 2026-08-29
 
 ### Changed

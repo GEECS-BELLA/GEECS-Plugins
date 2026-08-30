@@ -450,6 +450,57 @@ class TestResolveScanFolderInvariant:
         assert resolve_scan_folder(_detail(), TEST_DAY) == daily / "Scan002"
         assert seen == {"experiment": "Undulator", "day": TEST_DAY}
 
+    def test_empty_experiment_never_rebases(self, monkeypatch):
+        """An experiment-less run must not fall through: daily_scan_folder
+        would substitute the host config's default experiment, whose
+        same-numbered ScanNNN is a different scan's data."""
+        from geecs_data_utils import scan_paths as scan_paths_mod
+
+        def forbidden(*args, **kwargs):
+            raise AssertionError("daily_scan_folder must not be consulted")
+
+        monkeypatch.setattr(scan_paths_mod, "daily_scan_folder", forbidden)
+        start = _start_doc(2)
+        start["experiment"] = ""
+        start["scan_folder"] = "/mnt/other-host/scans/Scan002"  # unreachable
+        detail = RunDetail(
+            summary=summary_from_metadata("u", start, {}),
+            start_doc=start,
+            stop_doc={},
+            data=None,
+        )
+        assert resolve_scan_folder(detail, TEST_DAY) is None
+
+    def test_fallback_resolves_through_real_daily_construction(
+        self, tmp_path, monkeypatch
+    ):
+        """Pin the un-mocked fallback end to end: a foreign-host recorded
+        path re-bases through the REAL daily_scan_folder path construction
+        onto this host's tree (no stub standing in for the mechanism)."""
+        from types import SimpleNamespace
+
+        from geecs_data_utils.scan_paths import ScanPaths
+
+        scan_dir = (
+            tmp_path
+            / "Undulator"
+            / "Y2026"
+            / "07-Jul"
+            / "26_0712"
+            / "scans"
+            / "Scan002"
+        )
+        scan_dir.mkdir(parents=True)
+        monkeypatch.setattr(
+            ScanPaths,
+            "paths_config",
+            SimpleNamespace(base_path=tmp_path, experiment="Undulator"),
+        )
+        detail = _detail(scan_folder="/mnt/other-host/scans/Scan002")
+        before = _tree_snapshot(tmp_path)
+        assert resolve_scan_folder(detail, TEST_DAY) == scan_dir
+        assert _tree_snapshot(tmp_path) == before  # tree untouched
+
 
 class TestDailyScanFolder:
     def test_builds_path_without_creating_anything(self, tmp_path):

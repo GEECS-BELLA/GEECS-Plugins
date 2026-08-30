@@ -56,7 +56,7 @@ _P_LO, _P_HI = 1.0, 99.7
 class ShotImage:
     """One resolved shot: rendered PNG bytes, or a tiered refusal."""
 
-    kind: str  # "stack" | "native" | "vendor" | "missing"
+    kind: str  # "stack" | "native" | "vendor" | "unrenderable" | "missing"
     png: Optional[bytes] = None
     path: Optional[Path] = None
     reason: str = ""
@@ -248,18 +248,28 @@ def load_shot_image(
                 index = shot - 1
             frame = read_shot(stack, index)
             return ShotImage(kind="stack", png=to_display_png(frame), path=stack)
-        except (IndexError, OSError, ValueError) as exc:
+        # KeyError/TypeError: a malformed-but-schema-valid stack (missing
+        # or mistyped /acq_timestamp) — same enumeration ScanAnalysis
+        # defends against (PR #693 review); must 404, never 500.
+        except (IndexError, KeyError, OSError, TypeError, ValueError) as exc:
             return ShotImage(kind="missing", path=stack, reason=f"stack: {exc}")
 
     if _vendor_only(device_dir):
         return ShotImage(kind="vendor", path=device_dir, reason="vendor SDK format")
-    paths = ScanPaths(folder=scan_folder)
+    try:
+        paths = ScanPaths(folder=scan_folder)
+    except ValueError as exc:
+        # A recorded folder that exists but doesn't follow the canonical
+        # layout (dev/scratch runs) — degrade, never 500.
+        return ShotImage(kind="missing", path=scan_folder, reason=f"layout: {exc}")
     ext = paths.infer_device_ext(device)
     native = paths.build_asset_path(shot=shot, device=device, ext=ext)
     if ext in _VENDOR_EXTS:
         return ShotImage(kind="vendor", path=native, reason="vendor SDK format")
     if ext not in _RENDERABLE_EXTS:
-        return ShotImage(kind="vendor", path=native, reason=f"no renderer for .{ext}")
+        return ShotImage(
+            kind="unrenderable", path=native, reason=f"no renderer for .{ext}"
+        )
     if not native.is_file():
         if acq_timestamp is not None:
             chosen = _native_file_for_timestamp(device_dir, device, ext, acq_timestamp)
@@ -293,6 +303,8 @@ def device_kind(scan_folder: Path, device: str) -> tuple[str, Optional[Path]]:
     tuple of (str, Path or None)
         ``("stack", stack_path)`` when a capture stack exists,
         ``("vendor", device_dir)`` for vendor-SDK formats,
+        ``("unrenderable", device_dir)`` for non-image native formats
+        (trace/array files — findable, not rendered),
         ``("native", device_dir)`` otherwise; ``("missing", None)`` for
         an unknown device.
     """
@@ -304,7 +316,13 @@ def device_kind(scan_folder: Path, device: str) -> tuple[str, Optional[Path]]:
         return ("stack", stack)
     if _vendor_only(device_dir):
         return ("vendor", device_dir)
-    ext = ScanPaths(folder=scan_folder).infer_device_ext(device)
-    if ext in _VENDOR_EXTS or ext not in _RENDERABLE_EXTS:
+    try:
+        ext = ScanPaths(folder=scan_folder).infer_device_ext(device)
+    except ValueError:
+        # Non-canonical folder layout — degrade to the missing card.
+        return ("missing", None)
+    if ext in _VENDOR_EXTS:
         return ("vendor", device_dir)
+    if ext not in _RENDERABLE_EXTS:
+        return ("unrenderable", device_dir)
     return ("native", device_dir)

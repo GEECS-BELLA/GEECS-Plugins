@@ -3,6 +3,27 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.19.0] - 2026-08-29
+
+### Changed
+
+- `tiled_schema.numeric_series` vectorized (the per-value Python loop
+  was 7–13× slower and ran on the full uncapped frame per portal page
+  view) and hardened: pandas nullable dtypes (`Int64`/`Float64` with
+  `pd.NA`) no longer raise `TypeError`, datetime/timedelta columns are
+  no longer reported "plottable" as ~1e18 ns integers, and a duplicated
+  column label returns `None` instead of raising.  The returned series
+  is now always `float64`.
+- `tiled_catalog.resolve_scan_folder`: a run whose start doc names no
+  experiment no longer falls through to the daily re-base —
+  `daily_scan_folder` would substitute the host config's default
+  experiment, whose same-numbered `ScanNNN` is a different scan's data.
+- `tiled_schema.plottable_columns` docstring corrected: the console B4
+  has not yet been rewired onto the shared helpers (the "cannot drift"
+  claim was aspirational); pinned end-to-end fallback test added for
+  `resolve_scan_folder` through the real `daily_scan_folder`
+  construction (2026-08-29 review findings).
+
 ## [0.18.0] - 2026-08-29
 
 ### Added
