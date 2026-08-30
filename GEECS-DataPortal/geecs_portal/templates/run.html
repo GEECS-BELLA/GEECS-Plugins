@@ -100,16 +100,23 @@
         · {{ summary.exit_status or "running" }}{% if start_time_of_day %} · {{ start_time_of_day }}{% endif %}</div>
       <div class="steprow">
         {% if run_day %}
-        <a class="act" href="/day/{{ prev_day }}?{{ qs(device="", shot="") }}" title="previous day">‹ day</a>
-        <a class="act" href="/day/{{ run_day }}?{{ qs(device="", shot="") }}">{{ run_day }}</a>
-        <a class="act" href="/day/{{ next_day }}?{{ qs(device="", shot="") }}" title="next day">day ›</a>
+        <a class="act" href="/run/jump/{{ prev_day }}?prefer={{ scan_number }}&amp;{{ qs(device="", shot="") }}" title="previous day (same scan number, else its latest)">‹ day</a>
+        <a class="act" href="/day/{{ run_day }}?{{ qs(device="", shot="") }}" title="browse this day's list">{{ run_day }}</a>
+        <a class="act" href="/run/jump/{{ next_day }}?prefer={{ scan_number }}&amp;{{ qs(device="", shot="") }}" title="next day (same scan number, else its latest)">day ›</a>
         {% endif %}
       </div>
       <div class="steprow">
         <a class="act {{ "off" if not prev_uid }}" href="/run/{{ prev_uid }}?{{ qs() }}" title="previous scan">‹ scan</a>
+        {% if day_runs %}
+        <select class="act" onchange="if(this.value) location = '/run/' + this.value + location.search" title="jump to a scan on this day">
+          {% for run in day_runs %}
+          <option value="{{ run.uid }}" {{ "selected" if run.uid == uid }}>Scan {{ "%03d" | format(run.scan_number) if run.scan_number is not none else "?" }} · {{ run.mode }} · {{ run.exit_status or "running" }}</option>
+          {% endfor %}
+        </select>
+        {% endif %}
         <a class="act {{ "off" if not next_uid }}" href="/run/{{ next_uid }}?{{ qs() }}" title="next scan">scan ›</a>
-        <span class="dim" style="font-size:11px;">filters &amp; columns persist</span>
       </div>
+      <div class="dim" style="font-size:11px; margin-top:0.2rem;">filters &amp; columns persist across day/scan steps</div>
       <div style="margin-top:0.5rem;" id="providers"></div>
       <div class="dim mono" style="margin-top:0.4rem; word-break: break-all;">{{ uid }}</div>
     </div>
@@ -139,7 +146,11 @@
 
     <section class="pane" id="pane-plot">
       <div class="picker">
-        <input type="text" id="colfilter" placeholder="type to filter columns…" autocomplete="off">
+        <div style="display:flex; gap:0.6rem; align-items:center;">
+          <input type="text" id="colfilter" placeholder="type to filter columns…" autocomplete="off" style="flex:1;">
+          <label class="dim" style="font-size:12px; white-space:nowrap;" title="ts_ columns: the event pipeline's per-variable recording times">
+            <input type="checkbox" id="showts" onchange="renderPicker()"> timestamps</label>
+        </div>
         <div class="collist" id="collist"></div>
         <div class="picked" id="picked"></div>
       </div>
@@ -153,7 +164,8 @@
         </span>
         <span class="gear" title="bin settings" onclick="openBinset()">⚙</span>
         <span class="right">
-          <span class="dim">zoom · pan · export = Plotly built-ins</span>
+          <span class="dim" title="click any axis title or legend entry to edit it in place">zoom · pan · export = Plotly built-ins</span>
+          <a href="#" onclick="openDisplay();return false;">display…</a>
           <a href="#" onclick="document.getElementById('codebox').classList.toggle('on');return false;">show the code</a>
         </span>
       </div>
@@ -227,6 +239,33 @@
   </div>
 </div>
 
+<!-- display settings popup -->
+<div class="overlay" id="modal-display" onclick="if(event.target===this)closeModals()">
+  <div class="modal" style="width:min(460px,94vw);">
+    <h3>Display settings</h3>
+    <div class="setrow"><label>log axes</label>
+      <label><input type="checkbox" id="ds-logx"> X</label>
+      <label><input type="checkbox" id="ds-logy"> Y</label></div>
+    <div class="setrow"><label>X range</label>
+      <input id="ds-xmin" style="width:6rem;" placeholder="auto"> <span class="dim">–</span>
+      <input id="ds-xmax" style="width:6rem;" placeholder="auto"></div>
+    <div class="setrow"><label>Y range</label>
+      <input id="ds-ymin" style="width:6rem;" placeholder="auto"> <span class="dim">–</span>
+      <input id="ds-ymax" style="width:6rem;" placeholder="auto">
+      <span class="dim" style="font-size:11px;">first Y axis</span></div>
+    <div class="setrow"><label>marker size</label>
+      <input id="ds-msize" style="width:4rem;" placeholder="5"></div>
+    <div class="setrow"><label>trace colors</label>
+      <span id="ds-colors"></span></div>
+    <div class="dim" style="font-size:11px; margin-top:0.4rem;">
+      Titles and legend names are editable in place — click them on the plot.</div>
+    <div class="btnrow">
+      <button class="act" onclick="closeModals()">Cancel</button>
+      <button class="apply" onclick="applyDisplay()">Apply</button>
+    </div>
+  </div>
+</div>
+
 <!-- bin settings popup -->
 <div class="overlay" id="modal-binset" onclick="if(event.target===this)closeModals()">
   <div class="modal" style="width:min(460px,94vw);">
@@ -288,6 +327,7 @@ function readState() {
     view: p.get("view") || "shot",
     filters: p.get("filters") || "",
     bincfg: p.get("bincfg") || "",
+    display: p.get("display") || "",
   };
 }
 
@@ -296,12 +336,13 @@ function writeState() {
   // not analysis states — there is deliberately no popstate handler.
   // Shared/bookmarked links restore everything via readState().
   const p = new URLSearchParams(location.search);
-  ["y", "x", "view", "filters", "bincfg", "tab"].forEach(k => p.delete(k));
+  ["y", "x", "view", "filters", "bincfg", "display", "tab"].forEach(k => p.delete(k));
   S.y.forEach(v => p.append("y", v));
   if (S.x) p.set("x", S.x);
   if (S.view !== "shot") p.set("view", S.view);
   if (S.filters) p.set("filters", S.filters);
   if (S.bincfg) p.set("bincfg", S.bincfg);
+  if (S.display) p.set("display", S.display);
   if (S.tab !== "plot") p.set("tab", S.tab);
   history.replaceState(null, "", location.pathname + "?" + p.toString());
   // Server-rendered stepper links must carry the latest state too.
@@ -311,12 +352,13 @@ function writeState() {
 function syncRailLinks(p) {
   document.querySelectorAll("a.act").forEach(a => {
     const url = new URL(a.href, location.origin);
-    ["y", "x", "view", "filters", "bincfg", "tab"].forEach(k => url.searchParams.delete(k));
+    ["y", "x", "view", "filters", "bincfg", "display", "tab"].forEach(k => url.searchParams.delete(k));
     S.y.forEach(v => url.searchParams.append("y", v));
     if (S.x) url.searchParams.set("x", S.x);
     if (S.view !== "shot") url.searchParams.set("view", S.view);
     if (S.filters) url.searchParams.set("filters", S.filters);
     if (S.bincfg) url.searchParams.set("bincfg", S.bincfg);
+    if (S.display) url.searchParams.set("display", S.display);
     if (S.tab !== "plot") url.searchParams.set("tab", S.tab);
     a.href = url.pathname + "?" + url.searchParams.toString();
   });
@@ -330,6 +372,9 @@ function parsedFilters() {
 function api(path, params) {
   const p = new URLSearchParams(params);
   if (DAY) p.set("day", DAY);
+  // Completed-run /api responses cache immutable; the version key rolls
+  // browser caches over when the payload shape changes on upgrade.
+  p.set("v", {{ portal_version | tojson }});
   return fetch(`/api/run/${UID}/${path}?` + p.toString()).then(r => {
     if (!r.ok) return r.json().then(b => { throw new Error(b.detail || r.statusText); });
     return r.json();
@@ -356,25 +401,34 @@ function setView(view) {
 // ---------------- column picker ----------------
 function renderPicker() {
   const needle = document.getElementById("colfilter").value.trim().toLowerCase();
+  const showTs = document.getElementById("showts").checked;
   const list = document.getElementById("collist");
-  const hits = COLUMNS.filter(c =>
+  // Pretty names lead (telemetry_ stripped); ts_ event-recording
+  // timestamps hide behind the toggle.
+  const pool = COLUMNS.filter(c => showTs || !c.timestamp);
+  const hits = pool.filter(c =>
     !needle || c.name.toLowerCase().includes(needle) || c.pretty.toLowerCase().includes(needle));
   const shown = hits.slice(0, 300);
   list.innerHTML = shown.map(c =>
-    `<div class="colrow" data-col="${escAttr(c.name)}">
+    `<div class="colrow" data-col="${escAttr(c.name)}" title="${escAttr(c.name)}">
        <span class="provider ${c.provenance}">${c.provenance}</span>
-       <span>${esc(c.name)}</span>
-       ${c.pretty !== c.name ? `<span class="pretty">${esc(c.pretty)}</span>` : ""}
+       <span>${esc(c.pretty)}</span>
+       ${c.pretty !== c.name ? `<span class="pretty">${esc(c.name)}</span>` : ""}
      </div>`).join("")
     + (hits.length > shown.length ? `<div class="colrow dim">… ${hits.length - shown.length} more — keep typing</div>` : "");
   list.querySelectorAll(".colrow[data-col]").forEach(row =>
     row.addEventListener("click", () => addY(row.dataset.col)));
-  document.getElementById("colfilter").placeholder = `type to filter ${COLUMNS.length} columns…`;
+  document.getElementById("colfilter").placeholder = `type to filter ${pool.length} columns…`;
+}
+
+function prettyName(name) {
+  const hit = COLUMNS.find(c => c.name === name);
+  return hit ? hit.pretty : name;
 }
 
 function renderPicked() {
   document.getElementById("picked").innerHTML = S.y.map((name, i) =>
-    `<span class="ychip" style="border-left-color:${TRACE_COLORS[i]}">${esc(name)}
+    `<span class="ychip" style="border-left-color:${traceColor(i)}" title="${escAttr(name)}">${esc(prettyName(name))}
        <span class="x" onclick="removeY(${i})">✕</span></span>`).join("");
 }
 
@@ -386,6 +440,12 @@ function addY(name) {
 
 function removeY(i) {
   S.y.splice(i, 1);
+  const d = dispCfg();
+  if (Array.isArray(d.colors)) {  // keep custom colors aligned with their traces
+    d.colors.splice(i, 1);
+    if (!d.colors.some((c, j) => c !== TRACE_COLORS[j])) delete d.colors;
+    S.display = Object.keys(d).length ? JSON.stringify(d) : "";
+  }
   renderPicked(); writeState(); refresh();
 }
 
@@ -427,30 +487,71 @@ function refresh() {
   }
 }
 
+function dispCfg() {
+  if (!S.display) return {};
+  try { return JSON.parse(S.display); } catch (e) { return {}; }
+}
+
+function traceColor(i) {
+  const d = dispCfg();
+  return (d.colors && d.colors[i]) || TRACE_COLORS[i];
+}
+
+function markerSize() {
+  const d = dispCfg();
+  return Number.isFinite(d.msize) && d.msize > 0 ? d.msize : 5;
+}
+
+function axisRange(lo, hi, log) {
+  // Plotly log-axis ranges are exponents.
+  if (!Number.isFinite(lo) || !Number.isFinite(hi)) return undefined;
+  if (log) {
+    if (lo <= 0 || hi <= 0) return undefined;
+    return [Math.log10(lo), Math.log10(hi)];
+  }
+  return [lo, hi];
+}
+
+function applyDisplayToLayout(layout, xIsDate, yIsDate) {
+  // Date axes take neither log type nor numeric ranges.
+  const d = dispCfg();
+  if (d.logx && !xIsDate) layout.xaxis.type = "log";
+  if (d.logy && !yIsDate) layout.yaxis.type = "log";
+  const xr = axisRange(d.xmin, d.xmax, d.logx && !xIsDate);
+  if (xr && !xIsDate) { layout.xaxis.range = xr; layout.xaxis.autorange = false; }
+  const yr = axisRange(d.ymin, d.ymax, !!d.logy);
+  if (yr && !yIsDate) { layout.yaxis.range = yr; layout.yaxis.autorange = false; }
+}
+
 function multiYAxes(layout, n) {
   for (let i = 1; i < n; i++) {
     layout["yaxis" + (i + 1)] = {
       overlaying: "y", side: i % 2 ? "right" : "left",
       position: i >= 2 ? (i % 2 ? 1.0 : 0.0) : undefined,
       gridcolor: "rgba(0,0,0,0)", zerolinecolor: "#2c353d",
-      tickfont: { color: TRACE_COLORS[i] },
+      tickfont: { color: traceColor(i) },
     };
   }
 }
 
 function drawShots(data) {
   const x = S.x && data.series[S.x] ? data.series[S.x] : data.shot;
+  const xIsDate = !!(S.x && data.kinds && data.kinds[S.x] === "datetime");
   const traces = S.y.map((name, i) => ({
-    x: x, y: data.series[name], name: name, mode: "markers",
-    marker: { color: TRACE_COLORS[i], size: 5 },
+    x: x, y: data.series[name], name: prettyName(name), mode: "markers",
+    marker: { color: traceColor(i), size: markerSize() },
     yaxis: i ? "y" + (i + 1) : "y",
   }));
   const layout = structuredClone(PLOT_LAYOUT);
-  layout.xaxis.title = { text: S.x || "shot #" };
+  layout.xaxis.title = { text: S.x ? prettyName(S.x) : "shot #" };
+  if (xIsDate) layout.xaxis.type = "date";  // ISO strings from the API
   layout.yaxis = { gridcolor: "#2c353d", zerolinecolor: "#2c353d",
-                   tickfont: { color: TRACE_COLORS[0] } };
+                   tickfont: { color: traceColor(0) } };
   multiYAxes(layout, S.y.length);
-  Plotly.react(plotHost(), traces, layout, { responsive: true, displaylogo: false });
+  const yIsDate = !!(data.kinds && data.kinds[S.y[0]] === "datetime");
+  applyDisplayToLayout(layout, xIsDate, yIsDate);
+  Plotly.react(plotHost(), traces, layout,
+               { responsive: true, displaylogo: false, editable: true });
   document.getElementById("codebox").textContent = data.code;
   setPassCount(data.pass, data.total);
 }
@@ -459,12 +560,12 @@ function drawBinned(data) {
   const traces = S.y.map((name, i) => {
     const s = data.series[name] || { center: [], err_low: [], err_high: [] };
     return {
-      x: data.bins, y: s.center, name: name, mode: "markers+lines",
-      marker: { color: TRACE_COLORS[i], size: 6 },
-      line: { color: TRACE_COLORS[i], width: 1 },
+      x: data.bins, y: s.center, name: prettyName(name), mode: "markers+lines",
+      marker: { color: traceColor(i), size: markerSize() + 1 },
+      line: { color: traceColor(i), width: 1 },
       error_y: { type: "data", symmetric: false,
                  array: s.err_high, arrayminus: s.err_low,
-                 color: TRACE_COLORS[i], thickness: 1 },
+                 color: traceColor(i), thickness: 1 },
       yaxis: i ? "y" + (i + 1) : "y",
     };
   });
@@ -472,9 +573,11 @@ function drawBinned(data) {
   const cfg = S.bincfg ? JSON.parse(S.bincfg) : {};
   layout.xaxis.title = { text: cfg.bin_col || "Bin #" };
   layout.yaxis = { gridcolor: "#2c353d", zerolinecolor: "#2c353d",
-                   tickfont: { color: TRACE_COLORS[0] } };
+                   tickfont: { color: traceColor(0) } };
   multiYAxes(layout, S.y.length);
-  Plotly.react(plotHost(), traces, layout, { responsive: true, displaylogo: false });
+  applyDisplayToLayout(layout, false, false);  // binned serves raw numbers
+  Plotly.react(plotHost(), traces, layout,
+               { responsive: true, displaylogo: false, editable: true });
   document.getElementById("codebox").textContent = data.code;
   setPassCount(data.pass, data.total);
 }
@@ -615,6 +718,42 @@ function applyBinset() {
   if (S.view !== "bin") setView("bin"); else refresh();
 }
 
+// ---------------- display settings popup ----------------
+function openDisplay() {
+  const d = dispCfg();
+  document.getElementById("ds-logx").checked = !!d.logx;
+  document.getElementById("ds-logy").checked = !!d.logy;
+  for (const key of ["xmin", "xmax", "ymin", "ymax"]) {
+    document.getElementById("ds-" + key).value =
+      Number.isFinite(d[key]) ? d[key] : "";
+  }
+  document.getElementById("ds-msize").value =
+    Number.isFinite(d.msize) ? d.msize : "";
+  document.getElementById("ds-colors").innerHTML = S.y.map((name, i) =>
+    `<input type="color" id="ds-color-${i}" value="${traceColor(i)}" title="${escAttr(prettyName(name))}">`
+  ).join(" ") || '<span class="dim" style="font-size:11px;">pick columns first</span>';
+  document.getElementById("modal-display").classList.add("on");
+}
+
+function applyDisplay() {
+  const d = {};
+  if (document.getElementById("ds-logx").checked) d.logx = true;
+  if (document.getElementById("ds-logy").checked) d.logy = true;
+  for (const key of ["xmin", "xmax", "ymin", "ymax"]) {
+    const value = parseFloat(document.getElementById("ds-" + key).value);
+    if (Number.isFinite(value)) d[key] = value;
+  }
+  const msize = parseFloat(document.getElementById("ds-msize").value);
+  if (Number.isFinite(msize) && msize > 0 && msize !== 5) d.msize = msize;
+  const colors = S.y.map((name, i) => {
+    const input = document.getElementById("ds-color-" + i);
+    return input ? input.value : TRACE_COLORS[i];
+  });
+  if (colors.some((c, i) => c !== TRACE_COLORS[i])) d.colors = colors;
+  S.display = Object.keys(d).length ? JSON.stringify(d) : "";
+  closeModals(); renderPicked(); writeState(); refresh();
+}
+
 function closeModals() {
   document.querySelectorAll(".overlay").forEach(m => m.classList.remove("on"));
 }
@@ -640,6 +779,7 @@ api("columns", {}).then(data => {
   document.getElementById("all-cols").innerHTML =
     COLUMNS.map(c => `<option value="${escAttr(c.name)}">`).join("");
   renderPicker();
+  renderPicked();  // chips re-label once pretty names are known
   BOOTED = true;
   refresh();
 }).catch(err => {

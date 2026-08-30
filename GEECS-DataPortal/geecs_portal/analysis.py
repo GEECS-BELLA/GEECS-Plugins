@@ -203,6 +203,34 @@ def jsonable_values(series: Any) -> list:
     return out
 
 
+def jsonable_datetimes(series: Any, epoch: str) -> list:
+    """Timestamp seconds → host-local ISO strings (NA → ``None``).
+
+    ``epoch`` is :func:`geecs_data_utils.tiled_schema.timestamp_epoch`'s
+    verdict: ``"labview"`` values are shifted by the wire offset first,
+    ``"unix"`` values are used as-is.  Strings are naive local time
+    (the service host's zone — Pacific in the lab), which Plotly's date
+    axis renders verbatim — raw epoch seconds never reach the user.
+    """
+    from datetime import datetime
+
+    from geecs_data_utils.io.scan_stack import LABVIEW_EPOCH_OFFSET
+
+    offset = LABVIEW_EPOCH_OFFSET if epoch == "labview" else 0.0
+    out = []
+    for value in jsonable_values(series):
+        if not isinstance(value, float):
+            out.append(None)
+            continue
+        try:
+            stamp = datetime.fromtimestamp(value - offset)
+        except (OverflowError, OSError, ValueError):
+            out.append(None)
+            continue
+        out.append(stamp.isoformat(sep=" ", timespec="milliseconds"))
+    return out
+
+
 def jsonable_labels(index: Any) -> list:
     """Bin labels (a frame index) as JSON-safe scalars.
 
@@ -243,13 +271,41 @@ def _snippet_filters(filters: RowFilters) -> str:
 
 
 def frame_code(
-    uid: str, run_day: Optional[str], columns: list[str], filters: RowFilters
+    uid: str,
+    run_day: Optional[str],
+    columns: list[str],
+    filters: RowFilters,
+    datetime_columns: Optional[dict] = None,
 ) -> str:
-    """The notebook snippet reproducing a ``/api/.../frame`` response."""
+    """The notebook snippet reproducing a ``/api/.../frame`` response.
+
+    ``datetime_columns`` maps column name → epoch verdict for the
+    columns the endpoint served as local datetimes — the snippet must
+    perform the same conversion or it would hand back raw seconds while
+    claiming to reproduce the view.
+    """
+    converted = datetime_columns or {}
+    conversion = ""
+    if converted:
+        conversion = (
+            "# the view renders timestamps as local datetimes:\n"
+            "from datetime import datetime\n"
+        )
+        if "labview" in converted.values():
+            conversion += (
+                "from geecs_data_utils.io.scan_stack import LABVIEW_EPOCH_OFFSET\n"
+            )
+        for column, epoch in converted.items():
+            shift = " - LABVIEW_EPOCH_OFFSET" if epoch == "labview" else ""
+            conversion += (
+                f"frame[{column!r}] = (frame[{column!r}]{shift})"
+                ".map(datetime.fromtimestamp)\n"
+            )
     return (
         "# reproduces this view exactly — the endpoint calls the same functions\n"
         + _snippet_prelude(uid, run_day)
         + _snippet_filters(filters)
+        + conversion
         + f"series = frame[{columns!r}]\n"
     )
 

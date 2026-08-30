@@ -64,6 +64,22 @@ logger = logging.getLogger(__name__)
 _TEMPLATES_DIR = Path(__file__).parent / "templates"
 _STATIC_DIR = Path(__file__).parent / "static"
 
+
+def _portal_version() -> str:
+    """The installed package version — the /api cache-bust key.
+
+    Completed-run /api responses are served immutable, but their SHAPE
+    changes with portal releases; the page keys every /api fetch by
+    this version so browser caches roll over on upgrade.
+    """
+    from importlib.metadata import PackageNotFoundError, version
+
+    try:
+        return version("geecs-data-portal")
+    except PackageNotFoundError:  # source tree without install metadata
+        return "dev"
+
+
 #: Cap on rows fed to a plot (quick-look, not a data browser).
 _PLOT_MAX_ROWS = 100_000
 
@@ -271,6 +287,12 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
                     if pf.provenance.get(column, PROVENANCE_RUN) == PROVENANCE_RUN
                     else column
                 ),
+                # Drives the picker's off-by-default "timestamps" toggle
+                # (ts_ event-recording times ONLY — acq_timestamp picks
+                # stay always visible as legitimate X choices; the frame
+                # endpoint's `kinds` map is the datetime-rendering
+                # verdict and is deliberately broader).
+                "timestamp": schema_map.is_key_timestamp_column(column),
             }
             for column in schema_map.plottable_columns(pf.frame)
         ]
@@ -295,6 +317,7 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
         flt, mask = _masked(pf, filters)
         requested = _y_columns(cols)
         series = {}
+        kinds = {}
         for column in dict.fromkeys([*requested, *([x] if x else [])]):
             # Coerce on the FULL frame: a filter that empties the frame
             # must not turn a valid column into a 404.
@@ -303,7 +326,14 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
                 raise HTTPException(
                     status_code=404, detail=f"no plottable column {column!r}"
                 )
-            series[column] = analysis.jsonable_values(full[mask])
+            epoch = schema_map.timestamp_epoch(column)
+            if epoch:
+                # Timestamps plot as real local datetimes, never raw
+                # seconds (ts_ = Unix epoch; acq_timestamp = LabVIEW).
+                series[column] = analysis.jsonable_datetimes(full[mask], epoch)
+                kinds[column] = "datetime"
+            else:
+                series[column] = analysis.jsonable_values(full[mask])
         shot_key = (
             pf.frame[schema_map.SHOT_INDEX_COLUMN]
             if schema_map.SHOT_INDEX_COLUMN in pf.frame.columns
@@ -311,10 +341,17 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
         )
         payload = {
             "series": series,
+            "kinds": kinds,
             "shot": analysis.jsonable_values(shot_key[mask]),
             "pass": int(mask.sum()),
             "total": len(pf.frame),
-            "code": analysis.frame_code(uid, run_day, requested, flt),
+            "code": analysis.frame_code(
+                uid,
+                run_day,
+                requested,
+                flt,
+                {column: schema_map.timestamp_epoch(column) for column in kinds},
+            ),
         }
         return JSONResponse(payload, headers=_png_headers(detail))
 
@@ -421,6 +458,48 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
             },
         )
 
+    @app.get("/run/jump/{day}", response_class=RedirectResponse)
+    def run_jump(request: Request, day: str, prefer: int = 0) -> str:
+        """Day-step from the scan page without losing the analysis.
+
+        Redirects to the target day's run with scan number *prefer*
+        (else its newest run), carrying every other query param through
+        verbatim — the rail's day steppers point here so filters,
+        columns, and tab survive the hop.  A day with no runs falls
+        back to the day page.
+        """
+        try:
+            selected = date.fromisoformat(day)
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail="bad date") from exc
+        carried = [
+            (key, value)
+            for key, value in request.query_params.multi_items()
+            if key != "prefer"
+        ]
+        experiment = request.query_params.get("experiment", "") or default_experiment
+        try:
+            runs = catalog.list_runs(experiment, selected)
+        except Exception as exc:  # noqa: BLE001 — degrade to the day page
+            logger.warning("jump listing failed: %s", exc)
+            runs = []
+        carried = [(k, v) for (k, v) in carried if k != "day"]
+        carried.append(("day", selected.isoformat()))
+        query = urlencode(carried, doseq=True)
+        if not runs:
+            day_query = _sticky_query(
+                {
+                    "experiment": experiment,
+                    "filter": request.query_params.get("filter", ""),
+                }
+            )
+            return f"/day/{selected.isoformat()}{'?' + day_query if day_query else ''}"
+        target = next(
+            (run for run in runs if prefer and run.scan_number == prefer),
+            runs[0],  # newest (catalog order)
+        )
+        return f"/run/{target.uid}?{query}"
+
     @app.get("/run/{uid}", response_class=HTMLResponse)
     def run_view(
         request: Request,
@@ -436,6 +515,7 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
         filters: str = "",
         bincfg: str = "",
         view: str = "",
+        display: str = "",
     ) -> HTMLResponse:
         """One run: the rail + tabs (Overview / Plot / Images).
 
@@ -491,18 +571,17 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
             data_cache.warm_native(
                 warm_key, _warm_one, list(range(1, min(n_rows, 2000) + 1))
             )
-        # Scan-stepper neighbours: the run's position in its own day's
-        # listing (newest first).  A listing failure just hides the
-        # stepper — never sinks the page.
+        # The day's listing (newest first) feeds both the rail's scan
+        # dropdown and the stepper neighbours.  A listing failure just
+        # hides them — never sinks the page.
         prev_uid = next_uid = ""
+        day_runs: list = []
         if run_day is not None:
             try:
-                day_uids = [
-                    run.uid
-                    for run in catalog.list_runs(
-                        experiment or default_experiment, run_day
-                    )
-                ]
+                day_runs = list(
+                    catalog.list_runs(experiment or default_experiment, run_day)
+                )
+                day_uids = [run.uid for run in day_runs]
                 position = day_uids.index(uid)
                 next_uid = day_uids[position - 1] if position > 0 else ""
                 prev_uid = (
@@ -510,6 +589,7 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
                 )
             except Exception as exc:  # noqa: BLE001 — stepper is optional
                 logger.warning("neighbour listing failed: %s", exc)
+                day_runs = []
         state = {
             "day": day,
             "experiment": experiment or default_experiment,
@@ -520,6 +600,7 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
             "view": view,
             "filters": filters,
             "bincfg": bincfg,
+            "display": display,
             "device": sel_device,
             "shot": shot if sel_device else "",
             "filter": filter,  # the day list's filter, carried for the back link
@@ -537,6 +618,8 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
                 "start_time_of_day": fmt_time_of_day(detail.summary.start_time),
                 "prev_uid": prev_uid,
                 "next_uid": next_uid,
+                "day_runs": day_runs,
+                "scan_number": detail.summary.scan_number or 0,
                 "prev_day": (
                     (run_day - timedelta(days=1)).isoformat() if run_day else ""
                 ),
@@ -551,6 +634,7 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
                 "shot": shot,
                 "has_next_shot": n_rows is None or shot < n_rows,
                 "total_shots": detail.summary.shots,
+                "portal_version": _portal_version(),
                 "qs": lambda **kw: _sticky_query(state, **kw),
             },
         )

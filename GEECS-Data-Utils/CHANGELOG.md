@@ -3,6 +3,20 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.24.0] - 2026-08-30
+
+### Added
+
+- `tiled_schema.is_key_timestamp_column` — the `ts_` per-key
+  event-recording timestamps Tiled adds when reading the primary
+  stream (machinery, not measurements: front-ends hide them from pick
+  lists by default), and `tiled_schema.timestamp_epoch` — the
+  two-epoch naming convention (`ts_*` = Unix event times;
+  anything named `acq_timestamp` — event companions and s-file headers
+  alike — = LabVIEW wire epoch), so renderers can show timestamps as
+  real datetimes instead of raw seconds. (Analysis-tabs W1e, owner
+  feedback on the live Plot tab.)
+
 ## [0.23.0] - 2026-08-30
 
 ### Changed

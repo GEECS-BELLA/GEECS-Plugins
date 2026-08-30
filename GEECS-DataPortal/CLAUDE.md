@@ -45,9 +45,13 @@ this package; the architecture rules below are its distillation.
   notebook snippet that reproduces it exactly (the reproducibility
   doctrine — never put numerics in an endpoint that a notebook can't
   import).  All view state is URL-carried (`tab`/`y`/`x`/`view`/
-  `filters`/`bincfg` — the last two are the Pydantic/dataclass models'
-  JSON): a link IS the analysis, which is also the multi-user story
-  (statelessness; shared caches are a feature).
+  `filters`/`bincfg`/`display` — filters/bincfg are the
+  Pydantic/dataclass models' JSON, `display` the plot-cosmetics JSON):
+  a link IS the analysis, which is also the multi-user story
+  (statelessness; shared caches are a feature).  Every `/api` fetch
+  additionally carries `v=<portal version>` — completed-run responses
+  cache immutable, and the version key rolls browser caches over when
+  a release changes the payload shape.
 - **Hermetic tests.**  `tests/` drives the app through
   `fastapi.testclient.TestClient` over fake catalogs — no network, no
   data root, no config.ini.  Catalog failures must surface in the page
@@ -84,12 +88,19 @@ tests/
 
 Routes: `/` (redirect to today) · `/day/{iso}` (run list; `?experiment=`)
 · `/run/{uid}` (the scan page: rail + Overview/Plot/Images tabs;
-`?tab=&y=&x=&view=&filters=&bincfg=` is the Plot-tab state,
-`?device=&shot=` the Images selection) ·
-`/api/run/{uid}/columns` (union pick list with provenance + default X) ·
-`/api/run/{uid}/frame?cols=&x=&filters=` (per-shot series, filtered) ·
+`?tab=&y=&x=&view=&filters=&bincfg=&display=` is the Plot-tab state,
+`?device=&shot=` the Images selection) · `/run/jump/{iso}` (day-step
+redirect: `?prefer=<scan number>`, all other params carried to the
+target day's matching/newest run; empty day → the day page) ·
+`/api/run/{uid}/columns` (union pick list with provenance, a
+`timestamp` flag on ts_ columns, + default X) ·
+`/api/run/{uid}/frame?cols=&x=&filters=` (per-shot series, filtered;
+timestamp columns arrive as host-local ISO datetimes with a `kinds`
+map — presentation-side conversion the `code` snippet mirrors) ·
 `/api/run/{uid}/binned?cols=&filters=&bincfg=` (centers + asymmetric
-error bands) · `/api/run/{uid}/filter-count?filters=` (live pass count)
+error bands — served RAW, no datetime conversion: a timestamp bin
+column keeps its epoch-second labels) ·
+`/api/run/{uid}/filter-count?filters=` (live pass count)
 · `/run/{uid}/plot.png?y=&x=` (server-rendered scalar PNG, kept for
 embedding) · `/run/{uid}/image.png?device=&shot=` (one rendered device
 shot) · `/health` (catalog probe — the fleet-map health check).

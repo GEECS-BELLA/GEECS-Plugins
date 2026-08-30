@@ -216,3 +216,26 @@ class TestDeviceAcqTimestampColumn:
         from geecs_data_utils.tiled_schema import device_acq_timestamp_column
 
         assert device_acq_timestamp_column(self.COLUMNS, "nope") is None
+
+
+class TestTimestampColumns:
+    """ts_ event-recording times + the two-epoch convention (W1e)."""
+
+    def test_is_key_timestamp_column(self):
+        from geecs_data_utils.tiled_schema import is_key_timestamp_column
+
+        assert is_key_timestamp_column("ts_cam-MaxCounts")
+        assert is_key_timestamp_column("ts_telemetry_dev-val")
+        assert not is_key_timestamp_column("cam-MaxCounts")
+        assert not is_key_timestamp_column("telemetry_dev-val")
+
+    def test_timestamp_epoch_two_conventions(self):
+        from geecs_data_utils.tiled_schema import timestamp_epoch
+
+        # Reader-side ts_ columns: Unix epoch (Bluesky event times).
+        assert timestamp_epoch("ts_cam-MaxCounts") == "unix"
+        # acq_timestamp in ANY spelling: LabVIEW epoch (the wire
+        # convention) — event companions and s-file headers alike.
+        assert timestamp_epoch("cam-acq_timestamp") == "labview"
+        assert timestamp_epoch("UC_Amp4_IR_input acq_timestamp") == "labview"
+        assert timestamp_epoch("cam-MaxCounts") is None
