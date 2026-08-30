@@ -116,12 +116,18 @@ config = BinningConfig(
     err="iqr",              # "std", "stderr", "mad", "iqr", "percentile"
     percentiles=(0.25, 0.75),
 )
-binned = sd.bin(config)
+sd.set_binning_config(**config.__dict__)   # stateful API (no sd.bin() yet)
+binned = sd.binned_scalars                 # property, cached per config
 # Returns MultiIndex DataFrame:
 # columns: [("signal_x", "center"), ("signal_x", "err_low"), ("signal_x", "err_high"), ...]
 ```
 
-Used by ScanAnalysis renderers to produce per-bin summary plots.
+Consumed today only by `plotting_utils.plot_binned`-style callers that
+are handed the frame — ScanAnalysis does its **own** binning and does
+not use this. The implementation is slated for a pure-function rewrite
+(`bin_frame(frame, cfg)`) in the analysis-tabs arc — see
+`Planning/data_portal/03_analysis_tabs_design.md`; the `BinningConfig`
+vocabulary is the stable part.
 
 ## Parquet Scan Database
 

@@ -3,6 +3,18 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.20.2] - 2026-08-30
+
+### Changed
+
+- CLAUDE.md truth-up (docs-only): the Binning System section documented
+  a `sd.bin(config)` method that does not exist (the real API is
+  `set_binning_config` + the `binned_scalars` property) and claimed
+  ScanAnalysis renderers consume it (they do their own binning; the
+  property has no production consumers). Corrected, with a pointer to
+  the planned pure `bin_frame` rewrite
+  (`Planning/data_portal/03_analysis_tabs_design.md`).
+
 ## [0.20.1] - 2026-08-29
 
 ### Changed
