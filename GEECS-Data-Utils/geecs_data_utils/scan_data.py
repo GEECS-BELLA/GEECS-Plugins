@@ -364,11 +364,13 @@ class ScanData:
             If the s-file is expected but missing.
         """
         if source == "sfile":
+            from geecs_data_utils.data.sfile import read_sfile, sfile_path_for_scan
+
             tag = self.paths.get_tag()
-            sfile = self.paths.get_analysis_folder().parent / f"s{tag.number}.txt"
+            sfile = sfile_path_for_scan(self.paths.get_folder())
             if not sfile.exists():
                 raise FileNotFoundError(f"No sfile for scan {tag}")
-            df = pd.read_csv(sfile, delimiter="\t")
+            df = read_sfile(sfile)
             self.set_data_frame(
                 df, append_paths=append_paths, stem_override=stem_override
             )

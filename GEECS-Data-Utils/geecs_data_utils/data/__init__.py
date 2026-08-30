@@ -12,6 +12,7 @@ from geecs_data_utils.data.cleaning import (
     sigma_clip_frame,
     sigma_nan_frame,
 )
+from geecs_data_utils.data.sfile import read_sfile, sfile_path_for_scan
 from geecs_data_utils.data.columns import (
     ColumnMatchMode,
     ResolveColResult,
@@ -23,6 +24,8 @@ from geecs_data_utils.data.columns import (
 from geecs_data_utils.data.dataset import DatasetBuilder, DatasetFrame, LoadScansReport
 
 __all__ = [
+    "read_sfile",
+    "sfile_path_for_scan",
     "apply_row_filters",
     "OutlierConfig",
     "RowFilterSpec",
