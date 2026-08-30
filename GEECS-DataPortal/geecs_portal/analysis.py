@@ -126,6 +126,10 @@ def parse_bincfg(raw: str) -> BinningConfig:
     unknown = set(payload) - _BIN_FIELDS
     if unknown:
         raise BadParam(f"bad bincfg param: unknown fields {sorted(unknown)}")
+    # Doctrine: an explicit JSON null means "field absent" — the
+    # dataclass default stands.  (Nulls into non-Optional fields would
+    # otherwise bypass every check below and crash inside bin_frame.)
+    payload = {key: value for key, value in payload.items() if value is not None}
     for key, allowed in _BIN_CHOICES.items():
         # isinstance first: an unhashable value (list/dict) would raise
         # a raw TypeError out of the set-membership test.

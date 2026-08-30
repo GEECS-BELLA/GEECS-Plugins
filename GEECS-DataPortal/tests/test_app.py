@@ -549,3 +549,32 @@ class TestAnalysisApi:
             .json()
         )
         assert all(isinstance(count, int) for count in payload["counts"])
+
+    def test_explicit_null_bincfg_fields_mean_absent(self):
+        # Doctrine: JSON null = field absent, the default stands — a
+        # null into a non-Optional field (min_count/percentiles/ddof)
+        # must never reach bin_frame (it 500'd before the fix).
+        client = _client()
+        for bincfg in (
+            '{"bin_col":"mono","min_count":null}',
+            '{"bin_col":"mono","percentiles":null}',
+            '{"bin_col":"mono","err":"std","ddof":null}',
+        ):
+            response = client.get(
+                "/api/run/uid-002/binned",
+                params={"cols": "cam-MaxCounts", "bincfg": bincfg},
+            )
+            assert response.status_code == 200, bincfg
+        # null behaves exactly like the field not being sent
+        defaulted = client.get(
+            "/api/run/uid-002/binned",
+            params={
+                "cols": "cam-MaxCounts",
+                "bincfg": '{"bin_col":"mono","min_count":null}',
+            },
+        ).json()
+        plain = client.get(
+            "/api/run/uid-002/binned",
+            params={"cols": "cam-MaxCounts", "bincfg": '{"bin_col":"mono"}'},
+        ).json()
+        assert defaulted["series"] == plain["series"]
