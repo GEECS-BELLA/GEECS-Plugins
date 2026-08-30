@@ -107,6 +107,11 @@ _CANONICAL_SCANS = {
     "undulator_magspec": dict(
         year=2025, month=11, day=18, number=2, experiment="Undulator"
     ),
+    # Bluesky-era scan with BOTH providers: a Tiled run doc AND an
+    # exported s-file — the union-frame (scan_frame) fixture.
+    "undulator_bluesky_1d": dict(
+        year=2026, month=8, day=29, number=1, experiment="Undulator"
+    ),
 }
 
 

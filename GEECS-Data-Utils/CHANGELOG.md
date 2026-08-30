@@ -3,6 +3,31 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.21.0] - 2026-08-30
+
+### Added
+
+Analysis-tabs wave W1a (the substrate —
+`Planning/data_portal/03_analysis_tabs_design.md`):
+
+- `data/sfile.py` — THE s-file reader + path convention, one home:
+  `read_sfile(path)` (tab-separated, headers verbatim) and
+  `sfile_path_for_scan(scan_folder)` (`{day}/analysis/s{N}.txt`,
+  unpadded). `ScanData.load_scalars` now delegates (pinned by a spy
+  test); the ScanAnalysis duplicate reads converge in a trailing PR.
+- `scan_frame.py` — the union-with-provenance frame:
+  `scan_frame(detail, scan_folder)` unions the Bluesky event table and
+  the s-file with per-column provenance (`run`/`sfile`, `computed`
+  reserved), outer-joined on shot identity — **`Shotnumber ==
+  scan_event_index`, both 1-based**. No name reconciliation; exact
+  collisions suffix the s-file column. Either provider may be absent;
+  corrupt s-files degrade to run-only. Strictly read-only (tree
+  untouched pinned).
+- Canonical-scan registry gains `undulator_bluesky_1d` (2026-08-29
+  Scan 1 — both providers); new integration tests exercise `read_sfile`
+  on a real s-file and the full catalog→folder→union path against the
+  live Tiled server (verified on lab data 2026-08-30).
+
 ## [0.20.2] - 2026-08-30
 
 ### Changed
