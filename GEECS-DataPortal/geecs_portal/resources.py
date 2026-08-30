@@ -34,7 +34,11 @@ from geecs_data_utils.native_files import (
     filename_timestamp_regex,
     probe_native_file,
 )
-from geecs_data_utils.scan_paths import VENDOR_ONLY_EXTS, ScanPaths
+from geecs_data_utils.scan_paths import (
+    VENDOR_ONLY_EXTS,
+    ScanPaths,
+    infer_device_dir_ext,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -217,9 +221,15 @@ def load_shot_image(
         )
 
     ext = kind.ext or "png"
-    native = ScanPaths(folder=scan_folder).build_asset_path(
-        shot=shot, device=device, ext=ext
-    )
+    try:
+        native = ScanPaths(folder=scan_folder).build_asset_path(
+            shot=shot, device=device, ext=ext
+        )
+    except ValueError as exc:
+        # A folder that exists but fails the canonical-layout validation
+        # (dev/scratch runs, or a share blip between probes) — degrade,
+        # never 500.
+        return ShotImage(kind="missing", path=scan_folder, reason=f"layout: {exc}")
     cacheable = True
     if not native.is_file():
         if acq_timestamp is not None:
@@ -285,8 +295,7 @@ def device_kind(
         ``("unrenderable", device_dir, ext)`` for non-image native
         formats (trace/array files — findable, not rendered),
         ``("native", device_dir, ext)`` otherwise;
-        ``("missing", None, None)`` for an unknown device or a
-        non-canonical folder layout.
+        ``("missing", None, None)`` for an unknown device.
     """
     if device not in (devices if devices is not None else image_devices(scan_folder)):
         return DeviceKind("missing", reason="unknown device")
@@ -294,12 +303,10 @@ def device_kind(
     stack = find_stack_file(device_dir)
     if stack is not None:
         return DeviceKind("stack", stack)
-    try:
-        ext = ScanPaths(folder=scan_folder).infer_device_ext(device)
-    except ValueError as exc:
-        # Non-canonical folder layout (dev/scratch runs) — degrade to the
-        # missing card, never 500.
-        return DeviceKind("missing", reason=f"layout: {exc}")
+    # Module-level inference — no ScanPaths construction, so a vendor
+    # device classifies correctly even inside a non-canonical dev/scratch
+    # scan folder (layout validation belongs to the native path builder).
+    ext = infer_device_dir_ext(device_dir)
     if ext in VENDOR_ONLY_EXTS:
         return DeviceKind("vendor", device_dir, ext)
     if ext not in DISPLAYABLE_IMAGE_EXTS:

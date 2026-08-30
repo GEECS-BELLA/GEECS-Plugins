@@ -40,7 +40,6 @@ from geecs_data_utils import (
     legacy_filename_regex,
     probe_native_file,
     timestamp_key,
-    timestamp_key_candidates,
 )
 from geecs_data_utils.io.scan_stack import (
     ShotRef,
@@ -484,7 +483,9 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
                 continue
             m = file_ts_regex.search(file.name)
             if m:
-                files_by_ms[timestamp_key(float(m.group("ts")))] = file
+                # keep-first on duplicate ms keys — the shared join contract
+                # (same rule as stack_frame_index_map).
+                files_by_ms.setdefault(timestamp_key(float(m.group("ts"))), file)
             elif legacy_regex.match(file.name):
                 has_legacy_named = True
 
@@ -514,15 +515,12 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
                 continue
             if not np.isfinite(ts) or ts <= 0:
                 continue
-            key = timestamp_key(ts)
             file = None
             if probe_expected_names:
                 file = self._probe_expected_file(data_dir, file_device, ts)
             if file is None:
-                for candidate_key in timestamp_key_candidates(key):
-                    file = files_by_ms.get(candidate_key)
-                    if file is not None:
-                        break
+                # The shared candidate probe, generic over map values.
+                file = frame_index_for_timestamp(files_by_ms, ts)
             if file is not None:
                 self._data_file_map[shot_num] = file
                 logger.info(f"Mapped file for shot {shot_num}: {file}")

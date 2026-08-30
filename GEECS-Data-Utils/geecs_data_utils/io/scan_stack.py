@@ -25,11 +25,14 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import Mapping, TypeVar
 
 import h5py
 import numpy as np
 
 logger = logging.getLogger(__name__)
+
+_T = TypeVar("_T")
 
 # LabVIEW timestamps count from 1904-01-01; Unix from 1970-01-01. The stack
 # stores Unix seconds (the PVA timestamp); GEECS s-files and native filenames
@@ -162,9 +165,11 @@ def stack_frame_index_map(
 ) -> "dict[int, int]":
     """Millisecond-key → frame-index map over a stack's timestamp array.
 
-    THE stack side of the canonical-millisecond join, shared by every
-    consumer (ScanAnalysis's per-shot mapper, the data portal's gallery,
-    the capture-diff audit): **keep-first on duplicate millisecond keys**
+    THE stack side of the canonical-millisecond join, shared by its
+    consumers (ScanAnalysis's per-shot mapper, the data portal's gallery;
+    the capture-diff audit's bulk reconciliation deliberately keeps its
+    own equivalent map build for now): **keep-first on duplicate
+    millisecond keys**
     — the deterministic contract (the daemon dedupes identical timestamps
     upstream; two consumers resolving duplicates differently would serve
     different frames for the same shot).
@@ -190,9 +195,12 @@ def stack_frame_index_map(
 
 
 def frame_index_for_timestamp(
-    index_map: "dict[int, int]", acq_timestamp: float
-) -> "int | None":
-    """Resolve one row timestamp against a stack index map — exact keys only.
+    index_map: "Mapping[int, _T]", acq_timestamp: float
+) -> "_T | None":
+    """Resolve one row timestamp against a millisecond-key map — exact keys only.
+
+    Generic over the map's value type so listing-based maps (key → file
+    path) share the same probe as stack index maps (key → frame index).
 
     Probes :func:`~geecs_data_utils.native_files.timestamp_key_candidates`
     (``%.3f`` rounding canonicalisation, never a tolerance window) in
@@ -201,15 +209,16 @@ def frame_index_for_timestamp(
 
     Parameters
     ----------
-    index_map : dict of int to int
-        From :func:`stack_frame_index_map`.
+    index_map : Mapping of int to T
+        From :func:`stack_frame_index_map` (or any keep-first
+        millisecond-key map over the same epoch).
     acq_timestamp : float
         The event row's device ``acq_timestamp`` (same epoch as the map).
 
     Returns
     -------
-    int or None
-        The frame index, or ``None`` when no candidate key matches.
+    T or None
+        The mapped value, or ``None`` when no candidate key matches.
     """
     from geecs_data_utils.native_files import timestamp_key, timestamp_key_candidates
 

@@ -26,18 +26,22 @@ from geecs_data_utils.utils import SysPath, ConfigurationError, month_to_int
 from geecs_data_utils.type_defs import ScanTag
 from geecs_data_utils.geecs_paths_config import GeecsPathsConfig
 
-# THE device-file extension taxonomy (lowercase, no dot) — one place, three
-# tiers. Consumers: `infer_device_ext` (below), geecs_bluesky asset
-# registration, the data portal's gallery tier probe. Extend HERE when a
-# new device format lands, never with a consumer-local set.
+# THE device-file extension taxonomy (lowercase, no dot). The vendor tier
+# lives here; the displayable-image tier is `io.images.DISPLAYABLE_IMAGE_EXTS`
+# (a display concern, owned by the reader). Consumers of the inference:
+# the data portal's gallery tier probe and `ScanData.add_expected_paths`.
+# Extend HERE when a new device format lands, never with a consumer-local
+# set.
 
 #: Vendor-SDK-only formats (the scope doc's Tier C — HASO wavefront
 #: sensors): findable, never parsed off-Windows; readers show a path card.
 VENDOR_ONLY_EXTS = frozenset({"himg", "has"})
 
-# Every extension a device folder legitimately holds (what
-# `infer_device_ext` counts). Includes the vendor tier: a vendor-only
-# folder must infer its real extension, not default to "png".
+# Every extension a device folder legitimately holds (what the extension
+# inference counts). Includes the vendor tier: a vendor-only folder must
+# infer its real extension, not default to "png". Note: in a folder MIXING
+# vendor and renderable files, the first-`max_files` count decides — the
+# same iterdir-order nondeterminism that always applied to `himg`.
 _ACCEPTABLE_EXTS = {"png", "tif", "tiff", "h5", "dat", "tdms"} | set(VENDOR_ONLY_EXTS)
 
 # from geecs_data_utils.types import ScanConfig, ScanMode
@@ -818,26 +822,48 @@ class ScanPaths:
 
     def infer_device_ext(self, device: str, *, max_files: int = 5) -> str:
         """Peek at up to `max_files` files to find proper file extension."""
-        from collections import Counter
-
-        dpath = self.device_folder(device)
-        if not dpath.exists():
-            return "png"
-
-        counts = Counter()
-        seen = 0
-        for f in dpath.iterdir():
-            if f.is_file():
-                ext = f.suffix.lower().lstrip(".")
-                if ext in _ACCEPTABLE_EXTS:
-                    counts[ext] += 1
-                    seen += 1
-                    if seen >= max_files:
-                        break
-        return counts.most_common(1)[0][0] if counts else "png"
+        return infer_device_dir_ext(self.device_folder(device), max_files=max_files)
 
 
 ScanPaths.reload_paths_config()
+
+
+def infer_device_dir_ext(device_dir: Path, *, max_files: int = 5) -> str:
+    """Peek at up to *max_files* files in *device_dir* to infer the extension.
+
+    The module-level companion to :meth:`ScanPaths.infer_device_ext` for
+    callers holding a device directory directly (no canonical-layout
+    validation required — a gallery tier probe must classify a vendor
+    device even inside a non-canonical dev/scratch scan folder).  Counts
+    only ``_ACCEPTABLE_EXTS`` members; ``"png"`` when nothing matches.
+
+    Parameters
+    ----------
+    device_dir : Path
+        The device folder to peek at.
+    max_files : int, optional
+        Stop after this many accepted files.
+
+    Returns
+    -------
+    str
+        The dominant accepted extension (lowercase, no dot), or ``"png"``.
+    """
+    from collections import Counter
+
+    if not device_dir.exists():
+        return "png"
+    counts: Counter = Counter()
+    seen = 0
+    for f in device_dir.iterdir():
+        if f.is_file():
+            ext = f.suffix.lower().lstrip(".")
+            if ext in _ACCEPTABLE_EXTS:
+                counts[ext] += 1
+                seen += 1
+                if seen >= max_files:
+                    break
+    return counts.most_common(1)[0][0] if counts else "png"
 
 
 def daily_scan_folder(

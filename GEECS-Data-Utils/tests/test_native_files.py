@@ -221,7 +221,18 @@ class TestProbeNativeFile:
         exact = tmp_path / native_file_name_from_key("cam", timestamp_key(ts), ".png")
         exact.write_bytes(b"png")
         assert probe_native_file(tmp_path, "cam", ".png", ts) == exact
-        # a boundary-rounded row double still finds the same file…
-        assert probe_native_file(tmp_path, "cam", ".png", ts - 0.0004) == exact
-        # …but 3 ms away must read as missing, never a neighbour.
+        # 3 ms away must read as missing, never a neighbour.
         assert probe_native_file(tmp_path, "cam", ".png", ts + 0.003) is None
+
+    def test_probe_joins_across_the_rendering_boundary(self, tmp_path):
+        # A row double whose integer-ms key differs from what %.3f rendered
+        # into the filename (…100.0005 keys to …000 but renders "…100.001"):
+        # ONLY the ±1 candidate probe joins them — a bare exact-key stat
+        # must fail this test.
+        from geecs_data_utils.native_files import native_file_name, probe_native_file
+
+        ts = 3_870_000_100.0005
+        rendered = tmp_path / native_file_name("cam", ts, ".png")
+        rendered.write_bytes(b"png")
+        assert rendered.name.endswith("100.001.png")  # the divergence is real
+        assert probe_native_file(tmp_path, "cam", ".png", ts) == rendered

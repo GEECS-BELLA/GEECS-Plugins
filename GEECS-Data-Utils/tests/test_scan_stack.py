@@ -124,9 +124,12 @@ class TestSharedJoinHelpers:
 
         index_map = stack_frame_index_map(np.array([1000.0, 1002.0]))
         assert frame_index_for_timestamp(index_map, 1000.0) == 0
-        # ±1 ms is %.3f rounding canonicalisation…
-        assert frame_index_for_timestamp(index_map, 1000.0004) == 0
-        # …never a tolerance window: 2.4 ms away must refuse.
+        # A genuinely divergent boundary value: this row double keys to
+        # 1000001 while the frame keyed 1000000 — only the ±1 candidate
+        # probe joins them (a bare exact-key lookup must fail here).
+        assert frame_index_for_timestamp(index_map, 1000.0006) == 0
+        # …but ±1 ms is rounding canonicalisation, never a tolerance
+        # window: 2.4 ms away must refuse.
         assert frame_index_for_timestamp(index_map, 1000.0024) is None
 
     def test_read_shot_for_acq_timestamp_single_open(self, tmp_path):
