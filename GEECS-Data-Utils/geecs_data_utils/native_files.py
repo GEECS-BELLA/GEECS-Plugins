@@ -65,11 +65,51 @@ __all__ = [
     "native_file_name",
     "native_file_name_from_key",
     "native_file_path",
+    "probe_native_file",
     "timestamp_key",
     "timestamp_key_candidates",
     "filename_timestamp_regex",
     "legacy_filename_regex",
 ]
+
+
+def probe_native_file(
+    directory: Path, stem: str, file_tail: str, acq_timestamp: float
+) -> "Path | None":
+    """Stat the timestamp-determined file for one row timestamp, if present.
+
+    THE exact-key native-file probe, shared by every reader (ScanAnalysis's
+    per-shot mapper, the data portal's gallery — keep the module docstring's
+    consumer list current): candidate millisecond keys via
+    :func:`timestamp_key_candidates` (``%.3f`` rounding canonicalisation,
+    never a tolerance window — a missing shot must read as missing, never
+    as a neighbouring shot's file), each probed with a **direct stat**.
+    Direct stats bypass stale SMB directory-listing caches, which can hide
+    files written seconds ago during a live scan — this is the primary
+    lookup; listing-based maps are fallbacks for unconventional names.
+
+    Parameters
+    ----------
+    directory : Path
+        The device folder holding the native files.
+    stem : str
+        The in-filename device stem (folder name for Bluesky-native saves;
+        see the module docstring for suffixed-diagnostic stems).
+    file_tail : str
+        Verbatim filename tail (e.g. ``".png"``).
+    acq_timestamp : float
+        The event row's device ``acq_timestamp`` double.
+
+    Returns
+    -------
+    Path or None
+        The existing file, or ``None`` when no candidate exists.
+    """
+    for key in timestamp_key_candidates(timestamp_key(acq_timestamp)):
+        candidate = directory / native_file_name_from_key(stem, key, file_tail)
+        if candidate.exists():
+            return candidate
+    return None
 
 
 def render_timestamp(acq_timestamp: float) -> str:

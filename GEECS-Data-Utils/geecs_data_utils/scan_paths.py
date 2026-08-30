@@ -26,8 +26,19 @@ from geecs_data_utils.utils import SysPath, ConfigurationError, month_to_int
 from geecs_data_utils.type_defs import ScanTag
 from geecs_data_utils.geecs_paths_config import GeecsPathsConfig
 
-# Acceptable extensions (lowercase, no dot)
-_ACCEPTABLE_EXTS = {"png", "tif", "tiff", "h5", "dat", "tdms", "himg"}
+# THE device-file extension taxonomy (lowercase, no dot) — one place, three
+# tiers. Consumers: `infer_device_ext` (below), geecs_bluesky asset
+# registration, the data portal's gallery tier probe. Extend HERE when a
+# new device format lands, never with a consumer-local set.
+
+#: Vendor-SDK-only formats (the scope doc's Tier C — HASO wavefront
+#: sensors): findable, never parsed off-Windows; readers show a path card.
+VENDOR_ONLY_EXTS = frozenset({"himg", "has"})
+
+# Every extension a device folder legitimately holds (what
+# `infer_device_ext` counts). Includes the vendor tier: a vendor-only
+# folder must infer its real extension, not default to "png".
+_ACCEPTABLE_EXTS = {"png", "tif", "tiff", "h5", "dat", "tdms"} | set(VENDOR_ONLY_EXTS)
 
 # from geecs_data_utils.types import ScanConfig, ScanMode
 

@@ -205,3 +205,23 @@ class TestLegacyFilenameRegex:
         pattern = legacy_filename_regex(".p+g")
         assert pattern.match("Scan012_UC_Cam_005.p+g") is not None
         assert pattern.match("Scan012_UC_Cam_005.ppg") is None
+
+
+class TestProbeNativeFile:
+    """The one exact-key stat probe (ScanAnalysis/portal parity)."""
+
+    def test_probes_exact_and_boundary_keys_only(self, tmp_path):
+        from geecs_data_utils.native_files import (
+            native_file_name_from_key,
+            probe_native_file,
+            timestamp_key,
+        )
+
+        ts = 3_870_000_100.524
+        exact = tmp_path / native_file_name_from_key("cam", timestamp_key(ts), ".png")
+        exact.write_bytes(b"png")
+        assert probe_native_file(tmp_path, "cam", ".png", ts) == exact
+        # a boundary-rounded row double still finds the same file…
+        assert probe_native_file(tmp_path, "cam", ".png", ts - 0.0004) == exact
+        # …but 3 ms away must read as missing, never a neighbour.
+        assert probe_native_file(tmp_path, "cam", ".png", ts + 0.003) is None

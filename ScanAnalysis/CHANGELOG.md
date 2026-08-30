@@ -3,6 +3,20 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.17.2] - 2026-08-29
+
+### Changed
+
+- `SingleDeviceScanAnalyzer` delegates its shot↔file join primitives to
+  the shared GEECS-Data-Utils 0.20.0 homes (portal parity — one contract,
+  never two copies): `_normalize_column_token` →
+  `tiled_schema.normalize_token`, `_probe_expected_file` →
+  `probe_native_file`, the stack keep-first ms-key map + candidate probe
+  → `io.scan_stack.stack_frame_index_map` / `frame_index_for_timestamp`.
+  Behavior preserved (the shared helpers encode this analyzer's own
+  semantics — keep-first duplicates, exact-key ±1 ms canonicalisation,
+  direct stat probes).
+
 ## [1.17.1] - 2026-08-28
 
 ### Fixed

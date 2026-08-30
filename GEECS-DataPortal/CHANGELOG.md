@@ -3,6 +3,22 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.4.1] - 2026-08-29
+
+### Changed
+
+- `resources.py` consumes the consolidated Data-Utils 0.20.0 join/tier
+  machinery instead of private copies: `device_kind` is now THE one tier
+  ladder (`load_shot_image` dispatches on it — badge and endpoint can
+  never disagree), extension sets come from the shared taxonomy
+  (`_vendor_only` retired), the stack join is
+  `read_shot_for_acq_timestamp` (one h5py open per image request, was
+  three; keep-FIRST duplicate-key semantics — ScanAnalysis parity, was
+  keep-last), the native probe is the shared `probe_native_file`, and
+  the day view's time cells use the shared `fmt_time_of_day`.
+  `run_view` passes its device listing into `device_kind` (no second
+  directory scan per page). Behavior preserved.
+
 ## [0.4.0] - 2026-08-29
 
 ### Fixed
