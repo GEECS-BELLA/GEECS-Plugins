@@ -11,12 +11,11 @@ capabilities for GEECS experimental scans.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import replace
 import shutil
 from pathlib import Path
 from typing import (
     Dict,
-    Iterable,
     List,
     Literal,
     Optional,
@@ -42,84 +41,13 @@ from geecs_data_utils.data.columns import (
 
 # ----------------------------- Types & Config ---------------------------------
 
-AggT = Literal["mean", "median"]
-ErrT = Literal["std", "stderr", "iqr", "percentile", "mad"]
-DropT = Literal["any", "all"]
-
-
-@dataclass(frozen=True)
-class BinningConfig:
-    """
-    Configuration for per-bin aggregation.
-
-    The binner computes, for each selected value column in each bin,
-    three subcolumns:
-        (value, "center"), (value, "err_low"), (value, "err_high")
-
-    Parameters
-    ----------
-    bin_col
-        Column name to use for bin identity (or source for numeric binning).
-    value_cols
-        Columns to aggregate; if None, use numeric columns (excluding 'Shotnumber' and bin_col).
-    agg
-        Center estimator per bin: "mean" or "median".
-    err
-        Error definition per bin:
-          - "std"       : sample standard deviation (symmetric → err_low == err_high)
-          - "stderr"    : std / sqrt(N) (symmetric)
-          - "mad"       : median absolute deviation (scaled by 1.4826 if scale_to_sigma) (symmetric)
-          - "iqr"       : inter-quantile range using `percentiles` (asymmetric:
-                          err_low = center - q_low; err_high = q_high - center)
-          - "percentile": same as "iqr" but with arbitrary (low, high) `percentiles` (asymmetric)
-    ddof
-        Degrees of freedom for standard deviation calculations (used by "std"/"stderr").
-    percentiles
-        (low, high) quantiles for "iqr"/"percentile" methods; defaults to (0.25, 0.75).
-    scale_to_sigma
-        If True, scale symmetric measures toward σ:
-          - "mad": multiply by 1.4826
-          - "std"/"stderr": no additional scaling (these are already σ-like);
-        Ignored for asymmetric methods ("iqr", "percentile") since those are one-sided offsets.
-    min_count
-        Minimum samples required for a bin to be reported (after grouping).
-    dropna
-        Row-wise NA handling before grouping: "any" drops a row if any value_cols NA,
-        "all" drops only if all value_cols NA.
-
-    Numeric binning (optional)
-    --------------------------
-    bin_edges
-        Explicit edges for pd.cut.
-    bin_width
-        Uniform width; builds edges from data range (optionally starting at `origin`).
-    quantile_bins
-        e.g., 10 → deciles via pd.qcut.
-    right
-        Include right edge if using cut.
-    label
-        Label emitted for numeric bins: "interval", "left", "center" (default), or "right".
-    origin
-        Starting point for width-bins; defaults to data min if None.
-    """
-
-    bin_col: str = "Bin #"
-    value_cols: Optional[Iterable[str]] = None
-    agg: AggT = "median"
-    err: ErrT = "iqr"
-    ddof: int = 1
-    percentiles: Tuple[float, float] = (0.25, 0.75)
-    scale_to_sigma: bool = False
-    min_count: int = 1
-    dropna: DropT = "any"
-
-    # numeric binning options
-    bin_edges: Optional[Sequence[float]] = None
-    bin_width: Optional[float] = None
-    quantile_bins: Optional[int] = None
-    right: bool = True
-    label: Literal["interval", "left", "center", "right"] = "center"
-    origin: Optional[float] = None
+# BinningConfig and its aliases moved to the pure binning module
+# (analysis-tabs W1c); re-exported here so existing imports
+# (`from geecs_data_utils.scan_data import BinningConfig`) keep working.
+from geecs_data_utils.data.binning import (  # noqa: E402
+    BinningConfig,
+    bin_frame,
+)
 
 
 def read_geecs_tdms(file_path: Path) -> Optional[dict[str, dict[str, np.ndarray]]]:
@@ -554,44 +482,21 @@ class ScanData:
 
     @property
     def binned_scalars(self) -> pd.DataFrame:
-        """
-        Aggregate scalar data into bins with configurable center and error metrics.
+        """Aggregate scalar data into bins (compatibility wrapper).
 
-        For each bin defined by ``bin_col`` in the current :class:`BinningConfig`,
-        all selected numeric columns (``value_cols``) are aggregated. The result is a
-        wide DataFrame with a two-level column index:
-        ``(column_name, {"center", "err_low", "err_high"})``.
-
-        Notes
-        -----
-        - If ``value_cols`` is None, all numeric columns in the scalar DataFrame
-          are included (including the bin source column and Shotnumber).
-        - The bin column is treated like any other numeric column: its per-bin
-          center and errors are computed the same way as other variables.
-        - Error definitions (``err``) control how ``err_low`` and ``err_high`` are
-          computed:
-            * ``"std"``     : sample standard deviation (symmetric).
-            * ``"stderr"``  : standard error of the mean (symmetric).
-            * ``"mad"``     : median absolute deviation (scaled if
-                              ``scale_to_sigma=True``; symmetric).
-            * ``"iqr"``     : interquartile range using ``percentiles``;
-                              asymmetric offsets around the chosen center.
-            * ``"percentile"``: arbitrary quantile range using ``percentiles``;
-                                asymmetric offsets around the chosen center.
-        - Counts per bin are included under the pseudo-column
-          ``("count", "center")``.
+        Delegates to the pure :func:`geecs_data_utils.data.binning.bin_frame`
+        with the instance's current :class:`BinningConfig`, then restores
+        the legacy output shape: the per-bin counts are re-attached as the
+        pseudo-column ``("count", "center")`` (new code should prefer
+        :meth:`bin` / :func:`bin_frame`, whose :class:`BinnedFrame` carries
+        counts as a separate series).
 
         Returns
         -------
         pandas.DataFrame
-            Binned scalar table with a MultiIndex on columns:
-
-            * Level 0: original column names plus ``"count"``.
-            * Level 1: one of ``{"center", "err_low", "err_high"}``.
-
-            The row index corresponds to unique bin labels, which may be
-            discrete values or numeric bin centers depending on the binning
-            configuration.
+            Binned scalar table with MultiIndex columns
+            ``(column, {"center", "err_low", "err_high"})`` plus
+            ``("count", "center")``; one row per surviving bin.
 
         Raises
         ------
@@ -602,147 +507,38 @@ class ScanData:
         """
         if self.data_frame is None:
             raise ValueError("No scalar dataframe loaded.")
-
         self._require_bin_col()
-        cfg = self._bin_cfg
-        key = (id(self.data_frame), self._df_version, self._bin_cfg_fingerprint())
+        key = (self._df_version, self._bin_cfg_fingerprint())
         if self._binned_cache is not None and self._binned_key == key:
             return self._binned_cache.copy()
-
-        df = self.data_frame.copy()
-
-        # Drop NA rows according to policy (only for selected value cols)
-        num_cols = df.select_dtypes(include=[np.number]).columns
-
-        value_cols = (
-            num_cols.tolist() if cfg.value_cols is None else list(cfg.value_cols)
-        )
-
-        # Filter out columns that are entirely NaN for dropna purposes
-        # (but keep them in value_cols for aggregation - they'll just return NaN)
-        valid_cols_for_dropna = [col for col in value_cols if df[col].notna().any()]
-
-        # Only drop rows based on columns that have at least some valid data
-        # This prevents all-NaN columns from causing all rows to be dropped
-        if cfg.dropna == "any":
-            if valid_cols_for_dropna:
-                df = df.dropna(subset=valid_cols_for_dropna, how="any")
-            # If no valid columns, don't drop any rows
-        else:  # cfg.dropna == "all"
-            df = df.dropna(subset=value_cols, how="all")
-
-        # NEW: compute bin key (supports numeric binning) and group on it
-        bin_key, bin_name = self._compute_bin_key(df)
-        df = df.assign(**{bin_name: bin_key})
-        g = df.groupby(bin_name, dropna=False, observed=True)
-
-        # centers
-        if cfg.agg == "median":
-            center = g[value_cols].median()
-        else:
-            center = g[value_cols].mean()
-
-        # --- errors: only err_low / err_high ---
-        err_low = pd.DataFrame(index=center.index, columns=value_cols, dtype=float)
-        err_high = pd.DataFrame(index=center.index, columns=value_cols, dtype=float)
-
-        if cfg.err in ("std", "stderr"):
-            std = g[value_cols].std(ddof=cfg.ddof)
-            if cfg.err == "stderr":
-                counts = g.size().reindex(std.index).astype(float)
-                std = std.div(np.sqrt(counts), axis=0)
-
-            # symmetric → fill both with same value
-            err_low.loc[:, :] = std.values
-            err_high.loc[:, :] = std.values
-
-        elif cfg.err in ("iqr", "percentile"):
-            p_lo, p_hi = cfg.percentiles
-            qs = np.array([float(p_lo), float(p_hi)], dtype=float)
-            qtbl = g[value_cols].quantile(q=qs)  # index: (bin, quantile)
-
-            # wide form
-            if isinstance(qtbl.index, pd.MultiIndex) and "quantile" in (
-                qtbl.index.names or []
-            ):
-                qwide = qtbl.unstack("quantile")
-            else:
-                qwide = qtbl.unstack(level=-1)
-
-            # Safely extract percentile levels, handling cases where they might not exist
-            # (e.g., all-NaN columns or insufficient data)
-            try:
-                # Check if the percentile levels exist in the column MultiIndex
-                if isinstance(qwide.columns, pd.MultiIndex):
-                    # Get the unique values in the last level (percentile level)
-                    percentile_level_values = qwide.columns.get_level_values(
-                        -1
-                    ).unique()
-
-                    if p_lo in percentile_level_values:
-                        lo = qwide.xs(p_lo, axis=1, level=-1)
-                    else:
-                        # Create empty DataFrame with NaN if percentile doesn't exist
-                        lo = pd.DataFrame(
-                            index=center.index, columns=value_cols, dtype=float
-                        )
-
-                    if p_hi in percentile_level_values:
-                        hi = qwide.xs(p_hi, axis=1, level=-1)
-                    else:
-                        # Create empty DataFrame with NaN if percentile doesn't exist
-                        hi = pd.DataFrame(
-                            index=center.index, columns=value_cols, dtype=float
-                        )
-                else:
-                    # Fallback if not MultiIndex (shouldn't happen, but defensive)
-                    lo = qwide.xs(p_lo, axis=1, level=-1)
-                    hi = qwide.xs(p_hi, axis=1, level=-1)
-            except KeyError:
-                # If extraction fails for any reason, use NaN-filled DataFrames
-                lo = pd.DataFrame(index=center.index, columns=value_cols, dtype=float)
-                hi = pd.DataFrame(index=center.index, columns=value_cols, dtype=float)
-
-            # asymmetric offsets relative to chosen center
-            err_low = (center - lo).clip(lower=0)
-            err_high = (hi - center).clip(lower=0)
-
-        elif cfg.err == "mad":
-            med = g[value_cols].median()
-            mad = g[value_cols].apply(
-                lambda sub: (sub - med.loc[sub.name]).abs().median()
-            )
-            mad = mad * (1.4826 if cfg.scale_to_sigma else 1.0)
-            err_low.loc[:, :] = mad.values
-            err_high.loc[:, :] = mad.values
-
-        else:
-            raise ValueError(f"Unknown err: {cfg.err}")
-
-        # ---- build output with center, err_low, err_high ----
-        pieces = {}
-        for col in value_cols:
-            pieces[col] = pd.concat(
-                {
-                    "center": center[col],
-                    "err_low": err_low[col],
-                    "err_high": err_high[col],
-                },
-                axis=1,
-            )
-        out = pd.concat(pieces, axis=1)
-
-        # counts + min_count filter
-        counts = g.size()
-        out[("count", "center")] = counts
-        if cfg.min_count > 1:
-            keep = counts[counts >= cfg.min_count].index
-            out = out.loc[keep]
-
+        result = bin_frame(self.data_frame, self._bin_cfg)
+        out = result.frame.copy()
+        out[("count", "center")] = result.counts
         out = out.sort_index(axis=1)
         self._binned_cache = out
         self._binned_key = key
         return out.copy()
+
+    def bin(self, config: BinningConfig) -> pd.DataFrame:
+        """Bin the scalar frame with *config* (the documented one-call API).
+
+        Sets the instance's binning configuration and returns
+        :attr:`binned_scalars` — the call the package docs always
+        advertised (`sd.bin(config)`), now real.
+
+        Parameters
+        ----------
+        config : BinningConfig
+            The aggregation configuration to apply.
+
+        Returns
+        -------
+        pandas.DataFrame
+            See :attr:`binned_scalars`.
+        """
+        self._bin_cfg = config
+        self._binned_cache = None
+        return self.binned_scalars
 
     def expected_paths_by_bin(
         self,
@@ -858,60 +654,6 @@ class ScanData:
             raise KeyError(
                 f"Bin column {self._bin_cfg.bin_col!r} not found in DataFrame."
             )
-
-    def _compute_bin_key(self, df: pd.DataFrame) -> Tuple[pd.Series, str]:
-        """Return (bin_key_series, bin_name_used). Uses cfg.* to optionally build numeric bins."""
-        cfg = self._bin_cfg
-        src = cfg.bin_col
-        if src not in df.columns:
-            raise KeyError(f"Bin column {src!r} not found in DataFrame.")
-
-        s = df[src]
-
-        # only do numeric binning if the source is numeric
-        if not pd.api.types.is_numeric_dtype(s):
-            # non-numeric: fall back to identity bins
-            return s, src
-
-        # 1) explicit edges
-        if cfg.bin_edges is not None:
-            bins = pd.cut(s, bins=list(cfg.bin_edges), right=cfg.right)
-        # 2) uniform width
-        elif cfg.bin_width is not None:
-            vmin = s.min() if cfg.origin is None else cfg.origin
-            vmax = s.max()
-            if vmax < vmin:
-                vmin, vmax = vmax, vmin
-            # make sure we cover the max value
-            n = int(np.ceil((vmax - vmin) / float(cfg.bin_width))) or 1
-            edges = vmin + np.arange(n + 1, dtype=float) * float(cfg.bin_width)
-            bins = pd.cut(s, bins=edges, right=cfg.right, include_lowest=True)
-        # 3) quantile bins
-        elif cfg.quantile_bins is not None:
-            q = int(cfg.quantile_bins)
-            q = max(1, q)
-            bins = pd.qcut(s, q=q, duplicates="drop")
-        else:
-            # identity behavior (original)
-            return s, src
-
-        # labeling
-        if cfg.label == "interval":
-            labels = bins.astype(str)
-        else:
-            left = bins.cat.categories.left.values
-            right = bins.cat.categories.right.values
-            if cfg.label == "left":
-                label_vals = left
-            elif cfg.label == "right":
-                label_vals = right
-            else:  # "center"
-                label_vals = (left + right) / 2.0
-            mapper = dict(zip(bins.cat.categories, label_vals))
-            labels = bins.map(mapper)
-
-        bin_name = f"{src} (binned)"
-        return labels, bin_name
 
     def _append_expected_asset_columns(
         self,

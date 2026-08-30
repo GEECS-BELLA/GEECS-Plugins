@@ -3,6 +3,39 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.23.0] - 2026-08-30
+
+### Changed
+
+Analysis-tabs wave W1c — the binning rewrite (the review's flagship
+"improve"; the old property had no production consumers, so no
+migration):
+
+- **`data/binning.py`** — `bin_frame(frame, cfg) -> BinnedFrame`, the
+  pure stateless core: same `BinningConfig` vocabulary (moved here,
+  re-exported from `scan_data` so existing imports keep working), same
+  `(col, {center, err_low, err_high})` output schema, minus the warts —
+  no `id(df)` cache key, label-aligned error assignment (no positional
+  `.values`), vectorized `mad` (the per-group Python `apply` is gone),
+  one-shot output assembly (the pandas `PerformanceWarning` from
+  fragmented inserts is gone — pinned live with `-W error`), counts as
+  a separate series on `BinnedFrame` (no `("count","center")` shape
+  special-case), and clean quantile extraction (the 50-line defensive
+  unstack ladder is gone).
+- **Deliberate semantic fixes**: default `value_cols` now excludes
+  `Shotnumber` (as the config docstring always promised) while keeping
+  the bin source column (its per-bin center is the natural X axis);
+  the `dropna` row policy excludes the bin key (a grouping key is not
+  a measurement — including it made `dropna="all"` vacuous) and the
+  all-NaN-column guard now applies to both policies.
+- **`ScanData.bin(config)` exists** — the API the docs always
+  advertised; `binned_scalars` stays as a compatibility wrapper
+  delegating to `bin_frame` and re-attaching the legacy
+  `("count","center")` column. 22 hand-computed unit tests pin every
+  err mode (the numbers the LabVIEW-source comparison will check);
+  the canonical-scan integration test passes on real data.
+- Docs notebook `basic_usage.ipynb` refreshed onto `sd.bin(...)`.
+
 ## [0.22.0] - 2026-08-30
 
 ### Added
