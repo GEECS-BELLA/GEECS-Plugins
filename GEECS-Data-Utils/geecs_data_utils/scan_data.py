@@ -47,6 +47,7 @@ from geecs_data_utils.data.columns import (
 from geecs_data_utils.data.binning import (  # noqa: E402
     BinningConfig,
     bin_frame,
+    compute_bin_key,
 )
 
 
@@ -148,16 +149,36 @@ class ScanData:
 
     def __init__(self, *, paths: ScanPaths):
         self.paths: ScanPaths = paths
-        self.data_frame: Optional[pd.DataFrame] = None
 
-        # Binning state
+        # Binning state (before data_frame — its setter touches these)
         self._bin_cfg: BinningConfig = BinningConfig()
         self._binned_cache: Optional[pd.DataFrame] = None
         self._df_version: int = 0
         self._binned_key: Optional[Tuple] = None
 
+        self.data_frame = None
+
         # Local (user) aliases for columns (independent of DAQ "Alias:" strings)
         self.column_aliases: Dict[str, str] = {}
+
+    @property
+    def data_frame(self) -> Optional[pd.DataFrame]:
+        """The scalar table (``None`` until loaded).
+
+        Assigning to this attribute invalidates the binned-scalars cache —
+        direct reassignment (``sd.data_frame = df``) is a supported pattern
+        and must never serve stale binned results.
+        """
+        return self._data_frame
+
+    @data_frame.setter
+    def data_frame(self, df: Optional[pd.DataFrame]) -> None:
+        self._data_frame = df
+        # getattr: assignment on a bare instance (ScanData.__new__) is a
+        # live pattern in the test suite.
+        self._df_version = getattr(self, "_df_version", 0) + 1
+        self._binned_cache = None
+        self._binned_key = None
 
     # Factory helpers -----------------------------------------------------------
 
@@ -343,10 +364,7 @@ class ScanData:
         """
         if append_paths:
             df = self._append_expected_asset_columns(df, stem_override=stem_override)
-        self.data_frame = df
-        self._df_version += 1
-        self._binned_cache = None
-        self._binned_key = None
+        self.data_frame = df  # the property setter invalidates the bin cache
 
     # ------------------------- Flexible Column Resolution ----------------------
 
@@ -580,7 +598,7 @@ class ScanData:
         # Ensure the bin source is present; compute the effective bin key
         self._require_bin_col()
         df = self.data_frame.copy()
-        bin_key, bin_name = self._compute_bin_key(df)
+        bin_key, bin_name = compute_bin_key(df, self._bin_cfg)
         df = df.assign(**{bin_name: bin_key})
 
         col = self._expected_path_col(device, variant=variant)

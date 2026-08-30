@@ -126,7 +126,7 @@ class BinnedFrame:
     """
 
     frame: "pd.DataFrame"
-    counts: "pd.Series" = field(repr=False, default=None)  # type: ignore[assignment]
+    counts: "pd.Series" = field(repr=False)
 
 
 def compute_bin_key(
@@ -229,6 +229,15 @@ def bin_frame(frame: "pd.DataFrame", cfg: BinningConfig) -> BinnedFrame:
         When ``cfg.bin_col`` is absent.
     ValueError
         On an unknown ``cfg.err``.
+
+    Notes
+    -----
+    Rows whose *bin* label is NA (a NaN bin column, or a value outside
+    explicit ``bin_edges``) survive the row policy — the bin key is a
+    grouping key, not a measurement — and aggregate into their own
+    NA-labelled bin row.  The legacy implementation silently dropped
+    rows whose bin *column* was NaN under ``dropna="any"``; filter them
+    upstream when unwanted.
     """
     import numpy as np
     import pandas as pd
@@ -257,9 +266,14 @@ def bin_frame(frame: "pd.DataFrame", cfg: BinningConfig) -> BinnedFrame:
             work = work.dropna(subset=valid_cols, how="all")
 
     if work.empty:
-        import pandas as pd  # noqa: F811 — local alias for the early exit
-
-        empty = pd.DataFrame()
+        # Keep the two-level column schema even with no rows — consumers
+        # (plot helpers, the ScanData wrapper) rely on MultiIndex columns
+        # unconditionally.
+        empty = pd.DataFrame(
+            columns=pd.MultiIndex.from_product(
+                [value_cols, ["center", "err_low", "err_high"]]
+            )
+        ).sort_index(axis=1)
         empty.index.name = bin_name
         counts = pd.Series([], dtype=int)
         counts.index.name = bin_name
@@ -301,7 +315,13 @@ def bin_frame(frame: "pd.DataFrame", cfg: BinningConfig) -> BinnedFrame:
         )
         for col in value_cols
     }
-    out = pd.concat(pieces, axis=1) if pieces else pd.DataFrame(index=center.index)
+    out = (
+        pd.concat(pieces, axis=1)
+        if pieces
+        else pd.DataFrame(
+            index=center.index, columns=pd.MultiIndex.from_arrays([[], []])
+        )
+    )
 
     counts = g.size()
     if cfg.min_count > 1:

@@ -27,7 +27,17 @@ migration):
   the bin source column (its per-bin center is the natural X axis);
   the `dropna` row policy excludes the bin key (a grouping key is not
   a measurement — including it made `dropna="all"` vacuous) and the
-  all-NaN-column guard now applies to both policies.
+  all-NaN-column guard now applies to both policies. Visible symptom
+  of the dropna change: rows whose **bin column** is NaN now survive
+  `dropna="any"` and aggregate into their own NA-labelled bin row
+  (previously silently dropped) — filter upstream when unwanted.
+- **Bin-cache invalidation on direct reassignment**: `data_frame` is
+  now a property whose setter invalidates the binned-scalars cache, so
+  `sd.data_frame = df` (a supported pattern) can never serve stale
+  binned results (the old `id(df)` key recomputed on reassignment by
+  accident; the first rewrite pass lost that).
+- Empty binning results (all rows dropped, or an empty frame) keep the
+  two-level column MultiIndex instead of degrading to flat columns.
 - **`ScanData.bin(config)` exists** — the API the docs always
   advertised; `binned_scalars` stays as a compatibility wrapper
   delegating to `bin_frame` and re-attaching the legacy

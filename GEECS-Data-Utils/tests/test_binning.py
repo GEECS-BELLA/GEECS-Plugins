@@ -105,12 +105,23 @@ class TestPolicies:
         assert result.counts.tolist() == [3]
 
     def test_dropna_any_ignores_all_nan_columns(self):
-        frame = _frame().assign(dead=np.nan)
         result = bin_frame(_frame().assign(dead=np.nan), BinningConfig(dropna="any"))
         # the all-NaN column must not nuke every row
         assert result.counts.tolist() == [2, 3]
         assert result.frame[("dead", "center")].isna().all()
-        del frame
+
+    def test_nan_bin_column_forms_its_own_bin_row(self):
+        # The bin key is not a measurement: a NaN bin label survives
+        # dropna="any" and aggregates into an NA-indexed row (the legacy
+        # implementation silently dropped such rows) — pinned so the
+        # delta stays deliberate.
+        frame = _frame()
+        frame.loc[4, "Bin #"] = np.nan  # shot 5 (v=10) loses its bin
+        result = bin_frame(frame, BinningConfig(dropna="any"))
+        assert len(result.frame) == 3
+        assert result.frame.index.isna().sum() == 1
+        na_row = result.frame[result.frame.index.isna()]
+        assert na_row[("v", "center")].tolist() == [10.0]
 
     def test_dropna_any_drops_partial_nan_rows(self):
         frame = _frame()
@@ -132,6 +143,21 @@ class TestPolicies:
         frame = pd.DataFrame({"Bin #": [], "v": []})
         result = bin_frame(frame, BinningConfig())
         assert len(result.frame) == 0
+
+    def test_empty_result_keeps_the_multiindex_schema(self):
+        # Consumers rely on two-level columns unconditionally — the
+        # unlucky frame (aggressive filters, empty s-file) must not
+        # degrade to flat columns.
+        empty = pd.DataFrame({"Bin #": [], "v": []})
+        # every row NaN in one of the two (non-all-NaN) value columns
+        all_dropped = pd.DataFrame(
+            {"Bin #": [1, 2], "v": [1.0, np.nan], "w": [np.nan, 1.0]}
+        )
+        for frame, cols in ((empty, ["v"]), (all_dropped, ["v", "w"])):
+            result = bin_frame(frame, BinningConfig(value_cols=cols))
+            assert isinstance(result.frame.columns, pd.MultiIndex)
+            assert ("v", "center") in result.frame.columns
+            assert len(result.frame) == 0
 
 
 class TestNumericBinning:
@@ -176,18 +202,23 @@ class TestNumericBinning:
         assert result.frame.index.name == "mode"
 
 
+def _scan_data(tmp_path):
+    from geecs_data_utils.scan_data import ScanData
+    from geecs_data_utils.scan_paths import ScanPaths
+
+    day = tmp_path / "Undulator" / "Y2026" / "08-Aug" / "26_0829"
+    scans = day / "scans" / "Scan002"
+    scans.mkdir(parents=True)
+    (day / "analysis").mkdir()
+    _frame().to_csv(day / "analysis" / "s2.txt", sep="\t", index=False)
+    sd = ScanData(paths=ScanPaths(folder=scans))
+    sd.load_scalars(append_paths=False)
+    return sd
+
+
 class TestScanDataCompat:
     def test_binned_scalars_keeps_the_legacy_count_column(self, tmp_path):
-        from geecs_data_utils.scan_data import ScanData
-        from geecs_data_utils.scan_paths import ScanPaths
-
-        day = tmp_path / "Undulator" / "Y2026" / "08-Aug" / "26_0829"
-        scans = day / "scans" / "Scan002"
-        scans.mkdir(parents=True)
-        (day / "analysis").mkdir()
-        _frame().to_csv(day / "analysis" / "s2.txt", sep="\t", index=False)
-        sd = ScanData(paths=ScanPaths(folder=scans))
-        sd.load_scalars(append_paths=False)
+        sd = _scan_data(tmp_path)
 
         binned = sd.binned_scalars
         assert ("count", "center") in binned.columns
@@ -200,3 +231,31 @@ class TestScanDataCompat:
             direct[("v", "err_low")],
             [np.std([1, 2], ddof=1), np.std([3, 5, 10], ddof=1)],
         )
+
+    def test_data_frame_reassignment_invalidates_the_bin_cache(self, tmp_path):
+        # Direct assignment (sd.data_frame = df) is a supported pattern —
+        # the cache must recompute, never serve the previous frame's bins.
+        sd = _scan_data(tmp_path)
+        assert sd.binned_scalars[("v", "center")].tolist() == [1.5, 5.0]
+        scaled = sd.data_frame.assign(v=sd.data_frame["v"] * 10)
+        sd.data_frame = scaled
+        assert sd.binned_scalars[("v", "center")].tolist() == [15.0, 50.0]
+
+    def test_expected_paths_by_bin_survives_the_bin_key_move(self, tmp_path):
+        # Regression: this method called the deleted _compute_bin_key
+        # after the W1c move; it must delegate to compute_bin_key.
+        sd = _scan_data(tmp_path)
+        sd.data_frame = sd.data_frame.assign(
+            cam_expected_path=[f"/nope/shot{i}.png" for i in range(1, 6)]
+        )
+        grouped = sd.expected_paths_by_bin("cam")
+        assert sorted(grouped) == [1, 2]
+        assert [len(v) for k, v in sorted(grouped.items())] == [2, 3]
+
+    def test_empty_binned_scalars_keeps_the_multiindex(self, tmp_path):
+        sd = _scan_data(tmp_path)
+        sd.data_frame = sd.data_frame.assign(v=np.nan, w=np.nan).iloc[:0]
+        binned = sd.binned_scalars
+        assert isinstance(binned.columns, pd.MultiIndex)
+        assert ("count", "center") in binned.columns
+        assert len(binned) == 0
