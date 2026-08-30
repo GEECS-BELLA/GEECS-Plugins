@@ -94,7 +94,7 @@ is reproducible in a notebook by calling the same primitive.*
 
 | Primitive | Status | Notes |
 |---|---|---|
-| `apply_row_filters` + `RowFilterSpec` | **extend** | Clean, tested, AND-only, 6 comparison ops. Extend to the mockup's model: named groups of AND conditions, OR across groups, per-condition `within/outside` (bounds pair), group enable flags. Shape: a small Pydantic model (`RowFilterGroup`/`RowFilters`) that *lowers* to the existing tuple specs per condition — the proven kernel stays. NaN policy must become explicit — today it is inconsistent per operator (comparisons drop NaN rows, but `!=` keeps them). |
+| `apply_row_filters` + `RowFilterSpec` | **extend** | Clean, tested, AND-only, 6 comparison ops. Extend to the mockup's model: named groups of AND conditions, OR across groups, per-condition `within/outside` (bounds pair), group enable flags. Shape: a small Pydantic model (`FilterGroup`/`RowFilters`). *(W1b outcome: implemented as an independent mask-returning module — lowering onto the AND-only frame-returning kernel proved the wrong shape; the legacy tuple vocabulary stays for its own consumers.)* NaN policy must become explicit — today it is inconsistent per operator (comparisons drop NaN rows, but `!=` keeps them). |
 | Live pass-count | **new** (trivial) | `mask.sum()` endpoint over the same primitive. |
 | top-N-per-bin | **deferred** | Rail-evicted per ruling; returns later as a filters-popup option (`top_n_per_bin(frame, bin_col, value_col, n, desc)` — trivial when wanted). |
 
@@ -157,7 +157,8 @@ models — the same objects the notebook snippet shows. Every endpoint's
    (ScanAnalysis delegation can trail as its own patch). Hermetic tests
    on synthetic s-files + fake RunDetails.
 2. **W1b `data-utils/row-filter-groups`** — the OR-of-AND filter model
-   lowering onto `apply_row_filters`; explicit NaN policy; pass-count.
+   (independent mask primitive; the lowering sketch was abandoned —
+   see the filters table row); explicit NaN policy; pass-count.
 3. **W1c `data-utils/bin-frame`** — the pure `bin_frame` rewrite +
    `sd.bin(cfg)` delegate + err-mode unit tests + the
    `basic_usage.ipynb` docs-notebook refresh onto the new API

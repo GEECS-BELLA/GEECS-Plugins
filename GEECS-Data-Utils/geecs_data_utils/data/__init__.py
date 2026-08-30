@@ -12,6 +12,13 @@ from geecs_data_utils.data.cleaning import (
     sigma_clip_frame,
     sigma_nan_frame,
 )
+from geecs_data_utils.data.row_filters import (
+    FilterCondition,
+    FilterGroup,
+    RowFilters,
+    apply_filters,
+    filter_mask,
+)
 from geecs_data_utils.data.sfile import read_sfile, sfile_path_for_scan
 from geecs_data_utils.data.columns import (
     ColumnMatchMode,
@@ -24,6 +31,11 @@ from geecs_data_utils.data.columns import (
 from geecs_data_utils.data.dataset import DatasetBuilder, DatasetFrame, LoadScansReport
 
 __all__ = [
+    "FilterCondition",
+    "FilterGroup",
+    "RowFilters",
+    "apply_filters",
+    "filter_mask",
     "read_sfile",
     "sfile_path_for_scan",
     "apply_row_filters",
