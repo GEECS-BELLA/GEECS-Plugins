@@ -122,11 +122,33 @@ def is_acq_timestamp_column(column: str) -> bool:
     return column.endswith(_ACQ_TIMESTAMP_SUFFIX)
 
 
-def _normalize_token(name: str) -> str:
-    """Collapse a name to a lowercase ``_``-separated matching token."""
+def normalize_token(name: str) -> str:
+    """Collapse a name to a lowercase ``_``-separated matching token.
+
+    THE device↔column normalization rule (runs of non-alphanumerics →
+    ``_``): the join key between event/s-file column prefixes and on-disk
+    device folder names.  Shared by this module's matcher and
+    ScanAnalysis's reader (which recognises more column spellings but
+    normalizes through this same rule) — never re-derive the regex in a
+    consumer.
+
+    Parameters
+    ----------
+    name : str
+        A device name, folder stem, or column prefix.
+
+    Returns
+    -------
+    str
+        The canonical matching token.
+    """
     import re
 
     return re.sub(r"[^a-z0-9]+", "_", str(name).lower()).strip("_")
+
+
+#: Backwards-compatible private alias (pre-0.20.0 internal name).
+_normalize_token = normalize_token
 
 
 def device_acq_timestamp_column(columns: Sequence[str], device: str) -> Optional[str]:

@@ -18,6 +18,12 @@ import numpy as np
 import png
 from imageio.v3 import imread
 
+#: Native per-shot extensions viewers render as 2D images through
+#: :func:`read_imaq_image` (the gallery tier probe's "renderable" set —
+#: dat/tdms are trace/array data, vendor formats are Tier C path cards;
+#: see ``scan_paths.VENDOR_ONLY_EXTS`` for the taxonomy's other tier).
+DISPLAYABLE_IMAGE_EXTS = frozenset({"png", "tif", "tiff", "h5"})
+
 # Marker string embedded by LabVIEW in the flattened-image wrapper, just before
 # the IMAQ image cluster. Used to locate the (little-endian) IMAQ struct header.
 _IMAQ_CLASS_MARKER = b"LV_ImageDTClassInfo"

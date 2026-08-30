@@ -99,3 +99,47 @@ def test_derived_shotref_refused_cleanly(tmp_path) -> None:
     derived = ref.parent / path.name  # ShotRef-typed on 3.11, no index
     with pytest.raises(TypeError):
         read_shot(derived)
+
+
+class TestSharedJoinHelpers:
+    """The one canonical-millisecond stack join (portal/ScanAnalysis parity)."""
+
+    def test_index_map_is_keep_first_on_duplicate_keys(self):
+        from geecs_data_utils.io.scan_stack import stack_frame_index_map
+
+        # two frames canonicalising to the same integer millisecond:
+        # the FIRST index wins — the deterministic contract every
+        # consumer must share (a keep-last consumer would serve a
+        # different frame for the same shot).
+        stamps = np.array([1000.0001, 1000.0004, 1001.0])
+        index_map = stack_frame_index_map(stamps)
+        assert index_map[1000000] == 0
+        assert index_map[1001000] == 2
+
+    def test_frame_index_probe_is_exact_keys_never_a_window(self):
+        from geecs_data_utils.io.scan_stack import (
+            frame_index_for_timestamp,
+            stack_frame_index_map,
+        )
+
+        index_map = stack_frame_index_map(np.array([1000.0, 1002.0]))
+        assert frame_index_for_timestamp(index_map, 1000.0) == 0
+        # A genuinely divergent boundary value: this row double keys to
+        # 1000001 while the frame keyed 1000000 — only the ±1 candidate
+        # probe joins them (a bare exact-key lookup must fail here).
+        assert frame_index_for_timestamp(index_map, 1000.0006) == 0
+        # …but ±1 ms is rounding canonicalisation, never a tolerance
+        # window: 2.4 ms away must refuse.
+        assert frame_index_for_timestamp(index_map, 1000.0024) is None
+
+    def test_read_shot_for_acq_timestamp_single_open(self, tmp_path):
+        from geecs_data_utils.io.scan_stack import read_shot_for_acq_timestamp
+
+        path = _write_stack(tmp_path / "UC_Cam", n=3)
+        # stored Unix 1001.0 → LabVIEW key; frames are filled with their index
+        joined = read_shot_for_acq_timestamp(path, 1001.0 + LABVIEW_EPOCH_OFFSET)
+        assert joined is not None
+        index, frame = joined
+        assert index == 1
+        assert frame[0, 0] == 1
+        assert read_shot_for_acq_timestamp(path, 999.0 + LABVIEW_EPOCH_OFFSET) is None

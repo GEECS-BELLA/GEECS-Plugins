@@ -171,6 +171,24 @@ class TestResourcesLayer:
         result = resources.load_shot_image(scan_folder, "U_HasoLift", 1)
         assert result.kind == "vendor"
 
+    def test_non_canonical_layout_degrades_never_raises(self, tmp_path):
+        # A scan folder that exists but fails ScanPaths' canonical-layout
+        # validation (dev/scratch runs): a vendor device must still get
+        # its Tier C card (the probe needs no ScanPaths), and a native
+        # device must degrade to the missing/layout card, never raise.
+        folder = tmp_path / "scratch" / "ScanX"
+        haso = folder / "U_HasoWFS"
+        haso.mkdir(parents=True)
+        (haso / f"U_HasoWFS_{_LV + 1.0:.3f}.himg").write_bytes(b"proprietary")
+        cam = folder / "cam"
+        cam.mkdir()
+        (cam / f"cam_{_LV + 1.0:.3f}.png").write_bytes(b"png")
+        assert resources.device_kind(folder, "U_HasoWFS")[0] == "vendor"
+        assert resources.load_shot_image(folder, "U_HasoWFS", 1).kind == "vendor"
+        native = resources.load_shot_image(folder, "cam", 1, acq_timestamp=_LV + 1.0)
+        assert native.kind == "missing"
+        assert "layout" in native.reason
+
     def test_non_image_native_format_is_unrenderable_not_vendor(self, scan_folder):
         # .tdms/.dat are native GEECS formats, not vendor-SDK-locked —
         # the tier probe and the loader must both say so honestly.

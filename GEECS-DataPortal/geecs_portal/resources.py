@@ -20,30 +20,27 @@ import io
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
+from typing import NamedTuple, Optional
 
 import numpy as np
 
+from geecs_data_utils.io.images import DISPLAYABLE_IMAGE_EXTS
 from geecs_data_utils.io.scan_stack import (
     find_stack_file,
     read_shot,
-    read_stack_timestamps,
+    read_shot_for_acq_timestamp,
 )
 from geecs_data_utils.native_files import (
     filename_timestamp_regex,
-    native_file_name_from_key,
-    timestamp_key,
-    timestamp_key_candidates,
+    probe_native_file,
 )
-from geecs_data_utils.scan_paths import ScanPaths
+from geecs_data_utils.scan_paths import (
+    VENDOR_ONLY_EXTS,
+    ScanPaths,
+    infer_device_dir_ext,
+)
 
 logger = logging.getLogger(__name__)
-
-#: Extensions the portal renders from native per-shot files.
-_RENDERABLE_EXTS = {"png", "tif", "tiff", "h5"}
-
-#: Vendor-SDK formats: never rendered, reported as a path (Tier C).
-_VENDOR_EXTS = {"himg", "has"}
 
 #: Subfolders of a scan folder that are never image devices.
 _NON_DEVICE_DIRS = {"analysis_status"}
@@ -125,48 +122,6 @@ def to_display_png(array: np.ndarray) -> bytes:
     return buffer.getvalue()
 
 
-def _vendor_only(device_dir: Path) -> bool:
-    """Whether the device saves only vendor-SDK files (Tier C, e.g. HASO).
-
-    Needed because ``infer_device_ext`` only recognises its own accepted
-    extension set — a ``.has``-only folder would otherwise read as a
-    missing-png device instead of getting its Tier C path card.
-    """
-    saw_vendor = False
-    try:
-        entries = device_dir.iterdir()
-    except OSError:
-        return False
-    for entry in entries:
-        if not entry.is_file():
-            continue
-        ext = entry.suffix.lstrip(".").lower()
-        if ext in _RENDERABLE_EXTS:
-            return False
-        if ext in _VENDOR_EXTS:
-            saw_vendor = True
-    return saw_vendor
-
-
-def _native_file_for_timestamp(
-    device_dir: Path, stem: str, ext: str, acq_timestamp: float
-) -> Optional[Path]:
-    """Exact native-file probe for one row timestamp — never a neighbour.
-
-    Direct stat probes over `geecs_data_utils.native_files`'
-    millisecond-canonical candidate names (the ±1 ms neighbours are
-    ``%.3f`` rendering canonicalisation, not a tolerance — a missing
-    shot must read as missing, never as the adjacent shot's image).
-    Filenames carry the device's own ``acq_timestamp`` double verbatim,
-    the same value the event row records, so no epoch conversion applies.
-    """
-    for key in timestamp_key_candidates(timestamp_key(acq_timestamp)):
-        candidate = device_dir / native_file_name_from_key(stem, key, f".{ext}")
-        if candidate.is_file():
-            return candidate
-    return None
-
-
 def _ordinal_native_file(device_dir: Path, ext: str, shot: int) -> Optional[Path]:
     """No-metadata fallback: the *shot*-th timestamp-named file in order.
 
@@ -223,34 +178,32 @@ def load_shot_image(
         Rendered PNG bytes, or the tiered refusal (vendor path /
         missing reason).
     """
-    if device not in image_devices(scan_folder) or shot < 1:
-        return ShotImage(kind="missing", reason="unknown device or bad shot")
+    kind = device_kind(scan_folder, device)
+    if kind.kind == "missing":
+        return ShotImage(kind="missing", reason=kind.reason or "unknown device")
+    if shot < 1:
+        return ShotImage(kind="missing", reason="bad shot")
     device_dir = scan_folder / device
 
-    stack = find_stack_file(device_dir)
-    if stack is not None:
+    if kind.kind == "stack":
+        stack = kind.path
         try:
             if acq_timestamp is not None:
-                # The canonical-millisecond join (ScanAnalysis parity):
-                # /acq_timestamp is the stack's universal join key — the
-                # stack stores Unix epoch, the event row the device's
-                # LabVIEW-epoch double, so read converted.
-                stamps = read_stack_timestamps(stack, labview_epoch=True)
-                keys = {timestamp_key(float(s)): i for i, s in enumerate(stamps)}
-                index = None
-                for key in timestamp_key_candidates(timestamp_key(acq_timestamp)):
-                    if key in keys:
-                        index = keys[key]
-                        break
-                if index is None:
+                # The canonical-millisecond join, ONE file open — the
+                # shared keep-first contract lives in
+                # geecs_data_utils.io.scan_stack (ScanAnalysis parity):
+                # the stack stores Unix epoch, the event row the device's
+                # LabVIEW-epoch double, converted inside the helper.
+                joined = read_shot_for_acq_timestamp(stack, acq_timestamp)
+                if joined is None:
                     return ShotImage(
                         kind="missing",
                         path=stack,
                         reason="no stack frame for this shot",
                     )
+                _, frame = joined
             else:
-                index = shot - 1
-            frame = read_shot(stack, index)
+                frame = read_shot(stack, shot - 1)
             return ShotImage(kind="stack", png=to_display_png(frame), path=stack)
         # KeyError/TypeError: a malformed-but-schema-valid stack (missing
         # or mistyped /acq_timestamp) — same enumeration ScanAnalysis
@@ -258,26 +211,32 @@ def load_shot_image(
         except (IndexError, KeyError, OSError, TypeError, ValueError) as exc:
             return ShotImage(kind="missing", path=stack, reason=f"stack: {exc}")
 
-    if _vendor_only(device_dir):
-        return ShotImage(kind="vendor", path=device_dir, reason="vendor SDK format")
-    try:
-        paths = ScanPaths(folder=scan_folder)
-    except ValueError as exc:
-        # A recorded folder that exists but doesn't follow the canonical
-        # layout (dev/scratch runs) — degrade, never 500.
-        return ShotImage(kind="missing", path=scan_folder, reason=f"layout: {exc}")
-    ext = paths.infer_device_ext(device)
-    native = paths.build_asset_path(shot=shot, device=device, ext=ext)
-    if ext in _VENDOR_EXTS:
-        return ShotImage(kind="vendor", path=native, reason="vendor SDK format")
-    if ext not in _RENDERABLE_EXTS:
+    if kind.kind == "vendor":
+        return ShotImage(kind="vendor", path=kind.path, reason="vendor SDK format")
+    if kind.kind == "unrenderable":
         return ShotImage(
-            kind="unrenderable", path=native, reason=f"no renderer for .{ext}"
+            kind="unrenderable",
+            path=kind.path,
+            reason=f"no renderer for .{kind.ext}",
         )
+
+    ext = kind.ext or "png"
+    try:
+        native = ScanPaths(folder=scan_folder).build_asset_path(
+            shot=shot, device=device, ext=ext
+        )
+    except ValueError as exc:
+        # A folder that exists but fails the canonical-layout validation
+        # (dev/scratch runs, or a share blip between probes) — degrade,
+        # never 500.
+        return ShotImage(kind="missing", path=scan_folder, reason=f"layout: {exc}")
     cacheable = True
     if not native.is_file():
         if acq_timestamp is not None:
-            chosen = _native_file_for_timestamp(device_dir, device, ext, acq_timestamp)
+            # Exact stat probe from the shared naming contract — direct
+            # stats bypass stale SMB listing caches, and a missing shot
+            # must read as missing, never as a neighbouring shot's image.
+            chosen = probe_native_file(device_dir, device, f".{ext}", acq_timestamp)
         else:
             chosen = _ordinal_native_file(device_dir, ext, shot)
             cacheable = False  # listing-order join: never long-cache
@@ -297,41 +256,59 @@ def load_shot_image(
         return ShotImage(kind="missing", path=native, reason=f"read failed: {exc}")
 
 
-def device_kind(scan_folder: Path, device: str) -> tuple[str, Optional[Path]]:
-    """Cheap tier probe — no pixel reads — for rendering the gallery UI.
+class DeviceKind(NamedTuple):
+    """One device's gallery tier, resolved by :func:`device_kind`."""
+
+    kind: str  # "stack" | "native" | "vendor" | "unrenderable" | "missing"
+    path: Optional[Path] = None
+    ext: Optional[str] = None
+    reason: str = ""
+
+
+def device_kind(
+    scan_folder: Path, device: str, devices: Optional[list[str]] = None
+) -> DeviceKind:
+    """THE tier ladder — one probe, no pixel reads, shared by every caller.
+
+    :func:`load_shot_image` dispatches on this same probe, so the gallery
+    UI's badge and the image endpoint can never disagree about a device's
+    tier.  Tier vocabulary comes from the shared taxonomy
+    (``scan_paths.VENDOR_ONLY_EXTS`` / ``io.images.DISPLAYABLE_IMAGE_EXTS``)
+    — never a local extension set.
 
     Parameters
     ----------
     scan_folder : Path
         The run's existing scan folder.
     device : str
-        A device subfolder name (validated against the folder).
+        A device subfolder name (validated against the folder — the
+        path-traversal guard).
+    devices : list of str, optional
+        An already-computed :func:`image_devices` listing, to spare a
+        second directory scan when the caller just listed the folder.
 
     Returns
     -------
-    tuple of (str, Path or None)
-        ``("stack", stack_path)`` when a capture stack exists,
-        ``("vendor", device_dir)`` for vendor-SDK formats,
-        ``("unrenderable", device_dir)`` for non-image native formats
-        (trace/array files — findable, not rendered),
-        ``("native", device_dir)`` otherwise; ``("missing", None)`` for
-        an unknown device.
+    DeviceKind
+        ``("stack", stack_path, None)`` when a capture stack exists,
+        ``("vendor", device_dir, ext)`` for vendor-SDK formats (Tier C),
+        ``("unrenderable", device_dir, ext)`` for non-image native
+        formats (trace/array files — findable, not rendered),
+        ``("native", device_dir, ext)`` otherwise;
+        ``("missing", None, None)`` for an unknown device.
     """
-    if device not in image_devices(scan_folder):
-        return ("missing", None)
+    if device not in (devices if devices is not None else image_devices(scan_folder)):
+        return DeviceKind("missing", reason="unknown device")
     device_dir = scan_folder / device
     stack = find_stack_file(device_dir)
     if stack is not None:
-        return ("stack", stack)
-    if _vendor_only(device_dir):
-        return ("vendor", device_dir)
-    try:
-        ext = ScanPaths(folder=scan_folder).infer_device_ext(device)
-    except ValueError:
-        # Non-canonical folder layout — degrade to the missing card.
-        return ("missing", None)
-    if ext in _VENDOR_EXTS:
-        return ("vendor", device_dir)
-    if ext not in _RENDERABLE_EXTS:
-        return ("unrenderable", device_dir)
-    return ("native", device_dir)
+        return DeviceKind("stack", stack)
+    # Module-level inference — no ScanPaths construction, so a vendor
+    # device classifies correctly even inside a non-canonical dev/scratch
+    # scan folder (layout validation belongs to the native path builder).
+    ext = infer_device_dir_ext(device_dir)
+    if ext in VENDOR_ONLY_EXTS:
+        return DeviceKind("vendor", device_dir, ext)
+    if ext not in DISPLAYABLE_IMAGE_EXTS:
+        return DeviceKind("unrenderable", device_dir, ext)
+    return DeviceKind("native", device_dir, ext)

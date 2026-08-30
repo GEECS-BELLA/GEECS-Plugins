@@ -41,6 +41,7 @@ from starlette.requests import Request
 from geecs_data_utils import tiled_schema as schema_map
 from geecs_data_utils.tiled_catalog import (
     ScanCatalog,
+    fmt_time_of_day,
     metadata_rows,
     resolve_scan_folder,
 )
@@ -53,16 +54,6 @@ _TEMPLATES_DIR = Path(__file__).parent / "templates"
 
 #: Cap on rows fed to a plot (quick-look, not a data browser).
 _PLOT_MAX_ROWS = 100_000
-
-
-def _fmt_hhmm(epoch: float) -> str:
-    """Format epoch seconds as local ``HH:MM`` ("" for 0/invalid)."""
-    if not epoch:
-        return ""
-    try:
-        return datetime.fromtimestamp(epoch).strftime("%H:%M")
-    except (OverflowError, OSError, ValueError):
-        return ""
 
 
 def _parse_day(day: str) -> date:
@@ -249,7 +240,7 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
                 "next_day": (selected + timedelta(days=1)).isoformat(),
                 "experiment": exp,
                 "filter": filter,
-                "rows": [(run, _fmt_hhmm(run.start_time)) for run in runs],
+                "rows": [(run, fmt_time_of_day(run.start_time)) for run in runs],
                 "error": error,
                 "qs": lambda **kw: _sticky_query(day_state, **kw),
             },
@@ -280,9 +271,12 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
         folder = resolve_scan_folder(detail, run_day) if run_day else None
         devices = resources.image_devices(folder) if folder else []
         sel_device = device if device in devices else ""
-        kind, kind_path = (
-            resources.device_kind(folder, sel_device) if sel_device else ("", None)
-        )
+        if sel_device:
+            # Reuse the listing just computed — no second directory scan.
+            probe = resources.device_kind(folder, sel_device, devices=devices)
+            kind, kind_path = probe.kind, probe.path
+        else:
+            kind, kind_path = "", None
         n_rows = None if detail.data is None else len(detail.data)
         shot = max(1, min(shot, n_rows) if n_rows else shot)
         state = {

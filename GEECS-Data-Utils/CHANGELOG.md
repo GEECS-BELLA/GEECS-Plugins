@@ -3,6 +3,34 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.20.0] - 2026-08-29
+
+### Added
+
+Consolidation of the shot↔file join machinery (2026-08-29 review — the
+"created a shared seam but left sibling copies alive" cluster); one
+implementation each, consumed by ScanAnalysis and the data portal:
+
+- `native_files.probe_native_file` — THE exact-key native-file stat
+  probe (direct stats bypass stale SMB listing caches; ±1 ms is `%.3f`
+  rounding canonicalisation, never a tolerance window).
+- `io.scan_stack.stack_frame_index_map` (**keep-first** on duplicate
+  millisecond keys — the deterministic contract; the portal's private
+  copy was keep-last, a real parity break) +
+  `frame_index_for_timestamp` + `read_shot_for_acq_timestamp` (the
+  single-shot join in ONE h5py open — the gallery's hot path was three
+  opens per request).
+- `tiled_schema.normalize_token` — the device↔column matching rule,
+  public (ScanAnalysis's byte-identical private copy now delegates).
+- `scan_paths.VENDOR_ONLY_EXTS` + `io.images.DISPLAYABLE_IMAGE_EXTS` —
+  the one extension taxonomy (three uncoordinated consumer-local sets
+  before). `_ACCEPTABLE_EXTS` gains `has` (the missing sibling of the
+  already-accepted `himg`), so a `.has`-only HASO folder infers its real
+  extension instead of defaulting to `png` — retires the portal's
+  `_vendor_only` directory-scan workaround.
+- `tiled_catalog.fmt_time_of_day` — the shared HH:MM run-list formatter
+  (the portal's copy retired; the console's B1 swap rides the B4 rewire).
+
 ## [0.19.0] - 2026-08-29
 
 ### Changed

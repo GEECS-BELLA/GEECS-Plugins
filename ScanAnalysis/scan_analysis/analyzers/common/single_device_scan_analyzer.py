@@ -38,15 +38,17 @@ import numpy as np
 from geecs_data_utils import (
     filename_timestamp_regex,
     legacy_filename_regex,
-    native_file_name_from_key,
+    probe_native_file,
     timestamp_key,
-    timestamp_key_candidates,
 )
 from geecs_data_utils.io.scan_stack import (
     ShotRef,
     find_stack_file,
+    frame_index_for_timestamp,
     read_stack_timestamps,
+    stack_frame_index_map,
 )
+from geecs_data_utils.tiled_schema import normalize_token
 
 from scan_analysis.base import DataUnavailableWarning, ScanAnalyzer
 
@@ -420,8 +422,8 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
 
     @staticmethod
     def _normalize_column_token(name: str) -> str:
-        """Collapse a name to a lowercase ``_``-separated token for matching."""
-        return re.sub(r"[^a-z0-9]+", "_", str(name).lower()).strip("_")
+        """Collapse a name to a matching token — the shared schema rule."""
+        return normalize_token(name)
 
     def _acq_timestamp_column(self) -> Optional[str]:
         """Find this device's ``acq_timestamp`` column in the auxiliary frame.
@@ -481,7 +483,9 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
                 continue
             m = file_ts_regex.search(file.name)
             if m:
-                files_by_ms[timestamp_key(float(m.group("ts")))] = file
+                # keep-first on duplicate ms keys — the shared join contract
+                # (same rule as stack_frame_index_map).
+                files_by_ms.setdefault(timestamp_key(float(m.group("ts"))), file)
             elif legacy_regex.match(file.name):
                 has_legacy_named = True
 
@@ -511,15 +515,12 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
                 continue
             if not np.isfinite(ts) or ts <= 0:
                 continue
-            key = timestamp_key(ts)
             file = None
             if probe_expected_names:
-                file = self._probe_expected_file(data_dir, file_device, key)
+                file = self._probe_expected_file(data_dir, file_device, ts)
             if file is None:
-                for candidate_key in timestamp_key_candidates(key):
-                    file = files_by_ms.get(candidate_key)
-                    if file is not None:
-                        break
+                # The shared candidate probe, generic over map values.
+                file = frame_index_for_timestamp(files_by_ms, ts)
             if file is not None:
                 self._data_file_map[shot_num] = file
                 logger.info(f"Mapped file for shot {shot_num}: {file}")
@@ -575,11 +576,8 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
                 exc,
             )
             return False
-        frames_by_ms: dict[int, int] = {}
-        for idx, ts in enumerate(stack_ts):
-            # keep-first on duplicate ms keys (deterministic; the daemon
-            # dedupes identical timestamps upstream)
-            frames_by_ms.setdefault(timestamp_key(float(ts)), idx)
+        # THE shared keep-first ms-key map (portal parity — one contract).
+        frames_by_ms = stack_frame_index_map(stack_ts)
         valid_column = self._matching_valid_column()
         for _, row in self.auxiliary_data.iterrows():
             shot_num = int(row["Shotnumber"])
@@ -591,11 +589,9 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
                 continue
             if not np.isfinite(ts) or ts <= 0:
                 continue
-            for candidate_key in timestamp_key_candidates(timestamp_key(ts)):
-                idx = frames_by_ms.get(candidate_key)
-                if idx is not None:
-                    self._data_file_map[shot_num] = ShotRef(stack, idx)
-                    break
+            idx = frame_index_for_timestamp(frames_by_ms, ts)
+            if idx is not None:
+                self._data_file_map[shot_num] = ShotRef(stack, idx)
         if self._data_file_map:
             logger.info(
                 "Mapped %d shot(s) into capture stack %s",
@@ -611,20 +607,15 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
         return False
 
     def _probe_expected_file(
-        self, data_dir: Path, file_device: str, key: int
+        self, data_dir: Path, file_device: str, acq_timestamp: float
     ) -> Optional[Path]:
-        """Stat the timestamp-determined filename for *key* (±1 ms), if present.
+        """Stat the timestamp-determined filename, if present.
 
-        Direct stats bypass stale SMB directory-listing caches; this is the
-        primary lookup for live Bluesky scans.
+        Delegates to the shared :func:`geecs_data_utils.probe_native_file`
+        (direct stats bypassing stale SMB listing caches — the contract's
+        one probe, shared with the data portal).
         """
-        for k in timestamp_key_candidates(key):
-            candidate = data_dir / native_file_name_from_key(
-                file_device, k, self.file_tail
-            )
-            if candidate.exists():
-                return candidate
-        return None
+        return probe_native_file(data_dir, file_device, self.file_tail, acq_timestamp)
 
     def _resolve_background_paths(self) -> None:
         """

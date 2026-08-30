@@ -526,6 +526,31 @@ def _fmt_datetime(epoch: float) -> str:
         return ""
 
 
+def fmt_time_of_day(epoch: float) -> str:
+    """Format epoch seconds as local ``HH:MM`` ("" for 0/invalid).
+
+    The shared run-list time-cell formatter (console scan browser B1,
+    portal day view) — the HH:MM sibling of :func:`_fmt_datetime`, moved
+    down so the two front-ends render times identically.
+
+    Parameters
+    ----------
+    epoch : float
+        Unix epoch seconds (a run summary's ``start_time``).
+
+    Returns
+    -------
+    str
+        ``HH:MM`` in the host's local time, or ``""``.
+    """
+    if not epoch or not math.isfinite(epoch):
+        return ""
+    try:
+        return datetime.fromtimestamp(epoch).strftime("%H:%M")
+    except (OverflowError, OSError, ValueError):
+        return ""
+
+
 def metadata_rows(detail: RunDetail) -> list[tuple[str, str]]:
     """Compose display field/value rows from a loaded run's metadata.
 
