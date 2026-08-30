@@ -86,12 +86,7 @@ is reproducible in a notebook by calling the same primitive.*
 | Primitive | Status | Notes |
 |---|---|---|
 | `read_sfile(path) -> DataFrame` | **new** (tiny) | The standalone s-file reader all three duplicate sites converge on: one `read_csv(sep="\t")` + the `s{number}.txt` convention + dtype tolerance. Home: `geecs_data_utils/data/` (or `io/`). ScanAnalysis `base.py` and `ScanData.load_scalars` delegate to it (their PRs can trail). |
-| `scan_frame(detail, scan_folder) -> ProvenancedFrame` | **new** | THE union-with-provenance primitive: event columns (from `RunDetail.data`) ∪ s-file columns (via `read_sfile`), joined on shot identity — **`Shotnumber == scan_event_index`, both
-  1-based** (the plans increment before emitting; the legacy exporter
-  writes `Shotnumber = 1..N` over the same rows, and every existing
-  consumer maps them as equal — verified against
-  `plans/step_scan.py`, `tiled_export.py:98`, `analysis/camera.py`) —
-  each column tagged `run`/`sfile` (later `computed`). No name reconciliation, duplicates allowed. Provenance rides as a parallel `dict[str, str]` (a DataFrame `attrs` entry is fragile across copies — carry explicitly). Home: `geecs_data_utils`. |
+| `scan_frame(detail, scan_folder) -> ProvenancedFrame` | **new** | THE union-with-provenance primitive: event columns (from `RunDetail.data`) ∪ s-file columns (via `read_sfile`), joined on shot identity — **`Shotnumber == scan_event_index`, both 1-based** (the plans increment before emitting; the legacy exporter writes `Shotnumber = 1..N` over the same rows, and every existing consumer maps them as equal — verified against `plans/step_scan.py`, `tiled_export.py:98`, `analysis/camera.py`) — each column tagged `run`/`sfile` (later `computed`). No name reconciliation, duplicates allowed. Provenance rides as a parallel `dict[str, str]` (a DataFrame `attrs` entry is fragile across copies — carry explicitly). Home: `geecs_data_utils`. |
 | `RunDetail.data` | **exists** | The event side, already served by the portal's `CachingScanCatalog`. |
 | `display_name` / `geecs_scalar_headers` | **exists** | Pretty names for the pick list (the M5 "aliases" deferral) when wanted. |
 
