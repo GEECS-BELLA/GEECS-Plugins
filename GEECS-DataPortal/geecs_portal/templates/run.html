@@ -441,7 +441,7 @@ function addY(name) {
 function removeY(i) {
   S.y.splice(i, 1);
   const d = dispCfg();
-  if (d.colors) {  // keep custom colors aligned with their traces
+  if (Array.isArray(d.colors)) {  // keep custom colors aligned with their traces
     d.colors.splice(i, 1);
     if (!d.colors.some((c, j) => c !== TRACE_COLORS[j])) delete d.colors;
     S.display = Object.keys(d).length ? JSON.stringify(d) : "";
