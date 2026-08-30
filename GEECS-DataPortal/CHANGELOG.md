@@ -18,7 +18,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   the event rows — so stepping through a gallery serves from memory
   with zero filesystem access (pinned by delete-the-file-then-serve
   tests).  Still-running runs and ordinal (listing-order) resolutions
-  are never cached.  `__main__` wraps the real catalog.
+  are never cached.  `__main__` wraps the real catalog.  Hardened per
+  review: the budget genuinely bounds the cache (per-entry cap =
+  budget/3 — a single warming entry can never exceed it; oversize
+  stacks serve per shot from disk, uncached), stack admission requires
+  the daemon's `finalized=True` stamp (the stop doc lands before
+  finalization — caching an un-finalized stack would 404 tail shots
+  from memory forever), warms are throttled (2 threads) and run once
+  per key per process (no hole re-probing per page view).
 
 ## [0.4.2] - 2026-08-29
 

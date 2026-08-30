@@ -48,6 +48,7 @@ def scan_folder(tmp_path):
 
     with h5py.File(stacked / "UC_StackCam.h5", "w") as handle:
         handle.attrs["schema"] = "geecs-capture/1"
+        handle.attrs["finalized"] = True  # daemon-stamped completed stack
         # FOUR frames: a leading pre-scan extra (FORMAT.md caveat a) that
         # must NOT shift the timestamp join. Identity marker per index.
         frames = np.zeros((4, 6, 6), dtype=np.uint16)

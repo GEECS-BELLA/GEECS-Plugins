@@ -49,6 +49,15 @@ _RUNNING_TTL_S = 5.0
 #: Byte budget for cached pixel data across all (uid, device) entries.
 _PIXEL_BUDGET_BYTES = 1_500_000_000
 
+#: No single (uid, device) entry may exceed this fraction of the budget —
+#: the budget must bound the cache even while one entry is warming, and
+#: two doctrine-sized diagnostics must coexist without evicting each other.
+_ENTRY_CAP_FRACTION = 3
+
+#: At most this many background warm threads at once (the NAS path is the
+#: bottleneck — warms must not compete with a live experiment's writes).
+_MAX_WARM_THREADS = 2
+
 
 class CachingScanCatalog:
     """A delegating ``ScanCatalog`` that caches ``load_run`` results.
@@ -121,9 +130,11 @@ class ShotDataCache:
 
     def __init__(self, budget_bytes: int = _PIXEL_BUDGET_BYTES):
         self._budget = budget_bytes
+        self._entry_cap = max(1, budget_bytes // _ENTRY_CAP_FRACTION)
         self._lock = threading.Lock()
         self._entries: OrderedDict[tuple[str, str], dict] = OrderedDict()
         self._warming: set[tuple[str, str]] = set()
+        self._warmed: set[tuple[str, str]] = set()
 
     def _entry_bytes(self, entry: dict) -> int:
         frames = entry.get("frames")
@@ -139,12 +150,18 @@ class ShotDataCache:
 
     def stack_frames(
         self, key: tuple[str, str], stack_path: Path
-    ) -> tuple[dict, np.ndarray]:
+    ) -> Optional[tuple[dict, np.ndarray]]:
         """The stack's ``(index_map, frames)`` — whole array, one read.
 
         First touch reads every frame (the owner's eager-within-scan
         doctrine: ~100s MB, one open); navigation then never reopens the
-        file.
+        file.  Admission is gated: the stack must be **finalized** (the
+        daemon's stop-doc handler stamps ``finalized=True`` *after* the
+        Tiled stop document lands, so an un-finalized file may still be
+        missing tail frames — caching it would 404 those shots from
+        memory forever) and must fit the per-entry cap (the budget must
+        bound the cache even mid-warm).  ``None`` means "don't cache" —
+        the caller serves from disk per shot as before.
 
         Parameters
         ----------
@@ -155,8 +172,9 @@ class ShotDataCache:
 
         Returns
         -------
-        tuple of (dict, numpy.ndarray)
-            The keep-first millisecond-key → index map and the frames.
+        tuple of (dict, numpy.ndarray) or None
+            The keep-first millisecond-key → index map and the frames,
+            or ``None`` when the stack is not admissible.
         """
         with self._lock:
             entry = self._entries.get(key)
@@ -171,9 +189,21 @@ class ShotDataCache:
         )
 
         with h5py.File(stack_path, "r") as f:
+            if not bool(f.attrs.get("finalized", False)):
+                return None
+            dataset = f["frames"]
+            size = int(np.prod(dataset.shape)) * dataset.dtype.itemsize
+            if size > self._entry_cap:
+                logger.info(
+                    "stack %s (%d bytes) exceeds the per-entry cap — serving "
+                    "per shot from disk",
+                    stack_path,
+                    size,
+                )
+                return None
             stamps = np.asarray(f["acq_timestamp"][:], dtype=float)
             stamps = stamps + LABVIEW_EPOCH_OFFSET
-            frames = np.asarray(f["frames"][:])
+            frames = np.asarray(dataset[:])
         index_map = stack_frame_index_map(stamps)
         with self._lock:
             self._entries[key] = {"index_map": index_map, "frames": frames}
@@ -205,13 +235,28 @@ class ShotDataCache:
 
     def store_native_shot(
         self, key: tuple[str, str], shot: int, array: np.ndarray
-    ) -> None:
-        """Keep one decoded shot array (creates the entry as needed)."""
+    ) -> bool:
+        """Keep one decoded shot array (creates the entry as needed).
+
+        Returns
+        -------
+        bool
+            False when the entry is at its per-entry cap (the shot is not
+            stored — the budget bounds the cache even mid-warm).
+        """
         with self._lock:
             entry = self._entries.setdefault(key, {"shots": {}})
+            if self._entry_bytes(entry) + array.nbytes > self._entry_cap:
+                return False
             entry.setdefault("shots", {})[shot] = array
             self._entries.move_to_end(key)
             self._evict_over_budget()
+            return True
+
+    def _entry_at_cap(self, key: tuple[str, str]) -> bool:
+        with self._lock:
+            entry = self._entries.get(key)
+            return entry is not None and self._entry_bytes(entry) >= self._entry_cap
 
     def warm_native(
         self,
@@ -239,13 +284,21 @@ class ShotDataCache:
             Run inline instead of on a daemon thread (tests only).
         """
         with self._lock:
-            if key in self._warming:
+            if key in self._warming or key in self._warmed:
+                # Once per key per process: a device with genuinely
+                # missing shot files must not re-probe every hole on
+                # every page view.
                 return
+            if not synchronous and len(self._warming) >= _MAX_WARM_THREADS:
+                return  # NAS throttle; a later view reschedules
             self._warming.add(key)
 
         def _run() -> None:
             try:
                 for shot in shots:
+                    if self._entry_at_cap(key):
+                        logger.info("warm %s stopped at the per-entry cap", key)
+                        break
                     if self.native_shot(key, shot) is not None:
                         continue
                     try:
@@ -255,6 +308,7 @@ class ShotDataCache:
             finally:
                 with self._lock:
                     self._warming.discard(key)
+                    self._warmed.add(key)
 
         if synchronous:
             _run()

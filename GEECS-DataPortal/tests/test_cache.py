@@ -160,15 +160,106 @@ class TestShotDataCache:
         cache.warm_native(key, _load, [1, 2, 3], synchronous=True)
         assert all(cache.native_shot(key, s) is not None for s in (1, 2, 3))
 
-    def test_budget_evicts_least_recently_used(self, scan_folder):  # noqa: F811
+    def test_budget_evicts_least_recently_used(self):
         import numpy as np
 
-        cache = ShotDataCache(budget_bytes=1)  # everything is over budget
-        cache.store_native_shot(("u", "a"), 1, np.zeros((16, 16)))
-        cache.store_native_shot(("u", "b"), 1, np.zeros((16, 16)))
-        # at least one entry always survives; the older one evicts
+        # budget for ~4 shots; per-entry cap = budget // 3 ≈ 1.3 shots
+        shot_bytes = np.zeros((16, 16)).nbytes
+        cache = ShotDataCache(budget_bytes=4 * shot_bytes)
+        assert cache.store_native_shot(("u", "a"), 1, np.zeros((16, 16)))
+        assert cache.store_native_shot(("u", "b"), 1, np.zeros((16, 16)))
+        assert cache.store_native_shot(("u", "c"), 1, np.zeros((16, 16)))
+        assert cache.store_native_shot(("u", "d"), 1, np.zeros((16, 16)))
+        assert cache.store_native_shot(("u", "e"), 1, np.zeros((16, 16)))
+        # over budget: the oldest evicted, the newest kept
         assert cache.native_shot(("u", "a"), 1) is None
-        assert cache.native_shot(("u", "b"), 1) is not None
+        assert cache.native_shot(("u", "e"), 1) is not None
+
+    def test_per_entry_cap_bounds_a_single_warming_entry(self):
+        import numpy as np
+
+        shot_bytes = np.zeros((16, 16)).nbytes
+        cache = ShotDataCache(budget_bytes=6 * shot_bytes)  # cap = 2 shots
+        key = ("u", "big")
+        assert cache.store_native_shot(key, 1, np.zeros((16, 16)))
+        assert cache.store_native_shot(key, 2, np.zeros((16, 16)))
+        # the third shot would exceed the per-entry cap: refused, and the
+        # warm loop's cap check would stop the thread here too
+        assert cache.store_native_shot(key, 3, np.zeros((16, 16))) is False
+        assert cache.native_shot(key, 3) is None
+        assert cache._entry_at_cap(key)
+
+    def test_unfinalized_stack_is_never_cached(self, scan_folder):  # noqa: F811
+        # The stop doc lands BEFORE the daemon finalizes the stack (a
+        # seconds-wide race): an un-finalized file may miss tail frames,
+        # so it must serve from disk per shot, never enter the cache.
+        import h5py
+
+        stack = scan_folder / "UC_StackCam" / "UC_StackCam.h5"
+        with h5py.File(stack, "a") as handle:
+            del handle.attrs["finalized"]
+        cache = ShotDataCache()
+        key = ("uid-002", "UC_StackCam")
+        result = resources.load_shot_image(
+            scan_folder,
+            "UC_StackCam",
+            2,
+            acq_timestamp=_LV + 2.0,
+            data_cache=cache,
+            cache_key=key,
+        )
+        assert result.kind == "stack"  # still serves — from disk
+        assert cache.stack_entry(key) is None  # but never cached
+
+    def test_oversize_stack_serves_from_disk_uncached(self, scan_folder):  # noqa: F811
+        cache = ShotDataCache(budget_bytes=8)  # cap far below the stack
+        key = ("uid-002", "UC_StackCam")
+        result = resources.load_shot_image(
+            scan_folder,
+            "UC_StackCam",
+            2,
+            acq_timestamp=_LV + 2.0,
+            data_cache=cache,
+            cache_key=key,
+        )
+        assert result.kind == "stack"
+        assert cache.stack_entry(key) is None
+
+    def test_warm_runs_once_per_key_per_process(self, scan_folder):  # noqa: F811
+        cache = ShotDataCache()
+        key = ("uid-002", "cam")
+        calls: list[int] = []
+
+        def _load(shot: int) -> None:
+            calls.append(shot)
+
+        cache.warm_native(key, _load, [1, 2], synchronous=True)
+        cache.warm_native(key, _load, [1, 2], synchronous=True)  # no re-probe
+        assert calls == [1, 2]
+
+    def test_threaded_warm_completes(self, scan_folder):  # noqa: F811
+        import time as _time
+
+        cache = ShotDataCache()
+        key = ("uid-002", "cam")
+
+        def _load(shot: int) -> None:
+            resources.load_shot_image(
+                scan_folder,
+                "cam",
+                shot,
+                acq_timestamp=_LV + float(shot),
+                data_cache=cache,
+                cache_key=key,
+            )
+
+        cache.warm_native(key, _load, [1, 2, 3])  # real daemon thread
+        deadline = _time.monotonic() + 5.0
+        while _time.monotonic() < deadline:
+            if all(cache.native_shot(key, s) is not None for s in (1, 2, 3)):
+                break
+            _time.sleep(0.02)
+        assert all(cache.native_shot(key, s) is not None for s in (1, 2, 3))
 
 
 class TestCachedRoutes:

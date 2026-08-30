@@ -233,10 +233,14 @@ def load_shot_image(
             if caching:
                 # Eager within-scan load (owner doctrine): the whole
                 # frames array in one open; navigation never reopens.
-                index_map, frames = data_cache.stack_frames(cache_key, stack)
-                return _stack_shot_from_memory(
-                    index_map, frames, shot, acq_timestamp, path=stack
-                )
+                # None = not admissible (un-finalized tail-race window,
+                # or over the per-entry cap) — serve per shot from disk.
+                admitted = data_cache.stack_frames(cache_key, stack)
+                if admitted is not None:
+                    index_map, frames = admitted
+                    return _stack_shot_from_memory(
+                        index_map, frames, shot, acq_timestamp, path=stack
+                    )
             if acq_timestamp is not None:
                 # The canonical-millisecond join, ONE file open — the
                 # shared keep-first contract lives in
