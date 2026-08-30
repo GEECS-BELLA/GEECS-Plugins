@@ -3,6 +3,13 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.4.2] - 2026-08-29
+
+### Changed
+
+- CLAUDE.md / app.py docstrings: the "shared with the console's B4"
+  claims restored — true again with Console 0.25.0 (docs-only).
+
 ## [0.4.1] - 2026-08-29
 
 ### Changed

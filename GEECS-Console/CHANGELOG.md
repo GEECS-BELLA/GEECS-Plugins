@@ -4,6 +4,18 @@ All notable changes to GEECS-Console are documented here.  Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is
 semantic.
 
+## [0.25.0] - 2026-08-29
+
+### Changed
+
+- Scan browser B4 adopts the shared pick-list rule: pickers offer
+  exactly `tiled_schema.plottable_columns` (all-NaN and string-typed
+  columns no longer appear — previously they were listed and rejected at
+  plot time), and `_numeric_values` coerces through the shared
+  `numeric_series`.  B1's time cells use the shared
+  `tiled_catalog.fmt_time_of_day`.  The "ONE pick-list rule / cannot
+  drift" contract is now true on both front-ends (data portal parity).
+
 ## [0.24.4] - 2026-08-29
 
 ### Changed

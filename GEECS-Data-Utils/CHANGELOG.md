@@ -3,6 +3,14 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.20.1] - 2026-08-29
+
+### Changed
+
+- `tiled_schema.plottable_columns` docstring restored to the shared-rule
+  claim — true again now that the console's B4 consumes the helper
+  (docs-only).
+
 ## [0.20.0] - 2026-08-29
 
 ### Added
