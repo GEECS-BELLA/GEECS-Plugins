@@ -63,6 +63,7 @@ from geecs_data_utils.tiled_catalog import (
     RunSummary,
     ScanCatalog,
     StubCatalog,
+    fmt_time_of_day,
     metadata_rows,
     resolve_scan_folder,
 )
@@ -263,16 +264,6 @@ def _capture_outcome(func: Callable[[], object]) -> Callable[[], tuple]:
             return (None, str(exc))
 
     return _call
-
-
-def _fmt_time_of_day(epoch: float) -> str:
-    """Format an epoch-seconds value as local ``HH:MM`` ("" for 0/invalid)."""
-    if not epoch or not math.isfinite(epoch):
-        return ""
-    try:
-        return datetime.fromtimestamp(epoch).strftime("%H:%M")
-    except (OverflowError, OSError, ValueError):
-        return ""
 
 
 def _fmt_timestamp_cell(epoch: float) -> str:
@@ -780,7 +771,7 @@ class ScanBrowserWindow(QMainWindow):
             if summary.scan_number is not None
             else summary.uid[:8]
         )
-        time_text = _fmt_time_of_day(summary.start_time)
+        time_text = fmt_time_of_day(summary.start_time)
         shots = f" · {summary.shots} shots" if summary.shots else ""
         return f"{dot} {number}   {time_text}   {summary.mode}{shots}"
 
@@ -921,7 +912,10 @@ class ScanBrowserWindow(QMainWindow):
         """Rebuild the X combo and the Y completer for the loaded run."""
         df = detail.data
         columns = [] if df is None else [str(c) for c in df.columns]
-        data_cols = schema_map.data_columns(columns)
+        # THE shared pick-list rule (tiled_schema.plottable_columns — data
+        # portal parity): machinery excluded AND at least one finite value,
+        # so all-NaN/string columns never reach the pickers.
+        data_cols = [] if df is None else schema_map.plottable_columns(df)
 
         self.b4_x_combo.blockSignals(True)
         self.b4_x_combo.clear()
@@ -944,19 +938,19 @@ class ScanBrowserWindow(QMainWindow):
     def _numeric_values(self, column: str) -> Optional[list[float]]:
         """Return *column* as floats, or ``None`` when it is not numeric.
 
-        Non-numeric columns exist by contract (dtype-tolerant telemetry) —
-        the caller shows a status message instead of crashing.
+        Delegates the coercion to the shared
+        :func:`geecs_data_utils.tiled_schema.numeric_series` (data portal
+        parity — one rule).  Non-numeric columns exist by contract
+        (dtype-tolerant telemetry) — the caller shows a status message
+        instead of crashing.
         """
         df = self._dataframe()
-        if df is None or column not in df.columns:
+        if df is None:
             return None
-        import pandas as pd
-
-        series = pd.to_numeric(df[column], errors="coerce")
-        values = [float(v) for v in series.tolist()]
-        if not any(math.isfinite(v) for v in values):
+        series = schema_map.numeric_series(df, column)
+        if series is None:
             return None
-        return values
+        return [float(v) for v in series.tolist()]
 
     def _x_values(self) -> Optional[list[float]]:
         """Return the current X axis values (shot sequence or a column)."""

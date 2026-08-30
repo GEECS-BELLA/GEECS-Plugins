@@ -208,11 +208,9 @@ def data_columns(columns: Sequence[str]) -> list[str]:
 def plottable_columns(frame: Any) -> list[str]:
     """Return the columns of *frame* offered as scalar-plot picks.
 
-    The ONE pick-list rule for scalar-plotting front-ends over the
-    catalog.  The data portal consumes it today; the console scan
-    browser's B4 still carries a private pre-move copy of the same rule
-    and is owed a rewire onto this helper (until then the two can
-    drift — do not add a third copy).  Schema machinery (row
+    The ONE pick-list rule shared by the scalar-plotting front-ends
+    (the console scan browser's B4, the data portal) — both consume this
+    helper, so the two cannot drift.  Schema machinery (row
     identity + companion columns) is excluded via :func:`data_columns`,
     and plottability is tolerant coercion per the dtype-tolerant
     telemetry contract ("never assume numeric") — an object-typed column

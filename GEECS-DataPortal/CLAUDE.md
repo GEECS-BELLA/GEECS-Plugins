@@ -21,10 +21,9 @@ this package; the architecture rules below are its distillation.
   scan browser shares them; import-identity is pinned console-side for
   `resolve_scan_folder` and `metadata_rows`).
 - **Column semantics live in `geecs_data_utils.tiled_schema`.**  The
-  plot pick list is `plottable_columns`, coercion is `numeric_series`
-  (the console's B4 is owed a rewire onto the same helpers — until then
-  it carries a private pre-move copy).  Never interpret event-schema
-  column names or dtypes in this package.
+  plot pick list is `plottable_columns`, coercion is `numeric_series` —
+  shared with the console's B4 so the two front-ends cannot drift.
+  Never interpret event-schema column names or dtypes in this package.
 - **No build chain.**  Server-rendered Jinja2 templates + minimal inline
   CSS; plots are server-side matplotlib PNGs via the **object API**
   (`matplotlib.figure.Figure`, never pyplot — no global figure registry

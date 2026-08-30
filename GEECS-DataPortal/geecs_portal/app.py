@@ -16,8 +16,8 @@ Architecture rules (see this package's ``CLAUDE.md`` and
   ``tiled``.
 - **Column semantics live in ``geecs_data_utils.tiled_schema``** — the
   pick list is :func:`~geecs_data_utils.tiled_schema.plottable_columns`
-  and coercion is :func:`~geecs_data_utils.tiled_schema.numeric_series`
-  (the console's B4 is owed a rewire onto the same helpers).
+  and coercion is :func:`~geecs_data_utils.tiled_schema.numeric_series`,
+  shared with the console's B4 so the two front-ends cannot drift.
 - **No build chain** — server-rendered Jinja2 templates, plots rendered
   server-side to PNG via the matplotlib object API (thread-safe: no
   pyplot global state on FastAPI's threadpool); no npm, no CDN.
