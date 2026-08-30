@@ -107,9 +107,13 @@ list — a new tab should be exactly these steps:
    ImageAnalysis), pure and hermetically tested there.  If the tab
    needs new math, that PR comes first.
 2. **Endpoint** — one `/api/run/{uid}/…` route in `app.py`: parse
-   params via `analysis.py` (`BadParam` → 400), call the primitive,
-   shape with `jsonable_values`, attach a `code` snippet, serve with
-   the completed-run cache headers.
+   params via `analysis.py` (`BadParam` → 400 — and that means full
+   type/arity validation of every field, not just enum membership:
+   plain-dataclass configs validate nothing themselves, so a
+   wrong-typed field that only explodes inside the primitive is a 500
+   waiting for a hand-edited URL), call the primitive, shape with
+   `jsonable_values`, attach a `code` snippet, serve with the
+   completed-run cache headers.
 3. **Tab** — a `<section class="pane">` + a `.tab` button in
    `run.html`; render with the vendored Plotly from the JSON; keep all
    view state in the URL (extend `readState`/`writeState`); expansion

@@ -483,3 +483,62 @@ class TestAnalysisApi:
         assert response.status_code == 200
         assert b"NaN" not in response.content
         assert response.json()["series"]["cam-MaxCounts"] == [10.0, None, 11.0]
+
+    def test_wrong_typed_bincfg_fields_are_400_not_500(self):
+        # BinningConfig is a plain dataclass: type/arity discipline
+        # lives in parse_bincfg — these all 500'd before the review fix.
+        client = _client()
+        bad = [
+            '{"err":"percentile","percentiles":[0.5]}',  # arity 1
+            '{"percentiles":[0.1,0.2,0.3]}',  # arity 3 (was silently 2)
+            '{"min_count":"2"}',  # string int
+            '{"ddof":"x"}',  # non-numeric
+            '{"ddof":1.5}',  # non-integral
+            '{"bin_width":"wide"}',  # string float
+            '{"scale_to_sigma":"no"}',  # truthy string ≠ bool
+            '{"right":1}',  # int ≠ bool
+            '{"bin_col":3}',  # non-string
+            '{"bin_edges":[1]}',  # < 2 edges
+            '{"value_cols":"v"}',  # bare string, not a list
+        ]
+        for bincfg in bad:
+            response = client.get(
+                "/api/run/uid-002/binned",
+                params={"cols": "cam-MaxCounts", "bincfg": bincfg},
+            )
+            assert response.status_code == 400, bincfg
+            assert "bincfg" in response.json()["detail"], bincfg
+
+    def test_degenerate_percentile_pair_is_400(self):
+        response = _client().get(
+            "/api/run/uid-002/binned",
+            params={
+                "cols": "cam-MaxCounts",
+                "bincfg": '{"bin_col":"mono","err":"percentile",'
+                '"percentiles":[0.5,0.5]}',
+            },
+        )
+        assert response.status_code == 400
+
+    def test_na_shot_key_serializes_as_null(self):
+        # A union row the event side missed carries pd.NA in the Int64
+        # shot key — it must serialize as null, never the string "<NA>".
+        catalog = FakeCatalog()
+        detail = _detail(7)
+        detail.data["scan_event_index"] = pd.array([1, pd.NA, 3], dtype="Int64")
+        catalog.details["uid-007"] = detail
+        response = _client(catalog).get("/api/run/uid-007/frame?cols=cam-MaxCounts")
+        assert response.status_code == 200
+        assert b"<NA>" not in response.content
+        assert response.json()["shot"] == [1.0, None, 3.0]
+
+    def test_binned_counts_are_integers(self):
+        payload = (
+            _client()
+            .get(
+                "/api/run/uid-002/binned",
+                params={"cols": "cam-MaxCounts", "bincfg": '{"bin_col":"mono"}'},
+            )
+            .json()
+        )
+        assert all(isinstance(count, int) for count in payload["counts"])

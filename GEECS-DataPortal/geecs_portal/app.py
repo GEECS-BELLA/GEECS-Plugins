@@ -351,7 +351,7 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         payload = {
             "bins": analysis.jsonable_labels(result.frame.index),
-            "counts": analysis.jsonable_values(result.counts),
+            "counts": [int(count) for count in result.counts],
             "series": {
                 column: {
                     sub: analysis.jsonable_values(result.frame[(column, sub)])

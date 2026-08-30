@@ -64,14 +64,34 @@ _BIN_CHOICES = {
     "dropna": {"any", "all"},
     "label": {"interval", "left", "center", "right"},
 }
+#: Per-field shape checks: BinningConfig is a plain (non-validating)
+#: dataclass, so type/arity discipline lives HERE — a wrong-typed field
+#: must 400 at the boundary, never 500 (or silently coerce) inside
+#: bin_frame.
+_BIN_INTS = ("ddof", "min_count", "quantile_bins")
+_BIN_FLOATS = ("bin_width", "origin")
+_BIN_BOOLS = ("right", "scale_to_sigma")
+
+
+def _bin_number(key: str, value: object, kind: type) -> object:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise BadParam(f"bad bincfg param: {key} must be a number")
+    if kind is int:
+        if float(value) != int(value):
+            raise BadParam(f"bad bincfg param: {key} must be an integer")
+        return int(value)
+    if not math.isfinite(float(value)):
+        raise BadParam(f"bad bincfg param: {key} must be finite")
+    return float(value)
 
 
 def parse_bincfg(raw: str) -> BinningConfig:
     """Deserialize the ``bincfg`` query param (empty → defaults).
 
     ``BinningConfig`` is a plain dataclass, so validation is explicit
-    here: unknown keys and out-of-vocabulary choice fields are refused
-    (a typo'd ``err`` must 400 at the boundary, not 500 inside
+    here — unknown keys, out-of-vocabulary choices, and wrong
+    types/arities are all refused (a typo'd ``err`` or a one-element
+    ``percentiles`` must 400 at the boundary, not 500 inside
     ``bin_frame``); JSON lists become the tuples the config declares.
 
     Parameters
@@ -87,7 +107,7 @@ def parse_bincfg(raw: str) -> BinningConfig:
     Raises
     ------
     BadParam
-        On malformed JSON, unknown keys, or invalid choice values.
+        On malformed JSON, unknown keys, or invalid field values.
     """
     if not raw:
         return BinningConfig()
@@ -103,9 +123,36 @@ def parse_bincfg(raw: str) -> BinningConfig:
     for key, allowed in _BIN_CHOICES.items():
         if key in payload and payload[key] not in allowed:
             raise BadParam(f"bad bincfg param: {key} must be one of {sorted(allowed)}")
-    for key in ("percentiles", "value_cols", "bin_edges"):
-        if isinstance(payload.get(key), list):
-            payload[key] = tuple(payload[key])
+    if "bin_col" in payload and not isinstance(payload["bin_col"], str):
+        raise BadParam("bad bincfg param: bin_col must be a string")
+    for key in _BIN_INTS:
+        if payload.get(key) is not None:
+            payload[key] = _bin_number(key, payload[key], int)
+    for key in _BIN_FLOATS:
+        if payload.get(key) is not None:
+            payload[key] = _bin_number(key, payload[key], float)
+    for key in _BIN_BOOLS:
+        if key in payload and not isinstance(payload[key], bool):
+            raise BadParam(f"bad bincfg param: {key} must be a boolean")
+    if payload.get("percentiles") is not None:
+        pair = payload["percentiles"]
+        if not isinstance(pair, list) or len(pair) != 2:
+            raise BadParam("bad bincfg param: percentiles must be a [low, high] pair")
+        payload["percentiles"] = tuple(
+            _bin_number("percentiles", bound, float) for bound in pair
+        )
+    if payload.get("bin_edges") is not None:
+        edges = payload["bin_edges"]
+        if not isinstance(edges, list) or len(edges) < 2:
+            raise BadParam("bad bincfg param: bin_edges must be a list of >= 2 edges")
+        payload["bin_edges"] = tuple(
+            _bin_number("bin_edges", edge, float) for edge in edges
+        )
+    if payload.get("value_cols") is not None:
+        cols = payload["value_cols"]
+        if not isinstance(cols, list) or not all(isinstance(c, str) for c in cols):
+            raise BadParam("bad bincfg param: value_cols must be a list of strings")
+        payload["value_cols"] = tuple(cols)
     try:
         return BinningConfig(**payload)
     except (TypeError, ValueError) as exc:
@@ -113,16 +160,26 @@ def parse_bincfg(raw: str) -> BinningConfig:
 
 
 def jsonable_values(series: Any) -> list:
-    """A pandas Series as a JSON-safe list (NaN/±inf/NaT → ``None``).
+    """A pandas Series as a JSON-safe list (NA/NaN/±inf/NaT → ``None``).
 
     ``json.dumps`` emits invalid JSON for float NaN and browsers refuse
     it — every array leaving an ``/api`` endpoint passes through here.
+    ``pd.NA`` (an Int64 shot key on a union row the event side missed)
+    must become ``None``, never the string ``"<NA>"``.
     """
+    import pandas as pd
+
     out = []
     for value in series:
         if value is None:
             out.append(None)
             continue
+        try:
+            if pd.isna(value):
+                out.append(None)
+                continue
+        except (TypeError, ValueError):
+            pass  # array-likes: fall through to the float attempt
         try:
             number = float(value)
         except (TypeError, ValueError):

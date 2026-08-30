@@ -146,7 +146,7 @@
       <div class="plotbar">
         <span>X: <input class="mono" id="xcol" list="all-cols" placeholder="(shot #)"
               style="background:var(--panel2); color:var(--ink); border:1px solid var(--line); border-radius:3px; padding:0.2rem 0.4rem; width:16rem;"
-              onchange="S.x=this.value; refresh();"></span>
+              onchange="S.x=this.value; writeState(); refresh();"></span>
         <span class="seg">
           <button id="seg-shot" onclick="setView('shot')">per-shot</button>
           <button id="seg-bin" onclick="setView('bin')">binned</button>
@@ -277,6 +277,7 @@ const S = readState();
 let COLUMNS = [];      // [{name, provenance, pretty}] from /api/columns
 let DEFAULT_X = "";
 let FDRAFT = null;     // the filters popup's working copy
+let BOOTED = false;    // true once the columns bootstrap resolved
 
 function readState() {
   const p = new URLSearchParams(location.search);
@@ -291,6 +292,9 @@ function readState() {
 }
 
 function writeState() {
+  // replaceState, never pushState: Back/Forward moves between PAGES,
+  // not analysis states — there is deliberately no popstate handler.
+  // Shared/bookmarked links restore everything via readState().
   const p = new URLSearchParams(location.search);
   ["y", "x", "view", "filters", "bincfg", "tab"].forEach(k => p.delete(k));
   S.y.forEach(v => p.append("y", v));
@@ -401,7 +405,10 @@ function plotHost() {
 }
 
 function refresh() {
-  if (S.tab !== "plot") return;
+  // Gated until the columns bootstrap resolves: the boot sequence
+  // (setTab/setView) would otherwise fire duplicate frame fetches
+  // before the default X is known.
+  if (!BOOTED || S.tab !== "plot") return;
   if (!S.y.length) {
     plotMessage("pick up to 4 columns above");
     document.getElementById("codebox").textContent = "";
@@ -633,10 +640,13 @@ api("columns", {}).then(data => {
   document.getElementById("all-cols").innerHTML =
     COLUMNS.map(c => `<option value="${escAttr(c.name)}">`).join("");
   renderPicker();
+  BOOTED = true;
   refresh();
 }).catch(err => {
   document.getElementById("providers").innerHTML =
     `<span class="error">columns: ${esc(err.message)}</span>`;
+  BOOTED = true;  // still render honest per-fetch errors on the plot
+  refresh();
 });
 
 renderPicked();
