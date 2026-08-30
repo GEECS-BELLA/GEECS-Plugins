@@ -106,7 +106,13 @@ FileType/mode whose output feeds BOTH this tab and the Binned plot tab
 |---|---|---|---|
 | U1 | All seven un-screenshotted tabs | **unknown → owner** | One line each from the owner: used / not used / what it does. MultiScan is presumptively M2/§4 (cross-scan, deferred). Anything unused: drop. | |
 
-## Proposed wave plan (falls out of the rulings)
+## Proposed wave plan (superseded)
+
+*This section is **superseded by ruling 1 below and the wave plan in
+`03_analysis_tabs_design.md`**: the "Confirm or reorder" question was
+answered by the merged-Plot-tab ruling (per-shot ⇄ binned ship together
+in the first Plot tab), and top-N-per-bin moved out of wave 1 per
+ruling 8. Kept for the record of the original proposal.*
 
 **Flagged departure for the owner to confirm**: notes.md ranks the
 binned plot #1 ("the workflow the portal's analysis tab must nail

@@ -35,11 +35,14 @@ is reproducible in a notebook by calling the same primitive.*
    generally — so the scalar-binning implementation can be rewritten
    freely; the `ScanData` delegate keeps the notebook working and W1c
    refreshes it to the new API.
-2. **The s-file is read in three independent places** with three copies
-   of the `s{number}.txt` path convention: `scan_data.py` (`read_csv`
-   via ScanPaths), `ScanAnalysis/base.py:296` (its own `read_csv`,
-   ignoring the ScanData it constructed 90 lines earlier), and the
-   append/merge path. There is no standalone `read_sfile(path)`.
+2. **The s-file is read in three independent places** with copies of
+   the `s{number}.txt` path convention: `scan_data.py` (`read_csv` via
+   ScanPaths), `ScanAnalysis/base.py:296` (its own `read_csv`, ignoring
+   the ScanData it constructed 90 lines earlier), and the append/merge
+   path's re-read. There is no standalone `read_sfile(path)`. (The path
+   *convention* additionally appears in two writer-side sites —
+   `copy_fresh_sfile_to_analysis` and `tiled_export`'s s-file writer —
+   which a read-side consolidation deliberately leaves alone.)
 3. **`ScanData.from_date` defaults are hostile to a request path**:
    `append_paths=True` costs N_devices+1 SMB directory listings before
    any data; the constructor requires config.ini + mounted share +
@@ -69,9 +72,12 @@ is reproducible in a notebook by calling the same primitive.*
    `load_camera_config` goes through the `ConfigDirManager` with env
    overrides). Passing `config_dir=` explicitly bypasses both — the
    portal should do that from its own config.
-8. **Per-bin image averaging exists three times** and two of the three
-   use `np.mean` (one NaN pixel poisons a bin) while
-   `ImageAnalyzerResult.average` correctly uses `nanmean`.
+8. **Per-bin frame averaging exists three times**:
+   `SingleDeviceScanAnalyzer.average_data` (`np.mean` — one NaN pixel
+   poisons a bin; `_postprocess_noscan` delegates to it), the
+   hand-rolled `np.mean` in
+   `analyzers/Undulator/HIMG_with_average_saving.py:70`, and
+   `ImageAnalyzerResult.average` (`nanmean` — the correct one).
 
 ## Decomposition — mockup surface → primitives
 
@@ -80,7 +86,12 @@ is reproducible in a notebook by calling the same primitive.*
 | Primitive | Status | Notes |
 |---|---|---|
 | `read_sfile(path) -> DataFrame` | **new** (tiny) | The standalone s-file reader all three duplicate sites converge on: one `read_csv(sep="\t")` + the `s{number}.txt` convention + dtype tolerance. Home: `geecs_data_utils/data/` (or `io/`). ScanAnalysis `base.py` and `ScanData.load_scalars` delegate to it (their PRs can trail). |
-| `scan_frame(detail, scan_folder) -> ProvenancedFrame` | **new** | THE union-with-provenance primitive: event columns (from `RunDetail.data`) ∪ s-file columns (via `read_sfile`), joined on shot order (`Shotnumber` ↔ `scan_event_index+1`), each column tagged `run`/`sfile` (later `computed`). No name reconciliation, duplicates allowed. Provenance rides as a parallel `dict[str, str]` (a DataFrame `attrs` entry is fragile across copies — carry explicitly). Home: `geecs_data_utils`. |
+| `scan_frame(detail, scan_folder) -> ProvenancedFrame` | **new** | THE union-with-provenance primitive: event columns (from `RunDetail.data`) ∪ s-file columns (via `read_sfile`), joined on shot identity — **`Shotnumber == scan_event_index`, both
+  1-based** (the plans increment before emitting; the legacy exporter
+  writes `Shotnumber = 1..N` over the same rows, and every existing
+  consumer maps them as equal — verified against
+  `plans/step_scan.py`, `tiled_export.py:98`, `analysis/camera.py`) —
+  each column tagged `run`/`sfile` (later `computed`). No name reconciliation, duplicates allowed. Provenance rides as a parallel `dict[str, str]` (a DataFrame `attrs` entry is fragile across copies — carry explicitly). Home: `geecs_data_utils`. |
 | `RunDetail.data` | **exists** | The event side, already served by the portal's `CachingScanCatalog`. |
 | `display_name` / `geecs_scalar_headers` | **exists** | Pretty names for the pick list (the M5 "aliases" deferral) when wanted. |
 
@@ -88,7 +99,7 @@ is reproducible in a notebook by calling the same primitive.*
 
 | Primitive | Status | Notes |
 |---|---|---|
-| `apply_row_filters` + `RowFilterSpec` | **extend** | Clean, tested, AND-only, 6 comparison ops. Extend to the mockup's model: named groups of AND conditions, OR across groups, per-condition `within/outside` (bounds pair), group enable flags. Shape: a small Pydantic model (`RowFilterGroup`/`RowFilters`) that *lowers* to the existing tuple specs per condition — the proven kernel stays. NaN policy must become explicit (today NaN rows silently drop). |
+| `apply_row_filters` + `RowFilterSpec` | **extend** | Clean, tested, AND-only, 6 comparison ops. Extend to the mockup's model: named groups of AND conditions, OR across groups, per-condition `within/outside` (bounds pair), group enable flags. Shape: a small Pydantic model (`RowFilterGroup`/`RowFilters`) that *lowers* to the existing tuple specs per condition — the proven kernel stays. NaN policy must become explicit — today it is inconsistent per operator (comparisons drop NaN rows, but `!=` keeps them). |
 | Live pass-count | **new** (trivial) | `mask.sum()` endpoint over the same primitive. |
 | top-N-per-bin | **deferred** | Rail-evicted per ruling; returns later as a filters-popup option (`top_n_per_bin(frame, bin_col, value_col, n, desc)` — trivial when wanted). |
 
@@ -108,7 +119,7 @@ is reproducible in a notebook by calling the same primitive.*
 | Primitive | Status | Notes |
 |---|---|---|
 | Per-shot serving | **exists** | The portal's resource layer + prefetch cache (0.5.0). |
-| `average_frames(frames) -> ndarray \| None` | **improve** (extract) | One pure `nanmean` frame-averager with the homogeneity guard, extracted so ScanAnalysis's three divergent copies (`average_data` uses `np.mean`; `_postprocess_noscan` hand-rolls a third) converge on it later. Home: ImageAnalysis (or data-utils io). |
+| `average_frames(frames) -> ndarray \| None` | **improve** (extract) | One pure `nanmean` frame-averager with the homogeneity guard, extracted so the three divergent copies (`average_data`'s `np.mean` — which `_postprocess_noscan` delegates to — the hand-rolled `np.mean` in `HIMG_with_average_saving.py:70`, and `ImageAnalyzerResult.average`'s `nanmean`) converge on it later. Home: ImageAnalysis (or data-utils io). |
 | Bin membership | **exists** | `Bin #`/`bin_number` from the union frame + the filter mask. |
 | Ephemeral processing (`processing:` selector) | **new** (seam over exists) | `run_diagnostic_ephemeral(diag_name, frames/paths, aux) -> result`: `load_diagnostic(name, config_dir=<portal's own>)` → `create_image_analyzer` → `apply_*_processing_pipeline` / `analyze_image` with **writes forbidden by contract**: never pass `auxiliary_data["file_path"]`, never set writer instance state, and **refuse analyzers on a small denylist until they grow an ephemeral mode (HASO — finding 4)**. Document the gate in ImageAnalysis CLAUDE.md; consider a follow-up `allow_writes: bool` to make it structural. |
 | `computed` provenance columns | **new** | Ephemeral scalars merged into the union frame as a third provenance tag, feeding the Plot tab. |
