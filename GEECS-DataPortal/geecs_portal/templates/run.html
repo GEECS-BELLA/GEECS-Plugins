@@ -26,6 +26,7 @@
 <form class="nav" method="get" action="/run/{{ uid }}">
   <input type="hidden" name="day" value="{{ day }}">
   <input type="hidden" name="experiment" value="{{ experiment }}">
+  {% if filter %}<input type="hidden" name="filter" value="{{ filter }}">{% endif %}
   {% if sel_device %}
   <input type="hidden" name="device" value="{{ sel_device }}">
   <input type="hidden" name="shot" value="{{ shot }}">
@@ -74,6 +75,7 @@ render (trace/array data, not an image). Files live at:</p>
   <input type="hidden" name="device" value="{{ sel_device }}">
   <input type="hidden" name="day" value="{{ day }}">
   <input type="hidden" name="experiment" value="{{ experiment }}">
+  {% if filter %}<input type="hidden" name="filter" value="{{ filter }}">{% endif %}
   {% if selected %}<input type="hidden" name="y" value="{{ selected }}">{% endif %}
   {% if x_column %}<input type="hidden" name="x" value="{{ x_column }}">{% endif %}
   {% if shot > 1 %}<a href="/run/{{ uid }}?{{ qs(shot=shot - 1) }}">&larr; prev</a>{% endif %}

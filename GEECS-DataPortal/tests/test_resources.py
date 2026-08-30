@@ -194,6 +194,15 @@ class TestResourcesLayer:
         result = resources.load_shot_image(scan_folder, "cam", 3)
         assert result.kind == "native"
         assert result.path.name == f"cam_{_LV + 3.0:.3f}.png"
+        # Listing-order join: an SMB blip can shift it, so the result
+        # must never be long-cached by the browser.
+        assert result.cacheable is False
+
+    def test_timestamp_joined_file_is_cacheable(self, scan_folder):
+        result = resources.load_shot_image(
+            scan_folder, "cam", 1, acq_timestamp=_LV + 2.0
+        )
+        assert result.cacheable is True
 
     def test_missing_shot_never_serves_a_neighbour(self, scan_folder):
         """A 0.4 s-away neighbour exists; the exact-key join must refuse
