@@ -23,10 +23,22 @@ Analysis-tabs W1e — Plot-tab polish (owner feedback on the live tab):
   from Unix event time, `acq_timestamp` spellings from the LabVIEW
   wire epoch (`frame` responses carry a `kinds` map).
 - **In-tab day/scan navigation**: the rail gains a scan dropdown (the
-  day's runs), and the day steppers now go through `/run/jump/{day}` —
+  day's runs — it navigates from the live URL, so unsaved-state loss is
+  impossible), and the day steppers now go through `/run/jump/{day}` —
   same scan number on the target day (else its newest run) with the
   whole analysis state carried; only an empty day falls back to the
   day page.
+- **Version-keyed `/api` caching**: completed-run responses cache
+  immutable, so every `/api` fetch carries `v=<portal version>` —
+  browser caches roll over exactly at upgrades (the payload shape
+  changes with releases).
+
+### Notes
+
+- The datetime rendering is presentation-side: the `code` snippet
+  mirrors the conversion (same `LABVIEW_EPOCH_OFFSET` shift), and the
+  **binned** view deliberately serves raw numbers — a timestamp bin
+  column keeps epoch-second labels.
 
 ## [0.6.0] - 2026-08-30
 

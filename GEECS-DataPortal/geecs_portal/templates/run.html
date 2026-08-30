@@ -108,9 +108,9 @@
       <div class="steprow">
         <a class="act {{ "off" if not prev_uid }}" href="/run/{{ prev_uid }}?{{ qs() }}" title="previous scan">‹ scan</a>
         {% if day_runs %}
-        <select class="act" onchange="if(this.value) location = this.value" title="jump to a scan on this day">
+        <select class="act" onchange="if(this.value) location = '/run/' + this.value + location.search" title="jump to a scan on this day">
           {% for run in day_runs %}
-          <option value="/run/{{ run.uid }}?{{ qs() }}" {{ "selected" if run.uid == uid }}>Scan {{ "%03d" | format(run.scan_number) if run.scan_number is not none else "?" }} · {{ run.mode }} · {{ run.exit_status or "running" }}</option>
+          <option value="{{ run.uid }}" {{ "selected" if run.uid == uid }}>Scan {{ "%03d" | format(run.scan_number) if run.scan_number is not none else "?" }} · {{ run.mode }} · {{ run.exit_status or "running" }}</option>
           {% endfor %}
         </select>
         {% endif %}
@@ -440,6 +440,12 @@ function addY(name) {
 
 function removeY(i) {
   S.y.splice(i, 1);
+  const d = dispCfg();
+  if (d.colors) {  // keep custom colors aligned with their traces
+    d.colors.splice(i, 1);
+    if (!d.colors.some((c, j) => c !== TRACE_COLORS[j])) delete d.colors;
+    S.display = Object.keys(d).length ? JSON.stringify(d) : "";
+  }
   renderPicked(); writeState(); refresh();
 }
 
@@ -506,14 +512,15 @@ function axisRange(lo, hi, log) {
   return [lo, hi];
 }
 
-function applyDisplayToLayout(layout, xIsDate) {
+function applyDisplayToLayout(layout, xIsDate, yIsDate) {
+  // Date axes take neither log type nor numeric ranges.
   const d = dispCfg();
   if (d.logx && !xIsDate) layout.xaxis.type = "log";
-  if (d.logy) layout.yaxis.type = "log";
+  if (d.logy && !yIsDate) layout.yaxis.type = "log";
   const xr = axisRange(d.xmin, d.xmax, d.logx && !xIsDate);
   if (xr && !xIsDate) { layout.xaxis.range = xr; layout.xaxis.autorange = false; }
   const yr = axisRange(d.ymin, d.ymax, !!d.logy);
-  if (yr) { layout.yaxis.range = yr; layout.yaxis.autorange = false; }
+  if (yr && !yIsDate) { layout.yaxis.range = yr; layout.yaxis.autorange = false; }
 }
 
 function multiYAxes(layout, n) {
@@ -522,7 +529,7 @@ function multiYAxes(layout, n) {
       overlaying: "y", side: i % 2 ? "right" : "left",
       position: i >= 2 ? (i % 2 ? 1.0 : 0.0) : undefined,
       gridcolor: "rgba(0,0,0,0)", zerolinecolor: "#2c353d",
-      tickfont: { color: TRACE_COLORS[i] },
+      tickfont: { color: traceColor(i) },
     };
   }
 }
@@ -541,7 +548,8 @@ function drawShots(data) {
   layout.yaxis = { gridcolor: "#2c353d", zerolinecolor: "#2c353d",
                    tickfont: { color: traceColor(0) } };
   multiYAxes(layout, S.y.length);
-  applyDisplayToLayout(layout, xIsDate);
+  const yIsDate = !!(data.kinds && data.kinds[S.y[0]] === "datetime");
+  applyDisplayToLayout(layout, xIsDate, yIsDate);
   Plotly.react(plotHost(), traces, layout,
                { responsive: true, displaylogo: false, editable: true });
   document.getElementById("codebox").textContent = data.code;
@@ -567,7 +575,7 @@ function drawBinned(data) {
   layout.yaxis = { gridcolor: "#2c353d", zerolinecolor: "#2c353d",
                    tickfont: { color: traceColor(0) } };
   multiYAxes(layout, S.y.length);
-  applyDisplayToLayout(layout, false);
+  applyDisplayToLayout(layout, false, false);  // binned serves raw numbers
   Plotly.react(plotHost(), traces, layout,
                { responsive: true, displaylogo: false, editable: true });
   document.getElementById("codebox").textContent = data.code;

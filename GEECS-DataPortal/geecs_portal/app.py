@@ -287,7 +287,11 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
                     if pf.provenance.get(column, PROVENANCE_RUN) == PROVENANCE_RUN
                     else column
                 ),
-                # ts_ event-recording times: pickers hide these by default.
+                # Drives the picker's off-by-default "timestamps" toggle
+                # (ts_ event-recording times ONLY — acq_timestamp picks
+                # stay always visible as legitimate X choices; the frame
+                # endpoint's `kinds` map is the datetime-rendering
+                # verdict and is deliberately broader).
                 "timestamp": schema_map.is_key_timestamp_column(column),
             }
             for column in schema_map.plottable_columns(pf.frame)
@@ -341,7 +345,13 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
             "shot": analysis.jsonable_values(shot_key[mask]),
             "pass": int(mask.sum()),
             "total": len(pf.frame),
-            "code": analysis.frame_code(uid, run_day, requested, flt),
+            "code": analysis.frame_code(
+                uid,
+                run_day,
+                requested,
+                flt,
+                {column: schema_map.timestamp_epoch(column) for column in kinds},
+            ),
         }
         return JSONResponse(payload, headers=_png_headers(detail))
 
@@ -505,6 +515,7 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
         filters: str = "",
         bincfg: str = "",
         view: str = "",
+        display: str = "",
     ) -> HTMLResponse:
         """One run: the rail + tabs (Overview / Plot / Images).
 
@@ -589,6 +600,7 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
             "view": view,
             "filters": filters,
             "bincfg": bincfg,
+            "display": display,
             "device": sel_device,
             "shot": shot if sel_device else "",
             "filter": filter,  # the day list's filter, carried for the back link

@@ -670,3 +670,28 @@ class TestPlotTabPolish:
         assert "Scan 002" in response.text  # the sibling run is offered
         assert "/run/jump/" in response.text  # day steppers stay in-tab
         assert "prefer=1" in response.text  # carry this run's number
+
+    def test_frame_code_snippet_mirrors_the_datetime_conversion(self):
+        payload = _client().get("/api/run/uid-002/frame?cols=ts_cam-MaxCounts").json()
+        assert "LABVIEW_EPOCH_OFFSET" not in payload["code"]  # unix: no shift
+        assert "datetime.fromtimestamp" in payload["code"]
+        catalog = FakeCatalog()
+        detail = _detail(7)
+        detail.data["cam acq_timestamp"] = [_LV + 1.0, _LV + 2.0, _LV + 3.0]
+        catalog.details["uid-007"] = detail
+        labview = (
+            _client(catalog)
+            .get("/api/run/uid-007/frame", params={"cols": "cam acq_timestamp"})
+            .json()
+        )
+        assert "- LABVIEW_EPOCH_OFFSET" in labview["code"]
+
+    def test_display_state_rides_run_view_links(self):
+        client = _client(FakeCatalog(), default_experiment="Undulator")
+        response = client.get(
+            "/run/uid-001?y=cam-MaxCounts&display=%7B%22logy%22%3Atrue%7D"
+        )
+        stepper_line = next(
+            line for line in response.text.splitlines() if "/run/uid-002?" in line
+        )
+        assert "display=" in stepper_line

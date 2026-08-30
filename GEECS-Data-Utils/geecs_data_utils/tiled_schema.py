@@ -241,6 +241,15 @@ def timestamp_epoch(column: str) -> Optional[str]:
     use this to show timestamps as real datetimes instead of raw
     seconds.
 
+    This is a NAME heuristic: a hypothetical measurement column whose
+    name merely contains ``acq_timestamp`` (or a device genuinely named
+    ``ts_*``) would be converted anyway, yielding plausible-looking
+    1904/1970-era dates.  No such column exists in schema v1 — every
+    ``acq_timestamp`` spelling (event companions, s-file headers) holds
+    wire-epoch seconds, and ``ts_`` is a reader-side Tiled artifact
+    outside the wire contract — but keep the collision mode in mind
+    when naming new columns.
+
     Parameters
     ----------
     column : str
