@@ -374,3 +374,20 @@ class TestStickyState:
             if "&larr;" in line or "&rarr;" in line
         ]
         assert prev_next and all("filter=scan" in line for line in prev_next)
+
+    def test_filter_survives_the_run_round_trip(self):
+        # day (filtered) → run link carries the filter → the run page's
+        # back link carries it home again.
+        client = TestClient(create_app(FakeCatalog(), default_experiment="Undulator"))
+        day_page = client.get(f"/day/{TEST_DAY.isoformat()}?filter=scan+001")
+        run_link = next(
+            line for line in day_page.text.splitlines() if "/run/uid-001" in line
+        )
+        assert "filter=scan" in run_link
+        run_page = client.get(
+            f"/run/uid-001?day={TEST_DAY.isoformat()}&filter=scan 001"
+        )
+        back_link = next(
+            line for line in run_page.text.splitlines() if "&larr;" in line
+        )
+        assert "filter=scan" in back_link

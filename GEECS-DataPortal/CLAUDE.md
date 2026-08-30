@@ -56,9 +56,11 @@ Routes: `/` (redirect to today) · `/day/{iso}` (run list; `?experiment=`)
 the plotted column, `?device=&shot=` the gallery selection) ·
 `/run/{uid}/plot.png?y=&x=` (server-rendered scalar plot) ·
 `/run/{uid}/image.png?device=&shot=` (one rendered device shot) ·
-`/health` (catalog probe — the fleet-map health check).  Every template
-link builds its query through the one sticky-query helper so navigating
-one control never resets another.
+`/health` (catalog probe — the fleet-map health check).  Template links
+build their queries through the one sticky-query helper so navigating
+one control never resets another (plot selection ⇄ shot stepping, day
+filter ⇄ run round-trips); the day page's "clear" link is the one
+deliberate exception.
 
 ## Deployment
 

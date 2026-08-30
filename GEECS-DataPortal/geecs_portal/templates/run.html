@@ -2,7 +2,7 @@
 {% block title %}Run {{ uid[:8] }} — GEECS Data Portal{% endblock %}
 {% block content %}
 <div class="nav">
-  {% if day %}<a href="/day/{{ day | urlencode }}?experiment={{ experiment | urlencode }}">&larr; {{ day }}</a>{% endif %}
+  {% if day %}<a href="/day/{{ day | urlencode }}?{{ qs(day="", y="", x="", device="", shot="") }}">&larr; {{ day }}</a>{% endif %}
   <h1>{% for field, value in rows %}{% if field == "Scan" %}{{ value }}{% endif %}{% endfor %}</h1>
   <span class="dim mono">{{ uid }}</span>
 </div>

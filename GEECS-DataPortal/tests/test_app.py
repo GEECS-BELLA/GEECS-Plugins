@@ -172,7 +172,12 @@ class TestDayView:
     def test_experiment_with_space_is_urlencoded_in_links(self):
         client = _client(FakeCatalog())
         response = client.get(f"/day/{TEST_DAY.isoformat()}?experiment=Bella PW")
-        assert "experiment=Bella%20PW" in response.text
+        # sticky-query links use urlencode's plus form; either encoding is
+        # valid in a query string — the pin is that no raw space leaks.
+        assert (
+            "experiment=Bella+PW" in response.text
+            or "experiment=Bella%20PW" in response.text
+        )
         assert "experiment=Bella PW" not in response.text
 
 

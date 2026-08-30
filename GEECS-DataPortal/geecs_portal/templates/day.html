@@ -24,7 +24,7 @@
   <tr><th>Scan</th><th>Time</th><th>Mode</th><th>Description</th><th>Shots</th><th>Status</th></tr>
   {% for run, time_text in rows %}
   <tr>
-    <td><a href="/run/{{ run.uid }}?day={{ day.isoformat() }}&amp;experiment={{ experiment | urlencode }}">
+    <td><a href="/run/{{ run.uid }}?{{ qs(day=day.isoformat()) }}">
       {%- if run.scan_number is not none %}Scan {{ "%03d"|format(run.scan_number) }}{% else %}{{ run.uid[:8] }}{% endif -%}
     </a></td>
     <td class="mono">{{ time_text }}</td>

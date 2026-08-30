@@ -99,9 +99,11 @@ def _run_day(detail, day: str) -> Optional[date]:
 def _sticky_query(state: dict, **overrides) -> str:
     """One query string carrying the page's sticky params.
 
-    Every template link/form builds its href through this (empty values
+    Template links/forms build their hrefs through this (empty values
     dropped) so navigating one control never silently resets another —
-    the plot selection survives shot stepping and vice versa.
+    the plot selection survives shot stepping, the day filter survives
+    run round-trips.  The one deliberate exception is the day page's
+    "clear" link, whose whole job is dropping the filter.
     """
     merged = {**state, **overrides}
     return urlencode({k: v for k, v in merged.items() if v not in ("", None)})
@@ -263,6 +265,7 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
         x: str = "",
         device: str = "",
         shot: int = 1,
+        filter: str = "",
     ) -> HTMLResponse:
         """One run: metadata, plottable-column picker + plot, image gallery."""
         detail = _load_run(uid)
@@ -289,6 +292,7 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
             "x": x_column,
             "device": sel_device,
             "shot": shot if sel_device else "",
+            "filter": filter,  # the day list's filter, carried for the back link
         }
         return templates.TemplateResponse(
             request,
@@ -336,9 +340,10 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
         result = resources.load_shot_image(folder, device, shot, acq_timestamp=acq)
         if result.png is None:
             raise HTTPException(status_code=404, detail=result.reason or result.kind)
-        return Response(
-            content=result.png, media_type="image/png", headers=_png_headers(detail)
+        headers = (
+            _png_headers(detail) if result.cacheable else {"Cache-Control": "no-cache"}
         )
+        return Response(content=result.png, media_type="image/png", headers=headers)
 
     @app.get("/run/{uid}/plot.png")
     def run_plot(uid: str, y: str, x: str = "") -> Response:

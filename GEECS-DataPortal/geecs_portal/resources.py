@@ -60,6 +60,10 @@ class ShotImage:
     png: Optional[bytes] = None
     path: Optional[Path] = None
     reason: str = ""
+    #: False when the resolution depended on a directory listing (the
+    #: ordinal native fallback) — an SMB visibility blip can shift that
+    #: join, so the result must never be long-cached by the browser.
+    cacheable: bool = True
 
 
 def image_devices(scan_folder: Path) -> list[str]:
@@ -270,11 +274,13 @@ def load_shot_image(
         return ShotImage(
             kind="unrenderable", path=native, reason=f"no renderer for .{ext}"
         )
+    cacheable = True
     if not native.is_file():
         if acq_timestamp is not None:
             chosen = _native_file_for_timestamp(device_dir, device, ext, acq_timestamp)
         else:
             chosen = _ordinal_native_file(device_dir, ext, shot)
+            cacheable = False  # listing-order join: never long-cache
         if chosen is None:
             return ShotImage(kind="missing", path=native, reason="file not found")
         native = chosen
@@ -282,7 +288,10 @@ def load_shot_image(
         from geecs_data_utils.io.images import read_imaq_image
 
         return ShotImage(
-            kind="native", png=to_display_png(read_imaq_image(native)), path=native
+            kind="native",
+            png=to_display_png(read_imaq_image(native)),
+            path=native,
+            cacheable=cacheable,
         )
     except Exception as exc:  # noqa: BLE001 — corrupt file must not 500
         return ShotImage(kind="missing", path=native, reason=f"read failed: {exc}")
