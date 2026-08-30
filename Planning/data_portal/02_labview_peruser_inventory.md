@@ -29,7 +29,11 @@ notes.*
    version-pinned `.min.js`; still no npm, no CDN — the doctrine
    amendment lands in the portal CLAUDE.md with the first plotly PR).
    Server sends data, browser draws: zoom, pan, log axes, autoscale,
-   hover readout, PNG export come free.
+   hover readout, PNG export come free.  *This supersedes the scope
+   doc's phase-3 note ("vendoring Plotly is a build-chain smell —
+   revisit only if interactivity is wanted"): the revisit happened
+   2026-08-30 and interactivity is wanted; see the supersession note
+   in `01_data_portal_scope.md`.*
 4. **Single-scan analysis surface first.** Cross-scan = a later tab
    over a data-utils concat-with-scan-column util, same primitives.
 5. **Historic MC data enters via an INGESTER** (one-shot batch writing
@@ -48,14 +52,18 @@ notes.*
 | M5 | "use aliases" (friendly column names) | **defer** | The event schema's `geecs_scalar_headers` prettification exists in `tiled_schema`; wire it as a display-name layer once the tab works with raw names. Never a join key (union-with-provenance forbids reconciliation). | |
 | M6 | Per-listbox substring name filter (e.g. `UC_amp`) | **keep** | A filter box over the column picker — cheap, high daily value with hundreds of columns. Client-side. | |
 | M7 | Save/load listbox selections | **adapt** | Becomes shareable state: the analysis tab's full selection lives in the URL query (the portal's sticky-query pattern) — a bookmark IS a saved selection. Named server-side presets only if URLs prove insufficient. | |
-| M8 | Data filters: per-column numeric boundaries, Value 1/Value 2, include/exclude, per-row enable, **outer OR / inner AND** | **keep** | THE filter model, ported semantically: a data-utils `FilterSpec` (list of AND-groups, OR of groups) → boolean mask over the frame. Note: `scans_database/filter_models.py` already has a FilterSpec vocabulary — reuse/extend it, don't mint a second one. | |
+| M8 | Data filters: per-column numeric boundaries, Value 1/Value 2, include/exclude, per-row enable, **outer OR / inner AND** | **keep** | THE filter model, ported semantically: a boolean row mask over the frame. The repo already has the near-match to extend — `data/cleaning.py`'s `RowFilterSpec` + `apply_row_filters` (per-column `(column, op, threshold)` conditions, AND semantics, two in-repo consumers) — grow it to OR-of-AND groups + include/exclude rather than minting a second row-filter vocabulary. (`scans_database/filter_models.py`'s `FilterSpec` is a different job: date-versioned presets selecting *which scans* match from the Parquet DB — not row filtering within a scan.) | |
 | M9 | "filter max L2 each bin" + top-x-per-bin + asc/desc | **keep** | Best-N-shots-per-bin selection — a data-utils primitive (`top_n_per_bin(frame, bin_col, value_col, n, descending)`) composed after M8's mask. Flagship-adjacent (feeds the binned plot). | |
 | M10 | Filter sets save/load/append | **adapt** | Same answer as M7: filters serialize into the URL; named presets deferred until wanted. | |
-| M11 | FileType to Analyze (None · 2 Parameter Plot · Optical Spectrum · Scope Trace · MagSpecLineout ·-Angle · Spreadsheet · g1/g2/g3 lineouts) | **adapt** | The mode toggle dissolves: scalar analysis is the 2-Parameter tab; trace types become the trace tab (§Intensity); per-type file loaders become data-utils readers as each trace type is ported. The owner's "could this become the s-file ↔ Tiled toggle" question is answered by settled §1: no toggle — union with provenance. | |
+| M11 | FileType to Analyze (None · 2 Parameter Plot · Optical Spectrum · Scope Trace · MagSpecLineout · MagSpecLineoutAngle · Spreadsheet · g1/g2/g3 lineouts) | **adapt** | The mode toggle dissolves: scalar analysis is the 2-Parameter tab; trace types become the trace tab (§Intensity); per-type file loaders become data-utils readers as each trace type is ported. The owner's "could this become the s-file ↔ Tiled toggle" question is answered by settled §1: no toggle — union with provenance. | |
 | M12 | User field, color table, "tab to switch to", Save png, copy tdms, loop counter | **drop** (mostly) | User field: no sessions in a read-only portal. Color table: Plotly template + per-plot colormap picker where it matters (overview images). Save png: Plotly's export button. copy tdms / loop counter: no equivalent need identified — say if wrong. | |
 | M13 | Scan-info text display | **keep** (done) | The run page's metadata table already shows it. | |
 
-## 03 — xy plots tab (2 Parameter Plot — **top priority**)
+## 03 — xy plots tab (per-shot output of the 2 Parameter Plot mode)
+
+*(notes.md's "2 Parameter Plot is the top priority by far" names the
+FileType/mode whose output feeds BOTH this tab and the Binned plot tab
+— not this tab alone.)*
 
 | # | Feature | Proposal | Port shape | Owner |
 |---|---|---|---|---|
@@ -100,13 +108,25 @@ notes.*
 
 ## Proposed wave plan (falls out of the rulings)
 
-- **Wave 1** — the 2 Parameter Plot tab: union-with-provenance frame
-  (Tiled + s-file providers in data-utils), FilterSpec (M8) +
-  top-N-per-bin (M9), multi-Y scatter + histogram over vendored Plotly
-  (X1–X3), column filter (M6), URL-state selections (M7/M10),
-  "show the code" snippet.
-- **Wave 2** — the Binned plot tab (B1–B3, B5, CSV/data view) + the
-  overview per-bin images (O1) + the trace waterfall (I1).
+**Flagged departure for the owner to confirm**: notes.md ranks the
+binned plot #1 ("the workflow the portal's analysis tab must nail
+first"). The plan below builds the per-shot scatter tab first anyway —
+deliberately, because wave 1 is the vertical slice that creates the
+substrate the binned tab needs (the union-with-provenance frame, the
+row filters, the Plotly vendoring, the tab contract), and the binned
+numerics themselves are the near-1:1 `BinningConfig` mapping, so
+deferring them costs little. If the binned view is wanted in the very
+first release, waves 1 and 2's plotting halves can ship together.
+**Confirm or reorder.**
+
+- **Wave 1** — the per-shot scatter tab (substrate + first view):
+  union-with-provenance frame (Tiled + s-file providers in data-utils),
+  row filters (M8) + top-N-per-bin (M9), multi-Y scatter + histogram
+  over vendored Plotly (X1–X3), column filter (M6), URL-state
+  selections (M7/M10), "show the code" snippet.
+- **Wave 2** — the Binned plot tab, the source's flagship (B1–B3, B5,
+  CSV/data view) + the overview per-bin images (O1) + the trace
+  waterfall (I1).
 - **Wave 3** — fitting (B4), cross-scan (M2), and whatever U1 surfaces.
 - **Parallel track** — the historic-MC ingester (settled §5), sized
   separately.
