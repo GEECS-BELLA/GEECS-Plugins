@@ -59,6 +59,9 @@ def _detail(
                 "cam-acq_timestamp": [_LV + 1.0, _LV + 2.0, _LV + 3.0],  # companion
                 "cam-label": ["a", "b", "c"],  # non-numeric: never plottable
                 "telemetry_dev-val": ["1.5", "2.5", "3.5"],  # dtype-tolerant
+                "ts_cam-MaxCounts": [  # reader-side event times (Unix)
+                    _epoch(9, 30) + i for i in range(3)
+                ],
                 "cam-dead": [float("nan")] * 3,  # all-NaN: not plottable
                 "mono": [4.0, 5.0, 6.0],  # scan-variable readback
             }
@@ -578,3 +581,92 @@ class TestAnalysisApi:
             params={"cols": "cam-MaxCounts", "bincfg": '{"bin_col":"mono"}'},
         ).json()
         assert defaulted["series"] == plain["series"]
+
+
+class TestPlotTabPolish:
+    """W1e: timestamp handling, the ts_ pick flag, day-jump stepping."""
+
+    def test_columns_flag_ts_event_timestamps(self):
+        payload = _client().get("/api/run/uid-002/columns").json()
+        flags = {c["name"]: c["timestamp"] for c in payload["columns"]}
+        assert flags["ts_cam-MaxCounts"] is True
+        assert flags["cam-MaxCounts"] is False
+
+    def test_frame_serves_timestamps_as_local_datetimes(self):
+        from datetime import datetime
+
+        payload = _client().get("/api/run/uid-002/frame?cols=ts_cam-MaxCounts").json()
+        assert payload["kinds"] == {"ts_cam-MaxCounts": "datetime"}
+        expected = datetime.fromtimestamp(_epoch(9, 30)).isoformat(
+            sep=" ", timespec="milliseconds"
+        )
+        assert payload["series"]["ts_cam-MaxCounts"][0] == expected
+
+    def test_labview_timestamps_shift_by_the_wire_offset(self):
+        from datetime import datetime
+
+        from geecs_data_utils.io.scan_stack import LABVIEW_EPOCH_OFFSET
+
+        # An s-file-style acq_timestamp column holds LabVIEW epoch.
+        catalog = FakeCatalog()
+        detail = _detail(7)
+        detail.data["cam acq_timestamp"] = [_LV + 1.0, _LV + 2.0, _LV + 3.0]
+        catalog.details["uid-007"] = detail
+        payload = (
+            _client(catalog)
+            .get("/api/run/uid-007/frame", params={"cols": "cam acq_timestamp"})
+            .json()
+        )
+        assert payload["kinds"] == {"cam acq_timestamp": "datetime"}
+        expected = datetime.fromtimestamp(_LV + 1.0 - LABVIEW_EPOCH_OFFSET).isoformat(
+            sep=" ", timespec="milliseconds"
+        )
+        assert payload["series"]["cam acq_timestamp"][0] == expected
+
+    def test_plain_columns_carry_no_kind(self):
+        payload = _client().get("/api/run/uid-002/frame?cols=cam-MaxCounts").json()
+        assert payload["kinds"] == {}
+
+    def test_jump_prefers_the_same_scan_number(self):
+        client = _client(FakeCatalog(), default_experiment="Undulator")
+        response = client.get(
+            f"/run/jump/{TEST_DAY.isoformat()}?prefer=1&y=cam-MaxCounts"
+            "&view=bin&experiment=Undulator",
+            follow_redirects=False,
+        )
+        assert response.status_code in (302, 307)
+        location = response.headers["location"]
+        assert location.startswith("/run/uid-001?")
+        assert "y=cam-MaxCounts" in location and "view=bin" in location
+        assert "prefer=" not in location
+        assert f"day={TEST_DAY.isoformat()}" in location
+
+    def test_jump_falls_back_to_the_newest_run(self):
+        client = _client(FakeCatalog(), default_experiment="Undulator")
+        response = client.get(
+            f"/run/jump/{TEST_DAY.isoformat()}?prefer=99", follow_redirects=False
+        )
+        # scan 99 doesn't exist that day → the newest run (uid-002).
+        assert response.headers["location"].startswith("/run/uid-002?")
+
+    def test_jump_on_an_empty_day_lands_on_the_day_page(self):
+        from geecs_data_utils.tiled_catalog import StubCatalog
+
+        client = _client(StubCatalog())
+        response = client.get(
+            "/run/jump/2026-01-01?prefer=3&filter=abc", follow_redirects=False
+        )
+        location = response.headers["location"]
+        assert location.startswith("/day/2026-01-01")
+        assert "filter=abc" in location
+
+    def test_jump_bad_date_is_404(self):
+        assert _client().get("/run/jump/nope").status_code == 404
+
+    def test_rail_has_the_scan_dropdown_and_jump_steppers(self):
+        client = _client(FakeCatalog(), default_experiment="Undulator")
+        response = client.get(f"/run/uid-001?day={TEST_DAY.isoformat()}")
+        assert "<select" in response.text  # the rail scan dropdown
+        assert "Scan 002" in response.text  # the sibling run is offered
+        assert "/run/jump/" in response.text  # day steppers stay in-tab
+        assert "prefer=1" in response.text  # carry this run's number

@@ -203,6 +203,34 @@ def jsonable_values(series: Any) -> list:
     return out
 
 
+def jsonable_datetimes(series: Any, epoch: str) -> list:
+    """Timestamp seconds → host-local ISO strings (NA → ``None``).
+
+    ``epoch`` is :func:`geecs_data_utils.tiled_schema.timestamp_epoch`'s
+    verdict: ``"labview"`` values are shifted by the wire offset first,
+    ``"unix"`` values are used as-is.  Strings are naive local time
+    (the service host's zone — Pacific in the lab), which Plotly's date
+    axis renders verbatim — raw epoch seconds never reach the user.
+    """
+    from datetime import datetime
+
+    from geecs_data_utils.io.scan_stack import LABVIEW_EPOCH_OFFSET
+
+    offset = LABVIEW_EPOCH_OFFSET if epoch == "labview" else 0.0
+    out = []
+    for value in jsonable_values(series):
+        if not isinstance(value, float):
+            out.append(None)
+            continue
+        try:
+            stamp = datetime.fromtimestamp(value - offset)
+        except (OverflowError, OSError, ValueError):
+            out.append(None)
+            continue
+        out.append(stamp.isoformat(sep=" ", timespec="milliseconds"))
+    return out
+
+
 def jsonable_labels(index: Any) -> list:
     """Bin labels (a frame index) as JSON-safe scalars.
 
