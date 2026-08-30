@@ -36,6 +36,16 @@ this package; the architecture rules below are its distillation.
 - **Blocking catalog calls are fine here** (unlike the Qt console):
   FastAPI runs sync endpoints on a threadpool.  Keep endpoints sync
   unless something genuinely needs async.
+- **Eager WITHIN a scan, lazy ACROSS scans** (owner amendment,
+  2026-08-29, superseding the scope doc's blanket "lazy loading is a
+  hard rule"): one diagnostic's per-scan data is ~100s of MB — trivial
+  against server RAM, while every NAS/Tiled round trip is the real
+  cost.  `geecs_portal.cache` holds completed runs' details
+  (`CachingScanCatalog`) and pixel data (`ShotDataCache`: whole stack
+  frames arrays; native shots warmed in the background) so shot
+  navigation serves from memory.  The lazy rule still binds across
+  scans: never eager-load a day, and never cache a still-running run's
+  pixels or an ordinal (listing-order) resolution.
 
 ## Package layout
 

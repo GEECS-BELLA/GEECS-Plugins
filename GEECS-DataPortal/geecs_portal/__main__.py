@@ -35,8 +35,11 @@ def main() -> None:
     from geecs_data_utils.tiled_catalog import TiledScanCatalog
 
     from geecs_portal.app import create_app
+    from geecs_portal.cache import CachingScanCatalog
 
-    catalog = TiledScanCatalog.from_config()
+    # Completed runs are immutable: cache their details so plot/image
+    # requests stop re-downloading the full event table from Tiled.
+    catalog = CachingScanCatalog(TiledScanCatalog.from_config())
     app = create_app(catalog, default_experiment=args.experiment)
     uvicorn.run(app, host=args.host, port=args.port, log_level=args.log_level.lower())
 

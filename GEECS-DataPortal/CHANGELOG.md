@@ -3,6 +3,23 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.5.0] - 2026-08-29
+
+### Added
+
+- **Within-scan prefetch caches** (`geecs_portal/cache.py` — owner
+  feature request, amending the scope doc's blanket lazy rule to "eager
+  within a scan, lazy across scans"): `CachingScanCatalog` keeps
+  completed runs' details (LRU-8; still-running runs expire in seconds),
+  ending the repeated full-event-table Tiled reads; `ShotDataCache`
+  (bytes-bounded LRU, ~1.5 GB) keeps completed runs' pixel data — a
+  stack device's whole frames array in ONE HDF5 read on first touch, a
+  native device's decoded shots warmed by a background thread walking
+  the event rows — so stepping through a gallery serves from memory
+  with zero filesystem access (pinned by delete-the-file-then-serve
+  tests).  Still-running runs and ordinal (listing-order) resolutions
+  are never cached.  `__main__` wraps the real catalog.
+
 ## [0.4.2] - 2026-08-29
 
 ### Changed
