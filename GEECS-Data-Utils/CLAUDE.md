@@ -239,7 +239,15 @@ this package and must never depend on GeecsBluesky or a GUI package).
   `~/.config/geecs_python_api/config.ini` with `configparser` — **never
   import `geecs_bluesky` here** (it depends on us).  Catalog methods may
   block on the network: interactive callers must dispatch them off the
-  GUI thread.
+  GUI thread.  Since the portal arc phase 2 the module also owns the
+  shared front-end helpers `resolve_scan_folder` (RunDetail → existing
+  scan folder, strictly read-only — the scan-folder invariant's
+  tree-untouched pin lives in this package's suite) and `metadata_rows`
+  (pure RunDetail → display rows), consumed by both the console scan
+  browser and the data portal; their daily-path fallback is
+  `scan_paths.daily_scan_folder`, the offline-first (None, never raise,
+  never create) module-level companion to
+  `ScanPaths.get_daily_scan_folder`.
 - **`tiled_schema`** — event-schema column semantics, ONE module,
   version-tagged (`TARGET_SCHEMA_VERSION = 1`);
   `GeecsBluesky/EVENT_SCHEMA.md` is the contract.  Anything that

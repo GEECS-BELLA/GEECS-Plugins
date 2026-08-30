@@ -25,11 +25,14 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import Mapping, TypeVar
 
 import h5py
 import numpy as np
 
 logger = logging.getLogger(__name__)
+
+_T = TypeVar("_T")
 
 # LabVIEW timestamps count from 1904-01-01; Unix from 1970-01-01. The stack
 # stores Unix seconds (the PVA timestamp); GEECS s-files and native filenames
@@ -155,3 +158,108 @@ def read_shot(ref: "ShotRef | Path", shot_index: int | None = None) -> np.ndarra
                 f"frames: {ref}"
             )
         return np.asarray(frames[shot_index])
+
+
+def stack_frame_index_map(
+    stamps: np.ndarray,
+) -> "dict[int, int]":
+    """Millisecond-key → frame-index map over a stack's timestamp array.
+
+    THE stack side of the canonical-millisecond join, shared by its
+    consumers (ScanAnalysis's per-shot mapper, the data portal's gallery;
+    the capture-diff audit's bulk reconciliation deliberately keeps its
+    own equivalent map build for now): **keep-first on duplicate
+    millisecond keys**
+    — the deterministic contract (the daemon dedupes identical timestamps
+    upstream; two consumers resolving duplicates differently would serve
+    different frames for the same shot).
+
+    Parameters
+    ----------
+    stamps : numpy.ndarray
+        The per-frame timestamp array from :func:`read_stack_timestamps`
+        (in whichever epoch the row-side keys use — LabVIEW for event
+        rows/s-files).
+
+    Returns
+    -------
+    dict of int to int
+        ``timestamp_key(ts) → frame index``, keep-first.
+    """
+    from geecs_data_utils.native_files import timestamp_key
+
+    keys: dict[int, int] = {}
+    for index, ts in enumerate(stamps):
+        keys.setdefault(timestamp_key(float(ts)), index)
+    return keys
+
+
+def frame_index_for_timestamp(
+    index_map: "Mapping[int, _T]", acq_timestamp: float
+) -> "_T | None":
+    """Resolve one row timestamp against a millisecond-key map — exact keys only.
+
+    Generic over the map's value type so listing-based maps (key → file
+    path) share the same probe as stack index maps (key → frame index).
+
+    Probes :func:`~geecs_data_utils.native_files.timestamp_key_candidates`
+    (``%.3f`` rounding canonicalisation, never a tolerance window) in
+    order; ``None`` means the shot has no frame — the caller must refuse,
+    never fall back to a neighbouring frame.
+
+    Parameters
+    ----------
+    index_map : Mapping of int to T
+        From :func:`stack_frame_index_map` (or any keep-first
+        millisecond-key map over the same epoch).
+    acq_timestamp : float
+        The event row's device ``acq_timestamp`` (same epoch as the map).
+
+    Returns
+    -------
+    T or None
+        The mapped value, or ``None`` when no candidate key matches.
+    """
+    from geecs_data_utils.native_files import timestamp_key, timestamp_key_candidates
+
+    for key in timestamp_key_candidates(timestamp_key(acq_timestamp)):
+        index = index_map.get(key)
+        if index is not None:
+            return index
+    return None
+
+
+def read_shot_for_acq_timestamp(
+    path: Path, acq_timestamp: float, *, labview_epoch: bool = True
+) -> "tuple[int, np.ndarray] | None":
+    """Join one row timestamp to its frame and read it — one file open.
+
+    The single-shot composition of :func:`read_stack_timestamps` +
+    :func:`stack_frame_index_map` + :func:`frame_index_for_timestamp` +
+    :func:`read_shot`, folded into one ``h5py.File`` open (each open is
+    several protocol round trips over SMB — the gallery's hot path).
+
+    Parameters
+    ----------
+    path : Path
+        The stack file.
+    acq_timestamp : float
+        The event row's device ``acq_timestamp`` double.
+    labview_epoch : bool
+        When true (the event-row/s-file convention), convert the stored
+        Unix-epoch stack timestamps before keying.
+
+    Returns
+    -------
+    tuple of (int, numpy.ndarray) or None
+        ``(frame_index, frame)``, or ``None`` when the shot has no frame
+        (the caller must refuse — never serve a neighbour).
+    """
+    with h5py.File(path, "r") as f:
+        stamps = np.asarray(f["acq_timestamp"][:], dtype=float)
+        if labview_epoch:
+            stamps = stamps + LABVIEW_EPOCH_OFFSET
+        index = frame_index_for_timestamp(stack_frame_index_map(stamps), acq_timestamp)
+        if index is None:
+            return None
+        return index, np.asarray(f["frames"][index])

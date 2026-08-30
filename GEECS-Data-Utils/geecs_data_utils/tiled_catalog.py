@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import configparser
 import logging
+import math
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -189,7 +190,13 @@ class ScanCatalog(Protocol):
         ...
 
     def load_run(self, uid: str) -> RunDetail:
-        """Load one run's documents and primary event table."""
+        """Load one run's documents and primary event table.
+
+        Raises ``KeyError`` for an unknown *uid* — the not-found signal
+        front-ends map to 404; any other exception means the catalog
+        itself is unavailable (front-ends report it as an outage, not
+        as run-not-found). Implementations must preserve this split.
+        """
         ...
 
 
@@ -424,6 +431,14 @@ class TiledScanCatalog:
             ``run["primary"].read()`` composite-container pattern,
             flattened to a pandas DataFrame; ``data=None`` when the run
             has no primary stream).
+
+        Raises
+        ------
+        KeyError
+            Unknown *uid* (``client[uid]`` — tiled's Mapping semantics).
+            The protocol's not-found contract: keep it a ``KeyError``
+            (never wrap it) so front-ends can distinguish run-not-found
+            from catalog-unavailable.
         """
         client = self._connect()
         run = client[uid]
@@ -448,3 +463,176 @@ class TiledScanCatalog:
             stop_doc=stop_doc,
             data=data,
         )
+
+
+def resolve_scan_folder(detail: RunDetail, day: date) -> Optional[Path]:
+    """Resolve a run's scan folder on disk — strictly read-only.
+
+    Shared by every front-end over the catalog (the console scan
+    browser's Open button, the data portal's resource endpoints).
+    Prefers the run's own ``scan_folder`` start-doc path; falls back to
+    building the daily ``scans/ScanNNN`` path for the given date via
+    :func:`geecs_data_utils.scan_paths.daily_scan_folder` (pure path
+    construction).  Only an *existing* directory is returned — nothing
+    on the scans path is ever created (repo scan-folder invariant;
+    pinned by a tree-untouched test).
+
+    Parameters
+    ----------
+    detail : RunDetail
+        The selected run (start doc + summary).
+    day : datetime.date
+        The date the run was listed under.
+
+    Returns
+    -------
+    Path or None
+        The existing scan folder, or ``None`` when it is absent or
+        unresolvable.
+    """
+    metadata_folder = detail.start_doc.get("scan_folder")
+    if metadata_folder:
+        candidate = Path(str(metadata_folder))
+        if candidate.is_dir():
+            return candidate
+        # The recorded path is host-specific (the scanner host's mount,
+        # e.g. /mnt/... recorded by the Linux worker, read from a client
+        # whose share mounts at /Volumes/... or Z:) — fall through and
+        # re-base via this host's own daily path instead of giving up.
+    scan_number = detail.summary.scan_number
+    if scan_number is None:
+        return None
+    # An experiment-less run must not re-base: daily_scan_folder would
+    # substitute the host config's default experiment, and that tree's
+    # same-numbered ScanNNN is a different scan's data.
+    if not detail.summary.experiment:
+        return None
+    from geecs_data_utils.scan_paths import daily_scan_folder
+
+    daily = daily_scan_folder(detail.summary.experiment, day=day)
+    if daily is None:
+        return None
+    candidate = daily / f"Scan{scan_number:03d}"
+    return candidate if candidate.is_dir() else None
+
+
+def _fmt_datetime(epoch: float) -> str:
+    """Format epoch seconds as local ``YYYY-MM-DD HH:MM:SS`` ("" if invalid)."""
+    if not epoch or not math.isfinite(epoch):
+        return ""
+    try:
+        return datetime.fromtimestamp(epoch).strftime("%Y-%m-%d %H:%M:%S")
+    except (OverflowError, OSError, ValueError):
+        return ""
+
+
+def fmt_time_of_day(epoch: float) -> str:
+    """Format epoch seconds as local ``HH:MM`` ("" for 0/invalid).
+
+    The shared run-list time-cell formatter (console scan browser B1,
+    portal day view) — the HH:MM sibling of :func:`_fmt_datetime`, moved
+    down so the two front-ends render times identically.
+
+    Parameters
+    ----------
+    epoch : float
+        Unix epoch seconds (a run summary's ``start_time``).
+
+    Returns
+    -------
+    str
+        ``HH:MM`` in the host's local time, or ``""``.
+    """
+    if not epoch or not math.isfinite(epoch):
+        return ""
+    try:
+        return datetime.fromtimestamp(epoch).strftime("%H:%M")
+    except (OverflowError, OSError, ValueError):
+        return ""
+
+
+def metadata_rows(detail: RunDetail) -> list[tuple[str, str]]:
+    """Compose display field/value rows from a loaded run's metadata.
+
+    Pure — reads only the already-loaded :class:`RunDetail` (summary +
+    start/stop documents), never the catalog.  Rows whose source key is
+    absent or empty are omitted, so legacy or aborted runs render a
+    shorter list rather than blank cells.  Shared by the console scan
+    browser (B7 table) and the data portal's run-detail view.
+
+    Parameters
+    ----------
+    detail : RunDetail
+        The selected run.
+
+    Returns
+    -------
+    list of (str, str)
+        Ordered ``(field, value)`` pairs.
+    """
+    summary = detail.summary
+    start = detail.start_doc
+    stop = detail.stop_doc
+    rows: list[tuple[str, str]] = []
+
+    if summary.scan_number is not None:
+        rows.append(("Scan", f"Scan {summary.scan_number:03d}"))
+    rows.append(("uid", summary.uid))
+    if summary.experiment:
+        rows.append(("Experiment", summary.experiment))
+    if summary.description:
+        rows.append(("Description", summary.description))
+    acquisition = str(start.get("acquisition_mode") or "")
+    rows.append(
+        ("Mode", f"{summary.mode} · {acquisition}" if acquisition else summary.mode)
+    )
+    plan = str(start.get("plan_name") or "")
+    if plan:
+        rows.append(("Plan", plan))
+
+    axes = start.get("scan_axes") or []
+    if axes:
+        rows.append(("Scan axes", ", ".join(str(a) for a in axes)))
+        shape = start.get("grid_shape") or []
+        points = start.get("num_grid_points")
+        if shape and points:
+            shape_text = " × ".join(str(s) for s in shape)
+            rows.append(("Grid", f"{shape_text} = {points} steps"))
+    elif start.get("motor"):
+        rows.append(("Scan variable", str(start["motor"])))
+
+    num_points = start.get("num_points")
+    shots_per_step = start.get("shots_per_step")
+    if num_points and shots_per_step:
+        rows.append(
+            (
+                "Planned shots",
+                f"{num_points} steps × {shots_per_step} = {summary.shots}",
+            )
+        )
+    if summary.save_sets:
+        rows.append(("Save sets", ", ".join(summary.save_sets)))
+    reference = str(start.get("reference_device") or "")
+    if reference:
+        rows.append(("Reference device", reference))
+    folder = str(start.get("scan_folder") or "")
+    if folder:
+        rows.append(("Scan folder", folder))
+
+    started = _fmt_datetime(float(start.get("time") or 0.0))
+    if started:
+        rows.append(("Started", started))
+    if stop:
+        if stop.get("time") and start.get("time"):
+            rows.append(("Duration", f"{stop['time'] - start['time']:.0f} s"))
+        rows.append(("Exit status", str(stop.get("exit_status") or "unknown")))
+        reason = str(stop.get("reason") or "")
+        if reason:
+            rows.append(("Reason", reason))
+        events = stop.get("num_events")
+        primary = events.get("primary") if isinstance(events, dict) else None
+        if primary is not None:
+            rows.append(("Recorded rows", str(primary)))
+    else:
+        rows.append(("Exit status", "no stop document"))
+    return rows

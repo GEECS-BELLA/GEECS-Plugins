@@ -63,9 +63,11 @@ from geecs_data_utils.tiled_catalog import (
     RunSummary,
     ScanCatalog,
     StubCatalog,
+    fmt_time_of_day,
+    metadata_rows,
+    resolve_scan_folder,
 )
 
-from geecs_console.services import ops_paths
 from geecs_console.services.background import BackgroundResult
 from geecs_console.services.settings import ConsoleSettings
 
@@ -264,53 +266,6 @@ def _capture_outcome(func: Callable[[], object]) -> Callable[[], tuple]:
     return _call
 
 
-def resolve_scan_folder(detail: RunDetail, day: date) -> Optional[Path]:
-    """Resolve a run's scan folder for B3's Open button — strictly read-only.
-
-    Prefers the run's own ``scan_folder`` start-doc path; falls back to
-    building the daily ``scans/ScanNNN`` path for the **selected** date via
-    :func:`geecs_console.services.ops_paths.todays_scan_folder` (pure path
-    construction).  Only an *existing* directory is returned — nothing on
-    the scans path is ever created (repo scan-folder invariant; pinned by a
-    tree-untouched test).
-
-    Parameters
-    ----------
-    detail : RunDetail
-        The selected run (start doc + summary).
-    day : datetime.date
-        The B1-selected date the run was listed under.
-
-    Returns
-    -------
-    Path or None
-        The existing scan folder, or ``None`` when it is absent or
-        unresolvable.
-    """
-    metadata_folder = detail.start_doc.get("scan_folder")
-    if metadata_folder:
-        candidate = Path(str(metadata_folder))
-        return candidate if candidate.is_dir() else None
-    scan_number = detail.summary.scan_number
-    if scan_number is None:
-        return None
-    daily = ops_paths.todays_scan_folder(detail.summary.experiment, today=day)
-    if daily is None:
-        return None
-    candidate = daily / f"Scan{scan_number:03d}"
-    return candidate if candidate.is_dir() else None
-
-
-def _fmt_time_of_day(epoch: float) -> str:
-    """Format an epoch-seconds value as local ``HH:MM`` ("" for 0/invalid)."""
-    if not epoch or not math.isfinite(epoch):
-        return ""
-    try:
-        return datetime.fromtimestamp(epoch).strftime("%H:%M")
-    except (OverflowError, OSError, ValueError):
-        return ""
-
-
 def _fmt_timestamp_cell(epoch: float) -> str:
     """Format an ``acq_timestamp`` cell as ``HH:MM:SS.mmm`` (raw on failure)."""
     try:
@@ -334,102 +289,6 @@ def _fmt_value(value: Any) -> str:
     if number == int(number) and abs(number) < 1e15:
         return str(int(number))
     return f"{number:.6g}"
-
-
-def _fmt_datetime(epoch: float) -> str:
-    """Format epoch seconds as local ``YYYY-MM-DD HH:MM:SS`` ("" if invalid)."""
-    if not epoch or not math.isfinite(epoch):
-        return ""
-    try:
-        return datetime.fromtimestamp(epoch).strftime("%Y-%m-%d %H:%M:%S")
-    except (OverflowError, OSError, ValueError):
-        return ""
-
-
-def metadata_rows(detail: RunDetail) -> list[tuple[str, str]]:
-    """Compose the B7 field/value rows from a loaded run's metadata.
-
-    Pure — reads only the already-loaded :class:`RunDetail` (summary +
-    start/stop documents), never the catalog.  Rows whose source key is
-    absent or empty are omitted, so legacy or aborted runs render a
-    shorter list rather than blank cells.
-
-    Parameters
-    ----------
-    detail : RunDetail
-        The selected run.
-
-    Returns
-    -------
-    list of (str, str)
-        Ordered ``(field, value)`` pairs for the B7 table.
-    """
-    summary = detail.summary
-    start = detail.start_doc
-    stop = detail.stop_doc
-    rows: list[tuple[str, str]] = []
-
-    if summary.scan_number is not None:
-        rows.append(("Scan", f"Scan {summary.scan_number:03d}"))
-    rows.append(("uid", summary.uid))
-    if summary.experiment:
-        rows.append(("Experiment", summary.experiment))
-    if summary.description:
-        rows.append(("Description", summary.description))
-    acquisition = str(start.get("acquisition_mode") or "")
-    rows.append(
-        ("Mode", f"{summary.mode} · {acquisition}" if acquisition else summary.mode)
-    )
-    plan = str(start.get("plan_name") or "")
-    if plan:
-        rows.append(("Plan", plan))
-
-    axes = start.get("scan_axes") or []
-    if axes:
-        rows.append(("Scan axes", ", ".join(str(a) for a in axes)))
-        shape = start.get("grid_shape") or []
-        points = start.get("num_grid_points")
-        if shape and points:
-            shape_text = " × ".join(str(s) for s in shape)
-            rows.append(("Grid", f"{shape_text} = {points} steps"))
-    elif start.get("motor"):
-        rows.append(("Scan variable", str(start["motor"])))
-
-    num_points = start.get("num_points")
-    shots_per_step = start.get("shots_per_step")
-    if num_points and shots_per_step:
-        rows.append(
-            (
-                "Planned shots",
-                f"{num_points} steps × {shots_per_step} = {summary.shots}",
-            )
-        )
-    if summary.save_sets:
-        rows.append(("Save sets", ", ".join(summary.save_sets)))
-    reference = str(start.get("reference_device") or "")
-    if reference:
-        rows.append(("Reference device", reference))
-    folder = str(start.get("scan_folder") or "")
-    if folder:
-        rows.append(("Scan folder", folder))
-
-    started = _fmt_datetime(float(start.get("time") or 0.0))
-    if started:
-        rows.append(("Started", started))
-    if stop:
-        if stop.get("time") and start.get("time"):
-            rows.append(("Duration", f"{stop['time'] - start['time']:.0f} s"))
-        rows.append(("Exit status", str(stop.get("exit_status") or "unknown")))
-        reason = str(stop.get("reason") or "")
-        if reason:
-            rows.append(("Reason", reason))
-        events = stop.get("num_events")
-        primary = events.get("primary") if isinstance(events, dict) else None
-        if primary is not None:
-            rows.append(("Recorded rows", str(primary)))
-    else:
-        rows.append(("Exit status", "no stop document"))
-    return rows
 
 
 class ScanBrowserWindow(QMainWindow):
@@ -912,7 +771,7 @@ class ScanBrowserWindow(QMainWindow):
             if summary.scan_number is not None
             else summary.uid[:8]
         )
-        time_text = _fmt_time_of_day(summary.start_time)
+        time_text = fmt_time_of_day(summary.start_time)
         shots = f" · {summary.shots} shots" if summary.shots else ""
         return f"{dot} {number}   {time_text}   {summary.mode}{shots}"
 
@@ -1053,7 +912,10 @@ class ScanBrowserWindow(QMainWindow):
         """Rebuild the X combo and the Y completer for the loaded run."""
         df = detail.data
         columns = [] if df is None else [str(c) for c in df.columns]
-        data_cols = schema_map.data_columns(columns)
+        # THE shared pick-list rule (tiled_schema.plottable_columns — data
+        # portal parity): machinery excluded AND at least one finite value,
+        # so all-NaN/string columns never reach the pickers.
+        data_cols = [] if df is None else schema_map.plottable_columns(df)
 
         self.b4_x_combo.blockSignals(True)
         self.b4_x_combo.clear()
@@ -1076,19 +938,19 @@ class ScanBrowserWindow(QMainWindow):
     def _numeric_values(self, column: str) -> Optional[list[float]]:
         """Return *column* as floats, or ``None`` when it is not numeric.
 
-        Non-numeric columns exist by contract (dtype-tolerant telemetry) —
-        the caller shows a status message instead of crashing.
+        Delegates the coercion to the shared
+        :func:`geecs_data_utils.tiled_schema.numeric_series` (data portal
+        parity — one rule).  Non-numeric columns exist by contract
+        (dtype-tolerant telemetry) — the caller shows a status message
+        instead of crashing.
         """
         df = self._dataframe()
-        if df is None or column not in df.columns:
+        if df is None:
             return None
-        import pandas as pd
-
-        series = pd.to_numeric(df[column], errors="coerce")
-        values = [float(v) for v in series.tolist()]
-        if not any(math.isfinite(v) for v in values):
+        series = schema_map.numeric_series(df, column)
+        if series is None:
             return None
-        return values
+        return [float(v) for v in series.tolist()]
 
     def _x_values(self) -> Optional[list[float]]:
         """Return the current X axis values (shot sequence or a column)."""

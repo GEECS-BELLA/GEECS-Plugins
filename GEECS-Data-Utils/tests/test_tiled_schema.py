@@ -111,3 +111,108 @@ class TestScanClassification:
     def test_total_shots(self):
         assert tiled_schema.total_shots({"num_points": 5, "shots_per_step": 4}) == 20
         assert tiled_schema.total_shots({}) is None
+
+
+class TestPlottableColumns:
+    """The shared front-end pick-list rule (console B4 + data portal)."""
+
+    def _frame(self):
+        import pandas as pd
+
+        return pd.DataFrame(
+            {
+                "scan_event_index": [0, 1],  # id machinery
+                "cam-MaxCounts": [1.0, 2.0],
+                "cam-acq_timestamp": [1.0, 2.0],  # companion machinery
+                "cam-label": ["a", "b"],  # non-numeric
+                "telemetry_dev-val": ["1.5", "2.5"],  # numeric strings
+                "cam-dead": [float("nan"), float("nan")],  # all-NaN
+            }
+        )
+
+    def test_machinery_and_unplottable_excluded(self):
+        from geecs_data_utils.tiled_schema import plottable_columns
+
+        assert plottable_columns(self._frame()) == [
+            "cam-MaxCounts",
+            "telemetry_dev-val",
+        ]
+
+    def test_numeric_series_coerces_strings(self):
+        from geecs_data_utils.tiled_schema import numeric_series
+
+        series = numeric_series(self._frame(), "telemetry_dev-val")
+        assert series is not None
+        assert list(series) == [1.5, 2.5]
+
+    def test_numeric_series_none_for_absent_all_nan_and_strings(self):
+        from geecs_data_utils.tiled_schema import numeric_series
+
+        frame = self._frame()
+        assert numeric_series(frame, "missing") is None
+        assert numeric_series(frame, "cam-dead") is None
+        assert numeric_series(frame, "cam-label") is None
+
+    def test_numeric_series_handles_nullable_dtypes_without_raising(self):
+        # pd.to_numeric keeps Int64/Float64 (pd.NA) — a per-value float()
+        # loop crashes on NA; the vectorized path must not.
+        import pandas as pd
+
+        from geecs_data_utils.tiled_schema import numeric_series
+
+        frame = pd.DataFrame({"n": pd.array([1, None], dtype="Int64")})
+        series = numeric_series(frame, "n")
+        assert series is not None
+        assert series.dtype == float and series.iloc[0] == 1.0
+        all_na = pd.DataFrame({"n": pd.array([None, None], dtype="Int64")})
+        assert numeric_series(all_na, "n") is None
+
+    def test_numeric_series_rejects_datetimes_and_duplicate_labels(self):
+        # datetime64 would coerce to "plottable" ~1e18 ns ints; a
+        # duplicated label makes frame[column] a DataFrame.
+        import pandas as pd
+
+        from geecs_data_utils.tiled_schema import numeric_series
+
+        frame = pd.DataFrame({"t": pd.to_datetime(["2026-08-29", "2026-08-30"])})
+        assert numeric_series(frame, "t") is None
+        dup = pd.DataFrame([[1.0, 2.0], [3.0, 4.0]], columns=["a", "a"])
+        assert numeric_series(dup, "a") is None
+
+
+class TestDeviceAcqTimestampColumn:
+    """Schema-safe device→column matching (the ScanAnalysis rule)."""
+
+    COLUMNS = [
+        "uc_amp4_ir_input-acq_timestamp",
+        "ts_uc_amp4_ir_input-acq_timestamp",
+        "telemetry_uc_other-acq_timestamp",
+        "u_bcavemagspec_interpspec-acq_timestamp",
+        "uc_amp4_ir_input-maxcounts",
+    ]
+
+    def test_folder_stem_matches_schema_safe_column(self):
+        from geecs_data_utils.tiled_schema import device_acq_timestamp_column
+
+        assert (
+            device_acq_timestamp_column(self.COLUMNS, "UC_Amp4_IR_input")
+            == "uc_amp4_ir_input-acq_timestamp"
+        )
+
+    def test_hyphenated_diagnostic_stem_matches(self):
+        from geecs_data_utils.tiled_schema import device_acq_timestamp_column
+
+        assert (
+            device_acq_timestamp_column(self.COLUMNS, "U_BCaveMagSpec-interpSpec")
+            == "u_bcavemagspec_interpspec-acq_timestamp"
+        )
+
+    def test_companion_and_telemetry_prefixes_never_match(self):
+        from geecs_data_utils.tiled_schema import device_acq_timestamp_column
+
+        assert device_acq_timestamp_column(self.COLUMNS, "uc_other") is None
+
+    def test_unknown_device_is_none(self):
+        from geecs_data_utils.tiled_schema import device_acq_timestamp_column
+
+        assert device_acq_timestamp_column(self.COLUMNS, "nope") is None

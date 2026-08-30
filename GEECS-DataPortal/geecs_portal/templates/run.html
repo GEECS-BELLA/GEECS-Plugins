@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% block title %}Run {{ uid[:8] }} — GEECS Data Portal{% endblock %}
+{% block content %}
+<div class="nav">
+  {% if day %}<a href="/day/{{ day | urlencode }}?{{ qs(day="", y="", x="", device="", shot="") }}">&larr; {{ day }}</a>{% endif %}
+  <h1>{% for field, value in rows %}{% if field == "Scan" %}{{ value }}{% endif %}{% endfor %}</h1>
+  <span class="dim mono">{{ uid }}</span>
+</div>
+
+<h2>Metadata</h2>
+<table>
+  {% for field, value in rows %}
+  <tr><th>{{ field }}</th><td class="mono">{{ value }}</td></tr>
+  {% endfor %}
+</table>
+
+{% if columns %}
+<h2>Scalars</h2>
+<p class="dim">Pick a column to plot{% if not selected %} (stepped scans default to the scan variable on X){% endif %}:</p>
+<p>
+  {% for column in columns %}
+  <a class="mono" href="/run/{{ uid }}?{{ qs(y=column, x="") }}">{{ column }}</a>{{ " · " if not loop.last }}
+  {% endfor %}
+</p>
+{% if selected %}
+<form class="nav" method="get" action="/run/{{ uid }}">
+  <input type="hidden" name="day" value="{{ day }}">
+  <input type="hidden" name="experiment" value="{{ experiment }}">
+  {% if filter %}<input type="hidden" name="filter" value="{{ filter }}">{% endif %}
+  {% if sel_device %}
+  <input type="hidden" name="device" value="{{ sel_device }}">
+  <input type="hidden" name="shot" value="{{ shot }}">
+  {% endif %}
+  <label class="dim">Y
+    <select name="y">
+      {% for column in columns %}
+      <option value="{{ column }}" {{ "selected" if column == selected }}>{{ column }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label class="dim">X
+    <select name="x">
+      <option value="">row sequence</option>
+      {% for column in columns %}
+      <option value="{{ column }}" {{ "selected" if column == x_column }}>{{ column }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <button type="submit">Plot</button>
+</form>
+<img class="plot" src="/run/{{ uid }}/plot.png?y={{ selected | urlencode }}{% if x_column %}&amp;x={{ x_column | urlencode }}{% endif %}" alt="{{ selected }}">
+{% endif %}
+{% else %}
+<p class="dim">This run recorded no plottable scalar columns.</p>
+{% endif %}
+
+{% if devices %}
+<h2>Images</h2>
+<p>
+  {% for dev in devices %}
+  <a class="mono" href="/run/{{ uid }}?{{ qs(device=dev, shot=1) }}">{{ dev }}</a>{{ " · " if not loop.last }}
+  {% endfor %}
+</p>
+{% if sel_device %}
+{% if kind == "vendor" %}
+<p class="dim">{{ sel_device }} saves a vendor-SDK format the portal cannot
+render. Files live at:</p>
+<p class="mono">{{ kind_path }}</p>
+{% elif kind == "unrenderable" %}
+<p class="dim">{{ sel_device }} saves a file format the portal does not
+render (trace/array data, not an image). Files live at:</p>
+<p class="mono">{{ kind_path }}</p>
+{% else %}
+<form class="nav" method="get" action="/run/{{ uid }}">
+  <input type="hidden" name="device" value="{{ sel_device }}">
+  <input type="hidden" name="day" value="{{ day }}">
+  <input type="hidden" name="experiment" value="{{ experiment }}">
+  {% if filter %}<input type="hidden" name="filter" value="{{ filter }}">{% endif %}
+  {% if selected %}<input type="hidden" name="y" value="{{ selected }}">{% endif %}
+  {% if x_column %}<input type="hidden" name="x" value="{{ x_column }}">{% endif %}
+  {% if shot > 1 %}<a href="/run/{{ uid }}?{{ qs(shot=shot - 1) }}">&larr; prev</a>{% endif %}
+  <label class="dim">shot
+    <input type="number" name="shot" value="{{ shot }}" min="1" style="width: 5rem">
+  </label>
+  <button type="submit">Show</button>
+  {% if has_next_shot %}<a href="/run/{{ uid }}?{{ qs(shot=shot + 1) }}">next &rarr;</a>{% endif %}
+  {% if total_shots %}<span class="dim mono">of ~{{ total_shots }}</span>{% endif %}
+  <span class="dim mono">{{ kind }}</span>
+</form>
+<img class="plot" src="/run/{{ uid }}/image.png?device={{ sel_device | urlencode }}&amp;shot={{ shot }}&amp;day={{ day | urlencode }}" alt="{{ sel_device }} shot {{ shot }}">
+{% endif %}
+{% endif %}
+{% endif %}
+{% endblock %}

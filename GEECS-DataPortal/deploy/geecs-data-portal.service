@@ -1,0 +1,47 @@
+# GEECS Data Portal — systemd unit for the services host (interim: the
+# queueserver worker box, alongside Tiled :8000 and GEECS-MCP :8100).
+#
+# The User= and path lines below use a generic `geecs` service account —
+# substitute the real account and checkout path when installing; the copy
+# in /etc/systemd/system is the home for site specifics, not this file.
+#
+# Install (from the repo checkout on the box):
+#   sudo cp GEECS-DataPortal/deploy/geecs-data-portal.service /etc/systemd/system/
+#   sudoedit /etc/systemd/system/geecs-data-portal.service   # fix User + paths
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now geecs-data-portal
+#
+# Upgrade:
+#   git pull && poetry install && sudo systemctl restart geecs-data-portal
+#
+# See DEPLOYMENT.md (one directory up).
+
+[Unit]
+Description=GEECS Data Portal (read-only scan browser)
+# The portal reads the Tiled catalog; when Tiled runs on the same box,
+# start after it. If Tiled is remote, drop the tiled.service reference —
+# the portal degrades gracefully (pages report catalog errors) and
+# Restart=on-failure retries a crash-at-boot either way.
+After=network-online.target tiled.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=geecs
+# Poetry resolves its cache/venvs under $HOME; systemd does not always set it.
+Environment=HOME=/home/geecs
+# Daily scan folders (YY_MMDD) are named by the scanner host's LOCAL date,
+# and the portal re-bases runs by local date too — the two must agree.
+# Pin the lab's timezone so a UTC-defaulted server can't resolve evening
+# scans into the next day's folder. Substitute your site's zone.
+Environment=TZ=America/Los_Angeles
+# Portal-specific checkout — never the one another service (e.g. the CA
+# gateway) runs from; see DEPLOYMENT.md § Install.
+WorkingDirectory=/home/geecs/GEECS-Plugins-portal/GEECS-DataPortal
+ExecStart=/home/geecs/.local/bin/poetry run geecs-data-portal --experiment Undulator
+Restart=on-failure
+RestartSec=10
+SyslogIdentifier=geecs-data-portal
+
+[Install]
+WantedBy=multi-user.target

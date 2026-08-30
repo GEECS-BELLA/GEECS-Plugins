@@ -32,6 +32,7 @@ from geecs_data_utils.native_files import (
     native_file_name_from_key,
     native_file_path,
     native_file_stem,
+    probe_native_file,
     render_timestamp,
     timestamp_key,
     timestamp_key_candidates,
@@ -54,6 +55,7 @@ from geecs_data_utils.tiled_export import (
     build_legacy_scalar_dataframe,
     write_scalar_files_from_tiled,
 )
+from geecs_data_utils.scan_paths import daily_scan_folder
 from geecs_data_utils.tiled_catalog import (
     CatalogStatus,
     RunDetail,
@@ -61,6 +63,8 @@ from geecs_data_utils.tiled_catalog import (
     ScanCatalog,
     StubCatalog,
     TiledScanCatalog,
+    metadata_rows,
+    resolve_scan_folder,
 )
 
 __all__ = [
@@ -78,6 +82,7 @@ __all__ = [
     "native_file_name",
     "native_file_name_from_key",
     "native_file_path",
+    "probe_native_file",
     "timestamp_key",
     "timestamp_key_candidates",
     "filename_timestamp_regex",
@@ -105,4 +110,8 @@ __all__ = [
     "ScanCatalog",
     "StubCatalog",
     "TiledScanCatalog",
+    "metadata_rows",
+    "resolve_scan_folder",
+    # scan paths (offline-first daily-folder companion)
+    "daily_scan_folder",
 ]

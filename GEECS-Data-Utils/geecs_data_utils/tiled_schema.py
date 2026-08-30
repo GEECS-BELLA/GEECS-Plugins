@@ -122,6 +122,71 @@ def is_acq_timestamp_column(column: str) -> bool:
     return column.endswith(_ACQ_TIMESTAMP_SUFFIX)
 
 
+def normalize_token(name: str) -> str:
+    """Collapse a name to a lowercase ``_``-separated matching token.
+
+    THE device↔column normalization rule (runs of non-alphanumerics →
+    ``_``): the join key between event/s-file column prefixes and on-disk
+    device folder names.  Shared by this module's matcher and
+    ScanAnalysis's reader (which recognises more column spellings but
+    normalizes through this same rule) — never re-derive the regex in a
+    consumer.
+
+    Parameters
+    ----------
+    name : str
+        A device name, folder stem, or column prefix.
+
+    Returns
+    -------
+    str
+        The canonical matching token.
+    """
+    import re
+
+    return re.sub(r"[^a-z0-9]+", "_", str(name).lower()).strip("_")
+
+
+#: Backwards-compatible private alias (pre-0.20.0 internal name).
+_normalize_token = normalize_token
+
+
+def device_acq_timestamp_column(columns: Sequence[str], device: str) -> Optional[str]:
+    """Find *device*'s own ``acq_timestamp`` event column, or ``None``.
+
+    The event column keys by the schema-safe device name while callers
+    often hold the on-disk folder stem — hyphens, case, and suffix
+    punctuation differ.  Both sides normalize by collapsing runs of
+    non-alphanumerics to single underscores (the same matching rule
+    ScanAnalysis's reader uses), so ``U_BCaveMagSpec-interpSpec``
+    matches ``u_bcavemagspec_interpspec-acq_timestamp``.  Telemetry and
+    ``ts_``-companion spellings never match (their prefixes carry extra
+    tokens).
+
+    Parameters
+    ----------
+    columns : sequence of str
+        All event-stream column names.
+    device : str
+        Device name or on-disk device folder stem.
+
+    Returns
+    -------
+    str or None
+        The matching ``<dev>-acq_timestamp`` column name, or ``None``
+        when the run has no timestamp column for this device.
+    """
+    token = _normalize_token(device)
+    for column in columns:
+        name = str(column)
+        if not name.endswith(_ACQ_TIMESTAMP_SUFFIX):
+            continue
+        prefix = name[: -len(_ACQ_TIMESTAMP_SUFFIX)]
+        if _normalize_token(prefix) == token:
+            return name
+    return None
+
+
 def data_columns(columns: Sequence[str]) -> list[str]:
     """Return the measurement columns — data variables, machinery excluded.
 
@@ -138,6 +203,75 @@ def data_columns(columns: Sequence[str]) -> list[str]:
         Order preserved.
     """
     return [c for c in columns if not is_id_column(c) and not is_companion_column(c)]
+
+
+def plottable_columns(frame: Any) -> list[str]:
+    """Return the columns of *frame* offered as scalar-plot picks.
+
+    The ONE pick-list rule shared by the scalar-plotting front-ends
+    (the console scan browser's B4, the data portal) — both consume this
+    helper, so the two cannot drift.  Schema machinery (row
+    identity + companion columns) is excluded via :func:`data_columns`,
+    and plottability is tolerant coercion per the dtype-tolerant
+    telemetry contract ("never assume numeric") — an object-typed column
+    of numeric strings is plottable, an all-NaN/all-string column is not.
+
+    Parameters
+    ----------
+    frame : pandas.DataFrame
+        A run's event table.
+
+    Returns
+    -------
+    list of str
+        Data columns with at least one finite numeric value, frame order.
+    """
+    return [
+        column
+        for column in data_columns([str(c) for c in frame.columns])
+        if numeric_series(frame, column) is not None
+    ]
+
+
+def numeric_series(frame: Any, column: str) -> Optional[Any]:
+    """Coerce one column of *frame* to floats, or ``None`` if not plottable.
+
+    Parameters
+    ----------
+    frame : pandas.DataFrame
+        A run's event table.
+    column : str
+        The column to coerce.
+
+    Returns
+    -------
+    pandas.Series or None
+        The column coerced to ``float64`` when it exists and holds at
+        least one finite value; ``None`` otherwise (absent, duplicated
+        label, datetime/timedelta, all-NaN, or non-numeric —
+        dtype-tolerant telemetry contract).
+    """
+    if column not in frame.columns:
+        return None
+    import numpy as np
+    import pandas as pd
+
+    raw = frame[column]
+    if not isinstance(raw, pd.Series):
+        # Duplicated column label — frame[column] is a DataFrame.
+        return None
+    if pd.api.types.is_datetime64_any_dtype(raw) or pd.api.types.is_timedelta64_dtype(
+        raw
+    ):
+        # Coercion would yield "plottable" ~1e18 ns integers.
+        return None
+    series = pd.to_numeric(raw, errors="coerce")
+    # to_numpy(na_value=nan) also flattens nullable dtypes (Int64/Float64
+    # with pd.NA), which a per-value float() loop would crash on.
+    values = series.to_numpy(dtype=float, na_value=np.nan)
+    if not np.isfinite(values).any():
+        return None
+    return pd.Series(values, index=raw.index, name=raw.name)
 
 
 def telemetry_columns(columns: Sequence[str]) -> list[str]:

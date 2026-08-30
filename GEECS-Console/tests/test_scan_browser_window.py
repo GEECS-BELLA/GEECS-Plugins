@@ -192,6 +192,24 @@ class TestB4Plot:
         assert "not numeric" in window.statusBar().currentMessage()
         assert window.plotted_columns() == []
 
+    def test_pickers_use_the_shared_plottable_rule(self, qtbot):
+        # B4 offers exactly tiled_schema.plottable_columns (data portal
+        # parity — the ONE pick-list rule): plottable columns in, all-NaN
+        # and string-typed columns out, of both the Y completer and the
+        # X combo.
+        window = _make_window(qtbot, _two_run_catalog())
+        _wait_runs(qtbot, window, 3)
+        _select_run(qtbot, window, 1)
+        y_picks = window._y_model.stringList()
+        assert "cam-counts" in y_picks
+        assert "telemetry_gap-y" not in y_picks  # all-NaN
+        assert "telemetry_mode-label" not in y_picks  # string-typed
+        x_items = [
+            window.b4_x_combo.itemText(i) for i in range(window.b4_x_combo.count())
+        ]
+        assert "telemetry_gap-y" not in x_items
+        assert "telemetry_mode-label" not in x_items
+
     def test_y_line_edit_commit_adds_series(self, qtbot):
         window = _make_window(qtbot, _two_run_catalog())
         _wait_runs(qtbot, window, 3)

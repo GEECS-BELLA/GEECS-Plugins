@@ -1,18 +1,33 @@
 """Pin the browser's scan-folder resolution invariant: read-only, never creates.
 
-The pure catalog/schema/drift layer lives in ``geecs_data_utils`` and is
-tested there; what stays here is the browser's own B3 resolver
-(``resolve_scan_folder``) and its repo-invariant pin — opening a scan
-folder must never bring one into existence (analysis/GUI code is a
-consumer of scan folders, never a producer).
+``resolve_scan_folder`` moved down to ``geecs_data_utils.tiled_catalog``
+(portal arc phase 2) where its core invariant tests now live; what stays
+here is the browser-path pin — the window resolves through the shared
+implementation (import identity) and opening a scan folder through the
+browser import path must never bring one into existence (analysis/GUI
+code is a consumer of scan folders, never a producer).
 """
 
 from __future__ import annotations
 
+from geecs_data_utils import tiled_catalog
 from geecs_data_utils.tiled_catalog import RunDetail, summary_from_metadata
 
 from geecs_console.browser.browser_window import resolve_scan_folder
 from fake_catalog import TEST_DAY, make_detail
+
+
+def test_resolver_is_the_shared_data_utils_implementation():
+    """The browser must not grow a shadowing resolver of its own."""
+    assert resolve_scan_folder is tiled_catalog.resolve_scan_folder
+
+
+def test_metadata_rows_is_the_shared_data_utils_implementation():
+    """Same pin for the other moved helper — a console-local re-growth
+    would silently drift the two front-ends' metadata tables."""
+    from geecs_console.browser.browser_window import metadata_rows
+
+    assert metadata_rows is tiled_catalog.metadata_rows
 
 
 def _tree_snapshot(root):
@@ -27,7 +42,15 @@ class TestScanFolderResolutionInvariant:
         detail = make_detail(scan_folder=str(scan_dir))
         assert resolve_scan_folder(detail, TEST_DAY) == scan_dir
 
-    def test_missing_folder_returns_none_and_touches_nothing(self, tmp_path):
+    def test_missing_folder_returns_none_and_touches_nothing(
+        self, tmp_path, monkeypatch
+    ):
+        from geecs_data_utils import scan_paths as scan_paths_mod
+
+        # Hermetic: a stale metadata path now falls through to the daily
+        # fallback (host-specific-mount re-basing), which must not reach
+        # the real config.ini data root in tests.
+        monkeypatch.setattr(scan_paths_mod, "daily_scan_folder", lambda *a, **k: None)
         day_root = tmp_path / "data"
         day_root.mkdir()
         missing = day_root / "Y2026" / "07-Jul" / "26_0712" / "scans" / "Scan002"

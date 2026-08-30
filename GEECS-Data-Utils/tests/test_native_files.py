@@ -205,3 +205,34 @@ class TestLegacyFilenameRegex:
         pattern = legacy_filename_regex(".p+g")
         assert pattern.match("Scan012_UC_Cam_005.p+g") is not None
         assert pattern.match("Scan012_UC_Cam_005.ppg") is None
+
+
+class TestProbeNativeFile:
+    """The one exact-key stat probe (ScanAnalysis/portal parity)."""
+
+    def test_probes_exact_and_boundary_keys_only(self, tmp_path):
+        from geecs_data_utils.native_files import (
+            native_file_name_from_key,
+            probe_native_file,
+            timestamp_key,
+        )
+
+        ts = 3_870_000_100.524
+        exact = tmp_path / native_file_name_from_key("cam", timestamp_key(ts), ".png")
+        exact.write_bytes(b"png")
+        assert probe_native_file(tmp_path, "cam", ".png", ts) == exact
+        # 3 ms away must read as missing, never a neighbour.
+        assert probe_native_file(tmp_path, "cam", ".png", ts + 0.003) is None
+
+    def test_probe_joins_across_the_rendering_boundary(self, tmp_path):
+        # A row double whose integer-ms key differs from what %.3f rendered
+        # into the filename (…100.0005 keys to …000 but renders "…100.001"):
+        # ONLY the ±1 candidate probe joins them — a bare exact-key stat
+        # must fail this test.
+        from geecs_data_utils.native_files import native_file_name, probe_native_file
+
+        ts = 3_870_000_100.0005
+        rendered = tmp_path / native_file_name("cam", ts, ".png")
+        rendered.write_bytes(b"png")
+        assert rendered.name.endswith("100.001.png")  # the divergence is real
+        assert probe_native_file(tmp_path, "cam", ".png", ts) == rendered

@@ -94,11 +94,12 @@ def todays_scan_folder(
 ) -> Optional[Path]:
     """Build today's daily ``scans/`` folder path — read-only, never creates.
 
-    Uses ``geecs_data_utils.ScanPaths.get_daily_scan_folder`` (imported
-    lazily), which is pure path construction: no directory is created or
-    touched here, and the returned path may not exist yet — the caller
-    checks ``is_dir()`` and reports "no scans today" instead of creating
-    anything (repo scan-folder invariant).
+    Delegates to ``geecs_data_utils.scan_paths.daily_scan_folder``
+    (imported lazily; the offline-first companion this function was
+    re-based onto in the portal arc), which is pure path construction:
+    no directory is created or touched here, and the returned path may
+    not exist yet — the caller checks ``is_dir()`` and reports "no scans
+    today" instead of creating anything (repo scan-folder invariant).
 
     Parameters
     ----------
@@ -119,29 +120,11 @@ def todays_scan_folder(
         is unresolvable.
     """
     try:
-        from geecs_data_utils import ScanPaths
+        from geecs_data_utils.scan_paths import daily_scan_folder
     except Exception as exc:  # noqa: BLE001 — offline-first: report, don't raise
         logger.info("geecs_data_utils unavailable: %s", exc)
         return None
-    paths_config = ScanPaths.paths_config
-    if base_path is None:
-        if paths_config is None:
-            return None
-        base_path = Path(paths_config.base_path)
-    resolved_experiment = experiment or (
-        getattr(paths_config, "experiment", None) or ""
-    )
-    if not resolved_experiment:
-        return None
-    day = today if today is not None else date.today()
-    try:
-        tag = ScanPaths.get_scan_tag(
-            day.year, day.month, day.day, 0, experiment=resolved_experiment
-        )
-        return ScanPaths.get_daily_scan_folder(tag=tag, base_directory=base_path)
-    except Exception as exc:  # noqa: BLE001 — path building must not crash the GUI
-        logger.info("today's scan folder unresolvable: %s", exc)
-        return None
+    return daily_scan_folder(experiment=experiment, base_path=base_path, day=today)
 
 
 def highest_scan_number(scans_dir: Optional[Path]) -> Optional[int]:

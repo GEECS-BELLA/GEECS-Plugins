@@ -4,6 +4,47 @@ All notable changes to GEECS-Console are documented here.  Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is
 semantic.
 
+## [0.25.0] - 2026-08-29
+
+### Changed
+
+- Scan browser B4 adopts the shared pick-list rule: pickers offer
+  exactly `tiled_schema.plottable_columns` (all-NaN and string-typed
+  columns no longer appear — previously they were listed and rejected at
+  plot time), and `_numeric_values` coerces through the shared
+  `numeric_series`.  B1's time cells use the shared
+  `tiled_catalog.fmt_time_of_day`.  The "ONE pick-list rule / cannot
+  drift" contract is now true on both front-ends (data portal parity).
+
+## [0.24.4] - 2026-08-29
+
+### Changed
+
+- Scan browser Open button inherits Data-Utils 0.19.0's guard: a run
+  whose start doc names no experiment no longer re-bases through the
+  host config's default experiment (it resolves as not-found instead).
+  Clarifies 0.24.3's record: the shared `resolve_scan_folder`'s 0.17.0
+  fall-through *did* change Open-button behavior for stale recorded
+  paths (they now re-base via the daily path instead of failing) —
+  "behavior preserved" there applied only to `todays_scan_folder`.
+
+### Added
+
+- Import-identity pin for `metadata_rows` (alongside the existing
+  `resolve_scan_folder` pin) — a console-local re-implementation now
+  fails the suite instead of silently drifting the two front-ends.
+
+## [0.24.3] - 2026-08-29
+
+### Changed
+
+- Scan browser: `resolve_scan_folder` and `metadata_rows` moved down to
+  `geecs_data_utils.tiled_catalog` (portal arc phase 2 — shared with the
+  data portal); the browser imports them (import-identity pinned in
+  `tests/test_browser_scan_folder.py`).  `ops_paths.todays_scan_folder`
+  now delegates to `geecs_data_utils.scan_paths.daily_scan_folder`
+  (behavior preserved).
+
 ## [0.24.2] - 2026-08-25
 
 ### Fixed

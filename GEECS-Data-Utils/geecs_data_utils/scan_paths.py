@@ -26,8 +26,23 @@ from geecs_data_utils.utils import SysPath, ConfigurationError, month_to_int
 from geecs_data_utils.type_defs import ScanTag
 from geecs_data_utils.geecs_paths_config import GeecsPathsConfig
 
-# Acceptable extensions (lowercase, no dot)
-_ACCEPTABLE_EXTS = {"png", "tif", "tiff", "h5", "dat", "tdms", "himg"}
+# THE device-file extension taxonomy (lowercase, no dot). The vendor tier
+# lives here; the displayable-image tier is `io.images.DISPLAYABLE_IMAGE_EXTS`
+# (a display concern, owned by the reader). Consumers of the inference:
+# the data portal's gallery tier probe and `ScanData.add_expected_paths`.
+# Extend HERE when a new device format lands, never with a consumer-local
+# set.
+
+#: Vendor-SDK-only formats (the scope doc's Tier C — HASO wavefront
+#: sensors): findable, never parsed off-Windows; readers show a path card.
+VENDOR_ONLY_EXTS = frozenset({"himg", "has"})
+
+# Every extension a device folder legitimately holds (what the extension
+# inference counts). Includes the vendor tier: a vendor-only folder must
+# infer its real extension, not default to "png". Note: in a folder MIXING
+# vendor and renderable files, the first-`max_files` count decides — the
+# same iterdir-order nondeterminism that always applied to `himg`.
+_ACCEPTABLE_EXTS = {"png", "tif", "tiff", "h5", "dat", "tdms"} | set(VENDOR_ONLY_EXTS)
 
 # from geecs_data_utils.types import ScanConfig, ScanMode
 
@@ -807,26 +822,107 @@ class ScanPaths:
 
     def infer_device_ext(self, device: str, *, max_files: int = 5) -> str:
         """Peek at up to `max_files` files to find proper file extension."""
-        from collections import Counter
-
-        dpath = self.device_folder(device)
-        if not dpath.exists():
-            return "png"
-
-        counts = Counter()
-        seen = 0
-        for f in dpath.iterdir():
-            if f.is_file():
-                ext = f.suffix.lower().lstrip(".")
-                if ext in _ACCEPTABLE_EXTS:
-                    counts[ext] += 1
-                    seen += 1
-                    if seen >= max_files:
-                        break
-        return counts.most_common(1)[0][0] if counts else "png"
+        return infer_device_dir_ext(self.device_folder(device), max_files=max_files)
 
 
 ScanPaths.reload_paths_config()
+
+
+def infer_device_dir_ext(device_dir: Path, *, max_files: int = 5) -> str:
+    """Peek at up to *max_files* files in *device_dir* to infer the extension.
+
+    The module-level companion to :meth:`ScanPaths.infer_device_ext` for
+    callers holding a device directory directly (no canonical-layout
+    validation required — a gallery tier probe must classify a vendor
+    device even inside a non-canonical dev/scratch scan folder).  Counts
+    only ``_ACCEPTABLE_EXTS`` members; ``"png"`` when nothing matches.
+
+    Parameters
+    ----------
+    device_dir : Path
+        The device folder to peek at.
+    max_files : int, optional
+        Stop after this many accepted files.
+
+    Returns
+    -------
+    str
+        The dominant accepted extension (lowercase, no dot), or ``"png"``.
+    """
+    from collections import Counter
+
+    if not device_dir.exists():
+        return "png"
+    counts: Counter = Counter()
+    seen = 0
+    for f in device_dir.iterdir():
+        if f.is_file():
+            ext = f.suffix.lower().lstrip(".")
+            if ext in _ACCEPTABLE_EXTS:
+                counts[ext] += 1
+                seen += 1
+                if seen >= max_files:
+                    break
+    return counts.most_common(1)[0][0] if counts else "png"
+
+
+def daily_scan_folder(
+    experiment: str = "",
+    base_path: Optional[Path] = None,
+    day: Optional[date] = None,
+) -> Optional[Path]:
+    """Build a day's daily ``scans/`` folder path — read-only, never creates.
+
+    The offline-first module-level companion to
+    :meth:`ScanPaths.get_daily_scan_folder`: pure path construction that
+    returns ``None`` instead of raising when the data root or experiment
+    is unresolvable, so GUI/portal callers can report "no scans" rather
+    than crash.  No directory is created or touched, and the returned
+    path may not exist yet — the caller checks ``is_dir()`` (repo
+    scan-folder invariant: analysis/GUI code is a consumer of scan
+    folders, never a producer).
+
+    Parameters
+    ----------
+    experiment : str, optional
+        The experiment name; falls back to the ``config.ini`` default
+        experiment when empty.
+    base_path : Path, optional
+        The data root; defaults to the ``GeecsPathsConfig`` base path.
+        Tests pass a tmp path.
+    day : datetime.date, optional
+        The date to resolve (tests pin it); defaults to today.
+
+    Returns
+    -------
+    Path or None
+        The candidate ``.../{YY_MMDD}/scans`` path (existing or not), or
+        ``None`` when the data root or the experiment is unresolvable.
+    """
+    paths_config = ScanPaths.paths_config
+    if base_path is None:
+        if paths_config is None:
+            return None
+        base_path = Path(paths_config.base_path)
+    resolved_experiment = experiment or (
+        getattr(paths_config, "experiment", None) or ""
+    )
+    if not resolved_experiment:
+        return None
+    resolved_day = day if day is not None else date.today()
+    try:
+        tag = ScanPaths.get_scan_tag(
+            resolved_day.year,
+            resolved_day.month,
+            resolved_day.day,
+            0,
+            experiment=resolved_experiment,
+        )
+        return ScanPaths.get_daily_scan_folder(tag=tag, base_directory=base_path)
+    except Exception as exc:  # noqa: BLE001 — offline-first: report, don't raise
+        logger.info("daily scan folder unresolvable: %s", exc)
+        return None
+
 
 if __name__ == "__main__":
     test_tag = ScanPaths.get_scan_tag(2025, 6, 5, number=31, experiment="Undulator")

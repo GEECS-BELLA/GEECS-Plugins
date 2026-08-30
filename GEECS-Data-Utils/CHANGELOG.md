@@ -3,6 +3,116 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.20.1] - 2026-08-29
+
+### Changed
+
+- `tiled_schema.plottable_columns` docstring restored to the shared-rule
+  claim — true again now that the console's B4 consumes the helper
+  (docs-only).
+
+## [0.20.0] - 2026-08-29
+
+### Added
+
+Consolidation of the shot↔file join machinery (2026-08-29 review — the
+"created a shared seam but left sibling copies alive" cluster); one
+implementation each, consumed by ScanAnalysis and the data portal:
+
+- `native_files.probe_native_file` — THE exact-key native-file stat
+  probe (direct stats bypass stale SMB listing caches; ±1 ms is `%.3f`
+  rounding canonicalisation, never a tolerance window).
+- `io.scan_stack.stack_frame_index_map` (**keep-first** on duplicate
+  millisecond keys — the deterministic contract; the portal's private
+  copy was keep-last, a real parity break) +
+  `frame_index_for_timestamp` + `read_shot_for_acq_timestamp` (the
+  single-shot join in ONE h5py open — the gallery's hot path was three
+  opens per request).
+- `tiled_schema.normalize_token` — the device↔column matching rule,
+  public (ScanAnalysis's byte-identical private copy now delegates).
+- `scan_paths.VENDOR_ONLY_EXTS` + `io.images.DISPLAYABLE_IMAGE_EXTS` —
+  the one extension taxonomy (three uncoordinated consumer-local sets
+  before). `_ACCEPTABLE_EXTS` gains `has` (the missing sibling of the
+  already-accepted `himg`), so a `.has`-only HASO folder infers its real
+  extension instead of defaulting to `png` — retires the portal's
+  `_vendor_only` directory-scan workaround.
+- `tiled_catalog.fmt_time_of_day` — the shared HH:MM run-list formatter
+  (the portal's copy retired; the console's B1 swap rides the B4 rewire).
+
+## [0.19.0] - 2026-08-29
+
+### Changed
+
+- `tiled_schema.numeric_series` vectorized (the per-value Python loop
+  was 7–13× slower and ran on the full uncapped frame per portal page
+  view) and hardened: pandas nullable dtypes (`Int64`/`Float64` with
+  `pd.NA`) no longer raise `TypeError`, datetime/timedelta columns are
+  no longer reported "plottable" as ~1e18 ns integers, and a duplicated
+  column label returns `None` instead of raising.  The returned series
+  is now always `float64`.
+- `tiled_catalog.resolve_scan_folder`: a run whose start doc names no
+  experiment no longer falls through to the daily re-base —
+  `daily_scan_folder` would substitute the host config's default
+  experiment, whose same-numbered `ScanNNN` is a different scan's data.
+- `tiled_schema.plottable_columns` docstring corrected: the console B4
+  has not yet been rewired onto the shared helpers (the "cannot drift"
+  claim was aspirational); pinned end-to-end fallback test added for
+  `resolve_scan_folder` through the real `daily_scan_folder`
+  construction (2026-08-29 review findings).
+
+## [0.18.0] - 2026-08-29
+
+### Added
+
+- `tiled_schema.device_acq_timestamp_column` — schema-safe matching of a
+  device name / on-disk folder stem to its `-acq_timestamp` event column
+  (runs of non-alphanumerics collapse to underscores, the ScanAnalysis
+  matching rule).  Added on portal-arc phase-4 review: the portal was
+  re-deriving `safe_name` with a spaces-only mangle that silently missed
+  hyphenated diagnostic stems and degraded to ordinal file joins.
+
+## [0.17.0] - 2026-08-29
+
+### Changed
+
+- `tiled_catalog.resolve_scan_folder`: a recorded `scan_folder` start-doc
+  path that does not exist on THIS host no longer short-circuits to
+  `None` — it falls through to the daily-path fallback, re-basing onto
+  the local data root.  The recorded path is host-specific (the Linux
+  worker records `/mnt/...`; clients mount the share at `/Volumes/...`
+  or `Z:`), so the old behavior made every cross-host consumer (portal
+  gallery, console Open button off the worker) fail spuriously.  Found
+  live on the portal-arc phase-4 smoke against real runs.
+
+## [0.16.0] - 2026-08-29
+
+### Added
+
+- `tiled_schema.plottable_columns` / `tiled_schema.numeric_series` — the
+  ONE scalar-plot pick-list rule for front-ends over the catalog
+  (console scan browser B4, data portal): machinery excluded via
+  `data_columns`, plottability by tolerant coercion per the
+  dtype-tolerant telemetry contract (numeric strings plot; all-NaN and
+  non-numeric columns do not).  Added on portal-arc phase-3 review — the
+  portal was re-deriving the semantics with a raw dtype check and
+  diverging from the console.
+
+## [0.15.0] - 2026-08-29
+
+### Added
+
+- `tiled_catalog.resolve_scan_folder` and `tiled_catalog.metadata_rows` —
+  the console scan browser's RunDetail helpers moved down (portal arc
+  phase 2) so the scan browser and the data portal share one
+  implementation.  `resolve_scan_folder` is strictly read-only (repo
+  scan-folder invariant; the tree-untouched pin now lives in this
+  package's suite).
+- `scan_paths.daily_scan_folder` — offline-first module-level companion
+  to `ScanPaths.get_daily_scan_folder` (returns `None` instead of
+  raising when the data root or experiment is unresolvable; never
+  creates directories).  Re-based from the console's
+  `ops_paths.todays_scan_folder`, which now delegates here.
+
 ## [0.14.0] - 2026-08-27
 
 ### Added
