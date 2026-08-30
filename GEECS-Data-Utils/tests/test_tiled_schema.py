@@ -153,6 +153,32 @@ class TestPlottableColumns:
         assert numeric_series(frame, "cam-dead") is None
         assert numeric_series(frame, "cam-label") is None
 
+    def test_numeric_series_handles_nullable_dtypes_without_raising(self):
+        # pd.to_numeric keeps Int64/Float64 (pd.NA) — a per-value float()
+        # loop crashes on NA; the vectorized path must not.
+        import pandas as pd
+
+        from geecs_data_utils.tiled_schema import numeric_series
+
+        frame = pd.DataFrame({"n": pd.array([1, None], dtype="Int64")})
+        series = numeric_series(frame, "n")
+        assert series is not None
+        assert series.dtype == float and series.iloc[0] == 1.0
+        all_na = pd.DataFrame({"n": pd.array([None, None], dtype="Int64")})
+        assert numeric_series(all_na, "n") is None
+
+    def test_numeric_series_rejects_datetimes_and_duplicate_labels(self):
+        # datetime64 would coerce to "plottable" ~1e18 ns ints; a
+        # duplicated label makes frame[column] a DataFrame.
+        import pandas as pd
+
+        from geecs_data_utils.tiled_schema import numeric_series
+
+        frame = pd.DataFrame({"t": pd.to_datetime(["2026-08-29", "2026-08-30"])})
+        assert numeric_series(frame, "t") is None
+        dup = pd.DataFrame([[1.0, 2.0], [3.0, 4.0]], columns=["a", "a"])
+        assert numeric_series(dup, "a") is None
+
 
 class TestDeviceAcqTimestampColumn:
     """Schema-safe device→column matching (the ScanAnalysis rule)."""

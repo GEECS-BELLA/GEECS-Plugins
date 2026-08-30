@@ -85,10 +85,23 @@ class FakeCatalog:
         if self.fail_listing:
             raise RuntimeError("listing boom")
         self.listed = (experiment, day)
-        return [detail.summary for detail in self.details.values()]
+        # Newest first — the ScanCatalog protocol contract the real
+        # TiledScanCatalog implements (day_view renders catalog order).
+        return sorted(
+            (detail.summary for detail in self.details.values()),
+            key=lambda summary: summary.start_time,
+            reverse=True,
+        )
 
     def load_run(self, uid: str) -> RunDetail:
         return self.details[uid]
+
+
+class DownCatalog(FakeCatalog):
+    """A catalog whose backend is unreachable (Tiled outage)."""
+
+    def load_run(self, uid: str) -> RunDetail:
+        raise ConnectionError("tiled unreachable")
 
 
 def _client(catalog=None, **kwargs) -> TestClient:
@@ -159,7 +172,12 @@ class TestDayView:
     def test_experiment_with_space_is_urlencoded_in_links(self):
         client = _client(FakeCatalog())
         response = client.get(f"/day/{TEST_DAY.isoformat()}?experiment=Bella PW")
-        assert "experiment=Bella%20PW" in response.text
+        # sticky-query links use urlencode's plus form; either encoding is
+        # valid in a query string — the pin is that no raw space leaks.
+        assert (
+            "experiment=Bella+PW" in response.text
+            or "experiment=Bella%20PW" in response.text
+        )
         assert "experiment=Bella PW" not in response.text
 
 
@@ -199,6 +217,67 @@ class TestRunView:
 
     def test_unknown_run_is_404(self):
         assert _client().get("/run/nope").status_code == 404
+
+    def test_day_list_renders_newest_first(self):
+        response = _client(FakeCatalog(), default_experiment="Undulator").get(
+            f"/day/{TEST_DAY.isoformat()}"
+        )
+        assert response.text.index("Scan 002") < response.text.index("Scan 001")
+
+
+class TestCatalogOutage:
+    """A Tiled outage must read as catalog-unavailable, never run-not-found."""
+
+    def test_run_view_is_503(self):
+        response = _client(DownCatalog()).get("/run/uid-002")
+        assert response.status_code == 503
+        assert "catalog unavailable" in response.json()["detail"]
+
+    def test_plot_and_image_are_503(self):
+        client = _client(DownCatalog())
+        assert client.get("/run/uid-002/plot.png?y=cam-MaxCounts").status_code == 503
+        assert client.get("/run/uid-002/image.png?device=cam&shot=1").status_code == 503
+
+
+class TestCacheHeaders:
+    def test_completed_run_plot_is_immutable(self):
+        response = _client().get("/run/uid-002/plot.png?y=cam-MaxCounts")
+        assert "immutable" in response.headers["cache-control"]
+
+    def test_running_run_plot_must_revalidate(self):
+        catalog = FakeCatalog()
+        detail = _detail(8)
+        catalog.details["uid-008"] = RunDetail(
+            summary=summary_from_metadata(
+                detail.start_doc["uid"], detail.start_doc, None
+            ),
+            start_doc=detail.start_doc,
+            stop_doc=None,
+            data=detail.data,
+        )
+        response = _client(catalog).get("/run/uid-008/plot.png?y=cam-MaxCounts")
+        assert response.headers["cache-control"] == "no-cache"
+
+
+class TestRunDayGuards:
+    def test_no_start_time_and_no_day_never_resolves_todays_folder(self):
+        # A run with a broken start time must not fall back to today's
+        # same-numbered scan folder (scan numbers restart daily).
+        catalog = FakeCatalog()
+        detail = _detail(7)
+        detail.start_doc["time"] = 0
+        catalog.details["uid-007"] = RunDetail(
+            summary=summary_from_metadata(
+                detail.start_doc["uid"], detail.start_doc, None
+            ),
+            start_doc=detail.start_doc,
+            stop_doc=None,
+            data=detail.data,
+        )
+        client = _client(catalog)
+        response = client.get("/run/uid-007/image.png?device=cam&shot=1")
+        assert response.status_code == 404
+        assert "not resolvable" in response.json()["detail"]
 
 
 class TestPlot:

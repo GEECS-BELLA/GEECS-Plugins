@@ -190,7 +190,13 @@ class ScanCatalog(Protocol):
         ...
 
     def load_run(self, uid: str) -> RunDetail:
-        """Load one run's documents and primary event table."""
+        """Load one run's documents and primary event table.
+
+        Raises ``KeyError`` for an unknown *uid* — the not-found signal
+        front-ends map to 404; any other exception means the catalog
+        itself is unavailable (front-ends report it as an outage, not
+        as run-not-found). Implementations must preserve this split.
+        """
         ...
 
 
@@ -425,6 +431,14 @@ class TiledScanCatalog:
             ``run["primary"].read()`` composite-container pattern,
             flattened to a pandas DataFrame; ``data=None`` when the run
             has no primary stream).
+
+        Raises
+        ------
+        KeyError
+            Unknown *uid* (``client[uid]`` — tiled's Mapping semantics).
+            The protocol's not-found contract: keep it a ``KeyError``
+            (never wrap it) so front-ends can distinguish run-not-found
+            from catalog-unavailable.
         """
         client = self._connect()
         run = client[uid]
@@ -487,6 +501,11 @@ def resolve_scan_folder(detail: RunDetail, day: date) -> Optional[Path]:
         # re-base via this host's own daily path instead of giving up.
     scan_number = detail.summary.scan_number
     if scan_number is None:
+        return None
+    # An experiment-less run must not re-base: daily_scan_folder would
+    # substitute the host config's default experiment, and that tree's
+    # same-numbered ScanNNN is a different scan's data.
+    if not detail.summary.experiment:
         return None
     from geecs_data_utils.scan_paths import daily_scan_folder
 

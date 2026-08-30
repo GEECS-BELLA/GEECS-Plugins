@@ -186,8 +186,11 @@ def data_columns(columns: Sequence[str]) -> list[str]:
 def plottable_columns(frame: Any) -> list[str]:
     """Return the columns of *frame* offered as scalar-plot picks.
 
-    The ONE pick-list rule shared by the scalar-plotting front-ends (the
-    console scan browser's B4, the data portal): schema machinery (row
+    The ONE pick-list rule for scalar-plotting front-ends over the
+    catalog.  The data portal consumes it today; the console scan
+    browser's B4 still carries a private pre-move copy of the same rule
+    and is owed a rewire onto this helper (until then the two can
+    drift — do not add a third copy).  Schema machinery (row
     identity + companion columns) is excluded via :func:`data_columns`,
     and plottability is tolerant coercion per the dtype-tolerant
     telemetry contract ("never assume numeric") — an object-typed column
@@ -223,20 +226,32 @@ def numeric_series(frame: Any, column: str) -> Optional[Any]:
     Returns
     -------
     pandas.Series or None
-        The column via ``pd.to_numeric(errors="coerce")`` when it exists
-        and holds at least one finite value; ``None`` otherwise (absent,
-        all-NaN, or non-numeric — dtype-tolerant telemetry contract).
+        The column coerced to ``float64`` when it exists and holds at
+        least one finite value; ``None`` otherwise (absent, duplicated
+        label, datetime/timedelta, all-NaN, or non-numeric —
+        dtype-tolerant telemetry contract).
     """
     if column not in frame.columns:
         return None
-    import math
-
+    import numpy as np
     import pandas as pd
 
-    series = pd.to_numeric(frame[column], errors="coerce")
-    if not any(math.isfinite(float(v)) for v in series.tolist()):
+    raw = frame[column]
+    if not isinstance(raw, pd.Series):
+        # Duplicated column label — frame[column] is a DataFrame.
         return None
-    return series
+    if pd.api.types.is_datetime64_any_dtype(raw) or pd.api.types.is_timedelta64_dtype(
+        raw
+    ):
+        # Coercion would yield "plottable" ~1e18 ns integers.
+        return None
+    series = pd.to_numeric(raw, errors="coerce")
+    # to_numpy(na_value=nan) also flattens nullable dtypes (Int64/Float64
+    # with pd.NA), which a per-value float() loop would crash on.
+    values = series.to_numpy(dtype=float, na_value=np.nan)
+    if not np.isfinite(values).any():
+        return None
+    return pd.Series(values, index=raw.index, name=raw.name)
 
 
 def telemetry_columns(columns: Sequence[str]) -> list[str]:

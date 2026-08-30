@@ -16,8 +16,8 @@ Architecture rules (see this package's ``CLAUDE.md`` and
   ``tiled``.
 - **Column semantics live in ``geecs_data_utils.tiled_schema``** — the
   pick list is :func:`~geecs_data_utils.tiled_schema.plottable_columns`
-  and coercion is :func:`~geecs_data_utils.tiled_schema.numeric_series`,
-  shared with the console's B4 so the two front-ends cannot drift.
+  and coercion is :func:`~geecs_data_utils.tiled_schema.numeric_series`
+  (the console's B4 is owed a rewire onto the same helpers).
 - **No build chain** — server-rendered Jinja2 templates, plots rendered
   server-side to PNG via the matplotlib object API (thread-safe: no
   pyplot global state on FastAPI's threadpool); no npm, no CDN.
@@ -30,6 +30,7 @@ import logging
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Optional
+from urllib.parse import urlencode
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
@@ -72,21 +73,40 @@ def _parse_day(day: str) -> date:
         return date.today()
 
 
-def _run_day(detail, day: str) -> date:
+def _run_day(detail, day: str) -> Optional[date]:
     """The day used to re-base a run's scan folder — the run's OWN day.
 
     The start document's time is authoritative: trusting the caller's
     ``day`` (or defaulting to today) would let a bookmarked link resolve
     a *different* scan's same-numbered folder, since GEECS scan numbers
-    restart daily.
+    restart daily.  A run with no usable start time therefore resolves
+    only through an explicit ``day`` param — never today's folder.
     """
-    start_time = getattr(detail.summary, "start_time", 0.0) or 0.0
+    start_time = detail.summary.start_time or 0.0
     if start_time > 0:
         try:
             return datetime.fromtimestamp(start_time).date()
         except (OverflowError, OSError, ValueError):
             pass
-    return _parse_day(day)
+    if day:
+        try:
+            return date.fromisoformat(day)
+        except ValueError:
+            return None
+    return None
+
+
+def _sticky_query(state: dict, **overrides) -> str:
+    """One query string carrying the page's sticky params.
+
+    Template links/forms build their hrefs through this (empty values
+    dropped) so navigating one control never silently resets another —
+    the plot selection survives shot stepping, the day filter survives
+    run round-trips.  The one deliberate exception is the day page's
+    "clear" link, whose whole job is dropping the filter.
+    """
+    merged = {**state, **overrides}
+    return urlencode({k: v for k, v in merged.items() if v not in ("", None)})
 
 
 def _acq_timestamp(detail, device: str, shot: int) -> tuple[Optional[float], bool]:
@@ -151,6 +171,37 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
     app = FastAPI(title="GEECS Data Portal", docs_url=None, redoc_url=None)
     templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
 
+    def _load_run(uid: str):
+        """Load one run, mapping failures to honest HTTP status codes.
+
+        ``KeyError`` is the fakes' and the Tiled client's unknown-uid
+        signal → 404.  Anything else (connection errors, unconfigured
+        URI) means the catalog itself is unavailable → 503, so an outage
+        never reads as "run not found" for runs that exist.
+        """
+        try:
+            return catalog.load_run(uid)
+        except KeyError as exc:
+            raise HTTPException(
+                status_code=404, detail=f"run not found: {exc}"
+            ) from exc
+        except Exception as exc:  # noqa: BLE001 — surface, don't 500
+            logger.warning("catalog load_run failed: %s", exc)
+            raise HTTPException(
+                status_code=503, detail=f"catalog unavailable: {exc}"
+            ) from exc
+
+    def _png_headers(detail) -> dict:
+        """Caching headers for the immutable-per-URL PNG endpoints.
+
+        A completed run (stop doc present) never changes, so its plot
+        and shot images are cacheable indefinitely; a still-running run
+        must revalidate.
+        """
+        if detail.summary.exit_status:
+            return {"Cache-Control": "public, max-age=31536000, immutable"}
+        return {"Cache-Control": "no-cache"}
+
     @app.get("/health")
     def health() -> dict:
         """Liveness + catalog probe (the fleet-map health check)."""
@@ -163,16 +214,11 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
         return f"/day/{date.today().isoformat()}"
 
     @app.get("/go", response_class=RedirectResponse)
-    def go(day: str = "", experiment: str = "") -> str:
+    def go(day: str = "", experiment: str = "", filter: str = "") -> str:
         """The day/experiment picker form's target: redirect to the day view."""
-        try:
-            selected = date.fromisoformat(day) if day else date.today()
-        except ValueError:
-            selected = date.today()
-        from urllib.parse import urlencode
-
-        query = f"?{urlencode({'experiment': experiment})}" if experiment else ""
-        return f"/day/{selected.isoformat()}{query}"
+        selected = _parse_day(day)
+        query = _sticky_query({"experiment": experiment, "filter": filter})
+        return f"/day/{selected.isoformat()}{'?' + query if query else ''}"
 
     @app.get("/day/{day}", response_class=HTMLResponse)
     def day_view(
@@ -193,6 +239,7 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
         needle = filter.strip().lower()
         if needle:
             runs = [run for run in runs if needle in run.filter_text()]
+        day_state = {"experiment": exp, "filter": filter}
         return templates.TemplateResponse(
             request,
             "day.html",
@@ -204,6 +251,7 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
                 "filter": filter,
                 "rows": [(run, _fmt_hhmm(run.start_time)) for run in runs],
                 "error": error,
+                "qs": lambda **kw: _sticky_query(day_state, **kw),
             },
         )
 
@@ -217,14 +265,10 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
         x: str = "",
         device: str = "",
         shot: int = 1,
+        filter: str = "",
     ) -> HTMLResponse:
         """One run: metadata, plottable-column picker + plot, image gallery."""
-        try:
-            detail = catalog.load_run(uid)
-        except Exception as exc:  # noqa: BLE001 — surface, don't 500
-            raise HTTPException(
-                status_code=404, detail=f"run not found: {exc}"
-            ) from exc
+        detail = _load_run(uid)
         columns = (
             [] if detail.data is None else schema_map.plottable_columns(detail.data)
         )
@@ -232,13 +276,24 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
         x_column = x if x in columns else ""
         if selected and not x:
             x_column = _default_x(detail, columns)
-        folder = resolve_scan_folder(detail, _run_day(detail, day))
+        run_day = _run_day(detail, day)
+        folder = resolve_scan_folder(detail, run_day) if run_day else None
         devices = resources.image_devices(folder) if folder else []
         sel_device = device if device in devices else ""
         kind, kind_path = (
             resources.device_kind(folder, sel_device) if sel_device else ("", None)
         )
-        shot = max(1, shot)
+        n_rows = None if detail.data is None else len(detail.data)
+        shot = max(1, min(shot, n_rows) if n_rows else shot)
+        state = {
+            "day": day,
+            "experiment": experiment or default_experiment,
+            "y": selected,
+            "x": x_column,
+            "device": sel_device,
+            "shot": shot if sel_device else "",
+            "filter": filter,  # the day list's filter, carried for the back link
+        }
         return templates.TemplateResponse(
             request,
             "run.html",
@@ -255,22 +310,28 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
                 "kind": kind,
                 "kind_path": str(kind_path) if kind_path else "",
                 "shot": shot,
+                "has_next_shot": n_rows is None or shot < n_rows,
                 "total_shots": detail.summary.shots,
+                "qs": lambda **kw: _sticky_query(state, **kw),
             },
         )
 
     @app.get("/run/{uid}/image.png")
     def run_image(uid: str, device: str, shot: int = 1, day: str = "") -> Response:
         """One device shot rendered for display (stack or native file)."""
-        try:
-            detail = catalog.load_run(uid)
-        except Exception as exc:  # noqa: BLE001
-            raise HTTPException(
-                status_code=404, detail=f"run not found: {exc}"
-            ) from exc
-        folder = resolve_scan_folder(detail, _run_day(detail, day))
+        detail = _load_run(uid)
+        run_day = _run_day(detail, day)
+        folder = resolve_scan_folder(detail, run_day) if run_day else None
         if folder is None:
             raise HTTPException(status_code=404, detail="scan folder not resolvable")
+        # A shot beyond the recorded event rows must refuse outright:
+        # falling through to the ordinal join would serve an orphan
+        # frame (pre/post-scan extras) labeled as a shot that never
+        # happened — the never-serve-a-neighbour doctrine.
+        if detail.data is not None and shot > len(detail.data):
+            raise HTTPException(
+                status_code=404, detail="shot beyond the run's recorded events"
+            )
         acq, column_present = _acq_timestamp(detail, device, shot)
         if column_present and acq is None:
             raise HTTPException(
@@ -279,7 +340,10 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
         result = resources.load_shot_image(folder, device, shot, acq_timestamp=acq)
         if result.png is None:
             raise HTTPException(status_code=404, detail=result.reason or result.kind)
-        return Response(content=result.png, media_type="image/png")
+        headers = (
+            _png_headers(detail) if result.cacheable else {"Cache-Control": "no-cache"}
+        )
+        return Response(content=result.png, media_type="image/png", headers=headers)
 
     @app.get("/run/{uid}/plot.png")
     def run_plot(uid: str, y: str, x: str = "") -> Response:
@@ -288,12 +352,7 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
         Uses the matplotlib object API (``Figure``, never pyplot) — no
         global figure registry, safe on FastAPI's threadpool.
         """
-        try:
-            detail = catalog.load_run(uid)
-        except Exception as exc:  # noqa: BLE001
-            raise HTTPException(
-                status_code=404, detail=f"run not found: {exc}"
-            ) from exc
+        detail = _load_run(uid)
         if detail.data is None:
             raise HTTPException(status_code=404, detail="run has no event rows")
         frame = detail.data.head(_PLOT_MAX_ROWS)
@@ -311,15 +370,19 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
         ax = fig.subplots()
         if x_series is not None:
             ax.plot(x_series, y_series, ".", markersize=4)
-            ax.set_xlabel(x)
+            ax.set_xlabel(x, parse_math=False)
         else:
             ax.plot(y_series.to_numpy(), ".", markersize=4)
             ax.set_xlabel("row")
-        ax.set_ylabel(y)
+        ax.set_ylabel(y, parse_math=False)
         ax.grid(True, alpha=0.3)
         fig.tight_layout()
         buffer = io.BytesIO()
         fig.savefig(buffer, format="png")
-        return Response(content=buffer.getvalue(), media_type="image/png")
+        return Response(
+            content=buffer.getvalue(),
+            media_type="image/png",
+            headers=_png_headers(detail),
+        )
 
     return app

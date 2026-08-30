@@ -22,6 +22,14 @@ def test_resolver_is_the_shared_data_utils_implementation():
     assert resolve_scan_folder is tiled_catalog.resolve_scan_folder
 
 
+def test_metadata_rows_is_the_shared_data_utils_implementation():
+    """Same pin for the other moved helper — a console-local re-growth
+    would silently drift the two front-ends' metadata tables."""
+    from geecs_console.browser.browser_window import metadata_rows
+
+    assert metadata_rows is tiled_catalog.metadata_rows
+
+
 def _tree_snapshot(root):
     """Every path under *root*, for before/after comparison."""
     return sorted(str(p) for p in root.rglob("*"))

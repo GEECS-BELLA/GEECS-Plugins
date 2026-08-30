@@ -18,11 +18,13 @@ this package; the architecture rules below are its distillation.
   through that protocol.  The shared front-end helpers
   (`resolve_scan_folder`, `metadata_rows`, `daily_scan_folder`) come
   from GEECS-Data-Utils — never re-implement them here (the console
-  scan browser shares them; import-identity is pinned console-side).
+  scan browser shares them; import-identity is pinned console-side for
+  `resolve_scan_folder` and `metadata_rows`).
 - **Column semantics live in `geecs_data_utils.tiled_schema`.**  The
-  plot pick list is `plottable_columns`, coercion is `numeric_series` —
-  shared with the console's B4 so the two front-ends cannot drift.
-  Never interpret event-schema column names or dtypes in this package.
+  plot pick list is `plottable_columns`, coercion is `numeric_series`
+  (the console's B4 is owed a rewire onto the same helpers — until then
+  it carries a private pre-move copy).  Never interpret event-schema
+  column names or dtypes in this package.
 - **No build chain.**  Server-rendered Jinja2 templates + minimal inline
   CSS; plots are server-side matplotlib PNGs via the **object API**
   (`matplotlib.figure.Figure`, never pyplot — no global figure registry
@@ -41,16 +43,24 @@ this package; the architecture rules below are its distillation.
 ```
 geecs_portal/
   app.py         # create_app(catalog, default_experiment=…) — all routes
+  resources.py   # (folder, device, shot) → PNG bytes / tiered refusal
   __main__.py    # CLI (geecs-data-portal): real TiledScanCatalog + uvicorn
   templates/     # base.html / day.html / run.html (Jinja2, dark palette)
 tests/
-  test_app.py    # TestClient over FakeCatalog/StubCatalog
+  test_app.py        # TestClient over FakeCatalog/StubCatalog
+  test_resources.py  # tmp scan trees: gallery routes + tier ladder
 ```
 
 Routes: `/` (redirect to today) · `/day/{iso}` (run list; `?experiment=`)
-· `/run/{uid}` (metadata + column links; `?y=` selects the plotted
-column) · `/run/{uid}/plot.png?y=&x=` (server-rendered scalar plot) ·
-`/health` (catalog probe — the fleet-map health check).
+· `/run/{uid}` (metadata + column links + image gallery; `?y=` selects
+the plotted column, `?device=&shot=` the gallery selection) ·
+`/run/{uid}/plot.png?y=&x=` (server-rendered scalar plot) ·
+`/run/{uid}/image.png?device=&shot=` (one rendered device shot) ·
+`/health` (catalog probe — the fleet-map health check).  Template links
+build their queries through the one sticky-query helper so navigating
+one control never resets another (plot selection ⇄ shot stepping, day
+filter ⇄ run round-trips); the day page's "clear" link is the one
+deliberate exception.
 
 ## Deployment
 
