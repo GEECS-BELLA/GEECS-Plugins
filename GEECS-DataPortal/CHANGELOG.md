@@ -3,6 +3,42 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.6.0] - 2026-08-30
+
+### Added
+
+Analysis-tabs wave W1d — the Plot tab (the arc's first interactive
+analysis surface; mockup rulings 2026-08-30):
+
+- **Vendored Plotly** (the approved doctrine amendment, now written
+  into CLAUDE.md): `geecs_portal/static/plotly-cartesian-3.1.1.min.js`
+  (MIT, 1.4 MB, the cartesian partial bundle — scatter + heatmap cover
+  the whole arc), served at `/static/` — still no npm, no CDN.
+- **The `/api` JSON layer** — one-liners over the W1a–c data-utils
+  primitives, each response carrying a `code` field (the notebook
+  snippet that reproduces it exactly): `columns` (union pick list with
+  `run`/`sfile` provenance + the stepped-scan default X), `frame`
+  (per-shot series, filters applied), `binned` (centers + asymmetric
+  error bands via `bin_frame`), `filter-count` (live pass count).
+  Param parsing/JSON chores live in `geecs_portal/analysis.py`
+  (`BadParam` → 400; NaN → `null`; ≤ 4 y columns).
+- **The scan page rework** (`run.html`): rail (scan/day steppers that
+  keep the whole analysis state, provider chips, named filter chips
+  with enable/remove + live pass count) + Overview / Plot / Images
+  tabs.  The Plot tab: type-to-filter column picker over the union
+  frame, up to 4 Y columns on per-series axes, per-shot ⇄ binned
+  toggle, bin-settings ⚙ popup, the OR-of-AND filters popup (with
+  would-pass preview), "show the code".  All view state is
+  URL-carried — a link IS the analysis (and the multi-user story).
+- CLAUDE.md gains the three-layer contract and the "adding an analysis
+  tab" checklist (the W2-must-be-dramatically-cheaper checkpoint).
+
+### Changed
+
+- The run page's server-rendered quick plotter is gone per the mockup
+  ruling (Overview = metadata only); `/run/{uid}/plot.png` itself
+  remains for embedding.  The `y` query param is now repeatable.
+
 ## [0.5.0] - 2026-08-29
 
 ### Added

@@ -1,94 +1,658 @@
 {% extends "base.html" %}
-{% block title %}Run {{ uid[:8] }} — GEECS Data Portal{% endblock %}
+{% block title %}Scan {{ summary.scan_number or uid[:8] }} — GEECS Data Portal{% endblock %}
+{% block head %}
+<style>
+  main { max-width: none; margin: 0; padding: 0; }
+  .frame { display: grid; grid-template-columns: 17rem minmax(0, 1fr); min-height: calc(100vh - 3rem); }
+  .rail { background: var(--panel); border-right: 1px solid var(--line);
+          padding: 0.9rem; display: flex; flex-direction: column; gap: 1rem; }
+  .rail .scanline { font-size: 13px; }
+  .rail .num { color: var(--accent); font-weight: 600; }
+  .steprow { display: flex; gap: 0.3rem; align-items: center; margin-top: 0.45rem; flex-wrap: wrap; }
+  .act { background: var(--panel2); color: var(--ink); border: 1px solid var(--line);
+         border-radius: 3px; padding: 0.25rem 0.55rem; font-size: 12px; cursor: pointer; }
+  .act:hover { border-color: var(--accent); }
+  a.act { text-decoration: none; }
+  .act.off { opacity: 0.35; pointer-events: none; }
+  .provider { font-size: 11px; border-radius: 3px; padding: 0.1rem 0.4rem; margin-right: 0.3rem; }
+  .provider.run { background: rgba(76,194,180,0.14); color: var(--accent); }
+  .provider.sfile { background: rgba(214,168,96,0.14); color: #d6a860; }
+  .sect h3 { margin: 0 0 0.4rem; font-size: 12px; color: var(--dim); text-transform: uppercase; letter-spacing: 0.04em; }
+  .fchip { display: flex; gap: 0.4rem; align-items: center; background: var(--panel2);
+           border: 1px solid var(--line); border-radius: 4px; padding: 0.25rem 0.45rem;
+           font-size: 12px; margin-bottom: 0.3rem; }
+  .fchip .n { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .fchip .x { cursor: pointer; color: var(--dim); }
+  .fchip .x:hover { color: #cf5347; }
+  .count { font-size: 12px; color: var(--dim); margin-top: 0.3rem; }
+  .count b { color: var(--ink); }
+  .mainpane { padding: 0 1.2rem 1.2rem; min-width: 0; }
+  .tabs { display: flex; border-bottom: 1px solid var(--line); margin: 0 -1.2rem 1rem; padding: 0 1.2rem; }
+  .tab { background: none; border: none; border-bottom: 2px solid transparent;
+         padding: 0.55rem 1rem; font-size: 13px; color: var(--dim); cursor: pointer; }
+  .tab:hover { color: var(--ink); }
+  .tab.on { color: var(--accent); border-bottom-color: var(--accent); }
+  .pane { display: none; }
+  .pane.on { display: block; }
+  .picker input[type=text] { width: 100%; background: var(--panel2); color: var(--ink);
+    border: 1px solid var(--line); border-radius: 3px; padding: 0.4rem 0.6rem; font-size: 13px; }
+  .collist { max-height: 11rem; overflow-y: auto; border: 1px solid var(--line);
+             border-radius: 3px; margin-top: 0.3rem; background: var(--panel); }
+  .colrow { display: flex; gap: 0.5rem; padding: 0.22rem 0.55rem; font-size: 12px;
+            cursor: pointer; font-family: ui-monospace, Menlo, monospace; }
+  .colrow:hover { background: var(--panel2); }
+  .colrow .pretty { color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .picked { display: flex; gap: 0.35rem; flex-wrap: wrap; margin-top: 0.45rem; }
+  .ychip { display: flex; gap: 0.35rem; align-items: center; font-size: 12px;
+           font-family: ui-monospace, Menlo, monospace; background: var(--panel2);
+           border: 1px solid var(--line); border-left-width: 3px; border-radius: 4px;
+           padding: 0.2rem 0.5rem; }
+  .ychip .x { cursor: pointer; color: var(--dim); }
+  .plotbar { display: flex; gap: 0.9rem; align-items: center; flex-wrap: wrap;
+             padding: 0.6rem 0; font-size: 12px; color: var(--dim); }
+  .plotbar .right { margin-left: auto; display: flex; gap: 0.7rem; align-items: center; }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
+  .seg button { background: var(--panel2); color: var(--dim); border: none;
+                padding: 0.25rem 0.7rem; font-size: 12px; cursor: pointer; }
+  .seg button.on { background: var(--accent); color: #10201d; }
+  .gear { cursor: pointer; font-size: 14px; }
+  .gear:hover { color: var(--accent); }
+  #plotdiv { width: 100%; height: 26rem; background: var(--panel); border: 1px solid var(--line); border-radius: 4px; }
+  .codebox { display: none; background: #10141a; border: 1px solid var(--line); border-radius: 4px;
+             padding: 0.7rem 0.9rem; font-family: ui-monospace, Menlo, monospace; font-size: 12px;
+             white-space: pre; overflow-x: auto; margin-top: 0.6rem; color: #b8c4d0; }
+  .codebox.on { display: block; }
+  .overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.55); z-index: 10; }
+  .overlay.on { display: flex; align-items: flex-start; justify-content: center; padding-top: 8vh; }
+  .modal { background: var(--panel); border: 1px solid var(--line); border-radius: 6px;
+           padding: 1rem 1.2rem; width: min(620px, 94vw); max-height: 80vh; overflow-y: auto; }
+  .modal h3 { margin: 0 0 0.7rem; font-size: 14px; }
+  .fgroup { border: 1px solid var(--line); border-radius: 4px; padding: 0.6rem; margin-bottom: 0.5rem; }
+  .ghead { display: flex; gap: 0.5rem; align-items: center; margin-bottom: 0.45rem; font-size: 12px; }
+  .ghead input[type=text] { background: var(--panel2); color: var(--ink); border: 1px solid var(--line);
+    border-radius: 3px; padding: 0.2rem 0.45rem; font-size: 12px; }
+  .frow { display: flex; gap: 0.4rem; align-items: center; margin-bottom: 0.35rem; }
+  .frow input, .frow select { background: var(--panel2); color: var(--ink);
+    border: 1px solid var(--line); border-radius: 3px; padding: 0.2rem 0.4rem; font-size: 12px; }
+  .frow input.col { flex: 1; min-width: 0; font-family: ui-monospace, Menlo, monospace; }
+  .frow input.val { width: 5.5rem; }
+  .frow .x { cursor: pointer; color: var(--dim); }
+  .orjoin { text-align: center; color: var(--dim); font-size: 11px; margin: 0.4rem 0; }
+  .setrow { display: flex; gap: 0.7rem; align-items: center; margin-bottom: 0.5rem; font-size: 13px; }
+  .setrow label { width: 7.5rem; color: var(--dim); font-size: 12px; }
+  .setrow input, .setrow select { background: var(--panel2); color: var(--ink);
+    border: 1px solid var(--line); border-radius: 3px; padding: 0.25rem 0.45rem; font-size: 12px; }
+  .btnrow { display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 0.8rem; }
+  .apply { background: var(--accent); color: #10201d; border: none; border-radius: 3px;
+           padding: 0.3rem 0.9rem; font-size: 12px; cursor: pointer; font-weight: 600; }
+  .plotmsg { color: var(--dim); font-size: 13px; padding: 2rem 0; text-align: center; }
+</style>
+<script src="/static/plotly-cartesian-3.1.1.min.js"></script>
+{% endblock %}
 {% block content %}
-<div class="nav">
-  {% if day %}<a href="/day/{{ day | urlencode }}?{{ qs(day="", y="", x="", device="", shot="") }}">&larr; {{ day }}</a>{% endif %}
-  <h1>{% for field, value in rows %}{% if field == "Scan" %}{{ value }}{% endif %}{% endfor %}</h1>
-  <span class="dim mono">{{ uid }}</span>
+<div class="frame">
+  <aside class="rail">
+    <div class="sect">
+      <h3>Scan</h3>
+      <div class="scanline">{{ summary.experiment or experiment }} · {{ run_day or day or "?" }} ·
+        <span class="num">Scan {{ summary.scan_number if summary.scan_number is not none else "?" }}</span></div>
+      <div class="dim mono">{{ summary.mode }}{% if total_shots %} · {{ total_shots }} shots{% endif %}
+        · {{ summary.exit_status or "running" }}{% if start_time_of_day %} · {{ start_time_of_day }}{% endif %}</div>
+      <div class="steprow">
+        {% if run_day %}
+        <a class="act" href="/day/{{ prev_day }}?{{ qs(device="", shot="") }}" title="previous day">‹ day</a>
+        <a class="act" href="/day/{{ run_day }}?{{ qs(device="", shot="") }}">{{ run_day }}</a>
+        <a class="act" href="/day/{{ next_day }}?{{ qs(device="", shot="") }}" title="next day">day ›</a>
+        {% endif %}
+      </div>
+      <div class="steprow">
+        <a class="act {{ "off" if not prev_uid }}" href="/run/{{ prev_uid }}?{{ qs() }}" title="previous scan">‹ scan</a>
+        <a class="act {{ "off" if not next_uid }}" href="/run/{{ next_uid }}?{{ qs() }}" title="next scan">scan ›</a>
+        <span class="dim" style="font-size:11px;">filters &amp; columns persist</span>
+      </div>
+      <div style="margin-top:0.5rem;" id="providers"></div>
+      <div class="dim mono" style="margin-top:0.4rem; word-break: break-all;">{{ uid }}</div>
+    </div>
+    <div class="sect">
+      <h3>Filters</h3>
+      <div id="fchips"></div>
+      <div class="count" id="passcount"></div>
+      <div style="margin-top:0.4rem;"><button class="act" onclick="openFilters()">edit filters…</button></div>
+    </div>
+  </aside>
+
+  <div class="mainpane">
+    <div class="tabs">
+      <button class="tab" data-pane="overview" onclick="setTab('overview')">Overview</button>
+      <button class="tab" data-pane="plot" onclick="setTab('plot')">Plot</button>
+      <button class="tab" data-pane="images" onclick="setTab('images')">Images</button>
+    </div>
+
+    <section class="pane" id="pane-overview">
+      <h2>Metadata</h2>
+      <table>
+        {% for field, value in rows %}
+        <tr><th>{{ field }}</th><td class="mono">{{ value }}</td></tr>
+        {% endfor %}
+      </table>
+    </section>
+
+    <section class="pane" id="pane-plot">
+      <div class="picker">
+        <input type="text" id="colfilter" placeholder="type to filter columns…" autocomplete="off">
+        <div class="collist" id="collist"></div>
+        <div class="picked" id="picked"></div>
+      </div>
+      <div class="plotbar">
+        <span>X: <input class="mono" id="xcol" list="all-cols" placeholder="(shot #)"
+              style="background:var(--panel2); color:var(--ink); border:1px solid var(--line); border-radius:3px; padding:0.2rem 0.4rem; width:16rem;"
+              onchange="S.x=this.value; writeState(); refresh();"></span>
+        <span class="seg">
+          <button id="seg-shot" onclick="setView('shot')">per-shot</button>
+          <button id="seg-bin" onclick="setView('bin')">binned</button>
+        </span>
+        <span class="gear" title="bin settings" onclick="openBinset()">⚙</span>
+        <span class="right">
+          <span class="dim">zoom · pan · export = Plotly built-ins</span>
+          <a href="#" onclick="document.getElementById('codebox').classList.toggle('on');return false;">show the code</a>
+        </span>
+      </div>
+      <div id="plotdiv"><div class="plotmsg">pick up to 4 columns above</div></div>
+      <div class="codebox" id="codebox"></div>
+      <datalist id="all-cols"></datalist>
+    </section>
+
+    <section class="pane" id="pane-images">
+      {% if devices %}
+      <p>
+        {% for dev in devices %}
+        <a class="mono" href="/run/{{ uid }}?{{ qs(device=dev, shot=1, tab="images") }}">{{ dev }}</a>{{ " · " if not loop.last }}
+        {% endfor %}
+      </p>
+      {% if sel_device %}
+      {% if kind == "vendor" %}
+      <p class="dim">{{ sel_device }} saves a vendor-SDK format the portal cannot
+      render. Files live at:</p>
+      <p class="mono">{{ kind_path }}</p>
+      {% elif kind == "unrenderable" %}
+      <p class="dim">{{ sel_device }} saves a file format the portal does not
+      render (trace/array data, not an image). Files live at:</p>
+      <p class="mono">{{ kind_path }}</p>
+      {% else %}
+      <form class="nav" method="get" action="/run/{{ uid }}">
+        <input type="hidden" name="device" value="{{ sel_device }}">
+        <input type="hidden" name="day" value="{{ day }}">
+        <input type="hidden" name="experiment" value="{{ experiment }}">
+        <input type="hidden" name="tab" value="images">
+        {% if filter %}<input type="hidden" name="filter" value="{{ filter }}">{% endif %}
+        {% if shot > 1 %}<a href="/run/{{ uid }}?{{ qs(shot=shot - 1, tab="images") }}">&larr; prev</a>{% endif %}
+        <label class="dim">shot
+          <input type="number" name="shot" value="{{ shot }}" min="1" style="width: 5rem">
+        </label>
+        <button type="submit">Show</button>
+        {% if has_next_shot %}<a href="/run/{{ uid }}?{{ qs(shot=shot + 1, tab="images") }}">next &rarr;</a>{% endif %}
+        {% if total_shots %}<span class="dim mono">of ~{{ total_shots }}</span>{% endif %}
+        <span class="dim mono">{{ kind }}</span>
+      </form>
+      <img class="plot" src="/run/{{ uid }}/image.png?device={{ sel_device | urlencode }}&amp;shot={{ shot }}&amp;day={{ day | urlencode }}" alt="{{ sel_device }} shot {{ shot }}">
+      {% endif %}
+      {% else %}
+      <p class="dim">Pick a device above.</p>
+      {% endif %}
+      {% else %}
+      <p class="dim">No image device folders resolvable for this run.</p>
+      {% endif %}
+    </section>
+  </div>
 </div>
 
-<h2>Metadata</h2>
-<table>
-  {% for field, value in rows %}
-  <tr><th>{{ field }}</th><td class="mono">{{ value }}</td></tr>
-  {% endfor %}
-</table>
+<!-- filters popup -->
+<div class="overlay" id="modal-filters" onclick="if(event.target===this)closeModals()">
+  <div class="modal">
+    <h3>Edit filters — conditions AND inside a group, groups OR together</h3>
+    <div id="fgroups"></div>
+    <button class="act" onclick="FDRAFT.groups.push({name:'', enabled:true, conditions:[]}); renderFilterModal();">+ OR group</button>
+    <div class="setrow" style="margin-top:0.6rem;">
+      <label>rows with NaN</label>
+      <select id="nanpolicy" onchange="FDRAFT.nan_policy=this.value; draftCount();">
+        <option value="exclude">exclude (fail the condition)</option>
+        <option value="keep">keep (pass the condition)</option>
+      </select>
+    </div>
+    <div class="count" id="draftcount"></div>
+    <div class="btnrow">
+      <button class="act" onclick="closeModals()">Cancel</button>
+      <button class="apply" onclick="applyFilters()">Apply</button>
+    </div>
+  </div>
+</div>
 
-{% if columns %}
-<h2>Scalars</h2>
-<p class="dim">Pick a column to plot{% if not selected %} (stepped scans default to the scan variable on X){% endif %}:</p>
-<p>
-  {% for column in columns %}
-  <a class="mono" href="/run/{{ uid }}?{{ qs(y=column, x="") }}">{{ column }}</a>{{ " · " if not loop.last }}
-  {% endfor %}
-</p>
-{% if selected %}
-<form class="nav" method="get" action="/run/{{ uid }}">
-  <input type="hidden" name="day" value="{{ day }}">
-  <input type="hidden" name="experiment" value="{{ experiment }}">
-  {% if filter %}<input type="hidden" name="filter" value="{{ filter }}">{% endif %}
-  {% if sel_device %}
-  <input type="hidden" name="device" value="{{ sel_device }}">
-  <input type="hidden" name="shot" value="{{ shot }}">
-  {% endif %}
-  <label class="dim">Y
-    <select name="y">
-      {% for column in columns %}
-      <option value="{{ column }}" {{ "selected" if column == selected }}>{{ column }}</option>
-      {% endfor %}
-    </select>
-  </label>
-  <label class="dim">X
-    <select name="x">
-      <option value="">row sequence</option>
-      {% for column in columns %}
-      <option value="{{ column }}" {{ "selected" if column == x_column }}>{{ column }}</option>
-      {% endfor %}
-    </select>
-  </label>
-  <button type="submit">Plot</button>
-</form>
-<img class="plot" src="/run/{{ uid }}/plot.png?y={{ selected | urlencode }}{% if x_column %}&amp;x={{ x_column | urlencode }}{% endif %}" alt="{{ selected }}">
-{% endif %}
-{% else %}
-<p class="dim">This run recorded no plottable scalar columns.</p>
-{% endif %}
+<!-- bin settings popup -->
+<div class="overlay" id="modal-binset" onclick="if(event.target===this)closeModals()">
+  <div class="modal" style="width:min(460px,94vw);">
+    <h3>Bin settings</h3>
+    <div class="setrow"><label>bin column</label>
+      <input id="bs-col" list="all-cols" style="flex:1; font-family:ui-monospace,Menlo,monospace;"></div>
+    <div class="setrow"><label>bin width</label>
+      <input id="bs-width" style="width:6rem;" placeholder="(identity)">
+      <span class="dim" style="font-size:11px;">blank = group by exact value</span></div>
+    <div class="setrow"><label>center</label>
+      <select id="bs-agg"><option>median</option><option>mean</option></select></div>
+    <div class="setrow"><label>error band</label>
+      <select id="bs-err">
+        <option value="iqr">quartiles (25–75%)</option>
+        <option value="percentile">percentiles…</option>
+        <option value="std">std</option>
+        <option value="stderr">std / √N</option>
+        <option value="mad">MAD</option>
+      </select></div>
+    <div class="setrow"><label>percentiles</label>
+      <input id="bs-plo" style="width:4rem;" value="0.25"> <span class="dim">–</span>
+      <input id="bs-phi" style="width:4rem;" value="0.75"></div>
+    <div class="setrow"><label>min shots / bin</label>
+      <input id="bs-min" style="width:4rem;" value="1"></div>
+    <div class="btnrow">
+      <button class="act" onclick="closeModals()">Cancel</button>
+      <button class="apply" onclick="applyBinset()">Apply</button>
+    </div>
+  </div>
+</div>
 
-{% if devices %}
-<h2>Images</h2>
-<p>
-  {% for dev in devices %}
-  <a class="mono" href="/run/{{ uid }}?{{ qs(device=dev, shot=1) }}">{{ dev }}</a>{{ " · " if not loop.last }}
-  {% endfor %}
-</p>
-{% if sel_device %}
-{% if kind == "vendor" %}
-<p class="dim">{{ sel_device }} saves a vendor-SDK format the portal cannot
-render. Files live at:</p>
-<p class="mono">{{ kind_path }}</p>
-{% elif kind == "unrenderable" %}
-<p class="dim">{{ sel_device }} saves a file format the portal does not
-render (trace/array data, not an image). Files live at:</p>
-<p class="mono">{{ kind_path }}</p>
-{% else %}
-<form class="nav" method="get" action="/run/{{ uid }}">
-  <input type="hidden" name="device" value="{{ sel_device }}">
-  <input type="hidden" name="day" value="{{ day }}">
-  <input type="hidden" name="experiment" value="{{ experiment }}">
-  {% if filter %}<input type="hidden" name="filter" value="{{ filter }}">{% endif %}
-  {% if selected %}<input type="hidden" name="y" value="{{ selected }}">{% endif %}
-  {% if x_column %}<input type="hidden" name="x" value="{{ x_column }}">{% endif %}
-  {% if shot > 1 %}<a href="/run/{{ uid }}?{{ qs(shot=shot - 1) }}">&larr; prev</a>{% endif %}
-  <label class="dim">shot
-    <input type="number" name="shot" value="{{ shot }}" min="1" style="width: 5rem">
-  </label>
-  <button type="submit">Show</button>
-  {% if has_next_shot %}<a href="/run/{{ uid }}?{{ qs(shot=shot + 1) }}">next &rarr;</a>{% endif %}
-  {% if total_shots %}<span class="dim mono">of ~{{ total_shots }}</span>{% endif %}
-  <span class="dim mono">{{ kind }}</span>
-</form>
-<img class="plot" src="/run/{{ uid }}/image.png?device={{ sel_device | urlencode }}&amp;shot={{ shot }}&amp;day={{ day | urlencode }}" alt="{{ sel_device }} shot {{ shot }}">
-{% endif %}
-{% endif %}
-{% endif %}
+<script>
+"use strict";
+const UID = {{ uid | tojson }};
+const DAY = {{ day | tojson }};
+const TRACE_COLORS = ["#4cc2b4", "#d6a860", "#6f9fd8", "#c47ab8"];
+const PLOT_LAYOUT = {
+  paper_bgcolor: "#1a2026", plot_bgcolor: "#12161a",
+  font: { color: "#dde4ea", size: 12 },
+  margin: { t: 24, r: 56, b: 44, l: 56 },
+  xaxis: { gridcolor: "#2c353d", zerolinecolor: "#2c353d" },
+  showlegend: true,
+  legend: { orientation: "h", y: 1.08 },
+};
+
+// ---- URL-carried state (statelessness doctrine: the link IS the analysis)
+const S = readState();
+let COLUMNS = [];      // [{name, provenance, pretty}] from /api/columns
+let DEFAULT_X = "";
+let FDRAFT = null;     // the filters popup's working copy
+let BOOTED = false;    // true once the columns bootstrap resolved
+
+function readState() {
+  const p = new URLSearchParams(location.search);
+  return {
+    tab: p.get("tab") || {{ tab | tojson }},
+    y: p.getAll("y").filter(Boolean).slice(0, 4),
+    x: p.get("x") || "",
+    view: p.get("view") || "shot",
+    filters: p.get("filters") || "",
+    bincfg: p.get("bincfg") || "",
+  };
+}
+
+function writeState() {
+  // replaceState, never pushState: Back/Forward moves between PAGES,
+  // not analysis states — there is deliberately no popstate handler.
+  // Shared/bookmarked links restore everything via readState().
+  const p = new URLSearchParams(location.search);
+  ["y", "x", "view", "filters", "bincfg", "tab"].forEach(k => p.delete(k));
+  S.y.forEach(v => p.append("y", v));
+  if (S.x) p.set("x", S.x);
+  if (S.view !== "shot") p.set("view", S.view);
+  if (S.filters) p.set("filters", S.filters);
+  if (S.bincfg) p.set("bincfg", S.bincfg);
+  if (S.tab !== "plot") p.set("tab", S.tab);
+  history.replaceState(null, "", location.pathname + "?" + p.toString());
+  // Server-rendered stepper links must carry the latest state too.
+  syncRailLinks(p);
+}
+
+function syncRailLinks(p) {
+  document.querySelectorAll("a.act").forEach(a => {
+    const url = new URL(a.href, location.origin);
+    ["y", "x", "view", "filters", "bincfg", "tab"].forEach(k => url.searchParams.delete(k));
+    S.y.forEach(v => url.searchParams.append("y", v));
+    if (S.x) url.searchParams.set("x", S.x);
+    if (S.view !== "shot") url.searchParams.set("view", S.view);
+    if (S.filters) url.searchParams.set("filters", S.filters);
+    if (S.bincfg) url.searchParams.set("bincfg", S.bincfg);
+    if (S.tab !== "plot") url.searchParams.set("tab", S.tab);
+    a.href = url.pathname + "?" + url.searchParams.toString();
+  });
+}
+
+function parsedFilters() {
+  if (!S.filters) return { groups: [], nan_policy: "exclude" };
+  try { return JSON.parse(S.filters); } catch (e) { return { groups: [], nan_policy: "exclude" }; }
+}
+
+function api(path, params) {
+  const p = new URLSearchParams(params);
+  if (DAY) p.set("day", DAY);
+  return fetch(`/api/run/${UID}/${path}?` + p.toString()).then(r => {
+    if (!r.ok) return r.json().then(b => { throw new Error(b.detail || r.statusText); });
+    return r.json();
+  });
+}
+
+// ---------------- tabs ----------------
+function setTab(tab) {
+  S.tab = tab;
+  document.querySelectorAll(".tab").forEach(t => t.classList.toggle("on", t.dataset.pane === tab));
+  document.querySelectorAll(".pane").forEach(pane => pane.classList.toggle("on", pane.id === "pane-" + tab));
+  writeState();
+  if (tab === "plot") refresh();
+}
+
+function setView(view) {
+  S.view = view;
+  document.getElementById("seg-shot").classList.toggle("on", view === "shot");
+  document.getElementById("seg-bin").classList.toggle("on", view === "bin");
+  writeState();
+  refresh();
+}
+
+// ---------------- column picker ----------------
+function renderPicker() {
+  const needle = document.getElementById("colfilter").value.trim().toLowerCase();
+  const list = document.getElementById("collist");
+  const hits = COLUMNS.filter(c =>
+    !needle || c.name.toLowerCase().includes(needle) || c.pretty.toLowerCase().includes(needle));
+  const shown = hits.slice(0, 300);
+  list.innerHTML = shown.map(c =>
+    `<div class="colrow" data-col="${escAttr(c.name)}">
+       <span class="provider ${c.provenance}">${c.provenance}</span>
+       <span>${esc(c.name)}</span>
+       ${c.pretty !== c.name ? `<span class="pretty">${esc(c.pretty)}</span>` : ""}
+     </div>`).join("")
+    + (hits.length > shown.length ? `<div class="colrow dim">… ${hits.length - shown.length} more — keep typing</div>` : "");
+  list.querySelectorAll(".colrow[data-col]").forEach(row =>
+    row.addEventListener("click", () => addY(row.dataset.col)));
+  document.getElementById("colfilter").placeholder = `type to filter ${COLUMNS.length} columns…`;
+}
+
+function renderPicked() {
+  document.getElementById("picked").innerHTML = S.y.map((name, i) =>
+    `<span class="ychip" style="border-left-color:${TRACE_COLORS[i]}">${esc(name)}
+       <span class="x" onclick="removeY(${i})">✕</span></span>`).join("");
+}
+
+function addY(name) {
+  if (S.y.includes(name) || S.y.length >= 4) return;
+  S.y.push(name);
+  renderPicked(); writeState(); refresh();
+}
+
+function removeY(i) {
+  S.y.splice(i, 1);
+  renderPicked(); writeState(); refresh();
+}
+
+// ---------------- the plot ----------------
+function plotMessage(text) {
+  const div = document.getElementById("plotdiv");
+  if (typeof Plotly !== "undefined") Plotly.purge(div);
+  div.innerHTML = `<div class="plotmsg">${esc(text)}</div>`;
+}
+
+function plotHost() {
+  // Plotly.react does not clear foreign children — drop any message
+  // div before handing the host over.
+  const div = document.getElementById("plotdiv");
+  if (div.querySelector(".plotmsg")) div.innerHTML = "";
+  return div;
+}
+
+function refresh() {
+  // Gated until the columns bootstrap resolves: the boot sequence
+  // (setTab/setView) would otherwise fire duplicate frame fetches
+  // before the default X is known.
+  if (!BOOTED || S.tab !== "plot") return;
+  if (!S.y.length) {
+    plotMessage("pick up to 4 columns above");
+    document.getElementById("codebox").textContent = "";
+    updatePassCount();
+    return;
+  }
+  const params = new URLSearchParams();
+  S.y.forEach(c => params.append("cols", c));
+  if (S.filters) params.set("filters", S.filters);
+  if (S.view === "bin") {
+    if (S.bincfg) params.set("bincfg", S.bincfg);
+    api("binned", params).then(drawBinned).catch(showPlotError);
+  } else {
+    if (S.x) params.set("x", S.x);
+    api("frame", params).then(drawShots).catch(showPlotError);
+  }
+}
+
+function multiYAxes(layout, n) {
+  for (let i = 1; i < n; i++) {
+    layout["yaxis" + (i + 1)] = {
+      overlaying: "y", side: i % 2 ? "right" : "left",
+      position: i >= 2 ? (i % 2 ? 1.0 : 0.0) : undefined,
+      gridcolor: "rgba(0,0,0,0)", zerolinecolor: "#2c353d",
+      tickfont: { color: TRACE_COLORS[i] },
+    };
+  }
+}
+
+function drawShots(data) {
+  const x = S.x && data.series[S.x] ? data.series[S.x] : data.shot;
+  const traces = S.y.map((name, i) => ({
+    x: x, y: data.series[name], name: name, mode: "markers",
+    marker: { color: TRACE_COLORS[i], size: 5 },
+    yaxis: i ? "y" + (i + 1) : "y",
+  }));
+  const layout = structuredClone(PLOT_LAYOUT);
+  layout.xaxis.title = { text: S.x || "shot #" };
+  layout.yaxis = { gridcolor: "#2c353d", zerolinecolor: "#2c353d",
+                   tickfont: { color: TRACE_COLORS[0] } };
+  multiYAxes(layout, S.y.length);
+  Plotly.react(plotHost(), traces, layout, { responsive: true, displaylogo: false });
+  document.getElementById("codebox").textContent = data.code;
+  setPassCount(data.pass, data.total);
+}
+
+function drawBinned(data) {
+  const traces = S.y.map((name, i) => {
+    const s = data.series[name] || { center: [], err_low: [], err_high: [] };
+    return {
+      x: data.bins, y: s.center, name: name, mode: "markers+lines",
+      marker: { color: TRACE_COLORS[i], size: 6 },
+      line: { color: TRACE_COLORS[i], width: 1 },
+      error_y: { type: "data", symmetric: false,
+                 array: s.err_high, arrayminus: s.err_low,
+                 color: TRACE_COLORS[i], thickness: 1 },
+      yaxis: i ? "y" + (i + 1) : "y",
+    };
+  });
+  const layout = structuredClone(PLOT_LAYOUT);
+  const cfg = S.bincfg ? JSON.parse(S.bincfg) : {};
+  layout.xaxis.title = { text: cfg.bin_col || "Bin #" };
+  layout.yaxis = { gridcolor: "#2c353d", zerolinecolor: "#2c353d",
+                   tickfont: { color: TRACE_COLORS[0] } };
+  multiYAxes(layout, S.y.length);
+  Plotly.react(plotHost(), traces, layout, { responsive: true, displaylogo: false });
+  document.getElementById("codebox").textContent = data.code;
+  setPassCount(data.pass, data.total);
+}
+
+function showPlotError(err) {
+  plotMessage("⚠ " + err.message);
+}
+
+// ---------------- filters rail + popup ----------------
+function renderChips() {
+  const f = parsedFilters();
+  document.getElementById("fchips").innerHTML = (f.groups || []).map((g, i) =>
+    `<div class="fchip">
+       <input type="checkbox" ${g.enabled !== false ? "checked" : ""} onchange="toggleGroup(${i}, this.checked)">
+       <span class="n">${esc(g.name || "filter " + (i + 1))}</span>
+       <span class="dim">${(g.conditions || []).length} cond</span>
+       <span class="x" onclick="removeGroup(${i})">✕</span>
+     </div>`).join("") || '<div class="dim" style="font-size:12px;">none — every shot passes</div>';
+}
+
+function setFilters(model) {
+  const active = (model.groups || []).length;
+  S.filters = active || model.nan_policy !== "exclude" ? JSON.stringify(model) : "";
+  renderChips(); writeState(); updatePassCount(); refresh();
+}
+
+function toggleGroup(i, on) {
+  const f = parsedFilters(); f.groups[i].enabled = on; setFilters(f);
+}
+
+function removeGroup(i) {
+  const f = parsedFilters(); f.groups.splice(i, 1); setFilters(f);
+}
+
+function updatePassCount() {
+  if (!S.filters) { document.getElementById("passcount").textContent = ""; return; }
+  api("filter-count", { filters: S.filters })
+    .then(c => setPassCount(c.pass, c.total))
+    .catch(() => {});
+}
+
+function setPassCount(passing, total) {
+  document.getElementById("passcount").innerHTML =
+    S.filters ? `<b>${passing}</b> / ${total} shots pass` : "";
+}
+
+function openFilters() {
+  FDRAFT = parsedFilters();
+  if (!FDRAFT.groups.length) FDRAFT.groups.push({ name: "", enabled: true, conditions: [] });
+  renderFilterModal();
+  document.getElementById("modal-filters").classList.add("on");
+}
+
+function renderFilterModal() {
+  document.getElementById("nanpolicy").value = FDRAFT.nan_policy || "exclude";
+  document.getElementById("fgroups").innerHTML = FDRAFT.groups.map((g, gi) => `
+    <div class="fgroup">
+      <div class="ghead"><span class="dim">name</span>
+        <input type="text" value="${escAttr(g.name || "")}" placeholder="filter ${gi + 1}"
+               onchange="FDRAFT.groups[${gi}].name=this.value">
+        <span class="x" style="margin-left:auto; cursor:pointer;" onclick="FDRAFT.groups.splice(${gi},1); renderFilterModal();">✕ group</span></div>
+      ${(g.conditions || []).map((c, ci) => `
+        <div class="frow">
+          <input class="col" list="all-cols" value="${escAttr(c.column || "")}" placeholder="column"
+                 onchange="FDRAFT.groups[${gi}].conditions[${ci}].column=this.value; draftCount();">
+          <select onchange="FDRAFT.groups[${gi}].conditions[${ci}].mode=this.value; draftCount();">
+            <option ${c.mode !== "outside" ? "selected" : ""}>within</option>
+            <option ${c.mode === "outside" ? "selected" : ""}>outside</option>
+          </select>
+          <input class="val" value="${c.low ?? ""}" placeholder="low"
+                 onchange="FDRAFT.groups[${gi}].conditions[${ci}].low=parseFloat(this.value); draftCount();">
+          <span class="dim">–</span>
+          <input class="val" value="${c.high ?? ""}" placeholder="high"
+                 onchange="FDRAFT.groups[${gi}].conditions[${ci}].high=parseFloat(this.value); draftCount();">
+          <span class="x" onclick="FDRAFT.groups[${gi}].conditions.splice(${ci},1); renderFilterModal();">✕</span>
+        </div>`).join("")}
+      <button class="act" onclick="FDRAFT.groups[${gi}].conditions.push({column:'', mode:'within', low:0, high:1}); renderFilterModal();">+ AND condition</button>
+    </div>`).join('<div class="orjoin">— OR —</div>');
+  draftCount();
+}
+
+function draftModel() {
+  return {
+    groups: FDRAFT.groups
+      .map(g => ({ name: g.name || "", enabled: g.enabled !== false,
+                   conditions: (g.conditions || []).filter(c =>
+                     c.column && Number.isFinite(c.low) && Number.isFinite(c.high)) }))
+      .filter(g => g.conditions.length),
+    nan_policy: FDRAFT.nan_policy || "exclude",
+  };
+}
+
+function draftCount() {
+  const model = draftModel();
+  const el = document.getElementById("draftcount");
+  if (!model.groups.length) { el.textContent = "no complete conditions — every shot would pass"; return; }
+  api("filter-count", { filters: JSON.stringify(model) })
+    .then(c => { el.innerHTML = `<b>${c.pass}</b> / ${c.total} shots would pass`; })
+    .catch(err => { el.textContent = "⚠ " + err.message; });
+}
+
+function applyFilters() {
+  setFilters(draftModel());
+  closeModals();
+}
+
+// ---------------- bin settings popup ----------------
+function openBinset() {
+  const cfg = S.bincfg ? JSON.parse(S.bincfg) : {};
+  document.getElementById("bs-col").value = cfg.bin_col || "Bin #";
+  document.getElementById("bs-width").value = cfg.bin_width ?? "";
+  document.getElementById("bs-agg").value = cfg.agg || "median";
+  document.getElementById("bs-err").value = cfg.err || "iqr";
+  document.getElementById("bs-plo").value = cfg.percentiles ? cfg.percentiles[0] : "0.25";
+  document.getElementById("bs-phi").value = cfg.percentiles ? cfg.percentiles[1] : "0.75";
+  document.getElementById("bs-min").value = cfg.min_count ?? "1";
+  document.getElementById("modal-binset").classList.add("on");
+}
+
+function applyBinset() {
+  const cfg = {};
+  const col = document.getElementById("bs-col").value.trim();
+  if (col && col !== "Bin #") cfg.bin_col = col;
+  const width = parseFloat(document.getElementById("bs-width").value);
+  if (Number.isFinite(width) && width > 0) cfg.bin_width = width;
+  const agg = document.getElementById("bs-agg").value;
+  if (agg !== "median") cfg.agg = agg;
+  const err = document.getElementById("bs-err").value;
+  if (err !== "iqr") cfg.err = err;
+  const plo = parseFloat(document.getElementById("bs-plo").value);
+  const phi = parseFloat(document.getElementById("bs-phi").value);
+  if ((err === "iqr" || err === "percentile") && Number.isFinite(plo) && Number.isFinite(phi)
+      && (plo !== 0.25 || phi !== 0.75)) cfg.percentiles = [plo, phi];
+  const minCount = parseInt(document.getElementById("bs-min").value, 10);
+  if (Number.isFinite(minCount) && minCount > 1) cfg.min_count = minCount;
+  S.bincfg = Object.keys(cfg).length ? JSON.stringify(cfg) : "";
+  closeModals(); writeState();
+  if (S.view !== "bin") setView("bin"); else refresh();
+}
+
+function closeModals() {
+  document.querySelectorAll(".overlay").forEach(m => m.classList.remove("on"));
+}
+
+// ---------------- utilities + boot ----------------
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, ch => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
+}
+function escAttr(s) { return esc(s); }
+
+document.getElementById("colfilter").addEventListener("input", renderPicker);
+
+api("columns", {}).then(data => {
+  COLUMNS = data.columns;
+  DEFAULT_X = data.default_x || "";
+  if (!S.x && DEFAULT_X) S.x = DEFAULT_X;
+  document.getElementById("xcol").value = S.x;
+  const counts = {};
+  COLUMNS.forEach(c => { counts[c.provenance] = (counts[c.provenance] || 0) + 1; });
+  document.getElementById("providers").innerHTML = Object.entries(counts)
+    .map(([p, n]) => `<span class="provider ${p}">${p} · ${n}</span>`).join("");
+  document.getElementById("all-cols").innerHTML =
+    COLUMNS.map(c => `<option value="${escAttr(c.name)}">`).join("");
+  renderPicker();
+  BOOTED = true;
+  refresh();
+}).catch(err => {
+  document.getElementById("providers").innerHTML =
+    `<span class="error">columns: ${esc(err.message)}</span>`;
+  BOOTED = true;  // still render honest per-fetch errors on the plot
+  refresh();
+});
+
+renderPicked();
+renderChips();
+updatePassCount();
+setTab(S.tab);
+setView(S.view);
+</script>
 {% endblock %}
