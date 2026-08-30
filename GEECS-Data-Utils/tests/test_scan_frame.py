@@ -116,6 +116,40 @@ class TestScanFrame:
         assert result.frame.empty
         assert result.provenance == {}
 
+    def test_parses_but_corrupt_shot_key_degrades_to_run_only(self, tmp_path):
+        # An s-file that PARSES but has a torn key cell (stray text /
+        # non-integral float) must degrade like binary garbage — never
+        # raise out of scan_frame.
+        for bad in ("EOS", 2.5):
+            scans, _ = _write_sfile(tmp_path, [[1, 5.0], [bad, 6.0]])
+            result = scan_frame(_detail(_event_frame(2)), scans)
+            assert set(result.provenance.values()) == {PROVENANCE_RUN}
+            assert len(result.frame) == 2
+
+    def test_duplicate_shotnumber_keeps_first_one_row_per_shot(self, tmp_path):
+        # Producers write unique 1..N; corruption/hand edits must not
+        # silently multiply rows — keep-first (the shared join doctrine).
+        scans, _ = _write_sfile(tmp_path, [[1, 5.0], [2, 6.5], [2, 9.9]])
+        result = scan_frame(_detail(_event_frame(3)), scans)
+        frame = result.frame
+        assert len(frame) == 3  # one row per shot, not four
+        assert frame[frame["Shotnumber"] == 2]["U_ICT charge"].tolist() == [6.5]
+
+    def test_event_shotnumber_collision_still_joins_on_event_index(self, tmp_path):
+        # An event table that itself carries "Shotnumber": the s-file's
+        # key column is renamed, but the join must still align
+        # scan_event_index with the s-file's ORIGINAL Shotnumber values.
+        scans, _ = _write_sfile(tmp_path, [[1, 5.0], [2, 6.5]])
+        event = _event_frame(2)
+        event["Shotnumber"] = [101, 102]  # decoy event column
+        result = scan_frame(_detail(event), scans)
+        frame = result.frame
+        assert result.provenance["Shotnumber"] == PROVENANCE_RUN
+        assert result.provenance["Shotnumber (s-file)"] == PROVENANCE_SFILE
+        row2 = frame[frame["scan_event_index"] == 2].iloc[0]
+        assert row2["U_ICT charge"] == 6.5  # joined on the s-file key, not the decoy
+        assert row2["Shotnumber"] == 102
+
     def test_corrupt_sfile_degrades_to_run_only(self, tmp_path):
         scans, sfile = _write_sfile(tmp_path, [[1, 5.0]])
         sfile.write_bytes(b"\x00\x01 not a tsv \x02")
@@ -158,6 +192,11 @@ class TestScanDataDelegation:
         from geecs_data_utils.scan_paths import ScanPaths
 
         sd = ScanData(paths=ScanPaths(folder=scans))
+        before = sorted(str(p) for p in tmp_path.rglob("*"))
         sd.load_scalars(append_paths=False)
         assert calls["path"] == day / "analysis" / "s2.txt"
         assert sd.data_frame is not None and len(sd.data_frame) == 1
+        # The old path derived the s-file via get_analysis_folder(),
+        # which CREATES analysis/ScanNNN — reading must no longer mkdir.
+        after = sorted(str(p) for p in tmp_path.rglob("*"))
+        assert after == before

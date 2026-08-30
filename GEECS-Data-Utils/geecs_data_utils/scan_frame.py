@@ -63,9 +63,9 @@ class ProvenancedFrame:
     """
 
     frame: "pd.DataFrame"
-    provenance: dict = field(default_factory=dict)
+    provenance: "dict[str, str]" = field(default_factory=dict)
 
-    def columns(self, source: Optional[str] = None) -> list:
+    def columns(self, source: Optional[str] = None) -> "list[str]":
         """Column names, optionally restricted to one provenance tag."""
         if source is None:
             return [str(c) for c in self.frame.columns]
@@ -177,13 +177,34 @@ def scan_frame(
         if "Shotnumber" in renames
         else "Shotnumber"
     )
-    if shot_col in right.columns:
-        right["_shot_key"] = right[shot_col].astype("Int64")
-    else:
-        logger.warning("s-file lacks Shotnumber — joining on positional 1..N")
-        right["_shot_key"] = pd.Series(
-            range(1, len(right) + 1), index=right.index, dtype="Int64"
+    try:
+        if shot_col in right.columns:
+            # pd.to_numeric first: a parses-but-corrupt key cell (stray
+            # text, non-integral float) must degrade like any other
+            # corrupt s-file, never sink the run side.
+            right["_shot_key"] = pd.to_numeric(right[shot_col], errors="raise").astype(
+                "Int64"
+            )
+        else:
+            logger.warning("s-file lacks Shotnumber — joining on positional 1..N")
+            right["_shot_key"] = pd.Series(
+                range(1, len(right) + 1), index=right.index, dtype="Int64"
+            )
+    except (TypeError, ValueError) as exc:
+        logger.warning("unusable s-file shot key (%s) — run-only frame", exc)
+        provenance = {str(c): PROVENANCE_RUN for c in event.columns}
+        return ProvenancedFrame(frame=event.copy(), provenance=provenance)
+
+    # One row per shot is the contract: duplicate keys (corruption or
+    # hand edits — producers write unique 1..N) keep the FIRST row,
+    # matching the shared keep-first join doctrine.
+    dupes = right["_shot_key"].duplicated(keep="first")
+    if bool(dupes.any()):
+        logger.warning(
+            "s-file has %d duplicate Shotnumber row(s) — keeping first",
+            int(dupes.sum()),
         )
+        right = right[~dupes]
 
     merged = left.merge(right, on="_shot_key", how="outer", sort=True)
     merged = merged.drop(columns="_shot_key")

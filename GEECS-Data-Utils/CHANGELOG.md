@@ -15,6 +15,11 @@ Analysis-tabs wave W1a (the substrate —
   `sfile_path_for_scan(scan_folder)` (`{day}/analysis/s{N}.txt`,
   unpadded). `ScanData.load_scalars` now delegates (pinned by a spy
   test); the ScanAnalysis duplicate reads converge in a trailing PR.
+  **Behavioral fix riding along**: the old path derived the s-file via
+  `get_analysis_folder()`, which CREATES `analysis/ScanNNN/` — so every
+  s-file read used to mkdir on the share. The delegated path is pure
+  (pinned by a tree-untouched test): reading scalars no longer writes
+  anything, per the read-only doctrine.
 - `scan_frame.py` — the union-with-provenance frame:
   `scan_frame(detail, scan_folder)` unions the Bluesky event table and
   the s-file with per-column provenance (`run`/`sfile`, `computed`

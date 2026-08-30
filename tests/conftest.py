@@ -142,6 +142,8 @@ def canonical_scan(data_root):
     * ``"undulator_2d"`` — 2025-02-20 Scan 14 (UC_Amp4_IR_input).
     * ``"undulator_ict"`` — 2025-11-13 Scan 1 (U_BCaveICT).
     * ``"undulator_magspec"`` — 2025-11-18 Scan 2 (MagSpec interpSpec).
+    * ``"undulator_bluesky_1d"`` — 2026-08-29 Scan 1 (Bluesky era: run
+      doc + s-file, the union-frame fixture).
 
     Add new canonical scans to ``_CANONICAL_SCANS`` so the registry
     stays the single source of truth.
