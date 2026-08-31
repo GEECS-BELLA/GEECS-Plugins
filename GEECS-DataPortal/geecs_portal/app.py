@@ -83,6 +83,61 @@ def _portal_version() -> str:
 #: Cap on rows fed to a plot (quick-look, not a data browser).
 _PLOT_MAX_ROWS = 100_000
 
+#: Requests carrying a proxy mount prefix — the Grafana/JupyterHub
+#: convention every reverse proxy speaks.
+_FORWARDED_PREFIX_HEADER = b"x-forwarded-prefix"
+
+
+def _clean_prefix(raw: str) -> str:
+    """Normalize a mount prefix: ``/portal/`` → ``/portal``; bad → ``""``.
+
+    Accepts only a root-absolute, single-slash path (no whitespace,
+    backslashes, control characters, or ``//``) — anything else is
+    treated as no prefix rather than propagated into every link on the
+    page.  A bare ``/`` means "mounted at root", i.e. no prefix.
+    """
+    prefix = raw.strip().rstrip("/")
+    if not prefix:
+        return ""
+    if not prefix.startswith("/") or "//" in prefix or "\\" in prefix:
+        return ""
+    if any(ch.isspace() or ord(ch) < 32 for ch in prefix):
+        return ""
+    return prefix
+
+
+class _ForwardedPrefixMiddleware:
+    """Adopt the proxy's ``X-Forwarded-Prefix`` as the ASGI root_path.
+
+    Behind ``proxy /portal → portal:8200`` the app itself never sees
+    the mount point; the proxy names it in this header.  Setting
+    ``scope["root_path"]`` makes every link, form, redirect, and JS
+    fetch (all built through the one ``root`` context value) carry the
+    prefix, so the portal works at root and under any mount point —
+    including OSPREY panel tabs.  The header, when present, wins over a
+    static ``--root-path`` (the proxy is authoritative for where it
+    mounted us); a client faking it only rewrites its own page's links.
+    """
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http":
+            for name, value in scope.get("headers", []):
+                if name == _FORWARDED_PREFIX_HEADER:
+                    prefix = _clean_prefix(value.decode("latin-1"))
+                    if prefix:
+                        scope["root_path"] = prefix
+                    break
+        await self.app(scope, receive, send)
+
+
+def _root(request: Request) -> str:
+    """The request's URL prefix (``""`` at root) — prepend to every path."""
+    return request.scope.get("root_path", "").rstrip("/")
+
+
 #: Multi-Y ceiling on the Plot tab (mockup ruling: up to 4).
 _MAX_Y_COLUMNS = 4
 
@@ -192,7 +247,13 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
         The configured application.
     """
     app = FastAPI(title="GEECS Data Portal", docs_url=None, redoc_url=None)
-    templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
+    app.add_middleware(_ForwardedPrefixMiddleware)
+    # Every template gets `root`: the mount prefix each root-absolute
+    # href/action/src/fetch must carry (empty when served at root).
+    templates = Jinja2Templates(
+        directory=str(_TEMPLATES_DIR),
+        context_processors=[lambda request: {"root": _root(request)}],
+    )
     # The one committed JS asset: the version-pinned vendored Plotly
     # bundle (doctrine amendment 2026-08-30 — still no npm, no CDN).
     app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
@@ -412,16 +473,20 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
         return {"pass": int(mask.sum()), "total": len(pf.frame)}
 
     @app.get("/", response_class=RedirectResponse)
-    def index() -> str:
+    def index(request: Request) -> str:
         """Redirect to today's day view."""
-        return f"/day/{date.today().isoformat()}"
+        return f"{_root(request)}/day/{date.today().isoformat()}"
 
     @app.get("/go", response_class=RedirectResponse)
-    def go(day: str = "", experiment: str = "", filter: str = "") -> str:
+    def go(
+        request: Request, day: str = "", experiment: str = "", filter: str = ""
+    ) -> str:
         """The day/experiment picker form's target: redirect to the day view."""
         selected = _parse_day(day)
         query = _sticky_query({"experiment": experiment, "filter": filter})
-        return f"/day/{selected.isoformat()}{'?' + query if query else ''}"
+        return (
+            f"{_root(request)}/day/{selected.isoformat()}{'?' + query if query else ''}"
+        )
 
     @app.get("/day/{day}", response_class=HTMLResponse)
     def day_view(
@@ -493,12 +558,15 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
                     "filter": request.query_params.get("filter", ""),
                 }
             )
-            return f"/day/{selected.isoformat()}{'?' + day_query if day_query else ''}"
+            return (
+                f"{_root(request)}/day/{selected.isoformat()}"
+                f"{'?' + day_query if day_query else ''}"
+            )
         target = next(
             (run for run in runs if prefer and run.scan_number == prefer),
             runs[0],  # newest (catalog order)
         )
-        return f"/run/{target.uid}?{query}"
+        return f"{_root(request)}/run/{target.uid}?{query}"
 
     @app.get("/run/{uid}", response_class=HTMLResponse)
     def run_view(

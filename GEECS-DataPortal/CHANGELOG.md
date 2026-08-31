@@ -3,6 +3,24 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.9.0] - 2026-08-31
+
+### Added
+
+Reverse-proxy mountability (OSPREY panel-tab feedback): the portal now
+works at root **and** under any URL prefix — `proxy /portal → :8200`.
+
+- Every template href/form/img/script URL and the page JS's `/api`
+  fetch base (`const ROOT`) build through one per-request `root`
+  prefix; the `/`, `/go`, and `/run/jump` redirects carry it too.
+- The prefix auto-derives from the proxy's `X-Forwarded-Prefix` header
+  (validated: root-absolute, no `//`/whitespace/backslash — malformed
+  values are ignored, a bare `/` means root); a static fallback is
+  available as `geecs-data-portal --root-path /portal`. The header,
+  when present, wins.
+- `/health` (present since 0.1.0) is the panel health probe — wire
+  OSPREY's `web.panels.dataview.health_endpoint` at it.
+
 ## [0.8.1] - 2026-08-31
 
 ### Fixed
