@@ -14,10 +14,13 @@ works at root **and** under any URL prefix — `proxy /portal → :8200`.
   fetch base (`const ROOT`) build through one per-request `root`
   prefix; the `/`, `/go`, and `/run/jump` redirects carry it too.
 - The prefix auto-derives from the proxy's `X-Forwarded-Prefix` header
-  (validated: root-absolute, no `//`/whitespace/backslash — malformed
-  values are ignored, a bare `/` means root); a static fallback is
-  available as `geecs-data-portal --root-path /portal`. The header,
-  when present, wins.
+  (validated against a strict path-segment pattern — malformed values
+  are ignored, a bare `/` means root). The middleware also re-prefixes
+  the request path to the ASGI-canonical shape, so mounts named like a
+  route head (`/run`, `/api`, …) route correctly and trailing-slash
+  redirects keep the prefix. A static fallback is available as
+  `geecs-data-portal --root-path /portal` (without those two
+  guarantees — see DEPLOYMENT.md); the header, when present, wins.
 - `/health` (present since 0.1.0) is the panel health probe — wire
   OSPREY's `web.panels.dataview.health_endpoint` at it.
 

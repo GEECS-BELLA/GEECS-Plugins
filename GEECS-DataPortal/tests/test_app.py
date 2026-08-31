@@ -770,11 +770,41 @@ class TestReverseProxy:
         assert response.headers["location"].startswith("/portal/day/")
 
     def test_malformed_prefixes_are_ignored(self):
-        for bad in ("portal", "//evil.example", "/a b", "/", "/x\\y"):
+        for bad in (
+            "portal",
+            "//evil.example",
+            "/a b",
+            "/",
+            "/x\\y",
+            "/p?x=1",  # query/fragment/quote characters are not a path
+            "/p#frag",
+            '/p"x',
+            "/p<q>",
+        ):
             response = _client().get(
                 "/", headers={"X-Forwarded-Prefix": bad}, follow_redirects=False
             )
             assert response.headers["location"].startswith("/day/"), bad
+
+    def test_mount_name_colliding_with_a_route_head_works(self):
+        # A mount literally named /run: the middleware re-prefixes the
+        # path so starlette's front-strip is exact — without it this
+        # whole route family double-strips to a 404.
+        client = _client(FakeCatalog(), default_experiment="Undulator")
+        response = client.get("/run/uid-002", headers={"X-Forwarded-Prefix": "/run"})
+        assert response.status_code == 200
+        assert 'const ROOT = "/run";' in response.text
+        assert '"/run/run/uid-001?' in response.text  # prev-scan stepper
+
+    def test_trailing_slash_redirect_keeps_the_prefix(self):
+        # Starlette's redirect_slashes builds the Location from the
+        # scope path — re-prefixed, so the hop stays under the mount.
+        client = _client(FakeCatalog(), default_experiment="Undulator")
+        response = client.get(
+            "/run/uid-002/", headers=self.PREFIX, follow_redirects=False
+        )
+        assert response.status_code in (301, 307)
+        assert "/portal/run/uid-002" in response.headers["location"]
 
     def test_api_still_serves_under_a_prefix(self):
         client = _client(FakeCatalog(), default_experiment="Undulator")

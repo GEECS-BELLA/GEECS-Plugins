@@ -28,6 +28,7 @@ from __future__ import annotations
 import dataclasses
 import io
 import logging
+import re
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Optional
@@ -88,20 +89,23 @@ _PLOT_MAX_ROWS = 100_000
 _FORWARDED_PREFIX_HEADER = b"x-forwarded-prefix"
 
 
+#: A valid mount prefix: non-empty ``/segment`` parts of RFC-3986-ish
+#: path characters — no ``//``, no query/fragment/quote characters, no
+#:  whitespace or backslashes.
+_PREFIX_RE = re.compile(r"(?:/[A-Za-z0-9._~%@+-]+)+")
+
+
 def _clean_prefix(raw: str) -> str:
     """Normalize a mount prefix: ``/portal/`` → ``/portal``; bad → ``""``.
 
-    Accepts only a root-absolute, single-slash path (no whitespace,
-    backslashes, control characters, or ``//``) — anything else is
+    Accepts only what :data:`_PREFIX_RE` matches — anything else is
     treated as no prefix rather than propagated into every link on the
     page.  A bare ``/`` means "mounted at root", i.e. no prefix.
     """
     prefix = raw.strip().rstrip("/")
     if not prefix:
         return ""
-    if not prefix.startswith("/") or "//" in prefix or "\\" in prefix:
-        return ""
-    if any(ch.isspace() or ord(ch) < 32 for ch in prefix):
+    if _PREFIX_RE.fullmatch(prefix) is None:
         return ""
     return prefix
 
@@ -117,6 +121,15 @@ class _ForwardedPrefixMiddleware:
     including OSPREY panel tabs.  The header, when present, wins over a
     static ``--root-path`` (the proxy is authoritative for where it
     mounted us); a client faking it only rewrites its own page's links.
+
+    The path is re-prefixed too (the ASGI-canonical shape: ``path``
+    includes ``root_path``).  Starlette's router strips ``root_path``
+    from the FRONT of ``path`` wherever it happens to match, so the
+    proxy-stripped path alone would double-strip under a mount named
+    like a route head (``/run``, ``/api``, …), 404ing that whole route
+    family — and its trailing-slash redirects build the Location from
+    ``path``, which would drop the prefix.  Re-prefixing makes the
+    strip exact and the redirects complete.
     """
 
     def __init__(self, app):
@@ -129,6 +142,7 @@ class _ForwardedPrefixMiddleware:
                     prefix = _clean_prefix(value.decode("latin-1"))
                     if prefix:
                         scope["root_path"] = prefix
+                        scope["path"] = prefix + scope["path"]
                     break
         await self.app(scope, receive, send)
 
