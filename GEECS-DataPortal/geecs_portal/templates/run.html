@@ -264,8 +264,8 @@
         style="flex:1; background:var(--panel2); color:var(--ink); border:1px solid var(--line); border-radius:3px; padding:0.3rem 0.45rem; font-family:ui-monospace,Menlo,monospace; font-size:11px;"></textarea></div>
     <div class="error" id="ds-error" style="display:none;"></div>
     <div class="dim" style="font-size:11px; margin-top:0.4rem;">
-      Legend names are click-to-edit on the plot; titles via the advanced box
-      (e.g. {"title":{"text":"…"}}).</div>
+      Legend names are click-to-edit on the plot; axis titles via the advanced
+      box (e.g. {"yaxis":{"title":{"text":"…"}}}).</div>
     <div class="btnrow">
       <button class="act" onclick="closeModals()">Cancel</button>
       <button class="apply" onclick="applyDisplay()">Apply</button>
@@ -310,7 +310,7 @@ const UID = {{ uid | tojson }};
 const DAY = {{ day | tojson }};
 const TRACE_COLORS = ["#4cc2b4", "#d6a860", "#6f9fd8", "#c47ab8"];
 // Everything Plotly gives for free, switched ON: wheel zoom, in-place
-// title/legend editing, spike lines + hover modes, and the drawing
+// legend-name editing, spike lines + hover modes, and the drawing
 // tools (annotate directly on the plot; shapes are editable/erasable).
 const PLOT_CONFIG = {
   responsive: true, displaylogo: false, scrollZoom: true,
@@ -628,6 +628,7 @@ function drawBinned(data) {
   const layout = structuredClone(PLOT_LAYOUT);
   const cfg = S.bincfg ? JSON.parse(S.bincfg) : {};
   layout.xaxis.title = { text: cfg.bin_col || "Bin #" };
+  layout.xaxis.automargin = true;
   layout.yaxis = { gridcolor: "#2c353d", zerolinecolor: "#2c353d",
                    tickfont: { color: traceColor(0) } };
   multiYAxes(layout, S.y.length);
