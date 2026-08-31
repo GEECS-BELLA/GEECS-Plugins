@@ -257,6 +257,12 @@
       <input id="ds-msize" style="width:4rem;" placeholder="5"></div>
     <div class="setrow"><label>trace colors</label>
       <span id="ds-colors"></span></div>
+    <div class="setrow" style="align-items:flex-start;"><label>advanced<br>
+      <a href="https://plotly.com/javascript/reference/layout/" target="_blank" style="font-size:11px;">layout ref ↗</a></label>
+      <textarea id="ds-layout" rows="3" spellcheck="false"
+        placeholder='any Plotly layout JSON, merged last — e.g. {"yaxis":{"tickformat":".2e"},"legend":{"orientation":"v"}}'
+        style="flex:1; background:var(--panel2); color:var(--ink); border:1px solid var(--line); border-radius:3px; padding:0.3rem 0.45rem; font-family:ui-monospace,Menlo,monospace; font-size:11px;"></textarea></div>
+    <div class="error" id="ds-error" style="display:none;"></div>
     <div class="dim" style="font-size:11px; margin-top:0.4rem;">
       Titles and legend names are editable in place — click them on the plot.</div>
     <div class="btnrow">
@@ -302,6 +308,16 @@
 const UID = {{ uid | tojson }};
 const DAY = {{ day | tojson }};
 const TRACE_COLORS = ["#4cc2b4", "#d6a860", "#6f9fd8", "#c47ab8"];
+// Everything Plotly gives for free, switched ON: wheel zoom, in-place
+// title/legend editing, spike lines + hover modes, and the drawing
+// tools (annotate directly on the plot; shapes are editable/erasable).
+const PLOT_CONFIG = {
+  responsive: true, displaylogo: false, editable: true, scrollZoom: true,
+  modeBarButtonsToAdd: [
+    "togglespikelines", "hoverclosest", "hovercompare",
+    "drawline", "drawopenpath", "drawrect", "drawcircle", "eraseshape",
+  ],
+};
 const PLOT_LAYOUT = {
   paper_bgcolor: "#1a2026", plot_bgcolor: "#12161a",
   font: { color: "#dde4ea", size: 12 },
@@ -521,6 +537,25 @@ function applyDisplayToLayout(layout, xIsDate, yIsDate) {
   if (xr && !xIsDate) { layout.xaxis.range = xr; layout.xaxis.autorange = false; }
   const yr = axisRange(d.ymin, d.ymax, !!d.logy);
   if (yr && !yIsDate) { layout.yaxis.range = yr; layout.yaxis.autorange = false; }
+  // The escape hatch: any Plotly layout attribute, merged last — the
+  // whole layout schema is reachable without new portal code.
+  if (d.layout && typeof d.layout === "object") deepMerge(layout, d.layout);
+}
+
+function deepMerge(target, patch) {
+  for (const [key, value] of Object.entries(patch)) {
+    // Prototype-pollution guard: patch is URL-carried JSON, and a
+    // parsed "__proto__" key is an OWN property that would recurse
+    // into Object.prototype (shared-link threat model).
+    if (key === "__proto__" || key === "constructor" || key === "prototype") continue;
+    if (value && typeof value === "object" && !Array.isArray(value)
+        && Object.prototype.hasOwnProperty.call(target, key)
+        && target[key] && typeof target[key] === "object" && !Array.isArray(target[key])) {
+      deepMerge(target[key], value);
+    } else {
+      target[key] = value;
+    }
+  }
 }
 
 function multiYAxes(layout, n) {
@@ -550,8 +585,7 @@ function drawShots(data) {
   multiYAxes(layout, S.y.length);
   const yIsDate = !!(data.kinds && data.kinds[S.y[0]] === "datetime");
   applyDisplayToLayout(layout, xIsDate, yIsDate);
-  Plotly.react(plotHost(), traces, layout,
-               { responsive: true, displaylogo: false, editable: true });
+  Plotly.react(plotHost(), traces, layout, PLOT_CONFIG);
   document.getElementById("codebox").textContent = data.code;
   setPassCount(data.pass, data.total);
 }
@@ -576,8 +610,7 @@ function drawBinned(data) {
                    tickfont: { color: traceColor(0) } };
   multiYAxes(layout, S.y.length);
   applyDisplayToLayout(layout, false, false);  // binned serves raw numbers
-  Plotly.react(plotHost(), traces, layout,
-               { responsive: true, displaylogo: false, editable: true });
+  Plotly.react(plotHost(), traces, layout, PLOT_CONFIG);
   document.getElementById("codebox").textContent = data.code;
   setPassCount(data.pass, data.total);
 }
@@ -729,6 +762,9 @@ function openDisplay() {
   }
   document.getElementById("ds-msize").value =
     Number.isFinite(d.msize) ? d.msize : "";
+  document.getElementById("ds-layout").value =
+    d.layout ? JSON.stringify(d.layout) : "";
+  document.getElementById("ds-error").style.display = "none";
   document.getElementById("ds-colors").innerHTML = S.y.map((name, i) =>
     `<input type="color" id="ds-color-${i}" value="${traceColor(i)}" title="${escAttr(prettyName(name))}">`
   ).join(" ") || '<span class="dim" style="font-size:11px;">pick columns first</span>';
@@ -750,6 +786,21 @@ function applyDisplay() {
     return input ? input.value : TRACE_COLORS[i];
   });
   if (colors.some((c, i) => c !== TRACE_COLORS[i])) d.colors = colors;
+  const rawLayout = document.getElementById("ds-layout").value.trim();
+  if (rawLayout) {
+    try {
+      const parsed = JSON.parse(rawLayout);
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        throw new Error("expected a JSON object");
+      }
+      d.layout = parsed;
+    } catch (err) {
+      const box = document.getElementById("ds-error");
+      box.textContent = "layout JSON: " + err.message + " — nothing applied";
+      box.style.display = "block";
+      return;  // keep the popup open — nothing applied
+    }
+  }
   S.display = Object.keys(d).length ? JSON.stringify(d) : "";
   closeModals(); renderPicked(); writeState(); refresh();
 }

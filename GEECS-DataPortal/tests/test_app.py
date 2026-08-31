@@ -695,3 +695,12 @@ class TestPlotTabPolish:
             line for line in response.text.splitlines() if "/run/uid-002?" in line
         )
         assert "display=" in stepper_line
+
+    def test_plot_config_suite_is_on(self):
+        # The free-suite pin: wheel zoom, draw tools, spike lines are
+        # config (one line to maintain), never per-knob code.
+        text = _client().get("/run/uid-002").text
+        assert "scrollZoom: true" in text
+        assert "drawrect" in text
+        assert "togglespikelines" in text
+        assert "deepMerge(layout, d.layout)" in text  # the passthrough
