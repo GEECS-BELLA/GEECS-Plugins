@@ -164,7 +164,7 @@
         </span>
         <span class="gear" title="bin settings" onclick="openBinset()">⚙</span>
         <span class="right">
-          <span class="dim" title="click any axis title or legend entry to edit it in place">zoom · pan · export = Plotly built-ins</span>
+          <span class="dim" title="click a legend entry's name to edit it in place">zoom · pan · export = Plotly built-ins</span>
           <a href="#" onclick="openDisplay();return false;">display…</a>
           <a href="#" onclick="document.getElementById('codebox').classList.toggle('on');return false;">show the code</a>
         </span>
@@ -264,7 +264,8 @@
         style="flex:1; background:var(--panel2); color:var(--ink); border:1px solid var(--line); border-radius:3px; padding:0.3rem 0.45rem; font-family:ui-monospace,Menlo,monospace; font-size:11px;"></textarea></div>
     <div class="error" id="ds-error" style="display:none;"></div>
     <div class="dim" style="font-size:11px; margin-top:0.4rem;">
-      Titles and legend names are editable in place — click them on the plot.</div>
+      Legend names are click-to-edit on the plot; titles via the advanced box
+      (e.g. {"title":{"text":"…"}}).</div>
     <div class="btnrow">
       <button class="act" onclick="closeModals()">Cancel</button>
       <button class="apply" onclick="applyDisplay()">Apply</button>
@@ -312,7 +313,12 @@ const TRACE_COLORS = ["#4cc2b4", "#d6a860", "#6f9fd8", "#c47ab8"];
 // title/legend editing, spike lines + hover modes, and the drawing
 // tools (annotate directly on the plot; shapes are editable/erasable).
 const PLOT_CONFIG = {
-  responsive: true, displaylogo: false, editable: true, scrollZoom: true,
+  responsive: true, displaylogo: false, scrollZoom: true,
+  // Granular (not editable:true): blanket editability renders grey
+  // "Click to enter …" placeholders for every unset title — and
+  // axisTitleText does too on the title-less stacked axes (3-4), so
+  // axis titles are auto-set/passthrough-set instead of in-place-edited.
+  edits: { legendText: true, annotationText: true, shapePosition: true },
   modeBarButtonsToAdd: [
     "togglespikelines", "hoverclosest", "hovercompare",
     "drawline", "drawopenpath", "drawrect", "drawcircle", "eraseshape",
@@ -559,10 +565,25 @@ function deepMerge(target, patch) {
 }
 
 function multiYAxes(layout, n) {
+  // First axis: title + ticks in the trace's color; extra grid lines
+  // only from axis 1 (overlaid grids are unreadable).
+  layout.yaxis.title = { text: prettyName(S.y[0]), font: { color: traceColor(0) } };
+  layout.yaxis.automargin = true;
+  layout.showlegend = n > 1;  // one trace: the axis title says it all
   for (let i = 1; i < n; i++) {
     layout["yaxis" + (i + 1)] = {
       overlaying: "y", side: i % 2 ? "right" : "left",
-      position: i >= 2 ? (i % 2 ? 1.0 : 0.0) : undefined,
+      // Plotly's native mechanism for stacking multiple axes on one
+      // side: free-anchored + autoshift moves each outward cleanly.
+      anchor: i >= 2 ? "free" : undefined,
+      autoshift: i >= 2 ? true : undefined,
+      automargin: true,
+      // Rotated titles only on the two ANCHORED axes: Plotly does not
+      // shift a free-anchored axis's title with the axis (measured), so
+      // axes 3-4 rely on color-matched ticks + the legend instead.
+      title: i < 2
+        ? { text: prettyName(S.y[i]), font: { color: traceColor(i) } }
+        : undefined,
       gridcolor: "rgba(0,0,0,0)", zerolinecolor: "#2c353d",
       tickfont: { color: traceColor(i) },
     };
@@ -583,6 +604,7 @@ function drawShots(data) {
   layout.yaxis = { gridcolor: "#2c353d", zerolinecolor: "#2c353d",
                    tickfont: { color: traceColor(0) } };
   multiYAxes(layout, S.y.length);
+  layout.xaxis.automargin = true;
   const yIsDate = !!(data.kinds && data.kinds[S.y[0]] === "datetime");
   applyDisplayToLayout(layout, xIsDate, yIsDate);
   Plotly.react(plotHost(), traces, layout, PLOT_CONFIG);

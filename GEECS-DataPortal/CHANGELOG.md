@@ -3,6 +3,25 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.8.1] - 2026-08-31
+
+### Fixed
+
+Multi-Y axis rendering (owner feedback: overlapping tick numbers,
+grey always-there labels):
+
+- Axes 3–4 stack outward via Plotly's native `autoshift` (the previous
+  hand-set `position` put them on top of axes 1–2's ticks).
+- Real color-matched axis titles on the two anchored axes; axes 3–4
+  rely on colored ticks + the legend (Plotly does not shift a
+  free-anchored axis's title with the axis — measured).
+- The grey "Click to enter …" placeholders are gone: in-place editing
+  is now granular (legend names, annotations, shapes) instead of
+  blanket `editable: true` — axis titles are auto-set, or settable via
+  the advanced layout box.
+- Single-trace plots hide the redundant legend (the colored axis title
+  names the trace); `automargin` on all axes.
+
 ## [0.8.0] - 2026-08-30
 
 ### Added
