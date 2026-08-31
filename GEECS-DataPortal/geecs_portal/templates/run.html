@@ -544,7 +544,12 @@ function applyDisplayToLayout(layout, xIsDate, yIsDate) {
 
 function deepMerge(target, patch) {
   for (const [key, value] of Object.entries(patch)) {
+    // Prototype-pollution guard: patch is URL-carried JSON, and a
+    // parsed "__proto__" key is an OWN property that would recurse
+    // into Object.prototype (shared-link threat model).
+    if (key === "__proto__" || key === "constructor" || key === "prototype") continue;
     if (value && typeof value === "object" && !Array.isArray(value)
+        && Object.prototype.hasOwnProperty.call(target, key)
         && target[key] && typeof target[key] === "object" && !Array.isArray(target[key])) {
       deepMerge(target[key], value);
     } else {
@@ -791,7 +796,7 @@ function applyDisplay() {
       d.layout = parsed;
     } catch (err) {
       const box = document.getElementById("ds-error");
-      box.textContent = "layout JSON: " + err.message;
+      box.textContent = "layout JSON: " + err.message + " — nothing applied";
       box.style.display = "block";
       return;  // keep the popup open — nothing applied
     }
