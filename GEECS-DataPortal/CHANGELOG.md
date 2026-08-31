@@ -3,6 +3,25 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.8.0] - 2026-08-30
+
+### Added
+
+The plot-controls suite (owner architecture feedback: stop hand-rolling
+one knob per request):
+
+- **Everything Plotly gives for free, switched on**: scroll-wheel zoom,
+  spike lines, hover-compare modes, and the built-in drawing tools
+  (line / freehand / rect / circle / eraser) in the modebar — direct
+  on-plot annotation, zero portal code to maintain.
+- **The layout passthrough**: the display popup gains an "advanced" box
+  taking any Plotly layout JSON, deep-merged onto the figure last (and
+  URL-carried in `display.layout`). The entire Plotly layout schema —
+  tick formats, fonts, legend placement, secondary-axis styling — is
+  now reachable without new portal code; the curated fields remain the
+  common-case UI. Malformed JSON keeps the popup open with the error,
+  applying nothing.
+
 ## [0.7.0] - 2026-08-30
 
 ### Added

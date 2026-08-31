@@ -46,7 +46,9 @@ this package; the architecture rules below are its distillation.
   doctrine — never put numerics in an endpoint that a notebook can't
   import).  All view state is URL-carried (`tab`/`y`/`x`/`view`/
   `filters`/`bincfg`/`display` — filters/bincfg are the
-  Pydantic/dataclass models' JSON, `display` the plot-cosmetics JSON):
+  Pydantic/dataclass models' JSON, `display` the plot-cosmetics JSON,
+  whose `layout` key is a raw Plotly-layout passthrough deep-merged
+  last: cosmetic asks should land there, not as new per-knob code):
   a link IS the analysis, which is also the multi-user story
   (statelessness; shared caches are a feature).  Every `/api` fetch
   additionally carries `v=<portal version>` — completed-run responses
