@@ -54,6 +54,14 @@ this package; the architecture rules below are its distillation.
   additionally carries `v=<portal version>` — completed-run responses
   cache immutable, and the version key rolls browser caches over when
   a release changes the payload shape.
+- **Prefix-agnostic URLs.**  The portal works at root and under any
+  reverse-proxy mount (OSPREY panel tabs).  Templates never write a
+  root-absolute portal URL directly: every href/action/src carries the
+  `{{ root }}` context value (the per-request root path —
+  `X-Forwarded-Prefix` via `_ForwardedPrefixMiddleware`, else
+  `--root-path`), page JS builds fetches from `const ROOT`, and
+  redirect endpoints prefix with `_root(request)`.  Pinned by
+  `tests/test_app.py::TestReverseProxy`.
 - **Hermetic tests.**  `tests/` drives the app through
   `fastapi.testclient.TestClient` over fake catalogs — no network, no
   data root, no config.ini.  Catalog failures must surface in the page

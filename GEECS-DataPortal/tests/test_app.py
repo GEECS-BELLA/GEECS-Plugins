@@ -704,3 +704,115 @@ class TestPlotTabPolish:
         assert "drawrect" in text
         assert "togglespikelines" in text
         assert "deepMerge(layout, d.layout)" in text  # the passthrough
+
+
+class TestReverseProxy:
+    """Behind a mount prefix every link, fetch base, and redirect carries it.
+
+    The Grafana/JupyterHub convention: the proxy strips the prefix from
+    the path and names it in ``X-Forwarded-Prefix``; the app derives
+    its root path per request (OSPREY panel tabs mount the portal this
+    way).  Served at root — no header — nothing changes.
+    """
+
+    PREFIX = {"X-Forwarded-Prefix": "/portal"}
+
+    def test_day_links_and_forms_carry_the_prefix(self):
+        client = _client(FakeCatalog(), default_experiment="Undulator")
+        response = client.get(f"/day/{TEST_DAY.isoformat()}", headers=self.PREFIX)
+        assert response.status_code == 200
+        assert '"/portal/run/uid-002?' in response.text
+        assert 'action="/portal/go"' in response.text
+        assert 'action="/portal/day/' in response.text
+        # No unprefixed portal link survives (external hrefs excluded).
+        assert 'href="/run/' not in response.text
+        assert 'href="/day/' not in response.text
+
+    def test_run_page_static_fetch_base_and_steppers_carry_the_prefix(self):
+        client = _client(FakeCatalog(), default_experiment="Undulator")
+        response = client.get("/run/uid-002", headers=self.PREFIX)
+        assert response.status_code == 200
+        assert 'src="/portal/static/plotly-cartesian-' in response.text
+        # The JS builds every /api fetch (and the scan-jump dropdown)
+        # from this constant.
+        assert 'const ROOT = "/portal";' in response.text
+        assert '"/portal/run/uid-001?' in response.text  # prev-scan stepper
+        assert 'src="/static/' not in response.text
+
+    def test_index_and_go_redirects_carry_the_prefix(self):
+        response = _client().get("/", headers=self.PREFIX, follow_redirects=False)
+        assert response.headers["location"].startswith("/portal/day/")
+        response = _client().get(
+            "/go?day=2026-07-12", headers=self.PREFIX, follow_redirects=False
+        )
+        assert response.headers["location"] == "/portal/day/2026-07-12"
+
+    def test_run_jump_redirect_carries_the_prefix(self):
+        client = _client(FakeCatalog(), default_experiment="Undulator")
+        response = client.get(
+            f"/run/jump/{TEST_DAY.isoformat()}",
+            headers=self.PREFIX,
+            follow_redirects=False,
+        )
+        assert response.headers["location"].startswith("/portal/run/uid-002?")
+
+    def test_served_at_root_nothing_changes(self):
+        client = _client(FakeCatalog(), default_experiment="Undulator")
+        response = client.get("/run/uid-002")
+        assert 'const ROOT = "";' in response.text
+        assert 'src="/static/plotly-cartesian-' in response.text
+        assert '"/run/uid-001?' in response.text
+
+    def test_trailing_slash_prefix_is_normalized(self):
+        response = _client().get(
+            "/", headers={"X-Forwarded-Prefix": "/portal/"}, follow_redirects=False
+        )
+        assert response.headers["location"].startswith("/portal/day/")
+
+    def test_malformed_prefixes_are_ignored(self):
+        for bad in (
+            "portal",
+            "//evil.example",
+            "/a b",
+            "/",
+            "/x\\y",
+            "/p?x=1",  # query/fragment/quote characters are not a path
+            "/p#frag",
+            '/p"x',
+            "/p<q>",
+        ):
+            response = _client().get(
+                "/", headers={"X-Forwarded-Prefix": bad}, follow_redirects=False
+            )
+            assert response.headers["location"].startswith("/day/"), bad
+
+    def test_mount_name_colliding_with_a_route_head_works(self):
+        # A mount literally named /run: the middleware re-prefixes the
+        # path so starlette's front-strip is exact — without it this
+        # whole route family double-strips to a 404.
+        client = _client(FakeCatalog(), default_experiment="Undulator")
+        response = client.get("/run/uid-002", headers={"X-Forwarded-Prefix": "/run"})
+        assert response.status_code == 200
+        assert 'const ROOT = "/run";' in response.text
+        assert '"/run/run/uid-001?' in response.text  # prev-scan stepper
+
+    def test_trailing_slash_redirect_keeps_the_prefix(self):
+        # Starlette's redirect_slashes builds the Location from the
+        # scope path — re-prefixed, so the hop stays under the mount.
+        client = _client(FakeCatalog(), default_experiment="Undulator")
+        response = client.get(
+            "/run/uid-002/", headers=self.PREFIX, follow_redirects=False
+        )
+        assert response.status_code in (301, 307)
+        assert "/portal/run/uid-002" in response.headers["location"]
+
+    def test_api_still_serves_under_a_prefix(self):
+        client = _client(FakeCatalog(), default_experiment="Undulator")
+        response = client.get("/api/run/uid-002/columns", headers=self.PREFIX)
+        assert response.status_code == 200
+        assert response.json()["total"] == 3
+
+    def test_health_still_serves_under_a_prefix(self):
+        response = _client().get("/health", headers=self.PREFIX)
+        assert response.status_code == 200
+        assert response.json()["ok"] is True

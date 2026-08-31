@@ -87,7 +87,7 @@
            padding: 0.3rem 0.9rem; font-size: 12px; cursor: pointer; font-weight: 600; }
   .plotmsg { color: var(--dim); font-size: 13px; padding: 2rem 0; text-align: center; }
 </style>
-<script src="/static/plotly-cartesian-3.1.1.min.js"></script>
+<script src="{{ root }}/static/plotly-cartesian-3.1.1.min.js"></script>
 {% endblock %}
 {% block content %}
 <div class="frame">
@@ -100,21 +100,21 @@
         · {{ summary.exit_status or "running" }}{% if start_time_of_day %} · {{ start_time_of_day }}{% endif %}</div>
       <div class="steprow">
         {% if run_day %}
-        <a class="act" href="/run/jump/{{ prev_day }}?prefer={{ scan_number }}&amp;{{ qs(device="", shot="") }}" title="previous day (same scan number, else its latest)">‹ day</a>
-        <a class="act" href="/day/{{ run_day }}?{{ qs(device="", shot="") }}" title="browse this day's list">{{ run_day }}</a>
-        <a class="act" href="/run/jump/{{ next_day }}?prefer={{ scan_number }}&amp;{{ qs(device="", shot="") }}" title="next day (same scan number, else its latest)">day ›</a>
+        <a class="act" href="{{ root }}/run/jump/{{ prev_day }}?prefer={{ scan_number }}&amp;{{ qs(device="", shot="") }}" title="previous day (same scan number, else its latest)">‹ day</a>
+        <a class="act" href="{{ root }}/day/{{ run_day }}?{{ qs(device="", shot="") }}" title="browse this day's list">{{ run_day }}</a>
+        <a class="act" href="{{ root }}/run/jump/{{ next_day }}?prefer={{ scan_number }}&amp;{{ qs(device="", shot="") }}" title="next day (same scan number, else its latest)">day ›</a>
         {% endif %}
       </div>
       <div class="steprow">
-        <a class="act {{ "off" if not prev_uid }}" href="/run/{{ prev_uid }}?{{ qs() }}" title="previous scan">‹ scan</a>
+        <a class="act {{ "off" if not prev_uid }}" href="{{ root }}/run/{{ prev_uid }}?{{ qs() }}" title="previous scan">‹ scan</a>
         {% if day_runs %}
-        <select class="act" onchange="if(this.value) location = '/run/' + this.value + location.search" title="jump to a scan on this day">
+        <select class="act" onchange="if(this.value) location = ROOT + '/run/' + this.value + location.search" title="jump to a scan on this day">
           {% for run in day_runs %}
           <option value="{{ run.uid }}" {{ "selected" if run.uid == uid }}>Scan {{ "%03d" | format(run.scan_number) if run.scan_number is not none else "?" }} · {{ run.mode }} · {{ run.exit_status or "running" }}</option>
           {% endfor %}
         </select>
         {% endif %}
-        <a class="act {{ "off" if not next_uid }}" href="/run/{{ next_uid }}?{{ qs() }}" title="next scan">scan ›</a>
+        <a class="act {{ "off" if not next_uid }}" href="{{ root }}/run/{{ next_uid }}?{{ qs() }}" title="next scan">scan ›</a>
       </div>
       <div class="dim" style="font-size:11px; margin-top:0.2rem;">filters &amp; columns persist across day/scan steps</div>
       <div style="margin-top:0.5rem;" id="providers"></div>
@@ -178,7 +178,7 @@
       {% if devices %}
       <p>
         {% for dev in devices %}
-        <a class="mono" href="/run/{{ uid }}?{{ qs(device=dev, shot=1, tab="images") }}">{{ dev }}</a>{{ " · " if not loop.last }}
+        <a class="mono" href="{{ root }}/run/{{ uid }}?{{ qs(device=dev, shot=1, tab="images") }}">{{ dev }}</a>{{ " · " if not loop.last }}
         {% endfor %}
       </p>
       {% if sel_device %}
@@ -191,22 +191,22 @@
       render (trace/array data, not an image). Files live at:</p>
       <p class="mono">{{ kind_path }}</p>
       {% else %}
-      <form class="nav" method="get" action="/run/{{ uid }}">
+      <form class="nav" method="get" action="{{ root }}/run/{{ uid }}">
         <input type="hidden" name="device" value="{{ sel_device }}">
         <input type="hidden" name="day" value="{{ day }}">
         <input type="hidden" name="experiment" value="{{ experiment }}">
         <input type="hidden" name="tab" value="images">
         {% if filter %}<input type="hidden" name="filter" value="{{ filter }}">{% endif %}
-        {% if shot > 1 %}<a href="/run/{{ uid }}?{{ qs(shot=shot - 1, tab="images") }}">&larr; prev</a>{% endif %}
+        {% if shot > 1 %}<a href="{{ root }}/run/{{ uid }}?{{ qs(shot=shot - 1, tab="images") }}">&larr; prev</a>{% endif %}
         <label class="dim">shot
           <input type="number" name="shot" value="{{ shot }}" min="1" style="width: 5rem">
         </label>
         <button type="submit">Show</button>
-        {% if has_next_shot %}<a href="/run/{{ uid }}?{{ qs(shot=shot + 1, tab="images") }}">next &rarr;</a>{% endif %}
+        {% if has_next_shot %}<a href="{{ root }}/run/{{ uid }}?{{ qs(shot=shot + 1, tab="images") }}">next &rarr;</a>{% endif %}
         {% if total_shots %}<span class="dim mono">of ~{{ total_shots }}</span>{% endif %}
         <span class="dim mono">{{ kind }}</span>
       </form>
-      <img class="plot" src="/run/{{ uid }}/image.png?device={{ sel_device | urlencode }}&amp;shot={{ shot }}&amp;day={{ day | urlencode }}" alt="{{ sel_device }} shot {{ shot }}">
+      <img class="plot" src="{{ root }}/run/{{ uid }}/image.png?device={{ sel_device | urlencode }}&amp;shot={{ shot }}&amp;day={{ day | urlencode }}" alt="{{ sel_device }} shot {{ shot }}">
       {% endif %}
       {% else %}
       <p class="dim">Pick a device above.</p>
@@ -307,6 +307,7 @@
 <script>
 "use strict";
 const UID = {{ uid | tojson }};
+const ROOT = {{ root | tojson }};  // proxy mount prefix ("" at root)
 const DAY = {{ day | tojson }};
 const TRACE_COLORS = ["#4cc2b4", "#d6a860", "#6f9fd8", "#c47ab8"];
 // Everything Plotly gives for free, switched ON: wheel zoom, in-place
@@ -397,7 +398,7 @@ function api(path, params) {
   // Completed-run /api responses cache immutable; the version key rolls
   // browser caches over when the payload shape changes on upgrade.
   p.set("v", {{ portal_version | tojson }});
-  return fetch(`/api/run/${UID}/${path}?` + p.toString()).then(r => {
+  return fetch(`${ROOT}/api/run/${UID}/${path}?` + p.toString()).then(r => {
     if (!r.ok) return r.json().then(b => { throw new Error(b.detail || r.statusText); });
     return r.json();
   });
