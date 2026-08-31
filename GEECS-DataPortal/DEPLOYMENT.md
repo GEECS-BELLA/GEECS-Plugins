@@ -100,7 +100,9 @@ trailing-slash redirects drop the prefix (Starlette builds them from
 the un-prefixed path; the header mode re-prefixes the path and has
 neither limitation). Malformed header values (not root-absolute, `//`,
 whitespace, query/fragment characters) are ignored rather than
-propagated into page links.
+propagated into page links. The header is a strip-style contract: a
+proxy that does **not** strip the prefix must not send it (the symptom
+of that misconfiguration is loud — every page 404s).
 
 For a panel health LED, probe `GET /health` — 200 always (the JSON
 `ok` field reports the catalog probe, so a down Tiled shows as a
