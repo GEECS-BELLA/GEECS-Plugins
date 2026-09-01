@@ -16,6 +16,7 @@ from geecs_data_utils.io.array1d import (
     read_1d_data,
 )
 from geecs_data_utils.io.images import (
+    average_frames,
     decode_imaq_image_string,
     load_image_from_h5,
     read_imaq_image,
@@ -37,6 +38,7 @@ __all__ = [
     "Data1DType",
     "LABVIEW_EPOCH_OFFSET",
     "ShotRef",
+    "average_frames",
     "decode_imaq_image_string",
     "find_stack_file",
     "is_stack_file",

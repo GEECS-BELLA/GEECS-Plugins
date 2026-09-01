@@ -21,6 +21,8 @@ from typing import (
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 import logging
 
+from geecs_data_utils.io.images import average_frames
+
 # exception to handle python 3.7
 try:
     from typing import TypedDict
@@ -86,30 +88,13 @@ ScalarFeatureValue = Union[int, float, str, bool, None]
 def _safe_nanmean_arrays(arrays: List[NDArray], *, label: str) -> Optional[NDArray]:
     """Average a list of ndarrays along axis 0, skipping with a warning on shape mismatch.
 
-    Wraps :func:`numpy.nanmean` with an explicit homogeneity check.
-    ``np.nanmean(list_of_arrays, axis=0)`` calls ``np.asanyarray``
-    first, which raises a hard ``ValueError`` on numpy 2.x when rows
-    have different shapes. We detect that case up front and return
-    ``None`` so the caller can omit the field from the averaged result
-    rather than killing the whole post-processing pipeline.
-
-    Returns ``None`` for an empty list, mixed shapes, or any other
-    asanyarray failure. The named ``label`` is used in the log message
-    so callers can attribute warnings to the right field.
+    Thin delegate to :func:`geecs_data_utils.io.images.average_frames` —
+    the ONE shared frame averager (empty list or mixed shapes degrade to
+    ``None`` with a warning attributed to ``label``, so the caller can
+    omit the field from the averaged result rather than killing the
+    whole post-processing pipeline).
     """
-    if not arrays:
-        return None
-    shapes = {np.asarray(a).shape for a in arrays}
-    if len(shapes) > 1:
-        logger.warning(
-            "Cannot average %s across %d shots: inhomogeneous shapes %s. "
-            "Skipping this field in the averaged result.",
-            label,
-            len(arrays),
-            sorted(shapes),
-        )
-        return None
-    return np.nanmean(arrays, axis=0)
+    return average_frames(arrays, label=label)
 
 
 class ImageAnalyzerResult(BaseModel):
