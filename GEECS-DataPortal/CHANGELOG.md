@@ -23,7 +23,9 @@ plotly.js renderer, spec authorship moves down):
   color or non-positive marker size falls back to the default, because
   display state rides shared links) and return a ready `figure` field.
   Responses without `cols` carry no figure. The version-keyed `/api`
-  cache rolls browsers onto the new shape.
+  cache rolls browsers onto the new shape. The raw `series`/`shot`/
+  `bins` keys stay alongside `figure` deliberately — the `/api` layer
+  remains the data contract; the duplication is the accepted cost.
 - `run.html`: `drawShots`/`drawBinned`/`multiYAxes`/
   `applyDisplayToLayout` and the layout constants collapse into one
   `drawFigure` — `Plotly.react` over the served figure. The

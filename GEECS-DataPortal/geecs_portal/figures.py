@@ -97,12 +97,17 @@ def _is_hex_color(value: str) -> bool:
     )
 
 
+#: Default marker size — injected into the page so the display popup's
+#: "is this the default?" check cannot drift from the figure builder.
+MARKER_SIZE_DEFAULT = 5.0
+
+
 def _marker_size(display: Optional[Mapping]) -> float:
     size = (display or {}).get("msize")
     if isinstance(size, (int, float)) and not isinstance(size, bool):
         if math.isfinite(size) and size > 0:
             return float(size)
-    return 5.0
+    return MARKER_SIZE_DEFAULT
 
 
 def _axis_range(lo: Any, hi: Any, log: bool) -> Optional[list]:
@@ -205,16 +210,39 @@ def _apply_display(
         layout["yaxis"]["autorange"] = False
 
 
+def shot_axis_for_frame(frame):
+    """The shot axis for a DataFrame — THE one implementation of the rule.
+
+    ``scan_event_index`` when present (1-based already), else 1-based
+    row labels; union rows the event side missed carry NA there and are
+    coalesced from the s-file's own shot identity (plain, or suffixed
+    by scan_frame's collision rename) — the 0.9.1 rule: Plotly silently
+    drops points with a null x, so those rows must keep a shot axis.
+    The ``/api`` frame endpoint and the "show the code" snippet both go
+    through here; a filtered frame keeps original shot identities.
+    """
+    import pandas as pd
+
+    from geecs_data_utils.tiled_schema import SHOT_INDEX_COLUMN
+
+    if SHOT_INDEX_COLUMN in frame.columns:
+        shot = frame[SHOT_INDEX_COLUMN].copy()
+    else:
+        shot = frame.index.to_series() + 1
+    if shot.isna().any():
+        for name in ("Shotnumber", "Shotnumber (s-file)"):
+            if name in frame.columns:
+                shot = shot.fillna(pd.to_numeric(frame[name], errors="coerce"))
+    return shot
+
+
 def _shot_axis(series: Mapping, y: Sequence[str], shot: Optional[Sequence]) -> Sequence:
     if shot is not None:
         return shot
+    if hasattr(series, "columns") and hasattr(series, "index"):
+        return shot_axis_for_frame(series)
     if "Shotnumber" in series:
         return series["Shotnumber"]
-    if hasattr(series, "index"):
-        # A DataFrame without a Shotnumber column: 1-based row labels,
-        # matching the endpoint's index+1 shot key (a filtered frame
-        # keeps original shot identities — never renumber).
-        return [i + 1 for i in series.index]
     return list(range(1, len(series[y[0]]) + 1))
 
 

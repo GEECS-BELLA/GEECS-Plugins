@@ -708,11 +708,18 @@ class TestServerFigures:
         assert fig["layout"]["xaxis"]["title"]["text"] == "mono"
         assert "binned_figure" in payload["code"]
 
-    def test_page_injects_the_server_palette(self):
-        from geecs_portal.figures import TRACE_COLORS
+    def test_page_injects_the_server_palette_and_marker_default(self):
+        from geecs_portal.figures import MARKER_SIZE_DEFAULT, TRACE_COLORS
 
         text = _client().get("/run/uid-002").text
         assert f"const TRACE_COLORS = {json.dumps(list(TRACE_COLORS))};" in text
+        assert f"const MSIZE_DEFAULT = {json.dumps(MARKER_SIZE_DEFAULT)};" in text
+
+    def test_datetime_snippet_carries_kinds(self):
+        # Without kinds the notebook figure would apply logx/x-ranges
+        # to a date axis the page's figure guards — divergence.
+        payload = _client().get("/api/run/uid-002/frame?cols=ts_cam-MaxCounts").json()
+        assert "kinds={'ts_cam-MaxCounts': 'datetime'}" in payload["code"]
 
 
 class TestPlotTabPolish:

@@ -133,8 +133,29 @@ class TestShotsFigure:
         frame = pd.DataFrame({"a": [1.0, 2.0, 3.0]}, index=[0, 4, 9])
         fig = _fig_dict(shots_figure(frame, ["a"]))
         assert fig["data"][0]["x"] == [1, 5, 10]
+        # A DataFrame follows the ENDPOINT's rule (scan_event_index
+        # else index+1; Shotnumber only coalesces NA cells) — a frame
+        # with Shotnumber but no event index gets row labels, exactly
+        # as /api serves it.  Plain mappings (the /api payload shape)
+        # still honor an explicit Shotnumber key.
         with_shot = pd.DataFrame({"a": [1.0, 2.0], "Shotnumber": [11, 12]})
-        assert _fig_dict(shots_figure(with_shot, ["a"]))["data"][0]["x"] == [11, 12]
+        assert _fig_dict(shots_figure(with_shot, ["a"]))["data"][0]["x"] == [1, 2]
+        as_mapping = {"a": [1.0, 2.0], "Shotnumber": [11, 12]}
+        assert _fig_dict(shots_figure(as_mapping, ["a"]))["data"][0]["x"] == [11, 12]
+
+    def test_frame_shot_axis_is_the_endpoint_rule(self):
+        # ONE implementation of the shot-axis contract: the notebook
+        # path must coalesce union NA rows exactly like /api does
+        # (0.9.1's fix — a null x is a silently dropped point).
+        frame = pd.DataFrame(
+            {
+                "a": [1.0, 2.0, 3.0],
+                "scan_event_index": [1.0, 2.0, float("nan")],
+                "Shotnumber": [float("nan"), 2.0, 3.0],
+            }
+        )
+        fig = _fig_dict(shots_figure(frame, ["a"]))
+        assert fig["data"][0]["x"] == [1.0, 2.0, 3.0]
 
 
 class TestBinnedFigure:

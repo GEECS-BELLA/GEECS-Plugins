@@ -310,6 +310,7 @@ const UID = {{ uid | tojson }};
 const ROOT = {{ root | tojson }};  // proxy mount prefix ("" at root)
 const DAY = {{ day | tojson }};
 const TRACE_COLORS = {{ trace_colors | tojson }};
+const MSIZE_DEFAULT = {{ msize_default | tojson }};
 // Everything Plotly gives for free, switched ON: wheel zoom, in-place
 // legend-name editing, spike lines + hover modes, and the drawing
 // tools (annotate directly on the plot; shapes are editable/erasable).
@@ -517,7 +518,10 @@ function traceColor(i) {
   // sinks this feeds — anything else falls back to the palette.
   const d = dispCfg();
   const c = d.colors && d.colors[i];
-  return (typeof c === "string" && /^#[0-9a-fA-F]{3,8}$/.test(c)) ? c : TRACE_COLORS[i];
+  // Same lengths the server's _is_hex_color accepts (3/4/6/8) — the
+  // chip and the trace must agree on what counts as a custom color.
+  return (typeof c === "string" && /^#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(c))
+    ? c : TRACE_COLORS[i];
 }
 
 function deepMerge(target, patch) {
@@ -715,7 +719,7 @@ function applyDisplay() {
     if (Number.isFinite(value)) d[key] = value;
   }
   const msize = parseFloat(document.getElementById("ds-msize").value);
-  if (Number.isFinite(msize) && msize > 0 && msize !== 5) d.msize = msize;
+  if (Number.isFinite(msize) && msize > 0 && msize !== MSIZE_DEFAULT) d.msize = msize;
   const colors = S.y.map((name, i) => {
     const input = document.getElementById("ds-color-" + i);
     return input ? input.value : TRACE_COLORS[i];

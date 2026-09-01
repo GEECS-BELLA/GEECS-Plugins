@@ -45,7 +45,11 @@ this package; the architecture rules below are its distillation.
   Python** (`geecs_portal/figures.py`, plotly.py — the bake-off
   ruling): endpoints return a ready `figure` and the tab JS is
   `Plotly.react` over it — plot logic belongs in `figures.py` (pure,
-  unit-tested), never back in template JS.  Every endpoint response
+  unit-tested), never back in template JS.  The raw `series`/`shot`/
+  `bins`/`counts` keys stay alongside `figure` **on purpose**: the
+  `/api` layer is the data contract (scripts, debugging, and future
+  tabs read numbers, not figures) — the payload duplication is the
+  accepted cost, not an oversight.  Every endpoint response
   carries a `code` field: the notebook snippet that reproduces it
   exactly, **figure included** — `shots_figure`/`binned_figure` accept
   the reproduced frame directly (the reproducibility doctrine — never

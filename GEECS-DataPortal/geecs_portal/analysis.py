@@ -390,14 +390,20 @@ def frame_code(
                 ".map(datetime.fromtimestamp)\n"
             )
     x_arg = f", x={x!r}" if x else ""
+    # The kinds map keeps date-axis semantics in the notebook figure
+    # (log/range guards on datetime axes — the page's rule).
+    kinds = {column: "datetime" for column in converted}
+    kinds_arg = f", kinds={kinds!r}" if kinds else ""
     return (
         "# reproduces this view exactly — the endpoint calls the same functions\n"
         + _snippet_prelude(uid, run_day)
         + _snippet_filters(filters)
         + conversion
         + f"series = frame[{columns!r}]\n"
-        + "from geecs_portal.figures import shots_figure\n"
-        + f"shots_figure(frame, y={columns!r}{x_arg}{_snippet_display(display)})"
+        + "from geecs_portal.figures import shots_figure"
+        + "  # pip install geecs-data-portal\n"
+        + f"shots_figure(frame, y={columns!r}{x_arg}{kinds_arg}"
+        + f"{_snippet_display(display)})"
         + "  # the figure the Plot tab renders\n"
     )
 
@@ -426,7 +432,8 @@ def binned_code(
         + "\n"
         + f"result = bin_frame(frame, BinningConfig({kwargs}))\n"
         + "result.frame  # (column, center/err_low/err_high); result.counts per bin\n"
-        + "from geecs_portal.figures import binned_figure\n"
+        + "from geecs_portal.figures import binned_figure"
+        + "  # pip install geecs-data-portal\n"
         + "series = {c: {s: result.frame[(c, s)].tolist()\n"
         + '               for s in ("center", "err_low", "err_high")}\n'
         + f"          for c in {columns!r} if (c, 'center') in result.frame}}\n"

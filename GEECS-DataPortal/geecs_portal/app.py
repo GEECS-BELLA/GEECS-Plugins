@@ -433,28 +433,16 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
                 kinds[column] = "datetime"
             else:
                 series[column] = analysis.jsonable_values(full[mask])
-        shot_key = (
-            pf.frame[schema_map.SHOT_INDEX_COLUMN]
-            if schema_map.SHOT_INDEX_COLUMN in pf.frame.columns
-            else pf.frame.index.to_series() + 1
+        # The shot-axis rule (scan_event_index, NA-coalesced from the
+        # s-file's Shotnumber) lives in figures.shot_axis_for_frame —
+        # ONE implementation, shared with the notebook snippet's path.
+        shot_values = analysis.jsonable_values(
+            figures.shot_axis_for_frame(pf.frame)[mask]
         )
-        if shot_key.isna().any():
-            # Union rows the event side missed carry NA here — coalesce
-            # with the s-file's own shot identity (plain, or suffixed by
-            # scan_frame's collision rename) so those rows keep a shot
-            # axis; Plotly silently drops points with a null x.
-            import pandas as pd
-
-            for name in ("Shotnumber", "Shotnumber (s-file)"):
-                if name in pf.frame.columns:
-                    shot_key = shot_key.fillna(
-                        pd.to_numeric(pf.frame[name], errors="coerce")
-                    )
-        shot_values = analysis.jsonable_values(shot_key[mask])
-        # The page falls back to the shot axis when the picked X is not
-        # servable — the figure mirrors that, and the snippet quotes the
-        # X that actually rendered.
-        x_name = x if x and x in series else None
+        # An unservable x already 404'd in the coercion loop above;
+        # empty means "no X picked" — the shot axis, and the snippet
+        # omits the x argument.
+        x_name = x or None
         payload = {
             "series": series,
             "kinds": kinds,
@@ -787,9 +775,11 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
                 "has_next_shot": n_rows is None or shot < n_rows,
                 "total_shots": detail.summary.shots,
                 "portal_version": _portal_version(),
-                # The rail's column chips must stay color-matched to the
-                # server-authored traces — one palette, injected.
+                # The rail's chips and the display popup must stay in
+                # step with the server-authored figures — one palette,
+                # one marker default, both injected.
                 "trace_colors": list(figures.TRACE_COLORS),
+                "msize_default": figures.MARKER_SIZE_DEFAULT,
                 "qs": lambda **kw: _sticky_query(state, **kw),
             },
         )
