@@ -4,6 +4,31 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.70.0] - 2026-09-01
+
+### Changed
+
+- **ScanRequest v2 adoption** (geecs-schemas 0.14.0, Phase 1 of
+  `Planning/schema_refactor/00_overview.md`): every engine and client
+  read of the seven capture fields moved to `request.capture.*`
+  (runner, queue plan, qs_client preflight). Flat v1 documents keep
+  validating via the schema's lifting validator, so old presets and
+  archived run metadata are unaffected.
+- **Request/record split — the submission vehicle**:
+  `geecs_scan_request_plan` grew an optional `submission` kwarg (also
+  `run_scan_request(submission=...)`); the client-stamped
+  `SubmissionRecord` now travels beside the request instead of inside
+  it and still lands verbatim in run metadata (`md["submission"]`).
+  `QueueClient.submit_scan(request, submission=..., clear_pending=...)`
+  passes it as the plan kwarg only when given, so an old client against
+  the new worker keeps working; a NEW client passing a record against an
+  OLD worker fails queue-add validation — deploy the worker first.
+  `qs_client.stamp_submission` (stamped into the request) is replaced by
+  `build_submission_record` (returns the record);
+  `metadata_submission` now takes the record, not the request.
+- The `SCAN_REQUEST_PLAN_ANNOTATION` documents the new `submission`
+  parameter for `plans_allowed` consumers.
+
 ## [0.69.0] - 2026-08-31
 
 ### Added

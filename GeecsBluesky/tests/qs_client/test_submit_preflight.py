@@ -13,8 +13,8 @@ import pytest
 from geecs_bluesky.qs_client import submit_preflight
 from geecs_bluesky.qs_client.submit_preflight import (
     PreflightReport,
+    build_submission_record,
     run_submit_preflight,
-    stamp_submission,
 )
 from geecs_schemas import ScanRequest
 
@@ -186,15 +186,12 @@ class TestRunSubmitPreflight:
         assert report.outcomes == [("validate", "passed", "")]
 
 
-class TestStampSubmission:
-    def test_stamps_an_aware_timestamp_and_outcomes(self):
-        request = _request()
-        stamped = stamp_submission(
-            request,
+class TestBuildSubmissionRecord:
+    def test_builds_an_aware_timestamp_and_outcomes(self):
+        record = build_submission_record(
             [("validate", "passed", ""), ("gateway_liveness", "continued", "x down")],
             client="geecs-console 0.21.0",
         )
-        record = stamped.submission
         assert record.client == "geecs-console 0.21.0"
         # The schema's documented contract: ISO 8601 WITH timezone — a naive
         # datetime.now().isoformat() has no offset and must never appear.
@@ -206,13 +203,15 @@ class TestStampSubmission:
             "gateway_liveness",
         ]
         assert record.preflight[1].result.value == "continued"
-        # The original request is untouched (model_copy semantics).
-        assert request.submission is None
 
-    def test_stamped_request_survives_the_queue_dump(self):
-        stamped = stamp_submission(_request(), [], client="c")
-        again = ScanRequest.model_validate(stamped.model_dump(mode="json"))
-        assert again.submission.client == "c"
+    def test_record_survives_the_queue_dump(self):
+        # The record travels beside the request as its own JSON dict
+        # (request/record split, geecs-schemas 0.14.0).
+        from geecs_schemas import SubmissionRecord
+
+        record = build_submission_record([], client="c")
+        again = SubmissionRecord.model_validate(record.model_dump(mode="json"))
+        assert again.client == "c"
 
 
 class TestReportShape:

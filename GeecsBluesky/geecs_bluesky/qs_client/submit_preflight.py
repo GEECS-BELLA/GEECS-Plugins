@@ -12,9 +12,11 @@ disposition").
 
 This module is the pure layer: it computes findings and questions on the
 caller's thread and returns them; **rendering/answering lives in the
-client**.  Outcomes are stamped into the request's ``submission`` record
-(geecs-schemas ≥ 0.10.0) by :func:`stamp_submission`, giving the run
-metadata a provenance trail of who was asked what and what they answered.
+client**.  Outcomes go into a ``SubmissionRecord`` built by
+:func:`build_submission_record` and submitted *beside* the request
+(``submit_scan(request, submission=...)`` — geecs-schemas 0.14.0 split
+the record out of the request document), giving the run metadata a
+provenance trail of who was asked what and what they answered.
 
 Checks, in order (names are the ``PreflightOutcome.check`` vocabulary):
 
@@ -93,12 +95,12 @@ def _resolve_devices_config(request: Any, resolver: Any) -> dict[str, dict]:
         save_set_to_devices_config,
     )
 
-    if not request.save_sets:
+    if not request.capture.save_sets:
         # A save-set-less optimize request: the optimizer's requirements are
         # provisioned worker-side; nothing to check here.
         return {}
     save_set, _rituals = resolve_save_sets_and_rituals(
-        resolver, list(request.save_sets)
+        resolver, list(request.capture.save_sets)
     )
     return save_set_to_devices_config(save_set)
 
@@ -163,7 +165,9 @@ def run_submit_preflight(request: Any, experiment: str) -> PreflightReport:
             report.outcomes.append(("gateway_liveness", "skipped", str(exc)))
 
     # -- free-run staleness --------------------------------------------------
-    if devices_config and getattr(request.acquisition, "value", None) == "free_run":
+    if devices_config and (
+        getattr(request.capture.acquisition, "value", None) == "free_run"
+    ):
         try:
             _check_staleness(report, devices_config, experiment)
         except Exception as exc:
@@ -321,15 +325,18 @@ def _check_staleness(
     )
 
 
-def stamp_submission(
-    request: Any, outcomes: list[tuple[str, str, str]], *, client: str
+def build_submission_record(
+    outcomes: list[tuple[str, str, str]], *, client: str
 ) -> Any:
-    """Return *request* with the ``submission`` provenance record stamped.
+    """Build the ``SubmissionRecord`` that travels beside the request.
+
+    Since geecs-schemas 0.14.0 the record is not part of the request
+    document (request/record split): clients pass it as
+    ``submit_scan(request, submission=record.model_dump(mode="json"))``
+    and the worker records it in run metadata.
 
     Parameters
     ----------
-    request : geecs_schemas.ScanRequest
-        The request about to be queued.
     outcomes :
         Final ``(check, result, detail)`` tuples — the report's decided
         outcomes plus one ``continued`` entry per question answered.
@@ -338,14 +345,14 @@ def stamp_submission(
 
     Returns
     -------
-    geecs_schemas.ScanRequest
-        A copy with ``submission`` set; the original is untouched.
+    geecs_schemas.SubmissionRecord
+        The provenance record for this submission.
     """
     from datetime import datetime, timezone
 
     from geecs_schemas import PreflightOutcome, SubmissionRecord
 
-    record = SubmissionRecord(
+    return SubmissionRecord(
         client=client,
         # Aware local time — the tz-offset contract the schema documents
         # (naive datetime.now().isoformat() is exactly the bug to avoid).
@@ -355,4 +362,3 @@ def stamp_submission(
             for check, result, detail in outcomes
         ],
     )
-    return request.model_copy(update={"submission": record})

@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field, model_validator
 
 from geecs_schemas import (
     AcquisitionMode,
+    CaptureSettings,
     OptimizationSpec,
     PositionList,
     PositionRange,
@@ -252,11 +253,13 @@ def build_scan_request(form: ConsoleFormState) -> ScanRequest:
     return ScanRequest(
         mode=mode,
         axes=axes,
-        shots_per_step=form.shots_per_step,
-        acquisition=form.acquisition,
-        save_sets=list(form.save_sets),
-        trigger_profile=form.trigger_profile,
-        trigger_variant=form.trigger_variant,
+        capture=CaptureSettings(
+            shots_per_step=form.shots_per_step,
+            acquisition=form.acquisition,
+            save_sets=list(form.save_sets),
+            trigger_profile=form.trigger_profile,
+            trigger_variant=form.trigger_variant,
+        ),
         description=form.description,
         background=form.background or form.mode is ConsoleMode.BACKGROUND,
         optimization=optimization,
@@ -330,11 +333,11 @@ def form_state_from_request(request: ScanRequest) -> ConsoleFormState:
     return ConsoleFormState(
         mode=mode,
         axes=axes,
-        shots_per_step=request.shots_per_step,
-        save_sets=list(request.save_sets),
-        trigger_profile=request.trigger_profile,
-        trigger_variant=request.trigger_variant,
-        acquisition=request.acquisition,
+        shots_per_step=request.capture.shots_per_step,
+        save_sets=list(request.capture.save_sets),
+        trigger_profile=request.capture.trigger_profile,
+        trigger_variant=request.capture.trigger_variant,
+        acquisition=request.capture.acquisition,
         description=request.description,
         background=background,
         optimization=request.optimization,

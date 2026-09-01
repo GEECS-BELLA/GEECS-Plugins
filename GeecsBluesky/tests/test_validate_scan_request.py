@@ -252,10 +252,10 @@ def test_returns_post_defaults_copy_with_provenance() -> None:
     )
     request = _request()  # no trigger_profile of its own
     validated, applied, _defaults = validate_scan_request(request, resolver)
-    assert validated.trigger_profile == "HTU"
+    assert validated.capture.trigger_profile == "HTU"
     assert applied == {"trigger_profile": "HTU"}
     # The input request is untouched (post-defaults COPY, never in place).
-    assert request.trigger_profile is None
+    assert request.capture.trigger_profile is None
 
 
 def test_valid_plan_names_resolve_clean() -> None:

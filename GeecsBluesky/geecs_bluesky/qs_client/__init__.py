@@ -10,8 +10,10 @@ client of the queue: notebooks and the GEECS MCP submit the same
   section reader of the shared ``~/.config/geecs_python_api/config.ini``.
 - :mod:`.submit_preflight` — the client-side pre-submit checks (engine
   validation, unserved variables, CONNECTED liveness, free-run staleness)
-  and :func:`stamp_submission`, which records client identity and check
-  outcomes into ``ScanRequest.submission`` for run-metadata provenance.
+  and :func:`build_submission_record`, which records client identity and
+  check outcomes into the ``SubmissionRecord`` submitted beside the
+  request (``submit_scan(request, submission=...)``) for run-metadata
+  provenance.
 
 Importing this package is deliberately light: ``bluesky-queueserver-api``
 (the ``qs-client`` extra) and the engine/CA internals load lazily inside
@@ -38,8 +40,8 @@ from geecs_bluesky.qs_client.client import (
 from geecs_bluesky.qs_client.submit_preflight import (
     PreflightQuestion,
     PreflightReport,
+    build_submission_record,
     run_submit_preflight,
-    stamp_submission,
 )
 
 __all__ = [
@@ -54,6 +56,6 @@ __all__ = [
     "read_qserver_config",
     "PreflightQuestion",
     "PreflightReport",
+    "build_submission_record",
     "run_submit_preflight",
-    "stamp_submission",
 ]

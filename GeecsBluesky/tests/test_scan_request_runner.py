@@ -1417,7 +1417,7 @@ def test_apply_experiment_defaults_fills_unset_fields() -> None:
         "actions": {"setup": ["prep"], "closeout": ["shutdown"]},
     }
     updated, applied = apply_experiment_defaults(request, defaults)
-    assert updated.trigger_profile == "HTU-Normal"
+    assert updated.capture.trigger_profile == "HTU-Normal"
     assert updated.actions.setup == ["prep"]
     assert updated.actions.closeout == ["shutdown"]
     assert applied == {
@@ -1426,7 +1426,7 @@ def test_apply_experiment_defaults_fills_unset_fields() -> None:
         "actions.closeout": ["shutdown"],
     }
     # The original request is never mutated.
-    assert request.trigger_profile is None
+    assert request.capture.trigger_profile is None
     assert request.actions.setup == []
 
 

@@ -36,7 +36,9 @@ are prefixed by region (`r3_radio_1d`, `r5_start_button`, …).
   (`run_submit_preflight` — engine validation, unserved variables,
   CONNECTED liveness, free-run staleness) on the submit worker → each
   question as one modal (`_ask_binary`; a render failure reads as abort)
-  → `stamp_submission` writes the `SubmissionRecord` → the queue submit
+  → `build_submission_record` builds the `SubmissionRecord`, submitted
+  beside the request (`submit_scan(request, submission=...)` — the
+  request/record split, geecs-schemas 0.14.0) → the queue submit
   on the worker, with the **failed-item-at-front question** ("Remove &&
   submit?") on a non-empty queue.  Both worker callables capture their
   own exceptions into refusal/failure results — `BackgroundResult`
@@ -159,8 +161,9 @@ are prefixed by region (`r3_radio_1d`, `r5_start_button`, …).
   `datatype=str` because CONNECTED is a DBR_ENUM — a native read returns
   the index and can never match "Disconnected") and a free-run
   staleness sample), and each question is an ordinary synchronous modal
-  (`_ask_binary`).  Answers are stamped into the request's
-  `SubmissionRecord` (geecs-schemas ≥ 0.10.0, aware timestamp pinned)
+  (`_ask_binary`).  Answers are stamped into the `SubmissionRecord`
+  submitted beside the request (aware timestamp pinned; the record left
+  the request document in geecs-schemas 0.14.0)
   so run metadata records who was asked what.  The worker re-runs
   validation authoritatively at execution — duplication by design.
 - **Scan monitor** (`app/scan_monitor.py::ScanMonitorController`, #534

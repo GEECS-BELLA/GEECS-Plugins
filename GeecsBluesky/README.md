@@ -24,7 +24,7 @@ This package owns the *scan* side:
 
 ## Current status
 
-Both acquisition modes (declared by `ScanRequest.acquisition`) are
+Both acquisition modes (declared by `ScanRequest.capture.acquisition`) are
 hardware-verified over the gateway, including native image saving, external
 asset documents, Tiled persistence, and DG645 shot control:
 

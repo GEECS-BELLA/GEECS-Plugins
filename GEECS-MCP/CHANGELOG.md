@@ -4,6 +4,18 @@ All notable changes to `geecs-mcp` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.8.0] - 2026-09-01
+
+### Changed
+
+- **ScanRequest v2 / request-record split adoption** (geecs-schemas
+  0.14.0, GeecsBluesky 0.70.0): `submit_scan` builds the provenance
+  record with `build_submission_record` and passes it beside the request
+  (`client.submit_scan(request, submission=...)`) instead of stamping it
+  into the document. Agent-composed flat v1 request dicts keep
+  validating via the schema's lifting validator; the worker must be at
+  GeecsBluesky ≥ 0.70.0 for the `submission` kwarg.
+
 ## [0.7.2] - 2026-08-25
 
 ### Changed

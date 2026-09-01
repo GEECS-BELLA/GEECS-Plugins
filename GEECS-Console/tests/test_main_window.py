@@ -82,8 +82,10 @@ class FakeSubmitter:
         self.submit_result = SubmitResult(ok=True, item_uid="uid-1")
         self.stop_result = (True, "stop requested (from paused)")
 
-    def submit_scan(self, request, *, clear_pending=False):
+    def submit_scan(self, request, *, submission=None, clear_pending=False):
         self.submitted.append((request, clear_pending))
+        self.submissions = getattr(self, "submissions", [])
+        self.submissions.append(submission)
         return self.submit_result
 
     def stop_scan(self):
@@ -427,7 +429,7 @@ class TestOptimizationMode:
         self._submit(opt_window, qtbot, monkeypatch)
         ((request_dict, _),) = opt_window._submitter.submitted
         assert request_dict["mode"] == "optimize"
-        assert request_dict["save_sets"] == ["Amp4In"]
+        assert request_dict["capture"]["save_sets"] == ["Amp4In"]
         expected = _optimization_spec().model_dump(mode="json")
         got = dict(request_dict["optimization"])
         # max_iterations belongs to the spinner (auto -> None here).
@@ -460,7 +462,7 @@ class TestOptimizationMode:
         self._submit(opt_window, qtbot, monkeypatch)
         ((request_dict, _),) = opt_window._submitter.submitted
         assert request_dict["mode"] == "optimize"
-        assert request_dict["save_sets"] == []
+        assert request_dict["capture"]["save_sets"] == []
 
     def test_union_label_notes_optimizer_diagnostics(self, opt_window):
         """The R2 union line stays honest in optimize mode — the optimizer
@@ -498,7 +500,7 @@ class TestOptimizationMode:
         """A raise inside the worker must deliver a failure, not strand the
         pipeline in-flight (BackgroundResult swallows raises silently)."""
 
-        def boom(request, *, clear_pending=False):
+        def boom(request, *, submission=None, clear_pending=False):
             raise RuntimeError("manager exploded")
 
         opt_window._submitter.submit_scan = boom
@@ -719,9 +721,10 @@ class TestSubmission:
         ((request_dict, clear_pending),) = window._submitter.submitted
         assert clear_pending is False
         assert request_dict["mode"] == "step"
-        assert request_dict["save_sets"] == ["Amp4In"]
-        # The submission provenance record travels with the queue item.
-        record = request_dict["submission"]
+        assert request_dict["capture"]["save_sets"] == ["Amp4In"]
+        assert "submission" not in request_dict  # request/record split (v2)
+        # The submission provenance record travels BESIDE the queue item.
+        (record,) = window._submitter.submissions
         assert record["client"].startswith("geecs-console")
         assert [o["check"] for o in record["preflight"]] == ["validate"]
 
@@ -757,10 +760,8 @@ class TestSubmission:
             message="UC_Cam1 is Disconnected. Continue anyway?",
         )
         self._submit(window, qtbot, monkeypatch, questions=[question])
-        ((request_dict, _),) = window._submitter.submitted
-        outcomes = {
-            o["check"]: o["result"] for o in request_dict["submission"]["preflight"]
-        }
+        (record,) = window._submitter.submissions
+        outcomes = {o["check"]: o["result"] for o in record["preflight"]}
         assert outcomes["gateway_liveness"] == "continued"
 
     def test_preflight_question_abort_never_queues(self, window, qtbot, monkeypatch):
@@ -801,8 +802,10 @@ class TestSubmission:
 
         original = submitter.submit_scan
 
-        def submit_scan(request, *, clear_pending=False):
-            result = original(request, clear_pending=clear_pending)
+        def submit_scan(request, *, submission=None, clear_pending=False):
+            result = original(
+                request, submission=submission, clear_pending=clear_pending
+            )
             arm_second_try()
             return result
 
@@ -1053,10 +1056,10 @@ class TestStateModel:
         request = build_scan_request(window.form_state())
         assert [axis.variable for axis in request.axes] == ["jet_x", "jet_z"]
         assert request.grid_shape() == (3, 3)
-        assert request.shots_per_step == 5
+        assert request.capture.shots_per_step == 5
         assert request.description == "grid check"
-        assert request.trigger_profile == "HTU-Standard"
-        assert request.trigger_variant == "laser_off"
+        assert request.capture.trigger_profile == "HTU-Standard"
+        assert request.capture.trigger_variant == "laser_off"
 
 
 class TestNowAndDevicePanel:
@@ -1670,7 +1673,7 @@ class TestPresets:
         ((name, request),) = window._presets.saved
         assert name == "MyPreset"
         assert request.mode is ScanRequestMode.STEP
-        assert request.save_sets == ["Amp4In"]
+        assert request.capture.save_sets == ["Amp4In"]
         assert request.axes[0].variable == "jet_x"
         # The combo repopulated and now shows the new preset.
         assert window.preset_combo.currentText() == "MyPreset"
