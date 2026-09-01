@@ -3,6 +3,31 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.12.0] - 2026-09-01
+
+### Added
+
+- **Images tab per-bin averaged grid** (W2a): a per-shot ⇄ per-bin
+  toggle mirroring the Plot tab's ONE URL-carried `view` state (a
+  binned link means binned everywhere — deliberate), rendering a lazy
+  grid of per-bin `nanmean` averages. Two new routes:
+  `/api/run/{uid}/bin-images?device=&filters=&bincfg=` (membership
+  JSON — bins/counts/member shots, notebook-reproducible via its
+  `code` snippet) and `/run/{uid}/bin-image.png?bin=<index>` (one
+  bin's average via the shared `average_frames`, display-windowed
+  once after averaging). Both run the same `compute_bin_key` +
+  groupby membership call, so the `bin` index is stable between
+  listing and render; per-shot refusals carry over (never average a
+  neighbour in: events bound, missed-shot skip, vendor 404), and a bin
+  containing any native listing-order (ordinal-fallback) resolution
+  serves `no-cache` — the same per-shot rule. `min_count` applies to
+  the grid exactly as `bin_frame` applies it to `/binned` (per-bin row
+  counts), so the shared binset popup governs both tabs.
+- `resources.load_shot_array` (+ `ShotArray`): the tier ladder now
+  resolves to raw pixels, with `load_shot_image` reduced to the
+  render-one-shot wrapper — single-shot serving and per-bin averaging
+  share one resolution path (and one `ShotDataCache` ride).
+
 ## [0.11.0] - 2026-09-01
 
 ### Added

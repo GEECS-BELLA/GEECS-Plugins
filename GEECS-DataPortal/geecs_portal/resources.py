@@ -63,6 +63,23 @@ class ShotImage:
     cacheable: bool = True
 
 
+@dataclass(frozen=True)
+class ShotArray:
+    """One resolved shot's raw pixels, or a tiered refusal.
+
+    The array-level result :func:`load_shot_array` returns — consumers
+    that combine shots (per-bin averaging) work on arrays and render
+    once; :func:`load_shot_image` is the render-one-shot wrapper.
+    """
+
+    kind: str  # "stack" | "native" | "vendor" | "unrenderable" | "missing"
+    array: Optional[np.ndarray] = None
+    path: Optional[Path] = None
+    reason: str = ""
+    #: Same contract as :attr:`ShotImage.cacheable`.
+    cacheable: bool = True
+
+
 def image_devices(scan_folder: Path) -> list[str]:
     """Device subfolders of *scan_folder* (read-only listing, sorted).
 
@@ -147,36 +164,36 @@ def _ordinal_native_file(device_dir: Path, ext: str, shot: int) -> Optional[Path
 
 def _stack_shot_from_memory(
     index_map: dict, frames, shot: int, acq_timestamp: Optional[float], path=None
-) -> ShotImage:
-    """Render one shot from cached stack data (no filesystem access)."""
+) -> ShotArray:
+    """Resolve one shot's pixels from cached stack data (no filesystem access)."""
     from geecs_data_utils.io.scan_stack import frame_index_for_timestamp
 
     if acq_timestamp is not None:
         index = frame_index_for_timestamp(index_map, acq_timestamp)
         if index is None:
-            return ShotImage(
+            return ShotArray(
                 kind="missing", path=path, reason="no stack frame for this shot"
             )
     else:
         index = shot - 1
         if not 0 <= index < len(frames):
-            return ShotImage(
+            return ShotArray(
                 kind="missing",
                 path=path,
                 reason=f"stack: shot {shot} outside {len(frames)} frames",
             )
-    return ShotImage(kind="stack", png=to_display_png(frames[index]), path=path)
+    return ShotArray(kind="stack", array=frames[index], path=path)
 
 
-def load_shot_image(
+def load_shot_array(
     scan_folder: Path,
     device: str,
     shot: int,
     acq_timestamp: Optional[float] = None,
     data_cache=None,
     cache_key: Optional[tuple[str, str]] = None,
-) -> ShotImage:
-    """Resolve and render one device shot from an existing scan folder.
+) -> ShotArray:
+    """Resolve one device shot's pixel array from an existing scan folder.
 
     Parameters
     ----------
@@ -205,8 +222,8 @@ def load_shot_image(
 
     Returns
     -------
-    ShotImage
-        Rendered PNG bytes, or the tiered refusal (vendor path /
+    ShotArray
+        The decoded pixels, or the tiered refusal (vendor path /
         missing reason).
     """
     caching = data_cache is not None and cache_key is not None
@@ -218,13 +235,13 @@ def load_shot_image(
             return _stack_shot_from_memory(*stack_hit, shot, acq_timestamp)
         cached = data_cache.native_shot(cache_key, shot)
         if cached is not None:
-            return ShotImage(kind="native", png=to_display_png(cached))
+            return ShotArray(kind="native", array=cached)
 
     kind = device_kind(scan_folder, device)
     if kind.kind == "missing":
-        return ShotImage(kind="missing", reason=kind.reason or "unknown device")
+        return ShotArray(kind="missing", reason=kind.reason or "unknown device")
     if shot < 1:
-        return ShotImage(kind="missing", reason="bad shot")
+        return ShotArray(kind="missing", reason="bad shot")
     device_dir = scan_folder / device
 
     if kind.kind == "stack":
@@ -249,7 +266,7 @@ def load_shot_image(
                 # LabVIEW-epoch double, converted inside the helper.
                 joined = read_shot_for_acq_timestamp(stack, acq_timestamp)
                 if joined is None:
-                    return ShotImage(
+                    return ShotArray(
                         kind="missing",
                         path=stack,
                         reason="no stack frame for this shot",
@@ -257,17 +274,17 @@ def load_shot_image(
                 _, frame = joined
             else:
                 frame = read_shot(stack, shot - 1)
-            return ShotImage(kind="stack", png=to_display_png(frame), path=stack)
+            return ShotArray(kind="stack", array=frame, path=stack)
         # KeyError/TypeError: a malformed-but-schema-valid stack (missing
         # or mistyped /acq_timestamp) — same enumeration ScanAnalysis
         # defends against (PR #693 review); must 404, never 500.
         except (IndexError, KeyError, OSError, TypeError, ValueError) as exc:
-            return ShotImage(kind="missing", path=stack, reason=f"stack: {exc}")
+            return ShotArray(kind="missing", path=stack, reason=f"stack: {exc}")
 
     if kind.kind == "vendor":
-        return ShotImage(kind="vendor", path=kind.path, reason="vendor SDK format")
+        return ShotArray(kind="vendor", path=kind.path, reason="vendor SDK format")
     if kind.kind == "unrenderable":
-        return ShotImage(
+        return ShotArray(
             kind="unrenderable",
             path=kind.path,
             reason=f"no renderer for .{kind.ext}",
@@ -282,7 +299,7 @@ def load_shot_image(
         # A folder that exists but fails the canonical-layout validation
         # (dev/scratch runs, or a share blip between probes) — degrade,
         # never 500.
-        return ShotImage(kind="missing", path=scan_folder, reason=f"layout: {exc}")
+        return ShotArray(kind="missing", path=scan_folder, reason=f"layout: {exc}")
     cacheable = True
     if not native.is_file():
         if acq_timestamp is not None:
@@ -294,7 +311,7 @@ def load_shot_image(
             chosen = _ordinal_native_file(device_dir, ext, shot)
             cacheable = False  # listing-order join: never long-cache
         if chosen is None:
-            return ShotImage(kind="missing", path=native, reason="file not found")
+            return ShotArray(kind="missing", path=native, reason="file not found")
         native = chosen
     try:
         from geecs_data_utils.io.images import read_imaq_image
@@ -304,14 +321,60 @@ def load_shot_image(
             # Never cache an ordinal (listing-order) resolution — the
             # same rule as the no-long-cache header.
             data_cache.store_native_shot(cache_key, shot, array)
-        return ShotImage(
+        return ShotArray(
             kind="native",
-            png=to_display_png(array),
+            array=array,
             path=native,
             cacheable=cacheable,
         )
     except Exception as exc:  # noqa: BLE001 — corrupt file must not 500
-        return ShotImage(kind="missing", path=native, reason=f"read failed: {exc}")
+        return ShotArray(kind="missing", path=native, reason=f"read failed: {exc}")
+
+
+def load_shot_image(
+    scan_folder: Path,
+    device: str,
+    shot: int,
+    acq_timestamp: Optional[float] = None,
+    data_cache=None,
+    cache_key: Optional[tuple[str, str]] = None,
+) -> ShotImage:
+    """Resolve and render one device shot — :func:`load_shot_array` + PNG.
+
+    Same parameters and tier ladder as :func:`load_shot_array` (which
+    carries the full docs); this wrapper only adds the display
+    rendering, so single-shot serving and per-bin averaging share one
+    resolution path.
+    """
+    resolved = load_shot_array(
+        scan_folder,
+        device,
+        shot,
+        acq_timestamp=acq_timestamp,
+        data_cache=data_cache,
+        cache_key=cache_key,
+    )
+    png = None
+    if resolved.array is not None:
+        try:
+            png = to_display_png(resolved.array)
+        except Exception as exc:  # noqa: BLE001 — unrenderable shape must not 500
+            # A readable-but-unrenderable array (e.g. a stacked .npy or
+            # an odd-shaped h5 in a dev/scratch folder) degrades to the
+            # missing card, same as a corrupt file always has.
+            return ShotImage(
+                kind="missing",
+                path=resolved.path,
+                reason=f"render failed: {exc}",
+                cacheable=resolved.cacheable,
+            )
+    return ShotImage(
+        kind=resolved.kind,
+        png=png,
+        path=resolved.path,
+        reason=resolved.reason,
+        cacheable=resolved.cacheable,
+    )
 
 
 class DeviceKind(NamedTuple):

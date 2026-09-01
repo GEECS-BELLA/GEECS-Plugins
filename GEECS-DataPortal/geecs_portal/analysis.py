@@ -408,6 +408,48 @@ def frame_code(
     )
 
 
+def bin_images_code(
+    uid: str,
+    run_day: Optional[str],
+    device: str,
+    filters: RowFilters,
+    cfg: BinningConfig,
+) -> str:
+    """The notebook snippet reproducing a ``/api/.../bin-images`` response.
+
+    Reproduces the endpoint's NUMBERS exactly (bins, counts, member
+    shots — the same ``compute_bin_key`` + groupby); the pixel side is
+    sketched with the shared ``average_frames`` primitive over the
+    reader layer, since the portal's tier ladder (stack vs native vs
+    vendor) is serving logic, not numerics.
+    """
+    non_default = {
+        f.name: getattr(cfg, f.name)
+        for f in dataclasses.fields(BinningConfig)
+        if getattr(cfg, f.name) != f.default
+    }
+    kwargs = ", ".join(f"{k}={v!r}" for k, v in sorted(non_default.items()))
+    return (
+        "# reproduces this listing exactly — the endpoint calls the same functions\n"
+        + _snippet_prelude(uid, run_day)
+        + _snippet_filters(filters)
+        + "from geecs_data_utils.data.binning import BinningConfig, compute_bin_key\n"
+        + "from geecs_portal.figures import shot_axis_for_frame"
+        + "  # pip install geecs-data-portal\n"
+        + "\n"
+        + f"cfg = BinningConfig({kwargs})\n"
+        + "labels, _ = compute_bin_key(frame, cfg)\n"
+        + "members = shot_axis_for_frame(frame).groupby(\n"
+        + "    labels, dropna=False, observed=True\n"
+        + ").apply(lambda s: sorted({int(v) for v in s.dropna()}))\n"
+        + "members  # per-bin shot lists; counts = members.map(len)\n"
+        + "\n"
+        + "# each grid image = average_frames([...pixels of a bin's shots...])\n"
+        + "# (geecs_data_utils.io: read_imaq_image / scan_stack readers under\n"
+        + f"#  folder / {device!r}), display-windowed once after averaging\n"
+    )
+
+
 def binned_code(
     uid: str,
     run_day: Optional[str],

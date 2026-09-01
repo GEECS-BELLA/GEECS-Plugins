@@ -47,8 +47,9 @@ from starlette.requests import Request
 from starlette.staticfiles import StaticFiles
 
 from geecs_data_utils import tiled_schema as schema_map
-from geecs_data_utils.data.binning import bin_frame
+from geecs_data_utils.data.binning import bin_frame, compute_bin_key
 from geecs_data_utils.data.row_filters import filter_mask
+from geecs_data_utils.io.images import average_frames
 from geecs_data_utils.scan_frame import PROVENANCE_RUN, scan_frame
 from geecs_data_utils.tiled_catalog import (
     ScanCatalog,
@@ -589,6 +590,91 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
         _, mask = _masked(pf, filters)
         return {"pass": int(mask.sum()), "total": len(pf.frame)}
 
+    def _bin_groups(pf, mask, bincfg_raw: str):
+        """Per-bin shot membership over the filtered union frame.
+
+        Same primitives and grouping semantics as ``/binned``
+        (``compute_bin_key`` + ``groupby(dropna=False, observed=True,
+        sort)``, ``min_count`` applied to per-bin ROW counts exactly as
+        ``bin_frame`` does), so the two tabs' bins agree under one
+        shared ``bincfg`` — and the same code path serves both
+        bin-images endpoints, so a ``bin`` INDEX is stable between the
+        JSON listing and the PNG renders regardless of how labels
+        serialize.
+
+        Returns
+        -------
+        tuple of (BinningConfig, list of (label, list of int))
+            The parsed config and, per bin in group order, the label
+            and the sorted 1-based shot numbers (rows with no shot
+            identity are dropped — no shot number, no image).
+        """
+        try:
+            cfg = analysis.parse_bincfg(bincfg_raw)
+        except analysis.BadParam as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        frame = pf.frame[mask]
+        try:
+            labels, _ = compute_bin_key(frame, cfg)
+        except KeyError as exc:
+            raise HTTPException(
+                status_code=404, detail=f"no bin column: {exc}"
+            ) from exc
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        shots = figures.shot_axis_for_frame(frame)
+        groups = [
+            (label, sorted({int(s) for s in group.dropna()}))
+            for label, group in shots.groupby(labels, dropna=False, observed=True)
+            # min_count mirrors bin_frame (row counts, not shot counts):
+            # the binset popup's "min shots / bin" must govern this grid
+            # exactly as it governs the Plot tab's binned view.
+            if cfg.min_count <= 1 or len(group) >= cfg.min_count
+        ]
+        return cfg, groups
+
+    def _image_folder(detail, day: str, device: str):
+        """Resolve + validate the (folder, device) pair for image endpoints."""
+        run_day = _run_day(detail, day)
+        folder = resolve_scan_folder(detail, run_day) if run_day else None
+        if folder is None:
+            raise HTTPException(status_code=404, detail="scan folder not resolvable")
+        if device not in resources.image_devices(folder):
+            raise HTTPException(status_code=404, detail=f"unknown device {device!r}")
+        return folder, (run_day.isoformat() if run_day else None)
+
+    @app.get("/api/run/{uid}/bin-images")
+    def api_bin_images(
+        uid: str, device: str = "", filters: str = "", bincfg: str = "", day: str = ""
+    ) -> JSONResponse:
+        """Per-bin membership for the Images tab's averaged grid.
+
+        The JSON carries the numbers (bins, counts, member shots — all
+        notebook-reproducible via the snippet); the pixels are served
+        by ``/run/{uid}/bin-image.png?bin=<index>`` per bin, so the
+        grid lazy-loads exactly like the per-shot gallery.
+        """
+        detail = _load_run(uid)
+        if not device:
+            raise HTTPException(status_code=400, detail="device is required")
+        folder, run_day = _image_folder(detail, day, device)
+        pf = scan_frame(detail, folder)
+        flt, mask = _masked(pf, filters)
+        cfg, groups = _bin_groups(pf, mask, bincfg)
+        bin_labels = analysis.jsonable_labels([label for label, _ in groups])
+        payload = {
+            "device": device,
+            "bin_col": cfg.bin_col,
+            "bins": [
+                {"bin": label, "count": len(shots), "shots": shots}
+                for label, (_, shots) in zip(bin_labels, groups)
+            ],
+            "pass": int(mask.sum()),
+            "total": len(pf.frame),
+            "code": analysis.bin_images_code(uid, run_day, device, flt, cfg),
+        }
+        return JSONResponse(payload, headers=_png_headers(detail))
+
     @app.get("/", response_class=RedirectResponse)
     def index(request: Request) -> str:
         """Redirect to today's day view."""
@@ -833,10 +919,7 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
     def run_image(uid: str, device: str, shot: int = 1, day: str = "") -> Response:
         """One device shot rendered for display (stack or native file)."""
         detail = _load_run(uid)
-        run_day = _run_day(detail, day)
-        folder = resolve_scan_folder(detail, run_day) if run_day else None
-        if folder is None:
-            raise HTTPException(status_code=404, detail="scan folder not resolvable")
+        folder, _ = _image_folder(detail, day, device)
         # A shot beyond the recorded event rows must refuse outright:
         # falling through to the ordinal join would serve an orphan
         # frame (pre/post-scan extras) labeled as a shot that never
@@ -865,6 +948,78 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
             _png_headers(detail) if result.cacheable else {"Cache-Control": "no-cache"}
         )
         return Response(content=result.png, media_type="image/png", headers=headers)
+
+    @app.get("/run/{uid}/bin-image.png")
+    def run_bin_image(
+        uid: str,
+        device: str,
+        bin_index: int = Query(default=0, alias="bin"),
+        filters: str = "",
+        bincfg: str = "",
+        day: str = "",
+    ) -> Response:
+        """One bin's ``nanmean``-averaged device image, display-rendered.
+
+        ``bin`` is the bin's INDEX in ``/api/.../bin-images`` order
+        (same ``_bin_groups`` call, so the two always agree). Member
+        shots that resolve to pixels are averaged (``average_frames``)
+        and windowed once; shots the device missed (no timestamp) or
+        that fail to load are skipped — the JSON's ``count`` is the
+        membership, the pixels are what actually loaded.
+        """
+        detail = _load_run(uid)
+        folder, _ = _image_folder(detail, day, device)
+        pf = scan_frame(detail, folder)
+        _, mask = _masked(pf, filters)
+        _, groups = _bin_groups(pf, mask, bincfg)
+        if not 0 <= bin_index < len(groups):
+            raise HTTPException(
+                status_code=404, detail=f"bin index {bin_index} of {len(groups)}"
+            )
+        _, shots = groups[bin_index]
+        complete = bool(detail.summary.exit_status)
+        n_rows = None if detail.data is None else len(detail.data)
+        arrays: list = []
+        cacheable = True
+        for shot in shots:
+            # Same refusals as the per-shot endpoint: never fall through
+            # to an ordinal join beyond the recorded events (orphan
+            # frames), never average a neighbour's image in.
+            if n_rows is not None and shot > n_rows:
+                continue
+            acq, column_present = _acq_timestamp(detail, device, shot)
+            if column_present and acq is None:
+                continue  # device missed this shot
+            resolved = resources.load_shot_array(
+                folder,
+                device,
+                shot,
+                acq_timestamp=acq,
+                data_cache=data_cache if complete else None,
+                cache_key=(uid, device) if complete else None,
+            )
+            if resolved.array is None:
+                if resolved.kind in ("vendor", "unrenderable"):
+                    # Device-level refusal — identical for every shot.
+                    raise HTTPException(
+                        status_code=404, detail=resolved.reason or resolved.kind
+                    )
+                continue
+            cacheable = cacheable and resolved.cacheable
+            arrays.append(resolved.array)
+        averaged = average_frames(arrays, label=f"{device} bin {bin_index}")
+        if averaged is None:
+            raise HTTPException(
+                status_code=404, detail="no renderable frames in this bin"
+            )
+        try:
+            png = resources.to_display_png(averaged)
+        except Exception as exc:  # noqa: BLE001 — unrenderable shape must not 500
+            raise HTTPException(
+                status_code=404, detail=f"render failed: {exc}"
+            ) from exc
+        headers = _png_headers(detail) if cacheable else {"Cache-Control": "no-cache"}
+        return Response(content=png, media_type="image/png", headers=headers)
 
     @app.get("/run/{uid}/plot.png")
     def run_plot(uid: str, y: str, x: str = "") -> Response:

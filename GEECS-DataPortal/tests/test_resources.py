@@ -456,3 +456,205 @@ class TestUnionColumns:
         client = _gallery_client(scan_folder)
         assert client.get("/api/run/uid-002/columns").status_code == 200
         assert _tree_snapshot(scan_folder.parent.parent) == before
+
+
+class TestBinImages:
+    """The Images tab's per-bin endpoints: membership JSON + averaged PNGs."""
+
+    _FILTERS = (
+        '{"groups":[{"conditions":'
+        '[{"column":"cam-MaxCounts","low":10.5,"high":13.0}]}]}'
+    )
+
+    def _client(self, scan_folder, bins=(1, 1, 2)):
+        catalog = FakeCatalog()
+        detail = _detail(2)
+        detail.start_doc["scan_folder"] = str(scan_folder)
+        detail.data["Bin #"] = list(bins)  # the default bincfg bin column
+        # Companion column so the stack device joins by TIMESTAMP (the
+        # leading pre-scan extra frame must not shift the average).
+        detail.data["UC_StackCam-acq_timestamp"] = [_LV + 1.0, _LV + 2.0, _LV + 3.0]
+        catalog.details["uid-002"] = detail
+        return TestClient(create_app(catalog))
+
+    def test_membership_json_counts_and_order(self, scan_folder):
+        response = self._client(scan_folder).get(
+            "/api/run/uid-002/bin-images", params={"device": "cam"}
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["bin_col"] == "Bin #"
+        assert [(b["bin"], b["count"], b["shots"]) for b in payload["bins"]] == [
+            (1, 2, [1, 2]),
+            (2, 1, [3]),
+        ]
+        assert "compute_bin_key" in payload["code"]
+        assert "immutable" in response.headers["cache-control"]
+
+    def test_bin_average_is_the_nanmean_of_member_shots(self, scan_folder):
+        client = self._client(scan_folder)
+        response = client.get(
+            "/run/uid-002/bin-image.png", params={"device": "cam", "bin": 0}
+        )
+        assert response.status_code == 200
+        decoded = np.array(Image.open(io.BytesIO(response.content)))
+        # cam shots carry an identity marker at [0, shot]; the bin-0
+        # average (shots 1+2) holds both markers at HALF intensity —
+        # equal after windowing, and nothing else lights up.
+        assert decoded[0, 1] == decoded[0, 2] == 255
+        rest = decoded.copy()
+        rest[0, 1] = rest[0, 2] = 0
+        assert not rest.any()
+
+    def test_single_shot_bin_renders_that_shot(self, scan_folder):
+        response = self._client(scan_folder).get(
+            "/run/uid-002/bin-image.png", params={"device": "cam", "bin": 1}
+        )
+        decoded = np.array(Image.open(io.BytesIO(response.content)))
+        assert decoded[0, 3] == 255
+        rest = decoded.copy()
+        rest[0, 3] = 0
+        assert not rest.any()
+
+    def test_filters_narrow_membership_and_pixels(self, scan_folder):
+        client = self._client(scan_folder)
+        payload = client.get(
+            "/api/run/uid-002/bin-images",
+            params={"device": "cam", "filters": self._FILTERS},
+        ).json()
+        # cam-MaxCounts >= 10.5 keeps shots 2 and 3 only.
+        assert [(b["bin"], b["shots"]) for b in payload["bins"]] == [
+            (1, [2]),
+            (2, [3]),
+        ]
+        response = client.get(
+            "/run/uid-002/bin-image.png",
+            params={"device": "cam", "bin": 0, "filters": self._FILTERS},
+        )
+        decoded = np.array(Image.open(io.BytesIO(response.content)))
+        assert decoded[0, 2] == 255  # shot 2's marker — shot 1 filtered OUT
+        rest = decoded.copy()
+        rest[0, 2] = 0
+        assert not rest.any()
+
+    def test_stack_device_bins_average_too(self, scan_folder):
+        response = self._client(scan_folder).get(
+            "/run/uid-002/bin-image.png", params={"device": "UC_StackCam", "bin": 0}
+        )
+        assert response.status_code == 200
+        decoded = np.array(Image.open(io.BytesIO(response.content)))
+        # Stack frames 1+2 join shots 1+2 by timestamp (the leading
+        # pre-scan extra frame 0 must NOT shift into the average).
+        assert decoded[0, 1] == decoded[0, 2] == 255
+        assert decoded[0, 0] == 0
+
+    def test_error_ladder(self, scan_folder):
+        client = self._client(scan_folder)
+        api = "/api/run/uid-002/bin-images"
+        png = "/run/uid-002/bin-image.png"
+        assert client.get(api).status_code == 400  # device required
+        assert client.get(api, params={"device": "nope"}).status_code == 404
+        assert (
+            client.get(api, params={"device": "cam", "bincfg": "notjson"}).status_code
+            == 400
+        )
+        assert (
+            client.get(
+                api, params={"device": "cam", "bincfg": '{"bin_col": "nope"}'}
+            ).status_code
+            == 404
+        )
+        assert client.get(png, params={"device": "cam", "bin": 5}).status_code == 404
+        vendor = client.get(png, params={"device": "U_HasoWFS", "bin": 0})
+        assert vendor.status_code == 404  # vendor tier: path card, never pixels
+
+    def test_bin_endpoints_touch_nothing(self, scan_folder):
+        client = self._client(scan_folder)
+        before = _tree_snapshot(scan_folder)
+        client.get("/api/run/uid-002/bin-images", params={"device": "cam"})
+        client.get("/run/uid-002/bin-image.png", params={"device": "cam", "bin": 0})
+        client.get("/run/uid-002/bin-image.png", params={"device": "nope", "bin": 0})
+        assert _tree_snapshot(scan_folder) == before
+
+
+class TestBinImagesReviewPins:
+    """736 review pins: min_count parity, cache downgrades, render guard."""
+
+    def test_min_count_governs_the_grid_like_binned(self, scan_folder):
+        client = TestBinImages()._client(scan_folder)
+        payload = client.get(
+            "/api/run/uid-002/bin-images",
+            params={"device": "cam", "bincfg": '{"min_count": 2}'},
+        ).json()
+        # Bin 2 has one row — dropped, exactly as bin_frame drops it in
+        # /binned (the shared binset popup must govern both tabs).
+        assert [(b["bin"], b["shots"]) for b in payload["bins"]] == [(1, [1, 2])]
+        response = client.get(
+            "/run/uid-002/bin-image.png",
+            params={"device": "cam", "bin": 0, "bincfg": '{"min_count": 2}'},
+        )
+        decoded = np.array(Image.open(io.BytesIO(response.content)))
+        assert decoded[0, 1] == decoded[0, 2] == 255  # still bin {1,2}'s average
+
+    def test_ordinal_member_downgrades_cache_timestamp_join_does_not(self, scan_folder):
+        # cam2: timestamp-named files but NO event acq column → every
+        # member resolves by listing order → the response must not be
+        # long-cached (SMB listing blips can shift the join).
+        cam2 = scan_folder / "cam2"
+        cam2.mkdir()
+        for shot in (1, 2, 3):
+            arr = np.zeros((5, 5), dtype=np.uint16)
+            arr[0, shot] = 1000
+            Image.fromarray(arr).save(cam2 / f"cam2_{_LV + float(shot):.3f}.png")
+        client = TestBinImages()._client(scan_folder)
+        ordinal = client.get(
+            "/run/uid-002/bin-image.png", params={"device": "cam2", "bin": 0}
+        )
+        assert ordinal.status_code == 200
+        assert ordinal.headers["cache-control"] == "no-cache"
+        joined = client.get(
+            "/run/uid-002/bin-image.png", params={"device": "cam", "bin": 0}
+        )
+        assert "immutable" in joined.headers["cache-control"]
+
+    def test_running_run_serves_no_cache(self, scan_folder):
+        from geecs_data_utils.tiled_catalog import RunDetail, summary_from_metadata
+
+        catalog = FakeCatalog()
+        base = _detail(2)
+        base.start_doc["scan_folder"] = str(scan_folder)
+        base.data["Bin #"] = [1, 1, 2]
+        running = RunDetail(
+            summary=summary_from_metadata(base.start_doc["uid"], base.start_doc, None),
+            start_doc=base.start_doc,
+            stop_doc=None,
+            data=base.data,
+        )
+        catalog.details["uid-002"] = running
+        client = TestClient(create_app(catalog))
+        listing = client.get("/api/run/uid-002/bin-images", params={"device": "cam"})
+        assert listing.headers["cache-control"] == "no-cache"
+        png = client.get(
+            "/run/uid-002/bin-image.png", params={"device": "cam", "bin": 0}
+        )
+        assert png.status_code == 200
+        assert png.headers["cache-control"] == "no-cache"
+
+    def test_unrenderable_array_degrades_never_raises(self, scan_folder):
+        # A readable h5 whose /image is 4-D: the tier ladder loads it,
+        # the display render cannot — must degrade to the missing card
+        # (and the endpoint to 404), never a 500.
+        import h5py
+
+        odd = scan_folder / "U_OddH5"
+        odd.mkdir()
+        with h5py.File(odd / f"U_OddH5_{_LV + 1.0:.3f}.h5", "w") as handle:
+            handle.create_dataset("image", data=np.zeros((2, 3, 4, 5), dtype="u2"))
+        result = resources.load_shot_image(scan_folder, "U_OddH5", 1)
+        assert result.kind == "missing"
+        assert "render failed" in result.reason
+        client = TestBinImages()._client(scan_folder)
+        response = client.get(
+            "/run/uid-002/image.png", params={"device": "U_OddH5", "shot": 1}
+        )
+        assert response.status_code == 404
