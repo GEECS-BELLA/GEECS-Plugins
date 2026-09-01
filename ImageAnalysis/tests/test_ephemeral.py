@@ -21,6 +21,7 @@ from image_analysis.types import ImageAnalyzerResult
 
 _STANDARD_PATH = "image_analysis.analyzers.standard_analyzer.StandardAnalyzer"
 _HASO_PATH = "image_analysis.analyzers.HASO_himg_has_processor.HASOHimgHasProcessor"
+_GRENOUILLE_PATH = "image_analysis.analyzers.grenouille_analyzer.GrenouilleAnalyzer"
 
 
 def _write_diagnostic(path: Path, name: str, *, image_analyzer=_STANDARD_PATH) -> None:
@@ -98,15 +99,30 @@ class TestRunDiagnosticEphemeral:
         )
         assert result.processed_image.shape == (3, 4)
 
-    def test_auxiliary_data_is_forwarded_per_frame_copy(self, configs_tree):
+    def test_auxiliary_data_is_forwarded_per_frame_copy(
+        self, configs_tree, monkeypatch
+    ):
+        """Aux reaches analyze_image as a fresh top-level copy per frame."""
+        from image_analysis.analyzers.standard_analyzer import StandardAnalyzer
+
+        seen: list[dict] = []
+        original = StandardAnalyzer.analyze_image
+
+        def recording(self, image, auxiliary_data=None):
+            seen.append(auxiliary_data)
+            return original(self, image, auxiliary_data)
+
+        monkeypatch.setattr(StandardAnalyzer, "analyze_image", recording)
         aux = {"shot": 7}
-        (result,) = run_diagnostic_ephemeral(
+        results = run_diagnostic_ephemeral(
             "UC_Test",
-            [np.ones((4, 4), dtype=np.uint16)],
+            [np.ones((4, 4), dtype=np.uint16)] * 2,
             config_dir=configs_tree,
             auxiliary_data=aux,
         )
-        assert isinstance(result, ImageAnalyzerResult)
+        assert all(isinstance(r, ImageAnalyzerResult) for r in results)
+        assert seen == [{"shot": 7}, {"shot": 7}]
+        assert seen[0] is not aux and seen[0] is not seen[1]
         assert aux == {"shot": 7}
 
     def test_file_path_in_auxiliary_data_is_refused(self, configs_tree, tmp_path):
@@ -131,6 +147,9 @@ class TestRunDiagnosticEphemeral:
             image_analyzer=_HASO_PATH,
         )
         assert _HASO_PATH in EPHEMERAL_DENYLIST
+        assert (
+            _GRENOUILLE_PATH in EPHEMERAL_DENYLIST
+        )  # un-gated temp files + DLL subprocess
         with pytest.raises(ValueError, match="cannot run ephemerally"):
             run_diagnostic_ephemeral(
                 "U_HasoLift", [np.ones((4, 4))], config_dir=tmp_path

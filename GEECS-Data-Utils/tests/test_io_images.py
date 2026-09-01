@@ -252,3 +252,16 @@ class TestAverageFrames:
     def test_1d_traces_average_too(self):
         out = average_frames([np.array([1.0, 3.0]), np.array([3.0, 5.0])])
         np.testing.assert_array_equal(out, [2.0, 4.0])
+
+    def test_stacked_ndarray_input(self):
+        """An already-stacked (N, h, w) array works — no list required."""
+        stack = np.stack([np.full((2, 2), 1.0), np.full((2, 2), 3.0)])
+        np.testing.assert_array_equal(average_frames(stack), np.full((2, 2), 2.0))
+
+    def test_empty_ndarray_returns_none(self):
+        assert average_frames(np.empty((0, 4, 4))) is None
+
+    def test_label_attributes_the_warning(self, caplog):
+        with caplog.at_level("WARNING", logger="geecs_data_utils.io.images"):
+            average_frames([np.zeros((2, 2)), np.zeros((3, 2))], label="line_data")
+        assert "line_data" in caplog.text

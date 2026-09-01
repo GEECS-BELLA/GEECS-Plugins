@@ -2,9 +2,12 @@
 
 Most functions here map a file path to a NumPy array and contain no analysis
 logic; higher-level packages (ImageAnalysis, ScanAnalysis, Bluesky
-external-asset handlers) wrap them. :func:`decode_imaq_image_string` is the
-exception: it decodes an in-memory NI IMAQ "Flatten Image to String" payload
-(as received live over the device TCP stream), not a file on disk.
+external-asset handlers) wrap them. Two exceptions operate on in-memory
+data: :func:`decode_imaq_image_string` decodes an NI IMAQ "Flatten Image to
+String" payload (as received live over the device TCP stream), and
+:func:`average_frames` is the shared frame-stack averager every "mean of N
+shots" consumer converges on — image-domain array math kept beside the
+readers whose output it averages.
 """
 
 from __future__ import annotations
@@ -282,7 +285,9 @@ def _decode_imaq_tail(
     return full[border : border + height, border : border + width]
 
 
-def average_frames(frames: Sequence[np.ndarray]) -> Optional[np.ndarray]:
+def average_frames(
+    frames: Sequence[np.ndarray], *, label: str = "frames"
+) -> Optional[np.ndarray]:
     """Average a sequence of frames along axis 0 with ``nanmean``.
 
     THE shared frame averager (per-bin averaged images and every other
@@ -297,8 +302,12 @@ def average_frames(frames: Sequence[np.ndarray]) -> Optional[np.ndarray]:
     Parameters
     ----------
     frames : sequence of numpy.ndarray
-        Frames to average. All must share one shape (any dimensionality
-        — 2D images and 1D traces both work).
+        Frames to average — a list of arrays or an already-stacked
+        array (axis 0 = frame). All frames must share one shape (any
+        dimensionality — 2D images and 1D traces both work).
+    label : str, optional
+        Name used in the shape-mismatch warning so callers averaging
+        several fields can attribute it (e.g. ``"processed_image"``).
 
     Returns
     -------
@@ -306,12 +315,13 @@ def average_frames(frames: Sequence[np.ndarray]) -> Optional[np.ndarray]:
         Float ``nanmean`` over the stack, or ``None`` for an empty
         sequence or mixed shapes.
     """
-    if not frames:
+    if len(frames) == 0:
         return None
     shapes = {np.asarray(f).shape for f in frames}
     if len(shapes) > 1:
         logger.warning(
-            "Cannot average %d frames: inhomogeneous shapes %s.",
+            "Cannot average %s across %d frames: inhomogeneous shapes %s.",
+            label,
             len(frames),
             sorted(shapes),
         )

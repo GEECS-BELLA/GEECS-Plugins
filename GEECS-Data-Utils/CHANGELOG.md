@@ -7,15 +7,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
-- `io.average_frames(frames)` — THE shared `nanmean` frame averager
-  (per-bin averaged images for the portal's Images tab, W2a). NaN
-  pixels are excluded per-position; empty input or inhomogeneous
-  shapes degrade to `None` with a warning instead of raising (the
-  `np.asanyarray` hard-error on numpy 2.x), mirroring
-  `ImageAnalyzerResult.average`'s guard. The three divergent copies
-  (ScanAnalysis `average_data`'s `np.mean`, the hand-rolled mean in
-  `HIMG_with_average_saving`, `ImageAnalyzerResult.average`'s
-  `nanmean`) converge on it in trailing PRs.
+- `io.average_frames(frames, label=...)` — THE shared `nanmean` frame
+  averager (per-bin averaged images for the portal's Images tab, W2a).
+  Accepts a list of frames or an already-stacked array; NaN pixels are
+  excluded per-position; empty input or inhomogeneous shapes degrade
+  to `None` with a `label`-attributed warning instead of raising (the
+  `np.asanyarray` hard-error on numpy 2.x). `ImageAnalyzerResult`'s
+  internal averager delegates to it as of ImageAnalysis 1.13.0; the
+  remaining divergent copies (ScanAnalysis `average_data`'s `np.mean`,
+  the hand-rolled mean in `HIMG_with_average_saving`) converge in
+  trailing PRs.
 
 ## [0.24.0] - 2026-08-30
 

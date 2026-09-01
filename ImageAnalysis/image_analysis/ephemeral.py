@@ -19,12 +19,12 @@ structural, not conventional:
   (``ValueError``) rather than stripped — a caller passing it is
   confused about the contract, and silently dropping the key would turn
   that confusion into wrong-but-plausible output.
-* Analyzers that write unconditionally from instance state are refused
-  by class path via :data:`EPHEMERAL_DENYLIST` **before import** — the
-  one current entry (HASO) both writes five sidecars per shot and
-  imports a vendor SDK, so the pre-import check doubles as keeping
-  wavekit off non-Windows hosts. The denylist shrinks as analyzers grow
-  an explicit ephemeral mode.
+* Analyzers with unconditional side effects — writes or subprocess
+  spawns not gated on ``file_path`` — are refused by class path via
+  :data:`EPHEMERAL_DENYLIST` **before import**, so a denylisted
+  analyzer's vendor SDK or DLL dependency is never even imported on
+  hosts that lack it. The denylist shrinks as analyzers grow an
+  explicit ephemeral mode.
 """
 
 from __future__ import annotations
@@ -37,13 +37,23 @@ from .types import Array2D, ImageAnalyzerResult
 
 __all__ = ["EPHEMERAL_DENYLIST", "run_diagnostic_ephemeral"]
 
-#: Analyzer class paths that cannot run ephemerally: they write derived
-#: files unconditionally (not gated on ``auxiliary_data["file_path"]``),
-#: so no calling convention makes them pure. Remove an entry only when
-#: the analyzer gains an explicit no-write mode.
+#: Analyzer class paths that cannot run ephemerally: their side effects
+#: are not gated on ``auxiliary_data["file_path"]``, so no calling
+#: convention makes them pure. Remove an entry only when the analyzer
+#: gains an explicit no-write mode.
+#:
+#: * HASO writes five sidecars per shot from ``load_image`` (instance
+#:   state), its module hard-imports the wavekit SDK, and its
+#:   ``analyze_image`` without that ``load_image`` returns a
+#:   meaningless pass-through — no ephemeral calling convention exists.
+#: * Grenouille's ``analyze_image`` unconditionally writes transient
+#:   temp files and spawns a ~seconds 32-bit DLL subprocess per frame —
+#:   cleaned up afterwards, but a per-request viewer must not trigger
+#:   either.
 EPHEMERAL_DENYLIST = frozenset(
     {
         "image_analysis.analyzers.HASO_himg_has_processor.HASOHimgHasProcessor",
+        "image_analysis.analyzers.grenouille_analyzer.GrenouilleAnalyzer",
     }
 )
 
@@ -76,9 +86,11 @@ def run_diagnostic_ephemeral(
     overrides : dict, optional
         Deep-merged into the raw YAML, per ``load_diagnostic``.
     auxiliary_data : dict, optional
-        Forwarded to every ``analyze_image`` call (shallow-copied per
-        frame so per-shot mutation by an analyzer cannot leak across
-        frames). Must not contain ``file_path``.
+        Forwarded to every ``analyze_image`` call, top-level-copied per
+        frame (an analyzer adding/removing keys cannot leak across
+        frames; mutation *inside* a nested value still would — don't
+        pass shared mutables you care about). Must not contain
+        ``file_path``.
 
     Returns
     -------
@@ -103,9 +115,10 @@ def run_diagnostic_ephemeral(
     class_path = diag.image_analyzer.class_path
     if class_path in EPHEMERAL_DENYLIST:
         raise ValueError(
-            f"Analyzer {class_path} cannot run ephemerally: it writes "
-            f"derived files unconditionally. Use the scan pipeline for "
-            f"this diagnostic, or give the analyzer a no-write mode and "
+            f"Analyzer {class_path} cannot run ephemerally: its side "
+            f"effects (writes / subprocess spawns) are not gated on "
+            f"auxiliary file paths. Use the scan pipeline for this "
+            f"diagnostic, or give the analyzer a no-write mode and "
             f"remove it from EPHEMERAL_DENYLIST."
         )
 

@@ -12,10 +12,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   instantiate its analyzer once, analyze in-memory frames, with the
   no-writes contract enforced structurally — frames only (no paths),
   `auxiliary_data["file_path"]` refused with `ValueError` (it is the
-  gate path-gated writers key on), and unconditional writers refused
-  by class path via `EPHEMERAL_DENYLIST` *before* import (HASO is the
-  one entry: five sidecars per shot, vendor SDK import). Contract
+  gate path-gated writers key on), and analyzers with un-gated side
+  effects refused by class path via `EPHEMERAL_DENYLIST` *before*
+  import (HASO: five sidecars per shot from `load_image` + hard
+  wavekit import; Grenouille: unconditional transient temp files + a
+  per-frame 32-bit DLL subprocess in `analyze_image`). Contract
   documented in CLAUDE.md ("Ephemeral runs").
+- `ImageAnalyzerResult`'s internal `_safe_nanmean_arrays` now delegates
+  to `geecs_data_utils.io.average_frames` — the first of the three
+  divergent averaging copies to converge on the shared primitive.
 - `image_analysis.config.list_diagnostics(config_dir=...)` — sorted
   loadable diagnostic IDs over the same `analyzers/` tree
   `load_diagnostic` resolves against, for picker UIs.

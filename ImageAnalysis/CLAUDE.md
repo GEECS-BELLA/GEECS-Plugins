@@ -366,14 +366,21 @@ The write gate is structural, and it depends on two conventions that
    takes in-memory frames only and refuses `file_path` in
    `auxiliary_data` (`ValueError`, never a silent strip) — so a
    path-gated writer is automatically dormant. If you add an analyzer
-   that writes on some *other* trigger, gate it on `file_path` too, or
-   add it to the denylist below.
-2. **Unconditional writers go on `EPHEMERAL_DENYLIST`** (class-path
-   strings, checked *before* the class is imported — which also keeps
-   vendor SDKs off hosts that lack them). HASO is the one current
-   entry: it writes five sidecars per shot from `load_image` /
-   `analyze_image` regardless of auxiliary data. Remove an entry only
-   when the analyzer gains an explicit no-write mode.
+   with side effects on some *other* trigger — persisted files,
+   transient temp files, subprocess spawns — gate them on `file_path`
+   too, or add it to the denylist below.
+2. **Analyzers with un-gated side effects go on `EPHEMERAL_DENYLIST`**
+   (class-path strings, checked *before* the class is imported — which
+   also keeps vendor SDK / DLL imports off hosts that lack them). Two
+   current entries: **HASO** writes five sidecars per shot from
+   `load_image` (instance state set there is what `analyze_image`
+   packages, so the analyze-only ephemeral call would return a
+   meaningless pass-through anyway, and the module hard-imports
+   wavekit); **Grenouille**'s `analyze_image` unconditionally writes
+   transient temp files and spawns a ~seconds 32-bit DLL subprocess per
+   frame (cleaned up afterwards, but a per-request viewer must trigger
+   neither). Remove an entry only when the analyzer gains an explicit
+   ephemeral mode.
 
 `list_diagnostics(config_dir=...)` (in `image_analysis.config`)
 enumerates the loadable diagnostic IDs for pickers over the same tree.

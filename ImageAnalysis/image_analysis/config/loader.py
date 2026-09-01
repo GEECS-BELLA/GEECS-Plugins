@@ -358,8 +358,10 @@ def list_diagnostics(*, config_dir: Optional[Path] = None) -> List[str]:
     Returns
     -------
     list of str
-        Sorted diagnostic IDs (YAML filename stems), each loadable via
-        ``load_diagnostic(stem, config_dir=config_dir)``.
+        Sorted diagnostic IDs (YAML filename stems) as *discovered* —
+        each resolves via ``load_diagnostic(stem, config_dir=config_dir)``,
+        which may still raise on a malformed YAML (listing proves
+        discovery, not validity).
     """
     base_dir = _resolve_default_config_dir(config_dir)
     return sorted(_discover_analyzers(base_dir))
