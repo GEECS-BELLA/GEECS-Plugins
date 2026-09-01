@@ -228,6 +228,7 @@
         <input type="hidden" name="tab" value="images">
         {% if filter %}<input type="hidden" name="filter" value="{{ filter }}">{% endif %}
         <input type="hidden" name="processing" id="procfield" value="{{ processing }}">
+        <input type="hidden" name="display" id="dispfield" value="{{ display }}">
         {% if shot > 1 %}<a class="carry" href="{{ root }}/run/{{ uid }}?{{ qs(shot=shot - 1, tab="images") }}">&larr; prev</a>{% endif %}
         <label class="dim">shot
           <input type="number" name="shot" value="{{ shot }}" min="1" style="width: 5rem">
@@ -479,8 +480,14 @@ function writeState() {
   if (S.processing) p.set("processing", S.processing);
   if (S.tab !== "plot") p.set("tab", S.tab);
   history.replaceState(null, "", location.pathname + "?" + p.toString());
-  // Server-rendered stepper links must carry the latest state too.
+  // Server-rendered stepper links must carry the latest state too —
+  // and so must the Show form's hidden fields (a form submit is a
+  // navigation like any stepper click).
   syncRailLinks(p);
+  const procField = document.getElementById("procfield");
+  if (procField) procField.value = S.processing;
+  const dispField = document.getElementById("dispfield");
+  if (dispField) dispField.value = S.display;
 }
 
 function syncRailLinks(p) {
@@ -550,9 +557,7 @@ let IMG_KEY = null;  // last-rendered grid params — skip redundant refetches
 
 function setProcessing(name) {
   S.processing = name;
-  const field = document.getElementById("procfield");
-  if (field) field.value = name;  // the Show form must submit the live pick
-  writeState();
+  writeState();  // syncs the Show form's hidden fields too
   updateShotImage();
   refreshImages();
 }
@@ -971,7 +976,14 @@ function openDisplay() {
 }
 
 function applyDisplay() {
+  // Start from the SHARED state and rebuild only the keys this popup
+  // owns — the image slice (cmap/plo/phi) belongs to the Images
+  // popup and must survive a plot-cosmetics apply.
   const d = {};
+  const prior = dispCfg();
+  for (const key of ["cmap", "plo", "phi"]) {
+    if (key in prior) d[key] = prior[key];
+  }
   if (document.getElementById("ds-logx").checked) d.logx = true;
   if (document.getElementById("ds-logy").checked) d.logy = true;
   for (const key of ["xmin", "xmax", "ymin", "ymax"]) {

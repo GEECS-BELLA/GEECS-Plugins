@@ -112,7 +112,11 @@ def _window_percentiles(plo, phi) -> tuple[float, float]:
     ``0 <= lo < hi <= 100`` pair falls back to the defaults.
     """
     try:
-        lo, hi = float(plo), float(phi)
+        # Per-field defaulting: a one-sided override ({"plo": 5}, the
+        # popup's stores-defaults-as-absent shape) must apply, not
+        # silently no-op the pair.
+        lo = _P_LO if plo is None else float(plo)
+        hi = _P_HI if phi is None else float(phi)
     except (TypeError, ValueError):
         return _P_LO, _P_HI
     if not (0.0 <= lo < hi <= 100.0):
@@ -132,8 +136,9 @@ def to_display_png(
     Percentile windowing (default 1–99.7, overridable per request via
     the ``display`` state) maps the camera's dynamic range into display
     range — the raw 16-bit files render near-black in a browser
-    otherwise.  A flat image renders black rather than dividing by
-    zero.  ``cmap`` names a matplotlib colormap applied to the windowed
+    otherwise.  A flat image renders at the scale's floor rather than
+    dividing by zero (black in grayscale; the colormap's lowest color
+    under a ``cmap``).  ``cmap`` names a matplotlib colormap applied to the windowed
     image (2D input only — an RGB input keeps its own colors); an
     unknown name degrades to grayscale, same value-degrade rule as the
     window (display values ride shared links and must never fail one).
@@ -179,7 +184,9 @@ def to_display_png(
         except KeyError:
             colormap = None  # unknown name: grayscale, never a failure
     if colormap is not None:
-        scaled = (colormap(norm)[..., :3] * 255).astype(np.uint8)
+        # bytes=True skips the H×W×4 float64 RGBA intermediate — same
+        # output bytes at ~1/8 the transient memory on full frames.
+        scaled = colormap(norm, bytes=True)[..., :3]
     else:
         scaled = (norm * 255).astype(np.uint8)
     buffer = io.BytesIO()

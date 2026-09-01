@@ -946,6 +946,15 @@ class TestImageDisplay:
         # Halving the top percentile saturates the whole upper half.
         assert (squeezed == 255).sum() > (default == 255).sum()
 
+    def test_one_sided_window_override_applies(self):
+        """The popup stores defaults as key-absent, so {"phi": 50} alone
+        is the COMMON payload — it must apply (742 review HIGH: the
+        pair-wise float() silently discarded one-sided overrides)."""
+        gradient = np.arange(100, dtype=np.float32).reshape(10, 10)
+        one_sided = resources.to_display_png(gradient, phi=50)
+        assert one_sided != resources.to_display_png(gradient)
+        assert one_sided == resources.to_display_png(gradient, plo=1, phi=50)
+
     def test_inverted_window_degrades_to_default(self):
         gradient = np.arange(100, dtype=np.float32).reshape(10, 10)
         assert resources.to_display_png(
