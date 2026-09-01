@@ -910,3 +910,85 @@ class TestProcessingSelector:
         )
         decoded = np.array(Image.open(io.BytesIO(response.content)))
         assert decoded.shape == (5, 5)  # full frame — no processing applied
+
+
+class TestImageDisplay:
+    """cmap + percentile-window display state on the image endpoints."""
+
+    def test_cmap_renders_rgb_via_matplotlib(self):
+        import matplotlib as mpl
+
+        arr = np.zeros((4, 4), dtype=np.uint16)
+        arr[1, 2] = 1000
+        decoded = np.array(
+            Image.open(io.BytesIO(resources.to_display_png(arr, cmap="viridis")))
+        )
+        assert decoded.shape == (4, 4, 3)
+        expected_top = (np.array(mpl.colormaps["viridis"](1.0)[:3]) * 255).astype(
+            np.uint8
+        )
+        np.testing.assert_array_equal(decoded[1, 2], expected_top)
+
+    def test_unknown_cmap_degrades_to_grayscale(self):
+        arr = np.zeros((4, 4), dtype=np.uint16)
+        arr[0, 0] = 10
+        decoded = np.array(
+            Image.open(io.BytesIO(resources.to_display_png(arr, cmap="not-a-map")))
+        )
+        assert decoded.ndim == 2  # grayscale, not a failure
+
+    def test_window_override_changes_saturation(self):
+        gradient = np.arange(100, dtype=np.float32).reshape(10, 10)
+        default = np.array(Image.open(io.BytesIO(resources.to_display_png(gradient))))
+        squeezed = np.array(
+            Image.open(io.BytesIO(resources.to_display_png(gradient, plo=0, phi=50)))
+        )
+        # Halving the top percentile saturates the whole upper half.
+        assert (squeezed == 255).sum() > (default == 255).sum()
+
+    def test_one_sided_window_override_applies(self):
+        """The popup stores defaults as key-absent, so {"phi": 50} alone
+        is the COMMON payload — it must apply (742 review HIGH: the
+        pair-wise float() silently discarded one-sided overrides)."""
+        gradient = np.arange(100, dtype=np.float32).reshape(10, 10)
+        one_sided = resources.to_display_png(gradient, phi=50)
+        assert one_sided != resources.to_display_png(gradient)
+        assert one_sided == resources.to_display_png(gradient, plo=1, phi=50)
+
+    def test_inverted_window_degrades_to_default(self):
+        gradient = np.arange(100, dtype=np.float32).reshape(10, 10)
+        assert resources.to_display_png(
+            gradient, plo=90, phi=10
+        ) == resources.to_display_png(gradient)
+
+    def test_endpoint_display_ladder_and_cmap(self, scan_folder):
+        client = _gallery_client(scan_folder)
+        colored = client.get(
+            "/run/uid-002/image.png",
+            params={"device": "cam", "shot": 1, "display": '{"cmap": "viridis"}'},
+        )
+        assert colored.status_code == 200
+        assert np.array(Image.open(io.BytesIO(colored.content))).ndim == 3
+        assert (
+            client.get(
+                "/run/uid-002/image.png",
+                params={"device": "cam", "shot": 1, "display": "notjson"},
+            ).status_code
+            == 400
+        )
+        assert (
+            client.get(
+                "/run/uid-002/image.png",
+                params={"device": "cam", "shot": 1, "display": '{"nope": 1}'},
+            ).status_code
+            == 400
+        )
+
+    def test_bin_image_takes_display(self, scan_folder):
+        client = TestBinImages()._client(scan_folder)
+        response = client.get(
+            "/run/uid-002/bin-image.png",
+            params={"device": "cam", "bin": 0, "display": '{"cmap": "magma"}'},
+        )
+        assert response.status_code == 200
+        assert np.array(Image.open(io.BytesIO(response.content))).ndim == 3

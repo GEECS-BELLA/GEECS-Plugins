@@ -143,8 +143,11 @@ member shots that resolve to pixels average via the shared
 carry over, and an ordinal-resolved member downgrades the response to
 `no-cache`) · `/health` (catalog probe — the fleet-map health check).
 
-Both image endpoints also take `?processing=<diagnostic id>` (the
-`processing` URL state): the named ImageAnalysis diagnostic runs
+Both image endpoints also take `?display=` (the shared display state's
+image slice: `cmap` matplotlib-colormap name + `plo`/`phi` percentile
+window — types 400 at parse, values degrade to grayscale/defaults;
+edited via the Images plotbar's "display…" popup) and
+`?processing=<diagnostic id>` (the `processing` URL state): the named ImageAnalysis diagnostic runs
 **ephemerally** on the served pixels via
 `image_analysis.ephemeral.run_diagnostic_ephemeral` — the write-free
 seam (its structural no-writes contract lives in ImageAnalysis

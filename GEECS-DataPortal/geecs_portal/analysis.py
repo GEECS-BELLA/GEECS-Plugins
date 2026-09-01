@@ -178,8 +178,20 @@ def parse_bincfg(raw: str) -> BinningConfig:
 
 
 _DISPLAY_BOOLS = ("logx", "logy")
-_DISPLAY_NUMBERS = ("xmin", "xmax", "ymin", "ymax", "msize", "width", "height")
-_DISPLAY_FIELDS = {*_DISPLAY_BOOLS, *_DISPLAY_NUMBERS, "colors", "layout"}
+# plo/phi = the image endpoints' percentile-window overrides (the plot
+# figures ignore them, same one-display-state doctrine as cmap).
+_DISPLAY_NUMBERS = (
+    "xmin",
+    "xmax",
+    "ymin",
+    "ymax",
+    "msize",
+    "width",
+    "height",
+    "plo",
+    "phi",
+)
+_DISPLAY_FIELDS = {*_DISPLAY_BOOLS, *_DISPLAY_NUMBERS, "colors", "layout", "cmap"}
 
 
 def parse_display(raw: str) -> dict:
@@ -244,6 +256,8 @@ def parse_display(raw: str) -> dict:
             raise BadParam("bad display param: colors must be a list of strings")
     if "layout" in payload and not isinstance(payload["layout"], dict):
         raise BadParam("bad display param: layout must be an object")
+    if "cmap" in payload and not isinstance(payload["cmap"], str):
+        raise BadParam("bad display param: cmap must be a string")
     return payload
 
 
