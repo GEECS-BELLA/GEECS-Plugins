@@ -3,6 +3,25 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.9.1] - 2026-08-31
+
+### Fixed
+
+Fix wave from the #728 promotion review (cloud review findings):
+
+- **XSS via URL-carried display/filters JSON** (`run.html`): the three
+  attribute sinks that interpolated shared-link state unescaped are
+  closed — `traceColor()` now admits only hex colors (falling back to
+  the palette), and the filter modal's low/high inputs render only
+  actual numbers. Shared analysis links can no longer inject markup.
+- **Union shot axis**: `/api/run/{uid}/frame` coalesces NA
+  `scan_event_index` cells with the s-file's own `Shotnumber` (plain or
+  collision-suffixed), so s-file-only union rows keep a shot axis
+  instead of a null that Plotly silently dropped from the default plot.
+  A run-only frame with a genuinely unknown shot still serializes null.
+- **`bin_width <= 0` is a 400** at the `parse_bincfg` boundary (zero
+  divided to `inf` inside `compute_bin_key` and escaped as a 500).
+
 ## [0.9.0] - 2026-08-31
 
 ### Added

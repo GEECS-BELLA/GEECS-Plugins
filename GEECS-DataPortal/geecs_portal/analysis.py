@@ -145,6 +145,10 @@ def parse_bincfg(raw: str) -> BinningConfig:
     for key in _BIN_FLOATS:
         if payload.get(key) is not None:
             payload[key] = _bin_number(key, payload[key], float)
+    if payload.get("bin_width") is not None and payload["bin_width"] <= 0:
+        # 0 divides to inf inside compute_bin_key (OverflowError → 500);
+        # negative widths build empty edge arrays.
+        raise BadParam("bad bincfg param: bin_width must be > 0")
     for key in _BIN_BOOLS:
         if key in payload and not isinstance(payload[key], bool):
             raise BadParam(f"bad bincfg param: {key} must be a boolean")
