@@ -4,6 +4,24 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.69.0] - 2026-08-31
+
+### Added
+
+- Queueserver parameter annotations on the two funnel plans (#727):
+  the worker startup wraps `geecs_scan_request_plan` and
+  `geecs_run_action_plan` with bluesky-queueserver's
+  `parameter_annotation_decorator`, so `plans_allowed` carries typed,
+  described parameters — the `request` description points generic
+  clients (OSPREY's plan panel) at the published ScanRequest JSON
+  Schema (`docs/geecs_schemas/scan_request.schema.json`,
+  geecs-schemas 0.13.0). The annotation payloads
+  (`SCAN_REQUEST_PLAN_ANNOTATION` / `RUN_ACTION_PLAN_ANNOTATION`) live
+  in `plans/scan_request_plan.py` next to the plans (that module stays
+  queueserver-import-free); the startup probe now pins the decorated
+  wrappers, and a new test pins that annotated plans still validate a
+  real `queue add` item. Metadata only — no behavior change.
+
 ## [0.68.2] - 2026-08-28
 
 ### Fixed

@@ -95,12 +95,20 @@ def main() -> None:
     if ns["RE"] is not ns["session"].RE:
         _fail("ns['RE'] is not ns['session'].RE — --keep-re contract broken")
         return
-    if ns.get("geecs_scan_request_plan") is not geecs_scan_request_plan:
-        _fail("ns['geecs_scan_request_plan'] is not the real plan function")
-        return
-    if ns.get("geecs_run_action_plan") is not geecs_run_action_plan:
-        _fail("ns['geecs_run_action_plan'] is not the real plan function")
-        return
+    # The startup rebinds both plan names to parameter_annotation_decorator
+    # wrappers (#727) — the namespace entry must be an annotated wrapper
+    # around the real plan function, not the bare plan and not a stranger.
+    for plan_name, real_plan in (
+        ("geecs_scan_request_plan", geecs_scan_request_plan),
+        ("geecs_run_action_plan", geecs_run_action_plan),
+    ):
+        wrapped = ns.get(plan_name)
+        if getattr(wrapped, "__wrapped__", None) is not real_plan:
+            _fail(f"ns[{plan_name!r}] does not wrap the real plan function")
+            return
+        if not getattr(wrapped, "_custom_parameter_annotation_", None):
+            _fail(f"ns[{plan_name!r}] carries no queueserver parameter annotation")
+            return
     for verb in ("geecs_move_variable", "geecs_describe_action"):
         if not callable(ns.get(verb)):
             _fail(f"ns[{verb!r}] is not callable — function_execute verb missing")

@@ -1,0 +1,488 @@
+{
+  "$defs": {
+    "AcquisitionMode": {
+      "description": "How shots are taken.\n\nAttributes\n----------\nFREE_RUN : str\n    The trigger free-runs at the machine repetition rate; devices are\n    matched up by their timestamps afterwards.\nSTRICT : str\n    The scan fires each shot itself and requires every device to report\n    in before the next one \u2014 slower, but nothing is ever missing.",
+      "enum": [
+        "free_run",
+        "strict"
+      ],
+      "title": "AcquisitionMode",
+      "type": "string"
+    },
+    "ActionBindings": {
+      "additionalProperties": false,
+      "description": "Which named action plans run around (and inside) the scan.\n\nEach slot lists plan names from the experiment's action library.  Leave\na slot empty for \"nothing\".",
+      "properties": {
+        "setup": {
+          "description": "Plans to run once before the scan starts.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Setup",
+          "type": "array"
+        },
+        "per_step": {
+          "description": "Plans to run between scan steps \u2014 after each move, before the shots at that position.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Per Step",
+          "type": "array"
+        },
+        "closeout": {
+          "description": "Plans to run once after the scan finishes (even on abort).",
+          "items": {
+            "type": "string"
+          },
+          "title": "Closeout",
+          "type": "array"
+        }
+      },
+      "title": "ActionBindings",
+      "type": "object"
+    },
+    "EvaluatorSpec": {
+      "additionalProperties": false,
+      "description": "Which analysis code turns raw shots into the number being optimized.\n\nPoints at the Python evaluator class and carries its configuration.",
+      "properties": {
+        "module": {
+          "description": "Python import path of the evaluator module, e.g. 'geecs_bluesky.optimization.evaluators.beam_sum_counts_evaluator'.",
+          "title": "Module",
+          "type": "string"
+        },
+        "class": {
+          "description": "Name of the evaluator class inside that module.",
+          "title": "Class",
+          "type": "string"
+        },
+        "kwargs": {
+          "additionalProperties": true,
+          "description": "Settings passed to the evaluator when it is created \u2014 e.g. which diagnostics/analyzers it should read. Free-form: each evaluator documents its own options.",
+          "title": "Kwargs",
+          "type": "object"
+        }
+      },
+      "required": [
+        "module",
+        "class"
+      ],
+      "title": "EvaluatorSpec",
+      "type": "object"
+    },
+    "GeneratorSpec": {
+      "additionalProperties": false,
+      "description": "Which optimization algorithm proposes the next settings.\n\nNames the generator and carries its algorithm-specific options.",
+      "properties": {
+        "name": {
+          "description": "Name of the optimization algorithm, e.g. 'bayes_default', 'random', or 'multipoint_bax_alignment_l2'.",
+          "title": "Name",
+          "type": "string"
+        },
+        "options": {
+          "additionalProperties": true,
+          "description": "Algorithm-specific tuning options. Free-form: each generator documents its own options (legacy 'xopt_config_overrides').",
+          "title": "Options",
+          "type": "object"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "GeneratorSpec",
+      "type": "object"
+    },
+    "OptimizationSpec": {
+      "additionalProperties": false,
+      "description": "The optimization problem: what to vary, within what limits, to improve what.\n\nOnly used when the scan's mode is ``optimize``.  Lists the variables the\noptimizer may move (with their allowed ranges), what is being minimized\nor maximized, and which algorithm drives the search.\n\nNotes\n-----\nMirrors what the legacy optimizer YAML (``BaseOptimizerConfig`` +\nXopt VOCS) could express: objectives may be empty for BAX-style\ngenerators that model ``observables`` only; ``constraints`` follow the\nVOCS ``[bound_type, value]`` form.",
+      "properties": {
+        "variables": {
+          "additionalProperties": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "type": "array"
+          },
+          "description": "What the optimizer may move and how far, as 'variable name: [lowest, highest]'. Names may be scan-variable names or 'Device:Variable' strings.",
+          "minProperties": 1,
+          "title": "Variables",
+          "type": "object"
+        },
+        "objectives": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "What counts as better, as 'objective name: MINIMIZE' or 'objective name: MAXIMIZE'. May be empty for algorithms that only model observables (BAX).",
+          "title": "Objectives",
+          "type": "object"
+        },
+        "observables": {
+          "description": "Extra measured quantities the algorithm should track without optimizing them, e.g. ['x_CoM'].",
+          "items": {
+            "type": "string"
+          },
+          "title": "Observables",
+          "type": "array"
+        },
+        "constraints": {
+          "additionalProperties": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "type": "array"
+          },
+          "description": "Hard limits on measured quantities, as 'name: [LESS_THAN or GREATER_THAN, value]'. Usually empty.",
+          "title": "Constraints",
+          "type": "object"
+        },
+        "evaluator": {
+          "$ref": "#/$defs/EvaluatorSpec",
+          "description": "The analysis code that scores each iteration."
+        },
+        "generator": {
+          "$ref": "#/$defs/GeneratorSpec",
+          "description": "The algorithm that proposes the next settings."
+        },
+        "max_iterations": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Stop after this many optimization iterations. Leave unset to run until stopped by hand.",
+          "title": "Max Iterations"
+        },
+        "seed_dump_files": {
+          "description": "Optional earlier results (ECS dump files) used to warm-start the optimizer. Usually empty.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Seed Dump Files",
+          "type": "array"
+        },
+        "move_to_best_on_finish": {
+          "default": false,
+          "description": "After the optimization ends, drive the variables back to the best settings found.",
+          "title": "Move To Best On Finish",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "variables",
+        "evaluator",
+        "generator"
+      ],
+      "title": "OptimizationSpec",
+      "type": "object"
+    },
+    "PositionList": {
+      "additionalProperties": false,
+      "description": "Scan positions given as an explicit list of values.\n\nUse this instead of start/end/step when the positions are irregular \u2014\ne.g. ``values: [0.0, 0.5, 2.0, 8.0]``.",
+      "properties": {
+        "values": {
+          "description": "The exact positions to visit, in the order given.",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 1,
+          "title": "Values",
+          "type": "array"
+        }
+      },
+      "required": [
+        "values"
+      ],
+      "title": "PositionList",
+      "type": "object"
+    },
+    "PositionRange": {
+      "additionalProperties": false,
+      "description": "Scan positions given as start / end / step size.\n\nThe scan visits start, start\u00b1step, \u2026 up to and including the end (when\nthe step divides the range evenly).  Start may be above or below end \u2014\nthe direction follows start\u2192end and the sign of ``step`` is ignored.",
+      "properties": {
+        "start": {
+          "description": "First position of the sweep.",
+          "title": "Start",
+          "type": "number"
+        },
+        "end": {
+          "description": "Last position of the sweep.",
+          "title": "End",
+          "type": "number"
+        },
+        "step": {
+          "description": "Spacing between positions. Its sign is ignored \u2014 the sweep direction comes from start and end.",
+          "title": "Step",
+          "type": "number"
+        }
+      },
+      "required": [
+        "start",
+        "end",
+        "step"
+      ],
+      "title": "PositionRange",
+      "type": "object"
+    },
+    "PreflightCheckResult": {
+      "description": "How one pre-submit check ended.\n\nAttributes\n----------\nPASSED : str\n    The check found nothing to ask about.\nCONTINUED : str\n    The check raised a question and the operator chose to continue\n    anyway.\nSKIPPED : str\n    The check could not run (for example the database was unreachable)\n    and submission went ahead without it.",
+      "enum": [
+        "passed",
+        "continued",
+        "skipped"
+      ],
+      "title": "PreflightCheckResult",
+      "type": "string"
+    },
+    "PreflightOutcome": {
+      "additionalProperties": false,
+      "description": "One pre-submit check and how it ended, kept for the scan's record.\n\nA check that would have stopped the submission never produces one of\nthese \u2014 an aborted submission is never queued, so there is nothing to\nrecord.",
+      "properties": {
+        "check": {
+          "description": "Name of the pre-submit check, e.g. 'unserved_variables', 'gateway_liveness', 'free_run_staleness'.",
+          "title": "Check",
+          "type": "string"
+        },
+        "result": {
+          "$ref": "#/$defs/PreflightCheckResult",
+          "description": "How the check ended: 'passed' (nothing found), 'continued' (the operator saw a warning and chose to go ahead), or 'skipped' (the check could not run)."
+        },
+        "detail": {
+          "default": "",
+          "description": "What the check found or why it was skipped, in the words the operator saw. Empty for a clean pass.",
+          "title": "Detail",
+          "type": "string"
+        }
+      },
+      "required": [
+        "check",
+        "result"
+      ],
+      "title": "PreflightOutcome",
+      "type": "object"
+    },
+    "ScanAxis": {
+      "additionalProperties": false,
+      "description": "One swept variable and the positions it visits.\n\nA step scan sweeps one or more axes.  One axis is the familiar 1-D\nscan; several axes form a grid \u2014 see :class:`ScanRequest` for how the\naxes loop together.",
+      "properties": {
+        "variable": {
+          "description": "The friendly name of the variable this axis sweeps (from the experiment's scan-variables catalog).",
+          "title": "Variable",
+          "type": "string"
+        },
+        "positions": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PositionRange"
+            },
+            {
+              "$ref": "#/$defs/PositionList"
+            }
+          ],
+          "description": "The positions this axis visits, either as {start, end, step} or as {values: [...]}.",
+          "title": "Positions"
+        }
+      },
+      "required": [
+        "variable",
+        "positions"
+      ],
+      "title": "ScanAxis",
+      "type": "object"
+    },
+    "ScanRequestMode": {
+      "description": "What kind of scan to run.\n\nAttributes\n----------\nSTEP : str\n    Sweep one scan variable through a list of positions, taking a batch\n    of shots at each.\nNOSCAN : str\n    Don't move anything \u2014 just collect shots for statistics.\nOPTIMIZE : str\n    Let an optimizer choose the next settings each iteration.",
+      "enum": [
+        "step",
+        "noscan",
+        "optimize"
+      ],
+      "title": "ScanRequestMode",
+      "type": "string"
+    },
+    "SubmissionRecord": {
+      "additionalProperties": false,
+      "description": "Who submitted this request, when, and what the pre-submit checks said.\n\nFilled in by the submitting client (the console, a script, an agent) at\nthe moment the request is queued \u2014 not written by hand.  The scan engine\ncopies it into the run metadata for provenance and never acts on it: a\nrequest without one runs exactly the same.",
+      "properties": {
+        "client": {
+          "default": "",
+          "description": "What submitted the request, e.g. 'geecs-console 0.21.0'. Free text, for the record only.",
+          "title": "Client",
+          "type": "string"
+        },
+        "submitted_at": {
+          "default": "",
+          "description": "When the request was queued, as an ISO 8601 timestamp with timezone from the submitting machine's clock, e.g. '2026-08-21T14:30:00-07:00'. Informational only.",
+          "title": "Submitted At",
+          "type": "string"
+        },
+        "preflight": {
+          "description": "The pre-submit checks that ran and how each ended. Empty when the client ran no checks.",
+          "items": {
+            "$ref": "#/$defs/PreflightOutcome"
+          },
+          "title": "Preflight",
+          "type": "array"
+        }
+      },
+      "title": "SubmissionRecord",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "One complete scan, ready to submit: what to do, what to save, how to trigger.\n\nFill in the mode (sweep / stand still / optimize), the axis (or axes) to\nsweep, how many shots per position, and the names of the save sets,\ntrigger profile, and action plans to use.  Saving a request you like\n*is* a preset.\n\nA step scan may sweep **one axis or several**.  With several axes the\nscan visits every combination (a grid): the *first* axis in the list is\nthe outermost, slowest-changing loop and the *last* axis is the\ninnermost, fastest-changing one.  ``shots_per_step`` shots are taken at\neach grid point, and each grid point is one bin in the scan data.\n\nNotes\n-----\nName-valued fields (``save_sets``, ``trigger_profile``, entries in\n``actions``) are resolved against the experiment's config library at\nsubmission time; this model checks shape and mode consistency, not name\nexistence.  ``save_sets`` is a list \u2014 the engine resolves each named set\nand **unions** their devices into the recorded device set (a device in\nmore than one set is merged), so operators mix and match named\ndiagnostic groups per scan.  A bare string is accepted for the\nsingle-set case and stored as a one-element list.\n\nv1 grid semantics are a plain outer product in list order.  Traversal\nordering options (snake/raster, per-axis direction) are deliberately not\nmodelled yet; a future ``ordering`` field on this model is the\nanticipated extension point.",
+  "properties": {
+    "schema_version": {
+      "default": 1,
+      "description": "Format version of this config file. Leave at 1 \u2014 tools update this automatically when the file format changes.",
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "mode": {
+      "$ref": "#/$defs/ScanRequestMode",
+      "description": "What kind of scan: 'step' sweeps one or more axes, 'noscan' collects shots without moving anything, 'optimize' lets an algorithm pick the settings."
+    },
+    "axes": {
+      "description": "For step scans: what to sweep. One entry is a simple 1-D scan; several entries form a grid visiting every combination, with the first axis as the outermost (slowest) loop and the last as the innermost (fastest). Leave empty for noscan and optimize.",
+      "items": {
+        "$ref": "#/$defs/ScanAxis"
+      },
+      "title": "Axes",
+      "type": "array"
+    },
+    "shots_per_step": {
+      "default": 1,
+      "description": "How many shots to take at each scan position / grid point (or in total for a noscan).",
+      "minimum": 1,
+      "title": "Shots Per Step",
+      "type": "integer"
+    },
+    "acquisition": {
+      "$ref": "#/$defs/AcquisitionMode",
+      "default": "strict",
+      "description": "'strict' fires shot by shot and guarantees every device is in every row; 'free_run' lets the trigger run at the machine rate and matches devices up by timestamp."
+    },
+    "save_sets": {
+      "description": "Names of the save sets \u2014 reusable named device groups \u2014 recorded for this scan; devices are unioned across them. Each names the devices that get guarantees (completeness, dialogs, images, rituals). A bare string is accepted and stored as a one-element list. Empty means no required devices beyond scan bookkeeping.",
+      "items": {
+        "type": "string"
+      },
+      "title": "Save Sets",
+      "type": "array"
+    },
+    "background_telemetry": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Also log every other live experiment device as best-effort snapshot columns \u2014 the variables the GEECS experiment database marks for scan logging (MySQL table expt_device_variable, get='yes') \u2014 read from the gateway's always-on monitor cache: read-only and never waited on, so it cannot slow or stall the scan; dead devices are dropped with a log line, never a dialog or abort. Leave unset to inherit the experiment default; set true/false to override for this scan.",
+      "title": "Background Telemetry"
+    },
+    "native_image_save": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Whether capture-eligible cameras (Point Grey \u2014 the devicetypes the central PVA capture daemon owns) write their native per-shot image files during this scan. When false, those cameras' images are recorded only by the capture daemon's per-device frame stack (one HDF5 per camera per scan); all other devices \u2014 proprietary formats like the HASO, scope traces \u2014 keep their native save regardless. Leave unset to inherit the experiment default; set true/false to override for this scan (e.g. force native files back on for one scan while the capture path is being validated). Two engine behaviors to expect when false: the scan is REFUSED before a scan number is claimed if the capture daemon looks absent or is not monitoring every capture camera (fail-closed \u2014 start the daemon or drop the override), and the request is silently inert when no capture-eligible cameras resolve (DB unreachable, or none in the save set) \u2014 native saving then proceeds unchanged, with a warning in the scan log.",
+      "title": "Native Image Save"
+    },
+    "trigger_profile": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Name of the trigger profile that drives the shot trigger. Unset means the scan does not manage the trigger.",
+      "title": "Trigger Profile"
+    },
+    "trigger_variant": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Optional variant of the trigger profile to use, e.g. 'laser_off'. Leave unset for the profile's base behaviour.",
+      "title": "Trigger Variant"
+    },
+    "actions": {
+      "$ref": "#/$defs/ActionBindings",
+      "description": "Named action plans to run before the scan (setup), between steps (per_step), and after it (closeout)."
+    },
+    "description": {
+      "default": "",
+      "description": "Free-text note about this scan; it ends up in the scan's metadata and the experiment log.",
+      "title": "Description",
+      "type": "string"
+    },
+    "background": {
+      "default": false,
+      "description": "Mark this scan's data as background/calibration shots so analysis can find them later.",
+      "title": "Background",
+      "type": "boolean"
+    },
+    "optimization": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/OptimizationSpec"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "The optimization problem definition. Required for (and only allowed with) mode 'optimize'."
+    },
+    "submission": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SubmissionRecord"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Filled in by the submitting client at queue time \u2014 who submitted, when, and what the pre-submit checks said. Not written by hand and never acted on by the engine; it is copied into the run metadata for the record. Leave unset in saved presets."
+    }
+  },
+  "required": [
+    "mode"
+  ],
+  "title": "ScanRequest",
+  "type": "object"
+}

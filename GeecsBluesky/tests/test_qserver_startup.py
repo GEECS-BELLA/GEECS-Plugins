@@ -159,3 +159,58 @@ def test_plan_signature_passes_manager_validation() -> None:
         item, allowed_plans={"geecs_scan_request_plan": processed}, allowed_devices={}
     )
     assert ok, msg
+
+
+def test_annotated_plans_carry_descriptions_and_still_validate() -> None:
+    """The #727 annotations reach ``plans_allowed`` without breaking submits.
+
+    The startup wraps both funnel plans with
+    ``parameter_annotation_decorator``; this pins the two things that
+    matter about that: the processed plan (the exact dict the manager
+    serves as ``plans_allowed``) carries a per-parameter description —
+    with the ``request`` description pointing at the published JSON Schema
+    artifact — and a real ``queue add`` item still validates against the
+    decorated signature (the annotation strings must evaluate in the
+    manager's bare namespace, same constraint as the test above).
+    """
+    pytest.importorskip("bluesky_queueserver")
+
+    from bluesky_queueserver import parameter_annotation_decorator
+    from bluesky_queueserver.manager.profile_ops import _process_plan, validate_plan
+
+    from geecs_bluesky.plans.scan_request_plan import (
+        RUN_ACTION_PLAN_ANNOTATION,
+        SCAN_REQUEST_PLAN_ANNOTATION,
+        geecs_run_action_plan,
+        geecs_scan_request_plan,
+    )
+    from geecs_schemas import ScanRequest
+
+    for plan, annotation, item_args in (
+        (
+            geecs_scan_request_plan,
+            SCAN_REQUEST_PLAN_ANNOTATION,
+            [
+                ScanRequest.model_validate(
+                    {"mode": "noscan", "shots_per_step": 2, "save_sets": ["UC_Test"]}
+                ).model_dump(mode="json")
+            ],
+        ),
+        (geecs_run_action_plan, RUN_ACTION_PLAN_ANNOTATION, ["reset_plc"]),
+    ):
+        wrapped = parameter_annotation_decorator(annotation)(plan)
+        processed = _process_plan(wrapped, existing_devices={}, existing_plans={})
+        described = {p["name"]: p.get("description") for p in processed["parameters"]}
+        assert set(annotation["parameters"]) <= set(described)
+        assert all(described[name] for name in annotation["parameters"])
+        ok, msg = validate_plan(
+            {"name": plan.__name__, "args": item_args, "item_type": "plan"},
+            allowed_plans={plan.__name__: processed},
+            allowed_devices={},
+        )
+        assert ok, msg
+
+    assert (
+        "scan_request.schema.json"
+        in SCAN_REQUEST_PLAN_ANNOTATION["parameters"]["request"]["description"]
+    )
