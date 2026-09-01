@@ -10,9 +10,10 @@ the repository (linked in the table below) — this page is the map, not
 the manual.
 
 !!! note "Snapshot"
-    Reflects the fleet as of **August 2026**. Deployed and running: the
-    CA gateway, the GEECS DB, Tiled, the PVA image gateways, the
-    queueserver worker (on an interim host), and the GEECS Data Portal.
+    Reflects the fleet as of **September 2026**. Deployed and running:
+    the CA gateway, the GEECS DB, Tiled, the PVA image gateways, the
+    queueserver worker (on an interim host), and the GEECS Data Portal
+    (0.15.x — analysis tabs, per-bin image grid, ephemeral processing).
     Documented here ahead of
     deployment: the GEECS-MCP HTTP service and the capture daemon
     (which lands with the central-PVA-capture arc). When a service
@@ -99,18 +100,78 @@ co-location is a requirement, not a convenience).
 
 ## The services
 
-| Service | Host | Port(s) | Supervision | Health check | Runbook |
-|---|---|---|---|---|---|
-| CA gateway (GeecsCAGateway) | 192.168.6.14 | CA 5064/5065 | systemd `geecs-ca-gateway` | heartbeat + per-device `CONNECTED` PVs; `systemctl status` | [GeecsCAGateway/DEPLOYMENT.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsCAGateway/DEPLOYMENT.md) |
-| Tiled catalog | 192.168.6.14 | HTTP 8000 | systemd `tiled` | `GET /api/v1/`; web UI at `/ui` | [GeecsBluesky/TILED_SETUP.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsBluesky/TILED_SETUP.md) |
-| Queueserver worker (RE Manager + Redis + doc proxy) | the worker host (interim box; the runbook targets a dedicated host) | ZMQ 60615 (control), 60625 (console stream), 5568 (documents); Redis loopback-only | systemd `geecs-qserver` | `qserver status` from any client env | [GeecsBluesky/qserver/deploy/DEPLOYMENT.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsBluesky/qserver/deploy/DEPLOYMENT.md) |
-| GEECS-MCP server — *HTTP mode pending deploy* | the worker host (co-located by design; stdio mode runs per-machine today) | HTTP 8100 (`/mcp`) | systemd (HTTP mode) | tool call `scan_status` from an agent | [GEECS-MCP/deploy/DEPLOYMENT.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GEECS-MCP/deploy/DEPLOYMENT.md) |
-| Capture daemon (`geecs_bluesky.capture`) — *pending deploy* | the queueserver worker host (co-location is a **requirement**: shared filesystem view + local heartbeat) | consumes doc stream (5568) + pvAccess; no listening port | systemd `geecs-capture` | heartbeat file refreshing every ~10 s (`~/.local/state/geecs-capture/heartbeat.json` in the service user's home); discovery line in `journalctl -u geecs-capture` | [GeecsBluesky/capture/deploy/DEPLOYMENT.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsBluesky/capture/deploy/DEPLOYMENT.md) |
-| GEECS Data Portal (GEECS-DataPortal) | the worker host (interim box; moves with the services-server consolidation) | HTTP 8200 | systemd `geecs-data-portal` | `GET /health` (catalog probe); any day page in a browser | [GEECS-DataPortal/DEPLOYMENT.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GEECS-DataPortal/DEPLOYMENT.md) |
-| PVA image gateways (GeecsPvaGateway) | each camera server (9 hosts) | pvAccess TCP 5075 / UDP 5076 | NSSM service `GeecsPvaGateway` (auto-start, pull-on-restart) | fleet status Phoebus screen (`deploy/fleet_status.bob`) | [GeecsPvaGateway/DEPLOYMENT.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsPvaGateway/DEPLOYMENT.md) |
-| GEECS MySQL DB | 192.168.6.14 | 3306 | LabVIEW/GEECS infrastructure (not managed by this repo) | any `GeecsDb` client connect | — |
-| Data share (NAS) | NAS appliance | SMB | storage infrastructure (not managed by this repo) | mount visible, scan folders resolvable | — |
-| GEECS LabVIEW devices | Windows device hosts | GEECS wire protocol (UDP/TCP) | Master Control / device GUIs | device `CONNECTED` PV via the gateway | — |
+The **Checkout** column names the git clone a service runs from, as a
+path in the service account's home on its host — see
+[one clone per service](#one-clone-per-service) below for why each
+service gets its own.
+
+| Service | Host | Checkout | Port(s) | Supervision | Health check | Runbook |
+|---|---|---|---|---|---|---|
+| CA gateway (GeecsCAGateway) | 192.168.6.14 | `~/GEECS-Plugins` | CA 5064/5065 | systemd `geecs-ca-gateway` | heartbeat + per-device `CONNECTED` PVs; `systemctl status` | [GeecsCAGateway/DEPLOYMENT.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsCAGateway/DEPLOYMENT.md) |
+| Tiled catalog | 192.168.6.14 | — (pip install + `~/tiled/config.yml`) | HTTP 8000 | systemd `tiled` | `GET /api/v1/`; web UI at `/ui` | [GeecsBluesky/TILED_SETUP.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsBluesky/TILED_SETUP.md) |
+| Queueserver worker (RE Manager + Redis + doc proxy) | the worker host (interim box; the runbook targets a dedicated host) | `~/qs-checkout` | ZMQ 60615 (control), 60625 (console stream), 5568 (documents); Redis loopback-only | systemd `geecs-qserver` | `qserver status` from any client env | [GeecsBluesky/qserver/deploy/DEPLOYMENT.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsBluesky/qserver/deploy/DEPLOYMENT.md) |
+| GEECS-MCP server — *HTTP mode pending deploy* | the worker host (co-located by design; stdio mode runs per-machine today) | own clone when deployed (per the pattern below) | HTTP 8100 (`/mcp`) | systemd (HTTP mode) | tool call `scan_status` from an agent | [GEECS-MCP/deploy/DEPLOYMENT.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GEECS-MCP/deploy/DEPLOYMENT.md) |
+| Capture daemon (`geecs_bluesky.capture`) — *pending deploy* | the queueserver worker host (co-location is a **requirement**: shared filesystem view + local heartbeat) | `~/qs-checkout` (shares the worker's clone — the co-location requirement extends to code state) | consumes doc stream (5568) + pvAccess; no listening port | systemd `geecs-capture` | heartbeat file refreshing every ~10 s (`~/.local/state/geecs-capture/heartbeat.json` in the service user's home); discovery line in `journalctl -u geecs-capture` | [GeecsBluesky/capture/deploy/DEPLOYMENT.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsBluesky/capture/deploy/DEPLOYMENT.md) |
+| GEECS Data Portal (GEECS-DataPortal) | the worker host (interim box; moves with the services-server consolidation) | `~/portal-checkout` | HTTP 8200 | systemd `geecs-data-portal` | `GET /health` (catalog probe); any day page in a browser | [GEECS-DataPortal/DEPLOYMENT.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GEECS-DataPortal/DEPLOYMENT.md) |
+| PVA image gateways (GeecsPvaGateway) | each camera server (9 hosts) | per-host clone (NSSM pulls on restart) | pvAccess TCP 5075 / UDP 5076 | NSSM service `GeecsPvaGateway` (auto-start, pull-on-restart) | fleet status Phoebus screen (`deploy/fleet_status.bob`) | [GeecsPvaGateway/DEPLOYMENT.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsPvaGateway/DEPLOYMENT.md) |
+| GEECS MySQL DB | 192.168.6.14 | — | 3306 | LabVIEW/GEECS infrastructure (not managed by this repo) | any `GeecsDb` client connect | — |
+| Data share (NAS) | NAS appliance | — | SMB | storage infrastructure (not managed by this repo) | mount visible, scan folders resolvable | — |
+| GEECS LabVIEW devices | Windows device hosts | — | GEECS wire protocol (UDP/TCP) | Master Control / device GUIs | device `CONNECTED` PV via the gateway | — |
+
+## One clone per service
+
+When several services from this monorepo share a host, **each service
+family runs from its own clone** of GEECS-Plugins (and installs its own
+Poetry env inside it). This is deliberate, not accumulation:
+
+- **A pull for one service must never change the code under another
+  running service.** Units run with `Restart=on-failure`: with a shared
+  working tree, deploying service A would leave service B one crash
+  away from auto-restarting onto code nobody validated for B.
+- **Deploy cadence differs per service.** The portal iterates in days;
+  the CA gateway is control-room-critical and moves rarely; the worker
+  moves only at hardware-verified milestones. Each clone sits pinned at
+  its service's last *verified* deploy — a per-service rollback point,
+  not drift.
+- The queueserver worker and capture daemon are the one deliberate
+  exception: they share `~/qs-checkout` because their co-location (and
+  co-versioning) is a requirement of the capture design.
+
+A clone is deployed by `git pull` (or checkout of a pinned ref) +
+`poetry install` **with the extras that service needs** (each runbook
+names them; e.g. the portal's optional processing selector needs
+`--extras analysis`) + `systemctl restart <unit>`. Never `git pull` a
+clone that isn't the one your service runs from.
+
+### Fresh-host bootstrap (collected from live deploys)
+
+The services-server consolidation will redo these steps; gotchas that
+cost real time, so they aren't re-learned:
+
+1. Create the dedicated service account; install everything as that
+   account (units run as it). Python 3.11 and `~/.local/bin/poetry`
+   per the runbooks.
+2. One clone per service family, named for the service
+   (`~/<service>-checkout`); per-clone `poetry install` **inside the
+   package directory**, with that service's extras.
+3. `~/.config/geecs_python_api/config.ini` per the
+   [Getting started](../tutorials/getting_started.md) reference — it
+   feeds every service (CA address, Tiled URI/key, data-share path,
+   qserver address, config-repo paths).
+4. Non-login shells (plain `ssh host 'cmd'`, systemd) don't have
+   `~/.local/bin` on `PATH` — use `bash -lc` for remote poetry
+   commands, and absolute `ExecStart` paths in units.
+5. A GEECS-Plugins-Configs checkout consumed from the data share is
+   typically Windows-authored (CRLF): set `core.autocrlf true` on that
+   checkout before pulling from Linux, or every file reads as locally
+   modified and pulls abort. Never "fix" the line endings in place —
+   LabVIEW consumers read the same files.
+6. Quote systemd `ExecStart` arguments that carry share paths — the
+   lab's paths contain spaces (`.../Active Version/...`).
+7. Install units from each package's `deploy/` template (generic
+   service-account placeholders), then `systemctl daemon-reload`,
+   `enable`, `start`, and run the runbook's health check before
+   calling it deployed. Update this page's table in the same PR.
 
 ## How the planes connect
 
