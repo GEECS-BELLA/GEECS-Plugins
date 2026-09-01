@@ -1314,8 +1314,8 @@ def select_capture_devices(
                 "are dropped from capture_devices until the snapshot role "
                 "grows a save-control child and an acq_timestamp join column "
                 "(#702). Its `images: true` is ignored: the engine neither "
-                "commands nor suppresses the device's own save flag, so this "
-                "scan writes no per-shot images for it. Remove `role: "
+                "commands nor suppresses the device's own save flag, so the "
+                "engine records no per-shot images for it. Remove `role: "
                 "snapshot` (legacy: `synchronous: false`) to have the capture "
                 "daemon own its images.",
                 name,
