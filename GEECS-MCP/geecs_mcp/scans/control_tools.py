@@ -574,7 +574,9 @@ async def resume_scan(force: bool = False) -> str:
 def _stream_snapshot(client, re_state: str | None) -> dict:
     """The document-stream picture, started lazily from the client's addrs.
 
-    Best-effort BY DESIGN: ``available=false`` (with the reason) when the
+    Lazy is the stdio posture; the HTTP service warms the same cache at
+    startup (``__main__.warm_progress_stream``, #685) and this call is
+    then the idempotent no-op.  Best-effort BY DESIGN: ``available=false`` (with the reason) when the
     stream cannot be consumed, and the poll fields stand alone.  The
     sticky ``paused_reason`` (the console-text stream's failed-move line)
     is only surfaced while the RE is actually paused — after a resume the
@@ -582,11 +584,7 @@ def _stream_snapshot(client, re_state: str | None) -> dict:
     """
     from geecs_mcp.scans import progress_stream
 
-    cache = progress_stream.get_progress_cache()
-    cache.ensure_started(
-        getattr(client, "doc_addr", None), getattr(client, "info_addr", None)
-    )
-    snapshot = cache.snapshot()
+    snapshot = progress_stream.start_for_client(client).snapshot()
     if re_state != "paused":
         snapshot.pop("paused_reason", None)
     return snapshot

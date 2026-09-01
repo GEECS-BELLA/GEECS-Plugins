@@ -16,6 +16,43 @@ from __future__ import annotations
 import argparse
 import logging
 
+logger = logging.getLogger("geecs_mcp.main")
+
+
+def warm_progress_stream() -> None:
+    """Start the ``scan_progress`` stream consumers before the first run (#685).
+
+    HTTP mode only: a long-lived service must be consuming BEFORE its
+    first run's start document passes — the lazy start behind
+    ``scan_progress`` (fine for a short-lived stdio session) left the
+    first scan after a service restart with no scan number or counts.
+    Best-effort like the cache itself: nothing here can stop the server
+    from coming up — a client that will not build is logged, and a
+    missing address is the cache's own honest ``available=false``.
+    """
+    try:
+        from geecs_mcp import runtime
+        from geecs_mcp.scans import progress_stream
+
+        client = runtime.get_queue_client()
+        progress_stream.start_for_client(client)
+    except Exception as exc:
+        logger.warning(
+            "progress stream not warmed at startup (%s) — scan_progress "
+            "will start it lazily on first call",
+            exc,
+        )
+        return
+    doc_addr = getattr(client, "doc_addr", None)
+    if doc_addr:
+        logger.info("progress stream warming from document stream %s", doc_addr)
+    else:
+        logger.warning(
+            "progress stream not warmed: no document-stream address "
+            "([qserver] unconfigured?) — scan_progress reports "
+            "stream.available=false"
+        )
+
 
 def main() -> None:
     """Parse transport options and run the server."""
@@ -34,6 +71,7 @@ def main() -> None:
 
     server = create_server()
     if args.transport == "http":
+        warm_progress_stream()
         server.run(transport="http", host=args.host, port=args.port)
     else:
         server.run()

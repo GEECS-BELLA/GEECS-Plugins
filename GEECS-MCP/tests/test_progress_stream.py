@@ -126,3 +126,27 @@ def test_ensure_started_without_doc_addr_degrades_honestly():
     # Idempotent: a second call must not spawn anything or reset state.
     cache.ensure_started(None, None)
     assert cache.snapshot()["detail"] == snap["detail"]
+
+
+def test_start_for_client_reads_the_client_addresses(monkeypatch):
+    # THE one address resolution shared by scan_progress and the HTTP
+    # startup warm-up (#685): both go through start_for_client.
+    from types import SimpleNamespace
+
+    from geecs_mcp.scans import progress_stream
+
+    seen = []
+
+    class _Recorder:
+        def ensure_started(self, doc_addr, info_addr):
+            seen.append((doc_addr, info_addr))
+
+    recorder = _Recorder()
+    monkeypatch.setattr(progress_stream, "get_progress_cache", lambda: recorder)
+    client = SimpleNamespace(
+        doc_addr="localhost:5568", info_addr="tcp://localhost:60625"
+    )
+    assert progress_stream.start_for_client(client) is recorder
+    # A stub client without the attributes resolves to None, not an error.
+    progress_stream.start_for_client(object())
+    assert seen == [("localhost:5568", "tcp://localhost:60625"), (None, None)]

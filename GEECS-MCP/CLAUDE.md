@@ -192,6 +192,10 @@ geecs_mcp/
   console-text stream's failed-move line as the paused reason
   (surfaced only while actually paused — sticky otherwise).  The
   manager poll stays authoritative; `stream.available=false` names why.
+  The consumer threads start lazily on the first `scan_progress` call
+  (stdio) but the HTTP entry point warms them at startup (#685) — a
+  long-lived service must be consuming before its first start document
+  passes, or that run shows no counts.
 
 ## Testing
 
