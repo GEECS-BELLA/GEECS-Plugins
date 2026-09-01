@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import date, datetime
 
 import pandas as pd
@@ -599,6 +600,121 @@ class TestAnalysisApi:
         assert defaulted["series"] == plain["series"]
 
 
+class TestServerFigures:
+    """0.10.0: the /api responses carry the server-authored figure."""
+
+    def test_frame_figure_is_wired_and_pretty_named(self):
+        payload = (
+            _client().get("/api/run/uid-002/frame?cols=cam-MaxCounts&x=mono").json()
+        )
+        fig = payload["figure"]
+        assert [t["yaxis"] for t in fig["data"]] == ["y"]
+        assert fig["data"][0]["x"] == [4.0, 5.0, 6.0]
+        assert fig["data"][0]["y"] == [10.0, 12.5, 11.0]
+        # Run-provenance names prettify (device : variable).
+        assert fig["data"][0]["name"] == "cam : MaxCounts"
+        assert fig["layout"]["xaxis"]["title"]["text"] == "mono"
+        assert fig["layout"]["showlegend"] is False  # single trace
+
+    def test_frame_without_cols_serves_no_figure(self):
+        payload = _client().get("/api/run/uid-002/frame").json()
+        assert "figure" not in payload
+
+    def test_display_param_reaches_the_figure_and_the_code(self):
+        payload = (
+            _client()
+            .get(
+                "/api/run/uid-002/frame",
+                params={"cols": "cam-MaxCounts", "display": '{"logy":true}'},
+            )
+            .json()
+        )
+        assert payload["figure"]["layout"]["yaxis"]["type"] == "log"
+        assert "shots_figure" in payload["code"]
+        assert "'logy': True" in payload["code"]
+
+    def test_display_layout_passthrough_stays_out_of_the_server_figure(self):
+        # display.layout is the CLIENT-side escape hatch — the server
+        # accepts the key (a shared link carries the whole display
+        # JSON) but never applies or quotes it.
+        payload = (
+            _client()
+            .get(
+                "/api/run/uid-002/frame",
+                params={
+                    "cols": "cam-MaxCounts",
+                    "display": '{"layout":{"yaxis":{"tickformat":".2e"}}}',
+                },
+            )
+            .json()
+        )
+        assert "tickformat" not in json.dumps(payload["figure"])
+        assert "layout" not in payload["code"]
+
+    def test_bad_display_is_400_not_500(self):
+        client = _client()
+        for display in (
+            "not json",
+            '["list"]',
+            '{"ghost":1}',
+            '{"logy":"yes"}',
+            '{"msize":"big"}',
+            '{"ymin":NaN}',
+            '{"colors":"#123456"}',
+            '{"colors":[7]}',
+            '{"layout":"x"}',
+        ):
+            response = client.get(
+                "/api/run/uid-002/frame",
+                params={"cols": "cam-MaxCounts", "display": display},
+            )
+            assert response.status_code == 400, display
+            assert "display" in response.json()["detail"]
+
+    def test_explicit_null_display_fields_mean_absent(self):
+        payload = (
+            _client()
+            .get(
+                "/api/run/uid-002/frame",
+                params={"cols": "cam-MaxCounts", "display": '{"logy":null}'},
+            )
+            .json()
+        )
+        assert payload["figure"]["layout"]["yaxis"].get("type") != "log"
+
+    def test_no_x_means_the_shot_axis_in_figure_and_code(self):
+        # (An unplottable x 404s at the endpoint — pre-existing; the
+        # figure-level fallback is pinned in test_figures.py.)
+        payload = _client().get("/api/run/uid-002/frame?cols=cam-MaxCounts").json()
+        assert payload["figure"]["data"][0]["x"] == [1.0, 2.0, 3.0]
+        assert payload["figure"]["layout"]["xaxis"]["title"]["text"] == "shot #"
+        assert "x=" not in payload["code"]
+
+    def test_binned_figure_carries_asymmetric_errors_and_bin_col(self):
+        payload = (
+            _client()
+            .get(
+                "/api/run/uid-002/binned",
+                params={"cols": "cam-MaxCounts", "bincfg": '{"bin_col":"mono"}'},
+            )
+            .json()
+        )
+        fig = payload["figure"]
+        trace = fig["data"][0]
+        assert trace["x"] == [4.0, 5.0, 6.0]
+        assert trace["y"] == [10.0, 12.5, 11.0]
+        assert trace["error_y"]["symmetric"] is False
+        assert trace["error_y"]["arrayminus"] == [0.0, 0.0, 0.0]
+        assert fig["layout"]["xaxis"]["title"]["text"] == "mono"
+        assert "binned_figure" in payload["code"]
+
+    def test_page_injects_the_server_palette(self):
+        from geecs_portal.figures import TRACE_COLORS
+
+        text = _client().get("/run/uid-002").text
+        assert f"const TRACE_COLORS = {json.dumps(list(TRACE_COLORS))};" in text
+
+
 class TestPlotTabPolish:
     """W1e: timestamp handling, the ts_ pick flag, day-jump stepping."""
 
@@ -719,7 +835,7 @@ class TestPlotTabPolish:
         assert "scrollZoom: true" in text
         assert "drawrect" in text
         assert "togglespikelines" in text
-        assert "deepMerge(layout, d.layout)" in text  # the passthrough
+        assert "deepMerge(fig.layout, d.layout)" in text  # the passthrough
 
 
 class TestReverseProxy:

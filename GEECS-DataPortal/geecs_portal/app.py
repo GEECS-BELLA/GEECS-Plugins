@@ -57,7 +57,7 @@ from geecs_data_utils.tiled_catalog import (
     resolve_scan_folder,
 )
 
-from geecs_portal import analysis, resources
+from geecs_portal import analysis, figures, resources
 from geecs_portal.cache import ShotDataCache
 
 logger = logging.getLogger(__name__)
@@ -337,6 +337,28 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
             )
         return requested
 
+    def _display(display_raw: str) -> dict:
+        """Parse the display param (400 on bad)."""
+        try:
+            return analysis.parse_display(display_raw)
+        except analysis.BadParam as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    def _pretty_names(detail, pf, columns: list[str]) -> dict:
+        """Figure titles/legend names, by the columns endpoint's rule.
+
+        Run-provenance columns prettify; s-file names are already human.
+        """
+        scalar_headers = (detail.start_doc or {}).get("geecs_scalar_headers")
+        return {
+            column: (
+                schema_map.display_name(column, scalar_headers)
+                if pf.provenance.get(column, PROVENANCE_RUN) == PROVENANCE_RUN
+                else column
+            )
+            for column in columns
+        }
+
     @app.get("/health")
     def health() -> dict:
         """Liveness + catalog probe (the fleet-map health check)."""
@@ -384,12 +406,14 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
         cols: list[str] = Query(default=[]),
         x: str = "",
         filters: str = "",
+        display: str = "",
         day: str = "",
     ) -> JSONResponse:
-        """Per-shot series for the selected columns, filters applied."""
+        """Per-shot series + the ready figure for the selection."""
         detail = _load_run(uid)
         pf, run_day = _union(detail, day)
         flt, mask = _masked(pf, filters)
+        disp = _display(display)
         requested = _y_columns(cols)
         series = {}
         kinds = {}
@@ -426,10 +450,15 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
                     shot_key = shot_key.fillna(
                         pd.to_numeric(pf.frame[name], errors="coerce")
                     )
+        shot_values = analysis.jsonable_values(shot_key[mask])
+        # The page falls back to the shot axis when the picked X is not
+        # servable — the figure mirrors that, and the snippet quotes the
+        # X that actually rendered.
+        x_name = x if x and x in series else None
         payload = {
             "series": series,
             "kinds": kinds,
-            "shot": analysis.jsonable_values(shot_key[mask]),
+            "shot": shot_values,
             "pass": int(mask.sum()),
             "total": len(pf.frame),
             "code": analysis.frame_code(
@@ -438,8 +467,22 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
                 requested,
                 flt,
                 {column: schema_map.timestamp_epoch(column) for column in kinds},
+                x=x_name,
+                display=disp,
             ),
         }
+        if requested:
+            payload["figure"] = figures.shots_figure(
+                series,
+                requested,
+                x=x_name,
+                shot=shot_values,
+                kinds=kinds,
+                pretty=_pretty_names(
+                    detail, pf, [*requested, *([x_name] if x_name else [])]
+                ),
+                display=disp,
+            ).to_plotly_json()
         return JSONResponse(payload, headers=_png_headers(detail))
 
     @app.get("/api/run/{uid}/binned")
@@ -448,12 +491,14 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
         cols: list[str] = Query(default=[]),
         filters: str = "",
         bincfg: str = "",
+        display: str = "",
         day: str = "",
     ) -> JSONResponse:
-        """Per-bin centers + asymmetric error bands for the selection."""
+        """Per-bin centers + error bands + the ready binned figure."""
         detail = _load_run(uid)
         pf, run_day = _union(detail, day)
         flt, mask = _masked(pf, filters)
+        disp = _display(display)
         requested = _y_columns(cols)
         try:
             cfg = analysis.parse_bincfg(bincfg)
@@ -473,21 +518,34 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
             ) from exc
         except ValueError as exc:  # e.g. degenerate percentile bounds
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+        bin_labels = analysis.jsonable_labels(result.frame.index)
+        binned_series = {
+            column: {
+                sub: analysis.jsonable_values(result.frame[(column, sub)])
+                for sub in ("center", "err_low", "err_high")
+            }
+            for column in requested
+            if (column, "center") in result.frame.columns
+        }
         payload = {
-            "bins": analysis.jsonable_labels(result.frame.index),
+            "bins": bin_labels,
             "counts": [int(count) for count in result.counts],
-            "series": {
-                column: {
-                    sub: analysis.jsonable_values(result.frame[(column, sub)])
-                    for sub in ("center", "err_low", "err_high")
-                }
-                for column in requested
-                if (column, "center") in result.frame.columns
-            },
+            "series": binned_series,
             "pass": int(mask.sum()),
             "total": len(pf.frame),
-            "code": analysis.binned_code(uid, run_day, requested, flt, cfg),
+            "code": analysis.binned_code(
+                uid, run_day, requested, flt, cfg, display=disp
+            ),
         }
+        if requested:
+            payload["figure"] = figures.binned_figure(
+                bin_labels,
+                binned_series,
+                requested,
+                bin_col=cfg.bin_col,
+                pretty=_pretty_names(detail, pf, requested),
+                display=disp,
+            ).to_plotly_json()
         return JSONResponse(payload, headers=_png_headers(detail))
 
     @app.get("/api/run/{uid}/filter-count")
@@ -729,6 +787,9 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
                 "has_next_shot": n_rows is None or shot < n_rows,
                 "total_shots": detail.summary.shots,
                 "portal_version": _portal_version(),
+                # The rail's column chips must stay color-matched to the
+                # server-authored traces — one palette, injected.
+                "trace_colors": list(figures.TRACE_COLORS),
                 "qs": lambda **kw: _sticky_query(state, **kw),
             },
         )

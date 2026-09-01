@@ -3,6 +3,40 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.10.0] - 2026-08-31
+
+### Changed
+
+Plot-tab figures are now **authored server-side in Python** (the
+renderer ruling from the plotly.py-vs-Altair bake-off — same vendored
+plotly.js renderer, spec authorship moves down):
+
+- New `geecs_portal/figures.py`: `shots_figure` / `binned_figure` build
+  the complete Plotly figure (palette, base layout, the stacked
+  multi-axis ladder, asymmetric error bars, log/date guards, display
+  cosmetics) with plotly.py; the package gains a `plotly` dependency
+  (server-side only — the browser keeps the vendored bundle).
+- `/api/run/{uid}/frame` and `/binned` accept the URL-carried
+  `display` JSON (validated at the boundary: wrong types, unknown
+  fields, and non-finite numbers are 400s per the `bincfg` precedent;
+  cosmetic *values* keep the page's degrade semantics — a non-hex
+  color or non-positive marker size falls back to the default, because
+  display state rides shared links) and return a ready `figure` field.
+  Responses without `cols` carry no figure. The version-keyed `/api`
+  cache rolls browsers onto the new shape.
+- `run.html`: `drawShots`/`drawBinned`/`multiYAxes`/
+  `applyDisplayToLayout` and the layout constants collapse into one
+  `drawFigure` — `Plotly.react` over the served figure. The
+  `display.layout` passthrough deliberately **stays client-side** with
+  its prototype-pollution guard (the URL-carried patch never executes
+  on the server), and the trace palette is now injected from
+  `figures.TRACE_COLORS` so rail chips cannot drift from the traces.
+- "Show the code" now reproduces the **figure**, not just the numbers:
+  both snippets end with the `shots_figure`/`binned_figure` call that
+  yields the identical figure the page renders (from the notebook
+  frame, axis titles show raw column names — the page adds pretty
+  names).
+
 ## [0.9.1] - 2026-08-31
 
 ### Fixed

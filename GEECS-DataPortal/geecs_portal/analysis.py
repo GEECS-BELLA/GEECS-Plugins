@@ -177,6 +177,76 @@ def parse_bincfg(raw: str) -> BinningConfig:
         raise BadParam(f"bad bincfg param: {exc}") from exc
 
 
+_DISPLAY_BOOLS = ("logx", "logy")
+_DISPLAY_NUMBERS = ("xmin", "xmax", "ymin", "ymax", "msize")
+_DISPLAY_FIELDS = {*_DISPLAY_BOOLS, *_DISPLAY_NUMBERS, "colors", "layout"}
+
+
+def parse_display(raw: str) -> dict:
+    """Deserialize the ``display`` query param (empty → no cosmetics).
+
+    Types are the contract and 400 here (the ``bincfg`` precedent: a
+    wrong-typed field must never 500 inside the figure builder); values
+    keep the page's historical degrade semantics downstream — a non-hex
+    color entry or a non-positive marker size falls back to the default
+    in :mod:`geecs_portal.figures`, because display state rides shared
+    links and a cosmetic value should never make a link fail.  The
+    ``layout`` key is type-checked but otherwise opaque: it is the
+    client-side Plotly-layout passthrough and is never applied on the
+    server.
+
+    Parameters
+    ----------
+    raw : str
+        The URL-carried JSON object of plot-cosmetics fields.
+
+    Returns
+    -------
+    dict
+        The validated mapping (nulls dropped — field absent).
+
+    Raises
+    ------
+    BadParam
+        On malformed JSON, unknown keys, or wrong-typed fields.
+    """
+    if not raw:
+        return {}
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise BadParam(f"bad display param: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise BadParam("bad display param: expected a JSON object")
+    unknown = set(payload) - _DISPLAY_FIELDS
+    if unknown:
+        raise BadParam(f"bad display param: unknown fields {sorted(unknown)}")
+    payload = {key: value for key, value in payload.items() if value is not None}
+    for key in _DISPLAY_BOOLS:
+        if key in payload and not isinstance(payload[key], bool):
+            raise BadParam(f"bad display param: {key} must be a boolean")
+    for key in _DISPLAY_NUMBERS:
+        if key in payload:
+            value = payload[key]
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise BadParam(f"bad display param: {key} must be a number")
+            # json.loads admits NaN/Infinity literals — degrade-vs-400
+            # doesn't apply to non-finite numbers: they are type junk.
+            try:
+                finite = math.isfinite(float(value))
+            except OverflowError:
+                finite = False
+            if not finite:
+                raise BadParam(f"bad display param: {key} must be finite")
+    if "colors" in payload:
+        colors = payload["colors"]
+        if not isinstance(colors, list) or not all(isinstance(c, str) for c in colors):
+            raise BadParam("bad display param: colors must be a list of strings")
+    if "layout" in payload and not isinstance(payload["layout"], dict):
+        raise BadParam("bad display param: layout must be an object")
+    return payload
+
+
 def jsonable_values(series: Any) -> list:
     """A pandas Series as a JSON-safe list (NA/NaN/±inf/NaT → ``None``).
 
@@ -274,19 +344,33 @@ def _snippet_filters(filters: RowFilters) -> str:
     )
 
 
+def _snippet_display(display: Optional[dict]) -> str:
+    """Render the snippet's ``display=`` argument text.
+
+    Empty when no cosmetics are set; the ``layout`` key is client-side
+    and never reaches figures.
+    """
+    cosmetics = {k: v for k, v in (display or {}).items() if k != "layout"}
+    return f", display={cosmetics!r}" if cosmetics else ""
+
+
 def frame_code(
     uid: str,
     run_day: Optional[str],
     columns: list[str],
     filters: RowFilters,
     datetime_columns: Optional[dict] = None,
+    x: Optional[str] = None,
+    display: Optional[dict] = None,
 ) -> str:
     """The notebook snippet reproducing a ``/api/.../frame`` response.
 
     ``datetime_columns`` maps column name → epoch verdict for the
     columns the endpoint served as local datetimes — the snippet must
     perform the same conversion or it would hand back raw seconds while
-    claiming to reproduce the view.
+    claiming to reproduce the view.  The closing ``shots_figure`` call
+    hands back the figure the Plot tab renders (from the notebook frame
+    it titles axes with raw column names — the page adds pretty names).
     """
     converted = datetime_columns or {}
     conversion = ""
@@ -305,12 +389,16 @@ def frame_code(
                 f"frame[{column!r}] = (frame[{column!r}]{shift})"
                 ".map(datetime.fromtimestamp)\n"
             )
+    x_arg = f", x={x!r}" if x else ""
     return (
         "# reproduces this view exactly — the endpoint calls the same functions\n"
         + _snippet_prelude(uid, run_day)
         + _snippet_filters(filters)
         + conversion
         + f"series = frame[{columns!r}]\n"
+        + "from geecs_portal.figures import shots_figure\n"
+        + f"shots_figure(frame, y={columns!r}{x_arg}{_snippet_display(display)})"
+        + "  # the figure the Plot tab renders\n"
     )
 
 
@@ -320,6 +408,7 @@ def binned_code(
     columns: list[str],
     filters: RowFilters,
     cfg: BinningConfig,
+    display: Optional[dict] = None,
 ) -> str:
     """The notebook snippet reproducing a ``/api/.../binned`` response."""
     non_default = {
@@ -337,4 +426,11 @@ def binned_code(
         + "\n"
         + f"result = bin_frame(frame, BinningConfig({kwargs}))\n"
         + "result.frame  # (column, center/err_low/err_high); result.counts per bin\n"
+        + "from geecs_portal.figures import binned_figure\n"
+        + "series = {c: {s: result.frame[(c, s)].tolist()\n"
+        + '               for s in ("center", "err_low", "err_high")}\n'
+        + f"          for c in {columns!r} if (c, 'center') in result.frame}}\n"
+        + f"binned_figure(result.frame.index.tolist(), series, y={columns!r}, "
+        + f"bin_col={cfg.bin_col!r}{_snippet_display(display)})"
+        + "  # the figure the Plot tab renders\n"
     )
