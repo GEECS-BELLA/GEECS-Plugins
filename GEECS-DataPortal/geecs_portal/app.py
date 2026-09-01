@@ -656,25 +656,62 @@ def create_app(
             raise HTTPException(status_code=404, detail=f"unknown device {device!r}")
         return folder, (run_day.isoformat() if run_day else None)
 
+    # (fingerprint → valid names): re-validated only when the tree
+    # changes — discovery lists every YAML stem, but legacy flat camera
+    # configs in the same tree don't LOAD as diagnostics, and offering
+    # one puts an unfixable broken image in front of the operator
+    # (found live: UNCLASSIFIED/UC_Amp4_IR_input.yaml, 2026-09-01).
+    processing_cache: dict = {}
+
     def _processing_names() -> list[str]:
-        """Diagnostic IDs for the processing selector (``[]`` = hidden).
+        """LOADABLE diagnostic IDs for the processing selector (``[]`` = hidden).
 
         Explicit-opt-in: no configured tree, no feature (never the
         global fallback). Degrades to empty — never errors a page —
         when the ``analysis`` extra is not installed or the tree
-        cannot be listed.
+        cannot be listed. Each discovered stem is validated with a
+        real ``load_diagnostic`` (cached against the tree's YAML
+        mtimes); invalid ones are dropped with an INFO log naming the
+        file, so a legacy config is a log line, not a broken image.
         """
         if processing_config_dir is None:
             return []
         try:
-            from image_analysis.config import list_diagnostics
+            from image_analysis.config import list_diagnostics, load_diagnostic
         except ImportError:
             return []
         try:
-            return list_diagnostics(config_dir=processing_config_dir)
+            names = list_diagnostics(config_dir=processing_config_dir)
         except Exception as exc:  # noqa: BLE001 — unlistable tree = no selector
             logger.debug("processing configs unavailable: %s", exc)
             return []
+        tree = Path(processing_config_dir) / "analyzers"
+        try:
+            fingerprint = frozenset(
+                (str(path), path.stat().st_mtime)
+                for pattern in ("*.yaml", "*.yml")
+                for path in tree.rglob(pattern)
+            )
+        except OSError:
+            fingerprint = None
+        if fingerprint is not None and fingerprint in processing_cache:
+            return processing_cache[fingerprint]
+        valid = []
+        for name in names:
+            try:
+                load_diagnostic(name, config_dir=processing_config_dir)
+                valid.append(name)
+            except Exception as exc:  # noqa: BLE001 — one bad YAML must not hide the rest
+                logger.info(
+                    "processing selector: skipping %r — not a loadable "
+                    "unified diagnostic (%s)",
+                    name,
+                    exc,
+                )
+        if fingerprint is not None:
+            processing_cache.clear()  # one entry: the current tree state
+            processing_cache[fingerprint] = valid
+        return valid
 
     def _apply_processing(arrays: list, processing: str) -> list:
         """Ephemeral-process *arrays* → the analyzers' processed images.

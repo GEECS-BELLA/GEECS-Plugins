@@ -230,7 +230,7 @@
         {% if total_shots %}<span class="dim mono">of ~{{ total_shots }}</span>{% endif %}
         <span class="dim mono">{{ kind }}</span>
       </form>
-      <img class="plot" id="shotimg" src="{{ root }}/run/{{ uid }}/image.png?device={{ sel_device | urlencode }}&amp;shot={{ shot }}&amp;day={{ day | urlencode }}{% if processing %}&amp;processing={{ processing | urlencode }}{% endif %}" alt="{{ sel_device }} shot {{ shot }}">
+      <img class="plot" id="shotimg" onerror="imgFailed(this)" src="{{ root }}/run/{{ uid }}/image.png?device={{ sel_device | urlencode }}&amp;shot={{ shot }}&amp;day={{ day | urlencode }}{% if processing %}&amp;processing={{ processing | urlencode }}{% endif %}" alt="{{ sel_device }} shot {{ shot }}">
       </div>
       <div id="imggrid" class="bingrid" hidden></div>
       {% endif %}
@@ -528,10 +528,37 @@ function updateShotImage() {
   // needs its src re-pointed (the URL carries the whole state anyway).
   const img = document.getElementById("shotimg");
   if (!img) return;
+  clearImgError(img);  // a previous failure must not mask the retry
   const url = new URL(img.src, location.origin);
   if (S.processing) url.searchParams.set("processing", S.processing);
   else url.searchParams.delete("processing");
   img.src = url.pathname + "?" + url.searchParams.toString();
+}
+
+function clearImgError(img) {
+  img.hidden = false;
+  const note = img.nextElementSibling;
+  if (note && note.classList.contains("imgerr")) note.remove();
+}
+
+function imgFailed(img) {
+  // A 4xx from the image endpoints carries an honest `detail` the
+  // <img> tag can only show as a broken icon — fetch and surface it
+  // (the failing response is a cheap validation error, not pixels).
+  const show = msg => {
+    img.hidden = true;
+    let note = img.nextElementSibling;
+    if (!note || !note.classList.contains("imgerr")) {
+      note = document.createElement("div");
+      note.className = "plotmsg imgerr";
+      img.after(note);
+    }
+    note.textContent = msg;
+  };
+  fetch(img.src)
+    .then(r => r.json())
+    .then(body => show(body.detail || "image failed to load"))
+    .catch(() => show("image failed to load"));
 }
 
 function refreshImages() {
@@ -563,7 +590,8 @@ function refreshImages() {
       if (DAY) q.set("day", DAY);
       const label = b.bin === null ? "—" : String(b.bin);
       return `<figure class="bincard">
-        <img class="plot" loading="lazy" src="${ROOT}/run/${UID}/bin-image.png?${q.toString()}"
+        <img class="plot" loading="lazy" onerror="imgFailed(this)"
+             src="${ROOT}/run/${UID}/bin-image.png?${q.toString()}"
              alt="${escAttr(data.bin_col)} ${escAttr(label)}">
         <figcaption class="dim mono" title="n counts member shots passing filters — frames the device missed or that fail to load are skipped in the average">${esc(data.bin_col)}: ${esc(label)} · n=${b.count}</figcaption>
       </figure>`;

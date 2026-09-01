@@ -725,6 +725,20 @@ class TestProcessingSelector:
                 }
             )
         )
+        # A legacy flat camera config (no image_analyzer/pipeline —
+        # discoverable by stem, NOT loadable as a unified diagnostic):
+        # the selector must drop it, per the live Amp4 incident.
+        legacy = tree / "analyzers" / "UNCLASSIFIED" / "UC_Legacy.yaml"
+        legacy.parent.mkdir(parents=True)
+        legacy.write_text(
+            yaml.safe_dump(
+                {
+                    "name": "UC_Legacy",
+                    "bit_depth": 16,
+                    "background": {"enabled": True, "method": "constant"},
+                }
+            )
+        )
         haso = tree / "analyzers" / "HTU" / "U_Haso.yaml"
         haso.write_text(
             yaml.safe_dump(
@@ -831,6 +845,16 @@ class TestProcessingSelector:
         )
         assert "procsel" in with_configs.text
         assert "UC_Crop" in with_configs.text
+        # Discoverable-but-unloadable legacy config: dropped from the
+        # selector (a log line, not a broken image)…
+        assert "UC_Legacy" not in with_configs.text
+        # …while a hand-edited URL still gets the honest refusal.
+        forced = self._client(scan_folder, configs_tree).get(
+            "/run/uid-002/image.png",
+            params={"device": "cam", "shot": 1, "processing": "UC_Legacy"},
+        )
+        assert forced.status_code == 400
+        assert "Invalid diagnostic" in forced.json()["detail"]
         without = _gallery_client(scan_folder).get(
             "/run/uid-002", params={"device": "cam", "tab": "images"}
         )

@@ -3,6 +3,25 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.14.0] - 2026-09-01
+
+### Fixed
+
+Sam's first live test of the selector (Amp4, 2026-09-01) — the
+diagnostic YAML was a legacy flat camera config, and the failure was
+invisible:
+
+- **The selector now offers only LOADABLE diagnostics**: each
+  discovered stem is validated with a real `load_diagnostic` (cached
+  against the tree's YAML mtimes), and an unloadable legacy config is
+  an INFO log line naming the file — never a pickable entry that can
+  only produce a broken image. A hand-edited URL still gets the
+  honest 400.
+- **Image failures surface their reason**: the per-shot image and
+  every bin card carry an `onerror` hook that fetches the endpoint's
+  4xx `detail` and shows it in place of the browser's broken-image
+  icon (cleared on the next processing change).
+
 ## [0.13.1] - 2026-09-01
 
 ### Fixed
