@@ -3,8 +3,10 @@
 ScanAnalysis's task queue (``scan_analysis.task_queue``) writes one YAML
 per (scan, analyzer) at ``<scan_folder>/analysis_status/<task_id>.yaml``;
 ``TaskStatus.to_dict()`` there is THE authoritative shape.  This module
-is the one read-side view of those files for every package that is not
-ScanAnalysis (GEECS-MCP's ``get_scan_analysis`` today) — schema-light on
+is the one *schema-light* read-side view of those files for consumers
+outside ScanAnalysis (GEECS-MCP's ``get_scan_analysis`` today; code that
+needs the typed ``TaskStatus`` — e.g. to feed ``claim_is_active`` — keeps
+using ``task_queue.read_statuses``, as MCP's ``run_tools`` does) — light on
 purpose: it names the writer's documented fields (:data:`STATUS_FIELDS`)
 and coerces each one tolerantly instead of validating a contract, so a
 torn write mid-heartbeat, an odd field type, or a field this reader has
@@ -35,10 +37,12 @@ import yaml
 #: ``STATUS_DIR_NAME`` — the contract test asserts they agree).
 STATUS_DIR_NAME = "analysis_status"
 
-#: File suffixes read as status files.  The writer produces ``.yaml``;
-#: ``.yml`` is accepted for tolerance.  Everything else in the directory
-#: (the ``.claim`` lock files, ``.tmp`` atomic-write leftovers) is ignored.
-STATUS_FILE_SUFFIXES = (".yaml", ".yml")
+#: File suffixes read as status files — ``.yaml`` only, exactly what the
+#: queue's own readers (``read_statuses``/``build_worklist``) glob: a
+#: ``.yml`` the queue would never run must not show up as a task here.
+#: Everything else in the directory (the ``.claim`` lock files, ``.tmp``
+#: atomic-write leftovers) is ignored.
+STATUS_FILE_SUFFIXES = (".yaml",)
 
 #: The keys ``TaskStatus.to_dict()`` writes, in the writer's order.  When
 #: the writer grows a field, the contract test fails until this tuple and

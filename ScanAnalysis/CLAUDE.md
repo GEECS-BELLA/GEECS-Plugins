@@ -248,7 +248,10 @@ parser from it — GEECS-MCP #675 review; read the writer when consuming):
 
 Any package other than this one consumes these files through
 `geecs_data_utils.analysis_status.read_analysis_statuses` (the one
-tolerant, read-only reader — #682), never a local parser.
+tolerant, schema-light, read-only reader — #682), never a local parser;
+the exception is code that must drive the queue with the typed
+`TaskStatus` (`claim_is_active`), which uses `read_statuses` here
+(GEECS-MCP's `run_tools`, behind its `analysis-run` extra).
 `tests/test_analysis_status_contract.py` pins the writer against that
 reader: a new `to_dict()` key fails there until `STATUS_FIELDS` /
 `AnalysisStatus` in GEECS-Data-Utils learn it — extend both in the same

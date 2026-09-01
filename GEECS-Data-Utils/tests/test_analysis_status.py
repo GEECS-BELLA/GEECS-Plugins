@@ -9,6 +9,7 @@ its consumers and the read-only discipline.
 
 from __future__ import annotations
 
+import dataclasses
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -76,6 +77,11 @@ class TestFullRecord:
         }
         assert tuple(document) == STATUS_FIELDS
         _write(status_dir, "topview_baseline.yaml", document)
+        # Every writer key must be surfaced by the record (review finding
+        # on #750: STATUS_FIELDS alone could grow without the dataclass).
+        assert set(STATUS_FIELDS) <= {
+            f.name for f in dataclasses.fields(AnalysisStatus)
+        }
 
         records = read_analysis_statuses(status_dir.parent)
         assert list(records) == ["topview_baseline"]
@@ -106,8 +112,6 @@ class TestFullRecord:
         assert record.heartbeat_age_s() > 0
 
     def test_record_is_frozen(self):
-        import dataclasses
-
         record = AnalysisStatus(task_id="t")
         try:
             record.state = "done"  # type: ignore[misc]
@@ -117,10 +121,13 @@ class TestFullRecord:
 
 
 class TestDirectoryListing:
-    def test_sorted_by_filename_with_yml_accepted_and_others_ignored(self, tmp_path):
+    def test_sorted_by_filename_and_non_yaml_entries_ignored(self, tmp_path):
         status_dir = _status_dir(tmp_path)
         _write(status_dir, "zeta.yaml", {"state": "queued"})
-        _write(status_dir, "alpha.yml", {"state": "done"})
+        _write(status_dir, "alpha.yaml", {"state": "done"})
+        # The queue's own readers glob *.yaml only — a .yml it would never
+        # run must not surface as a task (review finding on #750).
+        _write(status_dir, "phantom.yml", {"state": "queued"})
         (status_dir / "alpha.claim").write_text("runner-1 2026-08-22T10:00:00+00:00\n")
         (status_dir / "tmpabc123.tmp").write_text("state: claimed\n")
         (status_dir / "notes.txt").write_text("state: claimed\n")

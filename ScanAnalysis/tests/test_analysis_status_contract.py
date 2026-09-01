@@ -13,6 +13,8 @@ disagree.  When the writer grows a field: extend ``STATUS_FIELDS`` +
 
 from __future__ import annotations
 
+import inspect
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
@@ -46,10 +48,15 @@ class TestShapeContract:
         record = TaskStatus(analyzer_id="a", priority=1, state="queued")
         assert tuple(record.to_dict()) == shared.STATUS_FIELDS
 
-    def test_writer_states_are_the_documented_ones(self):
-        # The reader passes unknown states through; this keeps the two
-        # packages' vocabularies from drifting silently.
-        written = {"queued", "claimed", "done", "failed", "no_data"}
+    def test_writer_state_literals_are_the_documented_ones(self):
+        # The writer has no state constant — its states are the literal
+        # ``state="..."`` arguments across task_queue.py.  Harvest them
+        # from the source so a new one (``state="skipped"``) fails here
+        # until STATUS_STATES learns it.  The reader passes unknown states
+        # through, so this is the only thing keeping the vocabularies
+        # from drifting silently (review finding on #750).
+        written = set(re.findall(r'\bstate="(\w+)"', inspect.getsource(tq)))
+        assert written, "harvest found no state literals — regex stale?"
         assert written == set(shared.STATUS_STATES)
 
 
@@ -75,16 +82,23 @@ class TestRealWriterOutput:
         record = records["topview_baseline"]
         assert record.readable
         assert record.task_id == "topview_baseline"
-        assert record.analyzer_id == "topview_baseline"
-        assert record.priority == 7
-        assert record.state == "failed"
-        assert record.error == "no s-file columns for UC_MagSpec"
-        assert record.claimed_by == "runner-1"
+        # Every key the writer wrote comes back through the shared reader
+        # — driven by the file's own to_dict() so a key the reader silently
+        # dropped fails here (review finding on #750), not a hand list.
+        written = TaskStatus.from_file(
+            scan_folder / STATUS_DIR_NAME / "topview_baseline.yaml"
+        ).to_dict()
+        assert tuple(written) == shared.STATUS_FIELDS
+        for key, value in written.items():
+            got = getattr(record, key)
+            if key in ("claimed_at", "last_heartbeat"):
+                assert got == tq._parse_ts(value), key
+            elif key == "display_files":
+                assert list(got) == value, key
+            else:
+                assert got == value, key
         assert record.claimed_at == claimed_at
         assert record.last_heartbeat == heartbeat
-        assert record.display_files == (
-            str(tmp_path / "analysis" / "Scan042" / "a.png"),
-        )
         assert record.heartbeat_age_s(heartbeat) == 0.0
 
     def test_init_status_for_scan_queued_record(self, tmp_path, monkeypatch):

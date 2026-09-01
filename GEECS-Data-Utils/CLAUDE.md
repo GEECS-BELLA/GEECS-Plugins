@@ -242,16 +242,20 @@ from geecs_data_utils.plotting_utils import plot_binned, plot_binned_multi
 
 ## `analysis_status/` reader (`analysis_status`)
 
-The one read-side view of the per-task YAMLs ScanAnalysis's task queue
-writes at `scans/Scan<NNN>/analysis_status/<task_id>.yaml` — for every
-consumer that is not ScanAnalysis (GEECS-MCP's `get_scan_analysis`
-today; #682).  `read_analysis_statuses(scan_folder)` returns
+The one *schema-light* read-side view of the per-task YAMLs
+ScanAnalysis's task queue writes at
+`scans/Scan<NNN>/analysis_status/<task_id>.yaml` — for consumers outside
+ScanAnalysis (GEECS-MCP's `get_scan_analysis` today; #682).  Code that
+needs the typed `TaskStatus` to drive the queue (`claim_is_active`) keeps
+using `task_queue.read_statuses` — GEECS-MCP's `run_tools` does, behind
+its `analysis-run` extra.  `read_analysis_statuses(scan_folder)` returns
 `{task_id: AnalysisStatus}` in filename order.  Schema-light on purpose:
 `TaskStatus.to_dict()` in `ScanAnalysis/scan_analysis/task_queue.py`
 stays the authoritative shape; `STATUS_FIELDS` here names its keys and
 every field is coerced tolerantly (odd types → `None`/`()`, a torn or
 non-mapping file → one `unreadable` entry, unknown keys ignored,
-`.claim`/`.tmp` siblings skipped, timestamps tz-aware with naive → UTC).
+`.claim`/`.tmp` siblings skipped, `*.yaml` only — what the queue's own
+readers glob — timestamps tz-aware with naive → UTC).
 A missing scan folder or status dir reads as empty; nothing is ever
 created.  The writer/reader contract is pinned in ScanAnalysis's suite
 (`tests/test_analysis_status_contract.py`, the package that can import

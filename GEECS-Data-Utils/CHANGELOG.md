@@ -17,10 +17,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   (ScanAnalysis `task_queue.TaskStatus.to_dict()`) stays authoritative;
   every field is coerced tolerantly (odd types degrade the field, a torn
   or non-mapping file degrades that one entry to `unreadable`, unknown
-  keys are ignored, `.claim`/`.tmp` siblings are skipped, `.yml` is
-  accepted, timestamps naive→UTC — and, beyond the consumer copy it
-  replaces, an unquoted stamp YAML already parsed into a `datetime` is
-  accepted too). A missing scan folder or status dir reads as empty;
+  keys are ignored, `.claim`/`.tmp` siblings are skipped, `*.yaml` only —
+  what the queue's own readers glob — timestamps naive→UTC; beyond the
+  consumer copy it replaces, an unquoted stamp YAML already parsed into a
+  `datetime` is accepted too). A missing scan folder or status dir reads as empty;
   nothing is ever created (the scan-folder invariant). The writer/reader
   contract is pinned cross-package in ScanAnalysis's suite
   (`tests/test_analysis_status_contract.py`), which can import both
