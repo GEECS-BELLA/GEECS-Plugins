@@ -1,8 +1,29 @@
 # ScanRequest schema refactor + named scan plans
 
 Handoff design doc, 2026-09-01 (Sam + Claude session on the HTU/OSPREY integration).
-Status: **proposal — no code yet.** Written for whoever picks this up; assumes no
-context from the originating conversation.
+Status: **approved direction, implementation starting** (amended 2026-09-01 after
+review with Sam: priorities, naming, migration story, invariants). Written for
+whoever picks this up; assumes no context from the originating conversation.
+
+## Priorities: the console comes first
+
+OSPREY triggered this look, but it is the *second* client of the queueserver.
+GEECS-Console was the first, is the one operators will face first, and is the
+one we control; OSPREY is developed rapidly by another team, and this repo's
+foundations shifting under it is expected and controlled. Emphasis order:
+
+- Composition decisions are made on **domain-modeling grounds that serve the
+  console**, not on how any particular renderer draws a form. The acceptance
+  test for Phase 1 is *the console's `request_builder` and panels get
+  simpler* (seven loose fields → one sub-model). A grouping that only helps
+  OSPREY's form renderer and does nothing for the console is the wrong
+  grouping.
+- The console historically "took care of" the schema's shape in client code —
+  that compensating wrapper layer is the real cost of the current
+  composition, and it is code we maintain. The second client revealed the
+  mess; the first client is the main beneficiary of fixing it.
+- The only OSPREY-specific work (per-plan schema grafts, `PLAN_LAYOUTS`
+  polish) is the optional tail of the sequencing and can slip indefinitely.
 
 ## Where this comes from
 
@@ -42,16 +63,45 @@ two things:
 
 ## Proposal
 
-### Phase 1 — decompose (pure refactor, no behavior change)
+### Phase 1 — decompose (schema refactor + consumer updates)
 
-1. Extract **`AcquisitionSettings`** holding the seven capture fields;
-   `ScanRequest.acquisition_settings: AcquisitionSettings` (naming TBD vs. the
-   existing `acquisition` mode enum).
-2. **Split request from record**: `SubmissionRecord` (and preflight result
-   types) move out of the request document — server-stamped lifecycle state,
-   not operator input.
-3. Regenerate the schema artifact (`python -m geecs_schemas.schema_export`;
-   the no-drift CI guard keeps it honest) and bump `schema_version`.
+1. Extract **`CaptureSettings`** holding the seven capture fields as
+   `ScanRequest.capture: CaptureSettings`. "Capture" is the concern's own
+   name (this doc already called it that) and avoids the
+   `acquisition`/`acquisition_settings` collision. The seven fields are
+   conceptually three sub-groups — shot control (`shots_per_step` +
+   `acquisition`), data logging (`save_sets` + `background_telemetry` +
+   `native_image_save`), and trigger (`trigger_profile` +
+   `trigger_variant`) — each arguably its own model, but all required by
+   every scan, which is what makes `capture` the right umbrella. One level
+   of nesting is enough for v2; the trigger pair (already coupled by a
+   validator) is the one candidate for a sub-model if it earns it. Don't
+   over-nest.
+2. **Required: a lifting back-compat validator.** `ScanRequest` grows a
+   `mode="before"` validator that accepts the flat v1 shape and lifts the
+   seven fields into `capture`. This is the first mechanical
+   `schema_version` migration (v1 → v2) — the marker exists for exactly
+   this. Without it, Phase 1 is a lockstep wire-format break across the
+   console, GEECS-MCP, the qserver worker, and every saved preset; with
+   it, a rolling upgrade, and archived run metadata (immutable, flat
+   forever) keeps parsing through `ScanRequest.model_validate` for free.
+3. **Split request from record**: `submission: SubmissionRecord` (and the
+   preflight result types) leave the request document — server-stamped
+   lifecycle state, not operator input. The types stay in `geecs_schemas`.
+   **Vehicle**: the funnel plan grows a separate optional `submission`
+   parameter; `qs_client`'s submit path passes it alongside the request
+   and the engine merges it into run metadata exactly as today. (A
+   GeecsBluesky signature change riding inside the "schemas" phase —
+   budget for it.)
+4. Update the field-access sites: GeecsBluesky (`scan_request_runner`,
+   funnel plan, `submit_preflight`, `shot_control`), GEECS-Console
+   (`request_builder` + panels), GEECS-MCP, GEECS-Data-Utils
+   (`tiled_catalog` — a *reader* of archived documents; it must keep
+   handling the flat shape forever, which the lifting validator gives it
+   if it parses via the model).
+5. Regenerate the schema artifact (`python -m geecs_schemas.schema_export`;
+   the no-drift CI guard keeps it honest). Bump `schema_version` to 2 and
+   GEECS-Schemas' package version by a **minor** — two different dials.
 
 This phase is worth doing regardless of Phase 2, and Phase 2 is thin only if
 this lands first.
@@ -71,6 +121,16 @@ Register in the qserver startup profile, beside the existing funnel:
 Each is a mode-pinned parameter model **composed from the Phase-1 sub-models**,
 building a ScanRequest internally and delegating to the exact same execution
 path. No triplicated validation, no forked run discipline.
+
+**Shared-execution invariant (non-negotiable)**: every named plan builds a
+canonical `ScanRequest` internally and delegates to the single existing
+execution path — same `run_wrapper`/`claim_scan_number`, same save-set
+resolution, same trigger and data-logging architecture, same Tiled writing —
+and the document recorded in run metadata is always the `ScanRequest`, so
+`tiled_catalog` and every analysis-side consumer sees one shape regardless
+of entry plan. The wrappers are vocabulary at the gate, invisible
+downstream. Phase 2 forces **zero** console changes: the console keeps
+submitting through the funnel and adopts named plans only if they earn it.
 
 **Keep `geecs_scan_request_plan`** as the programmatic/compat entry point:
 GEECS-Console and GEECS-MCP `submit_scan` keep submitting ScanRequest documents
@@ -134,11 +194,17 @@ and gates.
 
 ## Suggested sequencing for the implementer
 
-1. Phase 1 refactor PR (GEECS-Schemas minor bump; regenerate artifact; CI
-   guard proves no drift beyond the intended shape change).
-2. Re-vendor the artifact into the HTU deployment repo and eyeball the form.
+1. Phase 1 refactor PR (GEECS-Schemas minor bump + lifting validator;
+   consumer updates across GeecsBluesky/Console/MCP/Data-Utils; regenerate
+   artifact; CI guard proves no drift beyond the intended shape change).
+2. **Console acceptance check**: confirm `request_builder` and the panels
+   got simpler, not just different — this is the checkpoint that matters.
+   (Re-vendoring the artifact into the HTU deployment repo to eyeball the
+   OSPREY form is a nice-to-have, not a gate.)
 3. Phase 2 PR (GeecsBluesky: three wrappers + annotations + startup
-   registration; funnel untouched).
-4. Publish per-plan schema artifacts; add the three `parameter_schemas`
-   entries in the HTU profile; verify permissions granularity end-to-end
-   (gate `geecs_optimize_plan` for a test group).
+   registration; funnel untouched; shared-execution invariant pinned by
+   tests).
+4. Optional OSPREY tail, no deadline: publish per-plan schema artifacts;
+   add the three `parameter_schemas` entries in the HTU profile; verify
+   permissions granularity end-to-end (gate `geecs_optimize_plan` for a
+   test group).
