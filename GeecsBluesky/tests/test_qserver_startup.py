@@ -56,6 +56,10 @@ def test_startup_profile_defines_re_and_plan_headless(tmp_path: Path) -> None:
     must be set, before ``aioca`` is first imported. Run as a subprocess so
     both modules start uncached — see the module docstring above.
     """
+    # startup.py imports bluesky_queueserver at top level (#727 — the
+    # parameter-annotation decorator), so executing it needs the qserver
+    # extra, same as every other queueserver-touching test here.
+    pytest.importorskip("bluesky_queueserver")
     config_dir = tmp_path / "home" / ".config" / "geecs_python_api"
     config_dir.mkdir(parents=True)
     (config_dir / "config.ini").write_text("[epics]\nca_addr_list = 127.0.0.1\n")
@@ -82,6 +86,7 @@ def test_startup_profile_fails_loud_without_an_experiment(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Neither QS_EXPERIMENT nor config.ini's [Experiment] expt: fail at import."""
+    pytest.importorskip("bluesky_queueserver")  # startup.py imports it (#727)
     monkeypatch.delenv("QS_EXPERIMENT", raising=False)
 
     class _NoExperimentConfig:
@@ -159,3 +164,63 @@ def test_plan_signature_passes_manager_validation() -> None:
         item, allowed_plans={"geecs_scan_request_plan": processed}, allowed_devices={}
     )
     assert ok, msg
+
+
+def test_annotated_plans_carry_descriptions_and_still_validate() -> None:
+    """The #727 annotations reach ``plans_allowed`` without breaking submits.
+
+    The startup wraps both funnel plans with
+    ``parameter_annotation_decorator``; this pins the two things that
+    matter about that: the processed plan (the exact dict the manager
+    serves as ``plans_allowed``) carries a per-parameter description —
+    with the ``request`` description pointing at the published JSON Schema
+    artifact — and a real ``queue add`` item still validates against the
+    decorated signature (the annotation strings must evaluate in the
+    manager's bare namespace, same constraint as the test above).
+    """
+    pytest.importorskip("bluesky_queueserver")
+
+    from bluesky_queueserver import parameter_annotation_decorator
+    from bluesky_queueserver.manager.profile_ops import _process_plan, validate_plan
+
+    from geecs_bluesky.plans.scan_request_plan import (
+        RUN_ACTION_PLAN_ANNOTATION,
+        SCAN_REQUEST_PLAN_ANNOTATION,
+        geecs_run_action_plan,
+        geecs_scan_request_plan,
+    )
+    from geecs_schemas import ScanRequest
+
+    for plan, annotation, item_args in (
+        (
+            geecs_scan_request_plan,
+            SCAN_REQUEST_PLAN_ANNOTATION,
+            [
+                ScanRequest.model_validate(
+                    {"mode": "noscan", "shots_per_step": 2, "save_sets": ["UC_Test"]}
+                ).model_dump(mode="json")
+            ],
+        ),
+        (geecs_run_action_plan, RUN_ACTION_PLAN_ANNOTATION, ["reset_plc"]),
+    ):
+        wrapped = parameter_annotation_decorator(annotation)(plan)
+        processed = _process_plan(wrapped, existing_devices={}, existing_plans={})
+        described = {p["name"]: p.get("description") for p in processed["parameters"]}
+        assert set(annotation["parameters"]) <= set(described)
+        assert all(described[name] for name in annotation["parameters"])
+        ok, msg = validate_plan(
+            {"name": plan.__name__, "args": item_args, "item_type": "plan"},
+            allowed_plans={plan.__name__: processed},
+            allowed_devices={},
+        )
+        assert ok, msg
+
+    # The FULL artifact path, from the schemas package's own constant — a
+    # docs reorg that moves the artifact must break this pin, not leave
+    # the served description pointing at a dead path (#730 review).
+    from geecs_schemas.schema_export import SCHEMA_ARTIFACT
+
+    assert (
+        SCHEMA_ARTIFACT.as_posix()
+        in SCAN_REQUEST_PLAN_ANNOTATION["parameters"]["request"]["description"]
+    )

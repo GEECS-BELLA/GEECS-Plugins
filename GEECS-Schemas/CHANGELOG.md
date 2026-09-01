@@ -5,6 +5,23 @@ All notable changes to GEECS-Schemas are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.0] - 2026-08-31
+
+### Added
+
+- `geecs_schemas.schema_export` (#727): publishes the ScanRequest
+  contract as a JSON Schema artifact —
+  `docs/geecs_schemas/scan_request.schema.json`, generated from
+  `ScanRequest.model_json_schema()` (full nested vocabulary,
+  optimization sub-model included) so any JSON-Schema-aware client
+  (OSPREY's plan panel, agent approval prompts, web UIs) can render a
+  ScanRequest form without importing Python. Same discipline as the
+  `docgen` Markdown reference: regenerator script
+  (`tests/generate_scan_request_schema.py` or
+  `python -m geecs_schemas.schema_export`) + a no-drift CI guard
+  (`tests/test_schema_export.py`). Living under `docs/` puts the
+  artifact on the published mkdocs site for by-URL consumption.
+
 ## [0.12.1] - 2026-08-28
 
 ### Changed

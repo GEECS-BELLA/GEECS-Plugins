@@ -40,7 +40,11 @@ import os
 # the module docstring above.
 import geecs_bluesky  # noqa: F401
 
+from bluesky_queueserver import parameter_annotation_decorator
+
 from geecs_bluesky.plans.scan_request_plan import (
+    RUN_ACTION_PLAN_ANNOTATION,
+    SCAN_REQUEST_PLAN_ANNOTATION,
     geecs_run_action_plan,
     geecs_scan_request_plan,
     set_optimization_loader,
@@ -50,6 +54,20 @@ from geecs_bluesky.session import GeecsSession
 from geecs_bluesky.sfile_callback import SFileExportCallback
 
 logger = logging.getLogger(__name__)
+
+# Queueserver parameter annotations (#727): rebinding the module-level
+# names to the decorated wrappers is what the manager's plan discovery
+# picks up, so `plans_allowed` carries the typed, described parameters
+# generic clients (OSPREY's panel) render forms from. The payloads live
+# next to the plans themselves (scan_request_plan.py — that module stays
+# queueserver-import-free by design); the wrappers stay generator
+# functions and delegate verbatim.
+geecs_scan_request_plan = parameter_annotation_decorator(SCAN_REQUEST_PLAN_ANNOTATION)(
+    geecs_scan_request_plan
+)
+geecs_run_action_plan = parameter_annotation_decorator(RUN_ACTION_PLAN_ANNOTATION)(
+    geecs_run_action_plan
+)
 
 
 def _resolve_experiment() -> str:
