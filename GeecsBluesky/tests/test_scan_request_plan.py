@@ -7,10 +7,11 @@ the issue #633 acceptance surface:
   nothing constructed);
 - devices are constructed **inside** the plan (RunEngine already running);
 - the scan number is claimed **inside** the plan;
-- for representative noscan and step-scan requests, ``RE(geecs_scan_
-  request_plan(request))`` produces the same documents/ScanInfo as today's
-  ``run_scan_request`` (start-doc metadata, streams/columns, row counts,
-  exit status — uids/timestamps/folders normalized).
+- for representative noscan and step-scan requests, the queue door
+  (``RE(geecs_scan_request_plan(request))``) and the headless door
+  (``GeecsSession.run(request)``) produce the same documents/ScanInfo
+  (start-doc metadata, streams/columns, row counts, exit status —
+  uids/timestamps/folders normalized) — the two doors are one plan.
 
 The mock trigger problem is new here: devices exist only mid-plan, so the
 free-run pacer cannot be started up front.  An ``RE.msg_hook`` watches for
@@ -39,14 +40,15 @@ from geecs_bluesky.plans.scan_request_plan import (  # noqa: E402
     geecs_scan_request_plan,
     set_plan_session,
 )
-from geecs_bluesky.scan_request_runner import run_scan_request  # noqa: E402
 from geecs_schemas import ScanRequest  # noqa: E402
 from tests.ca_mock_helpers import start_pacer  # noqa: E402
 from tests.test_scan_request_runner import (  # noqa: E402
+    AUX_SAVE_SET,
     LEGACY_ACTIONS,
     LEGACY_SAVE_ELEMENT,
     LEGACY_SCAN_DEVICES,
     LEGACY_SHOT_CONTROL,
+    RITUAL_SAVE_SET,
 )
 
 # ---------------------------------------------------------------------------
@@ -59,6 +61,8 @@ def configs_root(tmp_path):
     exp = tmp_path / "LegacyExp"
     (exp / "save_devices").mkdir(parents=True)
     (exp / "save_devices" / "UC_Test.yaml").write_text(LEGACY_SAVE_ELEMENT)
+    (exp / "save_devices" / "UC_Aux.yaml").write_text(AUX_SAVE_SET)
+    (exp / "save_devices" / "RitualSet.yaml").write_text(RITUAL_SAVE_SET)
     (exp / "shot_control_configurations").mkdir()
     (exp / "shot_control_configurations" / "HTU-Normal.yaml").write_text(
         LEGACY_SHOT_CONTROL
@@ -175,14 +179,16 @@ class _DocCollector:
 
 
 def _run_scan(entry_point, request, resolver, folder, monkeypatch, submission=None):
-    """Run *request* through one entry point; return the collected documents.
+    """Run *request* through one door; return the collected documents.
 
-    ``entry_point`` is ``"runner"`` (today's ``run_scan_request``) or
-    ``"plan"`` (``RE(geecs_scan_request_plan(request.model_dump()))`` with
-    the worker-default session — the queue's exact call shape).  The claim
-    is stubbed to scan 7 in *folder* at each entry point's claim site.
-    ``submission`` travels beside the request on both paths (the
-    request/record split, geecs-schemas 0.14.0).
+    ``entry_point`` is ``"session"`` (the headless door,
+    ``GeecsSession.run(request)``) or ``"plan"`` (the queue door:
+    ``RE(geecs_scan_request_plan(request.model_dump()))`` with the
+    worker-default session — the queue's exact call shape).  Both run the
+    one plan; the claim is stubbed to scan 7 in *folder* at the plan's
+    claim site.  ``submission`` travels beside the request on both doors
+    (the request/record split, geecs-schemas 0.14.0).  The headless door's
+    post-run s-file export is stubbed (no Tiled here).
     """
     folder.mkdir(parents=True, exist_ok=True)
     session = _mock_session()
@@ -195,14 +201,14 @@ def _run_scan(entry_point, request, resolver, folder, monkeypatch, submission=No
         assert experiment == "LegacyExp"
         return 7, str(folder)
 
+    monkeypatch.setattr(
+        "geecs_bluesky.plans.scan_request_plan.claim_scan_number", claim
+    )
     try:
-        if entry_point == "runner":
-            monkeypatch.setattr("geecs_bluesky.session.claim_scan_number", claim)
-            run_scan_request(session, request, resolver, submission=submission)
+        if entry_point == "session":
+            monkeypatch.setattr(session, "_export_scalar_files", lambda n: None)
+            session.run(request, resolver, submission=submission)
         else:
-            monkeypatch.setattr(
-                "geecs_bluesky.plans.scan_request_plan.claim_scan_number", claim
-            )
             set_plan_session(session)
             session.RE(
                 geecs_scan_request_plan(
@@ -600,24 +606,29 @@ def test_optimize_empty_effective_device_set_after_preflight_refused_pre_claim(
 
 
 def _optimize_request(
-    *, move_to_best_on_finish: bool = False, max_iterations: int = 5
+    *,
+    move_to_best_on_finish: bool = False,
+    max_iterations: int = 5,
+    save_sets: list[str] | None = None,
+    actions: dict | None = None,
 ) -> ScanRequest:
-    return ScanRequest.model_validate(
-        dict(
-            mode="optimize",
-            shots_per_step=2,
-            acquisition="free_run",
-            save_sets=["UC_Test"],
-            optimization={
-                "variables": {"jet_z": [0.0, 1.0]},
-                "objectives": {"counts": "MAXIMIZE"},
-                "evaluator": {"module": "m", "class": "C"},
-                "generator": {"name": "bayes_default"},
-                "max_iterations": max_iterations,
-                "move_to_best_on_finish": move_to_best_on_finish,
-            },
-        )
+    document = dict(
+        mode="optimize",
+        shots_per_step=2,
+        acquisition="free_run",
+        save_sets=["UC_Test"] if save_sets is None else save_sets,
+        optimization={
+            "variables": {"jet_z": [0.0, 1.0]},
+            "objectives": {"counts": "MAXIMIZE"},
+            "evaluator": {"module": "m", "class": "C"},
+            "generator": {"name": "bayes_default"},
+            "max_iterations": max_iterations,
+            "move_to_best_on_finish": move_to_best_on_finish,
+        },
     )
+    if actions is not None:
+        document["actions"] = actions
+    return ScanRequest.model_validate(document)
 
 
 class _ScriptedSuggester:
@@ -684,13 +695,15 @@ def _run_optimize_with_bridge(
     scan_folder=None,
     finish_calls: list | None = None,
     bind_calls: list | None = None,
+    device_requirements=None,
 ):
     """Drive ``geecs_scan_request_plan`` through optimize mode with a
     scripted bridge; returns ``(docs, finish_calls, bind_calls)``.
 
     *finish_calls*/*bind_calls* may be passed in by the caller so they stay
     inspectable even when the run raises (an abort/failure test cannot rely
-    on this function's return value).
+    on this function's return value).  *device_requirements* is what the
+    bridge advertises (the optimizer's auto-provisioned diagnostics).
     """
     import geecs_bluesky.plans.scan_request_plan as srp
 
@@ -709,7 +722,8 @@ def _run_optimize_with_bridge(
     pacers: list = []
 
     class FakeBridge:
-        device_requirements = None
+        def __init__(self) -> None:
+            self.device_requirements = device_requirements
 
         def bind(self, devices, scan_tag, scan_folder):
             bind_calls.append(
@@ -1118,26 +1132,24 @@ def test_trigger_profile_builds_the_controller_worker_side(
 # ---------------------------------------------------------------------------
 
 
-def test_noscan_documents_match_run_scan_request(
-    resolver, monkeypatch, tmp_path
-) -> None:
+def test_noscan_documents_match_on_both_doors(resolver, monkeypatch, tmp_path) -> None:
     request = _noscan_request()
-    docs_runner = _run_scan(
-        "runner", request, resolver, tmp_path / "runner" / "Scan007", monkeypatch
+    docs_session = _run_scan(
+        "session", request, resolver, tmp_path / "session" / "Scan007", monkeypatch
     )
     docs_plan = _run_scan(
         "plan", request, resolver, tmp_path / "plan" / "Scan007", monkeypatch
     )
     _assert_same_run(
-        docs_runner,
+        docs_session,
         docs_plan,
-        tmp_path / "runner" / "Scan007",
+        tmp_path / "session" / "Scan007",
         tmp_path / "plan" / "Scan007",
     )
     assert docs_plan.start["scan_number"] == 7
     assert docs_plan.start["scan_request_mode"] == "noscan"
     # Both entry points wrote the same legacy ScanInfo ini.
-    ini_a = (tmp_path / "runner" / "Scan007" / "ScanInfoScan007.ini").read_text()
+    ini_a = (tmp_path / "session" / "Scan007" / "ScanInfoScan007.ini").read_text()
     ini_b = (tmp_path / "plan" / "Scan007" / "ScanInfoScan007.ini").read_text()
     assert ini_a == ini_b
     parser = configparser.ConfigParser()
@@ -1147,7 +1159,7 @@ def test_noscan_documents_match_run_scan_request(
     assert (tmp_path / "plan" / "Scan007" / "scan.log").exists()
 
 
-def test_step_scan_documents_match_run_scan_request(
+def test_step_scan_documents_match_on_both_doors(
     resolver, monkeypatch, tmp_path
 ) -> None:
     """Representative step scan: one setpoint axis + a request setup action."""
@@ -1156,16 +1168,16 @@ def test_step_scan_documents_match_run_scan_request(
         axes=[{"variable": "jet_x", "positions": {"values": [1.0, 2.0]}}],
         actions={"setup": ["close_shutters"]},
     )
-    docs_runner = _run_scan(
-        "runner", request, resolver, tmp_path / "runner" / "Scan007", monkeypatch
+    docs_session = _run_scan(
+        "session", request, resolver, tmp_path / "session" / "Scan007", monkeypatch
     )
     docs_plan = _run_scan(
         "plan", request, resolver, tmp_path / "plan" / "Scan007", monkeypatch
     )
     _assert_same_run(
-        docs_runner,
+        docs_session,
         docs_plan,
-        tmp_path / "runner" / "Scan007",
+        tmp_path / "session" / "Scan007",
         tmp_path / "plan" / "Scan007",
     )
     start = docs_plan.start
@@ -1174,7 +1186,7 @@ def test_step_scan_documents_match_run_scan_request(
     assert start["action_plans"] == {"setup": ["close_shutters"]}
     assert start["num_points"] == 2
     assert docs_plan.stop["num_events"]["primary"] == 4  # 2 positions × 2 shots
-    ini_a = (tmp_path / "runner" / "Scan007" / "ScanInfoScan007.ini").read_text()
+    ini_a = (tmp_path / "session" / "Scan007" / "ScanInfoScan007.ini").read_text()
     ini_b = (tmp_path / "plan" / "Scan007" / "ScanInfoScan007.ini").read_text()
     assert ini_a == ini_b
     parser = configparser.ConfigParser()
@@ -1182,18 +1194,16 @@ def test_step_scan_documents_match_run_scan_request(
     assert parser["Scan Info"]["scan parameter"] == '"U_ESP_JetXYZ:Position.Axis 1"'
 
 
-def test_telemetry_documents_match_run_scan_request(
+def test_telemetry_documents_match_on_both_doors(
     resolver, monkeypatch, tmp_path
 ) -> None:
-    """Telemetry parity: the in-plan connect fork cannot drift silently.
+    """Telemetry on both doors: the in-plan connect, same documents.
 
     The autouse ``no_db`` fixture forces the scalar policy to ``None`` (no
-    telemetry) on both entry points, so the other parity tests never touch
-    the Tier-2 path.  This test swaps in a hermetic fake
-    ``ScalarPolicyProvider`` so the telemetry fork
-    (``_connect_telemetry_plan`` vs the runner's
-    ``build_telemetry_readables`` over ``session.telemetry_batch``) is
-    actually exercised on BOTH entry points: same soft event columns, same
+    telemetry), so the other parity tests never touch the Tier-2 path.
+    This test swaps in a hermetic fake ``ScalarPolicyProvider`` so the
+    in-plan telemetry connect (``_connect_telemetry_plan``) is actually
+    exercised on both doors: same soft event columns, same
     ``background_telemetry`` metadata, same save-set wholesale exclusion.
     """
 
@@ -1223,16 +1233,16 @@ def test_telemetry_documents_match_run_scan_request(
         monkeypatch.setattr(target, lambda session: _FakeScalarPolicy())
 
     request = _noscan_request()
-    docs_runner = _run_scan(
-        "runner", request, resolver, tmp_path / "runner" / "Scan007", monkeypatch
+    docs_session = _run_scan(
+        "session", request, resolver, tmp_path / "session" / "Scan007", monkeypatch
     )
     docs_plan = _run_scan(
         "plan", request, resolver, tmp_path / "plan" / "Scan007", monkeypatch
     )
     _assert_same_run(
-        docs_runner,
+        docs_session,
         docs_plan,
-        tmp_path / "runner" / "Scan007",
+        tmp_path / "session" / "Scan007",
         tmp_path / "plan" / "Scan007",
     )
     # The Tier-2 selection made it into the run metadata (parity of the
@@ -1255,20 +1265,19 @@ def test_telemetry_documents_match_run_scan_request(
 
 
 def test_plan_opts_into_pause_on_failed_move_and_headless_does_not() -> None:
-    """Decision-4 activation pin (#645, re-pinned for the W5 tail helper):
-    only the queueserver plan passes failed_move_policy='pause'; the
-    headless path (session.scan through the shared tail helper) keeps the
-    'raise' default — with no operator to answer, a pause would hang."""
+    """Decision-4 activation pin (#645, re-pinned for the Phase 2a seam):
+    the queue door's default is failed_move_policy='pause'; the headless
+    door (``GeecsSession.run``) passes 'raise' through the plan's explicit
+    seam — with no operator to answer, a pause would hang."""
     import inspect
 
     from geecs_bluesky.plans import scan_request_plan as srp
-    from geecs_bluesky import scan_request_runner as srr
     from geecs_bluesky.session import GeecsSession
 
     plan_src = inspect.getsource(srp)
-    assert 'failed_move_policy="pause"' in plan_src
-    runner_src = inspect.getsource(srr)
-    assert "failed_move_policy" not in runner_src
+    assert 'failed_move_policy or "pause"' in plan_src
+    run_src = inspect.getsource(GeecsSession.run)
+    assert 'failed_move_policy="raise"' in run_src
     # The shared tail helper defaults to 'raise', and session.scan must not
     # override it — the plan preamble is the ONE opt-in call site.
     helper_sig = inspect.signature(GeecsSession.build_claimed_scan_plan)
@@ -1300,7 +1309,7 @@ def test_submission_record_reaches_start_doc_on_both_paths(
 ) -> None:
     """A client-stamped SubmissionRecord lands verbatim in run metadata.
 
-    Both entry points (the queue plan and the runner) must record
+    Both doors (the queue plan and ``GeecsSession.run``) must record
     ``md["submission"]`` — the engine copies, never edits.
     """
     stamp = {
@@ -1318,14 +1327,14 @@ def test_submission_record_reaches_start_doc_on_both_paths(
     docs_plan = _run_scan(
         "plan", request, resolver, tmp_path / "p", monkeypatch, submission=stamp
     )
-    docs_runner = _run_scan(
-        "runner", request, resolver, tmp_path / "r", monkeypatch, submission=stamp
+    docs_session = _run_scan(
+        "session", request, resolver, tmp_path / "r", monkeypatch, submission=stamp
     )
     from geecs_schemas import SubmissionRecord
 
     expected = SubmissionRecord.model_validate(stamp).model_dump(mode="json")
     assert docs_plan.start["submission"] == expected
-    assert docs_runner.start["submission"] == expected
+    assert docs_session.start["submission"] == expected
 
 
 def test_unstamped_request_emits_no_submission_key(
@@ -1334,6 +1343,498 @@ def test_unstamped_request_emits_no_submission_key(
     """No stamp, no key — absence must read as 'client recorded nothing'."""
     docs = _run_scan("plan", _noscan_request(), resolver, tmp_path / "p", monkeypatch)
     assert "submission" not in docs.start
+
+
+# ---------------------------------------------------------------------------
+# Optimizer device_requirements auto-provisioning (the #520 reversal) and
+# optimize-mode action skipping — on the real mock RunEngine
+# ---------------------------------------------------------------------------
+
+
+_TOPVIEW_REQUIREMENTS = {
+    "Devices": {
+        "UC_TopView": {
+            "add_all_variables": False,
+            "save_nonscalar_data": True,
+            "synchronous": True,
+            "variable_list": ["acq_timestamp"],
+        }
+    }
+}
+
+
+def _bound_device_names(bind_calls: list) -> list[str]:
+    """The GEECS device names the bridge was bound to, movables excluded
+    (the bind list is ``movables + detectors``; only movables can ``set``)."""
+    return [
+        d._geecs_device_name
+        for d in bind_calls[0]["devices"]
+        if hasattr(d, "_geecs_device_name") and not hasattr(d, "set")
+    ]
+
+
+def test_optimize_provisions_requirements_into_detectors(resolver, monkeypatch):
+    """The field-incident fix: the objective's diagnostic acquires and saves
+    even when the request's save sets do not name it, and the addition is
+    recorded in run metadata for provenance."""
+    session = _mock_session()
+    docs, _finish, bind_calls = _run_optimize_with_bridge(
+        session,
+        resolver,
+        _optimize_request(max_iterations=1),
+        monkeypatch,
+        suggester=_ScriptedSuggester([{"jet_z": 0.2}]),
+        objective=lambda bin_data: 1.0,
+        device_requirements=_TOPVIEW_REQUIREMENTS,
+    )
+    # The save set's three devices first (pacemaker unchanged), then the
+    # provisioned diagnostic.
+    assert _bound_device_names(bind_calls) == [
+        "U_Cam",
+        "U_Cam2",
+        "U_Slow",
+        "UC_TopView",
+    ]
+    assert docs.start["provisioned_device_requirements"] == {
+        "UC_TopView": {
+            "synchronous": True,
+            "save_nonscalar_data": True,
+            "variable_list": ["acq_timestamp"],
+        }
+    }
+
+
+def test_optimize_zero_save_sets_with_requirements_runs(resolver, monkeypatch):
+    """Zero save sets + optimizer requirements is a valid optimize request:
+    the provisioned diagnostics are the whole effective device set."""
+    session = _mock_session()
+    docs, _finish, bind_calls = _run_optimize_with_bridge(
+        session,
+        resolver,
+        _optimize_request(max_iterations=1, save_sets=[]),
+        monkeypatch,
+        suggester=_ScriptedSuggester([{"jet_z": 0.2}]),
+        objective=lambda bin_data: 1.0,
+        device_requirements=_TOPVIEW_REQUIREMENTS,
+    )
+    assert _bound_device_names(bind_calls) == ["UC_TopView"]
+    assert "save_sets" not in docs.start
+    assert list(docs.start["provisioned_device_requirements"]) == ["UC_TopView"]
+    assert docs.stop["exit_status"] == "success"
+
+
+def test_optimize_empty_effective_device_set_refused_pre_claim(resolver, monkeypatch):
+    """No save sets and no requirements → clear refusal before any claim."""
+    import geecs_bluesky.plans.scan_request_plan as srp
+
+    claims: list = []
+    monkeypatch.setattr(
+        srp, "claim_scan", lambda experiment: claims.append(experiment) or (None, None)
+    )
+    monkeypatch.setattr(
+        srp,
+        "_optimization_loader",
+        lambda spec: SimpleNamespace(device_requirements=None),
+    )
+    session = _mock_session()
+    with pytest.raises(GeecsConfigurationError, match="recording device"):
+        session.RE(
+            geecs_scan_request_plan(
+                _optimize_request(save_sets=[]).model_dump(),
+                session=session,
+                resolver=resolver,
+            )
+        )
+    assert claims == []
+
+
+def test_optimize_empty_requirements_is_a_no_op(resolver, monkeypatch):
+    """Empty requirements leave the save-set devices exactly as before."""
+    session = _mock_session()
+    docs, _finish, bind_calls = _run_optimize_with_bridge(
+        session,
+        resolver,
+        _optimize_request(max_iterations=1),
+        monkeypatch,
+        suggester=_ScriptedSuggester([{"jet_z": 0.2}]),
+        objective=lambda bin_data: 1.0,
+        device_requirements={"Devices": {}},
+    )
+    assert _bound_device_names(bind_calls) == ["U_Cam", "U_Cam2", "U_Slow"]
+    assert "provisioned_device_requirements" not in docs.start
+
+
+def test_optimize_provisioned_variables_face_unserved_preflight(resolver, monkeypatch):
+    """Provisioned variables run through the same unserved-variables check
+    as save-set ones (#562): an unserved provisioned variable is dropped
+    (headless default) and recorded, so it can never die in a 20 s
+    NotConnectedError during detector build.  The optimize path runs the
+    check (the 2026-07-15 incident shape) exactly as noscan/step do."""
+    import geecs_bluesky.scan_request_runner as runner_module
+
+    served = {
+        "U_Cam": {"acq_timestamp", "MaxCounts"},
+        "U_Cam2": {"Val"},
+        "U_Slow": {"Pressure"},
+        "UC_TopView": {"acq_timestamp"},  # 2ndmomW0x is NOT served
+    }
+    monkeypatch.setattr(
+        runner_module,
+        "make_served_set_provider",
+        lambda session: SimpleNamespace(served_by_device=lambda: served),
+    )
+    requirements = {
+        "Devices": {
+            "UC_TopView": {
+                "synchronous": True,
+                "save_nonscalar_data": True,
+                "variable_list": ["acq_timestamp", "2ndmomW0x"],
+            }
+        }
+    }
+    session = _mock_session()
+    docs, _finish, bind_calls = _run_optimize_with_bridge(
+        session,
+        resolver,
+        _optimize_request(max_iterations=1),
+        monkeypatch,
+        suggester=_ScriptedSuggester([{"jet_z": 0.2}]),
+        objective=lambda bin_data: 1.0,
+        device_requirements=requirements,
+    )
+    assert "UC_TopView" in _bound_device_names(
+        bind_calls
+    )  # built, minus the bad variable
+    assert docs.start["dropped_unserved_variables"] == {"UC_TopView": ["2ndmomW0x"]}
+    # Provenance records the optimizer's full (pre-drop) request.
+    assert docs.start["provisioned_device_requirements"]["UC_TopView"][
+        "variable_list"
+    ] == ["acq_timestamp", "2ndmomW0x"]
+
+
+def test_optimize_skips_actions_and_records_them(resolver, monkeypatch, caplog):
+    """Optimize runs; its action plans are skipped, logged, and recorded.
+
+    Optimize mode has no action hooks yet, but refusing would block every
+    optimization the moment an experiment defines default bracket actions.
+    So the run proceeds with the actions skipped — never silently: a WARNING
+    is logged and the skip lands in run metadata.
+    """
+    import logging
+
+    session = _mock_session()
+    with caplog.at_level(logging.WARNING):
+        docs, _finish, _bind = _run_optimize_with_bridge(
+            session,
+            resolver,
+            _optimize_request(
+                max_iterations=1,
+                save_sets=["RitualSet"],
+                actions={"setup": ["scan_prep"], "closeout": ["scan_cleanup"]},
+            ),
+            monkeypatch,
+            suggester=_ScriptedSuggester([{"jet_z": 0.2}]),
+            objective=lambda bin_data: 1.0,
+        )
+    skipped = docs.start["skipped_action_plans"]
+    assert skipped["setup"] == ["scan_prep"]
+    assert skipped["closeout"] == ["scan_cleanup"]
+    # Save-set entry rituals are skipped and recorded too, not refused.
+    assert "cam_ritual" in skipped["save_set_rituals"]
+    assert "scan_prep" in caplog.text
+
+
+# ---------------------------------------------------------------------------
+# Background telemetry on the one plan (Tier-2 soft tier)
+# ---------------------------------------------------------------------------
+
+
+class _TablePolicy:
+    """Protocol-complete ScalarPolicyProvider over a fixed table."""
+
+    def __init__(self, subscribed: dict[str, list[str]]) -> None:
+        self._subscribed = subscribed
+
+    def get_variables(self, device: str) -> list[str]:
+        return list(self._subscribed.get(device, []))
+
+    def all_variables(self, device: str) -> list[str]:
+        return list(self._subscribed.get(device, []))
+
+    def subscribed_by_device(self) -> dict[str, list[str]]:
+        return {d: list(v) for d, v in self._subscribed.items()}
+
+
+def _install_policy(monkeypatch, policy) -> None:
+    for target in (
+        "geecs_bluesky.scan_request_runner.make_scalar_policy",
+        "geecs_bluesky.plans.scan_request_plan.make_scalar_policy",
+    ):
+        monkeypatch.setattr(target, lambda session: policy)
+
+
+def _telemetry_columns(docs: _DocCollector) -> set[str]:
+    return {
+        k
+        for d in docs.descriptors
+        for k in d["data_keys"]
+        if k.startswith("telemetry_")
+    }
+
+
+def test_telemetry_excludes_devices_from_all_named_sets(
+    resolver, monkeypatch, tmp_path
+) -> None:
+    """A device in ANY named set is excluded from Tier-2 telemetry: the
+    selector sees the merged save set (all devices across all sets)."""
+    _install_policy(
+        monkeypatch,
+        _TablePolicy(
+            {
+                "U_Cam": ["MaxCounts"],  # in UC_Test → excluded
+                "U_Aux": ["Aux1"],  # in UC_Aux → excluded
+                "U_Press": ["Pressure"],  # in neither → telemetry
+            }
+        ),
+    )
+    docs = _run_scan(
+        "plan",
+        _noscan_request(save_sets=["UC_Test", "UC_Aux"]),
+        resolver,
+        tmp_path / "Scan007",
+        monkeypatch,
+    )
+    assert docs.start["background_telemetry"] == {"U_Press": ["Pressure"]}
+    assert docs.start["save_sets"] == ["UC_Test", "UC_Aux"]
+    columns = _telemetry_columns(docs)
+    assert columns and all("u_press" in k for k in columns)
+
+
+def test_telemetry_dead_device_dropped_and_absent_from_metadata(
+    resolver, monkeypatch, tmp_path
+) -> None:
+    """Soft tier: a telemetry device unreachable at scan start is dropped
+    with a warning, never an abort — and the start doc advertises only
+    the devices that connected (EVENT_SCHEMA.md contract)."""
+    from geecs_bluesky.devices.ca.telemetry import CaTelemetryReadable
+
+    real_connect = CaTelemetryReadable.connect
+
+    async def flaky_connect(self, **kwargs):
+        if self._geecs_device_name == "U_Dead":
+            raise RuntimeError("dead at scan start")
+        return await real_connect(self, **kwargs)
+
+    monkeypatch.setattr(CaTelemetryReadable, "connect", flaky_connect)
+    _install_policy(
+        monkeypatch, _TablePolicy({"U_Press": ["Pressure"], "U_Dead": ["X"]})
+    )
+    docs = _run_scan(
+        "plan", _noscan_request(), resolver, tmp_path / "Scan007", monkeypatch
+    )
+    assert docs.stop["exit_status"] == "success"
+    assert docs.start["background_telemetry"] == {"U_Press": ["Pressure"]}
+    assert not any("u_dead" in k for k in _telemetry_columns(docs))
+
+
+def test_background_telemetry_off_skips_telemetry(
+    resolver, monkeypatch, tmp_path
+) -> None:
+    _install_policy(monkeypatch, _TablePolicy({"U_Press": ["Pressure"]}))
+    docs = _run_scan(
+        "plan",
+        _noscan_request(background_telemetry=False),
+        resolver,
+        tmp_path / "Scan007",
+        monkeypatch,
+    )
+    assert "background_telemetry" not in docs.start
+    assert not _telemetry_columns(docs)
+
+
+def test_request_telemetry_flag_overrides_experiment_default(
+    resolver, monkeypatch, tmp_path
+) -> None:
+    """Experiment default off, request explicitly on → telemetry runs."""
+    from geecs_schemas import ExperimentDefaults
+
+    _install_policy(monkeypatch, _TablePolicy({"U_Press": ["Pressure"]}))
+    monkeypatch.setattr(
+        resolver,
+        "resolve_experiment_defaults",
+        lambda: ExperimentDefaults.model_validate(
+            {"schema_version": 1, "background_telemetry": False}
+        ),
+    )
+    docs = _run_scan(
+        "plan",
+        _noscan_request(background_telemetry=True),
+        resolver,
+        tmp_path / "Scan007",
+        monkeypatch,
+    )
+    assert docs.start["background_telemetry"] == {"U_Press": ["Pressure"]}
+
+
+# ---------------------------------------------------------------------------
+# The headless door: GeecsSession.run IS the plan (schema refactor Phase 2a)
+# ---------------------------------------------------------------------------
+
+
+def _seed_after_connect(monkeypatch, session, pacers: list) -> None:
+    """Seed ``acq_timestamp`` + start a pacer for every device the plan
+    connects — the injected-pair path has no bridge ``bind`` hook to do it
+    (see ``_run_optimize_with_bridge``), and t0 sync reads the timestamp
+    before any staging message."""
+    import geecs_bluesky.plans.scan_request_plan as srp
+
+    real = srp._connect_in_batches
+
+    def seeding(devices, *, mock):
+        yield from real(devices, mock=mock)
+        for device in devices:
+            if hasattr(device, "acq_timestamp"):
+                set_mock_value(device.acq_timestamp, 1000.0)
+                pacers.append(
+                    start_pacer(
+                        session.RE, [(device, 1000.0)], initial_delay=1.0, interval=0.15
+                    )
+                )
+
+    monkeypatch.setattr(srp, "_connect_in_batches", seeding)
+
+
+def test_session_run_threads_an_injected_objective_and_suggester(
+    resolver, monkeypatch
+) -> None:
+    """``session.run(request, objective=..., suggester=...)`` drives the
+    optimize plan with the ready-made pair — and never consults the
+    worker-registered loader (the two optimization sources are one seam)."""
+    import geecs_bluesky.plans.scan_request_plan as srp
+
+    def registered_loader_must_not_run(spec):
+        raise AssertionError("the injected pair must bypass the registered loader")
+
+    monkeypatch.setattr(srp, "_optimization_loader", registered_loader_must_not_run)
+    monkeypatch.setattr(srp, "claim_scan", lambda experiment: (None, None))
+    session = _mock_session()
+    pacers: list = []
+    _seed_after_connect(monkeypatch, session, pacers)
+    suggester = _ScriptedSuggester([{"jet_z": 0.1}, {"jet_z": 0.4}])
+    docs = _DocCollector()
+    token = session.RE.subscribe(docs)
+    try:
+        uid = session.run(
+            _optimize_request(),
+            resolver,
+            objective=lambda bin_data: float(len(bin_data.rows)),
+            suggester=suggester,
+        )
+    finally:
+        for pacer in pacers:
+            pacer.cancel()
+        session.RE.unsubscribe(token)
+    assert uid == docs.start["uid"]
+    assert docs.start["plan_name"] == "geecs_adaptive_scan"
+    assert docs.start["scan_request_mode"] == "optimize"
+    assert [inputs for inputs, _, _ in suggester.observed] == [
+        {"jet_z": 0.1},
+        {"jet_z": 0.4},
+    ]
+    assert docs.stop["exit_status"] == "success"
+    assert session.last_run_aborted is False
+
+
+def test_session_run_injected_requirements_provision_devices(
+    resolver, monkeypatch
+) -> None:
+    """The headless door's ``device_requirements`` reach the plan's
+    provisioning exactly as a worker bridge's would."""
+    import geecs_bluesky.plans.scan_request_plan as srp
+
+    monkeypatch.setattr(srp, "claim_scan", lambda experiment: (None, None))
+    session = _mock_session()
+    pacers: list = []
+    _seed_after_connect(monkeypatch, session, pacers)
+    docs = _DocCollector()
+    token = session.RE.subscribe(docs)
+    try:
+        session.run(
+            _optimize_request(max_iterations=1),
+            resolver,
+            objective=lambda bin_data: 1.0,
+            suggester=_ScriptedSuggester([{"jet_z": 0.2}]),
+            device_requirements=_TOPVIEW_REQUIREMENTS,
+        )
+    finally:
+        for pacer in pacers:
+            pacer.cancel()
+        session.RE.unsubscribe(token)
+    assert list(docs.start["provisioned_device_requirements"]) == ["UC_TopView"]
+
+
+def test_session_run_refuses_half_an_optimization_pair(resolver) -> None:
+    session = _mock_session()
+    with pytest.raises(ValueError, match="pair"):
+        session.run(_optimize_request(), resolver, objective=lambda b: 1.0)
+
+
+def test_session_run_optimize_without_pair_or_loader_is_refused(
+    resolver, monkeypatch
+) -> None:
+    """No injected pair and no registered loader → the plan's loud
+    pre-claim refusal reaches the headless caller unchanged."""
+    import geecs_bluesky.plans.scan_request_plan as srp
+
+    monkeypatch.setattr(srp, "_optimization_loader", None)
+    claims: list = []
+    monkeypatch.setattr(
+        srp, "claim_scan", lambda experiment: claims.append(experiment) or (None, None)
+    )
+    session = _mock_session()
+    with pytest.raises(GeecsConfigurationError, match="set_optimization_loader"):
+        session.run(_optimize_request(), resolver)
+    assert claims == []
+
+
+def test_session_run_exports_scalar_files_after_a_saved_run(
+    resolver, monkeypatch, tmp_path
+) -> None:
+    """The headless door exports the legacy s-files after a saved run (the
+    worker does it through its stop-document callback instead) — keyed on
+    the scan number the start doc carried."""
+    folder = tmp_path / "Scan007"
+    folder.mkdir()
+    monkeypatch.setattr(
+        "geecs_bluesky.plans.scan_request_plan.claim_scan_number",
+        lambda experiment: (7, str(folder)),
+    )
+    session = _mock_session()
+    exported: list[int] = []
+    monkeypatch.setattr(session, "_export_scalar_files", exported.append)
+    pacers: list = []
+    _install_stage_pacer(session, pacers)
+    try:
+        uid = session.run(_noscan_request(), resolver)
+    finally:
+        for pacer in pacers:
+            pacer.cancel()
+        session.RE.msg_hook = None
+    assert uid is not None
+    assert exported == [7]
+    assert (folder / "ScanInfoScan007.ini").exists()
+
+
+def test_session_run_accepts_a_json_document(resolver, monkeypatch, tmp_path) -> None:
+    """The headless door takes the queue's wire shape too (a plain dict)."""
+    docs = _run_scan(
+        "session",
+        _noscan_request(),
+        resolver,
+        tmp_path / "Scan007",
+        monkeypatch,
+    )
+    assert docs.start["scan_request_mode"] == "noscan"
 
 
 # ---------------------------------------------------------------------------

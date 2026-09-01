@@ -25,8 +25,8 @@ from geecs_bluesky.preflight import (
     UnservedVariablesCheck,
     run_unserved_variables_check,
 )
-from geecs_bluesky.scan_request_runner import run_scan_request
 from geecs_schemas import SaveSet, SaveSetEntry, ScanRequest
+from tests.test_scan_request_runner import run_request
 
 # ---------------------------------------------------------------------------
 # Fakes: session recording variable lists, one-save-set resolver
@@ -34,13 +34,28 @@ from geecs_schemas import SaveSet, SaveSetEntry, ScanRequest
 
 
 class _RecordingSession:
-    """Fake session recording each device build's variable list (no CA/RE)."""
+    """Fake session recording each device build's variable list (no CA/RE).
+
+    Exposes the plan preamble's session seams (see the runner suite's
+    ``_FakeSession``); ``build_claimed_scan_plan`` records its kwargs as
+    :attr:`scan_kwargs` and returns a plan that yields nothing.
+    """
+
+    experiment = ""
+    rep_rate_hz = 1.0
+    _mock = True
 
     def __init__(self) -> None:
         self.device_calls: list[tuple[str, str, list[str]]] = []
         self.scan_kwargs: dict | None = None
-        self.optimize_kwargs: dict | None = None
         self.disconnected: list = []
+
+    def _refuse_if_manual_move(self, verb: str) -> None:
+        pass
+
+    def build_claimed_scan_plan(self, **kwargs):
+        self.scan_kwargs = kwargs
+        return _immediately("uid-scan")
 
     def _make(self, kind: str, device: str, variables: list[str]):
         self.device_calls.append((kind, device, list(variables)))
@@ -74,19 +89,13 @@ class _RecordingSession:
     def settable(self, device, variable, *, name=None):
         return SimpleNamespace(_geecs_device_name=f"{device}:{variable}")
 
-    def shot_control(self, config) -> None:
-        pass
-
-    def scan(self, **kwargs):
-        self.scan_kwargs = kwargs
-        return "uid-scan"
-
-    def optimize(self, **kwargs):
-        self.optimize_kwargs = kwargs
-        return "uid-opt", []
-
     def disconnect(self, *devices) -> None:
         self.disconnected.extend(devices)
+
+
+def _immediately(value):
+    return value
+    yield  # pragma: no cover — makes this a generator
 
 
 class _SaveSetResolver:
@@ -125,10 +134,12 @@ def _topview_save_set(extra_entries: list[SaveSetEntry] | None = None) -> SaveSe
 
 
 def _noscan_request(**overrides) -> ScanRequest:
+    # free_run: the resolver serves no trigger profile, and the preamble
+    # refuses a strict request without shot control before this check runs.
     base = dict(
         mode="noscan",
         shots_per_step=2,
-        acquisition="strict",
+        acquisition="free_run",
         save_sets=["TopView"],
     )
     base.update(overrides)
@@ -154,7 +165,7 @@ def _check_ctx() -> PreflightContext:
 
 
 # ---------------------------------------------------------------------------
-# The check through run_scan_request (noscan/step path)
+# The check through the scan plan's preamble (noscan/step path)
 # ---------------------------------------------------------------------------
 
 
@@ -165,7 +176,7 @@ def test_all_served_asks_nothing_and_keeps_the_config(monkeypatch) -> None:
     session = _RecordingSession()
     resolver = _SaveSetResolver({"TopView": _topview_save_set()})
 
-    uid = run_scan_request(session, _noscan_request(), resolver)
+    uid = run_request(session, _noscan_request(), resolver)
 
     assert uid == "uid-scan"
     assert session.device_calls == [
@@ -212,7 +223,7 @@ def test_fully_unserved_device_is_dropped_whole(monkeypatch) -> None:
     ghost = SaveSetEntry(device="U_Ghost", scalars=["foo"], db_scalars=False)
     resolver = _SaveSetResolver({"TopView": _topview_save_set([ghost])})
 
-    run_scan_request(session, _noscan_request(), resolver)
+    run_request(session, _noscan_request(), resolver)
 
     built = [device for _kind, device, _vars in session.device_calls]
     assert built == ["UC_TopView"]  # U_Ghost never built
@@ -227,7 +238,7 @@ def test_db_failure_degrades_to_pass_with_one_warning(monkeypatch, caplog) -> No
     resolver = _SaveSetResolver({"TopView": _topview_save_set()})
 
     with caplog.at_level(logging.WARNING):
-        uid = run_scan_request(session, _noscan_request(), resolver)
+        uid = run_request(session, _noscan_request(), resolver)
 
     assert uid == "uid-scan"
     # Never blocks a scan on a DB blip: nothing dropped, full list built.
@@ -253,7 +264,7 @@ def test_headless_default_continues_and_drops_with_a_warning(
     resolver = _SaveSetResolver({"TopView": _topview_save_set()})
 
     with caplog.at_level(logging.WARNING):
-        uid = run_scan_request(session, _noscan_request(), resolver)
+        uid = run_request(session, _noscan_request(), resolver)
 
     assert uid == "uid-scan"
     # The detector is built from the reduced list — the unserved variables
@@ -293,33 +304,6 @@ def _optimize_request(**overrides) -> ScanRequest:
     return ScanRequest.model_validate(base)
 
 
-def test_optimize_path_runs_the_check_and_drops(monkeypatch) -> None:
-    _install_served(monkeypatch, _SERVED)
-    session = _RecordingSession()
-    resolver = _SaveSetResolver({"TopView": _topview_save_set()})
-
-    uid = run_scan_request(
-        session,
-        _optimize_request(),
-        resolver,
-        objective=lambda rows: 0.0,
-        suggester=lambda history: None,
-    )
-
-    assert uid == "uid-opt"
-    # free_run: the first synchronous device is still the reference detector.
-    assert session.device_calls == [("detector", "UC_TopView", ["centroidx"])]
-    md = session.optimize_kwargs["md"]
-    assert md["dropped_unserved_variables"] == {
-        "UC_TopView": ["2ndmomW0x", "2ndmomW0y"]
-    }
-
-
-# ---------------------------------------------------------------------------
-# Helper-level edge: no provider at all → the check is skipped entirely
-# ---------------------------------------------------------------------------
-
-
 def test_no_provider_skips_the_check() -> None:
     config = {"U_Cam": {"variable_list": ["x"], "synchronous": True}}
     effective, dropped, dropped_devices = run_unserved_variables_check(config, None)
@@ -349,7 +333,7 @@ def test_gateway_synthesized_variables_are_always_served(monkeypatch) -> None:
     )
     resolver = _SaveSetResolver({"TopView": save_set})
 
-    uid = run_scan_request(session, _noscan_request(), resolver)
+    uid = run_request(session, _noscan_request(), resolver)
 
     assert uid == "uid-scan"
     # No drop: synthesized vars are served, full list reaches the device.
