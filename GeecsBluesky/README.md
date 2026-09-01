@@ -82,6 +82,10 @@ s.shot_control("HTU-LaserOFF")                      # from the configs repo
 s.scan(detectors=[cam, top], motor=jet, start=4.0, end=5.0, step=0.5,
        shots_per_step=3)                            # free-run step scan
 s.noscan(detectors=[cam], shots=10, mode="strict")  # plan-owned single-shot
+
+# Or hand it a ScanRequest document (the console/queue vocabulary): this runs
+# the same geecs_scan_request_plan the queueserver worker runs, on s.RE.
+s.run({"mode": "noscan", "capture": {"shots_per_step": 10, "save_sets": ["Amp4In"]}})
 ```
 
 Every session scan claims a real scan number, writes `ScanInfoScanNNN.ini`,

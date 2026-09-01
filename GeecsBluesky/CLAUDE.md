@@ -5,7 +5,9 @@ Bridges the GEECS hardware control system to the
 The primary product is the **queueserver worker** (`qserver/` — a
 bluesky-queueserver RE Manager whose startup profile serves
 `geecs_scan_request_plan`, the one plan every ScanRequest runs through)
-plus the headless `GeecsSession`.  GEECS-Console and every other client
+plus the headless `GeecsSession`, whose `run(request)` executes that same
+plan on its own RunEngine (Phase 2a of the schema refactor, 2026-09-01:
+one prologue, two doors).  GEECS-Console and every other client
 talk to the RE Manager over its queue/status API — the in-process
 `BlueskyScanner` GUI bridge was **deleted** (W5, issue #649, 2026-08-21)
 after the console became a manager client (W6, #648).  Hardware-verified
@@ -50,8 +52,11 @@ bin), so it honours the same mode dispatch.
 ```
 geecs_bluesky/
   session.py                # GeecsSession — headless scans (RE + Tiled + discipline)
-                            #   + session.run(ScanRequest) — the schema front door;
-                            #   writes scan.log when it claimed the scan number
+                            #   + session.run(ScanRequest) — the headless door:
+                            #   RE(geecs_scan_request_plan) with the two
+                            #   explicit seams (failed_move_policy="raise",
+                            #   an injected objective/suggester as the
+                            #   optimization loader) + post-run s-file export
                             #   + move_variable — manual scan-variable move
                             #   (plain/confirm/pseudo, fresh movable per
                             #   call, refused mid-scan)
@@ -92,7 +97,8 @@ geecs_bluesky/
                             #   or its alias x; corpus pinned by tests;
                             #   skeleton = geecs_schemas.restricted_expr,
                             #   shared with the gateway's derived channels)
-  scan_request_runner.py    # run a geecs_schemas.ScanRequest:
+  scan_request_runner.py    # the pure ScanRequest prologue the plan is
+                            #   assembled from (no RE, no hardware):
                             #   SaveSet→devices_config and
                             #   TriggerProfile→ShotControlWrites (ordered,
                             #   multi-device) adapters, save-set union,
@@ -116,11 +122,11 @@ geecs_bluesky/
     t0_sync.py              # geecs_t0_sync — coordinated per-device t0 capture
     run_wrapper.py          # geecs_run_wrapper + claim_scan_number (numbering + save + md)
     scan_request_plan.py    # geecs_scan_request_plan — "run this ScanRequest"
-                            #   as ONE plan (queueserver round 1, issue #633):
-                            #   the run_scan_request prologue relocated into
-                            #   the plan preamble (validate → resolve →
-                            #   construct+connect in-plan → claim → the same
-                            #   inner plan); set_plan_session installs the
+                            #   as ONE plan (queueserver round 1, issue #633;
+                            #   the only orchestration since Phase 2a): the
+                            #   prologue as the plan preamble (validate →
+                            #   resolve → construct+connect in-plan → claim →
+                            #   the inner plan); set_plan_session installs the
                             #   worker default session; optimize-mode
                             #   requests run in-plan too (set_optimization_
                             #   loader registers the worker's loader — see
@@ -269,11 +275,13 @@ reintroducing the hard-pause replay trap (a HARD pause replays from the
 last checkpoint and re-executes GEECS sets — scoping note in
 `plans/pause_semantics.py`).
 
-On a failed axis move the queue plan pauses instead of raising
-(`failed_move_policy="pause"`, decision 4 — the reason line is the
-`FAILED_MOVE_LOG_PREFIX` ERROR record; resume retries the move, stop ends
-the scan gracefully).  Headless `session.scan` keeps the `raise` default:
-with no operator to answer, a pause would hang.
+On a failed axis move the queue door pauses instead of raising
+(`failed_move_policy="pause"`, the plan's default — decision 4; the reason
+line is the `FAILED_MOVE_LOG_PREFIX` ERROR record; resume retries the move,
+stop ends the scan gracefully).  The headless door passes `"raise"` through
+the plan's explicit `failed_move_policy` seam (`GeecsSession.run`), and
+`session.scan` keeps the `raise` default: with no operator to answer, a
+pause would hang.
 
 The deleted bridge's other verbs re-homed as follows (W6, #648): manual
 actions → `geecs_run_action_plan` queue items (idle-only by queue
@@ -653,8 +661,9 @@ device count, used by the client preflight AND the worker re-check) and
 `plans/liveness.py::rd_confirmed_down` (in-plan `connected_status` read
 on built devices, used by the strict refire gate and the t0 seed gate).
 
-`ScanRequest` execution (`scan_request_runner` / `GeecsSession.run`) runs
-the full schema surface as of 0.23.0 (M3b): **actions execute**
+`ScanRequest` execution (`plans/scan_request_plan.py`, reached through the
+queue or `GeecsSession.run`) runs the full schema surface as of 0.23.0
+(M3b): **actions execute**
 (request-level setup/per_step/closeout, SaveSet entry rituals de-duplicated
 by name, ExperimentDefaults plans — assembled in §4.4b nesting order:
 defaults → entries → request on setup, exact mirror on closeout; the
@@ -675,34 +684,40 @@ action hooks yet, so the actions (request, experiment defaults, and
 save-set rituals) are skipped, logged (WARNING), and recorded in run
 metadata under `skipped_action_plans` (refusing would block every
 optimization the moment an experiment defines default bracket actions;
-unknown names still fail fast).  **Both execution paths run through the
-one engine definition**: the queue plan (`geecs_scan_request_plan`) and
-the headless runner (`run_scan_request`, via `GeecsSession.run`) share
-the runner's module-level prologue functions, so actions, entry rituals,
-multi-axis grids, db_scalars, and telemetry execute identically.  The
-runner's bridge-era hooks (`preflight`, `on_scan_start`,
-`operator_channel`, `pause_supervisor`) died with the bridge (W5);
-`should_abort` survives as the one external-stop probe (pre-claim
-init-stage checkpoints + the in-plan gate).  **Optimize-mode requests**:
-the worker's startup-registered `optimization_loader`
-(`optimization/worker_loader.py`, decision 5) — or a headless caller's
-injected objective/suggester — builds the stack; the loader's one
-argument is the request's resolved `OptimizationSpec`, and the returned
-bridge's `bind` threads in as the `optimization_binder` hook.  Because
-the binder's analyzers need the real `ScanTag`, the **runner claims the
-scan itself just before binding** (after every fail-fast resolution and
-device connect — the one path where the claim is not inside the session
-call) and passes the pre-claimed number/folder to `session.optimize`,
-owning the `scan.log` attach; the optional `finish()` (legacy
-`xopt_dump.yaml`) runs after a successful run.  The config-level
-unserved-variables check runs pre-claim on every mode.  **Optimizer
+unknown names still fail fast).  **There is one execution path**
+(Phase 2a of the schema refactor, 2026-09-01): `geecs_scan_request_plan`
+is the only ScanRequest orchestration — the queue runs it as an item and
+`GeecsSession.run` runs it on the session's RunEngine — so actions, entry
+rituals, multi-axis grids, db_scalars, and telemetry cannot differ between
+the two doors.  The former headless runner (`run_scan_request` and its
+optimize twin) is gone, and with it the `should_abort` init-stage stop
+probe (no production caller after the bridge died; a headless caller
+aborts through `RE.abort()`, which the session settles quietly).  The two
+doors differ only through the plan's explicit keyword seams:
+`failed_move_policy` (queue `"pause"`, headless `"raise"`) and
+`optimization_loader` (queue: the worker's startup-registered loader —
+`optimization/worker_loader.py`, decision 5; headless: a loader wrapping
+the caller's injected objective/suggester pair, `session.run(request,
+objective=..., suggester=...)`).  **Optimize-mode requests**: the loader's
+one argument is the request's resolved `OptimizationSpec`; the returned
+bridge's `bind` runs after the in-plan connects and the claim — the plan
+claims the full `ScanTag` pre-bind because the bridge's analyzers need
+it — and the optional `finish()` (legacy `xopt_dump.yaml`) runs after a
+successful run.  Request-level action slots and save-set rituals are
+skipped in optimize mode and recorded under `skipped_action_plans`; an
+optimize request with zero save sets runs on the optimizer's
+`device_requirements` alone (both pinned on the plan since 2a — the
+queue path used to crash on the empty save-set merge and to omit the
+request-level skips).  The config-level unserved-variables check runs
+pre-claim on every mode.  **Optimizer
 `device_requirements` auto-provisioning (0.38.0)** — reversing the
 deliberate #520 deferral after a field incident (2026-07-15:
 `TopViewMax` optimize runs produced NaN objectives on every iteration
 because the evaluator's auto-generated requirements were ignored and
-`UC_TopView` never saved).  The runner reads the loader-returned
-bridge's `device_requirements` duck-typed (like `finish`) and hands the
-opaque mapping to `run_scan_request(device_requirements=...)`;
+`UC_TopView` never saved).  The plan's optimize body reads the
+loader-returned bridge's `device_requirements` duck-typed (like `finish`);
+the headless door's `session.run(device_requirements=...)` reaches the same
+seam through its injected loader;
 `merge_optimizer_device_requirements` unions it into the effective
 devices config with `merge_save_sets` semantics (variable lists deduped,
 `save_nonscalar_data` ORs; an already-configured device keeps its
@@ -727,8 +742,8 @@ scan's own since geecs-schemas 0.2.0 — mirrored teardown).
 capture fields grouped under `capture` in schema v2 — flat v1 documents
 are lifted automatically); a bare string still
 validates (coerced to a one-element list by a schema before-validator).
-`run_scan_request` (and the optimize path) resolve **each** named save set and
-union them into one effective `SaveSet` (`merge_save_sets`) before deriving the
+The plan (step/noscan and optimize bodies alike) resolves **each** named save
+set and unions them into one effective `SaveSet` (`merge_save_sets`) before deriving the
 recorded device set, so operators mix and match named diagnostic groups per
 scan.  Per-device union rule (documented on `merge_save_sets` and in the
 `scan_request_runner` module docstring): `scalars` union
@@ -799,7 +814,7 @@ gateway's `GeecsDb.get_scan_boundary_writes` remains a reserved read-only
 library query, not consumed by the engine.
 
 Optimize mode resolves db_scalars but does not run telemetry yet (no
-scan-boundary hook on `GeecsSession.optimize`) — recorded as
+scan-boundary hook on the adaptive scan) — recorded as
 `db_scan_runtime` in metadata; the set-side is disabled everywhere.  Adding a
 new analyzer/writer still must not create scan folders (cross-package
 invariant); M3c is scanner-side but touches no scan-folder creation.
@@ -857,15 +872,18 @@ Remaining items are features/tuning, not architecture.
   the legacy `Background` scan mode executes as a noscan with
   `ScanRequest.background` set (the schema's own definition), recorded
   as `Background = true` in `ScanInfoScanNNN.ini`; the console's
-  BACKGROUND mode submits it.  Optimization runs as a scan via
-  `GeecsSession.optimize` (adaptive scan: iteration = bin, same schema/data
-  tree as any scan — see `plans/optimize.py`), both headless (suggester +
-  objective in hand) and through the queue: the worker's startup-registered
+  BACKGROUND mode submits it.  Optimization runs as a scan (adaptive
+  scan: iteration = bin, same schema/data tree as any scan — see
+  `plans/optimize.py`) through the one plan's optimize body, both headless
+  (`session.run(request, objective=..., suggester=...)`; the low-level
+  `GeecsSession.optimize` over already-built devices remains as the
+  scripting twin of `session.scan` — its loop duplicates the plan body's,
+  the flagged follow-up of Phase 2a) and through the queue: the worker's startup-registered
   `optimization_loader` (`optimization/worker_loader.py` builds it from
   `geecs_bluesky.optimization` — the Xopt/evaluator stack relocated INTO
   this package 2026-08-20, heavy deps behind the `optimize` extra) runs
   the config-driven Xopt 3.1 / evaluator / ScanAnalysis stack against
-  the session's bin rows (loader argument: the request's resolved
+  the plan's in-process bin rows (loader argument: the request's resolved
   `OptimizationSpec`; see the engine-consolidation section).  The evaluator seam is
   `EvaluatorDataSource` in `geecs_bluesky.optimization.base_evaluator`;
   the package stays free of any geecs_scanner import (pinned by an

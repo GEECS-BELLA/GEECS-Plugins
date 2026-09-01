@@ -4,6 +4,52 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.71.0] - 2026-09-01
+
+### Changed
+
+- **One ScanRequest orchestration** (schema refactor Phase 2a): `GeecsSession.run`
+  now executes `geecs_scan_request_plan` on the session's own RunEngine —
+  the same plan the queueserver worker runs as a queue item. The headless
+  runner (`scan_request_runner.run_scan_request` / `_run_optimize_request`)
+  and its eager telemetry builder (`build_telemetry_readables`) are
+  removed; `scan_request_runner` is now purely the prologue the plan is
+  assembled from. The two doors differ only through two explicit plan
+  seams: `failed_move_policy` (queue `"pause"`, headless `"raise"`) and
+  `optimization_loader` (queue: the registered worker loader; headless: a
+  loader over the injected `objective`/`suggester` pair). `session.run`
+  gains `submission=` and keeps exporting the legacy s-files after a saved
+  run (the worker does that via its stop-document callback).
+- `geecs_scan_request_plan` gains the keyword-only `optimization_loader`
+  and `failed_move_policy` seams (unannotated, like `session`/`resolver`,
+  so RE Manager item validation is unaffected).
+
+### Removed
+
+- The `should_abort` init-stage stop probe on the headless path (no
+  production caller since the GUI bridge was deleted); a headless caller
+  aborts through `RE.abort()`, which `session.run` settles quietly exactly
+  as `session.scan` does.
+- `session.run(..., optimization_binder=...)`: the binder hook was the
+  runner's seam; the plan's `optimization_loader` is the one seam now.
+
+### Fixed
+
+- Optimize mode on the plan (queue path) crashed on a request with zero
+  save sets and optimizer `device_requirements` (empty save-set merge);
+  it now runs on the provisioned devices alone, as the headless path did.
+- Optimize mode on the plan recorded only save-set rituals under
+  `skipped_action_plans`; request-level setup/per_step/closeout slots are
+  now recorded (and warned) too.
+
+### Tests
+
+- The runner suite's execution tests drive the plan preamble without a
+  RunEngine (`run_request` steps the generator, running its connect and
+  disconnect coroutines); optimize provisioning/skip tests and telemetry
+  tests moved onto the plan suite's mock RunEngine; the document-parity
+  tests now compare `session.run` against the queue call shape.
+
 ## [0.70.0] - 2026-09-01
 
 ### Changed
