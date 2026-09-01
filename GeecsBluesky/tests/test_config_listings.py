@@ -119,7 +119,7 @@ def test_resolve_preset_round_trips_a_scan_request(repo):
     assert "smoke" in resolver.list_presets()
     request = resolver.resolve_preset("smoke")
     assert isinstance(request, ScanRequest)
-    assert request.shots_per_step == 3
+    assert request.capture.shots_per_step == 3
 
 
 def test_resolve_preset_missing_raises_with_kind(repo):

@@ -170,9 +170,20 @@ class QueueClient(Protocol):
         ...
 
     def submit_scan(
-        self, request: dict, *, clear_pending: bool = False
+        self,
+        request: dict,
+        *,
+        submission: Optional[dict] = None,
+        clear_pending: bool = False,
     ) -> SubmitResult:
-        """Queue ``geecs_scan_request_plan(request)`` and start the queue."""
+        """Queue ``geecs_scan_request_plan(request)`` and start the queue.
+
+        *submission* is the optional client-stamped ``SubmissionRecord``
+        JSON dict traveling beside the request (geecs-schemas 0.14.0
+        split it out of the document); it becomes the plan's
+        ``submission`` kwarg. Requires a worker serving the parameter
+        (GeecsBluesky ≥ 0.70.0) — omit it against an older worker.
+        """
         ...
 
     def submit_action(self, name: str) -> SubmitResult:
@@ -252,7 +263,11 @@ class StubQueueClient:
         return QueueStatus(connected=False, detail=_STUB_MESSAGE)
 
     def submit_scan(
-        self, request: dict, *, clear_pending: bool = False
+        self,
+        request: dict,
+        *,
+        submission: Optional[dict] = None,
+        clear_pending: bool = False,
     ) -> SubmitResult:
         """Refuse with the missing-config message."""
         return SubmitResult(ok=False, message=_STUB_MESSAGE)
@@ -399,7 +414,12 @@ class ZmqQueueClient:
         )
 
     def _submit_item(
-        self, plan_name: str, args: list, *, clear_pending: bool
+        self,
+        plan_name: str,
+        args: list,
+        *,
+        clear_pending: bool,
+        kwargs: Optional[dict] = None,
     ) -> SubmitResult:
         """Shared add-and-start with the failed-item-at-front guard.
 
@@ -428,7 +448,7 @@ class ZmqQueueClient:
                 )
             if pending:
                 api.queue_clear()
-            item = BPlan(plan_name, *args)
+            item = BPlan(plan_name, *args, **(kwargs or {}))
             response = api.item_add(item, user=self._user)
             item_uid = (response.get("item") or {}).get("item_uid")
         except Exception as exc:
@@ -463,11 +483,23 @@ class ZmqQueueClient:
         return SubmitResult(ok=True, message="queued", item_uid=item_uid)
 
     def submit_scan(
-        self, request: dict, *, clear_pending: bool = False
+        self,
+        request: dict,
+        *,
+        submission: Optional[dict] = None,
+        clear_pending: bool = False,
     ) -> SubmitResult:
-        """Queue the one scan plan with *request* as its sole argument."""
+        """Queue the one scan plan; the submission record rides as a kwarg.
+
+        ``submission`` is only added to the queue item when given — an
+        older worker (plan without the parameter) keeps accepting
+        record-less submissions from this client.
+        """
         return self._submit_item(
-            "geecs_scan_request_plan", [request], clear_pending=clear_pending
+            "geecs_scan_request_plan",
+            [request],
+            kwargs={"submission": submission} if submission is not None else None,
+            clear_pending=clear_pending,
         )
 
     def submit_action(self, name: str) -> SubmitResult:

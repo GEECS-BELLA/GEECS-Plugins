@@ -32,6 +32,19 @@ Design decisions carried from the legacy system:
   axes-only — no top-level ``variable``/``positions`` aliases; converters do
   the adapting. Grid *execution* lands in a later milestone; v1 has no
   traversal-ordering options (see the class docstring).
+
+Schema v2 (the capture refactor, ``Planning/schema_refactor/00_overview.md``):
+
+- The seven capture-concern fields (``shots_per_step``, ``acquisition``,
+  ``save_sets``, ``background_telemetry``, ``native_image_save``,
+  ``trigger_profile``, ``trigger_variant``) moved into one
+  :class:`CaptureSettings` sub-model at ``ScanRequest.capture``.
+- ``submission`` left the request document — a :class:`SubmissionRecord` is
+  server-stamped lifecycle state, not operator input; it now travels beside
+  the request (a separate plan parameter) and still lands in run metadata.
+- A ``mode="before"`` validator lifts the flat v1 layout into ``capture``
+  (and drops a v1 ``submission`` key), so saved presets, archived run
+  metadata, and stale clients keep validating forever.
 """
 
 from __future__ import annotations
@@ -228,6 +241,143 @@ class ActionBindings(SchemaModel):
         default_factory=list,
         description="Plans to run once after the scan finishes (even on abort).",
     )
+
+
+class CaptureSettings(SchemaModel):
+    """How shots are taken and what gets recorded — the capture concern.
+
+    Every scan, whatever its mode, captures data the same way: a number of
+    shots per step, an acquisition discipline, the save sets naming the
+    recorded devices, the telemetry and native-image-save toggles, and the
+    trigger profile driving the shot trigger.  This model groups those
+    seven settings; conceptually they are three sub-groups — shot control
+    (``shots_per_step`` + ``acquisition``), data logging (``save_sets`` +
+    ``background_telemetry`` + ``native_image_save``), and trigger
+    (``trigger_profile`` + ``trigger_variant``) — kept one level flat
+    here on purpose.
+
+    Every field has a usable default, so an omitted ``capture`` block is a
+    valid one-shot strict capture with no named save sets.
+    """
+
+    shots_per_step: int = Field(
+        1,
+        ge=1,
+        description=(
+            "How many shots to take at each scan position / grid point (or "
+            "in total for a noscan)."
+        ),
+    )
+    acquisition: AcquisitionMode = Field(
+        AcquisitionMode.STRICT,
+        description=(
+            "'strict' fires shot by shot and guarantees every device is in "
+            "every row; 'free_run' lets the trigger run at the machine rate "
+            "and matches devices up by timestamp."
+        ),
+    )
+    save_sets: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Names of the save sets — reusable named device groups — "
+            "recorded for this scan; devices are unioned across them. Each "
+            "names the devices that get guarantees (completeness, dialogs, "
+            "images, rituals). A bare string is accepted and stored as a "
+            "one-element list. Empty means no required devices beyond scan "
+            "bookkeeping."
+        ),
+    )
+    background_telemetry: Optional[bool] = Field(
+        None,
+        description=(
+            "Also log every other live experiment device as best-effort "
+            "snapshot columns — the variables the GEECS experiment database "
+            "marks for scan logging (MySQL table expt_device_variable, "
+            "get='yes') — read from the gateway's always-on monitor cache: "
+            "read-only and never waited on, so it cannot slow or stall the "
+            "scan; dead devices are dropped with a log line, never a dialog "
+            "or abort. Leave unset to inherit the experiment default; set "
+            "true/false to override for this scan."
+        ),
+    )
+    native_image_save: Optional[bool] = Field(
+        None,
+        description=(
+            "Whether capture-eligible cameras (Point Grey — the devicetypes "
+            "the central PVA capture daemon owns) write their native per-shot "
+            "image files during this scan. When false, those cameras' images "
+            "are recorded only by the capture daemon's per-device frame "
+            "stack (one HDF5 per camera per scan); all other devices — "
+            "proprietary formats like the HASO, scope traces — keep their "
+            "native save regardless. Leave unset to inherit the experiment "
+            "default; set true/false to override for this scan (e.g. force "
+            "native files back on for one scan while the capture path is "
+            "being validated). Two engine behaviors to expect when false: "
+            "the scan is REFUSED before a scan number is claimed if the "
+            "capture daemon looks absent or is not monitoring every "
+            "capture camera (fail-closed — start the daemon or drop the "
+            "override), and the request is silently inert when no "
+            "capture-eligible cameras resolve (DB unreachable, or none in "
+            "the save set) — native saving then proceeds unchanged, with a "
+            "warning in the scan log."
+        ),
+    )
+    trigger_profile: Optional[str] = Field(
+        None,
+        description=(
+            "Name of the trigger profile that drives the shot trigger. "
+            "Unset means the scan does not manage the trigger."
+        ),
+    )
+    trigger_variant: Optional[str] = Field(
+        None,
+        description=(
+            "Optional variant of the trigger profile to use, e.g. "
+            "'laser_off'. Leave unset for the profile's base behaviour."
+        ),
+    )
+
+    @field_validator("save_sets", mode="before")
+    @classmethod
+    def _coerce_save_sets(cls, value: object) -> object:
+        """Coerce a bare save-set name to a single-element list.
+
+        ``save_sets="Amp4In"`` and ``save_sets=["Amp4In"]`` both validate;
+        the canonical stored form is always the list. Anything else (a real
+        list, or a value of the wrong type) is passed through unchanged for
+        the normal list validation to accept or reject.
+
+        Parameters
+        ----------
+        value : object
+            The raw ``save_sets`` value before validation.
+
+        Returns
+        -------
+        object
+            ``[value]`` when *value* is a string, otherwise *value* unchanged.
+        """
+        if isinstance(value, str):
+            return [value]
+        return value
+
+    @model_validator(mode="after")
+    def _check_trigger_consistency(self) -> "CaptureSettings":
+        """Require a trigger profile when a variant is named.
+
+        Returns
+        -------
+        CaptureSettings
+            The validated model.
+
+        Raises
+        ------
+        ValueError
+            If ``trigger_variant`` is set without ``trigger_profile``.
+        """
+        if self.trigger_variant is not None and self.trigger_profile is None:
+            raise ValueError("'trigger_variant' needs 'trigger_profile' to be set too.")
+        return self
 
 
 class EvaluatorSpec(SchemaModel):
@@ -440,9 +590,12 @@ class SubmissionRecord(SchemaModel):
     """Who submitted this request, when, and what the pre-submit checks said.
 
     Filled in by the submitting client (the console, a script, an agent) at
-    the moment the request is queued — not written by hand.  The scan engine
-    copies it into the run metadata for provenance and never acts on it: a
-    request without one runs exactly the same.
+    the moment the request is queued — not written by hand.  Since format
+    v2 this record is **not part of the request document**: it travels
+    beside the request (a separate plan parameter) — server-stamped
+    lifecycle state, not operator input.  The scan engine copies it into
+    the run metadata for provenance and never acts on it: a submission
+    without one runs exactly the same.
     """
 
     client: str = Field(
@@ -469,6 +622,19 @@ class SubmissionRecord(SchemaModel):
     )
 
 
+# The flat v1 top-level ScanRequest fields that live inside ``capture``
+# since format v2 — the lifting validator's migration surface.
+_V1_CAPTURE_FIELDS = (
+    "shots_per_step",
+    "acquisition",
+    "save_sets",
+    "background_telemetry",
+    "native_image_save",
+    "trigger_profile",
+    "trigger_variant",
+)
+
+
 class ScanRequest(VersionedSchemaModel):
     """One complete scan, ready to submit: what to do, what to save, how to trigger.
 
@@ -485,21 +651,36 @@ class ScanRequest(VersionedSchemaModel):
 
     Notes
     -----
-    Name-valued fields (``save_sets``, ``trigger_profile``, entries in
-    ``actions``) are resolved against the experiment's config library at
-    submission time; this model checks shape and mode consistency, not name
-    existence.  ``save_sets`` is a list — the engine resolves each named set
-    and **unions** their devices into the recorded device set (a device in
-    more than one set is merged), so operators mix and match named
-    diagnostic groups per scan.  A bare string is accepted for the
-    single-set case and stored as a one-element list.
+    Name-valued fields (``capture.save_sets``, ``capture.trigger_profile``,
+    entries in ``actions``) are resolved against the experiment's config
+    library at submission time; this model checks shape and mode
+    consistency, not name existence.  ``capture.save_sets`` is a list — the
+    engine resolves each named set and **unions** their devices into the
+    recorded device set (a device in more than one set is merged), so
+    operators mix and match named diagnostic groups per scan.  A bare
+    string is accepted for the single-set case and stored as a one-element
+    list.
 
-    v1 grid semantics are a plain outer product in list order.  Traversal
+    Grid semantics are a plain outer product in list order.  Traversal
     ordering options (snake/raster, per-axis direction) are deliberately not
     modelled yet; a future ``ordering`` field on this model is the
     anticipated extension point.
+
+    Format v2 moved the capture-concern fields into ``capture`` and dropped
+    ``submission`` (see the module docstring).  The flat v1 layout — those
+    fields at the top level, plus an optional ``submission`` record — is
+    lifted into the v2 shape by a before-validator, so v1 documents keep
+    validating; a declared ``schema_version`` ≤ 1 is normalized to 2 (even
+    on a sparse document with nothing to lift).
     """
 
+    schema_version: int = Field(
+        2,
+        description=(
+            "Format version of this config file. Leave at 2 — tools update "
+            "this automatically when the file format changes."
+        ),
+    )
     mode: ScanRequestMode = Field(
         description=(
             "What kind of scan: 'step' sweeps one or more axes, 'noscan' "
@@ -516,80 +697,13 @@ class ScanRequest(VersionedSchemaModel):
             "the innermost (fastest). Leave empty for noscan and optimize."
         ),
     )
-    shots_per_step: int = Field(
-        1,
-        ge=1,
+    capture: CaptureSettings = Field(
+        default_factory=CaptureSettings,
         description=(
-            "How many shots to take at each scan position / grid point (or "
-            "in total for a noscan)."
-        ),
-    )
-    acquisition: AcquisitionMode = Field(
-        AcquisitionMode.STRICT,
-        description=(
-            "'strict' fires shot by shot and guarantees every device is in "
-            "every row; 'free_run' lets the trigger run at the machine rate "
-            "and matches devices up by timestamp."
-        ),
-    )
-    save_sets: list[str] = Field(
-        default_factory=list,
-        description=(
-            "Names of the save sets — reusable named device groups — "
-            "recorded for this scan; devices are unioned across them. Each "
-            "names the devices that get guarantees (completeness, dialogs, "
-            "images, rituals). A bare string is accepted and stored as a "
-            "one-element list. Empty means no required devices beyond scan "
-            "bookkeeping."
-        ),
-    )
-    background_telemetry: Optional[bool] = Field(
-        None,
-        description=(
-            "Also log every other live experiment device as best-effort "
-            "snapshot columns — the variables the GEECS experiment database "
-            "marks for scan logging (MySQL table expt_device_variable, "
-            "get='yes') — read from the gateway's always-on monitor cache: "
-            "read-only and never waited on, so it cannot slow or stall the "
-            "scan; dead devices are dropped with a log line, never a dialog "
-            "or abort. Leave unset to inherit the experiment default; set "
-            "true/false to override for this scan."
-        ),
-    )
-    native_image_save: Optional[bool] = Field(
-        None,
-        description=(
-            "Whether capture-eligible cameras (Point Grey — the devicetypes "
-            "the central PVA capture daemon owns) write their native per-shot "
-            "image files during this scan. When false, those cameras' images "
-            "are recorded only by the capture daemon's per-device frame "
-            "stack (one HDF5 per camera per scan); all other devices — "
-            "proprietary formats like the HASO, scope traces — keep their "
-            "native save regardless. Leave unset to inherit the experiment "
-            "default; set true/false to override for this scan (e.g. force "
-            "native files back on for one scan while the capture path is "
-            "being validated). Two engine behaviors to expect when false: "
-            "the scan is REFUSED before a scan number is claimed if the "
-            "capture daemon looks absent or is not monitoring every "
-            "capture camera (fail-closed — start the daemon or drop the "
-            "override), and the request is silently inert when no "
-            "capture-eligible cameras resolve (DB unreachable, or none in "
-            "the save set) — native saving then proceeds unchanged, with a "
-            "warning in the scan log."
-        ),
-    )
-    trigger_profile: Optional[str] = Field(
-        None,
-        description=(
-            "Name of the trigger profile that drives the shot trigger. "
-            "Unset means the scan does not manage the trigger."
-        ),
-    )
-    trigger_variant: Optional[str] = Field(
-        None,
-        description=(
-            "Optional variant of the trigger profile to use, e.g. "
-            "'laser_off'. Leave unset for the profile's base behaviour."
+            "How shots are taken and what gets recorded: shots per step, "
+            "acquisition discipline, save sets, telemetry and native-image "
+            "toggles, and the trigger profile. Omit for a one-shot strict "
+            "capture with no named save sets."
         ),
     )
     actions: ActionBindings = Field(
@@ -620,40 +734,62 @@ class ScanRequest(VersionedSchemaModel):
             "allowed with) mode 'optimize'."
         ),
     )
-    submission: Optional[SubmissionRecord] = Field(
-        None,
-        description=(
-            "Filled in by the submitting client at queue time — who "
-            "submitted, when, and what the pre-submit checks said. Not "
-            "written by hand and never acted on by the engine; it is copied "
-            "into the run metadata for the record. Leave unset in saved "
-            "presets."
-        ),
-    )
 
-    @field_validator("save_sets", mode="before")
+    @model_validator(mode="before")
     @classmethod
-    def _coerce_save_sets(cls, value: object) -> object:
-        """Coerce a bare save-set name to a single-element list.
+    def _lift_v1_layout(cls, data: object) -> object:
+        """Lift the flat v1 document layout into the v2 ``capture`` shape.
 
-        ``save_sets="Amp4In"`` and ``save_sets=["Amp4In"]`` both validate;
-        the canonical stored form is always the list. Anything else (a real
-        list, or a value of the wrong type) is passed through unchanged for
-        the normal list validation to accept or reject.
+        The v1→v2 migration, applied mechanically at validation: the seven
+        capture fields found at the top level move into ``capture``, a v1
+        ``submission`` record is dropped (it left the request document —
+        the engine's run metadata carries submission provenance
+        independently), and a declared ``schema_version`` ≤ 1 is
+        normalized to 2 (a version ≥ 2 is never overwritten — a future
+        v3 document must keep its stamp through this validator).  Saved
+        presets, archived run-metadata documents, and stale clients
+        therefore keep validating forever.  Mixing the flat fields with an
+        explicit ``capture`` block is ambiguous and rejected.
 
         Parameters
         ----------
-        value : object
-            The raw ``save_sets`` value before validation.
+        data : object
+            The raw input; non-mapping input passes through untouched.
 
         Returns
         -------
         object
-            ``[value]`` when *value* is a string, otherwise *value* unchanged.
+            The (copied) mapping in v2 layout, or *data* unchanged.
+
+        Raises
+        ------
+        ValueError
+            If flat v1 capture fields and a ``capture`` block are both
+            present.
         """
-        if isinstance(value, str):
-            return [value]
-        return value
+        if not isinstance(data, dict):
+            return data
+        flat = [key for key in _V1_CAPTURE_FIELDS if key in data]
+        version = data.get("schema_version")
+        if isinstance(version, str) and version.isdigit():
+            # Pydantic's lax mode coerces a quoted "1" to int at field
+            # validation, so the staleness check must see it the same way.
+            version = int(version)
+        stale_version = isinstance(version, int) and version <= 1
+        if not flat and "submission" not in data and not stale_version:
+            return data
+        if flat and "capture" in data:
+            raise ValueError(
+                f"Give capture settings either flat (v1: {flat}) or inside "
+                "'capture' (v2), not both."
+            )
+        lifted = dict(data)
+        lifted.pop("submission", None)
+        if flat:
+            lifted["capture"] = {key: lifted.pop(key) for key in flat}
+        if stale_version:
+            lifted["schema_version"] = 2
+        return lifted
 
     @model_validator(mode="after")
     def _check_mode_consistency(self) -> "ScanRequest":
@@ -698,8 +834,6 @@ class ScanRequest(VersionedSchemaModel):
                 )
         elif self.optimization is not None:
             raise ValueError("'optimization' is only allowed when mode is 'optimize'.")
-        if self.trigger_variant is not None and self.trigger_profile is None:
-            raise ValueError("'trigger_variant' needs 'trigger_profile' to be set too.")
         return self
 
     def grid_shape(self) -> tuple[int, ...]:
@@ -752,5 +886,5 @@ class ScanRequest(VersionedSchemaModel):
             iterations = spec.max_iterations if spec is not None else None
             if not iterations:
                 return None
-            return int(iterations) * int(self.shots_per_step)
-        return self.n_steps() * int(self.shots_per_step)
+            return int(iterations) * int(self.capture.shots_per_step)
+        return self.n_steps() * int(self.capture.shots_per_step)

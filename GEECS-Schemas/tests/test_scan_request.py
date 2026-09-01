@@ -16,6 +16,8 @@ from geecs_schemas import (
 
 
 def make_step_request(**overrides):
+    # Deliberately the flat v1 layout: every construction here also
+    # exercises the v1→v2 lifting validator.
     base = {
         "mode": "step",
         "axes": [
@@ -49,7 +51,7 @@ class TestScanRequest:
     def test_step_scan_round_trip(self):
         request = make_step_request()
         assert request.mode is ScanRequestMode.STEP
-        assert request.acquisition is AcquisitionMode.STRICT  # engine default
+        assert request.capture.acquisition is AcquisitionMode.STRICT  # engine default
         again = ScanRequest.model_validate(request.model_dump(mode="json"))
         assert again == request
 
@@ -76,23 +78,23 @@ class TestScanRequest:
             }
         )
         assert request.actions.setup == ["pre_scan_ebeam"]
-        assert request.save_sets == ["undulator_baseline", "aux_diagnostics"]
+        assert request.capture.save_sets == ["undulator_baseline", "aux_diagnostics"]
 
     def test_save_sets_bare_string_coerces_to_list(self):
         # Single-set ergonomics: a bare string validates to a one-element list
         # (canonical stored form is always the list).
         request = make_step_request(save_sets="Amp4In")
-        assert request.save_sets == ["Amp4In"]
+        assert request.capture.save_sets == ["Amp4In"]
 
     def test_save_sets_list_preserved(self):
         request = make_step_request(save_sets=["laser_cams", "ebeam_profiles"])
-        assert request.save_sets == ["laser_cams", "ebeam_profiles"]
+        assert request.capture.save_sets == ["laser_cams", "ebeam_profiles"]
 
     def test_save_sets_absent_defaults_empty(self):
         # The schema does not require save_sets; the "needs a save set" rule
         # for step/noscan is a runtime check in run_scan_request, not here.
         request = ScanRequest.model_validate({"mode": "noscan", "shots_per_step": 5})
-        assert request.save_sets == []
+        assert request.capture.save_sets == []
 
     def test_two_axis_grid_round_trip(self):
         request = make_step_request(
@@ -186,14 +188,14 @@ class TestScanRequest:
 
     def test_background_telemetry_inherits_by_default(self):
         # None = inherit the experiment default (ExperimentDefaults).
-        assert make_step_request().background_telemetry is None
+        assert make_step_request().capture.background_telemetry is None
 
     def test_background_telemetry_per_scan_override_round_trips(self):
         for override in (True, False):
             request = make_step_request(background_telemetry=override)
-            assert request.background_telemetry is override
+            assert request.capture.background_telemetry is override
             again = ScanRequest.model_validate(request.model_dump(mode="json"))
-            assert again.background_telemetry is override
+            assert again.capture.background_telemetry is override
 
     def test_optimize_requires_block(self):
         with pytest.raises(ValidationError, match="optimization"):
@@ -309,20 +311,23 @@ class TestSubmissionRecord:
         base.update(overrides)
         return base
 
-    def test_absent_defaults_none(self):
-        # Saved presets carry no submission record; the field is optional.
-        request = make_step_request()
-        assert request.submission is None
+    def test_not_a_request_field_since_v2(self):
+        # v2 split request from record: the record travels beside the
+        # request, and a v1 document's embedded record is dropped by the
+        # lifting validator (run metadata carries it independently).
+        request = make_step_request(submission=self.make_record())
+        assert "submission" not in type(request).model_fields
+        assert "submission" not in request.model_dump(mode="json")
 
     def test_round_trip_through_json_dump(self):
-        # The queue path submits model_dump(mode="json") dicts; the record
-        # must survive that round trip intact.
-        request = make_step_request(submission=self.make_record())
-        again = ScanRequest.model_validate(request.model_dump(mode="json"))
-        assert again == request
-        assert again.submission.client == "geecs-console 0.21.0"
-        assert again.submission.preflight[1].result is PreflightCheckResult.CONTINUED
-        assert again.submission.preflight[0].detail == ""
+        # The record now travels beside the request; it must survive the
+        # queue's JSON round trip on its own.
+        record = SubmissionRecord.model_validate(self.make_record())
+        again = SubmissionRecord.model_validate(record.model_dump(mode="json"))
+        assert again == record
+        assert again.client == "geecs-console 0.21.0"
+        assert again.preflight[1].result is PreflightCheckResult.CONTINUED
+        assert again.preflight[0].detail == ""
 
     def test_unknown_result_rejected(self):
         with pytest.raises(ValidationError):
@@ -340,3 +345,84 @@ class TestSubmissionRecord:
         record = SubmissionRecord.model_validate({})
         assert record.client == ""
         assert record.preflight == []
+
+
+class TestV1Migration:
+    """The v1→v2 lifting validator (Planning/schema_refactor/00_overview.md)."""
+
+    def test_flat_v1_layout_lifts_into_capture(self):
+        request = make_step_request()  # flat layout by construction
+        assert request.capture.shots_per_step == 10
+        assert request.capture.save_sets == ["undulator_baseline"]
+        assert request.capture.trigger_profile == "htu_shot_control"
+
+    def test_lifted_document_normalizes_schema_version(self):
+        request = make_step_request(schema_version=1)
+        assert request.schema_version == 2
+
+    def test_quoted_v1_schema_version_also_normalizes(self):
+        # A quoted "1" (string-typed YAML/JSON) coerces to int at field
+        # validation, so the staleness check must treat it as stale too.
+        request = ScanRequest.model_validate(
+            {"mode": "noscan", "schema_version": "1", "shots_per_step": 2}
+        )
+        assert request.schema_version == 2
+
+    def test_sparse_v1_document_normalizes_schema_version(self):
+        # A declared version <= 1 is normalized even with NO flat fields to
+        # lift — otherwise a sparse v1 preset would round-trip a v2-shaped
+        # dump stamped schema_version: 1.
+        request = ScanRequest.model_validate({"mode": "noscan", "schema_version": 1})
+        assert request.schema_version == 2
+        assert request.model_dump(mode="json")["schema_version"] == 2
+
+    def test_future_schema_version_is_never_clobbered_down(self):
+        # The submission-drop path must not stamp a future document back to
+        # 2 — a v3 stamp survives this validator.
+        request = ScanRequest.model_validate(
+            {
+                "schema_version": 3,
+                "mode": "noscan",
+                "capture": {"shots_per_step": 4},
+                "submission": {"client": "x", "preflight": []},
+            }
+        )
+        assert request.schema_version == 3
+        assert "submission" not in request.model_dump(mode="json")
+
+    def test_v2_document_round_trips_untouched(self):
+        v2 = {
+            "schema_version": 2,
+            "mode": "noscan",
+            "capture": {"shots_per_step": 7, "save_sets": ["diag"]},
+        }
+        request = ScanRequest.model_validate(v2)
+        assert request.capture.shots_per_step == 7
+        again = ScanRequest.model_validate(request.model_dump(mode="json"))
+        assert again == request
+
+    def test_capture_omitted_defaults(self):
+        request = ScanRequest.model_validate({"mode": "noscan"})
+        assert request.capture.shots_per_step == 1
+        assert request.capture.acquisition is AcquisitionMode.STRICT
+        assert request.capture.save_sets == []
+
+    def test_mixed_flat_and_capture_rejected(self):
+        with pytest.raises(ValidationError, match="not both"):
+            ScanRequest.model_validate(
+                {
+                    "mode": "noscan",
+                    "shots_per_step": 5,
+                    "capture": {"shots_per_step": 5},
+                }
+            )
+
+    def test_v1_submission_key_is_dropped(self):
+        # An archived v1 run-metadata document carries the stamped record;
+        # it must keep validating, with the record dropped (provenance lives
+        # in run metadata independently of the request document).
+        request = make_step_request(
+            submission={"client": "geecs-console 0.21.0", "preflight": []}
+        )
+        assert "submission" not in request.model_dump(mode="json")
+        assert request.schema_version == 2

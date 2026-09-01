@@ -42,6 +42,86 @@
       "title": "ActionBindings",
       "type": "object"
     },
+    "CaptureSettings": {
+      "additionalProperties": false,
+      "description": "How shots are taken and what gets recorded \u2014 the capture concern.\n\nEvery scan, whatever its mode, captures data the same way: a number of\nshots per step, an acquisition discipline, the save sets naming the\nrecorded devices, the telemetry and native-image-save toggles, and the\ntrigger profile driving the shot trigger.  This model groups those\nseven settings; conceptually they are three sub-groups \u2014 shot control\n(``shots_per_step`` + ``acquisition``), data logging (``save_sets`` +\n``background_telemetry`` + ``native_image_save``), and trigger\n(``trigger_profile`` + ``trigger_variant``) \u2014 kept one level flat\nhere on purpose.\n\nEvery field has a usable default, so an omitted ``capture`` block is a\nvalid one-shot strict capture with no named save sets.",
+      "properties": {
+        "shots_per_step": {
+          "default": 1,
+          "description": "How many shots to take at each scan position / grid point (or in total for a noscan).",
+          "minimum": 1,
+          "title": "Shots Per Step",
+          "type": "integer"
+        },
+        "acquisition": {
+          "$ref": "#/$defs/AcquisitionMode",
+          "default": "strict",
+          "description": "'strict' fires shot by shot and guarantees every device is in every row; 'free_run' lets the trigger run at the machine rate and matches devices up by timestamp."
+        },
+        "save_sets": {
+          "description": "Names of the save sets \u2014 reusable named device groups \u2014 recorded for this scan; devices are unioned across them. Each names the devices that get guarantees (completeness, dialogs, images, rituals). A bare string is accepted and stored as a one-element list. Empty means no required devices beyond scan bookkeeping.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Save Sets",
+          "type": "array"
+        },
+        "background_telemetry": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Also log every other live experiment device as best-effort snapshot columns \u2014 the variables the GEECS experiment database marks for scan logging (MySQL table expt_device_variable, get='yes') \u2014 read from the gateway's always-on monitor cache: read-only and never waited on, so it cannot slow or stall the scan; dead devices are dropped with a log line, never a dialog or abort. Leave unset to inherit the experiment default; set true/false to override for this scan.",
+          "title": "Background Telemetry"
+        },
+        "native_image_save": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Whether capture-eligible cameras (Point Grey \u2014 the devicetypes the central PVA capture daemon owns) write their native per-shot image files during this scan. When false, those cameras' images are recorded only by the capture daemon's per-device frame stack (one HDF5 per camera per scan); all other devices \u2014 proprietary formats like the HASO, scope traces \u2014 keep their native save regardless. Leave unset to inherit the experiment default; set true/false to override for this scan (e.g. force native files back on for one scan while the capture path is being validated). Two engine behaviors to expect when false: the scan is REFUSED before a scan number is claimed if the capture daemon looks absent or is not monitoring every capture camera (fail-closed \u2014 start the daemon or drop the override), and the request is silently inert when no capture-eligible cameras resolve (DB unreachable, or none in the save set) \u2014 native saving then proceeds unchanged, with a warning in the scan log.",
+          "title": "Native Image Save"
+        },
+        "trigger_profile": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Name of the trigger profile that drives the shot trigger. Unset means the scan does not manage the trigger.",
+          "title": "Trigger Profile"
+        },
+        "trigger_variant": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional variant of the trigger profile to use, e.g. 'laser_off'. Leave unset for the profile's base behaviour.",
+          "title": "Trigger Variant"
+        }
+      },
+      "title": "CaptureSettings",
+      "type": "object"
+    },
     "EvaluatorSpec": {
       "additionalProperties": false,
       "description": "Which analysis code turns raw shots into the number being optimized.\n\nPoints at the Python evaluator class and carries its configuration.",
@@ -242,43 +322,6 @@
       "title": "PositionRange",
       "type": "object"
     },
-    "PreflightCheckResult": {
-      "description": "How one pre-submit check ended.\n\nAttributes\n----------\nPASSED : str\n    The check found nothing to ask about.\nCONTINUED : str\n    The check raised a question and the operator chose to continue\n    anyway.\nSKIPPED : str\n    The check could not run (for example the database was unreachable)\n    and submission went ahead without it.",
-      "enum": [
-        "passed",
-        "continued",
-        "skipped"
-      ],
-      "title": "PreflightCheckResult",
-      "type": "string"
-    },
-    "PreflightOutcome": {
-      "additionalProperties": false,
-      "description": "One pre-submit check and how it ended, kept for the scan's record.\n\nA check that would have stopped the submission never produces one of\nthese \u2014 an aborted submission is never queued, so there is nothing to\nrecord.",
-      "properties": {
-        "check": {
-          "description": "Name of the pre-submit check, e.g. 'unserved_variables', 'gateway_liveness', 'free_run_staleness'.",
-          "title": "Check",
-          "type": "string"
-        },
-        "result": {
-          "$ref": "#/$defs/PreflightCheckResult",
-          "description": "How the check ended: 'passed' (nothing found), 'continued' (the operator saw a warning and chose to go ahead), or 'skipped' (the check could not run)."
-        },
-        "detail": {
-          "default": "",
-          "description": "What the check found or why it was skipped, in the words the operator saw. Empty for a clean pass.",
-          "title": "Detail",
-          "type": "string"
-        }
-      },
-      "required": [
-        "check",
-        "result"
-      ],
-      "title": "PreflightOutcome",
-      "type": "object"
-    },
     "ScanAxis": {
       "additionalProperties": false,
       "description": "One swept variable and the positions it visits.\n\nA step scan sweeps one or more axes.  One axis is the familiar 1-D\nscan; several axes form a grid \u2014 see :class:`ScanRequest` for how the\naxes loop together.",
@@ -317,42 +360,14 @@
       ],
       "title": "ScanRequestMode",
       "type": "string"
-    },
-    "SubmissionRecord": {
-      "additionalProperties": false,
-      "description": "Who submitted this request, when, and what the pre-submit checks said.\n\nFilled in by the submitting client (the console, a script, an agent) at\nthe moment the request is queued \u2014 not written by hand.  The scan engine\ncopies it into the run metadata for provenance and never acts on it: a\nrequest without one runs exactly the same.",
-      "properties": {
-        "client": {
-          "default": "",
-          "description": "What submitted the request, e.g. 'geecs-console 0.21.0'. Free text, for the record only.",
-          "title": "Client",
-          "type": "string"
-        },
-        "submitted_at": {
-          "default": "",
-          "description": "When the request was queued, as an ISO 8601 timestamp with timezone from the submitting machine's clock, e.g. '2026-08-21T14:30:00-07:00'. Informational only.",
-          "title": "Submitted At",
-          "type": "string"
-        },
-        "preflight": {
-          "description": "The pre-submit checks that ran and how each ended. Empty when the client ran no checks.",
-          "items": {
-            "$ref": "#/$defs/PreflightOutcome"
-          },
-          "title": "Preflight",
-          "type": "array"
-        }
-      },
-      "title": "SubmissionRecord",
-      "type": "object"
     }
   },
   "additionalProperties": false,
-  "description": "One complete scan, ready to submit: what to do, what to save, how to trigger.\n\nFill in the mode (sweep / stand still / optimize), the axis (or axes) to\nsweep, how many shots per position, and the names of the save sets,\ntrigger profile, and action plans to use.  Saving a request you like\n*is* a preset.\n\nA step scan may sweep **one axis or several**.  With several axes the\nscan visits every combination (a grid): the *first* axis in the list is\nthe outermost, slowest-changing loop and the *last* axis is the\ninnermost, fastest-changing one.  ``shots_per_step`` shots are taken at\neach grid point, and each grid point is one bin in the scan data.\n\nNotes\n-----\nName-valued fields (``save_sets``, ``trigger_profile``, entries in\n``actions``) are resolved against the experiment's config library at\nsubmission time; this model checks shape and mode consistency, not name\nexistence.  ``save_sets`` is a list \u2014 the engine resolves each named set\nand **unions** their devices into the recorded device set (a device in\nmore than one set is merged), so operators mix and match named\ndiagnostic groups per scan.  A bare string is accepted for the\nsingle-set case and stored as a one-element list.\n\nv1 grid semantics are a plain outer product in list order.  Traversal\nordering options (snake/raster, per-axis direction) are deliberately not\nmodelled yet; a future ``ordering`` field on this model is the\nanticipated extension point.",
+  "description": "One complete scan, ready to submit: what to do, what to save, how to trigger.\n\nFill in the mode (sweep / stand still / optimize), the axis (or axes) to\nsweep, how many shots per position, and the names of the save sets,\ntrigger profile, and action plans to use.  Saving a request you like\n*is* a preset.\n\nA step scan may sweep **one axis or several**.  With several axes the\nscan visits every combination (a grid): the *first* axis in the list is\nthe outermost, slowest-changing loop and the *last* axis is the\ninnermost, fastest-changing one.  ``shots_per_step`` shots are taken at\neach grid point, and each grid point is one bin in the scan data.\n\nNotes\n-----\nName-valued fields (``capture.save_sets``, ``capture.trigger_profile``,\nentries in ``actions``) are resolved against the experiment's config\nlibrary at submission time; this model checks shape and mode\nconsistency, not name existence.  ``capture.save_sets`` is a list \u2014 the\nengine resolves each named set and **unions** their devices into the\nrecorded device set (a device in more than one set is merged), so\noperators mix and match named diagnostic groups per scan.  A bare\nstring is accepted for the single-set case and stored as a one-element\nlist.\n\nGrid semantics are a plain outer product in list order.  Traversal\nordering options (snake/raster, per-axis direction) are deliberately not\nmodelled yet; a future ``ordering`` field on this model is the\nanticipated extension point.\n\nFormat v2 moved the capture-concern fields into ``capture`` and dropped\n``submission`` (see the module docstring).  The flat v1 layout \u2014 those\nfields at the top level, plus an optional ``submission`` record \u2014 is\nlifted into the v2 shape by a before-validator, so v1 documents keep\nvalidating; a declared ``schema_version`` \u2264 1 is normalized to 2 (even\non a sparse document with nothing to lift).",
   "properties": {
     "schema_version": {
-      "default": 1,
-      "description": "Format version of this config file. Leave at 1 \u2014 tools update this automatically when the file format changes.",
+      "default": 2,
+      "description": "Format version of this config file. Leave at 2 \u2014 tools update this automatically when the file format changes.",
       "title": "Schema Version",
       "type": "integer"
     },
@@ -368,77 +383,9 @@
       "title": "Axes",
       "type": "array"
     },
-    "shots_per_step": {
-      "default": 1,
-      "description": "How many shots to take at each scan position / grid point (or in total for a noscan).",
-      "minimum": 1,
-      "title": "Shots Per Step",
-      "type": "integer"
-    },
-    "acquisition": {
-      "$ref": "#/$defs/AcquisitionMode",
-      "default": "strict",
-      "description": "'strict' fires shot by shot and guarantees every device is in every row; 'free_run' lets the trigger run at the machine rate and matches devices up by timestamp."
-    },
-    "save_sets": {
-      "description": "Names of the save sets \u2014 reusable named device groups \u2014 recorded for this scan; devices are unioned across them. Each names the devices that get guarantees (completeness, dialogs, images, rituals). A bare string is accepted and stored as a one-element list. Empty means no required devices beyond scan bookkeeping.",
-      "items": {
-        "type": "string"
-      },
-      "title": "Save Sets",
-      "type": "array"
-    },
-    "background_telemetry": {
-      "anyOf": [
-        {
-          "type": "boolean"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
-      "description": "Also log every other live experiment device as best-effort snapshot columns \u2014 the variables the GEECS experiment database marks for scan logging (MySQL table expt_device_variable, get='yes') \u2014 read from the gateway's always-on monitor cache: read-only and never waited on, so it cannot slow or stall the scan; dead devices are dropped with a log line, never a dialog or abort. Leave unset to inherit the experiment default; set true/false to override for this scan.",
-      "title": "Background Telemetry"
-    },
-    "native_image_save": {
-      "anyOf": [
-        {
-          "type": "boolean"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
-      "description": "Whether capture-eligible cameras (Point Grey \u2014 the devicetypes the central PVA capture daemon owns) write their native per-shot image files during this scan. When false, those cameras' images are recorded only by the capture daemon's per-device frame stack (one HDF5 per camera per scan); all other devices \u2014 proprietary formats like the HASO, scope traces \u2014 keep their native save regardless. Leave unset to inherit the experiment default; set true/false to override for this scan (e.g. force native files back on for one scan while the capture path is being validated). Two engine behaviors to expect when false: the scan is REFUSED before a scan number is claimed if the capture daemon looks absent or is not monitoring every capture camera (fail-closed \u2014 start the daemon or drop the override), and the request is silently inert when no capture-eligible cameras resolve (DB unreachable, or none in the save set) \u2014 native saving then proceeds unchanged, with a warning in the scan log.",
-      "title": "Native Image Save"
-    },
-    "trigger_profile": {
-      "anyOf": [
-        {
-          "type": "string"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
-      "description": "Name of the trigger profile that drives the shot trigger. Unset means the scan does not manage the trigger.",
-      "title": "Trigger Profile"
-    },
-    "trigger_variant": {
-      "anyOf": [
-        {
-          "type": "string"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
-      "description": "Optional variant of the trigger profile to use, e.g. 'laser_off'. Leave unset for the profile's base behaviour.",
-      "title": "Trigger Variant"
+    "capture": {
+      "$ref": "#/$defs/CaptureSettings",
+      "description": "How shots are taken and what gets recorded: shots per step, acquisition discipline, save sets, telemetry and native-image toggles, and the trigger profile. Omit for a one-shot strict capture with no named save sets."
     },
     "actions": {
       "$ref": "#/$defs/ActionBindings",
@@ -467,18 +414,6 @@
       ],
       "default": null,
       "description": "The optimization problem definition. Required for (and only allowed with) mode 'optimize'."
-    },
-    "submission": {
-      "anyOf": [
-        {
-          "$ref": "#/$defs/SubmissionRecord"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
-      "description": "Filled in by the submitting client at queue time \u2014 who submitted, when, and what the pre-submit checks said. Not written by hand and never acted on by the engine; it is copied into the run metadata for the record. Leave unset in saved presets."
     }
   },
   "required": [

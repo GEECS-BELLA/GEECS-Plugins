@@ -174,13 +174,15 @@ class _DocCollector:
             self.events.append(dict(doc))
 
 
-def _run_scan(entry_point, request, resolver, folder, monkeypatch):
+def _run_scan(entry_point, request, resolver, folder, monkeypatch, submission=None):
     """Run *request* through one entry point; return the collected documents.
 
     ``entry_point`` is ``"runner"`` (today's ``run_scan_request``) or
     ``"plan"`` (``RE(geecs_scan_request_plan(request.model_dump()))`` with
     the worker-default session — the queue's exact call shape).  The claim
     is stubbed to scan 7 in *folder* at each entry point's claim site.
+    ``submission`` travels beside the request on both paths (the
+    request/record split, geecs-schemas 0.14.0).
     """
     folder.mkdir(parents=True, exist_ok=True)
     session = _mock_session()
@@ -196,13 +198,17 @@ def _run_scan(entry_point, request, resolver, folder, monkeypatch):
     try:
         if entry_point == "runner":
             monkeypatch.setattr("geecs_bluesky.session.claim_scan_number", claim)
-            run_scan_request(session, request, resolver)
+            run_scan_request(session, request, resolver, submission=submission)
         else:
             monkeypatch.setattr(
                 "geecs_bluesky.plans.scan_request_plan.claim_scan_number", claim
             )
             set_plan_session(session)
-            session.RE(geecs_scan_request_plan(request.model_dump(), resolver=resolver))
+            session.RE(
+                geecs_scan_request_plan(
+                    request.model_dump(), submission=submission, resolver=resolver
+                )
+            )
     finally:
         for pacer in pacers:
             pacer.cancel()
@@ -498,7 +504,13 @@ def test_optimize_mode_reaches_a_registered_loader_and_runs_the_bins(
     try:
         session.RE(
             geecs_scan_request_plan(
-                request.model_dump(), session=session, resolver=resolver
+                request.model_dump(),
+                # The record travels beside the request on the optimize path
+                # too — pinned here so dropping the pass-through in
+                # _optimize_request_body cannot go unnoticed.
+                submission={"client": "test-client", "preflight": []},
+                session=session,
+                resolver=resolver,
             )
         )
     finally:
@@ -518,11 +530,12 @@ def test_optimize_mode_reaches_a_registered_loader_and_runs_the_bins(
         {"jet_z": 0.4},
     ]
     assert [value for _, value, _ in suggester.observed] == [
-        pytest.approx(request.shots_per_step),
-        pytest.approx(request.shots_per_step),
+        pytest.approx(request.capture.shots_per_step),
+        pytest.approx(request.capture.shots_per_step),
     ]
     assert finish_calls == [True]
     assert docs.start is not None and docs.start["plan_name"] == "geecs_adaptive_scan"
+    assert docs.start["submission"]["client"] == "test-client"
     assert docs.stop is not None and docs.stop["exit_status"] == "success"
 
 
@@ -1301,10 +1314,16 @@ def test_submission_record_reaches_start_doc_on_both_paths(
             }
         ],
     }
-    request = _noscan_request(submission=stamp)
-    docs_plan = _run_scan("plan", request, resolver, tmp_path / "p", monkeypatch)
-    docs_runner = _run_scan("runner", request, resolver, tmp_path / "r", monkeypatch)
-    expected = request.submission.model_dump(mode="json")
+    request = _noscan_request()
+    docs_plan = _run_scan(
+        "plan", request, resolver, tmp_path / "p", monkeypatch, submission=stamp
+    )
+    docs_runner = _run_scan(
+        "runner", request, resolver, tmp_path / "r", monkeypatch, submission=stamp
+    )
+    from geecs_schemas import SubmissionRecord
+
+    expected = SubmissionRecord.model_validate(stamp).model_dump(mode="json")
     assert docs_plan.start["submission"] == expected
     assert docs_runner.start["submission"] == expected
 

@@ -110,7 +110,7 @@ Two boundaries follow from the design rather than from preference:
 
 Background telemetry is on by default for the experiment
 (`ExperimentDefaults.background_telemetry`) and can be overridden per scan
-(`ScanRequest.background_telemetry`). Converted legacy save elements keep
+(`ScanRequest.capture.background_telemetry`). Converted legacy save elements keep
 their exact old recording behavior — they record precisely the variable
 lists they always did; the database-first defaults apply to new configs
 only.
@@ -127,8 +127,8 @@ flowchart LR
     SCAN(("the scan"))
 
     SR -- "axes: jet_z, ..." --> SV
-    SR -- "save_sets: [baseline, ...]" --> SS
-    SR -- "trigger_profile: htu" --> TP
+    SR -- "capture.save_sets: [baseline, ...]" --> SS
+    SR -- "capture.trigger_profile: htu" --> TP
     SR -- "actions: [...]" --> AP
     SV --> SCAN
     SS --> SCAN
@@ -181,6 +181,11 @@ clear "not yet" message rather than attempted halfway.
   `synchronous:` flags, `acq_timestamp` bookkeeping variables, or parallel
   laser-off files: those are gone on purpose. The scanner derives them, and
   the old files convert automatically.
+- **`schema_version` is not something you maintain.** It marks the file
+  layout generation, and the tools migrate old files forward automatically
+  when they load — a preset saved under an older layout keeps working, and
+  the number only changes when a field moves or is renamed, never for a
+  newly added option.
 
 ## Where to next
 

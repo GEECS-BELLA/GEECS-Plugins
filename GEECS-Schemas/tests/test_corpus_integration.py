@@ -251,7 +251,10 @@ class TestFullCorpus:
                     if set(known) >= set(convert_scan_preset(path).element_names)
                     else None,
                 )
-                assert conversion.scan_request.save_sets == conversion.element_names
+                assert (
+                    conversion.scan_request.capture.save_sets
+                    == conversion.element_names
+                )
                 converted += 1
         assert converted >= 12
 

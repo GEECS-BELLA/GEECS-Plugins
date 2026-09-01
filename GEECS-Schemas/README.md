@@ -34,6 +34,38 @@ it yet — it lands first, consumers migrate to it converter-first.
   current YAML (`geecs_schemas.convert`), validated against the full real
   config corpus.
 
+## Versioning policy — two dials
+
+Every top-level document carries an integer `schema_version`
+(`VersionedSchemaModel` in `_base.py`), and the package has its own
+semver in `pyproject.toml`. They answer different questions and move
+independently:
+
+| Dial | Answers | Bump when |
+|---|---|---|
+| `schema_version` (per document kind, integer) | "Does a reader need a migration step to load this file?" | A field moves, is renamed, is removed, or changes meaning. Never for additive changes. |
+| Package version (semver, `CHANGELOG.md`) | "What changed in the code and the schemas?" | Every change. Additive field = minor. A `schema_version` bump = minor, because the migration keeps old documents valid. |
+
+- **Bump `schema_version` only with a migration.** A new format generation
+  ships a `mode="before"` validator that lifts the previous layout into the
+  new one, so every document ever written keeps validating forever. The
+  validator normalizes a stale `schema_version` up to the current one and
+  never overwrites a newer one. `ScanRequest._lift_v1_layout` is the
+  template.
+- **Additive changes do not bump `schema_version`.** A new optional field
+  with a default leaves old documents valid and needs no migration, so the
+  marker stays put. The change is recorded by the package version, the
+  changelog, and the regenerated JSON Schema artifact
+  (`docs/geecs_schemas/scan_request.schema.json`, kept current by a no-drift
+  test) — the artifact's git history is the field-level audit trail.
+- **The marker is an integer, not a semver.** Nothing branches on a minor
+  schema version: a document is either liftable or already current. The
+  finer-grained story lives in the changelog. Do not introduce `1.1`-style
+  markers.
+- **Each document kind versions on its own.** A ScanRequest at v2 says
+  nothing about SaveSet or TriggerProfile, which stay at v1 until their own
+  layout changes.
+
 ## Model inventory
 
 | Kind (registry key) | Model | Replaces |

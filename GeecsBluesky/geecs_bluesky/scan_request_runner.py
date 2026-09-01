@@ -736,8 +736,10 @@ def apply_experiment_defaults(
 
     updates: dict[str, Any] = {}
     default_profile = _field(defaults, "trigger_profile")
-    if request.trigger_profile is None and default_profile:
-        updates["trigger_profile"] = default_profile
+    if request.capture.trigger_profile is None and default_profile:
+        updates["capture"] = request.capture.model_copy(
+            update={"trigger_profile": default_profile}
+        )
         applied["trigger_profile"] = default_profile
 
     actions_default = _field(defaults, "actions")
@@ -778,18 +780,24 @@ def metadata_applied_defaults(
     ]
 
 
-def metadata_submission(request: ScanRequest) -> dict[str, Any] | None:
-    """Return the request's submission-provenance record for run metadata.
+def metadata_submission(submission: Any | None) -> dict[str, Any] | None:
+    """Return the submission-provenance record for run metadata.
 
-    ``ScanRequest.submission`` (geecs-schemas 0.10.0) is stamped by the
-    submitting client at queue time — who queued the request, when, and the
-    pre-submit preflight outcomes.  The engine records it verbatim and never
-    acts on it.  ``None`` when the client stamped nothing (headless callers,
-    saved presets), so callers gate the metadata key on the return value.
+    A ``SubmissionRecord`` is built by the submitting client at queue time —
+    who queued the request, when, and the pre-submit preflight outcomes.
+    Since geecs-schemas 0.14.0 it is not part of the request document; it
+    travels beside the request (the funnel plan's ``submission`` parameter).
+    The engine records it verbatim and never acts on it.  ``None`` in,
+    ``None`` out (headless callers, saved presets) — callers gate the
+    metadata key on the return value.  Accepts the record as a model or as
+    its JSON-dict form (the queue's wire shape); validation here keeps
+    garbage out of the start document.
     """
-    if request.submission is None:
+    if submission is None:
         return None
-    return request.submission.model_dump(mode="json")
+    from geecs_schemas import SubmissionRecord
+
+    return SubmissionRecord.model_validate(submission).model_dump(mode="json")
 
 
 def resolve_experiment_defaults(resolver: ConfigResolver) -> Any | None:
@@ -887,21 +895,21 @@ def validate_scan_request(
     validated, applied = apply_experiment_defaults(request, defaults)
     resolve_and_validate_actions(validated.actions, resolver)
 
-    if validated.trigger_profile:
+    if validated.capture.trigger_profile:
         # Adapt (and discard) the writes so an unknown trigger_variant
         # fails here, not at execution time.
-        profile = resolver.resolve_trigger_profile(validated.trigger_profile)
-        trigger_writes_from_profile(profile, validated.trigger_variant)
+        profile = resolver.resolve_trigger_profile(validated.capture.trigger_profile)
+        trigger_writes_from_profile(profile, validated.capture.trigger_variant)
 
-    if not validated.save_sets:
+    if not validated.capture.save_sets:
         if validated.mode is not ScanRequestMode.OPTIMIZE:
             raise GeecsConfigurationError(
                 f"a {validated.mode.value!r} ScanRequest needs at least "
-                "one save set in save_sets — without one the scan would "
-                "record nothing"
+                "one save set in capture.save_sets — without one the scan "
+                "would record nothing"
             )
     else:
-        resolve_save_sets_and_rituals(resolver, validated.save_sets)
+        resolve_save_sets_and_rituals(resolver, validated.capture.save_sets)
 
     if validated.mode is ScanRequestMode.STEP:
         for axis in validated.axes:
@@ -1004,6 +1012,7 @@ def build_step_scan_spec(
     telemetry_selected: Mapping[str, list[str]],
     capture_devices: list[str] | None = None,
     native_image_save: bool = True,
+    submission: Any | None = None,
 ) -> StepScanSpec:
     """Assemble the pure run picture of a step/noscan request.
 
@@ -1027,10 +1036,14 @@ def build_step_scan_spec(
         run metadata only when non-empty (pass ``{}``/``[]`` to omit —
         e.g. ``telemetry_selected`` must already be gated on the
         telemetry-enabled flag).
+    submission :
+        The client's :class:`~geecs_schemas.SubmissionRecord` (model or
+        JSON dict), traveling beside the request since geecs-schemas
+        0.14.0; ``None`` when the client stamped nothing.
     """
     md: dict[str, Any] = {"scan_request_mode": request.mode.value}
     # Provenance: which named save sets were unioned for this scan.
-    md["save_sets"] = list(request.save_sets)
+    md["save_sets"] = list(request.capture.save_sets)
     if capture_devices:
         # The capture daemon's device list (it prefers this over inferring
         # from nonscalar_save_paths) + the effective toggle, for provenance
@@ -1060,11 +1073,11 @@ def build_step_scan_spec(
         # Provenance: the run records exactly which experiment defaults
         # filled in fields the submitter left unset.
         md["applied_defaults"] = metadata_applied_defaults(applied_defaults)
-    submission = metadata_submission(request)
-    if submission is not None:
+    submission_md = metadata_submission(submission)
+    if submission_md is not None:
         # Provenance: the submitting client's record — who queued the
         # request, when, and the pre-submit preflight outcomes (#648).
-        md["submission"] = submission
+        md["submission"] = submission_md
     if any(slots.values()):
         # Provenance: the assembled per-slot execution order (defaults +
         # entry rituals + the request's own, mirrored on closeout).
@@ -1074,13 +1087,13 @@ def build_step_scan_spec(
             dev: list(vars_) for dev, vars_ in telemetry_selected.items()
         }
     scan_info: dict[str, Any] = {
-        "shots": request.shots_per_step,
+        "shots": request.capture.shots_per_step,
         "background": request.background,
     }
 
     if request.mode is ScanRequestMode.NOSCAN:
         scan_info["scan_mode"] = "noscan"
-        return StepScanSpec(md, scan_info, [None], 1, request.shots_per_step)
+        return StepScanSpec(md, scan_info, [None], 1, request.capture.shots_per_step)
 
     targets = [target.label for target in axis_resolved]
     value_lists = [axis.positions.to_values() for axis in request.axes]
@@ -1116,7 +1129,7 @@ def build_step_scan_spec(
         scan_info,
         positions,
         len(positions),
-        len(positions) * request.shots_per_step,
+        len(positions) * request.capture.shots_per_step,
     )
 
 
@@ -1251,8 +1264,8 @@ def _build_request_detectors(
 def resolve_native_image_save(request: ScanRequest, defaults: Any) -> bool:
     """Effective native-image-save flag: request override else experiment default."""
     return (
-        request.native_image_save
-        if request.native_image_save is not None
+        request.capture.native_image_save
+        if request.capture.native_image_save is not None
         else _defaults_flag(defaults, "native_image_save", True)
     )
 
@@ -1672,6 +1685,7 @@ def run_scan_request(
     optimization_binder: Callable[..., tuple[Any, Any]] | None = None,
     device_requirements: Any | None = None,
     should_abort: Callable[[], bool] | None = None,
+    submission: Any | None = None,
 ) -> str | None:
     """Execute *request* on *session*; return the run uid.
 
@@ -1737,6 +1751,11 @@ def run_scan_request(
         whose in-plan gate closes the residual window between the last
         checkpoint here and the engine reporting ``running``.  ``None``
         (headless default) checks nothing.
+    submission :
+        Optional client :class:`~geecs_schemas.SubmissionRecord` (model or
+        JSON dict) traveling beside the request (geecs-schemas 0.14.0
+        split it out of the document); recorded verbatim in run metadata,
+        never acted on.
 
     Returns
     -------
@@ -1764,15 +1783,19 @@ def run_scan_request(
     request, applied_defaults, defaults = validate_scan_request(request, resolver)
     resolved_actions = resolve_and_validate_actions(request.actions, resolver)
 
-    if request.trigger_profile:
-        profile = resolver.resolve_trigger_profile(request.trigger_profile)
+    if request.capture.trigger_profile:
+        profile = resolver.resolve_trigger_profile(request.capture.trigger_profile)
         session.shot_control(
-            trigger_writes_from_profile(profile, request.trigger_variant)
+            trigger_writes_from_profile(profile, request.capture.trigger_variant)
         )
     else:
         session.shot_control(None)
 
-    mode = "strict" if request.acquisition is AcquisitionMode.STRICT else "free_run"
+    mode = (
+        "strict"
+        if request.capture.acquisition is AcquisitionMode.STRICT
+        else "free_run"
+    )
 
     if request.mode is ScanRequestMode.OPTIMIZE:
         # Optimize has no action hooks yet: skip actions (never refuse — that
@@ -1780,7 +1803,7 @@ def run_scan_request(
         # log loudly, and record the skip in run metadata (never silent).
         # Rationale: GeecsBluesky/CLAUDE.md (engine consolidation).
         skipped_actions = {k: v for k, v in resolved_actions.items() if v}
-        if request.native_image_save is False:
+        if request.capture.native_image_save is False:
             # v0: optimize keeps native saving unconditionally (its
             # evaluators read per-shot files from disk). Never silent —
             # once an experiment default flips off, every optimize scan
@@ -1802,13 +1825,16 @@ def run_scan_request(
             applied_defaults=applied_defaults,
             skipped_actions=skipped_actions,
             should_abort=should_abort,
+            submission=submission,
         )
 
     # A step/noscan request without a save set was already refused by
     # validate_scan_request (phase 1) — no second copy of that rule here.
     # Multiple named save sets union into one effective save set (devices
     # deduped/merged; rituals collected across all sets, deduped by name).
-    save_set, rituals = resolve_save_sets_and_rituals(resolver, request.save_sets)
+    save_set, rituals = resolve_save_sets_and_rituals(
+        resolver, request.capture.save_sets
+    )
 
     # M3c get-side runtime: failure-tolerant policy provider (a DB blip never
     # aborts a scan); the DB set-side stays disabled (reserved fields warn).
@@ -1847,8 +1873,8 @@ def run_scan_request(
         axis_resolved.append(resolve_movable_target(spec, axis.variable))
 
     telemetry_enabled = (
-        request.background_telemetry
-        if request.background_telemetry is not None
+        request.capture.background_telemetry
+        if request.capture.background_telemetry is not None
         else _defaults_flag(defaults, "background_telemetry", True)
     )
 
@@ -1922,6 +1948,7 @@ def run_scan_request(
             telemetry_selected=telemetry_selected if telemetry_enabled else {},
             capture_devices=capture_devices,
             native_image_save=native_image_save,
+            submission=submission,
         )
 
         # The last pre-claim checkpoint: the claim happens inside
@@ -1932,7 +1959,7 @@ def run_scan_request(
             detectors=detectors,
             motor=motor_arg,
             positions=spec.positions,
-            shots_per_step=request.shots_per_step,
+            shots_per_step=request.capture.shots_per_step,
             mode=mode,
             description=request.description,
             md=spec.md,
@@ -1960,6 +1987,7 @@ def _run_optimize_request(
     applied_defaults: dict[str, Any] | None = None,
     skipped_actions: dict[str, list[str]] | None = None,
     should_abort: Callable[[], bool] | None = None,
+    submission: Any | None = None,
 ) -> str | None:
     """Map an optimize-mode request onto :meth:`GeecsSession.optimize`.
 
@@ -2031,9 +2059,9 @@ def _run_optimize_request(
         # (no scan-boundary hook); the DB set-side stays disabled everywhere.
         scalar_policy = make_scalar_policy(session)
         devices_config: dict[str, dict[str, Any]] | None = {}
-        if request.save_sets:
+        if request.capture.save_sets:
             save_set, rituals = resolve_save_sets_and_rituals(
-                resolver, request.save_sets
+                resolver, request.capture.save_sets
             )
             # Reserved DB set-side overrides are inert here too — warn once, as
             # on the scan/noscan path, so the promise holds in every mode.
@@ -2109,9 +2137,9 @@ def _run_optimize_request(
         md: dict[str, Any] = {"scan_request_mode": request.mode.value}
         if pseudo_meta:
             md["pseudo_variables"] = pseudo_meta
-        if request.save_sets:
+        if request.capture.save_sets:
             # Provenance: which named save sets were unioned for this scan.
-            md["save_sets"] = list(request.save_sets)
+            md["save_sets"] = list(request.capture.save_sets)
         if provisioned:
             # Provenance: what the optimizer's device_requirements added to
             # the effective device set (whole entries for new devices, the
@@ -2130,9 +2158,9 @@ def _run_optimize_request(
             md["disconnected_devices"] = list(disconnected_devices)
         if applied_defaults:
             md["applied_defaults"] = metadata_applied_defaults(applied_defaults)
-        submission = metadata_submission(request)
-        if submission is not None:
-            md["submission"] = submission
+        submission_md = metadata_submission(submission)
+        if submission_md is not None:
+            md["submission"] = submission_md
         if skipped:
             md["skipped_action_plans"] = skipped
             logger.warning(
@@ -2181,7 +2209,7 @@ def _run_optimize_request(
                     detectors=detectors,
                     objective=objective,
                     suggester=suggester,
-                    shots_per_iteration=request.shots_per_step,
+                    shots_per_iteration=request.capture.shots_per_step,
                     max_iterations=max_iterations,
                     mode=mode,
                     description=request.description,

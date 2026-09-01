@@ -47,21 +47,21 @@ class TestNoscan:
         request = build_scan_request(form)
         assert request.mode is ScanRequestMode.NOSCAN
         assert request.axes == []
-        assert request.shots_per_step == 100
-        assert request.save_sets == ["Amp4In"]
+        assert request.capture.shots_per_step == 100
+        assert request.capture.save_sets == ["Amp4In"]
         assert request.background is False
         assert request.n_steps() == 1
         roundtrip(request)
 
     def test_acquisition_defaults_to_free_run(self):
         request = build_scan_request(ConsoleFormState(mode=ConsoleMode.NOSCAN))
-        assert request.acquisition is AcquisitionMode.FREE_RUN
+        assert request.capture.acquisition is AcquisitionMode.FREE_RUN
 
     def test_strict_acquisition_passes_through(self):
         form = ConsoleFormState(
             mode=ConsoleMode.NOSCAN, acquisition=AcquisitionMode.STRICT
         )
-        assert build_scan_request(form).acquisition is AcquisitionMode.STRICT
+        assert build_scan_request(form).capture.acquisition is AcquisitionMode.STRICT
 
 
 class TestBackground:
@@ -115,20 +115,21 @@ class TestOneD:
     def test_shots_per_step_and_description_land(self):
         form = self.default_form(shots_per_step=7, description="align the jet")
         request = build_scan_request(form)
-        assert request.shots_per_step == 7
+        assert request.capture.shots_per_step == 7
         assert request.description == "align the jet"
 
     def test_save_sets_list_passthrough(self):
         form = self.default_form(save_sets=["Amp4In", "EBeamDiags"])
-        assert build_scan_request(form).save_sets == ["Amp4In", "EBeamDiags"]
+        built = build_scan_request(form)
+        assert built.capture.save_sets == ["Amp4In", "EBeamDiags"]
 
     def test_trigger_profile_and_variant(self):
         form = self.default_form(
             trigger_profile="HTU-Standard", trigger_variant="laser_off"
         )
         request = build_scan_request(form)
-        assert request.trigger_profile == "HTU-Standard"
-        assert request.trigger_variant == "laser_off"
+        assert request.capture.trigger_profile == "HTU-Standard"
+        assert request.capture.trigger_variant == "laser_off"
         roundtrip(request)
 
     def test_variant_without_profile_rejected_by_schema(self):
@@ -223,7 +224,7 @@ class TestGuardsAndModes:
         assert request.mode is ScanRequestMode.OPTIMIZE
         assert request.axes == []
         assert request.optimization == _optimization_spec()
-        assert request.shots_per_step == 5
+        assert request.capture.shots_per_step == 5
         roundtrip(request)
 
     def test_stray_spec_on_non_optimize_mode_rejected_by_schema(self):

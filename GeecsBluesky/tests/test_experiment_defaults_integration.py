@@ -62,15 +62,23 @@ def test_experiment_defaults_fill_minimal_request_from_real_configs() -> None:
             "save_sets": [os.environ.get("GEECS_HW_CAMERA", "Amp4In")],
         }
     )
-    assert minimal.trigger_profile is None
+    assert minimal.capture.trigger_profile is None
 
     filled, applied = resolve_defaults_for(resolver, minimal)
-    assert filled.trigger_profile == expected_profile
+    assert filled.capture.trigger_profile == expected_profile
     assert applied.get("trigger_profile") == expected_profile
 
     # An explicit trigger profile must win over the default (defaults only fill
-    # blanks — never override what a request says).
-    explicit = minimal.model_copy(update={"trigger_profile": "HTU-LaserOFF"})
+    # blanks — never override what a request says).  Update through the
+    # capture sub-model — a top-level model_copy update would write a junk
+    # attribute the defaults path never sees.
+    explicit = minimal.model_copy(
+        update={
+            "capture": minimal.capture.model_copy(
+                update={"trigger_profile": "HTU-LaserOFF"}
+            )
+        }
+    )
     kept, applied_explicit = resolve_defaults_for(resolver, explicit)
-    assert kept.trigger_profile == "HTU-LaserOFF"
+    assert kept.capture.trigger_profile == "HTU-LaserOFF"
     assert "trigger_profile" not in applied_explicit

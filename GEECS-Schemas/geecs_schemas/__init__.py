@@ -30,6 +30,7 @@ from geecs_schemas.save_set import SaveRole, SaveSet, SaveSetEntry
 from geecs_schemas.scan_request import (
     AcquisitionMode,
     ActionBindings,
+    CaptureSettings,
     EvaluatorSpec,
     GeneratorSpec,
     OptimizationSpec,
@@ -66,6 +67,7 @@ __all__ = [
     "ScanRequestMode",
     "AcquisitionMode",
     "ActionBindings",
+    "CaptureSettings",
     "PositionRange",
     "ScanAxis",
     "PositionList",

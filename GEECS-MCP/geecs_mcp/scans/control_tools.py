@@ -150,7 +150,7 @@ def _submit_scan_impl(
         )
 
     # -- preflight + acknowledge-warnings loop -------------------------------
-    from geecs_bluesky.qs_client import run_submit_preflight, stamp_submission
+    from geecs_bluesky.qs_client import build_submission_record, run_submit_preflight
 
     report = run_submit_preflight(validated, experiment)
     if report.refusal is not None:
@@ -178,10 +178,16 @@ def _submit_scan_impl(
     outcomes = list(report.outcomes) + [
         (q.check, "continued", q.message[:200]) for q in report.questions
     ]
-    stamped = stamp_submission(validated, outcomes, client=runtime.client_identity())
+    record = build_submission_record(outcomes, client=runtime.client_identity())
 
     # -- queue it (never clear_pending) --------------------------------------
-    result = client.submit_scan(stamped.model_dump(mode="json"), clear_pending=False)
+    # The record travels beside the request (request/record split,
+    # geecs-schemas 0.14.0).
+    result = client.submit_scan(
+        validated.model_dump(mode="json"),
+        submission=record.model_dump(mode="json"),
+        clear_pending=False,
+    )
     if not result.ok:
         return errors.make_error(
             "worker_refused",

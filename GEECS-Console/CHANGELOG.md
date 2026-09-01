@@ -4,6 +4,22 @@ All notable changes to GEECS-Console are documented here.  Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is
 semantic.
 
+## [0.26.0] - 2026-09-01
+
+### Changed
+
+- **ScanRequest v2 adoption** (geecs-schemas 0.14.0): `request_builder`
+  builds and reads the grouped `capture: CaptureSettings` sub-model
+  (shots per step, acquisition, save sets, trigger profile/variant) —
+  the console-side acceptance test of the schema refactor
+  (`Planning/schema_refactor/00_overview.md`). Applying old flat-layout
+  presets keeps working via the schema's lifting validator.
+- **Submission provenance travels beside the request**: the submit
+  pipeline builds the `SubmissionRecord` with `build_submission_record`
+  and passes it as `submit_scan(request, submission=...)` instead of
+  stamping it into the request document (needs GeecsBluesky ≥ 0.70.0 on
+  the worker).
+
 ## [0.25.0] - 2026-08-29
 
 ### Changed

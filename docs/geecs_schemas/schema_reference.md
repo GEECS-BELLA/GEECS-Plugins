@@ -14,26 +14,19 @@ One complete scan, ready to submit: what to do, what to save, how to trigger.
 
 | Field | Type | Required | Default | What it does |
 |---|---|---|---|---|
-| `schema_version` | `int` | no | 1 | Format version of this config file. Leave at 1 — tools update this automatically when the file format changes. |
+| `schema_version` | `int` | no | 2 | Format version of this config file. Leave at 2 — tools update this automatically when the file format changes. |
 | `mode` | `ScanRequestMode` | yes | — | What kind of scan: 'step' sweeps one or more axes, 'noscan' collects shots without moving anything, 'optimize' lets an algorithm pick the settings. |
 | `axes` | `list[ScanAxis]` | no | empty | For step scans: what to sweep. One entry is a simple 1-D scan; several entries form a grid visiting every combination, with the first axis as the outermost (slowest) loop and the last as the innermost (fastest). Leave empty for noscan and optimize. |
-| `shots_per_step` | `int` | no | 1 | How many shots to take at each scan position / grid point (or in total for a noscan). |
-| `acquisition` | `AcquisitionMode` | no | 'strict' | 'strict' fires shot by shot and guarantees every device is in every row; 'free_run' lets the trigger run at the machine rate and matches devices up by timestamp. |
-| `save_sets` | `list[str]` | no | empty | Names of the save sets — reusable named device groups — recorded for this scan; devices are unioned across them. Each names the devices that get guarantees (completeness, dialogs, images, rituals). A bare string is accepted and stored as a one-element list. Empty means no required devices beyond scan bookkeeping. |
-| `background_telemetry` | `bool (optional)` | no | None | Also log every other live experiment device as best-effort snapshot columns — the variables the GEECS experiment database marks for scan logging (MySQL table expt_device_variable, get='yes') — read from the gateway's always-on monitor cache: read-only and never waited on, so it cannot slow or stall the scan; dead devices are dropped with a log line, never a dialog or abort. Leave unset to inherit the experiment default; set true/false to override for this scan. |
-| `native_image_save` | `bool (optional)` | no | None | Whether capture-eligible cameras (Point Grey — the devicetypes the central PVA capture daemon owns) write their native per-shot image files during this scan. When false, those cameras' images are recorded only by the capture daemon's per-device frame stack (one HDF5 per camera per scan); all other devices — proprietary formats like the HASO, scope traces — keep their native save regardless. Leave unset to inherit the experiment default; set true/false to override for this scan (e.g. force native files back on for one scan while the capture path is being validated). Two engine behaviors to expect when false: the scan is REFUSED before a scan number is claimed if the capture daemon looks absent or is not monitoring every capture camera (fail-closed — start the daemon or drop the override), and the request is silently inert when no capture-eligible cameras resolve (DB unreachable, or none in the save set) — native saving then proceeds unchanged, with a warning in the scan log. |
-| `trigger_profile` | `str (optional)` | no | None | Name of the trigger profile that drives the shot trigger. Unset means the scan does not manage the trigger. |
-| `trigger_variant` | `str (optional)` | no | None | Optional variant of the trigger profile to use, e.g. 'laser_off'. Leave unset for the profile's base behaviour. |
+| `capture` | `CaptureSettings` | no | CaptureSettings(shots_per_step=1, acquisition=<AcquisitionMode.STRICT: 'strict'>, save_sets=[], background_telemetry=None, native_image_save=None, trigger_profile=None, trigger_variant=None) | How shots are taken and what gets recorded: shots per step, acquisition discipline, save sets, telemetry and native-image toggles, and the trigger profile. Omit for a one-shot strict capture with no named save sets. |
 | `actions` | `ActionBindings` | no | ActionBindings(setup=[], per_step=[], closeout=[]) | Named action plans to run before the scan (setup), between steps (per_step), and after it (closeout). |
 | `description` | `str` | no | '' | Free-text note about this scan; it ends up in the scan's metadata and the experiment log. |
 | `background` | `bool` | no | False | Mark this scan's data as background/calibration shots so analysis can find them later. |
 | `optimization` | `OptimizationSpec (optional)` | no | None | The optimization problem definition. Required for (and only allowed with) mode 'optimize'. |
-| `submission` | `SubmissionRecord (optional)` | no | None | Filled in by the submitting client at queue time — who submitted, when, and what the pre-submit checks said. Not written by hand and never acted on by the engine; it is copied into the run metadata for the record. Leave unset in saved presets. |
 
 Example:
 
 ```yaml
-schema_version: 1
+schema_version: 2
 mode: step
 axes:
   - variable: jet_z
@@ -42,15 +35,18 @@ axes:
   # (slowest) loop, the last the innermost (fastest), e.g.:
   # - variable: gas_pressure
   #   positions: {values: [1.5, 2.0, 2.5]}
-shots_per_step: 10
-acquisition: free_run
-save_sets: [undulator_baseline, aux_diagnostics]  # unioned; a bare string also works
-trigger_profile: htu_shot_control
+capture:
+  shots_per_step: 10
+  acquisition: free_run
+  save_sets: [undulator_baseline, aux_diagnostics]  # unioned; a bare string also works
+  trigger_profile: htu_shot_control
 actions:
   setup: [pre_scan_ebeam]
   per_step: []
   closeout: []
 description: "jet z scan with probe"
+# v1 documents (the capture fields flat at the top level) still validate —
+# they are lifted into this shape automatically.
 ```
 
 ### ScanAxis
@@ -79,6 +75,20 @@ Scan positions given as an explicit list of values.
 | Field | Type | Required | Default | What it does |
 |---|---|---|---|---|
 | `values` | `list[float]` | yes | — | The exact positions to visit, in the order given. |
+
+### CaptureSettings
+
+How shots are taken and what gets recorded — the capture concern.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `shots_per_step` | `int` | no | 1 | How many shots to take at each scan position / grid point (or in total for a noscan). |
+| `acquisition` | `AcquisitionMode` | no | 'strict' | 'strict' fires shot by shot and guarantees every device is in every row; 'free_run' lets the trigger run at the machine rate and matches devices up by timestamp. |
+| `save_sets` | `list[str]` | no | empty | Names of the save sets — reusable named device groups — recorded for this scan; devices are unioned across them. Each names the devices that get guarantees (completeness, dialogs, images, rituals). A bare string is accepted and stored as a one-element list. Empty means no required devices beyond scan bookkeeping. |
+| `background_telemetry` | `bool (optional)` | no | None | Also log every other live experiment device as best-effort snapshot columns — the variables the GEECS experiment database marks for scan logging (MySQL table expt_device_variable, get='yes') — read from the gateway's always-on monitor cache: read-only and never waited on, so it cannot slow or stall the scan; dead devices are dropped with a log line, never a dialog or abort. Leave unset to inherit the experiment default; set true/false to override for this scan. |
+| `native_image_save` | `bool (optional)` | no | None | Whether capture-eligible cameras (Point Grey — the devicetypes the central PVA capture daemon owns) write their native per-shot image files during this scan. When false, those cameras' images are recorded only by the capture daemon's per-device frame stack (one HDF5 per camera per scan); all other devices — proprietary formats like the HASO, scope traces — keep their native save regardless. Leave unset to inherit the experiment default; set true/false to override for this scan (e.g. force native files back on for one scan while the capture path is being validated). Two engine behaviors to expect when false: the scan is REFUSED before a scan number is claimed if the capture daemon looks absent or is not monitoring every capture camera (fail-closed — start the daemon or drop the override), and the request is silently inert when no capture-eligible cameras resolve (DB unreachable, or none in the save set) — native saving then proceeds unchanged, with a warning in the scan log. |
+| `trigger_profile` | `str (optional)` | no | None | Name of the trigger profile that drives the shot trigger. Unset means the scan does not manage the trigger. |
+| `trigger_variant` | `str (optional)` | no | None | Optional variant of the trigger profile to use, e.g. 'laser_off'. Leave unset for the profile's base behaviour. |
 
 ### ActionBindings
 
@@ -124,26 +134,6 @@ Which optimization algorithm proposes the next settings.
 |---|---|---|---|---|
 | `name` | `str` | yes | — | Name of the optimization algorithm, e.g. 'bayes_default', 'random', or 'multipoint_bax_alignment_l2'. |
 | `options` | `dict` | no | empty | Algorithm-specific tuning options. Free-form: each generator documents its own options (legacy 'xopt_config_overrides'). |
-
-### SubmissionRecord
-
-Who submitted this request, when, and what the pre-submit checks said.
-
-| Field | Type | Required | Default | What it does |
-|---|---|---|---|---|
-| `client` | `str` | no | '' | What submitted the request, e.g. 'geecs-console 0.21.0'. Free text, for the record only. |
-| `submitted_at` | `str` | no | '' | When the request was queued, as an ISO 8601 timestamp with timezone from the submitting machine's clock, e.g. '2026-08-21T14:30:00-07:00'. Informational only. |
-| `preflight` | `list[PreflightOutcome]` | no | empty | The pre-submit checks that ran and how each ended. Empty when the client ran no checks. |
-
-### PreflightOutcome
-
-One pre-submit check and how it ended, kept for the scan's record.
-
-| Field | Type | Required | Default | What it does |
-|---|---|---|---|---|
-| `check` | `str` | yes | — | Name of the pre-submit check, e.g. 'unserved_variables', 'gateway_liveness', 'free_run_staleness'. |
-| `result` | `PreflightCheckResult` | yes | — | How the check ended: 'passed' (nothing found), 'continued' (the operator saw a warning and chose to go ahead), or 'skipped' (the check could not run). |
-| `detail` | `str` | no | '' | What the check found or why it was skipped, in the words the operator saw. Empty for a clean pass. |
 
 ## `save_set`
 

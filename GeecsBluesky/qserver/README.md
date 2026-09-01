@@ -51,10 +51,12 @@ qserver environment open
 ```
 
 Once the environment is open, `geecs_scan_request_plan` is registered and
-callable; submit a `ScanRequest` dict as its sole argument, for example:
+callable; submit a `ScanRequest` dict as its sole argument, for example
+(the v2 shape groups the capture fields under `capture`; the flat v1
+layout still validates):
 
 ```bash
-qserver queue add plan '{"name": "geecs_scan_request_plan", "args": [{"mode": "noscan", "shots_per_step": 2, "acquisition": "free_run", "save_sets": ["UC_Test"]}], "item_type": "plan"}'
+qserver queue add plan '{"name": "geecs_scan_request_plan", "args": [{"mode": "noscan", "capture": {"shots_per_step": 2, "acquisition": "free_run", "save_sets": ["UC_Test"]}}], "item_type": "plan"}'
 qserver queue start
 ```
 

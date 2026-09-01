@@ -145,6 +145,16 @@ SCAN_REQUEST_PLAN_ANNOTATION: dict = {
             ),
             "annotation": "dict",
         },
+        "submission": {
+            "description": (
+                "Optional client-stamped SubmissionRecord as a JSON "
+                "object (geecs_schemas.SubmissionRecord.model_dump()) — "
+                "who submitted, when, and the pre-submit check outcomes. "
+                "Travels beside the request (the request/record split, "
+                "geecs-schemas 0.14.0) and is recorded verbatim in run "
+                "metadata; leave unset when no preflight ran."
+            ),
+        },
         "session": {
             "description": (
                 "Worker-internal GeecsSession — leave unset; the worker "
@@ -426,6 +436,7 @@ def _disconnect_plan(created: list):
 def geecs_scan_request_plan(
     request: dict,
     *,
+    submission=None,
     session=None,
     resolver=None,
 ):
@@ -466,6 +477,12 @@ def geecs_scan_request_plan(
     request :
         ``ScanRequest.model_dump()`` output (the queue's JSON shape) or an
         already-validated :class:`~geecs_schemas.ScanRequest`.
+    submission :
+        Optional client-stamped ``SubmissionRecord`` as its JSON dict (or
+        model) — traveling beside the request since geecs-schemas 0.14.0
+        split it out of the request document.  Recorded verbatim in run
+        metadata, never acted on.  Old clients that omit it lose nothing
+        but the provenance record.
     session :
         The :class:`~geecs_bluesky.session.GeecsSession` whose RunEngine
         executes this plan.  Defaults to the worker-wide session installed
@@ -515,7 +532,9 @@ def geecs_scan_request_plan(
     try:
         return (
             yield from bpp.finalize_wrapper(
-                _scan_request_body(session, resolver, request, created),
+                _scan_request_body(
+                    session, resolver, request, created, submission=submission
+                ),
                 lambda: _disconnect_plan(created),
             )
         )
@@ -524,7 +543,12 @@ def geecs_scan_request_plan(
 
 
 def _scan_request_body(
-    session: Any, resolver: ConfigResolver, request: dict | ScanRequest, created: list
+    session: Any,
+    resolver: ConfigResolver,
+    request: dict | ScanRequest,
+    created: list,
+    *,
+    submission: Any | None = None,
 ):
     """The plan body behind :func:`geecs_scan_request_plan` (see its doc).
 
@@ -538,9 +562,9 @@ def _scan_request_body(
     request, applied_defaults, defaults = validate_scan_request(request, resolver)
 
     controller = None
-    if request.trigger_profile:
-        profile = resolver.resolve_trigger_profile(request.trigger_profile)
-        writes = trigger_writes_from_profile(profile, request.trigger_variant)
+    if request.capture.trigger_profile:
+        profile = resolver.resolve_trigger_profile(request.capture.trigger_profile)
+        writes = trigger_writes_from_profile(profile, request.capture.trigger_variant)
         if writes.states:
             # Constructed worker-side, unconnected; the setter reachability
             # check joins the in-plan connect stage below.
@@ -549,10 +573,10 @@ def _scan_request_body(
                 experiment=session.experiment,
                 rep_rate_hz=session.rep_rate_hz,
             )
-    strict = request.acquisition is AcquisitionMode.STRICT
+    strict = request.capture.acquisition is AcquisitionMode.STRICT
 
     if request.mode is ScanRequestMode.OPTIMIZE:
-        if request.native_image_save is False:
+        if request.capture.native_image_save is False:
             # v0: optimize keeps native saving unconditionally (evaluators
             # read per-shot files) — never discard the override silently.
             logger.warning(
@@ -569,10 +593,13 @@ def _scan_request_body(
                 strict,
                 created,
                 applied_defaults=applied_defaults,
+                submission=submission,
             )
         )
 
-    save_set, rituals = resolve_save_sets_and_rituals(resolver, request.save_sets)
+    save_set, rituals = resolve_save_sets_and_rituals(
+        resolver, request.capture.save_sets
+    )
     scalar_policy = make_scalar_policy(session)
     devices_config = save_set_to_devices_config(save_set, scalar_policy)
     # Unserved-variables check, headless by decision 3 (operator questions
@@ -598,8 +625,8 @@ def _scan_request_body(
         for axis in request.axes
     ]
     telemetry_enabled = (
-        request.background_telemetry
-        if request.background_telemetry is not None
+        request.capture.background_telemetry
+        if request.capture.background_telemetry is not None
         else _defaults_flag(defaults, "background_telemetry", True)
     )
     devices_config, capture_devices, native_image_save = (
@@ -674,6 +701,7 @@ def _scan_request_body(
         telemetry_selected=telemetry_selected if telemetry_enabled else {},
         capture_devices=capture_devices,
         native_image_save=native_image_save,
+        submission=submission,
     )
     if request.mode is ScanRequestMode.NOSCAN:
         motor_arg: Any = None
@@ -695,7 +723,7 @@ def _scan_request_body(
         detectors=all_detectors,
         motor=motor_arg,
         positions=spec.positions,
-        shots_per_step=request.shots_per_step,
+        shots_per_step=request.capture.shots_per_step,
         strict=strict,
         controller=controller,
         description=request.description,
@@ -737,6 +765,7 @@ def _optimize_request_body(
     created: list,
     *,
     applied_defaults: dict[str, Any] | None = None,
+    submission: Any | None = None,
 ):
     """The optimize-mode body of :func:`_scan_request_body`.
 
@@ -785,7 +814,9 @@ def _optimize_request_body(
     opt_bridge = loader(spec)
     device_requirements = getattr(opt_bridge, "device_requirements", None)
 
-    save_set, rituals = resolve_save_sets_and_rituals(resolver, request.save_sets)
+    save_set, rituals = resolve_save_sets_and_rituals(
+        resolver, request.capture.save_sets
+    )
     warn_if_reserved_boundary_overrides(save_set)
     skipped: dict[str, list[str]] = {}
     ritual_names = [n for names in rituals.values() for n in names]
@@ -868,8 +899,8 @@ def _optimize_request_body(
     md: dict[str, Any] = {"scan_request_mode": request.mode.value}
     if pseudo_meta:
         md["pseudo_variables"] = pseudo_meta
-    if request.save_sets:
-        md["save_sets"] = list(request.save_sets)
+    if request.capture.save_sets:
+        md["save_sets"] = list(request.capture.save_sets)
     if provisioned:
         md["provisioned_device_requirements"] = provisioned
     if dropped_unserved:
@@ -882,9 +913,9 @@ def _optimize_request_body(
         md["disconnected_devices"] = list(disconnected_devices)
     if applied_defaults:
         md["applied_defaults"] = metadata_applied_defaults(applied_defaults)
-    submission = metadata_submission(request)
-    if submission is not None:
-        md["submission"] = submission
+    submission_md = metadata_submission(submission)
+    if submission_md is not None:
+        md["submission"] = submission_md
     if skipped:
         md["skipped_action_plans"] = skipped
         logger.warning(
@@ -918,12 +949,12 @@ def _optimize_request_body(
             scan_folder,
             motor=None,
             positions=[None],
-            shots_per_step=request.shots_per_step,
+            shots_per_step=request.capture.shots_per_step,
             description=request.description,
             overrides={
                 "scan_parameter": ",".join(variables),
                 "scan_mode": "optimization",
-                "shots": request.shots_per_step,
+                "shots": request.capture.shots_per_step,
             },
         )
 
@@ -1003,7 +1034,7 @@ def _optimize_request_body(
             propose=_propose,
             detectors=detectors[1:] if not strict else detectors,
             reference=reference if not strict else None,
-            shots_per_iteration=request.shots_per_step,
+            shots_per_iteration=request.capture.shots_per_step,
             max_iterations=max_iterations,
             fire_shot=controller.fire_shot if strict and controller else None,
             setup_trigger=(

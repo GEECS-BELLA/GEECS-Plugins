@@ -2,8 +2,9 @@
 
 Same seams as the read-tool suite: fakes patched on ``runtime``, JSON
 envelopes asserted.  The submission flow's engine seams
-(``run_submit_preflight`` / ``stamp_submission``) are patched at their
-``geecs_bluesky.qs_client`` home — the impl from-imports at call time.
+(``run_submit_preflight`` / ``build_submission_record``) are patched at
+their ``geecs_bluesky.qs_client`` home — the impl from-imports at call
+time.
 """
 
 from __future__ import annotations
@@ -83,9 +84,11 @@ class _FakeClient:
     def history_items(self):
         return list(self.history)
 
-    def submit_scan(self, request, *, clear_pending=False):
+    def submit_scan(self, request, *, submission=None, clear_pending=False):
         assert clear_pending is False  # the doctrine: never clear implicitly
         self.submitted.append(request)
+        self.submissions = getattr(self, "submissions", [])
+        self.submissions.append(submission)
         if self.submit_ok:
             return SimpleNamespace(
                 ok=True, message="queued", item_uid="uid-9", pending_items=[]
@@ -161,7 +164,8 @@ def test_submit_happy_path_stamps_and_queues(wired):
     assert result["ok"] and result["item_uid"] == "uid-9"
     assert result["planned_shots"] == 5
     (submitted,) = wired.submitted
-    record = submitted["submission"]
+    assert "submission" not in submitted  # request/record split (schemas 0.14.0)
+    (record,) = wired.submissions
     assert record["client"] == runtime.client_identity()
     assert [o["check"] for o in record["preflight"]] == ["validate"]
 
@@ -307,7 +311,7 @@ def test_submit_warnings_need_acknowledgement(wired, monkeypatch):
         )
     )
     assert second["ok"]
-    record = wired.submitted[0]["submission"]
+    record = wired.submissions[0]
     by_check = {o["check"]: o["result"] for o in record["preflight"]}
     assert by_check["free_run_staleness"] == "continued"
 

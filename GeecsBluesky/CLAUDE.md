@@ -24,7 +24,8 @@ scanner line's final state is preserved at the tag `legacy-scanner-final`
 ## Two acquisition modes (the core architecture)
 
 Scans run in one of two modes, declared by the request
-(`ScanRequest.acquisition`: `free_run` or `strict`; the old
+(`ScanRequest.capture.acquisition`: `free_run` or `strict` — the capture
+fields grouped under `capture` in schema v2, geecs-schemas 0.14.0; the old
 `GEECS_BLUESKY_ACQUISITION_MODE` env override died with the exec_config
 path — a request declares intent).  Both write the **same versioned event
 schema** (`EVENT_SCHEMA.md`); consumers branch on `geecs_event_schema`, never on
@@ -73,7 +74,9 @@ geecs_bluesky/
                             #   failed-item-at-front guard, sequenced stop,
                             #   read verbs, function-verb task polling);
                             #   submit_preflight.py = client-side pre-submit
-                            #   checks + stamp_submission provenance.
+                            #   checks + build_submission_record provenance
+                            #   (the record travels BESIDE the request:
+                            #   submit_scan(request, submission=...)).
                             #   bluesky-queueserver-api rides the qs-client
                             #   extra, lazily imported inside methods
   config_resolver.py        # ConfigResolver protocol + ConfigsRepoResolver:
@@ -242,7 +245,10 @@ the client machinery lives in **this package** since the extraction
 `QueueClient` protocol + `ZmqQueueClient`/`StubQueueClient` + the
 `[qserver]` config reader; it absorbed the console's former `Submitter`
 twin) and `submit_preflight.py` (the client-side pre-submit checks +
-`stamp_submission` provenance).  `bluesky-queueserver-api` rides the
+`build_submission_record` provenance — the `SubmissionRecord` travels
+beside the request as `submit_scan(request, submission=...)` → the plan's
+`submission` kwarg, since the request/record split of geecs-schemas
+0.14.0).  `bluesky-queueserver-api` rides the
 `qs-client` extra, imported lazily inside methods; the package import
 itself is light (the top-level device re-exports are PEP 562-lazy so a
 client never pays for aioca/ophyd-async).  One-shot blocking CA reads
@@ -276,7 +282,8 @@ semantics); manual moves → `geecs_move_variable` via `function_execute`
 plans additionally refuse while the session's manual-move lock is held —
 background function execution bypasses the manager's idle gate);
 pre-flight questions → client-side pre-submit (decision 3, provenance in
-`ScanRequest.submission`); GUI progress → the ZMQ document stream; the
+the `SubmissionRecord` submitted beside the request); GUI progress → the
+ZMQ document stream; the
 pause-window action flow (G-actions v2) was **dropped** (decision 2) —
 its `action_direct`/`PauseSupervisor`/`OperatorChannel`/`events`
 machinery is deleted (W5; `ShotControlPauseQuiescer` in
@@ -349,8 +356,8 @@ difference lives entirely in the per-config YAML.
 
 ### Acquisition-mode dispatch
 
-`ScanRequest.acquisition` selects the mode (`free_run` or `strict`); the
-runner's `_build_request_detectors` (`scan_request_runner.py`) assigns each
+`ScanRequest.capture.acquisition` selects the mode (`free_run` or `strict`);
+the runner's `_build_request_detectors` (`scan_request_runner.py`) assigns each
 save device a role from it: free-run → first sync device is `reference`,
 later sync devices are `contributor` (`CaTimestampedReadable`), async are
 `snapshot`; strict → all sync are `triggered` (`CaGenericDetector`).
@@ -617,8 +624,8 @@ so building its detector used to die in a 20 s ophyd
 `NotConnectedError` (live incident 2026-07-15: `UC_TopView`
 `2ndmomW0x`/`2ndmomW0y`).  Engine-side the check is headless
 (continue-and-drop with a WARNING); the console asks the same question
-pre-submit (decision 3) and stamps the answer into
-`ScanRequest.submission`.  Dropped variables — a fully-unserved device
+pre-submit (decision 3) and stamps the answer into the `SubmissionRecord`
+submitted beside the request.  Dropped variables — a fully-unserved device
 is dropped whole — are recorded in run metadata
 (`dropped_unserved_variables` / `dropped_unserved_devices`).  The served
 set comes from the failure-tolerant `db_runtime.GeecsDbServedSetProvider`,
@@ -715,8 +722,10 @@ overriding explicit values — and every applied default is recorded into
 the run metadata for provenance (closeout defaults append *after* the
 scan's own since geecs-schemas 0.2.0 — mirrored teardown).
 
-**M4 step 0 (0.25.0) — multiple save sets union.**  `ScanRequest` now carries
-`save_sets: list[str]` (was the single `save_set`); a bare string still
+**M4 step 0 (0.25.0) — multiple save sets union.**  `ScanRequest` carries
+`capture.save_sets: list[str]` (was the single `save_set`; the seven
+capture fields grouped under `capture` in schema v2 — flat v1 documents
+are lifted automatically); a bare string still
 validates (coerced to a one-element list by a schema before-validator).
 `run_scan_request` (and the optimize path) resolve **each** named save set and
 union them into one effective `SaveSet` (`merge_save_sets`) before deriving the
@@ -767,7 +776,7 @@ the DB blipped):
   take the device's other columns down; do NOT regress this back to a forced
   `datatype=float`).  A device is dropped only when genuinely unreachable.
   The rule: if we `get` it, we log it.  Gated on
-  `ScanRequest.background_telemetry` else the experiment default; selection
+  `ScanRequest.capture.background_telemetry` else the experiment default; selection
   recorded (`background_telemetry`).  **Softness vs synchronicity are
   mutually exclusive — telemetry must never gate a shot; do not make it
   participate in shot completion.**

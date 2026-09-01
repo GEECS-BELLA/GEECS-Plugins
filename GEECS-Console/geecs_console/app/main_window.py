@@ -86,7 +86,7 @@ from geecs_bluesky.qs_client import (
     QueueStatus,
     SubmitResult,
     run_submit_preflight,
-    stamp_submission,
+    build_submission_record,
 )
 from geecs_console.submission import Submitter, make_queue_submitter
 
@@ -1646,16 +1646,24 @@ class MainWindow(QMainWindow):
 
         self._submit_worker.run_async(check, "submit-preflight")
 
-    def _queue_submission(self, stamped, *, clear_pending: bool, name: str) -> None:
-        """Run one submit call on the worker (exception-capturing)."""
+    def _queue_submission(self, pending, *, clear_pending: bool, name: str) -> None:
+        """Run one submit call on the worker (exception-capturing).
+
+        *pending* is the ``(request, record)`` pair built after preflight —
+        the record travels beside the request (the request/record split,
+        geecs-schemas 0.14.0).
+        """
         submitter = self._submitter
+        request, record = pending
 
         def call() -> tuple:
             try:
                 return (
                     "submit",
                     submitter.submit_scan(
-                        stamped.model_dump(mode="json"), clear_pending=clear_pending
+                        request.model_dump(mode="json"),
+                        submission=record.model_dump(mode="json"),
+                        clear_pending=clear_pending,
                     ),
                 )
             except Exception as exc:  # noqa: BLE001 — deliver as a failure
@@ -1705,14 +1713,16 @@ class MainWindow(QMainWindow):
                     f"Submission aborted at the {question.check} check"
                 )
                 return
-        stamped = stamp_submission(
-            request, outcomes, client=f"geecs-console {console_version()}"
+        record = build_submission_record(
+            outcomes, client=f"geecs-console {console_version()}"
         )
         self.start_button.setText("Submitting…")
-        # Keep the stamped payload for a clear-and-retry after the
+        # Keep the (request, record) pair for a clear-and-retry after the
         # pending-items question (no re-stamp: same outcomes, same click).
-        self._pending_submission = stamped
-        self._queue_submission(stamped, clear_pending=False, name="submit-queue")
+        self._pending_submission = (request, record)
+        self._queue_submission(
+            self._pending_submission, clear_pending=False, name="submit-queue"
+        )
 
     def _continue_after_submit(self, result) -> None:
         """Handle the queue's answer, including the failed-item-front trap."""
