@@ -26,7 +26,10 @@ is carried but never applied here (client-side passthrough, above).
 from __future__ import annotations
 
 import math
-from typing import Any, Mapping, Optional, Sequence
+from typing import TYPE_CHECKING, Any, Mapping, Optional, Sequence
+
+if TYPE_CHECKING:  # pandas is runtime-optional here (local imports)
+    import pandas as pd
 
 import plotly.graph_objects as go
 import plotly.io as pio
@@ -210,7 +213,7 @@ def _apply_display(
         layout["yaxis"]["autorange"] = False
 
 
-def shot_axis_for_frame(frame):
+def shot_axis_for_frame(frame: "pd.DataFrame") -> "pd.Series":
     """The shot axis for a DataFrame — THE one implementation of the rule.
 
     ``scan_event_index`` when present (1-based already), else 1-based
