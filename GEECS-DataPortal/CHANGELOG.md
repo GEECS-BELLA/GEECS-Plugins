@@ -3,6 +3,17 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.13.1] - 2026-09-01
+
+### Fixed
+
+- The processing-selector test class now `importorskip`s
+  `image_analysis`, and CI installs the portal with
+  `--extras analysis` so those tests always **run** there (they
+  failed red in the 0.13.0 CI, whose env lacked the extra; a minimal
+  local env now skips them gracefully instead). Test/CI-only — no
+  runtime change.
+
 ## [0.13.0] - 2026-09-01
 
 ### Added
