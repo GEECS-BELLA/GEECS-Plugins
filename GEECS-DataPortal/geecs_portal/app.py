@@ -477,17 +477,26 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
     def api_binned(
         uid: str,
         cols: list[str] = Query(default=[]),
+        x: str = "",
         filters: str = "",
         bincfg: str = "",
         display: str = "",
         day: str = "",
     ) -> JSONResponse:
-        """Per-bin centers + error bands + the ready binned figure."""
+        """Per-bin centers + error bands + the ready binned figure.
+
+        Bins GROUP the data (``bincfg.bin_col``); the selected ``x``
+        PLACES it — each bin plots at the per-bin mean of the X column
+        (the owner's ruling: real scan-parameter positions now, x error
+        bars maybe later).  No ``x`` keeps the bin labels as the axis.
+        """
         detail = _load_run(uid)
         pf, run_day = _union(detail, day)
         flt, mask = _masked(pf, filters)
         disp = _display(display)
         requested = _y_columns(cols)
+        if x and schema_map.numeric_series(pf.frame, x) is None:
+            raise HTTPException(status_code=404, detail=f"no plottable column {x!r}")
         try:
             cfg = analysis.parse_bincfg(bincfg)
         except analysis.BadParam as exc:
@@ -506,6 +515,16 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
             ) from exc
         except ValueError as exc:  # e.g. degenerate percentile bounds
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+        x_centers = None
+        if x:
+            # Same primitive, same bins (identical bin params + frame),
+            # mean-aggregated — the snippet mirrors this exactly.
+            x_result = bin_frame(
+                pf.frame[mask],
+                dataclasses.replace(cfg, value_cols=(x,), agg="mean"),
+            )
+            if (x, "center") in x_result.frame.columns:
+                x_centers = analysis.jsonable_values(x_result.frame[(x, "center")])
         bin_labels = analysis.jsonable_labels(result.frame.index)
         binned_series = {
             column: {
@@ -515,6 +534,8 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
             for column in requested
             if (column, "center") in result.frame.columns
         }
+        x_name = x or None
+        pretty = _pretty_names(detail, pf, [*requested, *([x_name] if x_name else [])])
         payload = {
             "bins": bin_labels,
             "counts": [int(count) for count in result.counts],
@@ -522,16 +543,20 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
             "pass": int(mask.sum()),
             "total": len(pf.frame),
             "code": analysis.binned_code(
-                uid, run_day, requested, flt, cfg, display=disp
+                uid, run_day, requested, flt, cfg, x=x_name, display=disp
             ),
         }
+        if x_centers is not None:
+            payload["x_centers"] = x_centers
         if requested:
             payload["figure"] = figures.binned_figure(
                 bin_labels,
                 binned_series,
                 requested,
                 bin_col=cfg.bin_col,
-                pretty=_pretty_names(detail, pf, requested),
+                x_values=x_centers,
+                x_label=pretty.get(x_name) if x_name else None,
+                pretty=pretty,
                 display=disp,
             ).to_plotly_json()
         return JSONResponse(payload, headers=_png_headers(detail))

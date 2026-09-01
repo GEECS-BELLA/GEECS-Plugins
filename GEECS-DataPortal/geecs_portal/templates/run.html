@@ -255,6 +255,10 @@
       <span class="dim" style="font-size:11px;">first Y axis</span></div>
     <div class="setrow"><label>marker size</label>
       <input id="ds-msize" style="width:4rem;" placeholder="5"></div>
+    <div class="setrow"><label>plot size</label>
+      <input id="ds-width" style="width:5rem;" placeholder="auto"> <span class="dim">×</span>
+      <input id="ds-height" style="width:5rem;" placeholder="auto">
+      <span class="dim" style="font-size:11px;">px — fixes the exported size too</span></div>
     <div class="setrow"><label>trace colors</label>
       <span id="ds-colors"></span></div>
     <div class="setrow" style="align-items:flex-start;"><label>advanced<br>
@@ -314,8 +318,43 @@ const MSIZE_DEFAULT = {{ msize_default | tojson }};
 // Everything Plotly gives for free, switched ON: wheel zoom, in-place
 // legend-name editing, spike lines + hover modes, and the drawing
 // tools (annotate directly on the plot; shapes are editable/erasable).
+async function copyPlotImage(gd) {
+  // Copy-paste is how plots travel around the lab.  The async
+  // Clipboard API needs a secure context (https or localhost) — on
+  // plain http lab hosts it is absent, so degrade to the PNG download
+  // rather than failing silently.
+  const url = await Plotly.toImage(gd, { format: "png", scale: 2 });
+  try {
+    if (!navigator.clipboard || !window.ClipboardItem) throw new Error("no clipboard API");
+    const blob = await (await fetch(url)).blob();
+    await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+    flashNote("copied to clipboard");
+  } catch (err) {
+    Plotly.downloadImage(gd, { format: "png", scale: 2, filename: "geecs-plot" });
+    flashNote("clipboard unavailable here — downloaded PNG instead");
+  }
+}
+
+function flashNote(text) {
+  let note = document.getElementById("flashnote");
+  if (!note) {
+    note = document.createElement("div");
+    note.id = "flashnote";
+    note.style.cssText = "position:fixed; bottom:1rem; right:1rem; z-index:40;" +
+      "background:var(--panel2); color:var(--ink); border:1px solid var(--line);" +
+      "border-radius:4px; padding:0.4rem 0.7rem; font-size:12px;";
+    document.body.appendChild(note);
+  }
+  note.textContent = text;
+  note.style.display = "block";
+  clearTimeout(note._timer);
+  note._timer = setTimeout(() => { note.style.display = "none"; }, 2200);
+}
+
 const PLOT_CONFIG = {
   responsive: true, displaylogo: false, scrollZoom: true,
+  // The built-in camera button exports at 2× for crisp paste targets.
+  toImageButtonOptions: { format: "png", scale: 2 },
   // Granular (not editable:true): blanket editability renders grey
   // "Click to enter …" placeholders for every unset title — and
   // axisTitleText does too on the title-less stacked axes (3-4), so
@@ -324,6 +363,15 @@ const PLOT_CONFIG = {
   modeBarButtonsToAdd: [
     "togglespikelines", "hoverclosest", "hovercompare",
     "drawline", "drawopenpath", "drawrect", "drawcircle", "eraseshape",
+    {
+      name: "copyimage",
+      title: "Copy plot to clipboard (PNG)",
+      icon: {  // material content_copy, 24×24 viewBox
+        width: 24, height: 24,
+        path: "M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z",
+      },
+      click: copyPlotImage,
+    },
   ],
 };
 // Traces and layout are authored SERVER-SIDE (geecs_portal/figures.py)
@@ -498,11 +546,13 @@ function refresh() {
   S.y.forEach(c => params.append("cols", c));
   if (S.filters) params.set("filters", S.filters);
   if (S.display) params.set("display", S.display);
+  // Both views take the X pick: per-shot plots it directly, binned
+  // plots each bin at the per-bin mean of it (bins group, X places).
+  if (S.x) params.set("x", S.x);
   if (S.view === "bin") {
     if (S.bincfg) params.set("bincfg", S.bincfg);
     api("binned", params).then(drawFigure).catch(showPlotError);
   } else {
-    if (S.x) params.set("x", S.x);
     api("frame", params).then(drawFigure).catch(showPlotError);
   }
 }
@@ -701,6 +751,10 @@ function openDisplay() {
   }
   document.getElementById("ds-msize").value =
     Number.isFinite(d.msize) ? d.msize : "";
+  for (const key of ["width", "height"]) {
+    document.getElementById("ds-" + key).value =
+      Number.isFinite(d[key]) ? d[key] : "";
+  }
   document.getElementById("ds-layout").value =
     d.layout ? JSON.stringify(d.layout) : "";
   document.getElementById("ds-error").style.display = "none";
@@ -720,6 +774,10 @@ function applyDisplay() {
   }
   const msize = parseFloat(document.getElementById("ds-msize").value);
   if (Number.isFinite(msize) && msize > 0 && msize !== MSIZE_DEFAULT) d.msize = msize;
+  for (const key of ["width", "height"]) {
+    const value = parseFloat(document.getElementById("ds-" + key).value);
+    if (Number.isFinite(value) && value > 0) d[key] = value;
+  }
   const colors = S.y.map((name, i) => {
     const input = document.getElementById("ds-color-" + i);
     return input ? input.value : TRACE_COLORS[i];

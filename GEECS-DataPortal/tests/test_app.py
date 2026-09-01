@@ -659,6 +659,8 @@ class TestServerFigures:
             '{"ghost":1}',
             '{"logy":"yes"}',
             '{"msize":"big"}',
+            '{"width":"big"}',
+            '{"height":NaN}',
             '{"ymin":NaN}',
             '{"colors":"#123456"}',
             '{"colors":[7]}',
@@ -689,6 +691,53 @@ class TestServerFigures:
         assert payload["figure"]["data"][0]["x"] == [1.0, 2.0, 3.0]
         assert payload["figure"]["layout"]["xaxis"]["title"]["text"] == "shot #"
         assert "x=" not in payload["code"]
+
+    def test_binned_x_places_bins_at_per_bin_mean(self):
+        # Identity bins on mono (one shot each) — the per-bin mean of
+        # cam-MaxCounts as X is just its own values, hand-computable.
+        payload = (
+            _client()
+            .get(
+                "/api/run/uid-002/binned",
+                params={
+                    "cols": "cam-MaxCounts",
+                    "x": "cam-MaxCounts",
+                    "bincfg": '{"bin_col":"mono"}',
+                },
+            )
+            .json()
+        )
+        assert payload["x_centers"] == [10.0, 12.5, 11.0]
+        fig = payload["figure"]
+        assert fig["data"][0]["x"] == [10.0, 12.5, 11.0]
+        assert fig["layout"]["xaxis"]["title"]["text"] == "cam : MaxCounts"
+        # The snippet reproduces the placement (replace(cfg, agg='mean')).
+        assert "agg='mean'" in payload["code"]
+        assert "x_values=x_centers" in payload["code"]
+
+    def test_binned_without_x_keeps_bin_labels(self):
+        payload = (
+            _client()
+            .get(
+                "/api/run/uid-002/binned",
+                params={"cols": "cam-MaxCounts", "bincfg": '{"bin_col":"mono"}'},
+            )
+            .json()
+        )
+        assert "x_centers" not in payload
+        assert payload["figure"]["data"][0]["x"] == [4.0, 5.0, 6.0]
+        assert payload["figure"]["layout"]["xaxis"]["title"]["text"] == "mono"
+
+    def test_binned_unplottable_x_is_404(self):
+        response = _client().get(
+            "/api/run/uid-002/binned",
+            params={
+                "cols": "cam-MaxCounts",
+                "x": "cam-label",
+                "bincfg": '{"bin_col":"mono"}',
+            },
+        )
+        assert response.status_code == 404
 
     def test_binned_figure_carries_asymmetric_errors_and_bin_col(self):
         payload = (

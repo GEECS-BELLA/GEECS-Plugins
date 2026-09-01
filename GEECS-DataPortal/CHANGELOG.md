@@ -3,6 +3,30 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.11.0] - 2026-09-01
+
+### Added
+
+Owner live-feedback round on 0.10.0:
+
+- **Binned view plots against the X pick** — bins still *group* by
+  `bincfg.bin_col`, but each bin now *plots at* the per-bin **mean of
+  the selected X column** (`/binned?x=…` → `x_centers` in the payload,
+  the figure's x positions, and the axis title). Same primitive, same
+  bins: a second `bin_frame` call with `replace(cfg, value_cols=(x,),
+  agg="mean")`, mirrored verbatim in the "show the code" snippet. No
+  X keeps the bin labels as the axis, exactly as before. (X error
+  bars deliberately deferred — mean placement is the first move.)
+- **Plot size control**: `width`/`height` join the display vocabulary
+  (popup inputs; same type-400/value-degrade rules). A fixed size also
+  fixes the exported image size.
+- **Copy plot to clipboard**: a modebar button exports the figure at
+  2× and puts the PNG on the clipboard — copy-paste is how plots
+  travel around the lab. Caveat: the async Clipboard API requires a
+  secure context (https or localhost); on plain-http lab hosts the
+  button degrades to the 2× PNG download with a note. The built-in
+  camera download is 2× now too.
+
 ## [0.10.0] - 2026-08-31
 
 ### Changed

@@ -110,6 +110,16 @@ class TestShotsFigure:
         assert fig["data"][0]["marker"]["color"] == TRACE_COLORS[0]
         assert fig["data"][0]["marker"]["size"] == 5.0
 
+    def test_display_dimensions_fix_the_plot_size(self):
+        layout = _fig_dict(
+            shots_figure(SERIES, ["a"], display={"width": 800, "height": 500})
+        )["layout"]
+        assert layout["width"] == 800.0 and layout["height"] == 500.0
+        # Non-positive degrades to responsive autosizing, like every
+        # cosmetic value.
+        bad = _fig_dict(shots_figure(SERIES, ["a"], display={"width": -1}))["layout"]
+        assert "width" not in bad
+
     def test_custom_hex_colors_apply_to_trace_axis_and_title(self):
         fig = _fig_dict(
             shots_figure(SERIES, ["a", "b"], display={"colors": ["#123456"]})
@@ -189,6 +199,27 @@ class TestBinnedFigure:
     def test_missing_column_renders_empty_not_error(self):
         fig = _fig_dict(binned_figure(self.BINS, self.SERIES, ["a", "ghost"]))
         assert fig["data"][1]["y"] == []
+
+    def test_x_values_place_the_bins(self):
+        # Bins GROUP the data; the X parameter PLACES it — per-bin mean
+        # positions replace the bin labels, and the axis is titled for
+        # the X column, not the bin column.
+        fig = _fig_dict(
+            binned_figure(
+                self.BINS,
+                self.SERIES,
+                ["a"],
+                bin_col="Bin #",
+                x_values=[0.95, 1.0, 1.05],
+                x_label="U_S1H Current",
+            )
+        )
+        assert fig["data"][0]["x"] == [0.95, 1.0, 1.05]
+        assert fig["layout"]["xaxis"]["title"]["text"] == "U_S1H Current"
+        # Without x_values the bin labels stay the axis.
+        plain = _fig_dict(binned_figure(self.BINS, self.SERIES, ["a"]))
+        assert plain["data"][0]["x"] == self.BINS
+        assert plain["layout"]["xaxis"]["title"]["text"] == "Bin #"
 
     def test_display_ranges_apply_raw(self):
         layout = _fig_dict(
