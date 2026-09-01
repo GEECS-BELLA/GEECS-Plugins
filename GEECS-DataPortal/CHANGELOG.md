@@ -3,6 +3,23 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.15.0] - 2026-09-01
+
+### Added
+
+- **Image colormaps + display windowing** (owner ask, "step 1" of the
+  interactive-images plan): the image endpoints (`image.png`,
+  `bin-image.png` — raw and processed alike) take the shared
+  `display` state's new curated fields `cmap` (matplotlib colormap
+  name) and `plo`/`phi` (percentile-window overrides, defaults
+  1/99.7). Types 400 at the parse boundary, values degrade (unknown
+  colormap → grayscale, insane window → defaults) — display state
+  rides shared links and must never fail one. A small "display…"
+  popup in the Images plotbar edits them; URLs carry them everywhere
+  (per-shot, grid, steppers). RGB inputs keep their own colors.
+  Step 2 (interactive per-shot Heatmap view with hover pixel values)
+  is planned post-promotion.
+
 ## [0.14.0] - 2026-09-01
 
 ### Fixed

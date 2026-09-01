@@ -358,6 +358,14 @@ def create_app(
         except analysis.BadParam as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    def _render_opts(disp: dict) -> dict:
+        """The image-rendering slice of the display state (value-degrade)."""
+        return {
+            "cmap": disp.get("cmap"),
+            "plo": disp.get("plo"),
+            "phi": disp.get("phi"),
+        }
+
     def _pretty_names(detail, pf, columns: list[str]) -> dict:
         """Figure titles/legend names, by the columns endpoint's rule.
 
@@ -1042,6 +1050,7 @@ def create_app(
                 "total_shots": detail.summary.shots,
                 "processing": processing,
                 "processing_options": _processing_names() if sel_device else [],
+                "display": display,
                 "portal_version": _portal_version(),
                 # The rail's chips and the display popup must stay in
                 # step with the server-authored figures — one palette,
@@ -1054,16 +1063,24 @@ def create_app(
 
     @app.get("/run/{uid}/image.png")
     def run_image(
-        uid: str, device: str, shot: int = 1, day: str = "", processing: str = ""
+        uid: str,
+        device: str,
+        shot: int = 1,
+        day: str = "",
+        processing: str = "",
+        display: str = "",
     ) -> Response:
         """One device shot rendered for display (stack or native file).
 
         ``processing`` names a diagnostic to run ephemerally on the
         loaded pixels first (its ``processed_image`` renders instead of
         the raw frame) — the write-free seam; raw serving is untouched
-        when the param is absent.
+        when the param is absent. ``display`` carries the image
+        cosmetics (``cmap`` + ``plo``/``phi`` window — types 400,
+        values degrade, per the display doctrine).
         """
         detail = _load_run(uid)
+        render = _render_opts(_display(display))
         folder, _ = _image_folder(detail, day, device)
         # A shot beyond the recorded event rows must refuse outright:
         # falling through to the ordinal join would serve an orphan
@@ -1094,7 +1111,7 @@ def create_app(
                 )
             (processed,) = _apply_processing([resolved.array], processing)
             try:
-                png = resources.to_display_png(processed)
+                png = resources.to_display_png(processed, **render)
             except Exception as exc:  # noqa: BLE001 — must not 500
                 raise HTTPException(
                     status_code=404, detail=f"render failed: {exc}"
@@ -1116,6 +1133,7 @@ def create_app(
             acq_timestamp=acq,
             data_cache=data_cache if complete else None,
             cache_key=(uid, device) if complete else None,
+            **render,
         )
         if result.png is None:
             raise HTTPException(status_code=404, detail=result.reason or result.kind)
@@ -1133,6 +1151,7 @@ def create_app(
         bincfg: str = "",
         day: str = "",
         processing: str = "",
+        display: str = "",
     ) -> Response:
         """One bin's ``nanmean``-averaged device image, display-rendered.
 
@@ -1147,6 +1166,7 @@ def create_app(
         correct order for nonlinear pipeline steps like thresholding).
         """
         detail = _load_run(uid)
+        render = _render_opts(_display(display))
         folder, _ = _image_folder(detail, day, device)
         pf = scan_frame(detail, folder)
         _, mask = _masked(pf, filters)
@@ -1194,7 +1214,7 @@ def create_app(
                 status_code=404, detail="no renderable frames in this bin"
             )
         try:
-            png = resources.to_display_png(averaged)
+            png = resources.to_display_png(averaged, **render)
         except Exception as exc:  # noqa: BLE001 — unrenderable shape must not 500
             raise HTTPException(
                 status_code=404, detail=f"render failed: {exc}"
