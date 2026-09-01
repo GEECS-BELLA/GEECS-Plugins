@@ -30,7 +30,7 @@ Added by the run wrapper (`geecs_run_wrapper`) when a scan number is claimed:
 | `scan_id` | Same value as `scan_number` (Bluesky-native display field; see note) |
 | `scan_folder` | Absolute path of the claimed `scans/ScanNNN/` folder |
 | `nonscalar_save_paths` | device → save dir map (when non-scalar saving is active) |
-| `capture_devices` | capture-eligible camera names for the PVA capture daemon (present when the scan has any; the daemon prefers this over inferring from `nonscalar_save_paths`, composing paths as `scan_folder/<device>`) |
+| `capture_devices` | capture-eligible camera names for the PVA capture daemon (present when the scan has any; the daemon prefers this over inferring from `nonscalar_save_paths`, composing paths as `scan_folder/<device>`). Synchronous roles only: an asynchronous (snapshot-role) camera is never capture-owned, whatever its devicetype — the engine drops it with a warning (#702; see the `geecs_scalar_headers` note) |
 | `native_image_save` | the effective toggle: whether capture-eligible cameras also wrote native per-shot files, or the daemon's frame stacks are their only image record. Present alongside `capture_devices` — and additionally recorded as `false` alone when off was requested but nothing was eligible (DB blip / no registry cameras), so an inert request stays visible in provenance |
 | `geecs_scalar_headers` | event data-key → legacy `Device Variable` header map (see note) |
 | `bluesky_backend` | `true` |
@@ -46,10 +46,11 @@ construction, with one deliberate exception: a **file-producing device**
 toggle) surfaces its `-acq_timestamp` column so its files — per-shot
 natives or capture-stack frames — join back to scan rows by it (the
 ScanAnalysis `device_hdf5` join key; legacy parity for native savers).
-The exception covers the SYNC roles only: an asynchronous (snapshot-role)
-capture-owned camera has no acq_timestamp machinery and surfaces no such
-column — its stack cannot be row-joined unless the save set lists
-`acq_timestamp` explicitly (known gap, tracked with issue #702; capture
+The exception covers the SYNC roles — which are the only roles that can be
+capture-owned: an asynchronous (snapshot-role) camera has no acq_timestamp
+machinery to row-join a stack by (and a scalar-less async entry builds no
+device at all), so `select_capture_devices` drops it from `capture_devices`
+with a loud warning and leaves its native saving as-is (#702; capture
 cameras are synchronous in production). A **pseudo scan variable's** motor column is the one
 exception to the `Device Variable` header shape: its recorded value is the
 demanded pseudo number (no physical readback of its own), so its header is the

@@ -240,6 +240,20 @@ variants:
         - {device: U_DG645_ShotControl, variable: Trigger.Source, value: Internal}
 """
 
+# Two asynchronous (snapshot-role) cameras that a save set marks as image
+# savers — the #702 shapes: one with scalars, one with none at all.
+LEGACY_ASYNC_CAMERAS = """\
+Devices:
+  U_AsyncCam:
+    synchronous: false
+    save_nonscalar_data: true
+    variable_list: [Pressure]
+  U_AsyncBare:
+    synchronous: false
+    save_nonscalar_data: true
+    variable_list: []
+"""
+
 LEGACY_ELEMENT_WITH_ACTIONS = """\
 Devices:
   U_Cam:
@@ -377,6 +391,7 @@ def configs_root(tmp_path):
     (legacy / "save_devices" / "UC_WithActions.yaml").write_text(
         LEGACY_ELEMENT_WITH_ACTIONS
     )
+    (legacy / "save_devices" / "UC_AsyncCams.yaml").write_text(LEGACY_ASYNC_CAMERAS)
     (legacy / "shot_control_configurations").mkdir()
     (legacy / "shot_control_configurations" / "HTU-Normal.yaml").write_text(
         LEGACY_SHOT_CONTROL
@@ -2533,28 +2548,158 @@ def test_native_image_save_off_wires_contributor_branch(
     assert session.save_flags["U_Cam2"] is False
 
 
-def test_native_image_save_off_wires_snapshot_branch(
-    legacy_resolver, monkeypatch
-) -> None:
-    """An async capture-owned camera gets the off-write surface too
-    (codex P2 on #699 — the snapshot branch used to drop the flag)."""
-    import geecs_bluesky.scan_request_runner as runner_mod
+def _select_through_real_seam(monkeypatch, runner_mod, types: dict[str, str]):
+    """Route the REAL selection seam through a fake devicetype provider.
 
-    def _select_u_slow(experiment, devices_config, *, provider=None):
-        return [d for d in devices_config if d == "U_Slow"]
+    Unlike the ``_select_u_cam`` stand-ins this keeps the seam's own policy
+    (devicetype + save flag + sync role) in the loop, so the async-role drop
+    (#702) is exercised end to end through the runner, hermetically.
+    """
+    real = runner_mod.select_capture_devices
+
+    class _Provider:
+        @staticmethod
+        def by_device():
+            return dict(types)
+
+    monkeypatch.setattr(
+        runner_mod,
+        "select_capture_devices",
+        lambda experiment, devices_config, *, provider=None: real(
+            experiment, devices_config, provider=_Provider()
+        ),
+    )
+
+
+def _capture_drop_warnings(caplog, device: str) -> list[str]:
+    return [
+        r.getMessage()
+        for r in caplog.records
+        if r.levelno == logging.WARNING
+        and r.getMessage().startswith(f"{device} is NOT capture-owned")
+    ]
+
+
+def test_async_camera_without_scalars_is_dropped_from_capture(
+    legacy_resolver, monkeypatch, caplog
+) -> None:
+    """#702 shape 1: an async capture-eligible camera with an EMPTY
+    variable_list builds no device (the "no scalars" skip), so nothing could
+    ever command its save off — it must land in neither ``capture_devices``
+    nor the save_control_only config, loudly, and the toggle-off scan goes
+    ahead on the sync camera alone."""
+    import geecs_bluesky.scan_request_runner as runner_mod
 
     monkeypatch.setattr(  # daemon heartbeat absent in tests — bypass refusal
         runner_mod, "preflight_capture_liveness", lambda *a, **k: None
     )
-    monkeypatch.setattr(runner_mod, "select_capture_devices", _select_u_slow)
-    session = _SaveRecordingSession()
-    run_scan_request(
-        session,
-        _noscan_request(acquisition="strict", native_image_save=False),
-        legacy_resolver,
+    _select_through_real_seam(
+        monkeypatch,
+        runner_mod,
+        {"U_Cam": "Point Grey Camera", "U_AsyncBare": "Point Grey Camera"},
     )
-    assert dict(session.devices)["U_Slow"] == "snapshot"
-    assert session.control_only_flags["U_Slow"] is True
+    session = _SaveRecordingSession()
+    with caplog.at_level(logging.WARNING):
+        run_scan_request(
+            session,
+            _noscan_request(
+                acquisition="strict",
+                save_sets=["UC_Test", "UC_AsyncCams"],
+                native_image_save=False,
+            ),
+            legacy_resolver,
+        )
+    md = session.scan_kwargs["md"]
+    assert md["capture_devices"] == ["U_Cam"]
+    assert md["native_image_save"] is False
+    assert "U_AsyncBare" not in dict(session.devices)  # still skipped: no scalars
+    assert "U_AsyncBare" not in session.control_only_flags
+    (message,) = _capture_drop_warnings(caplog, "U_AsyncBare")
+    assert "Point Grey Camera" in message and "#702" in message
+    assert "native saving is left as-is" in message
+
+
+def test_async_camera_with_scalars_is_a_plain_snapshot_not_capture_owned(
+    legacy_resolver, monkeypatch, caplog
+) -> None:
+    """#702 shape 2: an async capture-eligible camera WITH scalars used to
+    get the save child but no acq_timestamp join column (an orphaned
+    stack). It is now a plain snapshot: no control-only flag, absent from
+    ``capture_devices``, warned about by name; the sync camera is still
+    captured."""
+    import geecs_bluesky.scan_request_runner as runner_mod
+
+    monkeypatch.setattr(  # daemon heartbeat absent in tests — bypass refusal
+        runner_mod, "preflight_capture_liveness", lambda *a, **k: None
+    )
+    _select_through_real_seam(
+        monkeypatch,
+        runner_mod,
+        {"U_Cam": "Point Grey Camera", "U_AsyncCam": "Point Grey Camera"},
+    )
+    session = _SaveRecordingSession()
+    with caplog.at_level(logging.WARNING):
+        run_scan_request(
+            session,
+            _noscan_request(
+                acquisition="strict",
+                save_sets=["UC_Test", "UC_AsyncCams"],
+                native_image_save=False,
+            ),
+            legacy_resolver,
+        )
+    assert dict(session.devices)["U_AsyncCam"] == "snapshot"
+    assert session.control_only_flags["U_AsyncCam"] is False
+    md = session.scan_kwargs["md"]
+    assert md["capture_devices"] == ["U_Cam"]
+    assert session.control_only_flags["U_Cam"] is True
+    assert len(_capture_drop_warnings(caplog, "U_AsyncCam")) == 1
+
+
+def test_toggle_off_with_only_async_eligible_camera_is_inert_and_unrefused(
+    legacy_resolver, monkeypatch, caplog
+) -> None:
+    """When the ONLY capture-eligible camera is async, toggle-off resolves
+    to no capture devices: the liveness preflight is never consulted (no
+    daemon needed for a scan that captures nothing), no ``capture_devices``
+    key is published, and the inert request stays visible as
+    ``native_image_save: false`` alongside the existing no-eligible warning."""
+    import geecs_bluesky.scan_request_runner as runner_mod
+
+    preflight_calls: list = []
+    monkeypatch.setattr(
+        runner_mod,
+        "preflight_capture_liveness",
+        lambda *a, **k: preflight_calls.append(a),
+    )
+    _select_through_real_seam(
+        monkeypatch, runner_mod, {"U_AsyncCam": "Point Grey Camera"}
+    )
+    session = _SaveRecordingSession()
+    with caplog.at_level(logging.WARNING):
+        run_scan_request(
+            session,
+            _noscan_request(
+                acquisition="strict",
+                save_sets=["UC_Test", "UC_AsyncCams"],
+                native_image_save=False,
+            ),
+            legacy_resolver,
+        )
+    assert preflight_calls == []
+    md = session.scan_kwargs["md"]
+    assert "capture_devices" not in md
+    assert md["native_image_save"] is False
+    assert session.control_only_flags == {
+        "U_Cam": False,
+        "U_Cam2": False,
+        "U_Slow": False,
+        "U_AsyncCam": False,
+    }
+    assert len(_capture_drop_warnings(caplog, "U_AsyncCam")) == 1
+    assert any(
+        "no capture-eligible devices resolved" in r.getMessage() for r in caplog.records
+    )
 
 
 def test_native_image_save_on_leaves_saving_and_still_publishes_list(

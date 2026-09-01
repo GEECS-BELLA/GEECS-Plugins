@@ -1276,12 +1276,20 @@ def select_capture_devices(
     *,
     provider: Any | None = None,
 ) -> list[str]:
-    """Image-saving devices whose devicetype the capture daemon owns.
+    """Image-saving SYNCHRONOUS devices whose devicetype the capture daemon owns.
 
     Devicetypes come from the failure-tolerant
     :class:`~geecs_bluesky.db_runtime.GeecsDbDeviceTypes` provider — a DB
     failure yields an empty mapping, so nothing is capture-eligible and
     native saving is never switched off on a DB blip (fail-open keeps data).
+
+    Asynchronous (snapshot-role) devices are never capture-owned, however
+    eligible their devicetype (#702): the snapshot role has neither the
+    active save-off surface (a scalar-less async entry builds no device at
+    all, so the run wrapper's eager ``save="off"`` could never reach it) nor
+    an ``acq_timestamp`` column to row-join a capture stack by. Such a
+    device is dropped here with a loud warning and its native saving is
+    left as-is — the engine neither commands nor suppresses it.
     """
     from geecs_bluesky.capture.discovery import CAPTURE_DEVICE_TYPES
 
@@ -1292,11 +1300,26 @@ def select_capture_devices(
             return []
         provider = GeecsDbDeviceTypes(experiment)
     types = provider.by_device()
-    return [
-        name
-        for name, cfg in devices_config.items()
-        if cfg.get("save_nonscalar_data") and types.get(name) in CAPTURE_DEVICE_TYPES
-    ]
+    selected: list[str] = []
+    for name, cfg in devices_config.items():
+        if not (
+            cfg.get("save_nonscalar_data") and types.get(name) in CAPTURE_DEVICE_TYPES
+        ):
+            continue
+        if not cfg.get("synchronous", False):
+            logger.warning(
+                "%s is NOT capture-owned: its devicetype (%s) is "
+                "capture-eligible, but asynchronous (snapshot-role) devices "
+                "are dropped from capture_devices until the snapshot role "
+                "grows a save-control child and an acq_timestamp join column "
+                "(#702). Its native saving is left as-is; give it a "
+                "synchronous role to have the capture daemon own its images.",
+                name,
+                types.get(name),
+            )
+            continue
+        selected.append(name)
+    return selected
 
 
 def preflight_capture_liveness(

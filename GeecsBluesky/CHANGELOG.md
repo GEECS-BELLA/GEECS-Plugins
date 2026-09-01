@@ -4,6 +4,30 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.70.1] - 2026-09-01
+
+### Fixed
+
+- **Asynchronous (snapshot-role) cameras are never capture-owned**
+  (#702). `select_capture_devices` selected on devicetype + save flag
+  only, so an async camera in a save set landed in `capture_devices` /
+  the start-doc metadata and got `save_control_only=True` — in two
+  broken shapes: with an EMPTY `variable_list` no device object was
+  ever built (the "no scalars" skip), so the run wrapper's eager
+  `save="off"` could never reach it (the stale-path hazard the active
+  off-write surface exists to close); with scalars it got the save
+  child but no `acq_timestamp` column (`CaSnapshotReadable` has no acq
+  machinery), so its stack could not be row-joined. Both are now
+  dropped at the selection seam with a WARNING naming the device, its
+  devicetype and the reason; native saving for them is left as-is (the
+  engine never drove it for async roles). Sync roles — the production
+  case — are unchanged. Not an event-schema bump: `capture_devices`
+  still means exactly "the devices the daemon owns for this run"; only
+  the engine's selection policy narrowed. Pinned in both shapes plus
+  the sole-eligible-is-async case (no preflight, no key, inert
+  `native_image_save: false`), end to end through the runner and at the
+  seam. EVENT_SCHEMA.md / capture FORMAT.md / CLAUDE.md say so.
+
 ## [0.70.0] - 2026-09-01
 
 ### Changed
