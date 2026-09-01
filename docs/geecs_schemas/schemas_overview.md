@@ -181,7 +181,6 @@ clear "not yet" message rather than attempted halfway.
   `synchronous:` flags, `acq_timestamp` bookkeeping variables, or parallel
   laser-off files: those are gone on purpose. The scanner derives them, and
   the old files convert automatically.
-
 - **`schema_version` is not something you maintain.** It marks the file
   layout generation, and the tools migrate old files forward automatically
   when they load — a preset saved under an older layout keeps working, and
