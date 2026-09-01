@@ -45,8 +45,21 @@ checks pass.
 ```bash
 cd ~/GEECS-Plugins-portal/GEECS-DataPortal
 poetry env use python3.11
-poetry install
+poetry install --extras analysis
 ```
+
+The `analysis` extra installs ImageAnalysis for the Images tab's
+**processing selector** (0.13.0+). The feature is explicit-opt-in
+twice over: the extra installs the code, and the unit's `ExecStart`
+must name the scan-analysis configs tree —
+
+```
+--processing-configs "/path/to/GEECS-Plugins-Configs/scan_analysis_configs"
+```
+
+(quote it — the lab's share paths contain spaces). Omit both for a
+raw-images-only portal; the selector hides itself and nothing else
+changes. A misconfigured tree logs a startup WARNING naming the path.
 
 Smoke-test in the foreground before installing the unit:
 
@@ -112,9 +125,12 @@ degraded catalog, not a dead portal).
 
 ```bash
 cd ~/GEECS-Plugins-portal && git pull
-cd GEECS-DataPortal && poetry install
+cd GEECS-DataPortal && poetry install --extras analysis
 sudo systemctl restart geecs-data-portal
 ```
+
+(Drop `--extras analysis` only on a deployment that deliberately runs
+without the processing selector.)
 
 ## Troubleshooting
 
