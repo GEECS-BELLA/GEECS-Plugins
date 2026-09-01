@@ -86,6 +86,11 @@
   .apply { background: var(--accent); color: #10201d; border: none; border-radius: 3px;
            padding: 0.3rem 0.9rem; font-size: 12px; cursor: pointer; font-weight: 600; }
   .plotmsg { color: var(--dim); font-size: 13px; padding: 2rem 0; text-align: center; }
+  .bingrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+             gap: 0.8rem; margin-top: 0.7rem; }
+  .bincard { margin: 0; background: var(--panel); border: 1px solid var(--line);
+             border-radius: 4px; padding: 0.4rem; }
+  .bincard figcaption { font-size: 11px; padding-top: 0.3rem; text-align: center; }
 </style>
 <script src="{{ root }}/static/plotly-cartesian-3.1.1.min.js"></script>
 {% endblock %}
@@ -191,6 +196,14 @@
       render (trace/array data, not an image). Files live at:</p>
       <p class="mono">{{ kind_path }}</p>
       {% else %}
+      <div class="plotbar">
+        <span class="seg">
+          <button id="seg-img-shot" onclick="setView('shot')">per-shot</button>
+          <button id="seg-img-bin" onclick="setView('bin')">per-bin avg</button>
+        </span>
+        <span class="gear" title="bin settings" onclick="openBinset()">⚙</span>
+      </div>
+      <div id="imgshot">
       <form class="nav" method="get" action="{{ root }}/run/{{ uid }}">
         <input type="hidden" name="device" value="{{ sel_device }}">
         <input type="hidden" name="day" value="{{ day }}">
@@ -207,6 +220,8 @@
         <span class="dim mono">{{ kind }}</span>
       </form>
       <img class="plot" src="{{ root }}/run/{{ uid }}/image.png?device={{ sel_device | urlencode }}&amp;shot={{ shot }}&amp;day={{ day | urlencode }}" alt="{{ sel_device }} shot {{ shot }}">
+      </div>
+      <div id="imggrid" class="bingrid" hidden></div>
       {% endif %}
       {% else %}
       <p class="dim">Pick a device above.</p>
@@ -313,6 +328,8 @@
 const UID = {{ uid | tojson }};
 const ROOT = {{ root | tojson }};  // proxy mount prefix ("" at root)
 const DAY = {{ day | tojson }};
+const SEL_DEVICE = {{ sel_device | tojson }};
+const VERSION = {{ portal_version | tojson }};
 const TRACE_COLORS = {{ trace_colors | tojson }};
 const MSIZE_DEFAULT = {{ msize_default | tojson }};
 // Everything Plotly gives for free, switched ON: wheel zoom, in-place
@@ -458,14 +475,65 @@ function setTab(tab) {
   document.querySelectorAll(".pane").forEach(pane => pane.classList.toggle("on", pane.id === "pane-" + tab));
   writeState();
   if (tab === "plot") refresh();
+  refreshImages();
 }
 
 function setView(view) {
+  // ONE per-shot ⇄ binned state, deliberately shared by the Plot and
+  // Images tabs (the link IS the analysis: a binned link means binned
+  // everywhere) — both segmented controls mirror it.
   S.view = view;
   document.getElementById("seg-shot").classList.toggle("on", view === "shot");
   document.getElementById("seg-bin").classList.toggle("on", view === "bin");
+  const imgSeg = document.getElementById("seg-img-shot");
+  if (imgSeg) {
+    imgSeg.classList.toggle("on", view === "shot");
+    document.getElementById("seg-img-bin").classList.toggle("on", view === "bin");
+  }
   writeState();
   refresh();
+  refreshImages();
+}
+
+// ---------------- the images tab's per-bin grid ----------------
+let IMG_KEY = null;  // last-rendered grid params — skip redundant refetches
+
+function refreshImages() {
+  const shotBox = document.getElementById("imgshot");
+  const grid = document.getElementById("imggrid");
+  if (!shotBox || !SEL_DEVICE) return;  // no device / vendor / unrenderable
+  const binned = S.view === "bin";
+  shotBox.hidden = binned;
+  grid.hidden = !binned;
+  if (!binned || S.tab !== "images") return;
+  const key = JSON.stringify([SEL_DEVICE, S.filters, S.bincfg]);
+  if (key === IMG_KEY) return;
+  IMG_KEY = key;  // set before the fetch: dedupes the boot's setTab+setView pair
+  const params = new URLSearchParams({ device: SEL_DEVICE });
+  if (S.filters) params.set("filters", S.filters);
+  if (S.bincfg) params.set("bincfg", S.bincfg);
+  grid.innerHTML = `<div class="plotmsg">loading bins…</div>`;
+  api("bin-images", params).then(data => {
+    if (!data.bins.length) {
+      grid.innerHTML = `<div class="plotmsg">no bins (check filters / bin column)</div>`;
+      return;
+    }
+    grid.innerHTML = data.bins.map((b, i) => {
+      const q = new URLSearchParams({ device: SEL_DEVICE, bin: i, v: VERSION });
+      if (S.filters) q.set("filters", S.filters);
+      if (S.bincfg) q.set("bincfg", S.bincfg);
+      if (DAY) q.set("day", DAY);
+      const label = b.bin === null ? "—" : String(b.bin);
+      return `<figure class="bincard">
+        <img class="plot" loading="lazy" src="${ROOT}/run/${UID}/bin-image.png?${q.toString()}"
+             alt="${escAttr(data.bin_col)} ${escAttr(label)}">
+        <figcaption class="dim mono">${esc(data.bin_col)}: ${esc(label)} · n=${b.count}</figcaption>
+      </figure>`;
+    }).join("");
+  }).catch(err => {
+    IMG_KEY = null;
+    grid.innerHTML = `<div class="plotmsg">${esc(err.message)}</div>`;
+  });
 }
 
 // ---------------- column picker ----------------
@@ -626,7 +694,7 @@ function renderChips() {
 function setFilters(model) {
   const active = (model.groups || []).length;
   S.filters = active || model.nan_policy !== "exclude" ? JSON.stringify(model) : "";
-  renderChips(); writeState(); updatePassCount(); refresh();
+  renderChips(); writeState(); updatePassCount(); refresh(); refreshImages();
 }
 
 function toggleGroup(i, on) {
@@ -740,7 +808,7 @@ function applyBinset() {
   if (Number.isFinite(minCount) && minCount > 1) cfg.min_count = minCount;
   S.bincfg = Object.keys(cfg).length ? JSON.stringify(cfg) : "";
   closeModals(); writeState();
-  if (S.view !== "bin") setView("bin"); else refresh();
+  if (S.view !== "bin") setView("bin"); else { refresh(); refreshImages(); }
 }
 
 // ---------------- display settings popup ----------------
