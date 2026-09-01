@@ -658,3 +658,203 @@ class TestBinImagesReviewPins:
             "/run/uid-002/image.png", params={"device": "U_OddH5", "shot": 1}
         )
         assert response.status_code == 404
+
+
+class TestProcessingSelector:
+    """The ephemeral-processing selector: write-free pipeline over served pixels."""
+
+    @pytest.fixture()
+    def configs_tree(self, tmp_path):
+        import yaml
+
+        tree = tmp_path / "proc_configs"
+        diag = tree / "analyzers" / "HTU" / "UC_Crop.yaml"
+        diag.parent.mkdir(parents=True)
+        diag.write_text(
+            yaml.safe_dump(
+                {
+                    "name": "UC_Crop",
+                    "image_analyzer": (
+                        "image_analysis.analyzers.standard_analyzer.StandardAnalyzer"
+                    ),
+                    "image": {
+                        "type": "camera",
+                        "bit_depth": 16,
+                        "pipeline": {"steps": ["roi"]},
+                        "roi": {"x_min": 1, "x_max": 4, "y_min": 0, "y_max": 2},
+                    },
+                    "scan": {"priority": 100},
+                }
+            )
+        )
+        thresh = tree / "analyzers" / "HTU" / "UC_CropThresh.yaml"
+        thresh.write_text(
+            yaml.safe_dump(
+                {
+                    "name": "UC_CropThresh",
+                    "image_analyzer": (
+                        "image_analysis.analyzers.standard_analyzer.StandardAnalyzer"
+                    ),
+                    "image": {
+                        "type": "camera",
+                        "bit_depth": 16,
+                        "pipeline": {"steps": ["roi", "thresholding"]},
+                        "roi": {"x_min": 1, "x_max": 4, "y_min": 0, "y_max": 2},
+                        # Cutoff between the raw marker (1000) and the
+                        # bin average of two markers (500): only
+                        # process-THEN-average keeps both markers alive.
+                        "thresholding": {
+                            "method": "constant",
+                            "value": 600.0,
+                            "mode": "binary",
+                        },
+                    },
+                    "scan": {"priority": 100},
+                }
+            )
+        )
+        haso = tree / "analyzers" / "HTU" / "U_Haso.yaml"
+        haso.write_text(
+            yaml.safe_dump(
+                {
+                    "name": "U_Haso",
+                    "image_analyzer": {
+                        "class_path": (
+                            "image_analysis.analyzers."
+                            "HASO_himg_has_processor.HASOHimgHasProcessor"
+                        ),
+                        "kwargs": {},
+                    },
+                    "scan": {"priority": 100},
+                }
+            )
+        )
+        return tree
+
+    def _client(self, scan_folder, configs_tree):
+        catalog = FakeCatalog()
+        detail = _detail(2)
+        detail.start_doc["scan_folder"] = str(scan_folder)
+        detail.data["Bin #"] = [1, 1, 2]
+        catalog.details["uid-002"] = detail
+        return TestClient(create_app(catalog, processing_config_dir=configs_tree))
+
+    def test_per_shot_processing_applies_the_pipeline(self, scan_folder, configs_tree):
+        response = self._client(scan_folder, configs_tree).get(
+            "/run/uid-002/image.png",
+            params={"device": "cam", "shot": 1, "processing": "UC_Crop"},
+        )
+        assert response.status_code == 200
+        decoded = np.array(Image.open(io.BytesIO(response.content)))
+        # ROI x 1:4, y 0:2 crops the 5x5 to (2, 3); shot 1's marker at
+        # [0, 1] lands at cropped [0, 0].
+        assert decoded.shape == (2, 3)
+        assert decoded[0, 0] == 255
+        rest = decoded.copy()
+        rest[0, 0] = 0
+        assert not rest.any()
+
+    def test_bin_average_processes_each_shot_then_averages(
+        self, scan_folder, configs_tree
+    ):
+        response = self._client(scan_folder, configs_tree).get(
+            "/run/uid-002/bin-image.png",
+            params={"device": "cam", "bin": 0, "processing": "UC_Crop"},
+        )
+        assert response.status_code == 200
+        decoded = np.array(Image.open(io.BytesIO(response.content)))
+        # Bin {1,2}: shots 1+2 processed (cropped) THEN averaged — both
+        # half-intensity markers survive at cropped [0,0] and [0,1].
+        assert decoded.shape == (2, 3)
+        assert decoded[0, 0] == decoded[0, 1] == 255
+        rest = decoded.copy()
+        rest[0, 0] = rest[0, 1] = 0
+        assert not rest.any()
+
+    def test_bin_average_order_is_process_then_average(self, scan_folder, configs_tree):
+        """A NONLINEAR step distinguishes the order (the crop test alone
+        cannot: crop commutes with averaging). Threshold 600 sits between
+        the raw marker (1000) and the averaged marker (500): only
+        process-then-average keeps both bin-0 markers alive — the wrong
+        order (average, then threshold once) blanks the image entirely.
+        """
+        response = self._client(scan_folder, configs_tree).get(
+            "/run/uid-002/bin-image.png",
+            params={"device": "cam", "bin": 0, "processing": "UC_CropThresh"},
+        )
+        assert response.status_code == 200
+        decoded = np.array(Image.open(io.BytesIO(response.content)))
+        assert decoded[0, 0] == decoded[0, 1] == 255
+
+    def test_processed_responses_never_cache_immutable(self, scan_folder, configs_tree):
+        """The diagnostic YAML is a mutable input the URL does not key —
+        an edited config must show on reload, on every viewer, even
+        behind a caching reverse proxy (completed run or not).
+        """
+        client = self._client(scan_folder, configs_tree)
+        shot = client.get(
+            "/run/uid-002/image.png",
+            params={"device": "cam", "shot": 1, "processing": "UC_Crop"},
+        )
+        assert shot.headers["cache-control"] == "no-cache"
+        grid = client.get(
+            "/run/uid-002/bin-image.png",
+            params={"device": "cam", "bin": 0, "processing": "UC_Crop"},
+        )
+        assert grid.headers["cache-control"] == "no-cache"
+        raw = client.get("/run/uid-002/image.png", params={"device": "cam", "shot": 1})
+        assert "immutable" in raw.headers["cache-control"]  # raw path unchanged
+
+    def test_selector_rendered_only_with_configs(self, scan_folder, configs_tree):
+        with_configs = self._client(scan_folder, configs_tree).get(
+            "/run/uid-002", params={"device": "cam", "tab": "images"}
+        )
+        assert "procsel" in with_configs.text
+        assert "UC_Crop" in with_configs.text
+        without = _gallery_client(scan_folder).get(
+            "/run/uid-002", params={"device": "cam", "tab": "images"}
+        )
+        assert "procsel" not in without.text
+
+    def test_processing_error_ladder(self, scan_folder, configs_tree):
+        client = self._client(scan_folder, configs_tree)
+        unknown = client.get(
+            "/run/uid-002/image.png",
+            params={"device": "cam", "shot": 1, "processing": "nope"},
+        )
+        assert unknown.status_code == 404
+        denylisted = client.get(
+            "/run/uid-002/image.png",
+            params={"device": "cam", "shot": 1, "processing": "U_Haso"},
+        )
+        assert denylisted.status_code == 400
+        assert "ephemerally" in denylisted.json()["detail"]
+
+    def test_missing_analysis_extra_degrades(
+        self, scan_folder, configs_tree, monkeypatch
+    ):
+        import sys
+
+        # A None entry makes `from image_analysis.X import …` raise
+        # ImportError — simulating the extra not being installed.
+        monkeypatch.setitem(sys.modules, "image_analysis.config", None)
+        monkeypatch.setitem(sys.modules, "image_analysis.ephemeral", None)
+        client = self._client(scan_folder, configs_tree)
+        page = client.get("/run/uid-002", params={"device": "cam", "tab": "images"})
+        assert page.status_code == 200
+        assert "procsel" not in page.text  # selector hidden, page fine
+        response = client.get(
+            "/run/uid-002/image.png",
+            params={"device": "cam", "shot": 1, "processing": "UC_Crop"},
+        )
+        assert response.status_code == 404
+        assert "analysis" in response.json()["detail"]
+
+    def test_raw_serving_untouched_by_selector_presence(
+        self, scan_folder, configs_tree
+    ):
+        response = self._client(scan_folder, configs_tree).get(
+            "/run/uid-002/image.png", params={"device": "cam", "shot": 1}
+        )
+        decoded = np.array(Image.open(io.BytesIO(response.content)))
+        assert decoded.shape == (5, 5)  # full frame — no processing applied

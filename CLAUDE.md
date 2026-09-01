@@ -166,6 +166,10 @@ GEECS-DataPortal     →  GEECS-Data-Utils (tiled extra — the ScanCatalog
                         seam + the shared browser helpers; a peer VIEW
                         LAYER of the console's scan browser, one web one
                         Qt — never imports the console or tiled directly)
+                        (+ ImageAnalysis, optional via the `analysis`
+                        extra — the Images tab's ephemeral-processing
+                        selector over image_analysis.ephemeral's
+                        write-free seam)
 ScanAnalysis         →  GEECS-Data-Utils, ImageAnalysis, LogMaker4GoogleDocs
 GEECS-MCP            →  GeecsBluesky (qs-client + ca extras — the queue
                         client, preflight, config resolver/listings),
