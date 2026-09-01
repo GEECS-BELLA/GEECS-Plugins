@@ -347,3 +347,40 @@ Invariant is pinned by tests:
 - `tests/analyzers/test_line_stitcher.py::TestLineStitcherScanFolderInvariant`
 - `tests/analyzers/test_magspec_calib.py::TestScanFolderInvariant`
 - `tests/processing/test_array1d_background.py`
+
+## Ephemeral runs (the write-free contract)
+
+`image_analysis.ephemeral.run_diagnostic_ephemeral(name_or_path, frames,
+*, config_dir=..., overrides=..., auxiliary_data=...)` runs a configured
+diagnostic over already-loaded frames with a hard no-writes guarantee —
+the seam read-only viewers (the data portal's processing selector,
+exploratory notebooks) use to get the production pipeline without the
+production side effects.
+
+The write gate is structural, and it depends on two conventions that
+**must survive analyzer changes**:
+
+1. **Path-gated writers stay path-gated.** Analyzers that persist
+   derived per-shot files do so only when `auxiliary_data["file_path"]`
+   (or equivalent constructor state) is present. The ephemeral runner
+   takes in-memory frames only and refuses `file_path` in
+   `auxiliary_data` (`ValueError`, never a silent strip) — so a
+   path-gated writer is automatically dormant. If you add an analyzer
+   with side effects on some *other* trigger — persisted files,
+   transient temp files, subprocess spawns — gate them on `file_path`
+   too, or add it to the denylist below.
+2. **Analyzers with un-gated side effects go on `EPHEMERAL_DENYLIST`**
+   (class-path strings, checked *before* the class is imported — which
+   also keeps vendor SDK / DLL imports off hosts that lack them). Two
+   current entries: **HASO** writes five sidecars per shot from
+   `load_image` (instance state set there is what `analyze_image`
+   packages, so the analyze-only ephemeral call would return a
+   meaningless pass-through anyway, and the module hard-imports
+   wavekit); **Grenouille**'s `analyze_image` unconditionally writes
+   transient temp files and spawns a ~seconds 32-bit DLL subprocess per
+   frame (cleaned up afterwards, but a per-request viewer must trigger
+   neither). Remove an entry only when the analyzer gains an explicit
+   ephemeral mode.
+
+`list_diagnostics(config_dir=...)` (in `image_analysis.config`)
+enumerates the loadable diagnostic IDs for pickers over the same tree.

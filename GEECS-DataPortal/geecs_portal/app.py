@@ -47,8 +47,9 @@ from starlette.requests import Request
 from starlette.staticfiles import StaticFiles
 
 from geecs_data_utils import tiled_schema as schema_map
-from geecs_data_utils.data.binning import bin_frame
+from geecs_data_utils.data.binning import bin_frame, compute_bin_key
 from geecs_data_utils.data.row_filters import filter_mask
+from geecs_data_utils.io.images import average_frames
 from geecs_data_utils.scan_frame import PROVENANCE_RUN, scan_frame
 from geecs_data_utils.tiled_catalog import (
     ScanCatalog,
@@ -244,7 +245,12 @@ def _default_x(detail, columns: list[str]) -> str:
     return scan_vars[0] if scan_vars else ""
 
 
-def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI:
+def create_app(
+    catalog: ScanCatalog,
+    *,
+    default_experiment: str = "",
+    processing_config_dir: Optional[Path] = None,
+) -> FastAPI:
     """Build the portal application over an injected catalog.
 
     Parameters
@@ -254,6 +260,14 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
         fakes in tests).
     default_experiment : str, optional
         Experiment preselected when a request names none.
+    processing_config_dir : Path, optional
+        Root of the scan-analysis configs tree for the Images tab's
+        ephemeral-processing selector. ``None`` (the default) turns
+        the feature OFF — the portal never falls back to the global
+        config resolution (the 03 design doc's finding 7: two
+        competing resolution paths exist, so the portal names its
+        tree explicitly). The selector also hides itself when
+        ImageAnalysis (the ``analysis`` extra) is not installed.
 
     Returns
     -------
@@ -343,6 +357,14 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
             return analysis.parse_display(display_raw)
         except analysis.BadParam as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    def _render_opts(disp: dict) -> dict:
+        """The image-rendering slice of the display state (value-degrade)."""
+        return {
+            "cmap": disp.get("cmap"),
+            "plo": disp.get("plo"),
+            "phi": disp.get("phi"),
+        }
 
     def _pretty_names(detail, pf, columns: list[str]) -> dict:
         """Figure titles/legend names, by the columns endpoint's rule.
@@ -589,6 +611,211 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
         _, mask = _masked(pf, filters)
         return {"pass": int(mask.sum()), "total": len(pf.frame)}
 
+    def _bin_groups(pf, mask, bincfg_raw: str):
+        """Per-bin shot membership over the filtered union frame.
+
+        Same primitives and grouping semantics as ``/binned``
+        (``compute_bin_key`` + ``groupby(dropna=False, observed=True,
+        sort)``, ``min_count`` applied to per-bin ROW counts exactly as
+        ``bin_frame`` does), so the two tabs' bins agree under one
+        shared ``bincfg`` — and the same code path serves both
+        bin-images endpoints, so a ``bin`` INDEX is stable between the
+        JSON listing and the PNG renders regardless of how labels
+        serialize.
+
+        Returns
+        -------
+        tuple of (BinningConfig, list of (label, list of int))
+            The parsed config and, per bin in group order, the label
+            and the sorted 1-based shot numbers (rows with no shot
+            identity are dropped — no shot number, no image).
+        """
+        try:
+            cfg = analysis.parse_bincfg(bincfg_raw)
+        except analysis.BadParam as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        frame = pf.frame[mask]
+        try:
+            labels, _ = compute_bin_key(frame, cfg)
+        except KeyError as exc:
+            raise HTTPException(
+                status_code=404, detail=f"no bin column: {exc}"
+            ) from exc
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        shots = figures.shot_axis_for_frame(frame)
+        groups = [
+            (label, sorted({int(s) for s in group.dropna()}))
+            for label, group in shots.groupby(labels, dropna=False, observed=True)
+            # min_count mirrors bin_frame (row counts, not shot counts):
+            # the binset popup's "min shots / bin" must govern this grid
+            # exactly as it governs the Plot tab's binned view.
+            if cfg.min_count <= 1 or len(group) >= cfg.min_count
+        ]
+        return cfg, groups
+
+    def _image_folder(detail, day: str, device: str):
+        """Resolve + validate the (folder, device) pair for image endpoints."""
+        run_day = _run_day(detail, day)
+        folder = resolve_scan_folder(detail, run_day) if run_day else None
+        if folder is None:
+            raise HTTPException(status_code=404, detail="scan folder not resolvable")
+        if device not in resources.image_devices(folder):
+            raise HTTPException(status_code=404, detail=f"unknown device {device!r}")
+        return folder, (run_day.isoformat() if run_day else None)
+
+    # (fingerprint → valid names): re-validated only when the tree
+    # changes — discovery lists every YAML stem, but legacy flat camera
+    # configs in the same tree don't LOAD as diagnostics, and offering
+    # one puts an unfixable broken image in front of the operator
+    # (found live: UNCLASSIFIED/UC_Amp4_IR_input.yaml, 2026-09-01).
+    processing_cache: dict = {}
+
+    def _processing_names() -> list[str]:
+        """LOADABLE diagnostic IDs for the processing selector (``[]`` = hidden).
+
+        Explicit-opt-in: no configured tree, no feature (never the
+        global fallback). Degrades to empty — never errors a page —
+        when the ``analysis`` extra is not installed or the tree
+        cannot be listed. Each discovered stem is validated with a
+        real ``load_diagnostic`` (cached against the tree's YAML
+        mtimes); invalid ones are dropped with an INFO log naming the
+        file, so a legacy config is a log line, not a broken image.
+        """
+        if processing_config_dir is None:
+            return []
+        try:
+            from image_analysis.config import list_diagnostics, load_diagnostic
+        except ImportError:
+            return []
+        # Fingerprint BEFORE listing: a YAML landing between the two
+        # scans then costs one harmless revalidation, instead of a
+        # cache entry permanently missing it. mtime+size so same-second
+        # edits are caught even on coarse-mtime SMB-mounted trees.
+        tree = Path(processing_config_dir) / "analyzers"
+        try:
+            fingerprint = frozenset(
+                (str(path), stat.st_mtime, stat.st_size)
+                for pattern in ("*.yaml", "*.yml")
+                for path in tree.rglob(pattern)
+                for stat in (path.stat(),)  # one syscall, untearable tuple
+            )
+        except OSError:
+            fingerprint = None
+        if fingerprint is not None:
+            cached = processing_cache.get(fingerprint)  # .get: a racing
+            if cached is not None:  # clear() must degrade to revalidate
+                return cached
+        try:
+            names = list_diagnostics(config_dir=processing_config_dir)
+        except Exception as exc:  # noqa: BLE001 — unlistable tree = no selector
+            logger.debug("processing configs unavailable: %s", exc)
+            return []
+        valid = []
+        for name in names:
+            try:
+                load_diagnostic(name, config_dir=processing_config_dir)
+                valid.append(name)
+            except Exception as exc:  # noqa: BLE001 — one bad YAML must not hide the rest
+                logger.info(
+                    "processing selector: skipping %r — not a loadable "
+                    "unified diagnostic (%s)",
+                    name,
+                    exc,
+                )
+        if fingerprint is not None:
+            processing_cache.clear()  # one entry: the current tree state
+            processing_cache[fingerprint] = valid
+        return valid
+
+    def _apply_processing(arrays: list, processing: str) -> list:
+        """Ephemeral-process *arrays* → the analyzers' processed images.
+
+        One :func:`image_analysis.ephemeral.run_diagnostic_ephemeral`
+        call (one analyzer instantiation for the whole batch); the
+        write-free contract lives in that seam. Refusals map onto the
+        endpoint ladder: unknown diagnostic → 404, denylisted/miswired
+        → 400, analyzer failure → 400 honestly — never a 500.
+        """
+        if processing_config_dir is None:
+            raise HTTPException(
+                status_code=404,
+                detail="processing is not configured on this portal "
+                "(start it with --processing-configs)",
+            )
+        try:
+            from image_analysis.ephemeral import run_diagnostic_ephemeral
+        except ImportError as exc:
+            raise HTTPException(
+                status_code=404,
+                detail="processing needs the portal's 'analysis' extra "
+                "(pip install geecs-data-portal[analysis])",
+            ) from exc
+        try:
+            results = run_diagnostic_ephemeral(
+                processing, arrays, config_dir=processing_config_dir
+            )
+        except (KeyError, FileNotFoundError) as exc:
+            raise HTTPException(
+                status_code=404, detail=f"no diagnostic: {exc}"
+            ) from exc
+        except ValueError as exc:  # denylisted, or invalid config
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:  # noqa: BLE001 — analyzer failure must not 500
+            raise HTTPException(
+                status_code=400, detail=f"processing failed: {exc}"
+            ) from exc
+        processed = [result.processed_image for result in results]
+        if any(image is None for image in processed):
+            raise HTTPException(
+                status_code=404,
+                detail=f"diagnostic {processing!r} produces no processed image",
+            )
+        return processed
+
+    if processing_config_dir is not None and not _processing_names():
+        # The flag is explicit operator intent — a typo'd path, a tree
+        # without analyzers/, or a missing 'analysis' extra must not
+        # no-op silently into a hidden selector.
+        logger.warning(
+            "processing_config_dir %s yielded no diagnostics (missing/"
+            "unlistable tree, or the 'analysis' extra is not installed) "
+            "— the processing selector is disabled",
+            processing_config_dir,
+        )
+
+    @app.get("/api/run/{uid}/bin-images")
+    def api_bin_images(
+        uid: str, device: str = "", filters: str = "", bincfg: str = "", day: str = ""
+    ) -> JSONResponse:
+        """Per-bin membership for the Images tab's averaged grid.
+
+        The JSON carries the numbers (bins, counts, member shots — all
+        notebook-reproducible via the snippet); the pixels are served
+        by ``/run/{uid}/bin-image.png?bin=<index>`` per bin, so the
+        grid lazy-loads exactly like the per-shot gallery.
+        """
+        detail = _load_run(uid)
+        if not device:
+            raise HTTPException(status_code=400, detail="device is required")
+        folder, run_day = _image_folder(detail, day, device)
+        pf = scan_frame(detail, folder)
+        flt, mask = _masked(pf, filters)
+        cfg, groups = _bin_groups(pf, mask, bincfg)
+        bin_labels = analysis.jsonable_labels([label for label, _ in groups])
+        payload = {
+            "device": device,
+            "bin_col": cfg.bin_col,
+            "bins": [
+                {"bin": label, "count": len(shots), "shots": shots}
+                for label, (_, shots) in zip(bin_labels, groups)
+            ],
+            "pass": int(mask.sum()),
+            "total": len(pf.frame),
+            "code": analysis.bin_images_code(uid, run_day, device, flt, cfg),
+        }
+        return JSONResponse(payload, headers=_png_headers(detail))
+
     @app.get("/", response_class=RedirectResponse)
     def index(request: Request) -> str:
         """Redirect to today's day view."""
@@ -701,6 +928,7 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
         bincfg: str = "",
         view: str = "",
         display: str = "",
+        processing: str = "",
     ) -> HTMLResponse:
         """One run: the rail + tabs (Overview / Plot / Images).
 
@@ -786,6 +1014,7 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
             "filters": filters,
             "bincfg": bincfg,
             "display": display,
+            "processing": processing,
             "device": sel_device,
             "shot": shot if sel_device else "",
             "filter": filter,  # the day list's filter, carried for the back link
@@ -819,6 +1048,9 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
                 "shot": shot,
                 "has_next_shot": n_rows is None or shot < n_rows,
                 "total_shots": detail.summary.shots,
+                "processing": processing,
+                "processing_options": _processing_names() if sel_device else [],
+                "display": display,
                 "portal_version": _portal_version(),
                 # The rail's chips and the display popup must stay in
                 # step with the server-authored figures — one palette,
@@ -830,13 +1062,26 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
         )
 
     @app.get("/run/{uid}/image.png")
-    def run_image(uid: str, device: str, shot: int = 1, day: str = "") -> Response:
-        """One device shot rendered for display (stack or native file)."""
+    def run_image(
+        uid: str,
+        device: str,
+        shot: int = 1,
+        day: str = "",
+        processing: str = "",
+        display: str = "",
+    ) -> Response:
+        """One device shot rendered for display (stack or native file).
+
+        ``processing`` names a diagnostic to run ephemerally on the
+        loaded pixels first (its ``processed_image`` renders instead of
+        the raw frame) — the write-free seam; raw serving is untouched
+        when the param is absent. ``display`` carries the image
+        cosmetics (``cmap`` + ``plo``/``phi`` window — types 400,
+        values degrade, per the display doctrine).
+        """
         detail = _load_run(uid)
-        run_day = _run_day(detail, day)
-        folder = resolve_scan_folder(detail, run_day) if run_day else None
-        if folder is None:
-            raise HTTPException(status_code=404, detail="scan folder not resolvable")
+        render = _render_opts(_display(display))
+        folder, _ = _image_folder(detail, day, device)
         # A shot beyond the recorded event rows must refuse outright:
         # falling through to the ordinal join would serve an orphan
         # frame (pre/post-scan extras) labeled as a shot that never
@@ -851,6 +1096,36 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
                 status_code=404, detail="device missed this shot (no timestamp)"
             )
         complete = bool(detail.summary.exit_status)
+        if processing:
+            resolved = resources.load_shot_array(
+                folder,
+                device,
+                shot,
+                acq_timestamp=acq,
+                data_cache=data_cache if complete else None,
+                cache_key=(uid, device) if complete else None,
+            )
+            if resolved.array is None:
+                raise HTTPException(
+                    status_code=404, detail=resolved.reason or resolved.kind
+                )
+            (processed,) = _apply_processing([resolved.array], processing)
+            try:
+                png = resources.to_display_png(processed, **render)
+            except Exception as exc:  # noqa: BLE001 — must not 500
+                raise HTTPException(
+                    status_code=404, detail=f"render failed: {exc}"
+                ) from exc
+            # A processed response is a function of (pixels, diagnostic
+            # YAML, ImageAnalysis version); the URL keys only the first,
+            # and the configs tree is local and MUTABLE — iterating on
+            # it is the selector's purpose. Never immutable-cache what
+            # a config edit must be able to change.
+            return Response(
+                content=png,
+                media_type="image/png",
+                headers={"Cache-Control": "no-cache"},
+            )
         result = resources.load_shot_image(
             folder,
             device,
@@ -858,6 +1133,7 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
             acq_timestamp=acq,
             data_cache=data_cache if complete else None,
             cache_key=(uid, device) if complete else None,
+            **render,
         )
         if result.png is None:
             raise HTTPException(status_code=404, detail=result.reason or result.kind)
@@ -865,6 +1141,92 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
             _png_headers(detail) if result.cacheable else {"Cache-Control": "no-cache"}
         )
         return Response(content=result.png, media_type="image/png", headers=headers)
+
+    @app.get("/run/{uid}/bin-image.png")
+    def run_bin_image(
+        uid: str,
+        device: str,
+        bin_index: int = Query(default=0, alias="bin"),
+        filters: str = "",
+        bincfg: str = "",
+        day: str = "",
+        processing: str = "",
+        display: str = "",
+    ) -> Response:
+        """One bin's ``nanmean``-averaged device image, display-rendered.
+
+        ``bin`` is the bin's INDEX in ``/api/.../bin-images`` order
+        (same ``_bin_groups`` call, so the two always agree). Member
+        shots that resolve to pixels are averaged (``average_frames``)
+        and windowed once; shots the device missed (no timestamp) or
+        that fail to load are skipped — the JSON's ``count`` is the
+        membership, the pixels are what actually loaded. With
+        ``processing``, each member is ephemeral-processed FIRST and
+        the processed images average (process-then-average — the
+        correct order for nonlinear pipeline steps like thresholding).
+        """
+        detail = _load_run(uid)
+        render = _render_opts(_display(display))
+        folder, _ = _image_folder(detail, day, device)
+        pf = scan_frame(detail, folder)
+        _, mask = _masked(pf, filters)
+        _, groups = _bin_groups(pf, mask, bincfg)
+        if not 0 <= bin_index < len(groups):
+            raise HTTPException(
+                status_code=404, detail=f"bin index {bin_index} of {len(groups)}"
+            )
+        _, shots = groups[bin_index]
+        complete = bool(detail.summary.exit_status)
+        n_rows = None if detail.data is None else len(detail.data)
+        arrays: list = []
+        cacheable = True
+        for shot in shots:
+            # Same refusals as the per-shot endpoint: never fall through
+            # to an ordinal join beyond the recorded events (orphan
+            # frames), never average a neighbour's image in.
+            if n_rows is not None and shot > n_rows:
+                continue
+            acq, column_present = _acq_timestamp(detail, device, shot)
+            if column_present and acq is None:
+                continue  # device missed this shot
+            resolved = resources.load_shot_array(
+                folder,
+                device,
+                shot,
+                acq_timestamp=acq,
+                data_cache=data_cache if complete else None,
+                cache_key=(uid, device) if complete else None,
+            )
+            if resolved.array is None:
+                if resolved.kind in ("vendor", "unrenderable"):
+                    # Device-level refusal — identical for every shot.
+                    raise HTTPException(
+                        status_code=404, detail=resolved.reason or resolved.kind
+                    )
+                continue
+            cacheable = cacheable and resolved.cacheable
+            arrays.append(resolved.array)
+        if processing and arrays:
+            arrays = _apply_processing(arrays, processing)
+        averaged = average_frames(arrays, label=f"{device} bin {bin_index}")
+        if averaged is None:
+            raise HTTPException(
+                status_code=404, detail="no renderable frames in this bin"
+            )
+        try:
+            png = resources.to_display_png(averaged, **render)
+        except Exception as exc:  # noqa: BLE001 — unrenderable shape must not 500
+            raise HTTPException(
+                status_code=404, detail=f"render failed: {exc}"
+            ) from exc
+        # Processed responses never cache immutable: the diagnostic YAML
+        # is a mutable input the URL does not key (see run_image).
+        headers = (
+            {"Cache-Control": "no-cache"}
+            if (processing or not cacheable)
+            else _png_headers(detail)
+        )
+        return Response(content=png, media_type="image/png", headers=headers)
 
     @app.get("/run/{uid}/plot.png")
     def run_plot(uid: str, y: str, x: str = "") -> Response:

@@ -86,6 +86,11 @@
   .apply { background: var(--accent); color: #10201d; border: none; border-radius: 3px;
            padding: 0.3rem 0.9rem; font-size: 12px; cursor: pointer; font-weight: 600; }
   .plotmsg { color: var(--dim); font-size: 13px; padding: 2rem 0; text-align: center; }
+  .bingrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+             gap: 0.8rem; margin-top: 0.7rem; }
+  .bincard { margin: 0; background: var(--panel); border: 1px solid var(--line);
+             border-radius: 4px; padding: 0.4rem; }
+  .bincard figcaption { font-size: 11px; padding-top: 0.3rem; text-align: center; }
 </style>
 <script src="{{ root }}/static/plotly-cartesian-3.1.1.min.js"></script>
 {% endblock %}
@@ -191,22 +196,51 @@
       render (trace/array data, not an image). Files live at:</p>
       <p class="mono">{{ kind_path }}</p>
       {% else %}
+      <div class="plotbar">
+        <span class="seg">
+          <button id="seg-img-shot" onclick="setView('shot')">per-shot</button>
+          <button id="seg-img-bin" onclick="setView('bin')">per-bin avg</button>
+        </span>
+        <span class="gear" title="bin settings" onclick="openBinset()">⚙</span>
+        {% if processing_options %}
+        <label class="dim" style="font-size:12px;" title="run an ImageAnalysis diagnostic ephemerally on the served pixels (write-free); per-bin view processes each shot, then averages">processing
+          <select id="procsel" onchange="setProcessing(this.value)"
+                  style="background:var(--panel2); color:var(--ink); border:1px solid var(--line); border-radius:3px; padding:0.2rem 0.4rem; font-size:12px; max-width:16rem;">
+            <option value="">raw</option>
+            {% if processing and processing not in processing_options %}
+            {# A bookmarked link naming a since-dropped diagnostic must
+               render as selected (not silently as "raw") so picking
+               raw fires a change event and actually clears it. #}
+            <option value="{{ processing }}" selected>{{ processing }} (unavailable)</option>
+            {% endif %}
+            {% for name in processing_options %}
+            <option value="{{ name }}"{% if name == processing %} selected{% endif %}>{{ name }}</option>
+            {% endfor %}
+          </select></label>
+        {% endif %}
+        <span class="right"><a href="#" onclick="openImgDisplay();return false;">display…</a></span>
+      </div>
+      <div id="imgshot">
       <form class="nav" method="get" action="{{ root }}/run/{{ uid }}">
         <input type="hidden" name="device" value="{{ sel_device }}">
         <input type="hidden" name="day" value="{{ day }}">
         <input type="hidden" name="experiment" value="{{ experiment }}">
         <input type="hidden" name="tab" value="images">
         {% if filter %}<input type="hidden" name="filter" value="{{ filter }}">{% endif %}
-        {% if shot > 1 %}<a href="{{ root }}/run/{{ uid }}?{{ qs(shot=shot - 1, tab="images") }}">&larr; prev</a>{% endif %}
+        <input type="hidden" name="processing" id="procfield" value="{{ processing }}">
+        <input type="hidden" name="display" id="dispfield" value="{{ display }}">
+        {% if shot > 1 %}<a class="carry" href="{{ root }}/run/{{ uid }}?{{ qs(shot=shot - 1, tab="images") }}">&larr; prev</a>{% endif %}
         <label class="dim">shot
           <input type="number" name="shot" value="{{ shot }}" min="1" style="width: 5rem">
         </label>
         <button type="submit">Show</button>
-        {% if has_next_shot %}<a href="{{ root }}/run/{{ uid }}?{{ qs(shot=shot + 1, tab="images") }}">next &rarr;</a>{% endif %}
+        {% if has_next_shot %}<a class="carry" href="{{ root }}/run/{{ uid }}?{{ qs(shot=shot + 1, tab="images") }}">next &rarr;</a>{% endif %}
         {% if total_shots %}<span class="dim mono">of ~{{ total_shots }}</span>{% endif %}
         <span class="dim mono">{{ kind }}</span>
       </form>
-      <img class="plot" src="{{ root }}/run/{{ uid }}/image.png?device={{ sel_device | urlencode }}&amp;shot={{ shot }}&amp;day={{ day | urlencode }}" alt="{{ sel_device }} shot {{ shot }}">
+      <img class="plot" id="shotimg" onerror="imgFailed(this)" src="{{ root }}/run/{{ uid }}/image.png?device={{ sel_device | urlencode }}&amp;shot={{ shot }}&amp;day={{ day | urlencode }}{% if processing %}&amp;processing={{ processing | urlencode }}{% endif %}{% if display %}&amp;display={{ display | urlencode }}{% endif %}" alt="{{ sel_device }} shot {{ shot }}">
+      </div>
+      <div id="imggrid" class="bingrid" hidden></div>
       {% endif %}
       {% else %}
       <p class="dim">Pick a device above.</p>
@@ -308,11 +342,40 @@
   </div>
 </div>
 
+<!-- images display popup: colormap + percentile window -->
+<div class="overlay" id="modal-imgdisplay" onclick="if(event.target===this)closeModals()">
+  <div class="modal">
+    <h3>Image display</h3>
+    <div class="setrow"><label>colormap</label>
+      <select id="id-cmap">
+        <option value="">grayscale</option>
+        <option value="viridis">viridis</option>
+        <option value="magma">magma</option>
+        <option value="inferno">inferno</option>
+        <option value="plasma">plasma</option>
+        <option value="turbo">turbo</option>
+        <option value="jet">jet</option>
+        <option value="hot">hot</option>
+      </select></div>
+    <div class="setrow"><label>window percentiles</label>
+      <input id="id-plo" style="width:4.5rem;"> <span class="dim">–</span>
+      <input id="id-phi" style="width:4.5rem;"></div>
+    <p class="dim" style="font-size:11px;">Applies to the served images (per-shot and per-bin);
+    defaults 1 – 99.7. Out-of-range values fall back to the defaults.</p>
+    <div class="btnrow">
+      <button class="act" onclick="closeModals()">Cancel</button>
+      <button class="apply" onclick="applyImgDisplay()">Apply</button>
+    </div>
+  </div>
+</div>
+
 <script>
 "use strict";
 const UID = {{ uid | tojson }};
 const ROOT = {{ root | tojson }};  // proxy mount prefix ("" at root)
 const DAY = {{ day | tojson }};
+const SEL_DEVICE = {{ sel_device | tojson }};
+const VERSION = {{ portal_version | tojson }};
 const TRACE_COLORS = {{ trace_colors | tojson }};
 const MSIZE_DEFAULT = {{ msize_default | tojson }};
 // Everything Plotly gives for free, switched ON: wheel zoom, in-place
@@ -398,6 +461,7 @@ function readState() {
     filters: p.get("filters") || "",
     bincfg: p.get("bincfg") || "",
     display: p.get("display") || "",
+    processing: p.get("processing") || "",
   };
 }
 
@@ -406,29 +470,39 @@ function writeState() {
   // not analysis states — there is deliberately no popstate handler.
   // Shared/bookmarked links restore everything via readState().
   const p = new URLSearchParams(location.search);
-  ["y", "x", "view", "filters", "bincfg", "display", "tab"].forEach(k => p.delete(k));
+  ["y", "x", "view", "filters", "bincfg", "display", "processing", "tab"].forEach(k => p.delete(k));
   S.y.forEach(v => p.append("y", v));
   if (S.x) p.set("x", S.x);
   if (S.view !== "shot") p.set("view", S.view);
   if (S.filters) p.set("filters", S.filters);
   if (S.bincfg) p.set("bincfg", S.bincfg);
   if (S.display) p.set("display", S.display);
+  if (S.processing) p.set("processing", S.processing);
   if (S.tab !== "plot") p.set("tab", S.tab);
   history.replaceState(null, "", location.pathname + "?" + p.toString());
-  // Server-rendered stepper links must carry the latest state too.
+  // Server-rendered stepper links must carry the latest state too —
+  // and so must the Show form's hidden fields (a form submit is a
+  // navigation like any stepper click).
   syncRailLinks(p);
+  const procField = document.getElementById("procfield");
+  if (procField) procField.value = S.processing;
+  const dispField = document.getElementById("dispfield");
+  if (dispField) dispField.value = S.display;
 }
 
 function syncRailLinks(p) {
-  document.querySelectorAll("a.act").forEach(a => {
+  // a.act = the rail's steppers/dropdown; a.carry = in-pane links (the
+  // shot steppers) that must carry client-side analysis state too.
+  document.querySelectorAll("a.act, a.carry").forEach(a => {
     const url = new URL(a.href, location.origin);
-    ["y", "x", "view", "filters", "bincfg", "display", "tab"].forEach(k => url.searchParams.delete(k));
+    ["y", "x", "view", "filters", "bincfg", "display", "processing", "tab"].forEach(k => url.searchParams.delete(k));
     S.y.forEach(v => url.searchParams.append("y", v));
     if (S.x) url.searchParams.set("x", S.x);
     if (S.view !== "shot") url.searchParams.set("view", S.view);
     if (S.filters) url.searchParams.set("filters", S.filters);
     if (S.bincfg) url.searchParams.set("bincfg", S.bincfg);
     if (S.display) url.searchParams.set("display", S.display);
+    if (S.processing) url.searchParams.set("processing", S.processing);
     if (S.tab !== "plot") url.searchParams.set("tab", S.tab);
     a.href = url.pathname + "?" + url.searchParams.toString();
   });
@@ -458,14 +532,148 @@ function setTab(tab) {
   document.querySelectorAll(".pane").forEach(pane => pane.classList.toggle("on", pane.id === "pane-" + tab));
   writeState();
   if (tab === "plot") refresh();
+  refreshImages();
 }
 
 function setView(view) {
+  // ONE per-shot ⇄ binned state, deliberately shared by the Plot and
+  // Images tabs (the link IS the analysis: a binned link means binned
+  // everywhere) — both segmented controls mirror it.
   S.view = view;
   document.getElementById("seg-shot").classList.toggle("on", view === "shot");
   document.getElementById("seg-bin").classList.toggle("on", view === "bin");
+  const imgSeg = document.getElementById("seg-img-shot");
+  if (imgSeg) {
+    imgSeg.classList.toggle("on", view === "shot");
+    document.getElementById("seg-img-bin").classList.toggle("on", view === "bin");
+  }
   writeState();
   refresh();
+  refreshImages();
+}
+
+// ---------------- the images tab's per-bin grid ----------------
+let IMG_KEY = null;  // last-rendered grid params — skip redundant refetches
+
+function setProcessing(name) {
+  S.processing = name;
+  writeState();  // syncs the Show form's hidden fields too
+  updateShotImage();
+  refreshImages();
+}
+
+function updateShotImage() {
+  // The per-shot image is server-rendered; a processing/display change
+  // only needs its src re-pointed (the URL carries the whole state).
+  const img = document.getElementById("shotimg");
+  if (!img) return;
+  clearImgError(img);  // a previous failure must not mask the retry
+  const url = new URL(img.src, location.origin);
+  if (S.processing) url.searchParams.set("processing", S.processing);
+  else url.searchParams.delete("processing");
+  if (S.display) url.searchParams.set("display", S.display);
+  else url.searchParams.delete("display");
+  img.src = url.pathname + "?" + url.searchParams.toString();
+}
+
+function openImgDisplay() {
+  const d = dispCfg();
+  document.getElementById("id-cmap").value = typeof d.cmap === "string" ? d.cmap : "";
+  document.getElementById("id-plo").value = typeof d.plo === "number" ? d.plo : 1;
+  document.getElementById("id-phi").value = typeof d.phi === "number" ? d.phi : 99.7;
+  document.getElementById("modal-imgdisplay").classList.add("on");
+}
+
+function applyImgDisplay() {
+  // Image cosmetics merge into the ONE shared display state (the plot
+  // figures ignore these keys); defaults are stored as key-absent so
+  // pristine links stay short.
+  const d = dispCfg();
+  const cmap = document.getElementById("id-cmap").value;
+  if (cmap) d.cmap = cmap; else delete d.cmap;
+  const plo = parseFloat(document.getElementById("id-plo").value);
+  const phi = parseFloat(document.getElementById("id-phi").value);
+  if (isFinite(plo) && plo !== 1) d.plo = plo; else delete d.plo;
+  if (isFinite(phi) && phi !== 99.7) d.phi = phi; else delete d.phi;
+  S.display = Object.keys(d).length ? JSON.stringify(d) : "";
+  closeModals();
+  writeState();
+  updateShotImage();
+  refreshImages();
+}
+
+function clearImgError(img) {
+  img.hidden = false;
+  const note = img.nextElementSibling;
+  if (note && note.classList.contains("imgerr")) note.remove();
+}
+
+function imgFailed(img) {
+  // A 4xx from the image endpoints carries an honest `detail` the
+  // <img> tag can only show as a broken icon — fetch and surface it.
+  // Cost note: config-validation 400s are cheap, but an ANALYZER
+  // failure 400s only after the server loaded+processed the frames,
+  // so this refetch re-runs that work once — bounded at 2× (onerror
+  // fires once per src assignment), accepted for an error path.
+  const src = img.src;  // staleness guard: a retry must not be masked
+  const show = msg => {
+    if (img.src !== src || !img.isConnected) return;  // superseded
+    img.hidden = true;
+    let note = img.nextElementSibling;
+    if (!note || !note.classList.contains("imgerr")) {
+      note = document.createElement("div");
+      note.className = "plotmsg imgerr";
+      img.after(note);
+    }
+    note.textContent = msg;
+  };
+  fetch(src)
+    .then(r => r.json())
+    .then(body => show(body.detail || "image failed to load"))
+    .catch(() => show("image failed to load"));
+}
+
+function refreshImages() {
+  const shotBox = document.getElementById("imgshot");
+  const grid = document.getElementById("imggrid");
+  if (!shotBox || !SEL_DEVICE) return;  // no device / vendor / unrenderable
+  const binned = S.view === "bin";
+  shotBox.hidden = binned;
+  grid.hidden = !binned;
+  if (!binned || S.tab !== "images") return;
+  const key = JSON.stringify([SEL_DEVICE, S.filters, S.bincfg, S.processing, S.display]);
+  if (key === IMG_KEY) return;
+  IMG_KEY = key;  // set before the fetch: dedupes the boot's setTab+setView pair
+  const params = new URLSearchParams({ device: SEL_DEVICE });
+  if (S.filters) params.set("filters", S.filters);
+  if (S.bincfg) params.set("bincfg", S.bincfg);
+  grid.innerHTML = `<div class="plotmsg">loading bins…</div>`;
+  api("bin-images", params).then(data => {
+    if (key !== IMG_KEY) return;  // superseded in flight — never render stale bins
+    if (!data.bins.length) {
+      grid.innerHTML = `<div class="plotmsg">no bins (check filters / bin column)</div>`;
+      return;
+    }
+    grid.innerHTML = data.bins.map((b, i) => {
+      const q = new URLSearchParams({ device: SEL_DEVICE, bin: i, v: VERSION });
+      if (S.filters) q.set("filters", S.filters);
+      if (S.bincfg) q.set("bincfg", S.bincfg);
+      if (S.processing) q.set("processing", S.processing);
+      if (S.display) q.set("display", S.display);
+      if (DAY) q.set("day", DAY);
+      const label = b.bin === null ? "—" : String(b.bin);
+      return `<figure class="bincard">
+        <img class="plot" loading="lazy" onerror="imgFailed(this)"
+             src="${ROOT}/run/${UID}/bin-image.png?${q.toString()}"
+             alt="${escAttr(data.bin_col)} ${escAttr(label)}">
+        <figcaption class="dim mono" title="n counts member shots passing filters — frames the device missed or that fail to load are skipped in the average">${esc(data.bin_col)}: ${esc(label)} · n=${b.count}</figcaption>
+      </figure>`;
+    }).join("");
+  }).catch(err => {
+    if (key !== IMG_KEY) return;
+    IMG_KEY = null;
+    grid.innerHTML = `<div class="plotmsg">${esc(err.message)}</div>`;
+  });
 }
 
 // ---------------- column picker ----------------
@@ -626,7 +834,7 @@ function renderChips() {
 function setFilters(model) {
   const active = (model.groups || []).length;
   S.filters = active || model.nan_policy !== "exclude" ? JSON.stringify(model) : "";
-  renderChips(); writeState(); updatePassCount(); refresh();
+  renderChips(); writeState(); updatePassCount(); refresh(); refreshImages();
 }
 
 function toggleGroup(i, on) {
@@ -740,7 +948,7 @@ function applyBinset() {
   if (Number.isFinite(minCount) && minCount > 1) cfg.min_count = minCount;
   S.bincfg = Object.keys(cfg).length ? JSON.stringify(cfg) : "";
   closeModals(); writeState();
-  if (S.view !== "bin") setView("bin"); else refresh();
+  if (S.view !== "bin") setView("bin"); else { refresh(); refreshImages(); }
 }
 
 // ---------------- display settings popup ----------------
@@ -768,7 +976,14 @@ function openDisplay() {
 }
 
 function applyDisplay() {
+  // Start from the SHARED state and rebuild only the keys this popup
+  // owns — the image slice (cmap/plo/phi) belongs to the Images
+  // popup and must survive a plot-cosmetics apply.
   const d = {};
+  const prior = dispCfg();
+  for (const key of ["cmap", "plo", "phi"]) {
+    if (key in prior) d[key] = prior[key];
+  }
   if (document.getElementById("ds-logx").checked) d.logx = true;
   if (document.getElementById("ds-logy").checked) d.logy = true;
   for (const key of ["xmin", "xmax", "ymin", "ymax"]) {

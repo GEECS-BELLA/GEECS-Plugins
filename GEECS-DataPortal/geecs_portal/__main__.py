@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+from pathlib import Path
 
 
 def main() -> None:
@@ -23,6 +24,16 @@ def main() -> None:
         help="default experiment for day listings (query param overrides)",
     )
     parser.add_argument("--log-level", default="INFO", help="Python logging level")
+    parser.add_argument(
+        "--processing-configs",
+        default="",
+        help=(
+            "scan-analysis configs tree for the Images tab's processing "
+            "selector (the parent of analyzers/). Omitted = feature OFF "
+            "(the portal never falls back to the global config "
+            "resolution); also needs the 'analysis' extra installed"
+        ),
+    )
     parser.add_argument(
         "--root-path",
         default="",
@@ -49,7 +60,13 @@ def main() -> None:
     # Completed runs are immutable: cache their details so plot/image
     # requests stop re-downloading the full event table from Tiled.
     catalog = CachingScanCatalog(TiledScanCatalog.from_config())
-    app = create_app(catalog, default_experiment=args.experiment)
+    app = create_app(
+        catalog,
+        default_experiment=args.experiment,
+        processing_config_dir=(
+            Path(args.processing_configs) if args.processing_configs else None
+        ),
+    )
     uvicorn.run(
         app,
         host=args.host,

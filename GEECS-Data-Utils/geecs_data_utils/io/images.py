@@ -2,21 +2,27 @@
 
 Most functions here map a file path to a NumPy array and contain no analysis
 logic; higher-level packages (ImageAnalysis, ScanAnalysis, Bluesky
-external-asset handlers) wrap them. :func:`decode_imaq_image_string` is the
-exception: it decodes an in-memory NI IMAQ "Flatten Image to String" payload
-(as received live over the device TCP stream), not a file on disk.
+external-asset handlers) wrap them. Two exceptions operate on in-memory
+data: :func:`decode_imaq_image_string` decodes an NI IMAQ "Flatten Image to
+String" payload (as received live over the device TCP stream), and
+:func:`average_frames` is the shared frame-stack averager every "mean of N
+shots" consumer converges on — image-domain array math kept beside the
+readers whose output it averages.
 """
 
 from __future__ import annotations
 
+import logging
 import struct
 from pathlib import Path
-from typing import Union
+from typing import Optional, Sequence, Union
 
 import h5py
 import numpy as np
 import png
 from imageio.v3 import imread
+
+logger = logging.getLogger(__name__)
 
 #: Native per-shot extensions viewers render as 2D images through
 #: :func:`read_imaq_image` (the gallery tier probe's "renderable" set —
@@ -277,3 +283,47 @@ def _decode_imaq_tail(
         data, dtype=dtype, count=block // bpp, offset=len(data) - block
     ).reshape(rows, stride // bpp)
     return full[border : border + height, border : border + width]
+
+
+def average_frames(
+    frames: Sequence[np.ndarray], *, label: str = "frames"
+) -> Optional[np.ndarray]:
+    """Average a sequence of frames along axis 0 with ``nanmean``.
+
+    THE shared frame averager (per-bin averaged images and every other
+    "mean of N shots" consumer). NaN pixels are excluded per-position
+    rather than poisoning the average, and inhomogeneous shapes are
+    guarded up front: ``np.nanmean(list, axis=0)`` calls
+    ``np.asanyarray`` first, which raises a hard ``ValueError`` on
+    numpy 2.x when frames disagree in shape — that case degrades to
+    ``None`` with a warning so callers can skip the average rather
+    than crash a whole gallery or post-processing pass.
+
+    Parameters
+    ----------
+    frames : sequence of numpy.ndarray
+        Frames to average — a list of arrays or an already-stacked
+        array (axis 0 = frame). All frames must share one shape (any
+        dimensionality — 2D images and 1D traces both work).
+    label : str, optional
+        Name used in the shape-mismatch warning so callers averaging
+        several fields can attribute it (e.g. ``"processed_image"``).
+
+    Returns
+    -------
+    numpy.ndarray or None
+        Float ``nanmean`` over the stack, or ``None`` for an empty
+        sequence or mixed shapes.
+    """
+    if len(frames) == 0:
+        return None
+    shapes = {np.asarray(f).shape for f in frames}
+    if len(shapes) > 1:
+        logger.warning(
+            "Cannot average %s across %d frames: inhomogeneous shapes %s.",
+            label,
+            len(frames),
+            sorted(shapes),
+        )
+        return None
+    return np.nanmean(frames, axis=0)

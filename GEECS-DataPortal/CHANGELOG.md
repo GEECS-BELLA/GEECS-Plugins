@@ -3,6 +3,98 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.15.0] - 2026-09-01
+
+### Added
+
+- **Image colormaps + display windowing** (owner ask, "step 1" of the
+  interactive-images plan): the image endpoints (`image.png`,
+  `bin-image.png` — raw and processed alike) take the shared
+  `display` state's new curated fields `cmap` (matplotlib colormap
+  name) and `plo`/`phi` (percentile-window overrides, defaults
+  1/99.7). Types 400 at the parse boundary, values degrade (unknown
+  colormap → grayscale, insane window → defaults) — display state
+  rides shared links and must never fail one. A small "display…"
+  popup in the Images plotbar edits them; URLs carry them everywhere
+  (per-shot, grid, steppers). RGB inputs keep their own colors.
+  Step 2 (interactive per-shot Heatmap view with hover pixel values)
+  is planned post-promotion.
+
+## [0.14.0] - 2026-09-01
+
+### Fixed
+
+Sam's first live test of the selector (Amp4, 2026-09-01) — the
+diagnostic YAML was a legacy flat camera config, and the failure was
+invisible:
+
+- **The selector now offers only LOADABLE diagnostics**: each
+  discovered stem is validated with a real `load_diagnostic` (cached
+  against the tree's YAML mtimes), and an unloadable legacy config is
+  an INFO log line naming the file — never a pickable entry that can
+  only produce a broken image. A hand-edited URL still gets the
+  honest 400.
+- **Image failures surface their reason**: the per-shot image and
+  every bin card carry an `onerror` hook that fetches the endpoint's
+  4xx `detail` and shows it in place of the browser's broken-image
+  icon (cleared on the next processing change).
+
+## [0.13.1] - 2026-09-01
+
+### Fixed
+
+- The processing-selector test class now `importorskip`s
+  `image_analysis`, and CI installs the portal with
+  `--extras analysis` so those tests always **run** there (they
+  failed red in the 0.13.0 CI, whose env lacked the extra; a minimal
+  local env now skips them gracefully instead). Test/CI-only — no
+  runtime change.
+
+## [0.13.0] - 2026-09-01
+
+### Added
+
+- **Images tab ephemeral-processing selector** (W2a): a `processing`
+  URL state naming an ImageAnalysis diagnostic to run write-free on
+  the served pixels via `run_diagnostic_ephemeral` (ImageAnalysis
+  1.13.0's seam — the structural no-writes contract lives there).
+  Per-shot view renders the diagnostic's `processed_image`; per-bin
+  view processes each member shot THEN averages (the correct order
+  for nonlinear pipeline steps). Explicit-opt-in by doctrine (design
+  doc finding 7 — two competing config-resolution paths exist, so the
+  portal names its tree): the `--processing-configs <tree>` CLI flag /
+  `create_app(processing_config_dir=…)` enables it, and the portal
+  never falls back to the global config resolution. ImageAnalysis is
+  a new OPTIONAL dependency (the `analysis` extra); without it — or
+  without the flag — the selector hides and raw serving is untouched.
+  Error ladder: unknown diagnostic 404, denylisted/miswired 400,
+  analyzer failure 400 honestly, never a 500.
+
+## [0.12.0] - 2026-09-01
+
+### Added
+
+- **Images tab per-bin averaged grid** (W2a): a per-shot ⇄ per-bin
+  toggle mirroring the Plot tab's ONE URL-carried `view` state (a
+  binned link means binned everywhere — deliberate), rendering a lazy
+  grid of per-bin `nanmean` averages. Two new routes:
+  `/api/run/{uid}/bin-images?device=&filters=&bincfg=` (membership
+  JSON — bins/counts/member shots, notebook-reproducible via its
+  `code` snippet) and `/run/{uid}/bin-image.png?bin=<index>` (one
+  bin's average via the shared `average_frames`, display-windowed
+  once after averaging). Both run the same `compute_bin_key` +
+  groupby membership call, so the `bin` index is stable between
+  listing and render; per-shot refusals carry over (never average a
+  neighbour in: events bound, missed-shot skip, vendor 404), and a bin
+  containing any native listing-order (ordinal-fallback) resolution
+  serves `no-cache` — the same per-shot rule. `min_count` applies to
+  the grid exactly as `bin_frame` applies it to `/binned` (per-bin row
+  counts), so the shared binset popup governs both tabs.
+- `resources.load_shot_array` (+ `ShotArray`): the tier ladder now
+  resolves to raw pixels, with `load_shot_image` reduced to the
+  render-one-shot wrapper — single-shot serving and per-bin averaging
+  share one resolution path (and one `ShotDataCache` ride).
+
 ## [0.11.0] - 2026-09-01
 
 ### Added

@@ -127,10 +127,40 @@ positions are raw seconds too when X is a timestamp column — datetime
 rendering is per-shot-only, deliberately; `x_centers` come reindexed
 onto the y result's bins so diverging per-column dropna can never
 shift points) ·
-`/api/run/{uid}/filter-count?filters=` (live pass count)
+`/api/run/{uid}/filter-count?filters=` (live pass count) ·
+`/api/run/{uid}/bin-images?device=&filters=&bincfg=` (the Images tab's
+per-bin membership: bins/counts/member shots over `compute_bin_key` +
+the same groupby semantics as `/binned`; the `view` URL state is ONE
+per-shot ⇄ binned toggle shared by the Plot and Images tabs —
+deliberate: a binned link means binned everywhere)
 · `/run/{uid}/plot.png?y=&x=` (server-rendered scalar PNG, kept for
 embedding) · `/run/{uid}/image.png?device=&shot=` (one rendered device
-shot) · `/health` (catalog probe — the fleet-map health check).
+shot) · `/run/{uid}/bin-image.png?device=&bin=<index>&filters=&bincfg=`
+(one bin's `nanmean`-averaged device image — `bin` is the INDEX in
+`bin-images` order, both endpoints run the same membership call;
+member shots that resolve to pixels average via the shared
+`average_frames`, windowed once after averaging; per-shot refusals
+carry over, and an ordinal-resolved member downgrades the response to
+`no-cache`) · `/health` (catalog probe — the fleet-map health check).
+
+Both image endpoints also take `?display=` (the shared display state's
+image slice: `cmap` matplotlib-colormap name + `plo`/`phi` percentile
+window — types 400 at parse, values degrade to grayscale/defaults;
+edited via the Images plotbar's "display…" popup) and
+`?processing=<diagnostic id>` (the `processing` URL state): the named ImageAnalysis diagnostic runs
+**ephemerally** on the served pixels via
+`image_analysis.ephemeral.run_diagnostic_ephemeral` — the write-free
+seam (its structural no-writes contract lives in ImageAnalysis
+CLAUDE.md "Ephemeral runs"; the read-only doctrine is preserved by
+construction).  Per-shot renders the `processed_image`; per-bin
+processes each member THEN averages (nonlinear-correct).  The feature
+is **explicit-opt-in**: `--processing-configs <tree>` /
+`create_app(processing_config_dir=…)` names the configs tree — the
+portal deliberately never falls back to the global config resolution
+(design doc finding 7), and ImageAnalysis rides the optional
+`analysis` extra; missing either hides the selector and 404s the
+param.  Errors map honestly: unknown diagnostic 404,
+denylisted/miswired 400, analyzer failure 400 — never a 500.
 Template links build their queries through the one sticky-query helper
 (and the page JS mirrors the analysis state into the stepper links) so
 navigating one control never resets another; the day page's "clear"
@@ -174,7 +204,11 @@ must move in the same PR as any deployment change.
 
 ## The resource viewer (`resources.py`, arc phase 4)
 
-(run, device, shot) → displayable image, per the scope doc's tiering:
+(run, device, shot) → displayable image, per the scope doc's tiering.
+Since 0.12.0 the ladder resolves to raw pixels first
+(`load_shot_array` → `ShotArray`); `load_shot_image` is the
+render-one-shot wrapper over it, and per-bin averaging consumes the
+arrays directly — one resolution path, one cache ride:
 capture HDF5 stacks first (`geecs_data_utils.io.scan_stack` — joined by
 `read_stack_timestamps` + `native_files` millisecond keys against the
 event row's `acq_timestamp`, ScanAnalysis parity; NEVER by frame
