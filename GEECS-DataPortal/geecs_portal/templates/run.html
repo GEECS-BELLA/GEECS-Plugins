@@ -207,6 +207,12 @@
           <select id="procsel" onchange="setProcessing(this.value)"
                   style="background:var(--panel2); color:var(--ink); border:1px solid var(--line); border-radius:3px; padding:0.2rem 0.4rem; font-size:12px; max-width:16rem;">
             <option value="">raw</option>
+            {% if processing and processing not in processing_options %}
+            {# A bookmarked link naming a since-dropped diagnostic must
+               render as selected (not silently as "raw") so picking
+               raw fires a change event and actually clears it. #}
+            <option value="{{ processing }}" selected>{{ processing }} (unavailable)</option>
+            {% endif %}
             {% for name in processing_options %}
             <option value="{{ name }}"{% if name == processing %} selected{% endif %}>{{ name }}</option>
             {% endfor %}
@@ -543,9 +549,14 @@ function clearImgError(img) {
 
 function imgFailed(img) {
   // A 4xx from the image endpoints carries an honest `detail` the
-  // <img> tag can only show as a broken icon — fetch and surface it
-  // (the failing response is a cheap validation error, not pixels).
+  // <img> tag can only show as a broken icon — fetch and surface it.
+  // Cost note: config-validation 400s are cheap, but an ANALYZER
+  // failure 400s only after the server loaded+processed the frames,
+  // so this refetch re-runs that work once — bounded at 2× (onerror
+  // fires once per src assignment), accepted for an error path.
+  const src = img.src;  // staleness guard: a retry must not be masked
   const show = msg => {
+    if (img.src !== src || !img.isConnected) return;  // superseded
     img.hidden = true;
     let note = img.nextElementSibling;
     if (!note || !note.classList.contains("imgerr")) {
@@ -555,7 +566,7 @@ function imgFailed(img) {
     }
     note.textContent = msg;
   };
-  fetch(img.src)
+  fetch(src)
     .then(r => r.json())
     .then(body => show(body.detail || "image failed to load"))
     .catch(() => show("image failed to load"));

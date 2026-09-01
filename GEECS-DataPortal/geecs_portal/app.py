@@ -680,22 +680,28 @@ def create_app(
             from image_analysis.config import list_diagnostics, load_diagnostic
         except ImportError:
             return []
-        try:
-            names = list_diagnostics(config_dir=processing_config_dir)
-        except Exception as exc:  # noqa: BLE001 — unlistable tree = no selector
-            logger.debug("processing configs unavailable: %s", exc)
-            return []
+        # Fingerprint BEFORE listing: a YAML landing between the two
+        # scans then costs one harmless revalidation, instead of a
+        # cache entry permanently missing it. mtime+size so same-second
+        # edits are caught even on coarse-mtime SMB-mounted trees.
         tree = Path(processing_config_dir) / "analyzers"
         try:
             fingerprint = frozenset(
-                (str(path), path.stat().st_mtime)
+                (str(path), path.stat().st_mtime, path.stat().st_size)
                 for pattern in ("*.yaml", "*.yml")
                 for path in tree.rglob(pattern)
             )
         except OSError:
             fingerprint = None
-        if fingerprint is not None and fingerprint in processing_cache:
-            return processing_cache[fingerprint]
+        if fingerprint is not None:
+            cached = processing_cache.get(fingerprint)  # .get: a racing
+            if cached is not None:  # clear() must degrade to revalidate
+                return cached
+        try:
+            names = list_diagnostics(config_dir=processing_config_dir)
+        except Exception as exc:  # noqa: BLE001 — unlistable tree = no selector
+            logger.debug("processing configs unavailable: %s", exc)
+            return []
         valid = []
         for name in names:
             try:
