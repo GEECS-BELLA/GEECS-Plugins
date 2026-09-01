@@ -57,7 +57,7 @@ from geecs_data_utils.tiled_catalog import (
     resolve_scan_folder,
 )
 
-from geecs_portal import analysis, resources
+from geecs_portal import analysis, figures, resources
 from geecs_portal.cache import ShotDataCache
 
 logger = logging.getLogger(__name__)
@@ -337,6 +337,28 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
             )
         return requested
 
+    def _display(display_raw: str) -> dict:
+        """Parse the display param (400 on bad)."""
+        try:
+            return analysis.parse_display(display_raw)
+        except analysis.BadParam as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    def _pretty_names(detail, pf, columns: list[str]) -> dict:
+        """Figure titles/legend names, by the columns endpoint's rule.
+
+        Run-provenance columns prettify; s-file names are already human.
+        """
+        scalar_headers = (detail.start_doc or {}).get("geecs_scalar_headers")
+        return {
+            column: (
+                schema_map.display_name(column, scalar_headers)
+                if pf.provenance.get(column, PROVENANCE_RUN) == PROVENANCE_RUN
+                else column
+            )
+            for column in columns
+        }
+
     @app.get("/health")
     def health() -> dict:
         """Liveness + catalog probe (the fleet-map health check)."""
@@ -384,12 +406,14 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
         cols: list[str] = Query(default=[]),
         x: str = "",
         filters: str = "",
+        display: str = "",
         day: str = "",
     ) -> JSONResponse:
-        """Per-shot series for the selected columns, filters applied."""
+        """Per-shot series + the ready figure for the selection."""
         detail = _load_run(uid)
         pf, run_day = _union(detail, day)
         flt, mask = _masked(pf, filters)
+        disp = _display(display)
         requested = _y_columns(cols)
         series = {}
         kinds = {}
@@ -409,27 +433,20 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
                 kinds[column] = "datetime"
             else:
                 series[column] = analysis.jsonable_values(full[mask])
-        shot_key = (
-            pf.frame[schema_map.SHOT_INDEX_COLUMN]
-            if schema_map.SHOT_INDEX_COLUMN in pf.frame.columns
-            else pf.frame.index.to_series() + 1
+        # The shot-axis rule (scan_event_index, NA-coalesced from the
+        # s-file's Shotnumber) lives in figures.shot_axis_for_frame —
+        # ONE implementation, shared with the notebook snippet's path.
+        shot_values = analysis.jsonable_values(
+            figures.shot_axis_for_frame(pf.frame)[mask]
         )
-        if shot_key.isna().any():
-            # Union rows the event side missed carry NA here — coalesce
-            # with the s-file's own shot identity (plain, or suffixed by
-            # scan_frame's collision rename) so those rows keep a shot
-            # axis; Plotly silently drops points with a null x.
-            import pandas as pd
-
-            for name in ("Shotnumber", "Shotnumber (s-file)"):
-                if name in pf.frame.columns:
-                    shot_key = shot_key.fillna(
-                        pd.to_numeric(pf.frame[name], errors="coerce")
-                    )
+        # An unservable x already 404'd in the coercion loop above;
+        # empty means "no X picked" — the shot axis, and the snippet
+        # omits the x argument.
+        x_name = x or None
         payload = {
             "series": series,
             "kinds": kinds,
-            "shot": analysis.jsonable_values(shot_key[mask]),
+            "shot": shot_values,
             "pass": int(mask.sum()),
             "total": len(pf.frame),
             "code": analysis.frame_code(
@@ -438,23 +455,48 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
                 requested,
                 flt,
                 {column: schema_map.timestamp_epoch(column) for column in kinds},
+                x=x_name,
+                display=disp,
             ),
         }
+        if requested:
+            payload["figure"] = figures.shots_figure(
+                series,
+                requested,
+                x=x_name,
+                shot=shot_values,
+                kinds=kinds,
+                pretty=_pretty_names(
+                    detail, pf, [*requested, *([x_name] if x_name else [])]
+                ),
+                display=disp,
+            ).to_plotly_json()
         return JSONResponse(payload, headers=_png_headers(detail))
 
     @app.get("/api/run/{uid}/binned")
     def api_binned(
         uid: str,
         cols: list[str] = Query(default=[]),
+        x: str = "",
         filters: str = "",
         bincfg: str = "",
+        display: str = "",
         day: str = "",
     ) -> JSONResponse:
-        """Per-bin centers + asymmetric error bands for the selection."""
+        """Per-bin centers + error bands + the ready binned figure.
+
+        Bins GROUP the data (``bincfg.bin_col``); the selected ``x``
+        PLACES it — each bin plots at the per-bin mean of the X column
+        (the owner's ruling: real scan-parameter positions now, x error
+        bars maybe later).  No ``x`` keeps the bin labels as the axis.
+        """
         detail = _load_run(uid)
         pf, run_day = _union(detail, day)
         flt, mask = _masked(pf, filters)
+        disp = _display(display)
         requested = _y_columns(cols)
+        if x and schema_map.numeric_series(pf.frame, x) is None:
+            raise HTTPException(status_code=404, detail=f"no plottable column {x!r}")
         try:
             cfg = analysis.parse_bincfg(bincfg)
         except analysis.BadParam as exc:
@@ -473,21 +515,70 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
             ) from exc
         except ValueError as exc:  # e.g. degenerate percentile bounds
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except TypeError as exc:
+            # A coercible-string column (dtype-tolerant telemetry) plots
+            # in per-shot view but bin_frame aggregates the RAW dtype —
+            # refuse honestly, never 500 (package doctrine).
+            raise HTTPException(
+                status_code=400,
+                detail=f"binned view needs numeric columns: {exc}",
+            ) from exc
+        x_centers = None
+        if x:
+            # Same primitive, mean-aggregated — the snippet mirrors this
+            # exactly.  The x call's dropna/min_count runs over x ALONE,
+            # so its surviving bins can differ from the y call's:
+            # reindex onto the y bins, or points silently plot at the
+            # wrong bin's x (a missing x center degrades to a null →
+            # Plotly skips that point instead of mis-placing it).
+            try:
+                x_result = bin_frame(
+                    pf.frame[mask],
+                    dataclasses.replace(cfg, value_cols=(x,), agg="mean"),
+                )
+            except (TypeError, ValueError) as exc:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"binned view needs a numeric x: {exc}",
+                ) from exc
+            if (x, "center") in x_result.frame.columns:
+                x_centers = analysis.jsonable_values(
+                    x_result.frame[(x, "center")].reindex(result.frame.index)
+                )
+        bin_labels = analysis.jsonable_labels(result.frame.index)
+        binned_series = {
+            column: {
+                sub: analysis.jsonable_values(result.frame[(column, sub)])
+                for sub in ("center", "err_low", "err_high")
+            }
+            for column in requested
+            if (column, "center") in result.frame.columns
+        }
+        x_name = x or None
+        pretty = _pretty_names(detail, pf, [*requested, *([x_name] if x_name else [])])
         payload = {
-            "bins": analysis.jsonable_labels(result.frame.index),
+            "bins": bin_labels,
             "counts": [int(count) for count in result.counts],
-            "series": {
-                column: {
-                    sub: analysis.jsonable_values(result.frame[(column, sub)])
-                    for sub in ("center", "err_low", "err_high")
-                }
-                for column in requested
-                if (column, "center") in result.frame.columns
-            },
+            "series": binned_series,
             "pass": int(mask.sum()),
             "total": len(pf.frame),
-            "code": analysis.binned_code(uid, run_day, requested, flt, cfg),
+            "code": analysis.binned_code(
+                uid, run_day, requested, flt, cfg, x=x_name, display=disp
+            ),
         }
+        if x_centers is not None:
+            payload["x_centers"] = x_centers
+        if requested:
+            payload["figure"] = figures.binned_figure(
+                bin_labels,
+                binned_series,
+                requested,
+                bin_col=cfg.bin_col,
+                x_values=x_centers,
+                x_label=pretty.get(x_name) if x_name else None,
+                pretty=pretty,
+                display=disp,
+            ).to_plotly_json()
         return JSONResponse(payload, headers=_png_headers(detail))
 
     @app.get("/api/run/{uid}/filter-count")
@@ -729,6 +820,11 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
                 "has_next_shot": n_rows is None or shot < n_rows,
                 "total_shots": detail.summary.shots,
                 "portal_version": _portal_version(),
+                # The rail's chips and the display popup must stay in
+                # step with the server-authored figures — one palette,
+                # one marker default, both injected.
+                "trace_colors": list(figures.TRACE_COLORS),
+                "msize_default": figures.MARKER_SIZE_DEFAULT,
                 "qs": lambda **kw: _sticky_query(state, **kw),
             },
         )

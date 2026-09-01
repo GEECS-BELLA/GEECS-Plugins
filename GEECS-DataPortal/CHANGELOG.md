@@ -3,6 +3,78 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.11.0] - 2026-09-01
+
+### Added
+
+Owner live-feedback round on 0.10.0:
+
+- **Binned view plots against the X pick** — bins still *group* by
+  `bincfg.bin_col`, but each bin now *plots at* the per-bin **mean of
+  the selected X column** (`/binned?x=…` → `x_centers` in the payload,
+  the figure's x positions, and the axis title). Same primitive, same
+  bins: a second `bin_frame` call with `replace(cfg, value_cols=(x,),
+  agg="mean")`, mirrored verbatim in the "show the code" snippet. No
+  X keeps the bin labels as the axis, exactly as before. (X error
+  bars deliberately deferred — mean placement is the first move.)
+  `x_centers` come **reindexed onto the y result's bins** — the x
+  call's dropna runs over x alone, so its surviving bins can differ,
+  and positional zipping would silently plot points at the wrong
+  bin's x (review-caught); a bin missing an x center degrades to a
+  skipped point. A timestamp X serves raw seconds (the binned raw
+  rule, extended deliberately). Coercible-string columns
+  (dtype-tolerant telemetry) now 400 in binned view instead of
+  500ing inside `bin_frame` — as y too, a pre-existing hole.
+- **Plot size control**: `width`/`height` join the display vocabulary
+  (popup inputs; same type-400/value-degrade rules). A fixed size also
+  fixes the exported image size.
+- **Copy plot to clipboard**: a modebar button exports the figure at
+  2× and puts the PNG on the clipboard — copy-paste is how plots
+  travel around the lab. Caveat: the async Clipboard API requires a
+  secure context (https or localhost); on plain-http lab hosts the
+  button degrades to the 2× PNG download with a note. The built-in
+  camera download is 2× now too.
+
+## [0.10.0] - 2026-08-31
+
+### Changed
+
+Plot-tab figures are now **authored server-side in Python** (the
+renderer ruling from the plotly.py-vs-Altair bake-off — same vendored
+plotly.js renderer, spec authorship moves down):
+
+- New `geecs_portal/figures.py`: `shots_figure` / `binned_figure` build
+  the complete Plotly figure (palette, base layout, the stacked
+  multi-axis ladder, asymmetric error bars, log/date guards, display
+  cosmetics) with plotly.py; the package gains a `plotly` dependency
+  (server-side only — the browser keeps the vendored bundle).
+- `/api/run/{uid}/frame` and `/binned` accept the URL-carried
+  `display` JSON (validated at the boundary: wrong types, unknown
+  fields, and non-finite numbers are 400s per the `bincfg` precedent;
+  cosmetic *values* keep the page's degrade semantics — a non-hex
+  color or non-positive marker size falls back to the default, because
+  display state rides shared links) and return a ready `figure` field.
+  Responses without `cols` carry no figure. The version-keyed `/api`
+  cache rolls browsers onto the new shape. The raw `series`/`shot`/
+  `bins` keys stay alongside `figure` deliberately — the `/api` layer
+  remains the data contract; the duplication is the accepted cost.
+- `run.html`: `drawShots`/`drawBinned`/`multiYAxes`/
+  `applyDisplayToLayout` and the layout constants collapse into one
+  `drawFigure` — `Plotly.react` over the served figure. The
+  `display.layout` passthrough deliberately **stays client-side** with
+  its prototype-pollution guard (the URL-carried patch never executes
+  on the server), and the trace palette is now injected from
+  `figures.TRACE_COLORS` so rail chips cannot drift from the traces.
+- Aesthetics rider (separate commit, cheap to revert): outside tick
+  marks and a one-step-subtler gridline color — the Vega-Lite look the
+  owner picked out in the renderer bake-off, ported into the Plotly
+  base layout.
+- "Show the code" now reproduces the **figure**, not just the numbers:
+  both snippets end with the `shots_figure`/`binned_figure` call that
+  yields the identical figure the page renders (from the notebook
+  frame, axis titles show raw column names — the page adds pretty
+  names).
+
 ## [0.9.1] - 2026-08-31
 
 ### Fixed

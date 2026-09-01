@@ -255,6 +255,10 @@
       <span class="dim" style="font-size:11px;">first Y axis</span></div>
     <div class="setrow"><label>marker size</label>
       <input id="ds-msize" style="width:4rem;" placeholder="5"></div>
+    <div class="setrow"><label>plot size</label>
+      <input id="ds-width" style="width:5rem;" placeholder="auto"> <span class="dim">×</span>
+      <input id="ds-height" style="width:5rem;" placeholder="auto">
+      <span class="dim" style="font-size:11px;">px — fixes the exported size too</span></div>
     <div class="setrow"><label>trace colors</label>
       <span id="ds-colors"></span></div>
     <div class="setrow" style="align-items:flex-start;"><label>advanced<br>
@@ -309,12 +313,51 @@
 const UID = {{ uid | tojson }};
 const ROOT = {{ root | tojson }};  // proxy mount prefix ("" at root)
 const DAY = {{ day | tojson }};
-const TRACE_COLORS = ["#4cc2b4", "#d6a860", "#6f9fd8", "#c47ab8"];
+const TRACE_COLORS = {{ trace_colors | tojson }};
+const MSIZE_DEFAULT = {{ msize_default | tojson }};
 // Everything Plotly gives for free, switched ON: wheel zoom, in-place
 // legend-name editing, spike lines + hover modes, and the drawing
 // tools (annotate directly on the plot; shapes are editable/erasable).
+const EXPORT_SCALE = 2;  // crisp paste targets — one knob for every export path
+
+async function copyPlotImage(gd) {
+  // Copy-paste is how plots travel around the lab.  The async
+  // Clipboard API needs a secure context (https or localhost) — on
+  // plain http lab hosts it is absent — and some browsers expire the
+  // click gesture across the awaits; either way degrade to the PNG
+  // download rather than failing silently.
+  const url = await Plotly.toImage(gd, { format: "png", scale: EXPORT_SCALE });
+  try {
+    if (!navigator.clipboard || !window.ClipboardItem) throw new Error("no clipboard API");
+    const blob = await (await fetch(url)).blob();
+    await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+    flashNote("copied to clipboard");
+  } catch (err) {
+    Plotly.downloadImage(gd, { format: "png", scale: EXPORT_SCALE, filename: "geecs-plot" });
+    flashNote("copy failed — downloaded PNG instead");
+  }
+}
+
+function flashNote(text) {
+  let note = document.getElementById("flashnote");
+  if (!note) {
+    note = document.createElement("div");
+    note.id = "flashnote";
+    note.style.cssText = "position:fixed; bottom:1rem; right:1rem; z-index:40;" +
+      "background:var(--panel2); color:var(--ink); border:1px solid var(--line);" +
+      "border-radius:4px; padding:0.4rem 0.7rem; font-size:12px;";
+    document.body.appendChild(note);
+  }
+  note.textContent = text;
+  note.style.display = "block";
+  clearTimeout(note._timer);
+  note._timer = setTimeout(() => { note.style.display = "none"; }, 2200);
+}
+
 const PLOT_CONFIG = {
   responsive: true, displaylogo: false, scrollZoom: true,
+  // The built-in camera button exports at EXPORT_SCALE too.
+  toImageButtonOptions: { format: "png", scale: EXPORT_SCALE },
   // Granular (not editable:true): blanket editability renders grey
   // "Click to enter …" placeholders for every unset title — and
   // axisTitleText does too on the title-less stacked axes (3-4), so
@@ -323,16 +366,20 @@ const PLOT_CONFIG = {
   modeBarButtonsToAdd: [
     "togglespikelines", "hoverclosest", "hovercompare",
     "drawline", "drawopenpath", "drawrect", "drawcircle", "eraseshape",
+    {
+      name: "copyimage",
+      title: "Copy plot to clipboard (PNG)",
+      icon: {  // material content_copy, 24×24 viewBox
+        width: 24, height: 24,
+        path: "M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z",
+      },
+      click: copyPlotImage,
+    },
   ],
 };
-const PLOT_LAYOUT = {
-  paper_bgcolor: "#1a2026", plot_bgcolor: "#12161a",
-  font: { color: "#dde4ea", size: 12 },
-  margin: { t: 24, r: 56, b: 44, l: 56 },
-  xaxis: { gridcolor: "#2c353d", zerolinecolor: "#2c353d" },
-  showlegend: true,
-  legend: { orientation: "h", y: 1.08 },
-};
+// Traces and layout are authored SERVER-SIDE (geecs_portal/figures.py)
+// and arrive as the /api response's `figure` — the palette is injected
+// so the rail's chips stay color-matched to the server's traces.
 
 // ---- URL-carried state (statelessness doctrine: the link IS the analysis)
 const S = readState();
@@ -501,12 +548,15 @@ function refresh() {
   const params = new URLSearchParams();
   S.y.forEach(c => params.append("cols", c));
   if (S.filters) params.set("filters", S.filters);
+  if (S.display) params.set("display", S.display);
+  // Both views take the X pick: per-shot plots it directly, binned
+  // plots each bin at the per-bin mean of it (bins group, X places).
+  if (S.x) params.set("x", S.x);
   if (S.view === "bin") {
     if (S.bincfg) params.set("bincfg", S.bincfg);
-    api("binned", params).then(drawBinned).catch(showPlotError);
+    api("binned", params).then(drawFigure).catch(showPlotError);
   } else {
-    if (S.x) params.set("x", S.x);
-    api("frame", params).then(drawShots).catch(showPlotError);
+    api("frame", params).then(drawFigure).catch(showPlotError);
   }
 }
 
@@ -521,36 +571,10 @@ function traceColor(i) {
   // sinks this feeds — anything else falls back to the palette.
   const d = dispCfg();
   const c = d.colors && d.colors[i];
-  return (typeof c === "string" && /^#[0-9a-fA-F]{3,8}$/.test(c)) ? c : TRACE_COLORS[i];
-}
-
-function markerSize() {
-  const d = dispCfg();
-  return Number.isFinite(d.msize) && d.msize > 0 ? d.msize : 5;
-}
-
-function axisRange(lo, hi, log) {
-  // Plotly log-axis ranges are exponents.
-  if (!Number.isFinite(lo) || !Number.isFinite(hi)) return undefined;
-  if (log) {
-    if (lo <= 0 || hi <= 0) return undefined;
-    return [Math.log10(lo), Math.log10(hi)];
-  }
-  return [lo, hi];
-}
-
-function applyDisplayToLayout(layout, xIsDate, yIsDate) {
-  // Date axes take neither log type nor numeric ranges.
-  const d = dispCfg();
-  if (d.logx && !xIsDate) layout.xaxis.type = "log";
-  if (d.logy && !yIsDate) layout.yaxis.type = "log";
-  const xr = axisRange(d.xmin, d.xmax, d.logx && !xIsDate);
-  if (xr && !xIsDate) { layout.xaxis.range = xr; layout.xaxis.autorange = false; }
-  const yr = axisRange(d.ymin, d.ymax, !!d.logy);
-  if (yr && !yIsDate) { layout.yaxis.range = yr; layout.yaxis.autorange = false; }
-  // The escape hatch: any Plotly layout attribute, merged last — the
-  // whole layout schema is reachable without new portal code.
-  if (d.layout && typeof d.layout === "object") deepMerge(layout, d.layout);
+  // Same lengths the server's _is_hex_color accepts (3/4/6/8) — the
+  // chip and the trace must agree on what counts as a custom color.
+  return (typeof c === "string" && /^#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(c))
+    ? c : TRACE_COLORS[i];
 }
 
 function deepMerge(target, patch) {
@@ -569,76 +593,16 @@ function deepMerge(target, patch) {
   }
 }
 
-function multiYAxes(layout, n) {
-  // First axis: title + ticks in the trace's color; extra grid lines
-  // only from axis 1 (overlaid grids are unreadable).
-  layout.yaxis.title = { text: prettyName(S.y[0]), font: { color: traceColor(0) } };
-  layout.yaxis.automargin = true;
-  layout.showlegend = n > 1;  // one trace: the axis title says it all
-  for (let i = 1; i < n; i++) {
-    layout["yaxis" + (i + 1)] = {
-      overlaying: "y", side: i % 2 ? "right" : "left",
-      // Plotly's native mechanism for stacking multiple axes on one
-      // side: free-anchored + autoshift moves each outward cleanly.
-      anchor: i >= 2 ? "free" : undefined,
-      autoshift: i >= 2 ? true : undefined,
-      automargin: true,
-      // Rotated titles only on the two ANCHORED axes: Plotly does not
-      // shift a free-anchored axis's title with the axis (measured), so
-      // axes 3-4 rely on color-matched ticks + the legend instead.
-      title: i < 2
-        ? { text: prettyName(S.y[i]), font: { color: traceColor(i) } }
-        : undefined,
-      gridcolor: "rgba(0,0,0,0)", zerolinecolor: "#2c353d",
-      tickfont: { color: traceColor(i) },
-    };
-  }
-}
-
-function drawShots(data) {
-  const x = S.x && data.series[S.x] ? data.series[S.x] : data.shot;
-  const xIsDate = !!(S.x && data.kinds && data.kinds[S.x] === "datetime");
-  const traces = S.y.map((name, i) => ({
-    x: x, y: data.series[name], name: prettyName(name), mode: "markers",
-    marker: { color: traceColor(i), size: markerSize() },
-    yaxis: i ? "y" + (i + 1) : "y",
-  }));
-  const layout = structuredClone(PLOT_LAYOUT);
-  layout.xaxis.title = { text: S.x ? prettyName(S.x) : "shot #" };
-  if (xIsDate) layout.xaxis.type = "date";  // ISO strings from the API
-  layout.yaxis = { gridcolor: "#2c353d", zerolinecolor: "#2c353d",
-                   tickfont: { color: traceColor(0) } };
-  multiYAxes(layout, S.y.length);
-  layout.xaxis.automargin = true;
-  const yIsDate = !!(data.kinds && data.kinds[S.y[0]] === "datetime");
-  applyDisplayToLayout(layout, xIsDate, yIsDate);
-  Plotly.react(plotHost(), traces, layout, PLOT_CONFIG);
-  document.getElementById("codebox").textContent = data.code;
-  setPassCount(data.pass, data.total);
-}
-
-function drawBinned(data) {
-  const traces = S.y.map((name, i) => {
-    const s = data.series[name] || { center: [], err_low: [], err_high: [] };
-    return {
-      x: data.bins, y: s.center, name: prettyName(name), mode: "markers+lines",
-      marker: { color: traceColor(i), size: markerSize() + 1 },
-      line: { color: traceColor(i), width: 1 },
-      error_y: { type: "data", symmetric: false,
-                 array: s.err_high, arrayminus: s.err_low,
-                 color: traceColor(i), thickness: 1 },
-      yaxis: i ? "y" + (i + 1) : "y",
-    };
-  });
-  const layout = structuredClone(PLOT_LAYOUT);
-  const cfg = S.bincfg ? JSON.parse(S.bincfg) : {};
-  layout.xaxis.title = { text: cfg.bin_col || "Bin #" };
-  layout.xaxis.automargin = true;
-  layout.yaxis = { gridcolor: "#2c353d", zerolinecolor: "#2c353d",
-                   tickfont: { color: traceColor(0) } };
-  multiYAxes(layout, S.y.length);
-  applyDisplayToLayout(layout, false, false);  // binned serves raw numbers
-  Plotly.react(plotHost(), traces, layout, PLOT_CONFIG);
+function drawFigure(data) {
+  // The figure is server-authored (geecs_portal/figures.py — display
+  // state included).  The one client-side step is the escape hatch:
+  // display.layout deep-merges LAST, so the whole Plotly layout schema
+  // stays reachable without new portal code — and the URL-carried
+  // patch stays in the browser with its prototype-pollution guard.
+  const fig = data.figure || { data: [], layout: {} };
+  const d = dispCfg();
+  if (d.layout && typeof d.layout === "object") deepMerge(fig.layout, d.layout);
+  Plotly.react(plotHost(), fig.data, fig.layout, PLOT_CONFIG);
   document.getElementById("codebox").textContent = data.code;
   setPassCount(data.pass, data.total);
 }
@@ -790,6 +754,10 @@ function openDisplay() {
   }
   document.getElementById("ds-msize").value =
     Number.isFinite(d.msize) ? d.msize : "";
+  for (const key of ["width", "height"]) {
+    document.getElementById("ds-" + key).value =
+      Number.isFinite(d[key]) ? d[key] : "";
+  }
   document.getElementById("ds-layout").value =
     d.layout ? JSON.stringify(d.layout) : "";
   document.getElementById("ds-error").style.display = "none";
@@ -808,7 +776,11 @@ function applyDisplay() {
     if (Number.isFinite(value)) d[key] = value;
   }
   const msize = parseFloat(document.getElementById("ds-msize").value);
-  if (Number.isFinite(msize) && msize > 0 && msize !== 5) d.msize = msize;
+  if (Number.isFinite(msize) && msize > 0 && msize !== MSIZE_DEFAULT) d.msize = msize;
+  for (const key of ["width", "height"]) {
+    const value = parseFloat(document.getElementById("ds-" + key).value);
+    if (Number.isFinite(value) && value > 0) d[key] = value;
+  }
   const colors = S.y.map((name, i) => {
     const input = document.getElementById("ds-color-" + i);
     return input ? input.value : TRACE_COLORS[i];

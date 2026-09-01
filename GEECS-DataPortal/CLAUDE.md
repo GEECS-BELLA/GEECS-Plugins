@@ -40,15 +40,26 @@ this package; the architecture rules below are its distillation.
   primitives live in GEECS-Data-Utils (`scan_frame`, `row_filters`,
   `binning`) → the portal's `/api` endpoints are **one-liners over
   those primitives** (parsing/JSON chores live in
-  `geecs_portal/analysis.py`) → tabs are client-side Plotly views of
-  the JSON.  Every endpoint response carries a `code` field: the
-  notebook snippet that reproduces it exactly (the reproducibility
-  doctrine — never put numerics in an endpoint that a notebook can't
-  import).  All view state is URL-carried (`tab`/`y`/`x`/`view`/
+  `geecs_portal/analysis.py`) → tabs render the JSON with the vendored
+  Plotly.  Since 0.10.0 the figure itself is **authored server-side in
+  Python** (`geecs_portal/figures.py`, plotly.py — the bake-off
+  ruling): endpoints return a ready `figure` and the tab JS is
+  `Plotly.react` over it — plot logic belongs in `figures.py` (pure,
+  unit-tested), never back in template JS.  The raw `series`/`shot`/
+  `bins`/`counts` keys stay alongside `figure` **on purpose**: the
+  `/api` layer is the data contract (scripts, debugging, and future
+  tabs read numbers, not figures) — the payload duplication is the
+  accepted cost, not an oversight.  Every endpoint response
+  carries a `code` field: the notebook snippet that reproduces it
+  exactly, **figure included** — `shots_figure`/`binned_figure` accept
+  the reproduced frame directly (the reproducibility doctrine — never
+  put numerics in an endpoint that a notebook can't import).  All view state is URL-carried (`tab`/`y`/`x`/`view`/
   `filters`/`bincfg`/`display` — filters/bincfg are the
   Pydantic/dataclass models' JSON, `display` the plot-cosmetics JSON,
   whose `layout` key is a raw Plotly-layout passthrough deep-merged
-  last: cosmetic asks should land there, not as new per-knob code):
+  last **in the browser** — the untrusted URL-carried patch never
+  executes server-side, and its prototype-pollution guard lives with
+  it: cosmetic asks should land there, not as new per-knob code):
   a link IS the analysis, which is also the multi-user story
   (statelessness; shared caches are a feature).  Every `/api` fetch
   additionally carries `v=<portal version>` — completed-run responses
@@ -85,8 +96,10 @@ this package; the architecture rules below are its distillation.
 ```
 geecs_portal/
   app.py         # create_app(catalog, default_experiment=…) — all routes
-  analysis.py    # /api boundary chores: filters/bincfg parsing, JSON
-                 #   shaping (NaN→null), "show the code" snippets
+  analysis.py    # /api boundary chores: filters/bincfg/display parsing,
+                 #   JSON shaping (NaN→null), "show the code" snippets
+  figures.py     # server-side Plot-tab figure authoring (plotly.py):
+                 #   palette, base layout, multi-axis ladder, display
   resources.py   # (folder, device, shot) → PNG bytes / tiered refusal
   static/        # the vendored Plotly bundle (the ONE committed JS asset)
   __main__.py    # CLI (geecs-data-portal): real TiledScanCatalog + uvicorn
@@ -107,9 +120,13 @@ target day's matching/newest run; empty day → the day page) ·
 `/api/run/{uid}/frame?cols=&x=&filters=` (per-shot series, filtered;
 timestamp columns arrive as host-local ISO datetimes with a `kinds`
 map — presentation-side conversion the `code` snippet mirrors) ·
-`/api/run/{uid}/binned?cols=&filters=&bincfg=` (centers + asymmetric
+`/api/run/{uid}/binned?cols=&x=&filters=&bincfg=` (centers + asymmetric
 error bands — served RAW, no datetime conversion: a timestamp bin
-column keeps its epoch-second labels) ·
+column keeps its epoch-second labels, and the `x` pick's per-bin mean
+positions are raw seconds too when X is a timestamp column — datetime
+rendering is per-shot-only, deliberately; `x_centers` come reindexed
+onto the y result's bins so diverging per-column dropna can never
+shift points) ·
 `/api/run/{uid}/filter-count?filters=` (live pass count)
 · `/run/{uid}/plot.png?y=&x=` (server-rendered scalar PNG, kept for
 embedding) · `/run/{uid}/image.png?device=&shot=` (one rendered device
@@ -135,11 +152,15 @@ list — a new tab should be exactly these steps:
    waiting for a hand-edited URL), call the primitive, shape with
    `jsonable_values`, attach a `code` snippet, serve with the
    completed-run cache headers.
-3. **Tab** — a `<section class="pane">` + a `.tab` button in
-   `run.html`; render with the vendored Plotly from the JSON; keep all
-   view state in the URL (extend `readState`/`writeState`); expansion
-   UI goes behind a popup/⚙, never into the rail.
-4. **Tests** — endpoint tests against the fakes (hand-computed numbers,
+3. **Figure** — if the tab plots, its figure builder goes in
+   `figures.py` (pure functions, plotly.py, unit-tested in
+   `tests/test_figures.py`) and the endpoint serves it as `figure`.
+4. **Tab** — a `<section class="pane">` + a `.tab` button in
+   `run.html`; `Plotly.react` over the served figure (vendored
+   bundle); keep all view state in the URL (extend
+   `readState`/`writeState`); expansion UI goes behind a popup/⚙,
+   never into the rail.
+5. **Tests** — endpoint tests against the fakes (hand-computed numbers,
    the 400/404 ladder, NaN→null, immutable headers on completed runs).
 
 ## Deployment
