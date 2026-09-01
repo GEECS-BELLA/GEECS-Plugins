@@ -34,8 +34,16 @@ at whatever is alive that day:
                              corpus laser-off config: internal
                              single-shot source, safe without beam)
 ``GEECS_HW_ACQUISITION``     ``strict`` (default) or ``free_run``
-``GEECS_HW_SHOTS``           shots to take (default ``5``)
+``GEECS_HW_SHOTS``           shots per step (default ``5`` noscan,
+                             ``2`` for the 1-D sweep)
 ``GEECS_HW_REP_RATE``        machine rep rate in Hz (default ``1``)
+``GEECS_HW_SCAN_VARIABLE``   catalog scan-variable name for the 1-D
+                             sweep test (e.g. ``S1H``). **No default —
+                             the sweep moves hardware and self-skips
+                             unless this is set deliberately.**
+``GEECS_HW_SCAN_START``      sweep bounds — all three mandatory when
+``GEECS_HW_SCAN_END``        the sweep variable is set (motion never
+``GEECS_HW_SCAN_STEP``       gets baked-in defaults)
 ===========================  =======================================
 """
 
@@ -99,3 +107,96 @@ def test_scan_request_noscan_runs_on_hardware() -> None:
     # not persisted (e.g. Tiled unreachable), which is still a pass for the
     # acquisition path — the RunEngine would have raised on failure.
     print(f"\nScanRequest hardware run complete; run uid: {uid}")
+
+
+@pytest.mark.integration
+def test_scan_request_1d_step_scan_runs_on_hardware() -> None:
+    """One 1-D step ScanRequest against the real gateway — MOVES HARDWARE.
+
+    Self-skips unless ``GEECS_HW_SCAN_VARIABLE`` names a catalog scan
+    variable: unlike the noscan test, this one drives a real setpoint
+    through the sweep, so it must never run by accident, and the sweep
+    bounds are mandatory env vars with no baked-in motion defaults.
+
+    Two deliberate differences from the noscan test:
+
+    - The request is submitted in the **v2 nested layout** (``capture``
+      block) while the noscan test keeps its flat v1 dict — together the
+      two pin both document layouts, and the lifting validator, on real
+      hardware.
+    - The swept variable is restored to its pre-scan readback in a
+      ``finally`` (via :meth:`GeecsSession.move_variable`) — the engine
+      deliberately does not restore plain axes after a scan.
+    """
+    from geecs_bluesky.devices.ca.oneshot import try_caget_once
+    from geecs_bluesky.scan_request_runner import (
+        ConfigsRepoResolver,
+        resolve_movable_target,
+    )
+    from geecs_bluesky.session import GeecsSession
+    from geecs_core.pv_naming import pv_name
+    from geecs_schemas import ScanRequest
+
+    variable = os.environ.get("GEECS_HW_SCAN_VARIABLE", "")
+    if not variable:
+        pytest.skip(
+            "1-D sweep moves hardware — set GEECS_HW_SCAN_VARIABLE plus "
+            "GEECS_HW_SCAN_START/_END/_STEP to run it deliberately"
+        )
+    start = float(os.environ["GEECS_HW_SCAN_START"])
+    end = float(os.environ["GEECS_HW_SCAN_END"])
+    step = float(os.environ["GEECS_HW_SCAN_STEP"])
+
+    experiment = os.environ.get("GEECS_HW_EXPERIMENT", "Undulator")
+    save_sets = [
+        name.strip()
+        for name in os.environ.get("GEECS_HW_CAMERA", "Amp4In").split(",")
+        if name.strip()
+    ]
+    trigger_profile = os.environ.get("GEECS_HW_TRIGGER_PROFILE", "HTU-LaserOFF")
+    acquisition = os.environ.get("GEECS_HW_ACQUISITION", "strict")
+    shots = int(os.environ.get("GEECS_HW_SHOTS", "2"))
+    rep_rate_hz = float(os.environ.get("GEECS_HW_REP_RATE", "1"))
+
+    resolver = ConfigsRepoResolver(experiment)
+
+    # Pre-scan readback of the swept target, for the set-back below. Only a
+    # plain single-target variable is supported here — restoring a pseudo's
+    # components is the engine's own job (relative mode) or out of scope.
+    spec = resolver.resolve_scan_variable(variable)
+    target = resolve_movable_target(spec, variable)
+    if not hasattr(target, "device"):
+        pytest.skip(f"{variable!r} is not a plain scan variable — no set-back path")
+    initial = try_caget_once(
+        pv_name(experiment, target.device, target.variable), timeout=5.0
+    )
+    if initial is None:
+        pytest.skip(f"could not read {target.label} pre-scan — refusing to move it")
+
+    request = ScanRequest.model_validate(
+        {
+            "mode": "step",
+            "axes": [
+                {
+                    "variable": variable,
+                    "positions": {"start": start, "end": end, "step": step},
+                }
+            ],
+            "capture": {
+                "shots_per_step": shots,
+                "acquisition": acquisition,
+                "save_sets": save_sets,
+                "trigger_profile": trigger_profile,
+            },
+            "description": (
+                "v2 hardware verification: 1-D sweep (test_scan_request_hardware)"
+            ),
+        }
+    )
+    session = GeecsSession(experiment, rep_rate_hz=rep_rate_hz)
+    try:
+        uid = session.run(request, resolver)
+        print(f"\n1-D ScanRequest hardware run complete; run uid: {uid}")
+    finally:
+        session.move_variable(variable, float(initial), resolver)
+        print(f"restored {target.label} to pre-scan value {float(initial)}")
