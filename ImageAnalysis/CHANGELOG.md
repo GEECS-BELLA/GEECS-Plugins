@@ -3,6 +3,19 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.13.1] — 2026-09-01
+
+### Fixed
+
+- `pytest` moved from the main dependency table to
+  `[tool.poetry.group.dev.dependencies]` (#739). It was declared as a
+  **main** dependency, so every consumer's production install
+  (GeecsBluesky's `analysis`/`optimize` extras, ScanAnalysis,
+  GEECS-DataPortal's `analysis` extra, GEECS-MCP's `analysis-run`
+  extra) dragged pytest + pluggy + iniconfig in — visible in their
+  locks as `groups = ["main"]`. Nothing under `image_analysis/`
+  imports pytest; only `tests/` does. Dev-group only — no code change.
+
 ## [1.13.0] — 2026-09-01
 
 ### Added
