@@ -670,7 +670,8 @@ class ScanRequest(VersionedSchemaModel):
     ``submission`` (see the module docstring).  The flat v1 layout — those
     fields at the top level, plus an optional ``submission`` record — is
     lifted into the v2 shape by a before-validator, so v1 documents keep
-    validating; ``schema_version`` is normalized to 2 when that happens.
+    validating; a declared ``schema_version`` ≤ 1 is normalized to 2 (even
+    on a sparse document with nothing to lift).
     """
 
     schema_version: int = Field(
@@ -770,6 +771,10 @@ class ScanRequest(VersionedSchemaModel):
             return data
         flat = [key for key in _V1_CAPTURE_FIELDS if key in data]
         version = data.get("schema_version")
+        if isinstance(version, str) and version.isdigit():
+            # Pydantic's lax mode coerces a quoted "1" to int at field
+            # validation, so the staleness check must see it the same way.
+            version = int(version)
         stale_version = isinstance(version, int) and version <= 1
         if not flat and "submission" not in data and not stale_version:
             return data

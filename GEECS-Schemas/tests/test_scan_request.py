@@ -360,6 +360,14 @@ class TestV1Migration:
         request = make_step_request(schema_version=1)
         assert request.schema_version == 2
 
+    def test_quoted_v1_schema_version_also_normalizes(self):
+        # A quoted "1" (string-typed YAML/JSON) coerces to int at field
+        # validation, so the staleness check must treat it as stale too.
+        request = ScanRequest.model_validate(
+            {"mode": "noscan", "schema_version": "1", "shots_per_step": 2}
+        )
+        assert request.schema_version == 2
+
     def test_sparse_v1_document_normalizes_schema_version(self):
         # A declared version <= 1 is normalized even with NO flat fields to
         # lift — otherwise a sparse v1 preset would round-trip a v2-shaped
