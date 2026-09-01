@@ -721,6 +721,17 @@ def create_app(
             )
         return processed
 
+    if processing_config_dir is not None and not _processing_names():
+        # The flag is explicit operator intent — a typo'd path, a tree
+        # without analyzers/, or a missing 'analysis' extra must not
+        # no-op silently into a hidden selector.
+        logger.warning(
+            "processing_config_dir %s yielded no diagnostics (missing/"
+            "unlistable tree, or the 'analysis' extra is not installed) "
+            "— the processing selector is disabled",
+            processing_config_dir,
+        )
+
     @app.get("/api/run/{uid}/bin-images")
     def api_bin_images(
         uid: str, device: str = "", filters: str = "", bincfg: str = "", day: str = ""
@@ -1044,12 +1055,16 @@ def create_app(
                 raise HTTPException(
                     status_code=404, detail=f"render failed: {exc}"
                 ) from exc
-            headers = (
-                _png_headers(detail)
-                if resolved.cacheable
-                else {"Cache-Control": "no-cache"}
+            # A processed response is a function of (pixels, diagnostic
+            # YAML, ImageAnalysis version); the URL keys only the first,
+            # and the configs tree is local and MUTABLE — iterating on
+            # it is the selector's purpose. Never immutable-cache what
+            # a config edit must be able to change.
+            return Response(
+                content=png,
+                media_type="image/png",
+                headers={"Cache-Control": "no-cache"},
             )
-            return Response(content=png, media_type="image/png", headers=headers)
         result = resources.load_shot_image(
             folder,
             device,
@@ -1140,7 +1155,13 @@ def create_app(
             raise HTTPException(
                 status_code=404, detail=f"render failed: {exc}"
             ) from exc
-        headers = _png_headers(detail) if cacheable else {"Cache-Control": "no-cache"}
+        # Processed responses never cache immutable: the diagnostic YAML
+        # is a mutable input the URL does not key (see run_image).
+        headers = (
+            {"Cache-Control": "no-cache"}
+            if (processing or not cacheable)
+            else _png_headers(detail)
+        )
         return Response(content=png, media_type="image/png", headers=headers)
 
     @app.get("/run/{uid}/plot.png")

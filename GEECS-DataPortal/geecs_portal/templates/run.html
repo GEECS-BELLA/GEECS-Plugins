@@ -220,12 +220,13 @@
         <input type="hidden" name="experiment" value="{{ experiment }}">
         <input type="hidden" name="tab" value="images">
         {% if filter %}<input type="hidden" name="filter" value="{{ filter }}">{% endif %}
-        {% if shot > 1 %}<a href="{{ root }}/run/{{ uid }}?{{ qs(shot=shot - 1, tab="images") }}">&larr; prev</a>{% endif %}
+        <input type="hidden" name="processing" id="procfield" value="{{ processing }}">
+        {% if shot > 1 %}<a class="carry" href="{{ root }}/run/{{ uid }}?{{ qs(shot=shot - 1, tab="images") }}">&larr; prev</a>{% endif %}
         <label class="dim">shot
           <input type="number" name="shot" value="{{ shot }}" min="1" style="width: 5rem">
         </label>
         <button type="submit">Show</button>
-        {% if has_next_shot %}<a href="{{ root }}/run/{{ uid }}?{{ qs(shot=shot + 1, tab="images") }}">next &rarr;</a>{% endif %}
+        {% if has_next_shot %}<a class="carry" href="{{ root }}/run/{{ uid }}?{{ qs(shot=shot + 1, tab="images") }}">next &rarr;</a>{% endif %}
         {% if total_shots %}<span class="dim mono">of ~{{ total_shots }}</span>{% endif %}
         <span class="dim mono">{{ kind }}</span>
       </form>
@@ -449,7 +450,9 @@ function writeState() {
 }
 
 function syncRailLinks(p) {
-  document.querySelectorAll("a.act").forEach(a => {
+  // a.act = the rail's steppers/dropdown; a.carry = in-pane links (the
+  // shot steppers) that must carry client-side analysis state too.
+  document.querySelectorAll("a.act, a.carry").forEach(a => {
     const url = new URL(a.href, location.origin);
     ["y", "x", "view", "filters", "bincfg", "display", "processing", "tab"].forEach(k => url.searchParams.delete(k));
     S.y.forEach(v => url.searchParams.append("y", v));
@@ -513,6 +516,8 @@ let IMG_KEY = null;  // last-rendered grid params — skip redundant refetches
 
 function setProcessing(name) {
   S.processing = name;
+  const field = document.getElementById("procfield");
+  if (field) field.value = name;  // the Show form must submit the live pick
   writeState();
   updateShotImage();
   refreshImages();

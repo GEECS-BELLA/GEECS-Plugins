@@ -687,6 +687,32 @@ class TestProcessingSelector:
                 }
             )
         )
+        thresh = tree / "analyzers" / "HTU" / "UC_CropThresh.yaml"
+        thresh.write_text(
+            yaml.safe_dump(
+                {
+                    "name": "UC_CropThresh",
+                    "image_analyzer": (
+                        "image_analysis.analyzers.standard_analyzer.StandardAnalyzer"
+                    ),
+                    "image": {
+                        "type": "camera",
+                        "bit_depth": 16,
+                        "pipeline": {"steps": ["roi", "thresholding"]},
+                        "roi": {"x_min": 1, "x_max": 4, "y_min": 0, "y_max": 2},
+                        # Cutoff between the raw marker (1000) and the
+                        # bin average of two markers (500): only
+                        # process-THEN-average keeps both markers alive.
+                        "thresholding": {
+                            "method": "constant",
+                            "value": 600.0,
+                            "mode": "binary",
+                        },
+                    },
+                    "scan": {"priority": 100},
+                }
+            )
+        )
         haso = tree / "analyzers" / "HTU" / "U_Haso.yaml"
         haso.write_text(
             yaml.safe_dump(
@@ -744,6 +770,40 @@ class TestProcessingSelector:
         rest = decoded.copy()
         rest[0, 0] = rest[0, 1] = 0
         assert not rest.any()
+
+    def test_bin_average_order_is_process_then_average(self, scan_folder, configs_tree):
+        """A NONLINEAR step distinguishes the order (the crop test alone
+        cannot: crop commutes with averaging). Threshold 600 sits between
+        the raw marker (1000) and the averaged marker (500): only
+        process-then-average keeps both bin-0 markers alive — the wrong
+        order (average, then threshold once) blanks the image entirely.
+        """
+        response = self._client(scan_folder, configs_tree).get(
+            "/run/uid-002/bin-image.png",
+            params={"device": "cam", "bin": 0, "processing": "UC_CropThresh"},
+        )
+        assert response.status_code == 200
+        decoded = np.array(Image.open(io.BytesIO(response.content)))
+        assert decoded[0, 0] == decoded[0, 1] == 255
+
+    def test_processed_responses_never_cache_immutable(self, scan_folder, configs_tree):
+        """The diagnostic YAML is a mutable input the URL does not key —
+        an edited config must show on reload, on every viewer, even
+        behind a caching reverse proxy (completed run or not).
+        """
+        client = self._client(scan_folder, configs_tree)
+        shot = client.get(
+            "/run/uid-002/image.png",
+            params={"device": "cam", "shot": 1, "processing": "UC_Crop"},
+        )
+        assert shot.headers["cache-control"] == "no-cache"
+        grid = client.get(
+            "/run/uid-002/bin-image.png",
+            params={"device": "cam", "bin": 0, "processing": "UC_Crop"},
+        )
+        assert grid.headers["cache-control"] == "no-cache"
+        raw = client.get("/run/uid-002/image.png", params={"device": "cam", "shot": 1})
+        assert "immutable" in raw.headers["cache-control"]  # raw path unchanged
 
     def test_selector_rendered_only_with_configs(self, scan_folder, configs_tree):
         with_configs = self._client(scan_folder, configs_tree).get(
