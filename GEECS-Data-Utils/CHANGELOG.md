@@ -3,6 +3,29 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.26.0] - 2026-09-01
+
+### Added
+
+- `analysis_status` — the one tolerant, read-only reader for a scan
+  folder's `analysis_status/*.yaml` task files (#682):
+  `read_analysis_statuses(scan_folder) -> dict[task_id, AnalysisStatus]`
+  (+ `read_analysis_status`, `parse_status_timestamp`,
+  `analysis_status_dir`, `STATUS_DIR_NAME`/`STATUS_FIELDS`/
+  `STATUS_STATES`), exported at the package root as `AnalysisStatus` /
+  `read_analysis_statuses`. Schema-light by design: the writer
+  (ScanAnalysis `task_queue.TaskStatus.to_dict()`) stays authoritative;
+  every field is coerced tolerantly (odd types degrade the field, a torn
+  or non-mapping file degrades that one entry to `unreadable`, unknown
+  keys are ignored, `.claim`/`.tmp` siblings are skipped, `.yml` is
+  accepted, timestamps naive→UTC — and, beyond the consumer copy it
+  replaces, an unquoted stamp YAML already parsed into a `datetime` is
+  accepted too). A missing scan folder or status dir reads as empty;
+  nothing is ever created (the scan-folder invariant). The writer/reader
+  contract is pinned cross-package in ScanAnalysis's suite
+  (`tests/test_analysis_status_contract.py`), which can import both
+  sides. Promoted from GEECS-MCP's local `_read_task_statuses`.
+
 ## [0.25.0] - 2026-09-01
 
 ### Added

@@ -11,6 +11,10 @@ geecs_data_utils/
   __init__.py                  # Public API: ScanTag, ScanPaths, ScanData, GeecsPathsConfig
   scan_paths.py                # ScanPaths: folder navigation + scan_info.ini parsing
   scan_data.py                 # ScanData: ScanPaths + scalar DataFrame loading + binning
+  analysis_status.py           # read-only tolerant reader for scans/ScanNNN/
+                               #   analysis_status/*.yaml (ScanAnalysis task_queue's
+                               #   TaskStatus.to_dict() shape; contract pinned in
+                               #   ScanAnalysis's suite, #682)
   type_defs.py                 # ScanTag, ScanMode, ScanConfig, ECSDump Pydantic models
   geecs_paths_config.py        # GeecsPathsConfig: base path + experiment resolution
   config_base.py               # ConfigDirManager: generic config directory management
@@ -235,6 +239,24 @@ from geecs_data_utils.plotting_utils import plot_binned, plot_binned_multi
   resolution and post-scan file organization (`ScanConfig` / `ScanMode`
   remain here as legacy vocabulary; their engine consumer was deleted
   2026-08-20)
+
+## `analysis_status/` reader (`analysis_status`)
+
+The one read-side view of the per-task YAMLs ScanAnalysis's task queue
+writes at `scans/Scan<NNN>/analysis_status/<task_id>.yaml` — for every
+consumer that is not ScanAnalysis (GEECS-MCP's `get_scan_analysis`
+today; #682).  `read_analysis_statuses(scan_folder)` returns
+`{task_id: AnalysisStatus}` in filename order.  Schema-light on purpose:
+`TaskStatus.to_dict()` in `ScanAnalysis/scan_analysis/task_queue.py`
+stays the authoritative shape; `STATUS_FIELDS` here names its keys and
+every field is coerced tolerantly (odd types → `None`/`()`, a torn or
+non-mapping file → one `unreadable` entry, unknown keys ignored,
+`.claim`/`.tmp` siblings skipped, timestamps tz-aware with naive → UTC).
+A missing scan folder or status dir reads as empty; nothing is ever
+created.  The writer/reader contract is pinned in ScanAnalysis's suite
+(`tests/test_analysis_status_contract.py`, the package that can import
+both sides) — when the writer grows a field, extend `STATUS_FIELDS` +
+`AnalysisStatus` in the same PR.
 
 ## Tiled catalog layer (`tiled_catalog` / `tiled_schema` / `tiled_drift`)
 

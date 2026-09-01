@@ -246,6 +246,14 @@ parser from it — GEECS-MCP #675 review; read the writer when consuming):
   `analysis/` tree, populated when the analyzer completes.  Consumed by
   GEECS-MCP's `get_scan_figure`.
 
+Any package other than this one consumes these files through
+`geecs_data_utils.analysis_status.read_analysis_statuses` (the one
+tolerant, read-only reader — #682), never a local parser.
+`tests/test_analysis_status_contract.py` pins the writer against that
+reader: a new `to_dict()` key fails there until `STATUS_FIELDS` /
+`AnalysisStatus` in GEECS-Data-Utils learn it — extend both in the same
+PR as the writer change.
+
 ## Live Watching (`live_task_runner.py`)
 
 `LiveTaskRunner` watches a data directory for new s-files (scan summary files),

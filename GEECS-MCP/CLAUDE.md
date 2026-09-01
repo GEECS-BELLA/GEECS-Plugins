@@ -89,8 +89,12 @@ geecs_mcp/
                   #   no stop — the console's #653 rules)
   analysis/       # the analysis domain (#675)
     read_tools.py # get_scan_analysis (task statuses from
-                  #   analysis_status/ + the output tree, payload-
-                  #   budgeted with explicit *_truncated flags) and
+                  #   analysis_status/ — read through the SHARED
+                  #   geecs_data_utils.analysis_status reader (#682),
+                  #   never a local parser; ScanAnalysis's suite pins
+                  #   its TaskStatus.to_dict() writer against that
+                  #   reader — + the output tree, payload-budgeted
+                  #   with explicit *_truncated flags) and
                   #   get_scan_figure — a figure REFERENCE by default
                   #   (label, dims, bytes, share-relative path,
                   #   server-relative figure_url), 0.6.0 payload
