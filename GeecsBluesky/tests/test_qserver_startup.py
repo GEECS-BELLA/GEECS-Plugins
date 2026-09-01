@@ -221,6 +221,6 @@ def test_annotated_plans_carry_descriptions_and_still_validate() -> None:
     from geecs_schemas.schema_export import SCHEMA_ARTIFACT
 
     assert (
-        str(SCHEMA_ARTIFACT)
+        SCHEMA_ARTIFACT.as_posix()
         in SCAN_REQUEST_PLAN_ANNOTATION["parameters"]["request"]["description"]
     )
