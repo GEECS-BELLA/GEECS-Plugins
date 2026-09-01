@@ -83,7 +83,12 @@ Three properties carry the design:
    scaffold PR: scalar plots are server-rendered matplotlib PNGs, not
    the Plotly originally noted here — control-room machines may lack
    internet for CDN assets and vendoring Plotly is a build-chain smell;
-   revisit only if interactivity is wanted.)*
+   revisit only if interactivity is wanted.)*  *(Superseded 2026-08-30
+   for the analysis-tabs arc: the revisit happened and interactivity IS
+   wanted — vendored Plotly.js approved by the owner (one checked-in,
+   version-pinned file; still no npm, no CDN — control-room machines
+   stay offline-safe). See `02_labview_peruser_inventory.md` §Settled
+   architecture. The v1 run page's matplotlib plot stands.)*
 
 ### The resource viewer (the genuinely new piece)
 

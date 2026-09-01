@@ -25,20 +25,31 @@ Architecture rules (see this package's ``CLAUDE.md`` and
 
 from __future__ import annotations
 
+import dataclasses
 import io
 import logging
+import re
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Optional
 from urllib.parse import urlencode
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi import FastAPI, HTTPException, Query
+from fastapi.responses import (
+    HTMLResponse,
+    JSONResponse,
+    RedirectResponse,
+    Response,
+)
 from fastapi.templating import Jinja2Templates
 from matplotlib.figure import Figure
 from starlette.requests import Request
+from starlette.staticfiles import StaticFiles
 
 from geecs_data_utils import tiled_schema as schema_map
+from geecs_data_utils.data.binning import bin_frame
+from geecs_data_utils.data.row_filters import filter_mask
+from geecs_data_utils.scan_frame import PROVENANCE_RUN, scan_frame
 from geecs_data_utils.tiled_catalog import (
     ScanCatalog,
     fmt_time_of_day,
@@ -46,15 +57,103 @@ from geecs_data_utils.tiled_catalog import (
     resolve_scan_folder,
 )
 
-from geecs_portal import resources
+from geecs_portal import analysis, resources
 from geecs_portal.cache import ShotDataCache
 
 logger = logging.getLogger(__name__)
 
 _TEMPLATES_DIR = Path(__file__).parent / "templates"
+_STATIC_DIR = Path(__file__).parent / "static"
+
+
+def _portal_version() -> str:
+    """The installed package version — the /api cache-bust key.
+
+    Completed-run /api responses are served immutable, but their SHAPE
+    changes with portal releases; the page keys every /api fetch by
+    this version so browser caches roll over on upgrade.
+    """
+    from importlib.metadata import PackageNotFoundError, version
+
+    try:
+        return version("geecs-data-portal")
+    except PackageNotFoundError:  # source tree without install metadata
+        return "dev"
+
 
 #: Cap on rows fed to a plot (quick-look, not a data browser).
 _PLOT_MAX_ROWS = 100_000
+
+#: Requests carrying a proxy mount prefix — the Grafana/JupyterHub
+#: convention every reverse proxy speaks.
+_FORWARDED_PREFIX_HEADER = b"x-forwarded-prefix"
+
+
+#: A valid mount prefix: non-empty ``/segment`` parts of RFC-3986-ish
+#: path characters — no ``//``, no query/fragment/quote characters, no
+#:  whitespace or backslashes.
+_PREFIX_RE = re.compile(r"(?:/[A-Za-z0-9._~%@+-]+)+")
+
+
+def _clean_prefix(raw: str) -> str:
+    """Normalize a mount prefix: ``/portal/`` → ``/portal``; bad → ``""``.
+
+    Accepts only what :data:`_PREFIX_RE` matches — anything else is
+    treated as no prefix rather than propagated into every link on the
+    page.  A bare ``/`` means "mounted at root", i.e. no prefix.
+    """
+    prefix = raw.strip().rstrip("/")
+    if not prefix:
+        return ""
+    if _PREFIX_RE.fullmatch(prefix) is None:
+        return ""
+    return prefix
+
+
+class _ForwardedPrefixMiddleware:
+    """Adopt the proxy's ``X-Forwarded-Prefix`` as the ASGI root_path.
+
+    Behind ``proxy /portal → portal:8200`` the app itself never sees
+    the mount point; the proxy names it in this header.  Setting
+    ``scope["root_path"]`` makes every link, form, redirect, and JS
+    fetch (all built through the one ``root`` context value) carry the
+    prefix, so the portal works at root and under any mount point —
+    including OSPREY panel tabs.  The header, when present, wins over a
+    static ``--root-path`` (the proxy is authoritative for where it
+    mounted us); a client faking it only rewrites its own page's links.
+
+    The path is re-prefixed too (the ASGI-canonical shape: ``path``
+    includes ``root_path``).  Starlette's router strips ``root_path``
+    from the FRONT of ``path`` wherever it happens to match, so the
+    proxy-stripped path alone would double-strip under a mount named
+    like a route head (``/run``, ``/api``, …), 404ing that whole route
+    family — and its trailing-slash redirects build the Location from
+    ``path``, which would drop the prefix.  Re-prefixing makes the
+    strip exact and the redirects complete.
+    """
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http":
+            for name, value in scope.get("headers", []):
+                if name == _FORWARDED_PREFIX_HEADER:
+                    prefix = _clean_prefix(value.decode("latin-1"))
+                    if prefix:
+                        scope["root_path"] = prefix
+                        scope["path"] = prefix + scope["path"]
+                    break
+        await self.app(scope, receive, send)
+
+
+def _root(request: Request) -> str:
+    """The request's URL prefix (``""`` at root) — prepend to every path."""
+    return request.scope.get("root_path", "").rstrip("/")
+
+
+#: Multi-Y ceiling on the Plot tab (mockup ruling: up to 4).
+_MAX_Y_COLUMNS = 4
 
 
 def _parse_day(day: str) -> date:
@@ -98,7 +197,8 @@ def _sticky_query(state: dict, **overrides) -> str:
     "clear" link, whose whole job is dropping the filter.
     """
     merged = {**state, **overrides}
-    return urlencode({k: v for k, v in merged.items() if v not in ("", None)})
+    kept = {k: v for k, v in merged.items() if v not in ("", None, [], ())}
+    return urlencode(kept, doseq=True)
 
 
 def _acq_timestamp(detail, device: str, shot: int) -> tuple[Optional[float], bool]:
@@ -161,7 +261,16 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
         The configured application.
     """
     app = FastAPI(title="GEECS Data Portal", docs_url=None, redoc_url=None)
-    templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
+    app.add_middleware(_ForwardedPrefixMiddleware)
+    # Every template gets `root`: the mount prefix each root-absolute
+    # href/action/src/fetch must carry (empty when served at root).
+    templates = Jinja2Templates(
+        directory=str(_TEMPLATES_DIR),
+        context_processors=[lambda request: {"root": _root(request)}],
+    )
+    # The one committed JS asset: the version-pinned vendored Plotly
+    # bundle (doctrine amendment 2026-08-30 — still no npm, no CDN).
+    app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
     # Per-app pixel cache: completed runs' shot data kept in memory so
     # within-scan navigation never re-reads the share (owner doctrine,
     # 2026-08-29 — lazy stays the rule ACROSS scans only).
@@ -198,23 +307,212 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
             return {"Cache-Control": "public, max-age=31536000, immutable"}
         return {"Cache-Control": "no-cache"}
 
+    def _union(detail, day: str):
+        """The union frame + the run's resolved day (ISO or None).
+
+        One-liner over :func:`geecs_data_utils.scan_frame.scan_frame`;
+        the s-file is re-read per request (one small text file — the
+        catalog detail behind it is already cached for completed runs).
+        """
+        run_day = _run_day(detail, day)
+        folder = resolve_scan_folder(detail, run_day) if run_day else None
+        pf = scan_frame(detail, folder)
+        return pf, (run_day.isoformat() if run_day else None)
+
+    def _masked(pf, filters_raw: str):
+        """Parse the filters param and mask the union frame (400 on bad)."""
+        try:
+            filters = analysis.parse_filters(filters_raw)
+            mask = filter_mask(pf.frame, filters)
+        except (analysis.BadParam, ValueError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return filters, mask
+
+    def _y_columns(cols: list[str]) -> list[str]:
+        requested = list(dict.fromkeys(c for c in cols if c))
+        if len(requested) > _MAX_Y_COLUMNS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"at most {_MAX_Y_COLUMNS} y columns",
+            )
+        return requested
+
     @app.get("/health")
     def health() -> dict:
         """Liveness + catalog probe (the fleet-map health check)."""
         status = catalog.probe()
         return {"ok": status.ok, "catalog": status.label}
 
+    # ------------------------- analysis JSON API -------------------------
+    # One-liners over the data-utils primitives (03 design doc): every
+    # response is reproducible in a notebook by the snippet it carries.
+
+    @app.get("/api/run/{uid}/columns")
+    def api_columns(uid: str, day: str = "") -> JSONResponse:
+        """The union pick list: every plottable column with provenance."""
+        detail = _load_run(uid)
+        pf, _ = _union(detail, day)
+        scalar_headers = (detail.start_doc or {}).get("geecs_scalar_headers")
+        columns = [
+            {
+                "name": column,
+                "provenance": pf.provenance.get(column, PROVENANCE_RUN),
+                "pretty": (
+                    schema_map.display_name(column, scalar_headers)
+                    if pf.provenance.get(column, PROVENANCE_RUN) == PROVENANCE_RUN
+                    else column
+                ),
+                # Drives the picker's off-by-default "timestamps" toggle
+                # (ts_ event-recording times ONLY — acq_timestamp picks
+                # stay always visible as legitimate X choices; the frame
+                # endpoint's `kinds` map is the datetime-rendering
+                # verdict and is deliberately broader).
+                "timestamp": schema_map.is_key_timestamp_column(column),
+            }
+            for column in schema_map.plottable_columns(pf.frame)
+        ]
+        payload = {
+            "columns": columns,
+            "default_x": _default_x(detail, [c["name"] for c in columns]),
+            "total": len(pf.frame),
+        }
+        return JSONResponse(payload, headers=_png_headers(detail))
+
+    @app.get("/api/run/{uid}/frame")
+    def api_frame(
+        uid: str,
+        cols: list[str] = Query(default=[]),
+        x: str = "",
+        filters: str = "",
+        day: str = "",
+    ) -> JSONResponse:
+        """Per-shot series for the selected columns, filters applied."""
+        detail = _load_run(uid)
+        pf, run_day = _union(detail, day)
+        flt, mask = _masked(pf, filters)
+        requested = _y_columns(cols)
+        series = {}
+        kinds = {}
+        for column in dict.fromkeys([*requested, *([x] if x else [])]):
+            # Coerce on the FULL frame: a filter that empties the frame
+            # must not turn a valid column into a 404.
+            full = schema_map.numeric_series(pf.frame, column)
+            if full is None:
+                raise HTTPException(
+                    status_code=404, detail=f"no plottable column {column!r}"
+                )
+            epoch = schema_map.timestamp_epoch(column)
+            if epoch:
+                # Timestamps plot as real local datetimes, never raw
+                # seconds (ts_ = Unix epoch; acq_timestamp = LabVIEW).
+                series[column] = analysis.jsonable_datetimes(full[mask], epoch)
+                kinds[column] = "datetime"
+            else:
+                series[column] = analysis.jsonable_values(full[mask])
+        shot_key = (
+            pf.frame[schema_map.SHOT_INDEX_COLUMN]
+            if schema_map.SHOT_INDEX_COLUMN in pf.frame.columns
+            else pf.frame.index.to_series() + 1
+        )
+        if shot_key.isna().any():
+            # Union rows the event side missed carry NA here — coalesce
+            # with the s-file's own shot identity (plain, or suffixed by
+            # scan_frame's collision rename) so those rows keep a shot
+            # axis; Plotly silently drops points with a null x.
+            import pandas as pd
+
+            for name in ("Shotnumber", "Shotnumber (s-file)"):
+                if name in pf.frame.columns:
+                    shot_key = shot_key.fillna(
+                        pd.to_numeric(pf.frame[name], errors="coerce")
+                    )
+        payload = {
+            "series": series,
+            "kinds": kinds,
+            "shot": analysis.jsonable_values(shot_key[mask]),
+            "pass": int(mask.sum()),
+            "total": len(pf.frame),
+            "code": analysis.frame_code(
+                uid,
+                run_day,
+                requested,
+                flt,
+                {column: schema_map.timestamp_epoch(column) for column in kinds},
+            ),
+        }
+        return JSONResponse(payload, headers=_png_headers(detail))
+
+    @app.get("/api/run/{uid}/binned")
+    def api_binned(
+        uid: str,
+        cols: list[str] = Query(default=[]),
+        filters: str = "",
+        bincfg: str = "",
+        day: str = "",
+    ) -> JSONResponse:
+        """Per-bin centers + asymmetric error bands for the selection."""
+        detail = _load_run(uid)
+        pf, run_day = _union(detail, day)
+        flt, mask = _masked(pf, filters)
+        requested = _y_columns(cols)
+        try:
+            cfg = analysis.parse_bincfg(bincfg)
+        except analysis.BadParam as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        for column in requested:
+            if schema_map.numeric_series(pf.frame, column) is None:
+                raise HTTPException(
+                    status_code=404, detail=f"no plottable column {column!r}"
+                )
+        cfg = dataclasses.replace(cfg, value_cols=tuple(requested))
+        try:
+            result = bin_frame(pf.frame[mask], cfg)
+        except KeyError as exc:
+            raise HTTPException(
+                status_code=404, detail=f"no bin column: {exc}"
+            ) from exc
+        except ValueError as exc:  # e.g. degenerate percentile bounds
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        payload = {
+            "bins": analysis.jsonable_labels(result.frame.index),
+            "counts": [int(count) for count in result.counts],
+            "series": {
+                column: {
+                    sub: analysis.jsonable_values(result.frame[(column, sub)])
+                    for sub in ("center", "err_low", "err_high")
+                }
+                for column in requested
+                if (column, "center") in result.frame.columns
+            },
+            "pass": int(mask.sum()),
+            "total": len(pf.frame),
+            "code": analysis.binned_code(uid, run_day, requested, flt, cfg),
+        }
+        return JSONResponse(payload, headers=_png_headers(detail))
+
+    @app.get("/api/run/{uid}/filter-count")
+    def api_filter_count(uid: str, filters: str = "", day: str = "") -> dict:
+        """Live pass count for the filters popup: ``{pass, total}``."""
+        detail = _load_run(uid)
+        pf, _ = _union(detail, day)
+        _, mask = _masked(pf, filters)
+        return {"pass": int(mask.sum()), "total": len(pf.frame)}
+
     @app.get("/", response_class=RedirectResponse)
-    def index() -> str:
+    def index(request: Request) -> str:
         """Redirect to today's day view."""
-        return f"/day/{date.today().isoformat()}"
+        return f"{_root(request)}/day/{date.today().isoformat()}"
 
     @app.get("/go", response_class=RedirectResponse)
-    def go(day: str = "", experiment: str = "", filter: str = "") -> str:
+    def go(
+        request: Request, day: str = "", experiment: str = "", filter: str = ""
+    ) -> str:
         """The day/experiment picker form's target: redirect to the day view."""
         selected = _parse_day(day)
         query = _sticky_query({"experiment": experiment, "filter": filter})
-        return f"/day/{selected.isoformat()}{'?' + query if query else ''}"
+        return (
+            f"{_root(request)}/day/{selected.isoformat()}{'?' + query if query else ''}"
+        )
 
     @app.get("/day/{day}", response_class=HTMLResponse)
     def day_view(
@@ -251,27 +549,77 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
             },
         )
 
+    @app.get("/run/jump/{day}", response_class=RedirectResponse)
+    def run_jump(request: Request, day: str, prefer: int = 0) -> str:
+        """Day-step from the scan page without losing the analysis.
+
+        Redirects to the target day's run with scan number *prefer*
+        (else its newest run), carrying every other query param through
+        verbatim — the rail's day steppers point here so filters,
+        columns, and tab survive the hop.  A day with no runs falls
+        back to the day page.
+        """
+        try:
+            selected = date.fromisoformat(day)
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail="bad date") from exc
+        carried = [
+            (key, value)
+            for key, value in request.query_params.multi_items()
+            if key != "prefer"
+        ]
+        experiment = request.query_params.get("experiment", "") or default_experiment
+        try:
+            runs = catalog.list_runs(experiment, selected)
+        except Exception as exc:  # noqa: BLE001 — degrade to the day page
+            logger.warning("jump listing failed: %s", exc)
+            runs = []
+        carried = [(k, v) for (k, v) in carried if k != "day"]
+        carried.append(("day", selected.isoformat()))
+        query = urlencode(carried, doseq=True)
+        if not runs:
+            day_query = _sticky_query(
+                {
+                    "experiment": experiment,
+                    "filter": request.query_params.get("filter", ""),
+                }
+            )
+            return (
+                f"{_root(request)}/day/{selected.isoformat()}"
+                f"{'?' + day_query if day_query else ''}"
+            )
+        target = next(
+            (run for run in runs if prefer and run.scan_number == prefer),
+            runs[0],  # newest (catalog order)
+        )
+        return f"{_root(request)}/run/{target.uid}?{query}"
+
     @app.get("/run/{uid}", response_class=HTMLResponse)
     def run_view(
         request: Request,
         uid: str,
         day: str = "",
         experiment: str = "",
-        y: str = "",
+        y: list[str] = Query(default=[]),
         x: str = "",
         device: str = "",
         shot: int = 1,
         filter: str = "",
+        tab: str = "",
+        filters: str = "",
+        bincfg: str = "",
+        view: str = "",
+        display: str = "",
     ) -> HTMLResponse:
-        """One run: metadata, plottable-column picker + plot, image gallery."""
+        """One run: the rail + tabs (Overview / Plot / Images).
+
+        ``tab``/``filters``/``bincfg``/``view``/``y``/``x`` are the
+        analysis-tab state, carried in the URL (statelessness doctrine:
+        a link IS the analysis) and consumed by the page's JS — the
+        server only threads them through the sticky query so steppers
+        keep the whole setup.
+        """
         detail = _load_run(uid)
-        columns = (
-            [] if detail.data is None else schema_map.plottable_columns(detail.data)
-        )
-        selected = y if y in columns else ""
-        x_column = x if x in columns else ""
-        if selected and not x:
-            x_column = _default_x(detail, columns)
         run_day = _run_day(detail, day)
         folder = resolve_scan_folder(detail, run_day) if run_day else None
         devices = resources.image_devices(folder) if folder else []
@@ -317,11 +665,36 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
             data_cache.warm_native(
                 warm_key, _warm_one, list(range(1, min(n_rows, 2000) + 1))
             )
+        # The day's listing (newest first) feeds both the rail's scan
+        # dropdown and the stepper neighbours.  A listing failure just
+        # hides them — never sinks the page.
+        prev_uid = next_uid = ""
+        day_runs: list = []
+        if run_day is not None:
+            try:
+                day_runs = list(
+                    catalog.list_runs(experiment or default_experiment, run_day)
+                )
+                day_uids = [run.uid for run in day_runs]
+                position = day_uids.index(uid)
+                next_uid = day_uids[position - 1] if position > 0 else ""
+                prev_uid = (
+                    day_uids[position + 1] if position + 1 < len(day_uids) else ""
+                )
+            except Exception as exc:  # noqa: BLE001 — stepper is optional
+                logger.warning("neighbour listing failed: %s", exc)
+                day_runs = []
         state = {
             "day": day,
             "experiment": experiment or default_experiment,
-            "y": selected,
-            "x": x_column,
+            # The analysis-tab state (URL-carried; the page JS owns it):
+            "tab": tab,
+            "y": [c for c in y if c],
+            "x": x,
+            "view": view,
+            "filters": filters,
+            "bincfg": bincfg,
+            "display": display,
             "device": sel_device,
             "shot": shot if sel_device else "",
             "filter": filter,  # the day list's filter, carried for the back link
@@ -332,11 +705,22 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
             {
                 "uid": uid,
                 "day": day,
+                "run_day": run_day.isoformat() if run_day else "",
                 "experiment": experiment or default_experiment,
+                "summary": detail.summary,
                 "rows": metadata_rows(detail),
-                "columns": columns,
-                "selected": selected,
-                "x_column": x_column,
+                "start_time_of_day": fmt_time_of_day(detail.summary.start_time),
+                "prev_uid": prev_uid,
+                "next_uid": next_uid,
+                "day_runs": day_runs,
+                "scan_number": detail.summary.scan_number or 0,
+                "prev_day": (
+                    (run_day - timedelta(days=1)).isoformat() if run_day else ""
+                ),
+                "next_day": (
+                    (run_day + timedelta(days=1)).isoformat() if run_day else ""
+                ),
+                "tab": tab if tab in ("overview", "plot", "images") else "plot",
                 "devices": devices,
                 "sel_device": sel_device,
                 "kind": kind,
@@ -344,6 +728,7 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
                 "shot": shot,
                 "has_next_shot": n_rows is None or shot < n_rows,
                 "total_shots": detail.summary.shots,
+                "portal_version": _portal_version(),
                 "qs": lambda **kw: _sticky_query(state, **kw),
             },
         )

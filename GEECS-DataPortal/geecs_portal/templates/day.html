@@ -2,21 +2,21 @@
 {% block title %}{{ day.isoformat() }} — GEECS Data Portal{% endblock %}
 {% block content %}
 <div class="nav">
-  <a href="/day/{{ prev_day }}?{{ qs() }}">&larr; {{ prev_day }}</a>
+  <a href="{{ root }}/day/{{ prev_day }}?{{ qs() }}">&larr; {{ prev_day }}</a>
   <h1>{{ day.isoformat() }}</h1>
-  <a href="/day/{{ next_day }}?{{ qs() }}">{{ next_day }} &rarr;</a>
+  <a href="{{ root }}/day/{{ next_day }}?{{ qs() }}">{{ next_day }} &rarr;</a>
 </div>
-<form class="nav" method="get" action="/go">
+<form class="nav" method="get" action="{{ root }}/go">
   <input type="date" name="day" value="{{ day.isoformat() }}">
   <input type="text" name="experiment" value="{{ experiment }}" placeholder="experiment">
   {% if filter %}<input type="hidden" name="filter" value="{{ filter }}">{% endif %}
   <button type="submit">Go</button>
 </form>
-<form class="nav" method="get" action="/day/{{ day.isoformat() }}">
+<form class="nav" method="get" action="{{ root }}/day/{{ day.isoformat() }}">
   <input type="hidden" name="experiment" value="{{ experiment }}">
   <input type="text" name="filter" value="{{ filter }}" placeholder="filter — scan number, mode, status, description, save set">
   <button type="submit">Filter</button>
-  {% if filter %}<a href="/day/{{ day.isoformat() }}?experiment={{ experiment | urlencode }}">clear</a>{% endif %}
+  {% if filter %}<a href="{{ root }}/day/{{ day.isoformat() }}?experiment={{ experiment | urlencode }}">clear</a>{% endif %}
 </form>
 {% if error %}<p class="error">{{ error }}</p>{% endif %}
 {% if rows %}
@@ -24,7 +24,7 @@
   <tr><th>Scan</th><th>Time</th><th>Mode</th><th>Description</th><th>Shots</th><th>Status</th></tr>
   {% for run, time_text in rows %}
   <tr>
-    <td><a href="/run/{{ run.uid }}?{{ qs(day=day.isoformat()) }}">
+    <td><a href="{{ root }}/run/{{ run.uid }}?{{ qs(day=day.isoformat()) }}">
       {%- if run.scan_number is not none %}Scan {{ "%03d"|format(run.scan_number) }}{% else %}{{ run.uid[:8] }}{% endif -%}
     </a></td>
     <td class="mono">{{ time_text }}</td>

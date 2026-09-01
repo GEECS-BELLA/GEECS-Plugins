@@ -3,6 +3,128 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.24.0] - 2026-08-30
+
+### Added
+
+- `tiled_schema.is_key_timestamp_column` — the `ts_` per-key
+  event-recording timestamps Tiled adds when reading the primary
+  stream (machinery, not measurements: front-ends hide them from pick
+  lists by default), and `tiled_schema.timestamp_epoch` — the
+  two-epoch naming convention (`ts_*` = Unix event times;
+  anything named `acq_timestamp` — event companions and s-file headers
+  alike — = LabVIEW wire epoch), so renderers can show timestamps as
+  real datetimes instead of raw seconds. (Analysis-tabs W1e, owner
+  feedback on the live Plot tab.)
+
+## [0.23.0] - 2026-08-30
+
+### Changed
+
+Analysis-tabs wave W1c — the binning rewrite (the review's flagship
+"improve"; the old property had no production consumers, so no
+migration):
+
+- **`data/binning.py`** — `bin_frame(frame, cfg) -> BinnedFrame`, the
+  pure stateless core: same `BinningConfig` vocabulary (moved here,
+  re-exported from `scan_data` so existing imports keep working), same
+  `(col, {center, err_low, err_high})` output schema, minus the warts —
+  no `id(df)` cache key, label-aligned error assignment (no positional
+  `.values`), vectorized `mad` (the per-group Python `apply` is gone),
+  one-shot output assembly (the pandas `PerformanceWarning` from
+  fragmented inserts is gone — pinned live with `-W error`), counts as
+  a separate series on `BinnedFrame` (no `("count","center")` shape
+  special-case), and clean quantile extraction (the 50-line defensive
+  unstack ladder is gone).
+- **Deliberate semantic fixes**: default `value_cols` now excludes
+  `Shotnumber` (as the config docstring always promised) while keeping
+  the bin source column (its per-bin center is the natural X axis);
+  the `dropna` row policy excludes the bin key (a grouping key is not
+  a measurement — including it made `dropna="all"` vacuous) and the
+  all-NaN-column guard now applies to both policies. Visible symptom
+  of the dropna change: rows whose **bin column** is NaN now survive
+  `dropna="any"` and aggregate into their own NA-labelled bin row
+  (previously silently dropped) — filter upstream when unwanted.
+- **Bin-cache invalidation on direct reassignment**: `data_frame` is
+  now a property whose setter invalidates the binned-scalars cache, so
+  `sd.data_frame = df` (a supported pattern) can never serve stale
+  binned results (the old `id(df)` key recomputed on reassignment by
+  accident; the first rewrite pass lost that).
+- Empty binning results (all rows dropped, or an empty frame) keep the
+  two-level column MultiIndex instead of degrading to flat columns.
+- **`ScanData.bin(config)` exists** — the API the docs always
+  advertised; `binned_scalars` stays as a compatibility wrapper
+  delegating to `bin_frame` and re-attaching the legacy
+  `("count","center")` column. 22 hand-computed unit tests pin every
+  err mode (the numbers the LabVIEW-source comparison will check);
+  the canonical-scan integration test passes on real data.
+- Docs notebook `basic_usage.ipynb` refreshed onto `sd.bin(...)`.
+
+## [0.22.0] - 2026-08-30
+
+### Added
+
+Analysis-tabs wave W1b: `data/row_filters.py` — GEECSplotter's
+"outer OR, inner AND" filter model as Pydantic vocabulary
+(`RowFilters` → named `FilterGroup`s of `FilterCondition`s, each a
+`within`/`outside` inclusive bounds pair) with `filter_mask` (the
+composable pass mask — `.sum()` is the live count) and `apply_filters`.
+Deliberately NOT lowered onto `apply_row_filters` (a mask-returning,
+OR-capable, explicit-NaN primitive can't be built on the AND-only
+frame-returning kernel; the legacy tuple vocabulary stays for its
+consumers — composing `RowFilters` into `DatasetBuilder` is future
+work). NaN handling is an **explicit** `nan_policy` (`exclude` fails
+the condition under both modes — the complement must not silently pass
+NaN — `keep` passes); NaN bounds are refused at validation (±inf stays
+legal for half-open ranges); datetime/timedelta columns and duplicated
+labels are refused loudly per the `numeric_series` coercion doctrine.
+Disabled and empty groups are ignored, and no active groups is the
+identity, never an empty result. JSON round-trip pinned (the
+endpoint/URL/config form).
+
+## [0.21.0] - 2026-08-30
+
+### Added
+
+Analysis-tabs wave W1a (the substrate —
+`Planning/data_portal/03_analysis_tabs_design.md`):
+
+- `data/sfile.py` — THE s-file reader + path convention, one home:
+  `read_sfile(path)` (tab-separated, headers verbatim) and
+  `sfile_path_for_scan(scan_folder)` (`{day}/analysis/s{N}.txt`,
+  unpadded). `ScanData.load_scalars` now delegates (pinned by a spy
+  test); the ScanAnalysis duplicate reads converge in a trailing PR.
+  **Behavior note**: the old path derived the s-file via
+  `get_analysis_folder()`, which creates `analysis/ScanNNN/` — so every
+  s-file read used to mkdir on the share. Creating analysis folders is
+  permitted (only `scans/ScanNNN` creation is the hard invariant), but
+  a *read* shouldn't write as a side effect: the delegated path is pure
+  (pinned by a tree-untouched test).
+- `scan_frame.py` — the union-with-provenance frame:
+  `scan_frame(detail, scan_folder)` unions the Bluesky event table and
+  the s-file with per-column provenance (`run`/`sfile`, `computed`
+  reserved), outer-joined on shot identity — **`Shotnumber ==
+  scan_event_index`, both 1-based**. No name reconciliation; exact
+  collisions suffix the s-file column. Either provider may be absent;
+  corrupt s-files degrade to run-only. Strictly read-only (tree
+  untouched pinned).
+- Canonical-scan registry gains `undulator_bluesky_1d` (2026-08-29
+  Scan 1 — both providers); new integration tests exercise `read_sfile`
+  on a real s-file and the full catalog→folder→union path against the
+  live Tiled server (verified on lab data 2026-08-30).
+
+## [0.20.2] - 2026-08-30
+
+### Changed
+
+- CLAUDE.md truth-up (docs-only): the Binning System section documented
+  a `sd.bin(config)` method that does not exist (the real API is
+  `set_binning_config` + the `binned_scalars` property) and claimed
+  ScanAnalysis renderers consume it (they do their own binning; the
+  property has no production consumers). Corrected, with a pointer to
+  the planned pure `bin_frame` rewrite
+  (`Planning/data_portal/03_analysis_tabs_design.md`).
+
 ## [0.20.1] - 2026-08-29
 
 ### Changed

@@ -76,6 +76,38 @@ curl -s http://localhost:8200/health
 journalctl -u geecs-data-portal -n 20
 ```
 
+## Behind a reverse proxy (OSPREY panels, etc.)
+
+The portal is prefix-agnostic: mount it under any path and every link,
+form, image, `/api` fetch, and redirect carries the prefix. Configure
+the proxy to **strip the prefix and name it** in `X-Forwarded-Prefix`
+(the Grafana/JupyterHub convention) — nginx example:
+
+```
+location /portal/ {
+    proxy_pass http://<worker-host>:8200/;
+    proxy_set_header X-Forwarded-Prefix /portal;
+}
+```
+
+The header is per-request and needs no portal-side config; any mount
+name works, including ones that collide with portal route heads
+(`/run`, `/api`, …). For a proxy that cannot send it, start the
+service with a static prefix instead: `geecs-data-portal --root-path
+/portal` (the header, when present, wins) — in that fallback mode
+avoid mount names that collide with a portal route head, and know that
+trailing-slash redirects drop the prefix (Starlette builds them from
+the un-prefixed path; the header mode re-prefixes the path and has
+neither limitation). Malformed header values (not root-absolute, `//`,
+whitespace, query/fragment characters) are ignored rather than
+propagated into page links. The header is a strip-style contract: a
+proxy that does **not** strip the prefix must not send it (the symptom
+of that misconfiguration is loud — every page 404s).
+
+For a panel health LED, probe `GET /health` — 200 always (the JSON
+`ok` field reports the catalog probe, so a down Tiled shows as a
+degraded catalog, not a dead portal).
+
 ## Upgrade
 
 ```bash

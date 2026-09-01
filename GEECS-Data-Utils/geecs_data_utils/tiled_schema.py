@@ -56,6 +56,13 @@ COMPANION_SUFFIXES: tuple[str, ...] = (
 
 _ACQ_TIMESTAMP_SUFFIX = "-acq_timestamp"
 
+#: Reader-side per-key event-timestamp prefix: Tiled/databroker exposes
+#: each Bluesky event key's *recording* timestamp as a ``ts_<key>``
+#: column when the primary stream is read as a table.  These are Unix
+#: epoch seconds stamped by the event pipeline — machinery, not
+#: measurements (front-ends hide them from pick lists by default).
+KEY_TIMESTAMP_PREFIX = "ts_"
+
 
 def is_telemetry_column(column: str) -> bool:
     """Return whether *column* is a Tier-2 background-telemetry column.
@@ -203,6 +210,61 @@ def data_columns(columns: Sequence[str]) -> list[str]:
         Order preserved.
     """
     return [c for c in columns if not is_id_column(c) and not is_companion_column(c)]
+
+
+def is_key_timestamp_column(column: str) -> bool:
+    """Return whether *column* is a reader-side ``ts_`` event timestamp.
+
+    Parameters
+    ----------
+    column : str
+        An event-stream column name.
+
+    Returns
+    -------
+    bool
+        True for ``ts_<key>`` columns — the per-key Bluesky event
+        recording times Tiled adds when reading the primary stream.
+    """
+    return column.startswith(KEY_TIMESTAMP_PREFIX)
+
+
+def timestamp_epoch(column: str) -> Optional[str]:
+    """The epoch convention of a timestamp-valued column, by name.
+
+    Two conventions coexist in scan data: reader-side ``ts_`` columns
+    hold **Unix** epoch seconds (Bluesky event times), while anything
+    named for an acquisition timestamp — the ``<dev>-acq_timestamp``
+    companions and the s-file's ``"<dev> acq_timestamp"`` headers —
+    holds **LabVIEW** epoch seconds (the wire convention; offset in
+    ``geecs_data_utils.io.scan_stack.LABVIEW_EPOCH_OFFSET``).  Renderers
+    use this to show timestamps as real datetimes instead of raw
+    seconds.
+
+    This is a NAME heuristic: a hypothetical measurement column whose
+    name merely contains ``acq_timestamp`` (or a device genuinely named
+    ``ts_*``) would be converted anyway, yielding plausible-looking
+    1904/1970-era dates.  No such column exists in schema v1 — every
+    ``acq_timestamp`` spelling (event companions, s-file headers) holds
+    wire-epoch seconds, and ``ts_`` is a reader-side Tiled artifact
+    outside the wire contract — but keep the collision mode in mind
+    when naming new columns.
+
+    Parameters
+    ----------
+    column : str
+        A column name from any provenance (event stream or s-file).
+
+    Returns
+    -------
+    str or None
+        ``"unix"``, ``"labview"``, or ``None`` for a non-timestamp name.
+    """
+    if is_key_timestamp_column(column):
+        return "unix"
+    if "acq_timestamp" in column:
+        return "labview"
+    return None
 
 
 def plottable_columns(frame: Any) -> list[str]:

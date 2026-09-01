@@ -23,6 +23,15 @@ def main() -> None:
         help="default experiment for day listings (query param overrides)",
     )
     parser.add_argument("--log-level", default="INFO", help="Python logging level")
+    parser.add_argument(
+        "--root-path",
+        default="",
+        help=(
+            "URL prefix the portal is mounted under behind a reverse proxy "
+            "(e.g. /portal); a proxy-sent X-Forwarded-Prefix header "
+            "overrides this per request"
+        ),
+    )
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -41,7 +50,13 @@ def main() -> None:
     # requests stop re-downloading the full event table from Tiled.
     catalog = CachingScanCatalog(TiledScanCatalog.from_config())
     app = create_app(catalog, default_experiment=args.experiment)
-    uvicorn.run(app, host=args.host, port=args.port, log_level=args.log_level.lower())
+    uvicorn.run(
+        app,
+        host=args.host,
+        port=args.port,
+        log_level=args.log_level.lower(),
+        root_path=args.root_path,
+    )
 
 
 if __name__ == "__main__":

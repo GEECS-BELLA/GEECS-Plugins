@@ -106,22 +106,40 @@ Also provides optional paths for config repos and FROG DLL.
 
 ## Binning System
 
+The pure core lives in `geecs_data_utils/data/binning.py`
+(analysis-tabs W1c): `bin_frame(frame, cfg) -> BinnedFrame` — frame in,
+centers + asymmetric error bands out, counts as a separate series, no
+instance state. Every web-endpoint number is reproducible in a notebook
+by the same one call.
+
 ```python
-from geecs_data_utils.scan_data import BinningConfig
+from geecs_data_utils.data.binning import BinningConfig, bin_frame
 
 config = BinningConfig(
     bin_col="Bin #",
-    value_cols=["signal_x", "signal_y"],
+    value_cols=["signal_x", "signal_y"],   # None → all numeric minus Shotnumber
     agg="median",           # "mean" or "median"
     err="iqr",              # "std", "stderr", "mad", "iqr", "percentile"
     percentiles=(0.25, 0.75),
 )
-binned = sd.bin(config)
-# Returns MultiIndex DataFrame:
-# columns: [("signal_x", "center"), ("signal_x", "err_low"), ("signal_x", "err_high"), ...]
+result = bin_frame(frame, config)
+result.frame    # MultiIndex columns: (col, {"center","err_low","err_high"})
+result.counts   # per-bin sample counts (a Series, not a pseudo column)
+
+binned = sd.bin(config)      # ScanData one-call API — legacy shape,
+                             # counts re-attached as ("count", "center")
+binned = sd.binned_scalars   # stateful compat property (same shape)
 ```
 
-Used by ScanAnalysis renderers to produce per-bin summary plots.
+`BinningConfig` also carries the numeric-binning options (`bin_edges` /
+`bin_width` / `quantile_bins`, `label`, `right`, `origin`); a
+non-numeric bin column always bins by identity. Consumed today only by
+`plotting_utils.plot_binned`-style callers that are handed the frame —
+ScanAnalysis does its **own** binning and does not use this. Deliberate
+deltas vs the pre-0.23.0 implementation (see CHANGELOG): `Shotnumber`
+is excluded from the default value columns, the bin key is excluded
+from the dropna row policy (NA-bin-labelled rows aggregate into their
+own row), and all-NaN columns never cause drops.
 
 ## Parquet Scan Database
 
