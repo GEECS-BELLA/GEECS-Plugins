@@ -715,6 +715,51 @@ class TestServerFigures:
         assert "agg='mean'" in payload["code"]
         assert "x_values=x_centers" in payload["code"]
 
+    def test_binned_x_reindexes_onto_the_y_bins(self):
+        # The x call's dropna runs over x ALONE — a y column NaN'd for
+        # one scan step (a camera down) drops that bin from the y
+        # result but not from the x result.  Positional zipping would
+        # shift every point one bin over; reindexing pins alignment.
+        catalog = FakeCatalog()
+        detail = _detail(7)
+        detail.data["sig"] = [float("nan"), 20.0, 30.0]
+        catalog.details["uid-007"] = detail
+        payload = (
+            _client(catalog)
+            .get(
+                "/api/run/uid-007/binned",
+                params={
+                    "cols": "sig",
+                    "x": "cam-MaxCounts",
+                    "bincfg": '{"bin_col":"mono"}',
+                },
+            )
+            .json()
+        )
+        assert payload["bins"] == [5.0, 6.0]  # bin 4 dropped (NaN y)
+        assert payload["x_centers"] == [12.5, 11.0]  # aligned, not shifted
+        assert payload["figure"]["data"][0]["x"] == [12.5, 11.0]
+
+    def test_binned_coercible_string_columns_400_not_500(self):
+        # telemetry columns are dtype-tolerant BY DESIGN: they plot in
+        # per-shot view (numeric_series coerces) but bin_frame sees the
+        # raw dtype — refuse honestly, never 500.
+        client = _client()
+        as_x = client.get(
+            "/api/run/uid-002/binned",
+            params={
+                "cols": "cam-MaxCounts",
+                "x": "telemetry_dev-val",
+                "bincfg": '{"bin_col":"mono"}',
+            },
+        )
+        assert as_x.status_code == 400
+        as_y = client.get(
+            "/api/run/uid-002/binned",
+            params={"cols": "telemetry_dev-val", "bincfg": '{"bin_col":"mono"}'},
+        )
+        assert as_y.status_code == 400
+
     def test_binned_without_x_keeps_bin_labels(self):
         payload = (
             _client()

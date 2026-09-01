@@ -17,6 +17,14 @@ Owner live-feedback round on 0.10.0:
   agg="mean")`, mirrored verbatim in the "show the code" snippet. No
   X keeps the bin labels as the axis, exactly as before. (X error
   bars deliberately deferred — mean placement is the first move.)
+  `x_centers` come **reindexed onto the y result's bins** — the x
+  call's dropna runs over x alone, so its surviving bins can differ,
+  and positional zipping would silently plot points at the wrong
+  bin's x (review-caught); a bin missing an x center degrades to a
+  skipped point. A timestamp X serves raw seconds (the binned raw
+  rule, extended deliberately). Coercible-string columns
+  (dtype-tolerant telemetry) now 400 in binned view instead of
+  500ing inside `bin_frame` — as y too, a pre-existing hole.
 - **Plot size control**: `width`/`height` join the display vocabulary
   (popup inputs; same type-400/value-degrade rules). A fixed size also
   fixes the exported image size.

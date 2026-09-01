@@ -120,9 +120,13 @@ target day's matching/newest run; empty day → the day page) ·
 `/api/run/{uid}/frame?cols=&x=&filters=` (per-shot series, filtered;
 timestamp columns arrive as host-local ISO datetimes with a `kinds`
 map — presentation-side conversion the `code` snippet mirrors) ·
-`/api/run/{uid}/binned?cols=&filters=&bincfg=` (centers + asymmetric
+`/api/run/{uid}/binned?cols=&x=&filters=&bincfg=` (centers + asymmetric
 error bands — served RAW, no datetime conversion: a timestamp bin
-column keeps its epoch-second labels) ·
+column keeps its epoch-second labels, and the `x` pick's per-bin mean
+positions are raw seconds too when X is a timestamp column — datetime
+rendering is per-shot-only, deliberately; `x_centers` come reindexed
+onto the y result's bins so diverging per-column dropna can never
+shift points) ·
 `/api/run/{uid}/filter-count?filters=` (live pass count)
 · `/run/{uid}/plot.png?y=&x=` (server-rendered scalar PNG, kept for
 embedding) · `/run/{uid}/image.png?device=&shot=` (one rendered device

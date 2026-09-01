@@ -435,14 +435,14 @@ def binned_code(
         x_lines = (
             "from dataclasses import replace\n"
             "\n"
-            "# bins GROUP the data; the X parameter PLACES it (per-bin mean)\n"
-            f"x_centers = bin_frame(frame, replace(cfg, value_cols=({x!r},), "
+            "# bins GROUP the data; the X parameter PLACES it (per-bin mean),\n"
+            "# reindexed onto the y bins so diverging dropna cannot shift points\n"
+            f"x_result = bin_frame(frame, replace(cfg, value_cols=({x!r},), "
             "agg='mean'))\n"
+            f"x_centers = x_result.frame[({x!r}, 'center')]"
+            ".reindex(result.frame.index)\n"
         )
-        x_args += (
-            f",\n              x_values=x_centers.frame[({x!r}, 'center')].tolist(),"
-            f" x_label={x!r}"
-        )
+        x_args += f",\n              x_values=x_centers.tolist(), x_label={x!r}"
     return (
         "# reproduces this view exactly — the endpoint calls the same functions\n"
         + _snippet_prelude(uid, run_day)

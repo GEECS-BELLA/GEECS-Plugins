@@ -515,16 +515,36 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
             ) from exc
         except ValueError as exc:  # e.g. degenerate percentile bounds
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except TypeError as exc:
+            # A coercible-string column (dtype-tolerant telemetry) plots
+            # in per-shot view but bin_frame aggregates the RAW dtype —
+            # refuse honestly, never 500 (package doctrine).
+            raise HTTPException(
+                status_code=400,
+                detail=f"binned view needs numeric columns: {exc}",
+            ) from exc
         x_centers = None
         if x:
-            # Same primitive, same bins (identical bin params + frame),
-            # mean-aggregated — the snippet mirrors this exactly.
-            x_result = bin_frame(
-                pf.frame[mask],
-                dataclasses.replace(cfg, value_cols=(x,), agg="mean"),
-            )
+            # Same primitive, mean-aggregated — the snippet mirrors this
+            # exactly.  The x call's dropna/min_count runs over x ALONE,
+            # so its surviving bins can differ from the y call's:
+            # reindex onto the y bins, or points silently plot at the
+            # wrong bin's x (a missing x center degrades to a null →
+            # Plotly skips that point instead of mis-placing it).
+            try:
+                x_result = bin_frame(
+                    pf.frame[mask],
+                    dataclasses.replace(cfg, value_cols=(x,), agg="mean"),
+                )
+            except (TypeError, ValueError) as exc:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"binned view needs a numeric x: {exc}",
+                ) from exc
             if (x, "center") in x_result.frame.columns:
-                x_centers = analysis.jsonable_values(x_result.frame[(x, "center")])
+                x_centers = analysis.jsonable_values(
+                    x_result.frame[(x, "center")].reindex(result.frame.index)
+                )
         bin_labels = analysis.jsonable_labels(result.frame.index)
         binned_series = {
             column: {

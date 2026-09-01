@@ -318,20 +318,23 @@ const MSIZE_DEFAULT = {{ msize_default | tojson }};
 // Everything Plotly gives for free, switched ON: wheel zoom, in-place
 // legend-name editing, spike lines + hover modes, and the drawing
 // tools (annotate directly on the plot; shapes are editable/erasable).
+const EXPORT_SCALE = 2;  // crisp paste targets — one knob for every export path
+
 async function copyPlotImage(gd) {
   // Copy-paste is how plots travel around the lab.  The async
   // Clipboard API needs a secure context (https or localhost) — on
-  // plain http lab hosts it is absent, so degrade to the PNG download
-  // rather than failing silently.
-  const url = await Plotly.toImage(gd, { format: "png", scale: 2 });
+  // plain http lab hosts it is absent — and some browsers expire the
+  // click gesture across the awaits; either way degrade to the PNG
+  // download rather than failing silently.
+  const url = await Plotly.toImage(gd, { format: "png", scale: EXPORT_SCALE });
   try {
     if (!navigator.clipboard || !window.ClipboardItem) throw new Error("no clipboard API");
     const blob = await (await fetch(url)).blob();
     await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
     flashNote("copied to clipboard");
   } catch (err) {
-    Plotly.downloadImage(gd, { format: "png", scale: 2, filename: "geecs-plot" });
-    flashNote("clipboard unavailable here — downloaded PNG instead");
+    Plotly.downloadImage(gd, { format: "png", scale: EXPORT_SCALE, filename: "geecs-plot" });
+    flashNote("copy failed — downloaded PNG instead");
   }
 }
 
@@ -353,8 +356,8 @@ function flashNote(text) {
 
 const PLOT_CONFIG = {
   responsive: true, displaylogo: false, scrollZoom: true,
-  // The built-in camera button exports at 2× for crisp paste targets.
-  toImageButtonOptions: { format: "png", scale: 2 },
+  // The built-in camera button exports at EXPORT_SCALE too.
+  toImageButtonOptions: { format: "png", scale: EXPORT_SCALE },
   // Granular (not editable:true): blanket editability renders grey
   // "Click to enter …" placeholders for every unset title — and
   // axisTitleText does too on the title-less stacked axes (3-4), so
