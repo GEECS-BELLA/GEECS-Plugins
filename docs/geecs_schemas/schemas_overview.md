@@ -110,7 +110,7 @@ Two boundaries follow from the design rather than from preference:
 
 Background telemetry is on by default for the experiment
 (`ExperimentDefaults.background_telemetry`) and can be overridden per scan
-(`ScanRequest.background_telemetry`). Converted legacy save elements keep
+(`ScanRequest.capture.background_telemetry`). Converted legacy save elements keep
 their exact old recording behavior — they record precisely the variable
 lists they always did; the database-first defaults apply to new configs
 only.
@@ -127,8 +127,8 @@ flowchart LR
     SCAN(("the scan"))
 
     SR -- "axes: jet_z, ..." --> SV
-    SR -- "save_sets: [baseline, ...]" --> SS
-    SR -- "trigger_profile: htu" --> TP
+    SR -- "capture.save_sets: [baseline, ...]" --> SS
+    SR -- "capture.trigger_profile: htu" --> TP
     SR -- "actions: [...]" --> AP
     SV --> SCAN
     SS --> SCAN

@@ -64,9 +64,14 @@ def test_schema_carries_the_full_nested_vocabulary():
     """
     schema = scan_request_json_schema()
     assert schema["title"] == "ScanRequest"
-    for field in ("mode", "axes", "acquisition", "optimization"):
+    for field in ("mode", "axes", "capture", "optimization"):
         assert field in schema["properties"], field
-    for definition in ("ScanAxis", "OptimizationSpec", "AcquisitionMode"):
+    for definition in (
+        "ScanAxis",
+        "CaptureSettings",
+        "OptimizationSpec",
+        "AcquisitionMode",
+    ):
         assert definition in schema["$defs"], definition
 
 

@@ -52,7 +52,7 @@ REFERENCE_PAGE = Path("docs/geecs_schemas/schema_reference.md")
 # be longer than a docstring comfortably allows.
 EXAMPLES: dict[str, str] = {
     "scan_request": """\
-schema_version: 1
+schema_version: 2
 mode: step
 axes:
   - variable: jet_z
@@ -61,15 +61,18 @@ axes:
   # (slowest) loop, the last the innermost (fastest), e.g.:
   # - variable: gas_pressure
   #   positions: {values: [1.5, 2.0, 2.5]}
-shots_per_step: 10
-acquisition: free_run
-save_sets: [undulator_baseline, aux_diagnostics]  # unioned; a bare string also works
-trigger_profile: htu_shot_control
+capture:
+  shots_per_step: 10
+  acquisition: free_run
+  save_sets: [undulator_baseline, aux_diagnostics]  # unioned; a bare string also works
+  trigger_profile: htu_shot_control
 actions:
   setup: [pre_scan_ebeam]
   per_step: []
   closeout: []
 description: "jet z scan with probe"
+# v1 documents (the capture fields flat at the top level) still validate —
+# they are lifted into this shape automatically.
 """,
     "save_set": """\
 schema_version: 1

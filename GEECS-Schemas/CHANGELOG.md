@@ -5,6 +5,37 @@ All notable changes to GEECS-Schemas are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.0] - 2026-09-01
+
+### Changed
+
+- **ScanRequest format v2 — the capture refactor** (Phase 1 of
+  `Planning/schema_refactor/00_overview.md`): the seven capture-concern
+  fields (`shots_per_step`, `acquisition`, `save_sets`,
+  `background_telemetry`, `native_image_save`, `trigger_profile`,
+  `trigger_variant`) moved into one new `CaptureSettings` sub-model at
+  `ScanRequest.capture` (exported as `geecs_schemas.CaptureSettings`).
+  The bare-string `save_sets` coercion and the
+  trigger-variant-needs-profile validator moved with them.
+  `schema_version` default is now 2.
+- **Request/record split**: `submission` is no longer a `ScanRequest`
+  field. A `SubmissionRecord` (the type stays exported) now travels
+  beside the request — clients pass it as a separate plan parameter and
+  the engine still records it in run metadata.
+
+### Added
+
+- **v1→v2 lifting validator**: `ScanRequest` accepts the flat v1 layout
+  forever — a `mode="before"` validator lifts the seven flat fields into
+  `capture`, drops a v1 embedded `submission` record, and normalizes
+  `schema_version` to 2. Saved presets, archived run-metadata documents,
+  and stale clients keep validating with no lockstep upgrade; mixing the
+  flat fields with an explicit `capture` block is rejected as ambiguous.
+
+Regenerated: the JSON Schema artifact
+(`docs/geecs_schemas/scan_request.schema.json`), the Markdown schema
+reference, and the converter golden files.
+
 ## [0.13.0] - 2026-08-31
 
 ### Added

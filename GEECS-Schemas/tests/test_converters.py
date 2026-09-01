@@ -298,11 +298,11 @@ class TestPresets:
         assert axis.variable == "Mode Imager Stage"
         assert axis.positions.start == -18.0
         assert request.grid_shape() == (17,)
-        assert request.shots_per_step == 10
+        assert request.capture.shots_per_step == 10
         assert conversion.element_names == ["LP-FocusDiagnostics"]
         # save_sets names the referenced elements verbatim (the engine unions
         # them at run time — no synthetic per-preset merged set).
-        assert request.save_sets == ["LP-FocusDiagnostics"]
+        assert request.capture.save_sets == ["LP-FocusDiagnostics"]
         assert_matches_golden(
             request.model_dump(mode="json"), "focuscan_scan_request.json"
         )
@@ -311,7 +311,7 @@ class TestPresets:
         conversion = convert_scan_preset(FIXTURES / "presets/VHEE_Probe_BG.yaml")
         request = conversion.scan_request
         assert request.mode.value == "noscan"
-        assert request.shots_per_step == 50
+        assert request.capture.shots_per_step == 50
         assert not request.background
 
     def test_background_preset_sets_flag(self):

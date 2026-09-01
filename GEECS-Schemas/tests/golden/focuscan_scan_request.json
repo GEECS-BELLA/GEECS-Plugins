@@ -1,5 +1,4 @@
 {
-  "acquisition": "strict",
   "actions": {
     "closeout": [],
     "per_step": [],
@@ -16,17 +15,19 @@
     }
   ],
   "background": false,
-  "background_telemetry": null,
+  "capture": {
+    "acquisition": "strict",
+    "background_telemetry": null,
+    "native_image_save": null,
+    "save_sets": [
+      "LP-FocusDiagnostics"
+    ],
+    "shots_per_step": 10,
+    "trigger_profile": null,
+    "trigger_variant": null
+  },
   "description": "Focus Scan",
   "mode": "step",
-  "native_image_save": null,
   "optimization": null,
-  "save_sets": [
-    "LP-FocusDiagnostics"
-  ],
-  "schema_version": 1,
-  "shots_per_step": 10,
-  "submission": null,
-  "trigger_profile": null,
-  "trigger_variant": null
+  "schema_version": 2
 }

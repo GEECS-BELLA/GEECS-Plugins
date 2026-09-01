@@ -132,7 +132,7 @@ record that lives alongside it in Tiled rather than reshaping the legacy file.
 
 Telemetry is on by default for the experiment
 (`ExperimentDefaults.background_telemetry`) and can be overridden per scan
-(`ScanRequest.background_telemetry`). The `{device: [variables]}` actually
+(`ScanRequest.capture.background_telemetry`). The `{device: [variables]}` actually
 selected is recorded in the run metadata.
 
 ### The one-question test for which tier a device belongs to
