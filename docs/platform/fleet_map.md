@@ -110,10 +110,10 @@ service gets its own.
 | CA gateway (GeecsCAGateway) | 192.168.6.14 | `~/GEECS-Plugins` | CA 5064/5065 | systemd `geecs-ca-gateway` | heartbeat + per-device `CONNECTED` PVs; `systemctl status` | [GeecsCAGateway/DEPLOYMENT.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsCAGateway/DEPLOYMENT.md) |
 | Tiled catalog | 192.168.6.14 | — (pip install + `~/tiled/config.yml`) | HTTP 8000 | systemd `tiled` | `GET /api/v1/`; web UI at `/ui` | [GeecsBluesky/TILED_SETUP.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsBluesky/TILED_SETUP.md) |
 | Queueserver worker (RE Manager + Redis + doc proxy) | the worker host (interim box; the runbook targets a dedicated host) | `~/qs-checkout` | ZMQ 60615 (control), 60625 (console stream), 5568 (documents); Redis loopback-only | systemd `geecs-qserver` | `qserver status` from any client env | [GeecsBluesky/qserver/deploy/DEPLOYMENT.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsBluesky/qserver/deploy/DEPLOYMENT.md) |
-| GEECS-MCP server — *HTTP mode pending deploy* | the worker host (co-located by design; stdio mode runs per-machine today) | own clone when deployed (per the pattern below) | HTTP 8100 (`/mcp`) | systemd (HTTP mode) | tool call `scan_status` from an agent | [GEECS-MCP/deploy/DEPLOYMENT.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GEECS-MCP/deploy/DEPLOYMENT.md) |
+| GEECS-MCP server — *HTTP mode pending deploy* | the worker host (co-located by design; stdio mode runs per-machine today) | reads the **worker's** checkout (config-truth parity, by design), baked into its own non-editable venv — see the runbook | HTTP 8100 (`/mcp`) | systemd (HTTP mode) | tool call `scan_status` from an agent | [GEECS-MCP/deploy/DEPLOYMENT.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GEECS-MCP/deploy/DEPLOYMENT.md) |
 | Capture daemon (`geecs_bluesky.capture`) — *pending deploy* | the queueserver worker host (co-location is a **requirement**: shared filesystem view + local heartbeat) | `~/qs-checkout` (shares the worker's clone — the co-location requirement extends to code state) | consumes doc stream (5568) + pvAccess; no listening port | systemd `geecs-capture` | heartbeat file refreshing every ~10 s (`~/.local/state/geecs-capture/heartbeat.json` in the service user's home); discovery line in `journalctl -u geecs-capture` | [GeecsBluesky/capture/deploy/DEPLOYMENT.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsBluesky/capture/deploy/DEPLOYMENT.md) |
 | GEECS Data Portal (GEECS-DataPortal) | the worker host (interim box; moves with the services-server consolidation) | `~/portal-checkout` | HTTP 8200 | systemd `geecs-data-portal` | `GET /health` (catalog probe); any day page in a browser | [GEECS-DataPortal/DEPLOYMENT.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GEECS-DataPortal/DEPLOYMENT.md) |
-| PVA image gateways (GeecsPvaGateway) | each camera server (9 hosts) | per-host clone (NSSM pulls on restart) | pvAccess TCP 5075 / UDP 5076 | NSSM service `GeecsPvaGateway` (auto-start, pull-on-restart) | fleet status Phoebus screen (`deploy/fleet_status.bob`) | [GeecsPvaGateway/DEPLOYMENT.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsPvaGateway/DEPLOYMENT.md) |
+| PVA image gateways (GeecsPvaGateway) | each camera server (9 hosts) | — (installs from the lab's shared "Active Version" clone on the data share; per host only a baked venv — **the share clone's checked-out commit is the fleet pin**) | pvAccess TCP 5075 / UDP 5076 | NSSM service `GeecsPvaGateway` (auto-start, pull-on-restart) | fleet status Phoebus screen (`deploy/fleet_status.bob`) | [GeecsPvaGateway/DEPLOYMENT.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsPvaGateway/DEPLOYMENT.md) |
 | GEECS MySQL DB | 192.168.6.14 | — | 3306 | LabVIEW/GEECS infrastructure (not managed by this repo) | any `GeecsDb` client connect | — |
 | Data share (NAS) | NAS appliance | — | SMB | storage infrastructure (not managed by this repo) | mount visible, scan folders resolvable | — |
 | GEECS LabVIEW devices | Windows device hosts | — | GEECS wire protocol (UDP/TCP) | Master Control / device GUIs | device `CONNECTED` PV via the gateway | — |
@@ -133,9 +133,19 @@ Poetry env inside it). This is deliberate, not accumulation:
   moves only at hardware-verified milestones. Each clone sits pinned at
   its service's last *verified* deploy — a per-service rollback point,
   not drift.
-- The queueserver worker and capture daemon are the one deliberate
-  exception: they share `~/qs-checkout` because their co-location (and
-  co-versioning) is a requirement of the capture design.
+- Two deliberate exceptions, each with its own isolation story: the
+  queueserver worker and capture daemon **share** their clone because
+  co-location (and co-versioning) is a requirement of the capture
+  design; the MCP server reads the worker's checkout (its config
+  validation must exactly match worker truth) but isolates by
+  installing **non-editably into its own baked venv** — a pull never
+  mutates code under the running service. The Windows PVA fleet
+  inverts the pattern entirely: no per-host clones, one shared
+  "Active Version" clone as the fleet pin, baked per-host venvs.
+- The path is a convention, not the invariant: the interim host uses
+  `~/<service>-checkout` names; the qserver runbook's
+  `/opt/geecs/GEECS-Plugins` layout for a dedicated host is the same
+  pattern — one clone per service family, wherever it lives.
 
 A clone is deployed by `git pull` (or checkout of a pinned ref) +
 `poetry install` **with the extras that service needs** (each runbook

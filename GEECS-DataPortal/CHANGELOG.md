@@ -3,6 +3,16 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.15.1] - 2026-09-01
+
+### Fixed
+
+- DEPLOYMENT.md now names the `analysis` extra and the
+  `--processing-configs` `ExecStart` flag (quoted — share paths carry
+  spaces) that the processing selector needs — the fleet map's
+  "each runbook names its extras" claim was false for this runbook
+  (docs-only; #745 review finding).
+
 ## [0.15.0] - 2026-09-01
 
 ### Added
