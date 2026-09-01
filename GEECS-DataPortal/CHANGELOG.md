@@ -18,8 +18,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   once after averaging). Both run the same `compute_bin_key` +
   groupby membership call, so the `bin` index is stable between
   listing and render; per-shot refusals carry over (never average a
-  neighbour in: events bound, missed-shot skip, vendor 404), and a
-  bin whose only resolutions were ordinal serves `no-cache`.
+  neighbour in: events bound, missed-shot skip, vendor 404), and a bin
+  containing any native listing-order (ordinal-fallback) resolution
+  serves `no-cache` — the same per-shot rule. `min_count` applies to
+  the grid exactly as `bin_frame` applies it to `/binned` (per-bin row
+  counts), so the shared binset popup governs both tabs.
 - `resources.load_shot_array` (+ `ShotArray`): the tier ladder now
   resolves to raw pixels, with `load_shot_image` reduced to the
   render-one-shot wrapper — single-shot serving and per-bin averaging

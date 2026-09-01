@@ -514,6 +514,7 @@ function refreshImages() {
   if (S.bincfg) params.set("bincfg", S.bincfg);
   grid.innerHTML = `<div class="plotmsg">loading bins…</div>`;
   api("bin-images", params).then(data => {
+    if (key !== IMG_KEY) return;  // superseded in flight — never render stale bins
     if (!data.bins.length) {
       grid.innerHTML = `<div class="plotmsg">no bins (check filters / bin column)</div>`;
       return;
@@ -527,10 +528,11 @@ function refreshImages() {
       return `<figure class="bincard">
         <img class="plot" loading="lazy" src="${ROOT}/run/${UID}/bin-image.png?${q.toString()}"
              alt="${escAttr(data.bin_col)} ${escAttr(label)}">
-        <figcaption class="dim mono">${esc(data.bin_col)}: ${esc(label)} · n=${b.count}</figcaption>
+        <figcaption class="dim mono" title="n counts member shots passing filters — frames the device missed or that fail to load are skipped in the average">${esc(data.bin_col)}: ${esc(label)} · n=${b.count}</figcaption>
       </figure>`;
     }).join("");
   }).catch(err => {
+    if (key !== IMG_KEY) return;
     IMG_KEY = null;
     grid.innerHTML = `<div class="plotmsg">${esc(err.message)}</div>`;
   });

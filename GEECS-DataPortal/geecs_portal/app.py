@@ -595,10 +595,12 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
 
         Same primitives and grouping semantics as ``/binned``
         (``compute_bin_key`` + ``groupby(dropna=False, observed=True,
-        sort)``), so the two endpoints' bin orders agree — and the same
-        code path serves both bin-images endpoints, so a ``bin`` INDEX
-        is stable between the JSON listing and the PNG renders
-        regardless of how labels serialize.
+        sort)``, ``min_count`` applied to per-bin ROW counts exactly as
+        ``bin_frame`` does), so the two tabs' bins agree under one
+        shared ``bincfg`` — and the same code path serves both
+        bin-images endpoints, so a ``bin`` INDEX is stable between the
+        JSON listing and the PNG renders regardless of how labels
+        serialize.
 
         Returns
         -------
@@ -624,6 +626,10 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
         groups = [
             (label, sorted({int(s) for s in group.dropna()}))
             for label, group in shots.groupby(labels, dropna=False, observed=True)
+            # min_count mirrors bin_frame (row counts, not shot counts):
+            # the binset popup's "min shots / bin" must govern this grid
+            # exactly as it governs the Plot tab's binned view.
+            if cfg.min_count <= 1 or len(group) >= cfg.min_count
         ]
         return cfg, groups
 
@@ -913,10 +919,7 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
     def run_image(uid: str, device: str, shot: int = 1, day: str = "") -> Response:
         """One device shot rendered for display (stack or native file)."""
         detail = _load_run(uid)
-        run_day = _run_day(detail, day)
-        folder = resolve_scan_folder(detail, run_day) if run_day else None
-        if folder is None:
-            raise HTTPException(status_code=404, detail="scan folder not resolvable")
+        folder, _ = _image_folder(detail, day, device)
         # A shot beyond the recorded event rows must refuse outright:
         # falling through to the ordinal join would serve an orphan
         # frame (pre/post-scan extras) labeled as a shot that never
@@ -1009,12 +1012,14 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
             raise HTTPException(
                 status_code=404, detail="no renderable frames in this bin"
             )
+        try:
+            png = resources.to_display_png(averaged)
+        except Exception as exc:  # noqa: BLE001 — unrenderable shape must not 500
+            raise HTTPException(
+                status_code=404, detail=f"render failed: {exc}"
+            ) from exc
         headers = _png_headers(detail) if cacheable else {"Cache-Control": "no-cache"}
-        return Response(
-            content=resources.to_display_png(averaged),
-            media_type="image/png",
-            headers=headers,
-        )
+        return Response(content=png, media_type="image/png", headers=headers)
 
     @app.get("/run/{uid}/plot.png")
     def run_plot(uid: str, y: str, x: str = "") -> Response:

@@ -354,9 +354,23 @@ def load_shot_image(
         data_cache=data_cache,
         cache_key=cache_key,
     )
+    png = None
+    if resolved.array is not None:
+        try:
+            png = to_display_png(resolved.array)
+        except Exception as exc:  # noqa: BLE001 — unrenderable shape must not 500
+            # A readable-but-unrenderable array (e.g. a stacked .npy or
+            # an odd-shaped h5 in a dev/scratch folder) degrades to the
+            # missing card, same as a corrupt file always has.
+            return ShotImage(
+                kind="missing",
+                path=resolved.path,
+                reason=f"render failed: {exc}",
+                cacheable=resolved.cacheable,
+            )
     return ShotImage(
         kind=resolved.kind,
-        png=to_display_png(resolved.array) if resolved.array is not None else None,
+        png=png,
         path=resolved.path,
         reason=resolved.reason,
         cacheable=resolved.cacheable,
