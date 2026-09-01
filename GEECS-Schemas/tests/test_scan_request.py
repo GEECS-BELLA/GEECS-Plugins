@@ -360,6 +360,28 @@ class TestV1Migration:
         request = make_step_request(schema_version=1)
         assert request.schema_version == 2
 
+    def test_sparse_v1_document_normalizes_schema_version(self):
+        # A declared version <= 1 is normalized even with NO flat fields to
+        # lift — otherwise a sparse v1 preset would round-trip a v2-shaped
+        # dump stamped schema_version: 1.
+        request = ScanRequest.model_validate({"mode": "noscan", "schema_version": 1})
+        assert request.schema_version == 2
+        assert request.model_dump(mode="json")["schema_version"] == 2
+
+    def test_future_schema_version_is_never_clobbered_down(self):
+        # The submission-drop path must not stamp a future document back to
+        # 2 — a v3 stamp survives this validator.
+        request = ScanRequest.model_validate(
+            {
+                "schema_version": 3,
+                "mode": "noscan",
+                "capture": {"shots_per_step": 4},
+                "submission": {"client": "x", "preflight": []},
+            }
+        )
+        assert request.schema_version == 3
+        assert "submission" not in request.model_dump(mode="json")
+
     def test_v2_document_round_trips_untouched(self):
         v2 = {
             "schema_version": 2,

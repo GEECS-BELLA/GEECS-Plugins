@@ -111,7 +111,7 @@ this lands first.
 Register in the qserver startup profile, beside the existing funnel:
 
 - `geecs_noscan_plan` — mode pinned to noscan; params: description +
-  `AcquisitionSettings` + `ActionBindings` (+ `background`).
+  `CaptureSettings` + `ActionBindings` (+ `background`).
 - `geecs_scan_plan` — 1-D and grid as one plan (a grid is the multi-axis case
   of the same sweep; splitting them would be artificial); params: `axes` +
   shared components.
@@ -188,9 +188,9 @@ and gates.
   applied in `GeecsBluesky/qserver/startup/startup.py`.
 - Issues/PRs: GEECS-Plugins#727 (roadmap), #730 (schema publication),
   als-apg/osprey#816/#817 (external-worker mode + schema graft).
-- Deployed test bench: the HTU deployment repo
-  (`~/Desktop/Code/Github_repos/htu-assistant`), BLUESKY panel on the live
-  stack renders whatever the manager + published schemas say.
+- Deployed test bench: the HTU deployment repo (the `htu-assistant`
+  checkout), BLUESKY panel on the live stack renders whatever the manager +
+  published schemas say.
 
 ## Suggested sequencing for the implementer
 

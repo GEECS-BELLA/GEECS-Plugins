@@ -504,7 +504,13 @@ def test_optimize_mode_reaches_a_registered_loader_and_runs_the_bins(
     try:
         session.RE(
             geecs_scan_request_plan(
-                request.model_dump(), session=session, resolver=resolver
+                request.model_dump(),
+                # The record travels beside the request on the optimize path
+                # too — pinned here so dropping the pass-through in
+                # _optimize_request_body cannot go unnoticed.
+                submission={"client": "test-client", "preflight": []},
+                session=session,
+                resolver=resolver,
             )
         )
     finally:
@@ -529,6 +535,7 @@ def test_optimize_mode_reaches_a_registered_loader_and_runs_the_bins(
     ]
     assert finish_calls == [True]
     assert docs.start is not None and docs.start["plan_name"] == "geecs_adaptive_scan"
+    assert docs.start["submission"]["client"] == "test-client"
     assert docs.stop is not None and docs.stop["exit_status"] == "success"
 
 

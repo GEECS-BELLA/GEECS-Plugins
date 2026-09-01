@@ -743,7 +743,9 @@ class ScanRequest(VersionedSchemaModel):
         capture fields found at the top level move into ``capture``, a v1
         ``submission`` record is dropped (it left the request document —
         the engine's run metadata carries submission provenance
-        independently), and ``schema_version`` is normalized to 2.  Saved
+        independently), and a declared ``schema_version`` ≤ 1 is
+        normalized to 2 (a version ≥ 2 is never overwritten — a future
+        v3 document must keep its stamp through this validator).  Saved
         presets, archived run-metadata documents, and stale clients
         therefore keep validating forever.  Mixing the flat fields with an
         explicit ``capture`` block is ambiguous and rejected.
@@ -767,7 +769,9 @@ class ScanRequest(VersionedSchemaModel):
         if not isinstance(data, dict):
             return data
         flat = [key for key in _V1_CAPTURE_FIELDS if key in data]
-        if not flat and "submission" not in data:
+        version = data.get("schema_version")
+        stale_version = isinstance(version, int) and version <= 1
+        if not flat and "submission" not in data and not stale_version:
             return data
         if flat and "capture" in data:
             raise ValueError(
@@ -778,7 +782,8 @@ class ScanRequest(VersionedSchemaModel):
         lifted.pop("submission", None)
         if flat:
             lifted["capture"] = {key: lifted.pop(key) for key in flat}
-        lifted["schema_version"] = 2
+        if stale_version:
+            lifted["schema_version"] = 2
         return lifted
 
     @model_validator(mode="after")
