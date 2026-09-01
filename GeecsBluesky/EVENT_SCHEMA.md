@@ -176,5 +176,8 @@ contributor lagging at `shot_offset = -1` still records its final shot.
    across dead time are expected (it counts trigger opportunities, not rows).
 3. **Additive changes don't bump the version** — readers ignore unknown
    columns/keys.  Only breaking changes (rename/remove/semantics) bump it.
+   This binds live subscribers on the worker's document stream as much as
+   Tiled readers — see `qserver/deploy/DEPLOYMENT.md` § "External
+   subscribers" for the subscription contract.
 4. **Version bumps never require a new Tiled catalog.** Runs are
    self-describing (own descriptors + metadata); versions coexist.

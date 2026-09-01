@@ -189,6 +189,42 @@ Redis (6379) stays loopback-only. The proxy's in port (5567) is only
 ever used by the worker itself (same host) — nothing remote needs it,
 though the proxy binds all interfaces; firewall it with the rest.
 
+### External subscribers
+
+The document-stream out port (**5568**) is the supported subscription
+point for clients beyond GEECS-Console — the contract OSPREY's bridge and
+any future live-progress client build on (#727 item 3). What "supported"
+means:
+
+- **Where.** Subscribe to `<worker-host>:5568` from any host that can
+  reach the worker; the proxy is a fan-out, so subscribers never touch
+  the manager socket, Redis, or the in port. Open 5568 to the client's
+  host on the worker's firewall exactly like 60615/60625 above; leave
+  5567 closed. The two in-repo subscribers are the reference practice:
+  the console's `geecs_console/app/scan_monitor.py`
+  (`DocumentStreamWorker`) and GEECS-MCP's
+  `geecs_mcp/scans/progress_stream.py` (`ProgressCache`) — each a
+  `bluesky.callbacks.zmq.RemoteDispatcher` on the `doc_addr` that
+  `geecs_bluesky.qs_client` reads from the `[qserver]` section of
+  `config.ini` (default `<host>:5568`).
+- **Wire format.** bluesky's `Publisher` defaults: pickled `(name, doc)`
+  pairs, no topic prefix. A subscriber is therefore a Python process
+  using `RemoteDispatcher` (or an equivalent pickle-aware SUB socket); a
+  non-Python subscriber needs a JSON/msgpack serializer added on the
+  worker side first — not offered today.
+- **Transport posture.** Plaintext on the lab control network, same as
+  the control socket (60615): no encryption, no client auth. A client
+  that fronts this stream for users beyond the worker host should say so
+  explicitly (a visible plaintext setting, not a silent default) — the
+  treatment OSPREY's bridge gives the control socket. CurveZMQ on the
+  document stream is decided together with the control-plane keys, which
+  is issue #660's question, not this document's.
+- **Stability.** Document shape follows `../../EVENT_SCHEMA.md`; the
+  `geecs_event_schema` start-document key carries the version, so read
+  it rather than assuming it. Additive changes — new columns, new
+  metadata keys — do not bump that version, so subscribers must tolerate
+  unknown fields; only a rename, removal, or semantics change bumps it.
+
 ---
 
 ## 3. Verify the manager
