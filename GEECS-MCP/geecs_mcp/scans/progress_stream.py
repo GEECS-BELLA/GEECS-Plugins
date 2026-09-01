@@ -87,7 +87,13 @@ class ProgressCache:
             self._doc_addr = doc_addr
             if not doc_addr:
                 self._detail = "no document-stream address configured"
+                logger.warning(
+                    "progress stream not started: no document-stream address "
+                    "([qserver] unconfigured?) — scan_progress reports "
+                    "stream.available=false"
+                )
                 return
+        logger.info("progress stream consuming document stream %s", doc_addr)
         threading.Thread(
             target=self._run_documents,
             args=(doc_addr,),

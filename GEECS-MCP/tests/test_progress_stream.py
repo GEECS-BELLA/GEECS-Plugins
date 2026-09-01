@@ -117,12 +117,18 @@ def test_unstarted_cache_reports_unavailable():
     assert snap["available"] is False and "not started" in snap["detail"]
 
 
-def test_ensure_started_without_doc_addr_degrades_honestly():
+def test_ensure_started_without_doc_addr_degrades_honestly(caplog):
+    import logging
+
     cache = ProgressCache()
-    cache.ensure_started(None, "tcp://localhost:60625")
+    with caplog.at_level(logging.WARNING, logger="geecs_mcp.scans.progress_stream"):
+        cache.ensure_started(None, "tcp://localhost:60625")
     snap = cache.snapshot()
     assert snap["available"] is False
     assert "no document-stream address" in snap["detail"]
+    # The cache itself says why (the startup warm-up and the lazy path
+    # share this one log line — #748 review finding 2).
+    assert "no document-stream address" in caplog.text
     # Idempotent: a second call must not spawn anything or reset state.
     cache.ensure_started(None, None)
     assert cache.snapshot()["detail"] == snap["detail"]

@@ -27,30 +27,21 @@ def warm_progress_stream() -> None:
     ``scan_progress`` (fine for a short-lived stdio session) left the
     first scan after a service restart with no scan number or counts.
     Best-effort like the cache itself: nothing here can stop the server
-    from coming up — a client that will not build is logged, and a
-    missing address is the cache's own honest ``available=false``.
+    from coming up.  The cache logs what it did (consuming from which
+    address, or latched unconfigured); the guard below only covers a
+    client that will not build — a path the seams underneath promise not
+    to take, kept so the boot can never die on it.
     """
     try:
         from geecs_mcp import runtime
         from geecs_mcp.scans import progress_stream
 
-        client = runtime.get_queue_client()
-        progress_stream.start_for_client(client)
+        progress_stream.start_for_client(runtime.get_queue_client())
     except Exception as exc:
         logger.warning(
             "progress stream not warmed at startup (%s) — scan_progress "
             "will start it lazily on first call",
             exc,
-        )
-        return
-    doc_addr = getattr(client, "doc_addr", None)
-    if doc_addr:
-        logger.info("progress stream warming from document stream %s", doc_addr)
-    else:
-        logger.warning(
-            "progress stream not warmed: no document-stream address "
-            "([qserver] unconfigured?) — scan_progress reports "
-            "stream.available=false"
         )
 
 

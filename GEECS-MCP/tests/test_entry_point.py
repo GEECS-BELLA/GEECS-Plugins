@@ -81,6 +81,9 @@ def test_stdio_transport_keeps_the_lazy_start(wired, monkeypatch):
 
 
 def test_warm_up_failure_never_stops_the_server(wired, monkeypatch, caplog):
+    # Pins the boot guarantee, not a known path: runtime.get_queue_client
+    # returns the stub on bad/missing config by the seams' own contracts,
+    # so this branch is defence in depth — the server must come up anyway.
     log, cache, fake_server = wired
 
     def boom():
@@ -96,14 +99,13 @@ def test_warm_up_failure_never_stops_the_server(wired, monkeypatch, caplog):
     assert "config.ini unreadable" in caplog.text
 
 
-def test_warm_up_without_addresses_degrades_honestly(wired, monkeypatch, caplog):
+def test_warm_up_without_addresses_degrades_honestly(wired, monkeypatch):
     log, cache, _ = wired
     # The stub client of an unconfigured [qserver]: addresses are None.
     monkeypatch.setattr(runtime, "get_queue_client", lambda: SimpleNamespace())
     monkeypatch.setattr("sys.argv", ["geecs_mcp", "--transport", "http"])
-    with caplog.at_level(logging.WARNING, logger="geecs_mcp.main"):
-        entry.main()
-    # Latched unconfigured (the cache's own honest available=false), served anyway.
+    entry.main()
+    # Latched unconfigured (the cache's own honest available=false — and its
+    # own warning, pinned in test_progress_stream.py), served anyway.
     assert cache.started_with == (None, None)
     assert log == ["ensure_started", "run"]
-    assert "no document-stream address" in caplog.text

@@ -574,9 +574,11 @@ async def resume_scan(force: bool = False) -> str:
 def _stream_snapshot(client, re_state: str | None) -> dict:
     """The document-stream picture, started lazily from the client's addrs.
 
-    Lazy is the stdio posture; the HTTP service warms the same cache at
-    startup (``__main__.warm_progress_stream``, #685) and this call is
-    then the idempotent no-op.  Best-effort BY DESIGN: ``available=false`` (with the reason) when the
+    The HTTP service warms the same cache at startup
+    (``__main__.warm_progress_stream``, #685) and this call is then the
+    idempotent no-op; stdio relies on this lazy start alone, so a run
+    submitted before the first poll streams no counts there.  Best-effort
+    BY DESIGN: ``available=false`` (with the reason) when the
     stream cannot be consumed, and the poll fields stand alone.  The
     sticky ``paused_reason`` (the console-text stream's failed-move line)
     is only surfaced while the RE is actually paused — after a resume the
