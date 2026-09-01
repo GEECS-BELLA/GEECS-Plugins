@@ -921,8 +921,8 @@ def test_optimize_persists_history_to_optimization_json(
 def test_optimize_mode_records_db_scan_runtime_metadata(
     configs_root, resolver, monkeypatch
 ) -> None:
-    """PR #644 review row 7: metadata parity between the plan's optimize
-    body and the binder path's ``_run_optimize_request`` — ``db_scan_runtime``
+    """PR #644 review row 7 (metadata parity with the since-deleted headless
+    optimize runner — now the one body's own contract): ``db_scan_runtime``
     must land in the optimize start doc too, not just the noscan/step one.
     No existing test on either entry point asserted this positively before.
     """
@@ -1128,7 +1128,7 @@ def test_trigger_profile_builds_the_controller_worker_side(
 
 
 # ---------------------------------------------------------------------------
-# Document parity with run_scan_request (the acceptance contract)
+# Document parity between the two doors (the acceptance contract)
 # ---------------------------------------------------------------------------
 
 
@@ -1771,6 +1771,81 @@ def test_session_run_injected_requirements_provision_devices(
             pacer.cancel()
         session.RE.unsubscribe(token)
     assert list(docs.start["provisioned_device_requirements"]) == ["UC_TopView"]
+
+
+def test_session_run_optimize_operator_abort_is_calm(
+    resolver, monkeypatch, caplog, tmp_path
+):
+    """``RE.abort()`` mid-optimize on the headless door: the quiet aborted
+    outcome (``last_run_aborted``), the claimed-folder note is the calm
+    WARNING — never an ERROR record (/triage reads those), and the run's
+    stop document says abort.  Ports the deleted runner-suite pin."""
+    import logging
+
+    import threading
+
+    from tests.test_operator_abort import _package_errors
+
+    import geecs_bluesky.plans.scan_request_plan as srp
+
+    folder = tmp_path / "Scan007"
+    folder.mkdir()
+    monkeypatch.setattr(
+        srp, "claim_scan", lambda experiment: (SimpleNamespace(number=7), str(folder))
+    )
+    session = _mock_session()
+    monkeypatch.setattr(session, "_export_scalar_files", lambda n: None)
+    pacers: list = []
+    _seed_after_connect(monkeypatch, session, pacers)
+
+    class _AbortingSuggester:
+        """Never stops on its own; the operator's Stop lands once the first
+        bin has been observed (guaranteed mid-run, post-claim)."""
+
+        def __init__(self) -> None:
+            self.calls = 0
+            self.aborter: threading.Timer | None = None
+
+        def suggest(self):
+            self.calls += 1
+            if self.calls == 2:
+                self.aborter = threading.Timer(
+                    0.2, lambda: session.RE.abort(reason="operator clicked stop")
+                )
+                self.aborter.start()
+            return {"jet_z": 0.25}
+
+        def observe(self, inputs, objective, bin_data):
+            pass
+
+    suggester = _AbortingSuggester()
+    docs = _DocCollector()
+    token = session.RE.subscribe(docs)
+    try:
+        with caplog.at_level(logging.INFO, logger="geecs_bluesky"):
+            uid = session.run(
+                _optimize_request(max_iterations=1000),
+                resolver,
+                objective=lambda bin_data: 1.0,
+                suggester=suggester,
+            )
+    finally:
+        for pacer in pacers:
+            pacer.cancel()
+        if suggester.aborter is not None:
+            suggester.aborter.join(timeout=15.0)
+        session.RE.unsubscribe(token)
+    assert suggester.calls >= 2, "the abort must land after the first bin"
+    assert session.last_run_aborted is True
+    assert uid == docs.start["uid"]
+    assert docs.stop["exit_status"] == "abort"
+    assert _package_errors(caplog) == [], "an operator abort must not log ERROR"
+    notes = [
+        r
+        for r in caplog.records
+        if "Optimization scan 7" in r.getMessage() and "aborted" in r.getMessage()
+    ]
+    assert [r.levelno for r in notes] == [logging.WARNING]
 
 
 def test_session_run_refuses_half_an_optimization_pair(resolver) -> None:

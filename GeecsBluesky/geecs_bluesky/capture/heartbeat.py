@@ -17,7 +17,7 @@ precondition recorded in ``Planning/data_capture/01_central_pva_capture_scope.md
 The heartbeat is a small JSON file local to the daemon's host and service
 user — the engine-side check assumes it runs on the SAME host as the
 daemon under the same account (true for the systemd deployment, where the
-worker and daemon share one service user; a headless ``run_scan_request``
+worker and daemon share one service user; a headless ``GeecsSession.run``
 on a different machine cannot see a healthy daemon's heartbeat and will
 be refused). Default location under the user state dir; override via
 ``[capture] heartbeat_path`` in the shared GEECS config (must be an

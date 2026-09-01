@@ -22,7 +22,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   run (the worker does that via its stop-document callback).
 - `geecs_scan_request_plan` gains the keyword-only `optimization_loader`
   and `failed_move_policy` seams (unannotated, like `session`/`resolver`,
-  so RE Manager item validation is unaffected).
+  so RE Manager item validation is unaffected; a `failed_move_policy`
+  other than `"pause"`/`"raise"` is refused pre-claim).
+- `session.run` no longer attaches/detaches the session's shot controller
+  as a side effect (the plan builds its own controller from the trigger
+  profile); a session-level `shot_control(...)` set before `run` is left
+  as the caller set it.
 
 ### Removed
 
@@ -35,6 +40,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- An operator abort (`RE.abort()`) mid-optimize logged the claimed-folder
+  note as a failure ERROR on the plan; it is now the calm WARNING, as on
+  the step/noscan path (review finding on the Phase 2a port).
 - Optimize mode on the plan (queue path) crashed on a request with zero
   save sets and optimizer `device_requirements` (empty save-set merge);
   it now runs on the provisioned devices alone, as the headless path did.

@@ -61,6 +61,7 @@ from typing import Any, Callable
 
 import bluesky.plan_stubs as bps
 import bluesky.preprocessors as bpp
+from bluesky.utils import RequestAbort
 from ophyd_async.plan_stubs import ensure_connected
 
 from geecs_bluesky.config_resolver import ConfigResolver, ConfigsRepoResolver
@@ -507,7 +508,8 @@ def geecs_scan_request_plan(
         What a failed scan-axis move does — ``"pause"`` (the default: the
         RE Manager renders the paused state and resume/stop are queue
         verbs; decision 4, #645) or ``"raise"`` (the headless door: with
-        no operator to answer, a pause would hang).
+        no operator to answer, a pause would hang).  Like every kwarg here
+        it is settable on a queue item; anything else is refused pre-claim.
 
     Raises
     ------
@@ -533,6 +535,13 @@ def geecs_scan_request_plan(
                 "geecs_scan_request_plan has no session: install one with "
                 "set_plan_session(...) at worker startup, or pass session=..."
             )
+    if failed_move_policy not in (None, "raise", "pause"):
+        # The seam is a plan kwarg, so a queue item can set it; a typo must
+        # not silently select 'raise' semantics downstream (pre-claim).
+        raise GeecsConfigurationError(
+            f"failed_move_policy={failed_move_policy!r} invalid; use 'pause' "
+            "(the queue default) or 'raise'"
+        )
     # The session's manual-move mutual exclusion (PR #597 contract) must
     # travel to the queue path: a background-executed geecs_move_variable
     # leaves the manager IDLE while a move converges, so a queue start could
@@ -1147,10 +1156,16 @@ def _optimize_request_body(
                 finish()
             except Exception:
                 logger.warning("optimization bridge finish() failed", exc_info=True)
-    except BaseException:
+    except BaseException as exc:
         if scan_number is not None:
+            # An operator abort (RE.abort() → RequestAbort thrown into the
+            # plan) is an intentional outcome: the calm WARNING, never the
+            # failure ERROR (/triage reads ERROR records).
             log_claimed_scan_failure(
-                scan_number, scan_folder, label="Optimization scan"
+                scan_number,
+                scan_folder,
+                label="Optimization scan",
+                aborted=isinstance(exc, RequestAbort),
             )
         if spec.move_to_best_on_finish:
             # Abort restores *initial*, never best (docstring contract).

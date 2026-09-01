@@ -89,30 +89,21 @@ class _FakeActionFactory:
         self.disconnected = True
 
 
-class _FakeSession:
-    """Records the preamble's device builds and its final claimed-plan call.
+class PlanSeams:
+    """What ``geecs_scan_request_plan`` reads from a session, as a mixin.
 
-    Exposes exactly what ``geecs_scan_request_plan`` reads from a session:
     ``experiment`` (empty → the DB-backed policy/served-set/liveness
     providers stay inert, hermetic), ``rep_rate_hz``, ``_mock``, the
     manual-move gate, and ``build_claimed_scan_plan`` — the one call the
-    preamble ends in, recorded as :attr:`scan_kwargs`.  Devices are plain
-    records (no connect), so the plan's in-plan connect stage has nothing
-    to do; the action-signal factory does ride the plan's finalize
-    disconnect (see :func:`_drive`).
+    preamble ends in, recorded as :attr:`scan_kwargs`; its returned "inner
+    plan" yields nothing and returns ``"uid-scan"``.  Shared by every fake
+    session that drives the preamble (this suite, the preflight suite).
     """
 
     experiment = ""
     rep_rate_hz = 1.0
     _mock = True
-
-    def __init__(self) -> None:
-        self.devices: list[tuple[str, str]] = []  # (device, factory)
-        self.scan_kwargs: dict | None = None
-        self.disconnected: list = []
-        self.action_factories: list[_FakeActionFactory] = []
-        self.confirm_settable_calls: list = []
-        self.pseudo_calls: list = []
+    scan_kwargs: dict | None = None
 
     def _refuse_if_manual_move(self, verb: str) -> None:
         pass
@@ -120,6 +111,23 @@ class _FakeSession:
     def build_claimed_scan_plan(self, **kwargs):
         self.scan_kwargs = kwargs
         return _immediately("uid-scan")
+
+
+class _FakeSession(PlanSeams):
+    """Records the preamble's device builds and its final claimed-plan call.
+
+    Devices are plain records (no connect), so the plan's in-plan connect
+    stage has nothing to do; the action-signal factory does ride the plan's
+    finalize disconnect (see :func:`_drive`).
+    """
+
+    def __init__(self) -> None:
+        self.devices: list[tuple[str, str]] = []  # (device, factory)
+        self.scan_kwargs = None
+        self.disconnected: list = []
+        self.action_factories: list[_FakeActionFactory] = []
+        self.confirm_settable_calls: list = []
+        self.pseudo_calls: list = []
 
     def _make(self, device: str, kind: str) -> _FakeDevice:
         self.devices.append((device, kind))
@@ -707,7 +715,7 @@ def test_devices_config_all_scalars_is_a_documented_gap() -> None:
 
 
 # ---------------------------------------------------------------------------
-# run_scan_request
+# The plan preamble on a fake session
 # ---------------------------------------------------------------------------
 
 
@@ -745,6 +753,38 @@ def test_noscan_request_maps_onto_session_scan(legacy_resolver) -> None:
     assert kwargs["scan_info_overrides"]["background"] is False
     # no trigger profile named → no shot controller built
     assert kwargs["controller"] is None
+
+
+def test_failed_move_policy_seam_reaches_the_claimed_plan(legacy_resolver) -> None:
+    """The one door-specific seam, pinned by behaviour: the headless call
+    shape hands ``"raise"`` to the claimed plan, the queue's plain call
+    shape (no seam) hands the ``"pause"`` default — and a typo is refused
+    pre-claim rather than silently selecting raise semantics downstream."""
+    session = _FakeSession()
+    run_request(session, _noscan_request(), legacy_resolver)
+    assert session.scan_kwargs["failed_move_policy"] == "raise"
+
+    queue_shaped = _FakeSession()
+    _drive(
+        geecs_scan_request_plan(
+            _noscan_request().model_dump(),
+            session=queue_shaped,
+            resolver=legacy_resolver,
+        )
+    )
+    assert queue_shaped.scan_kwargs["failed_move_policy"] == "pause"
+
+    typo = _FakeSession()
+    with pytest.raises(GeecsConfigurationError, match="failed_move_policy='Pause'"):
+        _drive(
+            geecs_scan_request_plan(
+                _noscan_request().model_dump(),
+                session=typo,
+                resolver=legacy_resolver,
+                failed_move_policy="Pause",
+            )
+        )
+    assert typo.devices == []  # refused before any hardware was touched
 
 
 def test_strict_request_builds_all_sync_as_detectors(legacy_resolver) -> None:

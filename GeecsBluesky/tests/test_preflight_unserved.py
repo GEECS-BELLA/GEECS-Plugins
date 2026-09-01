@@ -26,36 +26,21 @@ from geecs_bluesky.preflight import (
     run_unserved_variables_check,
 )
 from geecs_schemas import SaveSet, SaveSetEntry, ScanRequest
-from tests.test_scan_request_runner import run_request
+from tests.test_scan_request_runner import PlanSeams, run_request
 
 # ---------------------------------------------------------------------------
 # Fakes: session recording variable lists, one-save-set resolver
 # ---------------------------------------------------------------------------
 
 
-class _RecordingSession:
-    """Fake session recording each device build's variable list (no CA/RE).
-
-    Exposes the plan preamble's session seams (see the runner suite's
-    ``_FakeSession``); ``build_claimed_scan_plan`` records its kwargs as
-    :attr:`scan_kwargs` and returns a plan that yields nothing.
-    """
-
-    experiment = ""
-    rep_rate_hz = 1.0
-    _mock = True
+class _RecordingSession(PlanSeams):
+    """Fake session recording each device build's variable list (no CA/RE);
+    the plan preamble's session seams come from the shared mixin."""
 
     def __init__(self) -> None:
         self.device_calls: list[tuple[str, str, list[str]]] = []
-        self.scan_kwargs: dict | None = None
+        self.scan_kwargs = None
         self.disconnected: list = []
-
-    def _refuse_if_manual_move(self, verb: str) -> None:
-        pass
-
-    def build_claimed_scan_plan(self, **kwargs):
-        self.scan_kwargs = kwargs
-        return _immediately("uid-scan")
 
     def _make(self, kind: str, device: str, variables: list[str]):
         self.device_calls.append((kind, device, list(variables)))
@@ -91,11 +76,6 @@ class _RecordingSession:
 
     def disconnect(self, *devices) -> None:
         self.disconnected.extend(devices)
-
-
-def _immediately(value):
-    return value
-    yield  # pragma: no cover — makes this a generator
 
 
 class _SaveSetResolver:
