@@ -97,4 +97,6 @@ start doc carried an integer scan number.
   (snapshot-role) camera of a capture devicetype is dropped from
   `capture_devices` by the engine with a warning — the snapshot role has
   neither the save-control surface nor an `acq_timestamp` join column —
-  so the daemon never targets it and its native saving is left as-is.
+  so the daemon never targets it; `images: true` on such an entry is
+  ignored (the engine never drove native saving for the snapshot role and
+  neither commands nor suppresses the device's own save flag).

@@ -50,7 +50,8 @@ The exception covers the SYNC roles — which are the only roles that can be
 capture-owned: an asynchronous (snapshot-role) camera has no acq_timestamp
 machinery to row-join a stack by (and a scalar-less async entry builds no
 device at all), so `select_capture_devices` drops it from `capture_devices`
-with a loud warning and leaves its native saving as-is (#702; capture
+with a loud warning — `images: true` on a snapshot-role entry is ignored,
+the device's own save flag neither commanded nor suppressed (#702; capture
 cameras are synchronous in production). A **pseudo scan variable's** motor column is the one
 exception to the `Device Variable` header shape: its recorded value is the
 demanded pseudo number (no physical readback of its own), so its header is the

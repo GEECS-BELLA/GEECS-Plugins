@@ -19,9 +19,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   child but no `acq_timestamp` column (`CaSnapshotReadable` has no acq
   machinery), so its stack could not be row-joined. Both are now
   dropped at the selection seam with a WARNING naming the device, its
-  devicetype and the reason; native saving for them is left as-is (the
-  engine never drove it for async roles). Sync roles — the production
-  case — are unchanged. Not an event-schema bump: `capture_devices`
+  devicetype and the reason. `images: true` on a snapshot-role entry
+  is now ignored outright: the engine never drove native saving for
+  async roles (`session.snapshot` has no `save_images`), and the daemon
+  no longer captures them either — the device's own save flag is
+  neither commanded nor suppressed. Stated trade (adversarial review):
+  the 0.68.x save child + eager off-write an async camera WITH scalars
+  used to get goes with it (an out-of-band-left-on save flag on such a
+  camera is no longer commanded off — the same standing as a sync
+  camera with `images: false`), and the issue-comment workaround
+  (listing `acq_timestamp` explicitly to make its stack joinable) no
+  longer yields a stack; building that support for the snapshot role
+  is the other remedy #702 names, not done here. Sync roles — the
+  production case — are unchanged. Not an event-schema bump: `capture_devices`
   still means exactly "the devices the daemon owns for this run"; only
   the engine's selection policy narrowed. Pinned in both shapes plus
   the sole-eligible-is-async case (no preflight, no key, inert

@@ -2616,7 +2616,8 @@ def test_async_camera_without_scalars_is_dropped_from_capture(
     assert "U_AsyncBare" not in session.control_only_flags
     (message,) = _capture_drop_warnings(caplog, "U_AsyncBare")
     assert "Point Grey Camera" in message and "#702" in message
-    assert "native saving is left as-is" in message
+    assert "neither commands nor suppresses" in message
+    assert "role: snapshot" in message
 
 
 def test_async_camera_with_scalars_is_a_plain_snapshot_not_capture_owned(

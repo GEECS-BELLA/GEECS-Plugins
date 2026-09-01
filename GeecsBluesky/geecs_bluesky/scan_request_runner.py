@@ -1288,8 +1288,9 @@ def select_capture_devices(
     active save-off surface (a scalar-less async entry builds no device at
     all, so the run wrapper's eager ``save="off"`` could never reach it) nor
     an ``acq_timestamp`` column to row-join a capture stack by. Such a
-    device is dropped here with a loud warning and its native saving is
-    left as-is — the engine neither commands nor suppresses it.
+    device is dropped here with a loud warning; its ``images: true`` is
+    ignored outright — the engine never drove native saving for the snapshot
+    role and neither commands nor suppresses the device's own save flag.
     """
     from geecs_bluesky.capture.discovery import CAPTURE_DEVICE_TYPES
 
@@ -1312,8 +1313,11 @@ def select_capture_devices(
                 "capture-eligible, but asynchronous (snapshot-role) devices "
                 "are dropped from capture_devices until the snapshot role "
                 "grows a save-control child and an acq_timestamp join column "
-                "(#702). Its native saving is left as-is; give it a "
-                "synchronous role to have the capture daemon own its images.",
+                "(#702). Its `images: true` is ignored: the engine neither "
+                "commands nor suppresses the device's own save flag, so this "
+                "scan writes no per-shot images for it. Remove `role: "
+                "snapshot` (legacy: `synchronous: false`) to have the capture "
+                "daemon own its images.",
                 name,
                 types.get(name),
             )
