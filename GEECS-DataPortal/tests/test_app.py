@@ -659,6 +659,8 @@ class TestServerFigures:
             '{"ghost":1}',
             '{"logy":"yes"}',
             '{"msize":"big"}',
+            '{"width":"big"}',
+            '{"height":NaN}',
             '{"ymin":NaN}',
             '{"colors":"#123456"}',
             '{"colors":[7]}',
@@ -689,6 +691,98 @@ class TestServerFigures:
         assert payload["figure"]["data"][0]["x"] == [1.0, 2.0, 3.0]
         assert payload["figure"]["layout"]["xaxis"]["title"]["text"] == "shot #"
         assert "x=" not in payload["code"]
+
+    def test_binned_x_places_bins_at_per_bin_mean(self):
+        # Identity bins on mono (one shot each) — the per-bin mean of
+        # cam-MaxCounts as X is just its own values, hand-computable.
+        payload = (
+            _client()
+            .get(
+                "/api/run/uid-002/binned",
+                params={
+                    "cols": "cam-MaxCounts",
+                    "x": "cam-MaxCounts",
+                    "bincfg": '{"bin_col":"mono"}',
+                },
+            )
+            .json()
+        )
+        assert payload["x_centers"] == [10.0, 12.5, 11.0]
+        fig = payload["figure"]
+        assert fig["data"][0]["x"] == [10.0, 12.5, 11.0]
+        assert fig["layout"]["xaxis"]["title"]["text"] == "cam : MaxCounts"
+        # The snippet reproduces the placement (replace(cfg, agg='mean')).
+        assert "agg='mean'" in payload["code"]
+        assert "x_values=x_centers" in payload["code"]
+
+    def test_binned_x_reindexes_onto_the_y_bins(self):
+        # The x call's dropna runs over x ALONE — a y column NaN'd for
+        # one scan step (a camera down) drops that bin from the y
+        # result but not from the x result.  Positional zipping would
+        # shift every point one bin over; reindexing pins alignment.
+        catalog = FakeCatalog()
+        detail = _detail(7)
+        detail.data["sig"] = [float("nan"), 20.0, 30.0]
+        catalog.details["uid-007"] = detail
+        payload = (
+            _client(catalog)
+            .get(
+                "/api/run/uid-007/binned",
+                params={
+                    "cols": "sig",
+                    "x": "cam-MaxCounts",
+                    "bincfg": '{"bin_col":"mono"}',
+                },
+            )
+            .json()
+        )
+        assert payload["bins"] == [5.0, 6.0]  # bin 4 dropped (NaN y)
+        assert payload["x_centers"] == [12.5, 11.0]  # aligned, not shifted
+        assert payload["figure"]["data"][0]["x"] == [12.5, 11.0]
+
+    def test_binned_coercible_string_columns_400_not_500(self):
+        # telemetry columns are dtype-tolerant BY DESIGN: they plot in
+        # per-shot view (numeric_series coerces) but bin_frame sees the
+        # raw dtype — refuse honestly, never 500.
+        client = _client()
+        as_x = client.get(
+            "/api/run/uid-002/binned",
+            params={
+                "cols": "cam-MaxCounts",
+                "x": "telemetry_dev-val",
+                "bincfg": '{"bin_col":"mono"}',
+            },
+        )
+        assert as_x.status_code == 400
+        as_y = client.get(
+            "/api/run/uid-002/binned",
+            params={"cols": "telemetry_dev-val", "bincfg": '{"bin_col":"mono"}'},
+        )
+        assert as_y.status_code == 400
+
+    def test_binned_without_x_keeps_bin_labels(self):
+        payload = (
+            _client()
+            .get(
+                "/api/run/uid-002/binned",
+                params={"cols": "cam-MaxCounts", "bincfg": '{"bin_col":"mono"}'},
+            )
+            .json()
+        )
+        assert "x_centers" not in payload
+        assert payload["figure"]["data"][0]["x"] == [4.0, 5.0, 6.0]
+        assert payload["figure"]["layout"]["xaxis"]["title"]["text"] == "mono"
+
+    def test_binned_unplottable_x_is_404(self):
+        response = _client().get(
+            "/api/run/uid-002/binned",
+            params={
+                "cols": "cam-MaxCounts",
+                "x": "cam-label",
+                "bincfg": '{"bin_col":"mono"}',
+            },
+        )
+        assert response.status_code == 404
 
     def test_binned_figure_carries_asymmetric_errors_and_bin_col(self):
         payload = (

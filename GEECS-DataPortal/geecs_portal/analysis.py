@@ -178,7 +178,7 @@ def parse_bincfg(raw: str) -> BinningConfig:
 
 
 _DISPLAY_BOOLS = ("logx", "logy")
-_DISPLAY_NUMBERS = ("xmin", "xmax", "ymin", "ymax", "msize")
+_DISPLAY_NUMBERS = ("xmin", "xmax", "ymin", "ymax", "msize", "width", "height")
 _DISPLAY_FIELDS = {*_DISPLAY_BOOLS, *_DISPLAY_NUMBERS, "colors", "layout"}
 
 
@@ -414,9 +414,14 @@ def binned_code(
     columns: list[str],
     filters: RowFilters,
     cfg: BinningConfig,
+    x: Optional[str] = None,
     display: Optional[dict] = None,
 ) -> str:
-    """The notebook snippet reproducing a ``/api/.../binned`` response."""
+    """The notebook snippet reproducing a ``/api/.../binned`` response.
+
+    With an ``x``, the snippet also reproduces the per-bin mean X
+    positions the figure plots against (bins group, X places).
+    """
     non_default = {
         f.name: getattr(cfg, f.name)
         for f in dataclasses.fields(BinningConfig)
@@ -424,20 +429,36 @@ def binned_code(
     }
     non_default["value_cols"] = columns
     kwargs = ", ".join(f"{k}={v!r}" for k, v in sorted(non_default.items()))
+    x_lines = ""
+    x_args = "result.frame.index.tolist(), series"
+    if x:
+        x_lines = (
+            "from dataclasses import replace\n"
+            "\n"
+            "# bins GROUP the data; the X parameter PLACES it (per-bin mean),\n"
+            "# reindexed onto the y bins so diverging dropna cannot shift points\n"
+            f"x_result = bin_frame(frame, replace(cfg, value_cols=({x!r},), "
+            "agg='mean'))\n"
+            f"x_centers = x_result.frame[({x!r}, 'center')]"
+            ".reindex(result.frame.index)\n"
+        )
+        x_args += f",\n              x_values=x_centers.tolist(), x_label={x!r}"
     return (
         "# reproduces this view exactly — the endpoint calls the same functions\n"
         + _snippet_prelude(uid, run_day)
         + _snippet_filters(filters)
         + "from geecs_data_utils.data.binning import BinningConfig, bin_frame\n"
         + "\n"
-        + f"result = bin_frame(frame, BinningConfig({kwargs}))\n"
+        + f"cfg = BinningConfig({kwargs})\n"
+        + "result = bin_frame(frame, cfg)\n"
         + "result.frame  # (column, center/err_low/err_high); result.counts per bin\n"
+        + x_lines
         + "from geecs_portal.figures import binned_figure"
         + "  # pip install geecs-data-portal\n"
         + "series = {c: {s: result.frame[(c, s)].tolist()\n"
         + '               for s in ("center", "err_low", "err_high")}\n'
         + f"          for c in {columns!r} if (c, 'center') in result.frame}}\n"
-        + f"binned_figure(result.frame.index.tolist(), series, y={columns!r}, "
+        + f"binned_figure({x_args}, y={columns!r}, "
         + f"bin_col={cfg.bin_col!r}{_snippet_display(display)})"
         + "  # the figure the Plot tab renders\n"
     )

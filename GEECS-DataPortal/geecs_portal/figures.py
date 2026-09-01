@@ -211,6 +211,18 @@ def _apply_display(
     if y_range and not y_is_date:
         layout["yaxis"]["range"] = y_range
         layout["yaxis"]["autorange"] = False
+    # Explicit plot dimensions (copy-paste graphics sizing): a fixed
+    # width/height also fixes the exported image size.  Non-positive
+    # values degrade to responsive autosizing, like every cosmetic.
+    for key in ("width", "height"):
+        value = d.get(key)
+        if (
+            isinstance(value, (int, float))
+            and not isinstance(value, bool)
+            and math.isfinite(value)
+            and value > 0
+        ):
+            layout[key] = float(value)
 
 
 def shot_axis_for_frame(frame: "pd.DataFrame") -> "pd.Series":
@@ -318,6 +330,8 @@ def binned_figure(
     y: Sequence[str],
     *,
     bin_col: str = "Bin #",
+    x_values: Optional[Sequence] = None,
+    x_label: Optional[str] = None,
     pretty: Optional[Mapping[str, str]] = None,
     display: Optional[Mapping] = None,
 ) -> go.Figure:
@@ -326,14 +340,20 @@ def binned_figure(
     Parameters
     ----------
     bins : Sequence
-        Bin labels (the x axis).
+        Bin labels — the x axis when no ``x_values`` are given.
     series : Mapping[str, Mapping[str, Sequence]]
         Column → ``{"center": …, "err_low": …, "err_high": …}`` — the
         ``/api`` binned payload's ``series`` shape.
     y : Sequence[str]
         The plotted columns, in trace order.
     bin_col : str
-        The x-axis title (the binning column).
+        The x-axis title when plotting against the bin labels.
+    x_values : Sequence, optional
+        Per-bin x positions (the selected X column's per-bin mean) —
+        bins group the data, the X parameter places it.  Must align
+        with ``bins`` one-to-one.
+    x_label : str, optional
+        The x-axis title for ``x_values`` (defaults to ``bin_col``).
     pretty, display
         As in :func:`shots_figure`.
 
@@ -342,11 +362,13 @@ def binned_figure(
     plotly.graph_objects.Figure
         Exactly what the Plot tab renders in binned view.
     """
+    positions = list(x_values) if x_values is not None else list(bins)
+    x_title = (x_label or bin_col) if x_values is not None else bin_col
     fig = _bare_figure()
     for i, name in enumerate(y):
         s = series.get(name) or {"center": [], "err_low": [], "err_high": []}
         fig.add_scatter(
-            x=list(bins),
+            x=positions,
             y=list(s["center"]),
             mode="markers+lines",
             name=_pretty(pretty, name),
@@ -366,7 +388,7 @@ def binned_figure(
             yaxis="y" if i == 0 else f"y{i + 1}",
         )
     layout = {**BASE_LAYOUT, "xaxis": dict(BASE_LAYOUT["xaxis"])}
-    layout["xaxis"]["title"] = {"text": bin_col}
+    layout["xaxis"]["title"] = {"text": x_title}
     layout.update(_multi_y_layout(y, pretty, display))
     # Binned serves raw numbers — no date axes on either side.
     _apply_display(layout, display, x_is_date=False, y_is_date=False)
