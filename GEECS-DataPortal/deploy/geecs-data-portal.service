@@ -38,6 +38,9 @@ Environment=TZ=America/Los_Angeles
 # Portal-specific checkout — never the one another service (e.g. the CA
 # gateway) runs from; see DEPLOYMENT.md § Install.
 WorkingDirectory=/home/geecs/GEECS-Plugins-portal/GEECS-DataPortal
+# To enable the Images tab's processing selector, install the 'analysis'
+# extra and append (quoted — share paths carry spaces):
+#   --processing-configs "/path/to/GEECS-Plugins-Configs/scan_analysis_configs"
 ExecStart=/home/geecs/.local/bin/poetry run geecs-data-portal --experiment Undulator
 Restart=on-failure
 RestartSec=10
