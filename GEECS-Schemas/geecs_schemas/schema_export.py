@@ -44,9 +44,16 @@ def scan_request_json_schema() -> dict:
     dict
         ``ScanRequest.model_json_schema()`` — the full nested vocabulary
         (axes, acquisition, actions, trigger profile, optimization) with
-        every field description, ready for form generation or validation.
+        every field description, ready for form generation or validation —
+        plus an explicit ``$schema`` dialect marker.
     """
-    return ScanRequest.model_json_schema()
+    # Pydantic emits 2020-12 vocabulary (prefixItems, $ref siblings) but
+    # no dialect marker; external validators default to older drafts and
+    # would silently ignore the tuple shapes without it (#730 review).
+    return {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        **ScanRequest.model_json_schema(),
+    }
 
 
 def render_artifact() -> str:

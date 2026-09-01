@@ -56,6 +56,10 @@ def test_startup_profile_defines_re_and_plan_headless(tmp_path: Path) -> None:
     must be set, before ``aioca`` is first imported. Run as a subprocess so
     both modules start uncached — see the module docstring above.
     """
+    # startup.py imports bluesky_queueserver at top level (#727 — the
+    # parameter-annotation decorator), so executing it needs the qserver
+    # extra, same as every other queueserver-touching test here.
+    pytest.importorskip("bluesky_queueserver")
     config_dir = tmp_path / "home" / ".config" / "geecs_python_api"
     config_dir.mkdir(parents=True)
     (config_dir / "config.ini").write_text("[epics]\nca_addr_list = 127.0.0.1\n")
@@ -82,6 +86,7 @@ def test_startup_profile_fails_loud_without_an_experiment(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Neither QS_EXPERIMENT nor config.ini's [Experiment] expt: fail at import."""
+    pytest.importorskip("bluesky_queueserver")  # startup.py imports it (#727)
     monkeypatch.delenv("QS_EXPERIMENT", raising=False)
 
     class _NoExperimentConfig:
@@ -210,7 +215,12 @@ def test_annotated_plans_carry_descriptions_and_still_validate() -> None:
         )
         assert ok, msg
 
+    # The FULL artifact path, from the schemas package's own constant — a
+    # docs reorg that moves the artifact must break this pin, not leave
+    # the served description pointing at a dead path (#730 review).
+    from geecs_schemas.schema_export import SCHEMA_ARTIFACT
+
     assert (
-        "scan_request.schema.json"
+        str(SCHEMA_ARTIFACT)
         in SCAN_REQUEST_PLAN_ANNOTATION["parameters"]["request"]["description"]
     )

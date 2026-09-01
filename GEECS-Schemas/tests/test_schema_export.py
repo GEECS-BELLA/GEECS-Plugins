@@ -29,11 +29,22 @@ COMMITTED_ARTIFACT = REPO_ROOT / SCHEMA_ARTIFACT
 
 
 @pytest.mark.skipif(
-    not COMMITTED_ARTIFACT.exists(),
-    reason=f"committed schema artifact not found at {COMMITTED_ARTIFACT}",
+    not (REPO_ROOT / "mkdocs.yml").exists(),
+    reason="not running from a repo checkout (installed package)",
 )
 def test_committed_artifact_matches_schema():
-    """The committed artifact equals a fresh render of the schema."""
+    """The committed artifact exists and equals a fresh render of the schema.
+
+    Existence is asserted, not skipped on: the artifact is an external
+    contract clients fetch by URL, so a docs reorg that drops or moves it
+    must fail CI, not silently green-skip (#730 review). Only running
+    outside a repo checkout (installed package) skips.
+    """
+    assert COMMITTED_ARTIFACT.exists(), (
+        f"published schema artifact missing at {COMMITTED_ARTIFACT} — "
+        "regenerate it with `poetry run python "
+        "GEECS-Schemas/tests/generate_scan_request_schema.py`."
+    )
     committed = COMMITTED_ARTIFACT.read_text(encoding="utf-8")
     assert committed == render_artifact(), (
         "docs/geecs_schemas/scan_request.schema.json is out of date — "

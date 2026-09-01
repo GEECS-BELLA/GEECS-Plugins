@@ -1,4 +1,5 @@
 {
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$defs": {
     "AcquisitionMode": {
       "description": "How shots are taken.\n\nAttributes\n----------\nFREE_RUN : str\n    The trigger free-runs at the machine repetition rate; devices are\n    matched up by their timestamps afterwards.\nSTRICT : str\n    The scan fires each shot itself and requires every device to report\n    in before the next one \u2014 slower, but nothing is ever missing.",
