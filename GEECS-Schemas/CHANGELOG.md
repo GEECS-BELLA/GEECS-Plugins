@@ -32,6 +32,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and stale clients keep validating with no lockstep upgrade; mixing the
   flat fields with an explicit `capture` block is rejected as ambiguous.
 
+- **Versioning policy** written down in the README (two dials: integer
+  `schema_version` bumps only with a migration; additive changes ride the
+  package version and changelog) with an operator-facing note in the docs
+  overview.
+
 Regenerated: the JSON Schema artifact
 (`docs/geecs_schemas/scan_request.schema.json`), the Markdown schema
 reference, and the converter golden files.

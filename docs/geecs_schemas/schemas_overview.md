@@ -182,6 +182,12 @@ clear "not yet" message rather than attempted halfway.
   laser-off files: those are gone on purpose. The scanner derives them, and
   the old files convert automatically.
 
+- **`schema_version` is not something you maintain.** It marks the file
+  layout generation, and the tools migrate old files forward automatically
+  when they load — a preset saved under an older layout keeps working, and
+  the number only changes when a field moves or is renamed, never for a
+  newly added option.
+
 ## Where to next
 
 - **[Running a scan the new way](running_a_scan.md)** — the run itself: the
