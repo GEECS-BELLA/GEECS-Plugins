@@ -219,7 +219,8 @@ means:
 - **Late joiners.** PUB/SUB has no replay: a client connecting mid-scan
   never sees that run's `start`. Ignore documents of a run whose `start`
   you did not see until the next `start` arrives (or resolve the run via
-  Tiled by its `run_start` uid) — the in-repo subscribers do the former.
+  Tiled by its `run_start` uid) — the in-repo subscribers ignore events
+  they cannot attribute.
 - **Transport posture.** Plaintext on the lab control network, same as
   the control socket (60615): no encryption, no client auth. A client
   that fronts this stream for users beyond the worker host should say so
@@ -231,9 +232,8 @@ means:
 - **Stability.** Document shape follows `../../EVENT_SCHEMA.md`; the
   `geecs_event_schema` start-document key carries the version. The stream
   carries *every* RunEngine document — `resource`/`datum` when non-scalar
-  saving is on, the free-run `flush` stream, telemetry descriptors — so
-  tolerate unknown document names and stream names, not only unknown
-  fields. Additive changes — new columns, new metadata keys — do not bump
+  saving is on, the free-run `flush` stream — so tolerate unknown document
+  names and stream names, not only unknown fields. Additive changes — new columns, new metadata keys — do not bump
   the version; only a rename, removal, or semantics change bumps it.
 
 ---
