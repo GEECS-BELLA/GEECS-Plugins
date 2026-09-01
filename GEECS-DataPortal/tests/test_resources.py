@@ -664,11 +664,19 @@ class TestProcessingSelector:
     """The ephemeral-processing selector: write-free pipeline over served pixels."""
 
     @pytest.fixture()
-    def configs_tree(self, tmp_path):
-        # The whole class needs the `analysis` extra (image_analysis):
-        # skip gracefully in a minimal env — CI installs the extra, so
-        # there these tests always RUN (never silently skip).
+    def analysis_extra(self):
+        """Skip in a minimal env — only for tests that IMPORT the extra.
+
+        CI installs the extra so these always run there. Deliberately
+        NOT on ``configs_tree``: the missing-extra degradation test and
+        the raw-serving test must stay live in a truly extra-less env
+        (they passed in #737's extra-less CI — the guard must not
+        retire that real coverage).
+        """
         pytest.importorskip("image_analysis")
+
+    @pytest.fixture()
+    def configs_tree(self, tmp_path):
         import yaml
 
         tree = tmp_path / "proc_configs"
@@ -743,7 +751,9 @@ class TestProcessingSelector:
         catalog.details["uid-002"] = detail
         return TestClient(create_app(catalog, processing_config_dir=configs_tree))
 
-    def test_per_shot_processing_applies_the_pipeline(self, scan_folder, configs_tree):
+    def test_per_shot_processing_applies_the_pipeline(
+        self, scan_folder, configs_tree, analysis_extra
+    ):
         response = self._client(scan_folder, configs_tree).get(
             "/run/uid-002/image.png",
             params={"device": "cam", "shot": 1, "processing": "UC_Crop"},
@@ -759,7 +769,7 @@ class TestProcessingSelector:
         assert not rest.any()
 
     def test_bin_average_processes_each_shot_then_averages(
-        self, scan_folder, configs_tree
+        self, scan_folder, configs_tree, analysis_extra
     ):
         response = self._client(scan_folder, configs_tree).get(
             "/run/uid-002/bin-image.png",
@@ -775,7 +785,9 @@ class TestProcessingSelector:
         rest[0, 0] = rest[0, 1] = 0
         assert not rest.any()
 
-    def test_bin_average_order_is_process_then_average(self, scan_folder, configs_tree):
+    def test_bin_average_order_is_process_then_average(
+        self, scan_folder, configs_tree, analysis_extra
+    ):
         """A NONLINEAR step distinguishes the order (the crop test alone
         cannot: crop commutes with averaging). Threshold 600 sits between
         the raw marker (1000) and the averaged marker (500): only
@@ -790,7 +802,9 @@ class TestProcessingSelector:
         decoded = np.array(Image.open(io.BytesIO(response.content)))
         assert decoded[0, 0] == decoded[0, 1] == 255
 
-    def test_processed_responses_never_cache_immutable(self, scan_folder, configs_tree):
+    def test_processed_responses_never_cache_immutable(
+        self, scan_folder, configs_tree, analysis_extra
+    ):
         """The diagnostic YAML is a mutable input the URL does not key —
         an edited config must show on reload, on every viewer, even
         behind a caching reverse proxy (completed run or not).
@@ -809,7 +823,9 @@ class TestProcessingSelector:
         raw = client.get("/run/uid-002/image.png", params={"device": "cam", "shot": 1})
         assert "immutable" in raw.headers["cache-control"]  # raw path unchanged
 
-    def test_selector_rendered_only_with_configs(self, scan_folder, configs_tree):
+    def test_selector_rendered_only_with_configs(
+        self, scan_folder, configs_tree, analysis_extra
+    ):
         with_configs = self._client(scan_folder, configs_tree).get(
             "/run/uid-002", params={"device": "cam", "tab": "images"}
         )
@@ -820,7 +836,7 @@ class TestProcessingSelector:
         )
         assert "procsel" not in without.text
 
-    def test_processing_error_ladder(self, scan_folder, configs_tree):
+    def test_processing_error_ladder(self, scan_folder, configs_tree, analysis_extra):
         client = self._client(scan_folder, configs_tree)
         unknown = client.get(
             "/run/uid-002/image.png",
