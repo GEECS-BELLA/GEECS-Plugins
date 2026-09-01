@@ -687,9 +687,10 @@ def create_app(
         tree = Path(processing_config_dir) / "analyzers"
         try:
             fingerprint = frozenset(
-                (str(path), path.stat().st_mtime, path.stat().st_size)
+                (str(path), stat.st_mtime, stat.st_size)
                 for pattern in ("*.yaml", "*.yml")
                 for path in tree.rglob(pattern)
+                for stat in (path.stat(),)  # one syscall, untearable tuple
             )
         except OSError:
             fingerprint = None

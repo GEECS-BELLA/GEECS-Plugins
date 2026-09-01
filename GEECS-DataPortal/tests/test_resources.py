@@ -855,6 +855,14 @@ class TestProcessingSelector:
         )
         assert forced.status_code == 400
         assert "Invalid diagnostic" in forced.json()["detail"]
+        # A bookmarked link naming the dropped diagnostic renders it as
+        # a selected "(unavailable)" option — picking raw then fires a
+        # real change event instead of silently showing "raw".
+        bookmarked = self._client(scan_folder, configs_tree).get(
+            "/run/uid-002",
+            params={"device": "cam", "tab": "images", "processing": "UC_Legacy"},
+        )
+        assert "UC_Legacy (unavailable)" in bookmarked.text
         without = _gallery_client(scan_folder).get(
             "/run/uid-002", params={"device": "cam", "tab": "images"}
         )
