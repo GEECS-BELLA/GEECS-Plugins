@@ -31,6 +31,10 @@ plotly.js renderer, spec authorship moves down):
   its prototype-pollution guard (the URL-carried patch never executes
   on the server), and the trace palette is now injected from
   `figures.TRACE_COLORS` so rail chips cannot drift from the traces.
+- Aesthetics rider (separate commit, cheap to revert): outside tick
+  marks and a one-step-subtler gridline color — the Vega-Lite look the
+  owner picked out in the renderer bake-off, ported into the Plotly
+  base layout.
 - "Show the code" now reproduces the **figure**, not just the numbers:
   both snippets end with the `shots_figure`/`binned_figure` call that
   yields the identical figure the page renders (from the notebook

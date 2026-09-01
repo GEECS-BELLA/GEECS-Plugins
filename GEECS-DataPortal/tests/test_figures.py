@@ -33,7 +33,9 @@ class TestShotsFigure:
     def test_axis_ladder_matches_the_page(self):
         layout = _fig_dict(shots_figure(SERIES, ["a", "b", "c", "d"]))["layout"]
         assert layout["yaxis"]["title"]["text"] == "a"
-        assert layout["yaxis"]["gridcolor"] == "#2c353d"
+        # The bake-off aesthetics rider: subtler grid, outside ticks.
+        assert layout["yaxis"]["gridcolor"] == "#232a31"
+        assert layout["yaxis"]["ticks"] == "outside"
         assert layout["yaxis2"]["side"] == "right"
         assert layout["yaxis2"]["title"]["text"] == "b"
         assert layout["yaxis2"]["overlaying"] == "y"

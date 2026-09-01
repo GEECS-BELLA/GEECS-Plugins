@@ -36,6 +36,11 @@ import plotly.io as pio
 TRACE_COLORS: tuple[str, ...] = ("#4cc2b4", "#d6a860", "#6f9fd8", "#c47ab8")
 
 _GRID = "#2c353d"
+#: Gridlines one step subtler than the axis furniture — the Vega-Lite
+#: look the owner liked in the renderer bake-off (2026-08-31 ruling).
+_GRID_SOFT = "#232a31"
+#: Outside tick marks, ditto.
+_TICKS = {"ticks": "outside", "ticklen": 4, "tickcolor": _GRID}
 
 
 def _bare_figure() -> go.Figure:
@@ -57,7 +62,12 @@ BASE_LAYOUT: dict = {
     "plot_bgcolor": "#12161a",
     "font": {"color": "#dde4ea", "size": 12},
     "margin": {"t": 24, "r": 56, "b": 44, "l": 56},
-    "xaxis": {"gridcolor": _GRID, "zerolinecolor": _GRID, "automargin": True},
+    "xaxis": {
+        "gridcolor": _GRID_SOFT,
+        "zerolinecolor": _GRID,
+        "automargin": True,
+        **_TICKS,
+    },
     "showlegend": True,
     "legend": {"orientation": "h", "y": 1.08},
 }
@@ -131,7 +141,7 @@ def _multi_y_layout(
     """
     layout: dict = {
         "yaxis": {
-            "gridcolor": _GRID,
+            "gridcolor": _GRID_SOFT,
             "zerolinecolor": _GRID,
             "tickfont": {"color": trace_color(display, 0)},
             "title": {
@@ -139,6 +149,7 @@ def _multi_y_layout(
                 "font": {"color": trace_color(display, 0)},
             },
             "automargin": True,
+            **_TICKS,
         },
         # One trace: the axis title says it all.
         "showlegend": len(y) > 1,
@@ -151,6 +162,7 @@ def _multi_y_layout(
             "gridcolor": "rgba(0,0,0,0)",
             "zerolinecolor": _GRID,
             "tickfont": {"color": trace_color(display, i)},
+            **_TICKS,
         }
         if i >= 2:
             axis["anchor"] = "free"
