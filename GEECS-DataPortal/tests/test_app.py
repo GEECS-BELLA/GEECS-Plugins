@@ -510,6 +510,8 @@ class TestAnalysisApi:
             '{"ddof":Infinity}',  # ... and Infinity
             '{"min_count":1e400}',  # float overflow to inf
             '{"quantile_bins":' + "9" * 400 + "}",  # unbounded int
+            '{"bin_col":"mono","bin_width":0}',  # /0 → inf → OverflowError
+            '{"bin_col":"mono","bin_width":-0.5}',  # empty edge array
         ]
         for bincfg in bad:
             response = client.get(
@@ -541,6 +543,20 @@ class TestAnalysisApi:
         assert response.status_code == 200
         assert b"<NA>" not in response.content
         assert response.json()["shot"] == [1.0, None, 3.0]
+
+    def test_union_shot_key_coalesces_from_shotnumber(self):
+        # An s-file-only union row has no event index but does have a
+        # Shotnumber — the shot axis must coalesce to it, not go null
+        # (Plotly silently drops null-x points from the default plot).
+        catalog = FakeCatalog()
+        detail = _detail(7)
+        detail.data["scan_event_index"] = pd.array([1, 2, pd.NA], dtype="Int64")
+        detail.data["Shotnumber"] = [1.0, 2.0, 4.0]
+        catalog.details["uid-007"] = detail
+        payload = (
+            _client(catalog).get("/api/run/uid-007/frame?cols=cam-MaxCounts").json()
+        )
+        assert payload["shot"] == [1.0, 2.0, 4.0]
 
     def test_binned_counts_are_integers(self):
         payload = (

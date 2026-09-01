@@ -516,8 +516,12 @@ function dispCfg() {
 }
 
 function traceColor(i) {
+  // display JSON rides the URL (shared-link threat model, same as
+  // deepMerge's guard): only a hex color may reach the attribute
+  // sinks this feeds — anything else falls back to the palette.
   const d = dispCfg();
-  return (d.colors && d.colors[i]) || TRACE_COLORS[i];
+  const c = d.colors && d.colors[i];
+  return (typeof c === "string" && /^#[0-9a-fA-F]{3,8}$/.test(c)) ? c : TRACE_COLORS[i];
 }
 
 function markerSize() {
@@ -704,10 +708,10 @@ function renderFilterModal() {
             <option ${c.mode !== "outside" ? "selected" : ""}>within</option>
             <option ${c.mode === "outside" ? "selected" : ""}>outside</option>
           </select>
-          <input class="val" value="${c.low ?? ""}" placeholder="low"
+          <input class="val" value="${typeof c.low === "number" ? c.low : ""}" placeholder="low"
                  onchange="FDRAFT.groups[${gi}].conditions[${ci}].low=parseFloat(this.value); draftCount();">
           <span class="dim">–</span>
-          <input class="val" value="${c.high ?? ""}" placeholder="high"
+          <input class="val" value="${typeof c.high === "number" ? c.high : ""}" placeholder="high"
                  onchange="FDRAFT.groups[${gi}].conditions[${ci}].high=parseFloat(this.value); draftCount();">
           <span class="x" onclick="FDRAFT.groups[${gi}].conditions.splice(${ci},1); renderFilterModal();">✕</span>
         </div>`).join("")}

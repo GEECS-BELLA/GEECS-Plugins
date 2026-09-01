@@ -414,6 +414,18 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
             if schema_map.SHOT_INDEX_COLUMN in pf.frame.columns
             else pf.frame.index.to_series() + 1
         )
+        if shot_key.isna().any():
+            # Union rows the event side missed carry NA here — coalesce
+            # with the s-file's own shot identity (plain, or suffixed by
+            # scan_frame's collision rename) so those rows keep a shot
+            # axis; Plotly silently drops points with a null x.
+            import pandas as pd
+
+            for name in ("Shotnumber", "Shotnumber (s-file)"):
+                if name in pf.frame.columns:
+                    shot_key = shot_key.fillna(
+                        pd.to_numeric(pf.frame[name], errors="coerce")
+                    )
         payload = {
             "series": series,
             "kinds": kinds,
