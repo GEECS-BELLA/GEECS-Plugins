@@ -1,11 +1,9 @@
 """geecs_scan_request_plan — "run this ScanRequest" as one Bluesky plan.
 
-The queueserver migration's one structural unit: a plan generator whose
-**preamble** relocates the
-:func:`~geecs_bluesky.scan_request_runner.run_scan_request` prologue to the
-worker side — validate → resolve save sets/actions/trigger → construct +
-connect devices → claim the scan number — and then yields the same inner
-scan recipe a ``run_scan_request`` scan runs today (step/noscan through
+The one orchestration of a ScanRequest: a plan generator whose
+**preamble** does the whole prologue worker-side — validate → resolve save
+sets/actions/trigger → construct + connect devices → claim the scan number
+— and then yields the inner scan recipe (step/noscan through
 :func:`~geecs_bluesky.plans.orchestration.build_step_scan_plan`, optimize
 through :func:`~geecs_bluesky.plans.optimize.geecs_adaptive_scan`). Because
 the preamble runs *inside* the plan, every bound method and closure
@@ -13,12 +11,17 @@ the preamble runs *inside* the plan, every bound method and closure
 suggester binding) is constructed worker-side from the JSON request and
 never crosses a process boundary.
 
-The prologue pieces are the runner's own module-level functions — shared,
-not copied — so the headless entry point (``run_scan_request``, via
-``GeecsSession.run``) and this plan cannot drift.  Differences from that
-path are deliberate, per the queueserver-migration decisions (each glossed
-inline below; ``GeecsBluesky/CLAUDE.md``'s worker section carries the
-operational summary):
+Both front doors run this plan: the queueserver worker executes it as a
+queue item, and the headless :meth:`GeecsSession.run` executes it on the
+session's own RunEngine (the schema-refactor Phase 2a unification — there
+is no second prologue to drift from).  The two doors differ only through
+the explicit keyword seams on :func:`geecs_scan_request_plan`
+(``failed_move_policy``, ``optimization_loader``); everything else is
+shared by construction.  The prologue pieces are
+:mod:`~geecs_bluesky.scan_request_runner`'s module-level functions.  Design
+decisions from the queueserver migration (each glossed inline below;
+``GeecsBluesky/CLAUDE.md``'s worker section carries the operational
+summary):
 
 - **Validation runs here, authoritatively** — no separate validation plan
   stub; clients re-run :func:`validate_scan_request` pre-submit for
@@ -34,8 +37,10 @@ operational summary):
   plan — so construction is deferred through a session facade and the
   batch connects ride :func:`ophyd_async.plan_stubs.ensure_connected` /
   ``bps.wait_for``, still pre-claim (a connect failure burns no number).
-- **s-file export is not the plan's job**: it is a worker-side stop-document
-  callback; the emitted documents are identical either way.
+- **s-file export is not the plan's job**: the worker subscribes a
+  stop-document callback, the headless session exports after
+  :meth:`GeecsSession.run` returns; the emitted documents are identical
+  either way.
 - **Optimize mode runs through the same plan** when the worker startup
   registers an optimization loader; headless installs without the
   ``optimize`` extra refuse optimize requests loudly before the claim.
@@ -347,20 +352,17 @@ def _connect_in_batches(devices: list, *, mock: bool):
 def _connect_telemetry_plan(session: Any, save_set: Any, scalar_policy: Any):
     """Plan stub: build + soft-connect the Tier-2 telemetry group in-plan.
 
-    The in-plan sibling of the runner's
-    :func:`~geecs_bluesky.scan_request_runner.build_telemetry_readables`
-    over ``session.telemetry_batch`` (which hops onto the RE loop — a
-    deadlock from inside a plan): same selection
-    (:func:`~geecs_bluesky.db_runtime.select_telemetry_variables`), same
-    soft-tier contract (a device unreachable at scan start is dropped with
-    a warning, never an abort; only connected devices are recorded), same
-    single :class:`~geecs_bluesky.devices.ca.telemetry.CaTelemetryGroup`
-    per scan.  One concurrent gather, so wall time is the slowest device.
+    Same selection (:func:`~geecs_bluesky.db_runtime.select_telemetry_variables`),
+    same soft-tier contract (a device unreachable at scan start is dropped
+    with a warning, never an abort; only connected devices are recorded),
+    one :class:`~geecs_bluesky.devices.ca.telemetry.CaTelemetryGroup` per
+    scan.  One concurrent gather, so wall time is the slowest device.
 
     Returns
     -------
     tuple
-        ``(readables, recorded)`` as ``build_telemetry_readables``.
+        ``(readables, recorded)`` — the group (or nothing) to append to the
+        read set, and ``{device: [variables]}`` of what actually connected.
     """
     if scalar_policy is None:
         return [], {}
@@ -439,15 +441,15 @@ def geecs_scan_request_plan(
     submission=None,
     session=None,
     resolver=None,
+    optimization_loader=None,
+    failed_move_policy=None,
 ):
     """Run one ScanRequest as a single Bluesky plan (preamble + inner plan).
 
-    ``RE(geecs_scan_request_plan(request))`` is the queueserver-shaped
-    equivalent of :func:`~geecs_bluesky.scan_request_runner.run_scan_request`
-    for step and noscan requests: the same documents, the same data tree,
-    the same ScanInfo and per-scan ``scan.log`` — with every prologue stage
-    relocated inside the plan.  Order of operations (everything before the
-    claim is fail-fast and burns no scan number):
+    ``RE(geecs_scan_request_plan(request))`` is the one way a ScanRequest
+    executes — as a queue item on the worker, or on a headless session's
+    RunEngine through :meth:`GeecsSession.run`.  Order of operations
+    (everything before the claim is fail-fast and burns no scan number):
 
     1. validate (authoritative — the same :func:`validate_scan_request`
        clients run pre-submit) and resolve every name;
@@ -491,13 +493,28 @@ def geecs_scan_request_plan(
         Name resolver; defaults to
         :class:`~geecs_bluesky.config_resolver.ConfigsRepoResolver` over
         the session's experiment.
+    optimization_loader :
+        Optimize mode only: ``loader(spec) -> bridge`` building the
+        optimization stack for the request's resolved
+        :class:`~geecs_schemas.OptimizationSpec` (the bridge exposes
+        ``bind(devices=..., scan_tag=..., scan_folder=...) -> (objective,
+        suggester)``, an optional ``device_requirements`` mapping, and an
+        optional ``finish()``).  Defaults to the worker-wide loader
+        installed by :func:`set_optimization_loader`; the headless
+        :meth:`GeecsSession.run` passes a loader wrapping its injected
+        objective/suggester.  Neither present → refused pre-claim.
+    failed_move_policy :
+        What a failed scan-axis move does — ``"pause"`` (the default: the
+        RE Manager renders the paused state and resume/stop are queue
+        verbs; decision 4, #645) or ``"raise"`` (the headless door: with
+        no operator to answer, a pause would hang).
 
     Raises
     ------
     GeecsConfigurationError
         No session configured, unresolvable names, a bad pseudo formula,
         a strict request without usable shot control, an empty effective
-        device set, or (optimize mode) no optimization loader registered
+        device set, or (optimize mode) no optimization loader available
         (see :func:`set_optimization_loader`) — all pre-claim.
 
     Notes
@@ -526,14 +543,21 @@ def geecs_scan_request_plan(
 
     created: list = []
     # Pre-claim log lines (validation, connects, telemetry drops) buffer
-    # into the scan.log attach at the claim, exactly as GeecsSession.run
-    # does; a buffer never consumed (failure before the claim) is discarded.
+    # into the scan.log attach at the claim; a buffer never consumed
+    # (failure before the claim) is discarded — it must never leak into a
+    # later scan's file.
     begin_pre_scan_capture()
     try:
         return (
             yield from bpp.finalize_wrapper(
                 _scan_request_body(
-                    session, resolver, request, created, submission=submission
+                    session,
+                    resolver,
+                    request,
+                    created,
+                    submission=submission,
+                    optimization_loader=optimization_loader,
+                    failed_move_policy=failed_move_policy,
                 ),
                 lambda: _disconnect_plan(created),
             )
@@ -549,12 +573,15 @@ def _scan_request_body(
     created: list,
     *,
     submission: Any | None = None,
+    optimization_loader: Callable[[Any], Any] | None = None,
+    failed_move_policy: str | None = None,
 ):
     """The plan body behind :func:`geecs_scan_request_plan` (see its doc).
 
     *created* is the caller-owned cleanup list: everything appended here is
     disconnected by the enclosing finalize, so a failure at any stage still
-    tears down whatever already existed.
+    tears down whatever already existed.  *optimization_loader* and
+    *failed_move_policy* are the two front-door seams (see the plan's doc).
     """
     # ---- phase 1: authoritative validation + pure resolution (pre-claim) --
     if not isinstance(request, ScanRequest):
@@ -594,6 +621,7 @@ def _scan_request_body(
                 created,
                 applied_defaults=applied_defaults,
                 submission=submission,
+                optimization_loader=optimization_loader,
             )
         )
 
@@ -732,12 +760,12 @@ def _scan_request_body(
         setup=setup,
         per_step=per_step,
         closeout=closeout,
-        # Decision-4 activation (issue #641, PR #645): the queueserver path
-        # opts into pause-on-failed-move — the RE Manager renders the paused
-        # state and resume/stop are first-class queue verbs.  Headless
-        # session.scan keeps the 'raise' default: with no operator to
-        # answer, a pause would hang the scan (see the helper's docstring).
-        failed_move_policy="pause",
+        # Decision-4 activation (issue #641, PR #645): under the queue a
+        # failed move pauses — the RE Manager renders the paused state and
+        # resume/stop are first-class queue verbs.  The headless door
+        # (GeecsSession.run) passes "raise": with no operator to answer, a
+        # pause would hang the scan (see the helper's docstring).
+        failed_move_policy=failed_move_policy or "pause",
     )
     # The plan claimed the number, so the plan owns the per-scan scan.log
     # (the GeecsSession.scan claimed-here rule; tolerates a failed claim).
@@ -766,69 +794,78 @@ def _optimize_request_body(
     *,
     applied_defaults: dict[str, Any] | None = None,
     submission: Any | None = None,
+    optimization_loader: Callable[[Any], Any] | None = None,
 ):
     """The optimize-mode body of :func:`_scan_request_body`.
 
-    Mirrors :func:`~geecs_bluesky.scan_request_runner._run_optimize_request`
-    (the binder path) in-plan: worker-side construction with deferred
+    The one optimize orchestration: worker-side construction with deferred
     connects, the unserved-variables pre-flight over the *effective*
     device set (save-set devices plus the loader's ``device_requirements``),
     the claim boundary (the full :class:`ScanTag`, since the loader's
-    analyzers may need it), then :func:`~geecs_bluesky.plans.optimize.geecs_adaptive_scan`
-    wrapped exactly as :meth:`GeecsSession.optimize` wraps it — including its
-    ``on_finish`` ladder: ``spec.move_to_best_on_finish`` maps onto
-    ``on_finish="best"`` (move to the best-observed inputs on success,
-    restore to initial values on abort/failure — never best on abort, same
-    as :meth:`GeecsSession.optimize`'s docstring contract) or
-    ``on_finish="hold"`` (leave the variables wherever the suggester last
-    set them, in every outcome) when unset. The schema exposes only the
-    boolean, not the three-way string, so ``on_finish="initial"`` alone has
-    no plan-side equivalent.
+    analyzers may need it), then
+    :func:`~geecs_bluesky.plans.optimize.geecs_adaptive_scan` with the
+    in-process bin collection and the ``on_finish`` ladder:
+    ``spec.move_to_best_on_finish`` moves to the best-observed inputs on
+    success and restores the initial values on abort/failure (never best
+    on abort); unset leaves the variables wherever the suggester last set
+    them, in every outcome.
 
-    Deliberately dropped relative to ``GeecsSession.optimize``: the
-    ``should_abort`` stop probe (no plan-side equivalent — under the
-    queue, stop is the manager's verb; same as the step/noscan body
-    above).
+    There is no stop probe: under the queue, stop is the manager's verb;
+    a headless caller aborts through ``RE.abort()``.
 
     Raises
     ------
     GeecsConfigurationError
-        No optimization loader registered (see :func:`set_optimization_loader`),
-        an empty effective device set (before *or* after the unserved-
-        variables pre-flight), or a strict request without usable shot
-        control — all pre-claim.
+        No optimization loader available (the *optimization_loader* seam or
+        :func:`set_optimization_loader`), an empty effective device set
+        (before *or* after the unserved-variables pre-flight), or a strict
+        request without usable shot control — all pre-claim.
     """
     spec = request.optimization
     assert spec is not None  # guaranteed by ScanRequest validation
 
-    loader = _optimization_loader
+    loader = (
+        optimization_loader if optimization_loader is not None else _optimization_loader
+    )
     if loader is None:
         raise GeecsConfigurationError(
             "optimize-mode ScanRequest reached geecs_scan_request_plan "
-            "without an optimization loader registered — call "
-            "set_optimization_loader(...) at worker startup with a loader "
-            "built from geecs_bluesky.optimization (needs the `optimize` "
-            "extra); headless installs without one refuse optimize-mode "
-            "requests here rather than silently degrading"
+            "without an optimization loader — call set_optimization_loader(...) "
+            "at worker startup with a loader built from "
+            "geecs_bluesky.optimization (needs the `optimize` extra), or hand "
+            "GeecsSession.run a ready-made objective/suggester pair; "
+            "installs without either refuse optimize-mode requests here "
+            "rather than silently degrading"
         )
     opt_bridge = loader(spec)
     device_requirements = getattr(opt_bridge, "device_requirements", None)
 
-    save_set, rituals = resolve_save_sets_and_rituals(
-        resolver, request.capture.save_sets
-    )
-    warn_if_reserved_boundary_overrides(save_set)
+    # Optimize mode does not run action plans yet — every slot the
+    # (post-defaults) request carries is skipped and recorded, never
+    # refused: refusing would block every optimization the moment an
+    # experiment defines default bracket actions.
     skipped: dict[str, list[str]] = {}
+    for slot in ("setup", "per_step", "closeout"):
+        names = list(getattr(request.actions, slot))
+        if names:
+            skipped[slot] = names
+    save_set = None
+    rituals: dict[str, list[str]] = {}
+    if request.capture.save_sets:
+        save_set, rituals = resolve_save_sets_and_rituals(
+            resolver, request.capture.save_sets
+        )
+        warn_if_reserved_boundary_overrides(save_set)
     ritual_names = [n for names in rituals.values() for n in names]
     if ritual_names:
-        # Optimize mode does not run action plans yet (mirrors
-        # _run_optimize_request) — record rather than refuse.
         skipped["save_set_rituals"] = ritual_names
     scalar_policy = make_scalar_policy(session)
-    devices_config = save_set_to_devices_config(save_set, scalar_policy)
+    devices_config: dict[str, dict[str, Any]] = (
+        save_set_to_devices_config(save_set, scalar_policy) if save_set else {}
+    )
     # Auto-provision the optimizer's device requirements (issue #520's
     # reversal): the objective's diagnostics acquire and save even when the
-    # request names no save sets naming them.
+    # request names no save sets — or no save sets at all.
     provisioned = merge_optimizer_device_requirements(
         devices_config, device_requirements
     )
@@ -925,22 +962,22 @@ def _optimize_request_body(
             skipped,
         )
     # Telemetry is not wired into optimize yet; db_scalars above applies
-    # regardless (mirrors _run_optimize_request's binder-path metadata).
+    # regardless — recorded for provenance.
     md["db_scan_runtime"] = {
         "db_scalars": "applied",
         "background_telemetry": "not_run_in_optimize",
     }
 
-    # Initial values, read before the claim (mirrors GeecsSession.optimize):
-    # the on_finish ladder below restores to these on abort/failure, and to
-    # them (as a fallback) or the best-observed inputs on success.
+    # Initial values, read before the claim: the on_finish ladder below
+    # restores to these on abort/failure, and to them (as a fallback) or the
+    # best-observed inputs on success.
     initial_values: dict[str, float] = {}
     for name, movable in variables.items():
         initial_values[name] = yield from bps.rd(movable)
 
     # ---- phase 4: the claim boundary --------------------------------------
     # The full ScanTag (not just the number): the loader's analyzers may
-    # need it (mirrors _run_optimize_request's binder-path claim).
+    # need it, so the claim happens pre-bind.
     scan_tag, scan_folder = claim_scan(session.experiment)
     scan_number = scan_tag.number if scan_tag is not None else None
     if scan_number is not None:
@@ -975,9 +1012,8 @@ def _optimize_request_body(
 
         max_iterations = spec.max_iterations or 20
 
-        # In-process row collection (plan-native equivalent of
-        # GeecsSession.optimize's self.RE.subscribe(_collect)): the
-        # objective evaluates between bins without a Tiled round trip.
+        # In-process row collection: the objective evaluates between bins
+        # without a Tiled round trip.
         descriptors: dict[str, str] = {}
         rows: list[dict] = []
         history: list[dict] = []
@@ -1068,7 +1104,7 @@ def _optimize_request_body(
             )
 
         # The plan claimed the number, so the plan owns the per-scan
-        # scan.log (mirrors the step/noscan body above).
+        # scan.log (as in the step/noscan body above).
         token = yield from bps.subscribe("all", _collect)
         try:
             with scan_log(scan_number, scan_folder):
@@ -1091,9 +1127,8 @@ def _optimize_request_body(
             logger.info("optimize move_to_best_on_finish -> %s", target)
 
         if scan_folder is not None and history:
-            # Same shape/guard as GeecsSession.optimize's optimization.json
-            # (failed objectives are NaN in-process; allow_nan=False makes
-            # any regression fail loudly instead of writing invalid JSON).
+            # Failed objectives are NaN in-process; allow_nan=False makes
+            # any regression fail loudly instead of writing invalid JSON.
             try:
                 path = Path(scan_folder) / "optimization.json"
                 path.write_text(
@@ -1103,12 +1138,9 @@ def _optimize_request_body(
             except Exception:
                 logger.warning("Could not write optimization history", exc_info=True)
 
-        # Success-only bookkeeping (mirrors session.optimize's success
-        # path: skipped on failure — the except clause below re-raises
-        # before reaching here — and, on this path, on abort too, since an
-        # operator abort surfaces as an exception through the generator
-        # chain rather than session.optimize's settled-and-quiet aborted
-        # outcome).
+        # Success-only bookkeeping: skipped on failure (the except clause
+        # below re-raises before reaching here) and on abort (an operator
+        # abort surfaces as an exception through the generator chain).
         finish = getattr(opt_bridge, "finish", None)
         if finish is not None:
             try:
@@ -1121,9 +1153,9 @@ def _optimize_request_body(
                 scan_number, scan_folder, label="Optimization scan"
             )
         if spec.move_to_best_on_finish:
-            # Abort restores *initial*, never best — same contract as
-            # GeecsSession.optimize (docstring above). Best-effort: a
-            # restore failure must not mask the original exception.
+            # Abort restores *initial*, never best (docstring contract).
+            # Best-effort: a restore failure must not mask the original
+            # exception.
             try:
                 yield from bps.mv(*_flatten_move_targets(variables, initial_values))
             except Exception:

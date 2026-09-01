@@ -124,6 +124,31 @@ def _stop_gated(plan: Any, should_abort: Callable[[], bool]) -> tuple[Any, list[
     return gated(), tripped
 
 
+class _InjectedOptimizationLoader:
+    """The headless optimize seam: a loader/bridge over injected callables.
+
+    :meth:`GeecsSession.run` hands the plan a ``loader(spec) -> bridge``
+    exactly as the worker's registered optimization loader does; this one
+    ignores *spec* (the caller built its objective/suggester from it
+    already) and binds to the ready-made pair.  ``finish`` is deliberately
+    absent (nothing to dump).
+    """
+
+    def __init__(
+        self, objective: Any, suggester: Any, device_requirements: Any | None
+    ) -> None:
+        self._objective = objective
+        self._suggester = suggester
+        self.device_requirements = device_requirements
+
+    def __call__(self, spec: Any) -> "_InjectedOptimizationLoader":
+        return self
+
+    def bind(self, *, devices: Any, scan_tag: Any, scan_folder: Any) -> tuple[Any, Any]:
+        """Return the injected ``(objective, suggester)`` pair."""
+        return self._objective, self._suggester
+
+
 def _json_safe(value: Any) -> Any:  # Any: mirrors json.dumps's input surface
     """Recursively replace non-finite floats (NaN/inf) with ``None``.
 
@@ -201,7 +226,7 @@ class GeecsSession:
         # Held for the duration of a manual move (move_variable).  The RE
         # is deliberately NOT occupied by manual moves (they are not
         # plans), so this lock is what makes the exclusion *mutual*:
-        # scan()/optimize()/run_action() refuse while it is held, and
+        # scan()/optimize()/run()/run_action() refuse while it is held, and
         # move_variable refuses while the RE is busy (review, PR #597).
         self._manual_move_lock = threading.Lock()
         # Silence upstream's RequestAbort traceback (operator aborts are
@@ -217,7 +242,8 @@ class GeecsSession:
         ):
             _re_logger.addFilter(_RequestAbortLogFilter())
         self._last_run_uid: str | None = None
-        #: ``True`` when the most recent :meth:`scan`/:meth:`optimize` ended
+        self._last_run_scan_number: int | None = None
+        #: ``True`` when the most recent :meth:`scan`/:meth:`optimize`/:meth:`run` ended
         #: in an operator-requested abort (``RE.abort()``/``RE.stop()``) —
         #: those calls return the aborted outcome instead of raising, and
         #: callers distinguish completed vs aborted through this flag.
@@ -229,6 +255,7 @@ class GeecsSession:
 
     def _remember_uid(self, _name: str, doc: dict) -> None:
         self._last_run_uid = doc.get("uid")
+        self._last_run_scan_number = doc.get("scan_number")
 
     # ------------------------------------------------------------------
     # Device factories (constructed connected; explicit names)
@@ -859,31 +886,13 @@ class GeecsSession:
         if should_abort is not None:
             plan, stop_gate = _stop_gated(plan, should_abort)
 
-        self._last_run_uid = None
-        self.last_run_aborted = False
-        # Headless scans get the same per-scan scan.log as bridge scans
-        # (Gate-2 finding).  Attach only when this call claimed the number:
-        # a pre-claimed number means the caller (the runner's optimize
-        # path, or the queue plan) owns
-        # the scan.log handler, and a second one would duplicate every line.
+        self._last_run_scan_number = scan_number
+        # Headless scans get the same per-scan scan.log as queue scans.
+        # Attach only when this call claimed the number: a pre-claimed
+        # number means the caller owns the scan.log handler, and a second
+        # one would duplicate every line.
         with scan_log(scan_number, scan_folder) if claimed_here else nullcontext():
-            try:
-                self.RE(plan)
-            except RunEngineInterrupted:
-                if self.RE.state == "paused":
-                    # A pause is not a settled outcome — the operator may
-                    # still resume; keep today's propagation behavior.
-                    raise
-                # The engine settled back to idle: an operator-requested
-                # abort/stop.  The plan's finalize chain (save-off, disarm)
-                # already ran inside the engine's cleanup, so this is an
-                # intentional outcome, not a failure — report it quietly.
-                self.last_run_aborted = True
-                logger.info(
-                    "Scan %s aborted by operator; cleanup completed "
-                    "(trigger disarmed, saving stopped)",
-                    scan_number if scan_number is not None else "(unsaved)",
-                )
+            if self._run_settled(plan, label="Scan"):
                 return self._last_run_uid
 
             if stop_gate[0]:
@@ -1205,71 +1214,117 @@ class GeecsSession:
 
     def run(
         self,
-        request: Any,  # geecs_schemas.ScanRequest (imported lazily below)
-        resolver: Any | None = None,  # scan_request_runner.ConfigResolver
+        request: Any,  # geecs_schemas.ScanRequest or its model_dump() dict
+        resolver: Any | None = None,  # config_resolver.ConfigResolver
         *,
         objective: Any | None = None,
         suggester: Any | None = None,
         device_requirements: Any | None = None,
+        submission: Any | None = None,
     ) -> str | None:
         """Run one :class:`~geecs_schemas.scan_request.ScanRequest`; return the uid.
 
-        The schema submission front door: names resolve through *resolver*
-        (default: :class:`~geecs_bluesky.config_resolver.ConfigsRepoResolver`
-        over this session's experiment) and the request is mapped onto
-        :meth:`scan` / :meth:`optimize` by
-        :func:`~geecs_bluesky.scan_request_runner.run_scan_request` (see its
-        docstring for the documented v1 gaps).
+        The headless front door: executes
+        :func:`~geecs_bluesky.plans.scan_request_plan.geecs_scan_request_plan`
+        — the one ScanRequest orchestration, the same plan the queueserver
+        worker runs as a queue item — on this session's RunEngine.  Names
+        resolve through *resolver* (default: the configs-repo resolver over
+        this session's experiment); the plan validates, resolves, builds
+        and connects devices, claims the scan number, and runs, all inside
+        the RunEngine.  Two things differ from the queue door, both explicit
+        plan seams: a failed axis move *raises* here (no operator to answer
+        a pause), and optimize mode takes a ready-made *objective* /
+        *suggester* pair instead of the worker's registered loader.  After
+        a saved run the legacy scalar files are exported (the worker does
+        the same through its stop-document callback).
 
         Parameters
         ----------
         request :
-            The scan request to run.
+            The scan request to run (model or JSON dict).
         resolver :
             Optional name resolver (defaults to the configs-repo resolver).
         objective, suggester :
-            Ready-made optimization callables, required for ``optimize``
-            mode (the evaluator/generator specs are instantiated by the
-            caller's stack, not here).
+            Ready-made optimization callables for ``optimize`` mode (the
+            evaluator/generator specs are instantiated by the caller's
+            stack, not here); both or neither.
         device_requirements :
             Optional optimizer device requirements (duck-typed
             ``{"Devices": {name: cfg}}``) auto-provisioned into the
-            effective device set on ``optimize`` mode — see
-            :func:`~geecs_bluesky.scan_request_runner.run_scan_request`.
+            effective device set on ``optimize`` mode.
+        submission :
+            Optional client :class:`~geecs_schemas.SubmissionRecord`
+            traveling beside the request; recorded in run metadata.
 
         Returns
         -------
         str or None
-            The Bluesky run uid (``None`` when nothing was persisted).
-        """
-        from geecs_bluesky.scan_log import (
-            begin_pre_scan_capture,
-            discard_pre_scan_capture,
-        )
-        from geecs_bluesky.scan_request_runner import (
-            ConfigsRepoResolver,
-            run_scan_request,
-        )
+            The Bluesky run uid (``None`` when nothing was persisted — an
+            operator abort before the run opened, or a pre-claim refusal
+            that the plan reports by raising).
 
-        # Buffer pre-claim log lines (validation, device connects, telemetry
-        # drops) so scan.log opens with them; the bridge path starts its
-        # buffer earlier, at reinitialize.  A buffer not consumed by a
-        # scan.log attach (failure before the claim) is discarded — it must
-        # never leak into a later scan's file.
-        begin_pre_scan_capture()
-        try:
-            if resolver is None:
-                resolver = ConfigsRepoResolver(self.experiment)
-            return run_scan_request(
-                self,
-                request,
-                resolver,
-                objective=objective,
-                suggester=suggester,
-                device_requirements=device_requirements,
+        Notes
+        -----
+        An operator-requested abort (``RE.abort()``/``RE.stop()``) is an
+        intentional outcome, not a failure: the partial run's uid is
+        returned with :attr:`last_run_aborted` set ``True``, exactly as
+        :meth:`scan`.  A *pause* still propagates
+        :class:`~bluesky.utils.RunEngineInterrupted`.
+        """
+        from geecs_bluesky.plans.scan_request_plan import geecs_scan_request_plan
+
+        if (objective is None) != (suggester is None):
+            raise ValueError("objective and suggester come as a pair (both or neither)")
+        loader = None
+        if objective is not None:
+            loader = _InjectedOptimizationLoader(
+                objective, suggester, device_requirements
             )
-        finally:
-            discard_pre_scan_capture()
+        plan = geecs_scan_request_plan(
+            request,
+            submission=submission,
+            session=self,
+            resolver=resolver,
+            optimization_loader=loader,
+            failed_move_policy="raise",
+        )
+        self._last_run_scan_number = None
+        if self._run_settled(plan, label="Scan"):
+            return self._last_run_uid
+        if self._last_run_uid and self._last_run_scan_number is not None:
+            self._export_scalar_files(self._last_run_scan_number)
+        return self._last_run_uid
+
+    def _run_settled(self, plan: Any, *, label: str) -> bool:
+        """Run *plan* on the RunEngine, settling an operator abort quietly.
+
+        Returns ``True`` when the engine was aborted/stopped by the operator
+        (:attr:`last_run_aborted` set, one INFO line — the plan's finalize
+        chain already ran inside the engine's cleanup); ``False`` on a
+        normal completion.  A *pause* propagates
+        :class:`~bluesky.utils.RunEngineInterrupted` unchanged (not a
+        settled outcome — the operator may resume).
+        """
+        self._last_run_uid = None
+        self.last_run_aborted = False
+        try:
+            self.RE(plan)
+        except RunEngineInterrupted:
+            if self.RE.state == "paused":
+                raise
+            self.last_run_aborted = True
+            logger.info(
+                "%s %s aborted by operator; cleanup completed "
+                "(trigger disarmed, saving stopped)",
+                label,
+                (
+                    self._last_run_scan_number
+                    if self._last_run_scan_number is not None
+                    else "(unsaved)"
+                ),
+            )
+            return True
+        return False
 
     # ------------------------------------------------------------------
     # On-demand actions (G-actions v1)
