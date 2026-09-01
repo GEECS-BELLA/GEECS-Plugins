@@ -198,32 +198,43 @@ means:
 
 - **Where.** Subscribe to `<worker-host>:5568` from any host that can
   reach the worker; the proxy is a fan-out, so subscribers never touch
-  the manager socket, Redis, or the in port. Open 5568 to the client's
-  host on the worker's firewall exactly like 60615/60625 above; leave
-  5567 closed. The two in-repo subscribers are the reference practice:
-  the console's `geecs_console/app/scan_monitor.py`
-  (`DocumentStreamWorker`) and GEECS-MCP's
-  `geecs_mcp/scans/progress_stream.py` (`ProgressCache`) — each a
-  `bluesky.callbacks.zmq.RemoteDispatcher` on the `doc_addr` that
-  `geecs_bluesky.qs_client` reads from the `[qserver]` section of
-  `config.ini` (default `<host>:5568`).
-- **Wire format.** bluesky's `Publisher` defaults: pickled `(name, doc)`
-  pairs, no topic prefix. A subscriber is therefore a Python process
-  using `RemoteDispatcher` (or an equivalent pickle-aware SUB socket); a
-  non-Python subscriber needs a JSON/msgpack serializer added on the
-  worker side first — not offered today.
+  the manager socket, Redis, or the in port. Add 5568 to the same
+  firewall allow rule as 60615/60625; leave 5567 closed. The in-repo
+  subscribers are the reference practice: the console's
+  `geecs_console/app/scan_monitor.py` (`DocumentStreamWorker`),
+  GEECS-MCP's `geecs_mcp/scans/progress_stream.py` (`ProgressCache`),
+  and the capture daemon (`geecs_bluesky/capture/__main__.py`, the
+  production subscriber that keys image capture on `start`/`stop`) —
+  each a `bluesky.callbacks.zmq.RemoteDispatcher` on the `doc_addr`
+  that `geecs_bluesky.qs_client` reads from the `[qserver]` section of
+  `config.ini` (default `<host>:5568`). The `RemoteDispatcher` snippet
+  lives in `../README.md`, "Document stream".
+- **Wire format.** bluesky's `Publisher` defaults: one zmq frame per
+  document, `b"<prefix> <name> <pickled doc>"` with an empty prefix —
+  split on the first two spaces, decode the name, `pickle.loads` the
+  remainder (that is what `RemoteDispatcher` does). A subscriber is
+  therefore a Python process; a non-Python subscriber needs a
+  JSON/msgpack serializer added on the worker side first — not offered
+  today.
+- **Late joiners.** PUB/SUB has no replay: a client connecting mid-scan
+  never sees that run's `start`. Ignore documents of a run whose `start`
+  you did not see until the next `start` arrives (or resolve the run via
+  Tiled by its `run_start` uid) — the in-repo subscribers do the former.
 - **Transport posture.** Plaintext on the lab control network, same as
   the control socket (60615): no encryption, no client auth. A client
   that fronts this stream for users beyond the worker host should say so
   explicitly (a visible plaintext setting, not a silent default) — the
-  treatment OSPREY's bridge gives the control socket. CurveZMQ on the
-  document stream is decided together with the control-plane keys, which
-  is issue #660's question, not this document's.
+  treatment OSPREY's bridge gives the control socket (als-apg/osprey#817).
+  CurveZMQ on the document stream is decided together with the
+  control-plane keys, which is issue #660's question, not this
+  document's.
 - **Stability.** Document shape follows `../../EVENT_SCHEMA.md`; the
-  `geecs_event_schema` start-document key carries the version, so read
-  it rather than assuming it. Additive changes — new columns, new
-  metadata keys — do not bump that version, so subscribers must tolerate
-  unknown fields; only a rename, removal, or semantics change bumps it.
+  `geecs_event_schema` start-document key carries the version. The stream
+  carries *every* RunEngine document — `resource`/`datum` when non-scalar
+  saving is on, the free-run `flush` stream, telemetry descriptors — so
+  tolerate unknown document names and stream names, not only unknown
+  fields. Additive changes — new columns, new metadata keys — do not bump
+  the version; only a rename, removal, or semantics change bumps it.
 
 ---
 
