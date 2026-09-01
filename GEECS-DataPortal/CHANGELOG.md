@@ -9,8 +9,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - `poetry.lock` refreshed for ImageAnalysis 1.13.1 (#739): the
   `analysis` extra no longer drags pytest, pluggy and iniconfig into
-  the **main** group (the leak the #737 review surfaced). Lock-file
-  refresh only — no code change.
+  the **main** group (the leak the #737 review surfaced). The
+  Poetry-deployed portal host is unaffected in practice (it installs
+  the dev group, which carries pytest); the change is to the
+  main-group / `pip install` closure. Lock-file refresh only — no code
+  change.
 
 ## [0.15.1] - 2026-09-01
 

@@ -10,9 +10,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - `poetry.lock` refreshed for ImageAnalysis 1.13.1 (#739): pytest,
   pluggy and iniconfig no longer resolve into the **main** group
-  through the `analysis`/`optimize` extras — they were leaking into
-  worker production installs via ImageAnalysis's main-dependency
-  declaration. Lock-file refresh only — no code change.
+  through the `analysis`/`optimize` extras (ImageAnalysis declared
+  pytest as a main dependency). Poetry-deployed worker hosts are
+  unaffected in practice — they install the dev group, which already
+  carries pytest; the change is to the main-group / `pip install`
+  closure. Lock-file refresh only — no code change.
 
 ## [0.70.0] - 2026-09-01
 

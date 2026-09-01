@@ -10,7 +10,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - `poetry.lock` refreshed for ImageAnalysis 1.13.1 (#739): the
   `analysis-run` extra no longer drags pytest, pluggy and iniconfig
-  into the **main** group. Lock-file refresh only — no code change.
+  into the **main** group — this is the one deploy path that actually
+  changes, since `deploy/DEPLOYMENT.md` installs the package with a
+  non-editable `pip install` (main deps only). Lock-file refresh only
+  — no code change.
 
 ## [0.8.0] - 2026-09-01
 
