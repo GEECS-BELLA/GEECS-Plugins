@@ -65,7 +65,7 @@ from .diagnostic import (
     resolve_image_analyzer_value,
 )
 from .factory import create_image_analyzer
-from .loader import load_diagnostic
+from .loader import list_diagnostics, load_diagnostic
 from .loader import (
     find_config_file,
     load_camera_config,
@@ -113,5 +113,6 @@ __all__ = [
     "ImageAnalyzerSpec",
     "resolve_image_analyzer_value",
     "create_image_analyzer",
+    "list_diagnostics",
     "load_diagnostic",
 ]

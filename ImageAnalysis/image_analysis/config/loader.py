@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
 import yaml
 from pydantic import ValidationError
@@ -343,6 +343,26 @@ def load_diagnostic(
         return diagnostic
     except ValidationError as exc:
         raise ValueError(f"Invalid diagnostic config at {diag_path}: {exc}") from exc
+
+
+def list_diagnostics(*, config_dir: Optional[Path] = None) -> List[str]:
+    """List the diagnostic IDs available under a configs tree.
+
+    Parameters
+    ----------
+    config_dir : Path, optional
+        Root of the scan-analysis configs tree (the parent of
+        ``analyzers/``). Same default resolution as
+        :func:`load_diagnostic`.
+
+    Returns
+    -------
+    list of str
+        Sorted diagnostic IDs (YAML filename stems), each loadable via
+        ``load_diagnostic(stem, config_dir=config_dir)``.
+    """
+    base_dir = _resolve_default_config_dir(config_dir)
+    return sorted(_discover_analyzers(base_dir))
 
 
 def _deep_merge(base: Dict[str, Any], overlay: Dict[str, Any]) -> Dict[str, Any]:

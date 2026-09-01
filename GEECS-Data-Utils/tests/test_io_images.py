@@ -13,6 +13,7 @@ import pytest
 
 from geecs_data_utils.io.images import (
     _IMAQ_CLASS_MARKER,
+    average_frames,
     decode_imaq_image_string,
     load_image_from_h5,
     read_imaq_image,
@@ -210,3 +211,44 @@ def test_decode_tail_fallback_unsupported_type_raises():
     )
     with pytest.raises(ValueError, match="tail"):
         decode_imaq_image_string(blob)
+
+
+class TestAverageFrames:
+    """``average_frames``: nanmean stack average with the homogeneity guard."""
+
+    def test_mean_of_homogeneous_frames(self):
+        a = np.array([[0.0, 2.0], [4.0, 6.0]])
+        b = np.array([[2.0, 4.0], [6.0, 8.0]])
+        out = average_frames([a, b])
+        np.testing.assert_array_equal(out, [[1.0, 3.0], [5.0, 7.0]])
+
+    def test_nan_pixels_are_excluded_not_poisonous(self):
+        a = np.array([[np.nan, 2.0]])
+        b = np.array([[4.0, 4.0]])
+        out = average_frames([a, b])
+        np.testing.assert_array_equal(out, [[4.0, 3.0]])
+
+    def test_integer_frames_average_to_float(self):
+        a = np.array([[1, 2]], dtype=np.uint16)
+        b = np.array([[2, 3]], dtype=np.uint16)
+        out = average_frames([a, b])
+        assert np.issubdtype(out.dtype, np.floating)
+        np.testing.assert_array_equal(out, [[1.5, 2.5]])
+
+    def test_single_frame_returns_its_values(self):
+        a = np.array([[1.0, 2.0]])
+        np.testing.assert_array_equal(average_frames([a]), a)
+
+    def test_empty_sequence_returns_none(self):
+        assert average_frames([]) is None
+
+    def test_mixed_shapes_return_none_with_warning(self, caplog):
+        a = np.zeros((2, 2))
+        b = np.zeros((3, 2))
+        with caplog.at_level("WARNING", logger="geecs_data_utils.io.images"):
+            assert average_frames([a, b]) is None
+        assert "inhomogeneous" in caplog.text
+
+    def test_1d_traces_average_too(self):
+        out = average_frames([np.array([1.0, 3.0]), np.array([3.0, 5.0])])
+        np.testing.assert_array_equal(out, [2.0, 4.0])

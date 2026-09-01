@@ -347,3 +347,33 @@ Invariant is pinned by tests:
 - `tests/analyzers/test_line_stitcher.py::TestLineStitcherScanFolderInvariant`
 - `tests/analyzers/test_magspec_calib.py::TestScanFolderInvariant`
 - `tests/processing/test_array1d_background.py`
+
+## Ephemeral runs (the write-free contract)
+
+`image_analysis.ephemeral.run_diagnostic_ephemeral(name_or_path, frames,
+*, config_dir=..., overrides=..., auxiliary_data=...)` runs a configured
+diagnostic over already-loaded frames with a hard no-writes guarantee —
+the seam read-only viewers (the data portal's processing selector,
+exploratory notebooks) use to get the production pipeline without the
+production side effects.
+
+The write gate is structural, and it depends on two conventions that
+**must survive analyzer changes**:
+
+1. **Path-gated writers stay path-gated.** Analyzers that persist
+   derived per-shot files do so only when `auxiliary_data["file_path"]`
+   (or equivalent constructor state) is present. The ephemeral runner
+   takes in-memory frames only and refuses `file_path` in
+   `auxiliary_data` (`ValueError`, never a silent strip) — so a
+   path-gated writer is automatically dormant. If you add an analyzer
+   that writes on some *other* trigger, gate it on `file_path` too, or
+   add it to the denylist below.
+2. **Unconditional writers go on `EPHEMERAL_DENYLIST`** (class-path
+   strings, checked *before* the class is imported — which also keeps
+   vendor SDKs off hosts that lack them). HASO is the one current
+   entry: it writes five sidecars per shot from `load_image` /
+   `analyze_image` regardless of auxiliary data. Remove an entry only
+   when the analyzer gains an explicit no-write mode.
+
+`list_diagnostics(config_dir=...)` (in `image_analysis.config`)
+enumerates the loadable diagnostic IDs for pickers over the same tree.

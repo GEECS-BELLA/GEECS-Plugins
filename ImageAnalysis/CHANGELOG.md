@@ -3,6 +3,23 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.13.0] — 2026-09-01
+
+### Added
+
+- **`image_analysis.ephemeral.run_diagnostic_ephemeral`** — the
+  write-free run seam (portal Images-tab arc, W2a): load a diagnostic,
+  instantiate its analyzer once, analyze in-memory frames, with the
+  no-writes contract enforced structurally — frames only (no paths),
+  `auxiliary_data["file_path"]` refused with `ValueError` (it is the
+  gate path-gated writers key on), and unconditional writers refused
+  by class path via `EPHEMERAL_DENYLIST` *before* import (HASO is the
+  one entry: five sidecars per shot, vendor SDK import). Contract
+  documented in CLAUDE.md ("Ephemeral runs").
+- `image_analysis.config.list_diagnostics(config_dir=...)` — sorted
+  loadable diagnostic IDs over the same `analyzers/` tree
+  `load_diagnostic` resolves against, for picker UIs.
+
 ## [1.12.0] — 2026-08-27
 
 ### Added
