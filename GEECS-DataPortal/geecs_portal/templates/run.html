@@ -202,6 +202,16 @@
           <button id="seg-img-bin" onclick="setView('bin')">per-bin avg</button>
         </span>
         <span class="gear" title="bin settings" onclick="openBinset()">⚙</span>
+        {% if processing_options %}
+        <label class="dim" style="font-size:12px;" title="run an ImageAnalysis diagnostic ephemerally on the served pixels (write-free); per-bin view processes each shot, then averages">processing
+          <select id="procsel" onchange="setProcessing(this.value)"
+                  style="background:var(--panel2); color:var(--ink); border:1px solid var(--line); border-radius:3px; padding:0.2rem 0.4rem; font-size:12px; max-width:16rem;">
+            <option value="">raw</option>
+            {% for name in processing_options %}
+            <option value="{{ name }}"{% if name == processing %} selected{% endif %}>{{ name }}</option>
+            {% endfor %}
+          </select></label>
+        {% endif %}
       </div>
       <div id="imgshot">
       <form class="nav" method="get" action="{{ root }}/run/{{ uid }}">
@@ -219,7 +229,7 @@
         {% if total_shots %}<span class="dim mono">of ~{{ total_shots }}</span>{% endif %}
         <span class="dim mono">{{ kind }}</span>
       </form>
-      <img class="plot" src="{{ root }}/run/{{ uid }}/image.png?device={{ sel_device | urlencode }}&amp;shot={{ shot }}&amp;day={{ day | urlencode }}" alt="{{ sel_device }} shot {{ shot }}">
+      <img class="plot" id="shotimg" src="{{ root }}/run/{{ uid }}/image.png?device={{ sel_device | urlencode }}&amp;shot={{ shot }}&amp;day={{ day | urlencode }}{% if processing %}&amp;processing={{ processing | urlencode }}{% endif %}" alt="{{ sel_device }} shot {{ shot }}">
       </div>
       <div id="imggrid" class="bingrid" hidden></div>
       {% endif %}
@@ -415,6 +425,7 @@ function readState() {
     filters: p.get("filters") || "",
     bincfg: p.get("bincfg") || "",
     display: p.get("display") || "",
+    processing: p.get("processing") || "",
   };
 }
 
@@ -423,13 +434,14 @@ function writeState() {
   // not analysis states — there is deliberately no popstate handler.
   // Shared/bookmarked links restore everything via readState().
   const p = new URLSearchParams(location.search);
-  ["y", "x", "view", "filters", "bincfg", "display", "tab"].forEach(k => p.delete(k));
+  ["y", "x", "view", "filters", "bincfg", "display", "processing", "tab"].forEach(k => p.delete(k));
   S.y.forEach(v => p.append("y", v));
   if (S.x) p.set("x", S.x);
   if (S.view !== "shot") p.set("view", S.view);
   if (S.filters) p.set("filters", S.filters);
   if (S.bincfg) p.set("bincfg", S.bincfg);
   if (S.display) p.set("display", S.display);
+  if (S.processing) p.set("processing", S.processing);
   if (S.tab !== "plot") p.set("tab", S.tab);
   history.replaceState(null, "", location.pathname + "?" + p.toString());
   // Server-rendered stepper links must carry the latest state too.
@@ -439,13 +451,14 @@ function writeState() {
 function syncRailLinks(p) {
   document.querySelectorAll("a.act").forEach(a => {
     const url = new URL(a.href, location.origin);
-    ["y", "x", "view", "filters", "bincfg", "display", "tab"].forEach(k => url.searchParams.delete(k));
+    ["y", "x", "view", "filters", "bincfg", "display", "processing", "tab"].forEach(k => url.searchParams.delete(k));
     S.y.forEach(v => url.searchParams.append("y", v));
     if (S.x) url.searchParams.set("x", S.x);
     if (S.view !== "shot") url.searchParams.set("view", S.view);
     if (S.filters) url.searchParams.set("filters", S.filters);
     if (S.bincfg) url.searchParams.set("bincfg", S.bincfg);
     if (S.display) url.searchParams.set("display", S.display);
+    if (S.processing) url.searchParams.set("processing", S.processing);
     if (S.tab !== "plot") url.searchParams.set("tab", S.tab);
     a.href = url.pathname + "?" + url.searchParams.toString();
   });
@@ -498,6 +511,24 @@ function setView(view) {
 // ---------------- the images tab's per-bin grid ----------------
 let IMG_KEY = null;  // last-rendered grid params — skip redundant refetches
 
+function setProcessing(name) {
+  S.processing = name;
+  writeState();
+  updateShotImage();
+  refreshImages();
+}
+
+function updateShotImage() {
+  // The per-shot image is server-rendered; a processing change only
+  // needs its src re-pointed (the URL carries the whole state anyway).
+  const img = document.getElementById("shotimg");
+  if (!img) return;
+  const url = new URL(img.src, location.origin);
+  if (S.processing) url.searchParams.set("processing", S.processing);
+  else url.searchParams.delete("processing");
+  img.src = url.pathname + "?" + url.searchParams.toString();
+}
+
 function refreshImages() {
   const shotBox = document.getElementById("imgshot");
   const grid = document.getElementById("imggrid");
@@ -506,7 +537,7 @@ function refreshImages() {
   shotBox.hidden = binned;
   grid.hidden = !binned;
   if (!binned || S.tab !== "images") return;
-  const key = JSON.stringify([SEL_DEVICE, S.filters, S.bincfg]);
+  const key = JSON.stringify([SEL_DEVICE, S.filters, S.bincfg, S.processing]);
   if (key === IMG_KEY) return;
   IMG_KEY = key;  // set before the fetch: dedupes the boot's setTab+setView pair
   const params = new URLSearchParams({ device: SEL_DEVICE });
@@ -523,6 +554,7 @@ function refreshImages() {
       const q = new URLSearchParams({ device: SEL_DEVICE, bin: i, v: VERSION });
       if (S.filters) q.set("filters", S.filters);
       if (S.bincfg) q.set("bincfg", S.bincfg);
+      if (S.processing) q.set("processing", S.processing);
       if (DAY) q.set("day", DAY);
       const label = b.bin === null ? "—" : String(b.bin);
       return `<figure class="bincard">

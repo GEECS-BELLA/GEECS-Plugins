@@ -142,6 +142,22 @@ member shots that resolve to pixels average via the shared
 `average_frames`, windowed once after averaging; per-shot refusals
 carry over, and an ordinal-resolved member downgrades the response to
 `no-cache`) · `/health` (catalog probe — the fleet-map health check).
+
+Both image endpoints also take `?processing=<diagnostic id>` (the
+`processing` URL state): the named ImageAnalysis diagnostic runs
+**ephemerally** on the served pixels via
+`image_analysis.ephemeral.run_diagnostic_ephemeral` — the write-free
+seam (its structural no-writes contract lives in ImageAnalysis
+CLAUDE.md "Ephemeral runs"; the read-only doctrine is preserved by
+construction).  Per-shot renders the `processed_image`; per-bin
+processes each member THEN averages (nonlinear-correct).  The feature
+is **explicit-opt-in**: `--processing-configs <tree>` /
+`create_app(processing_config_dir=…)` names the configs tree — the
+portal deliberately never falls back to the global config resolution
+(design doc finding 7), and ImageAnalysis rides the optional
+`analysis` extra; missing either hides the selector and 404s the
+param.  Errors map honestly: unknown diagnostic 404,
+denylisted/miswired 400, analyzer failure 400 — never a 500.
 Template links build their queries through the one sticky-query helper
 (and the page JS mirrors the analysis state into the stepper links) so
 navigating one control never resets another; the day page's "clear"

@@ -245,7 +245,12 @@ def _default_x(detail, columns: list[str]) -> str:
     return scan_vars[0] if scan_vars else ""
 
 
-def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI:
+def create_app(
+    catalog: ScanCatalog,
+    *,
+    default_experiment: str = "",
+    processing_config_dir: Optional[Path] = None,
+) -> FastAPI:
     """Build the portal application over an injected catalog.
 
     Parameters
@@ -255,6 +260,14 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
         fakes in tests).
     default_experiment : str, optional
         Experiment preselected when a request names none.
+    processing_config_dir : Path, optional
+        Root of the scan-analysis configs tree for the Images tab's
+        ephemeral-processing selector. ``None`` (the default) turns
+        the feature OFF — the portal never falls back to the global
+        config resolution (the 03 design doc's finding 7: two
+        competing resolution paths exist, so the portal names its
+        tree explicitly). The selector also hides itself when
+        ImageAnalysis (the ``analysis`` extra) is not installed.
 
     Returns
     -------
@@ -643,6 +656,71 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
             raise HTTPException(status_code=404, detail=f"unknown device {device!r}")
         return folder, (run_day.isoformat() if run_day else None)
 
+    def _processing_names() -> list[str]:
+        """Diagnostic IDs for the processing selector (``[]`` = hidden).
+
+        Explicit-opt-in: no configured tree, no feature (never the
+        global fallback). Degrades to empty — never errors a page —
+        when the ``analysis`` extra is not installed or the tree
+        cannot be listed.
+        """
+        if processing_config_dir is None:
+            return []
+        try:
+            from image_analysis.config import list_diagnostics
+        except ImportError:
+            return []
+        try:
+            return list_diagnostics(config_dir=processing_config_dir)
+        except Exception as exc:  # noqa: BLE001 — unlistable tree = no selector
+            logger.debug("processing configs unavailable: %s", exc)
+            return []
+
+    def _apply_processing(arrays: list, processing: str) -> list:
+        """Ephemeral-process *arrays* → the analyzers' processed images.
+
+        One :func:`image_analysis.ephemeral.run_diagnostic_ephemeral`
+        call (one analyzer instantiation for the whole batch); the
+        write-free contract lives in that seam. Refusals map onto the
+        endpoint ladder: unknown diagnostic → 404, denylisted/miswired
+        → 400, analyzer failure → 400 honestly — never a 500.
+        """
+        if processing_config_dir is None:
+            raise HTTPException(
+                status_code=404,
+                detail="processing is not configured on this portal "
+                "(start it with --processing-configs)",
+            )
+        try:
+            from image_analysis.ephemeral import run_diagnostic_ephemeral
+        except ImportError as exc:
+            raise HTTPException(
+                status_code=404,
+                detail="processing needs the portal's 'analysis' extra "
+                "(pip install geecs-data-portal[analysis])",
+            ) from exc
+        try:
+            results = run_diagnostic_ephemeral(
+                processing, arrays, config_dir=processing_config_dir
+            )
+        except (KeyError, FileNotFoundError) as exc:
+            raise HTTPException(
+                status_code=404, detail=f"no diagnostic: {exc}"
+            ) from exc
+        except ValueError as exc:  # denylisted, or invalid config
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:  # noqa: BLE001 — analyzer failure must not 500
+            raise HTTPException(
+                status_code=400, detail=f"processing failed: {exc}"
+            ) from exc
+        processed = [result.processed_image for result in results]
+        if any(image is None for image in processed):
+            raise HTTPException(
+                status_code=404,
+                detail=f"diagnostic {processing!r} produces no processed image",
+            )
+        return processed
+
     @app.get("/api/run/{uid}/bin-images")
     def api_bin_images(
         uid: str, device: str = "", filters: str = "", bincfg: str = "", day: str = ""
@@ -787,6 +865,7 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
         bincfg: str = "",
         view: str = "",
         display: str = "",
+        processing: str = "",
     ) -> HTMLResponse:
         """One run: the rail + tabs (Overview / Plot / Images).
 
@@ -872,6 +951,7 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
             "filters": filters,
             "bincfg": bincfg,
             "display": display,
+            "processing": processing,
             "device": sel_device,
             "shot": shot if sel_device else "",
             "filter": filter,  # the day list's filter, carried for the back link
@@ -905,6 +985,8 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
                 "shot": shot,
                 "has_next_shot": n_rows is None or shot < n_rows,
                 "total_shots": detail.summary.shots,
+                "processing": processing,
+                "processing_options": _processing_names() if sel_device else [],
                 "portal_version": _portal_version(),
                 # The rail's chips and the display popup must stay in
                 # step with the server-authored figures — one palette,
@@ -916,8 +998,16 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
         )
 
     @app.get("/run/{uid}/image.png")
-    def run_image(uid: str, device: str, shot: int = 1, day: str = "") -> Response:
-        """One device shot rendered for display (stack or native file)."""
+    def run_image(
+        uid: str, device: str, shot: int = 1, day: str = "", processing: str = ""
+    ) -> Response:
+        """One device shot rendered for display (stack or native file).
+
+        ``processing`` names a diagnostic to run ephemerally on the
+        loaded pixels first (its ``processed_image`` renders instead of
+        the raw frame) — the write-free seam; raw serving is untouched
+        when the param is absent.
+        """
         detail = _load_run(uid)
         folder, _ = _image_folder(detail, day, device)
         # A shot beyond the recorded event rows must refuse outright:
@@ -934,6 +1024,32 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
                 status_code=404, detail="device missed this shot (no timestamp)"
             )
         complete = bool(detail.summary.exit_status)
+        if processing:
+            resolved = resources.load_shot_array(
+                folder,
+                device,
+                shot,
+                acq_timestamp=acq,
+                data_cache=data_cache if complete else None,
+                cache_key=(uid, device) if complete else None,
+            )
+            if resolved.array is None:
+                raise HTTPException(
+                    status_code=404, detail=resolved.reason or resolved.kind
+                )
+            (processed,) = _apply_processing([resolved.array], processing)
+            try:
+                png = resources.to_display_png(processed)
+            except Exception as exc:  # noqa: BLE001 — must not 500
+                raise HTTPException(
+                    status_code=404, detail=f"render failed: {exc}"
+                ) from exc
+            headers = (
+                _png_headers(detail)
+                if resolved.cacheable
+                else {"Cache-Control": "no-cache"}
+            )
+            return Response(content=png, media_type="image/png", headers=headers)
         result = resources.load_shot_image(
             folder,
             device,
@@ -957,6 +1073,7 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
         filters: str = "",
         bincfg: str = "",
         day: str = "",
+        processing: str = "",
     ) -> Response:
         """One bin's ``nanmean``-averaged device image, display-rendered.
 
@@ -965,7 +1082,10 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
         shots that resolve to pixels are averaged (``average_frames``)
         and windowed once; shots the device missed (no timestamp) or
         that fail to load are skipped — the JSON's ``count`` is the
-        membership, the pixels are what actually loaded.
+        membership, the pixels are what actually loaded. With
+        ``processing``, each member is ephemeral-processed FIRST and
+        the processed images average (process-then-average — the
+        correct order for nonlinear pipeline steps like thresholding).
         """
         detail = _load_run(uid)
         folder, _ = _image_folder(detail, day, device)
@@ -1007,6 +1127,8 @@ def create_app(catalog: ScanCatalog, *, default_experiment: str = "") -> FastAPI
                 continue
             cacheable = cacheable and resolved.cacheable
             arrays.append(resolved.array)
+        if processing and arrays:
+            arrays = _apply_processing(arrays, processing)
         averaged = average_frames(arrays, label=f"{device} bin {bin_index}")
         if averaged is None:
             raise HTTPException(

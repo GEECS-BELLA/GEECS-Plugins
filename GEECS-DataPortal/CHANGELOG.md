@@ -3,6 +3,26 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.13.0] - 2026-09-01
+
+### Added
+
+- **Images tab ephemeral-processing selector** (W2a): a `processing`
+  URL state naming an ImageAnalysis diagnostic to run write-free on
+  the served pixels via `run_diagnostic_ephemeral` (ImageAnalysis
+  1.13.0's seam — the structural no-writes contract lives there).
+  Per-shot view renders the diagnostic's `processed_image`; per-bin
+  view processes each member shot THEN averages (the correct order
+  for nonlinear pipeline steps). Explicit-opt-in by doctrine (design
+  doc finding 7 — two competing config-resolution paths exist, so the
+  portal names its tree): the `--processing-configs <tree>` CLI flag /
+  `create_app(processing_config_dir=…)` enables it, and the portal
+  never falls back to the global config resolution. ImageAnalysis is
+  a new OPTIONAL dependency (the `analysis` extra); without it — or
+  without the flag — the selector hides and raw serving is untouched.
+  Error ladder: unknown diagnostic 404, denylisted/miswired 400,
+  analyzer failure 400 honestly, never a 500.
+
 ## [0.12.0] - 2026-09-01
 
 ### Added
