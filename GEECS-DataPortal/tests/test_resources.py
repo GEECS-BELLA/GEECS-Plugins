@@ -665,6 +665,10 @@ class TestProcessingSelector:
 
     @pytest.fixture()
     def configs_tree(self, tmp_path):
+        # The whole class needs the `analysis` extra (image_analysis):
+        # skip gracefully in a minimal env — CI installs the extra, so
+        # there these tests always RUN (never silently skip).
+        pytest.importorskip("image_analysis")
         import yaml
 
         tree = tmp_path / "proc_configs"

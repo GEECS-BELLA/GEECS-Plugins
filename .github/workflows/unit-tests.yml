@@ -37,7 +37,10 @@ jobs:
 
       - name: Install GEECS-DataPortal dependencies
         working-directory: GEECS-DataPortal
-        run: poetry install --with dev
+        # --extras analysis: the Images tab's processing-selector tests
+        # (TestProcessingSelector) importorskip image_analysis and would
+        # silently skip without it (the #737 CI-red lesson, 2026-09-01).
+        run: poetry install --with dev --extras analysis
 
       - name: Run GEECS-DataPortal tests
         working-directory: GEECS-DataPortal
