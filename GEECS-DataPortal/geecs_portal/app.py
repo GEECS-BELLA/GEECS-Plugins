@@ -70,10 +70,10 @@ _STATIC_DIR = Path(__file__).parent / "static"
 def _portal_version() -> str:
     """The installed package version — the /api cache-bust key.
 
-    The page keys every /api fetch by this version so any cached
-    response rolls over on upgrade (the /api JSON now always
-    revalidates — see ``_UNION_HEADERS`` — but the per-shot PNGs it
-    links are immutable, and the key is cheap insurance).
+    The page keys every /api fetch and bin-image card by this version.
+    Union-frame responses are ``no-cache`` now (``_UNION_HEADERS``), so
+    for them the key is only insurance against intermediaries; it still
+    matters for a payload-shape change behind any cached response.
     """
     from importlib.metadata import PackageNotFoundError, version
 
@@ -92,7 +92,9 @@ _PLOT_MAX_ROWS = 100_000
 #: appends its columns to ``analysis/sN.txt`` after the scan — hours later
 #: when it is re-run by hand — so a completed run's column list can grow.
 #: An immutable response would pin a browser to the pre-analysis shape
-#: for a year (the 7-vs-30-columns incident, 2026-09-01).
+#: for a year (the 7-vs-30-columns incident, 2026-09-01). No validator
+#: is emitted, so ``no-cache`` means a re-fetch, not a 304 — an ETag
+#: over the s-file's stat is the follow-up if revisits feel slow.
 _UNION_HEADERS = {"Cache-Control": "no-cache"}
 
 #: Requests carrying a proxy mount prefix — the Grafana/JupyterHub
@@ -615,12 +617,13 @@ def create_app(
         return JSONResponse(payload, headers=_UNION_HEADERS)
 
     @app.get("/api/run/{uid}/filter-count")
-    def api_filter_count(uid: str, filters: str = "", day: str = "") -> dict:
+    def api_filter_count(uid: str, filters: str = "", day: str = "") -> JSONResponse:
         """Live pass count for the filters popup: ``{pass, total}``."""
         detail = _load_run(uid)
         pf, _ = _union(detail, day)
         _, mask = _masked(pf, filters)
-        return {"pass": int(mask.sum()), "total": len(pf.frame)}
+        payload = {"pass": int(mask.sum()), "total": len(pf.frame)}
+        return JSONResponse(payload, headers=_UNION_HEADERS)
 
     def _bin_groups(pf, mask, bincfg_raw: str):
         """Per-bin shot membership over the filtered union frame.

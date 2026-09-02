@@ -473,6 +473,7 @@ class TestAnalysisApi:
             "columns",
             "frame?cols=cam-MaxCounts",
             'binned?cols=cam-MaxCounts&bincfg={"bin_col":"mono"}',
+            "filter-count",
         ):
             response = _client().get(f"/api/run/uid-002/{path}")
             assert response.status_code == 200, path

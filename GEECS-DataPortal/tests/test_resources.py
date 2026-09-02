@@ -617,8 +617,28 @@ class TestBinImagesReviewPins:
         )
         assert joined.headers["cache-control"] == "no-cache"
 
-    def test_running_run_serves_no_cache(self, scan_folder):
+    def test_shot_image_cache_gates_on_completion_and_join(self, scan_folder):
+        # image.png is the one endpoint still gated on BOTH completion
+        # and a timestamp join (the union-frame endpoints are always
+        # no-cache): running → no-cache; completed timestamp-joined →
+        # immutable; completed ordinal-joined (cam2) → no-cache.
         from geecs_data_utils.tiled_catalog import RunDetail, summary_from_metadata
+
+        cam2 = scan_folder / "cam2"
+        cam2.mkdir()
+        for shot in (1, 2, 3):
+            Image.fromarray(np.zeros((5, 5), dtype=np.uint16)).save(
+                cam2 / f"cam2_{_LV + float(shot):.3f}.png"
+            )
+        done = TestBinImages()._client(scan_folder)
+        joined = done.get("/run/uid-002/image.png", params={"device": "cam", "shot": 1})
+        assert joined.status_code == 200
+        assert "immutable" in joined.headers["cache-control"]
+        ordinal = done.get(
+            "/run/uid-002/image.png", params={"device": "cam2", "shot": 1}
+        )
+        assert ordinal.status_code == 200
+        assert ordinal.headers["cache-control"] == "no-cache"
 
         catalog = FakeCatalog()
         base = _detail(2)
@@ -632,13 +652,9 @@ class TestBinImagesReviewPins:
         )
         catalog.details["uid-002"] = running
         client = TestClient(create_app(catalog))
-        listing = client.get("/api/run/uid-002/bin-images", params={"device": "cam"})
-        assert listing.headers["cache-control"] == "no-cache"
-        png = client.get(
-            "/run/uid-002/bin-image.png", params={"device": "cam", "bin": 0}
-        )
-        assert png.status_code == 200
-        assert png.headers["cache-control"] == "no-cache"
+        live = client.get("/run/uid-002/image.png", params={"device": "cam", "shot": 1})
+        assert live.status_code == 200
+        assert live.headers["cache-control"] == "no-cache"
 
     def test_unrenderable_array_degrades_never_raises(self, scan_folder):
         # A readable h5 whose /image is 4-D: the tier ladder loads it,

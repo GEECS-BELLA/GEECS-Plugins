@@ -61,10 +61,16 @@ this package; the architecture rules below are its distillation.
   executes server-side, and its prototype-pollution guard lives with
   it: cosmetic asks should land there, not as new per-knob code):
   a link IS the analysis, which is also the multi-user story
-  (statelessness; shared caches are a feature).  Every `/api` fetch
-  additionally carries `v=<portal version>` — completed-run responses
-  cache immutable, and the version key rolls browser caches over when
-  a release changes the payload shape.
+  (statelessness; shared caches are a feature).  Cache policy is
+  by INPUT, not by URL: the per-shot `image.png` and `plot.png` read
+  the event table alone and cache immutable once the run has a stop
+  doc; everything over the union frame (`columns`, `frame`, `binned`,
+  `filter-count`, `bin-images`, `bin-image.png`) is `no-cache`
+  (`_UNION_HEADERS`), because the s-file half of the union GROWS after
+  the run — ScanAnalysis appends its columns hours later (the
+  7-vs-30-columns incident, 2026-09-01).  Every `/api` fetch and
+  bin-image card still carries `v=<portal version>` so an upgrade
+  that changes a payload shape rolls over whatever a cache kept.
 - **Prefix-agnostic URLs.**  The portal works at root and under any
   reverse-proxy mount (OSPREY panel tabs).  Templates never write a
   root-absolute portal URL directly: every href/action/src carries the
@@ -140,8 +146,8 @@ shot) · `/run/{uid}/bin-image.png?device=&bin=<index>&filters=&bincfg=`
 `bin-images` order, both endpoints run the same membership call;
 member shots that resolve to pixels average via the shared
 `average_frames`, windowed once after averaging; per-shot refusals
-carry over, and an ordinal-resolved member downgrades the response to
-`no-cache`) · `/health` (catalog probe — the fleet-map health check).
+carry over; always `no-cache` — bin membership comes off the union
+frame) · `/health` (catalog probe — the fleet-map health check).
 
 Both image endpoints also take `?display=` (the shared display state's
 image slice: `cmap` matplotlib-colormap name + `plo`/`phi` percentile
@@ -180,8 +186,10 @@ list — a new tab should be exactly these steps:
    plain-dataclass configs validate nothing themselves, so a
    wrong-typed field that only explodes inside the primitive is a 500
    waiting for a hand-edited URL), call the primitive, shape with
-   `jsonable_values`, attach a `code` snippet, serve with the
-   completed-run cache headers.
+   `jsonable_values`, attach a `code` snippet, serve with
+   `_UNION_HEADERS` (never `_png_headers` — that is for responses
+   over the event table alone; the s-file half of the union changes
+   after the run).
 3. **Figure** — if the tab plots, its figure builder goes in
    `figures.py` (pure functions, plotly.py, unit-tested in
    `tests/test_figures.py`) and the endpoint serves it as `figure`.
@@ -191,7 +199,8 @@ list — a new tab should be exactly these steps:
    `readState`/`writeState`); expansion UI goes behind a popup/⚙,
    never into the rail.
 5. **Tests** — endpoint tests against the fakes (hand-computed numbers,
-   the 400/404 ladder, NaN→null, immutable headers on completed runs).
+   the 400/404 ladder, NaN→null, `no-cache` headers even on completed
+   runs).
 
 ## Deployment
 

@@ -15,9 +15,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   when re-run by hand), so a browser that had fetched the column list
   before analysis stayed pinned to the pre-analysis shape for a year
   (scan 32 showing 7 columns while scan 33 showed 30, 2026-09-01).
-  These responses now always revalidate (`no-cache`); the per-shot
-  `image.png` and `plot.png`, which read the event table alone, keep
-  their immutable headers.
+  These responses (and `filter-count`, which had no header at all)
+  are now `no-cache` — a plain re-fetch, no validator is emitted; the
+  per-shot `image.png` and `plot.png`, which read the event table
+  alone, keep their immutable headers.
 
 ## [0.15.2] - 2026-09-01
 
