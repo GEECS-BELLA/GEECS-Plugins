@@ -111,6 +111,18 @@ class FakeSubmitter:
 
         return QueueStatus(connected=True, re_state="idle", worker_exists=True)
 
+    def queue_items(self):
+        return []
+
+    def history_items(self):
+        return []
+
+    def running_item(self):
+        return None
+
+    def clear_queue(self):
+        return (True, "queue cleared")
+
 
 class FakeHealth:
     def poll(self):
@@ -1112,7 +1124,7 @@ class TestNowAndDevicePanel:
         assert "operator abort" in window.log_tail.toPlainText()
 
     def test_concurrent_idle_probes_for_one_experiment_are_deduplicated(
-        self, window, monkeypatch
+        self, window, monkeypatch, qtbot
     ):
         """One in-flight idle probe per experiment — never two racing threads.
 
@@ -1121,6 +1133,9 @@ class TestNowAndDevicePanel:
         threads racing a lazy native first import can abort the process.
         """
         controller = window._now
+        # The startup probe must have landed first (its delivery takes two
+        # event-loop turns since the BackgroundResult GUI hop, 0.28.0).
+        qtbot.waitUntil(lambda: controller._probe_inflight is None, timeout=2000)
         spawned = []
         monkeypatch.setattr(
             controller._worker,
@@ -1134,6 +1149,35 @@ class TestNowAndDevicePanel:
         controller._apply_idle_scan_number(("TestExp", None))
         controller.start_idle_probe()
         assert len(spawned) == 2
+
+    def test_queue_panel_is_fed_by_the_status_poll_and_disposed_on_close(self, qtbot):
+        # Own window (not the fixture): close() must run exactly once here,
+        # or the second closeEvent's disconnects warn.
+        submitter = FakeSubmitter()
+        submitter.queue_items = lambda: [
+            {"name": "geecs_run_action_plan", "args": ["a1"]}
+        ]
+        win = MainWindow(
+            configs=FakeConfigs(),
+            presets=FakePresetStore(),
+            settings=FakeSettings(),
+            submitter=submitter,
+        )
+        win._monitor.dispose()
+        from geecs_bluesky.qs_client import QueueStatus
+
+        # A changed queue-shaped field (items_in_queue) is what refetches;
+        # the construction-time poll already committed the empty key.
+        win._on_queue_status(
+            QueueStatus(
+                connected=True, re_state="idle", worker_exists=True, items_in_queue=1
+            )
+        )
+        qtbot.waitUntil(lambda: win.queue_table.rowCount() == 1, timeout=3000)
+        assert win.queue_table.item(0, 1).text() == "Action: a1"
+        assert win.queue_summary_label.text() == "1 waiting"
+        win.close()
+        assert win._queue_panel._disposed
 
     def test_no_experiment_probe_answers_inline_without_a_thread(
         self, qtbot, monkeypatch

@@ -95,6 +95,8 @@ class TestMainWindowOperatorTooltips:
         "stop_button",
         "state_pill",
         "progress_bar",
+        "queue_table",
+        "queue_clear_button",
         "device_combo",
         "set_field",
         "set_button",

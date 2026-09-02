@@ -4,6 +4,37 @@ All notable changes to GEECS-Console are documented here.  Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is
 semantic.
 
+## [0.28.0] - 2026-09-02
+
+### Added
+
+- **R8 queue panel** (right column, below the now panel): what the RE
+  Manager holds — a summary line, a read-only table of the running item,
+  the waiting items (front first, any client's) and the last 10 finished
+  items with their exit status / finish time / first message line, and a
+  **Clear queue** button (confirmation modal) as the recovery verb for a
+  failed item returned to the queue front. Owned by
+  `app/queue_panel.py::QueuePanelController`; refreshed from the existing
+  1 s manager status poll when the queue-shaped fields change (plus a 5 s
+  fallback), three bounded 0MQ reads on a background thread, one in
+  flight; a change arriving mid-fetch is fetched as soon as that fetch
+  lands, and the fallback tick re-reads the queue only (the manager's
+  history is unbounded and can only change with the status key). Item
+  summaries are pure functions tolerant of every request schema version
+  the manager's history may hold, including the named plans' keyword
+  shape (GeecsBluesky ≥ 0.73.0).
+
+### Fixed
+
+- `BackgroundResult` no longer emits toward its consumer from the daemon
+  thread: the result hops onto the GUI thread through the worker's own
+  queued signal (the worker is held alive until the hop lands) and
+  `result_ready` is emitted there. A daemon-thread emission aimed at a
+  consumer QObject races the consumer's destruction and segfaulted the
+  offscreen suite once the queue panel added a fetch per status snapshot.
+  Delivery now takes two event-loop turns; consumer connections are
+  unchanged.
+
 ## [0.27.0] - 2026-09-02
 
 ### Removed

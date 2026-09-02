@@ -259,6 +259,32 @@ QListWidget::item:hover {
     background-color: #f0f5f9;
 }
 
+QTableWidget {
+    background-color: #ffffff;
+    border: 1px solid #b9c0c7;
+    border-radius: 3px;
+    outline: none;
+    gridline-color: #eef1f3;
+}
+
+QTableWidget::item {
+    padding: 2px 6px;
+    color: #2a323a;
+}
+
+QTableWidget::item:selected {
+    background-color: #dcebf5;
+    color: #2a323a;
+}
+
+QHeaderView::section {
+    background-color: #f3f5f7;
+    color: #6b7681;
+    border: none;
+    border-bottom: 1px solid #b9c0c7;
+    padding: 3px 6px;
+}
+
 /* ------------------------------------------------------------------ */
 /* Radios: accent when checked                                        */
 /* ------------------------------------------------------------------ */
