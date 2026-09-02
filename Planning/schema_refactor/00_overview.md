@@ -248,13 +248,14 @@ machine API) on usage evidence — strangler-fig, no migration cliff.
 Each named plan's parameter model lives in GEECS-Schemas (pydantic-only),
 its plan function in GeecsBluesky beside the funnel, its
 `user_group_permissions` entry in the qserver profile. Per-plan JSON Schema
-artifacts land under `docs/geecs_schemas/` — which means **generalising the
-single-artifact export**: `schema_export.py` is one-model today
-(`SCHEMA_ARTIFACT`, `scan_request_json_schema()`), the no-drift guard
-compares that one file, `docgen.py` hardcodes the `scan_request` entry, and
-mkdocs lists the reference pages by hand. 2b budgets a models→artifacts
-registry in `schema_export.py` (schema knowledge stays in its one package)
-with the guard and docgen iterating it. Not free; not large.
+artifacts land under `docs/geecs_schemas/` through the export registry
+(`schema_export.EXPORTED_SCHEMAS`, **built as 2b-i**, GEECS-Schemas 0.16.0:
+one artifact per entry, the no-drift guard parametrized over the registry,
+an orphan-artifact check, `SCHEMA_ARTIFACT` kept as the ScanRequest alias
+the worker annotation and OSPREY point at). Each named plan's parameter
+model is one registry line plus a regenerate. The Markdown reference for
+the plan models is a second registry handed to `docgen.render_reference`
+(2b-ii), not a change to the config-kind registry; mkdocs nav stays as is.
 
 #### 2c — OSPREY tail (optional, no deadline)
 
