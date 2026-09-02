@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "imageanalysis"
-version = "1.13.0"
+version = "1.13.1"
 description = "Central sub-repository for online and offline analysis of BELLA exeriments' images."
 authors = ["Reinier van Mourik <reinier.vanmourik@tausystems.com>"]
 readme = "README.md"
@@ -30,13 +30,13 @@ scikit-image = ">=0.19,<1.0"
 # other
 boto3 = "^1.28"
 opencv-python = "^4.9.0.80"
-pytest = ">=7.4"
 
 geecs-data-utils = { path = "../GEECS-Data-Utils", develop=true }
 
 
 [tool.poetry.group.dev.dependencies]
 matplotlib = "^3.0"
+pytest = ">=7.4"
 
 [build-system]
 requires = ["poetry-core"]

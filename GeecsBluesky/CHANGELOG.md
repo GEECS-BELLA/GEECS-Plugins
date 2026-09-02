@@ -4,7 +4,7 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [0.70.1] - 2026-09-01
+## [0.70.2] - 2026-09-01
 
 ### Fixed
 
@@ -37,6 +37,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   the sole-eligible-is-async case (no preflight, no key, inert
   `native_image_save: false`), end to end through the runner and at the
   seam. EVENT_SCHEMA.md / capture FORMAT.md / CLAUDE.md say so.
+
+## [0.70.1] - 2026-09-01
+
+### Fixed
+
+- `poetry.lock` refreshed for ImageAnalysis 1.13.1 (#739): pytest,
+  pluggy and iniconfig no longer resolve into the **main** group
+  through the `analysis`/`optimize` extras (ImageAnalysis declared
+  pytest as a main dependency). Poetry-deployed worker hosts are
+  unaffected in practice — they install the dev group, which already
+  carries pytest; the change is to the main-group / `pip install`
+  closure. Lock-file refresh only — no code change.
 
 ## [0.70.0] - 2026-09-01
 
