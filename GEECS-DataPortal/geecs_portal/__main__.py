@@ -2,8 +2,8 @@
 
 Injects the real catalog (``TiledScanCatalog.from_config()`` — the
 ``[tiled]`` section of ``~/.config/geecs_python_api/config.ini``) and
-serves with uvicorn.  The service is read-only by doctrine; see the
-package ``CLAUDE.md``.
+serves with uvicorn.  The service is read-only except explicit analysis
+runs; see the package ``CLAUDE.md``.
 """
 
 from __future__ import annotations
@@ -12,10 +12,18 @@ import argparse
 import logging
 from pathlib import Path
 
+import matplotlib
+
+# Pinned BEFORE any ScanAnalysis / ImageAnalysis import: the analysis
+# runs execute ScanAnalysis renderers (pyplot) on a worker thread, and a
+# GUI backend selected lazily on a non-main thread is a crash. The
+# portal's own figures use the Figure API and need no backend at all.
+matplotlib.use("Agg")
+
 
 def main() -> None:
     """Parse CLI arguments, build the app over the real catalog, serve."""
-    parser = argparse.ArgumentParser(description="GEECS Data Portal (read-only)")
+    parser = argparse.ArgumentParser(description="GEECS Data Portal")
     parser.add_argument("--host", default="0.0.0.0", help="bind address")
     parser.add_argument("--port", type=int, default=8200, help="HTTP port")
     parser.add_argument(

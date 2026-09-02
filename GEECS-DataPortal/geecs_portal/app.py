@@ -36,6 +36,7 @@ from urllib.parse import urlencode
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import (
+    FileResponse,
     HTMLResponse,
     JSONResponse,
     RedirectResponse,
@@ -58,7 +59,9 @@ from geecs_data_utils.tiled_catalog import (
     resolve_scan_folder,
 )
 
-from geecs_portal import analysis, figures, resources
+from geecs_data_utils.type_defs import ScanTag
+
+from geecs_portal import analysis, analysis_runs, figures, resources
 from geecs_portal.cache import ShotDataCache
 
 logger = logging.getLogger(__name__)
@@ -257,11 +260,36 @@ def _default_x(detail, columns: list[str]) -> str:
     return scan_vars[0] if scan_vars else ""
 
 
+@dataclasses.dataclass(frozen=True)
+class _DiagInfo:
+    """A loadable diagnostic's run-side facts (the selector cache's value)."""
+
+    #: The data device the wrapper reads: ``scan.device``, else the name
+    #: (``data_device_name or device_name`` in ScanAnalysis's wrapper).
+    device: str
+    #: Per-analyzer output directory under ``analysis/ScanNNN/``.
+    output_name: str
+
+    @classmethod
+    def from_diagnostic(cls, diag) -> "_DiagInfo":
+        scan = diag.scan or {}
+        device = (
+            scan.get("device")
+            if isinstance(scan, dict)
+            else getattr(scan, "device", None)
+        )
+        return cls(
+            device=str(device or diag.name),
+            output_name=str(getattr(diag, "effective_output_name", None) or diag.name),
+        )
+
+
 def create_app(
     catalog: ScanCatalog,
     *,
     default_experiment: str = "",
     processing_config_dir: Optional[Path] = None,
+    analysis_factory: Optional[analysis_runs.AnalyzerFactory] = None,
 ) -> FastAPI:
     """Build the portal application over an injected catalog.
 
@@ -280,6 +308,13 @@ def create_app(
         competing resolution paths exist, so the portal names its
         tree explicitly). The selector also hides itself when
         ImageAnalysis (the ``analysis`` extra) is not installed.
+    analysis_factory : callable, optional
+        ``(analyzer_id, config_dir) -> ScanAnalyzer`` for the analysis
+        runs (``/api/run/{uid}/analysis``, the 04 design). ``None``
+        (the default) uses the real ScanAnalysis factory, which then
+        also needs the ``analysis`` extra; tests inject a fake. The
+        feature shares ``processing_config_dir`` — the unified
+        diagnostic tree — and is OFF with it.
 
     Returns
     -------
@@ -686,7 +721,11 @@ def create_app(
     processing_cache: dict = {}
 
     def _processing_names() -> list[str]:
-        """LOADABLE diagnostic IDs for the processing selector (``[]`` = hidden).
+        """LOADABLE diagnostic IDs for the processing selector (``[]`` = hidden)."""
+        return list(_processing_infos())
+
+    def _processing_infos() -> dict[str, _DiagInfo]:
+        """LOADABLE diagnostics → their run-side facts (``{}`` = hidden).
 
         Explicit-opt-in: no configured tree, no feature (never the
         global fallback). Degrades to empty — never errors a page —
@@ -725,11 +764,11 @@ def create_app(
         except Exception as exc:  # noqa: BLE001 — unlistable tree = no selector
             logger.debug("processing configs unavailable: %s", exc)
             return []
-        valid = []
+        valid: dict[str, _DiagInfo] = {}
         for name in names:
             try:
-                load_diagnostic(name, config_dir=processing_config_dir)
-                valid.append(name)
+                diag = load_diagnostic(name, config_dir=processing_config_dir)
+                valid[name] = _DiagInfo.from_diagnostic(diag)
             except Exception as exc:  # noqa: BLE001 — one bad YAML must not hide the rest
                 logger.info(
                     "processing selector: skipping %r — not a loadable "
@@ -741,6 +780,136 @@ def create_app(
             processing_cache.clear()  # one entry: the current tree state
             processing_cache[fingerprint] = valid
         return valid
+
+    # ---- analysis runs (04 design: direct ScanAnalysis execution) ----
+    runner = analysis_runs.AnalysisRunner()
+    factory = analysis_factory or analysis_runs.scan_analysis_factory
+
+    def _analysis_available() -> None:
+        """404 unless the run feature is configured AND installed."""
+        if processing_config_dir is None:
+            raise HTTPException(
+                status_code=404,
+                detail="analysis runs are not configured on this portal "
+                "(start it with --processing-configs)",
+            )
+        if analysis_factory is None:
+            try:
+                import scan_analysis  # noqa: F401 — the real factory's need
+            except ImportError as exc:
+                raise HTTPException(
+                    status_code=404,
+                    detail="analysis runs need the portal's 'analysis' extra "
+                    "(pip install geecs-data-portal[analysis])",
+                ) from exc
+
+    def _analysis_context(uid: str, day: str):
+        """(detail, scan folder, analysis folder, ScanTag) or 404."""
+        detail = _load_run(uid)
+        run_day = _run_day(detail, day)
+        folder = resolve_scan_folder(detail, run_day) if run_day else None
+        if folder is None or run_day is None:
+            raise HTTPException(status_code=404, detail="scan folder not resolvable")
+        number = detail.summary.scan_number
+        if number is None or not detail.summary.experiment:
+            raise HTTPException(
+                status_code=404, detail="run has no scan number / experiment"
+            )
+        tag = ScanTag(
+            year=run_day.year,
+            month=run_day.month,
+            day=run_day.day,
+            number=int(number),
+            experiment=detail.summary.experiment,
+        )
+        return detail, folder, analysis_runs.analysis_folder_for(folder), tag
+
+    @app.get("/api/run/{uid}/analysis")
+    def run_analysis_list(uid: str, day: str = "") -> JSONResponse:
+        """The scan's analyzers: applicability, job record, files on disk.
+
+        ``applicable`` = the diagnostic's data device (``scan.device``,
+        else its name) has a data folder in this scan. Every loadable
+        diagnostic is listed regardless, so a device-less one is still
+        reachable; the tab collapses the inapplicable ones.
+        """
+        _analysis_available()
+        detail, folder, analysis_folder, _ = _analysis_context(uid, day)
+        devices = set(resources.image_devices(folder))
+        try:
+            present = {p.name for p in folder.iterdir() if p.is_dir()}
+        except OSError:
+            present = set()
+        jobs = runner.jobs_for(uid)
+        analyzers = []
+        for name, info in _processing_infos().items():
+            job = jobs.get(name)
+            analyzers.append(
+                {
+                    "id": name,
+                    "device": info.device,
+                    "applicable": info.device in devices or info.device in present,
+                    "output_dir": info.output_name,
+                    "job": job.to_json() if job is not None else None,
+                    "files": analysis_runs.list_artifacts(
+                        analysis_folder, info.output_name
+                    ),
+                }
+            )
+        running = runner.running_for(uid)
+        return JSONResponse(
+            {
+                "analyzers": analyzers,
+                "running": running.analyzer_id if running is not None else None,
+            },
+            headers={"Cache-Control": "no-cache"},
+        )
+
+    @app.post("/api/run/{uid}/analysis", status_code=202)
+    def run_analysis_start(uid: str, analyzer: str, day: str = "") -> JSONResponse:
+        """Start one analyzer on this scan (202 + the fresh job record).
+
+        Ladder: feature off / extra missing 404 · unknown or unloadable
+        diagnostic 404 · folder unresolvable 404 · a job already running
+        for this scan 409 (its record in the body). Build + run + cleanup
+        happen on the worker thread, so everything past this point —
+        config errors included — lands in the record as ``failed``.
+        """
+        _analysis_available()
+        if analyzer not in _processing_infos():
+            raise HTTPException(status_code=404, detail=f"no diagnostic: {analyzer!r}")
+        _, _, analysis_folder, tag = _analysis_context(uid, day)
+        config_dir = Path(processing_config_dir)
+
+        def run() -> Optional[list]:
+            return analysis_runs.run_scan_analyzer(factory, analyzer, config_dir, tag)
+
+        try:
+            job = runner.start(uid, analyzer, run, relative_to=analysis_folder)
+        except analysis_runs.RunInProgress as exc:
+            return JSONResponse(
+                {
+                    "detail": "a run is in progress for this scan",
+                    "job": exc.job.to_json(),
+                },
+                status_code=409,
+            )
+        return JSONResponse(job.to_json(), status_code=202)
+
+    @app.get("/run/{uid}/artifact")
+    def run_artifact(uid: str, path: str, day: str = "") -> FileResponse:
+        """Serve one file a run produced, from the scan's analysis folder only.
+
+        Containment is the contract (:func:`analysis_runs.contained_artifact`):
+        anything that resolves outside the scan's own analysis folder is
+        a 404, same as a missing file. ``no-cache``: re-runs overwrite
+        by name.
+        """
+        _, _, analysis_folder, _ = _analysis_context(uid, day)
+        file = analysis_runs.contained_artifact(analysis_folder, path)
+        if file is None:
+            raise HTTPException(status_code=404, detail="no such artifact")
+        return FileResponse(file, headers={"Cache-Control": "no-cache"})
 
     def _apply_processing(arrays: list, processing: str) -> list:
         """Ephemeral-process *arrays* → the analyzers' processed images.
