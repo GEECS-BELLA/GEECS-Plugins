@@ -803,6 +803,14 @@ def create_app(
     # ---- analysis runs (04 design: direct ScanAnalysis execution) ----
     factory = analysis_factory or analysis_runs.scan_analysis_factory
 
+    def _analysis_enabled() -> bool:
+        """Whether the scan page should offer the Analysis tab at all."""
+        try:
+            _analysis_available()
+        except HTTPException:
+            return False
+        return True
+
     def _analysis_available() -> None:
         """404 unless the run feature is configured AND installed."""
         if processing_config_dir is None:
@@ -1171,6 +1179,9 @@ def create_app(
             kind, kind_path = "", None
         n_rows = None if detail.data is None else len(detail.data)
         shot = max(1, min(shot, n_rows) if n_rows else shot)
+        # The Analysis tab needs a resolvable folder (runs and artifact
+        # listing are per scan folder) on top of the feature gate.
+        analysis_enabled = folder is not None and _analysis_enabled()
         if (
             kind == "native"
             and folder is not None
@@ -1260,7 +1271,13 @@ def create_app(
                 "next_day": (
                     (run_day + timedelta(days=1)).isoformat() if run_day else ""
                 ),
-                "tab": tab if tab in ("overview", "plot", "images") else "plot",
+                "tab": (
+                    tab
+                    if tab in ("overview", "plot", "images")
+                    or (tab == "analysis" and analysis_enabled)
+                    else "plot"
+                ),
+                "analysis_enabled": analysis_enabled,
                 "devices": devices,
                 "sel_device": sel_device,
                 "kind": kind,

@@ -540,3 +540,55 @@ class TestRealFactory:
         assert callable(analyzer.run_analysis) and callable(analyzer.cleanup)
         assert analyzer.id == "UC_Crop"
         assert analyzer.data_device_name == "cam"
+
+
+class TestAnalysisTab:
+    """The scan page offers the Analysis tab only when runs are possible."""
+
+    def test_tab_present_and_sticky_when_enabled(self, scan_folder, configs_tree):
+        pytest.importorskip("image_analysis")
+        client = _client(scan_folder, configs_tree)
+        page = client.get("/run/uid-002", params={"tab": "analysis"})
+        assert page.status_code == 200
+        assert 'data-pane="analysis"' in page.text
+        assert 'id="pane-analysis"' in page.text
+        assert "const ANALYSIS_ENABLED = true;" in page.text
+        # The URL-carried tab survives into the page state (a link IS the view).
+        assert 'tab: p.get("tab") || "analysis"' in page.text
+
+    def test_tab_absent_when_feature_off(self, scan_folder):
+        catalog = FakeCatalog()
+        detail = _detail(2)
+        detail.start_doc["scan_folder"] = str(scan_folder)
+        catalog.details["uid-002"] = detail
+        client = TestClient(create_app(catalog))
+        page = client.get("/run/uid-002", params={"tab": "analysis"})
+        assert page.status_code == 200
+        assert 'data-pane="analysis"' not in page.text
+        assert "const ANALYSIS_ENABLED = false;" in page.text
+        assert (
+            'tab: p.get("tab") || "plot"' in page.text
+        )  # falls back, never a dead tab
+
+    def test_tab_absent_when_folder_unresolvable(self, configs_tree):
+        pytest.importorskip("image_analysis")
+        client = TestClient(
+            create_app(
+                FakeCatalog(),
+                processing_config_dir=configs_tree,
+                analysis_factory=_factory("ok"),
+            )
+        )
+        page = client.get("/run/uid-002", params={"tab": "analysis"})
+        assert page.status_code == 200
+        assert 'data-pane="analysis"' not in page.text
+
+    def test_tab_absent_when_extra_missing(
+        self, scan_folder, configs_tree, monkeypatch
+    ):
+        pytest.importorskip("image_analysis")
+        monkeypatch.setitem(__import__("sys").modules, "scan_analysis", None)
+        client = _client(scan_folder, configs_tree, analysis_factory=None)
+        page = client.get("/run/uid-002")
+        assert page.status_code == 200
+        assert 'data-pane="analysis"' not in page.text

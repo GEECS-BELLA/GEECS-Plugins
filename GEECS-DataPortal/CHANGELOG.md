@@ -3,6 +3,24 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.17.0] - 2026-09-02
+
+### Added
+
+- **Analysis tab** on the scan page (PR 3 of the 04 design): every
+  loadable diagnostic with its data device, applicability, state badge
+  (`queued`/`running`/`done`/`failed`/`no_data`), a run / re-run button
+  (disabled while any run is active for the scan), the error text and a
+  collapsible captured log on failure, and the produced artifacts inline
+  (raster images) or as download links — served through
+  `/run/{uid}/artifact`. Inapplicable analyzers are collapsed under
+  "other analyzers". The page polls the list endpoint every 1.5 s while
+  a run is active and stops when it settles. The tab (and the
+  `tab=analysis` URL state) appears only when runs are possible: the
+  feature is configured, the `analysis` extra is installed and the scan
+  folder resolves; otherwise a bookmarked `tab=analysis` falls back to
+  the Plot tab.
+
 ## [0.16.0] - 2026-09-01
 
 ### Added
