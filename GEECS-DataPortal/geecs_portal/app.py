@@ -70,9 +70,10 @@ _STATIC_DIR = Path(__file__).parent / "static"
 def _portal_version() -> str:
     """The installed package version — the /api cache-bust key.
 
-    Completed-run /api responses are served immutable, but their SHAPE
-    changes with portal releases; the page keys every /api fetch by
-    this version so browser caches roll over on upgrade.
+    The page keys every /api fetch and bin-image card by this version.
+    Union-frame responses are ``no-cache`` now (``_UNION_HEADERS``), so
+    for them the key is only insurance against intermediaries; it still
+    matters for a payload-shape change behind any cached response.
     """
     from importlib.metadata import PackageNotFoundError, version
 
@@ -84,6 +85,17 @@ def _portal_version() -> str:
 
 #: Cap on rows fed to a plot (quick-look, not a data browser).
 _PLOT_MAX_ROWS = 100_000
+
+#: Headers for every response computed over the union frame (columns,
+#: frame, binned, bin-images, bin-image.png). The event table is frozen
+#: once the run stops, but the s-file half of the union is NOT: ScanAnalysis
+#: appends its columns to ``analysis/sN.txt`` after the scan — hours later
+#: when it is re-run by hand — so a completed run's column list can grow.
+#: An immutable response would pin a browser to the pre-analysis shape
+#: for a year (the 7-vs-30-columns incident, 2026-09-01). No validator
+#: is emitted, so ``no-cache`` means a re-fetch, not a 304 — an ETag
+#: over the s-file's stat is the follow-up if revisits feel slow.
+_UNION_HEADERS = {"Cache-Control": "no-cache"}
 
 #: Requests carrying a proxy mount prefix — the Grafana/JupyterHub
 #: convention every reverse proxy speaks.
@@ -311,11 +323,12 @@ def create_app(
             ) from exc
 
     def _png_headers(detail) -> dict:
-        """Caching headers for the immutable-per-URL PNG endpoints.
+        """Caching headers for responses over the event table ALONE.
 
         A completed run (stop doc present) never changes, so its plot
-        and shot images are cacheable indefinitely; a still-running run
-        must revalidate.
+        and per-shot images are cacheable indefinitely; a still-running
+        run must revalidate. Anything touching the union frame (and so
+        the mutable s-file) uses ``_UNION_HEADERS`` instead.
         """
         if detail.summary.exit_status:
             return {"Cache-Control": "public, max-age=31536000, immutable"}
@@ -420,7 +433,7 @@ def create_app(
             "default_x": _default_x(detail, [c["name"] for c in columns]),
             "total": len(pf.frame),
         }
-        return JSONResponse(payload, headers=_png_headers(detail))
+        return JSONResponse(payload, headers=_UNION_HEADERS)
 
     @app.get("/api/run/{uid}/frame")
     def api_frame(
@@ -493,7 +506,7 @@ def create_app(
                 ),
                 display=disp,
             ).to_plotly_json()
-        return JSONResponse(payload, headers=_png_headers(detail))
+        return JSONResponse(payload, headers=_UNION_HEADERS)
 
     @app.get("/api/run/{uid}/binned")
     def api_binned(
@@ -601,15 +614,16 @@ def create_app(
                 pretty=pretty,
                 display=disp,
             ).to_plotly_json()
-        return JSONResponse(payload, headers=_png_headers(detail))
+        return JSONResponse(payload, headers=_UNION_HEADERS)
 
     @app.get("/api/run/{uid}/filter-count")
-    def api_filter_count(uid: str, filters: str = "", day: str = "") -> dict:
+    def api_filter_count(uid: str, filters: str = "", day: str = "") -> JSONResponse:
         """Live pass count for the filters popup: ``{pass, total}``."""
         detail = _load_run(uid)
         pf, _ = _union(detail, day)
         _, mask = _masked(pf, filters)
-        return {"pass": int(mask.sum()), "total": len(pf.frame)}
+        payload = {"pass": int(mask.sum()), "total": len(pf.frame)}
+        return JSONResponse(payload, headers=_UNION_HEADERS)
 
     def _bin_groups(pf, mask, bincfg_raw: str):
         """Per-bin shot membership over the filtered union frame.
@@ -814,7 +828,7 @@ def create_app(
             "total": len(pf.frame),
             "code": analysis.bin_images_code(uid, run_day, device, flt, cfg),
         }
-        return JSONResponse(payload, headers=_png_headers(detail))
+        return JSONResponse(payload, headers=_UNION_HEADERS)
 
     @app.get("/", response_class=RedirectResponse)
     def index(request: Request) -> str:
@@ -1179,7 +1193,6 @@ def create_app(
         complete = bool(detail.summary.exit_status)
         n_rows = None if detail.data is None else len(detail.data)
         arrays: list = []
-        cacheable = True
         for shot in shots:
             # Same refusals as the per-shot endpoint: never fall through
             # to an ordinal join beyond the recorded events (orphan
@@ -1204,7 +1217,6 @@ def create_app(
                         status_code=404, detail=resolved.reason or resolved.kind
                     )
                 continue
-            cacheable = cacheable and resolved.cacheable
             arrays.append(resolved.array)
         if processing and arrays:
             arrays = _apply_processing(arrays, processing)
@@ -1219,14 +1231,10 @@ def create_app(
             raise HTTPException(
                 status_code=404, detail=f"render failed: {exc}"
             ) from exc
-        # Processed responses never cache immutable: the diagnostic YAML
-        # is a mutable input the URL does not key (see run_image).
-        headers = (
-            {"Cache-Control": "no-cache"}
-            if (processing or not cacheable)
-            else _png_headers(detail)
-        )
-        return Response(content=png, media_type="image/png", headers=headers)
+        # Never immutable: bin membership comes off the union frame
+        # (mutable s-file), and the diagnostic YAML behind ``processing``
+        # is likewise a mutable input the URL does not key (see run_image).
+        return Response(content=png, media_type="image/png", headers=_UNION_HEADERS)
 
     @app.get("/run/{uid}/plot.png")
     def run_plot(uid: str, y: str, x: str = "") -> Response:

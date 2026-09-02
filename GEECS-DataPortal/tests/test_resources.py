@@ -489,7 +489,7 @@ class TestBinImages:
             (2, 1, [3]),
         ]
         assert "compute_bin_key" in payload["code"]
-        assert "immutable" in response.headers["cache-control"]
+        assert response.headers["cache-control"] == "no-cache"  # s-file mutable
 
     def test_bin_average_is_the_nanmean_of_member_shots(self, scan_folder):
         client = self._client(scan_folder)
@@ -596,10 +596,10 @@ class TestBinImagesReviewPins:
         decoded = np.array(Image.open(io.BytesIO(response.content)))
         assert decoded[0, 1] == decoded[0, 2] == 255  # still bin {1,2}'s average
 
-    def test_ordinal_member_downgrades_cache_timestamp_join_does_not(self, scan_folder):
-        # cam2: timestamp-named files but NO event acq column → every
-        # member resolves by listing order → the response must not be
-        # long-cached (SMB listing blips can shift the join).
+    def test_bin_images_never_cache_immutable(self, scan_folder):
+        # Bin membership comes off the union frame, whose s-file half
+        # grows after the run completes — so even the timestamp-joined
+        # device (cam) is no-cache, not only the ordinal one (cam2).
         cam2 = scan_folder / "cam2"
         cam2.mkdir()
         for shot in (1, 2, 3):
@@ -615,10 +615,30 @@ class TestBinImagesReviewPins:
         joined = client.get(
             "/run/uid-002/bin-image.png", params={"device": "cam", "bin": 0}
         )
-        assert "immutable" in joined.headers["cache-control"]
+        assert joined.headers["cache-control"] == "no-cache"
 
-    def test_running_run_serves_no_cache(self, scan_folder):
+    def test_shot_image_cache_gates_on_completion_and_join(self, scan_folder):
+        # image.png is the one endpoint still gated on BOTH completion
+        # and a timestamp join (the union-frame endpoints are always
+        # no-cache): running → no-cache; completed timestamp-joined →
+        # immutable; completed ordinal-joined (cam2) → no-cache.
         from geecs_data_utils.tiled_catalog import RunDetail, summary_from_metadata
+
+        cam2 = scan_folder / "cam2"
+        cam2.mkdir()
+        for shot in (1, 2, 3):
+            Image.fromarray(np.zeros((5, 5), dtype=np.uint16)).save(
+                cam2 / f"cam2_{_LV + float(shot):.3f}.png"
+            )
+        done = TestBinImages()._client(scan_folder)
+        joined = done.get("/run/uid-002/image.png", params={"device": "cam", "shot": 1})
+        assert joined.status_code == 200
+        assert "immutable" in joined.headers["cache-control"]
+        ordinal = done.get(
+            "/run/uid-002/image.png", params={"device": "cam2", "shot": 1}
+        )
+        assert ordinal.status_code == 200
+        assert ordinal.headers["cache-control"] == "no-cache"
 
         catalog = FakeCatalog()
         base = _detail(2)
@@ -632,13 +652,9 @@ class TestBinImagesReviewPins:
         )
         catalog.details["uid-002"] = running
         client = TestClient(create_app(catalog))
-        listing = client.get("/api/run/uid-002/bin-images", params={"device": "cam"})
-        assert listing.headers["cache-control"] == "no-cache"
-        png = client.get(
-            "/run/uid-002/bin-image.png", params={"device": "cam", "bin": 0}
-        )
-        assert png.status_code == 200
-        assert png.headers["cache-control"] == "no-cache"
+        live = client.get("/run/uid-002/image.png", params={"device": "cam", "shot": 1})
+        assert live.status_code == 200
+        assert live.headers["cache-control"] == "no-cache"
 
     def test_unrenderable_array_degrades_never_raises(self, scan_folder):
         # A readable h5 whose /image is 4-D: the tier ladder loads it,

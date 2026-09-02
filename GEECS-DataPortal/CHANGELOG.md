@@ -3,6 +3,23 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.15.3] - 2026-09-01
+
+### Fixed
+
+- Responses computed over the union frame — `/api/run/{uid}/columns`,
+  `frame`, `binned`, `bin-images` and `bin-image.png` — are no longer
+  served `immutable` for completed runs. The event table is frozen once
+  the run stops, but the s-file half of the union is not: ScanAnalysis
+  appends its columns to `analysis/sN.txt` after the scan (hours later
+  when re-run by hand), so a browser that had fetched the column list
+  before analysis stayed pinned to the pre-analysis shape for a year
+  (scan 32 showing 7 columns while scan 33 showed 30, 2026-09-01).
+  These responses (and `filter-count`, which had no header at all)
+  are now `no-cache` — a plain re-fetch, no validator is emitted; the
+  per-shot `image.png` and `plot.png`, which read the event table
+  alone, keep their immutable headers.
+
 ## [0.15.2] - 2026-09-01
 
 ### Fixed
