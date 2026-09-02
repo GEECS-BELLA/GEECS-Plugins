@@ -18,9 +18,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `renderers.config.parse_output_filename` (ScanAnalysis 1.18.0, next to
   the code that builds the names; imported lazily) — a bin's data file
   (`_<bin>_processed.h5`) travels with its visual behind the stepper,
-  never as an auto-shown link. The listing is ordered summaries →
-  others → bins by number, capped on the bins only (never the
-  summaries), and always describes what is on disk under the
+  never as an auto-shown link (visual first, then the data file). The
+  listing is ordered summaries → others → bins by number, capped on
+  DISTINCT bins only (never the summaries, never splitting a bin), and
+  always describes what is on disk under the
   analyzer's output dir plus the finished job's non-file labels
   (before: the job's own list when done, which was the summaries only).
   A stepper click re-renders that analyzer's row only.

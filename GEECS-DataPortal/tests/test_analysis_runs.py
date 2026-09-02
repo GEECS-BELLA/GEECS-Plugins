@@ -446,13 +446,14 @@ class TestListing:
         for name in names:
             (root / "UC_X" / name).write_bytes(b"x")
         described = analysis_runs.describe_artifacts(root, [f"UC_X/{n}" for n in names])
-        assert [(d["kind"], d["bin"]) for d in described] == [
-            ("summary", None),
-            ("other", None),
-            ("bin", 2),
-            ("bin", 2),
-            ("bin", 10),
+        assert [(d["kind"], d["bin"], d["inline"]) for d in described] == [
+            ("summary", None, True),
+            ("other", None, False),
+            ("bin", 2, True),  # the visual first within a bin …
+            ("bin", 2, False),  # … then its data file
+            ("bin", 10, True),
         ]
+        # The cap keeps DISTINCT bins whole (never splits a bin's files).
         capped = analysis_runs.describe_artifacts(
             root, [f"UC_X/{n}" for n in names], max_bins=1
         )
@@ -460,8 +461,20 @@ class TestListing:
             ("summary", None),
             ("other", None),
             ("bin", 2),
+            ("bin", 2),
         ]
+        # Listing-known files skip the stat and are servable by construction.
+        assert all(
+            d["servable"]
+            for d in analysis_runs.describe_artifacts(
+                root,
+                [f"UC_X/{n}" for n in names],
+                known_files={f"UC_X/{n}" for n in names},
+            )
+        )
 
+
+class TestRun:
     def test_done_artifacts_and_serving(self, scan_folder, configs_tree, caplog):
         pytest.importorskip("image_analysis")
         # Capture respects the process's logging levels (no global level

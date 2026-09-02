@@ -982,7 +982,7 @@ def create_app(
                     "job": job.to_json() if job is not None else None,
                     "files": files,
                     "artifacts": analysis_runs.describe_artifacts(
-                        analysis_folder, shown
+                        analysis_folder, shown, known_files=set(files)
                     ),
                 }
             )
