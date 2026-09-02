@@ -4,6 +4,17 @@ All notable changes to `geecs-mcp` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.8.2] - 2026-09-01
+
+### Fixed
+
+- `poetry.lock` refreshed for ImageAnalysis 1.13.1 (#739): the
+  `analysis-run` extra no longer drags pytest, pluggy and iniconfig
+  into the **main** group — this is the one deploy path that actually
+  changes, since `deploy/DEPLOYMENT.md` installs the package with a
+  non-editable `pip install` (main deps only). Lock-file refresh only
+  — no code change.
+
 ## [0.8.1] - 2026-09-01
 
 ### Fixed
