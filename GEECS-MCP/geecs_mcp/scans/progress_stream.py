@@ -87,7 +87,13 @@ class ProgressCache:
             self._doc_addr = doc_addr
             if not doc_addr:
                 self._detail = "no document-stream address configured"
+                logger.warning(
+                    "progress stream not started: no document-stream address "
+                    "([qserver] unconfigured?) — scan_progress reports "
+                    "stream.available=false"
+                )
                 return
+        logger.info("progress stream consuming document stream %s", doc_addr)
         threading.Thread(
             target=self._run_documents,
             args=(doc_addr,),
@@ -203,3 +209,21 @@ _cache = ProgressCache()
 def get_progress_cache() -> ProgressCache:
     """The process-wide cache instance (module attribute = the patch seam)."""
     return _cache
+
+
+def start_for_client(client: Any) -> ProgressCache:
+    """Start the process-wide cache from a queue client's stream addresses.
+
+    THE one address resolution — ``doc_addr`` / ``info_addr`` read off the
+    client (``None`` on a stub or an unconfigured ``[qserver]``, which the
+    cache reports honestly).  Two callers: ``scan_progress`` on every poll
+    (the lazy start, stdio's posture) and the HTTP entry point once at
+    startup (#685), so a long-lived service is already consuming when its
+    first run's start document passes.  Returns the cache for the caller's
+    snapshot.
+    """
+    cache = get_progress_cache()
+    cache.ensure_started(
+        getattr(client, "doc_addr", None), getattr(client, "info_addr", None)
+    )
+    return cache
