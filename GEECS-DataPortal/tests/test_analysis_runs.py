@@ -371,6 +371,33 @@ class TestListing:
         crop = next(a for a in body["analyzers"] if a["id"] == "UC_Crop")
         assert crop["job"] is None
         assert crop["files"] == ["UC_Crop/Array2DScanAnalyzer/old.png"]
+        assert crop["artifacts"] == [
+            {
+                "path": "UC_Crop/Array2DScanAnalyzer/old.png",
+                "servable": True,
+                "inline": True,
+            }
+        ]
+
+    def test_described_artifacts_policy(self, tmp_path):
+        root = tmp_path / "analysis" / "Scan002"
+        (root / "UC_Crop").mkdir(parents=True)
+        (root / "UC_Crop" / "fig.svg").write_text("<svg/>")
+        (root / "UC_Crop" / "fig.png").write_bytes(b"x")
+        describe = analysis_runs.describe_artifact
+        assert describe(root, "UC_Crop/fig.png") == {
+            "path": "UC_Crop/fig.png",
+            "servable": True,
+            "inline": True,
+        }
+        assert describe(root, "UC_Crop/fig.svg")["inline"] is False  # download only
+        assert describe(root, "UC_Crop/fig.svg")["servable"] is True
+        assert describe(root, "../s2.txt") == {
+            "path": "../s2.txt",
+            "servable": False,
+            "inline": False,
+        }
+        assert describe(root, "a label.")["servable"] is False
 
 
 class TestRun:
@@ -409,6 +436,15 @@ class TestRun:
         body = client.get("/api/run/uid-002/analysis").json()
         crop = next(a for a in body["analyzers"] if a["id"] == "UC_Crop")
         assert crop["files"] == ["UC_Crop/Array2DScanAnalyzer/summary.png"]
+        # The tab renders the DESCRIBED artifacts: policy decided server-side.
+        assert crop["artifacts"] == [
+            {
+                "path": "UC_Crop/Array2DScanAnalyzer/summary.png",
+                "servable": True,
+                "inline": True,
+            },
+            {"path": "a label, not a path", "servable": False, "inline": False},
+        ]
         served = client.get(
             "/run/uid-002/artifact",
             params={"path": "UC_Crop/Array2DScanAnalyzer/summary.png"},
@@ -566,9 +602,11 @@ class TestAnalysisTab:
         assert page.status_code == 200
         assert 'data-pane="analysis"' not in page.text
         assert "const ANALYSIS_ENABLED = false;" in page.text
-        assert (
-            'tab: p.get("tab") || "plot"' in page.text
-        )  # falls back, never a dead tab
+        # The server default is Plot; the URL value still wins in
+        # readState, so the JS fallback (setTab: no pane → plot) is
+        # what keeps a carried tab=analysis from lighting nothing.
+        assert 'tab: p.get("tab") || "plot"' in page.text
+        assert 'if (!document.getElementById("pane-" + tab)) tab = "plot";' in page.text
 
     def test_tab_absent_when_folder_unresolvable(self, configs_tree):
         pytest.importorskip("image_analysis")

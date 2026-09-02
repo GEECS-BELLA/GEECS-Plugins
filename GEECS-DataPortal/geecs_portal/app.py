@@ -261,11 +261,6 @@ def _default_x(detail, columns: list[str]) -> str:
     return scan_vars[0] if scan_vars else ""
 
 
-#: Artifact types the artifact endpoint renders inline (raster only —
-#: SVG can carry script and is served as a download like everything else).
-_INLINE_IMAGE_SUFFIXES = frozenset({".png", ".jpg", ".jpeg", ".gif", ".webp"})
-
-
 @dataclasses.dataclass(frozen=True)
 class _DiagInfo:
     """A loadable diagnostic's run-side facts (the selector cache's value)."""
@@ -875,6 +870,15 @@ def create_app(
         analyzers = []
         for name, info in _processing_infos().items():
             job = jobs.get(name)
+            # What the tab shows: the finished job's own artifact list,
+            # else what is on disk under the output dir — each entry
+            # described (servable / inline) server-side so the page
+            # never guesses from a path's shape.
+            shown = (
+                job.artifacts
+                if job is not None and job.state == analysis_runs.DONE
+                else analysis_runs.list_artifacts(analysis_folder, info.output_name)
+            )
             analyzers.append(
                 {
                     "id": name,
@@ -885,6 +889,10 @@ def create_app(
                     "files": analysis_runs.list_artifacts(
                         analysis_folder, info.output_name
                     ),
+                    "artifacts": [
+                        analysis_runs.describe_artifact(analysis_folder, a)
+                        for a in shown
+                    ],
                 }
             )
         running = runner.running_for(uid)
@@ -948,7 +956,7 @@ def create_app(
         if file is None:
             raise HTTPException(status_code=404, detail="no such artifact")
         headers = {"Cache-Control": "no-cache", "X-Content-Type-Options": "nosniff"}
-        inline = file.suffix.lower() in _INLINE_IMAGE_SUFFIXES
+        inline = file.suffix.lower() in analysis_runs.INLINE_IMAGE_SUFFIXES
         return FileResponse(
             file,
             headers=headers,

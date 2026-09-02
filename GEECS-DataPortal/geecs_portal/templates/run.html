@@ -570,18 +570,17 @@ function artifactUrl(path) {
   return `${ROOT}/run/${UID}/artifact?` + p.toString();
 }
 
-function renderArtifacts(paths) {
-  if (!paths || !paths.length) return "";
-  const cards = paths.map(path => {
-    const lower = path.toLowerCase();
-    const image = /\.(png|jpe?g|gif|svg|webp)$/.test(lower);
-    // Anything not under the analysis folder (a label, an absolute
-    // path elsewhere) is shown as text, never linked.
-    const servable = !path.startsWith("/") && !path.includes("..") && /[\/.]/.test(path);
-    if (image && servable) {
-      return `<a href="${artifactUrl(path)}" target="_blank"><img src="${artifactUrl(path)}" alt="${esc(path)}" title="${esc(path)}"></a>`;
+function renderArtifacts(artifacts) {
+  // Each entry is {path, servable, inline} — decided server-side
+  // (analysis_runs.describe_artifact): the page never re-derives the
+  // policy from a path's shape.
+  if (!artifacts || !artifacts.length) return "";
+  const cards = artifacts.map(a => {
+    const path = a.path;
+    if (a.inline) {
+      return `<a href="${artifactUrl(path)}" target="_blank"><img src="${artifactUrl(path)}" alt="${escAttr(path)}" title="${escAttr(path)}"></a>`;
     }
-    if (servable) return `<a class="file" href="${artifactUrl(path)}" target="_blank">${esc(path)}</a>`;
+    if (a.servable) return `<a class="file" href="${artifactUrl(path)}" target="_blank">${esc(path)}</a>`;
     return `<span class="dim mono">${esc(path)}</span>`;
   });
   return `<div class="arts">${cards.join("")}</div>`;
@@ -591,30 +590,43 @@ function renderAnalyzer(a, anyRunning) {
   const job = a.job;
   const state = job ? job.state : "";
   const active = state === "running" || state === "queued";
-  const badge = state ? `<span class="badge ${state}">${esc(state)}</span>` : `<span class="badge">not run</span>`;
+  const badge = state ? `<span class="badge ${escAttr(state)}">${esc(state)}</span>` : `<span class="badge">not run</span>`;
   const label = job && !active ? "re-run" : "run";
-  const button = `<button class="act" ${anyRunning ? "disabled" : ""} onclick="startAnalysis(${JSON.stringify(a.id)})">${label}</button>`;
+  // Ids reach the handlers through data- attributes, never interpolated
+  // into JS-in-attribute source (a quote in the id would end the
+  // attribute — the #765 review's dead-button finding).
+  const button = `<button class="act" ${anyRunning ? "disabled" : ""} data-id="${escAttr(a.id)}" onclick="startAnalysis(this.dataset.id)">${label}</button>`;
   const device = a.device ? `<span class="dim mono" title="data device">${esc(a.device)}</span>` : "";
   const when = job && job.finished ? `<span class="dim" style="font-size:11px">${new Date(job.finished * 1000).toLocaleTimeString()}</span>` : "";
   let body = "";
   if (job && job.error) body += `<p class="err">${esc(job.error)}</p>`;
-  const artifacts = job && state === "done" && job.artifacts.length ? job.artifacts : a.files;
-  body += renderArtifacts(artifacts);
+  body += renderArtifacts(a.artifacts);
   if (job && job.log && job.log.length) {
     const open = ANALYSIS_OPEN[a.id] ? " open" : "";
-    body += `<details${open} ontoggle="ANALYSIS_OPEN[${JSON.stringify(a.id)}]=this.open"><summary>log (${job.log.length} lines)</summary><pre>${esc(job.log.join("\n"))}</pre></details>`;
+    body += `<details${open} data-id="${escAttr(a.id)}" ontoggle="ANALYSIS_OPEN[this.dataset.id]=this.open"><summary>log (${job.log.length} lines)</summary><pre>${esc(job.log.join("\n"))}</pre></details>`;
   }
   return `<div class="arow"><div class="head"><span class="id">${esc(a.id)}</span>${device}${badge}${when}<span class="right">${button}</span></div>${body}</div>`;
 }
 
+let ANALYSIS_LAST = null;  // last-rendered payload — an unchanged poll leaves the DOM alone
+
 function renderAnalysis(body) {
   const list = document.getElementById("analysisList");
   if (!list) return;
+  const anyRunning = body.running !== null;
+  const key = JSON.stringify(body);
+  if (key === ANALYSIS_LAST) {
+    // Nothing changed: keep polling while active, but do not rebuild
+    // the list (every <img> would re-fetch its artifact).
+    clearTimeout(ANALYSIS_TIMER);
+    ANALYSIS_TIMER = anyRunning ? setTimeout(() => refreshAnalysis(false), 1500) : null;
+    return;
+  }
+  ANALYSIS_LAST = key;
   if (!body.analyzers.length) {
     list.innerHTML = `<div class="plotmsg">no loadable diagnostics in the configs tree</div>`;
     return;
   }
-  const anyRunning = body.running !== null;
   const applicable = body.analyzers.filter(a => a.applicable);
   const others = body.analyzers.filter(a => !a.applicable);
   let html = applicable.map(a => renderAnalyzer(a, anyRunning)).join("");
@@ -634,6 +646,7 @@ function refreshAnalysis(force) {
   const list = document.getElementById("analysisList");
   if (!list || (!force && S.tab !== "analysis")) return;
   api("analysis", {}).then(renderAnalysis).catch(err => {
+    ANALYSIS_LAST = null;
     list.innerHTML = `<div class="plotmsg">${esc(err.message)}</div>`;
   });
 }
@@ -649,13 +662,24 @@ function startAnalysis(id) {
       refreshAnalysis(true);
     })
     .catch(err => {
+      // A 503 (shutting down), a proxy 502, a network blip: show it
+      // ONCE and re-render so the buttons come back (the up-front
+      // disable must never be the page's last word).
       const list = document.getElementById("analysisList");
-      list.insertAdjacentHTML("afterbegin", `<div class="plotmsg">${esc(err.message)}</div>`);
+      list.querySelectorAll(".plotmsg.starterr").forEach(n => n.remove());
+      list.insertAdjacentHTML("afterbegin", `<div class="plotmsg starterr">${esc(err.message)}</div>`);
+      ANALYSIS_LAST = null;
+      refreshAnalysis(true);
     });
 }
 
 // ---------------- tabs ----------------
 function setTab(tab) {
+  // A URL-carried tab whose pane this page does not have (tab=analysis
+  // carried by a stepper onto a scan whose folder is not resolvable, or
+  // opened on a portal without analysis runs) falls back to Plot —
+  // never a page with no tab lit and no pane shown.
+  if (!document.getElementById("pane-" + tab)) tab = "plot";
   S.tab = tab;
   document.querySelectorAll(".tab").forEach(t => t.classList.toggle("on", t.dataset.pane === tab));
   document.querySelectorAll(".pane").forEach(pane => pane.classList.toggle("on", pane.id === "pane-" + tab));
