@@ -88,6 +88,10 @@ dispatcher.subscribe(lambda name, doc: ...)
 dispatcher.start()  # blocking — run it in a background thread
 ```
 
+The subscription contract for clients beyond the console — firewall,
+wire format, late joiners, transport posture, stability — is
+`deploy/DEPLOYMENT.md` § "External subscribers".
+
 Do not confuse this with the manager's `--zmq-publish-console` stream
 (port 60625): that one carries captured stdout/stderr **text** for log
 tails, never documents. The two are complementary — documents for
