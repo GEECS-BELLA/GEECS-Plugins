@@ -14,9 +14,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   took effect and every clone pulled the blobs. Root `.gitignore` now
   ignores `**/third_party_sdks/**` wholesale (README excepted) and the new
   `third_party_sdks/README.md` documents the out-of-tree install layout.
-  No import path or behavior changes: the HASO analyzer already degrades
-  to a logged warning when the SDK is absent and its test module skips.
-  The blobs remain in git history; purging them is a separate decision.
+  No import path or behavior changes: the HASO analyzer module still
+  hard-imports the SDK (raises `ModuleNotFoundError` when absent) and its
+  test module skips via `importorskip`. **Existing checkouts:** pulling
+  this commit removes `wavekit_43/` from the working tree — copy it aside
+  first on any machine that has it (the HASO box). Two lab-owned HASO4
+  calibration files were inside that directory; the README gives the
+  `git show` recovery lines. The blobs remain in git history; purging them
+  is a separate decision.
 
 ## [1.13.1] — 2026-09-01
 
