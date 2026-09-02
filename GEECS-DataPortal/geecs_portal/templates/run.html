@@ -662,12 +662,11 @@ function startAnalysis(id) {
       refreshAnalysis(true);
     })
     .catch(err => {
-      // A 503 (shutting down), a proxy 502, a network blip: show it
-      // ONCE and re-render so the buttons come back (the up-front
-      // disable must never be the page's last word).
-      const list = document.getElementById("analysisList");
-      list.querySelectorAll(".plotmsg.starterr").forEach(n => n.remove());
-      list.insertAdjacentHTML("afterbegin", `<div class="plotmsg starterr">${esc(err.message)}</div>`);
+      // A 503 (shutting down), a proxy 502, a network blip: flash it
+      // (flashNote survives the list re-render that follows) and
+      // re-render so the buttons come back — the up-front disable must
+      // never be the page's last word.
+      flashNote("run failed: " + err.message);
       ANALYSIS_LAST = null;
       refreshAnalysis(true);
     });
