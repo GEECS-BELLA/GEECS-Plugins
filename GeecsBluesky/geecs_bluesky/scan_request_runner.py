@@ -1,36 +1,41 @@
-"""Run a ScanRequest: resolve config names, map onto the session machinery.
+"""ScanRequest resolution: the pure prologue behind the one scan plan.
 
-``session.run(request)`` hands a
-:class:`~geecs_schemas.scan_request.ScanRequest` here.  :func:`run_scan_request`
+:func:`~geecs_bluesky.plans.scan_request_plan.geecs_scan_request_plan` (the
+single ScanRequest orchestration, run by the queueserver worker and by the
+headless :meth:`GeecsSession.run` alike) is assembled from the functions
+here.  They
 
-- resolves every config *name* through a :class:`ConfigResolver`
+- resolve every config *name* through a :class:`ConfigResolver`
   (:mod:`geecs_bluesky.config_resolver`, re-exported here);
-- unions the named save sets into one effective SaveSet — the per-device
+- union the named save sets into one effective SaveSet — the per-device
   union rule is documented on :func:`merge_save_sets`; everything downstream
   (devices config, telemetry exclusion, boundary warning) sees the merged set;
-- adapts schemas to engine shapes (:func:`save_set_to_devices_config`,
+- adapt schemas to engine shapes (:func:`save_set_to_devices_config`,
   :func:`trigger_writes_from_profile`) — adapters live bluesky-side because
   ``geecs_schemas`` must never import ``geecs_bluesky``;
-- assembles and compiles action slots in §4.4b nesting order
+- assemble and compile action slots in §4.4b nesting order
   (:func:`assemble_action_slots`), with fail-fast pre-claim name resolution
-  and every plan signal pre-connected (:func:`prefetch_action_signals` — a
-  lazy connect inside the RE loop would deadlock);
-- executes noscan/step (multi-axis = outer-product grid, first axis
-  outermost) and optimize modes on a
-  :class:`~geecs_bluesky.session.GeecsSession`.
+  and every plan signal prefetched (:func:`prefetch_action_signals`);
+- validate fail-fast (:func:`validate_scan_request` — the same function
+  clients run pre-submit, so submission-time and execution-time validation
+  cannot drift) and derive the pure run picture (:func:`build_step_scan_spec`:
+  positions, metadata, ScanInfo, totals; multi-axis = outer-product grid,
+  first axis outermost).
 
-Pseudo (composite) scan variables execute: :func:`resolve_movable_target`
-compiles every component's ``forward`` formula fail-fast pre-claim and
-:func:`build_movable` builds a
+Nothing here touches hardware or the RunEngine: device *construction*
+goes through the session factories the plan hands in, and connects are
+plan messages.  Pseudo (composite) scan variables execute:
+:func:`resolve_movable_target` compiles every component's ``forward``
+formula fail-fast pre-claim and :func:`build_movable` builds a
 :class:`~geecs_bluesky.devices.ca.pseudo.CaPseudoMovable` for them, on both
 the step-axis and optimize movable paths (spec + formulas recorded in run
 metadata under ``pseudo_variables``).
 
 Deliberate v1 gaps (validated, then refused loudly — never silently wrong):
-``all_scalars``, and optimize without either an
-injected ``objective``/``suggester`` pair or an ``optimization_binder``
-(the Xopt stack lives in ``geecs_bluesky.optimization`` behind the
-``optimize`` extra — the binder is the caller's injected seam for it).
+``all_scalars``, and optimize without an optimization loader (the Xopt
+stack lives in ``geecs_bluesky.optimization`` behind the ``optimize``
+extra; the worker registers its loader at startup and a headless caller
+injects a ready-made objective/suggester pair through ``GeecsSession.run``).
 
 Configs speak GEECS device/variable names, never PVs (ratified convention);
 PV derivation stays inside the device factories.
@@ -43,7 +48,6 @@ import logging
 import time
 from collections.abc import Mapping
 from dataclasses import dataclass
-from contextlib import nullcontext
 from typing import Any, Callable
 
 # ConfigsRepoResolver is re-exported: the existing import surface
@@ -58,19 +62,15 @@ from geecs_bluesky.db_runtime import (
     GeecsDbServedSetProvider,
     ScalarPolicyProvider,
     resolve_entry_scalars,
-    select_telemetry_variables,
 )
 from geecs_bluesky.exceptions import GeecsConfigurationError, GeecsDeviceDownError
 from geecs_bluesky.forward_expr import CompiledForward, compile_forward
 from geecs_bluesky.models.shot_control import ShotControlWrites
 from geecs_bluesky.plans.action_compiler import compile_action_plan
-from geecs_bluesky.plans.run_wrapper import claim_scan
 from geecs_bluesky.preflight import run_unserved_variables_check
-from geecs_bluesky.scan_log import log_claimed_scan_failure, scan_log
 from geecs_schemas import (
     ActionBindings,
     ActionPlan,
-    AcquisitionMode,
     PseudoScanVariable,
     SaveRole,
     SaveSet,
@@ -843,11 +843,11 @@ def _defaults_flag(defaults: Any | None, name: str, fallback: bool) -> bool:
 def validate_scan_request(
     request: ScanRequest, resolver: ConfigResolver
 ) -> tuple[ScanRequest, dict[str, Any]]:
-    """Fail-fast dry-run of everything :func:`run_scan_request` must resolve.
+    """Fail-fast dry-run of everything the scan plan's preamble must resolve.
 
     THE one definition of "what must resolve" (issue #529): the GUI
     bridge's ``reinitialize`` calls this for submission-time errors, and
-    :func:`run_scan_request` runs it as its own first phase — so the
+    the plan preamble runs it as its own first phase — so the
     bridge's fail-fast can never drift from execution.  **When a new
     resolvable field is added to the runner, its resolution is added
     here**, never re-implemented in a caller.
@@ -970,7 +970,7 @@ MovableTarget = PlainMovableTarget | PseudoMovableTarget
 class StepScanSpec:
     """The pure execution picture of a step/noscan request (no devices).
 
-    Everything :func:`run_scan_request` derives from the request *before*
+    Everything the plan preamble derives from the request *before*
     touching hardware, packaged so the legacy entry point and the
     queueserver plan preamble
     (:func:`~geecs_bluesky.plans.scan_request_plan.geecs_scan_request_plan`)
@@ -1016,7 +1016,7 @@ def build_step_scan_spec(
 ) -> StepScanSpec:
     """Assemble the pure run picture of a step/noscan request.
 
-    Relocated verbatim from :func:`run_scan_request`'s inline metadata
+    Relocated verbatim from the former headless runner's inline metadata
     assembly (queueserver round 1) so the plan preamble reuses it; behavior
     is pinned by the existing runner suite.  Multi-axis requests become an
     outer-product grid (first axis outermost/slowest, one bin per grid
@@ -1581,89 +1581,6 @@ def warn_if_reserved_boundary_overrides(save_set: SaveSet | None) -> None:
         )
 
 
-def build_telemetry_readables(
-    session: Any,
-    save_set: SaveSet | None,
-    scalar_policy: ScalarPolicyProvider | None,
-) -> tuple[list, dict[str, list[str]]]:
-    """Build the Tier-2 background-telemetry readables (soft, dropped-if-dead).
-
-    One soft readable per experiment device with a ``get='yes'`` variable not
-    in *save_set*; ``session.telemetry`` returns ``None`` for a device
-    unreachable at scan start (dropped with a log line, never an abort).
-    ``scalar_policy`` ``None`` means no telemetry.
-
-    Returns
-    -------
-    tuple
-        ``(readables, recorded)`` — a single-element list holding the
-        :class:`~geecs_bluesky.devices.ca.telemetry.CaTelemetryGroup` of
-        connected devices (empty list when none connected), and the
-        ``{device: [variables]}`` map of **only those that connected**
-        (run-metadata key must match the columns that actually exist).
-        The group costs one RunEngine ``read`` message per row instead of
-        one per device; event columns are identical to the ungrouped
-        layout (members keep their own names).
-    """
-    if scalar_policy is None:
-        return [], {}
-    selected = select_telemetry_variables(
-        save_set, scalar_policy.subscribed_by_device()
-    )
-    members: list = []
-    recorded: dict[str, list[str]] = {}
-    if hasattr(session, "telemetry_batch"):
-        # Concurrent connects: wall time = slowest device, not the sum
-        # (~87 sequential connects cost ~9 s of start latency; measured
-        # live 2026-07-13).  Fake sessions without the batch method fall
-        # through to the sequential per-device factory below.
-        members = list(session.telemetry_batch(selected))
-        for readable in members:
-            device = getattr(readable, "_geecs_device_name", None)
-            if device in selected:
-                recorded[device] = list(selected[device])
-    else:
-        for device, variables in selected.items():
-            readable = session.telemetry(device, variables)
-            if readable is not None:
-                members.append(readable)
-                recorded[device] = list(variables)
-    # Record only the devices that actually connected: a device dropped as
-    # unreachable at scan start contributes no columns, so the start-doc
-    # metadata must not advertise them (EVENT_SCHEMA.md contract — the key
-    # reflects what was recorded, not what was selected).
-    if not members:
-        return [], recorded
-    # Lazy import: the runner stays free of device-layer (aioca) imports so
-    # it remains importable without the `ca` extra.
-    from geecs_bluesky.devices.ca.telemetry import CaTelemetryGroup
-
-    return [CaTelemetryGroup(members)], recorded
-
-
-def _stopped_during_init(
-    session: Any, should_abort: Callable[[], bool] | None, stage: str
-) -> bool:
-    """Return ``True`` when an operator stop arrived during initialization.
-
-    The init-stage checkpoints of :func:`run_scan_request`: all of them run
-    **pre-claim**, so a stop caught here burns no scan number.  On trip the
-    session's ``last_run_aborted`` is set (the quiet aborted-outcome
-    contract from #563 — callers distinguish "stopped" from "failed"
-    without an exception) and one INFO line is logged; the caller's
-    ``finally`` still owns disconnection of everything it created.
-    """
-    if should_abort is None or not should_abort():
-        return False
-    logger.info(
-        "scan stopped during initialization (%s); nothing claimed — "
-        "no scan number was burned",
-        stage,
-    )
-    session.last_run_aborted = True
-    return True
-
-
 def resolve_and_apply_capture_toggle(
     request: "ScanRequest",
     defaults: Any,
@@ -1700,569 +1617,3 @@ def resolve_and_apply_capture_toggle(
                 "cameras in the save set) — native saving unchanged"
             )
     return devices_config, capture_devices, native_image_save
-
-
-def run_scan_request(
-    session: Any,
-    request: ScanRequest,
-    resolver: ConfigResolver,
-    *,
-    objective: Any | None = None,
-    suggester: Any | None = None,
-    optimization_binder: Callable[..., tuple[Any, Any]] | None = None,
-    device_requirements: Any | None = None,
-    should_abort: Callable[[], bool] | None = None,
-    submission: Any | None = None,
-) -> str | None:
-    """Execute *request* on *session*; return the run uid.
-
-    Resolution order is fail-fast: every action name (request-level, entry
-    rituals, defaults) is resolved before any hardware is touched, the
-    trigger profile is attached (generalized multi-device ordered writes),
-    action plans are compiled and their signals pre-connected, devices are
-    built, then the scan runs — all of it before a scan number is claimed
-    (the claim happens inside ``session.scan``).  Devices *and* the action
-    signal factory created here are disconnected afterwards (the run owns
-    what it creates).
-
-    Multi-axis requests run as an outer-product grid (first axis
-    outermost/slowest): one movable per axis, one bin per grid point,
-    ``per_step`` actions at every grid point, all axis readbacks in the
-    event rows; the run metadata carries ``scan_axes`` / ``grid_shape`` /
-    ``num_grid_points`` and ScanInfo's 1-D fields describe the outermost
-    axis.
-
-    Parameters
-    ----------
-    session :
-        A :class:`~geecs_bluesky.session.GeecsSession`.
-    request :
-        The scan request to run.
-    resolver :
-        Resolves the request's names to schema models.
-    objective, suggester :
-        Ready-made optimization callables for ``optimize`` mode (see the
-        module docstring's gap list): the evaluator/generator specs cannot
-        be instantiated in this package.
-    optimization_binder :
-        Alternative to *objective*/*suggester* for ``optimize`` mode: a
-        scanner-layer hook (the queueserver worker's registered
-        ``optimization_loader`` seam) called as
-        ``binder(devices=..., scan_tag=..., scan_folder=...) ->
-        (objective, suggester)`` with the connected movables + detectors
-        and the freshly claimed scan (the runner claims pre-bind; see
-        :func:`_run_optimize_request`).  Ignored when *objective* and
-        *suggester* are given.
-    device_requirements :
-        Optional optimizer device requirements for ``optimize`` mode
-        (duck-typed ``{"Devices": {name: cfg}}`` mapping — e.g. the
-        loader-returned bridge's ``device_requirements`` attribute,
-        auto-generated by the optimization stack from its evaluator's
-        analyzers).  Merged into the effective devices config so the
-        objective's diagnostics acquire and save even when the save sets
-        do not name them (:func:`merge_optimizer_device_requirements`);
-        the merged additions run through the same unserved-variables
-        pre-flight as everything else and are recorded in run metadata as
-        ``provisioned_device_requirements``.  ``None``/empty is a no-op;
-        ignored on non-optimize modes.
-    should_abort :
-        Optional external-stop probe, consulted between the
-        initialization stages — after configuration resolution, after
-        device connect, and immediately before the scan-number claim —
-        because ``RE.abort()`` cannot stop a scan that has not reached the
-        RunEngine yet.  Every checkpoint is pre-claim, so an init-stage
-        stop burns no scan number; on trip the runner disconnects what it
-        created, logs one INFO line, sets ``session.last_run_aborted``
-        (the #563 aborted-outcome contract) and returns ``None``.  The
-        callable is also handed to ``session.scan``/``session.optimize``,
-        whose in-plan gate closes the residual window between the last
-        checkpoint here and the engine reporting ``running``.  ``None``
-        (headless default) checks nothing.
-    submission :
-        Optional client :class:`~geecs_schemas.SubmissionRecord` (model or
-        JSON dict) traveling beside the request (geecs-schemas 0.14.0
-        split it out of the document); recorded verbatim in run metadata,
-        never acted on.
-
-    Returns
-    -------
-    str or None
-        The Bluesky run uid (``None`` when nothing was persisted).
-
-    Raises
-    ------
-    NotImplementedError
-        Optimize mode without an injected objective/suggester or
-        optimization_binder (a documented v1 gap — validated first,
-        refused loudly).
-    GeecsConfigurationError
-        Unresolvable names, a step/noscan request without a save set, or
-        an optimize request with an empty effective device set (no save
-        sets and no optimizer device requirements to provision).
-    """
-    # Phase 1 — the one fail-fast definition (issue #529): everything that
-    # must resolve does so here, before any session state is touched.
-    # Clients run the same function pre-submit (the console's preflight),
-    # so submission-time and execution-time validation cannot drift.
-    # The returned raw defaults object serves execution-time flags that are
-    # not request fields (background_telemetry) from the SAME file snapshot
-    # the validation applied — one read per run, no torn-edit window.
-    request, applied_defaults, defaults = validate_scan_request(request, resolver)
-    resolved_actions = resolve_and_validate_actions(request.actions, resolver)
-
-    if request.capture.trigger_profile:
-        profile = resolver.resolve_trigger_profile(request.capture.trigger_profile)
-        session.shot_control(
-            trigger_writes_from_profile(profile, request.capture.trigger_variant)
-        )
-    else:
-        session.shot_control(None)
-
-    mode = (
-        "strict"
-        if request.capture.acquisition is AcquisitionMode.STRICT
-        else "free_run"
-    )
-
-    if request.mode is ScanRequestMode.OPTIMIZE:
-        # Optimize has no action hooks yet: skip actions (never refuse — that
-        # would block optimization wherever defaults define bracket actions),
-        # log loudly, and record the skip in run metadata (never silent).
-        # Rationale: GeecsBluesky/CLAUDE.md (engine consolidation).
-        skipped_actions = {k: v for k, v in resolved_actions.items() if v}
-        if request.capture.native_image_save is False:
-            # v0: optimize keeps native saving unconditionally (its
-            # evaluators read per-shot files from disk). Never silent —
-            # once an experiment default flips off, every optimize scan
-            # overrides it and the operator must be able to see that.
-            logger.warning(
-                "optimize mode keeps native image saving — the request's "
-                "native_image_save=false is ignored (v0: evaluators read "
-                "per-shot files)"
-            )
-        return _run_optimize_request(
-            session,
-            request,
-            resolver,
-            mode,
-            objective=objective,
-            suggester=suggester,
-            optimization_binder=optimization_binder,
-            device_requirements=device_requirements,
-            applied_defaults=applied_defaults,
-            skipped_actions=skipped_actions,
-            should_abort=should_abort,
-            submission=submission,
-        )
-
-    # A step/noscan request without a save set was already refused by
-    # validate_scan_request (phase 1) — no second copy of that rule here.
-    # Multiple named save sets union into one effective save set (devices
-    # deduped/merged; rituals collected across all sets, deduped by name).
-    save_set, rituals = resolve_save_sets_and_rituals(
-        resolver, request.capture.save_sets
-    )
-
-    # M3c get-side runtime: failure-tolerant policy provider (a DB blip never
-    # aborts a scan); the DB set-side stays disabled (reserved fields warn).
-    scalar_policy = make_scalar_policy(session)
-    devices_config = save_set_to_devices_config(save_set, scalar_policy)
-    # Unserved-variables pre-flight (pre-claim, pre-device-build): a variable
-    # the gateway does not serve has no PV, so its detector could never
-    # connect — drop it now with a WARNING (headless; the operator was
-    # asked client-side pre-submit, decision 3)
-    # instead of dying in a 20 s NotConnectedError during connect.
-    checked_config, dropped_unserved, dropped_unserved_devices = _preflight_unserved(
-        session, devices_config
-    )
-    if checked_config is None:
-        logger.warning(
-            "ScanRequest preflight aborted the scan (unserved save-set "
-            "variables; pre-claim — no scan number was burned)"
-        )
-        return None
-    devices_config = checked_config
-    # CONNECTED liveness re-check (#664): the client asked pre-submit, but
-    # the queue's submission-to-execution gap is long — re-check here,
-    # refusing only when a row could never complete.
-    disconnected_devices = _preflight_connected(session, devices_config)
-    if _stopped_during_init(session, should_abort, "after configuration resolution"):
-        return None
-    slots = assemble_action_slots(request.actions, applied_defaults, rituals)
-    warn_if_reserved_boundary_overrides(save_set)
-
-    # Resolve the scan-variable movable targets up front (full movable
-    # construction happens later; only the resolved targets are needed here
-    # for the standard-scan build below).
-    axis_resolved: list[MovableTarget] = []
-    for axis in request.axes:
-        spec = resolver.resolve_scan_variable(axis.variable)
-        axis_resolved.append(resolve_movable_target(spec, axis.variable))
-
-    telemetry_enabled = (
-        request.capture.background_telemetry
-        if request.capture.background_telemetry is not None
-        else _defaults_flag(defaults, "background_telemetry", True)
-    )
-
-    devices_config, capture_devices, native_image_save = (
-        resolve_and_apply_capture_toggle(request, defaults, devices_config, session)
-    )
-
-    created: list = []
-    try:
-        # Compile the action slots first: signal prefetch fail-fasts on an
-        # unreachable action target before detectors are even built, and
-        # everything stays pre-claim.
-        setup = per_step = closeout = None
-        if any(slots.values()):
-            factory = session.action_signal_factory()
-            created.append(factory)
-            registry = build_action_registry(resolver)
-            setup, setup_plans = compile_action_slot(
-                slots["setup"], resolver, registry, factory
-            )
-            per_step, per_step_plans = compile_action_slot(
-                slots["per_step"], resolver, registry, factory
-            )
-            closeout, closeout_plans = compile_action_slot(
-                slots["closeout"], resolver, registry, factory
-            )
-            prefetch_action_signals(
-                setup_plans + per_step_plans + closeout_plans, registry, factory
-            )
-
-        detectors = _build_request_detectors(
-            session, devices_config, free_run=mode == "free_run"
-        )
-        created.extend(detectors)
-
-        telemetry_selected: dict[str, list[str]] = {}
-        if telemetry_enabled:
-            telemetry_readables, telemetry_selected = build_telemetry_readables(
-                session, save_set, scalar_policy
-            )
-            # Telemetry is soft: appended to the read set as extra snapshot
-            # columns, never as the reference (index 0 stays the save set's).
-            detectors = list(detectors) + telemetry_readables
-            created.extend(telemetry_readables)
-
-        if _stopped_during_init(session, should_abort, "after device connect"):
-            return None
-
-        movables: list = []
-        for target in axis_resolved:
-            movable = build_movable(session, target)
-            created.append(movable)
-            movables.append(movable)
-        if request.mode is ScanRequestMode.NOSCAN:
-            motor_arg: Any = None
-        elif len(request.axes) == 1:
-            motor_arg = movables[0]
-        else:
-            motor_arg = movables
-
-        # The pure run picture (md / ScanInfo / positions / totals) — one
-        # definition shared with the queueserver plan preamble.
-        spec = build_step_scan_spec(
-            request,
-            axis_resolved,
-            applied_defaults=applied_defaults,
-            slots=slots,
-            dropped_unserved=dropped_unserved,
-            dropped_unserved_devices=dropped_unserved_devices,
-            disconnected_devices=disconnected_devices,
-            telemetry_selected=telemetry_selected if telemetry_enabled else {},
-            capture_devices=capture_devices,
-            native_image_save=native_image_save,
-            submission=submission,
-        )
-
-        # The last pre-claim checkpoint: the claim happens inside
-        # session.scan, immediately below.
-        if _stopped_during_init(session, should_abort, "before scan-number claim"):
-            return None
-        return session.scan(
-            detectors=detectors,
-            motor=motor_arg,
-            positions=spec.positions,
-            shots_per_step=request.capture.shots_per_step,
-            mode=mode,
-            description=request.description,
-            md=spec.md,
-            scan_info=spec.scan_info,
-            setup=setup,
-            per_step=per_step,
-            closeout=closeout,
-            should_abort=should_abort,
-        )
-    finally:
-        if created and hasattr(session, "disconnect"):
-            session.disconnect(*created)
-
-
-def _run_optimize_request(
-    session: Any,
-    request: ScanRequest,
-    resolver: ConfigResolver,
-    mode: str,
-    *,
-    objective: Any | None,
-    suggester: Any | None,
-    optimization_binder: Callable[..., tuple[Any, Any]] | None = None,
-    device_requirements: Any | None = None,
-    applied_defaults: dict[str, Any] | None = None,
-    skipped_actions: dict[str, list[str]] | None = None,
-    should_abort: Callable[[], bool] | None = None,
-    submission: Any | None = None,
-) -> str | None:
-    """Map an optimize-mode request onto :meth:`GeecsSession.optimize`.
-
-    Consumes ``optimization.variables`` (names resolved through the
-    scan-variable catalog; ``Device:Variable`` strings pass through),
-    ``max_iterations``, and ``move_to_best_on_finish`` (→ ``on_finish``).
-    The variable *bounds*, ``objectives``/``observables``/``constraints``,
-    and the evaluator/generator specs are the suggester's business — they
-    are **not** consumed here (the injected objective/suggester — or the
-    binder's stack — is expected to have been built from them).
-
-    Parameters
-    ----------
-    session, request, resolver :
-        As in :func:`run_scan_request`.
-    mode :
-        ``"strict"`` or ``"free_run"``.
-    objective, suggester :
-        The ready-made optimization callables.
-    optimization_binder, device_requirements, should_abort :
-        As in :func:`run_scan_request` (the unserved-variables check runs
-        here too, pre-claim, over the effective devices config — save-set
-        devices *and* optimizer-provisioned ones; the *should_abort*
-        init-stage checkpoints run after device connect and immediately
-        before the claim — which on this path is the runner's own,
-        pre-bind).  With a
-        binder (and no ready-made callables) the runner claims the scan
-        itself, pre-bind, so the
-        binder's analyzers get the real ``ScanTag`` — mirroring the legacy
-        exec_config optimization path; the claim still happens *after*
-        every fail-fast resolution and device connect, and the runner then
-        owns the ``scan.log`` attach for the run.
-
-    Returns
-    -------
-    str or None
-        The run uid.
-
-    Raises
-    ------
-    NotImplementedError
-        When *objective* or *suggester* is missing and no
-        *optimization_binder* was given.
-    GeecsConfigurationError
-        The effective device set is empty — no save sets named and no
-        optimizer device requirements to provision (pre-claim; the
-        objective would have nothing to read).
-    """
-    spec = request.optimization
-    assert spec is not None  # guaranteed by ScanRequest validation
-    if (objective is None or suggester is None) and optimization_binder is None:
-        raise NotImplementedError(
-            "optimize-mode ScanRequest execution needs a ready-made "
-            "objective and suggester (run(request, resolver, objective=..., "
-            "suggester=...)) or an optimization_binder: instantiating them "
-            "from the request's evaluator/generator specs lives in the "
-            "optimization stack (geecs_bluesky.optimization, the `optimize` "
-            "extra), wired in by a caller-provided loader/binder"
-        )
-
-    detectors: list = []
-    created: list = []
-    dropped_unserved: dict[str, list[str]] = {}
-    dropped_unserved_devices: list[str] = []
-    disconnected_devices: list[str] = []
-    try:
-        skipped = {k: list(v) for k, v in (skipped_actions or {}).items() if v}
-        # db_scalars applies to optimize too; telemetry does not run here yet
-        # (no scan-boundary hook); the DB set-side stays disabled everywhere.
-        scalar_policy = make_scalar_policy(session)
-        devices_config: dict[str, dict[str, Any]] | None = {}
-        if request.capture.save_sets:
-            save_set, rituals = resolve_save_sets_and_rituals(
-                resolver, request.capture.save_sets
-            )
-            # Reserved DB set-side overrides are inert here too — warn once, as
-            # on the scan/noscan path, so the promise holds in every mode.
-            warn_if_reserved_boundary_overrides(save_set)
-            ritual_names = [n for names in rituals.values() for n in names]
-            if ritual_names:
-                # Save-set entry rituals can't run in optimize mode yet either;
-                # skip and record rather than refuse (see run_scan_request).
-                skipped["save_set_rituals"] = ritual_names
-            devices_config = save_set_to_devices_config(save_set, scalar_policy)
-        # Auto-provision the optimizer's device requirements: the objective's
-        # diagnostics acquire and save even when the save sets don't name
-        # them — or when the request names no save sets at all (field
-        # incident 2026-07-15: the evaluator's auto-generated requirements
-        # were ignored, the diagnostic never saved, every objective was NaN).
-        provisioned = merge_optimizer_device_requirements(
-            devices_config, device_requirements
-        )
-        if not devices_config:
-            raise GeecsConfigurationError(
-                "an 'optimize' ScanRequest needs at least one recording "
-                "device — name save sets in save_sets, or use an optimizer "
-                "whose evaluator declares device_requirements (auto-generated "
-                "from its analyzers); without either the objective has "
-                "nothing to read"
-            )
-        # Unserved-variables pre-flight, exactly as on the scan/noscan
-        # path (pre-claim: the optimize claim happens further down, so
-        # an abort here burns no scan number).  Provisioned devices go
-        # through the same check as save-set ones.  The detector-level
-        # operator preflight hook still does not run on optimize (its
-        # seam is unchanged); this config-level check does.
-        (
-            devices_config,
-            dropped_unserved,
-            dropped_unserved_devices,
-        ) = _preflight_unserved(session, devices_config)
-        if devices_config is not None:
-            # CONNECTED liveness re-check (#664), same terms as the
-            # scan/noscan path.
-            disconnected_devices = _preflight_connected(session, devices_config)
-        if devices_config is None:
-            logger.warning(
-                "ScanRequest preflight aborted the optimization (unserved "
-                "save-set variables; pre-claim — no scan number was burned)"
-            )
-            return None
-        detectors = _build_request_detectors(
-            session,
-            devices_config,
-            free_run=mode == "free_run",
-        )
-        created.extend(detectors)
-
-        variables: dict[str, Any] = {}
-        pseudo_meta: dict[str, Any] = {}
-        for name in spec.variables:
-            if ":" in name:
-                device, _, variable = name.partition(":")
-                movable = session.settable(device, variable)
-            else:
-                var_spec = resolver.resolve_scan_variable(name)
-                target = resolve_movable_target(var_spec, name)
-                if isinstance(target, PseudoMovableTarget):
-                    pseudo_meta[target.variable_name] = target.metadata()
-                movable = build_movable(session, target)
-            variables[name] = movable
-            created.append(movable)
-
-        if _stopped_during_init(session, should_abort, "after device connect"):
-            return None
-
-        md: dict[str, Any] = {"scan_request_mode": request.mode.value}
-        if pseudo_meta:
-            md["pseudo_variables"] = pseudo_meta
-        if request.capture.save_sets:
-            # Provenance: which named save sets were unioned for this scan.
-            md["save_sets"] = list(request.capture.save_sets)
-        if provisioned:
-            # Provenance: what the optimizer's device_requirements added to
-            # the effective device set (whole entries for new devices, the
-            # added variables/flags for save-set ones).  Recorded pre-drop —
-            # dropped_unserved_* below says what pre-flight then removed.
-            md["provisioned_device_requirements"] = provisioned
-        if dropped_unserved:
-            # Provenance: variables (and whole devices) dropped by the
-            # unserved-variables pre-flight — the run proceeded without them.
-            md["dropped_unserved_variables"] = {
-                dev: list(vars_) for dev, vars_ in dropped_unserved.items()
-            }
-        if dropped_unserved_devices:
-            md["dropped_unserved_devices"] = list(dropped_unserved_devices)
-        if disconnected_devices:
-            md["disconnected_devices"] = list(disconnected_devices)
-        if applied_defaults:
-            md["applied_defaults"] = metadata_applied_defaults(applied_defaults)
-        submission_md = metadata_submission(submission)
-        if submission_md is not None:
-            md["submission"] = submission_md
-        if skipped:
-            md["skipped_action_plans"] = skipped
-            logger.warning(
-                "Optimize mode does not run action plans yet — skipping the "
-                "following for this optimization (setup/per_step/closeout "
-                "and save-set rituals do not run during optimization): %s",
-                skipped,
-            )
-        # Telemetry is not wired into optimize yet; db_scalars above applies.
-        # The DB set-side is disabled
-        # everywhere in this version.  Recorded for provenance.
-        md["db_scan_runtime"] = {
-            "db_scalars": "applied",
-            "background_telemetry": "not_run_in_optimize",
-        }
-
-        scan_number: int | None = None
-        scan_folder: str | None = None
-        claimed_here = False
-        try:
-            # The last pre-claim checkpoint: on this path the runner claims
-            # the scan itself (pre-bind), immediately below.
-            if _stopped_during_init(session, should_abort, "before scan-number claim"):
-                return None
-            if objective is None or suggester is None:
-                # Binder path (checked non-None at entry): claim first so the
-                # binder's analyzers get the real ScanTag (docstring above).
-                scan_tag, scan_folder = claim_scan(
-                    getattr(session, "experiment", "") or ""
-                )
-                scan_number = scan_tag.number if scan_tag is not None else None
-                claimed_here = scan_number is not None
-                objective, suggester = optimization_binder(
-                    devices=list(variables.values()) + detectors,
-                    scan_tag=scan_tag,
-                    scan_folder=scan_folder,
-                )
-
-            max_iterations = spec.max_iterations or 20
-
-            # The runner claimed → the runner attaches scan.log (the session
-            # only self-attaches when *it* claimed the number).
-            with scan_log(scan_number, scan_folder) if claimed_here else nullcontext():
-                uid, _history = session.optimize(
-                    variables=variables,
-                    detectors=detectors,
-                    objective=objective,
-                    suggester=suggester,
-                    shots_per_iteration=request.capture.shots_per_step,
-                    max_iterations=max_iterations,
-                    mode=mode,
-                    description=request.description,
-                    md=md,
-                    on_finish="best" if spec.move_to_best_on_finish else "hold",
-                    scan_number=scan_number,
-                    scan_folder=scan_folder,
-                    should_abort=should_abort,
-                )
-            if claimed_here and getattr(session, "last_run_aborted", False):
-                # session.optimize returned the aborted outcome quietly
-                # (operator-requested); note the claimed-but-partial folder
-                # calmly (WARNING) instead of the failure ERROR.
-                log_claimed_scan_failure(
-                    scan_number,
-                    scan_folder,
-                    label="Optimization scan",
-                    aborted=True,
-                )
-            return uid
-        except BaseException:
-            if claimed_here:
-                log_claimed_scan_failure(
-                    scan_number, scan_folder, label="Optimization scan"
-                )
-            raise
-    finally:
-        if created and hasattr(session, "disconnect"):
-            session.disconnect(*created)
