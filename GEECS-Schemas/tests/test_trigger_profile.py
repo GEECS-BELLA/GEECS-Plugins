@@ -102,6 +102,16 @@ class TestTriggerProfile:
         assert profile.schema_version == 2
         assert "variants" not in profile.model_dump(mode="json")
 
+    def test_v1_variants_of_the_wrong_shape_is_a_validation_error(self):
+        with pytest.raises(ValidationError, match="must be a mapping"):
+            TriggerProfile.model_validate(
+                {
+                    "name": "x",
+                    "states": {"SCAN": [write(DG, "Trigger.Source", "External")]},
+                    "variants": ["laser_off"],
+                }
+            )
+
     def test_v2_document_round_trips_untouched(self):
         profile = make_profile()
         assert profile.schema_version == 2

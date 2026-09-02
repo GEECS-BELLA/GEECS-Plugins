@@ -284,6 +284,12 @@ class TriggerProfile(VersionedSchemaModel):
             return data
         lifted = dict(data)
         variants = lifted.pop("variants", None) or {}
+        if not isinstance(variants, dict):
+            raise ValueError(
+                f"trigger profile {lifted.get('name', '?')!r}: 'variants' must be a "
+                "mapping (and profile variants were removed in format v2 — drop "
+                "the block)."
+            )
         populated = sorted(
             name
             for name, variant in variants.items()
