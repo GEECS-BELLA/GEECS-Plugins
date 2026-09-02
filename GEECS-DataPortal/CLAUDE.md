@@ -138,7 +138,8 @@ tests/
 ```
 
 Routes: `/` (redirect to today) · `/day/{iso}` (run list; `?experiment=`)
-· `/run/{uid}` (the scan page: rail + Overview/Plot/Images tabs;
+· `/run/{uid}` (the scan page: rail + Overview/Plot/Images/Analysis tabs
+— Analysis only when runs are possible, see below;
 `?tab=&y=&x=&view=&filters=&bincfg=&display=` is the Plot-tab state,
 `?device=&shot=` the Images selection) · `/run/jump/{iso}` (day-step
 redirect: `?prefer=<scan number>`, all other params carried to the
@@ -196,10 +197,20 @@ name — has a folder in this scan), its in-memory `job` record
 (`queued`/`running`/`done`/`failed`/`no_data`, artifacts, error, the
 run's captured log lines) and `files` (what is on disk under
 `analysis/ScanNNN/<output_name>/`, so a page loaded after a portal
-restart still shows earlier outputs); `POST
+restart still shows earlier outputs) and `artifacts` — what the tab
+shows (the done job's list, else the files), each `{path, servable,
+inline}` decided by `analysis_runs.describe_artifact` (the ONE
+inline-raster policy; the page never guesses from a path); `POST
 /api/run/{uid}/analysis?analyzer=<id>` starts a run (202 + record;
 feature off / extra missing / unknown diagnostic / folder unresolvable
 → 404; a job already active for the scan → 409 with its record);
+the **Analysis tab** (0.17.0) renders that listing: badge per state, run /
+re-run (disabled while any run is active for the scan), error + captured
+log on failure, artifacts inline (raster) or as download links, the
+inapplicable analyzers collapsed; it polls every 1.5 s while a run is
+active and the tab button exists only when `analysis_enabled` (feature
+configured + extra installed + folder resolvable) — a bookmarked
+`tab=analysis` otherwise falls back to Plot.
 `GET /run/{uid}/artifact?path=<relative>` serves one produced file —
 the resolved path must stay inside the scan's own analysis folder
 (`analysis_runs.contained_artifact`; symlinks resolved), else 404.

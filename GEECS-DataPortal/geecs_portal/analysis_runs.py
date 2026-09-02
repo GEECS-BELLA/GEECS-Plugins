@@ -404,6 +404,28 @@ def contained_artifact(analysis_folder: Path, relative: str) -> Optional[Path]:
     return candidate if candidate.is_file() else None
 
 
+#: Artifact types the artifact endpoint renders inline (raster only —
+#: SVG can carry script and is served as a download like everything else).
+INLINE_IMAGE_SUFFIXES = frozenset({".png", ".jpg", ".jpeg", ".gif", ".webp"})
+
+
+def describe_artifact(analysis_folder: Path, artifact: str) -> dict:
+    """The wire shape of one artifact: ``{path, servable, inline}``.
+
+    ``servable`` = it resolves to a file inside the analysis folder (the
+    artifact endpoint would serve it); ``inline`` = a raster image the
+    tab may show in an ``<img>``. Labels and files elsewhere are neither
+    — the tab shows them as text. Decided HERE so the page never
+    re-derives the policy from a path's shape.
+    """
+    servable = contained_artifact(analysis_folder, artifact) is not None
+    return {
+        "path": artifact,
+        "servable": servable,
+        "inline": servable and Path(artifact).suffix.lower() in INLINE_IMAGE_SUFFIXES,
+    }
+
+
 def list_artifacts(
     analysis_folder: Path, output_name: str, *, limit: int = 200
 ) -> list[str]:

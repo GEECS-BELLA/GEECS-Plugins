@@ -261,11 +261,6 @@ def _default_x(detail, columns: list[str]) -> str:
     return scan_vars[0] if scan_vars else ""
 
 
-#: Artifact types the artifact endpoint renders inline (raster only —
-#: SVG can carry script and is served as a download like everything else).
-_INLINE_IMAGE_SUFFIXES = frozenset({".png", ".jpg", ".jpeg", ".gif", ".webp"})
-
-
 @dataclasses.dataclass(frozen=True)
 class _DiagInfo:
     """A loadable diagnostic's run-side facts (the selector cache's value)."""
@@ -803,6 +798,14 @@ def create_app(
     # ---- analysis runs (04 design: direct ScanAnalysis execution) ----
     factory = analysis_factory or analysis_runs.scan_analysis_factory
 
+    def _analysis_enabled() -> bool:
+        """Whether the scan page should offer the Analysis tab at all."""
+        try:
+            _analysis_available()
+        except HTTPException:
+            return False
+        return True
+
     def _analysis_available() -> None:
         """404 unless the run feature is configured AND installed."""
         if processing_config_dir is None:
@@ -867,6 +870,15 @@ def create_app(
         analyzers = []
         for name, info in _processing_infos().items():
             job = jobs.get(name)
+            # What the tab shows: the finished job's own artifact list,
+            # else what is on disk under the output dir — each entry
+            # described (servable / inline) server-side so the page
+            # never guesses from a path's shape.
+            shown = (
+                job.artifacts
+                if job is not None and job.state == analysis_runs.DONE
+                else analysis_runs.list_artifacts(analysis_folder, info.output_name)
+            )
             analyzers.append(
                 {
                     "id": name,
@@ -877,6 +889,10 @@ def create_app(
                     "files": analysis_runs.list_artifacts(
                         analysis_folder, info.output_name
                     ),
+                    "artifacts": [
+                        analysis_runs.describe_artifact(analysis_folder, a)
+                        for a in shown
+                    ],
                 }
             )
         running = runner.running_for(uid)
@@ -940,7 +956,7 @@ def create_app(
         if file is None:
             raise HTTPException(status_code=404, detail="no such artifact")
         headers = {"Cache-Control": "no-cache", "X-Content-Type-Options": "nosniff"}
-        inline = file.suffix.lower() in _INLINE_IMAGE_SUFFIXES
+        inline = file.suffix.lower() in analysis_runs.INLINE_IMAGE_SUFFIXES
         return FileResponse(
             file,
             headers=headers,
@@ -1171,6 +1187,9 @@ def create_app(
             kind, kind_path = "", None
         n_rows = None if detail.data is None else len(detail.data)
         shot = max(1, min(shot, n_rows) if n_rows else shot)
+        # The Analysis tab needs a resolvable folder (runs and artifact
+        # listing are per scan folder) on top of the feature gate.
+        analysis_enabled = folder is not None and _analysis_enabled()
         if (
             kind == "native"
             and folder is not None
@@ -1260,7 +1279,13 @@ def create_app(
                 "next_day": (
                     (run_day + timedelta(days=1)).isoformat() if run_day else ""
                 ),
-                "tab": tab if tab in ("overview", "plot", "images") else "plot",
+                "tab": (
+                    tab
+                    if tab in ("overview", "plot", "images")
+                    or (tab == "analysis" and analysis_enabled)
+                    else "plot"
+                ),
+                "analysis_enabled": analysis_enabled,
                 "devices": devices,
                 "sel_device": sel_device,
                 "kind": kind,
