@@ -117,6 +117,9 @@ def main() -> None:
         "RE",
         "geecs_scan_request_plan",
         "geecs_run_action_plan",
+        "geecs_noscan_plan",
+        "geecs_scan_plan",
+        "geecs_optimize_plan",
         "geecs_move_variable",
         "geecs_describe_action",
     ]:

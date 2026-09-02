@@ -42,6 +42,14 @@ import geecs_bluesky  # noqa: F401
 
 from bluesky_queueserver import parameter_annotation_decorator
 
+from geecs_bluesky.plans.named_plans import (
+    NOSCAN_PLAN_ANNOTATION,
+    OPTIMIZE_PLAN_ANNOTATION,
+    SCAN_PLAN_ANNOTATION,
+    geecs_noscan_plan,
+    geecs_optimize_plan,
+    geecs_scan_plan,
+)
 from geecs_bluesky.plans.scan_request_plan import (
     RUN_ACTION_PLAN_ANNOTATION,
     SCAN_REQUEST_PLAN_ANNOTATION,
@@ -67,6 +75,15 @@ geecs_scan_request_plan = parameter_annotation_decorator(SCAN_REQUEST_PLAN_ANNOT
 )
 geecs_run_action_plan = parameter_annotation_decorator(RUN_ACTION_PLAN_ANNOTATION)(
     geecs_run_action_plan
+)
+# The named plans (Phase 2b-ii): per-mode vocabulary at the gate, the same
+# execution underneath (each yields from geecs_scan_request_plan).
+geecs_noscan_plan = parameter_annotation_decorator(NOSCAN_PLAN_ANNOTATION)(
+    geecs_noscan_plan
+)
+geecs_scan_plan = parameter_annotation_decorator(SCAN_PLAN_ANNOTATION)(geecs_scan_plan)
+geecs_optimize_plan = parameter_annotation_decorator(OPTIMIZE_PLAN_ANNOTATION)(
+    geecs_optimize_plan
 )
 
 
@@ -237,6 +254,9 @@ __all__ = [
     "RE",
     "geecs_scan_request_plan",
     "geecs_run_action_plan",
+    "geecs_noscan_plan",
+    "geecs_scan_plan",
+    "geecs_optimize_plan",
     "geecs_move_variable",
     "geecs_describe_action",
 ]

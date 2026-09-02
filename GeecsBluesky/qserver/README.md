@@ -50,7 +50,10 @@ qserver status
 qserver environment open
 ```
 
-Once the environment is open, `geecs_scan_request_plan` is registered and
+Once the environment is open, `geecs_scan_request_plan` (the document API)
+and the three named plans — `geecs_noscan_plan`, `geecs_scan_plan`,
+`geecs_optimize_plan` (per-mode parameters, same execution underneath; Phase
+2b-ii) — are registered and
 callable; submit a `ScanRequest` dict as its sole argument, for example
 (the v2 shape groups the capture fields under `capture`; the flat v1
 layout still validates):
@@ -59,6 +62,20 @@ layout still validates):
 qserver queue add plan '{"name": "geecs_scan_request_plan", "args": [{"mode": "noscan", "capture": {"shots_per_step": 2, "acquisition": "free_run", "save_sets": ["UC_Test"]}}], "item_type": "plan"}'
 qserver queue start
 ```
+
+The named plans take the same vocabulary one mode at a time — the same
+noscan through `geecs_noscan_plan`, and a 1-D sweep through
+`geecs_scan_plan` (a grid is just more axes):
+
+```bash
+qserver queue add plan '{"name": "geecs_noscan_plan", "args": [{"shots_per_step": 2, "acquisition": "free_run", "save_sets": ["UC_Test"]}], "item_type": "plan"}'
+qserver queue add plan '{"name": "geecs_scan_plan", "args": [[{"variable": "jet_z", "positions": {"start": 0, "end": 1, "step": 0.5}}], {"shots_per_step": 2, "acquisition": "free_run", "save_sets": ["UC_Test"]}], "item_type": "plan"}'
+```
+
+Every named plan assembles the canonical `ScanRequest` and runs the funnel
+underneath, so the start document, ScanInfo, and data tree are identical to
+a funnel submission of the equivalent request; the manager history names
+the plan that was submitted.
 
 The `qserver` CLI parses that argument as a **Python literal, not JSON**:
 `null` / `true` / `false` are rejected with an unhelpful "Error occurred

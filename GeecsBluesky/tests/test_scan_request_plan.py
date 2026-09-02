@@ -1913,6 +1913,102 @@ def test_session_run_accepts_a_json_document(resolver, monkeypatch, tmp_path) ->
 
 
 # ---------------------------------------------------------------------------
+# Named plans (Phase 2b-ii): the shared-execution invariant on the mock RE
+# ---------------------------------------------------------------------------
+
+
+def _run_named(plan, resolver, folder, monkeypatch):
+    """Run a named plan on a mock session; return its collected documents."""
+    folder.mkdir(parents=True, exist_ok=True)
+    session = _mock_session()
+    docs = _DocCollector()
+    token = session.RE.subscribe(docs)
+    pacers: list = []
+    _install_stage_pacer(session, pacers)
+    monkeypatch.setattr(
+        "geecs_bluesky.plans.scan_request_plan.claim_scan_number",
+        lambda experiment: (7, str(folder)),
+    )
+    set_plan_session(session)
+    try:
+        session.RE(plan(session=session, resolver=resolver))
+    finally:
+        for pacer in pacers:
+            pacer.cancel()
+        session.RE.unsubscribe(token)
+        session.RE.msg_hook = None
+    return docs
+
+
+def test_named_noscan_plan_matches_the_funnel(resolver, monkeypatch, tmp_path) -> None:
+    """``geecs_noscan_plan(capture, ...)`` and the funnel given the equivalent
+    ScanRequest produce the same documents and ScanInfo: the record is the
+    canonical ScanRequest regardless of entry plan."""
+    from functools import partial
+
+    from geecs_bluesky.plans.named_plans import geecs_noscan_plan
+
+    request = _noscan_request()
+    docs_funnel = _run_scan(
+        "plan", request, resolver, tmp_path / "f" / "Scan007", monkeypatch
+    )
+    docs_named = _run_named(
+        partial(
+            geecs_noscan_plan,
+            request.capture.model_dump(mode="json"),
+            description=request.description,
+        ),
+        resolver,
+        tmp_path / "n" / "Scan007",
+        monkeypatch,
+    )
+    _assert_same_run(
+        docs_funnel, docs_named, tmp_path / "f" / "Scan007", tmp_path / "n" / "Scan007"
+    )
+    assert docs_named.start["scan_request_mode"] == "noscan"
+
+
+def test_named_scan_plan_matches_the_funnel(resolver, monkeypatch, tmp_path) -> None:
+    from functools import partial
+
+    from geecs_bluesky.plans.named_plans import geecs_scan_plan
+
+    request = ScanRequest.model_validate(
+        {
+            "mode": "step",
+            "axes": [
+                {"variable": "jet_z", "positions": {"start": 0, "end": 1, "step": 0.5}}
+            ],
+            "capture": {
+                "shots_per_step": 2,
+                "acquisition": "free_run",
+                "save_sets": ["UC_Test"],
+            },
+            "description": "sweep",
+        }
+    )
+    docs_funnel = _run_scan(
+        "plan", request, resolver, tmp_path / "f" / "Scan007", monkeypatch
+    )
+    docs_named = _run_named(
+        partial(
+            geecs_scan_plan,
+            [a.model_dump(mode="json") for a in request.axes],
+            request.capture.model_dump(mode="json"),
+            description="sweep",
+        ),
+        resolver,
+        tmp_path / "n" / "Scan007",
+        monkeypatch,
+    )
+    _assert_same_run(
+        docs_funnel, docs_named, tmp_path / "f" / "Scan007", tmp_path / "n" / "Scan007"
+    )
+    assert docs_named.start["scan_request_mode"] == "step"
+    assert docs_named.start["num_points"] == 3
+
+
+# ---------------------------------------------------------------------------
 # geecs_run_action_plan (#648 manual verbs — actions as queue items)
 # ---------------------------------------------------------------------------
 

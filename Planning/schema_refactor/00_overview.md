@@ -223,8 +223,11 @@ Register in the qserver startup profile, beside the existing funnel:
 - `geecs_scan_plan` — 1-D and grid as one plan (a grid is the multi-axis case
   of the same sweep; splitting them would be artificial); params: `axes` +
   shared components.
-- `geecs_optimize_plan` — params: `axes`-as-bounds per current optimize
-  semantics + `OptimizationSpec` + shared components.
+- `geecs_optimize_plan` — params: `OptimizationSpec` + shared components.
+  (**Corrected while building 2b-ii:** an optimize request has no `axes` —
+  the schema forbids them — its variables and bounds live inside
+  `OptimizationSpec.variables`, so the plan takes no axes and no new bounds
+  shape; Sam's smaller-change call, and even smaller than the doc assumed.)
 
 Each is a mode-pinned parameter model **composed from the Phase-1 sub-models**,
 building a ScanRequest internally and delegating to the exact same execution
