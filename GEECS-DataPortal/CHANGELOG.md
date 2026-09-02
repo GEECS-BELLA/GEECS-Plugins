@@ -3,6 +3,24 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.19.0] - 2026-09-02
+
+### Changed
+
+- Analysis tab artifacts (owner ruling after the first live look,
+  2026-09-02): the scan-level figures — averaged image, image grid,
+  1D summary, animation — show automatically; the per-bin visuals
+  (`<name>_<bin>_processed_visual.*`) show **one at a time** behind a
+  prev / next stepper ("bin N (i of M)"), like the Images tab's shot
+  stepper, instead of every bin at once. The classification
+  (`kind` ∈ summary / bin / other, `bin` number) is decided server-side
+  by ScanAnalysis's own filename conventions
+  (`analysis_runs.classify_artifact`) and the listing is ordered
+  summaries → others → bins by number. The listing now always
+  describes what is on disk under the analyzer's output dir plus the
+  finished job's non-file labels (before: the job's own list when done,
+  which was the summaries only).
+
 ## [0.18.0] - 2026-09-01
 
 ### Added

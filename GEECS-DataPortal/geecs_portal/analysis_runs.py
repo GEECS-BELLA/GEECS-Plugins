@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import dataclasses
 import logging
+import re
 import threading
 import time
 from collections import deque
@@ -409,21 +410,66 @@ def contained_artifact(analysis_folder: Path, relative: str) -> Optional[Path]:
 INLINE_IMAGE_SUFFIXES = frozenset({".png", ".jpg", ".jpeg", ".gif", ".webp"})
 
 
+#: ScanAnalysis output-name conventions (``renderers/*``): per-bin
+#: visuals are ``<name>_<bin>_processed_visual.<ext>``; the average /
+#: grid / summary / animation files are the scan-level figures.
+_BIN_FILE = re.compile(r"_(\d+)_processed_visual\.[A-Za-z0-9]+$")
+_SUMMARY_MARKERS = (
+    "_average_processed_visual.",
+    "_averaged_image_grid.",
+    "_summary_",
+    "_animation.",
+)
+
+
+def classify_artifact(artifact: str) -> tuple[str, Optional[int]]:
+    """``("bin", n)`` / ``("summary", None)`` / ``("other", None)`` from the name.
+
+    The tab shows summaries automatically and steps through bins one
+    at a time (owner ruling 2026-09-02); the split is by ScanAnalysis's
+    own filename conventions, decided here rather than in page JS.
+    """
+    name = Path(artifact).name
+    match = _BIN_FILE.search(name)
+    if match:
+        return "bin", int(match.group(1))
+    if any(marker in name for marker in _SUMMARY_MARKERS) or name.lower().endswith(
+        ".gif"
+    ):
+        return "summary", None
+    return "other", None
+
+
 def describe_artifact(analysis_folder: Path, artifact: str) -> dict:
-    """The wire shape of one artifact: ``{path, servable, inline}``.
+    """The wire shape of one artifact: ``{path, servable, inline, kind, bin}``.
 
     ``servable`` = it resolves to a file inside the analysis folder (the
     artifact endpoint would serve it); ``inline`` = a raster image the
     tab may show in an ``<img>``. Labels and files elsewhere are neither
-    — the tab shows them as text. Decided HERE so the page never
-    re-derives the policy from a path's shape.
+    — the tab shows them as text. ``kind``/``bin`` per
+    :func:`classify_artifact`. Decided HERE so the page never re-derives
+    the policy from a path's shape.
     """
     servable = contained_artifact(analysis_folder, artifact) is not None
+    kind, bin_number = classify_artifact(artifact)
     return {
         "path": artifact,
         "servable": servable,
         "inline": servable and Path(artifact).suffix.lower() in INLINE_IMAGE_SUFFIXES,
+        "kind": kind,
+        "bin": bin_number,
     }
+
+
+_KIND_ORDER = {"summary": 0, "other": 1, "bin": 2}
+
+
+def describe_artifacts(analysis_folder: Path, artifacts: list[str]) -> list[dict]:
+    """Describe + order for the tab: summaries, then others, then bins by number."""
+    described = [describe_artifact(analysis_folder, a) for a in artifacts]
+    return sorted(
+        described, key=lambda d: (_KIND_ORDER[d["kind"]], d["bin"] or 0, d["path"])
+    )
 
 
 def list_artifacts(

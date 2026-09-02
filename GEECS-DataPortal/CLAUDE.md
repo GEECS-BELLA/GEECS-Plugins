@@ -207,9 +207,12 @@ name — has a folder in this scan), its in-memory `job` record
 run's captured log lines) and `files` (what is on disk under
 `analysis/ScanNNN/<output_name>/`, so a page loaded after a portal
 restart still shows earlier outputs) and `artifacts` — what the tab
-shows (the done job's list, else the files), each `{path, servable,
-inline}` decided by `analysis_runs.describe_artifact` (the ONE
-inline-raster policy; the page never guesses from a path); `POST
+shows (the files on disk + the done job's non-file labels), each
+`{path, servable, inline, kind, bin}` decided by
+`analysis_runs.describe_artifacts` (the ONE inline-raster policy and
+the ONE summary/bin classification by ScanAnalysis's filename
+conventions — the page never guesses from a path; summaries render
+automatically, bins one at a time behind a stepper); `POST
 /api/run/{uid}/analysis?analyzer=<id>` starts a run (202 + record;
 feature off / extra missing / unknown diagnostic / folder unresolvable
 → 404; a job already active for the scan → 409 with its record);

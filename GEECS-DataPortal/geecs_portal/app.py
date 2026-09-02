@@ -964,15 +964,15 @@ def create_app(
         analyzers = []
         for name, info in _processing_infos().items():
             job = jobs.get(name)
-            # What the tab shows: the finished job's own artifact list,
-            # else what is on disk under the output dir — each entry
-            # described (servable / inline) server-side so the page
+            # What the tab shows: everything on disk under the output dir
+            # (summaries + per-bin visuals, classified server-side) plus
+            # any label the finished job returned that is not a file —
+            # described (servable / inline / kind / bin) so the page
             # never guesses from a path's shape.
-            shown = (
-                job.artifacts
-                if job is not None and job.state == analysis_runs.DONE
-                else analysis_runs.list_artifacts(analysis_folder, info.output_name)
-            )
+            files = analysis_runs.list_artifacts(analysis_folder, info.output_name)
+            shown = list(files)
+            if job is not None and job.state == analysis_runs.DONE:
+                shown += [a for a in job.artifacts if a not in files]
             analyzers.append(
                 {
                     "id": name,
@@ -980,13 +980,10 @@ def create_app(
                     "applicable": info.device in devices or info.device in present,
                     "output_dir": info.output_name,
                     "job": job.to_json() if job is not None else None,
-                    "files": analysis_runs.list_artifacts(
-                        analysis_folder, info.output_name
+                    "files": files,
+                    "artifacts": analysis_runs.describe_artifacts(
+                        analysis_folder, shown
                     ),
-                    "artifacts": [
-                        analysis_runs.describe_artifact(analysis_folder, a)
-                        for a in shown
-                    ],
                 }
             )
         running = runner.running_for(uid)

@@ -376,6 +376,8 @@ class TestListing:
                 "path": "UC_Crop/Array2DScanAnalyzer/old.png",
                 "servable": True,
                 "inline": True,
+                "kind": "other",
+                "bin": None,
             }
         ]
 
@@ -389,6 +391,8 @@ class TestListing:
             "path": "UC_Crop/fig.png",
             "servable": True,
             "inline": True,
+            "kind": "other",
+            "bin": None,
         }
         assert describe(root, "UC_Crop/fig.svg")["inline"] is False  # download only
         assert describe(root, "UC_Crop/fig.svg")["servable"] is True
@@ -398,6 +402,51 @@ class TestListing:
             "inline": False,
         }
         assert describe(root, "a label.")["servable"] is False
+
+    def test_artifact_kinds_follow_scan_analysis_naming(self, tmp_path):
+        classify = analysis_runs.classify_artifact
+        assert classify("UC_X/Array2DScanAnalyzer/UC_X_16_processed_visual.png") == (
+            "bin",
+            16,
+        )
+        assert classify(
+            "UC_X/Array2DScanAnalyzer/UC_X_average_processed_visual.png"
+        ) == ("summary", None)
+        assert classify("UC_X/Array2DScanAnalyzer/UC_X_averaged_image_grid.png") == (
+            "summary",
+            None,
+        )
+        assert classify("UC_L/Array1DScanAnalyzer/UC_L_summary_per_shot.png") == (
+            "summary",
+            None,
+        )
+        assert classify("UC_X/Array2DScanAnalyzer/UC_X_animation.gif") == (
+            "summary",
+            None,
+        )
+        assert classify("UC_X/Array2DScanAnalyzer/UC_X_1_processed.h5") == (
+            "other",
+            None,
+        )
+        assert classify("a label, not a path") == ("other", None)
+        # Ordering for the tab: summaries, others, then bins by NUMBER (not lexically).
+        root = tmp_path / "analysis" / "Scan002"
+        (root / "UC_X").mkdir(parents=True)
+        names = [
+            "UC_X_10_processed_visual.png",
+            "UC_X_2_processed_visual.png",
+            "UC_X_averaged_image_grid.png",
+            "UC_X_2_processed.h5",
+        ]
+        for name in names:
+            (root / "UC_X" / name).write_bytes(b"x")
+        described = analysis_runs.describe_artifacts(root, [f"UC_X/{n}" for n in names])
+        assert [(d["kind"], d["bin"]) for d in described] == [
+            ("summary", None),
+            ("other", None),
+            ("bin", 2),
+            ("bin", 10),
+        ]
 
 
 class TestRun:
@@ -437,13 +486,22 @@ class TestRun:
         crop = next(a for a in body["analyzers"] if a["id"] == "UC_Crop")
         assert crop["files"] == ["UC_Crop/Array2DScanAnalyzer/summary.png"]
         # The tab renders the DESCRIBED artifacts: policy decided server-side.
+        # (files on disk + the job's non-file labels, classified server-side)
         assert crop["artifacts"] == [
             {
                 "path": "UC_Crop/Array2DScanAnalyzer/summary.png",
                 "servable": True,
                 "inline": True,
+                "kind": "other",
+                "bin": None,
             },
-            {"path": "a label, not a path", "servable": False, "inline": False},
+            {
+                "path": "a label, not a path",
+                "servable": False,
+                "inline": False,
+                "kind": "other",
+                "bin": None,
+            },
         ]
         served = client.get(
             "/run/uid-002/artifact",
