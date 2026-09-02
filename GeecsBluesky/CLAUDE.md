@@ -574,7 +574,9 @@ remains the system of record until the arc's deprecation phase. That
 deprecation is the **`native_image_save` toggle** (0.66.0): one
 devicetype-scoped switch (ExperimentDefaults default + ScanRequest
 tri-state override) deciding whether capture-eligible cameras (the
-capture registry's devicetypes) write native files at all — eligibility
+capture registry's devicetypes, **synchronous roles only** — an
+asynchronous/snapshot-role camera is dropped from the capture list with a
+warning, #702) write native files at all — eligibility
 via the fail-open `db_runtime.GeecsDbDeviceTypes` provider, capture list
 published as the `capture_devices` start-doc key (EVENT_SCHEMA.md), and
 `geecs_run_wrapper` creating those device dirs pre-start-doc (the daemon

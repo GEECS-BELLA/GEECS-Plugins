@@ -93,3 +93,10 @@ start doc carried an integer scan number.
   child exists (no `localsavingpath`, no save-path column, no asset docs)
   — and the run wrapper writes `off` eagerly at scan start, so a flag left
   on out-of-band can never keep writing native files to a stale path.
+- **Capture ownership is synchronous-role only** (#702): an asynchronous
+  (snapshot-role) camera of a capture devicetype is dropped from
+  `capture_devices` by the engine with a warning — the snapshot role has
+  neither the save-control surface nor an `acq_timestamp` join column —
+  so the daemon never targets it; `images: true` on such an entry is
+  ignored (the engine never drove native saving for the snapshot role and
+  neither commands nor suppresses the device's own save flag).

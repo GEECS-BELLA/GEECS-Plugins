@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "scananalysis"
-version = "1.17.2"
+version = "1.17.3"
 description = "Modules for performing analyses routines on full scans"
 authors = ["Christopher Doss <CEDoss@lbl.gov>", "Sam Barber <sbarber@lbl.gov"]
 readme = "README.md"
@@ -25,8 +25,8 @@ h5py = "^3.8.0"
 watchdog = "^6.0.0"
 requests = "^2.28.0"
 
-
-
+[tool.poetry.group.dev.dependencies]
+pytest = ">=7.4"
 
 [build-system]
 requires = ["poetry-core"]
