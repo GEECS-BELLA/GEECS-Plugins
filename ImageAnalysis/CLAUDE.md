@@ -360,12 +360,24 @@ production side effects. Its render form,
 (1.14.0), additionally draws each result with the analyzer's own
 `render_image` into an **object-API `Figure`** — never pyplot, so it is
 safe on a web server's threadpool — and adds the colorbar the base
-renderer skips when handed an axes. `render_image` must therefore keep
-honouring an `ax=` argument (every Standard-family renderer does; the
-2D ones are `@staticmethod`s taking `vmin`/`vmax`/`cmap`, the 1D one an
-instance method taking plot kwargs). `render_frame_figure(image, …)`
-is the base-renderer-only companion for images that are not one
-result (bin averages).
+renderer skips when handed an axes. The object-API helpers live in
+`image_analysis.tools.rendering` (`new_figure`, `window_limits`,
+`render_result_figure`, `render_frame_figure`, `RenderError`) next to
+`base_render_image`; the ephemeral module only composes them with the
+write gate. **`render_image` must keep honouring an `ax=` argument** —
+pinned by `tests/test_ephemeral.py` for `StandardAnalyzer`,
+`BeamAnalyzer`, `HiResMagCamAnalyzer`, `MagSpecManualCalibAnalyzer`
+(2D `@staticmethod`s taking `vmin`/`vmax`/`cmap`) and
+`Standard1DAnalyzer` (instance method taking plot kwargs). A renderer
+that ignored `ax` would return an empty seam figure AND leak a
+pyplot-registered figure per request on a server thread. Known
+exception: `Undulator/BCaveMagSpecStitcher.py` keeps a legacy
+`render_image(image, analysis_results_dict, …)` signature (and a
+legacy dict `analyze_image` return) — through the seam it raises
+`RenderError` honestly; it predates the `ImageAnalyzerResult` contract
+and is not a template. `render_frame_figure(image, …)` is the
+base-renderer-only companion for images that are not one result (bin
+averages).
 
 The write gate is structural, and it depends on two conventions that
 **must survive analyzer changes**:

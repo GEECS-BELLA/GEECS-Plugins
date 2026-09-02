@@ -32,9 +32,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Sequence, Tuple, Union
 
-import numpy as np
-
 from .config import create_image_analyzer, load_diagnostic
+from .tools.rendering import RenderError, render_frame_figure, render_result_figure
 from .types import Array2D, ImageAnalyzerResult
 
 if TYPE_CHECKING:
@@ -44,6 +43,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "EPHEMERAL_DENYLIST",
+    "RenderError",
     "render_diagnostic_ephemeral",
     "render_frame_figure",
     "render_result_figure",
@@ -168,92 +168,6 @@ def _analyze_frames(
     ]
 
 
-def _new_figure(figsize: Tuple[float, float], dpi: int) -> Tuple["Figure", Any]:
-    """An object-API figure + axes (no pyplot: no global registry, thread-safe)."""
-    from matplotlib.figure import Figure
-
-    fig = Figure(figsize=figsize, dpi=dpi, constrained_layout=True)
-    return fig, fig.subplots()
-
-
-def _window_limits(
-    image: Optional[np.ndarray], window: Optional[Tuple[float, float]]
-) -> Dict[str, float]:
-    """``vmin``/``vmax`` from a percentile *window* over *image* (or nothing)."""
-    if window is None or image is None:
-        return {}
-    lo, hi = np.nanpercentile(np.asarray(image, dtype=float), list(window))
-    if not np.isfinite(lo) or not np.isfinite(hi) or lo >= hi:
-        return {}
-    return {"vmin": float(lo), "vmax": float(hi)}
-
-
-def render_result_figure(
-    analyzer: "ImageAnalyzer",
-    result: ImageAnalyzerResult,
-    *,
-    window: Optional[Tuple[float, float]] = None,
-    cmap: Optional[str] = None,
-    figsize: Tuple[float, float] = (5.0, 4.2),
-    dpi: int = 110,
-) -> "Figure":
-    """Draw *result* with *analyzer*'s own ``render_image`` into an object-API figure.
-
-    The renderer is handed our axes, so its overlays (projections,
-    markers, calibrated axes — whatever ``render_data`` carries) land on
-    a ``matplotlib.figure.Figure`` that never touched pyplot. The base
-    renderer skips its colorbar when given an axes, so one is added
-    here whenever an image was drawn. 2D results take ``cmap`` and a
-    percentile ``window`` (→ ``vmin``/``vmax`` over the processed
-    image); 1D renderers take neither (their signature is
-    ``ax`` + plot kwargs).
-
-    Raises
-    ------
-    AttributeError
-        If the analyzer has no ``render_image`` (every Standard-family
-        analyzer does).
-    ValueError
-        Propagated from the renderer (e.g. a 1D result handed to a 2D
-        renderer).
-    """
-    fig, ax = _new_figure(figsize, dpi)
-    kwargs: Dict[str, Any] = {}
-    if result.data_type == "2d":
-        if cmap:
-            kwargs["cmap"] = cmap
-        kwargs.update(_window_limits(result.processed_image, window))
-    analyzer.render_image(result, ax=ax, **kwargs)
-    if ax.images:
-        fig.colorbar(ax.images[0], ax=ax, shrink=0.65)
-    return fig
-
-
-def render_frame_figure(
-    image: Array2D,
-    *,
-    window: Optional[Tuple[float, float]] = None,
-    cmap: Optional[str] = None,
-    figsize: Tuple[float, float] = (5.0, 4.2),
-    dpi: int = 110,
-) -> "Figure":
-    """Draw a bare 2D image with the base renderer (no analyzer overlays).
-
-    For images that are not one analyzer result — an average of several
-    processed frames, whose per-shot overlays do not average meaningfully.
-    """
-    from .tools.rendering import base_render_image
-
-    fig, ax = _new_figure(figsize, dpi)
-    result = ImageAnalyzerResult(data_type="2d", processed_image=np.asarray(image))
-    kwargs: Dict[str, Any] = {"cmap": cmap} if cmap else {}
-    kwargs.update(_window_limits(result.processed_image, window))
-    base_render_image(result, ax=ax, **kwargs)
-    if ax.images:
-        fig.colorbar(ax.images[0], ax=ax, shrink=0.65)
-    return fig
-
-
 def render_diagnostic_ephemeral(
     name_or_path: Union[str, Path],
     frames: Sequence[Array2D],
@@ -268,11 +182,14 @@ def render_diagnostic_ephemeral(
 ) -> List["Figure"]:
     """Run a diagnostic over in-memory frames and draw each result its own way.
 
-    :func:`run_diagnostic_ephemeral` plus :func:`render_result_figure`
-    per frame, with one analyzer instantiation for the batch and the
-    same write-free contract (the ``file_path`` refusal and the
-    denylist apply unchanged). Returns object-API figures — no pyplot
-    state is created, so this is safe on a request threadpool.
+    :func:`run_diagnostic_ephemeral` plus
+    :func:`image_analysis.tools.rendering.render_result_figure` per
+    frame, with one analyzer instantiation for the batch and the same
+    write-free contract (the ``file_path`` refusal and the denylist
+    apply unchanged). Returns object-API figures — no pyplot state is
+    created, so this is safe on a request threadpool. A renderer that
+    cannot draw a result raises :class:`RenderError` (distinct from the
+    contract/config errors raised before any frame is analyzed).
 
     Parameters
     ----------

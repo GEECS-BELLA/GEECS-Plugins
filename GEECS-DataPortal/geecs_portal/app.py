@@ -27,7 +27,7 @@ from __future__ import annotations
 
 import contextlib
 import dataclasses
-import io
+import importlib
 import logging
 import re
 from datetime import date, datetime, timedelta
@@ -433,29 +433,25 @@ def create_app(
         return disp.get("mode") == "rendered"
 
     def _figure_kwargs(render: dict) -> dict:
-        """The display slice as the ephemeral renderers' kwargs (value-degrade)."""
+        """The display slice as the ephemeral renderers' kwargs (value-degrade).
+
+        The colormap defaults to ``gray`` — the pixel view's palette when
+        ``cmap`` is absent or unknown — so the rendered checkbox changes
+        only what it claims to (the base renderer's own default is
+        plasma).
+        """
         return {
-            "cmap": resources.safe_cmap(render.get("cmap")),
+            "cmap": resources.safe_cmap(render.get("cmap")) or "gray",
             "window": resources.window_percentiles(
                 render.get("plo"), render.get("phi")
             ),
         }
 
-    def _figure_png(fig: Figure) -> bytes:
-        """Object-API figure → PNG bytes (never pyplot; safe on the threadpool)."""
-        buffer = io.BytesIO()
-        fig.savefig(buffer, format="png")
-        return buffer.getvalue()
+    def _ephemeral_module():
+        """``image_analysis.ephemeral``, or the feature's 404 ladder.
 
-    def _render_processing_figure(array, processing: str, render: dict) -> bytes:
-        """The rendered view of ONE shot: the analyzer draws its own result.
-
-        Same seam family as ``_apply_processing`` (write-free, denylist,
-        one analyzer per call) — ``render_diagnostic_ephemeral`` hands
-        the analyzer's ``render_image`` an object-API axes, so overlays
-        (projections, markers, calibrated axes) come through without
-        any pyplot state on a request thread. Refusal ladder as for
-        processing; a renderer failure is an honest 400.
+        The one place the "configured? installed?" preamble lives for
+        the processing selector and the rendered view alike.
         """
         if processing_config_dir is None:
             raise HTTPException(
@@ -464,47 +460,66 @@ def create_app(
                 "(start it with --processing-configs)",
             )
         try:
-            from image_analysis.ephemeral import render_diagnostic_ephemeral
+            # import_module (not ``from image_analysis import ephemeral``):
+            # the package attribute survives an uninstalled/blocked
+            # submodule, the sys.modules lookup does not — the
+            # missing-extra test blocks the submodule.
+            ephemeral = importlib.import_module("image_analysis.ephemeral")
         except ImportError as exc:
             raise HTTPException(
                 status_code=404,
                 detail="processing needs the portal's 'analysis' extra "
                 "(pip install geecs-data-portal[analysis])",
             ) from exc
+        return ephemeral
+
+    def _render_processing_figure(array, processing: str, render: dict) -> bytes:
+        """The rendered view of ONE shot: the analyzer draws its own result.
+
+        Same seam family as ``_apply_processing`` (write-free, denylist,
+        one analyzer per call) — ``render_diagnostic_ephemeral`` hands
+        the analyzer's ``render_image`` an object-API axes, so overlays
+        (projections, markers, calibrated axes) come through without
+        any pyplot state on a request thread. Same status ladder as the
+        pixel path: unknown diagnostic 404, denylisted / invalid config
+        400, analyzer failure 400, and "ran but cannot be drawn"
+        (``RenderError``) 404 — the pixel path's "render failed" /
+        "produces no processed image" code.
+        """
+        ephemeral = _ephemeral_module()
         try:
-            (fig,) = render_diagnostic_ephemeral(
+            (fig,) = ephemeral.render_diagnostic_ephemeral(
                 processing,
                 [array],
                 config_dir=processing_config_dir,
                 **_figure_kwargs(render),
             )
-            return _figure_png(fig)
+            return resources.figure_png(fig)
         except (KeyError, FileNotFoundError) as exc:
             raise HTTPException(
                 status_code=404, detail=f"no diagnostic: {exc}"
             ) from exc
-        except ValueError as exc:  # denylisted, invalid config, or unrenderable result
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        except Exception as exc:  # noqa: BLE001 — analyzer/renderer failure, never a 500
+        except ephemeral.RenderError as exc:
             raise HTTPException(
-                status_code=400, detail=f"render failed: {exc}"
+                status_code=404, detail=f"render failed: {exc}"
+            ) from exc
+        except ValueError as exc:  # denylisted, or invalid config
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:  # noqa: BLE001 — analyzer failure, never a 500
+            raise HTTPException(
+                status_code=400, detail=f"processing failed: {exc}"
             ) from exc
 
     def _render_frame_figure(array, render: dict) -> bytes:
         """The rendered view of an averaged image: base renderer, no overlays."""
+        ephemeral = _ephemeral_module()
         try:
-            from image_analysis.ephemeral import render_frame_figure
-        except ImportError as exc:
-            raise HTTPException(
-                status_code=404,
-                detail="processing needs the portal's 'analysis' extra "
-                "(pip install geecs-data-portal[analysis])",
-            ) from exc
-        try:
-            return _figure_png(render_frame_figure(array, **_figure_kwargs(render)))
+            return resources.figure_png(
+                ephemeral.render_frame_figure(array, **_figure_kwargs(render))
+            )
         except Exception as exc:  # noqa: BLE001 — never a 500
             raise HTTPException(
-                status_code=400, detail=f"render failed: {exc}"
+                status_code=404, detail=f"render failed: {exc}"
             ) from exc
 
     def _pretty_names(detail, pf, columns: list[str]) -> dict:
@@ -1052,22 +1067,9 @@ def create_app(
         endpoint ladder: unknown diagnostic → 404, denylisted/miswired
         → 400, analyzer failure → 400 honestly — never a 500.
         """
-        if processing_config_dir is None:
-            raise HTTPException(
-                status_code=404,
-                detail="processing is not configured on this portal "
-                "(start it with --processing-configs)",
-            )
+        ephemeral = _ephemeral_module()
         try:
-            from image_analysis.ephemeral import run_diagnostic_ephemeral
-        except ImportError as exc:
-            raise HTTPException(
-                status_code=404,
-                detail="processing needs the portal's 'analysis' extra "
-                "(pip install geecs-data-portal[analysis])",
-            ) from exc
-        try:
-            results = run_diagnostic_ephemeral(
+            results = ephemeral.run_diagnostic_ephemeral(
                 processing, arrays, config_dir=processing_config_dir
             )
         except (KeyError, FileNotFoundError) as exc:
@@ -1080,7 +1082,9 @@ def create_app(
             raise HTTPException(
                 status_code=400, detail=f"processing failed: {exc}"
             ) from exc
-        processed = [result.processed_image for result in results]
+        # getattr: a legacy analyzer returning a dict (BCaveMagSpecStitcher)
+        # must be a refusal here, not an AttributeError → 500.
+        processed = [getattr(result, "processed_image", None) for result in results]
         if any(image is None for image in processed):
             raise HTTPException(
                 status_code=404,
@@ -1590,10 +1594,8 @@ def create_app(
         ax.set_ylabel(y, parse_math=False)
         ax.grid(True, alpha=0.3)
         fig.tight_layout()
-        buffer = io.BytesIO()
-        fig.savefig(buffer, format="png")
         return Response(
-            content=buffer.getvalue(),
+            content=resources.figure_png(fig),
             media_type="image/png",
             headers=_png_headers(detail),
         )

@@ -8,7 +8,7 @@ docstring conventions.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Optional, Tuple, Literal
+from typing import TYPE_CHECKING, Any, Callable, Dict, Optional, Tuple, Literal
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -323,3 +323,131 @@ def add_marker(
         alpha=alpha,
         label=label,
     )
+
+
+# ---------------------------------------------------------------------------
+# Object-API figures (no pyplot): thread-safe rendering for servers/notebooks
+# ---------------------------------------------------------------------------
+
+
+class RenderError(RuntimeError):
+    """A renderer failed on a result it could not draw.
+
+    Raised by :func:`render_result_figure` / :func:`render_frame_figure`
+    wrapping the renderer's own exception, so a caller can tell "the
+    diagnostic ran but its picture cannot be drawn" (a result with no
+    2D image, a legacy renderer signature) from configuration or
+    contract errors raised before rendering.
+    """
+
+
+def new_figure(
+    figsize: Tuple[float, float] = (5.0, 4.2), dpi: int = 110
+) -> Tuple["Figure", "Axes"]:
+    """An object-API figure + axes — never pyplot, so no global registry.
+
+    The figure has no window and is garbage-collected after ``savefig``;
+    safe on a web server's threadpool.
+    """
+    from matplotlib.figure import Figure
+
+    fig = Figure(figsize=figsize, dpi=dpi, constrained_layout=True)
+    return fig, fig.subplots()
+
+
+def window_limits(
+    image: Optional[np.ndarray], window: Optional[Tuple[float, float]]
+) -> Dict[str, float]:
+    """``vmin``/``vmax`` from a percentile *window* over *image*'s finite pixels.
+
+    Empty, all-NaN, constant or degenerate inputs return ``{}`` (autoscale)
+    rather than raising or warning — display cosmetics must never fail a
+    request.
+    """
+    if window is None or image is None:
+        return {}
+    data = np.asarray(image, dtype=float).ravel()
+    finite = data[np.isfinite(data)]
+    if finite.size < 2:
+        return {}
+    lo, hi = np.percentile(finite, list(window))
+    if not (lo < hi):
+        return {}
+    return {"vmin": float(lo), "vmax": float(hi)}
+
+
+def _draw(
+    draw: Callable[["Axes"], object],
+    figsize: Tuple[float, float],
+    dpi: int,
+) -> "Figure":
+    """Run *draw(ax)* on a fresh object-API axes; add the colorbar the base renderer skips."""
+    fig, ax = new_figure(figsize, dpi)
+    try:
+        draw(ax)
+    except Exception as exc:  # noqa: BLE001 — typed so callers can map it
+        raise RenderError(f"{type(exc).__name__}: {exc}") from exc
+    if ax.images:
+        # base_render_image only adds a colorbar when IT created the axes.
+        fig.colorbar(ax.images[0], ax=ax, shrink=0.65)
+    return fig
+
+
+def render_result_figure(
+    renderer: Any,
+    result: ImageAnalyzerResult,
+    *,
+    window: Optional[Tuple[float, float]] = None,
+    cmap: Optional[str] = None,
+    figsize: Tuple[float, float] = (5.0, 4.2),
+    dpi: int = 110,
+) -> "Figure":
+    """Draw *result* with *renderer*'s own ``render_image`` into an object-API figure.
+
+    *renderer* is an analyzer instance or class exposing
+    ``render_image(result, ..., ax=)`` — the 2D Standard family's are
+    ``@staticmethod``s taking ``vmin``/``vmax``/``cmap``, the 1D one an
+    instance method taking plot kwargs — so its overlays (projections,
+    markers, calibrated axes, whatever ``render_data`` carries) land on
+    our axes without pyplot. 2D results take ``cmap`` and a percentile
+    ``window`` (→ ``vmin``/``vmax`` over the processed image); 1D results
+    take neither.
+
+    Raises
+    ------
+    RenderError
+        Wrapping whatever the renderer raised (e.g. ``ValueError`` for a
+        result with no 2D image, ``TypeError`` for a legacy signature).
+    """
+    kwargs: Dict[str, Any] = {}
+    if result.data_type == "2d":
+        if cmap:
+            kwargs["cmap"] = cmap
+        kwargs.update(window_limits(result.processed_image, window))
+    return _draw(
+        lambda ax: renderer.render_image(result, ax=ax, **kwargs), figsize, dpi
+    )
+
+
+def render_frame_figure(
+    image: np.ndarray,
+    *,
+    window: Optional[Tuple[float, float]] = None,
+    cmap: Optional[str] = None,
+    figsize: Tuple[float, float] = (5.0, 4.2),
+    dpi: int = 110,
+) -> "Figure":
+    """Draw a bare 2D image with :func:`base_render_image` (no analyzer overlays).
+
+    For images that are not one analyzer result — an average of several
+    processed frames, whose per-shot overlays do not average meaningfully.
+
+    Raises
+    ------
+    RenderError
+        Wrapping the base renderer's failure (e.g. a non-2D array).
+    """
+    result = ImageAnalyzerResult(data_type="2d", processed_image=np.asarray(image))
+    kwargs: Dict[str, Any] = {"cmap": cmap} if cmap else {}
+    kwargs.update(window_limits(result.processed_image, window))
+    return _draw(lambda ax: base_render_image(result, ax=ax, **kwargs), figsize, dpi)

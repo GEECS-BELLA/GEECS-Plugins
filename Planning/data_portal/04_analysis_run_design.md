@@ -288,7 +288,9 @@ no-auth stance is restated with the run verb in view.
    analyzer (no share, no hardware).
 3. **`portal/analysis-tab`** — the tab: listing, run, poll, artifacts,
    errors.
-4. **`portal/rendered-view`** — the seam + the third display mode.
+4. **`portal/rendered-view`** — the seam + the third display mode
+   (#766: `render_diagnostic_ephemeral` composing
+   `tools.rendering.render_result_figure`; `display.mode`).
 5. **Promotion PR → master** (maintainer merges), then deploy (extra +
    read-write mount) and the live check below.
 
@@ -313,5 +315,7 @@ rendered toggle shows the analyzer's overlays on the per-shot image.
   real (the claim gate, or the status contract — see B/C above).
 - Per-bin rendering with overlays that *do* average (projections):
   needs a per-analyzer "aggregate render" hook; not designed.
-- Where the rendered toggle's figure size / dpi live in the display
-  state vocabulary (`analysis.py::_DISPLAY_FIELDS`).
+- ~~Where the rendered toggle's figure size / dpi live in the display
+  state vocabulary~~ — answered by PR 4 (#766): they are the seam's
+  defaults (5.0×4.2 in @ 110 dpi), not display state; add knobs only
+  when someone asks.

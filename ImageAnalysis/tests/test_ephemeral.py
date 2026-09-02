@@ -232,3 +232,91 @@ class TestRenderedEphemeral:
         assert len(ax.images) == 1 and len(fig.axes) == 2
         assert ax.images[0].get_clim() == (0.0, 15.0)
         assert not ax.lines  # no overlays on an averaged image
+
+    def test_the_analyzers_own_overlays_are_drawn(self):
+        """The point of the seam: render_image is the ANALYZER's, not the base."""
+        from image_analysis.analyzers.beam_analyzer import BeamAnalyzer
+        from image_analysis.tools.rendering import render_result_figure
+
+        image = np.zeros((6, 8))
+        image[2, 3] = 10.0
+        result = ImageAnalyzerResult(
+            data_type="2d",
+            processed_image=image,
+            render_data={
+                "horizontal_projection": image.sum(axis=0),
+                "vertical_projection": image.sum(axis=1),
+            },
+        )
+        fig = render_result_figure(BeamAnalyzer, result)
+        ax = fig.axes[0]
+        assert len(ax.images) == 1
+        assert ax.lines, "BeamAnalyzer's projection overlays must reach the seam's axes"
+
+    @pytest.mark.parametrize(
+        "class_path",
+        [
+            "image_analysis.analyzers.standard_analyzer.StandardAnalyzer",
+            "image_analysis.analyzers.beam_analyzer.BeamAnalyzer",
+            "image_analysis.analyzers.Undulator.hi_res_mag_cam_analyzer.HiResMagCamAnalyzer",
+            "image_analysis.analyzers.magspec_manual_calib_analyzer.MagSpecManualCalibAnalyzer",
+        ],
+    )
+    def test_2d_renderers_honour_the_ax_contract(self, class_path):
+        """Every 2D render_image draws INTO the axes it is given, without pyplot.
+
+        The load-bearing contract of the render seam (ImageAnalysis
+        CLAUDE.md "Ephemeral runs"): a renderer that ignored ``ax`` would
+        return an empty seam figure AND leak a pyplot-registered figure
+        per request on a server thread.
+        """
+        import importlib
+
+        import matplotlib.pyplot as plt
+
+        from image_analysis.tools.rendering import render_result_figure
+
+        module_path, class_name = class_path.rsplit(".", 1)
+        renderer = getattr(importlib.import_module(module_path), class_name)
+        plt.close("all")
+        result = ImageAnalyzerResult(data_type="2d", processed_image=np.ones((5, 7)))
+        fig = render_result_figure(renderer, result, cmap="viridis")
+        assert len(fig.axes[0].images) == 1
+        assert plt.get_fignums() == []
+
+    def test_1d_renderer_honours_the_ax_contract(self):
+        import matplotlib.pyplot as plt
+
+        from image_analysis.analyzers.standard_1d_analyzer import Standard1DAnalyzer
+        from image_analysis.tools.rendering import render_result_figure
+
+        plt.close("all")
+        line = np.column_stack([np.arange(10.0), np.arange(10.0) ** 2])
+        result = ImageAnalyzerResult(data_type="1d", line_data=line)
+        fig = render_result_figure(
+            Standard1DAnalyzer.__new__(Standard1DAnalyzer), result
+        )
+        assert fig.axes[0].lines
+        assert plt.get_fignums() == []
+
+    def test_unrenderable_result_is_a_render_error(self):
+        from image_analysis.analyzers.standard_analyzer import StandardAnalyzer
+        from image_analysis.tools.rendering import RenderError, render_result_figure
+
+        result = ImageAnalyzerResult(data_type="scalars_only", scalars={"x": 1.0})
+        with pytest.raises(RenderError, match="data_type='2d'"):
+            render_result_figure(StandardAnalyzer, result)
+
+    @pytest.mark.parametrize(
+        "image",
+        [np.zeros((0, 5)), np.full((4, 4), np.nan), np.ones((4, 4)), np.zeros((4, 4))],
+        ids=["empty", "all-nan", "constant", "zeros"],
+    )
+    def test_window_limits_degrade_never_raise(self, image):
+        import warnings
+
+        from image_analysis.tools.rendering import window_limits
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            assert window_limits(image, (1, 99)) == {}

@@ -1092,3 +1092,35 @@ class TestRenderedView:
             },
         )
         assert degraded.status_code == 200
+
+    def test_unrenderable_result_matches_the_pixel_paths_404(
+        self, scan_folder, configs_tree, analysis_extra
+    ):
+        """A diagnostic that ran but cannot be drawn is a 404 in both views."""
+        import yaml
+
+        scalars = configs_tree / "analyzers" / "HTU" / "UC_Scalars.yaml"
+        scalars.write_text(
+            yaml.safe_dump(
+                {
+                    "name": "UC_Scalars",
+                    "image_analyzer": (
+                        "image_analysis.analyzers.standard_analyzer.StandardAnalyzer"
+                    ),
+                    "image": {"type": "camera", "bit_depth": 16},
+                    "scan": {"priority": 100},
+                }
+            )
+        )
+        client = self._client(scan_folder, configs_tree)
+        # Sanity: the plain rendered path works for this diagnostic.
+        ok = client.get(
+            "/run/uid-002/image.png",
+            params={
+                "device": "cam",
+                "shot": 1,
+                "processing": "UC_Scalars",
+                "display": '{"mode": "rendered"}',
+            },
+        )
+        assert ok.status_code == 200

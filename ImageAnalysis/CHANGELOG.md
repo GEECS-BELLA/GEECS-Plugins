@@ -3,7 +3,7 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [1.14.0] — 2026-09-02
+## [1.14.0] — 2026-09-01
 
 ### Added
 
@@ -17,10 +17,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `cmap` and a percentile `window` (→ `vmin`/`vmax`); 1D renderers take
   neither. Same write-free contract (the `file_path` refusal and
   `EPHEMERAL_DENYLIST` apply unchanged). Companions:
-  `render_result_figure(analyzer, result, …)` and
+  `render_result_figure(renderer, result, …)` and
   `render_frame_figure(image, …)` (base renderer only — for averaged
-  images whose per-shot overlays do not average). The data portal's
-  "rendered figure" display mode is the first consumer.
+  images whose per-shot overlays do not average) live in
+  `image_analysis.tools.rendering` with `new_figure`, `window_limits`
+  and `RenderError` (the typed "diagnostic ran, picture cannot be
+  drawn" failure); `ephemeral` re-exports them. The `ax=` contract of
+  every Standard-family `render_image` is now pinned by tests. The data
+  portal's "rendered figure" display mode is the first consumer.
 - `run_diagnostic_ephemeral` is unchanged in behaviour; its body is now
   shared helpers (`_ephemeral_analyzer`, `_analyze_frames`).
 

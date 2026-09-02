@@ -16,9 +16,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   threadpool; same write-free contract and denylist). Per-bin view
   renders the averaged processed image through the base renderer with
   per-shot overlays dropped. `cmap` and the percentile window apply
-  (unknown colormap degrades to the default; `mode` outside
-  `("", "rendered")` is a 400). Without a `processing` selection the
-  mode is ignored (raw pixels).
+  (absent/unknown colormap → `gray`, the pixel view's palette; `mode`
+  outside `("", "rendered")` is a 400 — the enum precedent). Without a
+  `processing` selection the mode is ignored (raw pixels). Status
+  ladder matches the pixel path: a result that ran but cannot be drawn
+  (`RenderError`) is a 404 like "render failed" / "produces no
+  processed image". Review #766 also: the three "configured? installed?"
+  preambles collapsed into `_ephemeral_module()`; `resources.figure_png`
+  now serves `/plot.png` too; `to_display_png` uses `safe_cmap`; a legacy
+  dict-returning analyzer in the pixel path is a 404, not a 500.
 
 ## [0.17.0] - 2026-09-01
 

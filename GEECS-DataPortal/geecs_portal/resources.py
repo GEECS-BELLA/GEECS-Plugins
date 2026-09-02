@@ -113,12 +113,14 @@ def safe_cmap(cmap: Optional[str]) -> Optional[str]:
     return str(cmap) if str(cmap) in mpl.colormaps else None
 
 
+def figure_png(fig) -> bytes:
+    """Object-API figure → PNG bytes (never pyplot; safe on the threadpool)."""
+    buffer = io.BytesIO()
+    fig.savefig(buffer, format="png")
+    return buffer.getvalue()
+
+
 def window_percentiles(plo, phi) -> tuple[float, float]:
-    """Public alias of :func:`_window_percentiles` (the rendered view shares it)."""
-    return _window_percentiles(plo, phi)
-
-
-def _window_percentiles(plo, phi) -> tuple[float, float]:
     """The display window's percentile pair — value-degrade semantics.
 
     Display values ride shared links and must never make a link fail
@@ -176,7 +178,7 @@ def to_display_png(
 
     data = np.asarray(array, dtype=np.float32)
     lo_pct, hi_pct = (
-        _window_percentiles(plo, phi)
+        window_percentiles(plo, phi)
         if (plo is not None or phi is not None)
         else (_P_LO, _P_HI)
     )
@@ -190,13 +192,11 @@ def to_display_png(
     else:
         norm = np.clip((data - lo) / (hi - lo), 0.0, 1.0)
     colormap = None
-    if cmap and data.ndim == 2:
+    known = safe_cmap(cmap)  # unknown name: grayscale, never a failure
+    if known and data.ndim == 2:
         import matplotlib as mpl
 
-        try:
-            colormap = mpl.colormaps[str(cmap)]
-        except KeyError:
-            colormap = None  # unknown name: grayscale, never a failure
+        colormap = mpl.colormaps[known]
     if colormap is not None:
         # bytes=True skips the H×W×4 float64 RGBA intermediate — same
         # output bytes at ~1/8 the transient memory on full frames.
