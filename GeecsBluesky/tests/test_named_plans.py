@@ -82,6 +82,7 @@ def test_noscan_plan_assembles_the_canonical_request(monkeypatch) -> None:
         "submission": {"client": "t", "preflight": []},
         "session": "S",
         "resolver": "R",
+        "failed_move_policy": None,
     }
     # The assembled document IS a valid canonical ScanRequest.
     assert ScanRequest.model_validate(request).capture.shots_per_step == 3
@@ -94,18 +95,32 @@ def test_scan_plan_assembles_a_step_request_with_axes(monkeypatch) -> None:
     assert request["mode"] == "step"
     assert [a["variable"] for a in request["axes"]] == ["jet_z", "jet_x"]
     assert "actions" not in request and request["background"] is False
-    assert kwargs == {"submission": None, "session": None, "resolver": None}
+    assert kwargs == {
+        "submission": None,
+        "session": None,
+        "resolver": None,
+        "failed_move_policy": None,
+    }
     validated = ScanRequest.model_validate(request)
     assert validated.grid_shape() == (3, 3)
 
 
 def test_optimize_plan_assembles_an_optimize_request(monkeypatch) -> None:
     calls = _recording_funnel(monkeypatch)
-    _drive(geecs_optimize_plan(OPTIMIZATION, CAPTURE, description="opt"))
-    (request, _kwargs) = calls[0]
+    _drive(
+        geecs_optimize_plan(
+            OPTIMIZATION,
+            CAPTURE,
+            description="opt",
+            background=True,
+            failed_move_policy="raise",
+        )
+    )
+    (request, kwargs) = calls[0]
     assert request["mode"] == "optimize"
     assert request["optimization"] == OPTIMIZATION
-    assert "axes" not in request and "background" not in request
+    assert "axes" not in request and request["background"] is True
+    assert kwargs["failed_move_policy"] == "raise"
     validated = ScanRequest.model_validate(request)
     assert validated.optimization.max_iterations == 4
 
@@ -145,24 +160,39 @@ def test_named_plan_signature_passes_manager_validation(plan, annotation, args):
     assert ok, msg
 
 
-def test_every_named_plan_points_at_a_published_artifact() -> None:
-    """Each JSON-object parameter's description names the artifact a generic
-    client grafts, and every named artifact is a registry entry (published)."""
+def test_every_json_parameter_points_at_a_published_artifact() -> None:
+    """Every JSON-object/list parameter's description names exactly one
+    artifact a generic client grafts, and that artifact is a registry entry."""
     import re
 
     from geecs_schemas.schema_export import EXPORTED_SCHEMAS, artifact_path
 
     published = {artifact_path(name).as_posix() for name in EXPORTED_SCHEMAS}
+    json_parameters = {"capture", "actions", "axes", "optimization"}
     for annotation in (
         NOSCAN_PLAN_ANNOTATION,
         SCAN_PLAN_ANNOTATION,
         OPTIMIZE_PLAN_ANNOTATION,
     ):
-        named = {
-            m
-            for p in annotation["parameters"].values()
-            for m in re.findall(
-                r"docs/geecs_schemas/\w+\.schema\.json", p["description"]
+        for name, parameter in annotation["parameters"].items():
+            if name not in json_parameters:
+                continue
+            named = re.findall(
+                r"docs/geecs_schemas/\w+\.schema\.json", parameter["description"]
             )
-        }
-        assert named and named <= published, (named, published)
+            assert len(named) == 1 and named[0] in published, (name, named)
+
+
+def test_named_plans_cover_the_funnels_queue_settable_surface() -> None:
+    """Every kwarg a queue item may set on the funnel (beyond the request
+    document itself) is settable on each named plan too — a group allowed
+    only the named plans loses no knob."""
+    import inspect
+
+    from geecs_bluesky.plans.scan_request_plan import geecs_scan_request_plan
+
+    funnel = set(inspect.signature(geecs_scan_request_plan).parameters) - {"request"}
+    for plan in (geecs_noscan_plan, geecs_scan_plan, geecs_optimize_plan):
+        assert funnel - {"optimization_loader"} <= set(
+            inspect.signature(plan).parameters
+        )

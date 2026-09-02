@@ -178,7 +178,15 @@ class _DocCollector:
             self.events.append(dict(doc))
 
 
-def _run_scan(entry_point, request, resolver, folder, monkeypatch, submission=None):
+def _run_scan(
+    entry_point,
+    request,
+    resolver,
+    folder,
+    monkeypatch,
+    submission=None,
+    plan_factory=None,
+):
     """Run *request* through one door; return the collected documents.
 
     ``entry_point`` is ``"session"`` (the headless door,
@@ -188,7 +196,9 @@ def _run_scan(entry_point, request, resolver, folder, monkeypatch, submission=No
     one plan; the claim is stubbed to scan 7 in *folder* at the plan's
     claim site.  ``submission`` travels beside the request on both doors
     (the request/record split, geecs-schemas 0.14.0).  The headless door's
-    post-run s-file export is stubbed (no Tiled here).
+    post-run s-file export is stubbed (no Tiled here).  ``plan_factory``
+    (queue door only) swaps in a named plan: ``plan_factory(session=,
+    resolver=)`` is run instead of the funnel — the shared-execution pin.
     """
     folder.mkdir(parents=True, exist_ok=True)
     session = _mock_session()
@@ -208,6 +218,9 @@ def _run_scan(entry_point, request, resolver, folder, monkeypatch, submission=No
         if entry_point == "session":
             monkeypatch.setattr(session, "_export_scalar_files", lambda n: None)
             session.run(request, resolver, submission=submission)
+        elif plan_factory is not None:
+            set_plan_session(session)
+            session.RE(plan_factory(session=session, resolver=resolver))
         else:
             set_plan_session(session)
             session.RE(
@@ -1917,29 +1930,6 @@ def test_session_run_accepts_a_json_document(resolver, monkeypatch, tmp_path) ->
 # ---------------------------------------------------------------------------
 
 
-def _run_named(plan, resolver, folder, monkeypatch):
-    """Run a named plan on a mock session; return its collected documents."""
-    folder.mkdir(parents=True, exist_ok=True)
-    session = _mock_session()
-    docs = _DocCollector()
-    token = session.RE.subscribe(docs)
-    pacers: list = []
-    _install_stage_pacer(session, pacers)
-    monkeypatch.setattr(
-        "geecs_bluesky.plans.scan_request_plan.claim_scan_number",
-        lambda experiment: (7, str(folder)),
-    )
-    set_plan_session(session)
-    try:
-        session.RE(plan(session=session, resolver=resolver))
-    finally:
-        for pacer in pacers:
-            pacer.cancel()
-        session.RE.unsubscribe(token)
-        session.RE.msg_hook = None
-    return docs
-
-
 def test_named_noscan_plan_matches_the_funnel(resolver, monkeypatch, tmp_path) -> None:
     """``geecs_noscan_plan(capture, ...)`` and the funnel given the equivalent
     ScanRequest produce the same documents and ScanInfo: the record is the
@@ -1952,15 +1942,17 @@ def test_named_noscan_plan_matches_the_funnel(resolver, monkeypatch, tmp_path) -
     docs_funnel = _run_scan(
         "plan", request, resolver, tmp_path / "f" / "Scan007", monkeypatch
     )
-    docs_named = _run_named(
-        partial(
+    docs_named = _run_scan(
+        "plan",
+        request,
+        resolver,
+        tmp_path / "n" / "Scan007",
+        monkeypatch,
+        plan_factory=partial(
             geecs_noscan_plan,
             request.capture.model_dump(mode="json"),
             description=request.description,
         ),
-        resolver,
-        tmp_path / "n" / "Scan007",
-        monkeypatch,
     )
     _assert_same_run(
         docs_funnel, docs_named, tmp_path / "f" / "Scan007", tmp_path / "n" / "Scan007"
@@ -1990,16 +1982,18 @@ def test_named_scan_plan_matches_the_funnel(resolver, monkeypatch, tmp_path) -> 
     docs_funnel = _run_scan(
         "plan", request, resolver, tmp_path / "f" / "Scan007", monkeypatch
     )
-    docs_named = _run_named(
-        partial(
+    docs_named = _run_scan(
+        "plan",
+        request,
+        resolver,
+        tmp_path / "n" / "Scan007",
+        monkeypatch,
+        plan_factory=partial(
             geecs_scan_plan,
             [a.model_dump(mode="json") for a in request.axes],
             request.capture.model_dump(mode="json"),
             description="sweep",
         ),
-        resolver,
-        tmp_path / "n" / "Scan007",
-        monkeypatch,
     )
     _assert_same_run(
         docs_funnel, docs_named, tmp_path / "f" / "Scan007", tmp_path / "n" / "Scan007"

@@ -35,7 +35,10 @@ seams stay unannotated.  Pinned by ``tests/test_named_plans.py``.
 
 from __future__ import annotations
 
-from geecs_bluesky.plans.scan_request_plan import geecs_scan_request_plan
+from geecs_bluesky.plans.scan_request_plan import (
+    SCAN_REQUEST_PLAN_ANNOTATION,
+    geecs_scan_request_plan,
+)
 
 __all__ = [
     "geecs_noscan_plan",
@@ -50,9 +53,11 @@ __all__ = [
 def _request(mode: str, **fields: object) -> dict:
     """Assemble the canonical ScanRequest document for *mode*.
 
-    Only the fields the caller set travel; ``None`` values are omitted so
-    the schema's own defaults apply (an omitted ``actions`` is the empty
-    bindings, an omitted ``background`` is ``False``).
+    ``None`` values are omitted so the schema's own default applies (an
+    omitted ``actions`` is the empty bindings); the plans' other defaults
+    (``description=""``, ``background=False``) equal the schema's, so a
+    document assembled here validates to the same request the funnel would
+    be handed for the same operator input.
     """
     document: dict = {"mode": mode}
     document.update({key: value for key, value in fields.items() if value is not None})
@@ -65,6 +70,7 @@ def geecs_noscan_plan(
     actions=None,
     description: str = "",
     background: bool = False,
+    failed_move_policy=None,
     submission=None,
     session=None,
     resolver=None,
@@ -82,8 +88,9 @@ def geecs_noscan_plan(
         Free-text note for the scan metadata and the experiment log.
     background : bool
         Mark the shots as background/calibration data.
-    submission, session, resolver :
-        As on :func:`~geecs_bluesky.plans.scan_request_plan.geecs_scan_request_plan`.
+    failed_move_policy, submission, session, resolver :
+        As on :func:`~geecs_bluesky.plans.scan_request_plan.geecs_scan_request_plan`
+        — the funnel's queue-settable surface, unchanged.
 
     Yields
     ------
@@ -99,7 +106,11 @@ def geecs_noscan_plan(
     )
     return (
         yield from geecs_scan_request_plan(
-            request, submission=submission, session=session, resolver=resolver
+            request,
+            submission=submission,
+            session=session,
+            resolver=resolver,
+            failed_move_policy=failed_move_policy,
         )
     )
 
@@ -111,6 +122,7 @@ def geecs_scan_plan(
     actions=None,
     description: str = "",
     background: bool = False,
+    failed_move_policy=None,
     submission=None,
     session=None,
     resolver=None,
@@ -130,8 +142,9 @@ def geecs_scan_plan(
         Free-text note for the scan metadata and the experiment log.
     background : bool
         Mark the shots as background/calibration data.
-    submission, session, resolver :
-        As on :func:`~geecs_bluesky.plans.scan_request_plan.geecs_scan_request_plan`.
+    failed_move_policy, submission, session, resolver :
+        As on :func:`~geecs_bluesky.plans.scan_request_plan.geecs_scan_request_plan`
+        — the funnel's queue-settable surface, unchanged.
 
     Yields
     ------
@@ -148,7 +161,11 @@ def geecs_scan_plan(
     )
     return (
         yield from geecs_scan_request_plan(
-            request, submission=submission, session=session, resolver=resolver
+            request,
+            submission=submission,
+            session=session,
+            resolver=resolver,
+            failed_move_policy=failed_move_policy,
         )
     )
 
@@ -159,6 +176,8 @@ def geecs_optimize_plan(
     *,
     actions=None,
     description: str = "",
+    background: bool = False,
+    failed_move_policy=None,
     submission=None,
     session=None,
     resolver=None,
@@ -181,8 +200,11 @@ def geecs_optimize_plan(
         action hooks yet; see the funnel).
     description : str
         Free-text note for the scan metadata and the experiment log.
-    submission, session, resolver :
-        As on :func:`~geecs_bluesky.plans.scan_request_plan.geecs_scan_request_plan`.
+    background : bool
+        Mark the shots as background/calibration data.
+    failed_move_policy, submission, session, resolver :
+        As on :func:`~geecs_bluesky.plans.scan_request_plan.geecs_scan_request_plan`
+        — the funnel's queue-settable surface, unchanged.
 
     Yields
     ------
@@ -195,10 +217,15 @@ def geecs_optimize_plan(
         capture=capture,
         actions=actions,
         description=description,
+        background=background,
     )
     return (
         yield from geecs_scan_request_plan(
-            request, submission=submission, session=session, resolver=resolver
+            request,
+            submission=submission,
+            session=session,
+            resolver=resolver,
+            failed_move_policy=failed_move_policy,
         )
     )
 
@@ -224,23 +251,17 @@ _SHARED_PARAMETERS: dict = {
         "description": "Free-text note for the scan metadata and the experiment log.",
         "annotation": "str",
     },
-    "submission": {
+    "failed_move_policy": {
         "description": (
-            "Optional client-stamped SubmissionRecord as a JSON object; "
-            "recorded verbatim in run metadata."
+            "What a failed scan-axis move does: 'pause' (the default — the "
+            "RE Manager renders the paused state; resume/stop are queue "
+            "verbs) or 'raise'. As on geecs_scan_request_plan."
         ),
     },
-    "session": {
-        "description": (
-            "Worker-internal GeecsSession — leave unset; the worker startup "
-            "installs the default."
-        ),
-    },
-    "resolver": {
-        "description": (
-            "Worker-internal config resolver — leave unset; defaults to the "
-            "worker's configs checkout."
-        ),
+    # The funnel's own prose for its seams — one wording, imported.
+    **{
+        key: SCAN_REQUEST_PLAN_ANNOTATION["parameters"][key]
+        for key in ("submission", "session", "resolver")
     },
 }
 _BACKGROUND_PARAMETER: dict = {
@@ -296,5 +317,6 @@ OPTIMIZE_PLAN_ANNOTATION: dict = {
             "annotation": "dict",
         },
         **_SHARED_PARAMETERS,
+        **_BACKGROUND_PARAMETER,
     },
 }
