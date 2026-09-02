@@ -16,12 +16,16 @@ from pathlib import Path
 
 import pytest
 
+from geecs_schemas import SCHEMA_REGISTRY
 from geecs_schemas.schema_export import (
+    ARTIFACT_DIR,
     EXPORTED_SCHEMAS,
     SCHEMA_ARTIFACT,
     artifact_path,
+    json_schema,
     render_artifact,
     scan_request_json_schema,
+    write_artifacts,
 )
 
 # test file → tests/ → GEECS-Schemas/ → <repo root>
@@ -58,16 +62,29 @@ def test_committed_artifact_matches_schema(name):
 
 @in_repo_checkout
 def test_no_orphan_artifacts():
-    """Every ``*.schema.json`` under the docs folder is a registry entry.
+    """Every ``*.schema.json`` in the artifact directory is a registry entry.
 
     An artifact whose model left the registry would otherwise stay
     published (and fetched) forever while silently drifting.
     """
-    published = {
-        p.name for p in (REPO_ROOT / "docs/geecs_schemas").glob("*.schema.json")
-    }
+    published = {p.name for p in (REPO_ROOT / ARTIFACT_DIR).glob("*.schema.json")}
     expected = {artifact_path(name).name for name in EXPORTED_SCHEMAS}
     assert published == expected
+
+
+def test_write_artifacts_creates_the_tree_under_a_fresh_root(tmp_path):
+    """A dry run into an empty root writes every entry, creating parents."""
+    written = write_artifacts(tmp_path)
+    assert [p.relative_to(tmp_path) for p in written] == [
+        artifact_path(name) for name in EXPORTED_SCHEMAS
+    ]
+    for path, name in zip(written, EXPORTED_SCHEMAS):
+        assert path.read_text(encoding="utf-8") == render_artifact(name)
+
+
+def test_scan_request_entry_is_the_config_kind_model():
+    """One model behind both registries — a key rename cannot split them."""
+    assert EXPORTED_SCHEMAS["scan_request"] is SCHEMA_REGISTRY["scan_request"]
 
 
 def test_scan_request_stays_the_named_entry():
@@ -77,11 +94,11 @@ def test_scan_request_stays_the_named_entry():
 
 
 def test_every_entry_renders_a_dialect_marked_schema():
-    """Every registry entry exports with the 2020-12 dialect marker and a title."""
-    for name, model in EXPORTED_SCHEMAS.items():
-        schema = json.loads(render_artifact(name))
-        assert schema["$schema"].endswith("2020-12/schema"), name
-        assert schema["title"] == model.__name__, name
+    """Every registry entry exports with the 2020-12 dialect marker."""
+    for name in EXPORTED_SCHEMAS:
+        assert json.loads(render_artifact(name))["$schema"].endswith(
+            "2020-12/schema"
+        ), name
 
 
 def test_schema_carries_the_full_nested_vocabulary():
@@ -106,8 +123,8 @@ def test_schema_carries_the_full_nested_vocabulary():
 
 
 def test_render_is_valid_terminated_json():
-    """Each artifact text round-trips as JSON and ends with one newline."""
-    for name in EXPORTED_SCHEMAS:
+    """Each artifact text round-trips to its model's schema and ends with one newline."""
+    for name, model in EXPORTED_SCHEMAS.items():
         text = render_artifact(name)
-        assert json.loads(text)["title"] == EXPORTED_SCHEMAS[name].__name__
+        assert json.loads(text) == json_schema(model), name
         assert text.endswith("}\n") and not text.endswith("\n\n")

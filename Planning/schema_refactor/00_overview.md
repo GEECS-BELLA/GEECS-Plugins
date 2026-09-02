@@ -254,8 +254,11 @@ one artifact per entry, the no-drift guard parametrized over the registry,
 an orphan-artifact check, `SCHEMA_ARTIFACT` kept as the ScanRequest alias
 the worker annotation and OSPREY point at). Each named plan's parameter
 model is one registry line plus a regenerate. The Markdown reference for
-the plan models is a second registry handed to `docgen.render_reference`
-(2b-ii), not a change to the config-kind registry; mkdocs nav stays as is.
+the plan models (2b-ii) has docgen iterate `EXPORTED_SCHEMAS` for a
+plan-models page — each plan model registered exactly once — not a change
+to the config-kind registry (`SCHEMA_REGISTRY` stays the 8 versioned YAML
+kinds; `scan_request` is the one model in both, pinned); mkdocs nav stays
+as is.
 
 #### 2c — OSPREY tail (optional, no deadline)
 
