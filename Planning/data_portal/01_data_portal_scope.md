@@ -76,6 +76,12 @@ Three properties carry the design:
    portal has no write verbs — no analysis triggering, no annotations
    in v1. That is what makes "anyone on the network" safe with no auth
    story, and keeps the service solo-maintainable.
+   *Amended 2026-09-01 (`04_analysis_run_design.md`): one write verb —
+   explicit ScanAnalysis runs from the Analysis tab, opt-in via
+   `--processing-configs`, read-write mount where enabled,
+   unauthenticated on the lab network by the owner's acceptance
+   (regenerable outputs, internal share). Annotations and config
+   writes stay out.*
 3. **Python-native, no build chain (Sam, standing doctrine).** FastAPI +
    server-rendered templates. No npm. One `poetry install`, one systemd
    unit, a `deploy/` runbook — the same service pattern as the gateways
@@ -126,7 +132,8 @@ finding stories, not two formats.
 
 ## Deliberately out of scope (v1)
 
-- Any write path (annotations, analysis triggering, re-processing).
+- Any write path (annotations, analysis triggering, re-processing) —
+  *analysis triggering admitted 2026-09-01, see ruling 2's amendment.*
 - Authentication (lab-network-internal + read-only; revisit only if
   exposure changes).
 - Serving assets *through* Tiled — see "Future work".

@@ -3,6 +3,48 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.16.0] - 2026-09-01
+
+### Added
+
+- **Analysis runs** — the portal can now run one ScanAnalysis analyzer
+  on one scan from the browser (`Planning/data_portal/04_analysis_run_design.md`,
+  owner ruling 2026-09-01; the charter amendment "read-only except
+  explicit analysis runs"). `geecs_portal/analysis_runs.py`:
+  `AnalysisRunner` (one worker thread, one active job per scan,
+  in-memory records with `queued`/`running`/`done`/`failed`/`no_data`,
+  artifacts, error text and the run's log lines captured from the
+  worker thread only), the analyzer factory seam (default =
+  `load_diagnostic` + `create_scan_analyzer`, the same two calls the
+  group loader runs in a loop; tests inject a fake), and the artifact
+  containment helper. Endpoints: `GET /api/run/{uid}/analysis`
+  (loadable diagnostics with applicability by data device, job record,
+  files on disk under the analyzer's output dir), `POST
+  /api/run/{uid}/analysis?analyzer=` (202 / 404 ladder / 409 while a
+  job is active), `GET /run/{uid}/artifact?path=` (serves a produced
+  file, resolved path must stay inside the scan's analysis folder).
+  Deliberately NOT a task-queue participant — `run_analysis` is called
+  directly; no status records, claims, heartbeats or Google Doc
+  uploads. `cleanup()` runs on every outcome. Review-hardened (#763):
+  the scan tag is parsed from the resolved folder (`ScanPaths(folder=…)`),
+  never rebuilt from the start doc's time; the artifact endpoint is
+  gated with the feature, serves raster images inline and everything
+  else as `attachment` + `nosniff`; the job's final state is assigned
+  after its log/finished fields; a `BaseException` from an analyzer is
+  recorded (never a record stuck at `running`); the lifespan refuses
+  new runs at shutdown and logs an in-flight one.
+- The `analysis` extra now carries ScanAnalysis alongside
+  ImageAnalysis; `__main__` pins `matplotlib.use("Agg")` before any
+  analysis import (ScanAnalysis renderers use pyplot; the single
+  worker thread serialises them).
+
+### Changed
+
+- `DEPLOYMENT.md`: the share must be mounted read-write where analysis
+  runs are enabled; the extra and the flag are named in the
+  prerequisites. Scope doc ruling 2 and the root dependency graph
+  amended to match.
+
 ## [0.15.3] - 2026-09-01
 
 ### Fixed

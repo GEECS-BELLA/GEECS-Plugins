@@ -1,7 +1,7 @@
 [tool.poetry]
 name = "geecs-data-portal"
-version = "0.15.3"
-description = "Read-only scan-browsing web service: a zero-install browser view over the Tiled catalog and the GEECS data share"
+version = "0.16.0"
+description = "Scan-browsing web service (read-only except explicit analysis runs): a zero-install browser view over the Tiled catalog and the GEECS data share"
 authors = ["GEECS-BELLA"]
 readme = "README.md"
 packages = [{ include = "geecs_portal" }]
@@ -16,11 +16,14 @@ pillow = ">=10"
 geecs-data-utils = { path = "../GEECS-Data-Utils", develop = true, extras = ["tiled"] }
 plotly = "^7.0"
 imageanalysis = { path = "../ImageAnalysis", develop = true, optional = true }
+scananalysis = { path = "../ScanAnalysis", develop = true, optional = true }
 
 [tool.poetry.extras]
-# The Images tab's ephemeral-processing selector (run_diagnostic_ephemeral);
-# without it the portal serves raw images and the selector stays hidden.
-analysis = ["imageanalysis"]
+# The Images tab's ephemeral-processing selector (run_diagnostic_ephemeral)
+# AND the Analysis tab's runs (ScanAnalysis executed directly — the 04
+# design); without it the portal serves raw images, the selector stays
+# hidden and the run endpoints 404.
+analysis = ["imageanalysis", "scananalysis"]
 
 [tool.poetry.group.dev.dependencies]
 pytest = ">=8.0"
