@@ -143,7 +143,6 @@ class ConsoleFormState(BaseModel):
     shots_per_step: int = Field(1, ge=1)
     save_sets: list[str] = Field(default_factory=list)
     trigger_profile: Optional[str] = None
-    trigger_variant: Optional[str] = None
     acquisition: AcquisitionMode = AcquisitionMode.FREE_RUN
     description: str = ""
     background: bool = False
@@ -207,8 +206,8 @@ def build_scan_request(form: ConsoleFormState) -> ScanRequest:
         missing/extra axis for the mode, or a total shot count above
         :data:`MAXIMUM_SCAN_SIZE`.
     pydantic.ValidationError
-        When the schema itself rejects the assembled request (e.g. a
-        trigger variant without a profile, duplicate axis variables).
+        When the schema itself rejects the assembled request (e.g.
+        duplicate axis variables).
     """
     # A stray spec on a non-optimize form is a bug the schema's consistency
     # validator surfaces loudly rather than being silently dropped here.
@@ -258,7 +257,6 @@ def build_scan_request(form: ConsoleFormState) -> ScanRequest:
             acquisition=form.acquisition,
             save_sets=list(form.save_sets),
             trigger_profile=form.trigger_profile,
-            trigger_variant=form.trigger_variant,
         ),
         description=form.description,
         background=form.background or form.mode is ConsoleMode.BACKGROUND,
@@ -336,7 +334,6 @@ def form_state_from_request(request: ScanRequest) -> ConsoleFormState:
         shots_per_step=request.capture.shots_per_step,
         save_sets=list(request.capture.save_sets),
         trigger_profile=request.capture.trigger_profile,
-        trigger_variant=request.capture.trigger_variant,
         acquisition=request.capture.acquisition,
         description=request.description,
         background=background,

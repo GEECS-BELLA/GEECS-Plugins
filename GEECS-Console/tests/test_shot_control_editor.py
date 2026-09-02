@@ -10,7 +10,6 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QLineEdit
 
 from geecs_console.editors.shot_control_editor import (
-    BASE_LAYER,
     ShotControlEditor,
     open_shot_control_editor,
 )
@@ -120,14 +119,6 @@ class TestLoading:
         ]
         assert states == ["OFF", "STANDBY", "SCAN", "SINGLESHOT", "ARMED"]
 
-    def test_variant_combo_lists_base_plus_variants(self, editor):
-        select_profile(editor, "HTU-Normal")
-        entries = [
-            editor.variant_combo.itemText(i)
-            for i in range(editor.variant_combo.count())
-        ]
-        assert entries == [BASE_LAYER, "laser_off"]
-
     def test_loading_is_not_dirty(self, editor):
         select_profile(editor, "HTU-Normal")
         assert not editor.is_dirty()
@@ -166,7 +157,6 @@ class TestEditing:
         assert loaded.writes_for("SCAN")[0].value == "3.5"
         # Everything else survives the edit untouched.
         expected = representative_profile()
-        assert loaded.variants == expected.variants
         assert loaded.writes_for("ARMED") == expected.writes_for("ARMED")
 
     def test_revert_restores_the_disk_state(self, editor, store):
@@ -238,53 +228,6 @@ class TestEditing:
         editor.description_edit.setText("retimed 2026-07")
         editor.save_button.click()
         assert store.load("HTU-Normal").description == "retimed 2026-07"
-
-
-class TestVariants:
-    def test_variant_layer_shows_only_overlay_writes(self, editor):
-        select_profile(editor, "HTU-Normal")
-        editor.variant_combo.setCurrentText("laser_off")
-        assert write_rows(editor, "SCAN") == [
-            (DG, "Trigger.Source", "Single shot external rising edges"),
-        ]
-        assert write_rows(editor, "OFF") == []
-        assert editor.description_edit.text() == (
-            "Trigger internally while the laser is off."
-        )
-
-    def test_editing_a_variant_write_saves_into_the_variant(self, editor, store):
-        select_profile(editor, "HTU-Normal")
-        editor.variant_combo.setCurrentText("laser_off")
-        state_item(editor, "SCAN").child(0).setText(2, "Internal")
-        editor.save_button.click()
-        loaded = store.load("HTU-Normal")
-        assert loaded.variants["laser_off"].states["SCAN"][0].value == "Internal"
-        # The base states are untouched.
-        assert loaded.states == representative_profile().states
-
-    def test_add_variant(self, editor, store, monkeypatch):
-        select_profile(editor, "HTU-Normal")
-        monkeypatch.setattr(editor, "_prompt_name", lambda *a, **k: "no_gas")
-        editor.add_variant_button.click()
-        assert editor.variant_combo.currentText() == "no_gas"
-        assert editor.is_dirty()
-        editor.save_button.click()
-        assert "no_gas" in store.load("HTU-Normal").variants
-
-    def test_add_variant_rejects_taken_names(self, editor, monkeypatch):
-        select_profile(editor, "HTU-Normal")
-        monkeypatch.setattr(editor, "_prompt_name", lambda *a, **k: "laser_off")
-        editor.add_variant_button.click()
-        assert "taken" in editor.validation_label.text()
-
-    def test_remove_variant(self, editor, store, monkeypatch):
-        select_profile(editor, "HTU-Normal")
-        editor.variant_combo.setCurrentText("laser_off")
-        monkeypatch.setattr(editor, "_confirm", lambda *a, **k: True)
-        editor.remove_variant_button.click()
-        assert editor.variant_combo.currentText() == BASE_LAYER
-        editor.save_button.click()
-        assert store.load("HTU-Normal").variants == {}
 
 
 class TestProfileOperations:

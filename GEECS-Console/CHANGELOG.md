@@ -4,6 +4,20 @@ All notable changes to GEECS-Console are documented here.  Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is
 semantic.
 
+## [0.27.0] - 2026-09-02
+
+### Removed
+
+- **Trigger-profile variants** everywhere in the console (GEECS-Schemas
+  0.15.0 removed them): the R1 trigger-variant combo, `ConsoleFormState
+  .trigger_variant`, `ConsoleConfigs.trigger_variants`, and the shot-control
+  editor's variant layer (the layer combo, Add/Remove variant, per-layer
+  description). The editor now edits one profile: its description and its
+  state write tree. One profile file per operating condition, picked by
+  name in the trigger-profile combo, is the only shape; older presets with
+  `trigger_variant: null` load unchanged through the schema's lifting
+  validator.
+
 ## [0.26.0] - 2026-09-01
 
 ### Changed

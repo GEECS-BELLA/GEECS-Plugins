@@ -21,7 +21,7 @@ DG = "U_DG645_ShotControl"
 
 
 def representative_profile() -> TriggerProfile:
-    """The HTU shape: DG645 drives trigger + gas jet, one laser-off variant."""
+    """The HTU shape: DG645 drives trigger + gas jet."""
     return TriggerProfile(
         name="HTU-Normal",
         description="DG645 drives the machine trigger and gas jet",
@@ -61,20 +61,6 @@ def representative_profile() -> TriggerProfile:
                     "value": "Single shot external rising edges",
                 },
             ],
-        },
-        variants={
-            "laser_off": {
-                "states": {
-                    "SCAN": [
-                        {
-                            "device": DG,
-                            "variable": "Trigger.Source",
-                            "value": "Single shot external rising edges",
-                        }
-                    ]
-                },
-                "description": "Trigger internally while the laser is off.",
-            }
         },
     )
 
@@ -128,7 +114,6 @@ class TestRoundTrip:
         assert loaded.name == profile.name
         assert loaded.description == profile.description
         assert loaded.states == profile.states
-        assert loaded.variants == profile.variants
 
     def test_off_state_survives_yaml_11_boolean_parsing(self, store):
         # A bare OFF: key parses as boolean False in YAML 1.1 — the schema

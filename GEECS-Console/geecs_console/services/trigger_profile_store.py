@@ -173,7 +173,7 @@ class TriggerProfileStore(NamedConfigStore):
 
         The document is a plain ``model_dump(mode="json")`` in declared field
         order — every schema field (``schema_version``, ``name``, ``states``,
-        ``variants``, ``description``) is preserved, and loading it back
+        ``description``) is preserved, and loading it back
         yields a model equal to *profile*.
 
         Parameters

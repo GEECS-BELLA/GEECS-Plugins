@@ -84,11 +84,6 @@ OPERATOR_TOOLTIPS: dict[str, str] = {
         "STANDBY / SCAN / ... device writes). Empty means the scan "
         "leaves the trigger alone."
     ),
-    "trigger_variant_combo": (
-        "Named operating condition of the trigger profile (e.g. "
-        "laser_off) — overlays a few writes on the base profile. "
-        "Empty runs the base behaviour."
-    ),
     "gateway_chip": (
         "CA gateway health: reads the experiment's heartbeat PV "
         "every few seconds. WARN means the gateway runs but reports "

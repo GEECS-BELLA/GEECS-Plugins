@@ -60,9 +60,6 @@ class FakeConfigs:
     def union_preview(self, names):
         return UnionPreview(device_count=3 * len(names), hint="")
 
-    def trigger_variants(self, profile_name):
-        return ["laser_off"] if profile_name else []
-
     def optimization_spec(self, name):
         if name not in self.optimization_specs:
             raise ConsoleConfigsError(f"Optimizer config {name!r} not found.")
@@ -1052,14 +1049,12 @@ class TestStateModel:
         window.shots_per_step.setValue(5)
         window.description_edit.setText("grid check")
         window.trigger_profile_combo.setCurrentText("HTU-Standard")
-        window.trigger_variant_combo.setCurrentText("laser_off")
         request = build_scan_request(window.form_state())
         assert [axis.variable for axis in request.axes] == ["jet_x", "jet_z"]
         assert request.grid_shape() == (3, 3)
         assert request.capture.shots_per_step == 5
         assert request.description == "grid check"
         assert request.capture.trigger_profile == "HTU-Standard"
-        assert request.capture.trigger_variant == "laser_off"
 
 
 class TestNowAndDevicePanel:
@@ -1649,7 +1644,6 @@ def preset_request(**overrides):
         shots_per_step=7,
         save_sets=["EBeamDiags"],
         trigger_profile="HTU-Standard",
-        trigger_variant="laser_off",
         description="preset check",
     )
     form.update(overrides)
@@ -1730,7 +1724,6 @@ class TestPresets:
         assert window.shots_per_step.value() == 7
         assert window.description_edit.text() == "preset check"
         assert window.trigger_profile_combo.currentText() == "HTU-Standard"
-        assert window.trigger_variant_combo.currentText() == "laser_off"
         assert window.selected_save_sets() == ["EBeamDiags"]
         assert "total shots: 49" in window.shot_count_label.text()
         # The applied form is submit-ready and rebuilds an equal request.
@@ -1742,7 +1735,6 @@ class TestPresets:
             axes=[],
             shots_per_step=100,
             trigger_profile=None,
-            trigger_variant=None,
         )
         self._select_preset(window, "stats")
         window._on_preset_apply()
@@ -1772,7 +1764,6 @@ class TestPresets:
         window._presets.presets["list"] = preset_request(
             axes=[FormAxis(variable="jet_z", values=[0.0, 0.5, 2.0])],
             trigger_profile=None,
-            trigger_variant=None,
         )
         before = window.form_state()
         self._select_preset(window, "list")
@@ -1784,7 +1775,6 @@ class TestPresets:
         window._presets.presets["mixed"] = preset_request(
             save_sets=["EBeamDiags", "GhostSet"],
             trigger_profile=None,
-            trigger_variant=None,
         )
         self._select_preset(window, "mixed")
         window._on_preset_apply()
