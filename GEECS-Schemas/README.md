@@ -58,6 +58,9 @@ independently:
   changelog, and the regenerated JSON Schema artifact
   (`docs/geecs_schemas/scan_request.schema.json`, kept current by a no-drift
   test) — the artifact's git history is the field-level audit trail.
+  The exporter is a registry (`schema_export.EXPORTED_SCHEMAS`, one
+  artifact per entry, one no-drift guard iterating it): a new published
+  contract is one registry line plus a regenerate.
 - **The marker is an integer, not a semver.** Nothing branches on a minor
   schema version: a document is either liftable or already current. The
   finer-grained story lives in the changelog. Do not introduce `1.1`-style

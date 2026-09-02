@@ -5,6 +5,26 @@ All notable changes to GEECS-Schemas are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.0] - 2026-09-02
+
+### Added
+
+- **Schema export registry** (Phase 2b-i): `schema_export.EXPORTED_SCHEMAS`
+  maps artifact names to models and renders one committed
+  `docs/geecs_schemas/<name>.schema.json` per entry (`json_schema`,
+  `render_artifact(name)`, `write_artifacts`); the no-drift guard is
+  parametrized over the registry and an orphan-artifact check refuses a
+  published file whose model left the registry. `SCHEMA_ARTIFACT` and
+  `scan_request_json_schema()` stay as the ScanRequest aliases. The
+  regenerator script is now `tests/generate_schema_artifacts.py`. Groundwork
+  for the named plans' parameter models (2b-ii): one registry line each.
+
+### Changed
+
+- `python -m geecs_schemas.schema_export` takes `--root <repo>` (writes the
+  whole artifact tree, creating directories) instead of `-o <file>`;
+  `write_artifact(name, path)` requires the entry name.
+
 ## [0.15.0] - 2026-09-02
 
 ### Removed
