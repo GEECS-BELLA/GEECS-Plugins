@@ -146,15 +146,23 @@ class RunInProgress(RuntimeError):
 #: Logger-name prefixes that are the portal's own traffic, never the
 #: run's: excluded from a job's captured log.
 _CAPTURE_EXCLUDE = ("geecs_portal", "uvicorn", "httpx", "httpcore", "asyncio")
+#: Thread-name prefixes that serve requests / warm caches in this
+#: process — a record from one of them during a run is a concurrent
+#: browser's (the Images tab's ephemeral path logs under
+#: ``image_analysis.*`` too), not the run's. Analyzer pool threads are
+#: ``ThreadPoolExecutor-*``; the worker itself is ``portal-analysis_*``.
+_CAPTURE_EXCLUDE_THREADS = ("AnyIO worker thread", "MainThread", "warm-", "uvicorn")
 
 
 class _RunLogCapture(logging.Handler):
     """Capture every record emitted during a run, minus the portal's own.
 
-    Jobs are serialised on one worker, so "everything in the window"
-    IS the run — including the per-shot lines the analyzers emit from
-    their own thread pools (a thread-id filter would drop those).
-    Records from process-pool children never reach this process.
+    Jobs are serialised on one worker, so the window is the run —
+    including the per-shot lines the analyzers emit from their own
+    thread pools (a worker-thread-id filter would drop those) — minus
+    what the request threads and cache warmers emit meanwhile (a
+    concurrent browser's traffic, filtered by thread name). Records
+    from process-pool children never reach this process.
     """
 
     def __init__(self, max_lines: int):
@@ -163,7 +171,9 @@ class _RunLogCapture(logging.Handler):
         self.setFormatter(logging.Formatter("%(levelname)s %(name)s: %(message)s"))
 
     def emit(self, record: logging.LogRecord) -> None:
-        if record.name.startswith(_CAPTURE_EXCLUDE):
+        if record.name.startswith(_CAPTURE_EXCLUDE) or str(
+            record.threadName
+        ).startswith(_CAPTURE_EXCLUDE_THREADS):
             return
         try:
             self.lines.append(self.format(record))

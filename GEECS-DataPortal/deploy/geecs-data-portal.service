@@ -17,7 +17,7 @@
 # See DEPLOYMENT.md (one directory up).
 
 [Unit]
-Description=GEECS Data Portal (read-only scan browser)
+Description=GEECS Data Portal (scan browser; analysis runs when configured)
 # The portal reads the Tiled catalog; when Tiled runs on the same box,
 # start after it. If Tiled is remote, drop the tiled.service reference —
 # the portal degrades gracefully (pages report catalog errors) and
@@ -44,6 +44,10 @@ WorkingDirectory=/home/geecs/GEECS-Plugins-portal/GEECS-DataPortal
 ExecStart=/home/geecs/.local/bin/poetry run geecs-data-portal --experiment Undulator
 Restart=on-failure
 RestartSec=10
+# An analysis run in flight cannot be interrupted (DEPLOYMENT.md): give a
+# stop/restart long enough to let one finish instead of SIGKILLing it
+# mid-write. Raise if your longest analyzer takes longer.
+TimeoutStopSec=600
 SyslogIdentifier=geecs-data-portal
 
 [Install]

@@ -29,8 +29,10 @@ logger = logging.getLogger("fake.analyzer")
 @pytest.fixture()
 def scan_folder(tmp_path) -> Path:
     """A Scan002 folder with a ``cam`` device dir (data files irrelevant here)."""
+    # Dated the day AFTER test_app.TEST_DAY (the start doc's time) on
+    # purpose: the run's tag must come from the folder, never the doc.
     folder = (
-        tmp_path / "Undulator" / "Y2026" / "07-Jul" / "26_0712" / "scans" / "Scan002"
+        tmp_path / "Undulator" / "Y2026" / "07-Jul" / "26_0713" / "scans" / "Scan002"
     )
     (folder / "cam").mkdir(parents=True)
     (folder / "cam" / "Scan002_cam_001.png").write_bytes(b"not-a-real-png")
@@ -240,9 +242,19 @@ class TestRunner:
         try:
             job = runner.start("u", "A", run)
             assert seen.wait(5)
-            # Portal / server traffic during the window is not the run's.
+            # Portal / server traffic during the window is not the run's:
+            # by logger name, and by thread name for the libraries a
+            # concurrent browser exercises (the ephemeral Images path).
             logging.getLogger("uvicorn.access").warning("GET /health")
             logging.getLogger("geecs_portal.app").warning("request-side noise")
+            browser = threading.Thread(
+                name="AnyIO worker thread",
+                target=lambda: logging.getLogger("image_analysis.ephemeral").warning(
+                    "a concurrent browser's processing"
+                ),
+            )
+            browser.start()
+            browser.join()
             deadline = time.monotonic() + 5
             while job.state in analysis_runs.ACTIVE and time.monotonic() < deadline:
                 time.sleep(0.01)
@@ -284,6 +296,23 @@ class TestRunner:
 
 
 class TestFeatureGates:
+    def test_shutdown_turns_posts_into_503(self, scan_folder, configs_tree):
+        pytest.importorskip("image_analysis")
+        client = _client(scan_folder, configs_tree, behaviour="ok")
+        with client:  # runs the lifespan: startup … shutdown
+            assert (
+                client.post(
+                    "/api/run/uid-002/analysis", params={"analyzer": "UC_Crop"}
+                ).status_code
+                == 202
+            )
+            _wait(client)
+        response = client.post(
+            "/api/run/uid-002/analysis", params={"analyzer": "UC_Crop"}
+        )
+        assert response.status_code == 503
+        assert "shutting down" in response.json()["detail"]
+
     def test_off_without_configs_tree(self, scan_folder):
         catalog = FakeCatalog()
         client = TestClient(create_app(catalog))
@@ -370,9 +399,9 @@ class TestRun:
         assert analyzer.cleaned is True
         tag = analyzer.scan_tag
         assert (tag.number, tag.experiment) == (2, "Undulator")
-        # The tag comes from the RESOLVED FOLDER (26_0712), not from the
-        # start doc's time (TEST_DAY) — the midnight-claim / TZ hazard.
-        assert (tag.year, tag.month, tag.day) == (2026, 7, 12)
+        # The tag comes from the RESOLVED FOLDER (26_0713), not from the
+        # start doc's time (TEST_DAY = 07-12) — the midnight-claim / TZ hazard.
+        assert (tag.year, tag.month, tag.day) == (2026, 7, 13)
         # The scan folder itself is untouched by the portal side.
         after = sorted(p.relative_to(scan_folder) for p in scan_folder.rglob("*"))
         assert after == before
