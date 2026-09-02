@@ -8,12 +8,25 @@ machine with Tiled and GEECS-MCP, so the ports read `:8000` Tiled,
 load-bearing; nothing below assumes Tiled is local. Anyone on the lab
 network browses to `http://<host>:8200/`.
 
-The portal is **read-only by doctrine** (see `CLAUDE.md`): it renders
-the Tiled catalog and reads per-shot files off the data share, and must
-never create or modify anything on the scans path. On a dedicated
-portal host, mount the share read-only; on a shared host where other
-services (the queueserver worker) legitimately write, the guarantee is
-the code path itself — pinned by the package's tree-untouched tests.
+The portal is **read-only except explicit analysis runs** (see
+`CLAUDE.md`): it renders the Tiled catalog and reads per-shot files off
+the data share, never creates anything on the scans path, and — only
+when started with `--processing-configs` and the `analysis` extra —
+runs a ScanAnalysis analyzer on a scan when a user clicks Run on the
+Analysis tab. That run writes what ScanAnalysis writes (figures under
+`analysis/ScanNNN/`, s-file columns, some analyzers' derived subfolders
+inside the scan folder), so **where analysis runs are enabled the share
+must be mounted read-write**; a read-only mount makes every run fail —
+or, for analyzers that swallow write errors, finish `done` with missing
+outputs. Without `--processing-configs` the portal never writes, and a
+read-only mount is the right choice on a dedicated viewer host.
+
+A run in flight cannot be interrupted: on `systemctl stop/restart` the
+portal refuses new runs, logs the in-flight one, and the process exits
+when that run finishes. systemd's default `TimeoutStopSec` (90 s)
+would then SIGKILL a long analysis mid-write (s-file merge, HDF5) — set
+`TimeoutStopSec=` in the unit to the longest analysis you expect, or
+restart between runs.
 
 ## Prerequisites
 
@@ -23,7 +36,13 @@ the code path itself — pinned by the package's tree-untouched tests.
   (`uri`, `api_key`) and a `[Paths]` section whose
   `geecs_data_local_base_path` points at the mounted data share —
   the same file every GEECS-Plugins package reads.
-- The data share mounted at that path (e.g. `/mnt/<share>/data/`).
+- The data share mounted at that path (e.g. `/mnt/<share>/data/`) —
+  read-write if analysis runs are enabled (above).
+- For the Images tab's processing selector and the Analysis tab's
+  runs: `poetry install -E analysis` (ImageAnalysis + ScanAnalysis and
+  their closure, incl. the Google client libs ScanAnalysis lists) and
+  `--processing-configs <scan_analysis_configs tree>` on the command
+  line. Omit both for a read-only viewer.
 - Port **8200** free (`ss -tlnp | grep 8200`).
 
 ## Install

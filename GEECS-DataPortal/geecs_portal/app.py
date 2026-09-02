@@ -25,8 +25,9 @@ Architecture rules (see this package's ``CLAUDE.md`` and
 
 from __future__ import annotations
 
+import contextlib
 import dataclasses
-import io
+import importlib
 import logging
 import re
 from datetime import date, datetime, timedelta
@@ -36,6 +37,7 @@ from urllib.parse import urlencode
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import (
+    FileResponse,
     HTMLResponse,
     JSONResponse,
     RedirectResponse,
@@ -58,7 +60,9 @@ from geecs_data_utils.tiled_catalog import (
     resolve_scan_folder,
 )
 
-from geecs_portal import analysis, figures, resources
+from geecs_data_utils.scan_paths import ScanPaths
+
+from geecs_portal import analysis, analysis_runs, figures, resources
 from geecs_portal.cache import ShotDataCache
 
 logger = logging.getLogger(__name__)
@@ -257,11 +261,34 @@ def _default_x(detail, columns: list[str]) -> str:
     return scan_vars[0] if scan_vars else ""
 
 
+@dataclasses.dataclass(frozen=True)
+class _DiagInfo:
+    """A loadable diagnostic's run-side facts (the selector cache's value)."""
+
+    #: The data device the wrapper reads: ``scan.device``, else the name
+    #: (``data_device_name or device_name`` in ScanAnalysis's wrapper).
+    device: str
+    #: Per-analyzer output directory under ``analysis/ScanNNN/``.
+    output_name: str
+
+    @classmethod
+    def from_diagnostic(cls, diag) -> "_DiagInfo":
+        # ``diag.scan`` is the raw ``scan:`` mapping at the ImageAnalysis
+        # layer (ScanRuntimeConfig lives in ScanAnalysis, which the
+        # selector must not need) — read the one key the wrapper reads.
+        scan = diag.scan or {}
+        return cls(
+            device=str(scan.get("device") or diag.name),
+            output_name=str(getattr(diag, "effective_output_name", None) or diag.name),
+        )
+
+
 def create_app(
     catalog: ScanCatalog,
     *,
     default_experiment: str = "",
     processing_config_dir: Optional[Path] = None,
+    analysis_factory: Optional[analysis_runs.AnalyzerFactory] = None,
 ) -> FastAPI:
     """Build the portal application over an injected catalog.
 
@@ -280,13 +307,35 @@ def create_app(
         competing resolution paths exist, so the portal names its
         tree explicitly). The selector also hides itself when
         ImageAnalysis (the ``analysis`` extra) is not installed.
+    analysis_factory : callable, optional
+        ``(analyzer_id, config_dir) -> ScanAnalyzer`` for the analysis
+        runs (``/api/run/{uid}/analysis``, the 04 design). ``None``
+        (the default) uses the real ScanAnalysis factory, which then
+        also needs the ``analysis`` extra; tests inject a fake. The
+        feature shares ``processing_config_dir`` — the unified
+        diagnostic tree — and is OFF with it.
 
     Returns
     -------
     FastAPI
         The configured application.
     """
-    app = FastAPI(title="GEECS Data Portal", docs_url=None, redoc_url=None)
+    # The analysis-run worker (04 design) outlives requests: built
+    # before the app so the lifespan can refuse new runs and log any
+    # in-flight one at shutdown (a running job cannot be interrupted —
+    # the interpreter joins the worker at exit; see DEPLOYMENT.md).
+    runner = analysis_runs.AnalysisRunner()
+
+    @contextlib.asynccontextmanager
+    async def _lifespan(_app: FastAPI):
+        try:
+            yield
+        finally:
+            runner.shutdown()
+
+    app = FastAPI(
+        title="GEECS Data Portal", docs_url=None, redoc_url=None, lifespan=_lifespan
+    )
     app.add_middleware(_ForwardedPrefixMiddleware)
     # Every template gets `root`: the mount prefix each root-absolute
     # href/action/src/fetch must carry (empty when served at root).
@@ -378,6 +427,100 @@ def create_app(
             "plo": disp.get("plo"),
             "phi": disp.get("phi"),
         }
+
+    def _rendered(disp: dict) -> bool:
+        """``display.mode == "rendered"`` — the analyzer-figure view."""
+        return disp.get("mode") == "rendered"
+
+    def _figure_kwargs(render: dict) -> dict:
+        """The display slice as the ephemeral renderers' kwargs (value-degrade).
+
+        The colormap defaults to ``gray`` — the pixel view's palette when
+        ``cmap`` is absent or unknown — so the rendered checkbox changes
+        only what it claims to (the base renderer's own default is
+        plasma).
+        """
+        return {
+            "cmap": resources.safe_cmap(render.get("cmap")) or "gray",
+            "window": resources.window_percentiles(
+                render.get("plo"), render.get("phi")
+            ),
+        }
+
+    def _ephemeral_module():
+        """``image_analysis.ephemeral``, or the feature's 404 ladder.
+
+        The one place the "configured? installed?" preamble lives for
+        the processing selector and the rendered view alike.
+        """
+        if processing_config_dir is None:
+            raise HTTPException(
+                status_code=404,
+                detail="processing is not configured on this portal "
+                "(start it with --processing-configs)",
+            )
+        try:
+            # import_module (not ``from image_analysis import ephemeral``):
+            # the package attribute survives an uninstalled/blocked
+            # submodule, the sys.modules lookup does not — the
+            # missing-extra test blocks the submodule.
+            ephemeral = importlib.import_module("image_analysis.ephemeral")
+        except ImportError as exc:
+            raise HTTPException(
+                status_code=404,
+                detail="processing needs the portal's 'analysis' extra "
+                "(pip install geecs-data-portal[analysis])",
+            ) from exc
+        return ephemeral
+
+    def _render_processing_figure(array, processing: str, render: dict) -> bytes:
+        """The rendered view of ONE shot: the analyzer draws its own result.
+
+        Same seam family as ``_apply_processing`` (write-free, denylist,
+        one analyzer per call) — ``render_diagnostic_ephemeral`` hands
+        the analyzer's ``render_image`` an object-API axes, so overlays
+        (projections, markers, calibrated axes) come through without
+        any pyplot state on a request thread. Same status ladder as the
+        pixel path: unknown diagnostic 404, denylisted / invalid config
+        400, analyzer failure 400, and "ran but cannot be drawn"
+        (``RenderError``) 404 — the pixel path's "render failed" /
+        "produces no processed image" code.
+        """
+        ephemeral = _ephemeral_module()
+        try:
+            (fig,) = ephemeral.render_diagnostic_ephemeral(
+                processing,
+                [array],
+                config_dir=processing_config_dir,
+                **_figure_kwargs(render),
+            )
+            return resources.figure_png(fig)
+        except (KeyError, FileNotFoundError) as exc:
+            raise HTTPException(
+                status_code=404, detail=f"no diagnostic: {exc}"
+            ) from exc
+        except ephemeral.RenderError as exc:
+            raise HTTPException(
+                status_code=404, detail=f"render failed: {exc}"
+            ) from exc
+        except ValueError as exc:  # denylisted, or invalid config
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:  # noqa: BLE001 — analyzer failure, never a 500
+            raise HTTPException(
+                status_code=400, detail=f"processing failed: {exc}"
+            ) from exc
+
+    def _render_frame_figure(array, render: dict) -> bytes:
+        """The rendered view of an averaged image: base renderer, no overlays."""
+        ephemeral = _ephemeral_module()
+        try:
+            return resources.figure_png(
+                ephemeral.render_frame_figure(array, **_figure_kwargs(render))
+            )
+        except Exception as exc:  # noqa: BLE001 — never a 500
+            raise HTTPException(
+                status_code=404, detail=f"render failed: {exc}"
+            ) from exc
 
     def _pretty_names(detail, pf, columns: list[str]) -> dict:
         """Figure titles/legend names, by the columns endpoint's rule.
@@ -686,7 +829,11 @@ def create_app(
     processing_cache: dict = {}
 
     def _processing_names() -> list[str]:
-        """LOADABLE diagnostic IDs for the processing selector (``[]`` = hidden).
+        """LOADABLE diagnostic IDs for the processing selector (``[]`` = hidden)."""
+        return list(_processing_infos())
+
+    def _processing_infos() -> dict[str, _DiagInfo]:
+        """LOADABLE diagnostics → their run-side facts (``{}`` = hidden).
 
         Explicit-opt-in: no configured tree, no feature (never the
         global fallback). Degrades to empty — never errors a page —
@@ -725,11 +872,11 @@ def create_app(
         except Exception as exc:  # noqa: BLE001 — unlistable tree = no selector
             logger.debug("processing configs unavailable: %s", exc)
             return []
-        valid = []
+        valid: dict[str, _DiagInfo] = {}
         for name in names:
             try:
-                load_diagnostic(name, config_dir=processing_config_dir)
-                valid.append(name)
+                diag = load_diagnostic(name, config_dir=processing_config_dir)
+                valid[name] = _DiagInfo.from_diagnostic(diag)
             except Exception as exc:  # noqa: BLE001 — one bad YAML must not hide the rest
                 logger.info(
                     "processing selector: skipping %r — not a loadable "
@@ -742,6 +889,172 @@ def create_app(
             processing_cache[fingerprint] = valid
         return valid
 
+    # ---- analysis runs (04 design: direct ScanAnalysis execution) ----
+    factory = analysis_factory or analysis_runs.scan_analysis_factory
+
+    def _analysis_enabled() -> bool:
+        """Whether the scan page should offer the Analysis tab at all."""
+        try:
+            _analysis_available()
+        except HTTPException:
+            return False
+        return True
+
+    def _analysis_available() -> None:
+        """404 unless the run feature is configured AND installed."""
+        if processing_config_dir is None:
+            raise HTTPException(
+                status_code=404,
+                detail="analysis runs are not configured on this portal "
+                "(start it with --processing-configs)",
+            )
+        if analysis_factory is None:
+            try:
+                import scan_analysis  # noqa: F401 — the real factory's need
+            except ImportError as exc:
+                raise HTTPException(
+                    status_code=404,
+                    detail="analysis runs need the portal's 'analysis' extra "
+                    "(pip install geecs-data-portal[analysis])",
+                ) from exc
+
+    def _analysis_context(uid: str, day: str):
+        """(detail, scan folder, analysis folder, ScanTag) or 404.
+
+        The tag is parsed FROM THE RESOLVED FOLDER (``ScanPaths(folder=…)``,
+        read-only), never rebuilt from the start doc: the folder's day
+        is the claim-time day, the start doc's ``time`` is stamped later
+        — a scan claimed at 23:59:58 and opened at 00:00:01 would
+        otherwise run the analyzer on the NEXT day's same-numbered scan
+        (and TZ / experiment-spelling drift would do the same).
+        """
+        detail = _load_run(uid)
+        run_day = _run_day(detail, day)
+        folder = resolve_scan_folder(detail, run_day) if run_day else None
+        if folder is None:
+            raise HTTPException(status_code=404, detail="scan folder not resolvable")
+        try:
+            tag = ScanPaths(folder=folder, read_mode=True).get_tag()
+        except (ValueError, OSError) as exc:
+            raise HTTPException(
+                status_code=404,
+                detail=f"scan folder is not a canonical scans/ScanNNN path: {exc}",
+            ) from exc
+        if tag is None:
+            raise HTTPException(status_code=404, detail="scan folder has no tag")
+        return detail, folder, analysis_runs.analysis_folder_for(folder), tag
+
+    @app.get("/api/run/{uid}/analysis")
+    def run_analysis_list(uid: str, day: str = "") -> JSONResponse:
+        """The scan's analyzers: applicability, job record, files on disk.
+
+        ``applicable`` = the diagnostic's data device (``scan.device``,
+        else its name) has a data folder in this scan. Every loadable
+        diagnostic is listed regardless, so a device-less one is still
+        reachable; the tab collapses the inapplicable ones.
+        """
+        _analysis_available()
+        detail, folder, analysis_folder, _ = _analysis_context(uid, day)
+        devices = set(resources.image_devices(folder))
+        try:
+            present = {p.name for p in folder.iterdir() if p.is_dir()}
+        except OSError:
+            present = set()
+        jobs = runner.jobs_for(uid)
+        analyzers = []
+        for name, info in _processing_infos().items():
+            job = jobs.get(name)
+            # What the tab shows: everything on disk under the output dir
+            # (summaries + per-bin visuals, classified server-side) plus
+            # any label the finished job returned that is not a file —
+            # described (servable / inline / kind / bin) so the page
+            # never guesses from a path's shape.
+            files = analysis_runs.list_artifacts(analysis_folder, info.output_name)
+            shown = list(files)
+            if job is not None and job.state == analysis_runs.DONE:
+                shown += [a for a in job.artifacts if a not in files]
+            analyzers.append(
+                {
+                    "id": name,
+                    "device": info.device,
+                    "applicable": info.device in devices or info.device in present,
+                    "output_dir": info.output_name,
+                    "job": job.to_json() if job is not None else None,
+                    "files": files,
+                    "artifacts": analysis_runs.describe_artifacts(
+                        analysis_folder, shown, known_files=set(files)
+                    ),
+                }
+            )
+        running = runner.running_for(uid)
+        return JSONResponse(
+            {
+                "analyzers": analyzers,
+                "running": running.analyzer_id if running is not None else None,
+            },
+            headers={"Cache-Control": "no-cache"},
+        )
+
+    @app.post("/api/run/{uid}/analysis", status_code=202)
+    def run_analysis_start(uid: str, analyzer: str, day: str = "") -> JSONResponse:
+        """Start one analyzer on this scan (202 + the fresh job record).
+
+        Ladder: feature off / extra missing 404 · unknown or unloadable
+        diagnostic 404 · folder unresolvable 404 · a job already running
+        for this scan 409 (its record in the body). Build + run + cleanup
+        happen on the worker thread, so everything past this point —
+        config errors included — lands in the record as ``failed``.
+        """
+        _analysis_available()
+        if analyzer not in _processing_infos():
+            raise HTTPException(status_code=404, detail=f"no diagnostic: {analyzer!r}")
+        _, _, analysis_folder, tag = _analysis_context(uid, day)
+        config_dir = Path(processing_config_dir)
+
+        def run() -> Optional[list]:
+            return analysis_runs.run_scan_analyzer(factory, analyzer, config_dir, tag)
+
+        try:
+            job = runner.start(uid, analyzer, run, relative_to=analysis_folder)
+        except analysis_runs.RunInProgress as exc:
+            return JSONResponse(
+                {
+                    "detail": "a run is in progress for this scan",
+                    "job": exc.job.to_json(),
+                },
+                status_code=409,
+            )
+        except RuntimeError as exc:  # shutting down
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        return JSONResponse(job.to_json(), status_code=202)
+
+    @app.get("/run/{uid}/artifact")
+    def run_artifact(uid: str, path: str, day: str = "") -> FileResponse:
+        """Serve one file a run produced, from the scan's analysis folder only.
+
+        Containment is the contract (:func:`analysis_runs.contained_artifact`):
+        anything that resolves outside the scan's own analysis folder is
+        a 404, same as a missing file. Same feature gate as the run
+        endpoints. Raster images render inline; every other type is a
+        download (``attachment`` + ``nosniff``) — the share is writable
+        by many hands, and a planted HTML/SVG must never execute in the
+        portal's (or, behind the OSPREY proxy, OSPREY's) origin.
+        ``no-cache``: re-runs overwrite by name.
+        """
+        _analysis_available()
+        _, _, analysis_folder, _ = _analysis_context(uid, day)
+        file = analysis_runs.contained_artifact(analysis_folder, path)
+        if file is None:
+            raise HTTPException(status_code=404, detail="no such artifact")
+        headers = {"Cache-Control": "no-cache", "X-Content-Type-Options": "nosniff"}
+        inline = file.suffix.lower() in analysis_runs.INLINE_IMAGE_SUFFIXES
+        return FileResponse(
+            file,
+            headers=headers,
+            content_disposition_type="inline" if inline else "attachment",
+            filename=file.name,
+        )
+
     def _apply_processing(arrays: list, processing: str) -> list:
         """Ephemeral-process *arrays* → the analyzers' processed images.
 
@@ -751,22 +1064,9 @@ def create_app(
         endpoint ladder: unknown diagnostic → 404, denylisted/miswired
         → 400, analyzer failure → 400 honestly — never a 500.
         """
-        if processing_config_dir is None:
-            raise HTTPException(
-                status_code=404,
-                detail="processing is not configured on this portal "
-                "(start it with --processing-configs)",
-            )
+        ephemeral = _ephemeral_module()
         try:
-            from image_analysis.ephemeral import run_diagnostic_ephemeral
-        except ImportError as exc:
-            raise HTTPException(
-                status_code=404,
-                detail="processing needs the portal's 'analysis' extra "
-                "(pip install geecs-data-portal[analysis])",
-            ) from exc
-        try:
-            results = run_diagnostic_ephemeral(
+            results = ephemeral.run_diagnostic_ephemeral(
                 processing, arrays, config_dir=processing_config_dir
             )
         except (KeyError, FileNotFoundError) as exc:
@@ -779,7 +1079,9 @@ def create_app(
             raise HTTPException(
                 status_code=400, detail=f"processing failed: {exc}"
             ) from exc
-        processed = [result.processed_image for result in results]
+        # getattr: a legacy analyzer returning a dict (BCaveMagSpecStitcher)
+        # must be a refusal here, not an AttributeError → 500.
+        processed = [getattr(result, "processed_image", None) for result in results]
         if any(image is None for image in processed):
             raise HTTPException(
                 status_code=404,
@@ -965,6 +1267,9 @@ def create_app(
             kind, kind_path = "", None
         n_rows = None if detail.data is None else len(detail.data)
         shot = max(1, min(shot, n_rows) if n_rows else shot)
+        # The Analysis tab needs a resolvable folder (runs and artifact
+        # listing are per scan folder) on top of the feature gate.
+        analysis_enabled = folder is not None and _analysis_enabled()
         if (
             kind == "native"
             and folder is not None
@@ -1054,7 +1359,13 @@ def create_app(
                 "next_day": (
                     (run_day + timedelta(days=1)).isoformat() if run_day else ""
                 ),
-                "tab": tab if tab in ("overview", "plot", "images") else "plot",
+                "tab": (
+                    tab
+                    if tab in ("overview", "plot", "images")
+                    or (tab == "analysis" and analysis_enabled)
+                    else "plot"
+                ),
+                "analysis_enabled": analysis_enabled,
                 "devices": devices,
                 "sel_device": sel_device,
                 "kind": kind,
@@ -1094,7 +1405,8 @@ def create_app(
         values degrade, per the display doctrine).
         """
         detail = _load_run(uid)
-        render = _render_opts(_display(display))
+        disp = _display(display)
+        render = _render_opts(disp)
         folder, _ = _image_folder(detail, day, device)
         # A shot beyond the recorded event rows must refuse outright:
         # falling through to the ordinal join would serve an orphan
@@ -1123,13 +1435,18 @@ def create_app(
                 raise HTTPException(
                     status_code=404, detail=resolved.reason or resolved.kind
                 )
-            (processed,) = _apply_processing([resolved.array], processing)
-            try:
-                png = resources.to_display_png(processed, **render)
-            except Exception as exc:  # noqa: BLE001 — must not 500
-                raise HTTPException(
-                    status_code=404, detail=f"render failed: {exc}"
-                ) from exc
+            if _rendered(disp):
+                # The analyzer's own figure (overlays + axes + colorbar)
+                # instead of the windowed processed pixels.
+                png = _render_processing_figure(resolved.array, processing, render)
+            else:
+                (processed,) = _apply_processing([resolved.array], processing)
+                try:
+                    png = resources.to_display_png(processed, **render)
+                except Exception as exc:  # noqa: BLE001 — must not 500
+                    raise HTTPException(
+                        status_code=404, detail=f"render failed: {exc}"
+                    ) from exc
             # A processed response is a function of (pixels, diagnostic
             # YAML, ImageAnalysis version); the URL keys only the first,
             # and the configs tree is local and MUTABLE — iterating on
@@ -1180,7 +1497,8 @@ def create_app(
         correct order for nonlinear pipeline steps like thresholding).
         """
         detail = _load_run(uid)
-        render = _render_opts(_display(display))
+        disp = _display(display)
+        render = _render_opts(disp)
         folder, _ = _image_folder(detail, day, device)
         pf = scan_frame(detail, folder)
         _, mask = _masked(pf, filters)
@@ -1225,12 +1543,17 @@ def create_app(
             raise HTTPException(
                 status_code=404, detail="no renderable frames in this bin"
             )
-        try:
-            png = resources.to_display_png(averaged, **render)
-        except Exception as exc:  # noqa: BLE001 — unrenderable shape must not 500
-            raise HTTPException(
-                status_code=404, detail=f"render failed: {exc}"
-            ) from exc
+        if processing and _rendered(disp):
+            # An average of several results is not one result: the base
+            # renderer (axes + colorbar), per-shot overlays dropped.
+            png = _render_frame_figure(averaged, render)
+        else:
+            try:
+                png = resources.to_display_png(averaged, **render)
+            except Exception as exc:  # noqa: BLE001 — unrenderable shape must not 500
+                raise HTTPException(
+                    status_code=404, detail=f"render failed: {exc}"
+                ) from exc
         # Never immutable: bin membership comes off the union frame
         # (mutable s-file), and the diagnostic YAML behind ``processing``
         # is likewise a mutable input the URL does not key (see run_image).
@@ -1268,10 +1591,8 @@ def create_app(
         ax.set_ylabel(y, parse_math=False)
         ax.grid(True, alpha=0.3)
         fig.tight_layout()
-        buffer = io.BytesIO()
-        fig.savefig(buffer, format="png")
         return Response(
-            content=buffer.getvalue(),
+            content=resources.figure_png(fig),
             media_type="image/png",
             headers=_png_headers(detail),
         )

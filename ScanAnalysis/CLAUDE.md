@@ -257,6 +257,18 @@ reader: a new `to_dict()` key fails there until `STATUS_FIELDS` /
 `AnalysisStatus` in GEECS-Data-Utils learn it — extend both in the same
 PR as the writer change.
 
+## Renderer output names are a consumed contract
+
+`RenderContext.get_filename` (`analyzers/renderers/config.py`) and the
+renderers' summary names (`_average_processed*`, `_averaged_image_grid`,
+`_summary_{mode}`, the noscan `.gif`) are parsed back by
+`parse_output_filename` in the same module — the data portal's Analysis
+tab classifies outputs through it (summary vs per-bin). Change a name
+and its parser together; `tests/test_renderer_output_names.py` pins the
+pairing. (The wrappers' own `parts[-2].isdigit()` bin-key parsing in
+`array2D_scan_analysis.py` / `array1d_scan_analysis.py` predates this
+helper and is a known follow-up.)
+
 ## Live Watching (`live_task_runner.py`)
 
 `LiveTaskRunner` watches a data directory for new s-files (scan summary files),

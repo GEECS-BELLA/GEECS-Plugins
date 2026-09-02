@@ -1,17 +1,35 @@
 # GEECS-DataPortal — Developer Context for Claude
 
-The read-only scan-browsing web service: a zero-install browser view over
-the Tiled catalog (and, from phase 4, the data share's image files) for
-anyone on the lab network.  **The scope document is the spec**:
+The scan-browsing web service — read-only except explicit analysis runs
+(0.16.0): a zero-install browser view over the Tiled catalog (and, from
+phase 4, the data share's image files) for anyone on the lab network.  **The scope document is the spec**:
 `Planning/data_portal/01_data_portal_scope.md` — read it before extending
 this package; the architecture rules below are its distillation.
 
 ## Architecture rules
 
-- **Read-only by doctrine.**  No write verbs, no analysis triggering, no
-  annotations.  Nothing on the scans path is ever created (repo
-  scan-folder invariant — see root `CLAUDE.md`); the data share, when
-  mounted for the resource viewer, is mounted read-only.
+- **Read-only, except explicit analysis runs** (charter amendment,
+  owner ruling 2026-09-01 — `Planning/data_portal/04_analysis_run_design.md`).
+  The portal itself has no write verbs: no annotations, no config
+  writes.  The one exception is `POST /api/run/{uid}/analysis`, which
+  runs ONE ScanAnalysis analyzer on ONE scan on the user's click —
+  `geecs_portal/analysis_runs.py`, calling `ScanAnalyzer.run_analysis`
+  directly on a single worker thread with an in-memory job record.
+  Deliberately **not** a participant in the file-based task queue
+  (`scan_analysis.task_queue`: no status records, claim locks,
+  heartbeats or Google Doc uploads) — "just run it"; GEECS-MCP's
+  `run_scan_analysis` is a separate, experimental runner and the two
+  do not coordinate (accepted with the ruling).  A run writes wherever
+  ScanAnalysis writes: figures/HDF5 under `analysis/ScanNNN/`, s-file
+  columns (warn-and-overwrite), and for some analyzers derived
+  subfolders inside the scan folder.  Nothing on the scans path is
+  ever *created* by this package (repo scan-folder invariant — see
+  root `CLAUDE.md`; the analyzer's own `ScanPaths(read_mode=True)`
+  holds it on the run side), and every lookup the portal makes leaves
+  the tree untouched.  The share must be mounted read-write where runs
+  are enabled (`DEPLOYMENT.md`).  The run verb is unauthenticated on
+  the lab network, same standing as the MCP verb — accepted: outputs
+  are regenerable and the share is internal.
 - **The ScanCatalog seam.**  `create_app(catalog)` takes any
   `geecs_data_utils.tiled_catalog.ScanCatalog`; this package never
   imports `tiled` directly and never talks to the catalog server except
@@ -104,6 +122,9 @@ geecs_portal/
   app.py         # create_app(catalog, default_experiment=…) — all routes
   analysis.py    # /api boundary chores: filters/bincfg/display parsing,
                  #   JSON shaping (NaN→null), "show the code" snippets
+  analysis_runs.py  # analysis runs: AnalysisRunner (one worker thread,
+                 #   one job per scan, thread-scoped log capture), the
+                 #   ScanAnalysis factory seam, artifact containment
   figures.py     # server-side Plot-tab figure authoring (plotly.py):
                  #   palette, base layout, multi-axis ladder, display
   resources.py   # (folder, device, shot) → PNG bytes / tiered refusal
@@ -113,10 +134,12 @@ geecs_portal/
 tests/
   test_app.py        # TestClient over FakeCatalog/StubCatalog (+ /api)
   test_resources.py  # tmp scan trees: gallery routes + tier ladder + union
+  test_analysis_runs.py  # the run ladder over an injected fake analyzer
 ```
 
 Routes: `/` (redirect to today) · `/day/{iso}` (run list; `?experiment=`)
-· `/run/{uid}` (the scan page: rail + Overview/Plot/Images tabs;
+· `/run/{uid}` (the scan page: rail + Overview/Plot/Images/Analysis tabs
+— Analysis only when runs are possible, see below;
 `?tab=&y=&x=&view=&filters=&bincfg=&display=` is the Plot-tab state,
 `?device=&shot=` the Images selection) · `/run/jump/{iso}` (day-step
 redirect: `?prefer=<scan number>`, all other params carried to the
@@ -152,7 +175,16 @@ frame) · `/health` (catalog probe — the fleet-map health check).
 Both image endpoints also take `?display=` (the shared display state's
 image slice: `cmap` matplotlib-colormap name + `plo`/`phi` percentile
 window — types 400 at parse, values degrade to grayscale/defaults;
-edited via the Images plotbar's "display…" popup) and
+edited via the Images plotbar's "display…" popup — plus `mode`
+(0.18.0): `"rendered"` serves the analyzer's own figure via
+`image_analysis.ephemeral.render_diagnostic_ephemeral` (object-API
+`Figure`, never pyplot — the one sanctioned matplotlib path on a
+request thread; per-bin = the base renderer over the averaged image,
+overlays dropped; the colormap defaults to `gray` like the pixel
+view); only meaningful with `processing`, ignored without it. `mode`
+is an enum: an unknown value is a **400**, the `bincfg`-enum
+precedent and a deliberate exception to "values degrade" — a wrong
+mode is a broken link, not a cosmetic) and
 `?processing=<diagnostic id>` (the `processing` URL state): the named ImageAnalysis diagnostic runs
 **ephemerally** on the served pixels via
 `image_analysis.ephemeral.run_diagnostic_ephemeral` — the write-free
@@ -167,6 +199,59 @@ portal deliberately never falls back to the global config resolution
 `analysis` extra; missing either hides the selector and 404s the
 param.  Errors map honestly: unknown diagnostic 404,
 denylisted/miswired 400, analyzer failure 400 — never a 500.
+**Analysis runs** (0.16.0, the 04 design): `GET /api/run/{uid}/analysis`
+lists every loadable diagnostic in the same `--processing-configs`
+tree with `applicable` (its data device — `scan.device`, else the
+name — has a folder in this scan), its in-memory `job` record
+(`queued`/`running`/`done`/`failed`/`no_data`, artifacts, error, the
+run's captured log lines) and `files` (what is on disk under
+`analysis/ScanNNN/<output_name>/`, so a page loaded after a portal
+restart still shows earlier outputs) and `artifacts` — what the tab
+shows (the files on disk + the done job's non-file labels), each
+`{path, servable, inline, kind, bin}` decided by
+`analysis_runs.describe_artifacts` (the ONE inline-raster policy; the
+summary/bin classification is ScanAnalysis's own contract,
+`renderers.config.parse_output_filename`, imported lazily — the page
+never guesses from a path; summaries render automatically, bins one at
+a time behind a stepper, the bin cap applied after classification);
+`POST
+/api/run/{uid}/analysis?analyzer=<id>` starts a run (202 + record;
+feature off / extra missing / unknown diagnostic / folder unresolvable
+→ 404; a job already active for the scan → 409 with its record);
+the **Analysis tab** (0.17.0) renders that listing: badge per state, run /
+re-run (disabled while any run is active for the scan), error + captured
+log on failure, artifacts inline (raster) or as download links, the
+inapplicable analyzers collapsed; it polls every 1.5 s while a run is
+active and the tab button exists only when `analysis_enabled` (feature
+configured + extra installed + folder resolvable) — a bookmarked
+`tab=analysis` otherwise falls back to Plot.
+`GET /run/{uid}/artifact?path=<relative>` serves one produced file —
+the resolved path must stay inside the scan's own analysis folder
+(`analysis_runs.contained_artifact`; symlinks resolved), else 404.
+Build + run + `cleanup()` all happen on the worker thread, so config
+and analyzer failures become `failed` records, never 500s;
+`run_analysis` returning `None` and `DataUnavailableWarning` map to
+`no_data` (the worklist runner's own mapping).  The factory seam
+(`create_app(analysis_factory=…)`) is how the tests drive the whole
+ladder without ScanAnalysis; the default is `load_diagnostic` +
+`create_scan_analyzer`, needing the `analysis` extra (which since
+0.16.0 also carries ScanAnalysis).  The factory (and `__main__`,
+earlier) pins `matplotlib.use("Agg")` before importing ScanAnalysis:
+its renderers use pyplot, and the one worker thread is what
+serialises pyplot *in this process* — never add a second pyplot user
+on a request thread.  Known and accepted: the 2D wrapper's per-shot
+stage forks a `ProcessPoolExecutor` from this thread-rich process
+(asyncio loop, request threadpool, cache warmers) — the classic
+fork-with-threads hazard, pre-existing in every embedding of
+ScanAnalysis (LiveWatch, MCP) and not fixable portal-side; the live
+check runs an analyzer *while* images are being browsed.  The scan tag
+handed to the analyzer is parsed from the resolved folder
+(`ScanPaths(folder=…)`), never rebuilt from the start doc (the
+folder's day is the claim-time day; the start doc's time is stamped
+later).  Artifacts: raster images inline, every other type an
+`attachment` with `nosniff` (the share is writable by many hands).
+Shutdown: the lifespan refuses new runs and logs an in-flight one; it
+cannot interrupt it (DEPLOYMENT.md, stop timeout).
 Template links build their queries through the one sticky-query helper
 (and the page JS mirrors the analysis state into the stepper links) so
 navigating one control never resets another; the day page's "clear"

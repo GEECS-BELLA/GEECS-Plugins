@@ -3,6 +3,117 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.19.0] - 2026-09-02
+
+### Changed
+
+- Analysis tab artifacts (owner ruling after the first live look,
+  2026-09-02): the scan-level figures — averaged image, image grid,
+  1D summary, animation — show automatically; the per-bin visuals
+  (`<name>_<bin>_processed_visual.*`) show **one at a time** behind a
+  prev / next stepper ("bin N (i of M)"), like the Images tab's shot
+  stepper, instead of every bin at once. The classification
+  (`kind` ∈ summary / bin / other, `bin` number) is ScanAnalysis's
+  own output-name contract, parsed by its
+  `renderers.config.parse_output_filename` (ScanAnalysis 1.18.0, next to
+  the code that builds the names; imported lazily) — a bin's data file
+  (`_<bin>_processed.h5`) travels with its visual behind the stepper,
+  never as an auto-shown link (visual first, then the data file). The
+  listing is ordered summaries → others → bins by number, capped on
+  DISTINCT bins only (never the summaries, never splitting a bin), and
+  always describes what is on disk under the
+  analyzer's output dir plus the finished job's non-file labels
+  (before: the job's own list when done, which was the summaries only).
+  A stepper click re-renders that analyzer's row only.
+
+## [0.18.0] - 2026-09-01
+
+### Added
+
+- **Rendered view** on the Images tab (PR 4 of the 04 design, the
+  interactivity stop-gap): `display.mode = "rendered"` (the "rendered
+  figure" checkbox in the display popup) serves the analyzer's own
+  matplotlib figure — overlays, axes, colorbar — instead of the windowed
+  processed pixels, through ImageAnalysis 1.14.0's
+  `render_diagnostic_ephemeral` (object-API figures, no pyplot on the
+  threadpool; same write-free contract and denylist). Per-bin view
+  renders the averaged processed image through the base renderer with
+  per-shot overlays dropped. `cmap` and the percentile window apply
+  (absent/unknown colormap → `gray`, the pixel view's palette; `mode`
+  outside `("", "rendered")` is a 400 — the enum precedent). Without a
+  `processing` selection the mode is ignored (raw pixels). Status
+  ladder matches the pixel path: a result that ran but cannot be drawn
+  (`RenderError`) is a 404 like "render failed" / "produces no
+  processed image". Review #766 also: the three "configured? installed?"
+  preambles collapsed into `_ephemeral_module()`; `resources.figure_png`
+  now serves `/plot.png` too; `to_display_png` uses `safe_cmap`; a legacy
+  dict-returning analyzer in the pixel path is a 404, not a 500.
+
+## [0.17.0] - 2026-09-01
+
+### Added
+
+- **Analysis tab** on the scan page (PR 3 of the 04 design): every
+  loadable diagnostic with its data device, applicability, state badge
+  (`queued`/`running`/`done`/`failed`/`no_data`), a run / re-run button
+  (disabled while any run is active for the scan), the error text and a
+  collapsible captured log on failure, and the produced artifacts inline
+  (raster images) or as download links — served through
+  `/run/{uid}/artifact`. Inapplicable analyzers are collapsed under
+  "other analyzers". The page polls the list endpoint every 1.5 s while
+  a run is active and stops when it settles. The tab (and the
+  `tab=analysis` URL state) appears only when runs are possible: the
+  feature is configured, the `analysis` extra is installed and the scan
+  folder resolves; otherwise a bookmarked or stepper-carried
+  `tab=analysis` falls back to the Plot tab (`setTab`: no pane → plot).
+  The list endpoint gains `artifacts` — each entry `{path, servable,
+  inline}` decided server-side (`analysis_runs.describe_artifact`,
+  the one inline-raster policy) so the page never re-derives it from
+  a path's shape; ids reach the run / log handlers through `data-`
+  attributes, never interpolated into attribute JS (review #765).
+
+## [0.16.0] - 2026-09-01
+
+### Added
+
+- **Analysis runs** — the portal can now run one ScanAnalysis analyzer
+  on one scan from the browser (`Planning/data_portal/04_analysis_run_design.md`,
+  owner ruling 2026-09-01; the charter amendment "read-only except
+  explicit analysis runs"). `geecs_portal/analysis_runs.py`:
+  `AnalysisRunner` (one worker thread, one active job per scan,
+  in-memory records with `queued`/`running`/`done`/`failed`/`no_data`,
+  artifacts, error text and the run's log lines captured from the
+  worker thread only), the analyzer factory seam (default =
+  `load_diagnostic` + `create_scan_analyzer`, the same two calls the
+  group loader runs in a loop; tests inject a fake), and the artifact
+  containment helper. Endpoints: `GET /api/run/{uid}/analysis`
+  (loadable diagnostics with applicability by data device, job record,
+  files on disk under the analyzer's output dir), `POST
+  /api/run/{uid}/analysis?analyzer=` (202 / 404 ladder / 409 while a
+  job is active), `GET /run/{uid}/artifact?path=` (serves a produced
+  file, resolved path must stay inside the scan's analysis folder).
+  Deliberately NOT a task-queue participant — `run_analysis` is called
+  directly; no status records, claims, heartbeats or Google Doc
+  uploads. `cleanup()` runs on every outcome. Review-hardened (#763):
+  the scan tag is parsed from the resolved folder (`ScanPaths(folder=…)`),
+  never rebuilt from the start doc's time; the artifact endpoint is
+  gated with the feature, serves raster images inline and everything
+  else as `attachment` + `nosniff`; the job's final state is assigned
+  after its log/finished fields; a `BaseException` from an analyzer is
+  recorded (never a record stuck at `running`); the lifespan refuses
+  new runs at shutdown and logs an in-flight one.
+- The `analysis` extra now carries ScanAnalysis alongside
+  ImageAnalysis; `__main__` pins `matplotlib.use("Agg")` before any
+  analysis import (ScanAnalysis renderers use pyplot; the single
+  worker thread serialises them).
+
+### Changed
+
+- `DEPLOYMENT.md`: the share must be mounted read-write where analysis
+  runs are enabled; the extra and the flag are named in the
+  prerequisites. Scope doc ruling 2 and the root dependency graph
+  amended to match.
+
 ## [0.15.3] - 2026-09-01
 
 ### Fixed

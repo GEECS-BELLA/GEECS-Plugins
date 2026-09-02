@@ -86,6 +86,24 @@
   .apply { background: var(--accent); color: #10201d; border: none; border-radius: 3px;
            padding: 0.3rem 0.9rem; font-size: 12px; cursor: pointer; font-weight: 600; }
   .plotmsg { color: var(--dim); font-size: 13px; padding: 2rem 0; text-align: center; }
+  .arow { border: 1px solid var(--line); border-radius: 4px; background: var(--panel);
+          padding: 0.6rem 0.8rem; margin-bottom: 0.6rem; }
+  .arow .head { display: flex; gap: 0.7rem; align-items: center; flex-wrap: wrap; font-size: 13px; }
+  .arow .head .id { font-family: ui-monospace, Menlo, monospace; }
+  .arow .head .right { margin-left: auto; display: flex; gap: 0.5rem; align-items: center; }
+  .badge { font-size: 11px; border-radius: 3px; padding: 0.1rem 0.45rem; border: 1px solid var(--line); color: var(--dim); }
+  .badge.running, .badge.queued { color: var(--accent); border-color: var(--accent); }
+  .badge.done { color: #7fc47f; border-color: #7fc47f; }
+  .badge.failed { color: #cf5347; border-color: #cf5347; }
+  .badge.no_data { color: #d6a860; border-color: #d6a860; }
+  .arow .err { color: #cf5347; font-size: 12px; white-space: pre-wrap; margin: 0.4rem 0 0; font-family: ui-monospace, Menlo, monospace; }
+  .arow details { margin-top: 0.4rem; font-size: 12px; }
+  .arow details pre { max-height: 14rem; overflow: auto; background: var(--panel2); padding: 0.5rem; border-radius: 3px; font-size: 11px; }
+  .arts { display: flex; flex-wrap: wrap; gap: 0.6rem; margin-top: 0.5rem; }
+  .binstep { display: flex; gap: 0.6rem; align-items: center; margin-top: 0.6rem; font-size: 12px; }
+  .arts img { max-width: 100%; max-height: 24rem; border: 1px solid var(--line); border-radius: 3px; background: var(--panel2); }
+  .arts a.file { font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
+  #pane-analysis details.others > summary { cursor: pointer; color: var(--dim); font-size: 12px; margin: 0.6rem 0; }
   .bingrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
              gap: 0.8rem; margin-top: 0.7rem; }
   .bincard { margin: 0; background: var(--panel); border: 1px solid var(--line);
@@ -138,6 +156,9 @@
       <button class="tab" data-pane="overview" onclick="setTab('overview')">Overview</button>
       <button class="tab" data-pane="plot" onclick="setTab('plot')">Plot</button>
       <button class="tab" data-pane="images" onclick="setTab('images')">Images</button>
+      {% if analysis_enabled %}
+      <button class="tab" data-pane="analysis" onclick="setTab('analysis')">Analysis</button>
+      {% endif %}
     </div>
 
     <section class="pane" id="pane-overview">
@@ -249,6 +270,19 @@
       <p class="dim">No image device folders resolvable for this run.</p>
       {% endif %}
     </section>
+
+    {% if analysis_enabled %}
+    <section class="pane" id="pane-analysis">
+      <div class="plotbar">
+        <span class="dim">Run a ScanAnalysis analyzer on this scan. Writes figures under
+          <span class="mono">analysis/Scan{{ "%03d" | format(scan_number) }}/</span> and its
+          columns into the s-file (existing columns are overwritten); the Plot tab picks
+          them up on reload.</span>
+        <span class="right"><a href="#" onclick="refreshAnalysis(true);return false;">refresh</a></span>
+      </div>
+      <div id="analysisList"><div class="plotmsg">loading analyzers…</div></div>
+    </section>
+    {% endif %}
   </div>
 </div>
 
@@ -360,6 +394,9 @@
     <div class="setrow"><label>window percentiles</label>
       <input id="id-plo" style="width:4.5rem;"> <span class="dim">–</span>
       <input id="id-phi" style="width:4.5rem;"></div>
+    <div class="setrow"><label>rendered figure</label>
+      <input type="checkbox" id="id-mode" style="width:auto;">
+      <span class="dim" style="font-size:11px;">the analyzer's own plot (overlays, axes, colorbar) — needs a processing selection; per-bin shows the averaged image without overlays</span></div>
     <p class="dim" style="font-size:11px;">Applies to the served images (per-shot and per-bin);
     defaults 1 – 99.7. Out-of-range values fall back to the defaults.</p>
     <div class="btnrow">
@@ -526,14 +563,167 @@ function api(path, params) {
   });
 }
 
+// ---------------- the analysis tab (ScanAnalysis runs) ----------------
+const ANALYSIS_ENABLED = {{ analysis_enabled | tojson }};
+let ANALYSIS_TIMER = null;   // poll handle while a run is active
+let ANALYSIS_OPEN = {};      // analyzer id -> log <details> open state (survives re-render)
+
+function artifactUrl(path) {
+  const p = new URLSearchParams({ path });
+  if (DAY) p.set("day", DAY);
+  return `${ROOT}/run/${UID}/artifact?` + p.toString();
+}
+
+let ANALYSIS_BIN = {};   // analyzer id -> index into its bin artifacts (the stepper)
+
+function artifactCard(a) {
+  const path = a.path;
+  if (a.inline) {
+    return `<a href="${artifactUrl(path)}" target="_blank"><img src="${artifactUrl(path)}" alt="${escAttr(path)}" title="${escAttr(path)}"></a>`;
+  }
+  if (a.servable) return `<a class="file" href="${artifactUrl(path)}" target="_blank">${esc(path)}</a>`;
+  return `<span class="dim mono">${esc(path)}</span>`;
+}
+
+function renderArtifacts(id, artifacts) {
+  // Each entry is {path, servable, inline, kind, bin} — decided
+  // server-side (analysis_runs.describe_artifacts over ScanAnalysis's
+  // own output-name contract): the page never re-derives the policy
+  // from a path's shape. Summaries (and anything unclassified) show
+  // automatically; per-bin outputs show ONE bin at a time behind a
+  // stepper, like the Images tab's shot stepper — every file of that
+  // bin (the visual inline, its data file as a link).
+  if (!artifacts || !artifacts.length) return "";
+  const auto = artifacts.filter(a => a.kind !== "bin");
+  const binNumbers = [...new Set(artifacts.filter(a => a.kind === "bin").map(a => a.bin))];
+  let html = auto.length ? `<div class="arts">${auto.map(artifactCard).join("")}</div>` : "";
+  if (binNumbers.length) {
+    const i = Math.min(Math.max(ANALYSIS_BIN[id] || 0, 0), binNumbers.length - 1);
+    ANALYSIS_BIN[id] = i;  // write the clamp back: a shrunken list must not strand the index
+    const number = binNumbers[i];
+    const files = artifacts.filter(a => a.kind === "bin" && a.bin === number);
+    html += `<div class="binstep">
+      <button class="act" data-id="${escAttr(id)}" onclick="stepBin(this.dataset.id, -1)" ${i === 0 ? "disabled" : ""}>&lsaquo; prev bin</button>
+      <span class="dim">bin <b>${esc(String(number))}</b> <span class="mono">(${i + 1} of ${binNumbers.length})</span></span>
+      <button class="act" data-id="${escAttr(id)}" onclick="stepBin(this.dataset.id, 1)" ${i === binNumbers.length - 1 ? "disabled" : ""}>next bin &rsaquo;</button>
+    </div><div class="arts">${files.map(artifactCard).join("")}</div>`;
+  }
+  return html;
+}
+
+function stepBin(id, delta) {
+  // Re-render THIS analyzer's row only: a whole-list rebuild would
+  // re-fetch every inline artifact on the tab (they are no-cache).
+  ANALYSIS_BIN[id] = (ANALYSIS_BIN[id] || 0) + delta;
+  if (!ANALYSIS_BODY) return;
+  const a = ANALYSIS_BODY.analyzers.find(x => x.id === id);
+  const row = document.querySelector(`#analysisList .arow[data-row="${CSS.escape(id)}"]`);
+  if (!a || !row) return;
+  row.outerHTML = renderAnalyzer(a, ANALYSIS_BODY.running !== null);
+}
+
+function renderAnalyzer(a, anyRunning) {
+  const job = a.job;
+  const state = job ? job.state : "";
+  const active = state === "running" || state === "queued";
+  const badge = state ? `<span class="badge ${escAttr(state)}">${esc(state)}</span>` : `<span class="badge">not run</span>`;
+  const label = job && !active ? "re-run" : "run";
+  // Ids reach the handlers through data- attributes, never interpolated
+  // into JS-in-attribute source (a quote in the id would end the
+  // attribute — the #765 review's dead-button finding).
+  const button = `<button class="act" ${anyRunning ? "disabled" : ""} data-id="${escAttr(a.id)}" onclick="startAnalysis(this.dataset.id)">${label}</button>`;
+  const device = a.device ? `<span class="dim mono" title="data device">${esc(a.device)}</span>` : "";
+  const when = job && job.finished ? `<span class="dim" style="font-size:11px">${new Date(job.finished * 1000).toLocaleTimeString()}</span>` : "";
+  let body = "";
+  if (job && job.error) body += `<p class="err">${esc(job.error)}</p>`;
+  body += renderArtifacts(a.id, a.artifacts);
+  if (job && job.log && job.log.length) {
+    const open = ANALYSIS_OPEN[a.id] ? " open" : "";
+    body += `<details${open} data-id="${escAttr(a.id)}" ontoggle="ANALYSIS_OPEN[this.dataset.id]=this.open"><summary>log (${job.log.length} lines)</summary><pre>${esc(job.log.join("\n"))}</pre></details>`;
+  }
+  return `<div class="arow" data-row="${escAttr(a.id)}"><div class="head"><span class="id">${esc(a.id)}</span>${device}${badge}${when}<span class="right">${button}</span></div>${body}</div>`;
+}
+
+let ANALYSIS_LAST = null;  // last-rendered payload — an unchanged poll leaves the DOM alone
+let ANALYSIS_BODY = null;  // the payload itself, so a stepper click re-renders without a fetch
+
+function renderAnalysis(body, force) {
+  const list = document.getElementById("analysisList");
+  if (!list) return;
+  const anyRunning = body.running !== null;
+  const key = JSON.stringify(body);
+  ANALYSIS_BODY = body;
+  if (key === ANALYSIS_LAST && !force) {
+    // Nothing changed: keep polling while active, but do not rebuild
+    // the list (every <img> would re-fetch its artifact).
+    clearTimeout(ANALYSIS_TIMER);
+    ANALYSIS_TIMER = anyRunning ? setTimeout(() => refreshAnalysis(false), 1500) : null;
+    return;
+  }
+  ANALYSIS_LAST = key;
+  if (!body.analyzers.length) {
+    list.innerHTML = `<div class="plotmsg">no loadable diagnostics in the configs tree</div>`;
+    return;
+  }
+  const applicable = body.analyzers.filter(a => a.applicable);
+  const others = body.analyzers.filter(a => !a.applicable);
+  let html = applicable.map(a => renderAnalyzer(a, anyRunning)).join("");
+  if (!applicable.length) html += `<div class="plotmsg">no analyzer names a device present in this scan</div>`;
+  if (others.length) {
+    const wasOpen = ANALYSIS_OPEN["__others__"] ? " open" : "";
+    html += `<details class="others"${wasOpen} ontoggle="ANALYSIS_OPEN['__others__']=this.open"><summary>${others.length} other analyzer${others.length === 1 ? "" : "s"} (device not in this scan)</summary>${others.map(a => renderAnalyzer(a, anyRunning)).join("")}</details>`;
+  }
+  list.innerHTML = html;
+  // Poll while anything is active; stop as soon as the run settles.
+  clearTimeout(ANALYSIS_TIMER);
+  ANALYSIS_TIMER = anyRunning ? setTimeout(() => refreshAnalysis(false), 1500) : null;
+}
+
+function refreshAnalysis(force) {
+  if (!ANALYSIS_ENABLED) return;
+  const list = document.getElementById("analysisList");
+  if (!list || (!force && S.tab !== "analysis")) return;
+  api("analysis", {}).then(renderAnalysis).catch(err => {
+    ANALYSIS_LAST = null;
+    list.innerHTML = `<div class="plotmsg">${esc(err.message)}</div>`;
+  });
+}
+
+function startAnalysis(id) {
+  const p = new URLSearchParams({ analyzer: id, v: {{ portal_version | tojson }} });
+  if (DAY) p.set("day", DAY);
+  document.querySelectorAll("#analysisList button.act").forEach(b => { b.disabled = true; });
+  fetch(`${ROOT}/api/run/${UID}/analysis?` + p.toString(), { method: "POST" })
+    .then(r => r.json().then(body => ({ ok: r.ok, status: r.status, body })))
+    .then(({ ok, status, body }) => {
+      if (!ok && status !== 409) throw new Error(body.detail || `HTTP ${status}`);
+      refreshAnalysis(true);
+    })
+    .catch(err => {
+      // A 503 (shutting down), a proxy 502, a network blip: flash it
+      // (flashNote survives the list re-render that follows) and
+      // re-render so the buttons come back — the up-front disable must
+      // never be the page's last word.
+      flashNote("run failed: " + err.message);
+      ANALYSIS_LAST = null;
+      refreshAnalysis(true);
+    });
+}
+
 // ---------------- tabs ----------------
 function setTab(tab) {
+  // A URL-carried tab whose pane this page does not have (tab=analysis
+  // carried by a stepper onto a scan whose folder is not resolvable, or
+  // opened on a portal without analysis runs) falls back to Plot —
+  // never a page with no tab lit and no pane shown.
+  if (!document.getElementById("pane-" + tab)) tab = "plot";
   S.tab = tab;
   document.querySelectorAll(".tab").forEach(t => t.classList.toggle("on", t.dataset.pane === tab));
   document.querySelectorAll(".pane").forEach(pane => pane.classList.toggle("on", pane.id === "pane-" + tab));
   writeState();
   if (tab === "plot") refresh();
   refreshImages();
+  if (tab === "analysis") refreshAnalysis(true);
 }
 
 function setView(view) {
@@ -582,6 +772,7 @@ function openImgDisplay() {
   document.getElementById("id-cmap").value = typeof d.cmap === "string" ? d.cmap : "";
   document.getElementById("id-plo").value = typeof d.plo === "number" ? d.plo : 1;
   document.getElementById("id-phi").value = typeof d.phi === "number" ? d.phi : 99.7;
+  document.getElementById("id-mode").checked = d.mode === "rendered";
   document.getElementById("modal-imgdisplay").classList.add("on");
 }
 
@@ -596,6 +787,7 @@ function applyImgDisplay() {
   const phi = parseFloat(document.getElementById("id-phi").value);
   if (isFinite(plo) && plo !== 1) d.plo = plo; else delete d.plo;
   if (isFinite(phi) && phi !== 99.7) d.phi = phi; else delete d.phi;
+  if (document.getElementById("id-mode").checked) d.mode = "rendered"; else delete d.mode;
   S.display = Object.keys(d).length ? JSON.stringify(d) : "";
   closeModals();
   writeState();
