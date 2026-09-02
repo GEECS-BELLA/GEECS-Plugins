@@ -21,8 +21,8 @@ extend / new).*
    "no worry about multiple runners", and the queue + live runner
    "deserve a complete audit" (the file-based protocol was a
    placeholder for a proper service + queue, to be designed later).
-   **→ OPEN, escalated to the owner after review** — see "The runner
-   decision" below. Nothing else in this document depends on it.
+   **Re-affirmed after review (same day)** with the MCP runner on the
+   table — see "The runner decision" below.
 3. **No Google Doc uploads** from the portal.
 4. **s-file collisions: warn and overwrite** — ScanAnalysis's existing
    protocol (`ScanAnalyzer.append_to_sfile`, "columns already exist in
@@ -168,10 +168,10 @@ the design, not to relitigate the rulings:
   deployment, where MCP's `analysis-run` extra already installs the
   same closure.
 
-## The runner decision (OPEN — owner)
+## The runner decision (RULED 2026-09-01: A)
 
-Two runners on one host for one scan is now the actual situation, not
-a hypothetical. The choice:
+Two runners on one host for one scan is the actual situation, not a
+hypothetical. The options put to the owner:
 
 - **A. Portal-private (the 2026-09-01 ruling as spoken).** A thread
   calls `build → run_analysis → cleanup`; the job record (state,
@@ -199,32 +199,43 @@ a hypothetical. The choice:
   double-run, keeps MCP blind to portal runs and keeps the private
   record. Half of B for most of B's coupling.
 
-Recommendation: **B**, with the shared builder moved into ScanAnalysis
-(a small placement PR MCP adopts too), because it reuses the most,
-honours the owner's own 08-24 contract, and makes the eventual queue
-replacement a one-seam migration. The 09-01 "just run it" instinct
-was about not *building* queue machinery — under B none is built,
-only called. The rest of this document is written for B; the deltas
-for A are noted inline.
+The agent recommended B (most reuse, honours the 08-24 contract, one
+seam to migrate at the queue audit). **The owner ruled A**: "geecs-mcp
+is fairly experimental. We probably over-specified this on 8/24.
+Someday we might try to use MCP to run scan analysis, but I don't know
+when. We will use the 'just run it' option in the data portal close to
+day 1." So: the portal is the day-1 consumer, the status-file contract
+is not extended to it, and the MCP runner's coordination is a future
+concern to revisit when MCP runs are real. Consequences accepted with
+the ruling: no coordination between portal and MCP runs on the same
+scan; MCP's `get_scan_analysis` does not see portal runs; portal
+records live in memory. The shared-builder placement finding is waived
+for now (MCP experimental; the portal's factory is two calls) — it
+becomes real the day MCP's runner is adopted. The write stance
+(read-write mount at promotion, unauthenticated run verb on the lab
+network, regenerable outputs) was accepted in the same ruling.
 
 ## The run model
 
 - **Endpoints.** `GET /api/run/{uid}/analysis` lists the loadable
-  diagnostics with applicability, the status record from disk (B) or
-  memory (A), and the files under each one's output directory.
+  diagnostics with applicability, the in-memory job record, and the
+  files under each one's output directory (so a page loaded after a
+  portal restart still shows what an earlier run produced).
   `POST /api/run/{uid}/analysis?analyzer=<id>` starts a run — 202 with
   the record; 404 when the feature is off or the extra missing (the
   existing ladder), the diagnostic unknown, or the folder unresolvable;
-  409 when a claim is active for that task (B) / a job is running for
-  the scan (A). `GET /run/{uid}/artifact?path=…` serves one file from
+  409 when a job is already running for the scan (one per scan). `GET /run/{uid}/artifact?path=…` serves one file from
   the scan's analysis folder — the portal has no generic file endpoint
   (images are decoded and re-encoded), so this one carries its own
   containment check: the resolved path must stay inside the resolved
   analysis folder (MCP's `_gather_figure_candidates` is the precedent).
 - **Execution.** One worker thread (pyplot serialisation, above);
   build + run happen on it, so config and instantiation failures land
-  in the record as `failed`, never as a 500. `cleanup()` in `finally`
-  (B: `run_worklist` does it).
+  in the record as `failed`, never as a 500. `cleanup()` in `finally`.
+  `run_analysis` returning `None` and `DataUnavailableWarning` both
+  map to `no_data` (the worklist runner's own mapping). The record
+  keeps the run's log lines, captured from the root logger filtered
+  by the worker thread's id.
 - **Applicability.** `scan.device or diag.name` among the scan's
   device folders. Every loadable diagnostic is listed; the tab
   collapses the inapplicable ones so a device-less diagnostic is still
@@ -270,17 +281,15 @@ no-auth stance is restated with the run verb in view.
 ## Wave plan → PRs (each into `feat/analysis-tab`, /land ritual)
 
 1. **`portal/analysis-run-design`** — this document.
-2. **`scan-analysis/build-analyzers`** (B) — move MCP's
-   `build_analyzers` into `scan_analysis.config`; MCP imports it.
-3. **`portal/analysis-run-backend`** — the endpoints, worker thread,
-   artifact serving, Agg pin; ScanAnalysis added to the `analysis`
-   extra; charter amendments (CLAUDE.md, scope doc, DEPLOYMENT.md,
-   root dependency graph). Tests against a fake analyzer (no share, no
-   hardware); under B, status files in a `tmp_path` scan folder.
-4. **`portal/analysis-tab`** — the tab: listing, run, poll, artifacts,
+2. **`portal/analysis-run-backend`** — the endpoints, worker thread,
+   job record, artifact serving, Agg pin; ScanAnalysis added to the
+   `analysis` extra; charter amendments (CLAUDE.md, scope doc,
+   DEPLOYMENT.md, root dependency graph). Tests against a fake
+   analyzer (no share, no hardware).
+3. **`portal/analysis-tab`** — the tab: listing, run, poll, artifacts,
    errors.
-5. **`portal/rendered-view`** — the seam + the third display mode.
-6. **Promotion PR → master** (maintainer merges), then deploy (extra +
+4. **`portal/rendered-view`** — the seam + the third display mode.
+5. **Promotion PR → master** (maintainer merges), then deploy (extra +
    read-write mount) and the live check below.
 
 ## Hardware / live verification (owed at promotion)
@@ -290,15 +299,16 @@ its figures render in the Analysis tab; the Plot tab shows the new
 `"sfile"`-provenance columns; re-run overwrites (warn logged, no
 duplicate columns, spot-check a cell); a deliberately broken YAML shows
 as `failed` with the exception text; a device-less diagnostic shows
-`no_data`; under B, MCP's `get_scan_analysis` sees the portal's run;
-the rendered toggle shows the analyzer's overlays on the per-shot image.
+`no_data`; the rendered toggle shows the analyzer's overlays on the
+per-shot image.
 
 ## Open questions (carried, not blocking)
 
-- Where the captured run log lives under B (the status record has
-  `error` only): a portal-memory side table, or a `log` field added to
-  the status contract (`STATUS_FIELDS` + `AnalysisStatus` in the same
-  PR, per the contract test).
+- Whether the job record should persist (a JSON sidecar in the
+  analysis folder) so a reload after a portal restart still shows the
+  last error and log. Today: files persist, records do not.
+- Portal ⇄ MCP run coordination, the day MCP's runner is adopted for
+  real (the claim gate, or the status contract — see B/C above).
 - Per-bin rendering with overlays that *do* average (projections):
   needs a per-analyzer "aggregate render" hook; not designed.
 - Where the rendered toggle's figure size / dpi live in the display
