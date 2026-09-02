@@ -400,6 +400,8 @@ class TestListing:
             "path": "../s2.txt",
             "servable": False,
             "inline": False,
+            "kind": "other",
+            "bin": None,
         }
         assert describe(root, "a label.")["servable"] is False
 
