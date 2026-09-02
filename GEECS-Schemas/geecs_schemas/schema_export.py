@@ -97,13 +97,13 @@ def scan_request_json_schema() -> dict:
     return json_schema(EXPORTED_SCHEMAS["scan_request"])
 
 
-def render_artifact(name: str = "scan_request") -> str:
+def render_artifact(name: str) -> str:
     """Render the committed artifact text for registry entry *name*.
 
     Parameters
     ----------
     name : str
-        A key of :data:`EXPORTED_SCHEMAS` (default: the ScanRequest entry).
+        A key of :data:`EXPORTED_SCHEMAS`.
 
     Returns
     -------
@@ -126,15 +126,17 @@ def _repo_root() -> Path:
     return Path(__file__).resolve().parents[2]
 
 
-def write_artifact(path: Optional[Path] = None, *, name: str = "scan_request") -> Path:
+def write_artifact(name: str, path: Optional[Path] = None) -> Path:
     """Write one registry entry's artifact to disk and return where.
 
     Parameters
     ----------
+    name : str
+        The registry entry to render.
     path : pathlib.Path, optional
         Destination file; defaults to ``<repo>/`` + :func:`artifact_path`.
-    name : str
-        The registry entry to render (default: the ScanRequest entry).
+        Missing parent directories are created (this is the docs tree, not
+        a scan folder — the scan-folder invariant is not in play).
 
     Returns
     -------
@@ -142,6 +144,7 @@ def write_artifact(path: Optional[Path] = None, *, name: str = "scan_request") -
         The path written.
     """
     destination = path if path is not None else _repo_root() / artifact_path(name)
+    destination.parent.mkdir(parents=True, exist_ok=True)
     destination.write_text(render_artifact(name), encoding="utf-8")
     return destination
 
@@ -161,8 +164,7 @@ def write_artifacts(root: Optional[Path] = None) -> list[Path]:
     """
     base = root if root is not None else _repo_root()
     return [
-        write_artifact(base / artifact_path(name), name=name)
-        for name in EXPORTED_SCHEMAS
+        write_artifact(name, base / artifact_path(name)) for name in EXPORTED_SCHEMAS
     ]
 
 
