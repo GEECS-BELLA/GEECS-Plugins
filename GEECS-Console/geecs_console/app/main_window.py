@@ -37,6 +37,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QRadioButton,
     QSpinBox,
+    QTableWidget,
     QWidget,
 )
 from pydantic import ValidationError
@@ -44,6 +45,7 @@ from pydantic import ValidationError
 from geecs_console.app.actions_menu import ActionsMenuController
 from geecs_console.app.movable_panel import MovablePanelController
 from geecs_console.app.now_panel import NowPanelController
+from geecs_console.app.queue_panel import QueuePanelController
 from geecs_console.app.scan_monitor import ScanMonitorController
 from geecs_console.editors.action_library_editor import open_action_library_editor
 from geecs_console.editors.save_set_editor import open_save_set_editor
@@ -299,6 +301,20 @@ class MainWindow(QMainWindow):
                 else _idle_scan_lookup
             ),
         )
+        # R8 rendering lives on QueuePanelController (app/queue_panel.py);
+        # fed by the same status poll as the pill (_on_queue_status).  The
+        # client is read at refresh time — it exists once
+        # _start_scan_monitor has built it, which is before the first poll.
+        self._queue_panel = QueuePanelController(
+            table=self.queue_table,
+            summary_label=self.queue_summary_label,
+            clear_button=self.queue_clear_button,
+            client_provider=lambda: self._submitter,
+            confirm=lambda title, message: self._ask_binary(
+                title, message, continue_label="Clear queue", abort_label="Cancel"
+            ),
+            report=self._report,
+        )
 
         # First populate quietly: a remembered experiment restored on the
         # next line makes its "No experiment selected." a lie (it used to
@@ -432,6 +448,12 @@ class MainWindow(QMainWindow):
         self.progress_bar: QProgressBar = self._child(QProgressBar, "r6_progress")
         self.scan_number_label: QLabel = self._child(QLabel, "r6_scan_number_label")
         self.log_tail: QPlainTextEdit = self._child(QPlainTextEdit, "r6_log_tail")
+        # R8 queue panel
+        self.queue_summary_label: QLabel = self._child(QLabel, "r8_summary_label")
+        self.queue_clear_button: QPushButton = self._child(
+            QPushButton, "r8_clear_button"
+        )
+        self.queue_table: QTableWidget = self._child(QTableWidget, "r8_table")
         # R7 device panel
         self.device_combo: QComboBox = self._child(QComboBox, "r7_device_combo")
         self.readback_label: QLabel = self._child(QLabel, "r7_readback_label")
@@ -833,6 +855,7 @@ class MainWindow(QMainWindow):
         """
         self._queue_status = status
         self._apply_status_state(status)
+        self._queue_panel.on_status(status)
         # Gating refresh on EVERY snapshot, transition or not: _scanning()
         # reads the stored snapshot, so a poll that merely agrees with a
         # pill the document stream already set still changes what
@@ -981,6 +1004,9 @@ class MainWindow(QMainWindow):
         now = getattr(self, "_now", None)
         if now is not None:
             now.dispose()
+        queue_panel = getattr(self, "_queue_panel", None)
+        if queue_panel is not None:
+            queue_panel.dispose()
         super().closeEvent(event)
 
     # ------------------------------------------------------------------

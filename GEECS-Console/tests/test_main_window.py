@@ -111,6 +111,18 @@ class FakeSubmitter:
 
         return QueueStatus(connected=True, re_state="idle", worker_exists=True)
 
+    def queue_items(self):
+        return []
+
+    def history_items(self):
+        return []
+
+    def running_item(self):
+        return None
+
+    def clear_queue(self):
+        return (True, "queue cleared")
+
 
 class FakeHealth:
     def poll(self):
@@ -1112,7 +1124,7 @@ class TestNowAndDevicePanel:
         assert "operator abort" in window.log_tail.toPlainText()
 
     def test_concurrent_idle_probes_for_one_experiment_are_deduplicated(
-        self, window, monkeypatch
+        self, window, monkeypatch, qtbot
     ):
         """One in-flight idle probe per experiment — never two racing threads.
 
@@ -1121,6 +1133,9 @@ class TestNowAndDevicePanel:
         threads racing a lazy native first import can abort the process.
         """
         controller = window._now
+        # The startup probe must have landed first (its delivery takes two
+        # event-loop turns since the BackgroundResult GUI hop, 0.28.0).
+        qtbot.waitUntil(lambda: controller._probe_inflight is None, timeout=2000)
         spawned = []
         monkeypatch.setattr(
             controller._worker,
