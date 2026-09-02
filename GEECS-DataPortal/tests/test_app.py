@@ -465,9 +465,18 @@ class TestAnalysisApi:
         assert response.status_code == 400
         assert "at most 4" in response.json()["detail"]
 
-    def test_completed_run_json_is_immutable(self):
-        response = _client().get("/api/run/uid-002/columns")
-        assert "immutable" in response.headers["cache-control"]
+    def test_completed_run_json_never_immutable(self):
+        # The s-file half of the union grows after the run completes
+        # (ScanAnalysis appends columns) — a pinned response would hide
+        # them until the next portal release.
+        for path in (
+            "columns",
+            "frame?cols=cam-MaxCounts",
+            'binned?cols=cam-MaxCounts&bincfg={"bin_col":"mono"}',
+        ):
+            response = _client().get(f"/api/run/uid-002/{path}")
+            assert response.status_code == 200, path
+            assert response.headers["cache-control"] == "no-cache", path
 
     def test_api_outage_is_503(self):
         response = _client(DownCatalog()).get("/api/run/uid-002/columns")

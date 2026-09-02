@@ -489,7 +489,7 @@ class TestBinImages:
             (2, 1, [3]),
         ]
         assert "compute_bin_key" in payload["code"]
-        assert "immutable" in response.headers["cache-control"]
+        assert response.headers["cache-control"] == "no-cache"  # s-file mutable
 
     def test_bin_average_is_the_nanmean_of_member_shots(self, scan_folder):
         client = self._client(scan_folder)
@@ -596,10 +596,10 @@ class TestBinImagesReviewPins:
         decoded = np.array(Image.open(io.BytesIO(response.content)))
         assert decoded[0, 1] == decoded[0, 2] == 255  # still bin {1,2}'s average
 
-    def test_ordinal_member_downgrades_cache_timestamp_join_does_not(self, scan_folder):
-        # cam2: timestamp-named files but NO event acq column → every
-        # member resolves by listing order → the response must not be
-        # long-cached (SMB listing blips can shift the join).
+    def test_bin_images_never_cache_immutable(self, scan_folder):
+        # Bin membership comes off the union frame, whose s-file half
+        # grows after the run completes — so even the timestamp-joined
+        # device (cam) is no-cache, not only the ordinal one (cam2).
         cam2 = scan_folder / "cam2"
         cam2.mkdir()
         for shot in (1, 2, 3):
@@ -615,7 +615,7 @@ class TestBinImagesReviewPins:
         joined = client.get(
             "/run/uid-002/bin-image.png", params={"device": "cam", "bin": 0}
         )
-        assert "immutable" in joined.headers["cache-control"]
+        assert joined.headers["cache-control"] == "no-cache"
 
     def test_running_run_serves_no_cache(self, scan_folder):
         from geecs_data_utils.tiled_catalog import RunDetail, summary_from_metadata
