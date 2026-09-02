@@ -196,6 +196,13 @@ geecs_mcp/
   console-text stream's failed-move line as the paused reason
   (surfaced only while actually paused — sticky otherwise).  The
   manager poll stays authoritative; `stream.available=false` names why.
+  The HTTP entry point warms the consumer threads at startup (#685) —
+  a long-lived service must be consuming before its first start
+  document passes, or that run shows no counts.  Stdio still starts
+  them lazily on the first `scan_progress` call (owner scope on #685),
+  so a stdio session that submits before its first poll has the same
+  first-run exposure; dropping the transport gate in
+  `__main__.main` is the one-line remedy if that bites.
 
 ## Testing
 
