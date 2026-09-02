@@ -20,7 +20,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   this commit removes `wavekit_43/` from the working tree — copy it aside
   first on any machine that has it (the HASO box). Two lab-owned HASO4
   calibration files were inside that directory; the README gives the
-  `git show` recovery lines. The blobs remain in git history; purging them
+  `git restore --source` recovery lines. The blobs remain in git history; purging them
   is a separate decision.
 
 ## [1.13.1] — 2026-09-01

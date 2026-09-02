@@ -21,11 +21,14 @@ demand by class path.
 Two HASO4 sensor calibration files (serial 680-8244) were committed
 alongside the SDK and are consumed through `wavekit_config_path` in
 `config.ini`. They are not in the Imagine Optic installer, so re-copying
-the SDK does not restore them. Recover them from git history:
+the SDK does not restore them. Recover them from git history, from the
+repo root (`git restore` writes the bytes faithfully in every shell; a
+`git show … >` redirect in Windows PowerShell re-encodes and corrupts
+binary files):
 
 ```
-git show a3e77ff7:ImageAnalysis/image_analysis/third_party_sdks/wavekit_43/WFS_HASO4_LIFT_680_8244_gain_enabled.dat > wavekit_43/WFS_HASO4_LIFT_680_8244_gain_enabled.dat
-git show a3e77ff7:ImageAnalysis/image_analysis/third_party_sdks/wavekit_43/WFSL_HASO4_LIFT_680_8244_MC.lift > wavekit_43/WFSL_HASO4_LIFT_680_8244_MC.lift
+git restore --source=a3e77ff7 -- ImageAnalysis/image_analysis/third_party_sdks/wavekit_43/WFS_HASO4_LIFT_680_8244_gain_enabled.dat
+git restore --source=a3e77ff7 -- ImageAnalysis/image_analysis/third_party_sdks/wavekit_43/WFSL_HASO4_LIFT_680_8244_MC.lift
 ```
 
 The better home for them is the software share, with `wavekit_config_path`
