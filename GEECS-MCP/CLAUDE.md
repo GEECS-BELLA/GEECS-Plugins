@@ -89,8 +89,12 @@ geecs_mcp/
                   #   no stop — the console's #653 rules)
   analysis/       # the analysis domain (#675)
     read_tools.py # get_scan_analysis (task statuses from
-                  #   analysis_status/ + the output tree, payload-
-                  #   budgeted with explicit *_truncated flags) and
+                  #   analysis_status/ — read through the SHARED
+                  #   geecs_data_utils.analysis_status reader (#682),
+                  #   never a local parser; ScanAnalysis's suite pins
+                  #   its TaskStatus.to_dict() writer against that
+                  #   reader — + the output tree, payload-budgeted
+                  #   with explicit *_truncated flags) and
                   #   get_scan_figure — a figure REFERENCE by default
                   #   (label, dims, bytes, share-relative path,
                   #   server-relative figure_url), 0.6.0 payload
@@ -192,6 +196,13 @@ geecs_mcp/
   console-text stream's failed-move line as the paused reason
   (surfaced only while actually paused — sticky otherwise).  The
   manager poll stays authoritative; `stream.available=false` names why.
+  The HTTP entry point warms the consumer threads at startup (#685) —
+  a long-lived service must be consuming before its first start
+  document passes, or that run shows no counts.  Stdio still starts
+  them lazily on the first `scan_progress` call (owner scope on #685),
+  so a stdio session that submits before its first poll has the same
+  first-run exposure; dropping the transport gate in
+  `__main__.main` is the one-line remedy if that bites.
 
 ## Testing
 

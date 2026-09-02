@@ -1,18 +1,21 @@
-"""Tests for scan_request_runner: resolver, adapters, and run_scan_request.
+"""Tests for scan_request_runner: resolver, adapters, and the plan preamble.
 
 Covers the configs-repo resolver (new-schema YAML loads directly, legacy YAML
 converts — the whole existing corpus is usable immediately), the SaveSet →
 devices_config derivation rules, the TriggerProfile → ShotControlWrites
 adapter (ordered, multi-device), action slot assembly + compilation +
-wiring, multi-axis grid execution, and the request execution mapping onto a
-fake GeecsSession.  The remaining documented v1 gaps (pseudo variables,
-``all_scalars``, optimize without injected callables) refuse loudly; optimize
-*with* actions runs but skips the actions (logged + recorded in metadata),
-since optimize has no action hooks yet.
+wiring, multi-axis grid execution, and how a request maps onto the scan
+plan's preamble — driven here against a fake GeecsSession *without* a
+RunEngine (:func:`run_request` steps ``geecs_scan_request_plan`` by hand
+and records the ``build_claimed_scan_plan`` call the preamble ends in).
+Optimize-mode execution, telemetry connects, and document parity run on a
+real mock RunEngine in ``test_scan_request_plan.py``.  The documented v1
+gaps (``all_scalars``, optimize without a loader) refuse loudly.
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from types import SimpleNamespace
 
@@ -21,6 +24,7 @@ from bluesky.utils import Msg
 
 from geecs_bluesky.exceptions import GeecsConfigurationError
 from geecs_bluesky.models.shot_control import ShotControlWrites
+from geecs_bluesky.plans.scan_request_plan import geecs_scan_request_plan
 from geecs_bluesky.scan_request_runner import (
     ConfigResolver,
     ConfigsRepoResolver,
@@ -31,7 +35,6 @@ from geecs_bluesky.scan_request_runner import (
     merge_optimizer_device_requirements,
     merge_save_sets,
     resolve_save_sets_and_rituals,
-    run_scan_request,
     save_set_to_devices_config,
     trigger_writes_from_profile,
 )
@@ -86,12 +89,41 @@ class _FakeActionFactory:
         self.disconnected = True
 
 
-class _FakeSession:
+class PlanSeams:
+    """What ``geecs_scan_request_plan`` reads from a session, as a mixin.
+
+    ``experiment`` (empty → the DB-backed policy/served-set/liveness
+    providers stay inert, hermetic), ``rep_rate_hz``, ``_mock``, the
+    manual-move gate, and ``build_claimed_scan_plan`` — the one call the
+    preamble ends in, recorded as :attr:`scan_kwargs`; its returned "inner
+    plan" yields nothing and returns ``"uid-scan"``.  Shared by every fake
+    session that drives the preamble (this suite, the preflight suite).
+    """
+
+    experiment = ""
+    rep_rate_hz = 1.0
+    _mock = True
+    scan_kwargs: dict | None = None
+
+    def _refuse_if_manual_move(self, verb: str) -> None:
+        pass
+
+    def build_claimed_scan_plan(self, **kwargs):
+        self.scan_kwargs = kwargs
+        return _immediately("uid-scan")
+
+
+class _FakeSession(PlanSeams):
+    """Records the preamble's device builds and its final claimed-plan call.
+
+    Devices are plain records (no connect), so the plan's in-plan connect
+    stage has nothing to do; the action-signal factory does ride the plan's
+    finalize disconnect (see :func:`_drive`).
+    """
+
     def __init__(self) -> None:
         self.devices: list[tuple[str, str]] = []  # (device, factory)
-        self.shot_control_calls: list = []
-        self.scan_kwargs: dict | None = None
-        self.optimize_kwargs: dict | None = None
+        self.scan_kwargs = None
         self.disconnected: list = []
         self.action_factories: list[_FakeActionFactory] = []
         self.confirm_settable_calls: list = []
@@ -151,19 +183,77 @@ class _FakeSession:
         self.action_factories.append(factory)
         return factory
 
-    def shot_control(self, config):
-        self.shot_control_calls.append(config)
-
-    def scan(self, **kwargs):
-        self.scan_kwargs = kwargs
-        return "uid-scan"
-
-    def optimize(self, **kwargs):
-        self.optimize_kwargs = kwargs
-        return "uid-opt", []
-
     def disconnect(self, *devices):
         self.disconnected.extend(devices)
+
+
+def _immediately(value):
+    """A plan that yields nothing and returns *value* (the fake inner plan)."""
+    return value
+    yield  # pragma: no cover — makes this a generator
+
+
+class _Done:
+    """A settled future stand-in for the driver's ``wait_for`` responses."""
+
+    def __init__(self, value) -> None:
+        self._value = value
+
+    def result(self):
+        return self._value
+
+
+def _drive(plan):
+    """Step a plan generator without a RunEngine; return its return value.
+
+    The preamble's only RE-dependent messages are ``wait_for`` (in-plan
+    connects, the finalize disconnect): their coroutine functions run to
+    completion here so the same fail-fast and cleanup semantics hold.
+    Every other message gets ``None`` back (nothing in the preamble reads
+    a response before the claimed inner plan, which the fake session
+    replaces).
+    """
+    response = None
+    try:
+        while True:
+            msg = plan.send(response)
+            response = None
+            if msg.command == "wait_for":
+                response = [_Done(asyncio.run(fn())) for fn in msg.args[0]]
+    except StopIteration as stop:
+        return stop.value
+
+
+@pytest.fixture(autouse=True)
+def _no_scan_number_claim(monkeypatch):
+    """No data tree in these tests: the plan's claim yields no number/folder."""
+    monkeypatch.setattr(
+        "geecs_bluesky.plans.scan_request_plan.claim_scan_number",
+        lambda experiment: (None, None),
+    )
+    monkeypatch.setattr(
+        "geecs_bluesky.plans.scan_request_plan.claim_scan",
+        lambda experiment: (None, None),
+    )
+
+
+def run_request(session, request, resolver, *, submission=None, **plan_kwargs):
+    """Run *request* through the scan plan's preamble on a fake session.
+
+    The headless-door call shape (``failed_move_policy="raise"``, as
+    ``GeecsSession.run`` passes); returns the plan's return value — the
+    fake inner plan's ``"uid-scan"`` on success.
+    """
+    return _drive(
+        geecs_scan_request_plan(
+            request,
+            submission=submission,
+            session=session,
+            resolver=resolver,
+            failed_move_policy="raise",
+            **plan_kwargs,
+        )
+    )
 
 
 def _collect_messages(plan) -> list[Msg]:
@@ -238,6 +328,34 @@ variants:
     states:
       SCAN:
         - {device: U_DG645_ShotControl, variable: Trigger.Source, value: Internal}
+"""
+
+STRICT_TRIGGER_PROFILE = """\
+schema_version: 1
+name: Strict
+states:
+  SCAN:
+    - {device: U_DG645_ShotControl, variable: Trigger.Source, value: External rising edges}
+  STANDBY:
+    - {device: U_DG645_ShotControl, variable: Trigger.Source, value: External rising edges}
+  ARMED:
+    - {device: U_DG645_ShotControl, variable: Trigger.Source, value: Single shot external rising edges}
+  SINGLESHOT:
+    - {device: U_DG645_ShotControl, variable: Trigger.Source, value: "*TRG"}
+"""
+
+# Two asynchronous (snapshot-role) cameras that a save set marks as image
+# savers — the #702 shapes: one with scalars, one with none at all.
+LEGACY_ASYNC_CAMERAS = """\
+Devices:
+  U_AsyncCam:
+    synchronous: false
+    save_nonscalar_data: true
+    variable_list: [Pressure]
+  U_AsyncBare:
+    synchronous: false
+    save_nonscalar_data: true
+    variable_list: []
 """
 
 LEGACY_ELEMENT_WITH_ACTIONS = """\
@@ -377,11 +495,15 @@ def configs_root(tmp_path):
     (legacy / "save_devices" / "UC_WithActions.yaml").write_text(
         LEGACY_ELEMENT_WITH_ACTIONS
     )
+    (legacy / "save_devices" / "UC_AsyncCams.yaml").write_text(LEGACY_ASYNC_CAMERAS)
     (legacy / "shot_control_configurations").mkdir()
     (legacy / "shot_control_configurations" / "HTU-Normal.yaml").write_text(
         LEGACY_SHOT_CONTROL
     )
     (legacy / "shot_control_configurations" / "Empty.yaml").write_text("")
+    (legacy / "shot_control_configurations" / "Strict.yaml").write_text(
+        STRICT_TRIGGER_PROFILE
+    )
     (legacy / "scan_devices").mkdir()
     (legacy / "scan_devices" / "scan_devices.yaml").write_text(LEGACY_SCAN_DEVICES)
     (legacy / "action_library").mkdir()
@@ -608,7 +730,7 @@ def test_devices_config_all_scalars_is_a_documented_gap() -> None:
 
 
 # ---------------------------------------------------------------------------
-# run_scan_request
+# The plan preamble on a fake session
 # ---------------------------------------------------------------------------
 
 
@@ -626,7 +748,7 @@ def _noscan_request(**overrides) -> ScanRequest:
 
 def test_noscan_request_maps_onto_session_scan(legacy_resolver) -> None:
     session = _FakeSession()
-    uid = run_scan_request(session, _noscan_request(), legacy_resolver)
+    uid = run_request(session, _noscan_request(), legacy_resolver)
 
     assert uid == "uid-scan"
     # free-run roles by position: first sync = reference detector, second =
@@ -640,33 +762,65 @@ def test_noscan_request_maps_onto_session_scan(legacy_resolver) -> None:
     assert kwargs["motor"] is None
     assert kwargs["positions"] == [None]
     assert kwargs["shots_per_step"] == 3
-    assert kwargs["mode"] == "free_run"
+    assert kwargs["strict"] is False
     assert kwargs["description"] == "stats"
-    assert kwargs["scan_info"]["scan_mode"] == "noscan"
-    assert kwargs["scan_info"]["background"] is False
-    # no trigger profile named → shot control detached
-    assert session.shot_control_calls == [None]
-    # the run disconnects what it created
-    assert len(session.disconnected) == 3
+    assert kwargs["scan_info_overrides"]["scan_mode"] == "noscan"
+    assert kwargs["scan_info_overrides"]["background"] is False
+    # no trigger profile named → no shot controller built
+    assert kwargs["controller"] is None
+
+
+def test_failed_move_policy_seam_reaches_the_claimed_plan(legacy_resolver) -> None:
+    """The one door-specific seam, pinned by behaviour: the headless call
+    shape hands ``"raise"`` to the claimed plan, the queue's plain call
+    shape (no seam) hands the ``"pause"`` default — and a typo is refused
+    pre-claim rather than silently selecting raise semantics downstream."""
+    session = _FakeSession()
+    run_request(session, _noscan_request(), legacy_resolver)
+    assert session.scan_kwargs["failed_move_policy"] == "raise"
+
+    queue_shaped = _FakeSession()
+    _drive(
+        geecs_scan_request_plan(
+            _noscan_request().model_dump(),
+            session=queue_shaped,
+            resolver=legacy_resolver,
+        )
+    )
+    assert queue_shaped.scan_kwargs["failed_move_policy"] == "pause"
+
+    typo = _FakeSession()
+    with pytest.raises(GeecsConfigurationError, match="failed_move_policy='Pause'"):
+        _drive(
+            geecs_scan_request_plan(
+                _noscan_request().model_dump(),
+                session=typo,
+                resolver=legacy_resolver,
+                failed_move_policy="Pause",
+            )
+        )
+    assert typo.devices == []  # refused before any hardware was touched
 
 
 def test_strict_request_builds_all_sync_as_detectors(legacy_resolver) -> None:
     session = _FakeSession()
-    run_scan_request(session, _noscan_request(acquisition="strict"), legacy_resolver)
+    run_request(
+        session,
+        _noscan_request(acquisition="strict", trigger_profile="Strict"),
+        legacy_resolver,
+    )
     assert session.devices == [
         ("U_Cam", "detector"),
         ("U_Cam2", "detector"),
         ("U_Slow", "snapshot"),
     ]
-    assert session.scan_kwargs["mode"] == "strict"
+    assert session.scan_kwargs["strict"] is True
 
 
 def test_trigger_profile_is_attached_via_the_adapter(legacy_resolver) -> None:
     session = _FakeSession()
-    run_scan_request(
-        session, _noscan_request(trigger_profile="HTU-Normal"), legacy_resolver
-    )
-    (writes,) = session.shot_control_calls
+    run_request(session, _noscan_request(trigger_profile="HTU-Normal"), legacy_resolver)
+    writes = session.scan_kwargs["controller"]._writes
     assert isinstance(writes, ShotControlWrites)
     assert writes.devices == ["U_DG645_ShotControl"]
 
@@ -677,11 +831,14 @@ def test_step_request_setpoint_variable_uses_settable(legacy_resolver) -> None:
         mode="step",
         axes=[{"variable": "jet_z", "positions": {"start": 0, "end": 1, "step": 0.5}}],
     )
-    run_scan_request(session, request, legacy_resolver)
+    run_request(session, request, legacy_resolver)
     kwargs = session.scan_kwargs
     assert kwargs["positions"] == [0.0, 0.5, 1.0]
     assert kwargs["motor"].kind == "settable"  # legacy entries default setpoint
-    assert kwargs["scan_info"]["scan_parameter"] == "U_ESP_JetXYZ:Position.Axis 3"
+    assert (
+        kwargs["scan_info_overrides"]["scan_parameter"]
+        == "U_ESP_JetXYZ:Position.Axis 3"
+    )
     assert kwargs["md"]["scan_variable"] == "jet_z"
 
 
@@ -692,7 +849,7 @@ def test_step_request_motor_kind_and_position_list(modern_resolver) -> None:
         save_sets=["NewSet"],
         axes=[{"variable": "jet_z", "positions": {"values": [4.0, 4.5, 6.0]}}],
     )
-    run_scan_request(session, request, modern_resolver)
+    run_request(session, request, modern_resolver)
     kwargs = session.scan_kwargs
     assert kwargs["motor"].kind == "motor"
     assert kwargs["positions"] == [4.0, 4.5, 6.0]
@@ -711,7 +868,7 @@ def test_step_request_confirm_variable_uses_confirm_settable(modern_resolver) ->
         save_sets=["NewSet"],
         axes=[{"variable": "emq1_current", "positions": {"values": [2.0, 2.5]}}],
     )
-    run_scan_request(session, request, modern_resolver)
+    run_request(session, request, modern_resolver)
     kwargs = session.scan_kwargs
     assert kwargs["motor"].kind == "confirm_settable"
     assert session.confirm_settable_calls == [
@@ -738,7 +895,7 @@ def test_two_axis_request_runs_as_outer_product_grid(legacy_resolver) -> None:
             {"variable": "jet_x", "positions": {"values": [4.0, 5.0, 6.0]}},
         ],
     )
-    run_scan_request(session, request, legacy_resolver)
+    run_request(session, request, legacy_resolver)
 
     kwargs = session.scan_kwargs
     # N movables, outermost axis first.
@@ -756,7 +913,7 @@ def test_two_axis_request_runs_as_outer_product_grid(legacy_resolver) -> None:
         (1.0, 6.0),
     ]
     # ScanInfo carries both targets; its 1-D fields describe the outer axis.
-    info = kwargs["scan_info"]
+    info = kwargs["scan_info_overrides"]
     assert info["scan_parameter"] == (
         "U_ESP_JetXYZ:Position.Axis 3,U_ESP_JetXYZ:Position.Axis 1"
     )
@@ -767,8 +924,6 @@ def test_two_axis_request_runs_as_outer_product_grid(legacy_resolver) -> None:
     assert md["grid_shape"] == [2, 3]
     assert md["num_grid_points"] == 6
     assert md["scan_variable"] == "jet_z,jet_x"
-    # Both movables are disconnected with the scan's devices.
-    assert len(session.disconnected) == 5  # 3 detectors + 2 movables
 
 
 def test_single_axis_request_shape_is_unchanged_by_grid_support(
@@ -780,7 +935,7 @@ def test_single_axis_request_shape_is_unchanged_by_grid_support(
         mode="step",
         axes=[{"variable": "jet_z", "positions": {"start": 0, "end": 1, "step": 0.5}}],
     )
-    run_scan_request(session, request, legacy_resolver)
+    run_request(session, request, legacy_resolver)
     kwargs = session.scan_kwargs
     assert not isinstance(kwargs["motor"], list)
     assert kwargs["positions"] == [0.0, 0.5, 1.0]
@@ -801,7 +956,7 @@ def test_actions_compile_into_session_scan_hooks(legacy_resolver) -> None:
             "closeout": ["scan_cleanup"],
         }
     )
-    run_scan_request(session, request, legacy_resolver)
+    run_request(session, request, legacy_resolver)
 
     kwargs = session.scan_kwargs
     # Each hook is a plan-stub callable yielding the compiled steps.
@@ -817,19 +972,19 @@ def test_actions_compile_into_session_scan_hooks(legacy_resolver) -> None:
         "closeout": ["scan_cleanup"],
     }
     # Signals were prefetched (connected pre-claim) on the session's factory,
-    # and the factory rides the scan's device cleanup.
+    # and the factory rides the plan's finalize disconnect.
     (factory,) = session.action_factories
     assert set(factory.settables) == {
         ("U_PLC", "DO.Ch2"),
         ("U_PLC", "DO.Ch3"),
         ("U_PLC", "DO.Ch4"),
     }
-    assert factory in session.disconnected
+    assert factory.disconnected is True
 
 
 def test_request_without_actions_passes_no_hooks(legacy_resolver) -> None:
     session = _FakeSession()
-    run_scan_request(session, _noscan_request(), legacy_resolver)
+    run_request(session, _noscan_request(), legacy_resolver)
     kwargs = session.scan_kwargs
     assert kwargs["setup"] is None
     assert kwargs["per_step"] is None
@@ -842,7 +997,7 @@ def test_unknown_action_name_fails_validation_first(legacy_resolver) -> None:
     session = _FakeSession()
     request = _noscan_request(actions={"closeout": ["not_a_plan"]})
     with pytest.raises(GeecsConfigurationError, match="not_a_plan"):
-        run_scan_request(session, request, legacy_resolver)
+        run_request(session, request, legacy_resolver)
     assert session.devices == []  # failed before any hardware was touched
 
 
@@ -854,7 +1009,7 @@ def test_pseudo_variable_builds_movable_and_records_metadata(modern_resolver) ->
         save_sets=["NewSet"],
         axes=[{"variable": "bump_x", "positions": {"start": 0, "end": 1, "step": 1}}],
     )
-    run_scan_request(session, request, modern_resolver)
+    run_request(session, request, modern_resolver)
     assert session.pseudo_calls == [
         (
             "bump_x",
@@ -864,7 +1019,7 @@ def test_pseudo_variable_builds_movable_and_records_metadata(modern_resolver) ->
     ]
     kwargs = session.scan_kwargs
     assert kwargs["motor"].kind == "pseudo_movable"
-    assert kwargs["scan_info"]["scan_parameter"] == "bump_x"
+    assert kwargs["scan_info_overrides"]["scan_parameter"] == "bump_x"
     assert kwargs["md"]["pseudo_variables"] == {
         "bump_x": {
             "mode": "relative",
@@ -885,13 +1040,13 @@ def test_pseudo_variable_bad_expression_fails_preclaim(modern_resolver) -> None:
         axes=[{"variable": "badcombo", "positions": {"start": 0, "end": 1, "step": 1}}],
     )
     with pytest.raises(GeecsConfigurationError, match="nonsense_name"):
-        run_scan_request(session, request, modern_resolver)
+        run_request(session, request, modern_resolver)
     assert session.devices == []  # failed before any hardware was touched
 
 
 def test_noscan_without_save_set_is_rejected(legacy_resolver) -> None:
     with pytest.raises(GeecsConfigurationError, match="save set"):
-        run_scan_request(_FakeSession(), _noscan_request(save_sets=[]), legacy_resolver)
+        run_request(_FakeSession(), _noscan_request(save_sets=[]), legacy_resolver)
 
 
 def _optimize_request(**overrides) -> ScanRequest:
@@ -911,118 +1066,6 @@ def _optimize_request(**overrides) -> ScanRequest:
     )
     base.update(overrides)
     return ScanRequest.model_validate(base)
-
-
-def test_optimize_without_injected_callables_is_a_documented_gap(
-    legacy_resolver,
-) -> None:
-    with pytest.raises(NotImplementedError, match="objective"):
-        run_scan_request(_FakeSession(), _optimize_request(), legacy_resolver)
-
-
-def test_optimize_binder_claims_binds_and_supplies_callables(
-    legacy_resolver, monkeypatch
-) -> None:
-    """The optimization_binder path: the runner claims the scan first (the
-    binder's stack needs the real ScanTag), calls the binder with the
-    connected movables + detectors, and threads the returned callables and
-    the pre-claimed number/folder into session.optimize."""
-    import geecs_bluesky.scan_request_runner as runner_module
-
-    tag = SimpleNamespace(number=7)
-    claims: list = []
-    monkeypatch.setattr(
-        runner_module,
-        "claim_scan",
-        lambda experiment: claims.append(experiment)
-        or (tag, "/nonexistent/scans/Scan007"),
-    )
-    session = _FakeSession()
-    objective, suggester = object(), object()
-    bind_kwargs: dict = {}
-
-    def binder(*, devices, scan_tag, scan_folder=None):
-        bind_kwargs.update(
-            devices=list(devices), scan_tag=scan_tag, scan_folder=scan_folder
-        )
-        return objective, suggester
-
-    uid = run_scan_request(
-        session, _optimize_request(), legacy_resolver, optimization_binder=binder
-    )
-    assert uid == "uid-opt"
-    assert claims == [""]  # fake session exposes no experiment name
-    assert bind_kwargs["scan_tag"] is tag
-    assert bind_kwargs["scan_folder"] == "/nonexistent/scans/Scan007"
-    # Movables (2 VOCS variables) + the save set's detectors (3 devices).
-    assert len(bind_kwargs["devices"]) == 5
-    kwargs = session.optimize_kwargs
-    assert kwargs["objective"] is objective
-    assert kwargs["suggester"] is suggester
-    assert kwargs["scan_number"] == 7
-    assert kwargs["scan_folder"] == "/nonexistent/scans/Scan007"
-
-
-def test_optimize_binder_ignored_when_callables_given(
-    legacy_resolver, monkeypatch
-) -> None:
-    """Ready-made objective/suggester win: no claim, binder never called."""
-    import geecs_bluesky.scan_request_runner as runner_module
-
-    def _no_claim(experiment):
-        raise AssertionError("claim_scan must not be called")
-
-    monkeypatch.setattr(runner_module, "claim_scan", _no_claim)
-    session = _FakeSession()
-    objective, suggester = object(), object()
-
-    def binder(**_kwargs):
-        raise AssertionError("binder must not be called")
-
-    run_scan_request(
-        session,
-        _optimize_request(),
-        legacy_resolver,
-        objective=objective,
-        suggester=suggester,
-        optimization_binder=binder,
-    )
-    kwargs = session.optimize_kwargs
-    assert kwargs["objective"] is objective
-    assert kwargs["scan_number"] is None
-
-
-def test_optimize_maps_onto_session_optimize(legacy_resolver) -> None:
-    session = _FakeSession()
-
-    def objective(bin_data) -> float:
-        return 1.0
-
-    suggester = object()
-    uid = run_scan_request(
-        session,
-        _optimize_request(),
-        legacy_resolver,
-        objective=objective,
-        suggester=suggester,
-    )
-    assert uid == "uid-opt"
-    kwargs = session.optimize_kwargs
-    # catalog name resolved to its target; Device:Variable passes through
-    assert set(kwargs["variables"]) == {"jet_z", "U_S1H:Current"}
-    assert kwargs["variables"]["jet_z"].kind == "settable"
-    assert kwargs["max_iterations"] == 7
-    assert kwargs["shots_per_iteration"] == 5
-    assert kwargs["on_finish"] == "best"
-    assert kwargs["mode"] == "free_run"
-    assert kwargs["objective"] is objective
-    assert kwargs["suggester"] is suggester
-    # save-set detectors were built and passed along
-    assert [d._geecs_device_name for d in kwargs["detectors"]] == [
-        "U_Cam",
-        "U_Cam2",
-        "U_Slow",
-    ]
 
 
 # ---------------------------------------------------------------------------
@@ -1150,140 +1193,6 @@ class TestMergeOptimizerDeviceRequirements:
         assert provisioned["UC_TopView"]["synchronous"] is True
 
 
-def test_optimize_provisions_requirements_into_detectors(legacy_resolver) -> None:
-    """The field-incident fix: the objective's diagnostic acquires and saves
-    even when the request's save sets do not name it, and the addition is
-    recorded in run metadata for provenance."""
-    session = _FakeSession()
-    run_scan_request(
-        session,
-        _optimize_request(),
-        legacy_resolver,
-        objective=object(),
-        suggester=object(),
-        device_requirements=_TOPVIEW_REQUIREMENTS,
-    )
-    detector_names = [d for d, kind in session.devices if kind != "settable"]
-    # The save set's three devices first (pacemaker unchanged), then the
-    # provisioned diagnostic.
-    assert detector_names == ["U_Cam", "U_Cam2", "U_Slow", "UC_TopView"]
-    md = session.optimize_kwargs["md"]
-    assert md["provisioned_device_requirements"] == {
-        "UC_TopView": {
-            "synchronous": True,
-            "save_nonscalar_data": True,
-            "variable_list": ["acq_timestamp"],
-        }
-    }
-
-
-def test_optimize_zero_save_sets_with_requirements_runs(legacy_resolver) -> None:
-    """Zero save sets + optimizer requirements is a valid optimize request:
-    the provisioned diagnostics are the whole effective device set."""
-    session = _FakeSession()
-    uid = run_scan_request(
-        session,
-        _optimize_request(save_sets=[]),
-        legacy_resolver,
-        objective=object(),
-        suggester=object(),
-        device_requirements=_TOPVIEW_REQUIREMENTS,
-    )
-    assert uid == "uid-opt"
-    detector_names = [d for d, kind in session.devices if kind != "settable"]
-    assert detector_names == ["UC_TopView"]
-    md = session.optimize_kwargs["md"]
-    assert "save_sets" not in md
-    assert list(md["provisioned_device_requirements"]) == ["UC_TopView"]
-
-
-def test_optimize_empty_effective_device_set_refused_pre_claim(
-    legacy_resolver, monkeypatch
-) -> None:
-    """No save sets and no requirements → clear refusal before any claim."""
-    import geecs_bluesky.scan_request_runner as runner_module
-
-    def _no_claim(experiment):
-        raise AssertionError("claim_scan must not be called")
-
-    monkeypatch.setattr(runner_module, "claim_scan", _no_claim)
-    session = _FakeSession()
-    with pytest.raises(GeecsConfigurationError, match="recording device"):
-        run_scan_request(
-            session,
-            _optimize_request(save_sets=[]),
-            legacy_resolver,
-            objective=object(),
-            suggester=object(),
-        )
-    assert session.devices == []  # refused before any hardware was touched
-
-
-def test_optimize_empty_requirements_is_a_no_op(legacy_resolver) -> None:
-    """Empty/None requirements leave the save-set devices exactly as before."""
-    session = _FakeSession()
-    run_scan_request(
-        session,
-        _optimize_request(),
-        legacy_resolver,
-        objective=object(),
-        suggester=object(),
-        device_requirements={"Devices": {}},
-    )
-    detector_names = [d for d, kind in session.devices if kind != "settable"]
-    assert detector_names == ["U_Cam", "U_Cam2", "U_Slow"]
-    assert "provisioned_device_requirements" not in session.optimize_kwargs["md"]
-
-
-def test_optimize_provisioned_variables_face_unserved_preflight(
-    legacy_resolver, monkeypatch
-) -> None:
-    """Provisioned variables run through the same unserved-variables check
-    as save-set ones (#562): an unserved provisioned variable is dropped
-    (headless default) and recorded, so it can never die in a 20 s
-    NotConnectedError during detector build."""
-    import geecs_bluesky.scan_request_runner as runner_module
-
-    served = {
-        "U_Cam": {"acq_timestamp", "MaxCounts"},
-        "U_Cam2": {"Val"},
-        "U_Slow": {"Pressure"},
-        "UC_TopView": {"acq_timestamp"},  # 2ndmomW0x is NOT served
-    }
-    monkeypatch.setattr(
-        runner_module,
-        "make_served_set_provider",
-        lambda session: SimpleNamespace(served_by_device=lambda: served),
-    )
-    requirements = {
-        "Devices": {
-            "UC_TopView": {
-                "synchronous": True,
-                "save_nonscalar_data": True,
-                "variable_list": ["acq_timestamp", "2ndmomW0x"],
-            }
-        }
-    }
-    session = _FakeSession()
-    run_scan_request(
-        session,
-        _optimize_request(),
-        legacy_resolver,
-        objective=object(),
-        suggester=object(),
-        device_requirements=requirements,
-    )
-    detector_names = [d for d, kind in session.devices if kind != "settable"]
-    assert "UC_TopView" in detector_names  # still built, minus the bad variable
-    md = session.optimize_kwargs["md"]
-    assert md["dropped_unserved_variables"] == {"UC_TopView": ["2ndmomW0x"]}
-    # Provenance records the optimizer's full (pre-drop) request.
-    assert md["provisioned_device_requirements"]["UC_TopView"]["variable_list"] == [
-        "acq_timestamp",
-        "2ndmomW0x",
-    ]
-
-
 # ---------------------------------------------------------------------------
 # Multi-device trigger profiles: ordered writes, single-device regression
 # ---------------------------------------------------------------------------
@@ -1394,8 +1303,8 @@ def test_multi_device_profile_runs_through_the_request(legacy_resolver) -> None:
         def resolve_scan_variable(self, name):
             return legacy_resolver.resolve_scan_variable(name)
 
-    run_scan_request(session, _noscan_request(trigger_profile="spans"), _Resolver())
-    (writes,) = session.shot_control_calls
+    run_request(session, _noscan_request(trigger_profile="spans"), _Resolver())
+    writes = session.scan_kwargs["controller"]._writes
     assert writes.devices == ["U_DG645", "U_PLC"]
 
 
@@ -1502,9 +1411,9 @@ def test_run_applies_defaults_and_records_provenance(
         "trigger_profile: HTU-Normal\n"
     )
     session = _FakeSession()
-    run_scan_request(session, _noscan_request(), legacy_resolver)
+    run_request(session, _noscan_request(), legacy_resolver)
 
-    (writes,) = session.shot_control_calls
+    writes = session.scan_kwargs["controller"]._writes
     assert isinstance(writes, ShotControlWrites)
     assert writes.devices == ["U_DG645_ShotControl"]
     assert session.scan_kwargs["md"]["applied_defaults"] == [
@@ -1523,7 +1432,7 @@ def test_default_actions_execute_bracketing_the_scans_own(
     request = _noscan_request(
         actions={"setup": ["scan_prep"], "closeout": ["scan_cleanup"]}
     )
-    run_scan_request(session, request, legacy_resolver)
+    run_request(session, request, legacy_resolver)
 
     kwargs = session.scan_kwargs
     assert _set_targets(kwargs["setup"]()) == [
@@ -1621,7 +1530,7 @@ def test_entry_rituals_execute_between_defaults_and_request(
         save_sets=["RitualSet"],
         actions={"setup": ["scan_prep"], "closeout": ["scan_cleanup"]},
     )
-    run_scan_request(session, request, legacy_resolver)
+    run_request(session, request, legacy_resolver)
 
     kwargs = session.scan_kwargs
     assert kwargs["md"]["action_plans"] == {
@@ -1643,7 +1552,7 @@ def test_converted_element_actions_execute(legacy_resolver) -> None:
     runner compiles and executes (the extracted plan resolves by name)."""
     session = _FakeSession()
     request = _noscan_request(save_sets=["UC_WithActions"])
-    run_scan_request(session, request, legacy_resolver)
+    run_request(session, request, legacy_resolver)
 
     kwargs = session.scan_kwargs
     assert kwargs["md"]["action_plans"]["setup"] == ["UC_WithActions_setup"]
@@ -1702,11 +1611,11 @@ def test_full_fake_session_flow_axes_actions_multi_device_trigger(
         }
     )
 
-    uid = run_scan_request(session, request, legacy_resolver)
+    uid = run_request(session, request, legacy_resolver)
 
     assert uid == "uid-scan"
-    # Multi-device trigger attached as ordered writes.
-    (writes,) = session.shot_control_calls
+    # Multi-device trigger built worker-side as ordered writes.
+    writes = session.scan_kwargs["controller"]._writes
     assert isinstance(writes, ShotControlWrites)
     assert set(writes.devices) == {"U_DG645", "U_PLC"}
     assert writes.writes_for_state("STANDBY") == [
@@ -1739,54 +1648,9 @@ def test_full_fake_session_flow_axes_actions_multi_device_trigger(
         {"field": "actions.setup", "value": ["default_prep"]},
         {"field": "actions.closeout", "value": ["default_cleanup"]},
     ]
-    # Cleanup: detectors + 2 movables + the action signal factory.
+    # Cleanup: the action signal factory rides the plan's finalize disconnect.
     (factory,) = session.action_factories
-    assert factory in session.disconnected
-
-
-def test_optimize_skips_actions_and_records_them(legacy_resolver, caplog) -> None:
-    """Optimize runs; its action plans are skipped, logged, and recorded.
-
-    Optimize mode has no action hooks yet, but refusing would block every
-    optimization the moment an experiment defines default bracket actions.
-    So the run proceeds with the actions skipped — never silently: a WARNING
-    is logged and the skip lands in run metadata.
-    """
-    session = _FakeSession()
-    request = _optimize_request(
-        actions={"setup": ["scan_prep"], "closeout": ["cam_park"]}
-    )
-
-    def objective(bin_data) -> float:
-        return 1.0
-
-    with caplog.at_level(logging.WARNING):
-        uid = run_scan_request(
-            session, request, legacy_resolver, objective=objective, suggester=object()
-        )
-    assert uid == "uid-opt"
-    skipped = session.optimize_kwargs["md"]["skipped_action_plans"]
-    assert skipped["setup"] == ["scan_prep"]
-    assert skipped["closeout"] == ["cam_park"]
-    assert "scan_prep" in caplog.text
-
-
-def test_optimize_skips_entry_rituals_and_records_them(legacy_resolver) -> None:
-    """Save-set entry rituals are skipped and recorded, not refused."""
-    session = _FakeSession()
-    request = _optimize_request(save_sets=["RitualSet"])
-
-    def objective(bin_data) -> float:
-        return 1.0
-
-    uid = run_scan_request(
-        session, request, legacy_resolver, objective=objective, suggester=object()
-    )
-    assert uid == "uid-opt"
-    assert (
-        "cam_ritual"
-        in session.optimize_kwargs["md"]["skipped_action_plans"]["save_set_rituals"]
-    )
+    assert factory.disconnected is True
 
 
 # ---------------------------------------------------------------------------
@@ -1845,33 +1709,30 @@ class _M3cPolicy:
 
 
 class _M3cSession(_FakeSession):
-    """Fake session exposing experiment + soft telemetry factory."""
+    """Fake session exposing an experiment name (a DB-policy session shape).
+
+    The policy itself is installed by :func:`_install_policy`; telemetry
+    connects are in-plan (real CA-mock devices) and are pinned in
+    ``test_scan_request_plan.py``.
+    """
 
     experiment = "TestExp"
 
-    def __init__(self) -> None:
-        super().__init__()
-        self.telemetry_calls: list = []
-        self.dead_devices: set = set()
-
-    def telemetry(self, device, variables, *, name=None):
-        self.telemetry_calls.append((device, list(variables)))
-        if device in self.dead_devices:
-            return None  # unreachable at scan start → dropped
-        return self._make(f"telemetry:{device}", "telemetry")
-
 
 def _install_policy(monkeypatch, policy) -> None:
-    """Force run_scan_request to use *policy* instead of a real GeecsDb.
+    """Force the preamble to use *policy* instead of a real GeecsDb.
 
     Also stubs out the served-set provider (the unserved-variables
     pre-flight): a session exposing ``experiment`` would otherwise reach for
     the real DB — these tests must stay hermetic (and never stall on an
-    off-network MySQL timeout).
+    off-network MySQL timeout).  The plan module binds ``make_scalar_policy``
+    by name, so both modules are patched.
     """
+    import geecs_bluesky.plans.scan_request_plan as plan_module
     import geecs_bluesky.scan_request_runner as runner
 
     monkeypatch.setattr(runner, "make_scalar_policy", lambda session: policy)
+    monkeypatch.setattr(plan_module, "make_scalar_policy", lambda session: policy)
     monkeypatch.setattr(runner, "make_served_set_provider", lambda session: None)
 
 
@@ -1880,6 +1741,7 @@ def _db_noscan_request(**overrides):
         mode="noscan",
         shots_per_step=2,
         acquisition="strict",
+        trigger_profile="Strict",
         save_sets=["UC_Test"],
     )
     base.update(overrides)
@@ -1937,7 +1799,7 @@ def test_reserved_boundary_fields_warn_and_are_not_applied(
     monkeypatch.setattr(legacy_resolver, "resolve_save_set", lambda name: save_set)
 
     with caplog.at_level(logging.WARNING):
-        run_scan_request(session, _db_noscan_request(save_sets=["X"]), legacy_resolver)
+        run_request(session, _db_noscan_request(save_sets=["X"]), legacy_resolver)
 
     # Exactly one reserved-not-honored warning, naming the device.
     reserved = [
@@ -1956,145 +1818,13 @@ def test_reserved_boundary_fields_warn_and_are_not_applied(
     assert "db_scan_runtime" not in kwargs["md"]
 
 
-def test_telemetry_selects_non_saveset_devices(monkeypatch, legacy_resolver) -> None:
-    policy = _M3cPolicy(
-        subscribed={
-            "U_Cam": ["MaxCounts"],  # in save set (UC_Test) → excluded
-            "U_Press": ["Pressure"],  # not in save set → telemetry
-        }
-    )
-    _install_policy(monkeypatch, policy)
-    session = _M3cSession()
-    run_scan_request(session, _db_noscan_request(), legacy_resolver)
-    assert session.telemetry_calls == [("U_Press", ["Pressure"])]
-    # Telemetry device appended to the read set, never the reference.
-    assert ("telemetry:U_Press", "telemetry") in session.devices
-    assert session.scan_kwargs["md"]["background_telemetry"] == {
-        "U_Press": ["Pressure"]
-    }
-
-
-def test_telemetry_dead_device_dropped_not_raised(
-    monkeypatch, legacy_resolver, caplog
-) -> None:
-    policy = _M3cPolicy(subscribed={"U_Press": ["Pressure"]})
-    _install_policy(monkeypatch, policy)
-    session = _M3cSession()
-    session.dead_devices = {"U_Press"}
-    # Must not raise even though the telemetry device is unreachable.
-    run_scan_request(session, _db_noscan_request(), legacy_resolver)
-    # Attempted, returned None → not in the read set.
-    assert session.telemetry_calls == [("U_Press", ["Pressure"])]
-    assert not any(d[0].startswith("telemetry:") for d in session.devices)
-
-
-def test_background_telemetry_off_skips_telemetry(monkeypatch, legacy_resolver) -> None:
-    policy = _M3cPolicy(subscribed={"U_Press": ["Pressure"]})
-    _install_policy(monkeypatch, policy)
-    session = _M3cSession()
-    run_scan_request(
-        session,
-        _db_noscan_request(background_telemetry=False),
-        legacy_resolver,
-    )
-    assert session.telemetry_calls == []
-    assert "background_telemetry" not in session.scan_kwargs["md"]
-
-
-def test_request_telemetry_flag_overrides_experiment_default(
-    monkeypatch, legacy_resolver
-) -> None:
-    policy = _M3cPolicy(subscribed={"U_Press": ["Pressure"]})
-    _install_policy(monkeypatch, policy)
-    # Experiment default off, request explicitly on → telemetry runs.
-    monkeypatch.setattr(
-        legacy_resolver,
-        "resolve_experiment_defaults",
-        lambda: ExperimentDefaults.model_validate(
-            {"schema_version": 1, "background_telemetry": False}
-        ),
-    )
-    session = _M3cSession()
-    run_scan_request(
-        session,
-        _db_noscan_request(background_telemetry=True),
-        legacy_resolver,
-    )
-    assert session.telemetry_calls == [("U_Press", ["Pressure"])]
-
-
 def test_no_provider_leaves_m3b_behavior_unchanged(legacy_resolver) -> None:
-    # A session with no experiment attribute → no policy → no DB writes, no
+    # A session with no experiment name → no policy → no DB writes, no
     # telemetry, explicit-only scalars (the M3b path, still green).
     session = _FakeSession()
-    run_scan_request(session, _db_noscan_request(), legacy_resolver)
+    run_request(session, _db_noscan_request(), legacy_resolver)
     assert "db_scan_writes" not in session.scan_kwargs["md"]
     assert "background_telemetry" not in session.scan_kwargs["md"]
-
-
-def test_telemetry_metadata_excludes_dropped_devices(
-    monkeypatch, legacy_resolver
-) -> None:
-    """md background_telemetry records only devices that connected (review P2).
-
-    A device dropped as unreachable at scan start contributes no columns, so
-    the start-doc must not advertise it (EVENT_SCHEMA.md contract).
-    """
-    policy = _M3cPolicy(
-        subscribed={
-            "U_Press": ["Pressure"],  # live → recorded
-            "U_Dead": ["X"],  # unreachable → dropped, must be absent from md
-        }
-    )
-    _install_policy(monkeypatch, policy)
-    session = _M3cSession()
-    session.dead_devices = {"U_Dead"}
-    run_scan_request(session, _db_noscan_request(), legacy_resolver)
-    recorded = session.scan_kwargs["md"]["background_telemetry"]
-    assert recorded == {"U_Press": ["Pressure"]}
-    assert "U_Dead" not in recorded
-
-
-def test_optimize_warns_on_reserved_boundary_fields(
-    monkeypatch, legacy_resolver, caplog
-) -> None:
-    """Optimize mode also warns once on reserved at_scan_start/at_scan_end (P3).
-
-    The reserved-field warning must fire in every mode that resolves a save set,
-    not only scan/noscan — optimize ignores the set-side too.
-    """
-    _install_policy(monkeypatch, _M3cPolicy())
-    session = _M3cSession()
-    save_set = SaveSet(
-        name="ReservedSet",
-        entries=[
-            SaveSetEntry(
-                device="U_DG645_ShotControl",
-                scalars=["x"],
-                at_scan_start={"Trigger.Source": "External"},
-            )
-        ],
-    )
-    monkeypatch.setattr(legacy_resolver, "resolve_save_set", lambda name: save_set)
-
-    def objective(bin_data) -> float:
-        return 1.0
-
-    with caplog.at_level(logging.WARNING):
-        run_scan_request(
-            session,
-            _optimize_request(save_sets=["X"]),
-            legacy_resolver,
-            objective=objective,
-            suggester=object(),
-        )
-    reserved = [
-        r
-        for r in caplog.records
-        if "reserved DB scan start/end fields" in r.getMessage()
-    ]
-    assert len(reserved) == 1
-    assert "U_DG645_ShotControl" in reserved[0].getMessage()
 
 
 # ---------------------------------------------------------------------------
@@ -2167,7 +1897,7 @@ def test_merge_save_sets_conflicting_roles_raise() -> None:
 def test_two_save_sets_record_union_of_devices(legacy_resolver) -> None:
     session = _FakeSession()
     request = _noscan_request(save_sets=["UC_Test", "UC_Aux"])
-    run_scan_request(session, request, legacy_resolver)
+    run_request(session, request, legacy_resolver)
     # UC_Test = {U_Cam(sync), U_Cam2(sync), U_Slow(async)}, UC_Aux adds U_Aux
     # (sync) and overlaps U_Cam (merged).  Free-run roles by position: first
     # sync = reference detector, later sync = contributor, async = snapshot.
@@ -2202,241 +1932,17 @@ def test_two_save_sets_ritual_deduped_once(legacy_resolver) -> None:
     assert rituals["setup"].count("cam_ritual") == 1
 
 
-def test_telemetry_excludes_devices_from_all_named_sets(
-    monkeypatch, legacy_resolver
-) -> None:
-    # A device in ANY named set must be excluded from Tier-2 telemetry: pass
-    # the merged save set (all devices across all sets) to the selector.
-    policy = _M3cPolicy(
-        subscribed={
-            "U_Cam": ["MaxCounts"],  # in UC_Test → excluded
-            "U_Aux": ["Aux1"],  # in UC_Aux → excluded
-            "U_Press": ["Pressure"],  # in neither → telemetry
-        }
-    )
-    _install_policy(monkeypatch, policy)
-    session = _M3cSession()
-    run_scan_request(
-        session,
-        _db_noscan_request(save_sets=["UC_Test", "UC_Aux"]),
-        legacy_resolver,
-    )
-    assert session.telemetry_calls == [("U_Press", ["Pressure"])]
-    assert session.scan_kwargs["md"]["background_telemetry"] == {
-        "U_Press": ["Pressure"]
-    }
-
-
-def test_optimize_binder_operator_abort_notes_folder_calmly(
-    legacy_resolver, monkeypatch, caplog
-) -> None:
-    """A quiet aborted optimize return draws the calm WARNING, never the ERROR."""
-    import geecs_bluesky.scan_request_runner as runner_module
-
-    tag = SimpleNamespace(number=7)
-    monkeypatch.setattr(
-        runner_module,
-        "claim_scan",
-        lambda experiment: (tag, "/nonexistent/scans/Scan007"),
-    )
-    session = _FakeSession()
-
-    def optimize_aborted_by_operator(**kwargs):
-        session.optimize_kwargs = kwargs
-        session.last_run_aborted = True  # session.optimize's quiet abort return
-        return "uid-opt", []
-
-    session.optimize = optimize_aborted_by_operator
-
-    with caplog.at_level(logging.INFO):
-        uid = run_scan_request(
-            session,
-            _optimize_request(),
-            legacy_resolver,
-            optimization_binder=lambda **_kw: (object(), object()),
-        )
-
-    assert uid == "uid-opt"
-    assert [r for r in caplog.records if r.levelno >= logging.ERROR] == [], (
-        "an operator-requested abort must not log ERROR records"
-    )
-    notes = [
-        r
-        for r in caplog.records
-        if "aborted by operator" in r.getMessage()
-        and "Optimization scan" in r.getMessage()
-    ]
-    assert [r.levelno for r in notes] == [logging.WARNING]
-
-
-# ---------------------------------------------------------------------------
-# Operator stop during initialization — the should_abort checkpoints (#571)
-# ---------------------------------------------------------------------------
-#
-# RE.abort() cannot stop a scan that has not reached the RunEngine, so the
-# runner consults the injected probe between init stages: after configuration
-# resolution, after device connect, and immediately
-# before the scan-number claim.  Every checkpoint is pre-claim — an
-# init-stage stop must burn NO scan number — and trips into the quiet
-# aborted outcome (session.last_run_aborted set, one INFO line, created
-# devices disconnected, None returned).
-
-
-class _TripAfter:
-    """A should_abort probe that turns True from its Nth consultation on."""
-
-    def __init__(self, calls_before_trip: int) -> None:
-        self.calls_before_trip = calls_before_trip
-        self.calls = 0
-
-    def __call__(self) -> bool:
-        self.calls += 1
-        return self.calls > self.calls_before_trip
-
-
-def _init_stop_notes(caplog) -> list:
-    return [
-        r for r in caplog.records if "stopped during initialization" in r.getMessage()
-    ]
-
-
-def test_stop_after_resolution_builds_nothing_and_burns_nothing(
-    legacy_resolver, caplog
-) -> None:
-    session = _FakeSession()
-    with caplog.at_level(logging.INFO):
-        uid = run_scan_request(
-            session, _noscan_request(), legacy_resolver, should_abort=lambda: True
-        )
-
-    assert uid is None
-    assert session.devices == [], "no detector may be built after the stop"
-    assert session.scan_kwargs is None, "the claim (session.scan) never happens"
-    assert session.last_run_aborted is True
-    (note,) = _init_stop_notes(caplog)
-    assert note.levelno == logging.INFO
-    assert "nothing claimed" in note.getMessage()
-    assert [r for r in caplog.records if r.levelno >= logging.ERROR] == []
-
-
-def test_stop_after_device_connect_disconnects_created(legacy_resolver, caplog) -> None:
-    session = _FakeSession()
-    probe = _TripAfter(1)  # pass "after resolution", trip "after device connect"
-    with caplog.at_level(logging.INFO):
-        uid = run_scan_request(
-            session, _noscan_request(), legacy_resolver, should_abort=probe
-        )
-
-    assert uid is None
-    assert len(session.devices) == 3, "devices were built before the stop landed"
-    assert len(session.disconnected) == 3, "the runner's finally owns disconnect"
-    assert session.scan_kwargs is None
-    assert session.last_run_aborted is True
-    assert len(_init_stop_notes(caplog)) == 1
-
-
-def test_stop_immediately_before_claim_burns_no_number(legacy_resolver, caplog) -> None:
-    """The last checkpoint: everything initialized, claim not yet made."""
-    session = _FakeSession()
-    probe = _TripAfter(2)  # the 3rd consultation is pre-claim
-    with caplog.at_level(logging.INFO):
-        uid = run_scan_request(
-            session, _noscan_request(), legacy_resolver, should_abort=probe
-        )
-
-    assert uid is None
-    assert session.scan_kwargs is None, "session.scan (the claim) never ran"
-    assert session.last_run_aborted is True
-    (note,) = _init_stop_notes(caplog)
-    assert "before scan-number claim" in note.getMessage()
-
-
-def test_stop_pre_claim_on_step_path(legacy_resolver) -> None:
-    """The standard (step) branch has the same final pre-claim checkpoint."""
-    session = _FakeSession()
-    request = _noscan_request(
-        mode="step",
-        axes=[{"variable": "jet_z", "positions": {"start": 0, "end": 1, "step": 0.5}}],
-    )
-    uid = run_scan_request(
-        session, request, legacy_resolver, should_abort=_TripAfter(2)
-    )
-    assert uid is None
-    assert session.scan_kwargs is None
-    assert session.last_run_aborted is True
-
-
-def test_should_abort_probe_is_threaded_into_session_scan(legacy_resolver) -> None:
-    """A never-tripping probe reaches session.scan — the in-plan stop gate
-    that closes the window between the last checkpoint and plan start."""
-    session = _FakeSession()
-    probe = _TripAfter(10_000)
-    uid = run_scan_request(
-        session, _noscan_request(), legacy_resolver, should_abort=probe
-    )
-    assert uid == "uid-scan"
-    assert session.scan_kwargs["should_abort"] is probe
-
-
-def test_optimize_stop_pre_claim_burns_no_number(
-    legacy_resolver, monkeypatch, caplog
-) -> None:
-    """On the binder path the runner itself claims — the checkpoint precedes it."""
-    import geecs_bluesky.scan_request_runner as runner_module
-
-    def _no_claim(experiment):
-        raise AssertionError("claim_scan must not be called after a stop")
-
-    monkeypatch.setattr(runner_module, "claim_scan", _no_claim)
-    session = _FakeSession()
-
-    def binder(**_kwargs):
-        raise AssertionError("the binder must not be called after a stop")
-
-    # Consultations on this path: after device connect, then pre-claim.
-    probe = _TripAfter(1)
-    with caplog.at_level(logging.INFO):
-        uid = run_scan_request(
-            session,
-            _optimize_request(),
-            legacy_resolver,
-            optimization_binder=binder,
-            should_abort=probe,
-        )
-
-    assert uid is None
-    assert session.optimize_kwargs is None
-    assert session.last_run_aborted is True
-    # Movables + detectors were created before the stop; all disconnected.
-    assert len(session.disconnected) == len(session.devices) > 0
-    (note,) = _init_stop_notes(caplog)
-    assert "before scan-number claim" in note.getMessage()
-
-
-def test_optimize_should_abort_probe_reaches_session_optimize(
-    legacy_resolver,
-) -> None:
-    session = _FakeSession()
-    probe = _TripAfter(10_000)
-    uid = run_scan_request(
-        session,
-        _optimize_request(),
-        legacy_resolver,
-        objective=lambda bin_data: 1.0,
-        suggester=object(),
-        should_abort=probe,
-    )
-    assert uid == "uid-opt"
-    assert session.optimize_kwargs["should_abort"] is probe
-
-
 class _SaveRecordingSession(_FakeSession):
     """FakeSession that also records each detector's save_images flag.
 
-    Deliberately carries NO ``experiment`` attribute: that keeps the
+    Deliberately carries no ``experiment`` name: that keeps the
     DB-backed preflights and providers inert (hermetic), so the toggle
     wiring is pinned by monkeypatching the selection seam — which is
     unit-tested against a fake provider in test_native_image_save.py.
+
+    The plan's deferred-connect facade rebinds these factory methods to
+    itself, so they call the base explicitly rather than through
+    ``super()`` (whose ``self`` would be the facade).
     """
 
     def __init__(self) -> None:
@@ -2455,7 +1961,7 @@ class _SaveRecordingSession(_FakeSession):
     ):
         self.save_flags[device] = save_images
         self.control_only_flags[device] = save_control_only
-        return super().detector(device, variables, save_images=save_images)
+        return _FakeSession.detector(self, device, variables, save_images=save_images)
 
     def contributor(
         self,
@@ -2468,11 +1974,13 @@ class _SaveRecordingSession(_FakeSession):
     ):
         self.save_flags[device] = save_images
         self.control_only_flags[device] = save_control_only
-        return super().contributor(device, variables, save_images=save_images)
+        return _FakeSession.contributor(
+            self, device, variables, save_images=save_images
+        )
 
     def snapshot(self, device, variables, *, save_control_only=False, name=None):
         self.control_only_flags[device] = save_control_only
-        return super().snapshot(device, variables)
+        return _FakeSession.snapshot(self, device, variables)
 
 
 def _select_u_cam(experiment, devices_config, *, provider=None):
@@ -2492,9 +2000,13 @@ def test_native_image_save_off_wires_through_runner(
     )
     monkeypatch.setattr(runner_mod, "select_capture_devices", _select_u_cam)
     session = _SaveRecordingSession()
-    run_scan_request(
+    run_request(
         session,
-        _noscan_request(acquisition="strict", native_image_save=False),
+        _noscan_request(
+            acquisition="strict",
+            trigger_profile="Strict",
+            native_image_save=False,
+        ),
         legacy_resolver,
     )
     # U_Cam is Point Grey → suppressed; U_Cam2 keeps whatever the save set said.
@@ -2521,7 +2033,7 @@ def test_native_image_save_off_wires_contributor_branch(
     )
     monkeypatch.setattr(runner_mod, "select_capture_devices", _select_u_cam2)
     session = _SaveRecordingSession()
-    run_scan_request(
+    run_request(
         session,
         _noscan_request(acquisition="free_run", native_image_save=False),
         legacy_resolver,
@@ -2533,28 +2045,162 @@ def test_native_image_save_off_wires_contributor_branch(
     assert session.save_flags["U_Cam2"] is False
 
 
-def test_native_image_save_off_wires_snapshot_branch(
-    legacy_resolver, monkeypatch
-) -> None:
-    """An async capture-owned camera gets the off-write surface too
-    (codex P2 on #699 — the snapshot branch used to drop the flag)."""
-    import geecs_bluesky.scan_request_runner as runner_mod
+def _select_through_real_seam(monkeypatch, runner_mod, types: dict[str, str]):
+    """Route the REAL selection seam through a fake devicetype provider.
 
-    def _select_u_slow(experiment, devices_config, *, provider=None):
-        return [d for d in devices_config if d == "U_Slow"]
+    Unlike the ``_select_u_cam`` stand-ins this keeps the seam's own policy
+    (devicetype + save flag + sync role) in the loop, so the async-role drop
+    (#702) is exercised end to end through the runner, hermetically.
+    """
+    real = runner_mod.select_capture_devices
+
+    class _Provider:
+        @staticmethod
+        def by_device():
+            return dict(types)
+
+    monkeypatch.setattr(
+        runner_mod,
+        "select_capture_devices",
+        lambda experiment, devices_config, *, provider=None: real(
+            experiment, devices_config, provider=_Provider()
+        ),
+    )
+
+
+def _capture_drop_warnings(caplog, device: str) -> list[str]:
+    return [
+        r.getMessage()
+        for r in caplog.records
+        if r.levelno == logging.WARNING
+        and r.getMessage().startswith(f"{device} is NOT capture-owned")
+    ]
+
+
+def test_async_camera_without_scalars_is_dropped_from_capture(
+    legacy_resolver, monkeypatch, caplog
+) -> None:
+    """#702 shape 1: an async capture-eligible camera with an EMPTY
+    variable_list builds no device (the "no scalars" skip), so nothing could
+    ever command its save off — it must land in neither ``capture_devices``
+    nor the save_control_only config, loudly, and the toggle-off scan goes
+    ahead on the sync camera alone."""
+    import geecs_bluesky.scan_request_runner as runner_mod
 
     monkeypatch.setattr(  # daemon heartbeat absent in tests — bypass refusal
         runner_mod, "preflight_capture_liveness", lambda *a, **k: None
     )
-    monkeypatch.setattr(runner_mod, "select_capture_devices", _select_u_slow)
-    session = _SaveRecordingSession()
-    run_scan_request(
-        session,
-        _noscan_request(acquisition="strict", native_image_save=False),
-        legacy_resolver,
+    _select_through_real_seam(
+        monkeypatch,
+        runner_mod,
+        {"U_Cam": "Point Grey Camera", "U_AsyncBare": "Point Grey Camera"},
     )
-    assert dict(session.devices)["U_Slow"] == "snapshot"
-    assert session.control_only_flags["U_Slow"] is True
+    session = _SaveRecordingSession()
+    with caplog.at_level(logging.WARNING):
+        run_request(
+            session,
+            _noscan_request(
+                acquisition="strict",
+                trigger_profile="Strict",
+                save_sets=["UC_Test", "UC_AsyncCams"],
+                native_image_save=False,
+            ),
+            legacy_resolver,
+        )
+    md = session.scan_kwargs["md"]
+    assert md["capture_devices"] == ["U_Cam"]
+    assert md["native_image_save"] is False
+    assert "U_AsyncBare" not in dict(session.devices)  # still skipped: no scalars
+    assert "U_AsyncBare" not in session.control_only_flags
+    (message,) = _capture_drop_warnings(caplog, "U_AsyncBare")
+    assert "Point Grey Camera" in message and "#702" in message
+    assert "neither commands nor suppresses" in message
+    assert "role: snapshot" in message
+
+
+def test_async_camera_with_scalars_is_a_plain_snapshot_not_capture_owned(
+    legacy_resolver, monkeypatch, caplog
+) -> None:
+    """#702 shape 2: an async capture-eligible camera WITH scalars used to
+    get the save child but no acq_timestamp join column (an orphaned
+    stack). It is now a plain snapshot: no control-only flag, absent from
+    ``capture_devices``, warned about by name; the sync camera is still
+    captured."""
+    import geecs_bluesky.scan_request_runner as runner_mod
+
+    monkeypatch.setattr(  # daemon heartbeat absent in tests — bypass refusal
+        runner_mod, "preflight_capture_liveness", lambda *a, **k: None
+    )
+    _select_through_real_seam(
+        monkeypatch,
+        runner_mod,
+        {"U_Cam": "Point Grey Camera", "U_AsyncCam": "Point Grey Camera"},
+    )
+    session = _SaveRecordingSession()
+    with caplog.at_level(logging.WARNING):
+        run_request(
+            session,
+            _noscan_request(
+                acquisition="strict",
+                trigger_profile="Strict",
+                save_sets=["UC_Test", "UC_AsyncCams"],
+                native_image_save=False,
+            ),
+            legacy_resolver,
+        )
+    assert dict(session.devices)["U_AsyncCam"] == "snapshot"
+    assert session.control_only_flags["U_AsyncCam"] is False
+    md = session.scan_kwargs["md"]
+    assert md["capture_devices"] == ["U_Cam"]
+    assert session.control_only_flags["U_Cam"] is True
+    assert len(_capture_drop_warnings(caplog, "U_AsyncCam")) == 1
+
+
+def test_toggle_off_with_only_async_eligible_camera_is_inert_and_unrefused(
+    legacy_resolver, monkeypatch, caplog
+) -> None:
+    """When the ONLY capture-eligible camera is async, toggle-off resolves
+    to no capture devices: the liveness preflight is never consulted (no
+    daemon needed for a scan that captures nothing), no ``capture_devices``
+    key is published, and the inert request stays visible as
+    ``native_image_save: false`` alongside the existing no-eligible warning."""
+    import geecs_bluesky.scan_request_runner as runner_mod
+
+    preflight_calls: list = []
+    monkeypatch.setattr(
+        runner_mod,
+        "preflight_capture_liveness",
+        lambda *a, **k: preflight_calls.append(a),
+    )
+    _select_through_real_seam(
+        monkeypatch, runner_mod, {"U_AsyncCam": "Point Grey Camera"}
+    )
+    session = _SaveRecordingSession()
+    with caplog.at_level(logging.WARNING):
+        run_request(
+            session,
+            _noscan_request(
+                acquisition="strict",
+                trigger_profile="Strict",
+                save_sets=["UC_Test", "UC_AsyncCams"],
+                native_image_save=False,
+            ),
+            legacy_resolver,
+        )
+    assert preflight_calls == []
+    md = session.scan_kwargs["md"]
+    assert "capture_devices" not in md
+    assert md["native_image_save"] is False
+    assert session.control_only_flags == {
+        "U_Cam": False,
+        "U_Cam2": False,
+        "U_Slow": False,
+        "U_AsyncCam": False,
+    }
+    assert len(_capture_drop_warnings(caplog, "U_AsyncCam")) == 1
+    assert any(
+        "no capture-eligible devices resolved" in r.getMessage() for r in caplog.records
+    )
 
 
 def test_native_image_save_on_leaves_saving_and_still_publishes_list(
@@ -2568,7 +2214,11 @@ def test_native_image_save_on_leaves_saving_and_still_publishes_list(
     )
     monkeypatch.setattr(runner_mod, "select_capture_devices", _select_u_cam)
     session = _SaveRecordingSession()
-    run_scan_request(session, _noscan_request(acquisition="strict"), legacy_resolver)
+    run_request(
+        session,
+        _noscan_request(acquisition="strict", trigger_profile="Strict"),
+        legacy_resolver,
+    )
     md = session.scan_kwargs["md"]
     assert md["capture_devices"] == ["U_Cam"]
     assert md["native_image_save"] is True

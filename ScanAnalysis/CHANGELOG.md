@@ -3,6 +3,18 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.17.3] - 2026-09-01
+
+### Fixed
+
+- `pytest` declared in a new `[tool.poetry.group.dev.dependencies]`
+  (#739). The package had no dev group and its tests were reaching
+  pytest only through ImageAnalysis's main-dependency leak; with that
+  leak closed (ImageAnalysis 1.13.1) a standalone `poetry install`
+  would have lost pytest. CI is unaffected (the suite runs from the
+  root env, where pytest is already a dev dependency). Lock refreshed
+  for the ImageAnalysis dev-group move — no code change.
+
 ## [1.17.2] - 2026-08-29
 
 ### Changed

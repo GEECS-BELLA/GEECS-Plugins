@@ -4,7 +4,7 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [0.70.1] - 2026-09-01
+## [0.71.1] - 2026-09-01
 
 ### Documentation
 
@@ -17,6 +17,105 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   CurveZMQ deferred to #660), and a stability note pointing at
   `EVENT_SCHEMA.md`. `EVENT_SCHEMA.md` rule 3 and `qserver/README.md`
   cross-reference it. No code change.
+
+## [0.71.0] - 2026-09-01
+
+### Changed
+
+- **One ScanRequest orchestration** (schema refactor Phase 2a): `GeecsSession.run`
+  now executes `geecs_scan_request_plan` on the session's own RunEngine —
+  the same plan the queueserver worker runs as a queue item. The headless
+  runner (`scan_request_runner.run_scan_request` / `_run_optimize_request`)
+  and its eager telemetry builder (`build_telemetry_readables`) are
+  removed; `scan_request_runner` is now purely the prologue the plan is
+  assembled from. The two doors differ only through two explicit plan
+  seams: `failed_move_policy` (queue `"pause"`, headless `"raise"`) and
+  `optimization_loader` (queue: the registered worker loader; headless: a
+  loader over the injected `objective`/`suggester` pair). `session.run`
+  gains `submission=` and keeps exporting the legacy s-files after a saved
+  run (the worker does that via its stop-document callback).
+- `geecs_scan_request_plan` gains the keyword-only `optimization_loader`
+  and `failed_move_policy` seams (unannotated, like `session`/`resolver`,
+  so RE Manager item validation is unaffected; a `failed_move_policy`
+  other than `"pause"`/`"raise"` is refused pre-claim).
+- `session.run` no longer attaches/detaches the session's shot controller
+  as a side effect (the plan builds its own controller from the trigger
+  profile); a session-level `shot_control(...)` set before `run` is left
+  as the caller set it.
+
+### Removed
+
+- The `should_abort` init-stage stop probe on the headless path (no
+  production caller since the GUI bridge was deleted); a headless caller
+  aborts through `RE.abort()`, which `session.run` settles quietly exactly
+  as `session.scan` does.
+- `session.run(..., optimization_binder=...)`: the binder hook was the
+  runner's seam; the plan's `optimization_loader` is the one seam now.
+
+### Fixed
+
+- An operator abort (`RE.abort()`) mid-optimize logged the claimed-folder
+  note as a failure ERROR on the plan; it is now the calm WARNING, as on
+  the step/noscan path (review finding on the Phase 2a port).
+- Optimize mode on the plan (queue path) crashed on a request with zero
+  save sets and optimizer `device_requirements` (empty save-set merge);
+  it now runs on the provisioned devices alone, as the headless path did.
+- Optimize mode on the plan recorded only save-set rituals under
+  `skipped_action_plans`; request-level setup/per_step/closeout slots are
+  now recorded (and warned) too.
+
+### Tests
+
+- The runner suite's execution tests drive the plan preamble without a
+  RunEngine (`run_request` steps the generator, running its connect and
+  disconnect coroutines); optimize provisioning/skip tests and telemetry
+  tests moved onto the plan suite's mock RunEngine; the document-parity
+  tests now compare `session.run` against the queue call shape.
+## [0.70.2] - 2026-09-01
+
+### Fixed
+
+- **Asynchronous (snapshot-role) cameras are never capture-owned**
+  (#702). `select_capture_devices` selected on devicetype + save flag
+  only, so an async camera in a save set landed in `capture_devices` /
+  the start-doc metadata and got `save_control_only=True` — in two
+  broken shapes: with an EMPTY `variable_list` no device object was
+  ever built (the "no scalars" skip), so the run wrapper's eager
+  `save="off"` could never reach it (the stale-path hazard the active
+  off-write surface exists to close); with scalars it got the save
+  child but no `acq_timestamp` column (`CaSnapshotReadable` has no acq
+  machinery), so its stack could not be row-joined. Both are now
+  dropped at the selection seam with a WARNING naming the device, its
+  devicetype and the reason. `images: true` on a snapshot-role entry
+  is now ignored outright: the engine never drove native saving for
+  async roles (`session.snapshot` has no `save_images`), and the daemon
+  no longer captures them either — the device's own save flag is
+  neither commanded nor suppressed. Stated trade (adversarial review):
+  the 0.68.x save child + eager off-write an async camera WITH scalars
+  used to get goes with it (an out-of-band-left-on save flag on such a
+  camera is no longer commanded off — the same standing as a sync
+  camera with `images: false`), and the issue-comment workaround
+  (listing `acq_timestamp` explicitly to make its stack joinable) no
+  longer yields a stack; building that support for the snapshot role
+  is the other remedy #702 names, not done here. Sync roles — the
+  production case — are unchanged. Not an event-schema bump: `capture_devices`
+  still means exactly "the devices the daemon owns for this run"; only
+  the engine's selection policy narrowed. Pinned in both shapes plus
+  the sole-eligible-is-async case (no preflight, no key, inert
+  `native_image_save: false`), end to end through the runner and at the
+  seam. EVENT_SCHEMA.md / capture FORMAT.md / CLAUDE.md say so.
+
+## [0.70.1] - 2026-09-01
+
+### Fixed
+
+- `poetry.lock` refreshed for ImageAnalysis 1.13.1 (#739): pytest,
+  pluggy and iniconfig no longer resolve into the **main** group
+  through the `analysis`/`optimize` extras (ImageAnalysis declared
+  pytest as a main dependency). Poetry-deployed worker hosts are
+  unaffected in practice — they install the dev group, which already
+  carries pytest; the change is to the main-group / `pip install`
+  closure. Lock-file refresh only — no code change.
 
 ## [0.70.0] - 2026-09-01
 

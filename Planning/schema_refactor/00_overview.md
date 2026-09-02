@@ -1,9 +1,12 @@
 # ScanRequest schema refactor + named scan plans
 
 Handoff design doc, 2026-09-01 (Sam + Claude session on the HTU/OSPREY integration).
-Status: **approved direction, implementation starting** (amended 2026-09-01 after
-review with Sam: priorities, naming, migration story, invariants). Written for
-whoever picks this up; assumes no context from the originating conversation.
+Status: **Phase 1 landed** (#734, merged 2026-09-01, hardware-verified on
+Undulator Scan004/Scan005 the same day); **Phase 2 amended 2026-09-01** after
+reading the engine with Sam (see "Findings from reading the engine" and the
+three-step Phase 2 below); **2a built** in the same session (GeecsBluesky
+0.71.0 — the amendment and the code travel in one PR). Written for whoever picks this up; assumes no
+context from the originating conversation.
 
 ## Priorities: the console comes first
 
@@ -106,7 +109,108 @@ two things:
 This phase is worth doing regardless of Phase 2, and Phase 2 is thin only if
 this lands first.
 
-### Phase 2 — three named plans (thin wrappers over the same path)
+**Landed** as #734 (GEECS-Schemas 0.14.0, GeecsBluesky 0.70.0, Console 0.26.0,
+MCP 0.8.0): everything above as written. Two things settled on the way that
+the next phase inherits:
+
+- **Versioning policy** (GEECS-Schemas `README.md`, "Versioning policy — two
+  dials"): the integer `schema_version` bumps only with a lifting migration;
+  additive fields ride the package version, the changelog, and the schema
+  artifact's git history. No `1.1`-style markers. Phase 2 adds no document
+  fields, so `schema_version` stays 2.
+- **Deploy order is worker-first** whenever the queue's plan surface
+  changes: a stamping client against an older worker fails queue-add
+  validation (the #734 case), and a client submitting a *named plan* to a
+  worker that has not registered it fails the same way (the 2b case —
+  `user_group_permissions.yaml` + the startup profile's allowed list). 2a
+  changes neither the funnel's public signature nor the plan list.
+
+### Findings from reading the engine (2026-09-01, pre-Phase 2)
+
+Phase 2 as first written assumed the wrappers could be thin because they
+would "delegate to the exact same execution path". Reading GeecsBluesky with
+that in mind:
+
+- **The prologue exists twice.** `plans/scan_request_plan.py`'s plan body
+  (`_scan_request_body` / `_optimize_request_body`) and the headless
+  `scan_request_runner.run_scan_request` / `_run_optimize_request` each walk
+  validate → resolve → construct → connect → claim over the same pure
+  helpers. The queueserver migration relocated the prologue into the plan
+  preamble deliberately and left the headless one for the in-process
+  session; the two are kept aligned by hand ("mirrors …" comments). Three
+  named plans on top of this would either pick one (drift) or add a third.
+- **Caller audit of the headless path** (non-test, whole repo): the only
+  caller of `run_scan_request` is `GeecsSession.run`; nothing in
+  GEECS-Console, GEECS-MCP, or GEECS-DataPortal calls the session method.
+  What keeps it alive: the hermetic engine suite (`test_scan_request_runner`
+  alone references it ~57 times), the env-gated hardware sweep test
+  (`test_scan_request_hardware.py` drives `session.run`), and its standing
+  as the documented headless/scripting API (GeecsBluesky `CLAUDE.md`). It is
+  a test harness and a scripting API, not a dead limb — keep the entry
+  point, drop the second orchestration.
+- **`scan_request_runner.py` is a grab-bag, not a runner** (~2200 lines):
+  save-set merging and rituals, action-slot assembly, experiment defaults,
+  validation, movable/detector construction, liveness preflight, telemetry
+  readables, and the headless run functions share one module because they
+  accreted during the consolidation. Distinct concerns, distinct tests.
+- **Mode behaviour is scattered branches**, not one place per mode:
+  noscan-as-one-step and the motor-argument choice in the spec builder,
+  optimize-skips-actions in the run function, the step/optimize dispatch in
+  the plan body. Fine at three modes; not at five.
+- **What a plan can express.** A named plan can only assemble what
+  `ScanRequest` already executes (noscan / step / optimize). Recombining
+  existing capability into an operator-shaped plan is cheap after Phase 2.
+  A genuinely new *execution* semantics (traversal ordering, burst, a
+  different shot loop) is engine work first — enum + validator in the
+  schema, a spec-builder branch or new generator in GeecsBluesky — and only
+  then a cheap plan. Two-tier cost, by design.
+
+### Phase 2 — three named plans, in three steps
+
+Phase 2 is now three ordered steps. Step 2a is the one the engine reading
+added; 2b is the original Phase 2; 2c is the OSPREY tail.
+
+#### 2a — one preamble (no change on either door; **built**, GeecsBluesky 0.71.0)
+
+Decided shape (the reviewer's P1/P2 on the first draft of this section
+forced the choice): `GeecsSession.run` **is** `RE(geecs_scan_request_plan(...))`
+on the session's own RunEngine; `run_scan_request` / `_run_optimize_request`
+are deleted, not wrapped. Every known fork between the two doors became an
+explicit keyword seam on the plan, so "no behaviour change" means *no change
+on either door*, not "identical doors":
+
+| Fork | Queue door | Headless door (`session.run`) |
+|---|---|---|
+| `failed_move_policy` | `"pause"` (plan default; decision 4) | `"raise"` (no operator to answer a pause) |
+| `optimization_loader` | the worker's startup-registered loader | a loader over the caller's injected `objective`/`suggester` (+ `device_requirements`) |
+| s-file export | worker stop-document callback | `session.run` exports after a saved run |
+| operator abort | manager verb | `RE.abort()`, settled quietly (`last_run_aborted`), as `session.scan` |
+| `should_abort` init-stage probe | never existed | **removed** — no production caller since the bridge died |
+
+The funnel's public signature keeps `request`, `submission`, `session`,
+`resolver`; the two new seams are unannotated keyword-only (RE Manager item
+validation unaffected) — no client or deploy-order impact.
+
+Acceptance as built: the hermetic runner suite keeps its *entry shape*
+(fake session, no RunEngine) but its fixture was rewritten to step the
+plan generator directly, running its connect/disconnect coroutines; the
+hardware sweep test still runs through `session.run` unchanged; the
+document-parity tests were **repurposed**, not retired — they now compare
+`session.run` against the queue call shape, the structural pin that the
+headless door is the plan. The port surfaced two queue-path bugs the
+headless runner had masked (zero-save-set optimize crashed on the empty
+merge; request-level skipped actions were not recorded) — fixed on the plan.
+
+**Scope line held, follow-up flagged:** `GeecsSession.optimize` (the
+low-level scripting twin of `session.scan`, over already-built devices)
+stays; its iteration loop duplicates the plan's optimize body and it has no
+caller outside tests/README. Collapsing it is a second concern — do it when
+the scripting API is next touched, or delete it if nobody scripts
+optimizations headless by then. The runner-module split by concern was
+**not** done (PR-size discipline); the per-mode spec-builder registry stays
+deferred until a fourth mode forces it.
+
+#### 2b — the three named plans
 
 Register in the qserver startup profile, beside the existing funnel:
 
@@ -136,6 +240,23 @@ submitting through the funnel and adopts named plans only if they earn it.
 GEECS-Console and GEECS-MCP `submit_scan` keep submitting ScanRequest documents
 untouched, into the same queue. The funnel retires (or stays forever as the
 machine API) on usage evidence — strangler-fig, no migration cliff.
+
+Each named plan's parameter model lives in GEECS-Schemas (pydantic-only),
+its plan function in GeecsBluesky beside the funnel, its
+`user_group_permissions` entry in the qserver profile. Per-plan JSON Schema
+artifacts land under `docs/geecs_schemas/` — which means **generalising the
+single-artifact export**: `schema_export.py` is one-model today
+(`SCHEMA_ARTIFACT`, `scan_request_json_schema()`), the no-drift guard
+compares that one file, `docgen.py` hardcodes the `scan_request` entry, and
+mkdocs lists the reference pages by hand. 2b budgets a models→artifacts
+registry in `schema_export.py` (schema knowledge stays in its one package)
+with the guard and docgen iterating it. Not free; not large.
+
+#### 2c — OSPREY tail (optional, no deadline)
+
+Per-plan `parameter_schemas` entries in the HTU deployment profile, optional
+`PLAN_LAYOUTS` polish, and the permissions-granularity check (gate
+`geecs_optimize_plan` for a test group). Detailed under "OSPREY-side impact".
 
 ### Why three plans rather than a discriminated union on `mode`
 
@@ -177,8 +298,11 @@ and gates.
   scoped, not yet implemented — tracked in the osprey#816 orbit, not here.
 - **GEECS-Plugins#727 item 3**: document-stream contract (`:5568`) for live
   scan rows in the OSPREY panel.
-- **OWED from #730**: worker restart on the qserver host so `plans_allowed`
-  serves the parameter annotations.
+- ~~OWED from #730: worker restart on the qserver host~~ — closed 2026-09-01
+  by the #734 verification restart (worker at GeecsBluesky 0.70.0).
+- **Interim-host checkout drift**: the worker host's GEECS-Plugins checkout
+  was left detached at the #734 branch tip; sync it to master before the 2a
+  deploy.
 
 ## Pointers
 
@@ -194,17 +318,21 @@ and gates.
 
 ## Suggested sequencing for the implementer
 
-1. Phase 1 refactor PR (GEECS-Schemas minor bump + lifting validator;
-   consumer updates across GeecsBluesky/Console/MCP/Data-Utils; regenerate
-   artifact; CI guard proves no drift beyond the intended shape change).
-2. **Console acceptance check**: confirm `request_builder` and the panels
-   got simpler, not just different — this is the checkpoint that matters.
-   (Re-vendoring the artifact into the HTU deployment repo to eyeball the
-   OSPREY form is a nice-to-have, not a gate.)
-3. Phase 2 PR (GeecsBluesky: three wrappers + annotations + startup
-   registration; funnel untouched; shared-execution invariant pinned by
-   tests).
-4. Optional OSPREY tail, no deadline: publish per-plan schema artifacts;
-   add the three `parameter_schemas` entries in the HTU profile; verify
-   permissions granularity end-to-end (gate `geecs_optimize_plan` for a
-   test group).
+1. ~~Phase 1 refactor PR~~ — landed as #734 (2026-09-01).
+2. ~~Console acceptance check~~ — met in #734: `request_builder` builds and
+   reads one `CaptureSettings` sub-model (the PR's stated acceptance test).
+   The OSPREY re-vendor remains a nice-to-have, not a gate.
+3. ~~Phase 2 PR~~ → now three PRs, in order:
+   - ~~**2a**~~ (GeecsBluesky 0.71.0): one preamble — built as described
+     above; runner module split **not** done (deferred, PR-size discipline).
+   - **2b** (GEECS-Schemas minor + GeecsBluesky minor): three parameter
+     models + three plans + annotations + startup registration + permissions
+     + per-plan artifacts; funnel untouched; shared-execution invariant
+     pinned by tests (each plan's recorded start doc is a `ScanRequest`).
+   - **2c** OSPREY tail, no deadline (see above).
+4. Hardware verification per PR, worker-first: 2a = one console noscan
+   through the funnel (nothing should look different) **and** one headless
+   `session.run` noscan from a lab-network Python session (the door that
+   actually changed; the env-gated hardware sweep test is exactly that);
+   2b = one queue item per named plan from the qserver CLI, start docs
+   checked for the canonical `ScanRequest` shape.

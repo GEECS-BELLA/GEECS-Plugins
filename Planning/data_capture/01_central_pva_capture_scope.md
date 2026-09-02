@@ -300,8 +300,8 @@ per-device deprecation choreography.
   refuse/warn when the toggle is off but the daemon looks absent.
 - Review notes on the active save-off (PR #699): (a) an *asynchronous*
   capture-eligible camera would be config-marked but the snapshot branch
-  drops the flag — no off-write (pre-existing shape; matters only if
-  async Point Grey configs ever exist); (b) toggle-off scans require the
+  drops the flag — no off-write (closed by #702 / 0.70.1: async roles are
+  dropped from `capture_devices` with a warning); (b) toggle-off scans require the
   gateway to serve `device:save`(+`:SP`) for captured cameras — unserved
   dies loudly in the pre-claim connect batch (~20 s NotConnectedError),
   which `UnservedVariablesCheck` cannot pre-warn about (it inspects
@@ -441,10 +441,12 @@ experiment default to off, after the evidence gate.
      PNG-free scan a `device_hdf5` diagnostic using
      `from_current_scan`/`scan_number` backgrounds finds no images;
      needs a stack-aware background loader.
-  4. *Async (snapshot-role) capture-owned cameras* surface no
-     acq_timestamp join column and (empty variable_list) can escape
-     the eager save-off — both tracked in issue #702; capture cameras
-     are synchronous in production.
+  4. *Async (snapshot-role) cameras are never capture-owned* (0.70.1,
+     #702): dropped from `capture_devices` with a warning — `images:
+     true` on a snapshot role is ignored. Building save-child +
+     acq_timestamp join support for the snapshot role is the other
+     remedy the issue names, unbuilt; capture cameras are synchronous
+     in production.
   5. *Optimize provenance*: optimize ignores the toggle (WARNING
      logged since 0.68.2, both paths) and publishes no
      `capture_devices` key — revisit when optimize-mode scans should

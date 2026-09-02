@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "geecs-mcp"
-version = "0.8.0"
+version = "0.8.3"
 description = "MCP server exposing GEECS scan submission, monitoring, and config discovery to AI agents (OSPREY)"
 authors = ["Sam Barber <sbarber@lbl.gov>"]
 readme = "README.md"
@@ -21,8 +21,10 @@ anyio = ">=4.0"
 # Figure downscaling (analysis domain) — imported directly, declared.
 pillow = ">=10.0"
 
-# analysis_status YAML parsing — imported directly, declared (the anyio
-# lesson, applied to BOTH new direct imports this time).
+# YAML: since 0.8.1 the analysis_status parsing lives in
+# geecs_data_utils.analysis_status (#682) and geecs_mcp/ imports yaml
+# nowhere — kept declared for the test fixtures that write status files
+# (the anyio lesson: declare what you import directly).
 pyyaml = ">=6.0"
 
 # The queue client + pre-submit preflight (geecs_bluesky.qs_client) and the

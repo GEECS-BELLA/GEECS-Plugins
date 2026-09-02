@@ -1,11 +1,11 @@
 """validate_scan_request — THE one fail-fast definition (issue #529).
 
 Pins the contract that every submission path validates through
-``run_scan_request``'s first phase, one function, so callers cannot
+the scan plan preamble's first phase, one function, so callers cannot
 drift:
 
 * every resolvable category refuses loudly through the one function;
-* ``run_scan_request`` fails a bad request *before* touching any session
+* the plan preamble fails a bad request *before* touching any session
   state (no ``shot_control`` attach on a doomed request).
 """
 
@@ -14,10 +14,8 @@ from __future__ import annotations
 import pytest
 
 from geecs_bluesky.exceptions import GeecsConfigurationError
-from geecs_bluesky.scan_request_runner import (
-    run_scan_request,
-    validate_scan_request,
-)
+from geecs_bluesky.scan_request_runner import validate_scan_request
+from tests.test_scan_request_runner import run_request
 from geecs_schemas import (
     ActionPlan,
     PseudoScanVariable,
@@ -81,11 +79,19 @@ class _StubResolver:
 
 
 class _RefusingSession:
-    """A session on which ANY touch is a test failure (fail-fast pin)."""
+    """A session on which ANY hardware-shaped touch is a test failure.
+
+    The plan preamble's manual-move gate runs before validation by design
+    (a queue start must never drive hardware mid-move); every other touch
+    (device factories, shot control, the claim) is the fail-fast pin.
+    """
+
+    def _refuse_if_manual_move(self, verb: str) -> None:
+        pass
 
     def __getattr__(self, name):
         raise AssertionError(
-            f"run_scan_request touched session.{name} before validation "
+            f"the plan preamble touched session.{name} before validation "
             "passed — phase 1 must fail first (issue #529)"
         )
 
@@ -269,11 +275,11 @@ def test_valid_plan_names_resolve_clean() -> None:
 
 
 # ---------------------------------------------------------------------------
-# The runner routes through the one definition
+# The scan plan's preamble routes through the one definition
 # ---------------------------------------------------------------------------
 
 
-def test_runner_fails_fast_before_touching_the_session() -> None:
+def test_plan_preamble_fails_fast_before_touching_the_session() -> None:
     """Phase 1 refuses a bad request before ANY session attribute is used."""
     with pytest.raises(GeecsConfigurationError, match="ghost"):
-        run_scan_request(_RefusingSession(), _request(save_sets=["ghost"]), _resolver())
+        run_request(_RefusingSession(), _request(save_sets=["ghost"]), _resolver())

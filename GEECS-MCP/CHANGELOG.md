@@ -4,6 +4,48 @@ All notable changes to `geecs-mcp` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.8.3] - 2026-09-01
+
+### Changed
+
+- `get_scan_analysis` reads the `analysis_status/*.yaml` task files
+  through the shared `geecs_data_utils.analysis_status` reader
+  (GEECS-Data-Utils 0.26.0, #682) instead of its local
+  `_read_task_statuses` parser + `_heartbeat_age_s`; the tool's own
+  presentation (heartbeat age, the display_files payload cap +
+  `display_files_truncated` flag, `unreadable` entries) and its tests
+  are unchanged. One deliberate delta: a `.yml` file in `analysis_status/`
+  no longer surfaces as a task — the queue's own readers glob `*.yaml`
+  only, so it was a phantom the queue would never run (#750 review). The writer/reader contract is now pinned in
+  ScanAnalysis's suite, so a `TaskStatus.to_dict()` change fails a test
+  there instead of silently drifting from this tool.
+## [0.8.2] - 2026-09-01
+
+### Fixed
+
+- `poetry.lock` refreshed for ImageAnalysis 1.13.1 (#739): the
+  `analysis-run` extra no longer drags pytest, pluggy and iniconfig
+  into the **main** group — this is the one deploy path that actually
+  changes, since `deploy/DEPLOYMENT.md` installs the package with a
+  non-editable `pip install` (main deps only). Lock-file refresh only
+  — no code change.
+
+## [0.8.1] - 2026-09-01
+
+### Fixed
+
+- **First scan after an HTTP-service restart streamed no counts**
+  (#685): the `ProgressCache` consumer threads started lazily on the
+  first `scan_progress` call, so a long-lived `--transport http` service
+  whose first poll came after the run's start document showed
+  `stream: {available: true}` with no scan number / shot counts. The
+  HTTP entry point now warms the cache at startup
+  (`__main__.warm_progress_stream`) from the queue client's own
+  `doc_addr` / `info_addr` — the same resolution `scan_progress` uses,
+  now shared as `progress_stream.start_for_client`. Best-effort: a
+  client that will not build or a missing address is logged and the
+  server still comes up. Stdio sessions keep the lazy start.
+
 ## [0.8.0] - 2026-09-01
 
 ### Changed

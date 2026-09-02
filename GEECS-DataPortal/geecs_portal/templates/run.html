@@ -516,8 +516,9 @@ function parsedFilters() {
 function api(path, params) {
   const p = new URLSearchParams(params);
   if (DAY) p.set("day", DAY);
-  // Completed-run /api responses cache immutable; the version key rolls
-  // browser caches over when the payload shape changes on upgrade.
+  // Union-frame /api responses are no-cache (the s-file grows after
+  // the run); the version key still rolls over whatever a cache kept
+  // when the payload shape changes on upgrade.
   p.set("v", {{ portal_version | tojson }});
   return fetch(`${ROOT}/api/run/${UID}/${path}?` + p.toString()).then(r => {
     if (!r.ok) return r.json().then(b => { throw new Error(b.detail || r.statusText); });

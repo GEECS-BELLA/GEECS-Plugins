@@ -9,6 +9,7 @@ saving stays on.
 
 from __future__ import annotations
 
+import logging
 from types import SimpleNamespace
 
 from geecs_bluesky.db_runtime import GeecsDbDeviceTypes
@@ -48,6 +49,43 @@ def test_select_capture_devices_by_devicetype_and_save_flag() -> None:
         }
     )
     assert select_capture_devices("Undulator", cfg, provider=provider) == ["UC_Cam"]
+
+
+def test_select_capture_devices_drops_asynchronous_roles_loudly(caplog) -> None:
+    """#702: an asynchronous (snapshot-role) camera is never capture-owned,
+    however eligible its devicetype — dropped with a warning naming it and
+    the reason, in both shapes (with scalars, scalar-less). A missing
+    ``synchronous`` key means async, the same default
+    ``_build_request_detectors`` applies. The sync sibling is unaffected."""
+    cfg = _config(
+        UC_Cam={"save_nonscalar_data": True, "synchronous": True},
+        UC_Async={
+            "save_nonscalar_data": True,
+            "synchronous": False,
+            "variable_list": ["MaxCounts"],
+        },
+        UC_AsyncBare={
+            "save_nonscalar_data": True,
+            "synchronous": False,
+            "variable_list": [],
+        },
+        UC_NoRoleKey={"save_nonscalar_data": True},
+    )
+    provider = _FakeTypesProvider({name: "Point Grey Camera" for name in cfg})
+    with caplog.at_level(logging.WARNING):
+        selected = select_capture_devices("Undulator", cfg, provider=provider)
+    assert selected == ["UC_Cam"]
+    dropped = [
+        r.getMessage()
+        for r in caplog.records
+        if r.levelno == logging.WARNING and "NOT capture-owned" in r.getMessage()
+    ]
+    assert [m.split(" ", 1)[0] for m in dropped] == [
+        "UC_Async",
+        "UC_AsyncBare",
+        "UC_NoRoleKey",
+    ]
+    assert all("Point Grey Camera" in m and "#702" in m for m in dropped)
 
 
 def test_select_capture_devices_fail_open_on_db_failure() -> None:
