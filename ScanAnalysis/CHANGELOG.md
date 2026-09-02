@@ -3,6 +3,19 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.18.0] - 2026-09-02
+
+### Added
+
+- `scan_analysis.analyzers.renderers.config.parse_output_filename(name)`
+  → `(kind, bin)`: the inverse of `RenderContext.get_filename` and the
+  renderers' summary names (`_average_processed*`,
+  `_averaged_image_grid`, `_summary_{mode}`, the noscan `.gif`),
+  classifying an output file as `bin` (with its number), `summary` or
+  `other`. The data portal's Analysis tab classifies through it, so the
+  naming is a one-place contract: change a name and its parser
+  together. Pinned by `tests/test_renderer_output_names.py`.
+
 ## [1.17.3] - 2026-09-01
 
 ### Fixed

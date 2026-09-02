@@ -587,29 +587,39 @@ function artifactCard(a) {
 
 function renderArtifacts(id, artifacts) {
   // Each entry is {path, servable, inline, kind, bin} — decided
-  // server-side (analysis_runs.describe_artifacts): the page never
-  // re-derives the policy from a path's shape. Summaries (and anything
-  // unclassified) show automatically; per-bin visuals show ONE at a
-  // time behind a stepper, like the Images tab's shot stepper.
+  // server-side (analysis_runs.describe_artifacts over ScanAnalysis's
+  // own output-name contract): the page never re-derives the policy
+  // from a path's shape. Summaries (and anything unclassified) show
+  // automatically; per-bin outputs show ONE bin at a time behind a
+  // stepper, like the Images tab's shot stepper — every file of that
+  // bin (the visual inline, its data file as a link).
   if (!artifacts || !artifacts.length) return "";
   const auto = artifacts.filter(a => a.kind !== "bin");
-  const bins = artifacts.filter(a => a.kind === "bin");
+  const binNumbers = [...new Set(artifacts.filter(a => a.kind === "bin").map(a => a.bin))];
   let html = auto.length ? `<div class="arts">${auto.map(artifactCard).join("")}</div>` : "";
-  if (bins.length) {
-    const i = Math.min(Math.max(ANALYSIS_BIN[id] || 0, 0), bins.length - 1);
-    const bin = bins[i];
+  if (binNumbers.length) {
+    const i = Math.min(Math.max(ANALYSIS_BIN[id] || 0, 0), binNumbers.length - 1);
+    ANALYSIS_BIN[id] = i;  // write the clamp back: a shrunken list must not strand the index
+    const number = binNumbers[i];
+    const files = artifacts.filter(a => a.kind === "bin" && a.bin === number);
     html += `<div class="binstep">
-      <button class="act" data-id="${escAttr(id)}" data-delta="-1" onclick="stepBin(this.dataset.id, -1)" ${i === 0 ? "disabled" : ""}>&lsaquo; prev bin</button>
-      <span class="dim">bin <b>${esc(String(bin.bin))}</b> <span class="mono">(${i + 1} of ${bins.length})</span></span>
-      <button class="act" data-id="${escAttr(id)}" data-delta="1" onclick="stepBin(this.dataset.id, 1)" ${i === bins.length - 1 ? "disabled" : ""}>next bin &rsaquo;</button>
-    </div><div class="arts">${artifactCard(bin)}</div>`;
+      <button class="act" data-id="${escAttr(id)}" onclick="stepBin(this.dataset.id, -1)" ${i === 0 ? "disabled" : ""}>&lsaquo; prev bin</button>
+      <span class="dim">bin <b>${esc(String(number))}</b> <span class="mono">(${i + 1} of ${binNumbers.length})</span></span>
+      <button class="act" data-id="${escAttr(id)}" onclick="stepBin(this.dataset.id, 1)" ${i === binNumbers.length - 1 ? "disabled" : ""}>next bin &rsaquo;</button>
+    </div><div class="arts">${files.map(artifactCard).join("")}</div>`;
   }
   return html;
 }
 
 function stepBin(id, delta) {
+  // Re-render THIS analyzer's row only: a whole-list rebuild would
+  // re-fetch every inline artifact on the tab (they are no-cache).
   ANALYSIS_BIN[id] = (ANALYSIS_BIN[id] || 0) + delta;
-  if (ANALYSIS_BODY) renderAnalysis(ANALYSIS_BODY, true);
+  if (!ANALYSIS_BODY) return;
+  const a = ANALYSIS_BODY.analyzers.find(x => x.id === id);
+  const row = document.querySelector(`#analysisList .arow[data-row="${CSS.escape(id)}"]`);
+  if (!a || !row) return;
+  row.outerHTML = renderAnalyzer(a, ANALYSIS_BODY.running !== null);
 }
 
 function renderAnalyzer(a, anyRunning) {
@@ -631,7 +641,7 @@ function renderAnalyzer(a, anyRunning) {
     const open = ANALYSIS_OPEN[a.id] ? " open" : "";
     body += `<details${open} data-id="${escAttr(a.id)}" ontoggle="ANALYSIS_OPEN[this.dataset.id]=this.open"><summary>log (${job.log.length} lines)</summary><pre>${esc(job.log.join("\n"))}</pre></details>`;
   }
-  return `<div class="arow"><div class="head"><span class="id">${esc(a.id)}</span>${device}${badge}${when}<span class="right">${button}</span></div>${body}</div>`;
+  return `<div class="arow" data-row="${escAttr(a.id)}"><div class="head"><span class="id">${esc(a.id)}</span>${device}${badge}${when}<span class="right">${button}</span></div>${body}</div>`;
 }
 
 let ANALYSIS_LAST = null;  // last-rendered payload — an unchanged poll leaves the DOM alone

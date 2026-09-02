@@ -34,7 +34,6 @@ from __future__ import annotations
 
 import dataclasses
 import logging
-import re
 import threading
 import time
 from collections import deque
@@ -410,34 +409,22 @@ def contained_artifact(analysis_folder: Path, relative: str) -> Optional[Path]:
 INLINE_IMAGE_SUFFIXES = frozenset({".png", ".jpg", ".jpeg", ".gif", ".webp"})
 
 
-#: ScanAnalysis output-name conventions (``renderers/*``): per-bin
-#: visuals are ``<name>_<bin>_processed_visual.<ext>``; the average /
-#: grid / summary / animation files are the scan-level figures.
-_BIN_FILE = re.compile(r"_(\d+)_processed_visual\.[A-Za-z0-9]+$")
-_SUMMARY_MARKERS = (
-    "_average_processed_visual.",
-    "_averaged_image_grid.",
-    "_summary_",
-    "_animation.",
-)
-
-
 def classify_artifact(artifact: str) -> tuple[str, Optional[int]]:
     """``("bin", n)`` / ``("summary", None)`` / ``("other", None)`` from the name.
 
     The tab shows summaries automatically and steps through bins one
-    at a time (owner ruling 2026-09-02); the split is by ScanAnalysis's
-    own filename conventions, decided here rather than in page JS.
+    at a time (owner ruling 2026-09-02). The split is ScanAnalysis's
+    own output-name contract, parsed by ITS
+    ``renderers.config.parse_output_filename`` (next to the code that
+    builds the names) — imported lazily, like the factory, so this
+    module stays importable without the extra; without it everything
+    is ``other`` (the run feature is off anyway).
     """
-    name = Path(artifact).name
-    match = _BIN_FILE.search(name)
-    if match:
-        return "bin", int(match.group(1))
-    if any(marker in name for marker in _SUMMARY_MARKERS) or name.lower().endswith(
-        ".gif"
-    ):
-        return "summary", None
-    return "other", None
+    try:
+        from scan_analysis.analyzers.renderers.config import parse_output_filename
+    except ImportError:
+        return "other", None
+    return parse_output_filename(artifact)
 
 
 def describe_artifact(analysis_folder: Path, artifact: str) -> dict:
@@ -464,23 +451,33 @@ def describe_artifact(analysis_folder: Path, artifact: str) -> dict:
 _KIND_ORDER = {"summary": 0, "other": 1, "bin": 2}
 
 
-def describe_artifacts(analysis_folder: Path, artifacts: list[str]) -> list[dict]:
-    """Describe + order for the tab: summaries, then others, then bins by number."""
-    described = [describe_artifact(analysis_folder, a) for a in artifacts]
-    return sorted(
-        described, key=lambda d: (_KIND_ORDER[d["kind"]], d["bin"] or 0, d["path"])
+def describe_artifacts(
+    analysis_folder: Path, artifacts: list[str], *, max_bins: int = 200
+) -> list[dict]:
+    """Describe + order for the tab: summaries, then others, then bins by number.
+
+    The cap applies to the bin files only, after classification — a
+    lexical cap on the raw listing would drop the summaries first
+    (``_average…`` sorts after every ``_<digits>_…`` name).
+    """
+    described = sorted(
+        (describe_artifact(analysis_folder, a) for a in artifacts),
+        key=lambda d: (_KIND_ORDER[d["kind"]], d["bin"] or 0, d["path"]),
     )
+    bins = [d for d in described if d["kind"] == "bin"][:max_bins]
+    return [d for d in described if d["kind"] != "bin"] + bins
 
 
 def list_artifacts(
-    analysis_folder: Path, output_name: str, *, limit: int = 200
+    analysis_folder: Path, output_name: str, *, limit: Optional[int] = None
 ) -> list[str]:
     """Files under the analyzer's output directory, relative to the analysis folder.
 
     ScanAnalysis writes per-analyzer outputs under
-    ``analysis/ScanNNN/<output_name>/…`` — this lists them (sorted,
-    capped) so a page loaded after a portal restart still shows what
-    an earlier run produced.
+    ``analysis/ScanNNN/<output_name>/…`` — this lists them (sorted) so a
+    page loaded after a portal restart still shows what an earlier run
+    produced. Uncapped by default: the tab's cap is applied AFTER
+    classification (:func:`describe_artifacts`), never lexically here.
     """
     out_dir = analysis_folder / output_name
     if not out_dir.is_dir():
@@ -489,4 +486,6 @@ def list_artifacts(
         files = sorted(p for p in out_dir.rglob("*") if p.is_file())
     except OSError:
         return []
-    return [p.relative_to(analysis_folder).as_posix() for p in files[:limit]]
+    if limit is not None:
+        files = files[:limit]
+    return [p.relative_to(analysis_folder).as_posix() for p in files]

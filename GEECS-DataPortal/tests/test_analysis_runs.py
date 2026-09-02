@@ -202,6 +202,9 @@ class TestHelpers:
             "UC_Crop/Array2DScanAnalyzer/a.png",
             "UC_Crop/Array2DScanAnalyzer/b.png",
         ]
+        assert (
+            len(analysis_runs.list_artifacts(root, "UC_Crop")) == 3
+        )  # uncapped default
         assert analysis_runs.list_artifacts(root, "UC_Missing") == []
 
 
@@ -406,11 +409,15 @@ class TestListing:
         assert describe(root, "a label.")["servable"] is False
 
     def test_artifact_kinds_follow_scan_analysis_naming(self, tmp_path):
+        """Classification is ScanAnalysis's own contract (parse_output_filename)."""
+        pytest.importorskip("scan_analysis")
         classify = analysis_runs.classify_artifact
+        # Real renderer names (RenderContext.get_filename + the summary names).
         assert classify("UC_X/Array2DScanAnalyzer/UC_X_16_processed_visual.png") == (
             "bin",
             16,
         )
+        assert classify("UC_X/Array2DScanAnalyzer/UC_X_16_processed.h5") == ("bin", 16)
         assert classify(
             "UC_X/Array2DScanAnalyzer/UC_X_average_processed_visual.png"
         ) == ("summary", None)
@@ -418,20 +425,15 @@ class TestListing:
             "summary",
             None,
         )
-        assert classify("UC_L/Array1DScanAnalyzer/UC_L_summary_per_shot.png") == (
+        assert classify("UC_L/Array1DScanAnalyzer/UC_L_summary_waterfall.png") == (
             "summary",
             None,
         )
-        assert classify("UC_X/Array2DScanAnalyzer/UC_X_animation.gif") == (
-            "summary",
-            None,
-        )
-        assert classify("UC_X/Array2DScanAnalyzer/UC_X_1_processed.h5") == (
-            "other",
-            None,
-        )
+        assert classify("UC_X/Array2DScanAnalyzer/noscan.gif") == ("summary", None)
+        assert classify("UC_X/UC_X_dynamic_background.npy") == ("other", None)
         assert classify("a label, not a path") == ("other", None)
-        # Ordering for the tab: summaries, others, then bins by NUMBER (not lexically).
+        # Ordering for the tab: summaries, others, then bins by NUMBER (not
+        # lexically); the cap applies to bins only, never to summaries.
         root = tmp_path / "analysis" / "Scan002"
         (root / "UC_X").mkdir(parents=True)
         names = [
@@ -439,6 +441,7 @@ class TestListing:
             "UC_X_2_processed_visual.png",
             "UC_X_averaged_image_grid.png",
             "UC_X_2_processed.h5",
+            "UC_X_dynamic_background.npy",
         ]
         for name in names:
             (root / "UC_X" / name).write_bytes(b"x")
@@ -447,11 +450,18 @@ class TestListing:
             ("summary", None),
             ("other", None),
             ("bin", 2),
+            ("bin", 2),
             ("bin", 10),
         ]
+        capped = analysis_runs.describe_artifacts(
+            root, [f"UC_X/{n}" for n in names], max_bins=1
+        )
+        assert [(d["kind"], d["bin"]) for d in capped] == [
+            ("summary", None),
+            ("other", None),
+            ("bin", 2),
+        ]
 
-
-class TestRun:
     def test_done_artifacts_and_serving(self, scan_folder, configs_tree, caplog):
         pytest.importorskip("image_analysis")
         # Capture respects the process's logging levels (no global level

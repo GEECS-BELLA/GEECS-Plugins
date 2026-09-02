@@ -13,13 +13,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   (`<name>_<bin>_processed_visual.*`) show **one at a time** behind a
   prev / next stepper ("bin N (i of M)"), like the Images tab's shot
   stepper, instead of every bin at once. The classification
-  (`kind` ∈ summary / bin / other, `bin` number) is decided server-side
-  by ScanAnalysis's own filename conventions
-  (`analysis_runs.classify_artifact`) and the listing is ordered
-  summaries → others → bins by number. The listing now always
-  describes what is on disk under the analyzer's output dir plus the
-  finished job's non-file labels (before: the job's own list when done,
-  which was the summaries only).
+  (`kind` ∈ summary / bin / other, `bin` number) is ScanAnalysis's
+  own output-name contract, parsed by its
+  `renderers.config.parse_output_filename` (ScanAnalysis 1.18.0, next to
+  the code that builds the names; imported lazily) — a bin's data file
+  (`_<bin>_processed.h5`) travels with its visual behind the stepper,
+  never as an auto-shown link. The listing is ordered summaries →
+  others → bins by number, capped on the bins only (never the
+  summaries), and always describes what is on disk under the
+  analyzer's output dir plus the finished job's non-file labels
+  (before: the job's own list when done, which was the summaries only).
+  A stepper click re-renders that analyzer's row only.
 
 ## [0.18.0] - 2026-09-01
 
