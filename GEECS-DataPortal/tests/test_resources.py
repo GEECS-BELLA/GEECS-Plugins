@@ -1008,3 +1008,87 @@ class TestImageDisplay:
         )
         assert response.status_code == 200
         assert np.array(Image.open(io.BytesIO(response.content))).ndim == 3
+
+
+class TestRenderedView:
+    """``display.mode = "rendered"``: the analyzer's figure instead of the pixels."""
+
+    # Borrow the selector's fixtures + client (not inheritance: that
+    # would re-collect its tests under this class).
+    configs_tree = TestProcessingSelector.configs_tree
+    analysis_extra = TestProcessingSelector.analysis_extra
+    _client = TestProcessingSelector._client
+
+    def test_per_shot_rendered_is_a_figure_not_the_pixels(
+        self, scan_folder, configs_tree, analysis_extra
+    ):
+        client = self._client(scan_folder, configs_tree)
+        pixels = client.get(
+            "/run/uid-002/image.png",
+            params={"device": "cam", "shot": 1, "processing": "UC_Crop"},
+        )
+        rendered = client.get(
+            "/run/uid-002/image.png",
+            params={
+                "device": "cam",
+                "shot": 1,
+                "processing": "UC_Crop",
+                "display": '{"mode": "rendered", "cmap": "viridis"}',
+            },
+        )
+        assert pixels.status_code == 200 and rendered.status_code == 200
+        assert rendered.headers["cache-control"] == "no-cache"
+        # The pixel view is the 2x3 crop; the figure is a full plot canvas.
+        assert np.array(Image.open(io.BytesIO(pixels.content))).shape == (2, 3)
+        canvas = Image.open(io.BytesIO(rendered.content))
+        assert canvas.size[0] > 200 and canvas.size[1] > 200
+
+    def test_rendered_without_processing_is_the_raw_pixels(
+        self, scan_folder, configs_tree, analysis_extra
+    ):
+        client = self._client(scan_folder, configs_tree)
+        response = client.get(
+            "/run/uid-002/image.png",
+            params={"device": "cam", "shot": 1, "display": '{"mode": "rendered"}'},
+        )
+        assert response.status_code == 200
+        assert np.array(Image.open(io.BytesIO(response.content))).shape == (5, 5)
+
+    def test_per_bin_rendered_is_the_averaged_base_figure(
+        self, scan_folder, configs_tree, analysis_extra
+    ):
+        client = self._client(scan_folder, configs_tree)
+        response = client.get(
+            "/run/uid-002/bin-image.png",
+            params={
+                "device": "cam",
+                "bin": 0,
+                "processing": "UC_Crop",
+                "display": '{"mode": "rendered"}',
+            },
+        )
+        assert response.status_code == 200
+        assert response.headers["cache-control"] == "no-cache"
+        canvas = Image.open(io.BytesIO(response.content))
+        assert canvas.size[0] > 200
+
+    def test_bad_mode_is_400_and_unknown_cmap_degrades(
+        self, scan_folder, configs_tree, analysis_extra
+    ):
+        client = self._client(scan_folder, configs_tree)
+        bad = client.get(
+            "/run/uid-002/image.png",
+            params={"device": "cam", "shot": 1, "display": '{"mode": "3d"}'},
+        )
+        assert bad.status_code == 400
+        assert "mode" in bad.json()["detail"]
+        degraded = client.get(
+            "/run/uid-002/image.png",
+            params={
+                "device": "cam",
+                "shot": 1,
+                "processing": "UC_Crop",
+                "display": '{"mode": "rendered", "cmap": "no-such-map"}',
+            },
+        )
+        assert degraded.status_code == 200

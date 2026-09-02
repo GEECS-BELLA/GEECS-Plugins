@@ -3,6 +3,27 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.14.0] — 2026-09-02
+
+### Added
+
+- `image_analysis.ephemeral.render_diagnostic_ephemeral(name, frames, *,
+  config_dir, overrides, auxiliary_data, window, cmap, figsize, dpi)` —
+  the render form of the ephemeral seam: one analyzer instantiation,
+  `analyze_image` per frame, then the analyzer's own `render_image`
+  drawn into an **object-API** `matplotlib.figure.Figure` (never
+  pyplot — no global registry, safe on a request threadpool), with the
+  colorbar the base renderer skips when handed an axes. 2D results take
+  `cmap` and a percentile `window` (→ `vmin`/`vmax`); 1D renderers take
+  neither. Same write-free contract (the `file_path` refusal and
+  `EPHEMERAL_DENYLIST` apply unchanged). Companions:
+  `render_result_figure(analyzer, result, …)` and
+  `render_frame_figure(image, …)` (base renderer only — for averaged
+  images whose per-shot overlays do not average). The data portal's
+  "rendered figure" display mode is the first consumer.
+- `run_diagnostic_ephemeral` is unchanged in behaviour; its body is now
+  shared helpers (`_ephemeral_analyzer`, `_analyze_frames`).
+
 ## [1.13.1] — 2026-09-01
 
 ### Fixed

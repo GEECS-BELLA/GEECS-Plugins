@@ -170,3 +170,65 @@ class TestListDiagnostics:
     def test_missing_analyzers_dir_raises(self, tmp_path):
         with pytest.raises(FileNotFoundError, match="Analyzer directory"):
             list_diagnostics(config_dir=tmp_path)
+
+
+class TestRenderedEphemeral:
+    """The render form: the analyzer's own figure, object API, still write-free."""
+
+    def test_one_figure_per_frame_with_image_and_colorbar(self, configs_tree):
+        from image_analysis.ephemeral import render_diagnostic_ephemeral
+
+        rng = np.random.default_rng(0)
+        frames = [rng.integers(0, 100, (8, 6)).astype(np.uint16) for _ in range(2)]
+        figs = render_diagnostic_ephemeral(
+            "UC_Test", frames, config_dir=configs_tree, cmap="viridis", window=(1, 99)
+        )
+        assert len(figs) == 2
+        for fig in figs:
+            ax = fig.axes[0]
+            assert len(ax.images) == 1  # the processed image
+            assert len(fig.axes) == 2  # + the colorbar the base renderer skipped
+            assert ax.images[0].get_cmap().name == "viridis"
+            lo, hi = ax.images[0].get_clim()
+            assert 0 <= lo < hi <= 100  # the percentile window became vmin/vmax
+
+    def test_no_pyplot_state_is_created(self, configs_tree):
+        """Object-API figures only — safe on a request threadpool."""
+        import matplotlib.pyplot as plt
+
+        from image_analysis.ephemeral import render_diagnostic_ephemeral
+
+        plt.close("all")
+        render_diagnostic_ephemeral(
+            "UC_Test", [np.ones((4, 4))], config_dir=configs_tree
+        )
+        assert plt.get_fignums() == []
+
+    def test_render_form_keeps_the_write_gate(self, configs_tree, tmp_path):
+        from image_analysis.ephemeral import render_diagnostic_ephemeral
+
+        with pytest.raises(ValueError, match="file_path"):
+            render_diagnostic_ephemeral(
+                "UC_Test",
+                [np.ones((4, 4))],
+                config_dir=configs_tree,
+                auxiliary_data={"file_path": tmp_path / "x.png"},
+            )
+        _write_diagnostic(
+            tmp_path / "analyzers" / "HTU" / "U_HasoR.yaml",
+            "U_HasoR",
+            image_analyzer=_HASO_PATH,
+        )
+        with pytest.raises(ValueError, match="cannot run ephemerally"):
+            render_diagnostic_ephemeral(
+                "U_HasoR", [np.ones((4, 4))], config_dir=tmp_path
+            )
+
+    def test_frame_figure_is_base_render_only(self):
+        from image_analysis.ephemeral import render_frame_figure
+
+        fig = render_frame_figure(np.arange(16.0).reshape(4, 4), window=(0, 100))
+        ax = fig.axes[0]
+        assert len(ax.images) == 1 and len(fig.axes) == 2
+        assert ax.images[0].get_clim() == (0.0, 15.0)
+        assert not ax.lines  # no overlays on an averaged image

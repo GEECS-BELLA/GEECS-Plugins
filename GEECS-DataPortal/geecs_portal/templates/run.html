@@ -393,6 +393,9 @@
     <div class="setrow"><label>window percentiles</label>
       <input id="id-plo" style="width:4.5rem;"> <span class="dim">–</span>
       <input id="id-phi" style="width:4.5rem;"></div>
+    <div class="setrow"><label>rendered figure</label>
+      <input type="checkbox" id="id-mode" style="width:auto;">
+      <span class="dim" style="font-size:11px;">the analyzer's own plot (overlays, axes, colorbar) — needs a processing selection; per-bin shows the averaged image without overlays</span></div>
     <p class="dim" style="font-size:11px;">Applies to the served images (per-shot and per-bin);
     defaults 1 – 99.7. Out-of-range values fall back to the defaults.</p>
     <div class="btnrow">
@@ -734,6 +737,7 @@ function openImgDisplay() {
   document.getElementById("id-cmap").value = typeof d.cmap === "string" ? d.cmap : "";
   document.getElementById("id-plo").value = typeof d.plo === "number" ? d.plo : 1;
   document.getElementById("id-phi").value = typeof d.phi === "number" ? d.phi : 99.7;
+  document.getElementById("id-mode").checked = d.mode === "rendered";
   document.getElementById("modal-imgdisplay").classList.add("on");
 }
 
@@ -748,6 +752,7 @@ function applyImgDisplay() {
   const phi = parseFloat(document.getElementById("id-phi").value);
   if (isFinite(plo) && plo !== 1) d.plo = plo; else delete d.plo;
   if (isFinite(phi) && phi !== 99.7) d.phi = phi; else delete d.phi;
+  if (document.getElementById("id-mode").checked) d.mode = "rendered"; else delete d.mode;
   S.display = Object.keys(d).length ? JSON.stringify(d) : "";
   closeModals();
   writeState();

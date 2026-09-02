@@ -104,6 +104,20 @@ def image_devices(scan_folder: Path) -> list[str]:
         return []
 
 
+def safe_cmap(cmap: Optional[str]) -> Optional[str]:
+    """A known matplotlib colormap name, else None (value-degrade: grayscale)."""
+    if not cmap:
+        return None
+    import matplotlib as mpl
+
+    return str(cmap) if str(cmap) in mpl.colormaps else None
+
+
+def window_percentiles(plo, phi) -> tuple[float, float]:
+    """Public alias of :func:`_window_percentiles` (the rendered view shares it)."""
+    return _window_percentiles(plo, phi)
+
+
 def _window_percentiles(plo, phi) -> tuple[float, float]:
     """The display window's percentile pair — value-degrade semantics.
 

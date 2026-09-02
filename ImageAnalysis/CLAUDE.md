@@ -355,7 +355,17 @@ Invariant is pinned by tests:
 diagnostic over already-loaded frames with a hard no-writes guarantee —
 the seam read-only viewers (the data portal's processing selector,
 exploratory notebooks) use to get the production pipeline without the
-production side effects.
+production side effects. Its render form,
+`render_diagnostic_ephemeral(..., window=, cmap=, figsize=, dpi=)`
+(1.14.0), additionally draws each result with the analyzer's own
+`render_image` into an **object-API `Figure`** — never pyplot, so it is
+safe on a web server's threadpool — and adds the colorbar the base
+renderer skips when handed an axes. `render_image` must therefore keep
+honouring an `ax=` argument (every Standard-family renderer does; the
+2D ones are `@staticmethod`s taking `vmin`/`vmax`/`cmap`, the 1D one an
+instance method taking plot kwargs). `render_frame_figure(image, …)`
+is the base-renderer-only companion for images that are not one
+result (bin averages).
 
 The write gate is structural, and it depends on two conventions that
 **must survive analyzer changes**:

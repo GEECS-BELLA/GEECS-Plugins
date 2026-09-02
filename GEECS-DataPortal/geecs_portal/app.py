@@ -428,6 +428,85 @@ def create_app(
             "phi": disp.get("phi"),
         }
 
+    def _rendered(disp: dict) -> bool:
+        """``display.mode == "rendered"`` — the analyzer-figure view."""
+        return disp.get("mode") == "rendered"
+
+    def _figure_kwargs(render: dict) -> dict:
+        """The display slice as the ephemeral renderers' kwargs (value-degrade)."""
+        return {
+            "cmap": resources.safe_cmap(render.get("cmap")),
+            "window": resources.window_percentiles(
+                render.get("plo"), render.get("phi")
+            ),
+        }
+
+    def _figure_png(fig: Figure) -> bytes:
+        """Object-API figure → PNG bytes (never pyplot; safe on the threadpool)."""
+        buffer = io.BytesIO()
+        fig.savefig(buffer, format="png")
+        return buffer.getvalue()
+
+    def _render_processing_figure(array, processing: str, render: dict) -> bytes:
+        """The rendered view of ONE shot: the analyzer draws its own result.
+
+        Same seam family as ``_apply_processing`` (write-free, denylist,
+        one analyzer per call) — ``render_diagnostic_ephemeral`` hands
+        the analyzer's ``render_image`` an object-API axes, so overlays
+        (projections, markers, calibrated axes) come through without
+        any pyplot state on a request thread. Refusal ladder as for
+        processing; a renderer failure is an honest 400.
+        """
+        if processing_config_dir is None:
+            raise HTTPException(
+                status_code=404,
+                detail="processing is not configured on this portal "
+                "(start it with --processing-configs)",
+            )
+        try:
+            from image_analysis.ephemeral import render_diagnostic_ephemeral
+        except ImportError as exc:
+            raise HTTPException(
+                status_code=404,
+                detail="processing needs the portal's 'analysis' extra "
+                "(pip install geecs-data-portal[analysis])",
+            ) from exc
+        try:
+            (fig,) = render_diagnostic_ephemeral(
+                processing,
+                [array],
+                config_dir=processing_config_dir,
+                **_figure_kwargs(render),
+            )
+            return _figure_png(fig)
+        except (KeyError, FileNotFoundError) as exc:
+            raise HTTPException(
+                status_code=404, detail=f"no diagnostic: {exc}"
+            ) from exc
+        except ValueError as exc:  # denylisted, invalid config, or unrenderable result
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:  # noqa: BLE001 — analyzer/renderer failure, never a 500
+            raise HTTPException(
+                status_code=400, detail=f"render failed: {exc}"
+            ) from exc
+
+    def _render_frame_figure(array, render: dict) -> bytes:
+        """The rendered view of an averaged image: base renderer, no overlays."""
+        try:
+            from image_analysis.ephemeral import render_frame_figure
+        except ImportError as exc:
+            raise HTTPException(
+                status_code=404,
+                detail="processing needs the portal's 'analysis' extra "
+                "(pip install geecs-data-portal[analysis])",
+            ) from exc
+        try:
+            return _figure_png(render_frame_figure(array, **_figure_kwargs(render)))
+        except Exception as exc:  # noqa: BLE001 — never a 500
+            raise HTTPException(
+                status_code=400, detail=f"render failed: {exc}"
+            ) from exc
+
     def _pretty_names(detail, pf, columns: list[str]) -> dict:
         """Figure titles/legend names, by the columns endpoint's rule.
 
@@ -1325,7 +1404,8 @@ def create_app(
         values degrade, per the display doctrine).
         """
         detail = _load_run(uid)
-        render = _render_opts(_display(display))
+        disp = _display(display)
+        render = _render_opts(disp)
         folder, _ = _image_folder(detail, day, device)
         # A shot beyond the recorded event rows must refuse outright:
         # falling through to the ordinal join would serve an orphan
@@ -1354,13 +1434,18 @@ def create_app(
                 raise HTTPException(
                     status_code=404, detail=resolved.reason or resolved.kind
                 )
-            (processed,) = _apply_processing([resolved.array], processing)
-            try:
-                png = resources.to_display_png(processed, **render)
-            except Exception as exc:  # noqa: BLE001 — must not 500
-                raise HTTPException(
-                    status_code=404, detail=f"render failed: {exc}"
-                ) from exc
+            if _rendered(disp):
+                # The analyzer's own figure (overlays + axes + colorbar)
+                # instead of the windowed processed pixels.
+                png = _render_processing_figure(resolved.array, processing, render)
+            else:
+                (processed,) = _apply_processing([resolved.array], processing)
+                try:
+                    png = resources.to_display_png(processed, **render)
+                except Exception as exc:  # noqa: BLE001 — must not 500
+                    raise HTTPException(
+                        status_code=404, detail=f"render failed: {exc}"
+                    ) from exc
             # A processed response is a function of (pixels, diagnostic
             # YAML, ImageAnalysis version); the URL keys only the first,
             # and the configs tree is local and MUTABLE — iterating on
@@ -1411,7 +1496,8 @@ def create_app(
         correct order for nonlinear pipeline steps like thresholding).
         """
         detail = _load_run(uid)
-        render = _render_opts(_display(display))
+        disp = _display(display)
+        render = _render_opts(disp)
         folder, _ = _image_folder(detail, day, device)
         pf = scan_frame(detail, folder)
         _, mask = _masked(pf, filters)
@@ -1456,12 +1542,17 @@ def create_app(
             raise HTTPException(
                 status_code=404, detail="no renderable frames in this bin"
             )
-        try:
-            png = resources.to_display_png(averaged, **render)
-        except Exception as exc:  # noqa: BLE001 — unrenderable shape must not 500
-            raise HTTPException(
-                status_code=404, detail=f"render failed: {exc}"
-            ) from exc
+        if processing and _rendered(disp):
+            # An average of several results is not one result: the base
+            # renderer (axes + colorbar), per-shot overlays dropped.
+            png = _render_frame_figure(averaged, render)
+        else:
+            try:
+                png = resources.to_display_png(averaged, **render)
+            except Exception as exc:  # noqa: BLE001 — unrenderable shape must not 500
+                raise HTTPException(
+                    status_code=404, detail=f"render failed: {exc}"
+                ) from exc
         # Never immutable: bin membership comes off the union frame
         # (mutable s-file), and the diagnostic YAML behind ``processing``
         # is likewise a mutable input the URL does not key (see run_image).
