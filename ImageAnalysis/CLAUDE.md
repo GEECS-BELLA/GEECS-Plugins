@@ -373,9 +373,10 @@ that ignored `ax` would return an empty seam figure AND leak a
 pyplot-registered figure per request on a server thread. Known
 exception: `Undulator/BCaveMagSpecStitcher.py` keeps a legacy
 `render_image(image, analysis_results_dict, …)` signature (and a
-legacy dict `analyze_image` return) — through the seam it raises
-`RenderError` honestly; it predates the `ImageAnalyzerResult` contract
-and is not a template. `render_frame_figure(image, …)` is the
+legacy dict `analyze_image` return) — through the seam either shape
+ends as a `RenderError` (the dict reaches its renderer and fails
+there); it predates the `ImageAnalyzerResult` contract and is not a
+template. `render_frame_figure(image, …)` is the
 base-renderer-only companion for images that are not one result (bin
 averages).
 

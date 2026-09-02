@@ -1094,33 +1094,75 @@ class TestRenderedView:
         assert degraded.status_code == 200
 
     def test_unrenderable_result_matches_the_pixel_paths_404(
-        self, scan_folder, configs_tree, analysis_extra
+        self, scan_folder, configs_tree, analysis_extra, monkeypatch
     ):
-        """A diagnostic that ran but cannot be drawn is a 404 in both views."""
-        import yaml
+        """A diagnostic that ran but cannot be drawn is a 404 in every view.
 
-        scalars = configs_tree / "analyzers" / "HTU" / "UC_Scalars.yaml"
-        scalars.write_text(
-            yaml.safe_dump(
-                {
-                    "name": "UC_Scalars",
-                    "image_analyzer": (
-                        "image_analysis.analyzers.standard_analyzer.StandardAnalyzer"
-                    ),
-                    "image": {"type": "camera", "bit_depth": 16},
-                    "scan": {"priority": 100},
-                }
-            )
+        ``StandardAnalyzer`` is patched to hand back a scalars-only result
+        (the per-frame-copy test's trick): the pixel path refuses it as
+        "produces no processed image", the rendered paths as
+        ``RenderError`` → "render failed" — same code, so a display
+        checkbox never changes the status of the same input.
+        """
+        from image_analysis.analyzers.standard_analyzer import StandardAnalyzer
+        from image_analysis.types import ImageAnalyzerResult
+
+        monkeypatch.setattr(
+            StandardAnalyzer,
+            "analyze_image",
+            lambda self, image, aux=None: ImageAnalyzerResult(
+                data_type="scalars_only", scalars={"x": 1.0}
+            ),
         )
         client = self._client(scan_folder, configs_tree)
-        # Sanity: the plain rendered path works for this diagnostic.
-        ok = client.get(
+        pixel = client.get(
+            "/run/uid-002/image.png",
+            params={"device": "cam", "shot": 1, "processing": "UC_Crop"},
+        )
+        rendered = client.get(
             "/run/uid-002/image.png",
             params={
                 "device": "cam",
                 "shot": 1,
-                "processing": "UC_Scalars",
+                "processing": "UC_Crop",
                 "display": '{"mode": "rendered"}',
             },
         )
-        assert ok.status_code == 200
+        binned = client.get(
+            "/run/uid-002/bin-image.png",
+            params={
+                "device": "cam",
+                "bin": 0,
+                "processing": "UC_Crop",
+                "display": '{"mode": "rendered"}',
+            },
+        )
+        assert pixel.status_code == 404
+        assert "no processed image" in pixel.json()["detail"]
+        assert rendered.status_code == 404
+        assert "render failed" in rendered.json()["detail"]
+        assert binned.status_code == 404
+
+    def test_legacy_dict_result_is_a_404_in_both_views(
+        self, scan_folder, configs_tree, analysis_extra, monkeypatch
+    ):
+        """BCaveMagSpecStitcher-style dict returns: refused, never a 500."""
+        from image_analysis.analyzers.standard_analyzer import StandardAnalyzer
+
+        monkeypatch.setattr(
+            StandardAnalyzer,
+            "analyze_image",
+            lambda self, image, aux=None: {"legacy": 1},
+        )
+        client = self._client(scan_folder, configs_tree)
+        for display in ("", '{"mode": "rendered"}'):
+            response = client.get(
+                "/run/uid-002/image.png",
+                params={
+                    "device": "cam",
+                    "shot": 1,
+                    "processing": "UC_Crop",
+                    "display": display,
+                },
+            )
+            assert response.status_code == 404, display

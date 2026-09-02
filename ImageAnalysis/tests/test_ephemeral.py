@@ -306,6 +306,9 @@ class TestRenderedEphemeral:
         result = ImageAnalyzerResult(data_type="scalars_only", scalars={"x": 1.0})
         with pytest.raises(RenderError, match="data_type='2d'"):
             render_result_figure(StandardAnalyzer, result)
+        # A legacy dict "result" (no data_type) is the same typed failure.
+        with pytest.raises(RenderError):
+            render_result_figure(StandardAnalyzer, {"legacy": 1})
 
     @pytest.mark.parametrize(
         "image",

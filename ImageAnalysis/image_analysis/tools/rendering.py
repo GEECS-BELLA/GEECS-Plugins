@@ -420,7 +420,10 @@ def render_result_figure(
         result with no 2D image, ``TypeError`` for a legacy signature).
     """
     kwargs: Dict[str, Any] = {}
-    if result.data_type == "2d":
+    # getattr: a legacy analyzer handing back a dict (no ``data_type``)
+    # must reach the renderer and fail as a RenderError like every
+    # other undrawable result, not as a bare AttributeError here.
+    if getattr(result, "data_type", None) == "2d":
         if cmap:
             kwargs["cmap"] = cmap
         kwargs.update(window_limits(result.processed_image, window))
