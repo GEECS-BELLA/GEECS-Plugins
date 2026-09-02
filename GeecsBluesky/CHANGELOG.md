@@ -14,6 +14,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   (GEECS-Schemas 0.15.0: TriggerProfile v2, ScanRequest v3). One profile
   file per operating condition, named in `trigger_profile`, is the only
   shape; older documents lift automatically.
+## [0.71.1] - 2026-09-01
+
+### Documentation
+
+- **Document-stream contract for external subscribers** (#727 item 3):
+  `qserver/deploy/DEPLOYMENT.md` gained an "External subscribers"
+  section next to the proxy/ports text — 5568 confirmed as the supported
+  subscription point (firewall guidance, the three in-repo subscribers
+  named as reference practice), the zmq frame layout spelled out, the
+  late-joiner rule, transport posture (plaintext on the control network;
+  CurveZMQ deferred to #660), and a stability note pointing at
+  `EVENT_SCHEMA.md`. `EVENT_SCHEMA.md` rule 3 and `qserver/README.md`
+  cross-reference it. No code change.
 
 ## [0.71.0] - 2026-09-01
 
