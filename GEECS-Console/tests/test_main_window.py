@@ -1150,6 +1150,35 @@ class TestNowAndDevicePanel:
         controller.start_idle_probe()
         assert len(spawned) == 2
 
+    def test_queue_panel_is_fed_by_the_status_poll_and_disposed_on_close(self, qtbot):
+        # Own window (not the fixture): close() must run exactly once here,
+        # or the second closeEvent's disconnects warn.
+        submitter = FakeSubmitter()
+        submitter.queue_items = lambda: [
+            {"name": "geecs_run_action_plan", "args": ["a1"]}
+        ]
+        win = MainWindow(
+            configs=FakeConfigs(),
+            presets=FakePresetStore(),
+            settings=FakeSettings(),
+            submitter=submitter,
+        )
+        win._monitor.dispose()
+        from geecs_bluesky.qs_client import QueueStatus
+
+        # A changed queue-shaped field (items_in_queue) is what refetches;
+        # the construction-time poll already committed the empty key.
+        win._on_queue_status(
+            QueueStatus(
+                connected=True, re_state="idle", worker_exists=True, items_in_queue=1
+            )
+        )
+        qtbot.waitUntil(lambda: win.queue_table.rowCount() == 1, timeout=3000)
+        assert win.queue_table.item(0, 1).text() == "Action: a1"
+        assert win.queue_summary_label.text() == "1 waiting"
+        win.close()
+        assert win._queue_panel._disposed
+
     def test_no_experiment_probe_answers_inline_without_a_thread(
         self, qtbot, monkeypatch
     ):

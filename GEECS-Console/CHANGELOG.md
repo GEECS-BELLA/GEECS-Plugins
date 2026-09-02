@@ -17,8 +17,12 @@ semantic.
   `app/queue_panel.py::QueuePanelController`; refreshed from the existing
   1 s manager status poll when the queue-shaped fields change (plus a 5 s
   fallback), three bounded 0MQ reads on a background thread, one in
-  flight. Item summaries are pure functions tolerant of every request
-  schema version the manager's history may hold.
+  flight; a change arriving mid-fetch is fetched as soon as that fetch
+  lands, and the fallback tick re-reads the queue only (the manager's
+  history is unbounded and can only change with the status key). Item
+  summaries are pure functions tolerant of every request schema version
+  the manager's history may hold, including the named plans' keyword
+  shape (GeecsBluesky ≥ 0.73.0).
 
 ### Fixed
 

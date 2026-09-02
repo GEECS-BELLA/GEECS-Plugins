@@ -25,11 +25,27 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-#: Workers with a call in flight, held on the GUI thread until the result
-#: has landed there (see ``BackgroundResult._forward``).  The daemon
-#: thread's one cross-thread emission targets the worker itself, so the
-#: worker must outlive that emission whatever the consumer does meanwhile.
-_INFLIGHT: set = set()
+#: Workers with calls in flight (worker → count), held on the GUI thread
+#: until each result has landed there (see ``BackgroundResult._forward``).
+#: The daemon thread's one cross-thread emission targets the worker
+#: itself, so the worker must outlive that emission whatever the consumer
+#: does meanwhile.  A count, not a set: one worker may carry overlapping
+#: calls (the now panel's per-experiment probes across an experiment
+#: switch), and the first landing must not release the second's hold.
+_INFLIGHT: dict = {}
+
+
+def _hold(worker: "BackgroundResult") -> None:
+    _INFLIGHT[worker] = _INFLIGHT.get(worker, 0) + 1
+
+
+def _release(worker: "BackgroundResult") -> None:
+    remaining = _INFLIGHT.get(worker, 0) - 1
+    if remaining > 0:
+        _INFLIGHT[worker] = remaining
+    else:
+        _INFLIGHT.pop(worker, None)
+
 
 #: Sentinel routed through the GUI hop when the callable raised (no
 #: ``result_ready`` emission, but the in-flight hold is still released).
@@ -79,7 +95,7 @@ class BackgroundResult(QObject):
         name : str
             The daemon thread's name (debugging).
         """
-        _INFLIGHT.add(self)
+        _hold(self)
         threading.Thread(target=self._run, args=(func,), name=name, daemon=True).start()
 
     def _run(self, func: Callable[[], object]) -> None:
@@ -92,7 +108,10 @@ class BackgroundResult(QObject):
         try:
             self._landed.emit(result)
         except RuntimeError:
-            pass  # the worker was deleted while the call ran
+            # A Qt-parented worker was deleted with its parent while the
+            # call ran (the hold protects unparented workers only): drop
+            # the dead wrapper's hold so the registry does not grow.
+            _INFLIGHT.pop(self, None)
 
     @Slot(object)
     def _forward(self, result: object) -> None:
@@ -102,7 +121,7 @@ class BackgroundResult(QObject):
         dropping the last reference to a QObject from inside its own slot
         would delete the C++ object under the running metacall.
         """
-        QTimer.singleShot(0, functools.partial(_INFLIGHT.discard, self))
+        QTimer.singleShot(0, functools.partial(_release, self))
         if result is not _FAILED:
             self.result_ready.emit(result)
 

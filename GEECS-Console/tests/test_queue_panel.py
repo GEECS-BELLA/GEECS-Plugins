@@ -8,6 +8,8 @@ so results are awaited with ``qtbot.waitUntil``).
 
 from __future__ import annotations
 
+import threading
+
 import pytest
 from PySide6.QtWidgets import QLabel, QPushButton, QTableWidget
 
@@ -108,6 +110,29 @@ class TestSummarizeItem:
         item = {"name": "geecs_run_action_plan", "args": ["shutdown_laser"]}
         assert summarize_item(item) == "Action: shutdown_laser"
 
+    def test_named_plans_render_from_their_keyword_arguments(self):
+        # GeecsBluesky ≥ 0.73.0 named plans carry the request's parts as
+        # kwargs (no request dict at args[0]).
+        item = {
+            "name": "geecs_scan_plan",
+            "args": [],
+            "kwargs": {
+                "axes": [
+                    {
+                        "variable": "jet_x",
+                        "positions": {"start": 0, "end": 1, "step": 1},
+                    }
+                ],
+                "capture": {"shots_per_step": 4},
+            },
+        }
+        assert summarize_item(item) == "jet_x 0 → 1 step 1 · 4 shots/step"
+        item = {
+            "name": "geecs_noscan_plan",
+            "kwargs": {"capture": {"shots_per_step": 9}},
+        }
+        assert summarize_item(item) == "No-scan · 9 shots"
+
     def test_unknown_plan_renders_its_name(self):
         assert summarize_item({"name": "count", "item_type": "plan"}) == "count (plan)"
         assert summarize_item({}) == "? (item)"
@@ -171,9 +196,12 @@ class FakeQueueClient:
         self.queued: list[dict] = []
         self.history: list[dict] = []
         self.fetches = 0
+        self.history_reads = 0
         self.clears = 0
         self.clear_result = (True, "queue cleared")
         self.raise_on_fetch: Exception | None = None
+        #: When set, ``queue_items`` blocks until released (mid-fetch races).
+        self.gate: threading.Event | None = None
 
     def running_item(self):
         self.fetches += 1
@@ -182,9 +210,12 @@ class FakeQueueClient:
         return self.running
 
     def queue_items(self):
+        if self.gate is not None:
+            self.gate.wait(3.0)
         return list(self.queued)
 
     def history_items(self):
+        self.history_reads += 1
         return list(self.history)
 
     def clear_queue(self):
@@ -258,6 +289,39 @@ class TestQueuePanelController:
         assert client.fetches == 1
         controller.on_status(_status(items=1))
         qtbot.waitUntil(lambda: client.fetches == 2, timeout=3000)
+
+    def test_change_arriving_mid_fetch_is_fetched_when_the_fetch_lands(
+        self, panel, qtbot
+    ):
+        """Review finding 1: a key change during an in-flight fetch used to
+        be consumed by the key compare and dropped until the fallback."""
+        controller, client, table, label, _, _, _ = panel
+        client.gate = threading.Event()
+        controller.on_status(_status(items=0))  # fetch 1 starts, blocked
+        qtbot.waitUntil(lambda: client.fetches == 1, timeout=3000)
+        client.queued = [{"name": "x"}]
+        controller.on_status(_status(items=1))  # arrives mid-fetch
+        controller.on_status(_status(items=1))
+        client.gate.set()
+        qtbot.waitUntil(lambda: client.fetches == 2, timeout=3000)
+        qtbot.waitUntil(lambda: table.rowCount() == 1, timeout=3000)
+        assert label.text() == "1 waiting"
+
+    def test_fallback_tick_rereads_the_queue_but_not_the_history(self, panel, qtbot):
+        """Review finding 3: the manager's history is unbounded and can only
+        change with the status key — the fallback re-reads the queue only."""
+        controller, client, table, _, _, _, _ = panel
+        client.history = [_finished(_scan_item(STEP_REQUEST), "completed")]
+        controller.on_status(_status())
+        qtbot.waitUntil(lambda: table.rowCount() == 1, timeout=3000)
+        assert client.history_reads == 1
+        controller._last_refresh_at = float("-inf")  # make the tick stale
+        client.queued = [{"name": "x"}]
+        controller.on_status(_status())  # same key
+        qtbot.waitUntil(lambda: client.fetches == 2, timeout=3000)
+        qtbot.waitUntil(lambda: table.rowCount() == 2, timeout=3000)
+        assert client.history_reads == 1  # cached history reused
+        assert table.item(1, 0).text() == "completed"
 
     def test_disconnected_status_reads_unreachable_and_disables_clear(
         self, panel, qtbot

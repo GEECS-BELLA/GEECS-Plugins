@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import logging
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from typing import Any, Callable, Optional
 
@@ -58,7 +58,9 @@ FALLBACK_REFRESH_S = 5.0
 COLUMNS = ("State", "Item", "By", "Detail")
 
 #: Screen-map palette (see app/style.qss header; a shared palette module
-#: is a recorded deferral — now_panel.py carries the same values).
+#: is a recorded deferral — now_panel.py carries its own copy).  Grey is
+#: the QSS ``--w-dim`` text tone, not the pill's ``--w-line`` dot grey:
+#: this one colors words.
 _COLOR_GREY = "#6b7681"
 _COLOR_GREEN = "#2f9e63"
 _COLOR_AMBER = "#d9a21b"
@@ -79,11 +81,16 @@ _STATE_COLORS = {
 
 @dataclass(frozen=True)
 class QueueSnapshot:
-    """One fetch of the manager's queue-shaped data (or why it failed)."""
+    """One fetch of the manager's queue-shaped data (or why it failed).
+
+    ``history`` is ``None`` when the fetch deliberately skipped it (the
+    fallback tick re-reads the queue only — the history can change only
+    when the status key does, and the manager's history is unbounded).
+    """
 
     running: Optional[dict] = None
     queued: list[dict] = field(default_factory=list)
-    history: list[dict] = field(default_factory=list)
+    history: Optional[list[dict]] = None
     error: str = ""
 
 
@@ -196,10 +203,20 @@ def summarize_item(item: dict) -> str:
     """
     name = str(item.get("name") or "")
     args = item.get("args") or []
+    kwargs = item.get("kwargs") or {}
     if name == "geecs_scan_request_plan" and args and isinstance(args[0], dict):
         return summarize_request(args[0])
     if name == "geecs_run_action_plan" and args:
         return f"Action: {args[0]}"
+    # Forward-compatible with the named plans (GeecsBluesky ≥ 0.73.0:
+    # geecs_noscan_plan / geecs_scan_plan / geecs_optimize_plan take the
+    # request's parts as keyword arguments — axes / capture / optimization).
+    if (
+        name.startswith("geecs_")
+        and isinstance(kwargs, dict)
+        and any(key in kwargs for key in ("capture", "axes", "optimization"))
+    ):
+        return summarize_request(kwargs)
     kind = str(item.get("item_type") or "item")
     return f"{name or '?'} ({kind})"
 
@@ -257,7 +274,8 @@ def build_rows(
                 f"#{position}",
             )
         )
-    recent = list(snapshot.history)[-history_rows:] if history_rows > 0 else []
+    history = snapshot.history or []
+    recent = list(history)[-history_rows:] if history_rows > 0 else []
     rows.extend(_history_row(item) for item in reversed(recent))
     return rows
 
@@ -329,6 +347,12 @@ class QueuePanelController(QObject):
         self._last_refresh_at = float("-inf")
         self._items_in_queue = 0
         self._fetch_inflight = False
+        #: A refresh asked for while one was in flight (and whether it
+        #: wants the history) — honoured as soon as the in-flight one lands.
+        self._refresh_pending = False
+        self._pending_history = False
+        #: The last fetched history (a queue-only refresh reuses it).
+        self._history: list[dict] = []
         self._clear_inflight = False
         self._disposed = False
 
@@ -385,14 +409,36 @@ class QueuePanelController(QObject):
         self._items_in_queue = int(status.items_in_queue or 0)
         self._refresh_clear_enabled()
         key = (status.items_in_queue, status.running_item_uid, status.re_state)
-        stale = time.monotonic() - self._last_refresh_at >= self._fallback_refresh_s
-        if key != self._last_key or stale:
+        if key != self._last_key:
+            # The key is what the history can change on (an item finished
+            # or started): full refresh.  Committed before the call — a
+            # refresh that cannot start now is queued behind the one in
+            # flight (``_refresh_pending``), never lost.
             self._last_key = key
-            self.refresh()
+            self.refresh(include_history=True)
+        elif time.monotonic() - self._last_refresh_at >= self._fallback_refresh_s:
+            # Nothing the status shows changed: re-read the queue only (a
+            # reorder by another client); the cached history stands.
+            self.refresh(include_history=False)
 
-    def refresh(self) -> None:
-        """Fetch the queue on a daemon thread (skipped while one is in flight)."""
-        if self._disposed or self._fetch_inflight:
+    def refresh(self, *, include_history: bool = True) -> None:
+        """Fetch the queue on a daemon thread.
+
+        While a fetch is in flight the request is remembered and honoured
+        when that fetch lands (``_apply_snapshot``), so a queue change
+        arriving mid-fetch is never dropped until the fallback tick.
+
+        Parameters
+        ----------
+        include_history : bool
+            Also re-read the manager's (unbounded) history; ``False``
+            re-renders with the cached one.
+        """
+        if self._disposed:
+            return
+        if self._fetch_inflight:
+            self._refresh_pending = True
+            self._pending_history = self._pending_history or include_history
             return
         client = self._client_provider()
         if client is None:
@@ -405,12 +451,21 @@ class QueuePanelController(QObject):
                 return QueueSnapshot(
                     running=client.running_item(),
                     queued=list(client.queue_items()),
-                    history=list(client.history_items()),
+                    history=list(client.history_items()) if include_history else None,
                 )
             except Exception as exc:  # noqa: BLE001 — rendered, never raised
                 return QueueSnapshot(error=str(exc) or exc.__class__.__name__)
 
         self._fetch_worker.run_async(fetch, name="console-queue-fetch")
+
+    def _run_pending_refresh(self) -> None:
+        """Start the refresh that was asked for while the last one was in flight."""
+        if not self._refresh_pending:
+            return
+        include_history = self._pending_history
+        self._refresh_pending = False
+        self._pending_history = False
+        self.refresh(include_history=include_history)
 
     # ------------------------------------------------------------------
     # Rendering (GUI thread)
@@ -424,10 +479,16 @@ class QueuePanelController(QObject):
             return
         if snapshot.error:
             self._render_message(f"Queue: unavailable ({snapshot.error})")
+            self._run_pending_refresh()
             return
-        rows = build_rows(snapshot, history_rows=self._history_rows)
+        if snapshot.history is not None:
+            self._history = list(snapshot.history)
+        rows = build_rows(
+            replace(snapshot, history=self._history), history_rows=self._history_rows
+        )
         self._render_rows(rows)
         self._summary_label.setText(summarize_counts(snapshot))
+        self._run_pending_refresh()
 
     def _render_rows(self, rows: list[QueueRow]) -> None:
         table = self._table
