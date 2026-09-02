@@ -4,6 +4,17 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.72.0] - 2026-09-02
+
+### Changed
+
+- `trigger_writes_from_profile(profile)` lost its `variant` parameter, and
+  the plan preamble / `validate_scan_request` no longer read
+  `capture.trigger_variant` — trigger-profile variants were removed
+  (GEECS-Schemas 0.15.0: TriggerProfile v2, ScanRequest v3). One profile
+  file per operating condition, named in `trigger_profile`, is the only
+  shape; older documents lift automatically.
+
 ## [0.71.0] - 2026-09-01
 
 ### Changed

@@ -163,18 +163,6 @@ def test_unknown_trigger_profile_refused() -> None:
         validate_scan_request(_request(trigger_profile="HTU"), _resolver())
 
 
-def test_unknown_trigger_variant_refused() -> None:
-    profile = TriggerProfile(
-        name="HTU",
-        states={
-            "SCAN": [{"device": "U_DG", "variable": "Trigger.Source", "value": "Ext"}]
-        },
-    )
-    request = _request(trigger_profile="HTU", trigger_variant="no-such-variant")
-    with pytest.raises(GeecsConfigurationError, match="variant"):
-        validate_scan_request(request, _resolver(trigger_profiles={"HTU": profile}))
-
-
 def test_unresolvable_step_axis_refused() -> None:
     request = _request(
         mode="step",
