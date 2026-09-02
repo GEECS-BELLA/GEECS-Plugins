@@ -1,6 +1,0 @@
-
-
-Wavekit_Python::Surface
-=======================
-.. automodule:: wavekit_py.io_wavekit_surface
-   :members:

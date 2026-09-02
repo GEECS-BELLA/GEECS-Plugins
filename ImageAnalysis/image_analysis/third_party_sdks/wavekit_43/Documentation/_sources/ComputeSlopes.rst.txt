@@ -1,6 +1,0 @@
-
-
-Wavekit_Python::ComputeSlopes
-=============================
-.. automodule:: wavekit_py.io_wavekit_computeslopes
-   :members:

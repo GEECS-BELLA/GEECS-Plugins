@@ -54,6 +54,7 @@ image_analysis/
     grenouille_analyzer.py         # FROG / Grenouille
     HASO_himg_has_processor.py     # HASOHimgHasProcessor
     ...
+  third_party_sdks/                # Vendor SDKs (WaveKit) — gitignored, out-of-tree install; see its README.md
 ```
 
 ## Core Abstractions
