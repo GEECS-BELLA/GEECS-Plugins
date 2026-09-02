@@ -21,6 +21,13 @@ or, for analyzers that swallow write errors, finish `done` with missing
 outputs. Without `--processing-configs` the portal never writes, and a
 read-only mount is the right choice on a dedicated viewer host.
 
+A run in flight cannot be interrupted: on `systemctl stop/restart` the
+portal refuses new runs, logs the in-flight one, and the process exits
+when that run finishes. systemd's default `TimeoutStopSec` (90 s)
+would then SIGKILL a long analysis mid-write (s-file merge, HDF5) — set
+`TimeoutStopSec=` in the unit to the longest analysis you expect, or
+restart between runs.
+
 ## Prerequisites
 
 - Ubuntu with **Python 3.11** and **Poetry** on the service account

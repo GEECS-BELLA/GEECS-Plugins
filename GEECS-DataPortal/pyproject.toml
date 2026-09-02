@@ -1,7 +1,7 @@
 [tool.poetry]
 name = "geecs-data-portal"
 version = "0.16.0"
-description = "Read-only scan-browsing web service: a zero-install browser view over the Tiled catalog and the GEECS data share"
+description = "Scan-browsing web service (read-only except explicit analysis runs): a zero-install browser view over the Tiled catalog and the GEECS data share"
 authors = ["GEECS-BELLA"]
 readme = "README.md"
 packages = [{ include = "geecs_portal" }]

@@ -96,6 +96,13 @@ def scan_analysis_factory(analyzer_id: str, config_dir: Path) -> ScanAnalyzerLik
         When the ``analysis`` extra (ImageAnalysis + ScanAnalysis) is
         not installed.
     """
+    import matplotlib
+
+    # The contract travels with the behaviour: ScanAnalysis's renderers
+    # use pyplot, and a GUI backend picked lazily on a worker thread is
+    # a crash — pin Agg (idempotent) before the import that needs it,
+    # whatever the entry point (``__main__`` pins it too, earlier).
+    matplotlib.use("Agg")
     from image_analysis.config import load_diagnostic
     from scan_analysis.config import create_scan_analyzer
 
@@ -136,17 +143,27 @@ class RunInProgress(RuntimeError):
         self.job = job
 
 
-class _ThreadLogCapture(logging.Handler):
-    """Capture the records ONE thread emits (the worker's, not the app's)."""
+#: Logger-name prefixes that are the portal's own traffic, never the
+#: run's: excluded from a job's captured log.
+_CAPTURE_EXCLUDE = ("geecs_portal", "uvicorn", "httpx", "httpcore", "asyncio")
 
-    def __init__(self, thread_ident: int, max_lines: int):
+
+class _RunLogCapture(logging.Handler):
+    """Capture every record emitted during a run, minus the portal's own.
+
+    Jobs are serialised on one worker, so "everything in the window"
+    IS the run — including the per-shot lines the analyzers emit from
+    their own thread pools (a thread-id filter would drop those).
+    Records from process-pool children never reach this process.
+    """
+
+    def __init__(self, max_lines: int):
         super().__init__(level=logging.DEBUG)
-        self._thread = thread_ident
         self.lines: deque[str] = deque(maxlen=max_lines)
         self.setFormatter(logging.Formatter("%(levelname)s %(name)s: %(message)s"))
 
     def emit(self, record: logging.LogRecord) -> None:
-        if record.thread != self._thread:
+        if record.name.startswith(_CAPTURE_EXCLUDE):
             return
         try:
             self.lines.append(self.format(record))
@@ -180,6 +197,7 @@ class AnalysisRunner:
         self._jobs: dict[tuple[str, str], AnalysisJob] = {}
         self._lock = threading.Lock()
         self._max_log_lines = max_log_lines
+        self._closed = False
         self._executor = ThreadPoolExecutor(
             max_workers=1, thread_name_prefix="portal-analysis"
         )
@@ -237,8 +255,12 @@ class AnalysisRunner:
         ------
         RunInProgress
             When a job is already running for *uid* — one per scan.
+        RuntimeError
+            After :meth:`shutdown` — the app is stopping.
         """
         with self._lock:
+            if self._closed:
+                raise RuntimeError("analysis runner is shutting down")
             running = self._running_locked(uid)
             if running is not None:
                 raise RunInProgress(running)
@@ -253,40 +275,68 @@ class AnalysisRunner:
         run: Callable[[], Optional[list]],
         relative_to: Optional[Path],
     ) -> None:
-        capture = _ThreadLogCapture(threading.get_ident(), self._max_log_lines)
+        capture = _RunLogCapture(self._max_log_lines)
         root = logging.getLogger()
         root.addHandler(capture)
         job.started = time.time()
         job.state = RUNNING
+        # The final state is assigned LAST (after log/finished/artifacts)
+        # so a poller that sees an inactive state sees a complete record.
+        final = FAILED
+        reraise: Optional[BaseException] = None
         try:
             artifacts = run()
             if artifacts is None:
                 # run_analysis's "inputs missing" return (no s-file / ini /
                 # scan parameter): a skip, not a success — the worklist
                 # runner's own no_data mapping.
-                job.state = NO_DATA
                 job.error = "analysis skipped: inputs missing (see log)"
+                final = NO_DATA
             else:
                 job.artifacts = [_relativize(a, relative_to) for a in artifacts]
-                job.state = DONE
-        except Exception as exc:  # noqa: BLE001 — every failure becomes a record
+                final = DONE
+        except BaseException as exc:  # noqa: BLE001 — every outcome becomes a record
             job.error = f"{type(exc).__name__}: {exc}"
-            job.state = NO_DATA if _is_no_data(exc) else FAILED
+            final = NO_DATA if _is_no_data(exc) else FAILED
+            if not isinstance(exc, Exception):
+                # SystemExit / KeyboardInterrupt from an analyzer: record
+                # it (never a record stuck at ``running`` → permanent 409),
+                # then let the executor see it.
+                reraise = exc
             logger.log(
-                logging.INFO if job.state == NO_DATA else logging.WARNING,
+                logging.INFO if final == NO_DATA else logging.WARNING,
                 "analysis %s on %s %s: %s",
                 job.analyzer_id,
                 job.uid,
-                job.state,
+                final,
                 job.error,
             )
         finally:
             root.removeHandler(capture)
             job.log = list(capture.lines)
             job.finished = time.time()
+            job.state = final
+        if reraise is not None:
+            raise reraise
 
     def shutdown(self) -> None:
-        """Stop the worker (tests; app shutdown)."""
+        """Refuse new jobs and stop the worker (app shutdown; tests).
+
+        A job already running cannot be interrupted — the interpreter
+        joins the worker at exit, so a service stop waits for it (see
+        ``DEPLOYMENT.md`` on the stop timeout). Logged so the operator
+        knows what the wait is.
+        """
+        with self._lock:
+            self._closed = True
+            active = [j for j in self._jobs.values() if j.state in ACTIVE]
+        for job in active:
+            logger.warning(
+                "shutdown with analysis %s on %s still %s — waiting for it",
+                job.analyzer_id,
+                job.uid,
+                job.state,
+            )
         self._executor.shutdown(wait=False, cancel_futures=True)
 
 

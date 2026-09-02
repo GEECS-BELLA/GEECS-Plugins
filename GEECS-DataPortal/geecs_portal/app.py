@@ -25,6 +25,7 @@ Architecture rules (see this package's ``CLAUDE.md`` and
 
 from __future__ import annotations
 
+import contextlib
 import dataclasses
 import io
 import logging
@@ -59,7 +60,7 @@ from geecs_data_utils.tiled_catalog import (
     resolve_scan_folder,
 )
 
-from geecs_data_utils.type_defs import ScanTag
+from geecs_data_utils.scan_paths import ScanPaths
 
 from geecs_portal import analysis, analysis_runs, figures, resources
 from geecs_portal.cache import ShotDataCache
@@ -260,6 +261,11 @@ def _default_x(detail, columns: list[str]) -> str:
     return scan_vars[0] if scan_vars else ""
 
 
+#: Artifact types the artifact endpoint renders inline (raster only —
+#: SVG can carry script and is served as a download like everything else).
+_INLINE_IMAGE_SUFFIXES = frozenset({".png", ".jpg", ".jpeg", ".gif", ".webp"})
+
+
 @dataclasses.dataclass(frozen=True)
 class _DiagInfo:
     """A loadable diagnostic's run-side facts (the selector cache's value)."""
@@ -272,14 +278,12 @@ class _DiagInfo:
 
     @classmethod
     def from_diagnostic(cls, diag) -> "_DiagInfo":
+        # ``diag.scan`` is the raw ``scan:`` mapping at the ImageAnalysis
+        # layer (ScanRuntimeConfig lives in ScanAnalysis, which the
+        # selector must not need) — read the one key the wrapper reads.
         scan = diag.scan or {}
-        device = (
-            scan.get("device")
-            if isinstance(scan, dict)
-            else getattr(scan, "device", None)
-        )
         return cls(
-            device=str(device or diag.name),
+            device=str(scan.get("device") or diag.name),
             output_name=str(getattr(diag, "effective_output_name", None) or diag.name),
         )
 
@@ -321,7 +325,22 @@ def create_app(
     FastAPI
         The configured application.
     """
-    app = FastAPI(title="GEECS Data Portal", docs_url=None, redoc_url=None)
+    # The analysis-run worker (04 design) outlives requests: built
+    # before the app so the lifespan can refuse new runs and log any
+    # in-flight one at shutdown (a running job cannot be interrupted —
+    # the interpreter joins the worker at exit; see DEPLOYMENT.md).
+    runner = analysis_runs.AnalysisRunner()
+
+    @contextlib.asynccontextmanager
+    async def _lifespan(_app: FastAPI):
+        try:
+            yield
+        finally:
+            runner.shutdown()
+
+    app = FastAPI(
+        title="GEECS Data Portal", docs_url=None, redoc_url=None, lifespan=_lifespan
+    )
     app.add_middleware(_ForwardedPrefixMiddleware)
     # Every template gets `root`: the mount prefix each root-absolute
     # href/action/src/fetch must carry (empty when served at root).
@@ -782,7 +801,6 @@ def create_app(
         return valid
 
     # ---- analysis runs (04 design: direct ScanAnalysis execution) ----
-    runner = analysis_runs.AnalysisRunner()
     factory = analysis_factory or analysis_runs.scan_analysis_factory
 
     def _analysis_available() -> None:
@@ -804,24 +822,29 @@ def create_app(
                 ) from exc
 
     def _analysis_context(uid: str, day: str):
-        """(detail, scan folder, analysis folder, ScanTag) or 404."""
+        """(detail, scan folder, analysis folder, ScanTag) or 404.
+
+        The tag is parsed FROM THE RESOLVED FOLDER (``ScanPaths(folder=…)``,
+        read-only), never rebuilt from the start doc: the folder's day
+        is the claim-time day, the start doc's ``time`` is stamped later
+        — a scan claimed at 23:59:58 and opened at 00:00:01 would
+        otherwise run the analyzer on the NEXT day's same-numbered scan
+        (and TZ / experiment-spelling drift would do the same).
+        """
         detail = _load_run(uid)
         run_day = _run_day(detail, day)
         folder = resolve_scan_folder(detail, run_day) if run_day else None
-        if folder is None or run_day is None:
+        if folder is None:
             raise HTTPException(status_code=404, detail="scan folder not resolvable")
-        number = detail.summary.scan_number
-        if number is None or not detail.summary.experiment:
+        try:
+            tag = ScanPaths(folder=folder, read_mode=True).get_tag()
+        except (ValueError, OSError) as exc:
             raise HTTPException(
-                status_code=404, detail="run has no scan number / experiment"
-            )
-        tag = ScanTag(
-            year=run_day.year,
-            month=run_day.month,
-            day=run_day.day,
-            number=int(number),
-            experiment=detail.summary.experiment,
-        )
+                status_code=404,
+                detail=f"scan folder is not a canonical scans/ScanNNN path: {exc}",
+            ) from exc
+        if tag is None:
+            raise HTTPException(status_code=404, detail="scan folder has no tag")
         return detail, folder, analysis_runs.analysis_folder_for(folder), tag
 
     @app.get("/api/run/{uid}/analysis")
@@ -894,6 +917,8 @@ def create_app(
                 },
                 status_code=409,
             )
+        except RuntimeError as exc:  # shutting down
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
         return JSONResponse(job.to_json(), status_code=202)
 
     @app.get("/run/{uid}/artifact")
@@ -902,14 +927,26 @@ def create_app(
 
         Containment is the contract (:func:`analysis_runs.contained_artifact`):
         anything that resolves outside the scan's own analysis folder is
-        a 404, same as a missing file. ``no-cache``: re-runs overwrite
-        by name.
+        a 404, same as a missing file. Same feature gate as the run
+        endpoints. Raster images render inline; every other type is a
+        download (``attachment`` + ``nosniff``) — the share is writable
+        by many hands, and a planted HTML/SVG must never execute in the
+        portal's (or, behind the OSPREY proxy, OSPREY's) origin.
+        ``no-cache``: re-runs overwrite by name.
         """
+        _analysis_available()
         _, _, analysis_folder, _ = _analysis_context(uid, day)
         file = analysis_runs.contained_artifact(analysis_folder, path)
         if file is None:
             raise HTTPException(status_code=404, detail="no such artifact")
-        return FileResponse(file, headers={"Cache-Control": "no-cache"})
+        headers = {"Cache-Control": "no-cache", "X-Content-Type-Options": "nosniff"}
+        inline = file.suffix.lower() in _INLINE_IMAGE_SUFFIXES
+        return FileResponse(
+            file,
+            headers=headers,
+            content_disposition_type="inline" if inline else "attachment",
+            filename=file.name,
+        )
 
     def _apply_processing(arrays: list, processing: str) -> list:
         """Ephemeral-process *arrays* → the analyzers' processed images.

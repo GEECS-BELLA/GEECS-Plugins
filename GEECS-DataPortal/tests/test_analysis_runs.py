@@ -219,13 +219,20 @@ class TestRunner:
             gate.set()
             runner.shutdown()
 
-    def test_log_capture_is_scoped_to_the_worker_thread(self):
+    def test_log_capture_is_the_window_minus_portal_traffic(self):
+        """Everything the run emits — sub-threads included — minus the app's own."""
         runner = analysis_runs.AnalysisRunner()
         seen = threading.Event()
-        noise = logging.getLogger("request.thread")
 
         def run():
             logging.getLogger("worker").warning("from the worker")
+            helper = threading.Thread(
+                target=lambda: logging.getLogger("scan_analysis.pool").warning(
+                    "from an analyzer sub-thread"
+                )
+            )
+            helper.start()
+            helper.join()
             seen.set()
             time.sleep(0.05)
             return []
@@ -233,12 +240,42 @@ class TestRunner:
         try:
             job = runner.start("u", "A", run)
             assert seen.wait(5)
-            noise.warning("from a request thread")  # concurrent, must not leak
+            # Portal / server traffic during the window is not the run's.
+            logging.getLogger("uvicorn.access").warning("GET /health")
+            logging.getLogger("geecs_portal.app").warning("request-side noise")
             deadline = time.monotonic() + 5
             while job.state in analysis_runs.ACTIVE and time.monotonic() < deadline:
                 time.sleep(0.01)
             assert job.state == analysis_runs.DONE
-            assert job.log == ["WARNING worker: from the worker"]
+            assert job.log == [
+                "WARNING worker: from the worker",
+                "WARNING scan_analysis.pool: from an analyzer sub-thread",
+            ]
+            assert job.finished is not None  # assigned before the state flips
+        finally:
+            runner.shutdown()
+
+    def test_shutdown_refuses_new_jobs(self):
+        runner = analysis_runs.AnalysisRunner()
+        runner.shutdown()
+        with pytest.raises(RuntimeError):
+            runner.start("u", "A", lambda: [])
+
+    def test_base_exception_is_recorded_not_stuck(self):
+        runner = analysis_runs.AnalysisRunner()
+
+        def run():
+            raise SystemExit(3)
+
+        try:
+            job = runner.start("u", "A", run)
+            deadline = time.monotonic() + 5
+            while job.state in analysis_runs.ACTIVE and time.monotonic() < deadline:
+                time.sleep(0.01)
+            assert job.state == analysis_runs.FAILED
+            assert job.error == "SystemExit: 3"
+            # The scan is not left permanently 409.
+            assert runner.running_for("u") is None
         finally:
             runner.shutdown()
 
@@ -333,6 +370,9 @@ class TestRun:
         assert analyzer.cleaned is True
         tag = analyzer.scan_tag
         assert (tag.number, tag.experiment) == (2, "Undulator")
+        # The tag comes from the RESOLVED FOLDER (26_0712), not from the
+        # start doc's time (TEST_DAY) — the midnight-claim / TZ hazard.
+        assert (tag.year, tag.month, tag.day) == (2026, 7, 12)
         # The scan folder itself is untouched by the portal side.
         after = sorted(p.relative_to(scan_folder) for p in scan_folder.rglob("*"))
         assert after == before
@@ -412,6 +452,44 @@ class TestRun:
 
 
 class TestArtifactEndpoint:
+    def test_gated_with_the_feature(self, scan_folder):
+        analysis = analysis_runs.analysis_folder_for(scan_folder)
+        (analysis / "UC_Crop").mkdir(parents=True)
+        (analysis / "UC_Crop" / "fig.png").write_bytes(b"x")
+        catalog = FakeCatalog()
+        detail = _detail(2)
+        detail.start_doc["scan_folder"] = str(scan_folder)
+        catalog.details["uid-002"] = detail
+        client = TestClient(create_app(catalog))  # feature off
+        response = client.get(
+            "/run/uid-002/artifact", params={"path": "UC_Crop/fig.png"}
+        )
+        assert response.status_code == 404
+
+    def test_only_raster_images_render_inline(self, scan_folder, configs_tree):
+        """A planted HTML/SVG on the share must never execute in the portal's origin."""
+        pytest.importorskip("image_analysis")
+        analysis = analysis_runs.analysis_folder_for(scan_folder)
+        (analysis / "UC_Crop").mkdir(parents=True)
+        (analysis / "UC_Crop" / "fig.png").write_bytes(b"\x89PNG")
+        (analysis / "UC_Crop" / "evil.html").write_text("<script>alert(1)</script>")
+        (analysis / "UC_Crop" / "plot.svg").write_text("<svg onload='alert(1)'/>")
+        (analysis / "UC_Crop" / "data.h5").write_bytes(b"\x89HDF")
+        client = _client(scan_folder, configs_tree)
+        png = client.get("/run/uid-002/artifact", params={"path": "UC_Crop/fig.png"})
+        assert png.status_code == 200
+        assert png.headers["content-disposition"].startswith("inline")
+        assert png.headers["x-content-type-options"] == "nosniff"
+        for name in ("evil.html", "plot.svg", "data.h5"):
+            response = client.get(
+                "/run/uid-002/artifact", params={"path": f"UC_Crop/{name}"}
+            )
+            assert response.status_code == 200, name
+            assert response.headers["content-disposition"].startswith("attachment"), (
+                name
+            )
+            assert response.headers["x-content-type-options"] == "nosniff"
+
     def test_containment(self, scan_folder, configs_tree):
         pytest.importorskip("image_analysis")
         analysis = analysis_runs.analysis_folder_for(scan_folder)

@@ -18,7 +18,7 @@ tooling. Each subdirectory is an independent Python package with its own
 | `GeecsCAGateway/` | The caproto CA gateway serving GEECS devices as PVs (readback + `:SP`) for Phoebus/Archiver/ophyd-async, built on GEECS-Core — see its `PV_CONTRACT.md` (client API contract), `DEPLOYMENT.md`, and `DESIGN.md` |
 | `GeecsPvaGateway/` | The PVA peer of GeecsCAGateway: distributed pvAccess server on each Windows camera server, exposing that host's GEECS camera images as NTNDArray PVs (gated subscriptions, latest-wins). Images stay off the central CA gateway by design |
 | `GEECS-MCP/` | The general GEECS MCP server for AI agents (OSPREY) — domains as modules, scans first: read tools (status/history/results/config listings/validation) + control verbs (submit with cap/etiquette/acknowledge-loop, ownership-gated stop, clear_queue) over `geecs_bluesky.qs_client` + the resolver + Tiled. Osprey integrates via `profile.yml` — central HTTP (the multi-machine mode) or stdio; see its `deploy/DEPLOYMENT.md` |
-| `GEECS-DataPortal/` | Read-only scan-browsing web service (FastAPI, port 8200 on the worker host): day → scan → metadata/scalar plots in any browser, over the same `ScanCatalog` layer as the console's scan browser. Arc spec: `Planning/data_portal/` |
+| `GEECS-DataPortal/` | Scan-browsing web service (FastAPI, port 8200 on the worker host), read-only except explicit ScanAnalysis runs from its Analysis tab: day → scan → metadata/scalar plots/images in any browser, over the same `ScanCatalog` layer as the console's scan browser. Arc spec: `Planning/data_portal/` |
 | `LogMaker4GoogleDocs/` | Google Docs/Drive API wrapper for automated experiment logs |
 
 Each subpackage has its own `CLAUDE.md` with deep architectural detail.

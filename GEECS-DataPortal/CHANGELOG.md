@@ -25,7 +25,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   file, resolved path must stay inside the scan's analysis folder).
   Deliberately NOT a task-queue participant — `run_analysis` is called
   directly; no status records, claims, heartbeats or Google Doc
-  uploads. `cleanup()` runs on every outcome.
+  uploads. `cleanup()` runs on every outcome. Review-hardened (#763):
+  the scan tag is parsed from the resolved folder (`ScanPaths(folder=…)`),
+  never rebuilt from the start doc's time; the artifact endpoint is
+  gated with the feature, serves raster images inline and everything
+  else as `attachment` + `nosniff`; the job's final state is assigned
+  after its log/finished fields; a `BaseException` from an analyzer is
+  recorded (never a record stuck at `running`); the lifespan refuses
+  new runs at shutdown and logs an in-flight one.
 - The `analysis` extra now carries ScanAnalysis alongside
   ImageAnalysis; `__main__` pins `matplotlib.use("Agg")` before any
   analysis import (ScanAnalysis renderers use pyplot; the single

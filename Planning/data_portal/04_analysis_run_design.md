@@ -299,8 +299,10 @@ its figures render in the Analysis tab; the Plot tab shows the new
 `"sfile"`-provenance columns; re-run overwrites (warn logged, no
 duplicate columns, spot-check a cell); a deliberately broken YAML shows
 as `failed` with the exception text; a device-less diagnostic shows
-`no_data`; the rendered toggle shows the analyzer's overlays on the
-per-shot image.
+`no_data`; run a 2D analyzer *while* browsing images in another tab
+(the process-pool fork from a thread-rich process — #763 review
+finding 3); `systemctl restart` during a run waits, then serves; the
+rendered toggle shows the analyzer's overlays on the per-shot image.
 
 ## Open questions (carried, not blocking)
 

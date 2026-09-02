@@ -210,10 +210,23 @@ and analyzer failures become `failed` records, never 500s;
 (`create_app(analysis_factory=…)`) is how the tests drive the whole
 ladder without ScanAnalysis; the default is `load_diagnostic` +
 `create_scan_analyzer`, needing the `analysis` extra (which since
-0.16.0 also carries ScanAnalysis).  `__main__` pins `matplotlib.use("Agg")`
-before anything imports ScanAnalysis: its renderers use pyplot, and the
-one worker thread is what serialises them — never add a second pyplot
-user on a request thread.
+0.16.0 also carries ScanAnalysis).  The factory (and `__main__`,
+earlier) pins `matplotlib.use("Agg")` before importing ScanAnalysis:
+its renderers use pyplot, and the one worker thread is what
+serialises pyplot *in this process* — never add a second pyplot user
+on a request thread.  Known and accepted: the 2D wrapper's per-shot
+stage forks a `ProcessPoolExecutor` from this thread-rich process
+(asyncio loop, request threadpool, cache warmers) — the classic
+fork-with-threads hazard, pre-existing in every embedding of
+ScanAnalysis (LiveWatch, MCP) and not fixable portal-side; the live
+check runs an analyzer *while* images are being browsed.  The scan tag
+handed to the analyzer is parsed from the resolved folder
+(`ScanPaths(folder=…)`), never rebuilt from the start doc (the
+folder's day is the claim-time day; the start doc's time is stamped
+later).  Artifacts: raster images inline, every other type an
+`attachment` with `nosniff` (the share is writable by many hands).
+Shutdown: the lifespan refuses new runs and logs an in-flight one; it
+cannot interrupt it (DEPLOYMENT.md, stop timeout).
 Template links build their queries through the one sticky-query helper
 (and the page JS mirrors the analysis state into the stepper links) so
 navigating one control never resets another; the day page's "clear"
