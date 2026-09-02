@@ -56,6 +56,7 @@ from geecs_data_utils.tiled_export import (
     write_scalar_files_from_tiled,
 )
 from geecs_data_utils.scan_paths import daily_scan_folder
+from geecs_data_utils.analysis_status import AnalysisStatus, read_analysis_statuses
 from geecs_data_utils.tiled_catalog import (
     CatalogStatus,
     RunDetail,
@@ -114,4 +115,8 @@ __all__ = [
     "resolve_scan_folder",
     # scan paths (offline-first daily-folder companion)
     "daily_scan_folder",
+    # analysis_status/ task files (the one read-side view of ScanAnalysis's
+    # TaskStatus.to_dict() shape, #682)
+    "AnalysisStatus",
+    "read_analysis_statuses",
 ]

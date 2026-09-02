@@ -15,9 +15,11 @@ Everything is **strictly read-only over the data share**:
   ``not_found`` envelope naming the path; nothing on the data share is
   ever created (the repo's scan-folder invariant, applied to the whole
   share).
-- The task-status YAMLs are parsed tolerantly (``.get`` everywhere) —
-  their schema is ScanAnalysis-owned (``task_queue.TaskStatus``); this
-  module reads the documented fields and survives extras/absences.
+- The task-status YAMLs are read through the shared tolerant reader
+  ``geecs_data_utils.analysis_status`` (#682) — their schema is
+  ScanAnalysis-owned (``task_queue.TaskStatus.to_dict()``) and pinned
+  against that reader in ScanAnalysis's suite; this module keeps only its
+  own presentation (heartbeat → age, the display_files payload cap).
 
 Same conventions as every domain: sync ``_*_impl`` = the tested surface,
 async wrappers via the shared guard, JSON envelopes (except a successful
@@ -27,9 +29,11 @@ figure fetch, which returns MCP image content).
 from __future__ import annotations
 
 import logging
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
+
+from geecs_data_utils.analysis_status import read_analysis_statuses
 
 from geecs_mcp import errors, runtime, tool_names
 from geecs_mcp.scans.read_tools import _run_guarded
@@ -108,74 +112,35 @@ def _resolve_folders(scan_number: int, day: str | None) -> tuple[Any, Path, Path
     return tag, scan_folder, analysis_folder
 
 
-def _heartbeat_age_s(value: Any, now: "Any") -> Optional[float]:
-    """Age of an ISO-8601 heartbeat, tolerant; ``None`` when unparseable.
-
-    The writer stamps ``datetime.now(timezone.utc).isoformat()`` — parse
-    per task_queue's own ``_parse_ts`` semantics (assume UTC when naive).
-    """
-    from datetime import datetime, timezone
-
-    if not isinstance(value, str) or not value:
-        return None
-    try:
-        stamp = datetime.fromisoformat(value)
-    except Exception:
-        return None
-    if stamp.tzinfo is None:
-        stamp = stamp.replace(tzinfo=timezone.utc)
-    return round((now - stamp).total_seconds(), 1)
-
-
 def _read_task_statuses(scan_folder: Path) -> dict[str, dict]:
-    """Parse ``analysis_status/*.yaml`` tolerantly; missing folder → empty.
+    """Shape the shared reader's records into the tool's per-task envelopes.
 
-    THE AUTHORITATIVE SHAPE IS ``TaskStatus.to_dict()`` in
-    ``ScanAnalysis/scan_analysis/task_queue.py`` — keys ``state``
-    (queued/claimed/done/failed/no_data), ``error``, ``claimed_by``,
-    ``claimed_at``, ``last_heartbeat`` (ISO-8601 string), and
-    ``display_files``.  (Review finding on the #675 PR: the package's
-    CLAUDE.md prose was stale — read the writer, not the doc.)  Every
-    field coercion sits inside the per-file guard: one odd YAML on a
-    writable share degrades that one entry to ``unreadable``, never the
-    whole tool.
+    Parsing lives in ``geecs_data_utils.analysis_status`` (#682 — the one
+    read-side view of ScanAnalysis's ``TaskStatus.to_dict()`` files,
+    pinned against the writer in ScanAnalysis's suite; a missing
+    ``analysis_status/`` reads as empty, a torn file as ``unreadable``).
+    Kept here: the heartbeat → age presentation and the display_files
+    payload budget (osprey-side audit ask, 2026-08-24: the writer owns
+    that list's length; cap what one task can put into a tool answer).
     """
-    import yaml
-    from datetime import datetime, timezone
-
-    status_dir = scan_folder / "analysis_status"
-    statuses: dict[str, dict] = {}
-    if not status_dir.is_dir():
-        return statuses
     now = datetime.now(timezone.utc)
-    for entry in sorted(status_dir.iterdir()):
-        if entry.suffix not in (".yaml", ".yml"):
+    statuses: dict[str, dict] = {}
+    for task_id, record in read_analysis_statuses(scan_folder).items():
+        if not record.readable:
+            statuses[task_id] = {"state": "unreadable", "detail": record.unreadable}
             continue
-        try:
-            document = yaml.safe_load(entry.read_text()) or {}
-            if not isinstance(document, dict):
-                raise ValueError("not a mapping")
-            display_files = document.get("display_files") or []
-            if not isinstance(display_files, list):
-                display_files = []
-            display_files = [name for name in display_files if isinstance(name, str)]
-            record = {
-                "state": document.get("state"),
-                "error": document.get("error"),
-                "claimed_by": document.get("claimed_by"),
-                "heartbeat_age_s": _heartbeat_age_s(
-                    document.get("last_heartbeat"), now
-                ),
-                # Payload budget (osprey-side audit ask, 2026-08-24): the
-                # writer owns this list's length; cap what one task can
-                # put into a tool answer.
-                "display_files": display_files[:_MAX_DISPLAY_FILES_PER_TASK],
-            }
-            if len(display_files) > _MAX_DISPLAY_FILES_PER_TASK:
-                record["display_files_truncated"] = True
-            statuses[entry.stem] = record
-        except Exception as exc:  # a torn write mid-heartbeat is not our error
-            statuses[entry.stem] = {"state": "unreadable", "detail": str(exc)}
+        display_files = list(record.display_files)
+        age = record.heartbeat_age_s(now)
+        entry = {
+            "state": record.state,
+            "error": record.error,
+            "claimed_by": record.claimed_by,
+            "heartbeat_age_s": None if age is None else round(age, 1),
+            "display_files": display_files[:_MAX_DISPLAY_FILES_PER_TASK],
+        }
+        if len(display_files) > _MAX_DISPLAY_FILES_PER_TASK:
+            entry["display_files_truncated"] = True
+        statuses[task_id] = entry
     return statuses
 
 

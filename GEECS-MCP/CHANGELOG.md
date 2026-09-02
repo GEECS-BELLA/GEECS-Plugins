@@ -4,6 +4,21 @@ All notable changes to `geecs-mcp` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.8.3] - 2026-09-01
+
+### Changed
+
+- `get_scan_analysis` reads the `analysis_status/*.yaml` task files
+  through the shared `geecs_data_utils.analysis_status` reader
+  (GEECS-Data-Utils 0.26.0, #682) instead of its local
+  `_read_task_statuses` parser + `_heartbeat_age_s`; the tool's own
+  presentation (heartbeat age, the display_files payload cap +
+  `display_files_truncated` flag, `unreadable` entries) and its tests
+  are unchanged. One deliberate delta: a `.yml` file in `analysis_status/`
+  no longer surfaces as a task — the queue's own readers glob `*.yaml`
+  only, so it was a phantom the queue would never run (#750 review). The writer/reader contract is now pinned in
+  ScanAnalysis's suite, so a `TaskStatus.to_dict()` change fails a test
+  there instead of silently drifting from this tool.
 ## [0.8.2] - 2026-09-01
 
 ### Fixed
