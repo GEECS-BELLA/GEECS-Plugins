@@ -3,6 +3,26 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.13.2] — 2026-09-01
+
+### Changed
+
+- `image_analysis/third_party_sdks/wavekit_43/` (the Imagine Optic
+  WaveKit 4.3 Python bindings + Intel MKL DLLs — 538 files, ~720 MB on
+  disk) is **no longer tracked**. It was committed in a single March 2025
+  commit before the `.gitignore` rule for it existed, so the rule never
+  took effect and every clone pulled the blobs. Root `.gitignore` now
+  ignores `**/third_party_sdks/**` wholesale (README excepted) and the new
+  `third_party_sdks/README.md` documents the out-of-tree install layout.
+  No import path or behavior changes: the HASO analyzer module still
+  hard-imports the SDK (raises `ModuleNotFoundError` when absent) and its
+  test module skips via `importorskip`. **Existing checkouts:** pulling
+  this commit removes `wavekit_43/` from the working tree — copy it aside
+  first on any machine that has it (the HASO box). Two lab-owned HASO4
+  calibration files were inside that directory; the README gives the
+  `git restore --source` recovery lines. The blobs remain in git history; purging them
+  is a separate decision.
+
 ## [1.13.1] — 2026-09-01
 
 ### Fixed

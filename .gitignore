@@ -95,16 +95,16 @@ GEECS-PythonAPI/htu_scripts/test_scripts/credentials.json
 # Xopt-GEECS
 Xopt-GEECS/config.lnk
 
-# ScanAnalysis / ImageAnalysis third-party SDK blobs
-ScanAnalysis/scan_analysis/third_party_sdks/wavekit_43/**
-ImageAnalysis/image_analysis/third_party_sdks/wavekit_43/**
+# Vendor SDK blobs (WaveKit etc.) — never tracked; each package's
+# third_party_sdks/README.md documents what goes there
+**/third_party_sdks/**
+!**/third_party_sdks/README.md
 ImageAnalysis/image_analysis/analyzers/log_dll_load.txt
 ImageAnalysis/image_analysis/analyzers/single_shot_estimated_legendre.txt
 ImageAnalysis/image_analysis/offline_analyzers/log_dll_load.txt
 ImageAnalysis/image_analysis/offline_analyzers/single_shot_estimated_legendre.txt
 ScanAnalysis/tests/log_dll_load.txt
 ScanAnalysis/tests/single_shot_estimated_legendre.txt
-ScanAnalysis/scan_analysis/third_party_sdks/wavekit_43/dlls/x64/log_dll_load.txt
 
 # GEECS-Data-Utils local scripts
 GEECS-Data-Utils/scripts/release_mac.sh
