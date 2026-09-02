@@ -55,7 +55,11 @@ from enum import Enum
 
 from pydantic import model_validator, Field, field_validator
 
-from geecs_schemas._base import SchemaModel, VersionedSchemaModel
+from geecs_schemas._base import (
+    SchemaModel,
+    VersionedSchemaModel,
+    stale_schema_version,
+)
 
 
 class TriggerState(str, Enum):
@@ -267,25 +271,30 @@ class TriggerProfile(VersionedSchemaModel):
         Raises
         ------
         ValueError
-            If the document defines a variant — format v2 has no overlay;
-            the remedy is a separate profile per operating condition.
+            If the document defines a variant *with writes* — format v2 has
+            no overlay; the remedy is a separate profile per operating
+            condition.  A variant with no writes (what the retired editor's
+            "Add variant" saved when never filled in) is a no-op and is
+            dropped like an empty block.
         """
         if not isinstance(data, dict):
             return data
-        version = data.get("schema_version")
-        if isinstance(version, str) and version.isdigit():
-            version = int(version)
-        stale = isinstance(version, int) and version <= 1
+        stale = stale_schema_version(data, 2)
         if "variants" not in data and not stale:
             return data
         lifted = dict(data)
-        variants = lifted.pop("variants", None)
-        if variants:
+        variants = lifted.pop("variants", None) or {}
+        populated = sorted(
+            name
+            for name, variant in variants.items()
+            if isinstance(variant, dict) and any(variant.get("states", {}).values())
+        )
+        if populated:
             raise ValueError(
                 f"trigger profile {lifted.get('name', '?')!r} defines variant(s) "
-                f"{sorted(variants)} — profile variants were removed in format "
-                "v2; save each operating condition as its own profile file "
-                "and name that profile in the scan request."
+                f"{populated} — profile variants were removed in format v2; "
+                "save each operating condition as its own profile file and "
+                "name that profile in the scan request."
             )
         if stale:
             lifted["schema_version"] = 2

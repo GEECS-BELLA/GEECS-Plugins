@@ -90,6 +90,18 @@ class TestTriggerProfile:
                 }
             )
 
+    def test_v1_variant_without_writes_is_a_dropped_no_op(self):
+        # What the retired editor's "Add variant" saved when never filled in.
+        profile = TriggerProfile.model_validate(
+            {
+                "name": "x",
+                "states": {"SCAN": [write(DG, "Trigger.Source", "External")]},
+                "variants": {"no_gas": {"states": {}, "description": ""}},
+            }
+        )
+        assert profile.schema_version == 2
+        assert "variants" not in profile.model_dump(mode="json")
+
     def test_v2_document_round_trips_untouched(self):
         profile = make_profile()
         assert profile.schema_version == 2

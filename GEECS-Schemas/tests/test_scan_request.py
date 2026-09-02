@@ -424,6 +424,26 @@ class TestV1Migration:
             assert "trigger_variant" not in request.model_dump(mode="json")["capture"]
         assert nested.capture.shots_per_step == 2
 
+    def test_flat_trigger_variant_beside_capture_gets_the_variant_verdict(self):
+        # Only the removed field is flat: it is judged on its own terms —
+        # unset → dropped (no "mixed layout" refusal), set → the v3 remedy.
+        dropped = ScanRequest.model_validate(
+            {
+                "mode": "noscan",
+                "capture": {"shots_per_step": 2},
+                "trigger_variant": None,
+            }
+        )
+        assert dropped.capture.shots_per_step == 2
+        with pytest.raises(ValidationError, match="own trigger profile"):
+            ScanRequest.model_validate(
+                {
+                    "mode": "noscan",
+                    "capture": {"shots_per_step": 2},
+                    "trigger_variant": "laser_off",
+                }
+            )
+
     def test_set_trigger_variant_is_refused_with_the_remedy(self):
         for document in (
             {"mode": "noscan", "trigger_profile": "p", "trigger_variant": "laser_off"},

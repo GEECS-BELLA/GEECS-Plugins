@@ -52,7 +52,7 @@ REFERENCE_PAGE = Path("docs/geecs_schemas/schema_reference.md")
 # be longer than a docstring comfortably allows.
 EXAMPLES: dict[str, str] = {
     "scan_request": """\
-schema_version: 2
+schema_version: 3
 mode: step
 axes:
   - variable: jet_z
@@ -116,7 +116,7 @@ variables:
         forward: "composite_var * -2"
 """,
     "trigger_profile": """\
-schema_version: 1
+schema_version: 2
 name: htu_shot_control
 # each state lists its writes IN ORDER (top to bottom); a transition may
 # touch several devices

@@ -26,7 +26,7 @@ One complete scan, ready to submit: what to do, what to save, how to trigger.
 Example:
 
 ```yaml
-schema_version: 2
+schema_version: 3
 mode: step
 axes:
   - variable: jet_z
@@ -268,7 +268,7 @@ The device writes that drive the machine through its trigger states.
 Example:
 
 ```yaml
-schema_version: 1
+schema_version: 2
 name: htu_shot_control
 # each state lists its writes IN ORDER (top to bottom); a transition may
 # touch several devices

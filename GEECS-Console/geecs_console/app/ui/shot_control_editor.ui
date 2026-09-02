@@ -125,7 +125,7 @@
         <item>
          <widget class="QLineEdit" name="sce_description_edit">
           <property name="toolTip">
-           <string>Note on the selected layer: the profile when (base) is shown, otherwise the variant</string>
+           <string>Note on what setup this profile is for</string>
           </property>
          </widget>
         </item>

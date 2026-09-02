@@ -12,8 +12,8 @@ One main window, menu bar (Ops / Actions / Editors / Preferences / Help),
 status bar (gateway addr, configs path, version).  Object names in the `.ui`
 are prefixed by region (`r3_radio_1d`, `r5_start_button`, …).
 
-- **R1 session bar** — experiment combo, rep-rate field, trigger-profile +
-  variant combos, gateway/tiled/db health chips.
+- **R1 session bar** — experiment combo, rep-rate field, trigger-profile
+  combo, gateway/tiled/db health chips.
 - **R2 save sets** — available/selected lists, Add/Remove, union preview
   line ("union: N devices"), role-conflict/reference hint line.
 - **R3 scan form** — mode radios (No-scan / 1D / Grid / Optimization /

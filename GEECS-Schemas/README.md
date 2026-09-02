@@ -62,9 +62,11 @@ independently:
   schema version: a document is either liftable or already current. The
   finer-grained story lives in the changelog. Do not introduce `1.1`-style
   markers.
-- **Each document kind versions on its own.** A ScanRequest at v2 says
-  nothing about SaveSet or TriggerProfile, which stay at v1 until their own
-  layout changes.
+- **Each document kind versions on its own.** ScanRequest is at v3 and
+  TriggerProfile at v2 (each bumped by its own removed field); SaveSet and
+  the rest stay at v1 until their own layout changes.  The staleness test
+  is one helper, `stale_schema_version` in `_base.py`, shared by every
+  kind's lifting validator.
 
 ## Model inventory
 

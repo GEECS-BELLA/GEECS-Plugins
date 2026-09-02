@@ -64,7 +64,11 @@ from typing import Optional, Union
 
 from pydantic import Field, field_validator, model_validator
 
-from geecs_schemas._base import SchemaModel, VersionedSchemaModel
+from geecs_schemas._base import (
+    SchemaModel,
+    VersionedSchemaModel,
+    stale_schema_version,
+)
 
 
 class ScanRequestMode(str, Enum):
@@ -762,12 +766,7 @@ class ScanRequest(VersionedSchemaModel):
         if not isinstance(data, dict):
             return data
         flat = [key for key in _V1_CAPTURE_FIELDS if key in data]
-        version = data.get("schema_version")
-        if isinstance(version, str) and version.isdigit():
-            # Pydantic's lax mode coerces a quoted "1" to int at field
-            # validation, so the staleness check must see it the same way.
-            version = int(version)
-        stale_version = isinstance(version, int) and version <= 2
+        stale_version = stale_schema_version(data, 3)
         capture = data.get("capture")
         variant_in_capture = isinstance(capture, dict) and (
             _REMOVED_TRIGGER_VARIANT in capture
@@ -781,19 +780,22 @@ class ScanRequest(VersionedSchemaModel):
             and not variant_in_capture
         ):
             return data
-        if (flat or variant_flat) and "capture" in data:
-            raise ValueError(
-                f"Give capture settings either flat (v1: {flat}) or inside "
-                "'capture' (v2+), not both."
-            )
         lifted = dict(data)
         lifted.pop("submission", None)
+        # The removed field first, on its own terms: an unset one is dropped
+        # wherever it sits; a set one gets the v3 remedy — before the
+        # flat-vs-capture check, which is about the six live fields.
         if variant_flat and lifted.pop(_REMOVED_TRIGGER_VARIANT) is not None:
             raise ValueError(_TRIGGER_VARIANT_REMEDY)
         if variant_in_capture:
             lifted["capture"] = dict(capture)
             if lifted["capture"].pop(_REMOVED_TRIGGER_VARIANT) is not None:
                 raise ValueError(_TRIGGER_VARIANT_REMEDY)
+        if flat and "capture" in data:
+            raise ValueError(
+                f"Give capture settings either flat (v1: {flat}) or inside "
+                "'capture' (v2+), not both."
+            )
         if flat:
             lifted["capture"] = {key: lifted.pop(key) for key in flat}
         if stale_version:
