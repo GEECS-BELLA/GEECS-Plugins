@@ -141,18 +141,6 @@ states:
   SINGLESHOT:
     - {device: U_DG645_ShotControl, variable: Trigger.ExecuteSingleShot,
        value: "on"}
-variants:
-  laser_off:
-    states:
-      OFF:
-        - {device: U_DG645_ShotControl, variable: Trigger.Source,
-           value: Single shot}
-      SCAN:
-        - {device: U_DG645_ShotControl, variable: Trigger.Source,
-           value: Internal}
-      ARMED:
-        - {device: U_DG645_ShotControl, variable: Trigger.Source,
-           value: Single shot}
 """,
     "action_plan": """\
 schema_version: 1

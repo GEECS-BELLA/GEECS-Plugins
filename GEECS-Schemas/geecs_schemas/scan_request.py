@@ -45,6 +45,16 @@ Schema v2 (the capture refactor, ``Planning/schema_refactor/00_overview.md``):
 - A ``mode="before"`` validator lifts the flat v1 layout into ``capture``
   (and drops a v1 ``submission`` key), so saved presets, archived run
   metadata, and stale clients keep validating forever.
+
+Schema v3 (drop the trigger variant):
+
+- ``trigger_variant`` left :class:`CaptureSettings`: profile variants were
+  never adopted (every experiment kept one profile file per operating
+  condition), and :class:`~geecs_schemas.trigger_profile.TriggerProfile`
+  v2 removed them.  The same before-validator drops an unset
+  ``trigger_variant`` (flat v1 or inside ``capture``) and refuses a set
+  one with the remedy (name the condition's own profile); ``schema_version``
+  ≤ 2 is normalized to 3.
 """
 
 from __future__ import annotations
@@ -250,11 +260,10 @@ class CaptureSettings(SchemaModel):
     shots per step, an acquisition discipline, the save sets naming the
     recorded devices, the telemetry and native-image-save toggles, and the
     trigger profile driving the shot trigger.  This model groups those
-    seven settings; conceptually they are three sub-groups — shot control
+    six settings; conceptually they are three sub-groups — shot control
     (``shots_per_step`` + ``acquisition``), data logging (``save_sets`` +
-    ``background_telemetry`` + ``native_image_save``), and trigger
-    (``trigger_profile`` + ``trigger_variant``) — kept one level flat
-    here on purpose.
+    ``background_telemetry`` + ``native_image_save``), and the trigger
+    profile — kept one level flat here on purpose.
 
     Every field has a usable default, so an omitted ``capture`` block is a
     valid one-shot strict capture with no named save sets.
@@ -329,13 +338,6 @@ class CaptureSettings(SchemaModel):
             "Unset means the scan does not manage the trigger."
         ),
     )
-    trigger_variant: Optional[str] = Field(
-        None,
-        description=(
-            "Optional variant of the trigger profile to use, e.g. "
-            "'laser_off'. Leave unset for the profile's base behaviour."
-        ),
-    )
 
     @field_validator("save_sets", mode="before")
     @classmethod
@@ -360,24 +362,6 @@ class CaptureSettings(SchemaModel):
         if isinstance(value, str):
             return [value]
         return value
-
-    @model_validator(mode="after")
-    def _check_trigger_consistency(self) -> "CaptureSettings":
-        """Require a trigger profile when a variant is named.
-
-        Returns
-        -------
-        CaptureSettings
-            The validated model.
-
-        Raises
-        ------
-        ValueError
-            If ``trigger_variant`` is set without ``trigger_profile``.
-        """
-        if self.trigger_variant is not None and self.trigger_profile is None:
-            raise ValueError("'trigger_variant' needs 'trigger_profile' to be set too.")
-        return self
 
 
 class EvaluatorSpec(SchemaModel):
@@ -631,7 +615,13 @@ _V1_CAPTURE_FIELDS = (
     "background_telemetry",
     "native_image_save",
     "trigger_profile",
-    "trigger_variant",
+)
+#: Removed in v3: dropped when unset, refused when set (no overlay exists).
+_REMOVED_TRIGGER_VARIANT = "trigger_variant"
+_TRIGGER_VARIANT_REMEDY = (
+    "'trigger_variant' was removed in ScanRequest format v3 (profile "
+    "variants never existed in practice): save the operating condition as "
+    "its own trigger profile and name it in 'trigger_profile'."
 )
 
 
@@ -667,17 +657,18 @@ class ScanRequest(VersionedSchemaModel):
     anticipated extension point.
 
     Format v2 moved the capture-concern fields into ``capture`` and dropped
-    ``submission`` (see the module docstring).  The flat v1 layout — those
-    fields at the top level, plus an optional ``submission`` record — is
-    lifted into the v2 shape by a before-validator, so v1 documents keep
-    validating; a declared ``schema_version`` ≤ 1 is normalized to 2 (even
-    on a sparse document with nothing to lift).
+    ``submission``; format v3 dropped ``trigger_variant`` (see the module
+    docstring).  One before-validator lifts every older layout — the flat
+    v1 fields into ``capture``, a v1 ``submission`` key and an unset
+    ``trigger_variant`` dropped — so older documents keep validating; a
+    declared ``schema_version`` ≤ 2 is normalized to 3 (even on a sparse
+    document with nothing to lift).
     """
 
     schema_version: int = Field(
-        2,
+        3,
         description=(
-            "Format version of this config file. Leave at 2 — tools update "
+            "Format version of this config file. Leave at 3 — tools update "
             "this automatically when the file format changes."
         ),
     )
@@ -738,15 +729,16 @@ class ScanRequest(VersionedSchemaModel):
     @model_validator(mode="before")
     @classmethod
     def _lift_v1_layout(cls, data: object) -> object:
-        """Lift the flat v1 document layout into the v2 ``capture`` shape.
+        """Lift older document layouts into the current (v3) shape.
 
-        The v1→v2 migration, applied mechanically at validation: the seven
-        capture fields found at the top level move into ``capture``, a v1
-        ``submission`` record is dropped (it left the request document —
-        the engine's run metadata carries submission provenance
-        independently), and a declared ``schema_version`` ≤ 1 is
-        normalized to 2 (a version ≥ 2 is never overwritten — a future
-        v3 document must keep its stamp through this validator).  Saved
+        Applied mechanically at validation: the v1 capture fields found at
+        the top level move into ``capture``, a v1 ``submission`` record is
+        dropped (it left the request document — the engine's run metadata
+        carries submission provenance independently), an unset
+        ``trigger_variant`` (flat, or inside ``capture``) is dropped and a
+        set one refused (v3), and a declared ``schema_version`` ≤ 2 is
+        normalized to 3 (a version ≥ 3 is never overwritten — a future v4
+        document must keep its stamp through this validator).  Saved
         presets, archived run-metadata documents, and stale clients
         therefore keep validating forever.  Mixing the flat fields with an
         explicit ``capture`` block is ambiguous and rejected.
@@ -765,7 +757,7 @@ class ScanRequest(VersionedSchemaModel):
         ------
         ValueError
             If flat v1 capture fields and a ``capture`` block are both
-            present.
+            present, or if ``trigger_variant`` is set.
         """
         if not isinstance(data, dict):
             return data
@@ -775,20 +767,37 @@ class ScanRequest(VersionedSchemaModel):
             # Pydantic's lax mode coerces a quoted "1" to int at field
             # validation, so the staleness check must see it the same way.
             version = int(version)
-        stale_version = isinstance(version, int) and version <= 1
-        if not flat and "submission" not in data and not stale_version:
+        stale_version = isinstance(version, int) and version <= 2
+        capture = data.get("capture")
+        variant_in_capture = isinstance(capture, dict) and (
+            _REMOVED_TRIGGER_VARIANT in capture
+        )
+        variant_flat = _REMOVED_TRIGGER_VARIANT in data
+        if (
+            not flat
+            and "submission" not in data
+            and not stale_version
+            and not variant_flat
+            and not variant_in_capture
+        ):
             return data
-        if flat and "capture" in data:
+        if (flat or variant_flat) and "capture" in data:
             raise ValueError(
                 f"Give capture settings either flat (v1: {flat}) or inside "
-                "'capture' (v2), not both."
+                "'capture' (v2+), not both."
             )
         lifted = dict(data)
         lifted.pop("submission", None)
+        if variant_flat and lifted.pop(_REMOVED_TRIGGER_VARIANT) is not None:
+            raise ValueError(_TRIGGER_VARIANT_REMEDY)
+        if variant_in_capture:
+            lifted["capture"] = dict(capture)
+            if lifted["capture"].pop(_REMOVED_TRIGGER_VARIANT) is not None:
+                raise ValueError(_TRIGGER_VARIANT_REMEDY)
         if flat:
             lifted["capture"] = {key: lifted.pop(key) for key in flat}
         if stale_version:
-            lifted["schema_version"] = 2
+            lifted["schema_version"] = 3
         return lifted
 
     @model_validator(mode="after")

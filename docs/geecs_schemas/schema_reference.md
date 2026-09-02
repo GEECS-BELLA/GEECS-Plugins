@@ -14,10 +14,10 @@ One complete scan, ready to submit: what to do, what to save, how to trigger.
 
 | Field | Type | Required | Default | What it does |
 |---|---|---|---|---|
-| `schema_version` | `int` | no | 2 | Format version of this config file. Leave at 2 — tools update this automatically when the file format changes. |
+| `schema_version` | `int` | no | 3 | Format version of this config file. Leave at 3 — tools update this automatically when the file format changes. |
 | `mode` | `ScanRequestMode` | yes | — | What kind of scan: 'step' sweeps one or more axes, 'noscan' collects shots without moving anything, 'optimize' lets an algorithm pick the settings. |
 | `axes` | `list[ScanAxis]` | no | empty | For step scans: what to sweep. One entry is a simple 1-D scan; several entries form a grid visiting every combination, with the first axis as the outermost (slowest) loop and the last as the innermost (fastest). Leave empty for noscan and optimize. |
-| `capture` | `CaptureSettings` | no | CaptureSettings(shots_per_step=1, acquisition=<AcquisitionMode.STRICT: 'strict'>, save_sets=[], background_telemetry=None, native_image_save=None, trigger_profile=None, trigger_variant=None) | How shots are taken and what gets recorded: shots per step, acquisition discipline, save sets, telemetry and native-image toggles, and the trigger profile. Omit for a one-shot strict capture with no named save sets. |
+| `capture` | `CaptureSettings` | no | CaptureSettings(shots_per_step=1, acquisition=<AcquisitionMode.STRICT: 'strict'>, save_sets=[], background_telemetry=None, native_image_save=None, trigger_profile=None) | How shots are taken and what gets recorded: shots per step, acquisition discipline, save sets, telemetry and native-image toggles, and the trigger profile. Omit for a one-shot strict capture with no named save sets. |
 | `actions` | `ActionBindings` | no | ActionBindings(setup=[], per_step=[], closeout=[]) | Named action plans to run before the scan (setup), between steps (per_step), and after it (closeout). |
 | `description` | `str` | no | '' | Free-text note about this scan; it ends up in the scan's metadata and the experiment log. |
 | `background` | `bool` | no | False | Mark this scan's data as background/calibration shots so analysis can find them later. |
@@ -88,7 +88,6 @@ How shots are taken and what gets recorded — the capture concern.
 | `background_telemetry` | `bool (optional)` | no | None | Also log every other live experiment device as best-effort snapshot columns — the variables the GEECS experiment database marks for scan logging (MySQL table expt_device_variable, get='yes') — read from the gateway's always-on monitor cache: read-only and never waited on, so it cannot slow or stall the scan; dead devices are dropped with a log line, never a dialog or abort. Leave unset to inherit the experiment default; set true/false to override for this scan. |
 | `native_image_save` | `bool (optional)` | no | None | Whether capture-eligible cameras (Point Grey — the devicetypes the central PVA capture daemon owns) write their native per-shot image files during this scan. When false, those cameras' images are recorded only by the capture daemon's per-device frame stack (one HDF5 per camera per scan); all other devices — proprietary formats like the HASO, scope traces — keep their native save regardless. Leave unset to inherit the experiment default; set true/false to override for this scan (e.g. force native files back on for one scan while the capture path is being validated). Two engine behaviors to expect when false: the scan is REFUSED before a scan number is claimed if the capture daemon looks absent or is not monitoring every capture camera (fail-closed — start the daemon or drop the override), and the request is silently inert when no capture-eligible cameras resolve (DB unreachable, or none in the save set) — native saving then proceeds unchanged, with a warning in the scan log. |
 | `trigger_profile` | `str (optional)` | no | None | Name of the trigger profile that drives the shot trigger. Unset means the scan does not manage the trigger. |
-| `trigger_variant` | `str (optional)` | no | None | Optional variant of the trigger profile to use, e.g. 'laser_off'. Leave unset for the profile's base behaviour. |
 
 ### ActionBindings
 
@@ -261,10 +260,9 @@ The device writes that drive the machine through its trigger states.
 
 | Field | Type | Required | Default | What it does |
 |---|---|---|---|---|
-| `schema_version` | `int` | no | 1 | Format version of this config file. Leave at 1 — tools update this automatically when the file format changes. |
+| `schema_version` | `int` | no | 2 | Format version of this config file. Leave at 2 — tools update this automatically when the file format changes. |
 | `name` | `str` | yes | — | The name scans use to refer to this trigger profile. |
 | `states` | `dict[TriggerState, list[TriggerWrite]]` | no | empty | For each trigger state, the writes that put the machine into it, applied in order from top to bottom. A transition may write several devices. Omit a device variable from a state to leave it untouched. |
-| `variants` | `dict[str, TriggerVariant]` | no | empty | Named alternative operating conditions (e.g. 'laser_off'), each listing only the writes that differ from the base states. |
 | `description` | `str` | no | '' | Optional note about what setup this profile is for. |
 
 Example:
@@ -295,18 +293,6 @@ states:
   SINGLESHOT:
     - {device: U_DG645_ShotControl, variable: Trigger.ExecuteSingleShot,
        value: "on"}
-variants:
-  laser_off:
-    states:
-      OFF:
-        - {device: U_DG645_ShotControl, variable: Trigger.Source,
-           value: Single shot}
-      SCAN:
-        - {device: U_DG645_ShotControl, variable: Trigger.Source,
-           value: Internal}
-      ARMED:
-        - {device: U_DG645_ShotControl, variable: Trigger.Source,
-           value: Single shot}
 ```
 
 ### TriggerWrite
@@ -318,15 +304,6 @@ One device variable set during a state transition.
 | `device` | `str` | yes | — | The device to write to, e.g. 'U_DG645_ShotControl' or a gas-jet controller — any settable device can take part in a transition. |
 | `variable` | `str` | yes | — | Which variable on the device to set, e.g. 'Trigger.Source'. |
 | `value` | `str` | yes | — | The value to send, exactly as the device expects it — a number as text ('4.0'), a word ('on'), or a device option name ('External rising edges'). |
-
-### TriggerVariant
-
-A named operating condition that tweaks a few writes of the profile.
-
-| Field | Type | Required | Default | What it does |
-|---|---|---|---|---|
-| `states` | `dict[TriggerState, list[TriggerWrite]]` | yes | — | Only the writes that differ from the base profile, per state. A write here replaces the base write to the same device variable; writes to new device variables are added after the base ones. Anything not listed keeps its base value. |
-| `description` | `str` | no | '' | Optional note about when to use this variant. |
 
 ## `action_plan`
 

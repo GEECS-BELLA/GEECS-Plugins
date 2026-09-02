@@ -5,6 +5,35 @@ All notable changes to GEECS-Schemas are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.0] - 2026-09-02
+
+### Removed
+
+- **Trigger-profile variants** (`TriggerProfile.variants`, `TriggerVariant`,
+  `writes_for(..., variant=)`, `defines_state(..., variant=)`,
+  `convert.merge_trigger_variant`) and **`CaptureSettings.trigger_variant`**.
+  Variants were the schema's answer to parallel laser-on/laser-off files;
+  nobody adopted them — every experiment kept one profile file per
+  operating condition — so they were a second way to say what the profile
+  name already says, costing a field on every scan form, a console combo,
+  a validator, and an adapter parameter.
+
+### Changed
+
+- **TriggerProfile format v2** (`schema_version` default 2): a
+  before-validator drops an empty v1 `variants` block (the corpus shape),
+  refuses a populated one with the remedy (split it into its own profile),
+  and normalizes `schema_version` ≤ 1 to 2.
+- **ScanRequest format v3** (`schema_version` default 3): the lifting
+  validator now also drops an unset `trigger_variant` — flat v1 or inside
+  `capture` — refuses a set one with the remedy, and normalizes
+  `schema_version` ≤ 2 to 3. Both bumps follow the README's versioning
+  policy: a removed field is a migration.
+
+Regenerated: the JSON Schema artifact, the Markdown schema reference, and
+the converter golden files (the HTU trigger-profile golden is now the plain
+`HTU-Normal` conversion).
+
 ## [0.14.0] - 2026-09-01
 
 ### Changed

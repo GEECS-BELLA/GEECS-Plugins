@@ -41,7 +41,6 @@ from geecs_schemas.convert import (
     convert_scan_preset,
     convert_scan_variables,
     convert_shot_control,
-    merge_trigger_variant,
 )
 
 
@@ -190,33 +189,6 @@ class TestFullCorpus:
                 else:
                     converted += 1
         assert converted >= 8 and no_device >= 2
-
-    def test_laser_pairs_fold_into_variants(self):
-        pairs = [
-            ("Undulator", "HTU-Normal", "HTU-LaserOFF"),
-            ("Thomson", "HTT-Normal", "HTT-LaserOFF"),
-        ]
-        for experiment, base_name, off_name in pairs:
-            directory = (
-                CONFIGS
-                / "scanner_configs/experiments"
-                / experiment
-                / "shot_control_configurations"
-            )
-            base = convert_shot_control(directory / f"{base_name}.yaml")
-            off = convert_shot_control(directory / f"{off_name}.yaml")
-            merged = merge_trigger_variant(base, off, "laser_off")
-            for state in ("OFF", "STANDBY", "SCAN", "SINGLESHOT", "ARMED"):
-                # set comparison: write order within a transition may differ
-                # when the variant appends writes the base lacked
-                resolved = {
-                    (w.device, w.variable, w.value)
-                    for w in merged.writes_for(state, variant="laser_off")
-                }
-                expected = {
-                    (w.device, w.variable, w.value) for w in off.writes_for(state)
-                }
-                assert resolved == expected, (experiment, state)
 
     def test_every_action_library_converts(self):
         libraries = {}
