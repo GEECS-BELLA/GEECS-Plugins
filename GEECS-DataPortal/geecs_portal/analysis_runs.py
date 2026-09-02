@@ -409,32 +409,110 @@ def contained_artifact(analysis_folder: Path, relative: str) -> Optional[Path]:
 INLINE_IMAGE_SUFFIXES = frozenset({".png", ".jpg", ".jpeg", ".gif", ".webp"})
 
 
-def describe_artifact(analysis_folder: Path, artifact: str) -> dict:
-    """The wire shape of one artifact: ``{path, servable, inline}``.
+def classify_artifact(artifact: str) -> tuple[str, Optional[int]]:
+    """``("bin", n)`` / ``("summary", None)`` / ``("other", None)`` from the name.
+
+    The tab shows summaries automatically and steps through bins one
+    at a time (owner ruling 2026-09-02). The split is ScanAnalysis's
+    own output-name contract, parsed by ITS
+    ``renderers.config.parse_output_filename`` (next to the code that
+    builds the names) — imported lazily, like the factory, so this
+    module stays importable without the extra; without it everything
+    is ``other`` (the run feature is off anyway).
+    """
+    try:
+        from scan_analysis.analyzers.renderers.config import parse_output_filename
+    except ImportError:
+        return "other", None
+    return parse_output_filename(artifact)
+
+
+def describe_artifact(
+    analysis_folder: Path, artifact: str, *, servable: Optional[bool] = None
+) -> dict:
+    """The wire shape of one artifact: ``{path, servable, inline, kind, bin}``.
 
     ``servable`` = it resolves to a file inside the analysis folder (the
     artifact endpoint would serve it); ``inline`` = a raster image the
     tab may show in an ``<img>``. Labels and files elsewhere are neither
-    — the tab shows them as text. Decided HERE so the page never
-    re-derives the policy from a path's shape.
+    — the tab shows them as text. ``kind``/``bin`` per
+    :func:`classify_artifact`. Decided HERE so the page never re-derives
+    the policy from a path's shape. Pass ``servable`` when it is already
+    known (a path that came from :func:`list_artifacts` is servable by
+    construction) to skip the per-file resolve + stat on the share.
     """
-    servable = contained_artifact(analysis_folder, artifact) is not None
+    if servable is None:
+        servable = contained_artifact(analysis_folder, artifact) is not None
+    kind, bin_number = classify_artifact(artifact)
     return {
         "path": artifact,
         "servable": servable,
         "inline": servable and Path(artifact).suffix.lower() in INLINE_IMAGE_SUFFIXES,
+        "kind": kind,
+        "bin": bin_number,
     }
 
 
+_KIND_ORDER = {"summary": 0, "other": 1, "bin": 2}
+
+
+def describe_artifacts(
+    analysis_folder: Path,
+    artifacts: list[str],
+    *,
+    known_files: Optional[set[str]] = None,
+    max_bins: int = 200,
+) -> list[dict]:
+    """Describe + order for the tab: summaries, then others, then bins.
+
+    Bins order by number and, within a bin, the inline visual before
+    its data file. The cap keeps the first ``max_bins`` DISTINCT bins
+    (every file of each), applied after classification — a lexical cap
+    on the raw listing would drop the summaries first (``_average…``
+    sorts after every ``_<digits>_…`` name), and a cap on bin *files*
+    would split a bin. *known_files* are servable by construction (they
+    came from the listing) and skip the per-file stat.
+    """
+    known = known_files or set()
+    described = sorted(
+        (
+            describe_artifact(analysis_folder, a, servable=True if a in known else None)
+            for a in artifacts
+        ),
+        key=lambda d: (
+            _KIND_ORDER[d["kind"]],
+            d["bin"] or 0,
+            not d["inline"],
+            d["path"],
+        ),
+    )
+    kept: list[int] = []
+    for d in described:
+        if d["kind"] == "bin" and d["bin"] not in kept:
+            kept.append(d["bin"])
+    allowed = set(kept[:max_bins])
+    return [d for d in described if d["kind"] != "bin" or d["bin"] in allowed]
+
+
+#: Sanity bound on the on-disk listing (an output dir is ~2 files per
+#: bin + a few summaries; this only guards a runaway directory).
+LISTING_SANITY_CAP = 2000
+
+
 def list_artifacts(
-    analysis_folder: Path, output_name: str, *, limit: int = 200
+    analysis_folder: Path,
+    output_name: str,
+    *,
+    limit: Optional[int] = LISTING_SANITY_CAP,
 ) -> list[str]:
     """Files under the analyzer's output directory, relative to the analysis folder.
 
     ScanAnalysis writes per-analyzer outputs under
-    ``analysis/ScanNNN/<output_name>/…`` — this lists them (sorted,
-    capped) so a page loaded after a portal restart still shows what
-    an earlier run produced.
+    ``analysis/ScanNNN/<output_name>/…`` — this lists them (sorted) so a
+    page loaded after a portal restart still shows what an earlier run
+    produced. The default cap is only a sanity bound
+    (:data:`LISTING_SANITY_CAP`); the tab's bin cap is applied AFTER
+    classification (:func:`describe_artifacts`), never lexically here.
     """
     out_dir = analysis_folder / output_name
     if not out_dir.is_dir():
@@ -443,4 +521,6 @@ def list_artifacts(
         files = sorted(p for p in out_dir.rglob("*") if p.is_file())
     except OSError:
         return []
-    return [p.relative_to(analysis_folder).as_posix() for p in files[:limit]]
+    if limit is not None:
+        files = files[:limit]
+    return [p.relative_to(analysis_folder).as_posix() for p in files]

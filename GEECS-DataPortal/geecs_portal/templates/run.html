@@ -100,6 +100,7 @@
   .arow details { margin-top: 0.4rem; font-size: 12px; }
   .arow details pre { max-height: 14rem; overflow: auto; background: var(--panel2); padding: 0.5rem; border-radius: 3px; font-size: 11px; }
   .arts { display: flex; flex-wrap: wrap; gap: 0.6rem; margin-top: 0.5rem; }
+  .binstep { display: flex; gap: 0.6rem; align-items: center; margin-top: 0.6rem; font-size: 12px; }
   .arts img { max-width: 100%; max-height: 24rem; border: 1px solid var(--line); border-radius: 3px; background: var(--panel2); }
   .arts a.file { font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
   #pane-analysis details.others > summary { cursor: pointer; color: var(--dim); font-size: 12px; margin: 0.6rem 0; }
@@ -573,20 +574,52 @@ function artifactUrl(path) {
   return `${ROOT}/run/${UID}/artifact?` + p.toString();
 }
 
-function renderArtifacts(artifacts) {
-  // Each entry is {path, servable, inline} — decided server-side
-  // (analysis_runs.describe_artifact): the page never re-derives the
-  // policy from a path's shape.
+let ANALYSIS_BIN = {};   // analyzer id -> index into its bin artifacts (the stepper)
+
+function artifactCard(a) {
+  const path = a.path;
+  if (a.inline) {
+    return `<a href="${artifactUrl(path)}" target="_blank"><img src="${artifactUrl(path)}" alt="${escAttr(path)}" title="${escAttr(path)}"></a>`;
+  }
+  if (a.servable) return `<a class="file" href="${artifactUrl(path)}" target="_blank">${esc(path)}</a>`;
+  return `<span class="dim mono">${esc(path)}</span>`;
+}
+
+function renderArtifacts(id, artifacts) {
+  // Each entry is {path, servable, inline, kind, bin} — decided
+  // server-side (analysis_runs.describe_artifacts over ScanAnalysis's
+  // own output-name contract): the page never re-derives the policy
+  // from a path's shape. Summaries (and anything unclassified) show
+  // automatically; per-bin outputs show ONE bin at a time behind a
+  // stepper, like the Images tab's shot stepper — every file of that
+  // bin (the visual inline, its data file as a link).
   if (!artifacts || !artifacts.length) return "";
-  const cards = artifacts.map(a => {
-    const path = a.path;
-    if (a.inline) {
-      return `<a href="${artifactUrl(path)}" target="_blank"><img src="${artifactUrl(path)}" alt="${escAttr(path)}" title="${escAttr(path)}"></a>`;
-    }
-    if (a.servable) return `<a class="file" href="${artifactUrl(path)}" target="_blank">${esc(path)}</a>`;
-    return `<span class="dim mono">${esc(path)}</span>`;
-  });
-  return `<div class="arts">${cards.join("")}</div>`;
+  const auto = artifacts.filter(a => a.kind !== "bin");
+  const binNumbers = [...new Set(artifacts.filter(a => a.kind === "bin").map(a => a.bin))];
+  let html = auto.length ? `<div class="arts">${auto.map(artifactCard).join("")}</div>` : "";
+  if (binNumbers.length) {
+    const i = Math.min(Math.max(ANALYSIS_BIN[id] || 0, 0), binNumbers.length - 1);
+    ANALYSIS_BIN[id] = i;  // write the clamp back: a shrunken list must not strand the index
+    const number = binNumbers[i];
+    const files = artifacts.filter(a => a.kind === "bin" && a.bin === number);
+    html += `<div class="binstep">
+      <button class="act" data-id="${escAttr(id)}" onclick="stepBin(this.dataset.id, -1)" ${i === 0 ? "disabled" : ""}>&lsaquo; prev bin</button>
+      <span class="dim">bin <b>${esc(String(number))}</b> <span class="mono">(${i + 1} of ${binNumbers.length})</span></span>
+      <button class="act" data-id="${escAttr(id)}" onclick="stepBin(this.dataset.id, 1)" ${i === binNumbers.length - 1 ? "disabled" : ""}>next bin &rsaquo;</button>
+    </div><div class="arts">${files.map(artifactCard).join("")}</div>`;
+  }
+  return html;
+}
+
+function stepBin(id, delta) {
+  // Re-render THIS analyzer's row only: a whole-list rebuild would
+  // re-fetch every inline artifact on the tab (they are no-cache).
+  ANALYSIS_BIN[id] = (ANALYSIS_BIN[id] || 0) + delta;
+  if (!ANALYSIS_BODY) return;
+  const a = ANALYSIS_BODY.analyzers.find(x => x.id === id);
+  const row = document.querySelector(`#analysisList .arow[data-row="${CSS.escape(id)}"]`);
+  if (!a || !row) return;
+  row.outerHTML = renderAnalyzer(a, ANALYSIS_BODY.running !== null);
 }
 
 function renderAnalyzer(a, anyRunning) {
@@ -603,22 +636,24 @@ function renderAnalyzer(a, anyRunning) {
   const when = job && job.finished ? `<span class="dim" style="font-size:11px">${new Date(job.finished * 1000).toLocaleTimeString()}</span>` : "";
   let body = "";
   if (job && job.error) body += `<p class="err">${esc(job.error)}</p>`;
-  body += renderArtifacts(a.artifacts);
+  body += renderArtifacts(a.id, a.artifacts);
   if (job && job.log && job.log.length) {
     const open = ANALYSIS_OPEN[a.id] ? " open" : "";
     body += `<details${open} data-id="${escAttr(a.id)}" ontoggle="ANALYSIS_OPEN[this.dataset.id]=this.open"><summary>log (${job.log.length} lines)</summary><pre>${esc(job.log.join("\n"))}</pre></details>`;
   }
-  return `<div class="arow"><div class="head"><span class="id">${esc(a.id)}</span>${device}${badge}${when}<span class="right">${button}</span></div>${body}</div>`;
+  return `<div class="arow" data-row="${escAttr(a.id)}"><div class="head"><span class="id">${esc(a.id)}</span>${device}${badge}${when}<span class="right">${button}</span></div>${body}</div>`;
 }
 
 let ANALYSIS_LAST = null;  // last-rendered payload — an unchanged poll leaves the DOM alone
+let ANALYSIS_BODY = null;  // the payload itself, so a stepper click re-renders without a fetch
 
-function renderAnalysis(body) {
+function renderAnalysis(body, force) {
   const list = document.getElementById("analysisList");
   if (!list) return;
   const anyRunning = body.running !== null;
   const key = JSON.stringify(body);
-  if (key === ANALYSIS_LAST) {
+  ANALYSIS_BODY = body;
+  if (key === ANALYSIS_LAST && !force) {
     // Nothing changed: keep polling while active, but do not rebuild
     // the list (every <img> would re-fetch its artifact).
     clearTimeout(ANALYSIS_TIMER);

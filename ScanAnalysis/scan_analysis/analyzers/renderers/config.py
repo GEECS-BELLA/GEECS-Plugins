@@ -7,6 +7,9 @@ It also provides RenderContext for bundling data with metadata.
 
 from __future__ import annotations
 
+import re
+from pathlib import Path
+
 from typing import Optional, Literal, Tuple, Dict, Any, Union, Callable
 from dataclasses import dataclass
 from pydantic import BaseModel, Field
@@ -346,3 +349,46 @@ class RenderContext:
             Formatted filename
         """
         return f"{self.device_name}_{self.identifier}_{suffix}.{extension}"
+
+
+# ---------------------------------------------------------------------------
+# Output-name contract (the inverse of RenderContext.get_filename)
+# ---------------------------------------------------------------------------
+
+_BIN_OUTPUT = re.compile(r"_(\d+)_processed(?:_visual)?\.[A-Za-z0-9]+$")
+_SUMMARY_MARKERS = ("_average_processed", "_averaged_image_grid.", "_summary_")
+
+
+def parse_output_filename(name: str) -> Tuple[str, Optional[int]]:
+    """Classify a renderer output file by its name: ``(kind, bin)``.
+
+    The renderers write per-bin files as
+    ``{device}_{bin}_processed.h5`` / ``{device}_{bin}_processed_visual.png``
+    (:meth:`RenderContext.get_filename` with the bin key as identifier),
+    the scan-level average with identifier ``average``, the 2D grid as
+    ``{device}_averaged_image_grid.png``, the 1D summary as
+    ``{device}_summary_{mode}.png``, and the noscan animation as a
+    ``.gif``. Consumers that present these outputs (the data portal's
+    Analysis tab) classify through THIS function so the naming stays a
+    one-place contract: change a name here and its parser together.
+
+    Parameters
+    ----------
+    name : str
+        A filename or path (only the basename is inspected).
+
+    Returns
+    -------
+    (kind, bin)
+        ``("bin", n)`` for per-bin outputs, ``("summary", None)`` for
+        scan-level figures, ``("other", None)`` for anything else.
+    """
+    base = Path(name).name
+    match = _BIN_OUTPUT.search(base)
+    if match:
+        return "bin", int(match.group(1))
+    if any(marker in base for marker in _SUMMARY_MARKERS) or base.lower().endswith(
+        ".gif"
+    ):
+        return "summary", None
+    return "other", None
