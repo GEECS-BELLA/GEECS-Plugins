@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "PositionList": {
+      "additionalProperties": false,
+      "description": "Scan positions given as an explicit list of values.\n\nUse this instead of start/end/step when the positions are irregular \u2014\ne.g. ``values: [0.0, 0.5, 2.0, 8.0]``.",
+      "properties": {
+        "values": {
+          "description": "The exact positions to visit, in the order given.",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 1,
+          "title": "Values",
+          "type": "array"
+        }
+      },
+      "required": [
+        "values"
+      ],
+      "title": "PositionList",
+      "type": "object"
+    },
+    "PositionRange": {
+      "additionalProperties": false,
+      "description": "Scan positions given as start / end / step size.\n\nThe scan visits start, start\u00b1step, \u2026 up to and including the end (when\nthe step divides the range evenly).  Start may be above or below end \u2014\nthe direction follows start\u2192end and the sign of ``step`` is ignored.",
+      "properties": {
+        "start": {
+          "description": "First position of the sweep.",
+          "title": "Start",
+          "type": "number"
+        },
+        "end": {
+          "description": "Last position of the sweep.",
+          "title": "End",
+          "type": "number"
+        },
+        "step": {
+          "description": "Spacing between positions. Its sign is ignored \u2014 the sweep direction comes from start and end.",
+          "title": "Step",
+          "type": "number"
+        }
+      },
+      "required": [
+        "start",
+        "end",
+        "step"
+      ],
+      "title": "PositionRange",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "One swept variable and the positions it visits.\n\nA step scan sweeps one or more axes.  One axis is the familiar 1-D\nscan; several axes form a grid \u2014 see :class:`ScanRequest` for how the\naxes loop together.",
+  "properties": {
+    "variable": {
+      "description": "The friendly name of the variable this axis sweeps (from the experiment's scan-variables catalog).",
+      "title": "Variable",
+      "type": "string"
+    },
+    "positions": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PositionRange"
+        },
+        {
+          "$ref": "#/$defs/PositionList"
+        }
+      ],
+      "description": "The positions this axis visits, either as {start, end, step} or as {values: [...]}.",
+      "title": "Positions"
+    }
+  },
+  "required": [
+    "variable",
+    "positions"
+  ],
+  "title": "ScanAxis",
+  "type": "object"
+}

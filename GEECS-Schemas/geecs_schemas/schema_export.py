@@ -29,13 +29,31 @@ from typing import Optional
 
 from pydantic import BaseModel
 
-from geecs_schemas.scan_request import ScanRequest
+from geecs_schemas.scan_request import (
+    ActionBindings,
+    CaptureSettings,
+    OptimizationSpec,
+    ScanAxis,
+    ScanRequest,
+)
 
 #: The published JSON Schema contracts: artifact name → model.  Each entry
 #: renders to ``docs/geecs_schemas/<name>.schema.json``.  Add a line here
 #: and regenerate; the no-drift guard covers it from then on.
+#:
+#: ``scan_request`` is the funnel plan's one parameter.  The four
+#: sub-models are the named plans' parameters (Phase 2b-ii):
+#: ``geecs_noscan_plan(capture, actions=...)``,
+#: ``geecs_scan_plan(axes, capture, actions=...)`` (``axes`` is a list of
+#: ``scan_axis`` objects), ``geecs_optimize_plan(optimization, capture,
+#: actions=...)`` — a generic client grafts one artifact per plan
+#: parameter.
 EXPORTED_SCHEMAS: dict[str, type[BaseModel]] = {
     "scan_request": ScanRequest,
+    "capture_settings": CaptureSettings,
+    "action_bindings": ActionBindings,
+    "scan_axis": ScanAxis,
+    "optimization_spec": OptimizationSpec,
 }
 
 #: Where the artifacts live, relative to the repo root.

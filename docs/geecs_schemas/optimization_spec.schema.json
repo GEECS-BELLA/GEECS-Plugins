@@ -1,0 +1,155 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "EvaluatorSpec": {
+      "additionalProperties": false,
+      "description": "Which analysis code turns raw shots into the number being optimized.\n\nPoints at the Python evaluator class and carries its configuration.",
+      "properties": {
+        "module": {
+          "description": "Python import path of the evaluator module, e.g. 'geecs_bluesky.optimization.evaluators.beam_sum_counts_evaluator'.",
+          "title": "Module",
+          "type": "string"
+        },
+        "class": {
+          "description": "Name of the evaluator class inside that module.",
+          "title": "Class",
+          "type": "string"
+        },
+        "kwargs": {
+          "additionalProperties": true,
+          "description": "Settings passed to the evaluator when it is created \u2014 e.g. which diagnostics/analyzers it should read. Free-form: each evaluator documents its own options.",
+          "title": "Kwargs",
+          "type": "object"
+        }
+      },
+      "required": [
+        "module",
+        "class"
+      ],
+      "title": "EvaluatorSpec",
+      "type": "object"
+    },
+    "GeneratorSpec": {
+      "additionalProperties": false,
+      "description": "Which optimization algorithm proposes the next settings.\n\nNames the generator and carries its algorithm-specific options.",
+      "properties": {
+        "name": {
+          "description": "Name of the optimization algorithm, e.g. 'bayes_default', 'random', or 'multipoint_bax_alignment_l2'.",
+          "title": "Name",
+          "type": "string"
+        },
+        "options": {
+          "additionalProperties": true,
+          "description": "Algorithm-specific tuning options. Free-form: each generator documents its own options (legacy 'xopt_config_overrides').",
+          "title": "Options",
+          "type": "object"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "GeneratorSpec",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "The optimization problem: what to vary, within what limits, to improve what.\n\nOnly used when the scan's mode is ``optimize``.  Lists the variables the\noptimizer may move (with their allowed ranges), what is being minimized\nor maximized, and which algorithm drives the search.\n\nNotes\n-----\nMirrors what the legacy optimizer YAML (``BaseOptimizerConfig`` +\nXopt VOCS) could express: objectives may be empty for BAX-style\ngenerators that model ``observables`` only; ``constraints`` follow the\nVOCS ``[bound_type, value]`` form.",
+  "properties": {
+    "variables": {
+      "additionalProperties": {
+        "maxItems": 2,
+        "minItems": 2,
+        "prefixItems": [
+          {
+            "type": "number"
+          },
+          {
+            "type": "number"
+          }
+        ],
+        "type": "array"
+      },
+      "description": "What the optimizer may move and how far, as 'variable name: [lowest, highest]'. Names may be scan-variable names or 'Device:Variable' strings.",
+      "minProperties": 1,
+      "title": "Variables",
+      "type": "object"
+    },
+    "objectives": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "description": "What counts as better, as 'objective name: MINIMIZE' or 'objective name: MAXIMIZE'. May be empty for algorithms that only model observables (BAX).",
+      "title": "Objectives",
+      "type": "object"
+    },
+    "observables": {
+      "description": "Extra measured quantities the algorithm should track without optimizing them, e.g. ['x_CoM'].",
+      "items": {
+        "type": "string"
+      },
+      "title": "Observables",
+      "type": "array"
+    },
+    "constraints": {
+      "additionalProperties": {
+        "maxItems": 2,
+        "minItems": 2,
+        "prefixItems": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "number"
+          }
+        ],
+        "type": "array"
+      },
+      "description": "Hard limits on measured quantities, as 'name: [LESS_THAN or GREATER_THAN, value]'. Usually empty.",
+      "title": "Constraints",
+      "type": "object"
+    },
+    "evaluator": {
+      "$ref": "#/$defs/EvaluatorSpec",
+      "description": "The analysis code that scores each iteration."
+    },
+    "generator": {
+      "$ref": "#/$defs/GeneratorSpec",
+      "description": "The algorithm that proposes the next settings."
+    },
+    "max_iterations": {
+      "anyOf": [
+        {
+          "minimum": 1,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Stop after this many optimization iterations. Leave unset to run until stopped by hand.",
+      "title": "Max Iterations"
+    },
+    "seed_dump_files": {
+      "description": "Optional earlier results (ECS dump files) used to warm-start the optimizer. Usually empty.",
+      "items": {
+        "type": "string"
+      },
+      "title": "Seed Dump Files",
+      "type": "array"
+    },
+    "move_to_best_on_finish": {
+      "default": false,
+      "description": "After the optimization ends, drive the variables back to the best settings found.",
+      "title": "Move To Best On Finish",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "variables",
+    "evaluator",
+    "generator"
+  ],
+  "title": "OptimizationSpec",
+  "type": "object"
+}
