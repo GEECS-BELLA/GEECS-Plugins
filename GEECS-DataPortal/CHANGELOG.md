@@ -3,6 +3,29 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.18.0] - 2026-09-01
+
+### Added
+
+- **Rendered view** on the Images tab (PR 4 of the 04 design, the
+  interactivity stop-gap): `display.mode = "rendered"` (the "rendered
+  figure" checkbox in the display popup) serves the analyzer's own
+  matplotlib figure — overlays, axes, colorbar — instead of the windowed
+  processed pixels, through ImageAnalysis 1.14.0's
+  `render_diagnostic_ephemeral` (object-API figures, no pyplot on the
+  threadpool; same write-free contract and denylist). Per-bin view
+  renders the averaged processed image through the base renderer with
+  per-shot overlays dropped. `cmap` and the percentile window apply
+  (absent/unknown colormap → `gray`, the pixel view's palette; `mode`
+  outside `("", "rendered")` is a 400 — the enum precedent). Without a
+  `processing` selection the mode is ignored (raw pixels). Status
+  ladder matches the pixel path: a result that ran but cannot be drawn
+  (`RenderError`) is a 404 like "render failed" / "produces no
+  processed image". Review #766 also: the three "configured? installed?"
+  preambles collapsed into `_ephemeral_module()`; `resources.figure_png`
+  now serves `/plot.png` too; `to_display_png` uses `safe_cmap`; a legacy
+  dict-returning analyzer in the pixel path is a 404, not a 500.
+
 ## [0.17.0] - 2026-09-01
 
 ### Added

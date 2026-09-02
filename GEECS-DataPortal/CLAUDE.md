@@ -175,7 +175,16 @@ frame) · `/health` (catalog probe — the fleet-map health check).
 Both image endpoints also take `?display=` (the shared display state's
 image slice: `cmap` matplotlib-colormap name + `plo`/`phi` percentile
 window — types 400 at parse, values degrade to grayscale/defaults;
-edited via the Images plotbar's "display…" popup) and
+edited via the Images plotbar's "display…" popup — plus `mode`
+(0.18.0): `"rendered"` serves the analyzer's own figure via
+`image_analysis.ephemeral.render_diagnostic_ephemeral` (object-API
+`Figure`, never pyplot — the one sanctioned matplotlib path on a
+request thread; per-bin = the base renderer over the averaged image,
+overlays dropped; the colormap defaults to `gray` like the pixel
+view); only meaningful with `processing`, ignored without it. `mode`
+is an enum: an unknown value is a **400**, the `bincfg`-enum
+precedent and a deliberate exception to "values degrade" — a wrong
+mode is a broken link, not a cosmetic) and
 `?processing=<diagnostic id>` (the `processing` URL state): the named ImageAnalysis diagnostic runs
 **ephemerally** on the served pixels via
 `image_analysis.ephemeral.run_diagnostic_ephemeral` — the write-free

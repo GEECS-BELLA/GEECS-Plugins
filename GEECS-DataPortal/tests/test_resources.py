@@ -1008,3 +1008,161 @@ class TestImageDisplay:
         )
         assert response.status_code == 200
         assert np.array(Image.open(io.BytesIO(response.content))).ndim == 3
+
+
+class TestRenderedView:
+    """``display.mode = "rendered"``: the analyzer's figure instead of the pixels."""
+
+    # Borrow the selector's fixtures + client (not inheritance: that
+    # would re-collect its tests under this class).
+    configs_tree = TestProcessingSelector.configs_tree
+    analysis_extra = TestProcessingSelector.analysis_extra
+    _client = TestProcessingSelector._client
+
+    def test_per_shot_rendered_is_a_figure_not_the_pixels(
+        self, scan_folder, configs_tree, analysis_extra
+    ):
+        client = self._client(scan_folder, configs_tree)
+        pixels = client.get(
+            "/run/uid-002/image.png",
+            params={"device": "cam", "shot": 1, "processing": "UC_Crop"},
+        )
+        rendered = client.get(
+            "/run/uid-002/image.png",
+            params={
+                "device": "cam",
+                "shot": 1,
+                "processing": "UC_Crop",
+                "display": '{"mode": "rendered", "cmap": "viridis"}',
+            },
+        )
+        assert pixels.status_code == 200 and rendered.status_code == 200
+        assert rendered.headers["cache-control"] == "no-cache"
+        # The pixel view is the 2x3 crop; the figure is a full plot canvas.
+        assert np.array(Image.open(io.BytesIO(pixels.content))).shape == (2, 3)
+        canvas = Image.open(io.BytesIO(rendered.content))
+        assert canvas.size[0] > 200 and canvas.size[1] > 200
+
+    def test_rendered_without_processing_is_the_raw_pixels(
+        self, scan_folder, configs_tree, analysis_extra
+    ):
+        client = self._client(scan_folder, configs_tree)
+        response = client.get(
+            "/run/uid-002/image.png",
+            params={"device": "cam", "shot": 1, "display": '{"mode": "rendered"}'},
+        )
+        assert response.status_code == 200
+        assert np.array(Image.open(io.BytesIO(response.content))).shape == (5, 5)
+
+    def test_per_bin_rendered_is_the_averaged_base_figure(
+        self, scan_folder, configs_tree, analysis_extra
+    ):
+        client = self._client(scan_folder, configs_tree)
+        response = client.get(
+            "/run/uid-002/bin-image.png",
+            params={
+                "device": "cam",
+                "bin": 0,
+                "processing": "UC_Crop",
+                "display": '{"mode": "rendered"}',
+            },
+        )
+        assert response.status_code == 200
+        assert response.headers["cache-control"] == "no-cache"
+        canvas = Image.open(io.BytesIO(response.content))
+        assert canvas.size[0] > 200
+
+    def test_bad_mode_is_400_and_unknown_cmap_degrades(
+        self, scan_folder, configs_tree, analysis_extra
+    ):
+        client = self._client(scan_folder, configs_tree)
+        bad = client.get(
+            "/run/uid-002/image.png",
+            params={"device": "cam", "shot": 1, "display": '{"mode": "3d"}'},
+        )
+        assert bad.status_code == 400
+        assert "mode" in bad.json()["detail"]
+        degraded = client.get(
+            "/run/uid-002/image.png",
+            params={
+                "device": "cam",
+                "shot": 1,
+                "processing": "UC_Crop",
+                "display": '{"mode": "rendered", "cmap": "no-such-map"}',
+            },
+        )
+        assert degraded.status_code == 200
+
+    def test_unrenderable_result_matches_the_pixel_paths_404(
+        self, scan_folder, configs_tree, analysis_extra, monkeypatch
+    ):
+        """A diagnostic that ran but cannot be drawn is a 404 in every view.
+
+        ``StandardAnalyzer`` is patched to hand back a scalars-only result
+        (the per-frame-copy test's trick): the pixel path refuses it as
+        "produces no processed image", the rendered paths as
+        ``RenderError`` → "render failed" — same code, so a display
+        checkbox never changes the status of the same input.
+        """
+        from image_analysis.analyzers.standard_analyzer import StandardAnalyzer
+        from image_analysis.types import ImageAnalyzerResult
+
+        monkeypatch.setattr(
+            StandardAnalyzer,
+            "analyze_image",
+            lambda self, image, aux=None: ImageAnalyzerResult(
+                data_type="scalars_only", scalars={"x": 1.0}
+            ),
+        )
+        client = self._client(scan_folder, configs_tree)
+        pixel = client.get(
+            "/run/uid-002/image.png",
+            params={"device": "cam", "shot": 1, "processing": "UC_Crop"},
+        )
+        rendered = client.get(
+            "/run/uid-002/image.png",
+            params={
+                "device": "cam",
+                "shot": 1,
+                "processing": "UC_Crop",
+                "display": '{"mode": "rendered"}',
+            },
+        )
+        binned = client.get(
+            "/run/uid-002/bin-image.png",
+            params={
+                "device": "cam",
+                "bin": 0,
+                "processing": "UC_Crop",
+                "display": '{"mode": "rendered"}',
+            },
+        )
+        assert pixel.status_code == 404
+        assert "no processed image" in pixel.json()["detail"]
+        assert rendered.status_code == 404
+        assert "render failed" in rendered.json()["detail"]
+        assert binned.status_code == 404
+
+    def test_legacy_dict_result_is_a_404_in_both_views(
+        self, scan_folder, configs_tree, analysis_extra, monkeypatch
+    ):
+        """BCaveMagSpecStitcher-style dict returns: refused, never a 500."""
+        from image_analysis.analyzers.standard_analyzer import StandardAnalyzer
+
+        monkeypatch.setattr(
+            StandardAnalyzer,
+            "analyze_image",
+            lambda self, image, aux=None: {"legacy": 1},
+        )
+        client = self._client(scan_folder, configs_tree)
+        for display in ("", '{"mode": "rendered"}'):
+            response = client.get(
+                "/run/uid-002/image.png",
+                params={
+                    "device": "cam",
+                    "shot": 1,
+                    "processing": "UC_Crop",
+                    "display": display,
+                },
+            )
+            assert response.status_code == 404, display

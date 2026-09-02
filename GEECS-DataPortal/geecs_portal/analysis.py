@@ -191,7 +191,18 @@ _DISPLAY_NUMBERS = (
     "plo",
     "phi",
 )
-_DISPLAY_FIELDS = {*_DISPLAY_BOOLS, *_DISPLAY_NUMBERS, "colors", "layout", "cmap"}
+#: Image view modes: "" (the processed / raw pixels as a windowed PNG)
+#: or "rendered" (the analyzer's own matplotlib figure — overlays,
+#: axes, colorbar; only meaningful with a `processing` selection).
+DISPLAY_MODES = ("", "rendered")
+_DISPLAY_FIELDS = {
+    *_DISPLAY_BOOLS,
+    *_DISPLAY_NUMBERS,
+    "colors",
+    "layout",
+    "cmap",
+    "mode",
+}
 
 
 def parse_display(raw: str) -> dict:
@@ -258,6 +269,8 @@ def parse_display(raw: str) -> dict:
         raise BadParam("bad display param: layout must be an object")
     if "cmap" in payload and not isinstance(payload["cmap"], str):
         raise BadParam("bad display param: cmap must be a string")
+    if "mode" in payload and payload["mode"] not in DISPLAY_MODES:
+        raise BadParam(f"bad display param: mode must be one of {list(DISPLAY_MODES)}")
     return payload
 
 

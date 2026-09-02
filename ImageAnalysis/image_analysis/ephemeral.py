@@ -30,12 +30,25 @@ structural, not conventional:
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Sequence, Tuple, Union
 
 from .config import create_image_analyzer, load_diagnostic
+from .tools.rendering import RenderError, render_frame_figure, render_result_figure
 from .types import Array2D, ImageAnalyzerResult
 
-__all__ = ["EPHEMERAL_DENYLIST", "run_diagnostic_ephemeral"]
+if TYPE_CHECKING:
+    from matplotlib.figure import Figure
+
+    from .base import ImageAnalyzer
+
+__all__ = [
+    "EPHEMERAL_DENYLIST",
+    "RenderError",
+    "render_diagnostic_ephemeral",
+    "render_frame_figure",
+    "render_result_figure",
+    "run_diagnostic_ephemeral",
+]
 
 #: Analyzer class paths that cannot run ephemerally: their side effects
 #: are not gated on ``auxiliary_data["file_path"]``, so no calling
@@ -103,6 +116,23 @@ def run_diagnostic_ephemeral(
         If ``auxiliary_data`` contains ``file_path``, or the diagnostic's
         analyzer class is on :data:`EPHEMERAL_DENYLIST`.
     """
+    analyzer = _ephemeral_analyzer(
+        name_or_path,
+        config_dir=config_dir,
+        overrides=overrides,
+        auxiliary_data=auxiliary_data,
+    )
+    return _analyze_frames(analyzer, frames, auxiliary_data)
+
+
+def _ephemeral_analyzer(
+    name_or_path: Union[str, Path],
+    *,
+    config_dir: Optional[Path],
+    overrides: Optional[Dict[str, Any]],
+    auxiliary_data: Optional[Dict[str, Any]],
+) -> "ImageAnalyzer":
+    """The write-free gate + one analyzer instantiation (shared by both runners)."""
     if auxiliary_data is not None and "file_path" in auxiliary_data:
         raise ValueError(
             "auxiliary_data['file_path'] is forbidden in ephemeral runs: "
@@ -122,10 +152,70 @@ def run_diagnostic_ephemeral(
             f"remove it from EPHEMERAL_DENYLIST."
         )
 
-    analyzer = create_image_analyzer(diag)
+    return create_image_analyzer(diag)
+
+
+def _analyze_frames(
+    analyzer: "ImageAnalyzer",
+    frames: Sequence[Array2D],
+    auxiliary_data: Optional[Dict[str, Any]],
+) -> List[ImageAnalyzerResult]:
     return [
         analyzer.analyze_image(
             frame, dict(auxiliary_data) if auxiliary_data is not None else None
         )
         for frame in frames
+    ]
+
+
+def render_diagnostic_ephemeral(
+    name_or_path: Union[str, Path],
+    frames: Sequence[Array2D],
+    *,
+    config_dir: Optional[Path] = None,
+    overrides: Optional[Dict[str, Any]] = None,
+    auxiliary_data: Optional[Dict[str, Any]] = None,
+    window: Optional[Tuple[float, float]] = None,
+    cmap: Optional[str] = None,
+    figsize: Tuple[float, float] = (5.0, 4.2),
+    dpi: int = 110,
+) -> List["Figure"]:
+    """Run a diagnostic over in-memory frames and draw each result its own way.
+
+    :func:`run_diagnostic_ephemeral` plus
+    :func:`image_analysis.tools.rendering.render_result_figure` per
+    frame, with one analyzer instantiation for the batch and the same
+    write-free contract (the ``file_path`` refusal and the denylist
+    apply unchanged). Returns object-API figures — no pyplot state is
+    created, so this is safe on a request threadpool. A renderer that
+    cannot draw a result raises :class:`RenderError` (distinct from the
+    contract/config errors raised before any frame is analyzed).
+
+    Parameters
+    ----------
+    name_or_path, frames, config_dir, overrides, auxiliary_data
+        As for :func:`run_diagnostic_ephemeral`.
+    window : (lo, hi) percentiles, optional
+        Display window over each processed image → ``vmin``/``vmax``.
+    cmap : str, optional
+        Matplotlib colormap name for 2D results.
+    figsize, dpi
+        Figure geometry.
+
+    Returns
+    -------
+    list of matplotlib.figure.Figure
+        One figure per input frame, in order.
+    """
+    analyzer = _ephemeral_analyzer(
+        name_or_path,
+        config_dir=config_dir,
+        overrides=overrides,
+        auxiliary_data=auxiliary_data,
+    )
+    return [
+        render_result_figure(
+            analyzer, result, window=window, cmap=cmap, figsize=figsize, dpi=dpi
+        )
+        for result in _analyze_frames(analyzer, frames, auxiliary_data)
     ]
