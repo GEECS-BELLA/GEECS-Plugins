@@ -216,12 +216,6 @@ class TestScanRequest:
                 }
             )
 
-    def test_trigger_variant_needs_profile(self):
-        with pytest.raises(ValidationError, match="trigger_variant"):
-            ScanRequest.model_validate(
-                {"mode": "noscan", "trigger_variant": "laser_off"}
-            )
-
     def test_explicit_position_list(self):
         request = make_step_request(
             axes=[{"variable": "jet_z", "positions": {"values": [0.0, 0.5, 2.0]}}]
@@ -348,7 +342,7 @@ class TestSubmissionRecord:
 
 
 class TestV1Migration:
-    """The v1→v2 lifting validator (Planning/schema_refactor/00_overview.md)."""
+    """The v1→v3 lifting validator (Planning/schema_refactor/00_overview.md)."""
 
     def test_flat_v1_layout_lifts_into_capture(self):
         request = make_step_request()  # flat layout by construction
@@ -358,7 +352,7 @@ class TestV1Migration:
 
     def test_lifted_document_normalizes_schema_version(self):
         request = make_step_request(schema_version=1)
-        assert request.schema_version == 2
+        assert request.schema_version == 3
 
     def test_quoted_v1_schema_version_also_normalizes(self):
         # A quoted "1" (string-typed YAML/JSON) coerces to int at field
@@ -366,31 +360,31 @@ class TestV1Migration:
         request = ScanRequest.model_validate(
             {"mode": "noscan", "schema_version": "1", "shots_per_step": 2}
         )
-        assert request.schema_version == 2
+        assert request.schema_version == 3
 
     def test_sparse_v1_document_normalizes_schema_version(self):
         # A declared version <= 1 is normalized even with NO flat fields to
         # lift — otherwise a sparse v1 preset would round-trip a v2-shaped
         # dump stamped schema_version: 1.
         request = ScanRequest.model_validate({"mode": "noscan", "schema_version": 1})
-        assert request.schema_version == 2
-        assert request.model_dump(mode="json")["schema_version"] == 2
+        assert request.schema_version == 3
+        assert request.model_dump(mode="json")["schema_version"] == 3
 
     def test_future_schema_version_is_never_clobbered_down(self):
         # The submission-drop path must not stamp a future document back to
-        # 2 — a v3 stamp survives this validator.
+        # 3 — a v4 stamp survives this validator.
         request = ScanRequest.model_validate(
             {
-                "schema_version": 3,
+                "schema_version": 4,
                 "mode": "noscan",
                 "capture": {"shots_per_step": 4},
                 "submission": {"client": "x", "preflight": []},
             }
         )
-        assert request.schema_version == 3
+        assert request.schema_version == 4
         assert "submission" not in request.model_dump(mode="json")
 
-    def test_v2_document_round_trips_untouched(self):
+    def test_v2_document_lifts_to_v3(self):
         v2 = {
             "schema_version": 2,
             "mode": "noscan",
@@ -398,8 +392,68 @@ class TestV1Migration:
         }
         request = ScanRequest.model_validate(v2)
         assert request.capture.shots_per_step == 7
+        assert request.schema_version == 3
         again = ScanRequest.model_validate(request.model_dump(mode="json"))
         assert again == request
+
+    def test_v3_document_round_trips_untouched(self):
+        v3 = {
+            "schema_version": 3,
+            "mode": "noscan",
+            "capture": {"shots_per_step": 7, "save_sets": ["diag"]},
+        }
+        request = ScanRequest.model_validate(v3)
+        assert request.model_dump(mode="json")["schema_version"] == 3
+        assert ScanRequest.model_validate(request.model_dump(mode="json")) == request
+
+    def test_unset_trigger_variant_is_dropped_flat_and_nested(self):
+        # v1 presets carry `trigger_variant: null` at the top level and v2
+        # documents inside `capture` — both are dropped, not refused.
+        flat = ScanRequest.model_validate(
+            {"schema_version": 1, "mode": "noscan", "trigger_variant": None}
+        )
+        nested = ScanRequest.model_validate(
+            {
+                "schema_version": 2,
+                "mode": "noscan",
+                "capture": {"shots_per_step": 2, "trigger_variant": None},
+            }
+        )
+        for request in (flat, nested):
+            assert request.schema_version == 3
+            assert "trigger_variant" not in request.model_dump(mode="json")["capture"]
+        assert nested.capture.shots_per_step == 2
+
+    def test_flat_trigger_variant_beside_capture_gets_the_variant_verdict(self):
+        # Only the removed field is flat: it is judged on its own terms —
+        # unset → dropped (no "mixed layout" refusal), set → the v3 remedy.
+        dropped = ScanRequest.model_validate(
+            {
+                "mode": "noscan",
+                "capture": {"shots_per_step": 2},
+                "trigger_variant": None,
+            }
+        )
+        assert dropped.capture.shots_per_step == 2
+        with pytest.raises(ValidationError, match="own trigger profile"):
+            ScanRequest.model_validate(
+                {
+                    "mode": "noscan",
+                    "capture": {"shots_per_step": 2},
+                    "trigger_variant": "laser_off",
+                }
+            )
+
+    def test_set_trigger_variant_is_refused_with_the_remedy(self):
+        for document in (
+            {"mode": "noscan", "trigger_profile": "p", "trigger_variant": "laser_off"},
+            {
+                "mode": "noscan",
+                "capture": {"trigger_profile": "p", "trigger_variant": "laser_off"},
+            },
+        ):
+            with pytest.raises(ValidationError, match="own trigger profile"):
+                ScanRequest.model_validate(document)
 
     def test_capture_omitted_defaults(self):
         request = ScanRequest.model_validate({"mode": "noscan"})
@@ -425,4 +479,4 @@ class TestV1Migration:
             submission={"client": "geecs-console 0.21.0", "preflight": []}
         )
         assert "submission" not in request.model_dump(mode="json")
-        assert request.schema_version == 2
+        assert request.schema_version == 3

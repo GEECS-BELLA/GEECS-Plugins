@@ -98,7 +98,7 @@ logger = logging.getLogger(__name__)
 
 
 def _state_write_triples(
-    profile: TriggerProfile, state: "TriggerState", variant: str | None
+    profile: TriggerProfile, state: "TriggerState"
 ) -> list[tuple[str | None, str, str]]:
     """Normalize one state's writes to ``(device, variable, value)`` triples.
 
@@ -106,7 +106,7 @@ def _state_write_triples(
     multi-device ordered write lists); order is preserved exactly
     (schema-documented: writes apply top to bottom).
     """
-    writes = profile.writes_for(state, variant)
+    writes = profile.writes_for(state)
     if isinstance(writes, dict):
         device = getattr(profile, "device", None)
         return [(device, variable, value) for variable, value in writes.items()]
@@ -119,9 +119,7 @@ def _state_write_triples(
     return triples
 
 
-def trigger_writes_from_profile(
-    profile: TriggerProfile, variant: str | None = None
-) -> ShotControlWrites:
+def trigger_writes_from_profile(profile: TriggerProfile) -> ShotControlWrites:
     """Adapt a TriggerProfile into the engine's ShotControlWrites.
 
     Each state becomes the profile's **ordered** write list (possibly
@@ -132,24 +130,17 @@ def trigger_writes_from_profile(
     ----------
     profile :
         The trigger profile to adapt.
-    variant :
-        Optional profile variant overlaid first (e.g. ``"laser_off"``).
 
     Raises
     ------
     GeecsConfigurationError
-        Unknown *variant*, or the profile writes no device at all.
+        The profile writes no device at all.
     """
-    if variant is not None and variant not in profile.variants:
-        raise GeecsConfigurationError(
-            f"trigger profile {profile.name!r} has no variant {variant!r}. "
-            f"Known variants: {sorted(profile.variants)}"
-        )
     states: dict[str, list[tuple[str, str, str]]] = {}
     any_device = False
     for state in TriggerState:
         triples: list[tuple[str, str, str]] = []
-        for device, variable, value in _state_write_triples(profile, state, variant):
+        for device, variable, value in _state_write_triples(profile, state):
             if device is None:
                 raise GeecsConfigurationError(
                     f"trigger profile {profile.name!r} has a write to "
@@ -856,7 +847,7 @@ def validate_scan_request(
     products beyond the returned pair are discarded — execution re-resolves
     what it needs.  Checks, in order: experiment defaults apply, every
     action name (request-level; unknown nested ``run`` references included),
-    the trigger profile + variant, the save-set rule (a non-optimize
+    the trigger profile, the save-set rule (a non-optimize
     request needs at least one — optimize may run save-set-less because the
     optimizer's ``device_requirements`` are auto-provisioned at execution
     time, where an empty *effective* set still refuses pre-claim), every
@@ -887,7 +878,7 @@ def validate_scan_request(
     Raises
     ------
     GeecsConfigurationError
-        Unresolvable names, an unknown trigger variant, a step/noscan
+        Unresolvable names, a deviceless trigger profile, a step/noscan
         request without a save set, or a pseudo scan variable whose
         ``forward`` expression fails to compile.
     """
@@ -896,10 +887,10 @@ def validate_scan_request(
     resolve_and_validate_actions(validated.actions, resolver)
 
     if validated.capture.trigger_profile:
-        # Adapt (and discard) the writes so an unknown trigger_variant
-        # fails here, not at execution time.
+        # Adapt (and discard) the writes so a deviceless profile fails
+        # here, not at execution time.
         profile = resolver.resolve_trigger_profile(validated.capture.trigger_profile)
-        trigger_writes_from_profile(profile, validated.capture.trigger_variant)
+        trigger_writes_from_profile(profile)
 
     if not validated.capture.save_sets:
         if validated.mode is not ScanRequestMode.OPTIMIZE:

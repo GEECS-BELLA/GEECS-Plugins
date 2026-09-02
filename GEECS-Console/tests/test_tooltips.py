@@ -95,6 +95,8 @@ class TestMainWindowOperatorTooltips:
         "stop_button",
         "state_pill",
         "progress_bar",
+        "queue_table",
+        "queue_clear_button",
         "device_combo",
         "set_field",
         "set_button",
@@ -249,7 +251,6 @@ class TestShotControlEditorTooltips:
         fields = TriggerProfile.model_fields
         assert editor.description_edit.toolTip() == fields["description"].description
         assert editor.states_tree.toolTip() == fields["states"].description
-        assert editor.variant_combo.toolTip() == fields["variants"].description
 
 
 class TestActionLibraryEditorTooltips:

@@ -12,11 +12,12 @@ in the issue #534 slimming (step 1).
 
 from __future__ import annotations
 
+import functools
 import logging
 import threading
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING, Callable, Optional
 
-from PySide6.QtCore import QObject, Signal, Slot
+from PySide6.QtCore import QObject, Qt, QTimer, Signal, Slot
 
 if TYPE_CHECKING:
     from geecs_console.services.health import HealthProbe
@@ -24,20 +25,63 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+#: Workers with calls in flight (worker → count), held on the GUI thread
+#: until each result has landed there (see ``BackgroundResult._forward``).
+#: The daemon thread's one cross-thread emission targets the worker
+#: itself, so the worker must outlive that emission whatever the consumer
+#: does meanwhile.  A count, not a set: one worker may carry overlapping
+#: calls (the now panel's per-experiment probes across an experiment
+#: switch), and the first landing must not release the second's hold.
+_INFLIGHT: dict = {}
+
+
+def _hold(worker: "BackgroundResult") -> None:
+    _INFLIGHT[worker] = _INFLIGHT.get(worker, 0) + 1
+
+
+def _release(worker: "BackgroundResult") -> None:
+    remaining = _INFLIGHT.get(worker, 0) - 1
+    if remaining > 0:
+        _INFLIGHT[worker] = remaining
+    else:
+        _INFLIGHT.pop(worker, None)
+
+
+#: Sentinel routed through the GUI hop when the callable raised (no
+#: ``result_ready`` emission, but the in-flight hold is still released).
+_FAILED = object()
+
+
 class BackgroundResult(QObject):
     """Runs one blocking callable on a daemon thread and reports its result.
 
     The ``HealthPoller`` shape, generalized: the worker lives on the
     GUI thread, each :meth:`run_async` call spawns a short-lived daemon
-    thread, and the result comes back through the queued
-    :attr:`result_ready` signal.  Crucially the daemon thread emits on
-    *this worker*, never on the main window — emitting a window-owned
-    signal from a daemon thread races window teardown and segfaults under
-    offscreen pytest (observed with the idle scan-number probe).
+    thread, and the result comes back through :attr:`result_ready`,
+    **emitted on the GUI thread**.  The daemon thread never emits toward
+    the consumer: it hops the result onto the GUI thread through the
+    worker's own queued ``_landed`` signal (receiver = this worker, held
+    alive in :data:`_INFLIGHT` until the hop completes), and
+    :meth:`_forward` re-emits ``result_ready`` there.  Emitting from a
+    daemon thread straight at a consumer QObject races the consumer's
+    destruction — Qt's C++ connection bookkeeping survives that, PySide's
+    Python-slot delivery does not, and it segfaults under offscreen pytest
+    (first seen with a window-owned signal and the idle scan-number probe;
+    again in 0.28.0 with a controller-owned slot, the queue panel's fetch
+    landing while a test window was torn down).  Consumers connect
+    ``result_ready`` ``QueuedConnection`` as before; it now merely
+    defers the call by one event-loop turn.
     """
 
     result_ready = Signal(object)
     """Carries the callable's return value, one emission per finished call."""
+
+    _landed = Signal(object)
+    """The daemon thread → GUI thread hop (internal; receiver = self)."""
+
+    def __init__(self, parent: Optional[QObject] = None) -> None:
+        super().__init__(parent)
+        self._landed.connect(self._forward, Qt.ConnectionType.QueuedConnection)
 
     def run_async(self, func: Callable[[], object], name: str) -> None:
         """Run *func* on a fresh daemon thread and emit its result.
@@ -51,19 +95,35 @@ class BackgroundResult(QObject):
         name : str
             The daemon thread's name (debugging).
         """
+        _hold(self)
         threading.Thread(target=self._run, args=(func,), name=name, daemon=True).start()
 
     def _run(self, func: Callable[[], object]) -> None:
-        """Call *func* (on the daemon thread) and emit the result."""
+        """Call *func* (on the daemon thread) and hop the result to the GUI thread."""
         try:
             result = func()
         except Exception as exc:  # noqa: BLE001 — background work is best-effort
             logger.info("background call failed: %s", exc)
-            return
+            result = _FAILED
         try:
-            self.result_ready.emit(result)
+            self._landed.emit(result)
         except RuntimeError:
-            pass  # the worker was deleted while the call ran
+            # A Qt-parented worker was deleted with its parent while the
+            # call ran (the hold protects unparented workers only): drop
+            # the dead wrapper's hold so the registry does not grow.
+            _INFLIGHT.pop(self, None)
+
+    @Slot(object)
+    def _forward(self, result: object) -> None:
+        """Re-emit on the GUI thread and release the in-flight hold (deferred).
+
+        The hold is released one event-loop turn later rather than here:
+        dropping the last reference to a QObject from inside its own slot
+        would delete the C++ object under the running metacall.
+        """
+        QTimer.singleShot(0, functools.partial(_release, self))
+        if result is not _FAILED:
+            self.result_ready.emit(result)
 
 
 class HealthPoller(QObject):

@@ -13,6 +13,8 @@ guarantees:
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -52,4 +54,34 @@ class VersionedSchemaModel(SchemaModel):
             "Format version of this config file. Leave at 1 — tools update "
             "this automatically when the file format changes."
         ),
+    )
+
+
+def stale_schema_version(data: Mapping[str, object], current: int) -> bool:
+    """Whether *data* declares a ``schema_version`` older than *current*.
+
+    The one definition every document kind's lifting validator uses to
+    decide "normalize the stamp up".  A quoted digit (``"1"`` from YAML or
+    JSON) counts the same as the int — pydantic's lax mode coerces it at
+    field validation, so the staleness check must see it the same way.  An
+    absent or unparseable version is *not* stale: the field default (the
+    current version) applies.
+
+    Parameters
+    ----------
+    data : Mapping
+        The raw document.
+    current : int
+        The format version the model is at.
+
+    Returns
+    -------
+    bool
+        ``True`` when a declared version is strictly older than *current*.
+    """
+    version = data.get("schema_version")
+    if isinstance(version, str) and version.isdigit():
+        version = int(version)
+    return (
+        isinstance(version, int) and not isinstance(version, bool) and version < current
     )

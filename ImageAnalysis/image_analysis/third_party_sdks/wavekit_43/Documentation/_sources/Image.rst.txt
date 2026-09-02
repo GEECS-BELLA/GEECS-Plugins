@@ -1,6 +1,0 @@
-
-
-Wavekit_Python::Image
-=====================
-.. automodule:: wavekit_py.io_wavekit_image
-   :members:

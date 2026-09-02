@@ -5,6 +5,55 @@ All notable changes to GEECS-Schemas are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.0] - 2026-09-02
+
+### Added
+
+- **Schema export registry** (Phase 2b-i): `schema_export.EXPORTED_SCHEMAS`
+  maps artifact names to models and renders one committed
+  `docs/geecs_schemas/<name>.schema.json` per entry (`json_schema`,
+  `render_artifact(name)`, `write_artifacts`); the no-drift guard is
+  parametrized over the registry and an orphan-artifact check refuses a
+  published file whose model left the registry. `SCHEMA_ARTIFACT` and
+  `scan_request_json_schema()` stay as the ScanRequest aliases. The
+  regenerator script is now `tests/generate_schema_artifacts.py`. Groundwork
+  for the named plans' parameter models (2b-ii): one registry line each.
+
+### Changed
+
+- `python -m geecs_schemas.schema_export` takes `--root <repo>` (writes the
+  whole artifact tree, creating directories) instead of `-o <file>`;
+  `write_artifact(name, path)` requires the entry name.
+
+## [0.15.0] - 2026-09-02
+
+### Removed
+
+- **Trigger-profile variants** (`TriggerProfile.variants`, `TriggerVariant`,
+  `writes_for(..., variant=)`, `defines_state(..., variant=)`,
+  `convert.merge_trigger_variant`) and **`CaptureSettings.trigger_variant`**.
+  Variants were the schema's answer to parallel laser-on/laser-off files;
+  nobody adopted them — every experiment kept one profile file per
+  operating condition — so they were a second way to say what the profile
+  name already says, costing a field on every scan form, a console combo,
+  a validator, and an adapter parameter.
+
+### Changed
+
+- **TriggerProfile format v2** (`schema_version` default 2): a
+  before-validator drops an empty v1 `variants` block (the corpus shape),
+  refuses a populated one with the remedy (split it into its own profile),
+  and normalizes `schema_version` ≤ 1 to 2.
+- **ScanRequest format v3** (`schema_version` default 3): the lifting
+  validator now also drops an unset `trigger_variant` — flat v1 or inside
+  `capture` — refuses a set one with the remedy, and normalizes
+  `schema_version` ≤ 2 to 3. Both bumps follow the README's versioning
+  policy: a removed field is a migration.
+
+Regenerated: the JSON Schema artifact, the Markdown schema reference, and
+the converter golden files (the HTU trigger-profile golden is now the plain
+`HTU-Normal` conversion).
+
 ## [0.14.0] - 2026-09-01
 
 ### Changed

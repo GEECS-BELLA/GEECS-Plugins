@@ -65,3 +65,13 @@ class TestReference:
         for kind, model in SCHEMA_REGISTRY.items():
             document = yaml.safe_load(EXAMPLES[kind])
             model.model_validate(document)
+
+    def test_examples_stamp_the_current_schema_version(self):
+        # The lifting validators normalize a stale stamp up, so validation
+        # alone cannot see an example that disagrees with the reference
+        # table it sits under — pin the raw stamp to the model's default.
+        yaml = pytest.importorskip("yaml")
+        for kind, model in SCHEMA_REGISTRY.items():
+            document = yaml.safe_load(EXAMPLES[kind])
+            current = model.model_fields["schema_version"].default
+            assert document.get("schema_version") == current, (kind, current)

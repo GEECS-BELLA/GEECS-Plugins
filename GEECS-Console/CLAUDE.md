@@ -3,7 +3,7 @@
 The greenfield PySide6 operator console (decided 2026-07-10).  **The screen
 map is the spec**: `Planning/cutover_strategy/01_gui_feature_inventory.md`
 (the legacy-GUI capability inventory with dispositions) and the approved
-screen-map artifact (regions R1–R7).  This package is the "one working screen" half of
+screen-map artifact (regions R1–R7, plus R8 added in 0.28.0).  This package is the "one working screen" half of
 the commit/abort checkpoint's criterion (c).
 
 ## The screen map (regions → widgets)
@@ -12,8 +12,8 @@ One main window, menu bar (Ops / Actions / Editors / Preferences / Help),
 status bar (gateway addr, configs path, version).  Object names in the `.ui`
 are prefixed by region (`r3_radio_1d`, `r5_start_button`, …).
 
-- **R1 session bar** — experiment combo, rep-rate field, trigger-profile +
-  variant combos, gateway/tiled/db health chips.
+- **R1 session bar** — experiment combo, rep-rate field, trigger-profile
+  combo, gateway/tiled/db health chips.
 - **R2 save sets** — available/selected lists, Add/Remove, union preview
   line ("union: N devices"), role-conflict/reference hint line.
 - **R3 scan form** — mode radios (No-scan / 1D / Grid / Optimization /
@@ -83,7 +83,7 @@ are prefixed by region (`r3_radio_1d`, `r5_start_button`, …).
   re-arms on set_totals so a new scan's first line always renders); data
   signals never dedupe.
 - **R7 movable panel** (middle column, below R4/R5 since 0.19.1 — the
-  right column is R6's alone) — an editable combo (catalog scan-variable names
+  right column holds R6 and R8) — an editable combo (catalog scan-variable names
   first, then `device:variable` completions from `GeecsDbCompletions`),
   readback label, set field + button — owned by
   `app/movable_panel.py::MovablePanelController` since 0.19.0 (see
@@ -94,6 +94,31 @@ are prefixed by region (`r3_radio_1d`, `r5_start_button`, …).
   `:SP` riding GEECS's native blocking set — never `geecs_python_api`'s
   ScanDevice.  The R3 axis combos auto-select the panel (the legacy
   scanner behavior), composites included.
+- **R8 queue panel** (right column, below R6, since 0.28.0) — what the
+  RE Manager holds, which R6 deliberately does not show: a summary line
+  ("Running · 2 waiting" / "Queue empty" / "manager unreachable"), a
+  read-only table (State / Item / By / Detail) of the running item,
+  the waiting items front-first (any client's — the MCP's, a
+  notebook's), and the last `HISTORY_ROWS` finished items newest-first
+  with the manager's `exit_status`, finish clock and first message
+  line, plus **Clear queue** (confirmation modal; the recovery verb for
+  the failed-item-at-front trap — a running scan is untouched).  Owned
+  by `app/queue_panel.py::QueuePanelController` (#534 controller
+  shape).  The manager ships this as data only (`queue_get` /
+  `history_get`) — the panel is the console's view; per-plan progress
+  stays R6's (the document stream), the manager has no notion of it.
+  **Refresh policy**: the R6 status poll is the trigger — the window's
+  `_on_queue_status` fans each snapshot into `on_status`, which
+  refetches (three bounded 0MQ round trips on a `BackgroundResult`
+  thread, one in flight) when the queue-shaped fields
+  (`items_in_queue` / `running_item_uid` / `re_state`) change or every
+  `FALLBACK_REFRESH_S`; a failed fetch renders "unavailable", never an
+  empty queue.  Item summaries (`summarize_item` / `summarize_request`)
+  are pure functions tolerant of every request schema version the
+  history may hold.  The client is read at refresh time
+  (`client_provider`) — the window's submitter exists before the first
+  poll.  Removing a single item needs a client verb `qs_client` does
+  not expose yet (deferred).
 
 ## Architecture rules
 
@@ -340,9 +365,23 @@ are prefixed by region (`r3_radio_1d`, `r5_start_button`, …).
   segfaults under offscreen pytest (observed directly when the idle scan
   probe emitted a `MainWindow` signal; the R7 device-set completion was
   the last such emission and moved to a `BackgroundResult` worker in
-  0.7.0 — issue #510).  `closeEvent` disconnects each window-owned
-  worker's `result_ready`; the actions-menu and now-panel controllers'
-  workers are detached inside their `dispose()` instead.
+  0.7.0 — issue #510).  **Since 0.28.0 the daemon thread does not emit
+  toward the consumer at all**: it hops the result onto the GUI thread
+  through the worker's own queued `_landed` signal (receiver = the
+  worker, held in the module's `_INFLIGHT` set until the hop lands) and
+  `_forward` re-emits `result_ready` there — a daemon-thread emission
+  aimed at *any* consumer QObject, controller or window, races that
+  consumer's destruction (Qt's C++ bookkeeping survives it, PySide's
+  Python-slot delivery does not; the queue panel's fetch landing while
+  a test window was torn down segfaulted the suite at random
+  positions).  Consumers keep connecting `result_ready`
+  `QueuedConnection`; delivery now takes two event-loop turns, so a
+  test that assumes a startup result has landed waits for it
+  (`qtbot.waitUntil`).  `HealthPoller` still emits from its thread
+  straight at the window (the pre-existing shape; move it to the same
+  hop if it ever bites).  `closeEvent` disconnects each window-owned
+  worker's `result_ready`; the actions-menu, now-panel and queue-panel
+  controllers' workers are detached inside their `dispose()` instead.
 - **Actions menu (G-actions v1)** — owned by
   `app/actions_menu.py::ActionsMenuController` since 0.18.1 (issue #534
   step 3): the window creates the QMenu (kept in `self._menus`) and the

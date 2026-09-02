@@ -3,7 +3,7 @@
 import pytest
 from pydantic import ValidationError
 
-from geecs_schemas import TriggerProfile, TriggerState, TriggerWrite
+from geecs_schemas import TriggerProfile
 
 
 def write(device, variable, value):
@@ -38,15 +38,6 @@ def make_profile():
                 ],
                 "SINGLESHOT": [write(DG, "Trigger.ExecuteSingleShot", "on")],
             },
-            "variants": {
-                "laser_off": {
-                    "states": {
-                        "SCAN": [write(DG, "Trigger.Source", "Internal")],
-                        "ARMED": [write(DG, "Trigger.Source", "Single shot")],
-                        "OFF": [write(DG, "Trigger.Source", "Single shot")],
-                    }
-                }
-            },
         }
     )
 
@@ -70,40 +61,62 @@ class TestTriggerProfile:
     def test_devices_property_lists_distinct_devices(self):
         assert make_profile().devices == [DG, JET]
 
-    def test_variant_overlays_in_place_and_keeps_order(self):
-        profile = make_profile()
-        writes = profile.writes_for(TriggerState.SCAN, variant="laser_off")
-        assert [(w.device, w.variable, w.value) for w in writes] == [
-            (DG, "Amplitude.Ch AB", "4.0"),  # inherited from base
-            (DG, "Trigger.Source", "Internal"),  # replaced in place
-            (JET, "DO.Jet", "on"),  # inherited from base
-        ]
+    def test_v1_empty_variants_block_is_dropped_and_version_normalized(self):
+        # The corpus shape (`variants: {}` on a v1 file) loads as v2.
+        profile = TriggerProfile.model_validate(
+            {
+                "schema_version": 1,
+                "name": "x",
+                "states": {"SCAN": [write(DG, "Trigger.Source", "External")]},
+                "variants": {},
+            }
+        )
+        assert profile.schema_version == 2
+        assert "variants" not in profile.model_dump(mode="json")
 
-    def test_variant_appends_new_writes_after_base(self):
+    def test_v1_populated_variant_is_refused_with_the_remedy(self):
+        with pytest.raises(ValidationError, match="own profile file"):
+            TriggerProfile.model_validate(
+                {
+                    "name": "x",
+                    "states": {"SCAN": [write(DG, "Trigger.Source", "External")]},
+                    "variants": {
+                        "laser_off": {
+                            "states": {
+                                "SCAN": [write(DG, "Trigger.Source", "Internal")]
+                            }
+                        }
+                    },
+                }
+            )
+
+    def test_v1_variant_without_writes_is_a_dropped_no_op(self):
+        # What the retired editor's "Add variant" saved when never filled in.
         profile = TriggerProfile.model_validate(
             {
                 "name": "x",
                 "states": {"SCAN": [write(DG, "Trigger.Source", "External")]},
-                "variants": {
-                    "with_jet": {"states": {"SCAN": [write(JET, "DO.Jet", "on")]}}
-                },
+                "variants": {"no_gas": {"states": {}, "description": ""}},
             }
         )
-        writes = profile.writes_for("SCAN", variant="with_jet")
-        assert [(w.device, w.variable) for w in writes] == [
-            (DG, "Trigger.Source"),
-            (JET, "DO.Jet"),
-        ]
+        assert profile.schema_version == 2
+        assert "variants" not in profile.model_dump(mode="json")
 
-    def test_variant_leaves_untouched_states_alone(self):
+    def test_v1_variants_of_the_wrong_shape_is_a_validation_error(self):
+        with pytest.raises(ValidationError, match="must be a mapping"):
+            TriggerProfile.model_validate(
+                {
+                    "name": "x",
+                    "states": {"SCAN": [write(DG, "Trigger.Source", "External")]},
+                    "variants": ["laser_off"],
+                }
+            )
+
+    def test_v2_document_round_trips_untouched(self):
         profile = make_profile()
-        [only] = profile.writes_for("SINGLESHOT", variant="laser_off")
-        assert isinstance(only, TriggerWrite)
-        assert (only.variable, only.value) == ("Trigger.ExecuteSingleShot", "on")
-
-    def test_unknown_variant_raises(self):
-        with pytest.raises(KeyError, match="laser_on"):
-            make_profile().writes_for("SCAN", variant="laser_on")
+        assert profile.schema_version == 2
+        again = TriggerProfile.model_validate(profile.model_dump(mode="json"))
+        assert again == profile
 
     def test_defines_state_semantics(self):
         # A state with no writes is "not defined" — legacy

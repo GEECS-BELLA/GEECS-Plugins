@@ -55,7 +55,6 @@ from geecs_schemas.scan_variables import (
 from geecs_schemas.trigger_profile import (
     TriggerProfile,
     TriggerState,
-    TriggerVariant,
     TriggerWrite,
 )
 
@@ -95,7 +94,6 @@ __all__ = [
     "CompositeMode",
     # trigger_profile
     "TriggerProfile",
-    "TriggerVariant",
     "TriggerState",
     "TriggerWrite",
     # experiment_defaults

@@ -44,7 +44,7 @@
     },
     "CaptureSettings": {
       "additionalProperties": false,
-      "description": "How shots are taken and what gets recorded \u2014 the capture concern.\n\nEvery scan, whatever its mode, captures data the same way: a number of\nshots per step, an acquisition discipline, the save sets naming the\nrecorded devices, the telemetry and native-image-save toggles, and the\ntrigger profile driving the shot trigger.  This model groups those\nseven settings; conceptually they are three sub-groups \u2014 shot control\n(``shots_per_step`` + ``acquisition``), data logging (``save_sets`` +\n``background_telemetry`` + ``native_image_save``), and trigger\n(``trigger_profile`` + ``trigger_variant``) \u2014 kept one level flat\nhere on purpose.\n\nEvery field has a usable default, so an omitted ``capture`` block is a\nvalid one-shot strict capture with no named save sets.",
+      "description": "How shots are taken and what gets recorded \u2014 the capture concern.\n\nEvery scan, whatever its mode, captures data the same way: a number of\nshots per step, an acquisition discipline, the save sets naming the\nrecorded devices, the telemetry and native-image-save toggles, and the\ntrigger profile driving the shot trigger.  This model groups those\nsix settings; conceptually they are three sub-groups \u2014 shot control\n(``shots_per_step`` + ``acquisition``), data logging (``save_sets`` +\n``background_telemetry`` + ``native_image_save``), and the trigger\nprofile \u2014 kept one level flat here on purpose.\n\nEvery field has a usable default, so an omitted ``capture`` block is a\nvalid one-shot strict capture with no named save sets.",
       "properties": {
         "shots_per_step": {
           "default": 1,
@@ -104,19 +104,6 @@
           "default": null,
           "description": "Name of the trigger profile that drives the shot trigger. Unset means the scan does not manage the trigger.",
           "title": "Trigger Profile"
-        },
-        "trigger_variant": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Optional variant of the trigger profile to use, e.g. 'laser_off'. Leave unset for the profile's base behaviour.",
-          "title": "Trigger Variant"
         }
       },
       "title": "CaptureSettings",
@@ -363,11 +350,11 @@
     }
   },
   "additionalProperties": false,
-  "description": "One complete scan, ready to submit: what to do, what to save, how to trigger.\n\nFill in the mode (sweep / stand still / optimize), the axis (or axes) to\nsweep, how many shots per position, and the names of the save sets,\ntrigger profile, and action plans to use.  Saving a request you like\n*is* a preset.\n\nA step scan may sweep **one axis or several**.  With several axes the\nscan visits every combination (a grid): the *first* axis in the list is\nthe outermost, slowest-changing loop and the *last* axis is the\ninnermost, fastest-changing one.  ``shots_per_step`` shots are taken at\neach grid point, and each grid point is one bin in the scan data.\n\nNotes\n-----\nName-valued fields (``capture.save_sets``, ``capture.trigger_profile``,\nentries in ``actions``) are resolved against the experiment's config\nlibrary at submission time; this model checks shape and mode\nconsistency, not name existence.  ``capture.save_sets`` is a list \u2014 the\nengine resolves each named set and **unions** their devices into the\nrecorded device set (a device in more than one set is merged), so\noperators mix and match named diagnostic groups per scan.  A bare\nstring is accepted for the single-set case and stored as a one-element\nlist.\n\nGrid semantics are a plain outer product in list order.  Traversal\nordering options (snake/raster, per-axis direction) are deliberately not\nmodelled yet; a future ``ordering`` field on this model is the\nanticipated extension point.\n\nFormat v2 moved the capture-concern fields into ``capture`` and dropped\n``submission`` (see the module docstring).  The flat v1 layout \u2014 those\nfields at the top level, plus an optional ``submission`` record \u2014 is\nlifted into the v2 shape by a before-validator, so v1 documents keep\nvalidating; a declared ``schema_version`` \u2264 1 is normalized to 2 (even\non a sparse document with nothing to lift).",
+  "description": "One complete scan, ready to submit: what to do, what to save, how to trigger.\n\nFill in the mode (sweep / stand still / optimize), the axis (or axes) to\nsweep, how many shots per position, and the names of the save sets,\ntrigger profile, and action plans to use.  Saving a request you like\n*is* a preset.\n\nA step scan may sweep **one axis or several**.  With several axes the\nscan visits every combination (a grid): the *first* axis in the list is\nthe outermost, slowest-changing loop and the *last* axis is the\ninnermost, fastest-changing one.  ``shots_per_step`` shots are taken at\neach grid point, and each grid point is one bin in the scan data.\n\nNotes\n-----\nName-valued fields (``capture.save_sets``, ``capture.trigger_profile``,\nentries in ``actions``) are resolved against the experiment's config\nlibrary at submission time; this model checks shape and mode\nconsistency, not name existence.  ``capture.save_sets`` is a list \u2014 the\nengine resolves each named set and **unions** their devices into the\nrecorded device set (a device in more than one set is merged), so\noperators mix and match named diagnostic groups per scan.  A bare\nstring is accepted for the single-set case and stored as a one-element\nlist.\n\nGrid semantics are a plain outer product in list order.  Traversal\nordering options (snake/raster, per-axis direction) are deliberately not\nmodelled yet; a future ``ordering`` field on this model is the\nanticipated extension point.\n\nFormat v2 moved the capture-concern fields into ``capture`` and dropped\n``submission``; format v3 dropped ``trigger_variant`` (see the module\ndocstring).  One before-validator lifts every older layout \u2014 the flat\nv1 fields into ``capture``, a v1 ``submission`` key and an unset\n``trigger_variant`` dropped \u2014 so older documents keep validating; a\ndeclared ``schema_version`` \u2264 2 is normalized to 3 (even on a sparse\ndocument with nothing to lift).",
   "properties": {
     "schema_version": {
-      "default": 2,
-      "description": "Format version of this config file. Leave at 2 \u2014 tools update this automatically when the file format changes.",
+      "default": 3,
+      "description": "Format version of this config file. Leave at 3 \u2014 tools update this automatically when the file format changes.",
       "title": "Schema Version",
       "type": "integer"
     },

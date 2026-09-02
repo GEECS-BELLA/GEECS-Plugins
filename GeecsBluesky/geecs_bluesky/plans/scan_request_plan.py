@@ -600,7 +600,7 @@ def _scan_request_body(
     controller = None
     if request.capture.trigger_profile:
         profile = resolver.resolve_trigger_profile(request.capture.trigger_profile)
-        writes = trigger_writes_from_profile(profile, request.capture.trigger_variant)
+        writes = trigger_writes_from_profile(profile)
         if writes.states:
             # Constructed worker-side, unconnected; the setter reachability
             # check joins the in-plan connect stage below.

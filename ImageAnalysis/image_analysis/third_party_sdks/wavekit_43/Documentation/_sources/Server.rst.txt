@@ -1,6 +1,0 @@
-
-
-Wavekit_Python::Server
-======================
-.. automodule:: wavekit_py.io_wavekit_server
-   :members:

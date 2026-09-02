@@ -89,16 +89,6 @@
       </widget>
      </item>
      <item>
-      <widget class="QComboBox" name="r1_trigger_variant_combo">
-       <property name="minimumWidth">
-        <number>100</number>
-       </property>
-       <property name="toolTip">
-        <string>Trigger-profile variant (base behaviour when empty)</string>
-       </property>
-      </widget>
-     </item>
-     <item>
       <spacer name="r1_spacer">
        <property name="orientation">
         <enum>Qt::Horizontal</enum>
@@ -862,7 +852,7 @@
      </item>
      <!-- Right column: R6 now panel (R7 moved to the middle column, 0.19.1) -->
      <item>
-      <layout class="QVBoxLayout" name="right_column">
+      <layout class="QVBoxLayout" name="right_column" stretch="3,2">
         <property name="spacing">
          <number>8</number>
         </property>
@@ -920,6 +910,63 @@
             </property>
             <property name="maximumBlockCount">
              <number>200</number>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <!-- R8: queue panel (running / waiting / finished items on the manager) -->
+       <item>
+        <widget class="QGroupBox" name="r8_group">
+         <property name="title">
+          <string>QUEUE</string>
+         </property>
+         <layout class="QVBoxLayout" name="r8_layout">
+          <property name="spacing">
+           <number>8</number>
+          </property>
+          <item>
+           <layout class="QHBoxLayout" name="r8_summary_layout">
+            <item>
+             <widget class="QLabel" name="r8_summary_label">
+              <property name="text">
+               <string>Queue: waiting for the manager</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <spacer name="r8_summary_spacer">
+              <property name="orientation">
+               <enum>Qt::Horizontal</enum>
+              </property>
+              <property name="sizeHint" stdset="0">
+               <size>
+                <width>20</width>
+                <height>20</height>
+               </size>
+              </property>
+             </spacer>
+            </item>
+            <item>
+             <widget class="QPushButton" name="r8_clear_button">
+              <property name="text">
+               <string>Clear queue</string>
+              </property>
+              <property name="enabled">
+               <bool>false</bool>
+              </property>
+             </widget>
+            </item>
+           </layout>
+          </item>
+          <item>
+           <widget class="QTableWidget" name="r8_table">
+            <property name="minimumSize">
+             <size>
+              <width>0</width>
+              <height>120</height>
+             </size>
             </property>
            </widget>
           </item>

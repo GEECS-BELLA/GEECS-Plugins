@@ -84,11 +84,6 @@ OPERATOR_TOOLTIPS: dict[str, str] = {
         "STANDBY / SCAN / ... device writes). Empty means the scan "
         "leaves the trigger alone."
     ),
-    "trigger_variant_combo": (
-        "Named operating condition of the trigger profile (e.g. "
-        "laser_off) — overlays a few writes on the base profile. "
-        "Empty runs the base behaviour."
-    ),
     "gateway_chip": (
         "CA gateway health: reads the experiment's heartbeat PV "
         "every few seconds. WARN means the gateway runs but reports "
@@ -207,6 +202,21 @@ OPERATOR_TOOLTIPS: dict[str, str] = {
         "is the last scan found in today's data folder."
     ),
     "log_tail": "The most recent scan-engine and console messages.",
+    "queue_summary_label": (
+        "What the scan manager holds: the running item, items waiting "
+        "behind it, and the last few finished ones."
+    ),
+    "queue_table": (
+        "Running, waiting (front first), then finished items newest first "
+        "with their exit status. Waiting items run in order once the "
+        "current one ends."
+    ),
+    "queue_clear_button": (
+        "Remove every waiting item from the queue after a confirmation. "
+        "The running scan is not affected (use Stop for that). A failed "
+        "scan returns to the queue front and would re-run — this is how "
+        "you drop it."
+    ),
     # R7 device panel
     "device_combo": (
         "Type or pick 'DeviceName:Variable Name' to watch its live "
