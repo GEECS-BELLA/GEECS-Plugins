@@ -62,9 +62,11 @@ independently:
   schema version: a document is either liftable or already current. The
   finer-grained story lives in the changelog. Do not introduce `1.1`-style
   markers.
-- **Each document kind versions on its own.** A ScanRequest at v2 says
-  nothing about SaveSet or TriggerProfile, which stay at v1 until their own
-  layout changes.
+- **Each document kind versions on its own.** ScanRequest is at v3 and
+  TriggerProfile at v2 (each bumped by its own removed field); SaveSet and
+  the rest stay at v1 until their own layout changes.  The staleness test
+  is one helper, `stale_schema_version` in `_base.py`, shared by every
+  kind's lifting validator.
 
 ## Model inventory
 
@@ -73,7 +75,7 @@ independently:
 | `scan_request` | `ScanRequest` | scan presets, `ScanConfig`, GUI submission state |
 | `save_set` | `SaveSet` | save elements (`save_devices/*.yaml`) — now tier 1 of the two-tier recording model: the *required* devices with guarantees; everything else is background telemetry (soft, read-only, never waited on) |
 | `scan_variables` | `ScanVariables` | `scan_devices.yaml` + `composite_variables.yaml` |
-| `trigger_profile` | `TriggerProfile` | shot-control configs (incl. laser-on/off file pairs → variants); states are machine states holding *ordered, multi-device* write lists |
+| `trigger_profile` | `TriggerProfile` | shot-control configs (one profile per operating condition); states are machine states holding *ordered, multi-device* write lists |
 | `action_plan` | `ActionPlan` | one entry of the action library |
 | `action_plan_library` | `ActionPlanLibrary` | `action_library/actions.yaml` |
 | `experiment_defaults` | `ExperimentDefaults` | (new — legacy kept these choices in GUI state) per-experiment fallbacks where a scan request is silent; defaults run first, then the scan's own |
@@ -98,7 +100,7 @@ the DB's set-side start/end writes but are **not honored in this version**
 trigger profile / shot controller and the scanner's save-windowing), and the
 fields are kept for a possible future re-enable),
 `ScanVariable` / `PseudoScanVariable`, `TriggerWrite` /
-`TriggerVariant` / `TriggerState`, `DefaultActions`, and the four action
+`TriggerState`, `DefaultActions`, and the four action
 step types.
 
 One non-model module: `geecs_schemas.restricted_expr` — the shared
@@ -117,7 +119,6 @@ from geecs_schemas.convert import (
     convert_save_element,
     convert_scan_variables,
     convert_shot_control,
-    merge_trigger_variant,
     convert_action_library,
     convert_scan_preset,
     convert_optimizer_config,
@@ -132,11 +133,9 @@ catalog = convert_scan_variables(
     "scan_devices/scan_devices.yaml", "scan_devices/composite_variables.yaml"
 )
 
-# Shot control → TriggerProfile; fold the parallel laser-off file into a variant
-base = convert_shot_control("shot_control_configurations/HTU-Normal.yaml")
-off = convert_shot_control("shot_control_configurations/HTU-LaserOFF.yaml")
-profile = merge_trigger_variant(base, off, "laser_off")
-profile.writes_for("SCAN", variant="laser_off")
+# Shot control → TriggerProfile (one profile per operating condition)
+profile = convert_shot_control("shot_control_configurations/HTU-Normal.yaml")
+profile.writes_for("SCAN")
 
 # Action library → ActionPlanLibrary (nested run-references validated)
 library = convert_action_library("action_library/actions.yaml")

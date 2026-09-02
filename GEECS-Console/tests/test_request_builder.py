@@ -123,19 +123,11 @@ class TestOneD:
         built = build_scan_request(form)
         assert built.capture.save_sets == ["Amp4In", "EBeamDiags"]
 
-    def test_trigger_profile_and_variant(self):
-        form = self.default_form(
-            trigger_profile="HTU-Standard", trigger_variant="laser_off"
-        )
+    def test_trigger_profile(self):
+        form = self.default_form(trigger_profile="HTU-Standard")
         request = build_scan_request(form)
         assert request.capture.trigger_profile == "HTU-Standard"
-        assert request.capture.trigger_variant == "laser_off"
         roundtrip(request)
-
-    def test_variant_without_profile_rejected_by_schema(self):
-        form = self.default_form(trigger_variant="laser_off")
-        with pytest.raises(ValidationError, match="trigger_profile"):
-            build_scan_request(form)
 
     def test_zero_step_raises_form_error(self):
         with pytest.raises(ConsoleFormError, match="step"):
@@ -267,7 +259,6 @@ class TestFormStateFromRequest:
             shots_per_step=10,
             save_sets=["Amp4In", "EBeamDiags"],
             trigger_profile="HTU-Standard",
-            trigger_variant="laser_off",
             acquisition=AcquisitionMode.STRICT,
             description="align the jet",
         )

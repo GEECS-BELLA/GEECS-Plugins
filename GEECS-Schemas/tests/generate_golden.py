@@ -15,7 +15,6 @@ from geecs_schemas.convert import (
     convert_scan_preset,
     convert_scan_variables,
     convert_shot_control,
-    merge_trigger_variant,
 )
 
 TESTS = Path(__file__).parent
@@ -66,9 +65,7 @@ def main() -> None:
     )
     write("undulator_scan_variables.json", undulator.model_dump(mode="json"))
 
-    base = convert_shot_control(FIXTURES / "shot_control/HTU-Normal.yaml")
-    off = convert_shot_control(FIXTURES / "shot_control/HTU-LaserOFF.yaml")
-    profile = merge_trigger_variant(base, off, "laser_off")
+    profile = convert_shot_control(FIXTURES / "shot_control/HTU-Normal.yaml")
     write("htu_trigger_profile.json", profile.model_dump(mode="json"))
 
     library = convert_action_library(FIXTURES / "actions/actions_undulator.yaml")

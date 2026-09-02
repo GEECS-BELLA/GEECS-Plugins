@@ -10,8 +10,7 @@ real schema, and Save refuses anything pydantic rejects — the error is
 shown inline, never raised at the operator.
 
 Layout: a profile list (New / Duplicate / Rename / Delete) on the left; the
-document on the right — a variant selector (the table edits the base
-profile or one variant's overlay), a per-layer description, and the
+document on the right — the profile description and the
 state × (device, variable, value) write tree with Add/Remove/Move up/Move
 down (order matters within a transition: writes are sent top to bottom).
 Dirty tracking with Save/Revert and an unsaved-changes prompt on profile
@@ -36,7 +35,6 @@ from typing import Optional
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QAbstractItemView,
-    QComboBox,
     QCompleter,
     QDialog,
     QLabel,
@@ -66,8 +64,6 @@ logger = logging.getLogger(__name__)
 
 _UI_PATH = Path(__file__).parent.parent / "app" / "ui" / "shot_control_editor.ui"
 
-#: The variant combo's entry for editing the profile's base states.
-BASE_LAYER = "(base)"
 
 #: Semantic colors matching the main window's palette (style.qss header).
 _COLOR_RED = "#c4453a"
@@ -195,8 +191,6 @@ class ShotControlEditor(ConfigEditorDialog):
         self._snapshot: Optional[dict] = None
         #: The profile (file stem) the document belongs to.
         self._current_name: str = ""
-        #: The layer the tree edits: ``BASE_LAYER`` or a variant name.
-        self._current_layer: str = BASE_LAYER
         #: True while code (not the operator) is populating widgets.
         self._loading = False
 
@@ -224,13 +218,6 @@ class ShotControlEditor(ConfigEditorDialog):
         self.delete_button: QPushButton = self._child(QPushButton, "sce_delete_button")
         self.profile_name_label: QLabel = self._child(QLabel, "sce_profile_name_label")
         self.legacy_label: QLabel = self._child(QLabel, "sce_legacy_label")
-        self.variant_combo: QComboBox = self._child(QComboBox, "sce_variant_combo")
-        self.add_variant_button: QPushButton = self._child(
-            QPushButton, "sce_add_variant_button"
-        )
-        self.remove_variant_button: QPushButton = self._child(
-            QPushButton, "sce_remove_variant_button"
-        )
         self.description_edit: QLineEdit = self._child(
             QLineEdit, "sce_description_edit"
         )
@@ -272,7 +259,6 @@ class ShotControlEditor(ConfigEditorDialog):
             {
                 "description": self.description_edit,
                 "states": self.states_tree,
-                "variants": self.variant_combo,
             },
         )
 
@@ -283,9 +269,6 @@ class ShotControlEditor(ConfigEditorDialog):
         self.duplicate_button.clicked.connect(self._on_duplicate)
         self.rename_button.clicked.connect(self._on_rename)
         self.delete_button.clicked.connect(self._on_delete)
-        self.variant_combo.currentTextChanged.connect(self._on_layer_changed)
-        self.add_variant_button.clicked.connect(self._on_add_variant)
-        self.remove_variant_button.clicked.connect(self._on_remove_variant)
         self.description_edit.textChanged.connect(self._on_description_edited)
         self.states_tree.itemChanged.connect(self._on_tree_edited)
         self.add_write_button.clicked.connect(self._on_add_write)
@@ -345,7 +328,7 @@ class ShotControlEditor(ConfigEditorDialog):
         """Drop empty state lists (a state with no writes is "not defined").
 
         Keeps dirty tracking honest: the tree omits empty states when it
-        rebuilds its layer, so the loaded document must not carry them
+        rebuilds the states, so the loaded document must not carry them
         either.  Semantically identical per the schema's ``defines_state``.
 
         Parameters
@@ -356,37 +339,21 @@ class ShotControlEditor(ConfigEditorDialog):
         Returns
         -------
         dict
-            The same document, with empty state lists removed from the base
-            profile and every variant.
+            The same document, with empty state lists removed.
         """
         doc["states"] = {
             state: writes for state, writes in doc.get("states", {}).items() if writes
         }
-        for variant in doc.get("variants", {}).values():
-            variant["states"] = {
-                state: writes
-                for state, writes in variant.get("states", {}).items()
-                if writes
-            }
         return doc
 
-    def _layer_states(self) -> Optional[dict]:
-        """Return the states dict of the layer the tree currently edits."""
-        if self._doc is None:
-            return None
-        if self._current_layer == BASE_LAYER:
-            return self._doc["states"]
-        variant = self._doc["variants"].get(self._current_layer)
-        return None if variant is None else variant["states"]
+    def _states(self) -> Optional[dict]:
+        """Return the document's states dict (``None`` with no document)."""
+        return None if self._doc is None else self._doc["states"]
 
-    def _set_layer_states(self, states: dict) -> None:
-        """Replace the current layer's states dict with *states*."""
-        if self._doc is None:
-            return
-        if self._current_layer == BASE_LAYER:
+    def _set_states(self, states: dict) -> None:
+        """Replace the document's states dict with *states*."""
+        if self._doc is not None:
             self._doc["states"] = states
-        elif self._current_layer in self._doc["variants"]:
-            self._doc["variants"][self._current_layer]["states"] = states
 
     def _show_document(self, doc: Optional[dict]) -> None:
         """Render *doc* (or the empty no-selection state) into the widgets.
@@ -397,14 +364,10 @@ class ShotControlEditor(ConfigEditorDialog):
             The working document; ``None`` clears and disables the editor.
         """
         self._doc = doc
-        self._current_layer = BASE_LAYER
         self._loading = True
         try:
             enabled = doc is not None
             for widget in (
-                self.variant_combo,
-                self.add_variant_button,
-                self.remove_variant_button,
                 self.description_edit,
                 self.states_tree,
                 self.add_write_button,
@@ -413,7 +376,6 @@ class ShotControlEditor(ConfigEditorDialog):
                 self.move_down_button,
             ):
                 widget.setEnabled(enabled)
-            self._populate_variant_combo()
             self._populate_tree()
             self._refresh_description()
             if doc is None:
@@ -428,24 +390,11 @@ class ShotControlEditor(ConfigEditorDialog):
             self._loading = False
         self._refresh_validation()
 
-    def _populate_variant_combo(self) -> None:
-        """Fill the layer selector: (base) plus the document's variants."""
-        self.variant_combo.blockSignals(True)
-        self.variant_combo.clear()
-        if self._doc is not None:
-            self.variant_combo.addItem(BASE_LAYER)
-            self.variant_combo.addItems(sorted(self._doc.get("variants", {})))
-            self.variant_combo.setCurrentText(self._current_layer)
-        self.variant_combo.blockSignals(False)
-        self.remove_variant_button.setEnabled(
-            self._doc is not None and self._current_layer != BASE_LAYER
-        )
-
     def _populate_tree(self) -> None:
-        """Rebuild the state tree from the current layer's states dict."""
+        """Rebuild the state tree from the document's states dict."""
         self.states_tree.blockSignals(True)
         self.states_tree.clear()
-        states = self._layer_states()
+        states = self._states()
         if states is not None:
             for state in TriggerState:
                 state_item = QTreeWidgetItem(self.states_tree)
@@ -487,8 +436,8 @@ class ShotControlEditor(ConfigEditorDialog):
         )
         return item
 
-    def _rebuild_layer_from_tree(self) -> None:
-        """Read the tree back into the current layer's states dict."""
+    def _rebuild_states_from_tree(self) -> None:
+        """Read the tree back into the document's states dict."""
         states: dict[str, list[dict]] = {}
         for row in range(self.states_tree.topLevelItemCount()):
             state_item = self.states_tree.topLevelItem(row)
@@ -503,18 +452,14 @@ class ShotControlEditor(ConfigEditorDialog):
             ]
             if writes:
                 states[state] = writes
-        self._set_layer_states(states)
+        self._set_states(states)
 
     def _refresh_description(self) -> None:
-        """Bind the description edit to the current layer's description."""
+        """Bind the description edit to the document's description."""
         self.description_edit.blockSignals(True)
-        if self._doc is None:
-            self.description_edit.setText("")
-        elif self._current_layer == BASE_LAYER:
-            self.description_edit.setText(self._doc.get("description", ""))
-        else:
-            variant = self._doc["variants"].get(self._current_layer, {})
-            self.description_edit.setText(variant.get("description", ""))
+        self.description_edit.setText(
+            "" if self._doc is None else self._doc.get("description", "")
+        )
         self.description_edit.blockSignals(False)
 
     def _validated_profile(self) -> Optional[TriggerProfile]:
@@ -717,74 +662,11 @@ class ShotControlEditor(ConfigEditorDialog):
         self._show_document(None)
         self._refresh_profile_list()
 
-    # ------------------------------------------------------------------
-    # Layer (base/variant) handling
-    # ------------------------------------------------------------------
-
-    def _on_layer_changed(self, layer: str) -> None:
-        """Point the tree and description at the newly selected layer."""
-        if self._loading or self._doc is None or not layer:
-            return
-        self._current_layer = layer
-        self._loading = True
-        try:
-            self._populate_tree()
-            self._refresh_description()
-        finally:
-            self._loading = False
-        self.remove_variant_button.setEnabled(layer != BASE_LAYER)
-
-    def _on_add_variant(self) -> None:
-        """Add an empty variant and switch the tree to it."""
-        if self._doc is None:
-            return
-        name = self._prompt_name("Add variant", "Variant name:")
-        if not name:
-            return
-        if name == BASE_LAYER or name in self._doc["variants"]:
-            self._report_store_error(
-                TriggerProfileStoreError(f"Variant {name!r} is taken.")
-            )
-            return
-        self._doc["variants"][name] = {"states": {}, "description": ""}
-        self._current_layer = name
-        self._loading = True
-        try:
-            self._populate_variant_combo()
-            self._populate_tree()
-            self._refresh_description()
-        finally:
-            self._loading = False
-        self._refresh_validation()
-
-    def _on_remove_variant(self) -> None:
-        """Remove the selected variant (with confirmation) — Save persists."""
-        if self._doc is None or self._current_layer == BASE_LAYER:
-            return
-        name = self._current_layer
-        if not self._confirm(
-            "Remove variant", f"Remove variant {name!r} from this profile?"
-        ):
-            return
-        self._doc["variants"].pop(name, None)
-        self._current_layer = BASE_LAYER
-        self._loading = True
-        try:
-            self._populate_variant_combo()
-            self._populate_tree()
-            self._refresh_description()
-        finally:
-            self._loading = False
-        self._refresh_validation()
-
     def _on_description_edited(self, text: str) -> None:
-        """Write the description edit into the current layer."""
+        """Write the description edit into the document."""
         if self._loading or self._doc is None:
             return
-        if self._current_layer == BASE_LAYER:
-            self._doc["description"] = text
-        elif self._current_layer in self._doc["variants"]:
-            self._doc["variants"][self._current_layer]["description"] = text
+        self._doc["description"] = text
         self._refresh_validation()
 
     # ------------------------------------------------------------------
@@ -795,7 +677,7 @@ class ShotControlEditor(ConfigEditorDialog):
         """Fold a cell edit back into the document and re-validate."""
         if self._loading or self._doc is None:
             return
-        self._rebuild_layer_from_tree()
+        self._rebuild_states_from_tree()
         self._refresh_validation()
 
     def _target_state_item(self) -> Optional[QTreeWidgetItem]:
@@ -823,7 +705,7 @@ class ShotControlEditor(ConfigEditorDialog):
         )
         state_item.setExpanded(True)
         self.states_tree.blockSignals(False)
-        self._rebuild_layer_from_tree()
+        self._rebuild_states_from_tree()
         self._refresh_validation()
         self.states_tree.setCurrentItem(row)
         if self.states_tree.isVisible():
@@ -840,7 +722,7 @@ class ShotControlEditor(ConfigEditorDialog):
         if item is None or item.parent() is None:
             return
         item.parent().removeChild(item)
-        self._rebuild_layer_from_tree()
+        self._rebuild_states_from_tree()
         self._refresh_validation()
 
     def _on_move_write(self, delta: int) -> None:
@@ -870,7 +752,7 @@ class ShotControlEditor(ConfigEditorDialog):
         parent.insertChild(target, item)
         self.states_tree.blockSignals(False)
         self.states_tree.setCurrentItem(item)
-        self._rebuild_layer_from_tree()
+        self._rebuild_states_from_tree()
         self._refresh_validation()
 
     # ------------------------------------------------------------------

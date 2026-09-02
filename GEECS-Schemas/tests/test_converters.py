@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from geecs_schemas import SaveRole, TriggerState
+from geecs_schemas import SaveRole
 from geecs_schemas.convert import (
     SchemaConversionError,
     convert_action_library,
@@ -20,7 +20,6 @@ from geecs_schemas.convert import (
     convert_scan_preset,
     convert_scan_variables,
     convert_shot_control,
-    merge_trigger_variant,
 )
 
 # Defined locally (not imported from conftest) so the module imports cleanly
@@ -219,26 +218,13 @@ class TestTriggerProfiles:
         assert convert_shot_control(FIXTURES / "shot_control/Bella Normal.yaml") is None
         assert convert_shot_control(FIXTURES / "shot_control/No Device.yaml") is None
 
-    def test_laser_off_pair_becomes_variant(self):
-        base = convert_shot_control(FIXTURES / "shot_control/HTU-Normal.yaml")
+    def test_laser_off_file_converts_as_its_own_profile(self):
         off = convert_shot_control(FIXTURES / "shot_control/HTU-LaserOFF.yaml")
-        profile = merge_trigger_variant(base, off, "laser_off")
-        assert set(profile.variants) == {"laser_off"}
-        # the variant carries only the differing writes
-        overlay = profile.variants["laser_off"].states
-        assert as_tuples(overlay[TriggerState.SCAN]) == [
-            ("U_DG645_ShotControl", "Trigger.Source", "Internal")
-        ]
-        # resolving through the variant reproduces the parallel file's writes
-        # (as a set — order within a transition may legitimately differ when
-        # the variant appends writes the base lacked)
-        for state in TriggerState:
-            assert set(
-                as_tuples(profile.writes_for(state, variant="laser_off"))
-            ) == set(as_tuples(off.writes_for(state)))
-        assert_matches_golden(
-            profile.model_dump(mode="json"), "htu_trigger_profile.json"
-        )
+        scan = {(w.device, w.variable): w.value for w in off.writes_for("SCAN")}
+        assert scan[("U_DG645_ShotControl", "Trigger.Source")] == "Internal"
+        assert "variants" not in off.model_dump(mode="json")
+        base = convert_shot_control(FIXTURES / "shot_control/HTU-Normal.yaml")
+        assert_matches_golden(base.model_dump(mode="json"), "htu_trigger_profile.json")
 
     def test_unknown_state_fails_loudly(self):
         with pytest.raises(SchemaConversionError, match="BLASTOFF"):

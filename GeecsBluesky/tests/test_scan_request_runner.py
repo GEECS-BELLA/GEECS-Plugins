@@ -318,16 +318,11 @@ variables:
 """
 
 NEW_TRIGGER_PROFILE = """\
-schema_version: 1
+schema_version: 2
 name: NewProfile
 states:
   SCAN:
     - {device: U_DG645_ShotControl, variable: Trigger.Source, value: External rising edges}
-variants:
-  laser_off:
-    states:
-      SCAN:
-        - {device: U_DG645_ShotControl, variable: Trigger.Source, value: Internal}
 """
 
 STRICT_TRIGGER_PROFILE = """\
@@ -582,11 +577,11 @@ def test_empty_shot_control_raises(legacy_resolver) -> None:
         legacy_resolver.resolve_trigger_profile("Empty")
 
 
-def test_new_schema_trigger_profile_with_variant(modern_resolver) -> None:
+def test_new_schema_trigger_profile_loads_directly(modern_resolver) -> None:
     profile = modern_resolver.resolve_trigger_profile("NewProfile")
-    writes = profile.writes_for("SCAN", variant="laser_off")
-    assert [(w.device, w.variable, w.value) for w in writes] == [
-        ("U_DG645_ShotControl", "Trigger.Source", "Internal")
+    assert profile.schema_version == 2
+    assert [(w.device, w.variable, w.value) for w in profile.writes_for("SCAN")] == [
+        ("U_DG645_ShotControl", "Trigger.Source", "External rising edges")
     ]
 
 
@@ -639,20 +634,6 @@ def test_trigger_adapter_preserves_state_semantics(legacy_resolver) -> None:
         expected = [(w.device, w.variable, w.value) for w in profile.writes_for(state)]
         assert writes.writes_for_state(state) == expected, state
         assert writes.defines_state(state) == profile.defines_state(state), state
-
-
-def test_trigger_adapter_applies_variant(modern_resolver) -> None:
-    profile = modern_resolver.resolve_trigger_profile("NewProfile")
-    writes = trigger_writes_from_profile(profile, "laser_off")
-    assert writes.writes_for_state("SCAN") == [
-        ("U_DG645_ShotControl", "Trigger.Source", "Internal")
-    ]
-
-
-def test_trigger_adapter_unknown_variant_raises(modern_resolver) -> None:
-    profile = modern_resolver.resolve_trigger_profile("NewProfile")
-    with pytest.raises(GeecsConfigurationError, match="laser_off"):
-        trigger_writes_from_profile(profile, "nope")
 
 
 # ---------------------------------------------------------------------------
@@ -1247,33 +1228,6 @@ def test_multi_device_writes_preserve_declared_order() -> None:
     assert writes.writes_for_state("STANDBY") == [
         ("U_PLC", "DO.Ch9", "off"),
         ("U_DG645", "Trigger.Source", "Int"),
-    ]
-
-
-def test_multi_device_span_via_variant_adapts() -> None:
-    """A variant dragging in a second device lands in the writes."""
-    profile = TriggerProfile(
-        name="variant-spans",
-        states={
-            "SCAN": [
-                {"device": "U_DG645", "variable": "Trigger.Source", "value": "Ext"},
-            ],
-        },
-        variants={
-            "jet_on": {
-                "states": {
-                    "SCAN": [
-                        {"device": "U_Jet", "variable": "Pressure", "value": "5"},
-                    ],
-                }
-            }
-        },
-    )
-    assert trigger_writes_from_profile(profile).devices == ["U_DG645"]
-    overlaid = trigger_writes_from_profile(profile, "jet_on")
-    assert overlaid.writes_for_state("SCAN") == [
-        ("U_DG645", "Trigger.Source", "Ext"),
-        ("U_Jet", "Pressure", "5"),
     ]
 
 

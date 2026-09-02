@@ -9,12 +9,16 @@ timing hardware changes, when a state needs an extra write, or when a new
 device joins the transition.  A scan picks a profile by name in its
 :class:`~geecs_schemas.scan_request.ScanRequest`.
 
-Variants replace parallel files
--------------------------------
-Operating conditions that used to be near-duplicate YAML files (the classic
-laser-on / laser-off pair) become **variants** inside one profile: a variant
-overlays a few state writes on top of the base profile (e.g. ``laser_off``
-switches ``Trigger.Source`` to internal).  One file, explicit differences.
+One operating condition, one profile
+------------------------------------
+Operating conditions (the classic laser-on / laser-off pair, no-gas, …) are
+separate profile files, each complete on its own, and a scan names the one
+it wants.  Format v1 also allowed named *variants* inside a profile (an
+overlay of a few writes); nobody adopted them — every experiment kept
+separate files — so format v2 removed them.  A v1 file with an empty
+``variants`` block still loads (the block is dropped); one that actually
+defines a variant is refused with the remedy: split it into its own
+profile.
 
 Developer notes
 ---------------
@@ -49,9 +53,13 @@ from __future__ import annotations
 
 from enum import Enum
 
-from pydantic import Field, field_validator
+from pydantic import model_validator, Field, field_validator
 
-from geecs_schemas._base import SchemaModel, VersionedSchemaModel
+from geecs_schemas._base import (
+    SchemaModel,
+    VersionedSchemaModel,
+    stale_schema_version,
+)
 
 
 class TriggerState(str, Enum):
@@ -196,47 +204,34 @@ def _reject_duplicate_targets(states: dict) -> dict:
     return states
 
 
-class TriggerVariant(SchemaModel):
-    """A named operating condition that tweaks a few writes of the profile.
-
-    A variant lists only what *differs* from the base profile — for example
-    a ``laser_off`` variant that flips the trigger source to internal while
-    everything else stays as the base defines it.
-    """
-
-    states: dict[TriggerState, StateWrites] = Field(
-        description=(
-            "Only the writes that differ from the base profile, per state. "
-            "A write here replaces the base write to the same device "
-            "variable; writes to new device variables are added after the "
-            "base ones. Anything not listed keeps its base value."
-        )
-    )
-    description: str = Field(
-        "",
-        description="Optional note about when to use this variant.",
-    )
-
-    _fix_off_key = field_validator("states", mode="before")(_normalize_state_keys)
-    _no_duplicates = field_validator("states")(_reject_duplicate_targets)
-
-
 class TriggerProfile(VersionedSchemaModel):
     """The device writes that drive the machine through its trigger states.
 
     For each state (OFF, STANDBY, SCAN, SINGLESHOT, ARMED) list the writes —
     possibly to several devices — that put the machine into it, **in the
     order they should be sent**.  Edit it when timing hardware or its
-    settings change; add a variant when you need a named alternative
-    condition (e.g. laser off) instead of a copy of the whole file.
+    settings change; make a separate profile for a different operating
+    condition (e.g. laser off).
 
     Notes
     -----
     Values are sent verbatim over the GEECS wire protocol.  Use
     :meth:`writes_for` / :meth:`defines_state` instead of digging the lists —
-    they implement the variant overlay and the "state with no writes is not
-    defined" rule.  :attr:`devices` lists every device the profile touches.
+    they implement the "state with no writes is not defined" rule.
+    :attr:`devices` lists every device the profile touches.
+
+    Format v2 removed the v1 ``variants`` overlay (see the module
+    docstring); a before-validator drops an empty v1 block, refuses a
+    populated one, and normalizes ``schema_version`` ≤ 1 to 2.
     """
+
+    schema_version: int = Field(
+        2,
+        description=(
+            "Format version of this config file. Leave at 2 — tools update "
+            "this automatically when the file format changes."
+        ),
+    )
 
     name: str = Field(
         description="The name scans use to refer to this trigger profile."
@@ -250,13 +245,6 @@ class TriggerProfile(VersionedSchemaModel):
             "leave it untouched."
         ),
     )
-    variants: dict[str, TriggerVariant] = Field(
-        default_factory=dict,
-        description=(
-            "Named alternative operating conditions (e.g. 'laser_off'), each "
-            "listing only the writes that differ from the base states."
-        ),
-    )
     description: str = Field(
         "",
         description="Optional note about what setup this profile is for.",
@@ -265,6 +253,59 @@ class TriggerProfile(VersionedSchemaModel):
     _fix_off_key = field_validator("states", mode="before")(_normalize_state_keys)
     _no_duplicates = field_validator("states")(_reject_duplicate_targets)
 
+    @model_validator(mode="before")
+    @classmethod
+    def _lift_v1_layout(cls, data: object) -> object:
+        """Drop the removed v1 ``variants`` block; normalize the version.
+
+        Parameters
+        ----------
+        data : object
+            The raw input; non-mapping input passes through untouched.
+
+        Returns
+        -------
+        object
+            The (copied) mapping in v2 layout, or *data* unchanged.
+
+        Raises
+        ------
+        ValueError
+            If the document defines a variant *with writes* — format v2 has
+            no overlay; the remedy is a separate profile per operating
+            condition.  A variant with no writes (what the retired editor's
+            "Add variant" saved when never filled in) is a no-op and is
+            dropped like an empty block.
+        """
+        if not isinstance(data, dict):
+            return data
+        stale = stale_schema_version(data, 2)
+        if "variants" not in data and not stale:
+            return data
+        lifted = dict(data)
+        variants = lifted.pop("variants", None) or {}
+        if not isinstance(variants, dict):
+            raise ValueError(
+                f"trigger profile {lifted.get('name', '?')!r}: 'variants' must be a "
+                "mapping (and profile variants were removed in format v2 — drop "
+                "the block)."
+            )
+        populated = sorted(
+            name
+            for name, variant in variants.items()
+            if isinstance(variant, dict) and any(variant.get("states", {}).values())
+        )
+        if populated:
+            raise ValueError(
+                f"trigger profile {lifted.get('name', '?')!r} defines variant(s) "
+                f"{populated} — profile variants were removed in format v2; "
+                "save each operating condition as its own profile file and "
+                "name that profile in the scan request."
+            )
+        if stale:
+            lifted["schema_version"] = 2
+        return lifted
+
     @property
     def devices(self) -> list[str]:
         """Every device this profile writes, in order of first appearance.
@@ -272,71 +313,37 @@ class TriggerProfile(VersionedSchemaModel):
         Returns
         -------
         list of str
-            Distinct device names across all base states and variants.
+            Distinct device names across all states.
         """
         seen: dict[str, None] = {}
         for writes in self.states.values():
             for write in writes:
                 seen.setdefault(write.device)
-        for variant in self.variants.values():
-            for writes in variant.states.values():
-                for write in writes:
-                    seen.setdefault(write.device)
         return list(seen)
 
-    def writes_for(
-        self, state: "TriggerState | str", variant: str | None = None
-    ) -> StateWrites:
+    def writes_for(self, state: "TriggerState | str") -> StateWrites:
         """Return the ordered writes that drive *state*.
 
         Parameters
         ----------
         state : TriggerState or str
             The target state.
-        variant : str, optional
-            Name of a variant to overlay on the base writes.
 
         Returns
         -------
         list of TriggerWrite
-            The merged transition: base writes in their declared order, with
-            variant writes replacing same-(device, variable) entries in
-            place and any additional variant writes appended after them.
-
-        Raises
-        ------
-        KeyError
-            If *variant* is given but not defined on this profile.
+            The transition's writes in their declared order (empty when the
+            state is not defined).
         """
-        key = TriggerState(state)
-        writes = list(self.states.get(key, []))
-        if variant is not None:
-            if variant not in self.variants:
-                raise KeyError(
-                    f"Trigger profile {self.name!r} has no variant "
-                    f"{variant!r}. Known variants: {sorted(self.variants)}"
-                )
-            overlay = {
-                (write.device, write.variable): write
-                for write in self.variants[variant].states.get(key, [])
-            }
-            writes = [
-                overlay.pop((write.device, write.variable), write) for write in writes
-            ]
-            writes.extend(overlay.values())
-        return writes
+        return list(self.states.get(TriggerState(state), []))
 
-    def defines_state(
-        self, state: "TriggerState | str", variant: str | None = None
-    ) -> bool:
+    def defines_state(self, state: "TriggerState | str") -> bool:
         """Whether driving to *state* would write anything at all.
 
         Parameters
         ----------
         state : TriggerState or str
             The state to query.
-        variant : str, optional
-            Name of a variant to overlay before deciding.
 
         Returns
         -------
@@ -344,4 +351,4 @@ class TriggerProfile(VersionedSchemaModel):
             ``True`` if at least one write exists for the state (matching the
             legacy ``ShotControlConfig.defines_state`` semantics).
         """
-        return bool(self.writes_for(state, variant))
+        return bool(self.writes_for(state))

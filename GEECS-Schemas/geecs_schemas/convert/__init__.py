@@ -27,7 +27,6 @@ from geecs_schemas.convert.save_elements import (
 from geecs_schemas.convert.scan_variables import convert_scan_variables
 from geecs_schemas.convert.trigger_profiles import (
     convert_shot_control,
-    merge_trigger_variant,
 )
 
 __all__ = [
@@ -38,7 +37,6 @@ __all__ = [
     "SaveElementConversion",
     "convert_scan_variables",
     "convert_shot_control",
-    "merge_trigger_variant",
     "convert_scan_preset",
     "compose_save_sets",
     "PresetConversion",

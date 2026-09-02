@@ -249,7 +249,6 @@ class TestShotControlEditorTooltips:
         fields = TriggerProfile.model_fields
         assert editor.description_edit.toolTip() == fields["description"].description
         assert editor.states_tree.toolTip() == fields["states"].description
-        assert editor.variant_combo.toolTip() == fields["variants"].description
 
 
 class TestActionLibraryEditorTooltips:

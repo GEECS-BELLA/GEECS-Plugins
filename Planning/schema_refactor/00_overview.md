@@ -110,7 +110,11 @@ This phase is worth doing regardless of Phase 2, and Phase 2 is thin only if
 this lands first.
 
 **Landed** as #734 (GEECS-Schemas 0.14.0, GeecsBluesky 0.70.0, Console 0.26.0,
-MCP 0.8.0): everything above as written. Two things settled on the way that
+MCP 0.8.0): everything above as written. **Amendment (2026-09-02):**
+`trigger_variant` was then deleted outright (ScanRequest v3, TriggerProfile v2
+— profile variants were never adopted; one profile file per operating
+condition is the shape), so `CaptureSettings` carries six fields, not seven,
+and 2b's parameter models build on that. Two things settled on the way that
 the next phase inherits:
 
 - **Versioning policy** (GEECS-Schemas `README.md`, "Versioning policy — two

@@ -42,10 +42,9 @@ probe stage, for example).
 The machine's trigger states — OFF, STANDBY, SCAN, SINGLESHOT, ARMED — and,
 for each one, the exact device writes that put the machine there, in the
 order they are sent. A transition can touch several devices (the delay
-generator, a gas-jet controller, a shutter), not just one. Alternative
-conditions that used to be copy-pasted files — laser on vs laser off — are
-now *variants* inside one profile, so the difference is explicit and
-reviewable.
+generator, a gas-jet controller, a shutter), not just one. Each operating
+condition — laser on, laser off, no gas — is its own profile file, and a
+scan names the one it wants.
 
 **Action plans — "what happens automatically around the scan?"**
 Named checklists of steps — set a variable, wait, check a readback, run

@@ -335,27 +335,3 @@ class ConsoleConfigs:
                 f"Optimizer config {name!r} ({path}) is not a valid "
                 f"OptimizationSpec: {exc}"
             ) from exc
-
-    def trigger_variants(self, profile_name: str) -> list[str]:
-        """List the variants of one trigger profile (R1 variant combo).
-
-        Parameters
-        ----------
-        profile_name : str
-            The trigger-profile name to resolve.
-
-        Returns
-        -------
-        list of str
-            Sorted variant names; empty offline or on any resolution error.
-        """
-        if not profile_name:
-            return []
-        resolver = self._get_resolver()
-        if resolver is None:
-            return []
-        try:
-            return sorted(resolver.resolve_trigger_profile(profile_name).variants)
-        except Exception as exc:
-            logger.info("trigger profile %r unavailable: %s", profile_name, exc)
-            return []

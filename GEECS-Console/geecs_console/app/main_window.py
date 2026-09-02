@@ -378,9 +378,6 @@ class MainWindow(QMainWindow):
         self.trigger_profile_combo: QComboBox = self._child(
             QComboBox, "r1_trigger_profile_combo"
         )
-        self.trigger_variant_combo: QComboBox = self._child(
-            QComboBox, "r1_trigger_variant_combo"
-        )
         self.gateway_chip: QLabel = self._child(QLabel, "r1_gateway_chip")
         self.tiled_chip: QLabel = self._child(QLabel, "r1_tiled_chip")
         self.db_chip: QLabel = self._child(QLabel, "r1_db_chip")
@@ -562,9 +559,6 @@ class MainWindow(QMainWindow):
         self.add_button.clicked.connect(self._on_add_save_set)
         self.remove_button.clicked.connect(self._on_remove_save_set)
         self.experiment_combo.currentTextChanged.connect(self._on_experiment_changed)
-        self.trigger_profile_combo.currentTextChanged.connect(
-            self._on_trigger_profile_changed
-        )
         self.start_button.clicked.connect(self._on_start_clicked)
         self.stop_button.clicked.connect(self._on_stop_clicked)
         self.pause_button.clicked.connect(self._on_pause_clicked)
@@ -691,7 +685,6 @@ class MainWindow(QMainWindow):
         self.trigger_profile_combo.addItem("")
         self.trigger_profile_combo.addItems(listing.trigger_profiles)
         self.trigger_profile_combo.blockSignals(False)
-        self.trigger_variant_combo.clear()
         # Repopulation is programmatic — block signals so the R7 auto-select
         # only follows *operator* picks (and preset applies), never the
         # populate churn itself.
@@ -1071,7 +1064,6 @@ class MainWindow(QMainWindow):
             # The spinner's special value 0 renders as "auto" = no limit.
             max_iterations = self.iterations_spin.value() or None
         profile = self.trigger_profile_combo.currentText() or None
-        variant = self.trigger_variant_combo.currentText() or None
         from geecs_schemas import AcquisitionMode
 
         return ConsoleFormState(
@@ -1080,7 +1072,6 @@ class MainWindow(QMainWindow):
             shots_per_step=self.shots_per_step.value(),
             save_sets=self.selected_save_sets(),
             trigger_profile=profile,
-            trigger_variant=variant if profile else None,
             acquisition=AcquisitionMode(self.acquisition_combo.currentText()),
             description=self.description_edit.text(),
             optimization=optimization,
@@ -1323,13 +1314,6 @@ class MainWindow(QMainWindow):
             return False
         self.experiment_combo.setCurrentText(remembered)
         return True
-
-    def _on_trigger_profile_changed(self, profile: str) -> None:
-        """Repopulate the variant combo for the selected trigger profile."""
-        self.trigger_variant_combo.clear()
-        if profile:
-            self.trigger_variant_combo.addItem("")
-            self.trigger_variant_combo.addItems(self._configs.trigger_variants(profile))
 
     # ------------------------------------------------------------------
     # Ops menu (path resolution lives in services/ops_paths — pure & tested)
@@ -2000,9 +1984,6 @@ class MainWindow(QMainWindow):
         self.acquisition_combo.setCurrentText(form.acquisition.value)
         self.description_edit.setText(form.description)
         self.trigger_profile_combo.setCurrentText(form.trigger_profile or "")
-        # Changing the profile text repopulated the variant combo (the
-        # currentTextChanged handler); now pick the preset's variant.
-        self.trigger_variant_combo.setCurrentText(form.trigger_variant or "")
         self._apply_save_sets(form.save_sets)
         self._refresh_shot_count()
 

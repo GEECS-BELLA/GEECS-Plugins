@@ -1,7 +1,7 @@
 {
   "description": "",
   "name": "HTU-Normal",
-  "schema_version": 1,
+  "schema_version": 2,
   "states": {
     "ARMED": [
       {
@@ -58,33 +58,5 @@
         "variable": "Trigger.Source"
       }
     ]
-  },
-  "variants": {
-    "laser_off": {
-      "description": "Folded from legacy profile 'HTU-LaserOFF'.",
-      "states": {
-        "ARMED": [
-          {
-            "device": "U_DG645_ShotControl",
-            "value": "Single shot",
-            "variable": "Trigger.Source"
-          }
-        ],
-        "OFF": [
-          {
-            "device": "U_DG645_ShotControl",
-            "value": "Single shot",
-            "variable": "Trigger.Source"
-          }
-        ],
-        "SCAN": [
-          {
-            "device": "U_DG645_ShotControl",
-            "value": "Internal",
-            "variable": "Trigger.Source"
-          }
-        ]
-      }
-    }
   }
 }

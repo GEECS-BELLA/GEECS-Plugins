@@ -39,9 +39,6 @@ class FakeConfigs:
     def union_preview(self, names):
         return UnionPreview(device_count=len(names), hint="")
 
-    def trigger_variants(self, profile_name):
-        return []
-
 
 class FakeActionStore:
     """ActionLibraryStore stand-in: names per experiment, no filesystem."""
