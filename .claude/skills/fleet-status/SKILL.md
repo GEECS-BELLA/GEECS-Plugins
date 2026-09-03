@@ -62,18 +62,24 @@ versions` line means a rollout is incomplete or a box's
 pull-on-restart no-oped — the GeecsPvaGateway runbook's known failure.
 
 **Stage 2 — host checkouts (ssh).** On each host derived from
-config.ini, every `geecs-*` (+ `tiled`) systemd unit is mapped to the
-clone it runs from (`WorkingDirectory`, or the baked venv's recorded
-source path for the MCP pattern), then: branch, short sha, commit date,
-dirty count, pyproject version vs the version installed in the unit's
-venv, and whether HEAD moved after the unit started. The three warnings
-to act on:
+config.ini, services are discovered two ways and deduplicated by pid:
+every `geecs-*` (+ `tiled`) systemd unit in **both** system and user
+scope, and **whoever owns each fleet port** — a queueserver started by
+hand in tmux has no unit and must still show up. Each process is mapped
+to the clone it runs from (its cwd, or the baked venv's recorded source
+path for the MCP pattern), then: branch, short sha, commit date,
+staged/unstaged counts, pyproject version vs the version installed in
+the running interpreter's venv, and whether HEAD moved after the process
+started (for a baked venv: after the install). The warnings to act on:
 
 | Warning | Meaning | Remedy (on the host, by the user or with their go) |
 |---|---|---|
-| `pyproject says X but the venv has Y installed` | a bump landed in the checkout without reinstall | `poetry install` in that package dir, then restart |
-| `checkout moved <time> after the service started` | the running process predates the code on disk | `systemctl restart <unit>` — after confirming that checkout is the intended one |
-| `DIRTY: N modified tracked file(s)` | someone edited the deployed tree in place | look before touching: it may be a live hotfix nobody committed |
+| `no systemd unit owns this process` (UNMANAGED) | started by hand; dies with its tmux/ssh session or a crash, no restart on reboot | install the runbook's unit when the dev phase ends; until then, know it |
+| `(user unit)` in the name | runs under `systemctl --user`, not the system scope the runbook describes | fine for development; note that `systemctl status` without `--user` will not see it |
+| `pyproject says X but the venv has Y installed` | a bump landed in the checkout without reinstall | `poetry install` in that package dir (pip reinstall for a baked venv), then restart |
+| `checkout moved <time> after the process started` | the running process predates the code on disk | restart it — after confirming that checkout is the intended one |
+| `checkout moved <time> after the baked install` | the MCP-style venv was baked from an older checkout state | pip reinstall from the checkout, then restart |
+| `STAGED: N` / `UNSTAGED: N` | the deployed tree differs from its HEAD | look before touching: it may be a live hotfix nobody committed, or a stray `git add` |
 
 Any unit whose clone is on a branch other than `master` is a fact to
 surface, not a fault — feature-branch deploys for live checks are
@@ -114,3 +120,7 @@ this page in the same PR".
   device roster is healthy — that is `/lab-status --hardware` and the
   gateway DB audit.
 - Tiled has no checkout (pip install); its version is the whole story.
+- Port-owner discovery needs `ss -p` to see the pid, which it does only
+  for processes owned by the ssh user (or root). A fleet port that shows
+  as listening in stage 1 but has no stage-2 record was started by a
+  different account.

@@ -125,10 +125,10 @@ ssh_target() {  # ssh_target IP — --ssh override, else ~/.ssh/config alias who
 }
 
 # Deployed shas found in stage 1/2, cross-referenced locally in stage 3.
-# Format per line: "<label> <sha>".
+# Format per line: "<label><TAB><sha>" (labels contain spaces).
 DEPLOYED_SHAS=""
 note_sha() { DEPLOYED_SHAS="$DEPLOYED_SHAS
-$1 $2"; }
+$1	$2"; }
 
 # ===========================================================================
 NET_UP=0
@@ -167,6 +167,11 @@ if [ "$NET_UP" -eq 1 ]; then
     else
         bad "Data Portal  $PORTAL_HOST:$PORTAL_PORT  (no /health answer)"
     fi
+
+    # Queueserver — ZMQ, no cheap self-report; port liveness (stage 2 finds the process).
+    QS_HOST="${WORKER_HOST:-$LAB_HOST}"
+    if port_open "$QS_HOST" 60615; then ok "Queueserver  $QS_HOST:60615  RE Manager control port listening"; else bad "Queueserver  $QS_HOST:60615  RE Manager not listening"; fi
+    if port_open "$QS_HOST" 5568; then ok "Doc proxy    $QS_HOST:5568   document stream listening"; else bad "Doc proxy    $QS_HOST:5568   not listening"; fi
 
     # MCP HTTP mode — no version endpoint; port liveness only (stage 2 reads the venv).
     if port_open "${WORKER_HOST:-$LAB_HOST}" "$MCP_PORT"; then
@@ -210,12 +215,12 @@ os.environ["EPICS_PVA_AUTO_ADDR_LIST"] = "NO"
 from p4p.client.thread import Context  # noqa: E402
 
 versions = {}
-with Context("pva") as ctx:
+with Context("pva", unwrap=False) as ctx:  # raw Values: str(NT wrapper) carries a timestamp
     for pv, host in zip(pvs, hosts):
         base = pv[: -len(":version")]
         try:
-            ver = str(ctx.get(pv, timeout=timeout))
-            beats = int(ctx.get(base + ":heartbeat", timeout=timeout))
+            ver = str(ctx.get(pv, timeout=timeout)["value"])
+            beats = int(ctx.get(base + ":heartbeat", timeout=timeout)["value"])
         except Exception as exc:  # noqa: BLE001 — a failed probe is a finding
             print(f"  [DOWN] PVA gateway  {host:<15}  ({type(exc).__name__})")
             continue
@@ -236,102 +241,165 @@ PY
 fi
 
 # ===========================================================================
-# Stage 2 runs this on each host. Output: one "unit=..." record per systemd
-# unit (key=value pairs, tab-separated), which the local side formats.
-# Read-only: git queries, systemctl show, a venv python -c for the installed
-# version. `poetry` is looked up in ~/.local/bin because plain ssh has no
-# login PATH (fleet map bootstrap gotcha 4).
+# Stage 2 runs this on each host. Output: one "svc=..." record per service
+# (key=value pairs, tab-separated), which the local side formats. Services
+# are discovered two ways and deduplicated by pid: systemd units (system AND
+# user scope — a dev-deployed daemon often lives in `systemctl --user`) and
+# the process that owns each fleet port (a queueserver started by hand in
+# tmux has no unit at all — it must still show up, as UNMANAGED). Read-only:
+# git queries, systemctl show, /proc reads, a venv python -c for the
+# installed version. `poetry` is looked up in ~/.local/bin because plain ssh
+# has no login PATH (fleet map bootstrap gotcha 4).
 REMOTE_SNIPPET='
 set -u
-POETRY="$HOME/.local/bin/poetry"; command -v "$POETRY" >/dev/null 2>&1 || POETRY="$(command -v poetry 2>/dev/null || true)"
 command -v systemctl >/dev/null 2>&1 || { echo "nosystemd"; exit 0; }
-units="$(systemctl list-units --all --plain --no-legend "geecs-*" "tiled.service" 2>/dev/null | awk "{print \$1}")"
-[ -n "$units" ] || { echo "nounits"; exit 0; }
+# fleet map ports -> role label (what a listener on that port is)
+role_for_port() { case "$1" in
+    5064) echo "CA gateway";; 8000) echo "Tiled";; 8200) echo "Data Portal";; 8100) echo "GEECS-MCP";;
+    60615) echo "Queueserver RE Manager";; 5568) echo "Bluesky doc proxy";; *) echo "port $1";; esac; }
+FLEET_PORTS="5064 8000 8200 8100 60615 5568"
+SEEN=" "
 reflog_ts() {  # unix time HEAD last moved (checkout/pull/reset), from the reflog
     local f; f="$(git -C "$1" rev-parse --git-path logs/HEAD 2>/dev/null)"
     [ -f "$f" ] && tail -1 "$f" | sed -E "s/^[0-9a-f]+ [0-9a-f]+ .*> ([0-9]+) [-+][0-9]{4}\t.*/\1/"
 }
-for u in $units; do
-    active="$(systemctl show -p ActiveState --value "$u")"; sub="$(systemctl show -p SubState --value "$u")"
-    since="$(systemctl show -p ActiveEnterTimestamp --value "$u")"
-    since_ts=""; [ -n "$since" ] && since_ts="$(date -d "$since" +%s 2>/dev/null)"
-    workdir="$(systemctl show -p WorkingDirectory --value "$u")"
-    exec_py="$(systemctl show -p ExecStart --value "$u" | sed -nE "s/.*path=([^ ;]+).*/\1/p")"
-    rec="unit=$u\tactive=$active/$sub\tsince=${since:-?}"
-    clone=""; pkgdir=""; venv=""
-    if [ -n "$workdir" ] && [ -d "$workdir" ]; then
-        clone="$(git -C "$workdir" rev-parse --show-toplevel 2>/dev/null)"; pkgdir="$workdir"
-        [ -n "$clone" ] && [ -x "$POETRY" ] && venv="$(cd "$workdir" && "$POETRY" env info --path 2>/dev/null)"
-    elif [ -n "$exec_py" ] && [ -x "$exec_py" ]; then
-        # Baked venv (MCP pattern): the install records its source path.
-        venv="$(dirname "$(dirname "$exec_py")")"
-        src="$("$exec_py" -c "import importlib.metadata as m,json,sys
+pkgdir_up() {  # nearest pyproject.toml at or above $1, not above the clone root $2
+    local d="$1"
+    while [ -n "$d" ] && [ "$d" != "/" ]; do
+        [ -f "$d/pyproject.toml" ] && { echo "$d"; return; }
+        [ "$d" = "$2" ] && return
+        d="$(dirname "$d")"
+    done
+}
+emit() {  # emit NAME MANAGED STATE PID CWD PYEXE
+    local name="$1" managed="$2" state="$3" pid="$4" cwd="$5" pyexe="$6"
+    local since="" since_ts="" clone="" pkgdir="" venv="" baked="" moved=""
+    if [ -n "$pid" ] && [ "$pid" != "0" ] && [ -d "/proc/$pid" ]; then
+        since="$(ps -o lstart= -p "$pid" 2>/dev/null | sed -E "s/^ +//")"
+        [ -n "$since" ] && since_ts="$(date -d "$since" +%s 2>/dev/null)"
+        [ -z "$cwd" ] && cwd="$(readlink "/proc/$pid/cwd" 2>/dev/null)"
+        [ -z "$pyexe" ] && pyexe="$(tr "\0" "\n" < "/proc/$pid/cmdline" 2>/dev/null | head -1)"
+    fi
+    local rec="svc=$name\tmanaged=$managed\tstate=$state\tsince=${since:-?}"
+    [ -n "$cwd" ] && [ -d "$cwd" ] && clone="$(git -C "$cwd" rev-parse --show-toplevel 2>/dev/null)"
+    [ -n "$clone" ] && pkgdir="$(pkgdir_up "$cwd" "$clone")"
+    case "$pyexe" in */bin/python*) venv="$(dirname "$(dirname "$pyexe")")";; esac
+    if [ -z "$clone" ] && [ -n "$venv" ] && [ -x "$venv/bin/python" ]; then
+        # Baked venv (MCP pattern): the non-editable install records its source path.
+        src="$("$venv/bin/python" -c "import importlib.metadata as m,json
 for d in m.distributions():
     t=d.read_text(\"direct_url.json\")
     if t and \"GEECS\" in t: print(json.loads(t)[\"url\"]); break" 2>/dev/null | sed "s|^file://||")"
-        [ -n "$src" ] && [ -d "$src" ] && { pkgdir="$src"; clone="$(git -C "$src" rev-parse --show-toplevel 2>/dev/null)"; }
+        if [ -n "$src" ] && [ -d "$src" ]; then pkgdir="$src"; clone="$(git -C "$src" rev-parse --show-toplevel 2>/dev/null)"; baked="$venv"; rec="$rec\tbaked=${venv/#$HOME/\~}"; fi
     fi
     if [ -n "$clone" ]; then
+        local branch sha full cdate staged unstaged
         branch="$(git -C "$clone" rev-parse --abbrev-ref HEAD 2>/dev/null)"; [ "$branch" = "HEAD" ] && branch="(detached)"
         sha="$(git -C "$clone" rev-parse --short=8 HEAD 2>/dev/null)"; full="$(git -C "$clone" rev-parse HEAD 2>/dev/null)"
         cdate="$(git -C "$clone" log -1 --format=%cs 2>/dev/null)"
-        dirty="$(git -C "$clone" status --porcelain --untracked-files=no 2>/dev/null | wc -l | tr -d " ")"
+        staged="$(git -C "$clone" diff --cached --name-only 2>/dev/null | wc -l | tr -d " ")"
+        unstaged="$(git -C "$clone" diff --name-only 2>/dev/null | wc -l | tr -d " ")"
         moved="$(reflog_ts "$clone")"
-        rec="$rec\tclone=${clone/#$HOME/\~}\tbranch=$branch\tsha=$sha\tfull=$full\tcommit_date=$cdate\tdirty=$dirty"
-        if [ -n "$moved" ] && [ -n "$since_ts" ] && [ "$active" = "active" ] && [ "$moved" -gt "$since_ts" ]; then
-            rec="$rec\tstale=checkout moved $(date -d @"$moved" "+%F %H:%M") after the service started"
+        rec="$rec\tclone=${clone/#$HOME/\~}\tbranch=$branch\tsha=$sha\tfull=$full\tcommit_date=$cdate\tstaged=$staged\tunstaged=$unstaged"
+        if [ -z "${baked:-}" ] && [ -n "$moved" ] && [ -n "$since_ts" ] && [ "$moved" -gt "$since_ts" ]; then
+            rec="$rec\tstale=checkout moved $(date -d @"$moved" "+%F %H:%M") after the process started"
         fi
     fi
     if [ -n "$pkgdir" ] && [ -f "$pkgdir/pyproject.toml" ]; then
+        local pname pver iver
         pname="$(sed -nE "s/^name *= *\"([^\"]+)\".*/\1/p" "$pkgdir/pyproject.toml" | head -1)"
         pver="$(sed -nE "s/^version *= *\"([^\"]+)\".*/\1/p" "$pkgdir/pyproject.toml" | head -1)"
         rec="$rec\tpkg=$pname\tpyproject=$pver"
         if [ -n "$venv" ] && [ -x "$venv/bin/python" ] && [ -n "$pname" ]; then
             iver="$("$venv/bin/python" -c "import importlib.metadata as m; print(m.version(\"$pname\"))" 2>/dev/null)"
             rec="$rec\tinstalled=${iver:-?}"
+            if [ -n "${baked:-}" ]; then
+                # Baked install: the code that runs is what was installed, so
+                # compare the checkout move against the install, not the process.
+                distinfo="$(ls -d "$venv"/lib/python*/site-packages/${pname//-/_}-*.dist-info 2>/dev/null | head -1)"
+                inst_ts=""; [ -n "$distinfo" ] && inst_ts="$(stat -c %Y "$distinfo" 2>/dev/null)"
+                if [ -n "$inst_ts" ] && [ -n "${moved:-}" ] && [ "$moved" -gt "$inst_ts" ]; then
+                    rec="$rec\tstale=checkout moved $(date -d @"$moved" "+%F %H:%M") after the baked install ($(date -d @"$inst_ts" "+%F %H:%M")) — pip reinstall + restart pending"
+                elif [ -n "$inst_ts" ] && [ -n "$since_ts" ] && [ "$inst_ts" -gt "$since_ts" ]; then
+                    rec="$rec\tstale=reinstalled $(date -d @"$inst_ts" "+%F %H:%M") after the process started — restart pending"
+                fi
+            fi
         fi
     fi
+    [ -n "$pyexe" ] && rec="$rec\tpyexe=${pyexe/#$HOME/\~}"
     printf "%b\n" "$rec"
+}
+# 1) systemd units, system and user scope
+for scope in "" "--user"; do
+    units="$(systemctl $scope list-units --all --plain --no-legend "geecs-*" "tiled.service" 2>/dev/null | awk "{print \$1}")"
+    for u in $units; do
+        active="$(systemctl $scope show -p ActiveState --value "$u")/$(systemctl $scope show -p SubState --value "$u")"
+        pid="$(systemctl $scope show -p MainPID --value "$u")"
+        wd="$(systemctl $scope show -p WorkingDirectory --value "$u")"
+        label="$u"; [ -n "$scope" ] && label="$u (user unit)"
+        [ "$pid" != "0" ] && SEEN="$SEEN$pid "
+        emit "$label" "systemd" "$active" "$pid" "$wd" ""
+    done
 done
+# 2) whoever owns each fleet port, if not already listed via its unit
+for port in $FLEET_PORTS; do
+    pid="$(ss -ltnpH "sport = :$port" 2>/dev/null | sed -nE "s/.*pid=([0-9]+).*/\1/p" | head -1)"
+    [ -n "$pid" ] || continue
+    case "$SEEN" in *" $pid "*) continue;; esac
+    SEEN="$SEEN$pid "
+    unit="$(sed -nE "s#.*/([^/]+\.service)\$#\1#p" "/proc/$pid/cgroup" 2>/dev/null | head -1)"
+    if [ -n "$unit" ]; then managed="systemd ($unit)"; else managed="UNMANAGED"; fi
+    emit "$(role_for_port "$port") :$port" "$managed" "running pid $pid" "$pid" "" ""
+done
+[ "$SEEN" = " " ] && echo "nounits"
+exit 0
 '
 
-fmt_host_records() {  # stdin: unit records -> pretty lines; side effect: note_sha
+fmt_host_records() {  # stdin: service records -> pretty lines; side effect: note_sha
     local line
     while IFS= read -r line; do
         [ -n "$line" ] || continue
         case "$line" in
             nosystemd) skip "no systemd on this host"; continue ;;
-            nounits) skip "no geecs-* / tiled units installed here"; continue ;;
+            nounits) skip "no geecs-* / tiled units and nothing listening on the fleet ports"; continue ;;
         esac
-        local unit active since clone branch sha full cdate dirty stale pkg pyproject installed
-        unit=""; active=""; since=""; clone=""; branch=""; sha=""; full=""; cdate=""; dirty=""; stale=""; pkg=""; pyproject=""; installed=""
+        local svc managed state since clone branch sha full cdate staged unstaged stale pkg pyproject installed baked pyexe
+        svc=""; managed=""; state=""; since=""; clone=""; branch=""; sha=""; full=""; cdate=""; staged=""; unstaged=""; stale=""; pkg=""; pyproject=""; installed=""; baked=""; pyexe=""
         local IFS=$'\t' kv
         for kv in $line; do
             case "$kv" in
-                unit=*) unit="${kv#*=}" ;; active=*) active="${kv#*=}" ;; since=*) since="${kv#*=}" ;;
+                svc=*) svc="${kv#*=}" ;; managed=*) managed="${kv#*=}" ;; state=*) state="${kv#*=}" ;; since=*) since="${kv#*=}" ;;
                 clone=*) clone="${kv#*=}" ;; branch=*) branch="${kv#*=}" ;; sha=*) sha="${kv#*=}" ;;
-                full=*) full="${kv#*=}" ;; commit_date=*) cdate="${kv#*=}" ;; dirty=*) dirty="${kv#*=}" ;;
+                full=*) full="${kv#*=}" ;; commit_date=*) cdate="${kv#*=}" ;; staged=*) staged="${kv#*=}" ;; unstaged=*) unstaged="${kv#*=}" ;;
                 stale=*) stale="${kv#*=}" ;; pkg=*) pkg="${kv#*=}" ;; pyproject=*) pyproject="${kv#*=}" ;;
-                installed=*) installed="${kv#*=}" ;;
+                installed=*) installed="${kv#*=}" ;; baked=*) baked="${kv#*=}" ;; pyexe=*) pyexe="${kv#*=}" ;;
             esac
         done
         unset IFS
         local tag="[ OK ]"
-        case "$active" in active/*) ;; *) tag="[DOWN]" ;; esac
-        printf '  %s %-26s %-16s since %s\n' "$tag" "$unit" "$active" "${since:-?}"
+        case "$state" in active/*|running*) ;; *) tag="[DOWN]" ;; esac
+        printf '  %s %-34s %-16s since %s\n' "$tag" "$svc" "$state" "${since:-?}"
+        [ "$managed" = "UNMANAGED" ] && warn "$svc: no systemd unit owns this process (started by hand — tmux/nohup?); it will not survive a reboot or crash"
         if [ -n "$clone" ]; then
-            local d=""; [ "${dirty:-0}" != "0" ] && d="  DIRTY: $dirty modified tracked file(s)"
+            local d=""
+            [ "${staged:-0}" != "0" ] && d="$d  STAGED: $staged file(s)"
+            [ "${unstaged:-0}" != "0" ] && d="$d  UNSTAGED: $unstaged modified file(s)"
             info "$clone @ $branch $sha ($cdate)$d"
-            note_sha "$unit" "$full"
+            note_sha "$svc" "$full"
+        elif [ -n "$pyexe" ]; then
+            info "no git clone behind this process (interpreter $pyexe)"
         fi
+        [ -n "$baked" ] && info "baked venv $baked (non-editable install — the clone can move without changing the running code)"
         if [ -n "$pkg" ]; then
             if [ -n "$installed" ] && [ "$installed" != "$pyproject" ]; then
-                warn "$pkg: pyproject says $pyproject but the venv has $installed installed — poetry install pending"
+                warn "$pkg: pyproject says $pyproject but the venv has $installed installed — poetry install / pip reinstall pending"
             else
                 info "$pkg $pyproject${installed:+ (installed $installed)}"
             fi
         fi
-        [ -n "$stale" ] && warn "$unit: $stale — the running process predates the code on disk (restart pending?)"
+        if [ -n "$stale" ]; then
+            case "$stale" in *pending*) warn "$svc: $stale" ;; *) warn "$svc: $stale — the running process predates the code on disk (restart pending?)" ;; esac
+        fi
     done
 }
 
@@ -345,7 +413,7 @@ if [ "$NET_UP" -eq 1 ] && [ "$DO_SSH" -eq 1 ]; then
         echo "host $host (ssh $target)"
         out="$(printf '%s' "$REMOTE_SNIPPET" | bounded "$SSH_TIMEOUT" ssh -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=accept-new "$target" bash -s 2>&1)"
         rc=$?
-        if [ "$rc" -ne 0 ] && ! printf '%s' "$out" | grep -q '^unit='; then
+        if [ "$rc" -ne 0 ] && ! printf '%s' "$out" | grep -q '^svc='; then
             bad "ssh $target failed (rc=$rc): $(printf '%s' "$out" | head -1)"
             info "no key-based access from here? pass --ssh $host=<alias> or run the stage-2 snippet on the host by hand"
             continue
@@ -382,7 +450,7 @@ git -C "$REPO_ROOT" worktree list 2>/dev/null | while IFS= read -r wl; do
 done
 if [ -n "$(printf '%s' "$DEPLOYED_SHAS" | tr -d '\n ')" ]; then
     echo "  deployed shas vs this repo:"
-    printf '%s\n' "$DEPLOYED_SHAS" | while read -r label full; do
+    printf '%s\n' "$DEPLOYED_SHAS" | while IFS=$'\t' read -r label full; do
         [ -n "$full" ] || continue
         short="${full:0:8}"
         if ! git -C "$REPO_ROOT" cat-file -e "$full^{commit}" 2>/dev/null; then
