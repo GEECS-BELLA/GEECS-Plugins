@@ -5,6 +5,18 @@ All notable changes to GEECS-Schemas are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.0] - 2026-09-02
+
+### Added
+
+- **Named-plan parameter artifacts** (Phase 2b-ii): the export registry
+  gains `capture_settings`, `action_bindings`, `scan_axis`, and
+  `optimization_spec` — the sub-models the queueserver's named plans
+  (`geecs_noscan_plan`, `geecs_scan_plan`, `geecs_optimize_plan`, GeecsBluesky
+  0.73.0) take as parameters, published under `docs/geecs_schemas/` so a
+  generic client grafts one JSON Schema per plan parameter. No new models:
+  the named plans are thin wrappers over the existing ScanRequest vocabulary.
+
 ## [0.16.0] - 2026-09-02
 
 ### Added

@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Which named action plans run around (and inside) the scan.\n\nEach slot lists plan names from the experiment's action library.  Leave\na slot empty for \"nothing\".",
+  "properties": {
+    "setup": {
+      "description": "Plans to run once before the scan starts.",
+      "items": {
+        "type": "string"
+      },
+      "title": "Setup",
+      "type": "array"
+    },
+    "per_step": {
+      "description": "Plans to run between scan steps \u2014 after each move, before the shots at that position.",
+      "items": {
+        "type": "string"
+      },
+      "title": "Per Step",
+      "type": "array"
+    },
+    "closeout": {
+      "description": "Plans to run once after the scan finishes (even on abort).",
+      "items": {
+        "type": "string"
+      },
+      "title": "Closeout",
+      "type": "array"
+    }
+  },
+  "title": "ActionBindings",
+  "type": "object"
+}

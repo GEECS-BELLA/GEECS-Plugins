@@ -84,6 +84,11 @@ def main() -> None:
 
     from bluesky import RunEngine
 
+    from geecs_bluesky.plans.named_plans import (
+        geecs_noscan_plan,
+        geecs_optimize_plan,
+        geecs_scan_plan,
+    )
     from geecs_bluesky.plans.scan_request_plan import (
         geecs_run_action_plan,
         geecs_scan_request_plan,
@@ -101,6 +106,9 @@ def main() -> None:
     for plan_name, real_plan in (
         ("geecs_scan_request_plan", geecs_scan_request_plan),
         ("geecs_run_action_plan", geecs_run_action_plan),
+        ("geecs_noscan_plan", geecs_noscan_plan),
+        ("geecs_scan_plan", geecs_scan_plan),
+        ("geecs_optimize_plan", geecs_optimize_plan),
     ):
         wrapped = ns.get(plan_name)
         if getattr(wrapped, "__wrapped__", None) is not real_plan:
@@ -117,6 +125,9 @@ def main() -> None:
         "RE",
         "geecs_scan_request_plan",
         "geecs_run_action_plan",
+        "geecs_noscan_plan",
+        "geecs_scan_plan",
+        "geecs_optimize_plan",
         "geecs_move_variable",
         "geecs_describe_action",
     ]:

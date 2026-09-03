@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "AcquisitionMode": {
+      "description": "How shots are taken.\n\nAttributes\n----------\nFREE_RUN : str\n    The trigger free-runs at the machine repetition rate; devices are\n    matched up by their timestamps afterwards.\nSTRICT : str\n    The scan fires each shot itself and requires every device to report\n    in before the next one \u2014 slower, but nothing is ever missing.",
+      "enum": [
+        "free_run",
+        "strict"
+      ],
+      "title": "AcquisitionMode",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "How shots are taken and what gets recorded \u2014 the capture concern.\n\nEvery scan, whatever its mode, captures data the same way: a number of\nshots per step, an acquisition discipline, the save sets naming the\nrecorded devices, the telemetry and native-image-save toggles, and the\ntrigger profile driving the shot trigger.  This model groups those\nsix settings; conceptually they are three sub-groups \u2014 shot control\n(``shots_per_step`` + ``acquisition``), data logging (``save_sets`` +\n``background_telemetry`` + ``native_image_save``), and the trigger\nprofile \u2014 kept one level flat here on purpose.\n\nEvery field has a usable default, so an omitted ``capture`` block is a\nvalid one-shot strict capture with no named save sets.",
+  "properties": {
+    "shots_per_step": {
+      "default": 1,
+      "description": "How many shots to take at each scan position / grid point (or in total for a noscan).",
+      "minimum": 1,
+      "title": "Shots Per Step",
+      "type": "integer"
+    },
+    "acquisition": {
+      "$ref": "#/$defs/AcquisitionMode",
+      "default": "strict",
+      "description": "'strict' fires shot by shot and guarantees every device is in every row; 'free_run' lets the trigger run at the machine rate and matches devices up by timestamp."
+    },
+    "save_sets": {
+      "description": "Names of the save sets \u2014 reusable named device groups \u2014 recorded for this scan; devices are unioned across them. Each names the devices that get guarantees (completeness, dialogs, images, rituals). A bare string is accepted and stored as a one-element list. Empty means no required devices beyond scan bookkeeping.",
+      "items": {
+        "type": "string"
+      },
+      "title": "Save Sets",
+      "type": "array"
+    },
+    "background_telemetry": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Also log every other live experiment device as best-effort snapshot columns \u2014 the variables the GEECS experiment database marks for scan logging (MySQL table expt_device_variable, get='yes') \u2014 read from the gateway's always-on monitor cache: read-only and never waited on, so it cannot slow or stall the scan; dead devices are dropped with a log line, never a dialog or abort. Leave unset to inherit the experiment default; set true/false to override for this scan.",
+      "title": "Background Telemetry"
+    },
+    "native_image_save": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Whether capture-eligible cameras (Point Grey \u2014 the devicetypes the central PVA capture daemon owns) write their native per-shot image files during this scan. When false, those cameras' images are recorded only by the capture daemon's per-device frame stack (one HDF5 per camera per scan); all other devices \u2014 proprietary formats like the HASO, scope traces \u2014 keep their native save regardless. Leave unset to inherit the experiment default; set true/false to override for this scan (e.g. force native files back on for one scan while the capture path is being validated). Two engine behaviors to expect when false: the scan is REFUSED before a scan number is claimed if the capture daemon looks absent or is not monitoring every capture camera (fail-closed \u2014 start the daemon or drop the override), and the request is silently inert when no capture-eligible cameras resolve (DB unreachable, or none in the save set) \u2014 native saving then proceeds unchanged, with a warning in the scan log.",
+      "title": "Native Image Save"
+    },
+    "trigger_profile": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Name of the trigger profile that drives the shot trigger. Unset means the scan does not manage the trigger.",
+      "title": "Trigger Profile"
+    }
+  },
+  "title": "CaptureSettings",
+  "type": "object"
+}

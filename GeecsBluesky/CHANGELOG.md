@@ -4,6 +4,25 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.73.0] - 2026-09-02
+
+### Added
+
+- **Three named scan plans** (schema refactor Phase 2b-ii;
+  `plans/named_plans.py`, registered by the worker startup beside the
+  funnel): `geecs_noscan_plan(capture, actions=, description=, background=)`,
+  `geecs_scan_plan(axes, capture, …)` (1-D and grid as one plan), and
+  `geecs_optimize_plan(optimization, capture, …)` (the search space stays
+  inside `OptimizationSpec.variables`, as it always has — no bounds model).
+  Each assembles the canonical `ScanRequest` and yields from
+  `geecs_scan_request_plan`, so validation, the claim, the run discipline,
+  and the recorded metadata are identical to the funnel's (pinned by
+  document-parity tests on the mock RunEngine). They exist for humans and
+  gates: per-mode forms (one published JSON Schema per parameter,
+  GEECS-Schemas 0.17.0), per-plan `user_group_permissions`, and a manager
+  history that names the kind of scan. The funnel stays the document API
+  for GEECS-Console and GEECS-MCP — no client change.
+
 ## [0.72.0] - 2026-09-02
 
 ### Changed

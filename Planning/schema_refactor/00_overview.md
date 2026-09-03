@@ -223,12 +223,18 @@ Register in the qserver startup profile, beside the existing funnel:
 - `geecs_scan_plan` — 1-D and grid as one plan (a grid is the multi-axis case
   of the same sweep; splitting them would be artificial); params: `axes` +
   shared components.
-- `geecs_optimize_plan` — params: `axes`-as-bounds per current optimize
-  semantics + `OptimizationSpec` + shared components.
+- `geecs_optimize_plan` — params: `OptimizationSpec` + shared components.
+  (**Corrected while building 2b-ii:** an optimize request has no `axes` —
+  the schema forbids them — its variables and bounds live inside
+  `OptimizationSpec.variables`, so the plan takes no axes and no new bounds
+  shape; Sam's smaller-change call, and even smaller than the doc assumed.)
 
-Each is a mode-pinned parameter model **composed from the Phase-1 sub-models**,
-building a ScanRequest internally and delegating to the exact same execution
-path. No triplicated validation, no forked run discipline.
+Each takes the Phase-1 sub-models **as its parameters** (JSON objects at the
+queue gate — no new parameter models; the published artifacts are the
+sub-models' own schemas), builds a ScanRequest internally and delegates to
+the exact same execution path. No triplicated validation, no forked run
+discipline. (**As built in 2b-ii:** raw `dict`/`list` parameters, one
+published artifact per parameter — see the `EXPORTED_SCHEMAS` comment.)
 
 **Shared-execution invariant (non-negotiable)**: every named plan builds a
 canonical `ScanRequest` internally and delegates to the single existing
@@ -245,20 +251,19 @@ GEECS-Console and GEECS-MCP `submit_scan` keep submitting ScanRequest documents
 untouched, into the same queue. The funnel retires (or stays forever as the
 machine API) on usage evidence — strangler-fig, no migration cliff.
 
-Each named plan's parameter model lives in GEECS-Schemas (pydantic-only),
-its plan function in GeecsBluesky beside the funnel, its
-`user_group_permissions` entry in the qserver profile. Per-plan JSON Schema
+Each named plan's parameters are existing GEECS-Schemas sub-models (no
+new pydantic types), its plan function in GeecsBluesky beside the funnel,
+its `user_group_permissions` entry in the qserver profile. Per-plan JSON Schema
 artifacts land under `docs/geecs_schemas/` through the export registry
 (`schema_export.EXPORTED_SCHEMAS`, **built as 2b-i**, GEECS-Schemas 0.16.0:
 one artifact per entry, the no-drift guard parametrized over the registry,
 an orphan-artifact check, `SCHEMA_ARTIFACT` kept as the ScanRequest alias
 the worker annotation and OSPREY point at). Each named plan's parameter
-model is one registry line plus a regenerate. The Markdown reference for
-the plan models (2b-ii) has docgen iterate `EXPORTED_SCHEMAS` for a
-plan-models page — each plan model registered exactly once — not a change
-to the config-kind registry (`SCHEMA_REGISTRY` stays the 8 versioned YAML
-kinds; `scan_request` is the one model in both, pinned); mkdocs nav stays
-as is.
+model is one registry line plus a regenerate. No plan-models docgen page
+was needed: the parameters are sub-models the existing reference already
+documents under ScanRequest, so `SCHEMA_REGISTRY` stays the 8 versioned
+YAML kinds (`scan_request` is the one model in both registries, pinned)
+and mkdocs nav stays as is.
 
 #### 2c — OSPREY tail (optional, no deadline)
 

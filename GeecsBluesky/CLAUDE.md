@@ -121,6 +121,11 @@ geecs_bluesky/
     single_shot.py          # geecs_single_shot + geecs_confirm_quiescent
     t0_sync.py              # geecs_t0_sync — coordinated per-device t0 capture
     run_wrapper.py          # geecs_run_wrapper + claim_scan_number (numbering + save + md)
+    named_plans.py          # geecs_noscan_plan / geecs_scan_plan /
+                            #   geecs_optimize_plan — per-mode vocabulary at the
+                            #   gate (Phase 2b-ii): each assembles the canonical
+                            #   ScanRequest and yields from the funnel; one
+                            #   published JSON Schema per parameter
     scan_request_plan.py    # geecs_scan_request_plan — "run this ScanRequest"
                             #   as ONE plan (queueserver round 1, issue #633;
                             #   the only orchestration since Phase 2a): the
@@ -236,7 +241,10 @@ EVENT_SCHEMA.md — the canonical event-schema v1 data contract (read it).
 `qserver/` holds the worker: `launch_re_manager.sh` (Redis + the
 bluesky-0MQ-proxy document stream + `start-re-manager --keep-re`),
 `startup/startup.py` (builds the headless `GeecsSession`, exposes its
-`RE`, registers `geecs_scan_request_plan` + `geecs_run_action_plan` and
+`RE`, registers `geecs_scan_request_plan` + `geecs_run_action_plan` + the
+three named plans (`plans/named_plans.py`: `geecs_noscan_plan` /
+`geecs_scan_plan` / `geecs_optimize_plan` — per-mode parameters, each
+assembling a `ScanRequest` and yielding from the funnel; Phase 2b-ii) and
 the `function_execute` manual verbs `geecs_move_variable` /
 `geecs_describe_action`, subscribes Tiled + the s-file stop-doc callback,
 registers the optimization loader), `user_group_permissions.yaml`, and
