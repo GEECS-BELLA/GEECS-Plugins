@@ -54,6 +54,7 @@ from geecs_data_utils.data.row_filters import filter_mask
 from geecs_data_utils.io.images import average_frames
 from geecs_data_utils.scan_frame import PROVENANCE_RUN, scan_frame
 from geecs_data_utils.tiled_catalog import (
+    RunSummary,
     ScanCatalog,
     fmt_time_of_day,
     metadata_rows,
@@ -100,6 +101,12 @@ _PLOT_MAX_ROWS = 100_000
 #: is emitted, so ``no-cache`` means a re-fetch, not a 304 — an ETag
 #: over the s-file's stat is the follow-up if revisits feel slow.
 _UNION_HEADERS = {"Cache-Control": "no-cache"}
+
+#: Headers for the JSON browsing surface (day listing, run detail, device
+#: probe, jump). A day gains scans while it is being taken, a running
+#: run gains its stop document, and a device folder fills in as the run
+#: writes — always re-fetch, never pin.
+_LISTING_HEADERS = {"Cache-Control": "no-cache"}
 
 #: Requests carrying a proxy mount prefix — the Grafana/JupyterHub
 #: convention every reverse proxy speaks.
@@ -259,6 +266,60 @@ def _default_x(detail, columns: list[str]) -> str:
         return ""
     scan_vars = schema_map.scan_variable_columns(columns, detail.start_doc)
     return scan_vars[0] if scan_vars else ""
+
+
+def _scan_label(summary: RunSummary) -> str:
+    """The listing's scan cell: ``Scan 002``, else the uid's first 8 chars."""
+    if summary.scan_number is not None:
+        return f"Scan {summary.scan_number:03d}"
+    return summary.uid[:8]
+
+
+def _summary_json(summary: RunSummary) -> dict:
+    """One run's listing row, as the day page's table shows it.
+
+    The JSON twin of a ``day.html`` row (scan cell, HH:MM, mode,
+    description, shots, status) plus the fields the page keeps in
+    attributes or omits (uid, epoch start, experiment, save sets).
+    """
+    started = None
+    if summary.start_time > 0:
+        started = analysis.jsonable_datetimes([summary.start_time], "unix")[0]
+    return {
+        "uid": summary.uid,
+        "scan": _scan_label(summary),
+        "scan_number": summary.scan_number,
+        "start_time": summary.start_time,
+        "started": started,
+        "time": fmt_time_of_day(summary.start_time),
+        "mode": summary.mode,
+        "description": summary.description,
+        "shots": summary.shots,
+        "exit_status": summary.exit_status,
+        "running": not summary.exit_status,
+        "experiment": summary.experiment,
+        "save_sets": list(summary.save_sets),
+    }
+
+
+def _parse_iso_day(day: str) -> date:
+    """An ISO day path segment, or the routes' shared 404."""
+    try:
+        return date.fromisoformat(day)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="bad date") from exc
+
+
+def _jump_target(runs: list[RunSummary], prefer: int) -> Optional[RunSummary]:
+    """The day steppers' rule — the run numbered ``prefer``, else the newest.
+
+    ONE implementation for the HTML redirect and the JSON twin, so the
+    two cannot drift (``None`` only for a day with no runs).
+    """
+    return next(
+        (run for run in runs if prefer and run.scan_number == prefer),
+        runs[0] if runs else None,
+    )
 
 
 @dataclasses.dataclass(frozen=True)
@@ -537,11 +598,60 @@ def create_app(
             for column in columns
         }
 
+    def _list_day(experiment: str, day: date, filter_text: str) -> tuple[list, str]:
+        """The day's runs (newest first), filtered — ONE implementation.
+
+        Shared by the day page, the JSON day listing and both jump
+        routes so the surfaces cannot drift.  A catalog failure is
+        returned, not raised (``(runs, error)``): the page renders it
+        inline, the API maps it to 503, the jump degrades to the day.
+        """
+        try:
+            runs = list(catalog.list_runs(experiment, day))
+        except Exception as exc:  # noqa: BLE001 — surface, don't 500
+            logger.warning("day listing failed: %s", exc)
+            return [], str(exc)
+        needle = filter_text.strip().lower()
+        if needle:
+            runs = [run for run in runs if needle in run.filter_text()]
+        return runs, ""
+
+    def _neighbours(uid: str, experiment: str, run_day: Optional[date]):
+        """The scan steppers: ``(prev_uid, next_uid, day_runs)``.
+
+        The day's listing (newest first) feeds both the rail's scan
+        dropdown and the stepper neighbours — previous = older, next =
+        newer.  A listing failure (or a uid missing from its own day)
+        just hides them: ``("", "", [])`` — never sinks the page.
+        """
+        if run_day is None:
+            return "", "", []
+        try:
+            day_runs = list(catalog.list_runs(experiment, run_day))
+            day_uids = [run.uid for run in day_runs]
+            position = day_uids.index(uid)
+        except Exception as exc:  # noqa: BLE001 — stepper is optional
+            logger.warning("neighbour listing failed: %s", exc)
+            return "", "", []
+        next_uid = day_uids[position - 1] if position > 0 else ""
+        prev_uid = day_uids[position + 1] if position + 1 < len(day_uids) else ""
+        return prev_uid, next_uid, day_runs
+
+    def _resolved_folder(detail, day: str):
+        """``(run_day, folder)``: the run's own day and its existing scan folder."""
+        run_day = _run_day(detail, day)
+        folder = resolve_scan_folder(detail, run_day) if run_day else None
+        return run_day, folder
+
     @app.get("/health")
     def health() -> dict:
-        """Liveness + catalog probe (the fleet-map health check)."""
+        """Liveness + catalog probe (the fleet-map health check) + version."""
         status = catalog.probe()
-        return {"ok": status.ok, "catalog": status.label}
+        return {
+            "ok": status.ok,
+            "catalog": status.label,
+            "version": _portal_version(),
+        }
 
     # ------------------------- analysis JSON API -------------------------
     # One-liners over the data-utils primitives (03 design doc): every
@@ -900,6 +1010,14 @@ def create_app(
             return False
         return True
 
+    def _analysis_enabled_for(folder: Optional[Path]) -> bool:
+        """The Analysis tab's gate: the feature on AND a resolvable scan folder.
+
+        Runs and the artifact listing are per scan folder — the page and
+        ``/api/run`` read the same answer.
+        """
+        return folder is not None and _analysis_enabled()
+
     def _analysis_available() -> None:
         """404 unless the run feature is configured AND installed."""
         if processing_config_dir is None:
@@ -929,8 +1047,7 @@ def create_app(
         (and TZ / experiment-spelling drift would do the same).
         """
         detail = _load_run(uid)
-        run_day = _run_day(detail, day)
-        folder = resolve_scan_folder(detail, run_day) if run_day else None
+        _, folder = _resolved_folder(detail, day)
         if folder is None:
             raise HTTPException(status_code=404, detail="scan folder not resolvable")
         try:
@@ -1132,6 +1249,132 @@ def create_app(
         }
         return JSONResponse(payload, headers=_UNION_HEADERS)
 
+    # ------------------------- browsing JSON API -------------------------
+    # The page-shaped reads (day list, run overview, device probe, the
+    # day jump) as JSON — for scripts and agents, so everything a
+    # browser shows is readable without scraping HTML.  Same helpers as
+    # the templates, so the two surfaces cannot drift.
+
+    @app.get("/api/day/{day}")
+    def api_day(
+        request: Request, day: str, experiment: str = "", filter: str = ""
+    ) -> JSONResponse:
+        """The day page as JSON: its runs (newest first), filtered."""
+        selected = _parse_iso_day(day)
+        exp = experiment or default_experiment
+        runs, error = _list_day(exp, selected, filter)
+        if error:
+            raise HTTPException(status_code=503, detail=f"catalog unavailable: {error}")
+        payload = {
+            "day": selected.isoformat(),
+            "prev_day": (selected - timedelta(days=1)).isoformat(),
+            "next_day": (selected + timedelta(days=1)).isoformat(),
+            "experiment": exp,
+            "filter": filter,
+            "runs": [_summary_json(run) for run in runs],
+            "page": f"{_root(request)}/day/{selected.isoformat()}",
+        }
+        return JSONResponse(payload, headers=_LISTING_HEADERS)
+
+    @app.get("/api/run/jump/{day}")
+    def api_run_jump(
+        request: Request, day: str, prefer: int = 0, experiment: str = ""
+    ) -> JSONResponse:
+        """The day steppers' target as JSON (see :func:`run_jump`)."""
+        selected = _parse_iso_day(day)
+        exp = experiment or default_experiment
+        runs, error = _list_day(exp, selected, "")
+        if error:
+            raise HTTPException(status_code=503, detail=f"catalog unavailable: {error}")
+        target = _jump_target(runs, prefer)
+        page = (
+            f"{_root(request)}/run/{target.uid}"
+            if target
+            else f"{_root(request)}/day/{selected.isoformat()}"
+        )
+        payload = {
+            "day": selected.isoformat(),
+            "experiment": exp,
+            "prefer": prefer,
+            "uid": target.uid if target else None,
+            "scan_number": target.scan_number if target else None,
+            "matched": bool(target and prefer and target.scan_number == prefer),
+            "runs": len(runs),
+            "page": page,
+        }
+        return JSONResponse(payload, headers=_LISTING_HEADERS)
+
+    @app.get("/api/run/{uid}")
+    def api_run(
+        request: Request, uid: str, day: str = "", experiment: str = ""
+    ) -> JSONResponse:
+        """One run as JSON: the rail, the Overview tab and the device list.
+
+        ``metadata`` is the Overview table verbatim (``metadata_rows``);
+        ``devices`` are the image device folders (their tier is the
+        separate ``/device`` probe — one listing per device); the
+        neighbours and ``day_runs`` are the scan steppers and dropdown;
+        ``analysis_enabled`` says whether the page offers the Analysis
+        tab (same gate as the template).
+        """
+        detail = _load_run(uid)
+        run_day, folder = _resolved_folder(detail, day)
+        exp = experiment or default_experiment
+        prev_uid, next_uid, day_runs = _neighbours(uid, exp, run_day)
+        payload = {
+            "uid": uid,
+            "run_day": run_day.isoformat() if run_day else None,
+            "experiment": exp,
+            "summary": _summary_json(detail.summary),
+            "metadata": [[field, value] for field, value in metadata_rows(detail)],
+            "start_doc": analysis.jsonable_document(detail.start_doc or {}),
+            "stop_doc": analysis.jsonable_document(detail.stop_doc or {}),
+            "event_rows": None if detail.data is None else len(detail.data),
+            "scan_folder": str(folder) if folder else None,
+            "devices": resources.image_devices(folder) if folder else [],
+            "neighbours": {"prev_uid": prev_uid, "next_uid": next_uid},
+            "day_runs": [_summary_json(run) for run in day_runs],
+            "prev_day": (run_day - timedelta(days=1)).isoformat() if run_day else None,
+            "next_day": (run_day + timedelta(days=1)).isoformat() if run_day else None,
+            "processing_options": _processing_names(),
+            "analysis_enabled": _analysis_enabled_for(folder),
+            "page": f"{_root(request)}/run/{uid}",
+            "portal_version": _portal_version(),
+        }
+        return JSONResponse(payload, headers=_LISTING_HEADERS)
+
+    @app.get("/api/run/{uid}/device")
+    def api_device(uid: str, device: str = "", day: str = "") -> JSONResponse:
+        """One device's gallery tier — what clicking its name decides.
+
+        Same ``device_kind`` probe as the page (one directory listing,
+        no pixel reads), so the JSON and the Images tab can never
+        disagree about whether a device renders.
+        """
+        detail = _load_run(uid)
+        if not device:
+            raise HTTPException(status_code=400, detail="device is required")
+        run_day, folder = _resolved_folder(detail, day)
+        if folder is None:
+            raise HTTPException(status_code=404, detail="scan folder not resolvable")
+        probe = resources.device_kind(folder, device)
+        if probe.kind == "missing":
+            raise HTTPException(status_code=404, detail=f"unknown device {device!r}")
+        renderable = probe.kind in ("stack", "native")
+        payload = {
+            "uid": uid,
+            "run_day": run_day.isoformat() if run_day else None,
+            "device": device,
+            "kind": probe.kind,
+            "renderable": renderable,
+            "path": str(probe.path) if probe.path else None,
+            "ext": probe.ext,
+            "event_rows": None if detail.data is None else len(detail.data),
+            "planned_shots": detail.summary.shots,
+            "processing_options": _processing_names() if renderable else [],
+        }
+        return JSONResponse(payload, headers=_LISTING_HEADERS)
+
     @app.get("/", response_class=RedirectResponse)
     def index(request: Request) -> str:
         """Redirect to today's day view."""
@@ -1153,20 +1396,11 @@ def create_app(
         request: Request, day: str, experiment: str = "", filter: str = ""
     ) -> HTMLResponse:
         """The run list for one day (newest first, as the catalog lists)."""
-        try:
-            selected = date.fromisoformat(day)
-        except ValueError as exc:
-            raise HTTPException(status_code=404, detail="bad date") from exc
+        selected = _parse_iso_day(day)
         exp = experiment or default_experiment
-        try:
-            runs = catalog.list_runs(exp, selected)
-            error = ""
-        except Exception as exc:  # noqa: BLE001 — surface, don't 500
-            logger.warning("day listing failed: %s", exc)
-            runs, error = [], f"catalog error: {exc}"
-        needle = filter.strip().lower()
-        if needle:
-            runs = [run for run in runs if needle in run.filter_text()]
+        runs, error = _list_day(exp, selected, filter)
+        if error:
+            error = f"catalog error: {error}"
         day_state = {"experiment": exp, "filter": filter}
         return templates.TemplateResponse(
             request,
@@ -1178,6 +1412,7 @@ def create_app(
                 "experiment": exp,
                 "filter": filter,
                 "rows": [(run, fmt_time_of_day(run.start_time)) for run in runs],
+                "scan_label": _scan_label,
                 "error": error,
                 "qs": lambda **kw: _sticky_query(day_state, **kw),
             },
@@ -1193,21 +1428,14 @@ def create_app(
         columns, and tab survive the hop.  A day with no runs falls
         back to the day page.
         """
-        try:
-            selected = date.fromisoformat(day)
-        except ValueError as exc:
-            raise HTTPException(status_code=404, detail="bad date") from exc
+        selected = _parse_iso_day(day)
         carried = [
             (key, value)
             for key, value in request.query_params.multi_items()
             if key != "prefer"
         ]
         experiment = request.query_params.get("experiment", "") or default_experiment
-        try:
-            runs = catalog.list_runs(experiment, selected)
-        except Exception as exc:  # noqa: BLE001 — degrade to the day page
-            logger.warning("jump listing failed: %s", exc)
-            runs = []
+        runs, _ = _list_day(experiment, selected, "")  # failure → the day page
         carried = [(k, v) for (k, v) in carried if k != "day"]
         carried.append(("day", selected.isoformat()))
         query = urlencode(carried, doseq=True)
@@ -1222,10 +1450,8 @@ def create_app(
                 f"{_root(request)}/day/{selected.isoformat()}"
                 f"{'?' + day_query if day_query else ''}"
             )
-        target = next(
-            (run for run in runs if prefer and run.scan_number == prefer),
-            runs[0],  # newest (catalog order)
-        )
+        target = _jump_target(runs, prefer)
+        assert target is not None  # runs is non-empty here
         return f"{_root(request)}/run/{target.uid}?{query}"
 
     @app.get("/run/{uid}", response_class=HTMLResponse)
@@ -1255,8 +1481,7 @@ def create_app(
         keep the whole setup.
         """
         detail = _load_run(uid)
-        run_day = _run_day(detail, day)
-        folder = resolve_scan_folder(detail, run_day) if run_day else None
+        run_day, folder = _resolved_folder(detail, day)
         devices = resources.image_devices(folder) if folder else []
         sel_device = device if device in devices else ""
         if sel_device:
@@ -1267,9 +1492,7 @@ def create_app(
             kind, kind_path = "", None
         n_rows = None if detail.data is None else len(detail.data)
         shot = max(1, min(shot, n_rows) if n_rows else shot)
-        # The Analysis tab needs a resolvable folder (runs and artifact
-        # listing are per scan folder) on top of the feature gate.
-        analysis_enabled = folder is not None and _analysis_enabled()
+        analysis_enabled = _analysis_enabled_for(folder)
         if (
             kind == "native"
             and folder is not None
@@ -1303,25 +1526,9 @@ def create_app(
             data_cache.warm_native(
                 warm_key, _warm_one, list(range(1, min(n_rows, 2000) + 1))
             )
-        # The day's listing (newest first) feeds both the rail's scan
-        # dropdown and the stepper neighbours.  A listing failure just
-        # hides them — never sinks the page.
-        prev_uid = next_uid = ""
-        day_runs: list = []
-        if run_day is not None:
-            try:
-                day_runs = list(
-                    catalog.list_runs(experiment or default_experiment, run_day)
-                )
-                day_uids = [run.uid for run in day_runs]
-                position = day_uids.index(uid)
-                next_uid = day_uids[position - 1] if position > 0 else ""
-                prev_uid = (
-                    day_uids[position + 1] if position + 1 < len(day_uids) else ""
-                )
-            except Exception as exc:  # noqa: BLE001 — stepper is optional
-                logger.warning("neighbour listing failed: %s", exc)
-                day_runs = []
+        prev_uid, next_uid, day_runs = _neighbours(
+            uid, experiment or default_experiment, run_day
+        )
         state = {
             "day": day,
             "experiment": experiment or default_experiment,

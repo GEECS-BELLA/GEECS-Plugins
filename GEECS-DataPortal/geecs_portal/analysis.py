@@ -341,6 +341,28 @@ def jsonable_labels(index: Any) -> list:
     return jsonable_values(list(index))
 
 
+def jsonable_document(value: Any) -> Any:
+    """A run document (or any nested value) made JSON-safe.
+
+    The browsing API serves the start/stop documents verbatim.  Tiled
+    hands them back as plain containers, but a key may still carry a
+    NaN, a numpy scalar, a date or a set — none of which ``json.dumps``
+    survives.  Dicts and lists recurse; ``str``/``bool``/``int``/``None``
+    pass through; floats follow the NaN/inf → ``None`` rule; anything
+    else goes through :func:`jsonable_values` (numeric → float, else its
+    ``str``).  A document key must never 500 a run's detail.
+    """
+    if isinstance(value, dict):
+        return {str(key): jsonable_document(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [jsonable_document(item) for item in value]
+    if value is None or isinstance(value, (str, bool, int)):
+        return value
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    return jsonable_values([value])[0]
+
+
 # --------------------------- show the code ----------------------------
 
 

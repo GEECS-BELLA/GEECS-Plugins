@@ -3,6 +3,33 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.20.0] - 2026-09-02
+
+### Added
+
+- **The browsing API** — everything the pages show, as JSON, so a
+  script or an AI agent (the OSPREY assistant's `geecs-data-portal`
+  skill) can read what a browser shows and press what a browser
+  presses without scraping HTML: `GET /api/day/{iso}?experiment=&filter=`
+  (the day page's table, newest first, same filter haystack),
+  `GET /api/run/{uid}` (the rail + the Overview table verbatim +
+  start/stop documents + the device list + the scan steppers'
+  neighbours and dropdown + the processing selector's options +
+  `analysis_enabled`, the Analysis tab's gate), `GET
+  /api/run/{uid}/device?device=` (one device's gallery tier and path —
+  the click on a device name), and `GET /api/run/jump/{iso}?prefer=`
+  (the day steppers' target, as data instead of a redirect). The
+  listings and neighbour logic moved into shared helpers the templates
+  now use too (`_list_day`, `_neighbours`, `_resolved_folder`,
+  `_jump_target`, `_scan_label`, `_parse_iso_day`), so the HTML and
+  JSON surfaces cannot drift. Served `no-cache` (a day gains
+  scans, a running run gains its stop doc). Documents pass through
+  `analysis.jsonable_document` (NaN / numpy / set → JSON-safe — a
+  document key must never 500 a run).
+- `GET /health` now carries `version` (the same key every `/api`
+  fetch is busted by), and a test pins that `/openapi.json` lists the
+  whole agent surface — the deployed route list is discoverable.
+
 ## [0.19.0] - 2026-09-02
 
 ### Changed
