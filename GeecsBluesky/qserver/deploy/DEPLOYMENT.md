@@ -71,11 +71,15 @@ the `vm.overcommit_memory=1` sysctl fix.
 
 ### Shared config
 
-Create the standard GEECS config file for the service account:
+The standard GEECS config file for the service account
+(`~/.config/geecs_python_api/config.ini`, mode 600) is **rendered from
+`site.env` by `deploy/bootstrap_host.sh`** when it does not exist yet —
+do not pre-create an empty one (an empty file is treated as absent, a
+non-empty one is never overwritten). Then add the Tiled `api_key` by
+hand. To write it entirely by hand instead, follow the reference block in
+`docs/tutorials/getting_started.md`:
 
 ```bash
-sudo -u geecs sh -c 'mkdir -p "$HOME/.config/geecs_python_api"'
-sudo -u geecs sh -c 'install -m 600 /dev/null "$HOME/.config/geecs_python_api/config.ini"'
 sudo -u geecs sh -c 'editor "$HOME/.config/geecs_python_api/config.ini"'
 ```
 

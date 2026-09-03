@@ -43,7 +43,7 @@ SITE_ENV_INSTALLED="${GEECS_SITE_ENV_PATH:-/etc/geecs/site.env}"          # same
 load_site_env "$SITE_ENV"
 check_site_env_consistency
 require_site_keys GEECS_SERVICE_USER GEECS_SERVICE_HOME GEECS_CHECKOUT_ROOT GEECS_POETRY GEECS_REPO_URL \
-    GEECS_EXPERIMENT GEECS_TILED_URI GEECS_QSERVER_HOST GEECS_DATA_ROOT GEECS_CONFIGS_ROOT EPICS_CA_ADDR_LIST
+    GEECS_EXPERIMENT GEECS_TILED_URI GEECS_QSERVER_HOST GEECS_QS_DOC_ADDR GEECS_DATA_ROOT GEECS_CONFIGS_ROOT EPICS_CA_ADDR_LIST
 
 run() { if [ "$DRY" -eq 1 ]; then echo "  [dry] $*"; else echo "  \$ $*"; "$@"; fi; }
 say() { printf '\n== %s\n' "$1"; }
@@ -112,7 +112,7 @@ done
 
 say "config.ini for the service account (rendered from site.env only if absent)"
 CFG="$GEECS_SERVICE_HOME/.config/geecs_python_api/config.ini"
-if [ -f "$CFG" ]; then
+if [ -s "$CFG" ]; then   # -s: an empty placeholder file counts as absent
     echo "  exists: $CFG — left untouched (hand edits win; diff against the rendered form below if in doubt)"
 else
     render_config_ini() {
@@ -126,7 +126,6 @@ GEECS_DATA_LOCAL_BASE_PATH = $GEECS_DATA_ROOT
 scanner_config_root_path = $GEECS_CONFIGS_ROOT
 scan_analysis_configs_path = $GEECS_CONFIGS_ROOT/scan_analysis_configs
 image_analysis_configs_path = $GEECS_CONFIGS_ROOT/image_analysis_configs
-interlock_configs_path = $GEECS_CONFIGS_ROOT/interlock_configs
 
 [Experiment]
 expt = $GEECS_EXPERIMENT
@@ -140,11 +139,14 @@ ca_addr_list = $EPICS_CA_ADDR_LIST
 
 [qserver]
 host = $GEECS_QSERVER_HOST
-doc_addr = ${GEECS_QS_DOC_ADDR:-$GEECS_QSERVER_HOST:5568}
+doc_addr = $GEECS_QS_DOC_ADDR
 EOF
     }
     if [ "$DRY" -eq 1 ]; then echo "  [dry] would write $CFG:"; render_config_ini | sed 's/^/      /'
-    else mkdir -p "$(dirname "$CFG")"; render_config_ini > "$CFG"; echo "  wrote $CFG"; fi
+    else
+        # 0600: the operator adds the Tiled api_key to this file by hand.
+        mkdir -p "$(dirname "$CFG")"; (umask 077; render_config_ini > "$CFG"); chmod 600 "$CFG"; echo "  wrote $CFG (mode 600; add [tiled] api_key by hand)"
+    fi
 fi
 
 say "units (each rendered from ITS service's clone, to a staging dir)"

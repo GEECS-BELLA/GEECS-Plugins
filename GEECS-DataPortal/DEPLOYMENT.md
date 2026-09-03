@@ -78,10 +78,12 @@ line; the rendered unit supplies the latter from the site profile —
 
 (`GEECS_CONFIGS_ROOT` is the configs repo on the data share, quoted
 because the lab's share paths contain spaces; systemd substitutes the
-quoted `${VAR}` as one argument). For a raw-images-only portal, skip the
-extra and drop that argument from the *rendered* unit; the selector
-hides itself and nothing else changes. A misconfigured tree logs a
-startup WARNING naming the path.
+quoted `${VAR}` as one argument). The argument is unconditional in the
+rendered unit and the bootstrap always installs the extra: there is no
+raw-images-only configuration to maintain by hand (a rendered unit is
+never edited — a re-render is part of every deploy). A missing or
+misconfigured tree logs a startup WARNING naming the path and the
+selector hides itself; nothing else changes.
 
 Smoke-test in the foreground before installing the unit:
 

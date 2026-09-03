@@ -354,7 +354,7 @@ find by failure. The contract page is `docs/platform/site_profile.md`;
 
 The rule binds **new** units, scripts, and defaults. Known residue,
 scheduled for the site-profile arc's literal-cleanup phase
-(`Planning/site_profile/00_overview.md`, Phase 4) and not to be fixed
+(`Planning/site_profile/00_overview.md`, PR #775, Phase 4) and not to be fixed
 opportunistically: the `America/Los_Angeles` defaults in
 `geecs_bluesky` (`assets/tiled_readback.py`, `analysis/camera.py`,
 `analysis/assets.py`), the hand-curated `HOSTS` roster + `EXPERIMENT` in
