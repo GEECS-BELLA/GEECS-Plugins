@@ -11,7 +11,7 @@
 #   scripts/fleet_status.sh                       # full picture (needs the lab)
 #   scripts/fleet_status.sh --local-only          # just the local checkouts
 #   scripts/fleet_status.sh --no-ssh              # service self-reports only
-#   scripts/fleet_status.sh --ssh 192.168.6.14=geecs-gw   # ssh alias override
+#   scripts/fleet_status.sh --ssh 192.168.6.14=<alias>   # ssh alias override
 #   scripts/fleet_status.sh --experiment Undulator --no-fetch
 #   scripts/fleet_status.sh --summary             # one box table + attention list
 #   scripts/fleet_status.sh --watch 300           # dashboard pane: --summary every 300 s (--full for the log)
