@@ -6,7 +6,9 @@
 # feature-branch checkout, a checkout may have moved under a service that
 # was never restarted, or a pyproject bump may never have been installed —
 # none of which the doc can tell you. Every probe is bounded and read-only:
-# it never writes a PV, never restarts a unit, never pulls a checkout.
+# it never writes a PV, never restarts a unit, never pulls a checkout (the
+# one write is `git write-tree` in a clone with staged changes, which adds an
+# unreferenced tree object to that clone's object store — harmless, gc'd).
 #
 #   scripts/fleet_status.sh                       # full picture (needs the lab)
 #   scripts/fleet_status.sh --local-only          # just the local checkouts
@@ -165,10 +167,11 @@ ssh_target() {  # ssh_target IP — --ssh override, else ~/.ssh/config alias who
 }
 
 # Deployed shas found in stage 1/2, cross-referenced locally in stage 3.
-# Format per line: "<label><TAB><sha>" (labels contain spaces).
+# Format per line: "<role><TAB><sha><TAB><kind>" (kind: head = the clone's
+# HEAD, disk = the commit the files on disk match when they differ).
 DEPLOYED_SHAS=""
 note_sha() { DEPLOYED_SHAS="$DEPLOYED_SHAS
-$1	$2"; }
+$1	$2	$3"; }
 
 # ===========================================================================
 NET_UP=0
@@ -303,7 +306,7 @@ PY
 fi
 
 # ===========================================================================
-# Stage 2 runs this on each host. Output: one "svc=..." record per service
+# Stage 2 runs this on each host. Output: one "role=..." record per service
 # (key=value pairs, tab-separated), which the local side formats. Services
 # are discovered two ways and deduplicated by pid: systemd units (system AND
 # user scope — a dev-deployed daemon often lives in `systemctl --user`) and
@@ -329,14 +332,64 @@ reflog_ts() {  # unix time HEAD last moved (checkout/pull/reset), from the reflo
     local f; f="$(git -C "$1" rev-parse --git-path logs/HEAD 2>/dev/null)"
     [ -f "$f" ] && tail -1 "$f" | sed -E "s/^[0-9a-f]+ [0-9a-f]+ .*> ([0-9]+) [-+][0-9]{4}\t.*/\1/"
 }
-pkgdir_up() {  # nearest pyproject.toml at or above $1, not above the clone root $2
+pkgdir_up() {  # nearest pyproject.toml at or above $1, BELOW the clone root $2 (the root pyproject is the docs env, never a service)
     local d="$1"
-    while [ -n "$d" ] && [ "$d" != "/" ]; do
+    while [ -n "$d" ] && [ "$d" != "/" ] && [ "$d" != "$2" ]; do
         [ -f "$d/pyproject.toml" ] && { echo "$d"; return; }
-        [ "$d" = "$2" ] && return
         d="$(dirname "$d")"
     done
 }
+# Which distribution IS this process? From its own command line (-m module,
+# a console script, or the poetry import_module shim), resolved by the
+# interpreter that runs it — never by guessing from a directory. Prints
+# dist / installed version / source dir (direct_url) / editable yes|no.
+HELPER="$(mktemp)"; trap "rm -f $HELPER" EXIT
+cat > "$HELPER" <<"PYH"
+import importlib.metadata as m
+import json
+import os
+import re
+import sys
+
+pid = sys.argv[1]
+try:
+    raw = open("/proc/%s/cmdline" % pid, "rb").read()
+except OSError:
+    sys.exit(0)
+args = [a.decode(errors="replace") for a in raw.split(b"\0") if a]
+mod = None
+if "-m" in args and args.index("-m") + 1 < len(args):
+    mod = args[args.index("-m") + 1]
+elif "-c" in args and args.index("-c") + 1 < len(args):
+    mm = re.search(r"import_module\(.([\w.]+)", args[args.index("-c") + 1])
+    if mm:
+        mod = mm.group(1)
+dist = None
+if mod:
+    dist = (m.packages_distributions().get(mod.split(".")[0]) or [None])[0]
+elif len(args) > 1 and not args[1].startswith("-"):
+    name = os.path.basename(args[1])
+    for ep in m.entry_points(group="console_scripts"):
+        if ep.name == name:
+            dist = ep.dist.name
+            break
+if not dist:
+    sys.exit(0)
+d = m.distribution(dist)
+src = ""
+editable = "no"
+t = d.read_text("direct_url.json")
+if t:
+    j = json.loads(t)
+    url = j.get("url", "")
+    src = url[7:] if url.startswith("file://") else ""
+    if j.get("dir_info", {}).get("editable"):
+        editable = "yes"
+print(dist)
+print(d.version)
+print(src)
+print(editable)
+PYH
 emit() {  # emit ROLE NAME MANAGED STATE PID CWD PYEXE
     local role="$1" name="$2" managed="$3" state="$4" pid="$5" cwd="$6" pyexe="$7"
     local since="" since_ts="" clone="" pkgdir="" venv="" baked="" moved=""
@@ -348,15 +401,20 @@ emit() {  # emit ROLE NAME MANAGED STATE PID CWD PYEXE
     fi
     local rec="role=$role\tsvc=$name\tmanaged=$managed\tstate=$state\tsince=${since:-?}"
     [ -n "$cwd" ] && [ -d "$cwd" ] && clone="$(git -C "$cwd" rev-parse --show-toplevel 2>/dev/null)"
-    [ -n "$clone" ] && pkgdir="$(pkgdir_up "$cwd" "$clone")"
     case "$pyexe" in */bin/python*) venv="$(dirname "$(dirname "$pyexe")")";; esac
-    if [ -z "$clone" ] && [ -n "$venv" ] && [ -x "$venv/bin/python" ]; then
-        # Baked venv (MCP pattern): the non-editable install records its source path.
-        src="$("$venv/bin/python" -c "import importlib.metadata as m,json
-for d in m.distributions():
-    t=d.read_text(\"direct_url.json\")
-    if t and \"GEECS\" in t: print(json.loads(t)[\"url\"]); break" 2>/dev/null | sed "s|^file://||")"
-        if [ -n "$src" ] && [ -d "$src" ]; then pkgdir="$src"; clone="$(git -C "$src" rev-parse --show-toplevel 2>/dev/null)"; baked="$venv"; rec="$rec\tbaked=${venv/#$HOME/\~}"; fi
+    local h_dist="" h_ver="" h_src="" h_edit=""
+    if [ -n "$venv" ] && [ -x "$venv/bin/python" ] && [ -n "$pid" ] && [ -d "/proc/$pid" ]; then
+        { read -r h_dist; read -r h_ver; read -r h_src; read -r h_edit; } < <("$venv/bin/python" "$HELPER" "$pid" 2>/dev/null)
+    fi
+    if [ -n "$h_src" ] && [ -d "$h_src" ]; then
+        # The process names its own repo package (editable or baked install).
+        pkgdir="$h_src"
+        [ -z "$clone" ] && clone="$(git -C "$h_src" rev-parse --show-toplevel 2>/dev/null)"
+        if [ "$h_edit" = "no" ]; then baked="$venv"; rec="$rec\tbaked=${venv/#$HOME/\~}"; fi
+    elif [ -n "$clone" ]; then
+        # A third-party entry point (start-re-manager, the 0MQ proxy): the
+        # deployable is the repo package the process was launched from.
+        pkgdir="$(pkgdir_up "$cwd" "$clone")"
     fi
     if [ -n "$clone" ]; then
         local branch sha full cdate staged unstaged
@@ -368,16 +426,15 @@ for d in m.distributions():
         moved="$(reflog_ts "$clone")"
         rec="$rec\tclone=${clone/#$HOME/\~}\tbranch=$branch\tsha=$sha\tfull=$full\tcommit_date=$cdate\tstaged=$staged\tunstaged=$unstaged"
         if [ "$staged" != "0" ]; then
-            # HEAD can lie: a ref advanced without a checkout leaves the files
-            # on disk (= what actually runs) at an older commit. Name it.
-            local idx_tree c
+            # HEAD can lie: a ref advanced without a checkout (or a staged
+            # rollback) leaves the files on disk — what actually runs — at
+            # another commit. Name it if it is one (one git log, one awk).
+            local idx_tree match
             idx_tree="$(git -C "$clone" write-tree 2>/dev/null)"
-            for c in $(git -C "$clone" rev-list -400 --all 2>/dev/null); do
-                if [ "$(git -C "$clone" rev-parse "$c^{tree}" 2>/dev/null)" = "$idx_tree" ]; then
-                    rec="$rec\tdisk=$(git -C "$clone" rev-parse --short=8 "$c")\tdisk_full=$c\tdisk_date=$(git -C "$clone" log -1 --format=%cs "$c")"
-                    break
-                fi
-            done
+            match="$(git -C "$clone" log --all -400 --format="%H %cs %T" 2>/dev/null | awk -v t="$idx_tree" "\$3 == t {print \$1, \$2; exit}")"
+            if [ -n "$match" ]; then
+                rec="$rec\tdisk=${match:0:8}\tdisk_full=${match%% *}\tdisk_date=${match##* }"
+            fi
         fi
         if [ -z "${baked:-}" ] && [ -n "$moved" ] && [ -n "$since_ts" ] && [ "$moved" -gt "$since_ts" ]; then
             rec="$rec\tstale=checkout moved $(date -d @"$moved" "+%F %H:%M") after the process started"
@@ -440,6 +497,8 @@ fmt_host_records() {  # stdin: service records -> pretty lines; side effect: not
         case "$line" in
             nosystemd) skip "no systemd on this host"; continue ;;
             nounits) skip "no geecs-* / tiled units and nothing listening on the fleet ports"; continue ;;
+            role=*) ;;
+            *) info "ssh: $line"; continue ;;   # known-hosts notices, remote warnings — not records
         esac
         rec "$line"
         local role svc managed state since clone branch sha full cdate staged unstaged stale pkg pyproject installed baked pyexe disk disk_full disk_date
@@ -465,11 +524,10 @@ fmt_host_records() {  # stdin: service records -> pretty lines; side effect: not
             [ "${staged:-0}" != "0" ] && d="$d  STAGED: $staged file(s)"
             [ "${unstaged:-0}" != "0" ] && d="$d  UNSTAGED: $unstaged modified file(s)"
             info "$clone @ $branch $sha ($cdate)$d"
+            note_sha "${role:-$svc}" "$full" "head"
             if [ -n "$disk" ]; then
-                warn "$svc: files on disk are commit $disk ($disk_date), not HEAD $sha — the branch pointer moved without a checkout; what RUNS is $disk. Remedy: git reset --hard HEAD, then restart"
-                note_sha "${role:-$svc} (disk)" "$disk_full"
-            else
-                note_sha "${role:-$svc}" "$full"
+                warn "$svc: files on disk are commit $disk ($disk_date), not HEAD $sha — HEAD moved without a checkout, or a staged rollback is pending; what RUNS is $disk. Confirm which tree is intended before touching (skill: the STAGED/UNSTAGED row)"
+                note_sha "${role:-$svc}" "$disk_full" "disk"
             fi
         elif [ -n "$pyexe" ]; then
             info "no git clone behind this process (interpreter $pyexe)"
@@ -498,7 +556,7 @@ if [ "$NET_UP" -eq 1 ] && [ "$DO_SSH" -eq 1 ]; then
         echo "host $host (ssh $target)"
         out="$(printf '%s' "$REMOTE_SNIPPET" | bounded "$SSH_TIMEOUT" ssh -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=accept-new "$target" bash -s 2>&1)"
         rc=$?
-        if [ "$rc" -ne 0 ] && ! printf '%s' "$out" | grep -q '^svc='; then
+        if [ "$rc" -ne 0 ] && ! printf '%s' "$out" | grep -q '^role='; then
             bad "ssh $target failed (rc=$rc): $(printf '%s' "$out" | head -1)"
             rec "role=host $host	state=ok	runs=?	checkout=ssh failed	note=$(printf '%s' "$out" | head -1 | tr '\t' ' ')"
             info "no key-based access from here? pass --ssh $host=<alias> or run the stage-2 snippet on the host by hand"
@@ -536,9 +594,10 @@ git -C "$REPO_ROOT" worktree list 2>/dev/null | while IFS= read -r wl; do
 done
 if [ -n "$(printf '%s' "$DEPLOYED_SHAS" | tr -d '\n ')" ]; then
     echo "  deployed shas vs this repo:"
-    printf '%s\n' "$DEPLOYED_SHAS" | while IFS=$'\t' read -r label full; do
+    printf '%s\n' "$DEPLOYED_SHAS" | while IFS=$'\t' read -r role full kind; do
         [ -n "$full" ] || continue
         short="${full:0:8}"
+        label="$role"; [ "$kind" = "disk" ] && label="$role (files on disk)"
         if ! git -C "$REPO_ROOT" cat-file -e "$full^{commit}" 2>/dev/null; then
             warn "$label runs $short — commit unknown to this repo (unpushed on the host, or a branch this clone never fetched)"
             continue
@@ -564,7 +623,7 @@ if [ -n "$(printf '%s' "$DEPLOYED_SHAS" | tr -d '\n ')" ]; then
         elif [ "$ahead" = "0" ]; then rel="$behind behind origin/master"
         else rel="$ahead ahead, $behind behind origin/master"; fi
         info "$label: $short  $rel  ($where)${local_wt:+  local worktree: $local_wt}"
-        rec "role=$label	master_rel=$rel"
+        if [ "$kind" = "disk" ]; then rec "role=$role	disk_master_rel=$rel"; else rec "role=$role	master_rel=$rel"; fi
     done
 fi
 [ "$NET_UP" -eq 0 ] && [ "$LOCAL_ONLY" -eq 0 ] && echo "remote: UNKNOWN (network down) — rerun on the lab network for the deployed picture"

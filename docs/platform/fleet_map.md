@@ -18,7 +18,7 @@ back into this table.
     Reflects the fleet as of **September 2026**. Deployed and running:
     the CA gateway, the GEECS DB, Tiled, the PVA image gateways, the
     queueserver worker (on an interim host), and the GEECS Data Portal
-    (0.15.x — analysis tabs, per-bin image grid, ephemeral processing).
+    (0.20.x — analysis tabs, images tab, analysis runs, browsing JSON API).
     Documented here ahead of
     deployment: the GEECS-MCP HTTP service and the capture daemon
     (which lands with the central-PVA-capture arc). When a service

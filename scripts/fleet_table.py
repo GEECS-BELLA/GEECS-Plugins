@@ -29,9 +29,21 @@ ROLE_ORDER = [
 HEADERS = ["", "Service", "Runs as", "Checkout", "Version", "Notes"]
 
 
+def _add_note(rec: dict[str, str], text: str) -> None:
+    rec["notes"] = (rec.get("notes", "") + "|" + text).strip("|")
+
+
 def parse(lines: list[str]) -> dict[str, dict[str, str]]:
-    """Merge records by role; later keys never overwrite earlier non-empty ones."""
-    merged: dict[str, dict[str, str]] = {}
+    """Merge records by role.
+
+    Stage-1/3 records (no ``svc=``) describe the role and merge first-wins.
+    Stage-2 records (``svc=``) each describe ONE process; a role can have
+    several (a loaded-but-dead unit plus the hand-started process that
+    really owns the port). The row is the live one; the others are named
+    in a note, and no field is ever combined across two processes.
+    """
+    base: dict[str, dict[str, str]] = {}
+    procs: dict[str, list[dict[str, str]]] = {}
     for line in lines:
         line = line.rstrip("\n")
         if not line:
@@ -44,12 +56,39 @@ def parse(lines: list[str]) -> dict[str, dict[str, str]]:
         role = kv.get("role")
         if not role:
             continue
-        rec = merged.setdefault(role, {})
+        if kv.get("svc"):
+            procs.setdefault(role, []).append(kv)
+            continue
+        rec = base.setdefault(role, {})
         for k, v in kv.items():
             if k == "note":
-                rec["notes"] = (rec.get("notes", "") + "|" + v).strip("|")
+                _add_note(rec, v)
             elif v and not rec.get(k):
                 rec[k] = v
+    merged: dict[str, dict[str, str]] = {}
+    for role in list(base) + [r for r in procs if r not in base]:
+        rec = dict(base.get(role, {}))
+        plist = procs.get(role, [])
+        if plist:
+            live = [
+                p
+                for p in plist
+                if p.get("state", "").startswith(("active/", "running"))
+            ]
+            chosen = (live or plist)[0]
+            for k, v in chosen.items():
+                if k == "note":
+                    _add_note(rec, v)
+                elif v:
+                    rec[k] = v  # the process's own facts win over role-level ones
+            if len(plist) > 1:
+                others = "; ".join(
+                    f"{p.get('svc', '?')} {p.get('state', '?')}"
+                    for p in plist
+                    if p is not chosen
+                )
+                _add_note(rec, f"{len(plist)} processes for this role (also: {others})")
+        merged[role] = rec
     return merged
 
 
@@ -114,6 +153,10 @@ def notes(rec: dict[str, str]) -> list[str]:
         )
     if rec.get("master_rel") and rec["master_rel"] != "= origin/master":
         out.append(rec["master_rel"].replace(" origin/master", " master"))
+    if rec.get("disk_master_rel"):
+        out.append(
+            "disk " + rec["disk_master_rel"].replace(" origin/master", " master")
+        )
     if rec.get("notes"):
         out.extend(n for n in rec["notes"].split("|") if n)
     return out
