@@ -80,7 +80,8 @@ hand. To write it entirely by hand instead, follow the reference block in
 `docs/tutorials/getting_started.md`:
 
 ```bash
-sudo -u geecs sh -c 'editor "$HOME/.config/geecs_python_api/config.ini"'
+sudo -u geecs sh -c 'install -D -m 600 /dev/null "$HOME/.config/geecs_python_api/config.ini"'
+sudo -u geecs sh -c 'editor "$HOME/.config/geecs_python_api/config.ini"'   # fill it before running the bootstrap
 ```
 
 Use the [Getting Started config.ini section](../../../docs/tutorials/getting_started.md)
