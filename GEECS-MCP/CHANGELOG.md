@@ -4,6 +4,16 @@ All notable changes to `geecs-mcp` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.8.4] - 2026-09-03
+
+### Changed
+
+- `deploy/geecs-mcp.service` is now a **template** rendered from the host's
+  `site.env` by `deploy/render_units.sh`; the baked venv lives at
+  `<checkout root>/geecs-mcp-venv` (no `/opt`, no sudo) and is installed from
+  the worker's `qs-checkout` with the `analysis-run` extra. `DEPLOYMENT.md`
+  updated. No runtime change.
+
 ## [0.8.3] - 2026-09-01
 
 ### Changed

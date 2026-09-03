@@ -1,9 +1,15 @@
-# Template unit for the GEECS central PVA capture daemon.
-# Copy to /etc/systemd/system/geecs-capture.service on the worker host (the
-# daemon MUST run on the machine sharing the queueserver worker's filesystem
-# view — the start doc's save paths and the liveness heartbeat both assume
-# it), then replace every /opt/geecs/GEECS-Plugins placeholder with that
-# host's checkout path before enabling the unit.
+# GEECS central PVA capture daemon — systemd unit TEMPLATE.
+#
+# Do not copy this file to /etc/systemd/system by hand. Render it from the
+# host's site.env with `deploy/render_units.sh` (or `deploy/bootstrap_host.sh`)
+# — see docs/platform/site_profile.md. @PLACEHOLDER@ holes are filled at render
+# time (paths + identity); ${VARIABLE} values come from site.env at start via
+# EnvironmentFile= (valid only in command arguments).
+#
+# The daemon MUST run on the machine sharing the queueserver worker's
+# filesystem view (the start doc's save paths and the liveness heartbeat both
+# assume it) and runs from the SAME clone (qs-checkout) — co-location and
+# co-versioning are a requirement of the capture design.
 
 [Unit]
 Description=GEECS PVA capture daemon (per-device frame stacks)
@@ -14,21 +20,16 @@ Wants=network-online.target
 
 [Service]
 Type=exec
-
-# Public repo placeholder only. Use the same unprivileged service account as
-# the queueserver (shared filesystem view, shared config.ini).
-User=geecs
-
-WorkingDirectory=/opt/geecs/GEECS-Plugins/GeecsBluesky
-
-# Placeholder: the GEECS experiment name.
-Environment="GEECS_CAPTURE_EXPERIMENT=Undulator"
-
-# Poetry's ABSOLUTE path is required (systemd PATH omits ~/.local/bin) —
-# locate it as the service user with `command -v poetry` and paste it here.
-# --doc-addr defaults to the shared config's [qserver] doc_addr; pass it
-# explicitly if the worker's proxy is not on this host's localhost:5568.
-ExecStart=/home/geecs/.local/bin/poetry run geecs-capture-daemon --experiment ${GEECS_CAPTURE_EXPERIMENT}
+# Same account as the queueserver (shared filesystem view, shared config.ini).
+User=@SERVICE_USER@
+Environment=HOME=@SERVICE_HOME@
+# The host's site profile: GEECS_EXPERIMENT, GEECS_QS_DOC_ADDR (the document
+# stream as seen from this host — localhost:5568 when the worker is local),
+# EPICS addressing, TZ.
+EnvironmentFile=@SITE_ENV@
+WorkingDirectory=@CHECKOUT_ROOT@/qs-checkout/GeecsBluesky
+# Poetry's ABSOLUTE path is required (systemd PATH omits ~/.local/bin).
+ExecStart=@POETRY@ run geecs-capture-daemon --experiment ${GEECS_EXPERIMENT} --doc-addr ${GEECS_QS_DOC_ADDR}
 Restart=on-failure
 RestartSec=5
 # Exit 2 = permanent misconfiguration (bad flags, no [qserver] config, no

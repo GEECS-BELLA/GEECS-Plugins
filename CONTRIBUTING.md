@@ -118,6 +118,10 @@ Style: NumPy docstrings, type hints on public functions, Pydantic v2
   into existence. Auto-creating an "apparently missing" folder has
   orphaned real data in production. Pinned by tests; details in the root
   `CLAUDE.md` ("Cross-package invariants").
+- **Facility values have one home** — `config.ini` client-side,
+  `/etc/geecs/site.env` host-side; committed files carry lab addresses,
+  experiment names, account paths, and timezones only as examples or
+  placeholders (`docs/platform/site_profile.md`).
 - **This repo is public.** No lab account names, hostnames, or user home
   paths in committed files (generic placeholders instead); internal
   `192.168.6.x` addresses are accepted practice.

@@ -1,13 +1,15 @@
 # Deploying the gateway as a service
 
-`geecs-ca-gateway.service` is the systemd unit for the lab deployment
-(serving on `192.168.6.14`). It is written against a generic `geecs` service
-account — substitute the real account/paths on your box in the installed copy
-(`User=`, `Environment=HOME=`, `WorkingDirectory=`, `ExecStart=`); site
-specifics belong in `/etc/systemd/system`, not in this repo. The full
-deployment context — config resolution, network scoping, the client-side
-recipe, smoke tests, log expectations — is in
-[`DEPLOYMENT.md`](../DEPLOYMENT.md).
+`geecs-ca-gateway.service` is the systemd unit **template** for the gateway
+host. The service account, checkout root, and poetry path are
+`@PLACEHOLDER@` holes that `deploy/render_units.sh` fills from the host's
+`site.env`; the experiment and the CA serving interface
+(`EPICS_CAS_INTF_ADDR_LIST`, `EPICS_CAS_BEACON_ADDR_LIST`) reach the process
+from the same file through `EnvironmentFile=`. Site specifics live in
+`/etc/geecs/site.env`, never in this repo — see the
+[Site Profile](../../docs/platform/site_profile.md). The full deployment
+context — config resolution, network scoping, the client-side recipe,
+smoke tests, log expectations — is in [`DEPLOYMENT.md`](../DEPLOYMENT.md).
 
 ## Install
 
@@ -27,16 +29,17 @@ proceeding.
 From the repo checkout on the target box:
 
 ```bash
-cd ~/GEECS-Plugins/GeecsCAGateway
+# as the service account; <root>/gateway-checkout is the gateway's OWN clone
+# (deploy/bootstrap_host.sh creates it and everything below except the sudo lines)
+cd <root>/gateway-checkout/GeecsCAGateway
 poetry install                    # slim env: caproto + pydantic + mysql-connector
 
-# Sanity-check the unit's paths against this box before installing:
-which poetry                      # must match ExecStart's poetry path
-poetry run python -m geecs_ca_gateway --experiment Undulator --log-level INFO
+# Sanity-check before installing the unit — same values the unit will get:
+poetry run python -m geecs_ca_gateway --experiment <experiment> --log-level INFO
 # ^ run once in the foreground; Ctrl-C once PVs are serving cleanly
 
-sudo cp deploy/geecs-ca-gateway.service /etc/systemd/system/
-sudoedit /etc/systemd/system/geecs-ca-gateway.service   # User= + the three paths
+deploy/render_units.sh /etc/geecs/site.env ~/deploy-staging   # from the repo root
+sudo install -m 0644 ~/deploy-staging/geecs-ca-gateway.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now geecs-ca-gateway
 ```
@@ -62,7 +65,7 @@ A restart is both the upgrade and the DB-resync mechanism (the served set
 rebuilds from the database at startup):
 
 ```bash
-cd ~/GEECS-Plugins && git pull
+cd <root>/gateway-checkout && git pull      # the gateway's clone only — never another service's
 cd GeecsCAGateway && poetry install
 sudo systemctl restart geecs-ca-gateway
 ```

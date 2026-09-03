@@ -454,7 +454,9 @@ The unit for the lab deployment ships in
 install/verify/upgrade steps in [`deploy/README.md`](deploy/README.md):
 
 ```bash
-sudo cp deploy/geecs-ca-gateway.service /etc/systemd/system/
+# the unit is a template: render it from the host's site.env first
+deploy/render_units.sh /etc/geecs/site.env ~/deploy-staging     # or deploy/bootstrap_host.sh
+sudo install -m 0644 ~/deploy-staging/geecs-ca-gateway.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now geecs-ca-gateway
 ```

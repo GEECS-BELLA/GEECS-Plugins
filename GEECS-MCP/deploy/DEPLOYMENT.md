@@ -96,10 +96,14 @@ key here — it would document intent the framework does not enforce.
 Host setup (same checkout + ritual as the worker):
 
 ```bash
-python3.11 -m venv /opt/geecs-mcp-venv
-/opt/geecs-mcp-venv/bin/pip install <checkout>/GEECS-MCP   # non-editable: code
-                                                            # bakes into the venv
-sudo cp <checkout>/GEECS-MCP/deploy/geecs-mcp.service /etc/systemd/system/
+# as the service account; <root> = GEECS_CHECKOUT_ROOT from site.env, the
+# worker's clone is <root>/qs-checkout (deploy/bootstrap_host.sh does all of
+# this — see docs/platform/site_profile.md)
+python3.11 -m venv <root>/geecs-mcp-venv
+<root>/geecs-mcp-venv/bin/pip install "<root>/qs-checkout/GEECS-MCP[analysis-run]"   # non-editable:
+                                                                                     # code bakes into the venv
+deploy/render_units.sh /etc/geecs/site.env ~/deploy-staging
+sudo install -m 0644 ~/deploy-staging/geecs-mcp.service /etc/systemd/system/
 sudo systemctl daemon-reload && sudo systemctl enable --now geecs-mcp
 ```
 

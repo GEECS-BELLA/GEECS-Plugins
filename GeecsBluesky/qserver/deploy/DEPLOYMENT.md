@@ -128,22 +128,18 @@ Replace `/mnt/geecs-data` with the path configured in `config.ini`.
 
 ## 2. Install the service unit
 
-Edit the placeholder values in `geecs-qserver.service` for the host:
-
-- `User=geecs` — replace only with the unprivileged service account created
-  for this host.
-- `WorkingDirectory=` — the `GeecsBluesky` checkout directory.
-- `QS_STARTUP_DIR=` — the queueserver startup profile directory.
-- `QS_EXPERIMENT=` — the GEECS experiment name served by this manager.
-- `EPICS_CA_ADDR_LIST=` — the CA gateway host, for example `192.168.6.14`.
-- `ExecStart=` — the service user's **absolute poetry path** (locate with
-  `command -v poetry` as that user) followed by
-  `run <checkout>/GeecsBluesky/qserver/launch_re_manager.sh`.
-
-Install and start:
+`geecs-qserver.service` is a **template** (see the
+[Site Profile](../../../docs/platform/site_profile.md)): the service
+account, checkout root, and poetry path are `@PLACEHOLDER@` holes filled
+by `deploy/render_units.sh` from the host's `site.env`; the experiment
+(`QS_EXPERIMENT`) and CA addressing (`EPICS_CA_ADDR_LIST` +
+`EPICS_CA_AUTO_ADDR_LIST=NO`) reach the process from the same file via
+`EnvironmentFile=`. Nothing is typed into the unit by hand.
 
 ```bash
-sudo cp geecs-qserver.service /etc/systemd/system/geecs-qserver.service
+# as the service account — or run deploy/bootstrap_host.sh for the whole host
+deploy/render_units.sh /etc/geecs/site.env ~/deploy-staging
+sudo install -m 0644 ~/deploy-staging/geecs-qserver.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now geecs-qserver.service
 ```

@@ -78,7 +78,9 @@ when you work on them; `scripts/check.sh` knows which is which.
 
 ## The config file
 
-Everything in the suite reads one small INI file:
+Everything in the suite reads one small INI file — the *client half* of
+the [site profile](../platform/site_profile.md) (a service host's
+`site.env` is the other half; the two carry the same facility values):
 
 ```
 ~/.config/geecs_python_api/config.ini

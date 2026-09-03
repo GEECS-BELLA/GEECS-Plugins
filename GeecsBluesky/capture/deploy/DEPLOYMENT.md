@@ -21,11 +21,14 @@ the worker and the daemon move together.
    (`capture` = p4p + h5py + pyzmq. Keep whatever extras the worker
    already uses — this env is shared.)
 
-2. Copy `geecs-capture.service` to `/etc/systemd/system/`, replace the
-   checkout-path and poetry-path placeholders (same values as the qserver
-   unit on this host), set the experiment name, then:
+2. `geecs-capture.service` is a template rendered from the host's
+   `site.env` by `deploy/render_units.sh` (same file, same values as the
+   qserver unit — the experiment and the document-stream address
+   `GEECS_QS_DOC_ADDR` come from `site.env`; see the
+   [Site Profile](../../../docs/platform/site_profile.md)), then:
 
    ```bash
+   sudo install -m 0644 ~/deploy-staging/geecs-capture.service /etc/systemd/system/
    sudo systemctl daemon-reload
    sudo systemctl enable --now geecs-capture
    ```

@@ -94,11 +94,13 @@ browser and open one run's image gallery (exercises the share mount).
 
 ## systemd unit
 
-`deploy/geecs-data-portal.service` — install per its header comments
-(copy, `sudoedit` the account/paths, `daemon-reload`,
-`enable --now`). Site specifics (the real account, checkout path,
-`--experiment`) live in the `/etc/systemd/system` copy, not in the
-repo file.
+`deploy/geecs-data-portal.service` is a **template**: render it from the
+host's `site.env` with `deploy/render_units.sh` (or let
+`deploy/bootstrap_host.sh` do the whole host), then install the rendered
+unit and `enable --now` it — see the
+[Site Profile](../docs/platform/site_profile.md). The account, checkout
+root, poetry path, experiment, and timezone all come from `site.env`;
+nothing site-specific is typed into the unit by hand.
 
 Verify:
 
