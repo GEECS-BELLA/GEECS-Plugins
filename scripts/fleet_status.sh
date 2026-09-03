@@ -367,6 +367,18 @@ for d in m.distributions():
         unstaged="$(git -C "$clone" diff --name-only 2>/dev/null | wc -l | tr -d " ")"
         moved="$(reflog_ts "$clone")"
         rec="$rec\tclone=${clone/#$HOME/\~}\tbranch=$branch\tsha=$sha\tfull=$full\tcommit_date=$cdate\tstaged=$staged\tunstaged=$unstaged"
+        if [ "$staged" != "0" ]; then
+            # HEAD can lie: a ref advanced without a checkout leaves the files
+            # on disk (= what actually runs) at an older commit. Name it.
+            local idx_tree c
+            idx_tree="$(git -C "$clone" write-tree 2>/dev/null)"
+            for c in $(git -C "$clone" rev-list -400 --all 2>/dev/null); do
+                if [ "$(git -C "$clone" rev-parse "$c^{tree}" 2>/dev/null)" = "$idx_tree" ]; then
+                    rec="$rec\tdisk=$(git -C "$clone" rev-parse --short=8 "$c")\tdisk_full=$c\tdisk_date=$(git -C "$clone" log -1 --format=%cs "$c")"
+                    break
+                fi
+            done
+        fi
         if [ -z "${baked:-}" ] && [ -n "$moved" ] && [ -n "$since_ts" ] && [ "$moved" -gt "$since_ts" ]; then
             rec="$rec\tstale=checkout moved $(date -d @"$moved" "+%F %H:%M") after the process started"
         fi
@@ -430,8 +442,8 @@ fmt_host_records() {  # stdin: service records -> pretty lines; side effect: not
             nounits) skip "no geecs-* / tiled units and nothing listening on the fleet ports"; continue ;;
         esac
         rec "$line"
-        local role svc managed state since clone branch sha full cdate staged unstaged stale pkg pyproject installed baked pyexe
-        role=""; svc=""; managed=""; state=""; since=""; clone=""; branch=""; sha=""; full=""; cdate=""; staged=""; unstaged=""; stale=""; pkg=""; pyproject=""; installed=""; baked=""; pyexe=""
+        local role svc managed state since clone branch sha full cdate staged unstaged stale pkg pyproject installed baked pyexe disk disk_full disk_date
+        role=""; svc=""; managed=""; state=""; since=""; clone=""; branch=""; sha=""; full=""; cdate=""; staged=""; unstaged=""; stale=""; pkg=""; pyproject=""; installed=""; baked=""; pyexe=""; disk=""; disk_full=""; disk_date=""
         local IFS=$'\t' kv
         for kv in $line; do
             case "$kv" in
@@ -440,6 +452,7 @@ fmt_host_records() {  # stdin: service records -> pretty lines; side effect: not
                 full=*) full="${kv#*=}" ;; commit_date=*) cdate="${kv#*=}" ;; staged=*) staged="${kv#*=}" ;; unstaged=*) unstaged="${kv#*=}" ;;
                 stale=*) stale="${kv#*=}" ;; pkg=*) pkg="${kv#*=}" ;; pyproject=*) pyproject="${kv#*=}" ;;
                 installed=*) installed="${kv#*=}" ;; baked=*) baked="${kv#*=}" ;; pyexe=*) pyexe="${kv#*=}" ;;
+                disk=*) disk="${kv#*=}" ;; disk_full=*) disk_full="${kv#*=}" ;; disk_date=*) disk_date="${kv#*=}" ;;
             esac
         done
         unset IFS
@@ -452,7 +465,12 @@ fmt_host_records() {  # stdin: service records -> pretty lines; side effect: not
             [ "${staged:-0}" != "0" ] && d="$d  STAGED: $staged file(s)"
             [ "${unstaged:-0}" != "0" ] && d="$d  UNSTAGED: $unstaged modified file(s)"
             info "$clone @ $branch $sha ($cdate)$d"
-            note_sha "${role:-$svc}" "$full"
+            if [ -n "$disk" ]; then
+                warn "$svc: files on disk are commit $disk ($disk_date), not HEAD $sha — the branch pointer moved without a checkout; what RUNS is $disk. Remedy: git reset --hard HEAD, then restart"
+                note_sha "${role:-$svc} (disk)" "$disk_full"
+            else
+                note_sha "${role:-$svc}" "$full"
+            fi
         elif [ -n "$pyexe" ]; then
             info "no git clone behind this process (interpreter $pyexe)"
         fi
