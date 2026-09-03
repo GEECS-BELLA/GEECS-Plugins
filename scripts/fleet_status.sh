@@ -13,6 +13,7 @@
 #   scripts/fleet_status.sh --no-ssh              # service self-reports only
 #   scripts/fleet_status.sh --ssh 192.168.6.14=geecs-gw   # ssh alias override
 #   scripts/fleet_status.sh --experiment Undulator --no-fetch
+#   scripts/fleet_status.sh --watch 300           # dashboard mode: rerun every 300 s
 #
 # Stages (each gated on the previous one):
 #   0. reachability — scripts/lab_status.sh tier 1 (the same gate /lab-status
@@ -46,18 +47,41 @@ EXPERIMENT=""
 DO_SSH=1
 DO_FETCH=1
 LOCAL_ONLY=0
+WATCH=0
 declare -a SSH_OVERRIDES=()
+ORIG_ARGS=("$@")
 while [ $# -gt 0 ]; do
     case "$1" in
+        --watch) shift; WATCH="${1:-300}" ;;
         --experiment) shift; EXPERIMENT="${1:-}" ;;
         --no-ssh) DO_SSH=0 ;;
         --no-fetch) DO_FETCH=0 ;;
         --local-only) LOCAL_ONLY=1 ;;
         --ssh) shift; SSH_OVERRIDES+=("${1:-}") ;;
-        *) echo "usage: fleet_status.sh [--experiment NAME] [--no-ssh] [--no-fetch] [--local-only] [--ssh IP=ALIAS]..." >&2; exit 2 ;;
+        *) echo "usage: fleet_status.sh [--experiment NAME] [--no-ssh] [--no-fetch] [--local-only] [--ssh IP=ALIAS]... [--watch SECS]" >&2; exit 2 ;;
     esac
     shift
 done
+
+# Dashboard mode: a persistent terminal pane (cmux/tmux) that reruns the
+# one-shot probe on an interval. No daemon, no state — the same read-only
+# run, redrawn. Ctrl-C ends it.
+if [ "$WATCH" != "0" ]; then
+    args=()
+    for a in "${ORIG_ARGS[@]+"${ORIG_ARGS[@]}"}"; do
+        case "$a" in --watch) skip_next=1; continue ;; esac
+        if [ "${skip_next:-0}" = "1" ]; then skip_next=0; continue; fi
+        args+=("$a")
+    done
+    while :; do
+        out="$("$0" "${args[@]+"${args[@]}"}" 2>&1)"
+        clear
+        echo "fleet status — $(date '+%F %H:%M:%S')  (every ${WATCH}s, Ctrl-C to stop)"
+        echo
+        printf '%s\n' "$out"
+        sleep "$WATCH"
+    done
+fi
 
 ini_get() {  # ini_get SECTION KEY — first match, trimmed
     awk -F'=' -v s="[$1]" -v k="$2" '
