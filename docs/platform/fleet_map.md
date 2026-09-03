@@ -145,10 +145,11 @@ Poetry env inside it). This is deliberate, not accumulation:
   mutates code under the running service. The Windows PVA fleet
   inverts the pattern entirely: no per-host clones, one shared
   "Active Version" clone as the fleet pin, baked per-host venvs.
-- The path is a convention, not the invariant: the interim host uses
-  `~/<service>-checkout` names; the qserver runbook's
-  `/opt/geecs/GEECS-Plugins` layout for a dedicated host is the same
-  pattern — one clone per service family, wherever it lives.
+- The clone names are fixed by the [Site Profile](site_profile.md)
+  (`gateway-checkout`, `portal-checkout`, `qs-checkout`); only the root
+  is the site's choice (`GEECS_CHECKOUT_ROOT` — the service account's
+  home, or `/opt/geecs`). One clone per service family, wherever it
+  lives.
 
 A clone is deployed by `git pull` (or checkout of a pinned ref) +
 `poetry install` **with the extras that service needs** (each runbook

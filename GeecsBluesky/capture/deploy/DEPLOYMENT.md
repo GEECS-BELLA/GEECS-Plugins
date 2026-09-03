@@ -14,7 +14,7 @@ the worker and the daemon move together.
    env (`qserver/deploy/DEPLOYMENT.md`). Add the capture extra:
 
    ```bash
-   cd /opt/geecs/GEECS-Plugins/GeecsBluesky
+   cd <root>/qs-checkout/GeecsBluesky        # the worker's clone, shared by design
    poetry install --extras "ca qserver tiled capture"
    ```
 
@@ -70,7 +70,7 @@ the worker and the daemon move together.
   scans nightly:
 
   ```
-  15 6 * * * cd /opt/geecs/GEECS-Plugins/GeecsBluesky && <poetry> run geecs-capture-diff <yesterday's scans dir>/Scan* --log ~/.local/state/geecs-capture/diff-evidence.jsonl
+  15 6 * * * cd <root>/qs-checkout/GeecsBluesky && <poetry> run geecs-capture-diff <yesterday's scans dir>/Scan* --log ~/.local/state/geecs-capture/diff-evidence.jsonl
   ```
 
   (exit 0 clean, 1 on a mismatch, 2 on operational errors such as an
@@ -87,7 +87,9 @@ the worker and the daemon move together.
 
 ## Migration to a new host
 
-Copy the unit, install per step 1–2, ensure the shared `config.ini` and
+Render the unit from the new host's `site.env` (`deploy/bootstrap_host.sh
+--only qserver,capture` does the clone, env, and render), install per
+step 1–2, ensure the shared `config.ini` and
 the data-share mount match the worker's view, start. Nothing else is
 host-bound — the daemon derives everything from the DB, the shared
 config, and the document stream.

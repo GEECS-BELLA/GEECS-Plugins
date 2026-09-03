@@ -21,9 +21,9 @@
 
 [Unit]
 Description=GEECS to EPICS Channel Access gateway
-# The gateway reads the GEECS DB at startup. If MySQL runs on this box under a
-# different unit name (mysqld/mariadb), fix the name; if the DB is remote,
-# drop it — Restart=on-failure retries until the DB is reachable either way.
+# The gateway reads the GEECS DB at startup. mysql.service is ordering only
+# (systemd ignores a unit that does not exist — a remote DB or a mariadb
+# unit name needs no edit); Restart=on-failure retries until the DB answers.
 After=network-online.target mysql.service
 Wants=network-online.target
 

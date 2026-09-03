@@ -36,9 +36,12 @@ while [ $# -gt 0 ]; do
     shift
 done
 [ -n "$SITE_ENV" ] && [ -f "$SITE_ENV" ] || { echo "usage: bootstrap_host.sh SITE_ENV ..." >&2; exit 2; }
+SITE_ENV="$(cd "$(dirname "$SITE_ENV")" && pwd)/$(basename "$SITE_ENV")"   # absolute: the printed sudo lines must work from any cwd
+SITE_ENV_INSTALLED="${GEECS_SITE_ENV_PATH:-/etc/geecs/site.env}"          # same knob render_units.sh honours
 
 . "$REPO_ROOT/deploy/site_env_lib.sh"
 load_site_env "$SITE_ENV"
+check_site_env_consistency
 require_site_keys GEECS_SERVICE_USER GEECS_SERVICE_HOME GEECS_CHECKOUT_ROOT GEECS_POETRY GEECS_REPO_URL \
     GEECS_EXPERIMENT GEECS_TILED_URI GEECS_QSERVER_HOST GEECS_DATA_ROOT GEECS_CONFIGS_ROOT EPICS_CA_ADDR_LIST
 
@@ -65,9 +68,10 @@ if [ "$(id -un)" != "$GEECS_SERVICE_USER" ]; then
 fi
 
 say "prerequisites"
-for tool in git python3.11; do command -v "$tool" >/dev/null || { echo "missing: $tool" >&2; exit 1; }; done
-[ -x "$GEECS_POETRY" ] || { echo "GEECS_POETRY not executable: $GEECS_POETRY (install poetry as the service account)" >&2; exit 1; }
-echo "  git $(git --version | awk '{print $3}'), $(python3.11 --version), poetry $("$GEECS_POETRY" --version 2>/dev/null | awk '{print $NF}' | tr -d ')')"
+prereq_fail() { if [ "$DRY" -eq 1 ]; then echo "  WARNING (dry-run continues): $1"; else echo "$1" >&2; exit 1; fi; }
+for tool in git python3.11; do command -v "$tool" >/dev/null || prereq_fail "missing: $tool"; done
+[ -x "$GEECS_POETRY" ] || prereq_fail "GEECS_POETRY not executable: $GEECS_POETRY (install poetry as the service account)"
+echo "  git $(git --version 2>/dev/null | awk '{print $3}'), $(python3.11 --version 2>/dev/null || echo 'python3.11 ?'), poetry $("$GEECS_POETRY" --version 2>/dev/null | awk '{print $NF}' | tr -d ')')"
 [ -d "$GEECS_DATA_ROOT" ] && echo "  data share mounted at $GEECS_DATA_ROOT" || echo "  WARNING: data share not mounted at $GEECS_DATA_ROOT (services start without it, then fail loudly)"
 [ -d "$GEECS_CONFIGS_ROOT" ] && echo "  configs repo at $GEECS_CONFIGS_ROOT" || echo "  WARNING: configs repo not at $GEECS_CONFIGS_ROOT"
 
@@ -114,7 +118,8 @@ else
     render_config_ini() {
         cat <<EOF
 # Rendered by deploy/bootstrap_host.sh from site.env ($(date +%F)). This is the
-# client half of the site profile (docs/platform/site_profile.md); edit freely.
+# client half of the site profile (docs/platform/site_profile.md); the key
+# reference is docs/tutorials/getting_started.md. Edit freely.
 [Paths]
 geecs_data = $GEECS_DATA_ROOT
 GEECS_DATA_LOCAL_BASE_PATH = $GEECS_DATA_ROOT
@@ -125,7 +130,6 @@ interlock_configs_path = $GEECS_CONFIGS_ROOT/interlock_configs
 
 [Experiment]
 expt = $GEECS_EXPERIMENT
-rep_rate_hz = 1
 
 [tiled]
 uri = $GEECS_TILED_URI
@@ -143,13 +147,28 @@ EOF
     else mkdir -p "$(dirname "$CFG")"; render_config_ini > "$CFG"; echo "  wrote $CFG"; fi
 fi
 
-say "units (rendered to a staging dir; installing them is the root step)"
+say "units (each rendered from ITS service's clone, to a staging dir)"
+# A unit must match the code it will run: the gateway clone may sit pinned
+# at an older, verified deploy while qs-checkout is at master, so the
+# gateway's unit comes from the gateway's clone — never from whichever
+# clone this script happens to run in (that clone is only the fallback).
 STAGE="$GEECS_CHECKOUT_ROOT/deploy-staging"
-if [ "$DRY" -eq 1 ]; then echo "  [dry] render_units.sh $SITE_ENV $STAGE"; else "$REPO_ROOT/deploy/render_units.sh" "$SITE_ENV" "$STAGE" | grep -v '^$' | sed 's/^/  /'; fi
+template_of() { case "$1" in
+    gateway) echo "GeecsCAGateway/deploy/geecs-ca-gateway.service";; portal) echo "GEECS-DataPortal/deploy/geecs-data-portal.service";;
+    qserver) echo "GeecsBluesky/qserver/deploy/geecs-qserver.service";; capture) echo "GeecsBluesky/capture/deploy/geecs-capture.service";;
+    mcp) echo "GEECS-MCP/deploy/geecs-mcp.service";; esac; }
+TEMPLATE_PATHS=()
+for s in $SERVICES; do
+    wanted "$s" || continue
+    t="$GEECS_CHECKOUT_ROOT/$(clone_of "$s")/$(template_of "$s")"
+    if [ -f "$t" ]; then TEMPLATE_PATHS+=("$t"); else echo "  $s: clone absent — template from this clone ($REPO_ROOT)"; TEMPLATE_PATHS+=("$REPO_ROOT/$(template_of "$s")"); fi
+done
+if [ "$DRY" -eq 1 ]; then echo "  [dry] render_units.sh $SITE_ENV $STAGE ${TEMPLATE_PATHS[*]}"
+else RENDER_QUIET=1 "$REPO_ROOT/deploy/render_units.sh" "$SITE_ENV" "$STAGE" "${TEMPLATE_PATHS[@]}" | sed 's/^/  /'; fi
 
 say "root steps (a human runs these; nothing above needed sudo)"
 cat <<EOF
-  sudo install -D -m 0644 "$SITE_ENV" /etc/geecs/site.env
+  sudo install -D -m 0644 "$SITE_ENV" "$SITE_ENV_INSTALLED"
   sudo install -m 0644 "$STAGE"/*.service /etc/systemd/system/
   sudo systemctl daemon-reload
 EOF

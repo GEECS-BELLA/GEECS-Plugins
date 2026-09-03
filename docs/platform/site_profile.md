@@ -42,8 +42,10 @@ Two kinds of keys, documented line by line in the example file:
   `EPICS_CA_AUTO_ADDR_LIST`, `EPICS_CAS_INTF_ADDR_LIST`,
   `EPICS_CAS_BEACON_ADDR_LIST`, `TZ`, `GEECS_QS_DOC_ADDR`,
   `GEECS_CONFIGS_ROOT` for the portal's analyzer configs), so nothing is
-  re-mapped and a value you see in `systemctl show-environment` terms is
-  the value the process got.
+  re-mapped. To check what a unit gets: `systemctl show <unit> -p
+  EnvironmentFiles` names the file, `cat /etc/geecs/site.env` shows the
+  values (`systemctl show-environment` is the *manager's* environment and
+  never reflects an `EnvironmentFile=`).
 - **Install-time values** — the service account and its home, the
   checkout root, the absolute poetry path, the repo URL, the Tiled URI,
   the queueserver host, the data-share mount, the configs-repo path.
@@ -92,7 +94,10 @@ LabVIEW reads too — `GEECS_CONFIGS_ROOT` points at it.
 ## Standing up a host
 
 ```bash
-# as the service account, on the new host
+# as the service account, on the new host: the worker's clone is the one
+# you run the bootstrap from (it is one of the clones the bootstrap owns —
+# never make a fifth, unmanaged clone just to hold the script)
+git clone https://github.com/GEECS-BELLA/GEECS-Plugins.git <root>/qs-checkout && cd <root>/qs-checkout
 cp deploy/site.env.example ~/site.env && $EDITOR ~/site.env
 deploy/bootstrap_host.sh ~/site.env          # clones, envs, config.ini, staged units — no sudo
 # then the root lines it prints: site.env → /etc/geecs, units → /etc/systemd/system, enable
@@ -102,7 +107,9 @@ scripts/fleet_status.sh                      # from any client: every row system
 `bootstrap_host.sh` is idempotent: rerun it after editing `site.env` or
 after a clone appears; it fetches existing clones but never moves their
 HEAD (a pull is a deploy — do it per service, deliberately, then restart
-that unit). The fleet map's bootstrap gotchas (login-shell PATH, CRLF on
+that unit). Each unit is rendered from **its own service's clone**, so a
+unit always matches the code it runs even when the clones sit at
+different pins; re-rendering a unit is part of that service's deploy. The fleet map's bootstrap gotchas (login-shell PATH, CRLF on
 the share-mounted configs checkout, quoting share paths with spaces) are
 baked into the scripts and the example file.
 

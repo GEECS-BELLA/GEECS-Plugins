@@ -352,6 +352,16 @@ unit, a script, or a default argument is a fork the next site has to
 find by failure. The contract page is `docs/platform/site_profile.md`;
 `/land`'s scope check flags new lab literals outside the allowed places.
 
+The rule binds **new** units, scripts, and defaults. Known residue,
+scheduled for the site-profile arc's literal-cleanup phase
+(`Planning/site_profile/00_overview.md`, Phase 4) and not to be fixed
+opportunistically: the `America/Los_Angeles` defaults in
+`geecs_bluesky` (`assets/tiled_readback.py`, `analysis/camera.py`,
+`analysis/assets.py`), the hand-curated `HOSTS` roster + `EXPERIMENT` in
+`GeecsPvaGateway/deploy/gen_fleet_status.py`, the `"Undulator"` default
+in `geecs_data_utils.geecs_paths_config`, and `EXPERIMENT_FILE_IDS` in
+`geecs_data_utils.doc_id_lookup`.
+
 ## Known debt we have deliberately deferred
 
 Items below are *known* and *intentionally not being fixed right now*. If you

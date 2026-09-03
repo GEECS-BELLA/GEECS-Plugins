@@ -148,7 +148,7 @@ degraded catalog, not a dead portal).
 ## Upgrade
 
 ```bash
-cd ~/GEECS-Plugins-portal && git pull
+cd <root>/portal-checkout && git pull      # the portal's clone only — never another service's
 cd GEECS-DataPortal && poetry install --extras analysis
 sudo systemctl restart geecs-data-portal
 ```
@@ -164,7 +164,7 @@ without the processing selector.)
 | Day pages load, images 404 | share not mounted (or moved) at `geecs_data_local_base_path`; a 404 on one shot with others fine is the exact-match rule working (that device missed the shot) |
 | Slow day listings | measure `list_runs` against the catalog first — the fix is a portal-side cache, not a schema change (scope doc, open questions) |
 | Unit crash-loops at start | wrong absolute Poetry path in `ExecStart` (`status` shows 203/EXEC); env installed by a different account than `User=` (empty venv — reinstall as the service account); or port 8200 already taken. A down Tiled does **not** exit the service — that shows up as the `/health` row above |
-| Evening scans 404 (or resolve oddly) while daytime scans work | host timezone differs from the scanner hosts' — daily folders are named by the scanner's local date. The unit pins `TZ`; keep it matching the lab's zone |
+| Evening scans 404 (or resolve oddly) while daytime scans work | host timezone differs from the scanner hosts' — daily folders are named by the scanner's local date. `site.env` sets `TZ`; keep it matching the lab's zone |
 
 The fleet-map page (`docs/platform/fleet_map.md`) carries the
 service's row — host, port, health check — and must be updated in the

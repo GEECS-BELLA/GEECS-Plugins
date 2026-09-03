@@ -40,8 +40,10 @@ dependency-less env while admin-side verification passes. Clone, install,
 and verify as the service user (`sudo -u geecs -i` or a direct login):
 
 ```bash
-sudo mkdir -p /opt/geecs && sudo chown geecs:geecs /opt/geecs
-sudo -u geecs git clone https://github.com/GEECS-BELLA/GEECS-Plugins.git /opt/geecs/GEECS-Plugins
+# <root> = GEECS_CHECKOUT_ROOT from the host's site.env (the service
+# account's home, or /opt/geecs after one chown); the worker's clone is
+# <root>/qs-checkout — deploy/bootstrap_host.sh creates it, or by hand:
+sudo -u geecs git clone https://github.com/GEECS-BELLA/GEECS-Plugins.git <root>/qs-checkout
 ```
 
 Install Poetry **as the service user** by the method approved for the host
@@ -54,7 +56,7 @@ failure):
 
 ```bash
 sudo -u geecs -i
-cd /opt/geecs/GEECS-Plugins/GeecsBluesky
+cd <root>/qs-checkout/GeecsBluesky
 poetry env use python3.11
 poetry install --extras "ca tiled qserver"
 ```
@@ -104,9 +106,11 @@ disabled"). Grep the journal for `WARNING`/`ERROR` after the first
 (2026-08-21 live-checkpoint lesson: three keys were discovered missing
 one failed scan at a time).
 
-The systemd unit sets `EPICS_CA_ADDR_LIST` explicitly. That is the deployment
-standard because `systemctl cat geecs-qserver.service` then shows the active
-Channel Access target without inspecting a private config file.
+The unit takes `EPICS_CA_ADDR_LIST` (+ `EPICS_CA_AUTO_ADDR_LIST=NO`) from
+`/etc/geecs/site.env` via `EnvironmentFile=`. To see the active Channel
+Access target: `systemctl show geecs-qserver -p EnvironmentFiles` names the
+file, `cat /etc/geecs/site.env` shows the value (world-readable by design —
+it holds no secrets).
 
 ### Data share
 
@@ -241,7 +245,7 @@ Poetry environment from the checkout is the expected source:
 
 ```bash
 sudo -u geecs -i
-cd /opt/geecs/GEECS-Plugins/GeecsBluesky
+cd <root>/qs-checkout/GeecsBluesky
 poetry run qserver status
 ```
 

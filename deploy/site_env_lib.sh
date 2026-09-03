@@ -18,6 +18,12 @@ load_site_env() {  # load_site_env FILE — exports every key
     done < "$file"
 }
 
+check_site_env_consistency() {  # the duplicated experiment key must agree with the primary
+    if [ -n "${QS_EXPERIMENT:-}" ] && [ -n "${GEECS_EXPERIMENT:-}" ] && [ "$QS_EXPERIMENT" != "$GEECS_EXPERIMENT" ]; then
+        echo "site.env: QS_EXPERIMENT ($QS_EXPERIMENT) != GEECS_EXPERIMENT ($GEECS_EXPERIMENT)" >&2; exit 2
+    fi
+}
+
 require_site_keys() {  # require_site_keys KEY... — exit 2 naming the first missing one
     local k
     for k in "$@"; do

@@ -15,6 +15,7 @@ runbooks live next to each service; the intended fleet is
 Fresh host, in order:
 
 ```bash
+git clone <repo> <root>/qs-checkout && cd <root>/qs-checkout   # the worker's clone hosts the bootstrap
 cp deploy/site.env.example ~/site.env && $EDITOR ~/site.env   # as the service account
 deploy/bootstrap_host.sh ~/site.env                           # unprivileged, rerunnable
 # ...then the printed sudo lines (site.env → /etc/geecs, units → /etc/systemd/system, enable)

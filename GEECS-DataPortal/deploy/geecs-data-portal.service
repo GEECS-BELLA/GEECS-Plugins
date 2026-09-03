@@ -14,9 +14,10 @@
 [Unit]
 Description=GEECS Data Portal (scan browser; analysis runs when configured)
 # The portal reads the Tiled catalog; when Tiled runs on the same box,
-# start after it. If Tiled is remote, drop the tiled.service reference —
-# the portal degrades gracefully (pages report catalog errors) and
-# Restart=on-failure retries a crash-at-boot either way.
+# start after it. tiled.service is ordering only — systemd ignores a unit
+# that does not exist, so a remote Tiled needs no edit; the portal degrades
+# gracefully (pages report catalog errors) and Restart=on-failure retries
+# a crash-at-boot either way.
 After=network-online.target tiled.service
 Wants=network-online.target
 
