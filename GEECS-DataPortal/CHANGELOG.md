@@ -20,8 +20,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   the click on a device name), and `GET /api/run/jump/{iso}?prefer=`
   (the day steppers' target, as data instead of a redirect). The
   listings and neighbour logic moved into shared helpers the templates
-  now use too (`_list_day`, `_neighbours`, `_resolved_folder`), so the
-  HTML and JSON surfaces cannot drift. Served `no-cache` (a day gains
+  now use too (`_list_day`, `_neighbours`, `_resolved_folder`,
+  `_jump_target`, `_scan_label`, `_parse_iso_day`), so the HTML and
+  JSON surfaces cannot drift. Served `no-cache` (a day gains
   scans, a running run gains its stop doc). Documents pass through
   `analysis.jsonable_document` (NaN / numpy / set → JSON-safe — a
   document key must never 500 a run).

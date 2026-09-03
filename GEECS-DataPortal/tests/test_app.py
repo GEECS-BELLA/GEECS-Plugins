@@ -1180,6 +1180,20 @@ class TestBrowsingApi:
         )
         assert payload["page"] == "/portal/run/uid-002"
 
+    def test_day_and_jump_page_links_carry_the_proxy_prefix(self):
+        client = _client(FakeCatalog(), default_experiment="Undulator")
+        prefix = {"X-Forwarded-Prefix": "/portal"}
+        day = client.get(f"/api/day/{TEST_DAY.isoformat()}", headers=prefix).json()
+        assert day["page"] == f"/portal/day/{TEST_DAY.isoformat()}"
+        hit = client.get(f"/api/run/jump/{TEST_DAY.isoformat()}", headers=prefix).json()
+        assert hit["page"] == "/portal/run/uid-002"
+        empty = (
+            _client(StubCatalog())
+            .get("/api/run/jump/2026-01-01", headers=prefix)
+            .json()
+        )
+        assert empty["uid"] is None and empty["page"] == "/portal/day/2026-01-01"
+
     def test_jump_prefers_the_scan_number_else_the_newest(self):
         client = _client(FakeCatalog(), default_experiment="Undulator")
         hit = client.get(f"/api/run/jump/{TEST_DAY.isoformat()}?prefer=1").json()

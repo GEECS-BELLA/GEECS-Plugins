@@ -25,7 +25,7 @@
   {% for run, time_text in rows %}
   <tr>
     <td><a href="{{ root }}/run/{{ run.uid }}?{{ qs(day=day.isoformat()) }}">
-      {%- if run.scan_number is not none %}Scan {{ "%03d"|format(run.scan_number) }}{% else %}{{ run.uid[:8] }}{% endif -%}
+      {{- scan_label(run) -}}
     </a></td>
     <td class="mono">{{ time_text }}</td>
     <td>{{ run.mode }}</td>

@@ -310,6 +310,18 @@ def _parse_iso_day(day: str) -> date:
         raise HTTPException(status_code=404, detail="bad date") from exc
 
 
+def _jump_target(runs: list[RunSummary], prefer: int) -> Optional[RunSummary]:
+    """The day steppers' rule — the run numbered ``prefer``, else the newest.
+
+    ONE implementation for the HTML redirect and the JSON twin, so the
+    two cannot drift (``None`` only for a day with no runs).
+    """
+    return next(
+        (run for run in runs if prefer and run.scan_number == prefer),
+        runs[0] if runs else None,
+    )
+
+
 @dataclasses.dataclass(frozen=True)
 class _DiagInfo:
     """A loadable diagnostic's run-side facts (the selector cache's value)."""
@@ -998,6 +1010,14 @@ def create_app(
             return False
         return True
 
+    def _analysis_enabled_for(folder: Optional[Path]) -> bool:
+        """The Analysis tab's gate: the feature on AND a resolvable scan folder.
+
+        Runs and the artifact listing are per scan folder — the page and
+        ``/api/run`` read the same answer.
+        """
+        return folder is not None and _analysis_enabled()
+
     def _analysis_available() -> None:
         """404 unless the run feature is configured AND installed."""
         if processing_config_dir is None:
@@ -1266,10 +1286,7 @@ def create_app(
         runs, error = _list_day(exp, selected, "")
         if error:
             raise HTTPException(status_code=503, detail=f"catalog unavailable: {error}")
-        target = next(
-            (run for run in runs if prefer and run.scan_number == prefer),
-            runs[0] if runs else None,
-        )
+        target = _jump_target(runs, prefer)
         page = (
             f"{_root(request)}/run/{target.uid}"
             if target
@@ -1320,7 +1337,7 @@ def create_app(
             "prev_day": (run_day - timedelta(days=1)).isoformat() if run_day else None,
             "next_day": (run_day + timedelta(days=1)).isoformat() if run_day else None,
             "processing_options": _processing_names(),
-            "analysis_enabled": folder is not None and _analysis_enabled(),
+            "analysis_enabled": _analysis_enabled_for(folder),
             "page": f"{_root(request)}/run/{uid}",
             "portal_version": _portal_version(),
         }
@@ -1379,10 +1396,7 @@ def create_app(
         request: Request, day: str, experiment: str = "", filter: str = ""
     ) -> HTMLResponse:
         """The run list for one day (newest first, as the catalog lists)."""
-        try:
-            selected = date.fromisoformat(day)
-        except ValueError as exc:
-            raise HTTPException(status_code=404, detail="bad date") from exc
+        selected = _parse_iso_day(day)
         exp = experiment or default_experiment
         runs, error = _list_day(exp, selected, filter)
         if error:
@@ -1398,6 +1412,7 @@ def create_app(
                 "experiment": exp,
                 "filter": filter,
                 "rows": [(run, fmt_time_of_day(run.start_time)) for run in runs],
+                "scan_label": _scan_label,
                 "error": error,
                 "qs": lambda **kw: _sticky_query(day_state, **kw),
             },
@@ -1413,10 +1428,7 @@ def create_app(
         columns, and tab survive the hop.  A day with no runs falls
         back to the day page.
         """
-        try:
-            selected = date.fromisoformat(day)
-        except ValueError as exc:
-            raise HTTPException(status_code=404, detail="bad date") from exc
+        selected = _parse_iso_day(day)
         carried = [
             (key, value)
             for key, value in request.query_params.multi_items()
@@ -1438,10 +1450,8 @@ def create_app(
                 f"{_root(request)}/day/{selected.isoformat()}"
                 f"{'?' + day_query if day_query else ''}"
             )
-        target = next(
-            (run for run in runs if prefer and run.scan_number == prefer),
-            runs[0],  # newest (catalog order)
-        )
+        target = _jump_target(runs, prefer)
+        assert target is not None  # runs is non-empty here
         return f"{_root(request)}/run/{target.uid}?{query}"
 
     @app.get("/run/{uid}", response_class=HTMLResponse)
@@ -1482,9 +1492,7 @@ def create_app(
             kind, kind_path = "", None
         n_rows = None if detail.data is None else len(detail.data)
         shot = max(1, min(shot, n_rows) if n_rows else shot)
-        # The Analysis tab needs a resolvable folder (runs and artifact
-        # listing are per scan folder) on top of the feature gate.
-        analysis_enabled = folder is not None and _analysis_enabled()
+        analysis_enabled = _analysis_enabled_for(folder)
         if (
             kind == "native"
             and folder is not None
