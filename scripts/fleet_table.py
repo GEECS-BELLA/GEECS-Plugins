@@ -92,7 +92,11 @@ def parse(lines: list[str]) -> dict[str, dict[str, str]]:
                     rec[k] = v  # the process's own facts win over role-level ones
             # Stage-3 distances attach to the sha this process actually has.
             for d in by_sha.get(role, []):
-                if d["for_sha"] in (chosen.get("sha", ""), chosen.get("disk", "")):
+                # prefix match: --short=8 may return more digits when ambiguous
+                if any(
+                    x and x.startswith(d["for_sha"])
+                    for x in (chosen.get("sha", ""), chosen.get("disk", ""))
+                ):
                     for k in ("master_rel", "disk_master_rel"):
                         if d.get(k):
                             rec[k] = d[k]
