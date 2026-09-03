@@ -7,7 +7,12 @@ check, and the runbook.
 
 Each service's authoritative deployment guide lives next to its code in
 the repository (linked in the table below) — this page is the map, not
-the manual.
+the manual. It is also the *intended* picture; for the *observed* one —
+which checkout, branch, commit, and package version each host is
+actually running, and whether a service was restarted after its
+checkout last moved — run `scripts/fleet_status.sh` (the
+`/fleet-status` skill, gated on `/lab-status`) and reconcile drift
+back into this table.
 
 !!! note "Snapshot"
     Reflects the fleet as of **September 2026**. Deployed and running:

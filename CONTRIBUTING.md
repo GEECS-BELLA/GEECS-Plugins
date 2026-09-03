@@ -8,7 +8,7 @@ live in the root and per-package `CLAUDE.md` files, which are the canonical
 instructions for AI-assisted development — if you work with Claude/Codex,
 those files are loaded automatically, and repo-checked skills under
 `.claude/skills/` (e.g. `/land`, `/check`, `/triage`, `/scan-audit`,
-`/env-doctor`, `/get-started`)
+`/env-doctor`, `/get-started`, `/lab-status`, `/fleet-status`)
 encode the recurring workflows. New to the repo entirely? Start with
 [Getting started](docs/tutorials/getting_started.md) (published on the
 docs site), or launch Claude Code from the repo root and type
