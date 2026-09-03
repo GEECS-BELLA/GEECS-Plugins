@@ -31,14 +31,18 @@ and bounded: no PV writes, no restarts, no pulls.
 
 | Situation | Command |
 |---|---|
-| The normal case | `scripts/fleet_status.sh` |
+| The normal case (full log, for reasoning) | `scripts/fleet_status.sh` |
+| One box table + attention list (for the user) | `scripts/fleet_status.sh --summary` |
+| Persistent dashboard pane (cmux/tmux) | `scripts/fleet_status.sh --watch 300` (summary every 300 s; add `--full` for the log) |
 | Off the lab network / just want the local worktree picture | `scripts/fleet_status.sh --local-only` |
 | No key-based ssh to the hosts from this machine | `scripts/fleet_status.sh --no-ssh` |
 | ssh alias not discoverable from `~/.ssh/config` | `scripts/fleet_status.sh --ssh <ip>=<alias>` |
 | config.ini has no `[Experiment]` | add `--experiment <Name>` (needed for the CA gateway PVs) |
 | Avoid the GitHub round-trip | `--no-fetch` (distances then use the last-fetched `origin/master`) |
 
-`$ARGUMENTS`, if given, passes straight through. Budget: ~10 s offline,
+The summary table is rendered by `scripts/fleet_table.py` (stdlib only)
+from the same probe records; the full log is what you reason over, the
+table is what you show. `$ARGUMENTS`, if given, passes straight through. Budget: ~10 s offline,
 under a minute on the lab network (each ssh host 25 s max, each PVA
 host 2 s per get).
 

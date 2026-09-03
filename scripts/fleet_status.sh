@@ -13,7 +13,8 @@
 #   scripts/fleet_status.sh --no-ssh              # service self-reports only
 #   scripts/fleet_status.sh --ssh 192.168.6.14=geecs-gw   # ssh alias override
 #   scripts/fleet_status.sh --experiment Undulator --no-fetch
-#   scripts/fleet_status.sh --watch 300           # dashboard mode: rerun every 300 s
+#   scripts/fleet_status.sh --summary             # one box table + attention list
+#   scripts/fleet_status.sh --watch 300           # dashboard pane: --summary every 300 s (--full for the log)
 #
 # Stages (each gated on the previous one):
 #   0. reachability — scripts/lab_status.sh tier 1 (the same gate /lab-status
@@ -48,17 +49,21 @@ DO_SSH=1
 DO_FETCH=1
 LOCAL_ONLY=0
 WATCH=0
+SUMMARY=0
+FULL=0
 declare -a SSH_OVERRIDES=()
 ORIG_ARGS=("$@")
 while [ $# -gt 0 ]; do
     case "$1" in
         --watch) shift; WATCH="${1:-300}" ;;
+        --summary) SUMMARY=1 ;;
+        --full) FULL=1 ;;
         --experiment) shift; EXPERIMENT="${1:-}" ;;
         --no-ssh) DO_SSH=0 ;;
         --no-fetch) DO_FETCH=0 ;;
         --local-only) LOCAL_ONLY=1 ;;
         --ssh) shift; SSH_OVERRIDES+=("${1:-}") ;;
-        *) echo "usage: fleet_status.sh [--experiment NAME] [--no-ssh] [--no-fetch] [--local-only] [--ssh IP=ALIAS]... [--watch SECS]" >&2; exit 2 ;;
+        *) echo "usage: fleet_status.sh [--experiment NAME] [--no-ssh] [--no-fetch] [--local-only] [--ssh IP=ALIAS]... [--summary|--full] [--watch SECS]" >&2; exit 2 ;;
     esac
     shift
 done
@@ -73,8 +78,9 @@ if [ "$WATCH" != "0" ]; then
         if [ "${skip_next:-0}" = "1" ]; then skip_next=0; continue; fi
         args+=("$a")
     done
+    [ "$FULL" -eq 0 ] && args+=("--summary")
     while :; do
-        out="$("$0" "${args[@]+"${args[@]}"}" 2>&1)"
+        COLUMNS="$(tput cols 2>/dev/null || echo 100)" out="$("$0" "${args[@]+"${args[@]}"}" 2>&1)"
         clear
         echo "fleet status — $(date '+%F %H:%M:%S')  (every ${WATCH}s, Ctrl-C to stop)"
         echo
@@ -117,6 +123,16 @@ bounded() {  # bounded SECS CMD... — hard wall-clock bound (macOS has no `time
 port_open() {  # port_open HOST PORT
     bounded "$TCP_TIMEOUT" bash -c "exec 3<>/dev/tcp/$1/$2" 2>/dev/null
 }
+
+# Every probe also appends a tab-separated key=value record (with a role=)
+# to REC_FILE; scripts/fleet_table.py renders those as the --summary table.
+REC_FILE="$(mktemp -t fleet_rec.XXXXXX)"
+LOG_FILE="$(mktemp -t fleet_log.XXXXXX)"
+trap 'rm -f "$REC_FILE" "$LOG_FILE"' EXIT
+rec() { printf '%s\n' "$1" >> "$REC_FILE"; }
+if [ "$SUMMARY" -eq 1 ]; then
+    exec 3>&1 1>"$LOG_FILE"   # the verbose log goes to a file; the table is printed at the end
+fi
 
 # --- endpoints from config.ini (never hardcode hosts here) -----------------
 TILED_URI="$(ini_get tiled uri)"
@@ -174,7 +190,8 @@ if [ "$NET_UP" -eq 1 ]; then
     echo "== Stage 1: what each service says about itself (read-only) =="
     # Tiled — pip-installed, no checkout; its library version is the whole story.
     tv="$(bounded "$TCP_TIMEOUT" curl -s -m "$TCP_TIMEOUT" "http://$LAB_HOST:$TILED_PORT/api/v1/" | sed -nE 's/.*"library_version":"([^"]+)".*/\1/p')"
-    if [ -n "$tv" ]; then ok "Tiled        $LAB_HOST:$TILED_PORT  tiled $tv"; else bad "Tiled        $LAB_HOST:$TILED_PORT"; fi
+    if [ -n "$tv" ]; then ok "Tiled        $LAB_HOST:$TILED_PORT  tiled $tv"; rec "role=Tiled	state=ok	version=$tv	checkout=pip install"
+    else bad "Tiled        $LAB_HOST:$TILED_PORT"; rec "role=Tiled	state=down	checkout=pip install"; fi
 
     # Data Portal — /health carries ok + catalog probe + installed version.
     PORTAL_HOST="${WORKER_HOST:-$LAB_HOST}"
@@ -185,23 +202,30 @@ if [ "$NET_UP" -eq 1 ]; then
         pcat="$(printf '%s' "$ph" | sed -nE 's/.*"catalog": *"([^"]*)".*/\1/p')"
         if [ "$pok" = "true" ]; then
             ok "Data Portal  $PORTAL_HOST:$PORTAL_PORT  geecs-data-portal ${pv:-?}  (catalog: ${pcat:-?})"
+            rec "role=Data Portal	state=ok	version=${pv:-}"
         else
             warn "Data Portal  $PORTAL_HOST:$PORTAL_PORT  geecs-data-portal ${pv:-?}  up but catalog NOT ok (${pcat:-?})"
+            rec "role=Data Portal	state=ok	version=${pv:-}	note=catalog not ok"
         fi
     else
         bad "Data Portal  $PORTAL_HOST:$PORTAL_PORT  (no /health answer)"
+        rec "role=Data Portal	state=down"
     fi
 
     # Queueserver — ZMQ, no cheap self-report; port liveness (stage 2 finds the process).
     QS_HOST="${WORKER_HOST:-$LAB_HOST}"
-    if port_open "$QS_HOST" 60615; then ok "Queueserver  $QS_HOST:60615  RE Manager control port listening"; else bad "Queueserver  $QS_HOST:60615  RE Manager not listening"; fi
-    if port_open "$QS_HOST" 5568; then ok "Doc proxy    $QS_HOST:5568   document stream listening"; else bad "Doc proxy    $QS_HOST:5568   not listening"; fi
+    if port_open "$QS_HOST" 60615; then ok "Queueserver  $QS_HOST:60615  RE Manager control port listening"; rec "role=Queueserver RE Manager	state=ok"
+    else bad "Queueserver  $QS_HOST:60615  RE Manager not listening"; rec "role=Queueserver RE Manager	state=down"; fi
+    if port_open "$QS_HOST" 5568; then ok "Doc proxy    $QS_HOST:5568   document stream listening"; rec "role=Bluesky doc proxy	state=ok"
+    else bad "Doc proxy    $QS_HOST:5568   not listening"; rec "role=Bluesky doc proxy	state=down"; fi
 
     # MCP HTTP mode — no version endpoint; port liveness only (stage 2 reads the venv).
     if port_open "${WORKER_HOST:-$LAB_HOST}" "$MCP_PORT"; then
         ok "GEECS-MCP    ${WORKER_HOST:-$LAB_HOST}:$MCP_PORT  listening (version via ssh below)"
+        rec "role=GEECS-MCP	state=ok"
     else
         skip "GEECS-MCP    ${WORKER_HOST:-$LAB_HOST}:$MCP_PORT  not listening (HTTP mode is 'pending deploy' on the fleet map)"
+        rec "role=GEECS-MCP	state=absent	note=not listening (pending deploy)"
     fi
 
     # CA gateway — reuse /lab-status tier 2 (read-only CA gets of heartbeat,
@@ -211,10 +235,14 @@ if [ "$NET_UP" -eq 1 ]; then
         alive="$(printf '%s\n' "$hw" | grep -m1 'gateway alive')"
         if [ -n "$alive" ]; then
             ok "CA gateway   $LAB_HOST:5064  ${alive#*] }"
+            gver="$(printf '%s' "$alive" | sed -nE 's/.*version=([^, ]+).*/\1/p')"
+            gdev="$(printf '%s' "$alive" | sed -nE 's/.*devices_connected=([0-9]+).*/\1/p')"
+            rec "role=CA gateway	state=ok	version=$gver	note=$gdev devices connected"
             printf '%s\n' "$hw" | grep '\[WARN\]' | sed 's/^ *\[WARN\] /  [WARN] CA gateway: /'
         else
             err="$(printf '%s\n' "$hw" | grep -m1 -E 'unreadable|not installed|no experiment' )"
             bad "CA gateway   $LAB_HOST:5064  ${err#*] }"
+            rec "role=CA gateway	state=down"
         fi
     else
         skip "CA gateway   no experiment name (config.ini [Experiment] expt, or --experiment NAME)"
@@ -225,7 +253,7 @@ if [ "$NET_UP" -eq 1 ]; then
     if [ -f "$PVA_ROSTER" ]; then
         pvs="$(grep -o 'pv_name>pva://[^<]*:version' "$PVA_ROSTER" | sed 's|pv_name>pva://||' | sort -u)"
         if [ -n "$pvs" ] && poetry -C "$REPO_ROOT/GeecsPvaGateway" env info --path >/dev/null 2>&1; then
-            PVA_PVS="$pvs" PVA_TIMEOUT="$PVA_TIMEOUT" bounded 60 poetry -C "$REPO_ROOT/GeecsPvaGateway" run python - <<'PY'
+            PVA_PVS="$pvs" PVA_TIMEOUT="$PVA_TIMEOUT" REC_FILE="$REC_FILE" bounded 60 poetry -C "$REPO_ROOT/GeecsPvaGateway" run python - <<'PY'
 import os
 import re
 
@@ -239,6 +267,7 @@ os.environ["EPICS_PVA_AUTO_ADDR_LIST"] = "NO"
 from p4p.client.thread import Context  # noqa: E402
 
 versions = {}
+down = []
 with Context("pva", unwrap=False) as ctx:  # raw Values: str(NT wrapper) carries a timestamp
     for pv, host in zip(pvs, hosts):
         base = pv[: -len(":version")]
@@ -247,6 +276,7 @@ with Context("pva", unwrap=False) as ctx:  # raw Values: str(NT wrapper) carries
             beats = int(ctx.get(base + ":heartbeat", timeout=timeout)["value"])
         except Exception as exc:  # noqa: BLE001 — a failed probe is a finding
             print(f"  [DOWN] PVA gateway  {host:<15}  ({type(exc).__name__})")
+            down.append(host)
             continue
         versions.setdefault(ver, []).append(host)
         print(f"  [ OK ] PVA gateway  {host:<15}  geecs-pva-gateway {ver}  heartbeat={beats}")
@@ -254,6 +284,14 @@ if len(versions) > 1:
     print("  [WARN] PVA fleet runs mixed versions — a rollout is incomplete or a box missed its pull-on-restart:")
     for ver, hs in sorted(versions.items()):
         print(f"         {ver}: {', '.join(hs)}")
+n_ok = sum(len(hs) for hs in versions.values())
+ver_txt = ", ".join(f"{v} ×{len(hs)}" for v, hs in sorted(versions.items())) or "?"
+note = f"{n_ok} up" + (f", {len(down)} unreachable: {' '.join(down)}" if down else "")
+if len(versions) > 1:
+    note += "|MIXED versions"
+state = "ok" if n_ok else "down"
+with open(os.environ["REC_FILE"], "a") as fh:
+    fh.write(f"role=PVA image gateways\tstate={state}\truns=NSSM\tcheckout=share clone\tversion={ver_txt}\tnote={note}\n")
 PY
         else
             skip "PVA fleet    GeecsPvaGateway poetry env not installed (needs p4p; see /env-doctor)"
@@ -281,6 +319,10 @@ command -v systemctl >/dev/null 2>&1 || { echo "nosystemd"; exit 0; }
 role_for_port() { case "$1" in
     5064) echo "CA gateway";; 8000) echo "Tiled";; 8200) echo "Data Portal";; 8100) echo "GEECS-MCP";;
     60615) echo "Queueserver RE Manager";; 5568) echo "Bluesky doc proxy";; *) echo "port $1";; esac; }
+role_for_unit() { case "$1" in
+    geecs-ca-gateway*) echo "CA gateway";; tiled*) echo "Tiled";; geecs-data-portal*) echo "Data Portal";;
+    geecs-mcp*) echo "GEECS-MCP";; geecs-qserver*) echo "Queueserver RE Manager";; geecs-capture*) echo "Capture daemon";;
+    *) echo "$1";; esac; }
 FLEET_PORTS="5064 8000 8200 8100 60615 5568"
 SEEN=" "
 reflog_ts() {  # unix time HEAD last moved (checkout/pull/reset), from the reflog
@@ -295,8 +337,8 @@ pkgdir_up() {  # nearest pyproject.toml at or above $1, not above the clone root
         d="$(dirname "$d")"
     done
 }
-emit() {  # emit NAME MANAGED STATE PID CWD PYEXE
-    local name="$1" managed="$2" state="$3" pid="$4" cwd="$5" pyexe="$6"
+emit() {  # emit ROLE NAME MANAGED STATE PID CWD PYEXE
+    local role="$1" name="$2" managed="$3" state="$4" pid="$5" cwd="$6" pyexe="$7"
     local since="" since_ts="" clone="" pkgdir="" venv="" baked="" moved=""
     if [ -n "$pid" ] && [ "$pid" != "0" ] && [ -d "/proc/$pid" ]; then
         since="$(ps -o lstart= -p "$pid" 2>/dev/null | sed -E "s/^ +//")"
@@ -304,7 +346,7 @@ emit() {  # emit NAME MANAGED STATE PID CWD PYEXE
         [ -z "$cwd" ] && cwd="$(readlink "/proc/$pid/cwd" 2>/dev/null)"
         [ -z "$pyexe" ] && pyexe="$(tr "\0" "\n" < "/proc/$pid/cmdline" 2>/dev/null | head -1)"
     fi
-    local rec="svc=$name\tmanaged=$managed\tstate=$state\tsince=${since:-?}"
+    local rec="role=$role\tsvc=$name\tmanaged=$managed\tstate=$state\tsince=${since:-?}"
     [ -n "$cwd" ] && [ -d "$cwd" ] && clone="$(git -C "$cwd" rev-parse --show-toplevel 2>/dev/null)"
     [ -n "$clone" ] && pkgdir="$(pkgdir_up "$cwd" "$clone")"
     case "$pyexe" in */bin/python*) venv="$(dirname "$(dirname "$pyexe")")";; esac
@@ -362,7 +404,7 @@ for scope in "" "--user"; do
         wd="$(systemctl $scope show -p WorkingDirectory --value "$u")"
         label="$u"; [ -n "$scope" ] && label="$u (user unit)"
         [ "$pid" != "0" ] && SEEN="$SEEN$pid "
-        emit "$label" "systemd" "$active" "$pid" "$wd" ""
+        emit "$(role_for_unit "$u")" "$label" "systemd" "$active" "$pid" "$wd" ""
     done
 done
 # 2) whoever owns each fleet port, if not already listed via its unit
@@ -373,7 +415,7 @@ for port in $FLEET_PORTS; do
     SEEN="$SEEN$pid "
     unit="$(sed -nE "s#.*/([^/]+\.service)\$#\1#p" "/proc/$pid/cgroup" 2>/dev/null | head -1)"
     if [ -n "$unit" ]; then managed="systemd ($unit)"; else managed="UNMANAGED"; fi
-    emit "$(role_for_port "$port") :$port" "$managed" "running pid $pid" "$pid" "" ""
+    emit "$(role_for_port "$port")" "$(role_for_port "$port") :$port" "$managed" "running pid $pid" "$pid" "" ""
 done
 [ "$SEEN" = " " ] && echo "nounits"
 exit 0
@@ -387,12 +429,13 @@ fmt_host_records() {  # stdin: service records -> pretty lines; side effect: not
             nosystemd) skip "no systemd on this host"; continue ;;
             nounits) skip "no geecs-* / tiled units and nothing listening on the fleet ports"; continue ;;
         esac
-        local svc managed state since clone branch sha full cdate staged unstaged stale pkg pyproject installed baked pyexe
-        svc=""; managed=""; state=""; since=""; clone=""; branch=""; sha=""; full=""; cdate=""; staged=""; unstaged=""; stale=""; pkg=""; pyproject=""; installed=""; baked=""; pyexe=""
+        rec "$line"
+        local role svc managed state since clone branch sha full cdate staged unstaged stale pkg pyproject installed baked pyexe
+        role=""; svc=""; managed=""; state=""; since=""; clone=""; branch=""; sha=""; full=""; cdate=""; staged=""; unstaged=""; stale=""; pkg=""; pyproject=""; installed=""; baked=""; pyexe=""
         local IFS=$'\t' kv
         for kv in $line; do
             case "$kv" in
-                svc=*) svc="${kv#*=}" ;; managed=*) managed="${kv#*=}" ;; state=*) state="${kv#*=}" ;; since=*) since="${kv#*=}" ;;
+                role=*) role="${kv#*=}" ;; svc=*) svc="${kv#*=}" ;; managed=*) managed="${kv#*=}" ;; state=*) state="${kv#*=}" ;; since=*) since="${kv#*=}" ;;
                 clone=*) clone="${kv#*=}" ;; branch=*) branch="${kv#*=}" ;; sha=*) sha="${kv#*=}" ;;
                 full=*) full="${kv#*=}" ;; commit_date=*) cdate="${kv#*=}" ;; staged=*) staged="${kv#*=}" ;; unstaged=*) unstaged="${kv#*=}" ;;
                 stale=*) stale="${kv#*=}" ;; pkg=*) pkg="${kv#*=}" ;; pyproject=*) pyproject="${kv#*=}" ;;
@@ -409,7 +452,7 @@ fmt_host_records() {  # stdin: service records -> pretty lines; side effect: not
             [ "${staged:-0}" != "0" ] && d="$d  STAGED: $staged file(s)"
             [ "${unstaged:-0}" != "0" ] && d="$d  UNSTAGED: $unstaged modified file(s)"
             info "$clone @ $branch $sha ($cdate)$d"
-            note_sha "$svc" "$full"
+            note_sha "${role:-$svc}" "$full"
         elif [ -n "$pyexe" ]; then
             info "no git clone behind this process (interpreter $pyexe)"
         fi
@@ -439,6 +482,7 @@ if [ "$NET_UP" -eq 1 ] && [ "$DO_SSH" -eq 1 ]; then
         rc=$?
         if [ "$rc" -ne 0 ] && ! printf '%s' "$out" | grep -q '^svc='; then
             bad "ssh $target failed (rc=$rc): $(printf '%s' "$out" | head -1)"
+            rec "role=host $host	state=ok	runs=?	checkout=ssh failed	note=$(printf '%s' "$out" | head -1 | tr '\t' ' ')"
             info "no key-based access from here? pass --ssh $host=<alias> or run the stage-2 snippet on the host by hand"
             continue
         fi
@@ -502,7 +546,26 @@ if [ -n "$(printf '%s' "$DEPLOYED_SHAS" | tr -d '\n ')" ]; then
         elif [ "$ahead" = "0" ]; then rel="$behind behind origin/master"
         else rel="$ahead ahead, $behind behind origin/master"; fi
         info "$label: $short  $rel  ($where)${local_wt:+  local worktree: $local_wt}"
+        rec "role=$label	master_rel=$rel"
     done
 fi
 [ "$NET_UP" -eq 0 ] && [ "$LOCAL_ONLY" -eq 0 ] && echo "remote: UNKNOWN (network down) — rerun on the lab network for the deployed picture"
+
+if [ "$SUMMARY" -eq 1 ]; then
+    exec 1>&3
+    if [ "$NET_UP" -eq 1 ]; then
+        python3 "$REPO_ROOT/scripts/fleet_table.py" < "$REC_FILE"
+    else
+        grep -E '^\s+\[(DOWN|WARN)\]' "$LOG_FILE" | head -6
+        echo "  network: DOWN or partial — remote fleet state UNKNOWN (see --full)"
+    fi
+    echo
+    attn="$(grep -E '^\s+\[(DOWN|WARN)\]' "$LOG_FILE" | sed -E 's/^ +//')"
+    if [ -n "$attn" ]; then
+        echo "Attention:"
+        printf '%s\n' "$attn" | sed 's/^/  /'
+    fi
+    grep -E 'origin/master = ' "$LOG_FILE" | sed -E 's/^ +/  /'
+    echo "  (full log: scripts/fleet_status.sh --full)"
+fi
 exit 0
