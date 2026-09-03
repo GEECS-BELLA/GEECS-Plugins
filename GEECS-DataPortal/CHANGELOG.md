@@ -9,7 +9,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - `deploy/geecs-data-portal.service` is now a **template** rendered from the
   host's `site.env` by `deploy/render_units.sh` (account/checkout root/poetry
-  path as `@PLACEHOLDER@` holes; experiment and `TZ` via `EnvironmentFile=`).
+  path as `@PLACEHOLDER@` holes; experiment, `TZ`, and the
+  `--processing-configs` tree — `"${GEECS_CONFIGS_ROOT}/scan_analysis_configs"`,
+  previously typed into the installed unit by hand — via `EnvironmentFile=`).
   `DEPLOYMENT.md` updated. No runtime change.
 
 ## [0.20.0] - 2026-09-02

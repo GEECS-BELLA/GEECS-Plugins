@@ -40,7 +40,8 @@ Two kinds of keys, documented line by line in the example file:
   The variable *names* are the ones the services and EPICS actually
   read (`GEECS_EXPERIMENT`, `QS_EXPERIMENT`, `EPICS_CA_ADDR_LIST`,
   `EPICS_CA_AUTO_ADDR_LIST`, `EPICS_CAS_INTF_ADDR_LIST`,
-  `EPICS_CAS_BEACON_ADDR_LIST`, `TZ`, `GEECS_QS_DOC_ADDR`), so nothing is
+  `EPICS_CAS_BEACON_ADDR_LIST`, `TZ`, `GEECS_QS_DOC_ADDR`,
+  `GEECS_CONFIGS_ROOT` for the portal's analyzer configs), so nothing is
   re-mapped and a value you see in `systemctl show-environment` terms is
   the value the process got.
 - **Install-time values** — the service account and its home, the
@@ -64,7 +65,7 @@ arguments**. It does not expand in `WorkingDirectory=`, `User=`,
 | Hole | Filled | Examples |
 |---|---|---|
 | `@PLACEHOLDER@` | at render time, by `deploy/render_units.sh` (one `sed`) | `@SERVICE_USER@`, `@SERVICE_HOME@`, `@CHECKOUT_ROOT@`, `@POETRY@`, `@SITE_ENV@` |
-| `${VARIABLE}` | at start, by systemd from `site.env` | `--experiment ${GEECS_EXPERIMENT}`, `--doc-addr ${GEECS_QS_DOC_ADDR}` |
+| `${VARIABLE}` | at start, by systemd from `site.env` | `--experiment ${GEECS_EXPERIMENT}`, `--doc-addr ${GEECS_QS_DOC_ADDR}`, `--processing-configs "${GEECS_CONFIGS_ROOT}/scan_analysis_configs"` (quoted: substituted as one argument, spaces survive) |
 
 Values that services read from the environment directly (the EPICS
 addressing, `TZ`, `QS_EXPERIMENT`) need no hole at all — `EnvironmentFile=`

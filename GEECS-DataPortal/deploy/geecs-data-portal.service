@@ -33,10 +33,14 @@ EnvironmentFile=@SITE_ENV@
 # Portal-specific clone — never the one another service (e.g. the CA
 # gateway) runs from; see DEPLOYMENT.md § Install.
 WorkingDirectory=@CHECKOUT_ROOT@/portal-checkout/GEECS-DataPortal
-# To enable the Images tab's processing selector, install the 'analysis'
-# extra and append (quoted — share paths carry spaces):
-#   --processing-configs "${GEECS_CONFIGS_ROOT}/scan_analysis_configs"
-ExecStart=@POETRY@ run geecs-data-portal --experiment ${GEECS_EXPERIMENT}
+# The Images tab's processing selector + the Analysis tab read analyzer
+# configs from the configs repo on the data share (a site value:
+# GEECS_CONFIGS_ROOT in site.env; the bootstrap installs the 'analysis'
+# extra the feature needs). The quotes matter — share paths carry spaces;
+# systemd substitutes "${VAR}" as one argument. To run the portal without
+# analysis features, drop the --processing-configs argument from the
+# rendered unit (a site choice, not a template edit).
+ExecStart=@POETRY@ run geecs-data-portal --experiment ${GEECS_EXPERIMENT} --processing-configs "${GEECS_CONFIGS_ROOT}/scan_analysis_configs"
 Restart=on-failure
 RestartSec=10
 # An analysis run in flight cannot be interrupted (DEPLOYMENT.md): give a

@@ -68,17 +68,20 @@ poetry install --extras analysis
 ```
 
 The `analysis` extra installs ImageAnalysis for the Images tab's
-**processing selector** (0.13.0+). The feature is explicit-opt-in
-twice over: the extra installs the code, and the unit's `ExecStart`
-must name the scan-analysis configs tree —
+**processing selector** (0.13.0+) and the Analysis tab. The feature
+needs both the extra and the scan-analysis configs tree on the command
+line; the rendered unit supplies the latter from the site profile —
 
 ```
---processing-configs "/path/to/GEECS-Plugins-Configs/scan_analysis_configs"
+--processing-configs "${GEECS_CONFIGS_ROOT}/scan_analysis_configs"
 ```
 
-(quote it — the lab's share paths contain spaces). Omit both for a
-raw-images-only portal; the selector hides itself and nothing else
-changes. A misconfigured tree logs a startup WARNING naming the path.
+(`GEECS_CONFIGS_ROOT` is the configs repo on the data share, quoted
+because the lab's share paths contain spaces; systemd substitutes the
+quoted `${VAR}` as one argument). For a raw-images-only portal, skip the
+extra and drop that argument from the *rendered* unit; the selector
+hides itself and nothing else changes. A misconfigured tree logs a
+startup WARNING naming the path.
 
 Smoke-test in the foreground before installing the unit:
 
