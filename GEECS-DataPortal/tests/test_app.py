@@ -12,6 +12,7 @@ from geecs_data_utils.tiled_catalog import (
     CatalogStatus,
     RunDetail,
     StubCatalog,
+    metadata_rows,
     summary_from_metadata,
 )
 
@@ -114,10 +115,12 @@ def _client(catalog=None, **kwargs) -> TestClient:
 
 
 class TestHealth:
-    def test_health_reports_probe(self):
+    def test_health_reports_probe_and_version(self):
         response = _client().get("/health")
         assert response.status_code == 200
-        assert response.json() == {"ok": True, "catalog": "fake catalog"}
+        payload = response.json()
+        assert payload["ok"] is True and payload["catalog"] == "fake catalog"
+        assert payload["version"]  # the /api cache-bust key, for scripts
 
     def test_health_with_stub_catalog(self):
         response = _client(StubCatalog()).get("/health")
@@ -1059,3 +1062,173 @@ class TestReverseProxy:
         response = _client().get("/health", headers=self.PREFIX)
         assert response.status_code == 200
         assert response.json()["ok"] is True
+
+
+class TestBrowsingApi:
+    """0.20.0: the page-shaped reads as JSON — day list, run, device, jump.
+
+    Everything a browser shows must be readable without scraping HTML
+    (the agent surface); every payload is the template's own data.
+    """
+
+    def test_day_lists_runs_newest_first_as_the_table_shows(self):
+        catalog = FakeCatalog()
+        client = _client(catalog, default_experiment="Undulator")
+        response = client.get(f"/api/day/{TEST_DAY.isoformat()}")
+        assert response.status_code == 200
+        assert response.headers["cache-control"] == "no-cache"
+        payload = response.json()
+        assert catalog.listed == ("Undulator", TEST_DAY)
+        assert payload["day"] == TEST_DAY.isoformat()
+        assert payload["experiment"] == "Undulator"
+        assert [run["scan"] for run in payload["runs"]] == ["Scan 002", "Scan 001"]
+        row = payload["runs"][0]
+        assert row["uid"] == "uid-002" and row["scan_number"] == 2
+        assert row["time"] == "09:02"
+        assert row["started"].startswith(f"{TEST_DAY.isoformat()} 09:02")
+        assert row["exit_status"] == "success" and row["running"] is False
+        assert row["save_sets"] == ["Amp4In"] and row["shots"] == 10
+        assert payload["prev_day"] == "2026-07-11"
+        assert payload["page"] == f"/day/{TEST_DAY.isoformat()}"
+
+    def test_day_filter_and_experiment_mirror_the_page(self):
+        catalog = FakeCatalog()
+        client = _client(catalog, default_experiment="Undulator")
+        payload = client.get(
+            f"/api/day/{TEST_DAY.isoformat()}?filter=scan 001&experiment=Thomson"
+        ).json()
+        assert catalog.listed[0] == "Thomson"
+        assert [run["uid"] for run in payload["runs"]] == ["uid-001"]
+        assert payload["filter"] == "scan 001"
+
+    def test_day_bad_date_is_404_and_outage_is_503(self):
+        assert _client().get("/api/day/not-a-date").status_code == 404
+        response = _client(FakeCatalog(fail_listing=True)).get(
+            f"/api/day/{TEST_DAY.isoformat()}"
+        )
+        assert response.status_code == 503
+        assert "catalog unavailable" in response.json()["detail"]
+
+    def test_empty_day_is_an_empty_list_not_an_error(self):
+        payload = _client(StubCatalog()).get(f"/api/day/{TEST_DAY.isoformat()}").json()
+        assert payload["runs"] == []
+
+    def test_run_carries_the_overview_table_verbatim(self):
+        catalog = FakeCatalog()
+        client = _client(catalog, default_experiment="Undulator")
+        response = client.get("/api/run/uid-002")
+        assert response.status_code == 200
+        assert response.headers["cache-control"] == "no-cache"
+        payload = response.json()
+        expected = [[k, v] for k, v in metadata_rows(catalog.details["uid-002"])]
+        assert payload["metadata"] == expected
+        assert payload["summary"]["scan"] == "Scan 002"
+        assert payload["run_day"] == TEST_DAY.isoformat()
+        assert payload["event_rows"] == 3
+        assert payload["start_doc"]["scan_number"] == 2
+        assert payload["stop_doc"]["exit_status"] == "success"
+        assert payload["page"] == "/run/uid-002"
+        assert payload["portal_version"]
+        assert payload["processing_options"] == []  # feature off
+        assert payload["analysis_enabled"] is False  # feature off
+
+    def test_run_neighbours_and_day_runs_are_the_steppers(self):
+        client = _client(FakeCatalog(), default_experiment="Undulator")
+        older = client.get("/api/run/uid-001").json()
+        newer = client.get("/api/run/uid-002").json()
+        assert older["neighbours"] == {"prev_uid": "", "next_uid": "uid-002"}
+        assert newer["neighbours"] == {"prev_uid": "uid-001", "next_uid": ""}
+        assert [run["uid"] for run in newer["day_runs"]] == ["uid-002", "uid-001"]
+        assert newer["prev_day"] == "2026-07-11" and newer["next_day"] == "2026-07-13"
+
+    def test_run_neighbours_degrade_when_the_listing_fails(self):
+        payload = _client(FakeCatalog(fail_listing=True)).get("/api/run/uid-002").json()
+        assert payload["neighbours"] == {"prev_uid": "", "next_uid": ""}
+        assert payload["day_runs"] == []
+
+    def test_run_documents_are_json_safe(self):
+        # A document key carrying NaN / a numpy scalar / a set must not
+        # 500 the whole run (json.dumps refuses all three).
+        import numpy as np
+
+        catalog = FakeCatalog()
+        detail = _detail(7)
+        detail.start_doc["odd"] = {
+            "nan": float("nan"),
+            "np": np.int64(3),
+            "set": {1},
+            "list": [1.5, float("inf")],
+        }
+        catalog.details["uid-007"] = detail
+        response = _client(catalog).get("/api/run/uid-007")
+        assert response.status_code == 200
+        assert b"NaN" not in response.content
+        odd = response.json()["start_doc"]["odd"]
+        assert odd["nan"] is None and odd["np"] == 3.0
+        assert odd["list"] == [1.5, None]
+        assert isinstance(odd["set"], str)
+
+    def test_run_unknown_is_404_and_outage_is_503(self):
+        assert _client().get("/api/run/nope").status_code == 404
+        assert _client(DownCatalog()).get("/api/run/uid-002").status_code == 503
+
+    def test_run_page_link_carries_the_proxy_prefix(self):
+        payload = (
+            _client()
+            .get("/api/run/uid-002", headers={"X-Forwarded-Prefix": "/portal"})
+            .json()
+        )
+        assert payload["page"] == "/portal/run/uid-002"
+
+    def test_jump_prefers_the_scan_number_else_the_newest(self):
+        client = _client(FakeCatalog(), default_experiment="Undulator")
+        hit = client.get(f"/api/run/jump/{TEST_DAY.isoformat()}?prefer=1").json()
+        assert hit["uid"] == "uid-001" and hit["matched"] is True
+        assert hit["page"] == "/run/uid-001" and hit["runs"] == 2
+        miss = client.get(f"/api/run/jump/{TEST_DAY.isoformat()}?prefer=99").json()
+        assert miss["uid"] == "uid-002" and miss["matched"] is False
+
+    def test_jump_on_an_empty_day_names_no_run(self):
+        payload = _client(StubCatalog()).get("/api/run/jump/2026-01-01?prefer=3").json()
+        assert payload["uid"] is None and payload["scan_number"] is None
+        assert payload["page"] == "/day/2026-01-01"
+
+    def test_jump_bad_date_is_404_and_outage_is_503(self):
+        assert _client().get("/api/run/jump/nope").status_code == 404
+        response = _client(FakeCatalog(fail_listing=True)).get(
+            f"/api/run/jump/{TEST_DAY.isoformat()}"
+        )
+        assert response.status_code == 503
+
+    def test_device_without_a_resolvable_folder_is_404(self, monkeypatch):
+        from geecs_data_utils import scan_paths as scan_paths_mod
+
+        monkeypatch.setattr(scan_paths_mod, "daily_scan_folder", lambda *a, **k: None)
+        client = _client()
+        assert client.get("/api/run/uid-002/device").status_code == 400
+        response = client.get("/api/run/uid-002/device?device=cam")
+        assert response.status_code == 404
+        assert "not resolvable" in response.json()["detail"]
+
+    def test_openapi_lists_the_agent_surface(self):
+        # docs_url is off, but the schema stays: scripts can discover
+        # the deployed portal's routes instead of guessing.
+        paths = _client().get("/openapi.json").json()["paths"]
+        for route in (
+            "/health",
+            "/api/day/{day}",
+            "/api/run/{uid}",
+            "/api/run/{uid}/device",
+            "/api/run/jump/{day}",
+            "/api/run/{uid}/columns",
+            "/api/run/{uid}/frame",
+            "/api/run/{uid}/binned",
+            "/api/run/{uid}/filter-count",
+            "/api/run/{uid}/bin-images",
+            "/api/run/{uid}/analysis",
+            "/run/{uid}/artifact",
+            "/run/{uid}/image.png",
+            "/run/{uid}/bin-image.png",
+            "/run/{uid}/plot.png",
+        ):
+            assert route in paths, route

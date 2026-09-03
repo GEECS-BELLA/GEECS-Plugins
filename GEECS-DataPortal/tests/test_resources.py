@@ -317,6 +317,44 @@ class TestGalleryRoutes:
         assert "?device=" not in response.text.replace("&amp;device=", "")
         assert client.get("/run/uid-002/image.png?device=x&shot=1").status_code == 404
 
+    def test_api_run_lists_devices_and_device_probes_tiers(self, scan_folder):
+        # 0.20.0: the browsing API's device list + tier probe over the
+        # same tree the page renders — one truth, two surfaces.
+        client = _gallery_client(scan_folder)
+        run = client.get("/api/run/uid-002").json()
+        assert run["devices"] == [
+            "UC_StackCam",
+            "UC_TestCam",
+            "U_HasoLift",
+            "U_HasoWFS",
+            "U_Scope",
+            "cam",
+        ]
+        assert run["scan_folder"] == str(scan_folder)
+        expected = {
+            "UC_StackCam": ("stack", True, None),
+            "UC_TestCam": ("native", True, "png"),
+            "U_HasoWFS": ("vendor", False, "himg"),
+            "U_Scope": ("unrenderable", False, "tdms"),
+        }
+        for device, (kind, renderable, ext) in expected.items():
+            payload = client.get(f"/api/run/uid-002/device?device={device}").json()
+            assert payload["kind"] == kind, device
+            assert payload["renderable"] is renderable, device
+            assert payload["ext"] == ext, device
+            assert device in payload["path"]
+            assert payload["event_rows"] == 3
+        stack = client.get("/api/run/uid-002/device?device=UC_StackCam").json()
+        assert stack["path"].endswith("UC_StackCam.h5")
+
+    def test_api_device_probe_is_read_only_and_404s_cleanly(self, scan_folder):
+        client = _gallery_client(scan_folder)
+        root = scan_folder.parent.parent
+        before = _tree_snapshot(root)
+        assert client.get("/api/run/uid-002/device?device=nope").status_code == 404
+        assert client.get("/api/run/uid-002/device?device=../escape").status_code == 404
+        assert _tree_snapshot(root) == before
+
 
 class TestRunDayResolution:
     """The fall-through re-basing must use the run's OWN day, never the

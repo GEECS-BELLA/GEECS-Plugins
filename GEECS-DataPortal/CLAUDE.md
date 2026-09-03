@@ -170,7 +170,21 @@ shot) · `/run/{uid}/bin-image.png?device=&bin=<index>&filters=&bincfg=`
 member shots that resolve to pixels average via the shared
 `average_frames`, windowed once after averaging; per-shot refusals
 carry over; always `no-cache` — bin membership comes off the union
-frame) · `/health` (catalog probe — the fleet-map health check).
+frame) · `/health` (catalog probe + version — the fleet-map health check)
+· **the browsing API** (0.20.0 — the pages' own data as JSON, the
+agent/script surface; served `no-cache`): `/api/day/{iso}?experiment=&filter=`
+(the run table, newest first, the page's filter haystack) ·
+`/api/run/{uid}` (summary + the Overview table verbatim + start/stop
+docs + `devices` + stepper `neighbours`/`day_runs` +
+`processing_options` + `analysis_enabled`) · `/api/run/{uid}/device?device=`
+(one device's tier/path via the same `device_kind` probe as the page) ·
+`/api/run/jump/{iso}?prefer=` (the day steppers' target as data).
+The page and JSON routes share `_list_day` / `_neighbours` /
+`_resolved_folder` — add a page-visible fact to BOTH surfaces through
+those helpers, never to one template.  `/openapi.json` stays on (the
+docs UI is off) so a client can discover the deployed routes; the OSPREY
+deployment's `skills/geecs-data-portal` reference (htu-assistant repo)
+mirrors every payload shape and must move with any change here.
 
 Both image endpoints also take `?display=` (the shared display state's
 image slice: `cmap` matplotlib-colormap name + `plo`/`phi` percentile
