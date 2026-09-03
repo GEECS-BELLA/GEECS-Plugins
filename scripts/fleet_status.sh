@@ -407,9 +407,12 @@ emit() {  # emit ROLE NAME MANAGED STATE PID CWD PYEXE
         { read -r h_dist; read -r h_ver; read -r h_src; read -r h_edit; } < <("$venv/bin/python" "$HELPER" "$pid" 2>/dev/null)
     fi
     if [ -n "$h_src" ] && [ -d "$h_src" ]; then
-        # The process names its own repo package (editable or baked install).
+        # The process names its own repo package (editable or baked install);
+        # ITS clone is the truth, even if the process was launched from
+        # another checkout directory.
         pkgdir="$h_src"
-        [ -z "$clone" ] && clone="$(git -C "$h_src" rev-parse --show-toplevel 2>/dev/null)"
+        src_clone="$(git -C "$h_src" rev-parse --show-toplevel 2>/dev/null)"
+        [ -n "$src_clone" ] && clone="$src_clone"
         if [ "$h_edit" = "no" ]; then baked="$venv"; rec="$rec\tbaked=${venv/#$HOME/\~}"; fi
     elif [ -n "$clone" ]; then
         # A third-party entry point (start-re-manager, the 0MQ proxy): the
@@ -623,7 +626,8 @@ if [ -n "$(printf '%s' "$DEPLOYED_SHAS" | tr -d '\n ')" ]; then
         elif [ "$ahead" = "0" ]; then rel="$behind behind origin/master"
         else rel="$ahead ahead, $behind behind origin/master"; fi
         info "$label: $short  $rel  ($where)${local_wt:+  local worktree: $local_wt}"
-        if [ "$kind" = "disk" ]; then rec "role=$role	disk_master_rel=$rel"; else rec "role=$role	master_rel=$rel"; fi
+        # Keyed by sha so the table attaches the distance to the right process.
+        if [ "$kind" = "disk" ]; then rec "role=$role	for_sha=$short	disk_master_rel=$rel"; else rec "role=$role	for_sha=$short	master_rel=$rel"; fi
     done
 fi
 [ "$NET_UP" -eq 0 ] && [ "$LOCAL_ONLY" -eq 0 ] && echo "remote: UNKNOWN (network down) — rerun on the lab network for the deployed picture"

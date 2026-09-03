@@ -44,6 +44,7 @@ def parse(lines: list[str]) -> dict[str, dict[str, str]]:
     """
     base: dict[str, dict[str, str]] = {}
     procs: dict[str, list[dict[str, str]]] = {}
+    by_sha: dict[str, list[dict[str, str]]] = {}  # stage-3 distances, keyed by sha
     for line in lines:
         line = line.rstrip("\n")
         if not line:
@@ -58,6 +59,9 @@ def parse(lines: list[str]) -> dict[str, dict[str, str]]:
             continue
         if kv.get("svc"):
             procs.setdefault(role, []).append(kv)
+            continue
+        if kv.get("for_sha"):
+            by_sha.setdefault(role, []).append(kv)
             continue
         rec = base.setdefault(role, {})
         for k, v in kv.items():
@@ -79,8 +83,19 @@ def parse(lines: list[str]) -> dict[str, dict[str, str]]:
             for k, v in chosen.items():
                 if k == "note":
                     _add_note(rec, v)
+                elif k == "state":
+                    # The service's own verdict (stage 1) stays the verdict;
+                    # the process state is kept beside it for the glyph.
+                    rec["proc_state"] = v
+                    rec.setdefault("state", v)
                 elif v:
                     rec[k] = v  # the process's own facts win over role-level ones
+            # Stage-3 distances attach to the sha this process actually has.
+            for d in by_sha.get(role, []):
+                if d["for_sha"] in (chosen.get("sha", ""), chosen.get("disk", "")):
+                    for k in ("master_rel", "disk_master_rel"):
+                        if d.get(k):
+                            rec[k] = d[k]
             if len(plist) > 1:
                 others = "; ".join(
                     f"{p.get('svc', '?')} {p.get('state', '?')}"
@@ -88,6 +103,11 @@ def parse(lines: list[str]) -> dict[str, dict[str, str]]:
                     if p is not chosen
                 )
                 _add_note(rec, f"{len(plist)} processes for this role (also: {others})")
+        else:
+            for d in by_sha.get(role, []):
+                for k in ("master_rel", "disk_master_rel"):
+                    if d.get(k) and not rec.get(k):
+                        rec[k] = d[k]
         merged[role] = rec
     return merged
 
@@ -157,18 +177,28 @@ def notes(rec: dict[str, str]) -> list[str]:
         out.append(
             "disk " + rec["disk_master_rel"].replace(" origin/master", " master")
         )
+    proc = rec.get("proc_state", "")
+    if proc and not proc.startswith(("active/", "running")):
+        out.append(f"unit {proc}")
     if rec.get("notes"):
         out.extend(n for n in rec["notes"].split("|") if n)
     return out
 
 
 def glyph(rec: dict[str, str]) -> str:
-    """✗ down, ! needs attention, ✓ clean."""
+    """✗ down, ! needs attention, ✓ clean.
+
+    The stage-1 verdict (did the service answer?) decides ✗; a process
+    that is not active/running (crash-looping, dead unit) can never be ✓.
+    """
     state = rec.get("state", "")
+    proc = rec.get("proc_state", "")
     if state.startswith(("down", "inactive", "failed")) or "DOWN" in state:
         return "✗"
     if state.startswith("absent"):
         return "·"
+    if proc and not proc.startswith(("active/", "running")):
+        return "!"
     return "!" if notes(rec) else "✓"
 
 
