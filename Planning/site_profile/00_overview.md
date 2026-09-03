@@ -14,7 +14,7 @@ current services box as it is, not as the fleet map describes it:
 | RE Manager :60615, doc proxy :5568 | hand-started processes, no unit (parent = a dead shell / PID 1) | systemd `geecs-qserver` |
 | GEECS-MCP :8100 | hand-started, baked venv at `~/geecs-mcp-venv` | systemd unit, venv at `/opt/geecs-mcp-venv` |
 | Capture daemon | `systemctl --user` unit (linger on) | system unit `geecs-capture` |
-| CA gateway clone | 774 files staged against HEAD | clean pinned clone |
+| CA gateway clone | files on disk = commit 9c9681de (2026-08-25) while HEAD says 28749780 — the branch ref advanced without a checkout, so the gateway runs three-week-old GEECS-Core/GEECS-Schemas | clean pinned clone |
 | PVA fleet | 4 of 13 roster hosts unreachable | 9 hosts |
 
 Three forcing functions make fixing this now worth more than waiting:
@@ -167,10 +167,15 @@ Order chosen so each step is reversible by restarting what was stopped:
 1. **Sam step:** `sudo install -D deploy/site.env /etc/geecs/site.env`
    (rendered from HTU values), then install the five rendered units and
    `systemctl daemon-reload`.
-2. **Sam decides the gateway clone's 774 staged files** (inspect with
-   `git -C ~/GEECS-Plugins diff --cached --stat`; likely a stray
-   `git add` after the wavekit SDK untrack). Reset or commit, then the
-   clone is clean. No restart needed if HEAD does not move.
+2. **Bring the gateway clone's disk to its HEAD.** The index and working
+   tree are exactly commit 9c9681de (verified by tree hash: nothing on
+   disk is hand-edited, and the 538 "added" files are the wavekit SDK
+   docs that commit still tracked). `git reset --hard HEAD` discards
+   nothing that is not in git history. Because the editable install
+   runs whatever is on disk, this **does** change the running code
+   (GEECS-Core db module, GEECS-Schemas) and needs a gateway restart —
+   fold it into step 5. Until then the gateway keeps running the
+   August 25 tree, which it has done since 2026-09-02 without incident.
 3. **Queueserver family**, one maintenance window, no scans running:
    stop the hand-started RE Manager, the doc proxy, and the user-scope
    capture unit (`systemctl --user disable --now geecs-capture`); start
@@ -248,4 +253,6 @@ address changes. The dashboard pane tells you when every row is green.
 2. Checkout root on the new box: `/home/<svc>` (no sudo) or `/opt/geecs`
    (cleaner, one sudo chown). Either works; `site.env` carries it.
 3. The passwordless-sudo rule above.
-4. The 774 staged files in the gateway clone: reset or commit?
+4. ~~The 774 staged files~~ Resolved by inspection: they are the August 25
+   tree; `git reset --hard HEAD` + restart in Phase 3 step 5. No decision
+   needed beyond the restart window.
