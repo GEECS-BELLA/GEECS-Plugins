@@ -159,6 +159,8 @@ def notes(rec: dict[str, str]) -> list[str]:
         out.append("no systemd unit")
     if rec.get("baked"):
         out.append("baked venv")
+    if rec.get("worktree_of"):
+        out.append(f"WORKTREE of {rec['worktree_of']} (not a clone)")
     if rec.get("disk"):
         out.append(f"disk ≠ HEAD ({rec.get('disk_date', '')})")
     staged, unstaged = rec.get("staged", "0"), rec.get("unstaged", "0")

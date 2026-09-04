@@ -436,6 +436,12 @@ emit() {  # emit ROLE NAME MANAGED STATE PID CWD PYEXE
         unstaged="$(git -C "$clone" diff --name-only 2>/dev/null | wc -l | tr -d " ")"
         moved="$(reflog_ts "$clone")"
         rec="$rec\tclone=${clone/#$HOME/\~}\tbranch=$branch\tsha=$sha\tfull=$full\tcommit_date=$cdate\tstaged=$staged\tunstaged=$unstaged"
+        # A linked worktree is not a clone of its own: it shares object store
+        # and branch refs with another clone (the 2026-09-03 disk≠HEAD root
+        # cause). Name the clone it hangs off so the row can say so.
+        local wt_gitdir wt_common
+        wt_gitdir="$(git -C "$clone" rev-parse --git-dir 2>/dev/null)"; wt_common="$(git -C "$clone" rev-parse --git-common-dir 2>/dev/null)"
+        case "$wt_gitdir" in "$wt_common"/worktrees/*) rec="$rec\tworktree_of=$(cd "$clone" && cd "$wt_common/.." && pwd | sed "s|^$HOME|~|")" ;; esac
         if [ "$staged" != "0" ]; then
             # HEAD can lie: a ref advanced without a checkout (or a staged
             # rollback) leaves the files on disk — what actually runs — at
@@ -512,8 +518,8 @@ fmt_host_records() {  # stdin: service records -> pretty lines; side effect: not
             *) info "ssh: $line"; continue ;;   # known-hosts notices, remote warnings — not records
         esac
         rec "$line"
-        local role svc managed state since clone branch sha full cdate staged unstaged stale pkg pyproject installed baked pyexe disk disk_full disk_date
-        role=""; svc=""; managed=""; state=""; since=""; clone=""; branch=""; sha=""; full=""; cdate=""; staged=""; unstaged=""; stale=""; pkg=""; pyproject=""; installed=""; baked=""; pyexe=""; disk=""; disk_full=""; disk_date=""
+        local role svc managed state since clone branch sha full cdate staged unstaged stale pkg pyproject installed baked pyexe disk disk_full disk_date worktree_of
+        role=""; svc=""; managed=""; state=""; since=""; clone=""; branch=""; sha=""; full=""; cdate=""; staged=""; unstaged=""; stale=""; pkg=""; pyproject=""; installed=""; baked=""; pyexe=""; disk=""; disk_full=""; disk_date=""; worktree_of=""
         local IFS=$'\t' kv
         for kv in $line; do
             case "$kv" in
@@ -523,6 +529,7 @@ fmt_host_records() {  # stdin: service records -> pretty lines; side effect: not
                 stale=*) stale="${kv#*=}" ;; pkg=*) pkg="${kv#*=}" ;; pyproject=*) pyproject="${kv#*=}" ;;
                 installed=*) installed="${kv#*=}" ;; baked=*) baked="${kv#*=}" ;; pyexe=*) pyexe="${kv#*=}" ;;
                 disk=*) disk="${kv#*=}" ;; disk_full=*) disk_full="${kv#*=}" ;; disk_date=*) disk_date="${kv#*=}" ;;
+                worktree_of=*) worktree_of="${kv#*=}" ;;
             esac
         done
         unset IFS
@@ -535,6 +542,7 @@ fmt_host_records() {  # stdin: service records -> pretty lines; side effect: not
             [ "${staged:-0}" != "0" ] && d="$d  STAGED: $staged file(s)"
             [ "${unstaged:-0}" != "0" ] && d="$d  UNSTAGED: $unstaged modified file(s)"
             info "$clone @ $branch $sha ($cdate)$d"
+            [ -n "$worktree_of" ] && warn "$svc: $clone is a linked git worktree of $worktree_of, not a clone of its own — shared branch refs; a pull in either can move the other's HEAD without a checkout (site profile: replace with a real clone)"
             note_sha "${role:-$svc}" "$full" "head"
             if [ -n "$disk" ]; then
                 warn "$svc: files on disk are commit $disk ($disk_date), not HEAD $sha — HEAD moved without a checkout, or a staged rollback is pending; what RUNS is $disk. Confirm which tree is intended before touching (skill: the STAGED/UNSTAGED row)"
