@@ -1323,19 +1323,152 @@ class TestOpsMenu:
             "https://github.com/GEECS-BELLA/GEECS-Plugins"
         ]
 
-    def test_ops_menu_lists_the_four_items(self, window):
-        # Keep the QAction wrappers alive in a local: letting the temporary
-        # list from .actions() be garbage-collected tears down the QMenu
-        # underneath us (PySide6 wrapper-ownership hazard).
-        menu_actions = window.menuBar().actions()
-        (ops_menu,) = [a.menu() for a in menu_actions if a.text() == "Ops"]
-        texts = [action.text() for action in ops_menu.actions() if action.text()]
+    def test_ops_menu_lists_the_five_items(self, window):
+        # Read the menu through the window's own kept wrapper (``_menus``):
+        # a QMenu reached via ``menuBar().actions()[i].menu()`` is torn
+        # down with its actions when that temporary wrapper is collected
+        # (PySide6 wrapper-ownership hazard) — and since #773 the window
+        # re-gates ``restart_gateway_action`` on every health poll, so a
+        # dead Ops menu would surface as a RuntimeError after the test.
+        ops_menu = window._menus[0]
+        assert ops_menu.title() == "Ops"
+        ops_actions = ops_menu.actions()  # kept alive for the test's duration
+        texts = [action.text() for action in ops_actions if action.text()]
         assert texts == [
             "Open experiment config folder",
             "Open user config (config.ini)",
             "Open today's scan folder",
+            "Restart gateway…",
             "GEECS-Plugins on GitHub",
         ]
+
+
+class TestRestartGateway:
+    """Ops → Restart gateway… (#773): gating, confirmation, one put, narration."""
+
+    class FakeRestart:
+        def __init__(self, fail=False):
+            self.calls = []
+            self.fail = fail
+
+        def __call__(self, experiment):
+            self.calls.append(experiment)
+            if self.fail:
+                raise TimeoutError("no gateway answered")
+            return f"{experiment.lower()}:cagateway:restart"
+
+    class OkHealth:
+        def poll(self):
+            return HealthReport(gateway=HealthStatus.OK)
+
+    def make(self, qtbot, restart=None, configs=None, answer=True):
+        restart = restart if restart is not None else self.FakeRestart()
+        win = MainWindow(
+            configs=configs if configs is not None else FakeConfigs(),
+            presets=FakePresetStore(),
+            settings=FakeSettings(),
+            submitter=FakeSubmitter(),
+            health=self.OkHealth(),
+            gateway_restart=restart,
+        )
+        qtbot.addWidget(win)
+        if win._monitor is not None:
+            win._monitor.dispose()
+        # The constructor fires one immediate health poll; let it land (an
+        # OK gateway) and stop the timer so the tests drive the chip state
+        # themselves from here on.
+        win._health_timer.stop()
+        qtbot.waitUntil(lambda: "gateway: ok" in win.gateway_chip.text(), timeout=3000)
+        win._ask_binary = lambda *args, **kwargs: answer
+        return win, restart
+
+    def settle(self, qtbot, win):
+        qtbot.waitUntil(lambda: not win._restart_in_flight, timeout=3000)
+
+    def test_disabled_until_the_gateway_chip_is_known(self, qtbot):
+        win, _ = self.make(qtbot)
+        assert win.restart_gateway_action.isEnabled()  # the first poll read OK
+        win._apply_health_report(HealthReport())
+        assert not win.restart_gateway_action.isEnabled()  # UNKNOWN: no poll yet
+        win._apply_health_report(HealthReport(gateway=HealthStatus.OK))
+        assert win.restart_gateway_action.isEnabled()
+        win._apply_health_report(HealthReport(gateway=HealthStatus.DOWN))
+        assert win.restart_gateway_action.isEnabled()  # DOWN is when it may help
+        win._apply_health_report(HealthReport())
+        assert not win.restart_gateway_action.isEnabled()
+
+    def test_disabled_without_an_experiment(self, qtbot):
+        win, restart = self.make(
+            qtbot, configs=FakeConfigs(experiment="", experiments=("TestExp",))
+        )
+        win._apply_health_report(HealthReport(gateway=HealthStatus.OK))
+        assert win.experiment_combo.currentText() == ""
+        assert not win.restart_gateway_action.isEnabled()
+        win._on_restart_gateway()
+        assert restart.calls == []
+        assert "needs an experiment" in win.statusBar().currentMessage()
+
+    def test_refused_while_a_scan_is_active(self, qtbot):
+        win, restart = self.make(qtbot)
+        win._apply_health_report(HealthReport(gateway=HealthStatus.OK))
+        drive_status(win, "running")
+        win._on_restart_gateway()
+        assert restart.calls == []
+        assert "refused" in win.statusBar().currentMessage()
+        assert "scan is active" in win.statusBar().currentMessage()
+
+    def test_confirmation_abort_writes_nothing(self, qtbot):
+        win, restart = self.make(qtbot, answer=False)
+        win._apply_health_report(HealthReport(gateway=HealthStatus.OK))
+        win._on_restart_gateway()
+        assert restart.calls == []
+        assert not win._restart_in_flight
+        assert not win._restart_pending
+
+    def test_confirm_writes_exactly_one_put_and_narrates_the_bounce(self, qtbot):
+        win, restart = self.make(qtbot)
+        win._apply_health_report(HealthReport(gateway=HealthStatus.OK))
+        win._on_restart_gateway()
+        assert not win.restart_gateway_action.isEnabled()  # in flight
+        self.settle(qtbot, win)
+        assert restart.calls == ["TestExp"]
+        log = win.log_tail.toPlainText()
+        assert "gateway restart requested (testexp:cagateway:restart)" in log
+        assert win.restart_gateway_action.isEnabled()
+        # The health poll narrates DOWN → OK once, then disarms.
+        win._apply_health_report(HealthReport(gateway=HealthStatus.DOWN))
+        win._apply_health_report(HealthReport(gateway=HealthStatus.DOWN))
+        win._apply_health_report(HealthReport(gateway=HealthStatus.OK))
+        win._apply_health_report(HealthReport(gateway=HealthStatus.OK))
+        log = win.log_tail.toPlainText()
+        assert log.count("gateway restarting — heartbeat down") == 1
+        assert log.count("gateway back — heartbeat OK") == 1
+        assert not win._restart_pending
+
+    def test_second_click_while_in_flight_is_a_noop(self, qtbot):
+        win, restart = self.make(qtbot)
+        win._apply_health_report(HealthReport(gateway=HealthStatus.OK))
+        win._on_restart_gateway()
+        win._on_restart_gateway()
+        self.settle(qtbot, win)
+        assert restart.calls == ["TestExp"]
+
+    def test_put_failure_is_reported_and_rearms(self, qtbot):
+        win, restart = self.make(qtbot, restart=self.FakeRestart(fail=True))
+        win._apply_health_report(HealthReport(gateway=HealthStatus.OK))
+        win._on_restart_gateway()
+        self.settle(qtbot, win)
+        assert "gateway restart failed: no gateway answered" in (
+            win.log_tail.toPlainText()
+        )
+        assert not win._restart_pending
+        assert win.restart_gateway_action.isEnabled()
+
+    def test_no_narration_without_a_request(self, qtbot):
+        win, _ = self.make(qtbot)
+        win._apply_health_report(HealthReport(gateway=HealthStatus.DOWN))
+        win._apply_health_report(HealthReport(gateway=HealthStatus.OK))
+        assert "gateway back" not in win.log_tail.toPlainText()
 
 
 class TestBeeps:

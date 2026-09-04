@@ -78,6 +78,7 @@ from geecs_console.services.device_panel import (
     DevicePanelBackend,
     StubDevicePanel,
 )
+from geecs_console.services.gateway_restart import request_gateway_restart
 from geecs_console.services.health import (
     HealthProbe,
     HealthReport,
@@ -238,6 +239,7 @@ class MainWindow(QMainWindow):
         rng: Optional[random.Random] = None,
         completions_factory: Optional[Callable[[str], CompletionsProvider]] = None,
         scan_number_lookup: Optional[Callable[[str], Optional[int]]] = None,
+        gateway_restart: Optional[Callable[[str], str]] = None,
     ) -> None:
         super().__init__()
         # Import the cycle-bearing packages once, here on the GUI thread,
@@ -281,6 +283,17 @@ class MainWindow(QMainWindow):
         self._last_beep_shots = 0
         self._completions_factory = completions_factory
         self._scan_number_lookup = scan_number_lookup
+        #: Ops → Restart gateway… (#773): the blocking restart put, injected
+        #: for tests; ``None`` resolves to the module-level
+        #: ``request_gateway_restart`` at click time (test-patchable).
+        self._gateway_restart = gateway_restart
+        #: Latest R1 health report (gates the restart action on the chip).
+        self._health_report = HealthReport()
+        self._restart_in_flight = False
+        #: A restart was requested and the heartbeat has not come back yet
+        #: — the health poll narrates the bounce (down → back) meanwhile.
+        self._restart_pending = False
+        self._restart_seen_down = False
         #: Non-modal editor dialogs opened from the Editors menu.  PySide6
         #: garbage-collects an unreferenced dialog wrapper and tears down the
         #: C++ dialog with it, so every opened editor is kept here.
@@ -289,8 +302,10 @@ class MainWindow(QMainWindow):
         self._apply_stylesheet()
         self._load_ui()
         self._bind_widgets()
-        apply_operator_tooltips(self)
         self._build_menus()
+        # After the menus: the catalog names menu actions too (#773's
+        # Restart gateway…), and a missing name raises loudly.
+        apply_operator_tooltips(self)
         self._build_status_bar()
         self._wire_signals()
 
@@ -496,6 +511,14 @@ class MainWindow(QMainWindow):
             action = ops.addAction(text)
             action.triggered.connect(handler)
         ops.addSeparator()
+        # Restart gateway… (#773): the operator escape hatch for frozen
+        # readbacks (a stale GEECS subscription — #611 is the long-term
+        # self-detection) and the DB-resync after a device edit.  Enabled
+        # only with an experiment selected and a *known* gateway chip;
+        # refused while a scan is active (_on_restart_gateway).
+        self.restart_gateway_action = ops.addAction("Restart gateway…")
+        self.restart_gateway_action.triggered.connect(self._on_restart_gateway)
+        ops.addSeparator()
         github = ops.addAction("GEECS-Plugins on GitHub")
         github.triggered.connect(self._on_open_github)
 
@@ -641,6 +664,12 @@ class MainWindow(QMainWindow):
             self._on_stop_result, Qt.ConnectionType.QueuedConnection
         )
         self._stop_in_flight = False
+        # Gateway restart put (#773): a blocking CA write, so it rides its
+        # own worker; the (ok, message) outcome lands in _on_restart_result.
+        self._restart_worker = BackgroundResult()
+        self._restart_worker.result_ready.connect(
+            self._on_restart_result, Qt.ConnectionType.QueuedConnection
+        )
         self._stop_button_label = self.stop_button.text()
         # Submission worker: the pre-submit preflight (config + DB + CA
         # reads) and the queue submission (0MQ round trips) both block, so
@@ -775,6 +804,37 @@ class MainWindow(QMainWindow):
         self.gateway_chip.setText(self._chip_markup("gateway", report.gateway))
         self.tiled_chip.setText(self._chip_markup("tiled", report.tiled))
         self.db_chip.setText(self._chip_markup("db", report.db))
+        self._health_report = report
+        self._narrate_gateway_bounce(report.gateway)
+        self._refresh_restart_gateway_action()
+
+    def _narrate_gateway_bounce(self, gateway: HealthStatus) -> None:
+        """Log-tail lines for a requested gateway restart (#773).
+
+        After the put, the heartbeat check on the 5 s health poll does the
+        rest: the chip goes DOWN then OK.  This makes the bounce legible —
+        "restarting" on the first DOWN, "back" on the first OK — and clears
+        the pending flag once the gateway is back.  A gateway that stays
+        DOWN (not run under the restart-on-exit-86 supervisor) leaves the
+        flag armed; the confirmation text warned about that case.
+
+        Parameters
+        ----------
+        gateway : HealthStatus
+            The polled gateway chip state.
+        """
+        if not self._restart_pending:
+            return
+        if gateway == HealthStatus.DOWN and not self._restart_seen_down:
+            self._restart_seen_down = True
+            self._report("gateway restarting — heartbeat down")
+        elif gateway in (HealthStatus.OK, HealthStatus.WARN):
+            self._restart_pending = False
+            self._report(
+                "gateway back — heartbeat OK"
+                if self._restart_seen_down
+                else "gateway back — heartbeat OK (the bounce fell between polls)"
+            )
 
     def _start_health_poller(self) -> None:
         """Start the background health poller and its GUI-thread interval timer.
@@ -998,7 +1058,7 @@ class MainWindow(QMainWindow):
         monitor = getattr(self, "_monitor", None)
         if monitor is not None:
             monitor.dispose()
-        for worker_name in ("_stop_worker", "_submit_worker"):
+        for worker_name in ("_stop_worker", "_submit_worker", "_restart_worker"):
             worker = getattr(self, worker_name, None)
             if worker is not None:
                 try:
@@ -1407,6 +1467,100 @@ class MainWindow(QMainWindow):
         """Ops: open the GEECS-Plugins GitHub page in the browser."""
         QDesktopServices.openUrl(QUrl(ops_paths.GITHUB_URL))
 
+    def _refresh_restart_gateway_action(self) -> None:
+        """Enable Ops → Restart gateway… only when it can address a gateway.
+
+        Needs an experiment (the PV is experiment-prefixed) and a gateway
+        chip that has read *something* (OK / WARN / DOWN — a DOWN gateway
+        under its supervisor is exactly when a restart may help; UNKNOWN
+        means no experiment or no poll yet), and no restart put in flight.
+        """
+        action = getattr(self, "restart_gateway_action", None)
+        if action is None:  # _apply_health_report seeds before the menus exist
+            return
+        action.setEnabled(
+            bool(self.experiment_combo.currentText())
+            and self._health_report.gateway != HealthStatus.UNKNOWN
+            and not self._restart_in_flight
+        )
+
+    def _on_restart_gateway(self) -> None:
+        """Ops: ask the CA gateway to restart itself (#773), after confirming.
+
+        Refused while a scan is active on the manager (the Start gate's
+        ``_scanning()`` — the worker's ophyd-async signals would see the
+        CA disconnect mid-scan).  The confirmation states the cost: a few
+        seconds of fleet-wide CA disconnect (every client's monitors
+        reconnect on their own), and that a gateway not run under the
+        restart-on-exit-86 supervisor stays down.  The put itself blocks,
+        so it runs on the restart worker; the health poll then narrates
+        the bounce (:meth:`_narrate_gateway_bounce`).
+        """
+        experiment = self.experiment_combo.currentText().strip()
+        if not experiment:
+            self._report("Gateway restart needs an experiment selected.")
+            return
+        if self._restart_in_flight:
+            return
+        if self._scanning():
+            self._report("Gateway restart refused — a scan is active on the manager.")
+            return
+        confirmed = self._ask_binary(
+            "Restart gateway",
+            f"Restart the {experiment} CA gateway?\n\n"
+            "Every CA client — this console, Phoebus, the scan worker, the "
+            "archiver — loses the gateway for a few seconds while it "
+            "relaunches and re-reads the device database; monitors "
+            "reconnect on their own.\n\n"
+            "This only works when the gateway runs under its restart-on-exit "
+            "supervisor (the shipped systemd unit).  A foreground gateway "
+            "simply exits and stays down.",
+            continue_label="Restart",
+            abort_label="Cancel",
+        )
+        if not confirmed:
+            return
+        restart = (
+            self._gateway_restart
+            if self._gateway_restart is not None
+            else request_gateway_restart
+        )
+
+        # Same rule as every worker callable: a raise inside the job is
+        # swallowed by BackgroundResult without emitting, which would leave
+        # the in-flight hold stuck — capture into a failure tuple.
+        def call() -> tuple[bool, str]:
+            try:
+                pv = restart(experiment)
+            except Exception as exc:  # noqa: BLE001 — deliver as a failure
+                return (False, f"gateway restart failed: {exc}")
+            return (
+                True,
+                f"gateway restart requested ({pv}) — expect a few seconds of CA disconnect",
+            )
+
+        self._restart_in_flight = True
+        self._refresh_restart_gateway_action()
+        self._report(f"restarting the {experiment} gateway…")
+        self._restart_worker.run_async(call, "gateway-restart")
+
+    @Slot(object)
+    def _on_restart_result(self, payload: object) -> None:
+        """Report the restart put's outcome and arm the bounce narration.
+
+        Parameters
+        ----------
+        payload : tuple
+            ``(ok, message)`` from the worker callable.
+        """
+        ok, message = payload
+        self._restart_in_flight = False
+        if ok:
+            self._restart_pending = True
+            self._restart_seen_down = False
+        self._report(message)
+        self._refresh_restart_gateway_action()
+
     # ------------------------------------------------------------------
     # Editors menu (each entry point shows a non-modal dialog and returns it)
     # ------------------------------------------------------------------
@@ -1416,6 +1570,7 @@ class MainWindow(QMainWindow):
         enabled = bool(self.experiment_combo.currentText())
         for action in self._editor_actions:
             action.setEnabled(enabled)
+        self._refresh_restart_gateway_action()
 
     def _open_editor(self, opener: Callable[..., object]) -> None:
         """Open one editor for the current experiment, holding a reference.
