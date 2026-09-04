@@ -175,6 +175,13 @@ def save_set_to_devices_config(
     *scalar_policy* ``None`` (no DB / off-network) only explicit scalars
     are recorded.
 
+    A snapshot-role entry with ``images: true`` is a silent no-op downstream
+    (see :func:`snapshot_images_ignored`), so this seam — the one place the
+    role becomes mechanics, run by the worker and by the client-side
+    submit preflight alike — logs one loud warning per save set naming the
+    affected devices (#754).  The combination is not rejected: the entry's
+    scalars are still recorded.
+
     Returns
     -------
     dict
@@ -227,7 +234,50 @@ def save_set_to_devices_config(
             "save_nonscalar_data": entry.images,
             "variable_list": variable_list,
         }
+    ignored = snapshot_images_ignored(config)
+    if ignored:
+        logger.warning(snapshot_images_ignored_message(ignored, save_set.name))
     return config
+
+
+def snapshot_images_ignored(
+    devices_config: Mapping[str, Mapping[str, Any]],
+) -> list[str]:
+    """Devices whose ``images: true`` the snapshot role ignores (#754).
+
+    A snapshot-role (asynchronous) entry records scalars only: the engine
+    never drove native saving for the role (``session.snapshot`` has no
+    ``save_images``, so ``_configure_saving`` skips it) and the capture
+    daemon never owns it (#702 / #751) — ``images: true`` on such an entry
+    is a no-op for every devicetype, DB or no DB.  This reads the derived
+    ``devices_config`` (``synchronous`` / ``save_nonscalar_data``), so it
+    needs neither the DB nor the schema and is the one definition shared by
+    :func:`save_set_to_devices_config` (the worker's scan.log) and the
+    client-side :mod:`geecs_bluesky.qs_client.submit_preflight`.
+
+    Returns
+    -------
+    list[str]
+        Device names in *devices_config* order; empty when nothing is ignored.
+    """
+    return [
+        name
+        for name, cfg in devices_config.items()
+        if cfg.get("save_nonscalar_data") and not cfg.get("synchronous", False)
+    ]
+
+
+def snapshot_images_ignored_message(devices: list[str], save_set_name: str = "") -> str:
+    """The operator-facing text for :func:`snapshot_images_ignored`, one wording everywhere."""
+    where = f"save set {save_set_name!r}: " if save_set_name else ""
+    return (
+        f"{where}`images: true` is IGNORED for snapshot-role entries "
+        f"{devices} — the snapshot role (legacy `synchronous: false`) records "
+        "scalars only; the engine neither commands nor suppresses the device's "
+        "own save flag, so it records no per-shot images for these devices "
+        "(#754). Remove `role: snapshot` to have the engine save their images, "
+        "or drop `images: true` to silence this."
+    )
 
 
 def _requirement_field(requirement: Any, name: str, default: Any) -> Any:

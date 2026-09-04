@@ -111,6 +111,7 @@ class TestRunSubmitPreflight:
         assert report.refusal is None
         assert report.questions == []
         assert ("validate", "passed", "") in report.outcomes
+        assert ("snapshot_images", "passed", "") in report.outcomes
         assert ("gateway_liveness", "passed", "") in report.outcomes
         assert ("free_run_staleness", "passed", "") in report.outcomes
         assert ("unserved_variables", "passed", "") in report.outcomes
@@ -127,6 +128,28 @@ class TestRunSubmitPreflight:
         assert "Nope" in report.refusal
         # A refusal short-circuits — no other checks ran.
         assert report.questions == []
+
+    def test_snapshot_images_raises_a_question_not_a_refusal(self, engine, monkeypatch):
+        """#754: images: true on a snapshot-role entry surfaces pre-submit as a warning."""
+        devices = dict(_DEVICES_CONFIG)
+        devices["UC_Slow"] = {
+            "variable_list": ["p"],
+            "synchronous": False,
+            "save_nonscalar_data": True,
+        }
+        monkeypatch.setattr(
+            submit_preflight,
+            "_resolve_devices_config",
+            lambda request, resolver: devices,
+        )
+        report = run_submit_preflight(_request(), "Undulator")
+        assert report.refusal is None
+        questions = [q for q in report.questions if q.check == "snapshot_images"]
+        assert len(questions) == 1
+        assert "UC_Slow" in questions[0].message
+        assert "UC_Cam1" not in questions[0].message
+        assert "#754" in questions[0].message
+        assert not any(check == "snapshot_images" for check, _, _ in report.outcomes)
 
     def test_unserved_variable_raises_a_question(self, engine, monkeypatch):
         monkeypatch.setattr(

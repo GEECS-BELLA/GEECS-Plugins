@@ -4,6 +4,18 @@ All notable changes to `geecs-mcp` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.8.5] - 2026-09-03
+
+### Changed
+
+- `submit_scan`'s acknowledgeable-check vocabulary
+  (`_ACKNOWLEDGEABLE_CHECKS`) gains **`snapshot_images`**, the new
+  pre-submit warning GeecsBluesky 0.73.2 raises when a snapshot-role
+  save-set entry has `images: true` (#754). Without this the tuple's
+  fail-closed drift guard would refuse to acknowledge the new question and
+  such a request could never be submitted through the MCP. Pinned by a
+  control-tools test.
+
 ## [0.8.4] - 2026-09-03
 
 ### Changed

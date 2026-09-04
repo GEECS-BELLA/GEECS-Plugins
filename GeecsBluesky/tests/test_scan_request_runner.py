@@ -36,6 +36,7 @@ from geecs_bluesky.scan_request_runner import (
     merge_save_sets,
     resolve_save_sets_and_rituals,
     save_set_to_devices_config,
+    snapshot_images_ignored,
     trigger_writes_from_profile,
 )
 from geecs_schemas import (
@@ -708,6 +709,57 @@ def test_devices_config_all_scalars_is_a_documented_gap() -> None:
     save_set = SaveSet(name="s", entries=[SaveSetEntry(device="U_A", all_scalars=True)])
     with pytest.raises(NotImplementedError, match="all_scalars"):
         save_set_to_devices_config(save_set)
+
+
+def _snapshot_images_warnings(caplog) -> list[str]:
+    return [
+        r.getMessage()
+        for r in caplog.records
+        if r.levelno == logging.WARNING
+        and "IGNORED for snapshot-role" in r.getMessage()
+    ]
+
+
+def test_devices_config_snapshot_images_warns_loudly(caplog) -> None:
+    """#754: images: true on a snapshot-role entry is a no-op — say so, DB-free."""
+    save_set = SaveSet(
+        name="s754",
+        entries=[
+            SaveSetEntry(device="U_Cam", scalars=["x"], images=True),
+            SaveSetEntry(device="U_Haso", scalars=["p"], images=True, role="snapshot"),
+            SaveSetEntry(device="U_Gauge", scalars=["q"], role="snapshot"),
+        ],
+    )
+    with caplog.at_level(logging.WARNING):
+        config = save_set_to_devices_config(save_set)
+    warnings = _snapshot_images_warnings(caplog)
+    assert len(warnings) == 1, warnings
+    assert "'s754'" in warnings[0]
+    assert "U_Haso" in warnings[0]
+    assert "U_Cam" not in warnings[0] and "U_Gauge" not in warnings[0]
+    assert "#754" in warnings[0]
+    # Not rejected: the entry is still derived (scalars recorded, images inert).
+    assert config["U_Haso"] == {
+        "synchronous": False,
+        "save_nonscalar_data": True,
+        "variable_list": ["p"],
+    }
+    assert snapshot_images_ignored(config) == ["U_Haso"]
+
+
+def test_devices_config_synchronous_images_do_not_warn(caplog) -> None:
+    save_set = SaveSet(
+        name="s",
+        entries=[
+            SaveSetEntry(device="U_Cam", scalars=["x"], images=True),
+            SaveSetEntry(device="U_Pin", scalars=["y"], images=True, role="reference"),
+            SaveSetEntry(device="U_Slow", scalars=["p"], role="snapshot"),
+        ],
+    )
+    with caplog.at_level(logging.WARNING):
+        config = save_set_to_devices_config(save_set)
+    assert _snapshot_images_warnings(caplog) == []
+    assert snapshot_images_ignored(config) == []
 
 
 # ---------------------------------------------------------------------------

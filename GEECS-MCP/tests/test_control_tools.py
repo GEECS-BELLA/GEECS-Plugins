@@ -316,6 +316,35 @@ def test_submit_warnings_need_acknowledgement(wired, monkeypatch):
     assert by_check["free_run_staleness"] == "continued"
 
 
+def test_submit_snapshot_images_warning_is_acknowledgeable(wired, monkeypatch):
+    """#754: the preflight's snapshot_images question must be in the ack vocabulary."""
+    report = qs_client.PreflightReport(
+        outcomes=[("validate", "passed", "")],
+        questions=[
+            qs_client.PreflightQuestion(
+                check="snapshot_images",
+                title="Images requested on snapshot-role devices",
+                message="`images: true` is IGNORED for snapshot-role entries ['UC_Slow']",
+            )
+        ],
+    )
+    monkeypatch.setattr(
+        "geecs_bluesky.qs_client.run_submit_preflight", lambda req, exp: report
+    )
+    first = _load(control_tools._submit_scan_impl(GOOD_REQUEST, None, None, None))
+    assert first["error_kind"] == "policy_refusal"
+    assert first["needs_acknowledgement"][0]["check"] == "snapshot_images"
+    assert wired.submitted == []
+
+    second = _load(
+        control_tools._submit_scan_impl(GOOD_REQUEST, None, None, ["snapshot_images"])
+    )
+    assert second["ok"], second
+    record = wired.submissions[0]
+    by_check = {o["check"]: o["result"] for o in record["preflight"]}
+    assert by_check["snapshot_images"] == "continued"
+
+
 def test_submit_engine_refusal_verbatim(wired, monkeypatch):
     monkeypatch.setattr(
         "geecs_bluesky.qs_client.run_submit_preflight",
