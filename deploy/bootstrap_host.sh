@@ -80,10 +80,36 @@ echo "  git $(git --version 2>/dev/null | awk '{print $3}'), $(python3.11 --vers
 [ -d "$GEECS_CONFIGS_ROOT" ] && echo "  configs repo at $GEECS_CONFIGS_ROOT" || echo "  WARNING: configs repo not at $GEECS_CONFIGS_ROOT"
 
 say "clones (one per service family, at $REF)"
+# Clone dirs that are NOT usable clones are recorded here; every later stage
+# (environments, units, root steps) skips their services, so the run cannot
+# end with a clean tail after a warning scrolled off the top.
+SKIP_CLONES=" "
+skipped_clone() { case "$SKIP_CLONES" in *" $1 "*) return 0;; *) return 1;; esac; }
 for c in $(for s in $SERVICES; do wanted "$s" && clone_of "$s"; done | sort -u); do
     dir="$GEECS_CHECKOUT_ROOT/$c"
-    if [ -d "$dir/.git" ]; then
-        echo "  $c: exists ($(git -C "$dir" rev-parse --abbrev-ref HEAD) $(git -C "$dir" rev-parse --short=8 HEAD)) — fetching, NOT moving HEAD (a pull is a deploy; do it per service, deliberately)"
+    if [ -e "$dir/.git" ]; then
+        gitdir="$(git -C "$dir" rev-parse --git-dir 2>/dev/null || true)"
+        common="$(git -C "$dir" rev-parse --git-common-dir 2>/dev/null || true)"
+        top="$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null || true)"
+        if [ -z "$gitdir" ] || [ "$top" != "$(cd "$dir" && pwd -P)" ]; then
+            # Unreadable .git, or git walked UP to an enclosing repository (a
+            # stray .git under a git-managed home): not this directory's repo.
+            echo "  $c: WARNING — .git present but git cannot read it as this directory's repository (dangling worktree, corrupt, or a stray .git inside another repo); skipped — fix by hand"
+            SKIP_CLONES="$SKIP_CLONES$c "; continue
+        fi
+        case "$gitdir" in
+            "$common"/worktrees/*)
+                # A linked worktree shares its object store AND its branch refs
+                # with another clone. If the same branch is checked out in both
+                # (git allows that only via --ignore-other-worktrees/--force —
+                # how the 2026-09-03 state arose), a pull in one moves the
+                # other's HEAD without a checkout, and that service runs an older
+                # tree than its HEAD claims. Not a clone of its own — see the
+                # site profile page for the replacement recipe.
+                echo "  $c: WARNING — linked worktree of $(cd "$dir" && cd "$common/.." && pwd), not a clone of its own; skipped (see the site profile page)"
+                SKIP_CLONES="$SKIP_CLONES$c "; continue ;;
+        esac
+        echo "  $c: exists ($(git -C "$dir" rev-parse --abbrev-ref HEAD 2>/dev/null) $(git -C "$dir" rev-parse --short=8 HEAD 2>/dev/null)) — fetching, NOT moving HEAD (a pull is a deploy; do it per service, deliberately)"
         run git -C "$dir" fetch --quiet origin
     else
         run git clone --quiet --branch "$REF" "$GEECS_REPO_URL" "$dir"
@@ -94,6 +120,7 @@ say "environments (inside each package dir, with that service's extras)"
 for s in $SERVICES; do
     wanted "$s" || continue
     dir="$GEECS_CHECKOUT_ROOT/$(clone_of "$s")/$(pkgdir_of "$s")"
+    skipped_clone "$(clone_of "$s")" && { echo "  $s: skipped — $(clone_of "$s") is not a usable clone (see the clones stage)"; continue; }
     [ "$INSTALL" -eq 1 ] || { echo "  $s: skipped (--no-install)"; continue; }
     if [ ! -d "$dir" ]; then
         echo "  $s: clone not present yet ($dir) — rerun after the clone step has run for real"; continue
@@ -175,18 +202,32 @@ template_of() { case "$1" in
 TEMPLATE_PATHS=()
 for s in $SERVICES; do
     wanted "$s" || continue
+    skipped_clone "$(clone_of "$s")" && { echo "  $s: skipped — $(clone_of "$s") is not a usable clone"; continue; }
     t="$GEECS_CHECKOUT_ROOT/$(clone_of "$s")/$(template_of "$s")"
     if [ -f "$t" ]; then TEMPLATE_PATHS+=("$t"); else echo "  $s: clone absent — template from this clone ($REPO_ROOT)"; TEMPLATE_PATHS+=("$REPO_ROOT/$(template_of "$s")"); fi
 done
-if [ "$DRY" -eq 1 ]; then echo "  [dry] render_units.sh $SITE_ENV $STAGE ${TEMPLATE_PATHS[*]}"
+if [ "${#TEMPLATE_PATHS[@]}" -eq 0 ]; then echo "  nothing to render (every wanted service was skipped)"
+elif [ "$DRY" -eq 1 ]; then echo "  [dry] render_units.sh $SITE_ENV $STAGE ${TEMPLATE_PATHS[*]}"
 else RENDER_QUIET=1 "$REPO_ROOT/deploy/render_units.sh" "$SITE_ENV" "$STAGE" "${TEMPLATE_PATHS[@]}" | sed 's/^/  /'; fi
 
 say "root steps (a human runs these; nothing above needed sudo)"
-cat <<EOF
-  sudo install -D -m 0644 "$SITE_ENV" "$SITE_ENV_INSTALLED"
-  sudo install -m 0644 "$STAGE"/*.service /etc/systemd/system/
-  sudo systemctl daemon-reload
-EOF
-for s in $SERVICES; do wanted "$s" && echo "  sudo systemctl enable --now $(unit_of "$s")"; done
+echo "  sudo install -D -m 0644 \"$SITE_ENV\" \"$SITE_ENV_INSTALLED\""
+if [ "${#TEMPLATE_PATHS[@]}" -gt 0 ]; then
+    echo "  sudo install -m 0644 \"$STAGE\"/*.service /etc/systemd/system/"
+    echo "  sudo systemctl daemon-reload"
+else
+    echo "  # nothing staged — no units to install"
+fi
+for s in $SERVICES; do
+    wanted "$s" || continue
+    if skipped_clone "$(clone_of "$s")"; then echo "  # $(unit_of "$s"): NOT enabled — $(clone_of "$s") is not a usable clone (see above)"; else echo "  sudo systemctl enable --now $(unit_of "$s")"; fi
+done
 echo
+if [ "$SKIP_CLONES" != " " ]; then
+    # ${VAR} braces on purpose: a bare $VAR abutting a non-ASCII character is
+    # parsed as part of the name by bash 3.2 under UTF-8 (unbound variable).
+    echo "WARNING: skipped clone dir(s):${SKIP_CLONES}— not clones of their own (linked worktree or unreadable .git)." >&2
+    echo "         Replace each in a maintenance window per docs/platform/site_profile.md, then rerun this script." >&2
+    echo
+fi
 echo "Then: scripts/fleet_status.sh from any client — every row should read systemd / clean / matching versions."

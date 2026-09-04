@@ -150,6 +150,11 @@ Poetry env inside it). This is deliberate, not accumulation:
   mutates code under the running service. The Windows PVA fleet
   inverts the pattern entirely: no per-host clones, one shared
   "Active Version" clone as the fleet pin, baked per-host venvs.
+- A linked `git worktree` is **not** a clone: it shares branch refs with
+  the clone it hangs off, so a pull in one can move the other's HEAD
+  without a checkout (the 2026-09-03 gateway incident). The bootstrap
+  refuses to provision from one and `/fleet-status` flags it — see the
+  [Site Profile](site_profile.md).
 - The clone names are fixed by the [Site Profile](site_profile.md)
   (`gateway-checkout`, `portal-checkout`, `qs-checkout`); only the root
   is the site's choice (`GEECS_CHECKOUT_ROOT` — the service account's

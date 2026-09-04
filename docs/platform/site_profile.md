@@ -93,6 +93,22 @@ configs repo (`GEECS-Plugins-Configs`) is **not** cloned per service: it
 is data, read at runtime, and the copy on the data share is the one
 LabVIEW reads too — `GEECS_CONFIGS_ROOT` points at it.
 
+**A clone means a clone, not a `git worktree`.** A linked worktree shares
+its object store *and its branch refs* with the clone it was made from.
+If the same branch ends up checked out in both — git allows that only
+via `--ignore-other-worktrees` or `--force`, which is how the 2026-09-03
+state arose (`qs-checkout` was a worktree of the gateway's clone, both
+on `master`) — a `git pull` in one moves the other's HEAD with no
+checkout, and that service runs an older tree than its HEAD claims. The
+bootstrap detects a linked worktree (or an unreadable `.git`), warns,
+and **skips every stage for the services that clone hosts** (no env, no
+unit, no `enable` line), ending with the warning again. Replace it in a
+maintenance window: stop its services, `git -C <main clone> worktree
+remove --force <dir>` (or move it aside and `git -C <main clone>
+worktree prune`), rerun `deploy/bootstrap_host.sh` — it clones and
+installs — then start the services. `/fleet-status` flags a worktree on
+every run (`WORKTREE of <clone>` in the row's notes).
+
 ## Standing up a host
 
 ```bash
