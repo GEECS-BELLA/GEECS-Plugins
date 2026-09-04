@@ -421,7 +421,9 @@ def merge_optimizer_device_requirements(
     if introduced:
         logger.warning(
             "%s The optimizer's device_requirements asked for these images, "
-            "so the objective's diagnostics would NOT be recorded.",
+            "so the objective's diagnostics would NOT be recorded (for an "
+            "auto-provisioned device with no save-set entry, the requirement's "
+            "own synchronous: false is the cause).",
             snapshot_images_ignored_message(introduced),
         )
     return provisioned
