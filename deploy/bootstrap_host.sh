@@ -9,6 +9,8 @@
 #
 #   --ref REF      git ref to check out in each clone (default: master)
 #   --only LIST    comma-separated subset of: gateway,portal,qserver,capture,mcp
+#                  (re-stages only these: the staging dir's units are cleared first,
+#                  so the printed install line covers exactly this run)
 #   --no-install   clone/fetch only; skip poetry/pip installs
 #   --dry-run      print what would happen
 #
@@ -200,12 +202,27 @@ template_of() { case "$1" in
     qserver) echo "GeecsBluesky/qserver/deploy/geecs-qserver.service";; capture) echo "GeecsBluesky/capture/deploy/geecs-capture.service";;
     mcp) echo "GEECS-MCP/deploy/geecs-mcp.service";; esac; }
 TEMPLATE_PATHS=()
+# Services whose clone predates the templated units: no unit is rendered or
+# enabled for them (pulling that clone forward is a deploy of that service,
+# decided deliberately — never forced by a bootstrap rerun for another one).
+SKIP_SERVICES=" "
+skipped_service() { case "$SKIP_SERVICES" in *" $1 "*) return 0;; *) return 1;; esac; }
 for s in $SERVICES; do
     wanted "$s" || continue
     skipped_clone "$(clone_of "$s")" && { echo "  $s: skipped — $(clone_of "$s") is not a usable clone"; continue; }
     t="$GEECS_CHECKOUT_ROOT/$(clone_of "$s")/$(template_of "$s")"
-    if [ -f "$t" ]; then TEMPLATE_PATHS+=("$t"); else echo "  $s: clone absent — template from this clone ($REPO_ROOT)"; TEMPLATE_PATHS+=("$REPO_ROOT/$(template_of "$s")"); fi
+    if [ -f "$t" ]; then
+        if ! is_unit_template "$t"; then
+            echo "  $s: WARNING — $(clone_of "$s") predates the templated units ($t: directives lack User=@SERVICE_USER@ / EnvironmentFile=@SITE_ENV@); no unit rendered or enabled — pull that clone forward (a deploy of $s), then rerun"
+            SKIP_SERVICES="$SKIP_SERVICES$s "; continue
+        fi
+        TEMPLATE_PATHS+=("$t")
+    else echo "  $s: clone absent — template from this clone ($REPO_ROOT)"; TEMPLATE_PATHS+=("$REPO_ROOT/$(template_of "$s")"); fi
 done
+# The staging dir holds only THIS run's units: a stale .service from an
+# earlier run (a service since skipped) must never ride along on the
+# install line. cutover/other files in the dir are left alone.
+[ "$DRY" -eq 0 ] && [ -d "$STAGE" ] && rm -f "$STAGE"/*.service
 if [ "${#TEMPLATE_PATHS[@]}" -eq 0 ]; then echo "  nothing to render (every wanted service was skipped)"
 elif [ "$DRY" -eq 1 ]; then echo "  [dry] render_units.sh $SITE_ENV $STAGE ${TEMPLATE_PATHS[*]}"
 else RENDER_QUIET=1 "$REPO_ROOT/deploy/render_units.sh" "$SITE_ENV" "$STAGE" "${TEMPLATE_PATHS[@]}" | sed 's/^/  /'; fi
@@ -220,9 +237,15 @@ else
 fi
 for s in $SERVICES; do
     wanted "$s" || continue
-    if skipped_clone "$(clone_of "$s")"; then echo "  # $(unit_of "$s"): NOT enabled — $(clone_of "$s") is not a usable clone (see above)"; else echo "  sudo systemctl enable --now $(unit_of "$s")"; fi
+    if skipped_clone "$(clone_of "$s")"; then echo "  # $(unit_of "$s"): NOT enabled — $(clone_of "$s") is not a usable clone (see above)"
+    elif skipped_service "$s"; then echo "  # $(unit_of "$s"): NOT enabled — $(clone_of "$s") predates the templated units; pull it forward, then rerun (see above)"
+    else echo "  sudo systemctl enable --now $(unit_of "$s")"; fi
 done
 echo
+if [ "$SKIP_SERVICES" != " " ]; then
+    echo "WARNING: no unit rendered for:${SKIP_SERVICES}— their clone predates the templated units (see the units stage)." >&2
+    echo
+fi
 if [ "$SKIP_CLONES" != " " ]; then
     # ${VAR} braces on purpose: a bare $VAR abutting a non-ASCII character is
     # parsed as part of the name by bash 3.2 under UTF-8 (unbound variable).

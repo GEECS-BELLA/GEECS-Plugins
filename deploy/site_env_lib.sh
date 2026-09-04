@@ -31,6 +31,20 @@ check_site_env_consistency() {  # the duplicated experiment key must agree with 
 SITE_RUNTIME_KEYS="GEECS_EXPERIMENT QS_EXPERIMENT TZ EPICS_CA_ADDR_LIST EPICS_CA_AUTO_ADDR_LIST EPICS_CAS_INTF_ADDR_LIST EPICS_CAS_BEACON_ADDR_LIST GEECS_QS_DOC_ADDR GEECS_CONFIGS_ROOT"
 require_runtime_keys() { require_site_keys $SITE_RUNTIME_KEYS; }
 
+unit_directives() {  # unit_directives FILE — the non-comment, non-blank lines of a unit file
+    grep -vE '^[[:space:]]*#|^[[:space:]]*$' "$1"
+}
+
+# A unit file is a site-profile TEMPLATE only if its directives carry the
+# holes: User=@SERVICE_USER@ and an EnvironmentFile=@SITE_ENV@ line. A file
+# from before the site profile (a hand-edit copy with the generic account) has
+# neither — and must never be installed as if it had been rendered (Phase 3
+# live incident 2026-09-04: portal unit from a pre-#777 clone, status=217/USER).
+# Comments are ignored: every template header mentions the placeholders in prose.
+is_unit_template() {  # is_unit_template FILE
+    unit_directives "$1" | grep -q '^User=@SERVICE_USER@$' && unit_directives "$1" | grep -q '^EnvironmentFile=@SITE_ENV@$'
+}
+
 require_site_keys() {  # require_site_keys KEY... — exit 2 naming the first missing one
     local k
     for k in "$@"; do

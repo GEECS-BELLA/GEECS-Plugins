@@ -62,6 +62,15 @@ mkdir -p "$OUT_DIR"
 for t in "${TEMPLATES[@]}"; do
     case "$t" in /*) src="$t" ;; *) src="$REPO_ROOT/$t" ;; esac
     [ -f "$src" ] || { echo "template missing: $t" >&2; exit 1; }
+    # A template must BE a template (is_unit_template, site_env_lib.sh): a
+    # unit file from before the site profile would otherwise pass through as
+    # a "rendered" unit for an account that does not exist.
+    if ! is_unit_template "$src"; then
+        echo "not a site-profile template (directives lack User=@SERVICE_USER@ / EnvironmentFile=@SITE_ENV@): $src" >&2
+        echo "  the clone it comes from predates the templated units — pull it forward (that is a deploy of that service), then re-render;" >&2
+        echo "  bootstrap_host.sh --only <other services> renders the rest meanwhile" >&2
+        exit 1
+    fi
     dst="$OUT_DIR/$(basename "$t")"
     sed -e "s|@SERVICE_USER@|$GEECS_SERVICE_USER|g" \
         -e "s|@SERVICE_HOME@|$GEECS_SERVICE_HOME|g" \
@@ -70,8 +79,8 @@ for t in "${TEMPLATES[@]}"; do
         -e "s|@SITE_ENV@|$SITE_ENV_INSTALLED|g" \
         "$src" > "$dst"
     # Comments may mention @PLACEHOLDER@ by name; only directive lines count.
-    if grep -v '^[[:space:]]*#' "$dst" | grep -q '@[A-Z_]*@'; then
-        echo "unfilled placeholder in $dst:" >&2; grep -v '^[[:space:]]*#' "$dst" | grep -n '@[A-Z_]*@' >&2; exit 1
+    if unit_directives "$dst" | grep -q '@[A-Z_]*@'; then
+        echo "unfilled placeholder in $dst:" >&2; unit_directives "$dst" | grep -n '@[A-Z_]*@' >&2; exit 1
     fi
     echo "rendered $dst"
 done
