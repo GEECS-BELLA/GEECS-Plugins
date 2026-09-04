@@ -4,6 +4,19 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.74.0] - 2026-09-04
+
+### Removed
+
+- **Legacy scan-variable dialect in `ConfigsRepoResolver`** — the
+  `scan_devices.yaml` + `composite_variables.yaml` fallback is gone with its
+  converter (GEECS-Schemas 0.18.0).  The catalog is
+  `scan_devices/scan_variables.yaml` only; a missing file is a
+  `GeecsConfigurationError` naming the expected path.  Context: the
+  converter's blanket `kind: setpoint` opted every scan axis out of the
+  readback-confirming `CaMotor` path (GEECS-Plugins#779); both deployed
+  experiments now carry explicit kinds in new-schema catalogs.
+
 ## [0.73.3] - 2026-09-04
 
 ### Fixed

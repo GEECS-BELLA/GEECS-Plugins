@@ -1,7 +1,8 @@
 """Tests for scan_request_runner: resolver, adapters, and the plan preamble.
 
-Covers the configs-repo resolver (new-schema YAML loads directly, legacy YAML
-converts — the whole existing corpus is usable immediately), the SaveSet →
+Covers the configs-repo resolver (new-schema YAML loads directly; legacy save
+sets, trigger profiles, and action libraries convert; scan-variable catalogs
+are new-schema only), the SaveSet →
 devices_config derivation rules, the TriggerProfile → ShotControlWrites
 adapter (ordered, multi-device), action slot assembly + compilation +
 wiring, multi-axis grid execution, and how a request maps onto the scan
@@ -367,10 +368,14 @@ setup_action:
       value: 'on'
 """
 
-LEGACY_SCAN_DEVICES = """\
-single_scan_devices:
-  jet_z: "U_ESP_JetXYZ:Position.Axis 3"
-  jet_x: "U_ESP_JetXYZ:Position.Axis 1"
+# The LegacyExp fixture's catalog is new-schema too: the legacy
+# scan_devices.yaml dialect has no reader any more (#779).  Entries omit
+# ``kind`` so they exercise the schema default.
+LEGACY_EXP_SCAN_VARIABLES = """\
+schema_version: 1
+variables:
+  jet_z: {target: "U_ESP_JetXYZ:Position.Axis 3"}
+  jet_x: {target: "U_ESP_JetXYZ:Position.Axis 1"}
 """
 
 NEW_SCAN_VARIABLES = """\
@@ -501,7 +506,9 @@ def configs_root(tmp_path):
         STRICT_TRIGGER_PROFILE
     )
     (legacy / "scan_devices").mkdir()
-    (legacy / "scan_devices" / "scan_devices.yaml").write_text(LEGACY_SCAN_DEVICES)
+    (legacy / "scan_devices" / "scan_variables.yaml").write_text(
+        LEGACY_EXP_SCAN_VARIABLES
+    )
     (legacy / "action_library").mkdir()
     (legacy / "action_library" / "actions.yaml").write_text(LEGACY_ACTIONS)
     (legacy / "save_devices" / "RitualSet.yaml").write_text(RITUAL_SAVE_SET)
@@ -586,7 +593,7 @@ def test_new_schema_trigger_profile_loads_directly(modern_resolver) -> None:
     ]
 
 
-def test_legacy_scan_variable_resolves_as_setpoint(legacy_resolver) -> None:
+def test_scan_variable_without_kind_resolves_as_setpoint(legacy_resolver) -> None:
     spec = legacy_resolver.resolve_scan_variable("jet_z")
     assert isinstance(spec, ScanVariable)
     assert spec.target == "U_ESP_JetXYZ:Position.Axis 3"
@@ -610,6 +617,18 @@ def test_public_scan_variable_catalog_accessor(modern_resolver) -> None:
 def test_unknown_scan_variable_lists_known_names(legacy_resolver) -> None:
     with pytest.raises(GeecsConfigurationError, match="jet_z"):
         legacy_resolver.resolve_scan_variable("nope")
+
+
+def test_missing_catalog_names_the_expected_file(tmp_path) -> None:
+    """No ``scan_variables.yaml`` is a configuration error naming the path.
+
+    There is no legacy fallback any more (#779): a ``scan_devices/`` folder
+    without the new-schema catalog must fail loudly, not load empty.
+    """
+    (tmp_path / "BareExp" / "scan_devices").mkdir(parents=True)
+    resolver = ConfigsRepoResolver("BareExp", experiments_root=tmp_path)
+    with pytest.raises(GeecsConfigurationError, match="scan_variables.yaml"):
+        resolver.resolve_scan_variable("jet_z")
 
 
 def test_action_plan_resolution(legacy_resolver) -> None:
@@ -867,7 +886,7 @@ def test_step_request_setpoint_variable_uses_settable(legacy_resolver) -> None:
     run_request(session, request, legacy_resolver)
     kwargs = session.scan_kwargs
     assert kwargs["positions"] == [0.0, 0.5, 1.0]
-    assert kwargs["motor"].kind == "settable"  # legacy entries default setpoint
+    assert kwargs["motor"].kind == "settable"  # no kind → schema default setpoint
     assert (
         kwargs["scan_info_overrides"]["scan_parameter"]
         == "U_ESP_JetXYZ:Position.Axis 3"

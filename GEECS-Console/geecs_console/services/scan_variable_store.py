@@ -6,12 +6,10 @@ ConfigsRepoResolver` reads::
 
     scanner_configs/experiments/<Experiment>/scan_devices/scan_variables.yaml
 
-Loading mirrors the resolver's dialect handling: a file whose top level
-carries ``schema_version`` is the new schema; when it is absent the legacy
-pair (``scan_devices.yaml`` + ``composite_variables.yaml``) is converted
-through :func:`geecs_schemas.convert.convert_scan_variables` — so an
-experiment that has not migrated yet still opens in the editor.  Saving
-always writes the new-schema file (``model_dump(mode="json",
+The catalog is new-schema only — there is no legacy dialect (the
+``scan_devices.yaml`` + ``composite_variables.yaml`` pair and its converter
+were retired 2026-09, GEECS-Plugins#779); an experiment without the file
+opens as an empty catalog.  Saving writes the new-schema file (``model_dump(mode="json",
 exclude_none=True)``, which round-trips every set field through
 ``ScanVariables.model_validate`` and omits unset optionals exactly the way
 the production catalogs are written).
@@ -44,8 +42,6 @@ logger = logging.getLogger(__name__)
 
 SCAN_VARIABLES_FOLDER = "scan_devices"
 CATALOG_FILE = "scan_variables.yaml"
-LEGACY_SIMPLE_FILE = "scan_devices.yaml"
-LEGACY_COMPOSITE_FILE = "composite_variables.yaml"
 
 
 class ScanVariableStoreError(RuntimeError):
@@ -86,7 +82,7 @@ class ScanVariableStore(ExperimentConfigStore):
     # ------------------------------------------------------------------
 
     def load(self) -> ScanVariables:
-        """Load the experiment's catalog (new schema, else converted legacy).
+        """Load the experiment's catalog (an absent file is an empty catalog).
 
         Returns
         -------
@@ -98,17 +94,16 @@ class ScanVariableStore(ExperimentConfigStore):
         Raises
         ------
         ScanVariableStoreError
-            Unparsable YAML, a document the schema rejects, or a legacy pair
-            the converter rejects — always with a message fit for the status
-            bar.  A *missing* file is not an error.
+            Unparsable YAML or a document the schema rejects — always with a
+            message fit for the status bar.  A *missing* file is not an error.
         """
         folder = self._folder()
         if folder is None:
             return empty_catalog()
-        new_schema = folder / CATALOG_FILE
-        if new_schema.exists():
-            return self._load_new_schema(new_schema)
-        return self._load_legacy(folder)
+        path = folder / CATALOG_FILE
+        if not path.exists():
+            return empty_catalog()
+        return self._load_new_schema(path)
 
     def _load_new_schema(self, path: Path) -> ScanVariables:
         """Load and validate the new-schema catalog at *path*.
@@ -130,38 +125,6 @@ class ScanVariableStore(ExperimentConfigStore):
                 f"Scan-variable catalog ({path}) is not a valid ScanVariables "
                 f"document: {exc}"
             ) from exc
-
-    def _load_legacy(self, folder: Path) -> ScanVariables:
-        """Convert the legacy pair in *folder*; empty catalog when absent.
-
-        Raises
-        ------
-        ScanVariableStoreError
-            When the legacy converter rejects either file.
-        """
-        simple = folder / LEGACY_SIMPLE_FILE
-        composites = folder / LEGACY_COMPOSITE_FILE
-        if not simple.exists() and not composites.exists():
-            return empty_catalog()
-        # Lazy import: the converter is pydantic-only (geecs_schemas), but
-        # keeping it out of module import keeps the cheap path cheap.
-        from geecs_schemas.convert import convert_scan_variables
-
-        try:
-            catalog = convert_scan_variables(
-                simple if simple.exists() else None,
-                composites if composites.exists() else None,
-            )
-        except Exception as exc:
-            raise ScanVariableStoreError(
-                f"Legacy scan-variable files in {folder} could not be converted: {exc}"
-            ) from exc
-        logger.info(
-            "loaded legacy scan-variable pair from %s (%d variables)",
-            folder,
-            len(catalog.variables),
-        )
-        return catalog
 
     def save(self, catalog: ScanVariables) -> Path:
         """Write *catalog* as the experiment's new-schema catalog file.

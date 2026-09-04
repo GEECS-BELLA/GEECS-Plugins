@@ -444,8 +444,8 @@ backend reached verified live parity (Scans 007–015, 2026-07-03/04); a stale
 - **`CaPseudoMovable`** — the pseudo (composite) scan variable
   (`devices/ca/pseudo.py`, 0.47.0): `set(u)` evaluates each component's
   compiled `forward` formula (`forward_expr.compile_forward` — AST
-  whitelist, `composite_var`/`x` as the scanned value; legacy
-  `composite_variables.yaml` corpus pinned) and puts every target's `:SP`
+  whitelist, `composite_var`/`x` as the scanned value; the historical
+  composite-variable formula corpus pinned in `tests/test_forward_expr.py`) and puts every target's `:SP`
   concurrently through `GatewaySetpointPut` — completion when the slowest
   target's GEECS exe response lands; setpoint semantics per component (v1,
   legacy `ScanDevice` parity — per-component `kind: motor` is the intended

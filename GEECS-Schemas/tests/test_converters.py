@@ -18,7 +18,6 @@ from geecs_schemas.convert import (
     convert_optimizer_config,
     convert_save_element,
     convert_scan_preset,
-    convert_scan_variables,
     convert_shot_control,
 )
 
@@ -127,75 +126,6 @@ class TestSaveElements:
     def test_unknown_device_key_fails_loudly(self):
         with pytest.raises(SchemaConversionError, match="mystery_flag"):
             convert_save_element({"Devices": {"X": {"mystery_flag": True}}}, name="bad")
-
-
-class TestScanVariables:
-    def test_thomson_pair_converts(self):
-        catalog = convert_scan_variables(
-            FIXTURES / "scan_devices/scan_devices.yaml",
-            FIXTURES / "scan_devices/composite_variables.yaml",
-        )
-        assert catalog.variables["Jet z"].target == "HTT-ESP01:Position.Axis 3"
-        pseudo = catalog.variables["ebeam_profile_zScan"]
-        assert pseudo.kind == "pseudo"
-        assert pseudo.targets[1].forward == "100 - composite_var"
-        assert_matches_golden(
-            catalog.model_dump(mode="json"), "thomson_scan_variables.json"
-        )
-
-    def test_undulator_pair_converts(self):
-        # Undulator is the primary experiment: 49 simple variables + 12
-        # composites at the time of copying.
-        catalog = convert_scan_variables(
-            FIXTURES / "scan_devices/scan_devices_undulator.yaml",
-            FIXTURES / "scan_devices/composite_variables_undulator.yaml",
-        )
-        assert catalog.variables["JetZ (mm)"].target == ("U_ESP_JetXYZ:Position.Axis 3")
-        pseudo = catalog.variables["R56_at_100MeV"]
-        assert pseudo.kind == "pseudo"
-        assert pseudo.mode.value == "absolute"
-        assert pseudo.targets[0].forward == (
-            "sqrt(100 ** 2 * composite_var / 560968.636)"
-        )
-        assert_matches_golden(
-            catalog.model_dump(mode="json"), "undulator_scan_variables.json"
-        )
-
-    def test_name_collision_fails_loudly(self):
-        with pytest.raises(SchemaConversionError, match="also defined"):
-            convert_scan_variables(
-                {"single_scan_devices": {"x": "A:B"}},
-                {
-                    "composite_variables": {
-                        "x": {
-                            "mode": "absolute",
-                            "components": [
-                                {
-                                    "device": "A",
-                                    "variable": "B",
-                                    "relation": "composite_var",
-                                }
-                            ],
-                        }
-                    }
-                },
-            )
-
-    def test_relation_without_composite_var_fails(self):
-        with pytest.raises(SchemaConversionError, match="composite_var"):
-            convert_scan_variables(
-                None,
-                {
-                    "composite_variables": {
-                        "x": {
-                            "mode": "absolute",
-                            "components": [
-                                {"device": "A", "variable": "B", "relation": "42"}
-                            ],
-                        }
-                    }
-                },
-            )
 
 
 def as_tuples(writes):

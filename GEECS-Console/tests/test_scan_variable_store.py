@@ -162,48 +162,6 @@ class TestBadDocuments:
             store.load()
 
 
-class TestLegacyPair:
-    def test_legacy_pair_is_converted(self, store, tmp_path):
-        folder = tmp_path / "HTU" / SCAN_VARIABLES_FOLDER
-        folder.mkdir(parents=True)
-        (folder / "scan_devices.yaml").write_text(
-            "single_scan_devices:\n  JetZ (mm): U_ESP_JetXYZ:Position.Axis 3\n"
-        )
-        (folder / "composite_variables.yaml").write_text(
-            "composite_variables:\n"
-            "  offset_x:\n"
-            "    mode: relative\n"
-            "    components:\n"
-            "    - device: U_S3H\n"
-            "      variable: Current\n"
-            "      relation: composite_var * 1\n"
-        )
-        catalog = store.load()
-        assert catalog.variables["JetZ (mm)"].target == "U_ESP_JetXYZ:Position.Axis 3"
-        composite = catalog.variables["offset_x"]
-        assert composite.kind == "pseudo"
-        assert composite.mode == CompositeMode.RELATIVE
-        assert composite.targets[0].target == "U_S3H:Current"
-
-    def test_new_schema_file_wins_over_legacy(self, store, tmp_path):
-        folder = tmp_path / "HTU" / SCAN_VARIABLES_FOLDER
-        folder.mkdir(parents=True)
-        (folder / "scan_devices.yaml").write_text(
-            "single_scan_devices:\n  legacy_only: Dev:Var\n"
-        )
-        store.save(full_catalog())
-        assert "legacy_only" not in store.load().variables
-
-    def test_broken_legacy_pair_raises(self, store, tmp_path):
-        folder = tmp_path / "HTU" / SCAN_VARIABLES_FOLDER
-        folder.mkdir(parents=True)
-        (folder / "scan_devices.yaml").write_text(
-            "single_scan_devices:\n  broken: no_separator_here\n"
-        )
-        with pytest.raises(ScanVariableStoreError, match="could not be converted"):
-            store.load()
-
-
 class TestExperimentSwitch:
     def test_set_experiment_switches_folders(self, tmp_path):
         store = ScanVariableStore("HTU", experiments_root=tmp_path)

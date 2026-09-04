@@ -14,7 +14,8 @@ friendly-name → ``Device:Variable`` strings) + ``composite_variables.yaml``
 an ``absolute``/``relative`` mode).
 
 - ``kind: setpoint`` — plain blocking set through the device's setpoint;
-  matches legacy set-and-wait semantics and is the converter default.
+  the legacy set-and-wait semantics.  Use it only for variables whose
+  readback never equals the setpoint (delays, DAC outputs).
 - ``kind: motor`` — blocking move *plus* readback-tolerance polling; an
   explicit opt-in for real positioners (renders to ``CaMotor``).
 - ``kind: pseudo`` — a pseudo-positioner: one scanned number fanned out to

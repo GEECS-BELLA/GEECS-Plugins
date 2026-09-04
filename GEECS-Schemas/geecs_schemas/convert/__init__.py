@@ -1,4 +1,7 @@
-"""Converters from every legacy scanner-config YAML dialect to the new schemas.
+"""Converters from the remaining legacy scanner-config YAML dialects.
+
+Scan variables have no converter: ``scan_variables.yaml`` is new-schema only
+(GEECS-Plugins#779).
 
 One module per legacy dialect; every converter accepts a parsed dict or a
 YAML path and fails loudly (:class:`SchemaConversionError`) naming exactly
@@ -24,7 +27,6 @@ from geecs_schemas.convert.save_elements import (
     SaveElementConversion,
     convert_save_element,
 )
-from geecs_schemas.convert.scan_variables import convert_scan_variables
 from geecs_schemas.convert.trigger_profiles import (
     convert_shot_control,
 )
@@ -35,7 +37,6 @@ __all__ = [
     "convert_assigned_actions",
     "convert_save_element",
     "SaveElementConversion",
-    "convert_scan_variables",
     "convert_shot_control",
     "convert_scan_preset",
     "compose_save_sets",

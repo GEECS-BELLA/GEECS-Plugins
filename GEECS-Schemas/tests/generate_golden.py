@@ -13,7 +13,6 @@ from geecs_schemas.convert import (
     convert_optimizer_config,
     convert_save_element,
     convert_scan_preset,
-    convert_scan_variables,
     convert_shot_control,
 )
 
@@ -52,18 +51,6 @@ def main() -> None:
             "actions": {k: v.model_dump(mode="json") for k, v in visa.actions.items()},
         },
     )
-
-    catalog = convert_scan_variables(
-        FIXTURES / "scan_devices/scan_devices.yaml",
-        FIXTURES / "scan_devices/composite_variables.yaml",
-    )
-    write("thomson_scan_variables.json", catalog.model_dump(mode="json"))
-
-    undulator = convert_scan_variables(
-        FIXTURES / "scan_devices/scan_devices_undulator.yaml",
-        FIXTURES / "scan_devices/composite_variables_undulator.yaml",
-    )
-    write("undulator_scan_variables.json", undulator.model_dump(mode="json"))
 
     profile = convert_shot_control(FIXTURES / "shot_control/HTU-Normal.yaml")
     write("htu_trigger_profile.json", profile.model_dump(mode="json"))

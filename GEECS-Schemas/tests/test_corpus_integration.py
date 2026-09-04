@@ -16,7 +16,7 @@ Corpus layout (as found 2026-07-07)::
 
     scanner_configs/experiments/<Experiment>/
       save_devices/                  # save elements
-      scan_devices/                  # scan_devices.yaml + composite_variables.yaml
+      scan_devices/                  # scan_variables.yaml (new schema only; no converter)
       shot_control_configurations/   # trigger configs (incl. laser-on/off pairs)
       action_library/                # actions.yaml + assigned_actions.yaml
       scan_presets/                  # legacy presets
@@ -31,7 +31,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from geecs_schemas import SaveSet
+from geecs_schemas import SaveSet, ScanVariables
 from geecs_schemas.convert import (
     SchemaConversionError,
     convert_action_library,
@@ -39,7 +39,6 @@ from geecs_schemas.convert import (
     convert_optimizer_config,
     convert_save_element,
     convert_scan_preset,
-    convert_scan_variables,
     convert_shot_control,
 )
 
@@ -162,20 +161,30 @@ class TestFullCorpus:
             "migration complete (retire this legacy pin)"
         )
 
-    def test_every_scan_variable_catalog_converts(self):
-        converted = 0
+    def test_every_scan_variable_catalog_validates(self):
+        """Every deployed catalog is a valid new-schema ``ScanVariables``.
+
+        There is no scan-variable converter any more (0.18.0), so this
+        replaces the old conversion pin with a validation pin.  It also pins
+        the #779 policy: every entry carries an explicit ``kind`` (pseudo
+        entries necessarily do; plain ones must too) — the deployed corpus
+        never relies on the schema default, which is what silently opted
+        every axis out of readback confirmation.
+        """
+        validated = 0
         for experiment in experiments():
-            scan_devices = experiment / "scan_devices" / "scan_devices.yaml"
-            composites = experiment / "scan_devices" / "composite_variables.yaml"
-            if not scan_devices.exists() and not composites.exists():
+            path = experiment / "scan_devices" / "scan_variables.yaml"
+            if not path.exists():
                 continue
-            catalog = convert_scan_variables(
-                scan_devices if scan_devices.exists() else None,
-                composites if composites.exists() else None,
-            )
+            document = yaml.safe_load(path.read_text())
+            catalog = ScanVariables.model_validate(document)
             assert catalog.variables, experiment.name
-            converted += 1
-        assert converted >= 2  # Undulator + Thomson
+            for name, raw in document["variables"].items():
+                assert "kind" in raw, (
+                    f"{experiment.name}: {name!r} relies on the default kind"
+                )
+            validated += 1
+        assert validated >= 2  # Undulator + Thomson
 
     def test_every_shot_control_converts(self):
         converted, no_device = 0, 0

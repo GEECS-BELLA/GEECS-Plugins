@@ -5,6 +5,22 @@ All notable changes to GEECS-Schemas are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.0] - 2026-09-04
+
+### Removed
+
+- **`convert_scan_variables` and the legacy scan-variable dialect**
+  (`scan_devices.yaml` + `composite_variables.yaml`) — the converter, its
+  fixtures, golden snapshots, and corpus pin.  Scan-variable catalogs are
+  authored as new-schema `scan_variables.yaml` only (both deployed
+  experiments were regenerated with explicit completion kinds, 2026-09-03;
+  GEECS-Plugins#779).  The converter's blanket `kind: setpoint` was what
+  opted every scan axis out of readback confirmation, and legacy YAMLs are
+  disposable by policy — the code no longer bends to them.  The other
+  converters (save elements, trigger profiles, action libraries, presets,
+  optimizer configs) are unchanged until their configs get the same
+  treatment.
+
 ## [0.17.1] - 2026-09-03
 
 ### Changed
