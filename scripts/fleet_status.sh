@@ -75,10 +75,17 @@ done
 # one-shot probe on an interval. No daemon, no state — the same read-only
 # run, redrawn. Ctrl-C ends it.
 if [ "$WATCH" != "0" ]; then
+    # Rebuild the child's argument list without --watch (and without the
+    # numeric interval, only when one actually followed it — a flag after
+    # --watch belongs to the child).
     args=()
+    skip_next=0
     for a in "${ORIG_ARGS[@]+"${ORIG_ARGS[@]}"}"; do
+        if [ "$skip_next" = "1" ]; then
+            skip_next=0
+            case "$a" in *[!0-9]*|'') ;; *) continue ;; esac   # digits only = the consumed interval
+        fi
         case "$a" in --watch) skip_next=1; continue ;; esac
-        if [ "${skip_next:-0}" = "1" ]; then skip_next=0; continue; fi
         args+=("$a")
     done
     [ "$FULL" -eq 0 ] && args+=("--summary")
