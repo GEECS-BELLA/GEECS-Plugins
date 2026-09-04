@@ -32,7 +32,7 @@ set -euo pipefail
 # Run from the repo root, wherever the script was invoked from. This pins
 # `poetry` below to the ROOT env (a package cwd would resolve that package's
 # env instead), and makes the root-relative paths that `git diff --cached
-# --name-only` emits line up with the `git add` in the re-staging loop —
+# --name-status` emits line up with the `git add` in the re-staging loop —
 # which silently re-staged nothing when invoked from a subdirectory.
 # Consequence: any pathspec args you pass through to `git commit` are
 # interpreted relative to the repo root, not your shell's cwd.
@@ -101,6 +101,8 @@ pc run || true
 # matched by .gitignore): the path exists, so an existence test would pass it
 # to `git add`, which refuses ignored paths ("Use -f if you really want to add
 # them") and, under set -e, aborted the script before `git commit` (#761).
+# Worse, when the untracked file was NOT ignored, `git add` silently re-added
+# it: the commit went through with the user's staged untracking reverted.
 # The existence test stays as a second guard: a staged add/modify whose file
 # was since removed from the worktree would otherwise be turned into a
 # deletion by `git add` — something the user never staged.
