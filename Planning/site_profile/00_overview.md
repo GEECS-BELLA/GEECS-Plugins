@@ -1,8 +1,11 @@
 # Site profile + fleet uniformity
 
 Execution plan, 2026-09-03 (Sam + Claude session that built `/fleet-status`).
-Status: **planned, nothing built.** Written for whoever picks it up; assumes
-no context from the originating conversation.
+Status: **Phases 1+2 built as PR #777** (same day; merge order #775 → #776 →
+#777). Written for whoever picks it up; assumes no context from the
+originating conversation. Where this document and #777 differed after the
+build, the document was corrected to the built behaviour (2026-09-03,
+after a Codex review of this PR).
 
 ## Why now
 
@@ -47,26 +50,52 @@ placeholder**:
 | Host | **`site.env`** — one file per service host, consumed by systemd via `EnvironmentFile=` and by the bootstrap script | unit files, the bootstrap/render scripts, unit-time values (CAS interface + beacon, TZ, experiment for CLI args) | **no — this plan creates it** |
 
 On a service host `site.env` is the root: the bootstrap script renders
-the host's `config.ini` *from* it, so the two never disagree. Client
-machines keep their own `config.ini` exactly as today.
+the host's `config.ini` *from* it on a fresh host, and on an existing
+host shows the diff between the two so disagreement is visible and
+reconciled by hand (the file also carries the hand-entered Tiled key, so
+the bootstrap never overwrites it). Client machines keep their own
+`config.ini` exactly as today.
 
 ### `site.env` vocabulary (v1)
 
 ```ini
 # /etc/geecs/site.env — the host's facility profile. One per service host.
-GEECS_SITE=htu                          # short tag for logs/docs; not a namespace
-GEECS_EXPERIMENT=Undulator              # GEECS experiment = PV namespace prefix
-GEECS_SERVICE_USER=geecs                # account every unit runs as
-GEECS_CHECKOUT_ROOT=/home/geecs         # per-service clones live under here
+# systemd EnvironmentFile syntax: comments ONLY on their own lines (a
+# trailing "# comment" becomes part of the value); quote values with spaces.
+
+# identity
+GEECS_SITE=htu
+GEECS_EXPERIMENT=Undulator
+QS_EXPERIMENT=Undulator
+
+# service account + layout (install-time: fill the unit placeholders)
+GEECS_SERVICE_USER=geecs
+GEECS_SERVICE_HOME=/home/geecs
+GEECS_CHECKOUT_ROOT=/home/geecs
 GEECS_POETRY=/home/geecs/.local/bin/poetry
-GEECS_CA_ADDR_LIST=192.168.6.14         # the CA gateway, as clients see it
-GEECS_CAS_INTF_ADDR_LIST=192.168.6.14   # the gateway's own serving interface
-GEECS_CAS_BEACON_ADDR_LIST=192.168.6.255
+GEECS_REPO_URL=https://github.com/GEECS-BELLA/GEECS-Plugins.git
+
+# EPICS — the names EPICS itself reads, delivered straight into the process
+EPICS_CA_ADDR_LIST=192.168.6.14
+EPICS_CA_AUTO_ADDR_LIST=NO
+EPICS_CAS_INTF_ADDR_LIST=192.168.6.14
+EPICS_CAS_BEACON_ADDR_LIST=192.168.6.255
+
+# time — the name libc reads
+TZ=America/Los_Angeles
+
+# fleet endpoints + data share (install-time: rendered into config.ini)
 GEECS_TILED_URI=http://192.168.6.14:8000
 GEECS_QSERVER_HOST=192.168.6.14
-GEECS_DATA_ROOT=/mnt/data               # the data share as mounted on this host
-GEECS_TZ=America/Los_Angeles
+GEECS_QS_DOC_ADDR=localhost:5568
+GEECS_DATA_ROOT=/mnt/hdna2/data
+GEECS_CONFIGS_ROOT="/mnt/hdna2/software/control-all-loasis/HTU/Active Version/GEECS-Plugins-Configs"
 ```
+
+Runtime keys carry the **downstream names** (`TZ`, `EPICS_*`,
+`QS_EXPERIMENT`) precisely because nothing re-maps them: `EnvironmentFile=`
+puts them in the process environment as-is. There is no `GEECS_TZ` and no
+`Environment=TZ=${GEECS_TZ}` line anywhere — see the gotcha below.
 
 Ports are **not** site values: the fleet map fixes them (5064, 8000,
 8200, 8100, 60615/60625/5568, 5075/5076) and every client assumes them.
@@ -74,16 +103,25 @@ Ports are **not** site values: the fleet map fixes them (5064, 8000,
 ### The systemd gotcha that shapes the units
 
 systemd expands `${VAR}` from `EnvironmentFile=` **only in command
-arguments**. It does not expand in `WorkingDirectory=`, in the
-executable path (first token of `ExecStart=`), or in `User=`. So a unit
-template has two kinds of holes:
+arguments** (`ExecStart=` and friends, after the executable). It does
+not expand in `WorkingDirectory=`, in the executable path (first token of
+`ExecStart=`), in `User=`, **or in `Environment=` lines** —
+`Environment=TZ=${GEECS_TZ}` would set the literal string. So a unit
+template has two kinds of holes and one non-hole:
 
 - **Install-time placeholders** (`@CHECKOUT_ROOT@`, `@SERVICE_USER@`,
-  `@POETRY@`) filled by the render script when the unit is written to
-  `/etc/systemd/system/` — paths and identity.
-- **Runtime values** (`${GEECS_EXPERIMENT}`, `${GEECS_CAS_INTF_ADDR_LIST}`,
-  `${GEECS_TZ}`) read from `site.env` at start — arguments and
-  `Environment=` lines.
+  `@SERVICE_HOME@`, `@POETRY@`, `@SITE_ENV@`) filled by the render script
+  when the unit is written to `/etc/systemd/system/` — paths and identity.
+- **Runtime arguments** (`--experiment ${GEECS_EXPERIMENT}`,
+  `--doc-addr ${GEECS_QS_DOC_ADDR}`, `--processing-configs
+  "${GEECS_CONFIGS_ROOT}/scan_analysis_configs"` — a quoted `"${VAR}"` is
+  substituted as one argument, spaces survive) read from `site.env` at
+  start.
+- **Environment the services read directly** (`TZ`, `EPICS_CA_ADDR_LIST`,
+  `EPICS_CAS_INTF_ADDR_LIST`, `QS_EXPERIMENT`, …) needs no hole at all:
+  `site.env` defines those variables under their real names and
+  `EnvironmentFile=` delivers them. No template carries an
+  `Environment=` line for a site value.
 
 The render step is one `sed` invocation; we already do this by hand
 today (the checked-in templates carry `geecs` and `/home/geecs`).
@@ -145,7 +183,10 @@ The pending PR. It is the measuring stick for every phase after it:
   creates `${GEECS_CHECKOUT_ROOT}/<service>-checkout` clones (or
   fetches them), `poetry install` with each service's extras (from a
   table in the script, mirroring the runbooks), renders `config.ini`
-  from `site.env` (only if absent — never clobbers a hand-edited one),
+  from `site.env` when absent or empty — and when one exists **prints
+  the diff** between it and the rendered form, so a stale client config
+  on an existing host is seen and reconciled, never silently kept (it is
+  never overwritten: the file also holds the hand-entered Tiled key),
   bakes the MCP venv, renders units to staging, then prints the sudo
   steps in order. It is the fleet map's seven-step bootstrap list made
   executable; the list in the fleet map becomes a pointer to it.
@@ -153,12 +194,18 @@ The pending PR. It is the measuring stick for every phase after it:
   from the template with your `site.env`; see the site profile page".
   Package patch bumps + CHANGELOGs (docs-only changes still bump, per
   #536 precedent).
-- Live check (non-invasive): run the bootstrap on the current host in a
-  scratch root (`GEECS_CHECKOUT_ROOT=~/bootstrap-test`) and render units;
-  `diff` the rendered `geecs-ca-gateway` and `geecs-data-portal` units
-  against the installed ones — the only differences should be the
-  `EnvironmentFile` line and the values it replaced. Delete the scratch
-  root afterwards.
+- Live check (non-invasive, **done 2026-09-03**): render the units on the
+  current host from a `site.env` carrying the host's *real* account,
+  home, checkout root and poetry path (so path lines compare like for
+  like), into a temp directory, and `diff` the rendered
+  `geecs-ca-gateway` / `geecs-data-portal` units against the installed
+  ones. Expected differences: the `EnvironmentFile=` line and the values
+  it replaced, older `Description` text, and the gateway's checkout path
+  (`gateway-checkout` vs the current `~/GEECS-Plugins`, which Phase 3
+  migrates). Anything else is a finding — this diff is what surfaced the
+  portal's hand-typed `--processing-configs` path and turned it into the
+  `GEECS_CONFIGS_ROOT` site value. Run `bootstrap_host.sh --dry-run` for
+  the rest; delete the temp directory afterwards.
 
 ### Phase 3 — promote the current box (the invasive one)
 
