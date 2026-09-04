@@ -166,10 +166,10 @@ class TestFullCorpus:
 
         There is no scan-variable converter any more (0.18.0), so this
         replaces the old conversion pin with a validation pin.  It also pins
-        the #779 policy: every non-pseudo entry carries an explicit
-        completion ``kind`` — the deployed corpus never relies on the schema
-        default, which is what silently opted every axis out of readback
-        confirmation.
+        the #779 policy: every entry carries an explicit ``kind`` (pseudo
+        entries necessarily do; plain ones must too) — the deployed corpus
+        never relies on the schema default, which is what silently opted
+        every axis out of readback confirmation.
         """
         validated = 0
         for experiment in experiments():
