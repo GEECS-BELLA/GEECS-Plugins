@@ -68,8 +68,10 @@ class _GuiHopWorker(QObject):
     does not, and it segfaults under offscreen pytest (first seen with a
     window-owned signal and the idle scan-number probe; again in 0.28.0
     with a controller-owned slot, the queue panel's fetch landing while a
-    test window was torn down; last with ``HealthPoller`` → window, the
-    busiest emitter, in isolated ``test_main_window.py`` runs — #767).
+    test window was torn down; then with ``HealthPoller`` → window, the
+    busiest emitter, in isolated ``test_main_window.py`` runs — #767;
+    the stream workers and the readback/completions callbacks outside
+    this module still emit from their threads, see #787).
     """
 
     _landed = Signal(object)

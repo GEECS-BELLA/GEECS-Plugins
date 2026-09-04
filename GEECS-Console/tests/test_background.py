@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import gc
 import threading
+import time
 
 from PySide6.QtCore import QObject, Qt, Slot
 
@@ -119,6 +120,19 @@ class GatedProbe:
         return self.report
 
 
+def _wait_for_poll_thread_exit(timeout=3.0):
+    """Block (no event pumping) until no ``console-health-poll`` thread is alive.
+
+    The daemon thread exits right after hopping its report, so once it is
+    gone the report is posted but not yet delivered — the window in which
+    the pre-0.28.1 poller had already cleared ``_busy``.
+    """
+    deadline = time.monotonic() + timeout
+    while any(t.name == "console-health-poll" for t in threading.enumerate()):
+        assert time.monotonic() < deadline, "poll thread did not exit"
+        time.sleep(0.005)
+
+
 class TestHealthPollerGuiHop:
     def test_report_ready_is_emitted_on_the_gui_thread(self, qtbot):
         poller = HealthPoller(GatedProbe("r"))
@@ -140,6 +154,13 @@ class TestHealthPollerGuiHop:
         _drain(qtbot, lambda: probe.calls == 1)
         assert background._INFLIGHT[poller] == 1
         probe.gate.set()
+        # The poll has returned and the report is posted but NOT delivered
+        # (no events pumped): the poller must still count as in flight —
+        # clearing ``_busy`` on the daemon thread would poll again here.
+        _wait_for_poll_thread_exit()
+        poller.poll_async()
+        assert probe.calls == 1
+        assert background._INFLIGHT[poller] == 1
         _drain(qtbot, lambda: consumer.results == ["r"])
         _drain(qtbot, lambda: poller not in background._INFLIGHT)
         assert probe.calls == 1

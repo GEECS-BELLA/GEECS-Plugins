@@ -12,10 +12,13 @@ semantic.
   the daemon thread (#767): the report takes the same GUI-thread hop
   `BackgroundResult` got in 0.28.0 — the worker's own queued signal, the
   worker held alive until the hop lands, `report_ready` emitted on the
-  GUI thread. It was the last emitter of that shape (the 1 Hz manager
+  GUI thread. It was the last emitter of that shape in
+  `services/background.py` and the busiest in the app (the 1 Hz manager
   status poll and the 5 s health poll, aimed at the window and the scan
-  monitor), and a poll landing while a test window was torn down
-  segfaulted isolated `tests/test_main_window.py` runs. The in-flight
+  monitor); a poll landing while a test window was torn down
+  segfaulted isolated `tests/test_main_window.py` runs. The stream
+  workers, the movable panel's readback callback and the editors'
+  completions thread still emit from their threads (#787). The in-flight
   skip stays and now lasts until the report has landed, so the `_busy`
   flag is only ever written on the GUI thread. The hop itself lives once,
   in the private `_GuiHopWorker` base both workers share. Delivery takes

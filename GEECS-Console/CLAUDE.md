@@ -378,14 +378,17 @@ are prefixed by region (`r3_radio_1d`, `r5_start_button`, …).
   `QueuedConnection`; delivery now takes two event-loop turns, so a
   test that assumes a startup result has landed waits for it
   (`qtbot.waitUntil`).  **Since 0.28.1 `HealthPoller` rides the same
-  hop** (#767 — it was the last daemon-thread emitter aimed at a
-  consumer, and isolated `tests/test_main_window.py` runs segfaulted on
-  it): the hop lives once in the private `_GuiHopWorker` base both
-  workers subclass (`_hop` on the daemon thread, `_forward` → the
-  subclass's `_deliver` on the GUI thread), and the poller's in-flight
-  skip lasts until the report has landed, so `_busy` is only written on
-  the GUI thread.  Any new background worker subclasses `_GuiHopWorker`
-  — never emit from a thread toward a consumer again.  `closeEvent`
+  hop** (#767 — the last emitter of the old shape *in this module*; the
+  stream workers in `app/scan_monitor.py`, the aioca readback callback
+  in `app/movable_panel.py` and the editors' completions thread in
+  `editors/base.py` still emit from their threads toward a consumer
+  QObject — inventoried in #787, not yet moved): the hop lives once in
+  the private `_GuiHopWorker` base both workers subclass (`_hop` on the
+  daemon thread, `_forward` → the subclass's `_deliver` on the GUI
+  thread), and the poller's in-flight skip lasts until the report has
+  landed, so `_busy` is only written on the GUI thread.  Any new
+  background worker subclasses `_GuiHopWorker`; when one of the
+  residual emitters bites, move it onto the same base.  `closeEvent`
   disconnects each window-owned worker's `result_ready`; the
   actions-menu, now-panel and queue-panel controllers' workers are
   detached inside their `dispose()` instead.
