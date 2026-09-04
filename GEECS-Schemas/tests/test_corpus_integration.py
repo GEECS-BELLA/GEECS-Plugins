@@ -16,7 +16,7 @@ Corpus layout (as found 2026-07-07)::
 
     scanner_configs/experiments/<Experiment>/
       save_devices/                  # save elements
-      scan_devices/                  # scan_devices.yaml + composite_variables.yaml
+      scan_devices/                  # scan_variables.yaml (new schema only; no converter)
       shot_control_configurations/   # trigger configs (incl. laser-on/off pairs)
       action_library/                # actions.yaml + assigned_actions.yaml
       scan_presets/                  # legacy presets
@@ -39,7 +39,6 @@ from geecs_schemas.convert import (
     convert_optimizer_config,
     convert_save_element,
     convert_scan_preset,
-    convert_scan_variables,
     convert_shot_control,
 )
 
@@ -161,21 +160,6 @@ class TestFullCorpus:
             "no legacy save_devices files converted — glob broken, or corpus "
             "migration complete (retire this legacy pin)"
         )
-
-    def test_every_scan_variable_catalog_converts(self):
-        converted = 0
-        for experiment in experiments():
-            scan_devices = experiment / "scan_devices" / "scan_devices.yaml"
-            composites = experiment / "scan_devices" / "composite_variables.yaml"
-            if not scan_devices.exists() and not composites.exists():
-                continue
-            catalog = convert_scan_variables(
-                scan_devices if scan_devices.exists() else None,
-                composites if composites.exists() else None,
-            )
-            assert catalog.variables, experiment.name
-            converted += 1
-        assert converted >= 2  # Undulator + Thomson
 
     def test_every_shot_control_converts(self):
         converted, no_device = 0, 0

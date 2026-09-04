@@ -33,7 +33,6 @@ from geecs_schemas import (
 from geecs_schemas.convert import (
     convert_action_library,
     convert_save_element,
-    convert_scan_variables,
     convert_shot_control,
 )
 
@@ -85,9 +84,10 @@ class ConfigsRepoResolver:
 
     - ``save_devices/<name>.yaml`` — save sets (legacy save elements)
     - ``shot_control_configurations/<name>.yaml`` — trigger profiles
-    - ``scan_devices/scan_variables.yaml`` (new schema) or the legacy
-      ``scan_devices/scan_devices.yaml`` + ``scan_devices/composite_variables.yaml``
-      pair — the scan-variable catalog
+    - ``scan_devices/scan_variables.yaml`` — the scan-variable catalog
+      (new schema only; the legacy ``scan_devices.yaml`` +
+      ``composite_variables.yaml`` pair and its converter were retired
+      2026-09, GEECS-Plugins#779)
     - ``action_library/actions.yaml`` — the action-plan library
     - ``presets/<name>.yaml`` and ``optimizer_configs/<name>.yaml`` —
       listed (for clients) but not resolved here: presets are
@@ -298,24 +298,17 @@ class ConfigsRepoResolver:
         """Load (and cache) the experiment's scan-variable catalog."""
         if self._scan_variables_cache is not None:
             return self._scan_variables_cache
-        folder = self._root / self.SCAN_VARIABLES_FOLDER
-        new_schema = folder / "scan_variables.yaml"
-        if new_schema.exists():
-            document = self._load_yaml(new_schema, "scan variables", "catalog")
-            catalog = ScanVariables.model_validate(document)
-        else:
-            scan_devices = folder / "scan_devices.yaml"
-            composites = folder / "composite_variables.yaml"
-            if not scan_devices.exists() and not composites.exists():
-                raise GeecsConfigurationError(
-                    f"no scan-variable catalog for experiment "
-                    f"{self._experiment!r}: expected {new_schema} or the "
-                    f"legacy pair in {folder}"
-                )
-            catalog = convert_scan_variables(
-                scan_devices if scan_devices.exists() else None,
-                composites if composites.exists() else None,
+        path = self._root / self.SCAN_VARIABLES_FOLDER / "scan_variables.yaml"
+        if not path.exists():
+            # New schema only: the legacy scan_devices.yaml +
+            # composite_variables.yaml pair is no longer read (its converter
+            # was retired 2026-09, GEECS-Plugins#779).
+            raise GeecsConfigurationError(
+                f"no scan-variable catalog for experiment "
+                f"{self._experiment!r}: expected {path}"
             )
+        document = self._load_yaml(path, "scan variables", "catalog")
+        catalog = ScanVariables.model_validate(document)
         self._scan_variables_cache = catalog
         return catalog
 

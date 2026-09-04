@@ -4,6 +4,16 @@ All notable changes to GEECS-Console are documented here.  Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is
 semantic.
 
+## [0.29.0] - 2026-09-04
+
+### Removed
+
+- **Legacy scan-variable pair support in `ScanVariableStore`** — the editor
+  no longer converts `scan_devices.yaml` + `composite_variables.yaml`
+  (GEECS-Schemas 0.18.0 removed the converter; GEECS-Plugins#779).  The
+  catalog is `scan_variables.yaml` only; an experiment without one opens as
+  an empty catalog, exactly as before for a missing file.
+
 ## [0.28.0] - 2026-09-02
 
 ### Added

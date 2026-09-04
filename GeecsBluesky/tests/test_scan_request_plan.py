@@ -46,7 +46,7 @@ from tests.test_scan_request_runner import (  # noqa: E402
     AUX_SAVE_SET,
     LEGACY_ACTIONS,
     LEGACY_SAVE_ELEMENT,
-    LEGACY_SCAN_DEVICES,
+    LEGACY_EXP_SCAN_VARIABLES,
     LEGACY_SHOT_CONTROL,
     RITUAL_SAVE_SET,
 )
@@ -68,7 +68,7 @@ def configs_root(tmp_path):
         LEGACY_SHOT_CONTROL
     )
     (exp / "scan_devices").mkdir()
-    (exp / "scan_devices" / "scan_devices.yaml").write_text(LEGACY_SCAN_DEVICES)
+    (exp / "scan_devices" / "scan_variables.yaml").write_text(LEGACY_EXP_SCAN_VARIABLES)
     (exp / "action_library").mkdir()
     (exp / "action_library" / "actions.yaml").write_text(LEGACY_ACTIONS)
     return tmp_path

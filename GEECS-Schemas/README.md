@@ -77,7 +77,7 @@ independently:
 |---|---|---|
 | `scan_request` | `ScanRequest` | scan presets, `ScanConfig`, GUI submission state |
 | `save_set` | `SaveSet` | save elements (`save_devices/*.yaml`) — now tier 1 of the two-tier recording model: the *required* devices with guarantees; everything else is background telemetry (soft, read-only, never waited on) |
-| `scan_variables` | `ScanVariables` | `scan_devices.yaml` + `composite_variables.yaml` |
+| `scan_variables` | `ScanVariables` | `scan_devices.yaml` + `composite_variables.yaml` — retired 2026-09: catalogs are authored new-schema only, there is no converter |
 | `trigger_profile` | `TriggerProfile` | shot-control configs (one profile per operating condition); states are machine states holding *ordered, multi-device* write lists |
 | `action_plan` | `ActionPlan` | one entry of the action library |
 | `action_plan_library` | `ActionPlanLibrary` | `action_library/actions.yaml` |
@@ -120,7 +120,6 @@ what could not be mapped — nothing is dropped silently.
 ```python
 from geecs_schemas.convert import (
     convert_save_element,
-    convert_scan_variables,
     convert_shot_control,
     convert_action_library,
     convert_scan_preset,
@@ -130,11 +129,6 @@ from geecs_schemas.convert import (
 # Save element → SaveSet (+ extracted setup/closeout ActionPlans + notes)
 result = convert_save_element("save_devices/UC_Aline1.yaml")
 result.save_set, result.actions, result.notes
-
-# scan_devices.yaml + composite_variables.yaml → one ScanVariables catalog
-catalog = convert_scan_variables(
-    "scan_devices/scan_devices.yaml", "scan_devices/composite_variables.yaml"
-)
 
 # Shot control → TriggerProfile (one profile per operating condition)
 profile = convert_shot_control("shot_control_configurations/HTU-Normal.yaml")

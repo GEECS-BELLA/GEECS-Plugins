@@ -366,10 +366,14 @@ setup_action:
       value: 'on'
 """
 
-LEGACY_SCAN_DEVICES = """\
-single_scan_devices:
-  jet_z: "U_ESP_JetXYZ:Position.Axis 3"
-  jet_x: "U_ESP_JetXYZ:Position.Axis 1"
+# The LegacyExp fixture's catalog is new-schema too: the legacy
+# scan_devices.yaml dialect has no reader any more (#779).  Entries omit
+# ``kind`` so they exercise the schema default.
+LEGACY_EXP_SCAN_VARIABLES = """\
+schema_version: 1
+variables:
+  jet_z: {target: "U_ESP_JetXYZ:Position.Axis 3"}
+  jet_x: {target: "U_ESP_JetXYZ:Position.Axis 1"}
 """
 
 NEW_SCAN_VARIABLES = """\
@@ -500,7 +504,9 @@ def configs_root(tmp_path):
         STRICT_TRIGGER_PROFILE
     )
     (legacy / "scan_devices").mkdir()
-    (legacy / "scan_devices" / "scan_devices.yaml").write_text(LEGACY_SCAN_DEVICES)
+    (legacy / "scan_devices" / "scan_variables.yaml").write_text(
+        LEGACY_EXP_SCAN_VARIABLES
+    )
     (legacy / "action_library").mkdir()
     (legacy / "action_library" / "actions.yaml").write_text(LEGACY_ACTIONS)
     (legacy / "save_devices" / "RitualSet.yaml").write_text(RITUAL_SAVE_SET)
@@ -585,7 +591,7 @@ def test_new_schema_trigger_profile_loads_directly(modern_resolver) -> None:
     ]
 
 
-def test_legacy_scan_variable_resolves_as_setpoint(legacy_resolver) -> None:
+def test_scan_variable_without_kind_resolves_as_setpoint(legacy_resolver) -> None:
     spec = legacy_resolver.resolve_scan_variable("jet_z")
     assert isinstance(spec, ScanVariable)
     assert spec.target == "U_ESP_JetXYZ:Position.Axis 3"
@@ -815,7 +821,7 @@ def test_step_request_setpoint_variable_uses_settable(legacy_resolver) -> None:
     run_request(session, request, legacy_resolver)
     kwargs = session.scan_kwargs
     assert kwargs["positions"] == [0.0, 0.5, 1.0]
-    assert kwargs["motor"].kind == "settable"  # legacy entries default setpoint
+    assert kwargs["motor"].kind == "settable"  # no kind → schema default setpoint
     assert (
         kwargs["scan_info_overrides"]["scan_parameter"]
         == "U_ESP_JetXYZ:Position.Axis 3"

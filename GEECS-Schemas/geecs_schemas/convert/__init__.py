@@ -24,7 +24,6 @@ from geecs_schemas.convert.save_elements import (
     SaveElementConversion,
     convert_save_element,
 )
-from geecs_schemas.convert.scan_variables import convert_scan_variables
 from geecs_schemas.convert.trigger_profiles import (
     convert_shot_control,
 )
@@ -35,7 +34,6 @@ __all__ = [
     "convert_assigned_actions",
     "convert_save_element",
     "SaveElementConversion",
-    "convert_scan_variables",
     "convert_shot_control",
     "convert_scan_preset",
     "compose_save_sets",
