@@ -23,6 +23,55 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `purpose: geecs_bluesky_analysis` / `analysis_of` — a legacy-record guard
   for catalogs that already hold such runs, nothing writes them any more.
 
+### Added
+
+- **A running `geecs-qserver` means ready** (#793 part 1). bluesky-queueserver
+  never opens the worker environment on its own, so a restarted manager knows
+  no plans and refuses every submission as "Plan ... is not in the list of
+  allowed plans" while `qserver status` looks healthy (live 2026-09-04, after
+  the site-profile re-render onto a fresh clone). New entry point
+  `geecs-qserver-ensure-ready` (`geecs_bluesky/qserver_ready.py`): wait for
+  the manager, open the environment if closed, wait for idle, then **assert
+  `plans_allowed` lists every GEECS plan** — exit 1 with a precise message
+  otherwise. Talks over `bluesky_queueserver`'s own `zmq_single_request`
+  (the `qserver` extra; no `qs-client` needed on the worker), transport
+  injectable for tests. New `qserver/deploy/geecs-qserver-ready.service`
+  oneshot template (`Requires=`/`PartOf=geecs-qserver` — re-runs on every
+  manager restart; `systemctl restart geecs-qserver-ready` is the recovery
+  gesture); `deploy/render_units.sh` and `deploy/bootstrap_host.sh` render
+  and enable both queueserver units together (a clone lacking the new
+  template is skipped whole, never half-rendered). Runbooks updated;
+  `qserver/README.md` Troubleshooting gains the symptom.
+- **`worker_ready` pre-submit check** (#793 part 2) in
+  `qs_client.submit_preflight`, beside `gateway_liveness`: the manager
+  answers, its worker environment exists, and `geecs_scan_request_plan` is
+  in `plans_allowed`. Closed environment / missing plan → a **refusal**
+  naming the recovery gesture; unreachable manager or stub client →
+  `skipped` (fail-open — the submit reports that itself). Reads the
+  caller's client when passed (`run_submit_preflight(..., client=)`),
+  otherwise builds and closes one from the shared `[qserver]` config, so the
+  console and the MCP get the check with no signature change (their
+  `run_submit_preflight` patches take two positionals — unchanged).
+  `QueueClient` grows `allowed_plan_names()` and `close()`.
+- **`geecs_bluesky.plan_names`** — the import-light home of the plan and
+  function-verb names: `startup.py`'s `__all__` is built from it,
+  `qs_client` submits and asks by it, `qserver_ready` asserts it; pinned
+  against the real plan functions in `tests/test_plan_names.py`.
+
+### Changed
+
+- **Manual moves refuse an unserved target before any device is built**
+  (#772 part 2). `GeecsSession.move_variable` runs
+  `scan_request_runner.check_movable_served` — every `(device, variable)` the
+  target writes, each pseudo component, vetted against the gateway's served
+  set (the same provider the scan path's unserved-variables preflight uses).
+  An unserved target raises `GeecsUnservedVariablesError` ending
+  "— move not started" (relayed by the worker, rendered verbatim by the
+  console's movable panel) instead of the 20 s ophyd `NotConnectedError`
+  naming a PV that sent the 2026-09-02 `Position.Axis1` incident down a
+  gateway-connectivity rabbit hole. Served set unknown (DB unreachable) →
+  warn and proceed, never refuse for a DB blip.
+
 ## [0.74.0] - 2026-09-04
 
 ### Removed

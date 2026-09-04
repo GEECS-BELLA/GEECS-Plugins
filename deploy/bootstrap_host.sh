@@ -64,7 +64,10 @@ SERVICES="gateway portal qserver capture mcp"
 clone_of()   { case "$1" in gateway) echo "gateway-checkout";; portal) echo "portal-checkout";; qserver|capture|mcp) echo "qs-checkout";; esac; }
 pkgdir_of()  { case "$1" in gateway) echo "GeecsCAGateway";; portal) echo "GEECS-DataPortal";; qserver|capture) echo "GeecsBluesky";; mcp) echo "GEECS-MCP";; esac; }
 extras_of()  { case "$1" in gateway) echo "";; portal) echo "analysis";; qserver) echo "ca tiled qserver";; capture) echo "ca tiled qserver capture";; mcp) echo "analysis-run";; esac; }
-unit_of()    { case "$1" in gateway) echo "geecs-ca-gateway";; portal) echo "geecs-data-portal";; qserver) echo "geecs-qserver";; capture) echo "geecs-capture";; mcp) echo "geecs-mcp";; esac; }
+# The queueserver is two units: the manager and the geecs-qserver-ready oneshot
+# that opens its worker environment and asserts the plan list after every
+# (re)start (#793) — enabled together, rendered from the same clone.
+units_of()   { case "$1" in gateway) echo "geecs-ca-gateway";; portal) echo "geecs-data-portal";; qserver) echo "geecs-qserver geecs-qserver-ready";; capture) echo "geecs-capture";; mcp) echo "geecs-mcp";; esac; }
 wanted()     { [ -z "$ONLY" ] || case ",$ONLY," in *",$1,"*) return 0;; *) return 1;; esac; }
 
 say "site '${GEECS_SITE:-?}' experiment '$GEECS_EXPERIMENT' — ref $REF — root $GEECS_CHECKOUT_ROOT"
@@ -197,9 +200,10 @@ say "units (each rendered from ITS service's clone, to a staging dir)"
 # gateway's unit comes from the gateway's clone — never from whichever
 # clone this script happens to run in (that clone is only the fallback).
 STAGE="$GEECS_CHECKOUT_ROOT/deploy-staging"
-template_of() { case "$1" in
+templates_of() { case "$1" in
     gateway) echo "GeecsCAGateway/deploy/geecs-ca-gateway.service";; portal) echo "GEECS-DataPortal/deploy/geecs-data-portal.service";;
-    qserver) echo "GeecsBluesky/qserver/deploy/geecs-qserver.service";; capture) echo "GeecsBluesky/capture/deploy/geecs-capture.service";;
+    qserver) echo "GeecsBluesky/qserver/deploy/geecs-qserver.service GeecsBluesky/qserver/deploy/geecs-qserver-ready.service";;
+    capture) echo "GeecsBluesky/capture/deploy/geecs-capture.service";;
     mcp) echo "GEECS-MCP/deploy/geecs-mcp.service";; esac; }
 TEMPLATE_PATHS=()
 # Services whose clone predates the templated units: no unit is rendered or
@@ -210,14 +214,24 @@ skipped_service() { case "$SKIP_SERVICES" in *" $1 "*) return 0;; *) return 1;; 
 for s in $SERVICES; do
     wanted "$s" || continue
     skipped_clone "$(clone_of "$s")" && { echo "  $s: skipped — $(clone_of "$s") is not a usable clone"; continue; }
-    t="$GEECS_CHECKOUT_ROOT/$(clone_of "$s")/$(template_of "$s")"
-    if [ -f "$t" ]; then
-        if ! is_unit_template "$t"; then
-            echo "  $s: WARNING — $(clone_of "$s") predates the templated units ($t: directives lack User=@SERVICE_USER@ / EnvironmentFile=@SITE_ENV@); no unit rendered or enabled — pull that clone forward (a deploy of $s), then rerun"
-            SKIP_SERVICES="$SKIP_SERVICES$s "; continue
-        fi
-        TEMPLATE_PATHS+=("$t")
-    else echo "  $s: clone absent — template from this clone ($REPO_ROOT)"; TEMPLATE_PATHS+=("$REPO_ROOT/$(template_of "$s")"); fi
+    # A service's units come from ITS clone, all of them or none: a clone that
+    # predates one of the templates (e.g. the readiness oneshot, #793) is
+    # skipped whole rather than half-rendered.
+    svc_paths=()
+    for rel in $(templates_of "$s"); do
+        t="$GEECS_CHECKOUT_ROOT/$(clone_of "$s")/$rel"
+        if [ -f "$t" ]; then
+            if ! is_unit_template "$t"; then
+                echo "  $s: WARNING — $(clone_of "$s") predates the templated units ($t: directives lack User=@SERVICE_USER@ / EnvironmentFile=@SITE_ENV@); no unit rendered or enabled — pull that clone forward (a deploy of $s), then rerun"
+                SKIP_SERVICES="$SKIP_SERVICES$s "; break
+            fi
+            svc_paths+=("$t")
+        elif [ -d "$GEECS_CHECKOUT_ROOT/$(clone_of "$s")" ]; then
+            echo "  $s: WARNING — $(clone_of "$s") lacks $rel (predates that unit); no unit rendered or enabled for $s — pull that clone forward (a deploy of $s), then rerun"
+            SKIP_SERVICES="$SKIP_SERVICES$s "; break
+        else echo "  $s: clone absent — $(basename "$rel") from this clone ($REPO_ROOT)"; svc_paths+=("$REPO_ROOT/$rel"); fi
+    done
+    if ! skipped_service "$s" && [ "${#svc_paths[@]}" -gt 0 ]; then TEMPLATE_PATHS+=("${svc_paths[@]}"); fi
 done
 # The staging dir holds only THIS run's units: a stale .service from an
 # earlier run (a service since skipped) must never ride along on the
@@ -237,9 +251,9 @@ else
 fi
 for s in $SERVICES; do
     wanted "$s" || continue
-    if skipped_clone "$(clone_of "$s")"; then echo "  # $(unit_of "$s"): NOT enabled — $(clone_of "$s") is not a usable clone (see above)"
-    elif skipped_service "$s"; then echo "  # $(unit_of "$s"): NOT enabled — $(clone_of "$s") predates the templated units; pull it forward, then rerun (see above)"
-    else echo "  sudo systemctl enable --now $(unit_of "$s")"; fi
+    if skipped_clone "$(clone_of "$s")"; then echo "  # $(units_of "$s"): NOT enabled — $(clone_of "$s") is not a usable clone (see above)"
+    elif skipped_service "$s"; then echo "  # $(units_of "$s"): NOT enabled — $(clone_of "$s") predates the templated units; pull it forward, then rerun (see above)"
+    else echo "  sudo systemctl enable --now $(units_of "$s")"; fi
 done
 echo
 if [ "$SKIP_SERVICES" != " " ]; then

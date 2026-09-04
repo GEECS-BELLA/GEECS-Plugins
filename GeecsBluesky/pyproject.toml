@@ -90,6 +90,9 @@ capture = ["p4p", "h5py", "pyzmq"]
 [tool.poetry.scripts]
 geecs-capture-daemon = "geecs_bluesky.capture.__main__:main"
 geecs-capture-diff = "geecs_bluesky.capture.diff:main"
+# The service-start readiness assertion (#793): the geecs-qserver-ready
+# oneshot unit runs it after the manager; needs only the qserver extra.
+geecs-qserver-ensure-ready = "geecs_bluesky.qserver_ready:main"
 
 [tool.poetry.group.dev.dependencies]
 pytest = ">=7.0"

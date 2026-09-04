@@ -47,8 +47,13 @@ In another terminal:
 
 ```bash
 qserver status
-qserver environment open
+geecs-qserver-ensure-ready     # opens the environment if closed, waits for idle,
+                               # asserts plans_allowed lists every GEECS plan; exit 0 = ready
 ```
+
+(`qserver environment open` is the raw gesture underneath; the entry point
+adds the plan-list assertion. Under systemd the `geecs-qserver-ready`
+oneshot runs it after every manager start — `deploy/DEPLOYMENT.md` § 2.)
 
 Once the environment is open, `geecs_scan_request_plan` (the document API)
 and the three named plans — `geecs_noscan_plan`, `geecs_scan_plan`,
@@ -154,6 +159,18 @@ correctly — only live GUI progress is lost.
 
 ## Troubleshooting
 
+- **Every submission fails with `Plan 'geecs_scan_request_plan' is not in
+  the list of allowed plans`** (any plan name, and `qserver status`
+  otherwise looks healthy) — the worker environment is **closed**, so the
+  manager's plan list is empty and every name fails validation
+  identically; the message points at the plan, the cause is the
+  environment (`worker_environment_exists: False`, `re_state: None`,
+  `plans_allowed: {}`). A fresh clone or an unattended restart leaves the
+  manager this way — bluesky-queueserver never opens the environment on
+  its own. Fix: `systemctl restart geecs-qserver-ready` (or
+  `geecs-qserver-ensure-ready` / `qserver environment open` by hand); the
+  console's `worker_ready` preflight names this state instead of relaying
+  the manager string (GEECS-Plugins#793).
 - **`queue add` returns `success: False` with no reason at the CLI** — the
   manager was launched without a permissions file, or the file lacks the
   group the client submits as (the `qserver` CLI uses `primary` by

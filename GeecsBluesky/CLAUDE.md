@@ -72,6 +72,10 @@ geecs_bluesky/
                             #   renders Ask as a modal (its submit_preflight
                             #   is the live consumer — OperatorQuestion +
                             #   ANSWER_* live here since W5)
+  qserver_ready.py          # geecs-qserver-ensure-ready: the service-start
+                            #   readiness assertion (#793) — open the worker
+                            #   env if closed, wait idle, assert the manager
+                            #   lists every GEECS plan; injectable transport
   plan_names.py             # the queueserver plan / function-verb names,
                             #   import-light (log_markers rule): startup.py
                             #   exports them, qs_client submits/asks by them,
@@ -253,7 +257,16 @@ assembling a `ScanRequest` and yielding from the funnel; Phase 2b-ii) and
 the `function_execute` manual verbs `geecs_move_variable` /
 `geecs_describe_action`, subscribes Tiled + the s-file stop-doc callback,
 registers the optimization loader), `user_group_permissions.yaml`, and
-`deploy/` (systemd unit + runbook).  Read `qserver/README.md` first —
+`deploy/` (two systemd unit templates + runbook: the manager and the
+`geecs-qserver-ready` oneshot).  **A running service means ready (#793)**:
+bluesky-queueserver never opens the worker environment on its own, so a
+restarted manager knows no plans and refuses every submission as "not in
+the list of allowed plans"; the readiness unit runs
+`geecs_bluesky/qserver_ready.py` (`geecs-qserver-ensure-ready`) after
+every manager start — wait, open if closed, wait for idle, **assert
+`plans_allowed` ⊇ `plan_names.GEECS_PLAN_NAMES`** — over
+`bluesky_queueserver`'s own `zmq_single_request` (no qs-client extra on
+the worker).  Read `qserver/README.md` first —
 its Troubleshooting section is the empirical contract (permissions file,
 `--keep-re`, manager-restart-after-install, failed-items-requeue-at-front,
 CLI parses Python literals not JSON).
