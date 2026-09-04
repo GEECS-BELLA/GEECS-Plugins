@@ -4,6 +4,33 @@ All notable changes to GEECS-Console are documented here.  Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is
 semantic.
 
+## [0.28.1] - 2026-09-03
+
+### Fixed
+
+- `HealthPoller` no longer emits `report_ready` toward its consumer from
+  the daemon thread (#767): the report takes the same GUI-thread hop
+  `BackgroundResult` got in 0.28.0 — the worker's own queued signal, the
+  worker held alive until the hop lands, `report_ready` emitted on the
+  GUI thread. It was the last emitter of that shape (the 1 Hz manager
+  status poll and the 5 s health poll, aimed at the window and the scan
+  monitor), and a poll landing while a test window was torn down
+  segfaulted isolated `tests/test_main_window.py` runs. The in-flight
+  skip stays and now lasts until the report has landed, so the `_busy`
+  flag is only ever written on the GUI thread. The hop itself lives once,
+  in the private `_GuiHopWorker` base both workers share. Delivery takes
+  two event-loop turns; consumer connections are unchanged.
+- The console test suite frees a window dropped by a test body at a safe
+  point: `tests/conftest.py` collects cyclic garbage after each test
+  body, before pytest-qt processes events. A `MainWindow` is Python-owned
+  and cyclic (window ↔ controllers through injected bound-method
+  callbacks), so a window dropped at `return` used to wait for the cyclic
+  GC, which could run inside pytest-qt's `processEvents` while Qt was
+  delivering an event to that window — shiboken deleted the C++ window
+  under the running dispatch. This was the larger part of the isolated
+  `tests/test_main_window.py` segfaults (#767): 5/5 crashes before, 6/8
+  with the poller hop alone, 0/8 with both.
+
 ## [0.28.0] - 2026-09-02
 
 ### Added

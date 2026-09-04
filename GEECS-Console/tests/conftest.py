@@ -1,10 +1,36 @@
 """Shared fixtures: force the offscreen Qt platform before any QApplication."""
 
+import gc
 import os
 
 import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_call(item):
+    """Free a dropped window at a safe point, not under Qt's event dispatch.
+
+    A ``MainWindow`` built inside a test body is Python-owned and cyclic
+    (window ↔ controllers through the injected bound-method callbacks), so
+    dropping the last reference at ``return`` leaves it to the cyclic GC —
+    which runs at an arbitrary allocation, including inside pytest-qt's
+    post-call ``processEvents`` while Qt is delivering an event to that
+    very window (a polish walk, a queued poll result).  shiboken then
+    deletes the C++ window under the running dispatch: segfault, at a
+    random test, in isolated ``test_main_window.py`` runs (#767 follow-up
+    — the 1 Hz status poll's fetch/render allocations made the GC land
+    there).  Collecting here — after the body, before pytest-qt's own
+    hook processes events (its wrapper is ``tryfirst``, so its post-yield
+    runs after this one) — deletes such windows with no Qt frame on the
+    stack.  Tests that drop a window *mid*-body and then pump events must
+    still collect on their own.
+    """
+    try:
+        return (yield)
+    finally:
+        gc.collect()
 
 
 @pytest.fixture(autouse=True)
