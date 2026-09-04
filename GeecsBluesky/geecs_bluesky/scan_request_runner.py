@@ -1551,10 +1551,12 @@ def _preflight_unserved(
 
 
 def movable_target_pairs(target: "MovableTarget") -> list[tuple[str, str]]:
-    """Every ``(device, variable)`` a movable target writes to.
+    """Every ``(device, variable)`` a movable target connects to.
 
-    One pair for a plain target (its confirm readback is read, not written,
-    so it is not listed); one per component for a pseudo variable.
+    The written setpoint(s) — one for a plain target, one per component for
+    a pseudo variable — plus a plain target's confirm readback when it has
+    one: ``CaConfirmSettable`` monitors it, so an unserved confirm variable
+    fails to connect exactly like an unserved setpoint.
 
     Parameters
     ----------
@@ -1568,7 +1570,12 @@ def movable_target_pairs(target: "MovableTarget") -> list[tuple[str, str]]:
     """
     if isinstance(target, PseudoMovableTarget):
         return [(device, variable) for device, variable, _forward in target.components]
-    return [(target.device, target.variable)]
+    pairs = [(target.device, target.variable)]
+    if target.confirm:
+        confirm_device, _, confirm_variable = target.confirm.partition(":")
+        if confirm_variable:
+            pairs.append((confirm_device, confirm_variable))
+    return pairs
 
 
 def check_movable_served(session: Any, target: "MovableTarget") -> None:

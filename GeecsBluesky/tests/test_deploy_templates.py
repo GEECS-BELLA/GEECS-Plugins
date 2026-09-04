@@ -55,6 +55,8 @@ def test_readiness_unit_is_a_oneshot_bound_to_the_manager() -> None:
         d for d in _directives(MANAGER) if d.startswith("WorkingDirectory=")
     )
     assert manager_wd in directives
+    # ...and the manager pulls it in on every start, not only on restart.
+    assert "Wants=geecs-qserver-ready.service" in _directives(MANAGER)
 
 
 def test_entry_point_is_declared() -> None:

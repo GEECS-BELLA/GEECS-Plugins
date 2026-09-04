@@ -11,8 +11,8 @@ submission with "Plan ... is not in the list of allowed plans" (#793, live
 This entry point is the readiness assertion the ``geecs-qserver-ready``
 oneshot unit runs after the manager (``qserver/deploy/``): wait for the
 manager to answer, open the environment if it is closed, wait for the
-worker to reach ``idle``, then **assert the manager lists every plan this
-code implements** (:data:`~geecs_bluesky.plan_names.GEECS_PLAN_NAMES`).
+worker environment to finish initializing, then **assert the manager lists
+every plan this code implements** (:data:`~geecs_bluesky.plan_names.GEECS_PLAN_NAMES`).
 The plan-list assertion is the point: an open that succeeded onto a partial
 import, or a permissions file that excludes a plan, is still broken, and
 only that check catches it.  Exit codes: 0 ready; 1 not ready (the message
@@ -98,14 +98,22 @@ def _wait_for_manager(request: Request, deadline: float) -> dict:
         time.sleep(POLL_S)
 
 
-def _wait_for_idle(request: Request, deadline: float, *, closed_grace: int = 3) -> dict:
-    """Poll until the worker environment exists and the manager is idle.
+#: Worker-environment states in which the environment is still coming or going.
+_TRANSIENT_ENV_STATES = ("initializing", "closing")
 
-    A ``closed`` + ``idle`` snapshot *after* we asked for an open means the
-    open failed and the manager settled back (startup profile import
-    error) — but the first polls after the request may still read the
-    pre-open state, so up to *closed_grace* consecutive such snapshots are
-    tolerated before that is concluded.
+
+def _wait_for_environment(
+    request: Request, deadline: float, *, closed_grace: int = 3
+) -> dict:
+    """Poll until the worker environment exists and has finished initializing.
+
+    "Exists and not transient" — not "idle": a manager that is executing a
+    plan when the readiness unit is (re)run by hand is ready too, and its
+    plan list is served regardless.  A ``closed`` + ``idle`` snapshot
+    *after* we asked for an open means the open failed and the manager
+    settled back (startup profile import error) — but the first polls after
+    the request may still read the pre-open state, so up to *closed_grace*
+    consecutive such snapshots are tolerated before that is concluded.
     """
     closed_polls = 0
     while True:
@@ -113,7 +121,11 @@ def _wait_for_idle(request: Request, deadline: float, *, closed_grace: int = 3) 
         exists = bool(status.get("worker_environment_exists"))
         manager_state = status.get("manager_state")
         env_state = status.get("worker_environment_state")
-        if exists and manager_state == "idle" and env_state == "idle":
+        if (
+            exists
+            and manager_state != "creating_environment"
+            and env_state not in _TRANSIENT_ENV_STATES
+        ):
             return status
         if env_state == "closed" and manager_state == "idle":
             closed_polls += 1
@@ -126,7 +138,7 @@ def _wait_for_idle(request: Request, deadline: float, *, closed_grace: int = 3) 
             closed_polls = 0
         if time.monotonic() >= deadline:
             raise NotReady(
-                "worker environment not idle before the deadline "
+                "worker environment not up before the deadline "
                 f"(worker_environment_exists={exists}, manager_state={manager_state!r}, "
                 f"worker_environment_state={env_state!r})"
             )
@@ -186,8 +198,11 @@ def ensure_ready(
         if status.get("manager_state") == "idle":
             log("worker environment closed — opening it")
             _call(request, "environment_open", {})
-    status = _wait_for_idle(request, deadline)
-    log("worker environment idle (re_state=%r)" % status.get("re_state"))
+    status = _wait_for_environment(request, deadline)
+    log(
+        "worker environment up (worker_environment_state=%r, re_state=%r)"
+        % (status.get("worker_environment_state"), status.get("re_state"))
+    )
 
     reply = _call(request, "plans_allowed", {"user_group": user_group})
     allowed = sorted((reply.get("plans_allowed") or {}).keys())

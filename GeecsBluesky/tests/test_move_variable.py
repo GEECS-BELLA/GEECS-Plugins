@@ -396,6 +396,23 @@ def test_movable_target_pairs_enumerates_writes() -> None:
     plain = PlainMovableTarget(
         "U_EMQ", "Current_Limit.Ch1", "setpoint", "U_EMQ:Current.Ch1"
     )
-    assert movable_target_pairs(plain) == [("U_EMQ", "Current_Limit.Ch1")]
+    assert movable_target_pairs(plain) == [
+        ("U_EMQ", "Current_Limit.Ch1"),
+        ("U_EMQ", "Current.Ch1"),  # the confirm readback connects too
+    ]
+    bare = PlainMovableTarget("U_S1H", "Current", "setpoint", None)
+    assert movable_target_pairs(bare) == [("U_S1H", "Current")]
     pseudo = resolve_movable_target(BUMP_X, "bump_x")
     assert movable_target_pairs(pseudo) == [("U_S3H", "Current"), ("U_S4H", "Current")]
+
+
+def test_unserved_confirm_readback_refused(session, monkeypatch) -> None:
+    """The confirm variable is monitored, so it must be served as well."""
+    _serve(monkeypatch, {"U_EMQTripletBipolar": {"Current_Limit.Ch1"}})
+    _forbid_device_build(session, monkeypatch)
+    emq = ScanVariable(
+        target="U_EMQTripletBipolar:Current_Limit.Ch1",
+        confirm="U_EMQTripletBipolar:Current.Ch1",
+    )
+    with pytest.raises(GeecsUnservedVariablesError, match="Current.Ch1 is not served"):
+        session.move_variable("emq1", 1.5, _CatalogResolver({"emq1": emq}))

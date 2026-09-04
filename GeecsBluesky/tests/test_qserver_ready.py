@@ -127,7 +127,23 @@ def test_open_that_collapses_back_to_closed_is_not_ready() -> None:
         ensure_ready(manager, timeout_s=30, log=lambda s: None)
 
 
-def test_idle_never_reached_before_deadline_is_not_ready(monkeypatch) -> None:
+def test_manager_executing_a_plan_is_ready_too() -> None:
+    """A by-hand re-run mid-scan must not report NOT READY: env up, plans served."""
+    manager = _Manager(
+        [
+            _status(
+                exists=True,
+                manager="executing_queue",
+                env="executing_plan",
+                re_state="running",
+            )
+        ]
+    )
+    ensure_ready(manager, timeout_s=30, log=lambda s: None)
+    assert "environment_open" not in [m for m, _ in manager.calls]
+
+
+def test_environment_never_up_before_deadline_is_not_ready(monkeypatch) -> None:
     ticks = iter(range(0, 100000, 5))
     monkeypatch.setattr(qserver_ready.time, "monotonic", lambda: float(next(ticks)))
     manager = _Manager(
@@ -136,7 +152,7 @@ def test_idle_never_reached_before_deadline_is_not_ready(monkeypatch) -> None:
             _status(exists=True, manager="creating_environment", env="initializing"),
         ]
     )
-    with pytest.raises(NotReady, match="not idle before the deadline"):
+    with pytest.raises(NotReady, match="not up before the deadline"):
         ensure_ready(manager, timeout_s=20, log=lambda s: None)
 
 

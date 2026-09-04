@@ -17,6 +17,11 @@ Description=GEECS Bluesky Queueserver RE Manager
 # redis-server.service is ordering only, not a requirement.
 After=network-online.target redis-server.service
 Wants=network-online.target
+# A running manager means READY (#793): pull in the readiness oneshot on
+# every start (it orders itself After= this unit and is PartOf= it, so a
+# restart here re-runs it; a plain stop/start here re-runs it through this
+# Wants=). Enabling both units is still the documented install.
+Wants=geecs-qserver-ready.service
 
 [Service]
 Type=exec
