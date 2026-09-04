@@ -1118,6 +1118,60 @@ _TOPVIEW_REQUIREMENTS = {
 }
 
 
+def _optimizer_snapshot_warnings(caplog) -> list[str]:
+    return [
+        r.getMessage()
+        for r in caplog.records
+        if r.levelno == logging.WARNING
+        and "IGNORED for snapshot-role" in r.getMessage()
+        and "device_requirements" in r.getMessage()
+    ]
+
+
+def test_merge_requirements_warns_when_images_land_on_a_snapshot_device(caplog) -> None:
+    """#754 at the second seam: the merge keeps synchronous=False and flips save on."""
+    devices_config = {
+        "UC_TopView": {
+            "synchronous": False,
+            "save_nonscalar_data": False,
+            "variable_list": [],
+        },
+        "UC_Cam": {
+            "synchronous": True,
+            "save_nonscalar_data": False,
+            "variable_list": ["x"],
+        },
+    }
+    requirements = {
+        "Devices": {
+            "UC_TopView": {"save_nonscalar_data": True, "variable_list": ["MaxCounts"]},
+            "UC_Cam": {"save_nonscalar_data": True},
+            "UC_New": {"synchronous": False, "save_nonscalar_data": True},
+        }
+    }
+    with caplog.at_level(logging.WARNING):
+        merge_optimizer_device_requirements(devices_config, requirements)
+    warnings = _optimizer_snapshot_warnings(caplog)
+    assert len(warnings) == 1, warnings
+    assert "UC_TopView" in warnings[0] and "UC_New" in warnings[0]
+    assert "UC_Cam" not in warnings[0]
+
+
+def test_merge_requirements_does_not_rewarn_save_set_offenders(caplog) -> None:
+    """A snapshot + images entry the save set already warned about is not repeated."""
+    devices_config = {
+        "UC_Slow": {
+            "synchronous": False,
+            "save_nonscalar_data": True,
+            "variable_list": ["p"],
+        },
+    }
+    requirements = {"Devices": {"UC_Slow": {"save_nonscalar_data": True}}}
+    with caplog.at_level(logging.WARNING):
+        merge_optimizer_device_requirements(devices_config, requirements)
+    assert _optimizer_snapshot_warnings(caplog) == []
+
+
 class TestMergeOptimizerDeviceRequirements:
     """The pure merge: union semantics, casefold matching, provenance."""
 

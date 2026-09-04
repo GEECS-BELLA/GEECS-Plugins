@@ -18,7 +18,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   warning per save set naming the affected devices (DB-free, so it lands in
   the worker's scan.log for every scan), via the new
   `snapshot_images_ignored(devices_config)` /
-  `snapshot_images_ignored_message(...)` helpers. The client-side submit
+  `snapshot_images_ignored_message(...)` helpers; the second role→mechanics
+  seam, `merge_optimizer_device_requirements`, warns for what the optimizer's
+  requirements introduce (images asked of a save-set snapshot device, or a
+  new async + save device — the #520 NaN class). The client-side submit
   preflight reuses the same helper as a new **`snapshot_images`** check —
   a question (warning the operator can continue past), never a refusal — so
   console and MCP operators see it pre-submit (GEECS-MCP 0.8.5 adds the name

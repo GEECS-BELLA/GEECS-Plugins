@@ -341,6 +341,7 @@ def merge_optimizer_device_requirements(
     provisioned: dict[str, dict[str, Any]] = {}
     if not devices:
         return provisioned
+    already_ignored = set(snapshot_images_ignored(devices_config))
     for device_name, requirement in devices.items():
         req_vars = [
             str(v) for v in (_requirement_field(requirement, "variable_list", []) or [])
@@ -407,6 +408,22 @@ def merge_optimizer_device_requirements(
                     configured_name,
                     added,
                 )
+    # The merge is the second place role meets mechanics: a requirement can
+    # ask for images on a device the save set holds in the snapshot role
+    # (synchronous is preserved, save flips on), or provision a new device
+    # as async + save.  Both are the #754 no-op — the objective's images
+    # would never be recorded (the #520 NaN class) — so warn for what THIS
+    # merge introduced; the save set's own offenders were already warned at
+    # save_set_to_devices_config.
+    introduced = [
+        d for d in snapshot_images_ignored(devices_config) if d not in already_ignored
+    ]
+    if introduced:
+        logger.warning(
+            "%s The optimizer's device_requirements asked for these images, "
+            "so the objective's diagnostics would NOT be recorded.",
+            snapshot_images_ignored_message(introduced),
+        )
     return provisioned
 
 

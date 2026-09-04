@@ -172,8 +172,7 @@ class SaveSetEntry(SchemaModel):
             "traces) alongside the scalar data. Ignored for an entry with "
             "role 'snapshot' (legacy synchronous: false): the snapshot role "
             "records scalars only — the scanner neither commands nor "
-            "suppresses the device's own save flag — and warns about the "
-            "combination at submit time and in the scan log."
+            "suppresses the device's own save flag."
         ),
     )
     role: Optional[SaveRole] = Field(
