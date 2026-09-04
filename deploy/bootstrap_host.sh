@@ -9,6 +9,8 @@
 #
 #   --ref REF      git ref to check out in each clone (default: master)
 #   --only LIST    comma-separated subset of: gateway,portal,qserver,capture,mcp
+#                  (re-stages only these: the staging dir's units are cleared first,
+#                  so the printed install line covers exactly this run)
 #   --no-install   clone/fetch only; skip poetry/pip installs
 #   --dry-run      print what would happen
 #
