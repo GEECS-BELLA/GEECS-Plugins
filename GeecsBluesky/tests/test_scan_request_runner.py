@@ -1,7 +1,8 @@
 """Tests for scan_request_runner: resolver, adapters, and the plan preamble.
 
-Covers the configs-repo resolver (new-schema YAML loads directly, legacy YAML
-converts — the whole existing corpus is usable immediately), the SaveSet →
+Covers the configs-repo resolver (new-schema YAML loads directly; legacy save
+sets, trigger profiles, and action libraries convert; scan-variable catalogs
+are new-schema only), the SaveSet →
 devices_config derivation rules, the TriggerProfile → ShotControlWrites
 adapter (ordered, multi-device), action slot assembly + compilation +
 wiring, multi-axis grid execution, and how a request maps onto the scan
