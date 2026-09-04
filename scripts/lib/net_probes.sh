@@ -46,7 +46,7 @@ port_open() {  # port_open HOST PORT — bare TCP connect, no handshake; never f
     bounded "${TCP_TIMEOUT:-2}" bash -c "exec 3<>/dev/tcp/$1/$2" 2>/dev/null
 }
 
-_probe_python() {  # _probe_python MODULE — first interpreter that imports MODULE
+probe_python() {  # probe_python MODULE — first interpreter that imports MODULE
     # GEECS_PROBE_PYTHON pins one (tests, a worktree without envs); otherwise
     # GEECS-Core owns the connector (and the credential lookup), GeecsBluesky
     # depends on it, the root docs env carries it transitively, and a PATH
@@ -71,7 +71,7 @@ _probe_python() {  # _probe_python MODULE — first interpreter that imports MOD
 
 mysql_probe() {  # mysql_probe HOST PORT — prints the probe's status line; rc per scripts/mysql_probe.py
     local py
-    py="$(_probe_python mysql.connector)" || { echo "no-connector no interpreter with mysql-connector-python (GEECS-Core / GeecsBluesky poetry env; see /env-doctor)"; return 4; }
+    py="$(probe_python mysql.connector)" || { echo "no-connector no interpreter with mysql-connector-python (GEECS-Core / GeecsBluesky poetry env; see /env-doctor)"; return 4; }
     # Bound = connect timeout + interpreter start-up and imports.
     bounded "$(( ${TCP_TIMEOUT:-2} + 10 ))" "$py" "$_NET_PROBES_DIR/../mysql_probe.py" --host "$1" --port "$2" --timeout "${TCP_TIMEOUT:-2}"
 }

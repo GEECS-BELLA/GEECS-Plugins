@@ -22,7 +22,9 @@
 #   0. reachability — scripts/lab_status.sh tier 1 (the same gate /lab-status
 #      uses); network DOWN => stage 3 only, remote = UNKNOWN
 #   1. self-reported versions over the services' own protocols: Tiled
-#      (HTTP), Data Portal (/health), MCP (port), CA gateway (lab_status.sh
+#      (HTTP), Data Portal (/health), queueserver readiness (0MQ status +
+#      plans_allowed — a listening manager with a closed worker environment
+#      is NOT READY, #793), MCP (port), CA gateway (lab_status.sh
 #      --hardware, read-only CA), PVA image fleet (read-only pvAccess gets)
 #   2. host checkouts over ssh: every geecs-* systemd unit -> the clone it
 #      runs from -> branch / sha / dirty / installed-vs-pyproject version /
@@ -207,10 +209,30 @@ if [ "$NET_UP" -eq 1 ]; then
         rec "role=Data Portal	state=down"
     fi
 
-    # Queueserver — ZMQ, no cheap self-report; port liveness (stage 2 finds the process).
+    # Queueserver — listening is not ready: a manager whose RE worker
+    # environment is closed knows zero plans and refuses every submission
+    # (#793). Ask it over 0MQ (status + plans_allowed, read-only) when an env
+    # with bluesky-queueserver is at hand; otherwise fall back to port
+    # liveness and say readiness is unknown.
     QS_HOST="${WORKER_HOST:-$LAB_HOST}"
-    if port_open "$QS_HOST" 60615; then ok "Queueserver  $QS_HOST:60615  RE Manager control port listening"; rec "role=Queueserver RE Manager	state=ok"
-    else bad "Queueserver  $QS_HOST:60615  RE Manager not listening"; rec "role=Queueserver RE Manager	state=down"; fi
+    QS_ADDR="tcp://$QS_HOST:60615"
+    qs_py="$(probe_python bluesky_queueserver.manager.comms)"
+    if [ -n "$qs_py" ]; then
+        qs_line="$(bounded "$(( TCP_TIMEOUT * 2 + 10 ))" "$qs_py" "$REPO_ROOT/scripts/qserver_probe.py" --addr "$QS_ADDR" --timeout "$TCP_TIMEOUT")"
+        case $? in
+            0) ok "Queueserver  $QS_HOST:60615  ready — ${qs_line#ready }"
+               rec "role=Queueserver RE Manager	state=ok" ;;   # the table's Notes column is for attention items only
+            5) warn "Queueserver  $QS_HOST:60615  NOT READY — ${qs_line#notready }"
+               rec "role=Queueserver RE Manager	state=ok	note=NOT READY: ${qs_line#notready }" ;;
+            *) bad "Queueserver  $QS_HOST:60615  ${qs_line:-RE Manager not answering}"
+               rec "role=Queueserver RE Manager	state=down" ;;
+        esac
+    elif port_open "$QS_HOST" 60615; then
+        ok "Queueserver  $QS_HOST:60615  RE Manager control port listening — readiness UNKNOWN (no env with bluesky-queueserver to ask; see /env-doctor)"
+        rec "role=Queueserver RE Manager	state=ok	note=readiness unknown (port only)"
+    else
+        bad "Queueserver  $QS_HOST:60615  RE Manager not listening"; rec "role=Queueserver RE Manager	state=down"
+    fi
     if port_open "$QS_HOST" 5568; then ok "Doc proxy    $QS_HOST:5568   document stream listening"; rec "role=Bluesky doc proxy	state=ok"
     else bad "Doc proxy    $QS_HOST:5568   not listening"; rec "role=Bluesky doc proxy	state=down"; fi
 
