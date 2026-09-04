@@ -220,7 +220,7 @@ done
 # The staging dir holds only THIS run's units: a stale .service from an
 # earlier run (a service since skipped) must never ride along on the
 # install line. cutover/other files in the dir are left alone.
-[ -d "$STAGE" ] && rm -f "$STAGE"/*.service
+[ "$DRY" -eq 0 ] && [ -d "$STAGE" ] && rm -f "$STAGE"/*.service
 if [ "${#TEMPLATE_PATHS[@]}" -eq 0 ]; then echo "  nothing to render (every wanted service was skipped)"
 elif [ "$DRY" -eq 1 ]; then echo "  [dry] render_units.sh $SITE_ENV $STAGE ${TEMPLATE_PATHS[*]}"
 else RENDER_QUIET=1 "$REPO_ROOT/deploy/render_units.sh" "$SITE_ENV" "$STAGE" "${TEMPLATE_PATHS[@]}" | sed 's/^/  /'; fi
