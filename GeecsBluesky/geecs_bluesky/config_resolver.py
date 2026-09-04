@@ -3,9 +3,11 @@
 :class:`ConfigResolver` is the protocol; :class:`ConfigsRepoResolver` is the
 production implementation over the real configs-repo layout
 (``scanner_configs/experiments/<Experiment>/``).  A YAML file carrying a
-``schema_version`` key loads as the new schema directly; anything else is
-converted from its legacy dialect via :mod:`geecs_schemas.convert` — so the
-whole existing config corpus is usable immediately, no flag day.
+``schema_version`` key loads as the new schema directly; save sets, trigger
+profiles, and action libraries without one are converted from their legacy
+dialect via :mod:`geecs_schemas.convert`.  Scan-variable catalogs are the
+exception: ``scan_devices/scan_variables.yaml`` is new-schema only (the
+legacy pair and its converter were retired 2026-09, GEECS-Plugins#779).
 
 Execution of a resolved request lives in
 :mod:`geecs_bluesky.scan_request_runner`.

@@ -1,4 +1,7 @@
-"""Converters from every legacy scanner-config YAML dialect to the new schemas.
+"""Converters from the remaining legacy scanner-config YAML dialects.
+
+Scan variables have no converter: ``scan_variables.yaml`` is new-schema only
+(GEECS-Plugins#779).
 
 One module per legacy dialect; every converter accepts a parsed dict or a
 YAML path and fails loudly (:class:`SchemaConversionError`) naming exactly

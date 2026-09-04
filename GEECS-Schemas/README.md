@@ -2,7 +2,10 @@
 
 Versioned Pydantic models for every GEECS scanner config — scan requests,
 save sets, scan variables, trigger profiles, and action plans — plus
-converters from every legacy YAML dialect.
+converters from the legacy YAML dialects still in use (save elements, shot
+control, action libraries, presets, optimizer configs). Scan-variable
+catalogs have no converter: they are authored new-schema only (the legacy
+pair was retired 2026-09, GEECS-Plugins#779).
 
 **Configs are schemas; YAML is just serialization.** This package is the
 schema layer of the target architecture. It depends on **pydantic
