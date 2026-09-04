@@ -52,8 +52,10 @@ without touching the checkouts other services run from (the
 queueserver-worker precedent). Give the checkout a portal-specific
 name — on a box that also runs the CA gateway, a checkout named plain
 `~/GEECS-Plugins` is likely the *gateway's* running checkout, and this
-runbook's Upgrade step must never `git pull` that one. Paths below
-assume `~/GEECS-Plugins-portal` — substitute yours.
+runbook's Upgrade step must never `git pull` that one. The site
+profile fixes the name: `<root>/portal-checkout`, where `<root>` is
+`GEECS_CHECKOUT_ROOT` from the host's `site.env`
+(`docs/platform/site_profile.md`); paths below use that.
 
 **Run every command in this section as the service account** (the
 `User=` of the unit): Poetry keys the project venv under the invoking
