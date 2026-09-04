@@ -249,7 +249,7 @@ Order chosen so each step is reversible by restarting what was stopped:
   four unreachable hosts are pruned or confirmed with Sam.
 - Timezone: the four `America/Los_Angeles` defaults in `geecs_bluesky`
   (assets, camera, tiled_readback ×3) default to the host zone
-  (`datetime.now().astimezone().tzinfo`); the portal unit takes
+  (`datetime.now().astimezone().tzinfo`); the portal unit
   inherits `TZ` from `site.env` via `EnvironmentFile=` (no template hole). Minor bump.
 - `geecs_paths_config.py` default experiment `"Undulator"` → required,
   or read from `config.ini [Experiment]` (it already reads the file).
