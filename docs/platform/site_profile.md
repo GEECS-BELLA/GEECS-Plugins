@@ -93,6 +93,15 @@ configs repo (`GEECS-Plugins-Configs`) is **not** cloned per service: it
 is data, read at runtime, and the copy on the data share is the one
 LabVIEW reads too — `GEECS_CONFIGS_ROOT` points at it.
 
+**A clone means a clone, not a `git worktree`.** A linked worktree shares
+its object store *and its branch refs* with the clone it was made from:
+`git pull` in one advances the other's branch pointer without touching
+its files, so that service runs an older tree than its HEAD claims (the
+2026-09-03 gateway incident, where `qs-checkout` was a worktree of the
+gateway's clone). The bootstrap detects a linked worktree, warns, and
+leaves it alone; replace it with a real clone in a maintenance window
+(stop its services, move it aside, clone, `poetry install`).
+
 ## Standing up a host
 
 ```bash

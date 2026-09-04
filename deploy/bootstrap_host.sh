@@ -82,7 +82,18 @@ echo "  git $(git --version 2>/dev/null | awk '{print $3}'), $(python3.11 --vers
 say "clones (one per service family, at $REF)"
 for c in $(for s in $SERVICES; do wanted "$s" && clone_of "$s"; done | sort -u); do
     dir="$GEECS_CHECKOUT_ROOT/$c"
-    if [ -d "$dir/.git" ]; then
+    if [ -e "$dir/.git" ]; then
+        gitdir="$(git -C "$dir" rev-parse --git-dir 2>/dev/null || true)"
+        common="$(git -C "$dir" rev-parse --git-common-dir 2>/dev/null || true)"
+        if [ -n "$gitdir" ] && [ "$gitdir" != "$common" ]; then
+            # A linked worktree shares its object store AND its branch refs with
+            # another clone: `git pull` here advances that clone's branch pointer
+            # without touching its files (the 2026-09-03 gateway disk≠HEAD
+            # incident). Not a clone of its own — replace it in a maintenance
+            # window: stop its services, mv it aside, clone, poetry install.
+            echo "  $c: WARNING — linked worktree of $(cd "$dir" && cd "$common/.." && pwd), not a clone of its own; left untouched (see the site profile page)"
+            continue
+        fi
         echo "  $c: exists ($(git -C "$dir" rev-parse --abbrev-ref HEAD) $(git -C "$dir" rev-parse --short=8 HEAD)) — fetching, NOT moving HEAD (a pull is a deploy; do it per service, deliberately)"
         run git -C "$dir" fetch --quiet origin
     else
