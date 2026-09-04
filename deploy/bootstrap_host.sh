@@ -211,12 +211,16 @@ for s in $SERVICES; do
     t="$GEECS_CHECKOUT_ROOT/$(clone_of "$s")/$(template_of "$s")"
     if [ -f "$t" ]; then
         if ! is_unit_template "$t"; then
-            echo "  $s: WARNING — $(clone_of "$s") predates the templated units ($t has no placeholders); no unit rendered or enabled — pull that clone forward (a deploy of $s), then rerun"
+            echo "  $s: WARNING — $(clone_of "$s") predates the templated units ($t: directives lack User=@SERVICE_USER@ / EnvironmentFile=@SITE_ENV@); no unit rendered or enabled — pull that clone forward (a deploy of $s), then rerun"
             SKIP_SERVICES="$SKIP_SERVICES$s "; continue
         fi
         TEMPLATE_PATHS+=("$t")
     else echo "  $s: clone absent — template from this clone ($REPO_ROOT)"; TEMPLATE_PATHS+=("$REPO_ROOT/$(template_of "$s")"); fi
 done
+# The staging dir holds only THIS run's units: a stale .service from an
+# earlier run (a service since skipped) must never ride along on the
+# install line. cutover/other files in the dir are left alone.
+[ -d "$STAGE" ] && rm -f "$STAGE"/*.service
 if [ "${#TEMPLATE_PATHS[@]}" -eq 0 ]; then echo "  nothing to render (every wanted service was skipped)"
 elif [ "$DRY" -eq 1 ]; then echo "  [dry] render_units.sh $SITE_ENV $STAGE ${TEMPLATE_PATHS[*]}"
 else RENDER_QUIET=1 "$REPO_ROOT/deploy/render_units.sh" "$SITE_ENV" "$STAGE" "${TEMPLATE_PATHS[@]}" | sed 's/^/  /'; fi
