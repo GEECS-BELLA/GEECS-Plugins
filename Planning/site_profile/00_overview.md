@@ -250,7 +250,7 @@ Order chosen so each step is reversible by restarting what was stopped:
 - Timezone: the four `America/Los_Angeles` defaults in `geecs_bluesky`
   (assets, camera, tiled_readback ×3) default to the host zone
   (`datetime.now().astimezone().tzinfo`); the portal unit takes
-  `${GEECS_TZ}`. Minor bump.
+  inherits `TZ` from `site.env` via `EnvironmentFile=` (no template hole). Minor bump.
 - `geecs_paths_config.py` default experiment `"Undulator"` → required,
   or read from `config.ini [Experiment]` (it already reads the file).
   `EXPERIMENT_FILE_IDS` (Google Doc IDs in data-utils code) moves to
