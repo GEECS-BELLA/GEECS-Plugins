@@ -1,6 +1,17 @@
-# GEECS MCP server — central HTTP deployment (see DEPLOYMENT.md).
-# Install: copy to /etc/systemd/system/, adjust paths, then
-#   systemctl daemon-reload && systemctl enable --now geecs-mcp
+# GEECS MCP server — central HTTP deployment, systemd unit TEMPLATE.
+#
+# Do not copy this file to /etc/systemd/system by hand. Render it from the
+# host's site.env with `deploy/render_units.sh` (or `deploy/bootstrap_host.sh`)
+# — see docs/platform/site_profile.md. @PLACEHOLDER@ holes are filled at render
+# time (paths + identity); ${VARIABLE} values come from site.env at start via
+# EnvironmentFile=.
+#
+# The venv is NON-EDITABLE by design: the code is baked from the worker's
+# clone (qs-checkout — config-truth parity with the queueserver) into
+# @CHECKOUT_ROOT@/geecs-mcp-venv, so a pull in the clone never mutates code
+# under the running server. Update ritual (DEPLOYMENT.md): pull, re-run the
+# pip install, restart.
+
 [Unit]
 Description=GEECS MCP server (agent access to the scan service)
 After=network-online.target
@@ -8,10 +19,12 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-# Generic account placeholder — set to the deployment user (public-repo
-# hygiene: never commit real account names).
-User=geecs
-ExecStart=/opt/geecs-mcp-venv/bin/python -m geecs_mcp --transport http --host 0.0.0.0 --port 8100
+User=@SERVICE_USER@
+# The server reads the service account's config.ini ([Experiment], [qserver],
+# [tiled], [mcp]) under $HOME.
+Environment=HOME=@SERVICE_HOME@
+EnvironmentFile=@SITE_ENV@
+ExecStart=@CHECKOUT_ROOT@/geecs-mcp-venv/bin/python -m geecs_mcp --transport http --host 0.0.0.0 --port 8100
 Restart=on-failure
 RestartSec=5
 # The MCP shares the box with the production manager/gateway/Tiled —

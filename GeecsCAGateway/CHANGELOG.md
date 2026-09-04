@@ -3,6 +3,17 @@
 All notable changes to `geecs-ca-gateway` are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and semantic versioning.
 
+## [0.20.1] - 2026-09-03
+
+### Changed
+
+- `deploy/geecs-ca-gateway.service` is now a **template** rendered from the
+  host's `site.env` (`@PLACEHOLDER@` holes for account/checkout root/poetry
+  path, `EnvironmentFile=` for the experiment and CA serving interface) by
+  `deploy/render_units.sh`; `deploy/README.md` and `DEPLOYMENT.md` describe
+  the render-and-install ritual. Site profile contract:
+  `docs/platform/site_profile.md`. No runtime change.
+
 ## [0.20.0] - 2026-08-24
 
 ### Added
