@@ -200,6 +200,13 @@ def geecs_move_variable(name: str, value: float) -> dict:
     -------
     dict
         ``move_variable``'s summary: ``{variable, kind, value, targets}``.
+
+    Raises
+    ------
+    GeecsUnservedVariablesError
+        The target (or a pseudo component) is not served by the gateway —
+        refused before any device is built (#772); the manager relays the
+        message as the task failure the client renders.
     """
     return session.move_variable(name, value)
 

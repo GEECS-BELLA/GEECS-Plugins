@@ -59,7 +59,9 @@ geecs_bluesky/
                             #   optimization loader) + post-run s-file export
                             #   + move_variable — manual scan-variable move
                             #   (plain/confirm/pseudo, fresh movable per
-                            #   call, refused mid-scan)
+                            #   call, refused mid-scan; an unserved target
+                            #   refuses pre-build via the runner's
+                            #   check_movable_served — #772)
                             #   + run_action / describe_action — on-demand
                             #   ActionPlan execution & dry-run (G-actions v1)
   preflight.py              # Pre-flight checks as a pipeline (pass/ask/abort);

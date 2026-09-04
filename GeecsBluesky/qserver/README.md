@@ -137,7 +137,14 @@ correctly — only live GUI progress is lost.
   started" refusal. Background execution bypasses that gate, so the GEECS
   plans guard the other direction themselves: both queue plans refuse to
   start while the session's manual-move lock is held ("manual move in
-  progress — scan/action not started").
+  progress — scan/action not started"). A target the gateway does not
+  serve (a misspelled variable, a pseudo component naming a variable the
+  device does not have) is refused **before** any device is built —
+  "`Device:Variable` is not served by the gateway … — move not started"
+  — the same served-set check the scan path runs over save sets (#772);
+  before that check the symptom was a 20 s `NotConnectedError` naming a
+  PV. Served set unknown (DB unreachable) → the move proceeds with a
+  warning in the worker log.
 
 - **Preview an action** — `geecs_describe_action(name)` via
   `function_execute`: pure config resolution against *this worker's*
