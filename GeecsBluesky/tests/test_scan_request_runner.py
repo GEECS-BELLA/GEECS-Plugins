@@ -617,6 +617,18 @@ def test_unknown_scan_variable_lists_known_names(legacy_resolver) -> None:
         legacy_resolver.resolve_scan_variable("nope")
 
 
+def test_missing_catalog_names_the_expected_file(tmp_path) -> None:
+    """No ``scan_variables.yaml`` is a configuration error naming the path.
+
+    There is no legacy fallback any more (#779): a ``scan_devices/`` folder
+    without the new-schema catalog must fail loudly, not load empty.
+    """
+    (tmp_path / "BareExp" / "scan_devices").mkdir(parents=True)
+    resolver = ConfigsRepoResolver("BareExp", experiments_root=tmp_path)
+    with pytest.raises(GeecsConfigurationError, match="scan_variables.yaml"):
+        resolver.resolve_scan_variable("jet_z")
+
+
 def test_action_plan_resolution(legacy_resolver) -> None:
     plan = legacy_resolver.resolve_action_plan("close_shutters")
     assert plan.steps[0].device == "U_PLC"

@@ -300,9 +300,6 @@ class ConfigsRepoResolver:
             return self._scan_variables_cache
         path = self._root / self.SCAN_VARIABLES_FOLDER / "scan_variables.yaml"
         if not path.exists():
-            # New schema only: the legacy scan_devices.yaml +
-            # composite_variables.yaml pair is no longer read (its converter
-            # was retired 2026-09, GEECS-Plugins#779).
             raise GeecsConfigurationError(
                 f"no scan-variable catalog for experiment "
                 f"{self._experiment!r}: expected {path}"

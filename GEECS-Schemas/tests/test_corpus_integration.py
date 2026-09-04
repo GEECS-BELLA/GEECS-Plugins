@@ -31,7 +31,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from geecs_schemas import SaveSet
+from geecs_schemas import SaveSet, ScanVariables
 from geecs_schemas.convert import (
     SchemaConversionError,
     convert_action_library,
@@ -160,6 +160,31 @@ class TestFullCorpus:
             "no legacy save_devices files converted — glob broken, or corpus "
             "migration complete (retire this legacy pin)"
         )
+
+    def test_every_scan_variable_catalog_validates(self):
+        """Every deployed catalog is a valid new-schema ``ScanVariables``.
+
+        There is no scan-variable converter any more (0.18.0), so this
+        replaces the old conversion pin with a validation pin.  It also pins
+        the #779 policy: every non-pseudo entry carries an explicit
+        completion ``kind`` — the deployed corpus never relies on the schema
+        default, which is what silently opted every axis out of readback
+        confirmation.
+        """
+        validated = 0
+        for experiment in experiments():
+            path = experiment / "scan_devices" / "scan_variables.yaml"
+            if not path.exists():
+                continue
+            document = yaml.safe_load(path.read_text())
+            catalog = ScanVariables.model_validate(document)
+            assert catalog.variables, experiment.name
+            for name, raw in document["variables"].items():
+                assert "kind" in raw, (
+                    f"{experiment.name}: {name!r} relies on the default kind"
+                )
+            validated += 1
+        assert validated >= 2  # Undulator + Thomson
 
     def test_every_shot_control_converts(self):
         converted, no_device = 0, 0
