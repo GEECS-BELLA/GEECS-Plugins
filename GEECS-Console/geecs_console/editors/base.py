@@ -27,6 +27,12 @@ What lives here:
   :meth:`reject`).
 - One name-prompt convention (:meth:`_prompt_name`: stripped text or
   ``None`` on cancel) and one Yes/No confirm (:meth:`_confirm`).
+- The save-time **target check** (#772): :func:`target_problem` and the
+  :meth:`_target_problem` convenience — does a ``device`` / ``variable``
+  pair name something in the fetched listing?  Free text + completer
+  stays (the editors must work with the DB unreachable); the gate is at
+  Save, where an unknown name blocks with a near-miss hint and an empty
+  listing downgrades to :data:`UNCHECKED_TARGETS_NOTE`.
 
 The prompt methods are plain bound methods so tests can monkeypatch them
 per instance (``editor._prompt_unsaved = lambda: "discard"``) — the
@@ -35,8 +41,10 @@ pattern the editor test suites already use.
 
 from __future__ import annotations
 
+import difflib
 import logging
 import threading
+from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import Optional
 
@@ -58,6 +66,120 @@ from geecs_console.services.device_completions import (
 )
 
 logger = logging.getLogger(__name__)
+
+#: Appended to a successful save's message when the device/variable names
+#: could not be checked (no completions listing: offline, DB down, fetch
+#: failed).  The save goes through — the editors must stay usable off the
+#: lab network — but the operator is told what was skipped.
+UNCHECKED_TARGETS_NOTE = (
+    "device and variable names were not checked against the database "
+    "(completions unavailable)"
+)
+
+#: ``difflib`` similarity floor for a "did you mean" hint.  The live case
+#: (#772) was ``Position.Axis1`` vs ``Position.Axis 1`` — ratio 0.97; the
+#: default 0.6 still rejects unrelated names.
+_NEAR_MISS_CUTOFF = 0.6
+
+
+def resolve_device(
+    device_vars: Mapping[str, Sequence[str]], device: str
+) -> Optional[str]:
+    """Return the listing's key for *device*, or ``None`` when unknown.
+
+    An exact key wins; otherwise a *unique* case-insensitive match (the
+    completer already tolerates case, so the check must too — see the
+    editors' ``_refresh_variable_model``).
+
+    Parameters
+    ----------
+    device_vars : mapping
+        The fetched ``{device: [variable, ...]}`` listing.
+    device : str
+        The device text as typed (already stripped).
+
+    Returns
+    -------
+    str or None
+        The listing's spelling of the device, or ``None``.
+    """
+    if device in device_vars:
+        return device
+    lowered = device.lower()
+    matches = [known for known in device_vars if known.lower() == lowered]
+    return matches[0] if len(matches) == 1 else None
+
+
+def near_miss(text: str, candidates: Iterable[str]) -> Optional[str]:
+    """The candidate closest to *text* (case-insensitive), or ``None``.
+
+    Parameters
+    ----------
+    text : str
+        The unknown name.
+    candidates : iterable of str
+        The known names to compare against.
+
+    Returns
+    -------
+    str or None
+        The best candidate in its own spelling when one is close enough
+        (:data:`_NEAR_MISS_CUTOFF`), else ``None``.
+    """
+    by_lower = {candidate.lower(): candidate for candidate in candidates}
+    matches = difflib.get_close_matches(
+        text.lower(), list(by_lower), n=1, cutoff=_NEAR_MISS_CUTOFF
+    )
+    return by_lower[matches[0]] if matches else None
+
+
+def target_problem(
+    device_vars: Mapping[str, Sequence[str]],
+    device: str,
+    variable: Optional[str] = None,
+) -> Optional[str]:
+    """Why ``device`` (and ``variable``) name nothing in the listing, or ``None``.
+
+    The save-time check behind #772: the editors' device/variable fields are
+    free text with a *suggesting* completer, so a near miss like
+    ``Position.Axis1`` for ``Position.Axis 1`` is accepted silently and only
+    fails later — as a 20 s ophyd connect timeout on the worker that never
+    says "no such variable".  This names the problem at Save.
+
+    Parameters
+    ----------
+    device_vars : mapping
+        The fetched ``{device: [variable, ...]}`` listing.  **Empty means
+        unchecked**: with nothing to compare against the result is ``None``
+        and the caller downgrades to :data:`UNCHECKED_TARGETS_NOTE`.
+    device : str
+        The device text (stripped).
+    variable : str, optional
+        The variable text (stripped); ``None`` checks the device only (a
+        save-set entry names a device, its scalars name variables).
+
+    Returns
+    -------
+    str or None
+        One sentence naming the unknown name, with a "did you mean" hint
+        when a close spelling exists; ``None`` when the target checks out
+        or the listing is empty.
+    """
+    if not device_vars:
+        return None
+    known = resolve_device(device_vars, device)
+    if known is None:
+        hint = near_miss(device, device_vars)
+        suffix = f" — did you mean {hint!r}?" if hint else ""
+        return f"unknown device {device!r}{suffix}"
+    if variable is None:
+        return None
+    variables = device_vars[known]
+    if variable in variables:
+        return None
+    hint = near_miss(variable, variables)
+    suffix = f" — did you mean {hint!r}?" if hint else ""
+    return f"{variable!r} is not a variable of {known!r}{suffix}"
 
 
 class ConfigEditorDialog(QDialog):
@@ -156,6 +278,11 @@ class ConfigEditorDialog(QDialog):
         )
         #: The fetched completion word lists (empty until the fetch lands).
         self._device_vars: dict[str, list[str]] = {}
+        #: Whether a listing was ever expected: a dialog built on the
+        #: :class:`EmptyCompletions` default (no experiment, tests) has
+        #: nothing to check *by design* and gets no "unchecked" note; a
+        #: real provider that came back empty (offline, DB down) does.
+        self._completions_expected = not isinstance(self._completions, EmptyCompletions)
         #: True once the (async) completions fetch has been delivered on
         #: the GUI thread — tests wait on this instead of sleeping.
         self.completions_applied = False
@@ -221,6 +348,40 @@ class ConfigEditorDialog(QDialog):
         Default is a no-op — an editor whose cell editors read
         :attr:`_device_vars` lazily at edit-open needs no replumbing.
         """
+
+    @property
+    def completions_available(self) -> bool:
+        """Whether a non-empty listing arrived (so targets can be checked)."""
+        return bool(self._device_vars)
+
+    @property
+    def targets_unchecked(self) -> bool:
+        """Whether a save should carry :data:`UNCHECKED_TARGETS_NOTE`.
+
+        True only when a listing was expected (a real provider) and none
+        arrived — the offline / DB-down case.  The ``EmptyCompletions``
+        default never expected one, so it stays quiet.
+        """
+        return self._completions_expected and not self.completions_available
+
+    def _target_problem(
+        self, device: str, variable: Optional[str] = None
+    ) -> Optional[str]:
+        """:func:`target_problem` against this dialog's fetched listing.
+
+        Parameters
+        ----------
+        device : str
+            The device text (stripped).
+        variable : str, optional
+            The variable text (stripped); ``None`` checks the device only.
+
+        Returns
+        -------
+        str or None
+            The problem sentence, or ``None`` (known, or nothing to check).
+        """
+        return target_problem(self._device_vars, device, variable)
 
     # ------------------------------------------------------------------
     # Unsaved-changes flow (one prompt, both close paths)

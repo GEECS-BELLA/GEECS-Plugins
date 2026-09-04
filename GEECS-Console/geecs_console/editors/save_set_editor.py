@@ -15,7 +15,10 @@ completions come from the shared
 queued signal (the no-QThread rule; see ``services/health.py``).  The
 production provider, ``GeecsDbCompletions``, imports ``GeecsDb`` lazily and
 degrades to empty on any failure, so offline means an empty completer, not
-an exception; ``EmptyCompletions`` is the no-fetch default.
+an exception; ``EmptyCompletions`` is the no-fetch default.  Save also
+checks every entry's device and listed scalars against that listing (#772):
+an unknown name blocks the save with a "did you mean" hint; with no listing
+the save goes through and the message says the names were not checked.
 
 The reserved ``at_scan_start`` / ``at_scan_end`` entry fields (not applied by
 the engine in this version) have no widgets; the editor carries them through
@@ -44,7 +47,7 @@ from PySide6.QtWidgets import (
 )
 from pydantic import ValidationError
 
-from geecs_console.editors.base import ConfigEditorDialog
+from geecs_console.editors.base import UNCHECKED_TARGETS_NOTE, ConfigEditorDialog
 from geecs_console.services.device_completions import (
     CompletionsProvider,
     GeecsDbCompletions,
@@ -851,6 +854,12 @@ class SaveSetEditor(ConfigEditorDialog):
         if model is None:
             self._refresh_gating()
             return False
+        # Shape is fine — now do the names exist?  (#772: the completer only
+        # suggests; free text stays so the editor works with the DB down.)
+        problems = self._entry_problems()
+        if problems:
+            self._show_message("Not saved — " + "; ".join(problems), error=True)
+            return False
         name = self._current_name()
         try:
             self._store.save(name, model)
@@ -861,8 +870,37 @@ class SaveSetEditor(ConfigEditorDialog):
         self._unsaved.discard(name)
         self._refresh_set_list(select=name)
         self._refresh_gating()
-        self._show_message(f"Saved {name!r}.")
+        if self.targets_unchecked:
+            self._show_message(f"Saved {name!r} — {UNCHECKED_TARGETS_NOTE}.")
+        else:
+            self._show_message(f"Saved {name!r}.")
         return True
+
+    def _entry_problems(self) -> list[str]:
+        """Name every entry device / scalar the fetched listing does not know.
+
+        Returns
+        -------
+        list of str
+            One sentence per unknown device (its scalars are then skipped —
+            they cannot be checked without a device) or unknown scalar
+            variable; empty when everything resolves or no listing is
+            loaded (the save then carries :data:`UNCHECKED_TARGETS_NOTE`).
+        """
+        if self._document is None or not self.completions_available:
+            return []
+        lines: list[str] = []
+        for entry in self._document.get("entries", []):
+            device = str(entry.get("device", "")).strip()
+            problem = self._target_problem(device)
+            if problem:
+                lines.append(problem)
+                continue
+            for variable in entry.get("scalars", []) or []:
+                problem = self._target_problem(device, str(variable).strip())
+                if problem:
+                    lines.append(problem)
+        return lines
 
     def _on_save(self) -> None:
         """Save button handler."""

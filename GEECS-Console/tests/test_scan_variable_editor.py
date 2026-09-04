@@ -551,3 +551,108 @@ class TestEnterNeverAccepts:
         for button in editor.findChildren(QPushButton):
             assert not button.isDefault()
             assert not button.autoDefault()
+
+
+class TestSaveTimeTargetCheck:
+    """#772: an unknown device/variable blocks Save; no listing ⇒ save + note."""
+
+    MAPPING = {
+        "U_Grating2Rotation": ["Position.Axis 1", "Position.Axis 2"],
+        "U_S3H": ["Current"],
+        "U_S4H": ["Current"],
+    }
+
+    def _new_simple(self, editor, device, variable):
+        editor.new_simple_button.click()
+        editor.device_edit.setText(device)
+        editor.variable_edit.setText(variable)
+
+    def test_unknown_variable_blocks_save_with_a_hint(self, qtbot, tmp_path):
+        editor = make_editor(qtbot, tmp_path, completions=FakeCompletions(self.MAPPING))
+        self._new_simple(editor, "U_Grating2Rotation", "Position.Axis1")
+        editor.save_button.click()
+        message = editor.error_label.text()
+        assert "new_variable → target" in message
+        assert "'Position.Axis1' is not a variable of 'U_Grating2Rotation'" in message
+        assert "did you mean 'Position.Axis 1'" in message
+        path = tmp_path / EXPERIMENT / SCAN_VARIABLES_FOLDER / CATALOG_FILE
+        assert not path.exists()
+        assert editor.dirty
+
+    def test_unknown_device_blocks_save_with_a_hint(self, qtbot, tmp_path):
+        editor = make_editor(qtbot, tmp_path, completions=FakeCompletions(self.MAPPING))
+        self._new_simple(editor, "U_Grating2Rotatoin", "Position.Axis 1")
+        editor.save_button.click()
+        message = editor.error_label.text()
+        assert "unknown device 'U_Grating2Rotatoin'" in message
+        assert "did you mean 'U_Grating2Rotation'" in message
+        assert editor.dirty
+
+    def test_confirm_target_is_checked_too(self, qtbot, tmp_path):
+        editor = make_editor(qtbot, tmp_path, completions=FakeCompletions(self.MAPPING))
+        self._new_simple(editor, "U_S3H", "Current")
+        editor.confirm_device_edit.setText("U_S3H")
+        editor.confirm_variable_edit.setText("Curent")
+        editor.save_button.click()
+        message = editor.error_label.text()
+        assert "new_variable → confirm" in message
+        assert "did you mean 'Current'" in message
+
+    def test_composite_error_names_the_component_row(self, qtbot, tmp_path):
+        editor = make_editor(qtbot, tmp_path, completions=FakeCompletions(self.MAPPING))
+        editor.new_pseudo_button.click()
+        table = editor.components_table
+        table.cellWidget(0, 0).setText("U_S3H")
+        table.cellWidget(0, 1).setText("Current")
+        table.cellWidget(0, 2).setText("composite_var")
+        editor.add_component_button.click()
+        table.cellWidget(1, 0).setText("U_S4H")
+        table.cellWidget(1, 1).setText("Currnt")
+        table.cellWidget(1, 2).setText("composite_var * -1")
+        editor.save_button.click()
+        message = editor.error_label.text()
+        assert "new_composite → component 2" in message
+        assert "'Currnt' is not a variable of 'U_S4H'" in message
+        assert "component 1" not in message
+
+    def test_device_case_difference_is_accepted(self, qtbot, tmp_path):
+        editor = make_editor(qtbot, tmp_path, completions=FakeCompletions(self.MAPPING))
+        self._new_simple(editor, "u_s3h", "Current")
+        editor.save_button.click()
+        assert not editor.dirty
+        assert editor.error_label.text() == ""
+
+    def test_good_targets_save_cleanly(self, qtbot, tmp_path):
+        editor = make_editor(qtbot, tmp_path, completions=FakeCompletions(self.MAPPING))
+        self._new_simple(editor, "U_Grating2Rotation", "Position.Axis 1")
+        editor.save_button.click()
+        assert not editor.dirty
+        assert editor.error_label.text() == ""
+        document = catalog_document(tmp_path)
+        assert document["variables"]["new_variable"]["target"] == (
+            "U_Grating2Rotation:Position.Axis 1"
+        )
+
+    def test_without_a_listing_the_same_draft_saves_with_a_note(self, qtbot, tmp_path):
+        # A real provider that came back empty (offline / DB down) — the
+        # draft saves, and the label says the names went unchecked.
+        editor = make_editor(qtbot, tmp_path, completions=FakeCompletions({}))
+        self._new_simple(editor, "U_Grating2Rotation", "Position.Axis1")
+        editor.save_button.click()
+        assert not editor.dirty
+        note = editor.error_label.text()
+        assert "saved" in note
+        assert "not checked" in note
+        document = catalog_document(tmp_path)
+        assert document["variables"]["new_variable"]["target"] == (
+            "U_Grating2Rotation:Position.Axis1"
+        )
+
+    def test_the_no_completions_default_saves_quietly(self, qtbot, tmp_path):
+        # EmptyCompletions (no experiment / offline construction) never
+        # expected a listing, so there is nothing to nag about.
+        editor = make_editor(qtbot, tmp_path)
+        self._new_simple(editor, "U_Grating2Rotation", "Position.Axis1")
+        editor.save_button.click()
+        assert not editor.dirty
+        assert editor.error_label.text() == ""
