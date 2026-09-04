@@ -6,7 +6,10 @@ scan and its data are described.
 
 Looking for what is actually *deployed* — which host runs which service,
 on what port, with what health check, and how they all link together?
-Start at the **[Fleet Map](fleet_map.md)**.
+Start at the **[Fleet Map](fleet_map.md)**. Deploying the same fleet on a
+new box, a different network, or another GEECS facility? The
+**[Site Profile](site_profile.md)** is the contract: one home per
+facility value, and the bootstrap that stands a host up from it.
 
 <div class="grid cards" markdown>
 

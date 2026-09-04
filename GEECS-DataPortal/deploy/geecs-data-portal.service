@@ -1,47 +1,47 @@
-# GEECS Data Portal — systemd unit for the services host (interim: the
-# queueserver worker box, alongside Tiled :8000 and GEECS-MCP :8100).
+# GEECS Data Portal — systemd unit TEMPLATE.
 #
-# The User= and path lines below use a generic `geecs` service account —
-# substitute the real account and checkout path when installing; the copy
-# in /etc/systemd/system is the home for site specifics, not this file.
-#
-# Install (from the repo checkout on the box):
-#   sudo cp GEECS-DataPortal/deploy/geecs-data-portal.service /etc/systemd/system/
-#   sudoedit /etc/systemd/system/geecs-data-portal.service   # fix User + paths
-#   sudo systemctl daemon-reload
-#   sudo systemctl enable --now geecs-data-portal
+# Do not copy this file to /etc/systemd/system by hand. Render it from the
+# host's site.env with `deploy/render_units.sh` (or `deploy/bootstrap_host.sh`)
+# — see docs/platform/site_profile.md. @PLACEHOLDER@ holes are filled at render
+# time (paths + identity); ${VARIABLE} values come from site.env at start via
+# EnvironmentFile= (valid only in command arguments).
 #
 # Upgrade:
-#   git pull && poetry install && sudo systemctl restart geecs-data-portal
+#   git -C <checkout> pull && poetry install --extras analysis && sudo systemctl restart geecs-data-portal
 #
 # See DEPLOYMENT.md (one directory up).
 
 [Unit]
 Description=GEECS Data Portal (scan browser; analysis runs when configured)
 # The portal reads the Tiled catalog; when Tiled runs on the same box,
-# start after it. If Tiled is remote, drop the tiled.service reference —
-# the portal degrades gracefully (pages report catalog errors) and
-# Restart=on-failure retries a crash-at-boot either way.
+# start after it. tiled.service is ordering only — systemd ignores a unit
+# that does not exist, so a remote Tiled needs no edit; the portal degrades
+# gracefully (pages report catalog errors) and Restart=on-failure retries
+# a crash-at-boot either way.
 After=network-online.target tiled.service
 Wants=network-online.target
 
 [Service]
 Type=simple
-User=geecs
+User=@SERVICE_USER@
 # Poetry resolves its cache/venvs under $HOME; systemd does not always set it.
-Environment=HOME=/home/geecs
-# Daily scan folders (YY_MMDD) are named by the scanner host's LOCAL date,
-# and the portal re-bases runs by local date too — the two must agree.
-# Pin the lab's timezone so a UTC-defaulted server can't resolve evening
-# scans into the next day's folder. Substitute your site's zone.
-Environment=TZ=America/Los_Angeles
-# Portal-specific checkout — never the one another service (e.g. the CA
+Environment=HOME=@SERVICE_HOME@
+# The host's site profile: GEECS_EXPERIMENT and TZ. Daily scan folders
+# (YY_MMDD) are named by the scanner host's LOCAL date and the portal
+# re-bases runs by local date too — site.env's TZ keeps a UTC-defaulted
+# server from resolving evening scans into the next day's folder.
+EnvironmentFile=@SITE_ENV@
+# Portal-specific clone — never the one another service (e.g. the CA
 # gateway) runs from; see DEPLOYMENT.md § Install.
-WorkingDirectory=/home/geecs/GEECS-Plugins-portal/GEECS-DataPortal
-# To enable the Images tab's processing selector, install the 'analysis'
-# extra and append (quoted — share paths carry spaces):
-#   --processing-configs "/path/to/GEECS-Plugins-Configs/scan_analysis_configs"
-ExecStart=/home/geecs/.local/bin/poetry run geecs-data-portal --experiment Undulator
+WorkingDirectory=@CHECKOUT_ROOT@/portal-checkout/GEECS-DataPortal
+# The Images tab's processing selector + the Analysis tab read analyzer
+# configs from the configs repo on the data share (a site value:
+# GEECS_CONFIGS_ROOT in site.env; the bootstrap installs the 'analysis'
+# extra the feature needs). The quotes matter — share paths carry spaces;
+# systemd substitutes "${VAR}" as one argument. To run the portal without
+# analysis features, drop the --processing-configs argument from the
+# rendered unit (a site choice, not a template edit).
+ExecStart=@POETRY@ run geecs-data-portal --experiment ${GEECS_EXPERIMENT} --processing-configs "${GEECS_CONFIGS_ROOT}/scan_analysis_configs"
 Restart=on-failure
 RestartSec=10
 # An analysis run in flight cannot be interrupted (DEPLOYMENT.md): give a

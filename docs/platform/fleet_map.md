@@ -108,11 +108,14 @@ co-location is a requirement, not a convenience).
 The **Checkout** column names the git clone a service runs from, as a
 path in the service account's home on its host — see
 [one clone per service](#one-clone-per-service) below for why each
-service gets its own.
+service gets its own. What *changes per facility* in this table — hosts,
+experiment, account, checkout root, timezone — and where each of those
+values lives is the [Site Profile](site_profile.md); the units are
+rendered from it, never edited by hand.
 
 | Service | Host | Checkout | Port(s) | Supervision | Health check | Runbook |
 |---|---|---|---|---|---|---|
-| CA gateway (GeecsCAGateway) | 192.168.6.14 | `~/GEECS-Plugins` | CA 5064/5065 | systemd `geecs-ca-gateway` | heartbeat + per-device `CONNECTED` PVs; `systemctl status` | [GeecsCAGateway/DEPLOYMENT.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsCAGateway/DEPLOYMENT.md) |
+| CA gateway (GeecsCAGateway) | 192.168.6.14 | `~/GEECS-Plugins` today (pre-dates the [site profile](site_profile.md); the rendered unit expects `<root>/gateway-checkout`, which the Phase 3 promotion in #775 migrates it to) | CA 5064/5065 | systemd `geecs-ca-gateway` | heartbeat + per-device `CONNECTED` PVs; `systemctl status` | [GeecsCAGateway/DEPLOYMENT.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsCAGateway/DEPLOYMENT.md) |
 | Tiled catalog | 192.168.6.14 | — (pip install + `~/tiled/config.yml`) | HTTP 8000 | systemd `tiled` | `GET /api/v1/`; web UI at `/ui` | [GeecsBluesky/TILED_SETUP.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsBluesky/TILED_SETUP.md) |
 | Queueserver worker (RE Manager + Redis + doc proxy) | the worker host (interim box; the runbook targets a dedicated host) | `~/qs-checkout` | ZMQ 60615 (control), 60625 (console stream), 5568 (documents); Redis loopback-only | systemd `geecs-qserver` | `qserver status` from any client env | [GeecsBluesky/qserver/deploy/DEPLOYMENT.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsBluesky/qserver/deploy/DEPLOYMENT.md) |
 | GEECS-MCP server — *HTTP mode pending deploy* | the worker host (co-located by design; stdio mode runs per-machine today) | reads the **worker's** checkout (config-truth parity, by design), baked into its own non-editable venv — see the runbook | HTTP 8100 (`/mcp`) | systemd (HTTP mode) | tool call `scan_status` from an agent | [GEECS-MCP/deploy/DEPLOYMENT.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GEECS-MCP/deploy/DEPLOYMENT.md) |
@@ -147,10 +150,11 @@ Poetry env inside it). This is deliberate, not accumulation:
   mutates code under the running service. The Windows PVA fleet
   inverts the pattern entirely: no per-host clones, one shared
   "Active Version" clone as the fleet pin, baked per-host venvs.
-- The path is a convention, not the invariant: the interim host uses
-  `~/<service>-checkout` names; the qserver runbook's
-  `/opt/geecs/GEECS-Plugins` layout for a dedicated host is the same
-  pattern — one clone per service family, wherever it lives.
+- The clone names are fixed by the [Site Profile](site_profile.md)
+  (`gateway-checkout`, `portal-checkout`, `qs-checkout`); only the root
+  is the site's choice (`GEECS_CHECKOUT_ROOT` — the service account's
+  home, or `/opt/geecs`). One clone per service family, wherever it
+  lives.
 
 A clone is deployed by `git pull` (or checkout of a pinned ref) +
 `poetry install` **with the extras that service needs** (each runbook
@@ -158,35 +162,44 @@ names them; e.g. the portal's optional processing selector needs
 `--extras analysis`) + `systemctl restart <unit>`. Never `git pull` a
 clone that isn't the one your service runs from.
 
-### Fresh-host bootstrap (collected from live deploys)
+### Fresh-host bootstrap
 
-The services-server consolidation will redo these steps; gotchas that
-cost real time, so they aren't re-learned:
+`deploy/bootstrap_host.sh` is the executable form of this list: from one
+`site.env` ([Site Profile](site_profile.md)) it creates the per-service
+clones, installs each service's Poetry env with its extras inside its
+package directory, bakes the MCP venv, renders the service account's
+`config.ini` (only if absent), and renders every unit into a staging
+directory — all unprivileged and rerunnable — then prints the root steps
+(install `site.env` and the units, `daemon-reload`, `enable --now`).
+
+The gotchas it bakes in, collected from live deploys and kept here so
+they are not re-learned when the script is read in a hurry:
 
 1. Create the dedicated service account; install everything as that
-   account (units run as it). Python 3.11 and `~/.local/bin/poetry`
-   per the runbooks.
+   account (units run as it; Poetry keys venvs under the invoking user).
+   Python 3.11 and `~/.local/bin/poetry` per the runbooks.
 2. One clone per service family, named for the service
-   (`~/<service>-checkout`); per-clone `poetry install` **inside the
+   (`<root>/<service>-checkout`); per-clone `poetry install` **inside the
    package directory**, with that service's extras.
 3. `~/.config/geecs_python_api/config.ini` per the
    [Getting started](../tutorials/getting_started.md) reference — it
    feeds every service (CA address, Tiled URI/key, data-share path,
-   qserver address, config-repo paths).
+   qserver address, config-repo paths). The bootstrap renders it from
+   `site.env`; the Tiled API key is entered by hand.
 4. Non-login shells (plain `ssh host 'cmd'`, systemd) don't have
-   `~/.local/bin` on `PATH` — use `bash -lc` for remote poetry
-   commands, and absolute `ExecStart` paths in units.
+   `~/.local/bin` on `PATH` — the units carry Poetry's absolute path
+   (`GEECS_POETRY`), and remote commands use `bash -lc`.
 5. A GEECS-Plugins-Configs checkout consumed from the data share is
    typically Windows-authored (CRLF): set `core.autocrlf true` on that
    checkout before pulling from Linux, or every file reads as locally
    modified and pulls abort. Never "fix" the line endings in place —
    LabVIEW consumers read the same files.
-6. Quote systemd `ExecStart` arguments that carry share paths — the
-   lab's paths contain spaces (`.../Active Version/...`).
-7. Install units from each package's `deploy/` template (generic
-   service-account placeholders), then `systemctl daemon-reload`,
-   `enable`, `start`, and run the runbook's health check before
-   calling it deployed. Update this page's table in the same PR.
+6. Share paths carry spaces (`.../Active Version/...`): `site.env`
+   quotes them and the rendered units inherit the quoting.
+7. Run the runbook's health check before calling a service deployed,
+   then `scripts/fleet_status.sh` from a client — every row should read
+   systemd / clean clone / matching versions. Update this page's table
+   in the same PR.
 
 ## How the planes connect
 

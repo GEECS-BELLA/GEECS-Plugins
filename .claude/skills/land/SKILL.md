@@ -49,7 +49,13 @@ carries the mechanics.
    Never commit to the base branches or master directly.
 2. **Scope check**: one concern per PR. If the diff mixes concerns, split
    it. Flag judgment-call additions explicitly in the PR body so they are
-   cheap to veto (owner preference).
+   cheap to veto (owner preference). Also a **facility-literal check**
+   (root CLAUDE.md § "Facility values have one home"): if the diff adds a
+   lab literal — `192.168.`, an experiment name such as `Undulator`, a
+   service home path, a timezone — anywhere but a docstring/example
+   block, `deploy/site.env.example`, or an `analyzers/<Experiment>/`
+   package, flag it in the PR body with where the value should live
+   (`site.env` or `config.ini`). Instruction, not a hook.
 3. **Version + CHANGELOG** for every package whose code changed:
    `poetry version patch|minor` from inside the package dir (patch = bug
    fix, minor = feature/behavior change), plus a Keep-a-Changelog entry

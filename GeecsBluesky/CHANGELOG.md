@@ -4,6 +4,18 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.73.1] - 2026-09-03
+
+### Changed
+
+- `qserver/deploy/geecs-qserver.service` and `capture/deploy/geecs-capture.service`
+  are now **templates** rendered from the host's `site.env` by
+  `deploy/render_units.sh` (`@PLACEHOLDER@` holes for account/checkout
+  root/poetry path; `QS_EXPERIMENT`, CA addressing, and the capture daemon's
+  `--doc-addr` via `EnvironmentFile=`). The capture unit now passes
+  `--doc-addr ${GEECS_QS_DOC_ADDR}` explicitly (the live deployment already
+  did). Runbooks updated. No runtime change.
+
 ## [0.73.0] - 2026-09-02
 
 ### Added

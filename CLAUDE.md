@@ -331,6 +331,39 @@ The rule is pinned by tests:
 Each package's CLAUDE.md restates this rule with package-specific guidance for
 adding new analyzers/writers.
 
+### Facility values have one home
+
+A facility-specific value — experiment name, gateway address, serving
+interface, timezone, data-share mount, configs-repo path, service
+account, checkout root — lives in exactly one of two places: the client
+`~/.config/geecs_python_api/config.ini`, or the service host's
+`/etc/geecs/site.env` (rendered into the unit files by
+`deploy/render_units.sh`, consumed by `deploy/bootstrap_host.sh`). Committed
+files carry such values only as **examples or placeholders**: the unit
+templates use `@PLACEHOLDER@` holes (systemd cannot expand variables in
+`WorkingDirectory=`/`User=`/the exec path) and `${VARIABLE}` arguments;
+docstrings and `deploy/site.env.example` show HTU values labeled as the
+reference deployment; per-experiment *code* lives in
+`analyzers/<Experiment>/` packages, which is a different mechanism.
+
+**Why this matters:** the fleet is being stood up on a new services box
+and will be recreated at other GEECS facilities (different networks, or
+a different DB host on the same one). Every literal `192.168.6.14`,
+`Undulator`, `/home/<account>`, or `America/Los_Angeles` baked into a
+unit, a script, or a default argument is a fork the next site has to
+find by failure. The contract page is `docs/platform/site_profile.md`;
+`/land`'s scope check flags new lab literals outside the allowed places.
+
+The rule binds **new** units, scripts, and defaults. Known residue,
+scheduled for the site-profile arc's literal-cleanup phase
+(`Planning/site_profile/00_overview.md`, PR #775, Phase 4) and not to be fixed
+opportunistically: the `America/Los_Angeles` defaults in
+`geecs_bluesky` (`assets/tiled_readback.py`, `analysis/camera.py`,
+`analysis/assets.py`), the hand-curated `HOSTS` roster + `EXPERIMENT` in
+`GeecsPvaGateway/deploy/gen_fleet_status.py`, the `"Undulator"` default
+in `geecs_data_utils.geecs_paths_config`, and `EXPERIMENT_FILE_IDS` in
+`geecs_data_utils.doc_id_lookup`.
+
 ## Known debt we have deliberately deferred
 
 Items below are *known* and *intentionally not being fixed right now*. If you
