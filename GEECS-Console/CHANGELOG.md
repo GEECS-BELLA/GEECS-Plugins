@@ -12,20 +12,23 @@ semantic.
   killed the bluesky document stream (`_DeadlockError` on
   `bluesky._vendor.super_state_machine`) and blanked the R6 idle
   "Scan NNN (previous)" display (`geecs_data_utils` "partially
-  initialized"). Four daemon threads spawned at construction — the
-  document stream, the manager status poll / console stream, the health
-  poll and the idle scan-number probe — each lazily first-imported a
-  package with internal import cycles (`bluesky`,
-  `bluesky_queueserver_api`, `geecs_data_utils`), and concurrent
-  first-imports of one cycle from different threads trip importlib's
-  per-module locks. `MainWindow.__init__` now calls
-  `services/warm_imports.py::warm_imports()` first — the cycle-bearing
-  modules import once on the GUI thread (~1.5 s, dominated by
+  initialized"). Daemon threads spawned at construction enter packages
+  with internal import cycles through *different* submodules at the
+  same time — `bluesky`: the document stream (`bluesky.callbacks.zmq`)
+  vs the health poll (`geecs_bluesky.devices.ca` → ophyd_async →
+  `bluesky.protocols`); `geecs_data_utils`: the idle scan-number probe
+  (`scan_paths`) vs the health poll (`geecs_bluesky.tiled_integration`
+  → `tiled_catalog`) — and Python's per-module import locks, which
+  serialize same-module imports, deadlock on that shape.
+  `MainWindow.__init__` now calls
+  `services/warm_imports.py::warm_imports()` first — one entry per
+  cycle-bearing package imports on the GUI thread (~1.3 s, dominated by
   `geecs_data_utils`/pandas; previously paid by the threads anyway)
   before any controller spawns a thread. The lazy import sites are
   unchanged; the warm-up is best-effort (a failure is logged and left to
-  the real call site to report). Pinned by an ordering test: the
-  warm-up precedes every `Thread.start` and the monitor's `start()`.
+  the real call site to report). Pinned by an ordering test (the
+  warm-up precedes every `Thread.start` and the monitor's `start()`)
+  and a source-grep pin over the thread-body modules.
 
 ## [0.28.0] - 2026-09-02
 

@@ -1,38 +1,48 @@
 """Startup import warm-up: load the cycle-bearing packages on one thread (#778).
 
-Several console daemon threads lazily import packages whose module graphs
-contain import cycles, and they all spawn within the first second of a
-launch:
+Python's per-module import lock serialises two threads importing the
+*same* module.  It does NOT protect a package whose ``__init__`` imports
+its own submodules when two threads enter that package through
+*different* submodules: thread A holds submodule X's lock and, inside the
+package ``__init__``, waits for Y; thread B holds Y's lock and waits for
+X.  importlib detects the cycle and raises ``_DeadlockError`` in one
+thread while the other sees a "partially initialized module (most likely
+due to a circular import)".  Which thread loses is timing dependent.
 
-- ``qs-doc-stream`` (``app/scan_monitor.py``): ``bluesky.callbacks.zmq`` →
-  ``bluesky`` → ``bluesky._vendor.super_state_machine``.
-- ``qs-console-stream`` and the manager status poll
-  (``ZmqQueueClient._manager``): ``bluesky_queueserver_api`` →
-  ``bluesky_queueserver`` → ``bluesky``.
-- ``console-health-poll`` (``services/health.py``):
-  ``geecs_bluesky.tiled_integration`` → ``geecs_data_utils.tiled_catalog``
-  → the ``geecs_data_utils`` package ``__init__`` → ``tiled_catalog``.
-- ``console-idle-scan-probe`` (``services/ops_paths.py``):
-  ``geecs_data_utils.scan_paths`` → the same package ``__init__``.
+The console's daemon threads spawn within the first second of a launch
+and hit exactly this shape (the racing pairs were reproduced cold, and
+verified quiet after the warm-up, in the #784 review):
 
-A cycle imports fine on ONE thread — importlib hands back the partially
-initialised module — but when two threads first-import the same cycle
-concurrently each holds a per-module lock the other needs.  importlib
-detects that and raises ``_DeadlockError`` in one thread while the other
-sees a "partially initialized module (most likely due to a circular
-import)".  Which thread loses is timing dependent, so the symptom moved
-around between launches: a dead document stream one time, a blank idle
-scan-number display the next.
+- ``bluesky``: the document stream (``qs-doc-stream``,
+  ``DocumentStreamWorker._run`` → ``bluesky.callbacks.zmq``) vs the health
+  poll (``console-health-poll``, ``GatewayTiledDbHealth._check_gateway`` →
+  ``geecs_bluesky.devices.ca._pv`` → ophyd_async → ``bluesky.protocols``).
+  The observed ``_DeadlockError`` is on
+  ``bluesky._vendor.super_state_machine.errors``.
+- ``geecs_data_utils``: the idle scan-number probe
+  (``console-idle-scan-probe``, ``ops_paths.todays_scan_folder`` →
+  ``geecs_data_utils.scan_paths``) vs the health poll
+  (``GatewayTiledDbHealth._tiled_uri`` → ``geecs_bluesky.tiled_integration``
+  → ``geecs_data_utils.tiled_catalog``).  The observed error is
+  ``read_tiled_config`` "partially initialized".
 
-:func:`warm_imports` imports each such module once, synchronously, on the
-caller's thread; :class:`~geecs_console.app.main_window.MainWindow` calls
-it first thing, before any controller spawns a thread, so every later
-lazy import finds a fully initialised module in ``sys.modules``.  The lazy
-imports themselves stay where they are — this is a load-*order* fix, not a
+:func:`warm_imports` imports one entry per cycle-bearing package once,
+synchronously, on the caller's thread;
+:class:`~geecs_console.app.main_window.MainWindow` calls it first thing,
+before any controller spawns a thread, so every later lazy import finds
+the package fully initialised in ``sys.modules``.  The lazy imports
+themselves stay where they are — this is a load-*order* fix, not a
 dependency change: each module's offline import-safety is unchanged, and a
 missing dependency still surfaces at the call site that needs it.  The
 warm-up is best-effort: an import failure is logged and skipped, never
 raised.
+
+Deliberately NOT warmed (heavy — aioca/ophyd — and safe once ``bluesky``
+is loaded, because they reach it through an already-initialised package):
+``geecs_bluesky.devices`` (health poll, device panel) and
+``geecs_bluesky.plans`` (the console stream's ``_failed_move_prefix``).
+``bluesky_queueserver_api`` is not warmed either: it does not import
+``bluesky`` and has no cycle of its own.
 """
 
 from __future__ import annotations
@@ -44,20 +54,18 @@ from typing import Sequence
 
 logger = logging.getLogger(__name__)
 
-#: The modules the console's daemon threads lazily import that carry (or
-#: pull in) an import cycle.  Add to this tuple when a new daemon thread's
-#: lazy import reaches ``bluesky``, ``bluesky_queueserver_api`` or
-#: ``geecs_data_utils`` through a new module — the entries name the exact
-#: modules the threads import so a warm-up miss is greppable.
+#: The modules the console's daemon threads lazily import that enter a
+#: package with import cycles (``bluesky``, ``geecs_data_utils``).  One
+#: entry per racing import site, named exactly as the thread imports it so
+#: a miss is greppable.  A new daemon-thread lazy import that reaches one
+#: of those packages goes here; ``tests/test_warm_imports.py`` greps the
+#: thread-body modules for the ``bluesky`` / ``geecs_data_utils`` sites.
 WARM_MODULES: tuple[str, ...] = (
-    # DocumentStreamWorker._run (qs-doc-stream)
+    # DocumentStreamWorker._run (qs-doc-stream) — loads all of bluesky
     "bluesky.callbacks.zmq",
-    # ZmqQueueClient._manager (status poll) and ConsoleStreamWorker._run
-    "bluesky_queueserver_api.zmq",
-    "bluesky_queueserver_api.console_monitor",
-    # ops_paths.todays_scan_folder (idle scan-number probe)
+    # ops_paths.todays_scan_folder (console-idle-scan-probe)
     "geecs_data_utils.scan_paths",
-    # GatewayTiledDbHealth._tiled_uri (health poll)
+    # GatewayTiledDbHealth._tiled_uri (console-health-poll)
     "geecs_bluesky.tiled_integration",
 )
 

@@ -93,8 +93,10 @@ def main(argv: Optional[list[str]] = None) -> int:
     # loop and dispatches blocking :SP puts off the GUI thread.  The scan
     # service is the queueserver manager client (built by the window's
     # default submitter factory from the [qserver] config section); the
-    # optimization stack now lives worker-side, so the old GUI-process
-    # warm-up is gone with the in-process engine.
+    # optimization stack lives worker-side (its old GUI-process warm-up
+    # went with the in-process engine).  The window's own warm_imports()
+    # (#778) is a different thing: import load-order, run inside
+    # MainWindow.__init__ before its daemon threads spawn.
     window = MainWindow(
         health=GatewayTiledDbHealth(),
         device_panel=GatewayDevicePanel(),

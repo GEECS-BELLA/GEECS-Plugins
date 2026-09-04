@@ -243,9 +243,9 @@ class MainWindow(QMainWindow):
         # Import the cycle-bearing packages once, here on the GUI thread,
         # BEFORE any controller below spawns a daemon thread (#778): the
         # health poller, the idle scan-number probe, the actions fetch and
-        # the scan monitor each lazily import bluesky /
-        # bluesky_queueserver_api / geecs_data_utils on their own threads,
-        # and concurrent first-imports of one import cycle trip importlib's
+        # the scan monitor each lazily import bluesky / geecs_data_utils
+        # on their own threads, and two threads entering one of those
+        # packages through different submodules trip importlib's
         # _DeadlockError — a dead document stream and a blank idle display
         # on every launch.  Pinned by tests/test_main_window.py.
         warm_imports()
