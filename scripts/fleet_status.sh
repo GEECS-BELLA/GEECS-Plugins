@@ -57,7 +57,8 @@ declare -a SSH_OVERRIDES=()
 ORIG_ARGS=("$@")
 while [ $# -gt 0 ]; do
     case "$1" in
-        --watch) shift; WATCH="${1:-300}" ;;
+        --watch)  # optional numeric interval; a following flag is not the interval
+            case "${2:-}" in ''|-*) WATCH=300 ;; *[!0-9]*) echo "--watch wants a number of seconds, got '$2'" >&2; exit 2 ;; *) shift; WATCH="$1" ;; esac ;;
         --summary) SUMMARY=1 ;;
         --full) FULL=1 ;;
         --experiment) shift; EXPERIMENT="${1:-}" ;;
@@ -636,6 +637,8 @@ if [ "$SUMMARY" -eq 1 ]; then
     exec 1>&3
     if [ "$NET_UP" -eq 1 ]; then
         python3 "$REPO_ROOT/scripts/fleet_table.py" < "$REC_FILE"
+    elif [ "$LOCAL_ONLY" -eq 1 ]; then
+        sed -n '/^== Stage 3/,$p' "$LOG_FILE"   # local checkouts are the whole picture here
     else
         grep -E '^\s+\[(DOWN|WARN)\]' "$LOG_FILE" | head -6
         echo "  network: DOWN or partial — remote fleet state UNKNOWN (see --full)"
