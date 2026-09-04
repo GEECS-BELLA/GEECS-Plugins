@@ -4,7 +4,7 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [0.73.2] - 2026-09-03
+## [0.73.3] - 2026-09-04
 
 ### Fixed
 
@@ -24,12 +24,28 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   new async + save device — the #520 NaN class). The client-side submit
   preflight reuses the same helper as a new **`snapshot_images`** check —
   a question (warning the operator can continue past), never a refusal — so
-  console and MCP operators see it pre-submit (GEECS-MCP 0.8.5 adds the name
+  console and MCP operators see it pre-submit (GEECS-MCP 0.8.6 adds the name
   to its acknowledgeable-check vocabulary). The combination is still
   accepted (the entry's scalars are recorded); rejecting it at the schema is
   left open for the owner, and snapshot-role image support (#702) is not
   built here. Pinned by runner (fires for snapshot + images, silent for
   synchronous + images and snapshot without images) and preflight tests.
+
+## [0.73.2] - 2026-09-03
+
+### Fixed
+
+- `poetry.lock` refreshed for ImageAnalysis 1.14.1 (#752): matplotlib
+  (and contourpy / fonttools / kiwisolver / pyparsing) now resolve under
+  `extra == "analysis"` as well as `optimize`, so
+  `poetry install --extras "ca tiled analysis"` yields an env where
+  `image_analysis.config.load_diagnostic` / `create_image_analyzer` can
+  import the StandardAnalyzer family. Note that the `analysis` extra
+  still has no in-package consumer that works without `optimize`:
+  `optimization/base_evaluator.py` and `config_models.py` hard-import
+  `scan_analysis` / `xopt` at module top level (pre-existing; tracked
+  separately). The boto3 chain (boto3 / botocore / jmespath /
+  s3transfer) leaves the lock. Lock-file refresh only — no code change.
 
 ## [0.73.1] - 2026-09-03
 

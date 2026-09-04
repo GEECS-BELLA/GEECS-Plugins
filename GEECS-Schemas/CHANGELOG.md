@@ -12,7 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `SaveSetEntry.images` / `SaveSetEntry.role` descriptions and the
   `SaveRole.SNAPSHOT` docstring now say the snapshot role ignores `images`
   (scalars only; the scanner warns about the combination — GeecsBluesky
-  0.73.2, #754). Description-only; no schema or validation change — the
+  0.73.3, #754). Description-only; no schema or validation change — the
   combination is deliberately still accepted.
   `docs/geecs_schemas/schema_reference.md` regenerated.
 
