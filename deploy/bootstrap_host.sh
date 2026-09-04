@@ -144,7 +144,12 @@ if [ -s "$CFG" ]; then   # -s: an empty placeholder file counts as absent
     # site.env is the root: show where the existing file disagrees with the
     # rendered form so a stale client config is reconciled, not kept silently.
     echo "  exists: $CFG — left untouched; differences vs the form site.env would render (< existing, > rendered):"
-    if diff <(grep -vE '^\s*#|^\s*$|api_key' "$CFG") <(render_config_ini | grep -vE '^\s*#|^\s*$|api_key') | sed 's/^/      /'; then
+    # Both sides normalised the way configparser reads them (comments and
+    # blanks dropped, api_key hidden, `key=value` spacing and key case
+    # unified) so only real value changes show. Relies on pipefail: the
+    # `if` tests diff's status (1 = differences), not sed's.
+    ini_norm() { grep -vE '^[[:space:]]*#|^[[:space:]]*$|api_key' | sed -E 's/^([^=]*[^[:space:]=])[[:space:]]*=[[:space:]]*/\1 = /' | awk -F' = ' '{ if (NF > 1) { k = tolower($1); sub(/^[^=]*= /, ""); print k " = " $0 } else print }'; }
+    if diff <(ini_norm < "$CFG") <(render_config_ini | ini_norm) | sed 's/^/      /'; then
         echo "      (none — the file matches site.env)"
     fi
 elif [ "$DRY" -eq 1 ]; then echo "  [dry] would write $CFG:"; render_config_ini | sed 's/^/      /'
