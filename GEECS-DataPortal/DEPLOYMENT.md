@@ -52,8 +52,10 @@ without touching the checkouts other services run from (the
 queueserver-worker precedent). Give the checkout a portal-specific
 name — on a box that also runs the CA gateway, a checkout named plain
 `~/GEECS-Plugins` is likely the *gateway's* running checkout, and this
-runbook's Upgrade step must never `git pull` that one. Paths below
-assume `~/GEECS-Plugins-portal` — substitute yours.
+runbook's Upgrade step must never `git pull` that one. The site
+profile fixes the name: `<root>/portal-checkout`, where `<root>` is
+`GEECS_CHECKOUT_ROOT` from the host's `site.env`
+(`docs/platform/site_profile.md`); paths below use that.
 
 **Run every command in this section as the service account** (the
 `User=` of the unit): Poetry keys the project venv under the invoking
@@ -62,23 +64,28 @@ the service and the unit crash-loops on an empty env while admin-side
 checks pass.
 
 ```bash
-cd ~/GEECS-Plugins-portal/GEECS-DataPortal
+cd <root>/portal-checkout/GEECS-DataPortal
 poetry env use python3.11
 poetry install --extras analysis
 ```
 
 The `analysis` extra installs ImageAnalysis for the Images tab's
-**processing selector** (0.13.0+). The feature is explicit-opt-in
-twice over: the extra installs the code, and the unit's `ExecStart`
-must name the scan-analysis configs tree —
+**processing selector** (0.13.0+) and the Analysis tab. The feature
+needs both the extra and the scan-analysis configs tree on the command
+line; the rendered unit supplies the latter from the site profile —
 
 ```
---processing-configs "/path/to/GEECS-Plugins-Configs/scan_analysis_configs"
+--processing-configs "${GEECS_CONFIGS_ROOT}/scan_analysis_configs"
 ```
 
-(quote it — the lab's share paths contain spaces). Omit both for a
-raw-images-only portal; the selector hides itself and nothing else
-changes. A misconfigured tree logs a startup WARNING naming the path.
+(`GEECS_CONFIGS_ROOT` is the configs repo on the data share, quoted
+because the lab's share paths contain spaces; systemd substitutes the
+quoted `${VAR}` as one argument). The argument is unconditional in the
+rendered unit and the bootstrap always installs the extra: there is no
+raw-images-only configuration to maintain by hand (a rendered unit is
+never edited — a re-render is part of every deploy). A missing or
+misconfigured tree logs a startup WARNING naming the path and the
+selector hides itself; nothing else changes.
 
 Smoke-test in the foreground before installing the unit:
 
@@ -94,11 +101,13 @@ browser and open one run's image gallery (exercises the share mount).
 
 ## systemd unit
 
-`deploy/geecs-data-portal.service` — install per its header comments
-(copy, `sudoedit` the account/paths, `daemon-reload`,
-`enable --now`). Site specifics (the real account, checkout path,
-`--experiment`) live in the `/etc/systemd/system` copy, not in the
-repo file.
+`deploy/geecs-data-portal.service` is a **template**: render it from the
+host's `site.env` with `deploy/render_units.sh` (or let
+`deploy/bootstrap_host.sh` do the whole host), then install the rendered
+unit and `enable --now` it — see the
+[Site Profile](../docs/platform/site_profile.md). The account, checkout
+root, poetry path, experiment, and timezone all come from `site.env`;
+nothing site-specific is typed into the unit by hand.
 
 Verify:
 
@@ -143,7 +152,7 @@ degraded catalog, not a dead portal).
 ## Upgrade
 
 ```bash
-cd ~/GEECS-Plugins-portal && git pull
+cd <root>/portal-checkout && git pull      # the portal's clone only — never another service's
 cd GEECS-DataPortal && poetry install --extras analysis
 sudo systemctl restart geecs-data-portal
 ```
@@ -159,7 +168,7 @@ without the processing selector.)
 | Day pages load, images 404 | share not mounted (or moved) at `geecs_data_local_base_path`; a 404 on one shot with others fine is the exact-match rule working (that device missed the shot) |
 | Slow day listings | measure `list_runs` against the catalog first — the fix is a portal-side cache, not a schema change (scope doc, open questions) |
 | Unit crash-loops at start | wrong absolute Poetry path in `ExecStart` (`status` shows 203/EXEC); env installed by a different account than `User=` (empty venv — reinstall as the service account); or port 8200 already taken. A down Tiled does **not** exit the service — that shows up as the `/health` row above |
-| Evening scans 404 (or resolve oddly) while daytime scans work | host timezone differs from the scanner hosts' — daily folders are named by the scanner's local date. The unit pins `TZ`; keep it matching the lab's zone |
+| Evening scans 404 (or resolve oddly) while daytime scans work | host timezone differs from the scanner hosts' — daily folders are named by the scanner's local date. `site.env` sets `TZ`; keep it matching the lab's zone |
 
 The fleet-map page (`docs/platform/fleet_map.md`) carries the
 service's row — host, port, health check — and must be updated in the

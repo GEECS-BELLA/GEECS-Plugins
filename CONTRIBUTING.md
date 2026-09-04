@@ -8,7 +8,7 @@ live in the root and per-package `CLAUDE.md` files, which are the canonical
 instructions for AI-assisted development — if you work with Claude/Codex,
 those files are loaded automatically, and repo-checked skills under
 `.claude/skills/` (e.g. `/land`, `/check`, `/triage`, `/scan-audit`,
-`/env-doctor`, `/get-started`)
+`/env-doctor`, `/get-started`, `/lab-status`, `/fleet-status`)
 encode the recurring workflows. New to the repo entirely? Start with
 [Getting started](docs/tutorials/getting_started.md) (published on the
 docs site), or launch Claude Code from the repo root and type
@@ -118,6 +118,10 @@ Style: NumPy docstrings, type hints on public functions, Pydantic v2
   into existence. Auto-creating an "apparently missing" folder has
   orphaned real data in production. Pinned by tests; details in the root
   `CLAUDE.md` ("Cross-package invariants").
+- **Facility values have one home** — `config.ini` client-side,
+  `/etc/geecs/site.env` host-side; committed files carry lab addresses,
+  experiment names, account paths, and timezones only as examples or
+  placeholders (`docs/platform/site_profile.md`).
 - **This repo is public.** No lab account names, hostnames, or user home
   paths in committed files (generic placeholders instead); internal
   `192.168.6.x` addresses are accepted practice.

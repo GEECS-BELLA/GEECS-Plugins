@@ -78,7 +78,9 @@ when you work on them; `scripts/check.sh` knows which is which.
 
 ## The config file
 
-Everything in the suite reads one small INI file:
+Everything in the suite reads one small INI file — the *client half* of
+the [site profile](../platform/site_profile.md) (a service host's
+`site.env` is the other half; the two carry the same facility values):
 
 ```
 ~/.config/geecs_python_api/config.ini
@@ -91,22 +93,40 @@ the data path in particular depends on how the data share is mounted):
 ```ini
 [Paths]
 geecs_data = Z:/data/
+GEECS_DATA_LOCAL_BASE_PATH = Z:/data/
+scanner_config_root_path = C:/path/to/GEECS-Plugins-Configs
 scan_analysis_configs_path = C:/path/to/GEECS-Plugins-Configs/scan_analysis_configs
 image_analysis_configs_path = C:/path/to/GEECS-Plugins-Configs/image_analysis_configs
 
 [Experiment]
 expt = Undulator
 rep_rate_hz = 1
+
+[tiled]
+uri = http://192.168.6.14:8000
+api_key = <ask the Tiled admin>
+
+[epics]
+ca_addr_list = 192.168.6.14
+
+[qserver]
+host = 192.168.6.14
 ```
+
+(The lab addresses above are the HTU reference deployment's; the
+[Site Profile](../platform/site_profile.md) says what changes per
+facility. A service host's `config.ini` is rendered from its `site.env`
+by `deploy/bootstrap_host.sh` with these same keys.)
 
 What each section is for, and who reads it:
 
 | Section / key | Purpose | Read by |
 |---|---|---|
 | `[Paths] geecs_data` | Root of the experiment data share; also where `Configurations.INI` (database credentials) lives | Everything that touches scan data or the GEECS database |
+| `[Paths] GEECS_DATA_LOCAL_BASE_PATH` | The data share as mounted on *this* machine (scan-folder resolution; `scripts/lab_status.sh`'s mount probe) | GEECS-Data-Utils `GeecsPathsConfig`, the fleet scripts |
 | `[Paths] scan_analysis_configs_path` | Analyzer/diagnostic YAMLs in the configs repo | ScanAnalysis, LiveWatch, ConfigFileGUI |
 | `[Paths] image_analysis_configs_path` | Camera/1D analyzer configs in the configs repo | ImageAnalysis |
-| `[Paths] scanner_config_root_path` | Scanner save-element configs (optional) | GEECS Console |
+| `[Paths] scanner_config_root_path` | The configs repo root (scanner configs, derived channels, experiment defaults) | GEECS Console, GeecsBluesky, the CA gateway, GEECS-MCP |
 | `[Experiment] expt` | Your experiment's GEECS name (e.g. `Undulator`) | Nearly everything |
 | `[Experiment] rep_rate_hz` | Machine rep rate, for shot-count estimates | Scanner/Console |
 | `[tiled] uri`, `[tiled] api_key` | Tiled data-server access (optional) | GeecsBluesky, Scan Browser |

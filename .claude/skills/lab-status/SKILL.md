@@ -16,7 +16,9 @@ description: >
 `scripts/lab_status.sh` owns the endpoints, ports, and timeouts (derived
 from `~/.config/geecs_python_api/config.ini` — do not restate or hardcode
 them here or anywhere else). This skill is about running it at the right
-moment and acting on the answer.
+moment and acting on the answer. For *what code* the reachable services
+are running (checkout/branch/version per host) use `/fleet-status`,
+which runs this probe first as its gate.
 
 ## Tiers
 

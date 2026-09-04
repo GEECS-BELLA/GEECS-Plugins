@@ -40,8 +40,10 @@ dependency-less env while admin-side verification passes. Clone, install,
 and verify as the service user (`sudo -u geecs -i` or a direct login):
 
 ```bash
-sudo mkdir -p /opt/geecs && sudo chown geecs:geecs /opt/geecs
-sudo -u geecs git clone https://github.com/GEECS-BELLA/GEECS-Plugins.git /opt/geecs/GEECS-Plugins
+# <root> = GEECS_CHECKOUT_ROOT from the host's site.env (the service
+# account's home, or /opt/geecs after one chown); the worker's clone is
+# <root>/qs-checkout — deploy/bootstrap_host.sh creates it, or by hand:
+sudo -u geecs git clone https://github.com/GEECS-BELLA/GEECS-Plugins.git <root>/qs-checkout
 ```
 
 Install Poetry **as the service user** by the method approved for the host
@@ -54,7 +56,7 @@ failure):
 
 ```bash
 sudo -u geecs -i
-cd /opt/geecs/GEECS-Plugins/GeecsBluesky
+cd <root>/qs-checkout/GeecsBluesky
 poetry env use python3.11
 poetry install --extras "ca tiled qserver"
 ```
@@ -69,12 +71,17 @@ the `vm.overcommit_memory=1` sysctl fix.
 
 ### Shared config
 
-Create the standard GEECS config file for the service account:
+The standard GEECS config file for the service account
+(`~/.config/geecs_python_api/config.ini`, mode 600) is **rendered from
+`site.env` by `deploy/bootstrap_host.sh`** when it does not exist yet —
+do not pre-create an empty one (an empty file is treated as absent, a
+non-empty one is never overwritten). Then add the Tiled `api_key` by
+hand. To write it entirely by hand instead, follow the reference block in
+`docs/tutorials/getting_started.md`:
 
 ```bash
-sudo -u geecs sh -c 'mkdir -p "$HOME/.config/geecs_python_api"'
-sudo -u geecs sh -c 'install -m 600 /dev/null "$HOME/.config/geecs_python_api/config.ini"'
-sudo -u geecs sh -c 'editor "$HOME/.config/geecs_python_api/config.ini"'
+sudo -u geecs sh -c 'install -D -m 600 /dev/null "$HOME/.config/geecs_python_api/config.ini"'
+sudo -u geecs sh -c 'editor "$HOME/.config/geecs_python_api/config.ini"'   # fill it before running the bootstrap
 ```
 
 Use the [Getting Started config.ini section](../../../docs/tutorials/getting_started.md)
@@ -104,9 +111,11 @@ disabled"). Grep the journal for `WARNING`/`ERROR` after the first
 (2026-08-21 live-checkpoint lesson: three keys were discovered missing
 one failed scan at a time).
 
-The systemd unit sets `EPICS_CA_ADDR_LIST` explicitly. That is the deployment
-standard because `systemctl cat geecs-qserver.service` then shows the active
-Channel Access target without inspecting a private config file.
+The unit takes `EPICS_CA_ADDR_LIST` (+ `EPICS_CA_AUTO_ADDR_LIST=NO`) from
+`/etc/geecs/site.env` via `EnvironmentFile=`. To see the active Channel
+Access target: `systemctl show geecs-qserver -p EnvironmentFiles` names the
+file, `cat /etc/geecs/site.env` shows the value (world-readable by design —
+it holds no secrets).
 
 ### Data share
 
@@ -128,22 +137,18 @@ Replace `/mnt/geecs-data` with the path configured in `config.ini`.
 
 ## 2. Install the service unit
 
-Edit the placeholder values in `geecs-qserver.service` for the host:
-
-- `User=geecs` — replace only with the unprivileged service account created
-  for this host.
-- `WorkingDirectory=` — the `GeecsBluesky` checkout directory.
-- `QS_STARTUP_DIR=` — the queueserver startup profile directory.
-- `QS_EXPERIMENT=` — the GEECS experiment name served by this manager.
-- `EPICS_CA_ADDR_LIST=` — the CA gateway host, for example `192.168.6.14`.
-- `ExecStart=` — the service user's **absolute poetry path** (locate with
-  `command -v poetry` as that user) followed by
-  `run <checkout>/GeecsBluesky/qserver/launch_re_manager.sh`.
-
-Install and start:
+`geecs-qserver.service` is a **template** (see the
+[Site Profile](../../../docs/platform/site_profile.md)): the service
+account, checkout root, and poetry path are `@PLACEHOLDER@` holes filled
+by `deploy/render_units.sh` from the host's `site.env`; the experiment
+(`QS_EXPERIMENT`) and CA addressing (`EPICS_CA_ADDR_LIST` +
+`EPICS_CA_AUTO_ADDR_LIST=NO`) reach the process from the same file via
+`EnvironmentFile=`. Nothing is typed into the unit by hand.
 
 ```bash
-sudo cp geecs-qserver.service /etc/systemd/system/geecs-qserver.service
+# as the service account — or run deploy/bootstrap_host.sh for the whole host
+<root>/qs-checkout/deploy/render_units.sh /etc/geecs/site.env ~/deploy-staging
+sudo install -m 0644 ~/deploy-staging/geecs-qserver.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now geecs-qserver.service
 ```
@@ -245,7 +250,7 @@ Poetry environment from the checkout is the expected source:
 
 ```bash
 sudo -u geecs -i
-cd /opt/geecs/GEECS-Plugins/GeecsBluesky
+cd <root>/qs-checkout/GeecsBluesky
 poetry run qserver status
 ```
 
