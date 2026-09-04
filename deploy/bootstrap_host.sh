@@ -90,8 +90,11 @@ for c in $(for s in $SERVICES; do wanted "$s" && clone_of "$s"; done | sort -u);
     if [ -e "$dir/.git" ]; then
         gitdir="$(git -C "$dir" rev-parse --git-dir 2>/dev/null || true)"
         common="$(git -C "$dir" rev-parse --git-common-dir 2>/dev/null || true)"
-        if [ -z "$gitdir" ]; then
-            echo "  $c: WARNING — .git present but git cannot read it (a worktree whose main clone was removed, or corrupt); skipped — fix by hand"
+        top="$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null || true)"
+        if [ -z "$gitdir" ] || [ "$top" != "$(cd "$dir" && pwd -P)" ]; then
+            # Unreadable .git, or git walked UP to an enclosing repository (a
+            # stray .git under a git-managed home): not this directory's repo.
+            echo "  $c: WARNING — .git present but git cannot read it as this directory's repository (dangling worktree, corrupt, or a stray .git inside another repo); skipped — fix by hand"
             SKIP_CLONES="$SKIP_CLONES$c "; continue
         fi
         case "$gitdir" in
@@ -208,18 +211,22 @@ elif [ "$DRY" -eq 1 ]; then echo "  [dry] render_units.sh $SITE_ENV $STAGE ${TEM
 else RENDER_QUIET=1 "$REPO_ROOT/deploy/render_units.sh" "$SITE_ENV" "$STAGE" "${TEMPLATE_PATHS[@]}" | sed 's/^/  /'; fi
 
 say "root steps (a human runs these; nothing above needed sudo)"
-cat <<EOF
-  sudo install -D -m 0644 "$SITE_ENV" "$SITE_ENV_INSTALLED"
-  sudo install -m 0644 "$STAGE"/*.service /etc/systemd/system/
-  sudo systemctl daemon-reload
-EOF
+echo "  sudo install -D -m 0644 \"$SITE_ENV\" \"$SITE_ENV_INSTALLED\""
+if [ "${#TEMPLATE_PATHS[@]}" -gt 0 ]; then
+    echo "  sudo install -m 0644 \"$STAGE\"/*.service /etc/systemd/system/"
+    echo "  sudo systemctl daemon-reload"
+else
+    echo "  # nothing staged — no units to install"
+fi
 for s in $SERVICES; do
     wanted "$s" || continue
     if skipped_clone "$(clone_of "$s")"; then echo "  # $(unit_of "$s"): NOT enabled — $(clone_of "$s") is not a usable clone (see above)"; else echo "  sudo systemctl enable --now $(unit_of "$s")"; fi
 done
 echo
 if [ "$SKIP_CLONES" != " " ]; then
-    echo "WARNING: skipped clone dir(s):$SKIP_CLONES— not clones of their own (linked worktree or unreadable .git)." >&2
+    # ${VAR} braces on purpose: a bare $VAR abutting a non-ASCII character is
+    # parsed as part of the name by bash 3.2 under UTF-8 (unbound variable).
+    echo "WARNING: skipped clone dir(s):${SKIP_CLONES}— not clones of their own (linked worktree or unreadable .git)." >&2
     echo "         Replace each in a maintenance window per docs/platform/site_profile.md, then rerun this script." >&2
     echo
 fi
