@@ -4,7 +4,7 @@ All notable changes to GEECS-Console are documented here.  Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is
 semantic.
 
-## [0.28.1] - 2026-09-03
+## [0.28.2] - 2026-09-04
 
 ### Fixed
 
@@ -33,6 +33,32 @@ semantic.
   under the running dispatch. This was the larger part of the isolated
   `tests/test_main_window.py` segfaults (#767): 5/5 crashes before, 6/8
   with the poller hop alone, 0/8 with both.
+
+## [0.28.1] - 2026-09-03
+
+### Fixed
+
+- **Startup thread import race** (#778): every launch since 2026-08-24
+  killed the bluesky document stream (`_DeadlockError` on
+  `bluesky._vendor.super_state_machine`) and blanked the R6 idle
+  "Scan NNN (previous)" display (`geecs_data_utils` "partially
+  initialized"). Daemon threads spawned at construction enter packages
+  with internal import cycles through *different* submodules at the
+  same time — `bluesky`: the document stream (`bluesky.callbacks.zmq`)
+  vs the health poll (`geecs_bluesky.devices.ca` → ophyd_async →
+  `bluesky.protocols`); `geecs_data_utils`: the idle scan-number probe
+  (`scan_paths`) vs the health poll (`geecs_bluesky.tiled_integration`
+  → `tiled_catalog`) — and Python's per-module import locks, which
+  serialize same-module imports, deadlock on that shape.
+  `MainWindow.__init__` now calls
+  `services/warm_imports.py::warm_imports()` first — one entry per
+  cycle-bearing package imports on the GUI thread (~1.3 s, dominated by
+  `geecs_data_utils`/pandas; previously paid by the threads anyway)
+  before any controller spawns a thread. The lazy import sites are
+  unchanged; the warm-up is best-effort (a failure is logged and left to
+  the real call site to report). Pinned by an ordering test (the
+  warm-up precedes every `Thread.start` and the monitor's `start()`)
+  and a source-grep pin over the thread-body modules.
 
 ## [0.28.0] - 2026-09-02
 

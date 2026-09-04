@@ -4,6 +4,16 @@ All notable changes to `geecs-mcp` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.8.5] - 2026-09-03
+
+### Fixed
+
+- `poetry.lock` refreshed for ImageAnalysis 1.14.1 (#752): the boto3
+  chain (boto3 / botocore / jmespath / s3transfer) leaves the lock.
+  matplotlib's resolution is unchanged here — the `analysis-run` extra
+  already carried it through ScanAnalysis's main declaration. Lock-file
+  refresh only — no code change.
+
 ## [0.8.4] - 2026-09-03
 
 ### Changed

@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "imageanalysis"
-version = "1.14.0"
+version = "1.14.1"
 description = "Central sub-repository for online and offline analysis of BELLA exeriments' images."
 authors = ["Reinier van Mourik <reinier.vanmourik@tausystems.com>"]
 readme = "README.md"
@@ -18,25 +18,26 @@ pandas = "^2.2.3"
 Pint = ">=0.24,<=0.28"
 
 pyabel = ">=0.9.1,<1.0"
-nptdms = "^1.7.0"
-h5py = "*"
-
 
 # image libraries
 pypng = "^0.20220715.0"
 imageio = "^2.31.1"
 scikit-image = ">=0.19,<1.0"
 
+# rendering — imported at module top level by the runtime analyzers
+# (StandardAnalyzer, BeamAnalyzer, Standard1DAnalyzer, tools/rendering, ...),
+# so it is a main dependency, not a dev one (#752)
+matplotlib = "^3.0"
+
 # other
-boto3 = "^1.28"
 opencv-python = "^4.9.0.80"
 
 geecs-data-utils = { path = "../GEECS-Data-Utils", develop=true }
 
 
 [tool.poetry.group.dev.dependencies]
-matplotlib = "^3.0"
 pytest = ">=7.4"
+h5py = "*"   # tests only (tests/test_shotref_loading.py writes an HDF5 fixture)
 
 [build-system]
 requires = ["poetry-core"]

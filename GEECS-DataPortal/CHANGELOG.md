@@ -3,6 +3,15 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.20.2] - 2026-09-03
+
+### Fixed
+
+- `poetry.lock` refreshed for ImageAnalysis 1.14.1 (#752): the boto3
+  chain (boto3 / botocore / jmespath / s3transfer) leaves the lock.
+  matplotlib's resolution is unchanged here — the portal declares it as
+  a main dependency itself. Lock-file refresh only — no code change.
+
 ## [0.20.1] - 2026-09-03
 
 ### Changed

@@ -8,7 +8,7 @@ the Actions menu needed it from a second window-family module
 landed).  :class:`HealthPoller` — the interval-polling shape
 ``BackgroundResult`` generalized — moved here from ``app/main_window.py``
 in the issue #534 slimming (step 1).  Both ride the one GUI-thread hop,
-:class:`_GuiHopWorker` (0.28.0 for ``BackgroundResult``, 0.28.1 for
+:class:`_GuiHopWorker` (0.28.0 for ``BackgroundResult``, 0.28.2 for
 ``HealthPoller`` — issue #767).
 """
 

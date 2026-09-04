@@ -3,7 +3,7 @@
 The daemon thread never emits toward the consumer: the result hops onto
 the GUI thread through the worker's own queued signal and the public
 signal is emitted there — ``BackgroundResult.result_ready`` since 0.28.0,
-``HealthPoller.report_ready`` since 0.28.1 (#767).  These pin the
+``HealthPoller.report_ready`` since 0.28.2 (#767).  These pin the
 properties the mechanism exists for — where the consumer's slot runs, that
 a raising callable still releases the in-flight hold, that overlapping
 calls on one worker keep the hold until the last one lands, that the
@@ -125,7 +125,7 @@ def _wait_for_poll_thread_exit(timeout=3.0):
 
     The daemon thread exits right after hopping its report, so once it is
     gone the report is posted but not yet delivered — the window in which
-    the pre-0.28.1 poller had already cleared ``_busy``.
+    the pre-0.28.2 poller had already cleared ``_busy``.
     """
     deadline = time.monotonic() + timeout
     while any(t.name == "console-health-poll" for t in threading.enumerate()):
