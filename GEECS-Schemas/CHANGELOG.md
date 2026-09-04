@@ -21,6 +21,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   optimizer configs) are unchanged until their configs get the same
   treatment.
 
+## [0.17.1] - 2026-09-03
+
+### Changed
+
+- `SaveSetEntry.images` / `SaveSetEntry.role` descriptions and the
+  `SaveRole.SNAPSHOT` docstring now say the snapshot role ignores `images`
+  (scalars only; the scanner warns about the combination — GeecsBluesky
+  0.73.3, #754). Description-only; no schema or validation change — the
+  combination is deliberately still accepted.
+  `docs/geecs_schemas/schema_reference.md` regenerated.
+
 ## [0.17.0] - 2026-09-02
 
 ### Added

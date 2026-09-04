@@ -51,6 +51,11 @@ systemctl status geecs-ca-gateway
 journalctl -u geecs-ca-gateway -f     # expect the startup lines, then quiet
 ```
 
+`status=217/USER` in a crash loop means the installed unit is not a rendered
+one (generic `User=` — a pre-profile file, or a copy from an old staging
+run): the clone it was rendered from predates the templated units. Pull that
+clone forward, re-render, reinstall.
+
 Then the smoke tests from `DEPLOYMENT.md` §4 — from a *different* machine, so
 subnet scoping and firewalls are exercised:
 

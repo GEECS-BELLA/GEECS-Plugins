@@ -152,6 +152,25 @@ are prefixed by region (`r3_radio_1d`, `r5_start_button`, …).
   qs_client method bodies.  Without a `[qserver]` config section the
   stub client refuses submission with a message naming the missing
   section — everything else works.
+- **Startup import warm-up (#778)**: `MainWindow.__init__` calls
+  `services/warm_imports.py::warm_imports()` before any controller spawns
+  a daemon thread.  The precise hazard: Python's per-module import lock
+  serializes two threads importing the *same* module, but two threads
+  entering a package through *different* submodules that its `__init__`
+  imports (`bluesky` via `bluesky.callbacks.zmq` vs via ophyd_async's
+  `bluesky.protocols`; `geecs_data_utils` via `scan_paths` vs via
+  `tiled_catalog`) deadlock — importlib raises `_DeadlockError` in one
+  (dead document stream) and the other sees a "partially initialized"
+  module (blank idle display).  The lazy imports above stay lazy (offline
+  import-safety of each module, and `geecs_bluesky.devices` stays heavy);
+  the warm-up just makes sure `bluesky` and `geecs_data_utils` are fully
+  in `sys.modules` first.  A new daemon-thread lazy import that reaches
+  one of those packages goes in `WARM_MODULES` (pinned by a source grep in
+  `tests/test_warm_imports.py`); the ordering is pinned by
+  `tests/test_main_window.py::TestStartupImportWarmUp` (warm-up precedes
+  every `Thread.start`).  The one-in-flight dedupes in `app/actions_menu.py`
+  and `app/now_panel.py` mitigate the same class of hazard for native
+  first-imports on their own threads.
 - PySide6 only (LGPL, agent-editable `.ui` XML).  Never PyQt.
 - The `.ui` is hand-authored XML loaded at runtime via `QUiLoader` — no
   generated `*_ui.py` files to keep in sync.
@@ -368,20 +387,30 @@ are prefixed by region (`r3_radio_1d`, `r5_start_button`, …).
   0.7.0 — issue #510).  **Since 0.28.0 the daemon thread does not emit
   toward the consumer at all**: it hops the result onto the GUI thread
   through the worker's own queued `_landed` signal (receiver = the
-  worker, held in the module's `_INFLIGHT` set until the hop lands) and
-  `_forward` re-emits `result_ready` there — a daemon-thread emission
-  aimed at *any* consumer QObject, controller or window, races that
-  consumer's destruction (Qt's C++ bookkeeping survives it, PySide's
-  Python-slot delivery does not; the queue panel's fetch landing while
-  a test window was torn down segfaulted the suite at random
-  positions).  Consumers keep connecting `result_ready`
+  worker, held in the module's counted `_INFLIGHT` registry until the
+  hop lands) and `_forward` re-emits `result_ready` there — a
+  daemon-thread emission aimed at *any* consumer QObject, controller or
+  window, races that consumer's destruction (Qt's C++ bookkeeping
+  survives it, PySide's Python-slot delivery does not; the queue panel's
+  fetch landing while a test window was torn down segfaulted the suite
+  at random positions).  Consumers keep connecting `result_ready`
   `QueuedConnection`; delivery now takes two event-loop turns, so a
   test that assumes a startup result has landed waits for it
-  (`qtbot.waitUntil`).  `HealthPoller` still emits from its thread
-  straight at the window (the pre-existing shape; move it to the same
-  hop if it ever bites).  `closeEvent` disconnects each window-owned
-  worker's `result_ready`; the actions-menu, now-panel and queue-panel
-  controllers' workers are detached inside their `dispose()` instead.
+  (`qtbot.waitUntil`).  **Since 0.28.2 `HealthPoller` rides the same
+  hop** (#767 — the last emitter of the old shape *in this module*; the
+  stream workers in `app/scan_monitor.py`, the aioca readback callback
+  in `app/movable_panel.py` and the editors' completions thread in
+  `editors/base.py` still emit from their threads toward a consumer
+  QObject — inventoried in #787, not yet moved): the hop lives once in
+  the private `_GuiHopWorker` base both workers subclass (`_hop` on the
+  daemon thread, `_forward` → the subclass's `_deliver` on the GUI
+  thread), and the poller's in-flight skip lasts until the report has
+  landed, so `_busy` is only written on the GUI thread.  Any new
+  background worker subclasses `_GuiHopWorker`; when one of the
+  residual emitters bites, move it onto the same base.  `closeEvent`
+  disconnects each window-owned worker's `result_ready`; the
+  actions-menu, now-panel and queue-panel controllers' workers are
+  detached inside their `dispose()` instead.
 - **Actions menu (G-actions v1)** — owned by
   `app/actions_menu.py::ActionsMenuController` since 0.18.1 (issue #534
   step 3): the window creates the QMenu (kept in `self._menus`) and the
@@ -614,6 +643,15 @@ directly.)
 `QT_QPA_PLATFORM=offscreen poetry run pytest -q` — hermetic, pytest-qt,
 `qt_api = "pyside6"` pinned in pyproject.  The request-builder tests are the
 important ones: they validate the exact `ScanRequest` shapes against the
-real schema.  CI also runs this suite on `windows-latest` (the
+real schema.  **A window dropped by a test body is freed at a safe
+point**: `tests/conftest.py` wraps `pytest_runtest_call` and runs
+`gc.collect()` after the body, before pytest-qt's own post-call
+`processEvents`.  `MainWindow` is Python-owned and cyclic (window ↔
+controllers via the injected bound-method callbacks), so without that the
+cyclic GC would delete the C++ window at an arbitrary allocation — including
+inside `processEvents` while Qt is dispatching to it (a polish walk, a
+queued poll result), a segfault at a random test in isolated
+`test_main_window.py` runs (#767).  A test that drops a window *mid*-body
+and then pumps events (`qtbot.waitUntil`) must `gc.collect()` itself first.  CI also runs this suite on `windows-latest` (the
 `console-windows` job in `.github/workflows/unit-tests.yml`) — the console
 deploys to Windows control-room machines, so keep the suite green there too.

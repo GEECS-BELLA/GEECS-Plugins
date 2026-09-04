@@ -14,6 +14,62 @@ semantic.
   catalog is `scan_variables.yaml` only; an experiment without one opens as
   an empty catalog, exactly as before for a missing file.
 
+## [0.28.2] - 2026-09-04
+
+### Fixed
+
+- `HealthPoller` no longer emits `report_ready` toward its consumer from
+  the daemon thread (#767): the report takes the same GUI-thread hop
+  `BackgroundResult` got in 0.28.0 — the worker's own queued signal, the
+  worker held alive until the hop lands, `report_ready` emitted on the
+  GUI thread. It was the last emitter of that shape in
+  `services/background.py` and the busiest in the app (the 1 Hz manager
+  status poll and the 5 s health poll, aimed at the window and the scan
+  monitor); a poll landing while a test window was torn down
+  segfaulted isolated `tests/test_main_window.py` runs. The stream
+  workers, the movable panel's readback callback and the editors'
+  completions thread still emit from their threads (#787). The in-flight
+  skip stays and now lasts until the report has landed, so the `_busy`
+  flag is only ever written on the GUI thread. The hop itself lives once,
+  in the private `_GuiHopWorker` base both workers share. Delivery takes
+  two event-loop turns; consumer connections are unchanged.
+- The console test suite frees a window dropped by a test body at a safe
+  point: `tests/conftest.py` collects cyclic garbage after each test
+  body, before pytest-qt processes events. A `MainWindow` is Python-owned
+  and cyclic (window ↔ controllers through injected bound-method
+  callbacks), so a window dropped at `return` used to wait for the cyclic
+  GC, which could run inside pytest-qt's `processEvents` while Qt was
+  delivering an event to that window — shiboken deleted the C++ window
+  under the running dispatch. This was the larger part of the isolated
+  `tests/test_main_window.py` segfaults (#767): 5/5 crashes before, 6/8
+  with the poller hop alone, 0/8 with both.
+
+## [0.28.1] - 2026-09-03
+
+### Fixed
+
+- **Startup thread import race** (#778): every launch since 2026-08-24
+  killed the bluesky document stream (`_DeadlockError` on
+  `bluesky._vendor.super_state_machine`) and blanked the R6 idle
+  "Scan NNN (previous)" display (`geecs_data_utils` "partially
+  initialized"). Daemon threads spawned at construction enter packages
+  with internal import cycles through *different* submodules at the
+  same time — `bluesky`: the document stream (`bluesky.callbacks.zmq`)
+  vs the health poll (`geecs_bluesky.devices.ca` → ophyd_async →
+  `bluesky.protocols`); `geecs_data_utils`: the idle scan-number probe
+  (`scan_paths`) vs the health poll (`geecs_bluesky.tiled_integration`
+  → `tiled_catalog`) — and Python's per-module import locks, which
+  serialize same-module imports, deadlock on that shape.
+  `MainWindow.__init__` now calls
+  `services/warm_imports.py::warm_imports()` first — one entry per
+  cycle-bearing package imports on the GUI thread (~1.3 s, dominated by
+  `geecs_data_utils`/pandas; previously paid by the threads anyway)
+  before any controller spawns a thread. The lazy import sites are
+  unchanged; the warm-up is best-effort (a failure is logged and left to
+  the real call site to report). Pinned by an ordering test (the
+  warm-up precedes every `Thread.start` and the monitor's `start()`)
+  and a source-grep pin over the thread-body modules.
+
 ## [0.28.0] - 2026-09-02
 
 ### Added

@@ -1987,3 +1987,63 @@ class TestStartupListingMessage:
         assert win.statusBar().currentMessage() == "No experiment selected."
         win.experiment_combo.setCurrentText("TestExp")
         assert win.statusBar().currentMessage() == ""
+
+
+class TestStartupImportWarmUp:
+    """#778: the cycle-bearing imports are warmed before any thread spawns.
+
+    Concurrent first-imports of one import cycle (bluesky,
+    bluesky_queueserver_api, geecs_data_utils) from several daemon threads
+    trip importlib's ``_DeadlockError``; the window must resolve them on
+    the GUI thread first.  A two-thread race test would be flaky by
+    nature, so the pin is the ORDER: ``warm_imports()`` precedes every
+    ``Thread.start`` and the scan monitor's ``start()`` during
+    construction — and the assertion is non-vacuous (threads did spawn).
+    """
+
+    def test_warm_up_precedes_every_thread_and_the_monitor_start(
+        self, qtbot, monkeypatch
+    ):
+        import threading
+
+        from geecs_console.app import main_window as module
+        from geecs_console.app.scan_monitor import ScanMonitorController
+
+        events: list[str] = []
+        monkeypatch.setattr(module, "warm_imports", lambda: events.append("warm"))
+
+        real_thread_start = threading.Thread.start
+
+        def spy_thread_start(thread):
+            events.append(f"thread:{thread.name}")
+            return real_thread_start(thread)
+
+        monkeypatch.setattr(threading.Thread, "start", spy_thread_start)
+
+        real_monitor_start = ScanMonitorController.start
+
+        def spy_monitor_start(controller, timer_parent):
+            events.append("monitor.start")
+            return real_monitor_start(controller, timer_parent)
+
+        monkeypatch.setattr(ScanMonitorController, "start", spy_monitor_start)
+
+        win = MainWindow(
+            configs=FakeConfigs(),
+            presets=FakePresetStore(),
+            settings=FakeSettings(last_experiment="TestExp"),
+            submitter=FakeSubmitter(),
+            health=FakeHealth(),
+        )
+        qtbot.addWidget(win)
+        if win._monitor is not None:
+            win._monitor.dispose()
+
+        assert events and events[0] == "warm", events
+        assert events.count("warm") == 1
+        assert "monitor.start" in events
+        # Non-vacuous: construction really did spawn daemon threads (the
+        # health poll at least), and every one of them came after the warm-up.
+        threads = [e for e in events if e.startswith("thread:")]
+        assert threads, events
+        assert all(events.index(t) > events.index("warm") for t in threads)

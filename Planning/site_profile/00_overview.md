@@ -2,7 +2,9 @@
 
 Execution plan, 2026-09-03 (Sam + Claude session that built `/fleet-status`).
 Status: **Phases 1+2 built as PR #777** (same day; merge order #775 → #776 →
-#777). Written for whoever picks it up; assumes no context from the
+#777). **Phase 3 executed 2026-09-04** (cutover on the interim host; fleet map
+updated in PR #792; fixes it surfaced: #782 worktree detection, #791
+pre-profile template refusal). Written for whoever picks it up; assumes no context from the
 originating conversation. Where this document and #777 differed after the
 build, the document was corrected to the built behaviour (2026-09-03,
 after a Codex review of this PR).

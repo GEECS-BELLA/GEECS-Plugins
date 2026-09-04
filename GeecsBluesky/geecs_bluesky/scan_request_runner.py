@@ -175,6 +175,13 @@ def save_set_to_devices_config(
     *scalar_policy* ``None`` (no DB / off-network) only explicit scalars
     are recorded.
 
+    A snapshot-role entry with ``images: true`` is a silent no-op downstream
+    (see :func:`snapshot_images_ignored`), so this seam — the one place the
+    role becomes mechanics, run by the worker and by the client-side
+    submit preflight alike — logs one loud warning per save set naming the
+    affected devices (#754).  The combination is not rejected: the entry's
+    scalars are still recorded.
+
     Returns
     -------
     dict
@@ -227,7 +234,50 @@ def save_set_to_devices_config(
             "save_nonscalar_data": entry.images,
             "variable_list": variable_list,
         }
+    ignored = snapshot_images_ignored(config)
+    if ignored:
+        logger.warning(snapshot_images_ignored_message(ignored, save_set.name))
     return config
+
+
+def snapshot_images_ignored(
+    devices_config: Mapping[str, Mapping[str, Any]],
+) -> list[str]:
+    """Devices whose ``images: true`` the snapshot role ignores (#754).
+
+    A snapshot-role (asynchronous) entry records scalars only: the engine
+    never drove native saving for the role (``session.snapshot`` has no
+    ``save_images``, so ``_configure_saving`` skips it) and the capture
+    daemon never owns it (#702 / #751) — ``images: true`` on such an entry
+    is a no-op for every devicetype, DB or no DB.  This reads the derived
+    ``devices_config`` (``synchronous`` / ``save_nonscalar_data``), so it
+    needs neither the DB nor the schema and is the one definition shared by
+    :func:`save_set_to_devices_config` (the worker's scan.log) and the
+    client-side :mod:`geecs_bluesky.qs_client.submit_preflight`.
+
+    Returns
+    -------
+    list[str]
+        Device names in *devices_config* order; empty when nothing is ignored.
+    """
+    return [
+        name
+        for name, cfg in devices_config.items()
+        if cfg.get("save_nonscalar_data") and not cfg.get("synchronous", False)
+    ]
+
+
+def snapshot_images_ignored_message(devices: list[str], save_set_name: str = "") -> str:
+    """The operator-facing text for :func:`snapshot_images_ignored`, one wording everywhere."""
+    where = f"save set {save_set_name!r}: " if save_set_name else ""
+    return (
+        f"{where}`images: true` is IGNORED for snapshot-role entries "
+        f"{devices} — the snapshot role (legacy `synchronous: false`) records "
+        "scalars only; the engine neither commands nor suppresses the device's "
+        "own save flag, so it records no per-shot images for these devices "
+        "(#754). Remove `role: snapshot` to have the engine save their images, "
+        "or drop `images: true` to silence this."
+    )
 
 
 def _requirement_field(requirement: Any, name: str, default: Any) -> Any:
@@ -291,6 +341,7 @@ def merge_optimizer_device_requirements(
     provisioned: dict[str, dict[str, Any]] = {}
     if not devices:
         return provisioned
+    already_ignored = set(snapshot_images_ignored(devices_config))
     for device_name, requirement in devices.items():
         req_vars = [
             str(v) for v in (_requirement_field(requirement, "variable_list", []) or [])
@@ -357,6 +408,24 @@ def merge_optimizer_device_requirements(
                     configured_name,
                     added,
                 )
+    # The merge is the second place role meets mechanics: a requirement can
+    # ask for images on a device the save set holds in the snapshot role
+    # (synchronous is preserved, save flips on), or provision a new device
+    # as async + save.  Both are the #754 no-op — the objective's images
+    # would never be recorded (the #520 NaN class) — so warn for what THIS
+    # merge introduced; the save set's own offenders were already warned at
+    # save_set_to_devices_config.
+    introduced = [
+        d for d in snapshot_images_ignored(devices_config) if d not in already_ignored
+    ]
+    if introduced:
+        logger.warning(
+            "%s The optimizer's device_requirements asked for these images, "
+            "so the objective's diagnostics would NOT be recorded (for an "
+            "auto-provisioned device with no save-set entry, the requirement's "
+            "own synchronous: false is the cause).",
+            snapshot_images_ignored_message(introduced),
+        )
     return provisioned
 
 

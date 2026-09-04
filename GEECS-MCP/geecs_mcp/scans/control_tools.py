@@ -59,6 +59,7 @@ logger = logging.getLogger("geecs_mcp.scans.control")
 #: the provenance record, which stamps ``continued`` only for questions
 #: actually raised.
 _ACKNOWLEDGEABLE_CHECKS = (
+    "snapshot_images",
     "unserved_variables",
     "gateway_liveness",
     "free_run_staleness",

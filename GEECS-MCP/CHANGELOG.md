@@ -4,6 +4,28 @@ All notable changes to `geecs-mcp` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.8.6] - 2026-09-04
+
+### Changed
+
+- `submit_scan`'s acknowledgeable-check vocabulary
+  (`_ACKNOWLEDGEABLE_CHECKS`) gains **`snapshot_images`**, the new
+  pre-submit warning GeecsBluesky 0.73.3 raises when a snapshot-role
+  save-set entry has `images: true` (#754). Without this the tuple's
+  fail-closed drift guard would refuse to acknowledge the new question and
+  such a request could never be submitted through the MCP. Pinned by a
+  control-tools test.
+
+## [0.8.5] - 2026-09-03
+
+### Fixed
+
+- `poetry.lock` refreshed for ImageAnalysis 1.14.1 (#752): the boto3
+  chain (boto3 / botocore / jmespath / s3transfer) leaves the lock.
+  matplotlib's resolution is unchanged here — the `analysis-run` extra
+  already carried it through ScanAnalysis's main declaration. Lock-file
+  refresh only — no code change.
+
 ## [0.8.4] - 2026-09-03
 
 ### Changed

@@ -93,6 +93,22 @@ configs repo (`GEECS-Plugins-Configs`) is **not** cloned per service: it
 is data, read at runtime, and the copy on the data share is the one
 LabVIEW reads too — `GEECS_CONFIGS_ROOT` points at it.
 
+**A clone means a clone, not a `git worktree`.** A linked worktree shares
+its object store *and its branch refs* with the clone it was made from.
+If the same branch ends up checked out in both — git allows that only
+via `--ignore-other-worktrees` or `--force`, which is how the 2026-09-03
+state arose (`qs-checkout` was a worktree of the gateway's clone, both
+on `master`) — a `git pull` in one moves the other's HEAD with no
+checkout, and that service runs an older tree than its HEAD claims. The
+bootstrap detects a linked worktree (or an unreadable `.git`), warns,
+and **skips every stage for the services that clone hosts** (no env, no
+unit, no `enable` line), ending with the warning again. Replace it in a
+maintenance window: stop its services, `git -C <main clone> worktree
+remove --force <dir>` (or move it aside and `git -C <main clone>
+worktree prune`), rerun `deploy/bootstrap_host.sh` — it clones and
+installs — then start the services. `/fleet-status` flags a worktree on
+every run (`WORKTREE of <clone>` in the row's notes).
+
 ## Standing up a host
 
 ```bash
@@ -111,7 +127,11 @@ after a clone appears; it fetches existing clones but never moves their
 HEAD (a pull is a deploy — do it per service, deliberately, then restart
 that unit). Each unit is rendered from **its own service's clone**, so a
 unit always matches the code it runs even when the clones sit at
-different pins; re-rendering a unit is part of that service's deploy. The fleet map's bootstrap gotchas (login-shell PATH, CRLF on
+different pins; re-rendering a unit is part of that service's deploy. A
+clone pinned *before* the templated units exist has no template to
+render: the render refuses it by name ("not a site-profile template")
+rather than passing the old hand-edit unit through — pull that clone
+forward first. The fleet map's bootstrap gotchas (login-shell PATH, CRLF on
 the share-mounted configs checkout, quoting share paths with spaces) are
 baked into the scripts and the example file.
 
