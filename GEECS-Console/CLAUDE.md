@@ -152,6 +152,25 @@ are prefixed by region (`r3_radio_1d`, `r5_start_button`, …).
   qs_client method bodies.  Without a `[qserver]` config section the
   stub client refuses submission with a message naming the missing
   section — everything else works.
+- **Startup import warm-up (#778)**: `MainWindow.__init__` calls
+  `services/warm_imports.py::warm_imports()` before any controller spawns
+  a daemon thread.  The precise hazard: Python's per-module import lock
+  serializes two threads importing the *same* module, but two threads
+  entering a package through *different* submodules that its `__init__`
+  imports (`bluesky` via `bluesky.callbacks.zmq` vs via ophyd_async's
+  `bluesky.protocols`; `geecs_data_utils` via `scan_paths` vs via
+  `tiled_catalog`) deadlock — importlib raises `_DeadlockError` in one
+  (dead document stream) and the other sees a "partially initialized"
+  module (blank idle display).  The lazy imports above stay lazy (offline
+  import-safety of each module, and `geecs_bluesky.devices` stays heavy);
+  the warm-up just makes sure `bluesky` and `geecs_data_utils` are fully
+  in `sys.modules` first.  A new daemon-thread lazy import that reaches
+  one of those packages goes in `WARM_MODULES` (pinned by a source grep in
+  `tests/test_warm_imports.py`); the ordering is pinned by
+  `tests/test_main_window.py::TestStartupImportWarmUp` (warm-up precedes
+  every `Thread.start`).  The one-in-flight dedupes in `app/actions_menu.py`
+  and `app/now_panel.py` mitigate the same class of hazard for native
+  first-imports on their own threads.
 - PySide6 only (LGPL, agent-editable `.ui` XML).  Never PyQt.
 - The `.ui` is hand-authored XML loaded at runtime via `QUiLoader` — no
   generated `*_ui.py` files to keep in sync.
