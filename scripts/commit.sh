@@ -40,11 +40,14 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 
 # The files staged for this commit, recorded NUL-delimited in a temp file
-# (space-safe; bash variables cannot hold NUL, so a file — not a var).
+# as <status>\0<path>\0 pairs (space-safe; bash variables cannot hold NUL, so
+# a file — not a var). --no-renames keeps every record a pair: a detected
+# rename would otherwise emit three fields (R<score>, src, dst), and
+# splitting it into D src + A dst is exactly the shape the loop below wants.
 staged="$(mktemp)"
 existing="$(mktemp)"
 trap 'rm -f "$staged" "$existing"' EXIT
-git diff --cached --name-only -z >"$staged"
+git diff --cached --name-status --no-renames -z >"$staged"
 if [ ! -s "$staged" ]; then
     echo "commit.sh: nothing staged — 'git add' your changes first." >&2
     exit 1
@@ -91,11 +94,18 @@ fi
 pc run || true
 
 # Re-stage exactly the originally-staged files so the fixes are included —
-# but only those that still exist on disk. A staged *deletion* is in neither
-# the index nor the worktree, so `git add` (even with -A) rejects its pathspec
-# as fatal; and there is nothing to re-stage anyway, since no hook can have
-# rewritten a file that does not exist. The deletion stays staged as-is.
-while IFS= read -r -d '' path; do
+# except staged *deletions* (index status D), which have nothing to re-stage:
+# no hook can have rewritten a file the commit removes, and the deletion stays
+# staged as-is. Filtering on the index status rather than on-disk existence
+# matters for `git rm --cached` (untracking a file that stays on disk, now
+# matched by .gitignore): the path exists, so an existence test would pass it
+# to `git add`, which refuses ignored paths ("Use -f if you really want to add
+# them") and, under set -e, aborted the script before `git commit` (#761).
+# The existence test stays as a second guard: a staged add/modify whose file
+# was since removed from the worktree would otherwise be turned into a
+# deletion by `git add` — something the user never staged.
+while IFS= read -r -d '' status && IFS= read -r -d '' path; do
+    case "$status" in D*) continue ;; esac
     if [ -e "$path" ] || [ -L "$path" ]; then
         printf '%s\0' "$path"
     fi
