@@ -73,6 +73,7 @@ from geecs_console.request_builder import (
 from geecs_console.services.configs import ConsoleConfigs
 from geecs_console.services.presets import PresetStore, PresetStoreError
 from geecs_console.services.settings import ConsoleSettings
+from geecs_console.services.warm_imports import warm_imports
 from geecs_console.services.device_panel import (
     DevicePanelBackend,
     StubDevicePanel,
@@ -239,6 +240,15 @@ class MainWindow(QMainWindow):
         scan_number_lookup: Optional[Callable[[str], Optional[int]]] = None,
     ) -> None:
         super().__init__()
+        # Import the cycle-bearing packages once, here on the GUI thread,
+        # BEFORE any controller below spawns a daemon thread (#778): the
+        # health poller, the idle scan-number probe, the actions fetch and
+        # the scan monitor each lazily import bluesky /
+        # bluesky_queueserver_api / geecs_data_utils on their own threads,
+        # and concurrent first-imports of one import cycle trip importlib's
+        # _DeadlockError — a dead document stream and a blank idle display
+        # on every launch.  Pinned by tests/test_main_window.py.
+        warm_imports()
         self._configs = configs if configs is not None else ConsoleConfigs(experiment)
         self._health = health if health is not None else StubHealth()
         self._device_panel = (

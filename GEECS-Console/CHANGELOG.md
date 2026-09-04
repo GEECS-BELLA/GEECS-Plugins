@@ -4,6 +4,29 @@ All notable changes to GEECS-Console are documented here.  Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is
 semantic.
 
+## [0.28.1] - 2026-09-03
+
+### Fixed
+
+- **Startup thread import race** (#778): every launch since 2026-08-24
+  killed the bluesky document stream (`_DeadlockError` on
+  `bluesky._vendor.super_state_machine`) and blanked the R6 idle
+  "Scan NNN (previous)" display (`geecs_data_utils` "partially
+  initialized"). Four daemon threads spawned at construction — the
+  document stream, the manager status poll / console stream, the health
+  poll and the idle scan-number probe — each lazily first-imported a
+  package with internal import cycles (`bluesky`,
+  `bluesky_queueserver_api`, `geecs_data_utils`), and concurrent
+  first-imports of one cycle from different threads trip importlib's
+  per-module locks. `MainWindow.__init__` now calls
+  `services/warm_imports.py::warm_imports()` first — the cycle-bearing
+  modules import once on the GUI thread (~1.5 s, dominated by
+  `geecs_data_utils`/pandas; previously paid by the threads anyway)
+  before any controller spawns a thread. The lazy import sites are
+  unchanged; the warm-up is best-effort (a failure is logged and left to
+  the real call site to report). Pinned by an ordering test: the
+  warm-up precedes every `Thread.start` and the monitor's `start()`.
+
 ## [0.28.0] - 2026-09-02
 
 ### Added

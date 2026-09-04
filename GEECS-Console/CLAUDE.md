@@ -152,6 +152,17 @@ are prefixed by region (`r3_radio_1d`, `r5_start_button`, …).
   qs_client method bodies.  Without a `[qserver]` config section the
   stub client refuses submission with a message naming the missing
   section — everything else works.
+- **Startup import warm-up (#778)**: `MainWindow.__init__` calls
+  `services/warm_imports.py::warm_imports()` before any controller spawns
+  a daemon thread.  The lazy imports above stay lazy (offline
+  import-safety of each module), but the cycle-bearing packages they
+  resolve (`bluesky`, `bluesky_queueserver_api`, `geecs_data_utils`) must
+  already be in `sys.modules` when several threads first-import them
+  concurrently, or importlib's `_DeadlockError` kills the document stream
+  and leaves data-utils "partially initialized".  A new daemon-thread lazy
+  import that reaches one of those packages through a new module goes in
+  `WARM_MODULES`; pinned by `tests/test_main_window.py::
+  TestStartupImportWarmUp` (warm-up precedes every `Thread.start`).
 - PySide6 only (LGPL, agent-editable `.ui` XML).  Never PyQt.
 - The `.ui` is hand-authored XML loaded at runtime via `QUiLoader` — no
   generated `*_ui.py` files to keep in sync.
