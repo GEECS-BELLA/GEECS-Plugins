@@ -42,7 +42,9 @@ Recurring workflows are encoded as repo-checked skills under
 `.claude/skills/<name>/SKILL.md`: `/land` (the PR ritual), `/check`
 (lint + tests the way CI runs them, via `scripts/check.sh`), `/triage`
 (scan-log error triage), `/scan-audit` (scan timing/cadence analysis),
-`/env-doctor` (per-package Poetry env fixups). Each skill's frontmatter
+`/env-doctor` (per-package Poetry env fixups), `/lab-status` (bounded
+reachability probes), `/fleet-status` (observed deployed-fleet picture:
+host → service → checkout/branch/commit/version). Each skill's frontmatter
 `description` carries its trigger symptoms so sessions pull the skill in
 on their own — keep those descriptions current when a skill changes.
 Prefer invoking/updating a skill over re-deriving its workflow in a

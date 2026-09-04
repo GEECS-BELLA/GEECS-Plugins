@@ -29,15 +29,16 @@ codified procedure itself rather than a wrapped tool.
 | `/check` | Run repo lint + unit tests the way CI does, scoped to what changed; wraps `scripts/check.sh` |
 | `/env-doctor` | Diagnose and fix a package's Poetry environment when poetry, pytest, or an import fails for setup-shaped reasons |
 | `/lab-status` | Probe lab-network and hardware reachability with bounded timeouts before doing anything that needs them; wraps `scripts/lab_status.sh` |
+| `/fleet-status` | Observed picture of the deployed fleet — which host runs which service from which checkout, branch, commit and package version, and whether the running process matches the code on disk; wraps `scripts/fleet_status.sh` (gated on `/lab-status`) |
 | `/scan-audit` | Scan timing and cadence audit for the Bluesky path: "why was the scan slow", "did every shot land", per-shot cadence analysis of a scan folder |
 | `/triage` | Generate a structured error report from scan logs, then analyze bug candidates against the codebase and draft GitHub issues |
 | `/get-started` | Onboard a new developer in guide mode: environment check, orientation, a small first win, with the repo's guardrails applied on the user's behalf |
 
 `/land`, `/check`, `/env-doctor`, and `/get-started` are development
 workflow skills — they operate on the repository itself. `/lab-status`,
-`/scan-audit`, and `/triage` are lab operations skills — they operate on
-the experiment: the network, the hardware, and the data a scan left
-behind. `/triage` is the reference implementation of the CLI-backed
+`/fleet-status`, `/scan-audit`, and `/triage` are lab operations skills —
+they operate on the experiment: the network, the deployed services, the
+hardware, and the data a scan left behind. `/triage` is the reference implementation of the CLI-backed
 pattern and is documented in depth below;
 [Writing a Skill](writing_a_skill.md) uses it as the template for new
 skills.
