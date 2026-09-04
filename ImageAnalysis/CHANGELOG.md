@@ -15,13 +15,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `Undulator/BCaveMagSpecStitcher.py`,
   `Undulator/hi_res_mag_cam_analyzer.py`, `tools/rendering.py` — and
   `ephemeral.py` reaches it through `tools/rendering`), so a consumer
-  that installed
-  ImageAnalysis without something else supplying matplotlib —
-  GeecsBluesky's `analysis` extra alone, GEECS-DataPortal's `analysis`
-  extra, GEECS-MCP's `analysis-run` extra — got an env where
-  `load_diagnostic` / `create_image_analyzer` raised `ImportError` on
-  every StandardAnalyzer-based diagnostic. Dependency metadata only —
-  no code change.
+  that installed ImageAnalysis without something else supplying
+  matplotlib got an env where `load_diagnostic` /
+  `create_image_analyzer` raised `ImportError` on every
+  StandardAnalyzer-based diagnostic. The one such consumer in this repo
+  was GeecsBluesky's `analysis` extra installed alone (its lock had
+  matplotlib only under `extra == "optimize"`); GEECS-DataPortal and
+  GEECS-MCP were already covered by their own / ScanAnalysis's main
+  declaration. Dependency metadata only — no code change.
 
 ### Removed
 

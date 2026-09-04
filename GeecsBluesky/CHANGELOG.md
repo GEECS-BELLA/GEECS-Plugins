@@ -9,13 +9,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Fixed
 
 - `poetry.lock` refreshed for ImageAnalysis 1.14.1 (#752): matplotlib
-  (and contourpy / cycler / fonttools / kiwisolver / pyparsing) now
-  resolve under `extra == "analysis"` as well as `optimize`, so
+  (and contourpy / fonttools / kiwisolver / pyparsing) now resolve under
+  `extra == "analysis"` as well as `optimize`, so
   `poetry install --extras "ca tiled analysis"` yields an env where
-  `geecs_bluesky.optimization.base_evaluator.load_diagnostic` can import
-  the StandardAnalyzer family. The boto3 chain (boto3 / botocore /
-  jmespath / s3transfer) leaves the lock. Lock-file refresh only — no
-  code change.
+  `image_analysis.config.load_diagnostic` / `create_image_analyzer` can
+  import the StandardAnalyzer family. Note that the `analysis` extra
+  still has no in-package consumer that works without `optimize`:
+  `optimization/base_evaluator.py` and `config_models.py` hard-import
+  `scan_analysis` / `xopt` at module top level (pre-existing; tracked
+  separately). The boto3 chain (boto3 / botocore / jmespath /
+  s3transfer) leaves the lock. Lock-file refresh only — no code change.
 
 ## [0.73.1] - 2026-09-03
 
