@@ -64,7 +64,7 @@ the service and the unit crash-loops on an empty env while admin-side
 checks pass.
 
 ```bash
-cd ~/GEECS-Plugins-portal/GEECS-DataPortal
+cd <root>/portal-checkout/GEECS-DataPortal
 poetry env use python3.11
 poetry install --extras analysis
 ```
