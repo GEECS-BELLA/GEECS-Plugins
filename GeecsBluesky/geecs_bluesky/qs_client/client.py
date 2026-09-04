@@ -39,6 +39,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional, Protocol, runtime_checkable
 
+from geecs_bluesky.plan_names import RUN_ACTION_PLAN, SCAN_REQUEST_PLAN
+
 logger = logging.getLogger(__name__)
 
 #: The shared GEECS user config (the permanent fleet contract path).
@@ -245,6 +247,18 @@ class QueueClient(Protocol):
         """Run ``geecs_describe_action`` on the worker; raises on failure."""
         ...
 
+    def allowed_plan_names(self) -> list[str]:
+        """Return the plan names the manager will accept from this client.
+
+        Empty while the worker environment is closed (the manager knows
+        no plans until it opens — #793); raises on failure.
+        """
+        ...
+
+    def close(self) -> None:
+        """Release the manager connection (idempotent; no-op when unopened)."""
+        ...
+
 
 _STUB_MESSAGE = (
     "no queueserver configured — add a [qserver] section (host = <worker>) "
@@ -315,6 +329,13 @@ class StubQueueClient:
     def describe_action(self, name: str) -> list[dict]:
         """Refuse with the missing-config message."""
         raise RuntimeError(_STUB_MESSAGE)
+
+    def allowed_plan_names(self) -> list[str]:
+        """Refuse with the missing-config message."""
+        raise RuntimeError(_STUB_MESSAGE)
+
+    def close(self) -> None:
+        """Nothing to release."""
 
 
 class ZmqQueueClient:
@@ -496,7 +517,7 @@ class ZmqQueueClient:
         record-less submissions from this client.
         """
         return self._submit_item(
-            "geecs_scan_request_plan",
+            SCAN_REQUEST_PLAN,
             [request],
             kwargs={"submission": submission} if submission is not None else None,
             clear_pending=clear_pending,
@@ -504,7 +525,7 @@ class ZmqQueueClient:
 
     def submit_action(self, name: str) -> SubmitResult:
         """Queue the on-demand action plan (actions are queue items, decision 2)."""
-        return self._submit_item("geecs_run_action_plan", [name], clear_pending=False)
+        return self._submit_item(RUN_ACTION_PLAN, [name], clear_pending=False)
 
     def run_action(self, name: str) -> None:
         """Queue the action item; raise the refusal message on failure."""
@@ -619,6 +640,29 @@ class ZmqQueueClient:
             BFunc("geecs_describe_action", name), user=self._user
         )
         return self._wait_for_task(response["task_uid"], timeout_s=30.0)
+
+    def allowed_plan_names(self) -> list[str]:
+        """The manager's ``plans_allowed`` for this client's user group.
+
+        The manager serves the list from the worker environment: closed
+        environment → empty list, and every ``queue add`` then fails with
+        "Plan ... is not in the list of allowed plans" whatever the name
+        (#793).  ``submit_preflight``'s ``worker_ready`` check reads this
+        so that failure is named before queueing.
+        """
+        api = self._manager()
+        response = api.plans_allowed()
+        return sorted((response.get("plans_allowed") or {}).keys())
+
+    def close(self) -> None:
+        """Close the cached ``REManagerAPI`` (and its zmq thread), if any."""
+        with self._api_lock:
+            api, self._api = self._api, None
+        if api is not None:
+            try:
+                api.close()
+            except Exception as exc:  # best-effort release
+                logger.debug("REManagerAPI close failed: %s", exc)
 
 
 def make_queue_client(

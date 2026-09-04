@@ -72,6 +72,10 @@ geecs_bluesky/
                             #   renders Ask as a modal (its submit_preflight
                             #   is the live consumer — OperatorQuestion +
                             #   ANSWER_* live here since W5)
+  plan_names.py             # the queueserver plan / function-verb names,
+                            #   import-light (log_markers rule): startup.py
+                            #   exports them, qs_client submits/asks by them,
+                            #   qserver_ready asserts the manager lists them
   qs_client/                # the RE Manager CLIENT seam (extracted from
                             #   GEECS-Console 2026-08-21, shared by every
                             #   client — console, notebooks, OSPREY MCP):
@@ -81,7 +85,10 @@ geecs_bluesky/
                             #   failed-item-at-front guard, sequenced stop,
                             #   read verbs, function-verb task polling);
                             #   submit_preflight.py = client-side pre-submit
-                            #   checks + build_submission_record provenance
+                            #   checks (validate, worker_ready — env open +
+                            #   plan allowed, a refusal naming the recovery
+                            #   gesture (#793) — snapshot_images, unserved,
+                            #   liveness, staleness) + build_submission_record
                             #   (the record travels BESIDE the request:
                             #   submit_scan(request, submission=...)).
                             #   bluesky-queueserver-api rides the qs-client

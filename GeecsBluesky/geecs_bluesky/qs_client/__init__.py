@@ -9,7 +9,8 @@ client of the queue: notebooks and the GEECS MCP submit the same
   socket, :class:`StubQueueClient` offline), plus the ``[qserver]``
   section reader of the shared ``~/.config/geecs_python_api/config.ini``.
 - :mod:`.submit_preflight` — the client-side pre-submit checks (engine
-  validation, unserved variables, CONNECTED liveness, free-run staleness)
+  validation, worker readiness — environment open + the plan allowed,
+  #793 — unserved variables, CONNECTED liveness, free-run staleness)
   and :func:`build_submission_record`, which records client identity and
   check outcomes into the ``SubmissionRecord`` submitted beside the
   request (``submit_scan(request, submission=...)``) for run-metadata
