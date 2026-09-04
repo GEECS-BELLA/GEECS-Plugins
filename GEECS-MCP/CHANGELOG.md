@@ -4,6 +4,17 @@ All notable changes to `geecs-mcp` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.8.4] - 2026-09-03
+
+### Fixed
+
+- `poetry.lock` refreshed for ImageAnalysis 1.14.1 (#752): the
+  `analysis-run` extra now resolves matplotlib through ImageAnalysis's
+  main dependencies, so a `pip install` of the package with that extra
+  can import the StandardAnalyzer family; the boto3 chain (boto3 /
+  botocore / jmespath / s3transfer) leaves the lock. Lock-file refresh
+  only — no code change.
+
 ## [0.8.3] - 2026-09-01
 
 ### Changed

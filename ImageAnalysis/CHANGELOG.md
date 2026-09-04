@@ -3,6 +3,41 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.14.1] — 2026-09-03
+
+### Fixed
+
+- `matplotlib` moved from `[tool.poetry.group.dev.dependencies]` to the
+  **main** dependency table (#752). Nine runtime modules import it at
+  module top level (`analyzers/standard_analyzer.py`, `beam_analyzer.py`,
+  `standard_1d_analyzer.py`, `density_from_phase_analysis.py`,
+  `downramp_phase_analyzer.py`, `magspec_manual_calib_analyzer.py`,
+  `Undulator/BCaveMagSpecStitcher.py`,
+  `Undulator/hi_res_mag_cam_analyzer.py`, `tools/rendering.py` — and
+  `ephemeral.py` reaches it through `tools/rendering`), so a consumer
+  that installed
+  ImageAnalysis without something else supplying matplotlib —
+  GeecsBluesky's `analysis` extra alone, GEECS-DataPortal's `analysis`
+  extra, GEECS-MCP's `analysis-run` extra — got an env where
+  `load_diagnostic` / `create_image_analyzer` raised `ImportError` on
+  every StandardAnalyzer-based diagnostic. Dependency metadata only —
+  no code change.
+
+### Removed
+
+- `nptdms` and `boto3` dropped from the dependency table: nothing under
+  `image_analysis/` or `tests/` imports either (the TDMS readers live in
+  GEECS-Data-Utils, which declares `nptdms` itself). Dropping `boto3`
+  removes the boto3 / botocore / jmespath / s3transfer chain from every
+  consumer's lock.
+
+### Changed
+
+- `h5py` moved to the dev group: its only import in this package is
+  `tests/test_shotref_loading.py` (an HDF5 fixture). It still reaches
+  runtime environments through GEECS-Data-Utils, which declares it as a
+  main dependency — so the resolved consumer closures do not change.
+
 ## [1.14.0] — 2026-09-01
 
 ### Added
