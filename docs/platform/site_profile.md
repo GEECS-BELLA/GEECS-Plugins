@@ -24,9 +24,11 @@ only as an example or a placeholder.
 | **Host** | `/etc/geecs/site.env` — one file per service host, from [`deploy/site.env.example`](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/deploy/site.env.example) | every systemd unit (`EnvironmentFile=`), `deploy/render_units.sh`, `deploy/bootstrap_host.sh` |
 
 On a service host `site.env` is the root: the bootstrap renders the
-service account's `config.ini` *from* it (only when absent — hand edits
-win afterwards), so the two never disagree. Client machines keep their
-own `config.ini` exactly as before.
+service account's `config.ini` *from* it on a fresh host, and on an
+existing host prints the diff between the file and the rendered form so
+a stale config is seen and reconciled by hand (the file is never
+overwritten — it also holds the hand-entered Tiled key). Client machines
+keep their own `config.ini` exactly as before.
 
 What is **not** a site value: the fleet's port numbers. The fleet map
 fixes them (CA 5064, Tiled 8000, portal 8200, MCP 8100, queueserver

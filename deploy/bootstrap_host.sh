@@ -112,10 +112,7 @@ done
 
 say "config.ini for the service account (rendered from site.env only if absent)"
 CFG="$GEECS_SERVICE_HOME/.config/geecs_python_api/config.ini"
-if [ -s "$CFG" ]; then   # -s: an empty placeholder file counts as absent
-    echo "  exists: $CFG — left untouched (hand edits win; diff against the rendered form below if in doubt)"
-else
-    render_config_ini() {
+render_config_ini() {
         cat <<EOF
 # Rendered by deploy/bootstrap_host.sh from site.env ($(date +%F)). This is the
 # client half of the site profile (docs/platform/site_profile.md); the key
@@ -141,12 +138,19 @@ ca_addr_list = $EPICS_CA_ADDR_LIST
 host = $GEECS_QSERVER_HOST
 doc_addr = $GEECS_QS_DOC_ADDR
 EOF
-    }
-    if [ "$DRY" -eq 1 ]; then echo "  [dry] would write $CFG:"; render_config_ini | sed 's/^/      /'
-    else
-        # 0600: the operator adds the Tiled api_key to this file by hand.
-        mkdir -p "$(dirname "$CFG")"; (umask 077; render_config_ini > "$CFG"); chmod 600 "$CFG"; echo "  wrote $CFG (mode 600; add [tiled] api_key by hand)"
+}
+if [ -s "$CFG" ]; then   # -s: an empty placeholder file counts as absent
+    # Never overwritten (it also holds the hand-entered Tiled api_key), but
+    # site.env is the root: show where the existing file disagrees with the
+    # rendered form so a stale client config is reconciled, not kept silently.
+    echo "  exists: $CFG — left untouched; differences vs the form site.env would render (< existing, > rendered):"
+    if diff <(grep -vE '^\s*#|^\s*$|api_key' "$CFG") <(render_config_ini | grep -vE '^\s*#|^\s*$|api_key') | sed 's/^/      /'; then
+        echo "      (none — the file matches site.env)"
     fi
+elif [ "$DRY" -eq 1 ]; then echo "  [dry] would write $CFG:"; render_config_ini | sed 's/^/      /'
+else
+    # 0600: the operator adds the Tiled api_key to this file by hand.
+    mkdir -p "$(dirname "$CFG")"; (umask 077; render_config_ini > "$CFG"); chmod 600 "$CFG"; echo "  wrote $CFG (mode 600; add [tiled] api_key by hand)"
 fi
 
 say "units (each rendered from ITS service's clone, to a staging dir)"
