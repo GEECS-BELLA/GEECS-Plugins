@@ -62,6 +62,17 @@ mkdir -p "$OUT_DIR"
 for t in "${TEMPLATES[@]}"; do
     case "$t" in /*) src="$t" ;; *) src="$REPO_ROOT/$t" ;; esac
     [ -f "$src" ] || { echo "template missing: $t" >&2; exit 1; }
+    # A template must BE a template. A unit file from before the site profile
+    # carries no placeholders (a hand-edit copy with the generic account and
+    # paths); passing it through would install a unit for a user that does
+    # not exist (Phase 3 live incident, 2026-09-04: the portal clone was
+    # pinned before #777, its old unit rendered "clean" and crash-looped
+    # with status=217/USER). Refuse, naming the clone to bring forward.
+    if ! grep -q '@SERVICE_USER@' "$src" || ! grep -q '@SITE_ENV@' "$src"; then
+        echo "not a site-profile template (no @SERVICE_USER@/@SITE_ENV@ placeholders): $src" >&2
+        echo "  the clone it comes from predates the templated units — pull it to a version with them, then re-render" >&2
+        exit 1
+    fi
     dst="$OUT_DIR/$(basename "$t")"
     sed -e "s|@SERVICE_USER@|$GEECS_SERVICE_USER|g" \
         -e "s|@SERVICE_HOME@|$GEECS_SERVICE_HOME|g" \
