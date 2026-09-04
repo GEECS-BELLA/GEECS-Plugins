@@ -102,7 +102,7 @@ Host setup (same checkout + ritual as the worker):
 python3.11 -m venv <root>/geecs-mcp-venv
 <root>/geecs-mcp-venv/bin/pip install "<root>/qs-checkout/GEECS-MCP[analysis-run]"   # non-editable:
                                                                                      # code bakes into the venv
-deploy/render_units.sh /etc/geecs/site.env ~/deploy-staging
+<root>/qs-checkout/deploy/render_units.sh /etc/geecs/site.env ~/deploy-staging
 sudo install -m 0644 ~/deploy-staging/geecs-mcp.service /etc/systemd/system/
 sudo systemctl daemon-reload && sudo systemctl enable --now geecs-mcp
 ```

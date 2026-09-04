@@ -24,6 +24,13 @@ check_site_env_consistency() {  # the duplicated experiment key must agree with 
     fi
 }
 
+# Runtime keys the unit templates rely on through EnvironmentFile= (no
+# @PLACEHOLDER@, no ${VAR} — the services read these names directly). A
+# profile missing one would start services on their built-in defaults
+# (UTC, EPICS broadcast) instead of failing before deployment.
+SITE_RUNTIME_KEYS="GEECS_EXPERIMENT QS_EXPERIMENT TZ EPICS_CA_ADDR_LIST EPICS_CA_AUTO_ADDR_LIST EPICS_CAS_INTF_ADDR_LIST EPICS_CAS_BEACON_ADDR_LIST GEECS_QS_DOC_ADDR GEECS_CONFIGS_ROOT"
+require_runtime_keys() { require_site_keys $SITE_RUNTIME_KEYS; }
+
 require_site_keys() {  # require_site_keys KEY... — exit 2 naming the first missing one
     local k
     for k in "$@"; do

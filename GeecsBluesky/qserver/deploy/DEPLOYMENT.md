@@ -147,7 +147,7 @@ by `deploy/render_units.sh` from the host's `site.env`; the experiment
 
 ```bash
 # as the service account — or run deploy/bootstrap_host.sh for the whole host
-deploy/render_units.sh /etc/geecs/site.env ~/deploy-staging
+<root>/qs-checkout/deploy/render_units.sh /etc/geecs/site.env ~/deploy-staging
 sudo install -m 0644 ~/deploy-staging/geecs-qserver.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now geecs-qserver.service

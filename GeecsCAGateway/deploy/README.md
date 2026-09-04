@@ -38,7 +38,7 @@ poetry install                    # slim env: caproto + pydantic + mysql-connect
 poetry run python -m geecs_ca_gateway --experiment <experiment> --log-level INFO
 # ^ run once in the foreground; Ctrl-C once PVs are serving cleanly
 
-deploy/render_units.sh /etc/geecs/site.env ~/deploy-staging   # from the repo root
+<root>/gateway-checkout/deploy/render_units.sh /etc/geecs/site.env ~/deploy-staging
 sudo install -m 0644 ~/deploy-staging/geecs-ca-gateway.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now geecs-ca-gateway

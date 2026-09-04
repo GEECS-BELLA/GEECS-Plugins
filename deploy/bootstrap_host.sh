@@ -37,13 +37,17 @@ while [ $# -gt 0 ]; do
 done
 [ -n "$SITE_ENV" ] && [ -f "$SITE_ENV" ] || { echo "usage: bootstrap_host.sh SITE_ENV ..." >&2; exit 2; }
 SITE_ENV="$(cd "$(dirname "$SITE_ENV")" && pwd)/$(basename "$SITE_ENV")"   # absolute: the printed sudo lines must work from any cwd
-SITE_ENV_INSTALLED="${GEECS_SITE_ENV_PATH:-/etc/geecs/site.env}"          # same knob render_units.sh honours
 
 . "$REPO_ROOT/deploy/site_env_lib.sh"
 load_site_env "$SITE_ENV"
 check_site_env_consistency
 require_site_keys GEECS_SERVICE_USER GEECS_SERVICE_HOME GEECS_CHECKOUT_ROOT GEECS_POETRY GEECS_REPO_URL \
-    GEECS_EXPERIMENT GEECS_TILED_URI GEECS_QSERVER_HOST GEECS_QS_DOC_ADDR GEECS_DATA_ROOT GEECS_CONFIGS_ROOT EPICS_CA_ADDR_LIST
+    GEECS_TILED_URI GEECS_QSERVER_HOST GEECS_DATA_ROOT
+require_runtime_keys
+# Read AFTER site.env is loaded (it may set the knob) — the same one
+# render_units.sh honours, so the rendered EnvironmentFile= path and the
+# printed install line always agree.
+SITE_ENV_INSTALLED="${GEECS_SITE_ENV_PATH:-/etc/geecs/site.env}"
 
 run() { if [ "$DRY" -eq 1 ]; then echo "  [dry] $*"; else echo "  \$ $*"; "$@"; fi; }
 say() { printf '\n== %s\n' "$1"; }

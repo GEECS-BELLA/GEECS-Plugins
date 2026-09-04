@@ -41,8 +41,8 @@ check_site_env_consistency
 # Every key a template consumes: an unset ${VAR} in an ExecStart argument
 # expands to an EMPTY argument (not to nothing), so a missing key must fail
 # here, not on the host at 03:00.
-require_site_keys GEECS_SERVICE_USER GEECS_SERVICE_HOME GEECS_CHECKOUT_ROOT GEECS_POETRY \
-    GEECS_EXPERIMENT GEECS_QS_DOC_ADDR GEECS_CONFIGS_ROOT
+require_site_keys GEECS_SERVICE_USER GEECS_SERVICE_HOME GEECS_CHECKOUT_ROOT GEECS_POETRY
+require_runtime_keys
 
 # The templates: one per service family. Default = this clone's copies;
 # explicit paths (from bootstrap_host.sh) override.
