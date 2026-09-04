@@ -10,13 +10,24 @@
 #   scripts/lab_status.sh --hardware      # + tier 2: read-only CA liveness
 #   scripts/lab_status.sh --hardware --experiment Undulator
 #
-# Tier 1 is pure TCP/HTTP/filesystem — safe to run at any time, on or off
+# Tier 1 is TCP/HTTP/filesystem — safe to run at any time, on or off
 # network. Tier 2 performs READ-ONLY Channel Access gets (gateway heartbeat,
 # device count) through the GeecsBluesky env; it never writes a PV.
+#
+# NEVER probe MySQL (3306) with a bare TCP connect. The server counts a
+# connect that drops before the handshake against max_connect_errors and,
+# past 100, blocks the host with error 1129 until an admin runs FLUSH HOSTS —
+# and it sees every VPN client as ONE NAT address, so a /dev/tcp or nc probe
+# in a watch loop blocked the DB for the whole VPN pool (2026-09-04, #790).
+# The DB probe is scripts/mysql_probe.py (a bounded real handshake; a refused
+# login is not counted) and the shared port_open in scripts/lib/net_probes.sh
+# refuses port 3306 outright.
 set -u  # deliberately not -e: a failed probe is a *finding*, not an error
 
 CONFIG="$HOME/.config/geecs_python_api/config.ini"
-TCP_TIMEOUT=2   # seconds per port probe
+TCP_TIMEOUT=2   # seconds per port probe (read by the shared probes)
+# shellcheck source=lib/net_probes.sh
+. "$(cd "$(dirname "$0")" && pwd)/lib/net_probes.sh"   # bounded / port_open / mysql_probe
 CA_TIMEOUT=3    # seconds per CA read (tier 2)
 
 HARDWARE=0
@@ -57,22 +68,8 @@ if [ -z "$EXPERIMENT" ]; then EXPERIMENT="$(ini_get Experiment exp_name)"; fi
 
 ok()   { printf '  [ OK ] %s\n' "$1"; }
 bad()  { printf '  [DOWN] %s\n' "$1"; }
+warn() { printf '  [WARN] %s\n' "$1"; }
 skip() { printf '  [ -- ] %s\n' "$1"; }
-
-port_open() {  # port_open HOST PORT — hard wall-clock bound, no exceptions
-    # nc's -G/-w flags do not reliably bound a SYN into a blackholed route
-    # (the half-up-VPN case this script exists for), so use bash /dev/tcp
-    # with an explicit watchdog kill.
-    ( exec 3<>"/dev/tcp/$1/$2" ) 2>/dev/null &
-    local probe=$!
-    ( sleep "$TCP_TIMEOUT"; kill -9 "$probe" 2>/dev/null ) &
-    local watchdog=$!
-    wait "$probe" 2>/dev/null
-    local rc=$?
-    kill "$watchdog" 2>/dev/null
-    wait "$watchdog" 2>/dev/null
-    return "$rc"
-}
 
 echo "== Tier 1: lab network (bounded, read-nothing) =="
 if [ ! -f "$CONFIG" ]; then
@@ -85,12 +82,15 @@ if [ -z "$LAB_HOST" ]; then
 fi
 
 NET_UP=1
-if port_open "$LAB_HOST" "$DB_PORT"; then
-    ok "MySQL       $LAB_HOST:$DB_PORT"
-else
-    bad "MySQL       $LAB_HOST:$DB_PORT — GeecsDb calls would hang ~75 s; do not make them"
-    NET_UP=0
-fi
+# Handshake-completing probe (see header): rc 0 reachable, 3 reachable-but-
+# blocked, 4 no connector available, anything else = nothing answered.
+db_line="$(mysql_probe "$LAB_HOST" "$DB_PORT")"
+case $? in
+    0) ok "MySQL       $LAB_HOST:$DB_PORT (${db_line#ok })" ;;
+    3) warn "MySQL       $LAB_HOST:$DB_PORT answers but has BLOCKED this address (MySQL 1129: too many aborted connects — a bare port probe somewhere on the VPN); GeecsDb calls fail fast until a DB admin runs FLUSH HOSTS" ;;
+    4) skip "MySQL       $LAB_HOST:$DB_PORT not probed — ${db_line#no-connector }; a bare TCP probe is never the fallback" ;;
+    *) bad "MySQL       $LAB_HOST:$DB_PORT — GeecsDb calls would hang ~75 s; do not make them"; NET_UP=0 ;;
+esac
 if port_open "$LAB_HOST" "$TILED_PORT"; then
     version="$(curl -s -m "$TCP_TIMEOUT" "http://$LAB_HOST:$TILED_PORT/api/v1/" | sed -nE 's/.*"library_version":"([^"]+)".*/\1/p')"
     ok "Tiled       $LAB_HOST:$TILED_PORT (v${version:-?})"

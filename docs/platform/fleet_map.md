@@ -131,9 +131,28 @@ rendered from it, never edited by hand.
 | Capture daemon (`geecs_bluesky.capture`) | 192.168.6.14 (with the worker — co-location is a **requirement**: shared filesystem view + local heartbeat) | `<root>/qs-checkout` (shares the worker's clone — the co-location requirement extends to code state) | consumes doc stream (5568) + pvAccess; no listening port | systemd `geecs-capture` | heartbeat file refreshing every ~10 s (`~/.local/state/geecs-capture/heartbeat.json` in the service user's home); discovery line in `journalctl -u geecs-capture` | [GeecsBluesky/capture/deploy/DEPLOYMENT.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsBluesky/capture/deploy/DEPLOYMENT.md) |
 | GEECS Data Portal (GEECS-DataPortal) | 192.168.6.14 (interim; moves with the services-server consolidation) | `<root>/portal-checkout` | HTTP 8200 | systemd `geecs-data-portal` | `GET /health` (catalog probe); any day page in a browser | [GEECS-DataPortal/DEPLOYMENT.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GEECS-DataPortal/DEPLOYMENT.md) |
 | PVA image gateways (GeecsPvaGateway) | each camera server — 13 roster hosts (`deploy/fleet_status.bob`); 9 answering on 2026-09-04, the other 4 unreachable pending the roster prune (Phase 4 of the site-profile plan) | — (installs from the lab's shared "Active Version" clone on the data share; per host only a baked venv — **the share clone's checked-out commit is the fleet pin**) | pvAccess TCP 5075 / UDP 5076 | NSSM service `GeecsPvaGateway` (auto-start, pull-on-restart) | fleet status Phoebus screen (`deploy/fleet_status.bob`) | [GeecsPvaGateway/DEPLOYMENT.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsPvaGateway/DEPLOYMENT.md) |
-| GEECS MySQL DB | 192.168.6.14 | — | 3306 | LabVIEW/GEECS infrastructure (not managed by this repo) | any `GeecsDb` client connect | — |
+| GEECS MySQL DB | 192.168.6.14 | — | 3306 | LabVIEW/GEECS infrastructure (not managed by this repo) | `scripts/lab_status.sh` (a handshake-completing probe — never a bare TCP connect, see below); any `GeecsDb` client connect | — |
 | Data share (NAS) | NAS appliance | — | SMB | storage infrastructure (not managed by this repo) | mount visible, scan folders resolvable | — |
 | GEECS LabVIEW devices | Windows device hosts | — | GEECS wire protocol (UDP/TCP) | Master Control / device GUIs | device `CONNECTED` PV via the gateway | — |
+
+!!! warning "Never probe the MySQL port with a bare TCP connect"
+    MySQL counts every connection that opens TCP to 3306 and drops without
+    completing the handshake against `max_connect_errors` (default 100).
+    Past the limit it refuses every connection from that address with
+    error 1129 — `Host '…' is blocked because of many connection errors;
+    unblock with 'mysqladmin flush-hosts'` — until a DB admin runs
+    `FLUSH HOSTS` on the server. The server sees every VPN client as the
+    VPN pool's NAT address, so the counter is **shared across everyone on
+    VPN**: one `nc` / `/dev/tcp` watch loop blocks the DB for all of them,
+    and the block outlives the loop (live incident 2026-09-04: the console's
+    DB health chip went DOWN for every VPN user). Successful logins reset
+    the counter and a refused login is not counted; only connect-and-drop
+    is. `scripts/lab_status.sh` therefore probes the DB with
+    `scripts/mysql_probe.py` — a bounded, real handshake — and the shared
+    `port_open` in `scripts/lib/net_probes.sh` refuses port 3306.
+    `1129` in a `GeecsDb` error or the console log means the block, not a
+    network fault: ask the DB admin for `FLUSH HOSTS` (raising
+    `max_connect_errors` server-side is the owner's call).
 
 ## One clone per service
 

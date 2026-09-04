@@ -113,26 +113,10 @@ warn() { printf '  [WARN] %s\n' "$1"; }
 skip() { printf '  [ -- ] %s\n' "$1"; }
 info() { printf '         %s\n' "$1"; }
 
-bounded() {  # bounded SECS CMD... — hard wall-clock bound (macOS has no `timeout`)
-    local secs="$1"; shift
-    # Explicit stdin redirect: a background job in a non-interactive shell
-    # otherwise gets /dev/null, which would starve `ssh bash -s` / `python -`.
-    "$@" </dev/stdin &
-    local job=$!
-    # Watchdog detached from our stdout so a command substitution around
-    # bounded() does not wait out the full timeout on the held pipe.
-    ( sleep "$secs"; kill -9 "$job" 2>/dev/null ) >/dev/null 2>&1 </dev/null &
-    local watchdog=$!
-    wait "$job" 2>/dev/null
-    local rc=$?
-    kill "$watchdog" 2>/dev/null
-    wait "$watchdog" 2>/dev/null
-    return "$rc"
-}
-
-port_open() {  # port_open HOST PORT
-    bounded "$TCP_TIMEOUT" bash -c "exec 3<>/dev/tcp/$1/$2" 2>/dev/null
-}
+# bounded / port_open / mysql_probe live once, in the shared lib — the DB
+# special case (never a bare TCP probe of 3306, #790) with them.
+# shellcheck source=lib/net_probes.sh
+. "$REPO_ROOT/scripts/lib/net_probes.sh"
 
 # Every probe also appends a tab-separated key=value record (with a role=)
 # to REC_FILE; scripts/fleet_table.py renders those as the --summary table.
