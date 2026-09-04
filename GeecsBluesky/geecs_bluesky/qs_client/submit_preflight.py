@@ -23,6 +23,11 @@ Checks, in order (names are the ``PreflightOutcome.check`` vocabulary):
 - ``validate`` — the engine's own :func:`validate_scan_request` (THE one
   definition of what must resolve; issue #529).  A failure is a hard
   refusal, never a question.
+- ``snapshot_images`` — a snapshot-role save-set entry with ``images:
+  true`` asks for images the role never saves (#754); the engine's
+  :func:`snapshot_images_ignored` over the resolved devices config (reused,
+  DB-free), raised as a question so the operator learns pre-submit rather
+  than from the worker's scan.log.
 - ``unserved_variables`` — the engine's :class:`UnservedVariablesCheck`
   over the resolved save sets (reused, not reimplemented — no drift).
   DB unreachable → skipped with a warning, never a block.
@@ -148,6 +153,10 @@ def run_submit_preflight(request: Any, experiment: str) -> PreflightReport:
         )
         devices_config = {}
 
+    # -- snapshot-role images (engine helper, reused; DB-free) --------------
+    if devices_config:
+        _check_snapshot_images(report, devices_config)
+
     # -- unserved variables (engine check, reused) --------------------------
     if devices_config:
         try:
@@ -175,6 +184,37 @@ def run_submit_preflight(request: Any, experiment: str) -> PreflightReport:
             report.outcomes.append(("free_run_staleness", "skipped", str(exc)))
 
     return report
+
+
+def _check_snapshot_images(
+    report: PreflightReport, devices_config: dict[str, dict]
+) -> None:
+    """Warn when a snapshot-role entry asks for images the role cannot save (#754).
+
+    Pure (no DB, no CA): the same helper the worker runs at the role seam,
+    so the two surfaces cannot disagree.  A warning, never a refusal — the
+    entry's scalars are still recorded; only the ``images: true`` is inert.
+    """
+    from geecs_bluesky.scan_request_runner import (
+        snapshot_images_ignored,
+        snapshot_images_ignored_message,
+    )
+
+    ignored = snapshot_images_ignored(devices_config)
+    if not ignored:
+        report.outcomes.append(("snapshot_images", "passed", ""))
+        return
+    report.questions.append(
+        PreflightQuestion(
+            check="snapshot_images",
+            title="Images requested on snapshot-role devices",
+            message=(
+                snapshot_images_ignored_message(ignored)
+                + " Continue without their images?"
+            ),
+            continue_label="Continue without images",
+        )
+    )
 
 
 def _check_unserved(

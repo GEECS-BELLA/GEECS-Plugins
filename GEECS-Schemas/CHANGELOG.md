@@ -5,6 +5,17 @@ All notable changes to GEECS-Schemas are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.1] - 2026-09-03
+
+### Changed
+
+- `SaveSetEntry.images` / `SaveSetEntry.role` descriptions and the
+  `SaveRole.SNAPSHOT` docstring now say the snapshot role ignores `images`
+  (scalars only; the scanner warns about the combination — GeecsBluesky
+  0.73.3, #754). Description-only; no schema or validation change — the
+  combination is deliberately still accepted.
+  `docs/geecs_schemas/schema_reference.md` regenerated.
+
 ## [0.17.0] - 2026-09-02
 
 ### Added

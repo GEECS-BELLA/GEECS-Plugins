@@ -4,6 +4,33 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.73.3] - 2026-09-04
+
+### Fixed
+
+- **`images: true` on a snapshot-role save-set entry now warns loudly instead
+  of being a silent no-op** (#754, split out of the #751 review). The
+  snapshot role (legacy `synchronous: false`) records scalars only — the
+  engine never drove native saving for it and the capture daemon never owns
+  it — so the flag was inert for every devicetype, DB or no DB; the #751
+  warning covered only the capture-ownership slice and is DB-gated by design.
+  The one role→mechanics seam, `save_set_to_devices_config`, now logs one
+  warning per save set naming the affected devices (DB-free, so it lands in
+  the worker's scan.log for every scan), via the new
+  `snapshot_images_ignored(devices_config)` /
+  `snapshot_images_ignored_message(...)` helpers; the second role→mechanics
+  seam, `merge_optimizer_device_requirements`, warns for what the optimizer's
+  requirements introduce (images asked of a save-set snapshot device, or a
+  new async + save device — the #520 NaN class). The client-side submit
+  preflight reuses the same helper as a new **`snapshot_images`** check —
+  a question (warning the operator can continue past), never a refusal — so
+  console and MCP operators see it pre-submit (GEECS-MCP 0.8.6 adds the name
+  to its acknowledgeable-check vocabulary). The combination is still
+  accepted (the entry's scalars are recorded); rejecting it at the schema is
+  left open for the owner, and snapshot-role image support (#702) is not
+  built here. Pinned by runner (fires for snapshot + images, silent for
+  synchronous + images and snapshot without images) and preflight tests.
+
 ## [0.73.2] - 2026-09-03
 
 ### Fixed

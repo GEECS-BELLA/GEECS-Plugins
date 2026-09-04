@@ -80,6 +80,7 @@ class SaveRole(str, Enum):
     SNAPSHOT : str
         An asynchronous device sampled once per row — for slow readbacks
         (pressures, temperatures) that don't produce one value per shot.
+        Scalars only: ``images`` is ignored for a snapshot entry.
     """
 
     REFERENCE = "reference"
@@ -168,7 +169,10 @@ class SaveSetEntry(SchemaModel):
         False,
         description=(
             "Save the device's images / non-scalar files (camera frames, "
-            "traces) alongside the scalar data."
+            "traces) alongside the scalar data. Ignored for an entry with "
+            "role 'snapshot' (legacy synchronous: false): the snapshot role "
+            "records scalars only — the scanner neither commands nor "
+            "suppresses the device's own save flag."
         ),
     )
     role: Optional[SaveRole] = Field(
@@ -176,7 +180,8 @@ class SaveSetEntry(SchemaModel):
         description=(
             "Override for how this device is synchronized with shots. Leave "
             "unset to let the scanner decide; set 'snapshot' for slow "
-            "readbacks that don't produce one value per shot."
+            "readbacks that don't produce one value per shot (scalars only "
+            "— 'images' is ignored for a snapshot entry)."
         ),
     )
     setup: list[str] = Field(
