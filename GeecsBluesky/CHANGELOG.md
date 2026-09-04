@@ -4,6 +4,25 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.75.0] - 2026-09-04
+
+### Removed
+
+- **`geecs_bluesky.analysis` and the `analysis` extra** (#786). The post-run
+  analysis contract added in 0.14.0 — result/feature/provenance models, the
+  sidecar writers, the `ImageAnalyzerAdapter`, and *derived analysis runs
+  published to Tiled* — had no importer anywhere in the repo, and the extra
+  that nominally served it installed ImageAnalysis for nothing (the only
+  in-package `image_analysis` importers are the optimization evaluators,
+  which need `optimize`). The approach is abandoned, not paused: post-run
+  analysis runs from the data portal against the scan folder, and the
+  derived-run direction is not being pursued. Gone with it: the
+  `tiled_camera_analysis_sidecar` notebook and every doc reference. The
+  `imageanalysis` path dependency stays optional under `optimize` only.
+  `find_geecs_run` keeps skipping start docs tagged
+  `purpose: geecs_bluesky_analysis` / `analysis_of` — a legacy-record guard
+  for catalogs that already hold such runs, nothing writes them any more.
+
 ## [0.74.0] - 2026-09-04
 
 ### Removed

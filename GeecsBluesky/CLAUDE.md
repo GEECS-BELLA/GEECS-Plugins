@@ -171,10 +171,6 @@ geecs_bluesky/
     nonscalar_save.py       # NonScalarSaveSupport mixin — save-path column + asset docs
     contributor.py          # FreeRunContributorSupport — reference-relative labeling
     scan_context.py         # ScanContext — bin_number / shot_index_in_bin / scan_event_index
-  analysis/                 # Post-run analysis contracts: models (AnalysisResult,
-                            #   FeatureRow, provenance), derived analysis runs
-                            #   published to Tiled, ImageAnalyzerAdapter, camera
-                            #   end-to-end analysis over archived Tiled runs
   capture/                  # the central PVA image-capture daemon (`capture`
                             #   extra: p4p + h5py + pyzmq; CLIs
                             #   geecs-capture-daemon + geecs-capture-diff):

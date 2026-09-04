@@ -597,6 +597,11 @@ def _run_start_time(run: Any) -> float:
 
 
 def _is_analysis_run(start_doc: Mapping[str, Any]) -> bool:
+    # Legacy-record guard: GeecsBluesky 0.14–0.74 shipped a since-deleted
+    # post-run analysis contract that published derived runs into the same
+    # catalog with the raw run's ``scan_number`` and these two start-doc keys.
+    # A catalog may still hold such records, so raw-run lookup keeps skipping
+    # them; nothing writes them any more.
     return start_doc.get("purpose") == "geecs_bluesky_analysis" or not _is_missing(
         start_doc.get("analysis_of")
     )
