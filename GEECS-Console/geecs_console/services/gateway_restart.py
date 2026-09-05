@@ -16,17 +16,28 @@ Rules this module keeps:
 
 - The PV name comes only from the naming contract (``ca_pv`` /
   ``bare_pv`` — never hand-built; issue #490).
-- The write is a :class:`~geecs_bluesky.devices.ca.gateway_put.GatewaySetpointPut`
-  — the one blessed put primitive — with ``wire_value`` coercion, even
-  though this PV carries no ``:SP`` suffix (it is the control PV itself).
-- Import-safe offline: every CA import is lazy, inside the functions.
+- The write goes through the device-panel backend's ``put_pv`` seam
+  (:class:`~geecs_console.services.device_panel.GatewayDevicePanel`) —
+  a :class:`~geecs_bluesky.devices.ca.gateway_put.GatewaySetpointPut`,
+  the one blessed put primitive, with ``wire_value`` coercion, even though
+  this PV carries no ``:SP`` suffix (it is the control PV itself) — on the
+  backend's **persistent** CA event loop.  Never a per-call
+  ``asyncio.run``: aioca caches channels per loop and its connection
+  callback posts to that loop unguarded, so the restart's own CONN_DOWN
+  (the gateway exiting because of this very click) would hit a closed
+  loop and print ``RuntimeError: Event loop is closed`` from the CA thread
+  on every click (adversarial review, PR #796).
+- Import-safe offline: every CA import is lazy, inside the backend.
 - Blocking: :func:`request_gateway_restart` is meant for a
   ``BackgroundResult`` daemon thread, never the GUI thread.
 """
 
 from __future__ import annotations
 
-import asyncio
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from geecs_console.services.device_panel import DevicePanelBackend
 
 #: The enum label that requests the restart (index 1; ``Idle``/0 is a no-op).
 RESTART_VALUE = "Restart"
@@ -67,7 +78,10 @@ def restart_pv(experiment: str) -> str:
 
 
 def request_gateway_restart(
-    experiment: str, *, timeout: float = RESTART_PUT_TIMEOUT_S
+    experiment: str,
+    *,
+    backend: DevicePanelBackend,
+    timeout: float = RESTART_PUT_TIMEOUT_S,
 ) -> str:
     """Write ``Restart`` to the experiment's gateway restart PV (blocking).
 
@@ -75,6 +89,10 @@ def request_gateway_restart(
     ----------
     experiment : str
         The selected experiment.
+    backend : DevicePanelBackend
+        The console's device-panel backend; its ``put_pv`` runs the write
+        on the persistent CA loop (the offline stub refuses with a clear
+        message instead).
     timeout : float, optional
         Put budget in seconds (:data:`RESTART_PUT_TIMEOUT_S`).
 
@@ -91,17 +109,12 @@ def request_gateway_restart(
 
     Notes
     -----
-    The put runs on a fresh ``asyncio.run`` loop rather than the shared
-    one-shot loop (``geecs_bluesky.devices.ca.oneshot`` serves *reads*
-    and keeps its loop private): aioca caches channels per loop, so each
-    call strands one channel for the process lifetime.  Accepted for an
-    incident-rate verb — one click per frozen gateway, not a poll.
+    The put rides the backend's persistent loop, not a per-call
+    ``asyncio.run`` (see the module docstring for why that loop's closing
+    is not survivable here) and not the shared one-shot loop either
+    (``geecs_bluesky.devices.ca.oneshot`` serves *reads* and keeps its
+    loop private).
     """
     pv = restart_pv(experiment)
-    from geecs_bluesky.devices.ca.gateway_put import GatewaySetpointPut, wire_value
-
-    put = GatewaySetpointPut(
-        setpoint_pv=pv, coerce=wire_value, timeout=timeout, name="cagateway:restart"
-    )
-    asyncio.run(put.put(RESTART_VALUE))
+    backend.put_pv(pv, RESTART_VALUE, timeout=timeout, name="cagateway:restart")
     return pv

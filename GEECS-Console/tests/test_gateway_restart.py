@@ -2,13 +2,30 @@
 
 from __future__ import annotations
 
+import inspect
+
 import pytest
 
+from geecs_console.services import gateway_restart as module
+from geecs_console.services.device_panel import StubDevicePanel
 from geecs_console.services.gateway_restart import (
     RESTART_VALUE,
     request_gateway_restart,
     restart_pv,
 )
+
+
+class RecordingBackend:
+    """DevicePanelBackend stand-in recording ``put_pv`` calls."""
+
+    def __init__(self, error: Exception | None = None):
+        self.puts = []
+        self.error = error
+
+    def put_pv(self, pv, value, *, timeout=None, name=""):
+        if self.error is not None:
+            raise self.error
+        self.puts.append((pv, value, timeout, name))
 
 
 class TestRestartPv:
@@ -28,36 +45,31 @@ class TestRestartPv:
 
 
 class TestRequestGatewayRestart:
-    def test_puts_restart_through_the_blessed_primitive(self, monkeypatch):
-        import geecs_bluesky.devices.ca.gateway_put as gateway_put
-
-        puts = []
-
-        class FakePut:
-            def __init__(self, setpoint_pv=None, *, coerce=None, timeout=None, name=""):
-                self.pv = setpoint_pv
-                self.coerce = coerce
-                self.timeout = timeout
-
-            async def put(self, value):
-                puts.append((self.pv, self.coerce(value), self.timeout))
-
-        monkeypatch.setattr(gateway_put, "GatewaySetpointPut", FakePut)
-        assert request_gateway_restart("TestExp", timeout=2.5) == (
+    def test_puts_restart_through_the_backend_seam(self):
+        backend = RecordingBackend()
+        assert request_gateway_restart("TestExp", backend=backend, timeout=2.5) == (
             "testexp:cagateway:restart"
         )
-        assert puts == [("testexp:cagateway:restart", "Restart", 2.5)]
+        assert backend.puts == [
+            ("testexp:cagateway:restart", "Restart", 2.5, "cagateway:restart")
+        ]
 
-    def test_put_failure_propagates(self, monkeypatch):
-        import geecs_bluesky.devices.ca.gateway_put as gateway_put
-
-        class DeadPut:
-            def __init__(self, *args, **kwargs):
-                pass
-
-            async def put(self, value):
-                raise TimeoutError("no gateway answered")
-
-        monkeypatch.setattr(gateway_put, "GatewaySetpointPut", DeadPut)
+    def test_put_failure_propagates(self):
+        backend = RecordingBackend(error=TimeoutError("no gateway answered"))
         with pytest.raises(TimeoutError):
-            request_gateway_restart("TestExp")
+            request_gateway_restart("TestExp", backend=backend)
+        assert backend.puts == []
+
+    def test_offline_stub_refuses_with_a_clear_message(self):
+        with pytest.raises(RuntimeError, match="not wired"):
+            request_gateway_restart("TestExp", backend=StubDevicePanel())
+
+    def test_no_per_call_event_loop(self):
+        # Review of PR #796: a put under ``asyncio.run`` strands its aioca
+        # channel on a loop that is then closed; the gateway's own exit
+        # (this click) fires CONN_DOWN on it and the CA thread prints
+        # "RuntimeError: Event loop is closed".  The put must ride the
+        # device-panel backend's persistent loop instead.
+        source = inspect.getsource(module)
+        assert "asyncio.run(" not in source
+        assert "import asyncio" not in source

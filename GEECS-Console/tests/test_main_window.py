@@ -1470,6 +1470,40 @@ class TestRestartGateway:
         win._apply_health_report(HealthReport(gateway=HealthStatus.OK))
         assert "gateway back" not in win.log_tail.toPlainText()
 
+    def test_default_restart_rides_the_device_panel_backend(self, qtbot):
+        """No injected restart: the put goes through the backend's ``put_pv``
+        (the persistent CA loop — review of PR #796), never a private loop."""
+
+        class RecordingPanel(FakeDevicePanel):
+            def __init__(self):
+                super().__init__()
+                self.puts = []
+
+            def put_pv(self, pv, value, *, timeout=None, name=""):
+                self.puts.append((pv, value, name))
+
+        panel = RecordingPanel()
+        win = MainWindow(
+            configs=FakeConfigs(),
+            presets=FakePresetStore(),
+            settings=FakeSettings(),
+            submitter=FakeSubmitter(),
+            health=self.OkHealth(),
+            device_panel=panel,
+        )
+        qtbot.addWidget(win)
+        if win._monitor is not None:
+            win._monitor.dispose()
+        win._health_timer.stop()
+        qtbot.waitUntil(lambda: "gateway: ok" in win.gateway_chip.text(), timeout=3000)
+        win._ask_binary = lambda *args, **kwargs: True
+        win._on_restart_gateway()
+        self.settle(qtbot, win)
+        assert panel.puts == [
+            ("testexp:cagateway:restart", "Restart", "cagateway:restart")
+        ]
+        assert win._restart_pending
+
 
 class TestBeeps:
     @pytest.fixture

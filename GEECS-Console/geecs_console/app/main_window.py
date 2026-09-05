@@ -12,6 +12,7 @@ network.
 
 from __future__ import annotations
 
+import functools
 import logging
 import os
 import random
@@ -285,7 +286,8 @@ class MainWindow(QMainWindow):
         self._scan_number_lookup = scan_number_lookup
         #: Ops → Restart gateway… (#773): the blocking restart put, injected
         #: for tests; ``None`` resolves to the module-level
-        #: ``request_gateway_restart`` at click time (test-patchable).
+        #: ``request_gateway_restart`` over the device-panel backend at
+        #: click time (test-patchable).
         self._gateway_restart = gateway_restart
         #: Latest R1 health report (gates the restart action on the chip).
         self._health_report = HealthReport()
@@ -1521,10 +1523,10 @@ class MainWindow(QMainWindow):
         )
         if not confirmed:
             return
-        restart = (
-            self._gateway_restart
-            if self._gateway_restart is not None
-            else request_gateway_restart
+        # The default put rides the device-panel backend's persistent CA
+        # loop (put_pv) — the stub refuses offline with a clear message.
+        restart = self._gateway_restart or functools.partial(
+            request_gateway_restart, backend=self._device_panel
         )
 
         # Same rule as every worker callable: a raise inside the job is
