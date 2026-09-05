@@ -20,9 +20,12 @@ in place and exits 1 when it changed a file — the ruff-format contract, so
 ``--check`` reports without writing (CI / tests).
 
 It never strips a URL to a bare name and never emits a relative ``file:../``
-form: a bare name in an extras string resolves to **PyPI** on the next
-consumer install (``geecs-data-utils`` is a live PyPI name), and ``file:../``
-silently installs nothing. The last path component must be a top-level
+form. ``file:../`` silently installs nothing. A hand-substituted bare name
+installed fine in the #753 design report's Q2 experiment — but the bare form
+is what Poetry's PEP 621 extras emit, and in that restructuring experiment a
+consumer activating the extra resolved the name to **PyPI**
+(``geecs-data-utils`` is a live PyPI name); the ``file:///…`` form is the
+one verified in both. The last path component must be a top-level
 package directory of this repo (one holding a ``pyproject.toml``); anything
 else is left alone for the ``poetry-lock-no-worktree-paths`` reject hook.
 """

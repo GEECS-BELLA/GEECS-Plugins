@@ -152,7 +152,9 @@ rendered from it, never edited by hand.
     `port_open` in `scripts/lib/net_probes.sh` refuses port 3306.
     `1129` in a `GeecsDb` error or the console log means the block, not a
     network fault: ask the DB admin for `FLUSH HOSTS` (raising
-    `max_connect_errors` server-side is the owner's call).
+    `max_connect_errors` server-side is the owner's call). This admonition
+    is the one statement of the rule — the probe scripts and the
+    `/lab-status` skill point here rather than retelling it.
 
 ## One clone per service
 

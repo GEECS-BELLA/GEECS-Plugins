@@ -94,8 +94,12 @@ locked package carries its own lock-relative source url — and
 worktrees included, commits clean; `poetry-lock-no-worktree-paths` is the
 backstop that rejects a surviving `.claude/worktrees/`, `file:///Users/`
 or `file:///home/`. Never hand-edit those URLs to a bare name or a
-relative `file:../` form: a bare name falls through to PyPI on a consumer
-install, and `file:../` silently installs nothing.
+relative `file:../` form: `file:../` silently installs nothing, and while
+a hand-substituted bare name installed fine in the #753 experiments, the
+bare form is what Poetry's PEP 621 extras emit — and there a consumer
+activating the extra resolved the name to **PyPI** (`geecs-data-utils` is
+a live PyPI name). The hook keeps the one form verified in both
+experiments.
 
 `geecs-plugins-bluesky` (a sibling directory of this checkout) is **no longer
 a worktree** — it has been promoted to its own standalone clone with an

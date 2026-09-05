@@ -49,14 +49,11 @@ which runs this probe first as its gate.
    DB queries, Tiled) are always fine once reachable. Anything that moves
    or fires hardware — `:SP` puts, scans of any kind — needs the user's
    explicit go for the session, regardless of what the probes say.
-4. **Never probe MySQL (3306) with a bare TCP connect** — not `nc`, not
-   `/dev/tcp`, not a socket that closes before the handshake. The server
-   counts those against `max_connect_errors` and, past 100, blocks the
-   address with error 1129 until a DB admin runs `FLUSH HOSTS`; VPN
-   clients share one NAT address, so one watch loop blocks the DB for
-   everyone on VPN (2026-09-04). The shared `port_open` refuses the port;
-   use `mysql_probe` (a refused login is a completed handshake and is not
-   counted). Details: `docs/platform/fleet_map.md`, the MySQL admonition.
+4. **Never probe the MySQL port with a bare TCP connect** (`nc`,
+   `/dev/tcp`, any socket that closes before the handshake) — the server
+   blocks the whole VPN pool for it (error 1129). Use `mysql_probe` from
+   `scripts/lib/net_probes.sh`; why, and the remedy, live in
+   `docs/platform/fleet_map.md`, the MySQL admonition.
 
 ## Capability table (act on the probe result)
 
@@ -67,12 +64,13 @@ which runs this probe first as its gate.
 | network UP, gateway DOWN (tier 2) | DB + Tiled work; no device I/O | "fix" it from here — the gateway service needs attention on its host |
 | gateway UP, devices_connected ≈ 0 | CA reads of gateway PVs | expect device data — the GEECS side is likely down |
 | gateway UP, devices connected | reads, and (with user authorization) scans/puts | assume the trigger fires — verify beam state with the user first |
-| MySQL `[WARN] … BLOCKED this address (1129)` | everything that does not need the DB; Tiled/CA are unaffected | retry GeecsDb calls or probe 3306 again — the block only lifts with a server-side `FLUSH HOSTS` (DB admin); tell the user |
+| MySQL `[WARN] … BLOCKED this address (1129)` | everything that does not need the DB; Tiled/CA are unaffected | retry GeecsDb calls or probe the DB again — the block only lifts server-side (the fleet-map admonition); tell the user |
+| MySQL `[ -- ] … not probed` | everything else the tier-1 lines allow (`network:` is not flipped by an unprobed DB) | read it as DOWN — the probe was killed at its wall or had no interpreter; the line says which |
 
 ## Failure vocabulary → likely meaning
 
 - `mysql.connector` hang / ~75 s stall → tier-1 DOWN case; you skipped the probe.
-- `1129: Host '…' is blocked because of many connection errors` (console DB chip DOWN, GeecsDb errors) → the max_connect_errors block, not a network fault; something bare-probed 3306 from the VPN pool — DB admin runs `FLUSH HOSTS`.
+- `1129: Host '…' is blocked because of many connection errors` (console DB chip DOWN, GeecsDb errors) → the host block, not a network fault; something bare-probed the DB port from the VPN pool — the fleet-map admonition has the remedy.
 - Tiled `Connection refused` → service down on the box (network itself may be fine — check MySQL probe to distinguish).
 - `GeecsTriggerTimeoutError: no shot within N s` mid-scan → hardware state (laser/DG645), not code; do not retry unattended.
 - aioca connect timeout on one specific PV → that PV may not exist (ghost DB row, wrong name) — run the gateway DB audit (`geecs-ca-gateway-audit`), not this skill.
