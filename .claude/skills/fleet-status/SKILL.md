@@ -32,6 +32,7 @@ and bounded: no PV writes, no restarts, no pulls.
 | Situation | Command |
 |---|---|
 | The normal case (full log, for reasoning) | `scripts/fleet_status.sh` |
+| Just the PVA image fleet | `poetry -C GeecsPvaGateway run geecs-pva-gateway fleet --experiment NAME` |
 | One box table + attention list (for the user) | `scripts/fleet_status.sh --summary` |
 | Persistent dashboard pane (cmux/tmux) | `scripts/fleet_status.sh --watch 300` (summary every 300 s; add `--full` for the log) |
 | Off the lab network / just want the local worktree picture | `scripts/fleet_status.sh --local-only` |
@@ -63,13 +64,18 @@ answers with its environment closed knows zero plans and refuses every
 submission as "not in the list of allowed plans"; the script prints
 `NOT READY` for that, never `OK`, #793), MCP port liveness (no version
 endpoint; stage 2 reads its venv), the CA gateway's heartbeat /
-`devices_connected` / `version` PVs (reused from `lab_status.sh
---hardware`, read-only), and every PVA image gateway's `version` +
-`heartbeat` PVs. The roster is read live from the GEECS DB (endpoint
-IPs hosting the experiment's image devices, `geecs_pva_gateway.fleet`);
-a roster host absent from `config.ini [pva] addr_list` is **not
-deployed** — printed as a `[ -- ]` row, never `[DOWN]` — because no
-instance was installed there. A `[WARN] PVA fleet runs mixed
+`devices_connected` / `version` PVs (from `lab_status.sh --hardware`,
+read-only — its `role=CA gateway` record line is the contract, not the
+prose), and every PVA image gateway's `version` + `heartbeat` PVs via
+`geecs-pva-gateway fleet` (the package owns the roster, the PV names,
+and the probe; the script only relays its lines and its record). The
+roster is read live from the GEECS DB (endpoint IPs hosting the
+experiment's image devices, `geecs_pva_gateway.fleet`); a roster host
+absent from `config.ini [pva] addr_list` is **not deployed** — printed
+as a `[ -- ]` row, never `[DOWN]` — because no instance was installed
+there. MCP not listening is a `[WARN]` + ✗ row: the fleet map has it as
+a system unit on the worker host, so silence is a finding, not
+"pending deploy". A `[WARN] PVA fleet runs mixed
 versions` line means a rollout is incomplete or a box's
 pull-on-restart no-oped — the GeecsPvaGateway runbook's known failure.
 
@@ -118,7 +124,7 @@ sha, package version). Quote versions and shas exactly as printed.
 
 When the observed picture contradicts `docs/platform/fleet_map.md`
 (a service on a different host, a checkout path the table doesn't
-name, a service the table calls "pending deploy" that is listening),
+name, a unit the map lists that is not listening),
 say so explicitly and offer to update the fleet map in the same PR as
 whatever change the user makes next — the map's own rule is "update
 this page in the same PR".
