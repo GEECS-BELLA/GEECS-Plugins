@@ -1487,17 +1487,35 @@ class MainWindow(QMainWindow):
             and not self._restart_in_flight
         )
 
+    def _restart_refusal(self) -> Optional[str]:
+        """Why a gateway restart must not start now, or ``None`` when it may.
+
+        Two activities would see the CA disconnect mid-flight: a scan on
+        the manager (the Start gate's ``_scanning()`` — the worker's
+        ophyd-async signals) and the R7 panel's manual set/move (a
+        worker-side ``move_variable`` never changes ``re_state``, so
+        ``_scanning()`` alone would wave it through — review of PR #796).
+        """
+        if self._scanning():
+            return "Gateway restart refused — a scan is active on the manager."
+        if self._movable.set_in_flight:
+            return "Gateway restart refused — a manual set/move is in flight."
+        return None
+
     def _on_restart_gateway(self) -> None:
         """Ops: ask the CA gateway to restart itself (#773), after confirming.
 
-        Refused while a scan is active on the manager (the Start gate's
-        ``_scanning()`` — the worker's ophyd-async signals would see the
-        CA disconnect mid-scan).  The confirmation states the cost: a few
-        seconds of fleet-wide CA disconnect (every client's monitors
-        reconnect on their own), and that a gateway not run under the
-        restart-on-exit-86 supervisor stays down.  The put itself blocks,
-        so it runs on the restart worker; the health poll then narrates
-        the bounce (:meth:`_narrate_gateway_bounce`).
+        Refused while a scan is active on the manager or a manual set/move
+        is in flight (:meth:`_restart_refusal`) — checked before the
+        confirmation AND again after it: the modal's nested ``exec()``
+        keeps status polls landing, so a scan started while the operator
+        read the text must still refuse (review of PR #796).  The
+        confirmation states the cost: a few seconds of fleet-wide CA
+        disconnect (every client's monitors reconnect on their own), and
+        that a gateway not run under the restart-on-exit-86 supervisor
+        stays down.  The put itself blocks, so it runs on the restart
+        worker; the health poll then narrates the bounce
+        (:meth:`_narrate_gateway_bounce`).
         """
         experiment = self.experiment_combo.currentText().strip()
         if not experiment:
@@ -1505,8 +1523,9 @@ class MainWindow(QMainWindow):
             return
         if self._restart_in_flight:
             return
-        if self._scanning():
-            self._report("Gateway restart refused — a scan is active on the manager.")
+        refusal = self._restart_refusal()
+        if refusal is not None:
+            self._report(refusal)
             return
         confirmed = self._ask_binary(
             "Restart gateway",
@@ -1522,6 +1541,11 @@ class MainWindow(QMainWindow):
             abort_label="Cancel",
         )
         if not confirmed:
+            return
+        # Re-check after the modal: polls landed while it was open.
+        refusal = self._restart_refusal()
+        if refusal is not None:
+            self._report(refusal)
             return
         # The default put rides the device-panel backend's persistent CA
         # loop (put_pv) — the stub refuses offline with a clear message.

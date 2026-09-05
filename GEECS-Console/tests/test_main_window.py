@@ -1417,6 +1417,69 @@ class TestRestartGateway:
         assert "refused" in win.statusBar().currentMessage()
         assert "scan is active" in win.statusBar().currentMessage()
 
+    def test_scan_starting_during_the_confirmation_is_refused(self, qtbot):
+        """The modal's nested exec() keeps status polls landing (review of
+        PR #796): a scan that started while it was open must still refuse."""
+        win, restart = self.make(qtbot)
+        win._apply_health_report(HealthReport(gateway=HealthStatus.OK))
+
+        def confirm_while_a_scan_starts(*args, **kwargs):
+            drive_status(win, "running")
+            return True
+
+        win._ask_binary = confirm_while_a_scan_starts
+        win._on_restart_gateway()
+        assert restart.calls == []
+        assert not win._restart_in_flight
+        assert not win._restart_pending
+        assert "refused" in win.statusBar().currentMessage()
+        assert "scan is active" in win.statusBar().currentMessage()
+
+    def test_refused_while_a_manual_set_is_in_flight(self, qtbot):
+        """A worker-side manual move never changes re_state, so the gate
+        also reads the movable panel's in-flight flag (review of PR #796)."""
+        import threading
+
+        gate = threading.Event()
+
+        class GatedPanel(FakeDevicePanel):
+            def set(self, experiment, device, variable, value):
+                gate.wait(3.0)
+                super().set(experiment, device, variable, value)
+
+        panel = GatedPanel()
+        win = MainWindow(
+            configs=FakeConfigs(),
+            presets=FakePresetStore(),
+            settings=FakeSettings(),
+            submitter=FakeSubmitter(),
+            health=self.OkHealth(),
+            gateway_restart=self.FakeRestart(),
+            device_panel=panel,
+        )
+        qtbot.addWidget(win)
+        if win._monitor is not None:
+            win._monitor.dispose()
+        win._health_timer.stop()
+        qtbot.waitUntil(lambda: "gateway: ok" in win.gateway_chip.text(), timeout=3000)
+        win._ask_binary = lambda *args, **kwargs: True
+        win.device_combo.setCurrentText("U_Hexapod:ypos")
+        win.set_field.setText("2.5")
+        qtbot.mouseClick(win.set_button, Qt.MouseButton.LeftButton)
+        assert win._movable.set_in_flight
+        try:
+            win._on_restart_gateway()
+            assert win._gateway_restart.calls == []
+            assert not win._restart_in_flight
+            assert "manual set/move is in flight" in win.statusBar().currentMessage()
+        finally:
+            gate.set()
+        qtbot.waitUntil(lambda: not win._movable.set_in_flight, timeout=3000)
+        # Once the set has landed the restart is allowed again.
+        win._on_restart_gateway()
+        self.settle(qtbot, win)
+        assert win._gateway_restart.calls == ["TestExp"]
+
     def test_confirmation_abort_writes_nothing(self, qtbot):
         win, restart = self.make(qtbot, answer=False)
         win._apply_health_report(HealthReport(gateway=HealthStatus.OK))

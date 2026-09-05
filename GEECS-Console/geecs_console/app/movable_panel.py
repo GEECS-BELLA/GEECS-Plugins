@@ -279,6 +279,17 @@ class MovablePanelController(QObject):
     # Set / move
     # ------------------------------------------------------------------
 
+    @property
+    def set_in_flight(self) -> bool:
+        """Whether a manual set/move is out on the set worker (GUI-thread state).
+
+        The window's gateway-restart gate reads this beside the manager's
+        ``re_state``: a worker-side ``move_variable`` (``function_execute``)
+        never changes ``re_state``, so without it a restart could pull the
+        gateway out from under an in-flight move (review of PR #796).
+        """
+        return self._set_in_flight
+
     def refresh_set_enabled(self, *_args: object) -> None:
         """Gate the Set button: resolvable selection, a value, nothing in flight."""
         name, targets = self._resolve_selection(self._combo.currentText())
