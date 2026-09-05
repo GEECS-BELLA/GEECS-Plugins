@@ -29,8 +29,8 @@ from pathlib import Path
 from typing import Optional
 
 import numpy as np
+from geecs_schemas.analysis import FrogRetrievalSpec
 from numpy.typing import NDArray
-from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
@@ -38,45 +38,9 @@ logger = logging.getLogger(__name__)
 _WORKER_SCRIPT = Path(__file__).parent / "_frog_dll_worker.py"
 
 
-class FrogRetrievalConfig(BaseModel):
-    """Typed configuration for :class:`GrenouilleAnalyzer`.
-
-    Validated from ``camera_config.analysis`` at analyzer init time.
-    Default values match the algorithm function signature so that a
-    bare ``analysis: {}`` in the YAML config is equivalent to the
-    previous hard-coded defaults.
-
-    Attributes
-    ----------
-    delt : float
-        Time delay step per raw pixel in femtoseconds.
-    dellam : float
-        Wavelength step in nanometers (negative for Grenouille convention).
-    lam0 : float
-        Center wavelength of the trace in nanometers.
-    N : int
-        Grid size for the DLL (512, 256, 128, or 64).
-    target_error : float
-        Target FROG error for early stopping.
-    max_time_seconds : float
-        Maximum wall-clock time for the retrieval.
-    max_iterations : int
-        Maximum iterations for the retrieval.
-    """
-
-    delt: float = Field(0.85, description="Time delay step per pixel [fs]")
-    dellam: float = Field(
-        -0.085, description="Wavelength step [nm] (negative for Grenouille)"
-    )
-    lam0: float = Field(400.0, description="Center wavelength [nm]")
-    N: int = Field(512, description="DLL grid size (512, 256, 128, or 64)")
-    target_error: float = Field(0.005, description="Target FROG error for early stop")
-    max_time_seconds: float = Field(
-        5.0, description="Max wall-clock time for retrieval [s]"
-    )
-    max_iterations: int = Field(1000000000, description="Max iterations for retrieval")
-    noise_subtype: int = Field(4, description="NoiseSubtraction SUBTYPE parameter")
-    noise_rad: float = Field(1.0, description="NoiseSubtraction RAD parameter")
+#: The retrieval parameters — the ``frog_retrieval`` analyzer spec from
+#: GEECS-Schemas (``analyzer: {kind: frog_retrieval, ...}`` in a diagnostic).
+FrogRetrievalConfig = FrogRetrievalSpec
 
 
 @dataclass

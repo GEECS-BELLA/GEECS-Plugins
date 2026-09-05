@@ -19,6 +19,8 @@ from typing import Dict, List, Optional, Union
 
 import numpy as np
 
+from geecs_schemas.analysis import LineStitcherSpec
+
 from image_analysis.data_1d_utils import read_1d_data
 from image_analysis.analyzers.line_analyzer import LineAnalyzer
 from image_analysis.config.array1d_processing import Line1DConfig
@@ -49,12 +51,16 @@ class LineStitcher(LineAnalyzer):
     def __init__(
         self,
         line_config: Line1DConfig,
-        sibling_devices: List[str],
-        name: str,
+        *,
+        spec: LineStitcherSpec,
+        output_name: Optional[str] = None,
     ):
-        super().__init__(line_config)
-        self.sibling_devices = sibling_devices
-        self.name = name
+        super().__init__(line_config, output_name=output_name)
+        self.sibling_devices: List[str] = list(spec.sibling_devices)
+        # Label for the stitched-output folder / filenames written next to
+        # the master device: the diagnostic's output name (v1's separate
+        # ``name`` kwarg said the same thing twice).
+        self.name = output_name or "stitched"
         self._device_in_filename: Optional[str] = None
 
     def load_image(self, file_path: Path) -> Array1D:

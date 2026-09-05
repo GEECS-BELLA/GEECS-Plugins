@@ -12,7 +12,6 @@ from image_analysis.analyzers.beam_analyzer import BeamAnalyzer
 from image_analysis.config.array2d_processing import (
     BackgroundConfig,
     CameraConfig,
-    PipelineConfig,
     ProcessingStepType,
     ROIConfig,
 )
@@ -167,7 +166,7 @@ class TestBeamAnalyzerROICoordinates:
         config = CameraConfig(
             bit_depth=16,
             roi=roi,
-            pipeline=PipelineConfig(steps=[ProcessingStepType.ROI]),
+            pipeline=[ProcessingStepType.ROI],
         )
         analyzer = BeamAnalyzer(config)
         result = analyzer.analyze_image(img)

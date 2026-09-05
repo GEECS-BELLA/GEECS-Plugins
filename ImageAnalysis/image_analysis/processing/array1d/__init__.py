@@ -31,7 +31,6 @@ from image_analysis.config.array1d_processing import (
     FilterMethod,
     InterpolationConfig,
     Line1DConfig,
-    PipelineConfig,
     PipelineStepType,
     ROI1DConfig,
     ThresholdingConfig,
@@ -61,7 +60,6 @@ __all__ = [
     "ROI1DConfig",
     "ThresholdingConfig",
     "ThresholdMethod",
-    "PipelineConfig",
     "PipelineStepType",
     # Background operations
     "compute_background",

@@ -14,11 +14,10 @@ the StandardAnalyzer for all image processing pipeline functionality.
 from __future__ import annotations
 
 import logging
-from typing import Optional, Set, Tuple, Dict
+from typing import Optional, Tuple, Dict
 
 import numpy as np
 import matplotlib.pyplot as plt
-from pydantic import BaseModel, Field
 
 # Import the StandardAnalyzer parent class
 from image_analysis.analyzers.standard_analyzer import StandardAnalyzer
@@ -30,43 +29,16 @@ from image_analysis.algorithms.basic_beam_stats import (
     flatten_beam_stats,
 )
 from image_analysis.algorithms.beam_slopes import compute_beam_slopes
+from geecs_schemas.analysis import BeamAnalyzerSpec
+
 from image_analysis.types import ImageAnalyzerResult
 
 logger = logging.getLogger(__name__)
 
 
-class BeamAnalysisConfig(BaseModel):
-    """Typed configuration for :class:`BeamAnalyzer`.
-
-    This model is validated from ``camera_config.analysis`` at analyzer init
-    time, giving users IDE autocompletion and config-file validation.
-
-    Attributes
-    ----------
-    compute_slopes : bool
-        Whether to compute beam slope (straightness) metrics.
-    enabled_stats : set of str or None
-        If provided, only these beam-stat fragments are emitted by
-        ``flatten_beam_stats``.  Valid fragments are any combination of
-        ``{section}_{field}`` names, e.g. ``"image_total"``, ``"x_CoM"``,
-        ``"y_rms"``, ``"x_45_fwhm"``.  ``None`` (the default) emits all
-        18 stats.
-    """
-
-    compute_slopes: bool = Field(
-        default=False,
-        description=(
-            "Whether to compute beam slope (straightness) metrics. "
-            "Expensive: involves line-by-line stats + weighted linear fits."
-        ),
-    )
-    enabled_stats: Optional[Set[str]] = Field(
-        default=None,
-        description=(
-            "If provided, only emit these beam-stat fragments "
-            "(e.g. 'image_total', 'x_CoM'). None = emit all."
-        ),
-    )
+#: The typed parameters of :class:`BeamAnalyzer` — the ``beam`` analyzer spec
+#: from GEECS-Schemas (``analyzer: {kind: beam, ...}`` in a diagnostic).
+BeamAnalysisConfig = BeamAnalyzerSpec
 
 
 class BeamAnalyzer(StandardAnalyzer):
@@ -94,6 +66,7 @@ class BeamAnalyzer(StandardAnalyzer):
         self,
         camera_config: cfg_2d.CameraConfig,
         *,
+        spec: Optional[BeamAnalyzerSpec] = None,
         output_name: Optional[str] = None,
     ):
         """Initialize the beam analyzer with a validated camera config.
@@ -110,10 +83,9 @@ class BeamAnalyzer(StandardAnalyzer):
         # Initialize parent class
         super().__init__(camera_config=camera_config, output_name=output_name)
 
-        # Validate analysis config (if present) into a typed model
-        self.analysis_config = BeamAnalysisConfig.model_validate(
-            self.camera_config.analysis or {}
-        )
+        # The analyzer's own parameters: the ``beam`` spec (defaults when
+        # constructed directly in a notebook without one).
+        self.analysis_config: BeamAnalyzerSpec = spec or BeamAnalyzerSpec()
 
     def analyze_image(
         self, image: np.ndarray, auxiliary_data: Optional[Dict] = None
@@ -152,9 +124,10 @@ class BeamAnalyzer(StandardAnalyzer):
         # Scalars are bare-keyed; ScanAnalysis namespaces them via
         # metric_prefix/metric_suffix when storing per-shot results (#412).
         beam_stats = beam_profile_stats(processed_image, roi_offset=roi_offset)
+        enabled = self.analysis_config.enabled_stats
         scalars = flatten_beam_stats(
             beam_stats,
-            include=self.analysis_config.enabled_stats,
+            include=set(enabled) if enabled is not None else None,
         )
 
         # Optional: slope/straightness metrics

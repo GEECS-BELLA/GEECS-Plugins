@@ -66,7 +66,7 @@ def apply_camera_processing_pipeline(
     processed = ensure_float64_processing(image)
     logger.debug("Starting processing pipeline")
 
-    for step in camera_config.pipeline.steps:
+    for step in camera_config.pipeline:
         if step == ProcessingStepType.BACKGROUND:
             if camera_config.background is not None:
                 processed = apply_background(

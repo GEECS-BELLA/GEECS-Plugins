@@ -43,6 +43,8 @@ from scipy.interpolate import CubicSpline
 from pydantic import BaseModel, Field, field_validator, model_validator, ConfigDict
 
 from image_analysis.tools.rendering import base_render_image
+from geecs_schemas.analysis import MagSpecAnalyzerSpec
+
 from image_analysis.analyzers.beam_analyzer import BeamAnalyzer
 from image_analysis.config.array2d_processing import CameraConfig
 from image_analysis.types import ImageAnalyzerResult
@@ -385,25 +387,22 @@ class MagSpecManualCalibAnalyzer(BeamAnalyzer):
     in a ``dnn_axis`` calibration block.
     """
 
-    def __init__(self, camera_config: CameraConfig):
-        super().__init__(camera_config)
+    def __init__(
+        self,
+        camera_config: CameraConfig,
+        *,
+        spec: MagSpecAnalyzerSpec,
+        output_name: Optional[str] = None,
+    ):
+        super().__init__(camera_config, output_name=output_name)
 
-        analysis = self.camera_config.analysis
-        if not analysis or "calibration" not in analysis:
-            raise ValueError(
-                f"Camera '{self.output_name}' requires an 'analysis' section "
-                f"with at least 'calibration' and 'energy_range'."
-            )
-
-        # Accept both `analysis.magspec.calibration` (legacy) and
-        # `analysis.calibration` (preferred flat format).
-        raw = (
-            analysis.get("magspec", analysis)
-            if isinstance(analysis.get("magspec"), dict)
-            else analysis
+        # The ``magspec`` spec carries the data; the runtime calibration
+        # objects (which read their tables on construction) are built from
+        # its dump, so the ``kind`` discriminator picks the class.
+        self.spec = spec
+        self.magspec_config = MagSpecAnalyzerConfig.model_validate(
+            spec.model_dump(mode="json", exclude={"kind"})
         )
-
-        self.magspec_config = MagSpecAnalyzerConfig.model_validate(raw)
 
         logger.info(
             "Initialized %s magspec analyzer: energy_range=%s MeV, calibration=%s",

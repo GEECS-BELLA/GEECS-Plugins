@@ -20,7 +20,7 @@ structural, not conventional:
   confused about the contract, and silently dropping the key would turn
   that confusion into wrong-but-plausible output.
 * Analyzers with unconditional side effects — writes or subprocess
-  spawns not gated on ``file_path`` — are refused by class path via
+  spawns not gated on ``file_path`` — are refused by analyzer kind via
   :data:`EPHEMERAL_DENYLIST` **before import**, so a denylisted
   analyzer's vendor SDK or DLL dependency is never even imported on
   hosts that lack it. The denylist shrinks as analyzers grow an
@@ -50,7 +50,7 @@ __all__ = [
     "run_diagnostic_ephemeral",
 ]
 
-#: Analyzer class paths that cannot run ephemerally: their side effects
+#: Analyzer kinds that cannot run ephemerally: their side effects
 #: are not gated on ``auxiliary_data["file_path"]``, so no calling
 #: convention makes them pure. Remove an entry only when the analyzer
 #: gains an explicit no-write mode.
@@ -63,12 +63,7 @@ __all__ = [
 #:   temp files and spawns a ~seconds 32-bit DLL subprocess per frame —
 #:   cleaned up afterwards, but a per-request viewer must not trigger
 #:   either.
-EPHEMERAL_DENYLIST = frozenset(
-    {
-        "image_analysis.analyzers.HASO_himg_has_processor.HASOHimgHasProcessor",
-        "image_analysis.analyzers.grenouille_analyzer.GrenouilleAnalyzer",
-    }
-)
+EPHEMERAL_DENYLIST = frozenset({"haso", "frog_retrieval"})
 
 
 def run_diagnostic_ephemeral(
@@ -142,10 +137,10 @@ def _ephemeral_analyzer(
 
     diag = load_diagnostic(name_or_path, config_dir=config_dir, overrides=overrides)
 
-    class_path = diag.image_analyzer.class_path
-    if class_path in EPHEMERAL_DENYLIST:
+    kind = diag.analyzer.kind
+    if kind in EPHEMERAL_DENYLIST:
         raise ValueError(
-            f"Analyzer {class_path} cannot run ephemerally: its side "
+            f"Analyzer kind {kind!r} cannot run ephemerally: its side "
             f"effects (writes / subprocess spawns) are not gated on "
             f"auxiliary file paths. Use the scan pipeline for this "
             f"diagnostic, or give the analyzer a no-write mode and "

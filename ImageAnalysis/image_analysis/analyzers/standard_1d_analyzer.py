@@ -319,7 +319,7 @@ class Standard1DAnalyzer(ImageAnalyzer):
         """
         params: Dict[str, Any] = {
             "data_type": self.line_config.data_loading.data_type,
-            "data_format": self.line_config.data_format,
+            "data_format": self.line_config.label,
         }
         if self._output_name is not None:
             params["output_name"] = self._output_name
@@ -560,17 +560,8 @@ def _validate_auxiliary_column_data(
 
 
 def _pipeline_steps(config: Line1DConfig) -> list[PipelineStepType]:
-    """Return configured pipeline steps, including the default order."""
-    if config.pipeline is not None:
-        return list(config.pipeline.steps)
-
-    return [
-        PipelineStepType.ROI,
-        PipelineStepType.BACKGROUND,
-        PipelineStepType.FILTERING,
-        PipelineStepType.THRESHOLDING,
-        PipelineStepType.INTERPOLATION,
-    ]
+    """Return the configured pipeline steps (the list is the source of truth)."""
+    return list(config.pipeline)
 
 
 def _interpolation_enabled(

@@ -65,9 +65,9 @@ def compute_background(
     if config.method == BackgroundMethod.CONSTANT:
         # Create background array with constant y-value
         background = np.column_stack(
-            [data[:, 0], np.full(len(data), config.constant_value)]
+            [data[:, 0], np.full(len(data), config.constant_level)]
         )
-        logger.info(f"Computed constant background: {config.constant_value}")
+        logger.info(f"Computed constant background: {config.constant_level}")
         return background
 
     elif config.method == BackgroundMethod.FROM_FILE:
@@ -77,8 +77,8 @@ def compute_background(
                 "how to read the file. Pipeline callers should pass through "
                 "the Line1DConfig.data_loading."
             )
-        background = load_background_from_file(config.background_file, data_loading)
-        logger.info(f"Loaded background from file: {config.background_file}")
+        background = load_background_from_file(config.file_path, data_loading)
+        logger.info(f"Loaded background from file: {config.file_path}")
         return background
 
     else:

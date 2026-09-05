@@ -48,16 +48,16 @@ class GrenouilleAnalyzer(StandardAnalyzer):
         self,
         camera_config: CameraConfig,
         *,
+        spec: Optional[FrogRetrievalConfig] = None,
         output_name: Optional[str] = None,
     ):
-        """Initialize the FROG analyzer with a validated camera config."""
+        """Initialize the FROG analyzer with a validated camera config and retrieval spec."""
         super().__init__(camera_config=camera_config, output_name=output_name)
         self.retrieval = FrogDllRetrieval.from_config()
 
-        # Validate analysis config (if present) into a typed model
-        self.analysis_config = FrogRetrievalConfig.model_validate(
-            self.camera_config.analysis or {}
-        )
+        # The retrieval parameters: the ``frog_retrieval`` spec (defaults
+        # when constructed directly without one).
+        self.analysis_config: FrogRetrievalConfig = spec or FrogRetrievalConfig()
 
         logger.info("Initialized GrenouilleAnalyzer (output_name=%r)", self.output_name)
 

@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "imageanalysis"
-version = "1.14.1"
+version = "2.0.0"
 description = "Central sub-repository for online and offline analysis of BELLA exeriments' images."
 authors = ["Reinier van Mourik <reinier.vanmourik@tausystems.com>"]
 readme = "README.md"
@@ -33,6 +33,9 @@ matplotlib = "^3.0"
 opencv-python = "^4.9.0.80"
 
 geecs-data-utils = { path = "../GEECS-Data-Utils", develop=true }
+# the config models: the diagnostic document and every processing / analyzer
+# spec model live in GEECS-Schemas (pydantic-only) as of 2.0
+geecs-schemas = { path = "../GEECS-Schemas", develop=true }
 
 
 [tool.poetry.group.dev.dependencies]

@@ -97,7 +97,6 @@ class TestCircularMask:
     def test_mask_outside_zeroes_corners(self):
         image = np.ones((50, 50), dtype=np.float64) * 100.0
         config = CircularMaskConfig(
-            enabled=True,
             center=(25, 25),  # (col, row)
             radius=10,
             mask_outside=True,
@@ -113,7 +112,6 @@ class TestCircularMask:
     def test_mask_inside_zeroes_centre(self):
         image = np.ones((50, 50), dtype=np.float64) * 100.0
         config = CircularMaskConfig(
-            enabled=True,
             center=(25, 25),
             radius=5,
             mask_outside=False,

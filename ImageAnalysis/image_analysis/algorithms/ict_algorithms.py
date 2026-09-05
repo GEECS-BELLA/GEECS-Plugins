@@ -22,7 +22,7 @@ from typing import Optional, Tuple
 import logging
 
 import numpy as np
-from pydantic import BaseModel, Field
+from geecs_schemas.analysis import IctAnalyzerSpec
 from scipy.optimize import curve_fit
 
 from image_analysis.processing.array1d.filtering import apply_butterworth_filter
@@ -30,34 +30,9 @@ from image_analysis.processing.array1d.filtering import apply_butterworth_filter
 logger = logging.getLogger(__name__)
 
 
-class ICTAnalysisConfig(BaseModel):
-    """Typed configuration for :class:`ICT1DAnalyzer`.
-
-    Validated from ``line_config.analysis`` at analyzer init time.
-    Default values match the algorithm function signature so that a
-    bare ``analysis: {}`` in the YAML config is equivalent to the
-    previous hard-coded defaults.
-
-    Attributes
-    ----------
-    butterworth_order : int
-        Butterworth low-pass filter order.
-    butterworth_crit_f : float
-        Normalised critical frequency for the Butterworth filter.
-    calibration_factor : float
-        Calibration factor in V·s/C.
-    dt : float or None
-        Time step override in seconds. ``None`` means derive from data.
-    """
-
-    butterworth_order: int = Field(1, description="Butterworth filter order")
-    butterworth_crit_f: float = Field(
-        0.125, description="Normalised critical frequency"
-    )
-    calibration_factor: float = Field(0.1, description="Calibration factor [V·s/C]")
-    dt: Optional[float] = Field(
-        None, description="Time step override [s]; None = derive from data"
-    )
+#: The ICT parameters — the ``ict`` analyzer spec from GEECS-Schemas
+#: (``analyzer: {kind: ict, ...}`` in a diagnostic).
+ICTAnalysisConfig = IctAnalyzerSpec
 
 
 def identify_primary_valley(data: np.ndarray) -> np.ndarray:

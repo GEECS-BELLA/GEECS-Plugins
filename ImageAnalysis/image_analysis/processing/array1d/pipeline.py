@@ -73,17 +73,7 @@ def apply_line_processing_pipeline(
     intermediate = {"original": data.copy()} if return_intermediate else None
 
     # Get pipeline steps
-    if config.pipeline is None:
-        # Default pipeline order
-        steps = [
-            PipelineStepType.ROI,
-            PipelineStepType.BACKGROUND,
-            PipelineStepType.FILTERING,
-            PipelineStepType.THRESHOLDING,
-            PipelineStepType.INTERPOLATION,
-        ]
-    else:
-        steps = config.pipeline.steps
+    steps = list(config.pipeline)
 
     logger.info(f"Processing 1D data with pipeline steps: {[s.value for s in steps]}")
 
@@ -156,8 +146,8 @@ def validate_pipeline_config(config: Line1DConfig) -> list[str]:
     warnings = []
 
     # Check if pipeline steps reference configs that don't exist
-    if config.pipeline is not None:
-        for step in config.pipeline.steps:
+    if config.pipeline:
+        for step in config.pipeline:
             if step == PipelineStepType.ROI and config.roi is None:
                 warnings.append("Pipeline includes ROI step but no ROI config provided")
             elif (

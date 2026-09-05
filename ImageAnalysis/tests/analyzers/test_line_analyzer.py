@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from image_analysis.analyzers.line_analyzer import LineAnalyzer
-from image_analysis.config.array1d_processing import Data1DConfig, Line1DConfig
+from image_analysis.config.array1d_processing import Data1DLoading, Line1DConfig
 from image_analysis.tools.synthetic_generators import gaussian_peak_1d
 
 
@@ -14,7 +14,7 @@ def _make_line_config() -> Line1DConfig:
     """Minimal Line1DConfig — no processing steps."""
     return Line1DConfig(
         description="synthetic test line",
-        data_loading=Data1DConfig(data_type="npy"),
+        data_loading=Data1DLoading(data_type="npy"),
     )
 
 
