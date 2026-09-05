@@ -20,7 +20,9 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
+from xml.sax.saxutils import escape
 
+from geecs_core.pv_naming import normalize_component
 from geecs_pva_gateway.fleet import FleetHost, default_experiment, fleet_roster
 
 ROW_HEIGHT = 30
@@ -69,7 +71,7 @@ HEADER = """<?xml version="1.0" encoding="UTF-8"?>
 """
 
 HOST_LABEL = """
-  <!-- row: {ip} ({cameras}) -->
+  <!-- row: {ip} ({n_cameras} cameras) -->
   <widget type="label" version="2.0.0">
     <name>host_{suffix}</name>
     <text>{ip}</text>
@@ -120,22 +122,26 @@ def render(experiment: str, hosts: list[FleetHost]) -> str:
     """Return the ``.bob`` XML for *hosts*, one row each."""
     rows = []
     for i, host in enumerate(hosts):
+        # Every DB/config string is XML-escaped; the XML comment carries no
+        # names at all (a "--" inside a comment is a well-formedness error).
         fields = {
-            "ip": host.ip,
-            "cameras": ", ".join(host.cameras) or "no cameras in the DB",
-            # e.g. 6_100 — unique within one lab's 192.168.x.y fleet
-            "suffix": "_".join(host.ip.split(".")[2:]),
+            "ip": escape(host.ip),
+            "n_cameras": len(host.cameras),
+            "cameras": escape(", ".join(host.cameras) or "no cameras in the DB"),
+            # The same normalised host component the instance PVs use, so a
+            # hostname entry gets a unique widget name too (not just IPv4).
+            "suffix": normalize_component(host.ip),
             "y": FIRST_ROW_Y + i * ROW_HEIGHT,
-            "version_pv": host.instance_pv(experiment, "version"),
-            "heartbeat_pv": host.instance_pv(experiment, "heartbeat"),
-            "restart_pv": host.instance_pv(experiment, "restart"),
+            "version_pv": escape(host.instance_pv(experiment, "version")),
+            "heartbeat_pv": escape(host.instance_pv(experiment, "heartbeat")),
+            "restart_pv": escape(host.instance_pv(experiment, "restart")),
         }
         cells = DEPLOYED_CELLS if host.deployed else NOT_DEPLOYED_CELLS
         rows.append(HOST_LABEL.format(**fields) + cells.format(**fields))
     height = FIRST_ROW_Y + len(hosts) * ROW_HEIGHT + 20
     header = HEADER.format(
         height=height,
-        experiment=experiment,
+        experiment=escape(experiment),
         n_hosts=len(hosts),
         n_deployed=sum(h.deployed for h in hosts),
     )

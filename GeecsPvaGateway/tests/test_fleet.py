@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import pytest
@@ -144,11 +145,34 @@ def test_screen_rows_deployed_vs_not(fake_db, tmp_path):
     text = (tmp_path / "fleet_status_undulator.bob").read_text()
     assert "3 camera servers in the DB, 2 deployed" in text
     assert "pva://undulator:pvagateway:192_168_6_100:version" in text
-    assert "<name>restart_6_100</name>" in text
-    assert "<name>not_deployed_6_66</name>" in text
-    assert "<name>restart_6_66</name>" not in text
+    assert "<name>restart_192_168_6_100</name>" in text
+    assert "<name>not_deployed_192_168_6_66</name>" in text
+    assert "<name>restart_192_168_6_66</name>" not in text
     assert "192_168_6_66:version" not in text
     assert "UC_LoneCam" in text  # the tooltip names the host's cameras
+
+
+def test_screen_is_well_formed_xml_with_hostile_names(monkeypatch, tmp_path):
+    """DB names with XML metacharacters and hostname entries still yield valid, unique widgets."""
+    gen = _load_generator()
+    hosts = [
+        FleetHost(ip="192.168.6.100", cameras=["UC_Cam&A", "UC_Cam<B>", "UC--Dash"]),
+        FleetHost(ip="camserver7", cameras=[], deployed=True),
+        FleetHost(ip="camserver8", cameras=[], deployed=True),
+    ]
+    text = gen.render("R&D", hosts)
+    root = ET.fromstring(text)  # raises on any escaping or comment mistake
+    names = [w.findtext("name") for w in root.iter("widget")]
+    assert len(names) == len(set(names)), names  # hostnames no longer collide
+    assert "host_camserver7" in names and "host_camserver8" in names
+    assert (
+        root.find("widget[name='host_192_168_6_100']/tooltip").text
+        == "UC_Cam&A, UC_Cam<B>, UC--Dash"
+    )
+    assert "R&D" in root.find("widget[name='title']/text").text
+    assert (
+        "UC_Cam" not in text.split("<widget")[0]
+    )  # the header comment carries no names
 
 
 def test_generator_needs_an_experiment(tmp_path, capsys):
