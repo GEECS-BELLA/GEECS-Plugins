@@ -260,8 +260,10 @@ def _p4p_context(hosts: list[str], timeout: float) -> Iterator[Callable[[str], o
     from p4p.client.thread import Context
 
     conf = {"EPICS_PVA_ADDR_LIST": " ".join(hosts), "EPICS_PVA_AUTO_ADDR_LIST": "NO"}
+    # useenv=False: an exported EPICS_PVA_ADDR_LIST would otherwise merge in
+    # and the probe would search more than the deployed hosts.
     # unwrap=False: raw Values (str(NT wrapper) would carry a timestamp).
-    with Context("pva", conf=conf, useenv=True, unwrap=False) as ctx:
+    with Context("pva", conf=conf, useenv=False, unwrap=False) as ctx:
         yield lambda pv: ctx.get(pv, timeout=timeout)["value"]
 
 
