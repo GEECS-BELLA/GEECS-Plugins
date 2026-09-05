@@ -296,6 +296,10 @@ class MainWindow(QMainWindow):
         #: — the health poll narrates the bounce (down → back) meanwhile.
         self._restart_pending = False
         self._restart_seen_down = False
+        #: ``HealthPoller.polls_started`` when the put completed: a report
+        #: from a poll that began earlier read the gateway *before* the put
+        #: and must not narrate (review of PR #796).
+        self._restart_arm_sequence = 0
         #: Non-modal editor dialogs opened from the Editors menu.  PySide6
         #: garbage-collects an unreferenced dialog wrapper and tears down the
         #: C++ dialog with it, so every opened editor is kept here.
@@ -807,10 +811,10 @@ class MainWindow(QMainWindow):
         self.tiled_chip.setText(self._chip_markup("tiled", report.tiled))
         self.db_chip.setText(self._chip_markup("db", report.db))
         self._health_report = report
-        self._narrate_gateway_bounce(report.gateway)
+        self._narrate_gateway_bounce(report)
         self._refresh_restart_gateway_action()
 
-    def _narrate_gateway_bounce(self, gateway: HealthStatus) -> None:
+    def _narrate_gateway_bounce(self, report: HealthReport) -> None:
         """Log-tail lines for a requested gateway restart (#773).
 
         After the put, the heartbeat check on the 5 s health poll does the
@@ -820,13 +824,23 @@ class MainWindow(QMainWindow):
         DOWN (not run under the restart-on-exit-86 supervisor) leaves the
         flag armed; the confirmation text warned about that case.
 
+        Only reports from polls that began *after* the put completed
+        count (``report.sequence`` vs the arm point): a poll already out
+        when the put landed read a pre-put heartbeat, and its late "OK"
+        would narrate "back" while the gateway is going down (review of
+        PR #796).  Unstamped reports (sequence 0 — a seed, a direct call)
+        never narrate.
+
         Parameters
         ----------
-        gateway : HealthStatus
-            The polled gateway chip state.
+        report : HealthReport
+            The polled chip states, sequence-stamped by the poller.
         """
         if not self._restart_pending:
             return
+        if report.sequence <= self._restart_arm_sequence:
+            return
+        gateway = report.gateway
         if gateway == HealthStatus.DOWN and not self._restart_seen_down:
             self._restart_seen_down = True
             self._report("gateway restarting — heartbeat down")
@@ -1585,6 +1599,10 @@ class MainWindow(QMainWindow):
         if ok:
             self._restart_pending = True
             self._restart_seen_down = False
+            poller = getattr(self, "_health_poller", None)
+            self._restart_arm_sequence = (
+                poller.polls_started if poller is not None else 0
+            )
         self._report(message)
         self._refresh_restart_gateway_action()
 

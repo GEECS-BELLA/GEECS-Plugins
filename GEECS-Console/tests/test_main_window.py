@@ -1498,14 +1498,106 @@ class TestRestartGateway:
         log = win.log_tail.toPlainText()
         assert "gateway restart requested (testexp:cagateway:restart)" in log
         assert win.restart_gateway_action.isEnabled()
-        # The health poll narrates DOWN → OK once, then disarms.
-        win._apply_health_report(HealthReport(gateway=HealthStatus.DOWN))
-        win._apply_health_report(HealthReport(gateway=HealthStatus.DOWN))
-        win._apply_health_report(HealthReport(gateway=HealthStatus.OK))
-        win._apply_health_report(HealthReport(gateway=HealthStatus.OK))
+        # The health poll narrates DOWN → OK once, then disarms.  Reports
+        # carry the poller's sequence; the constructor's poll was #1, so
+        # these are polls that began after the put landed.
+        win._apply_health_report(HealthReport(gateway=HealthStatus.DOWN, sequence=2))
+        win._apply_health_report(HealthReport(gateway=HealthStatus.DOWN, sequence=3))
+        win._apply_health_report(HealthReport(gateway=HealthStatus.OK, sequence=4))
+        win._apply_health_report(HealthReport(gateway=HealthStatus.OK, sequence=5))
         log = win.log_tail.toPlainText()
         assert log.count("gateway restarting — heartbeat down") == 1
         assert log.count("gateway back — heartbeat OK") == 1
+        assert not win._restart_pending
+
+    def test_a_report_from_a_pre_arm_poll_does_not_narrate_back(self, qtbot):
+        """Review of PR #796: a poll that began before the put completed
+        read a pre-put heartbeat; its late OK must not read as "back"."""
+        win, _restart = self.make(qtbot)
+        win._on_restart_gateway()
+        self.settle(qtbot, win)
+        assert win._restart_pending
+        assert win._restart_arm_sequence == win._health_poller.polls_started == 1
+        # Poll #1 (pre-arm) landing late, and an unstamped direct report.
+        win._apply_health_report(HealthReport(gateway=HealthStatus.OK, sequence=1))
+        win._apply_health_report(HealthReport(gateway=HealthStatus.OK))
+        assert "gateway back" not in win.log_tail.toPlainText()
+        assert win._restart_pending
+        # The chip itself still follows every report.
+        assert "gateway: ok" in win.gateway_chip.text()
+        # The first post-arm poll narrates as usual.
+        win._apply_health_report(HealthReport(gateway=HealthStatus.DOWN, sequence=2))
+        win._apply_health_report(HealthReport(gateway=HealthStatus.OK, sequence=3))
+        log = win.log_tail.toPlainText()
+        assert log.count("gateway restarting — heartbeat down") == 1
+        assert log.count("gateway back — heartbeat OK") == 1
+        assert not win._restart_pending
+
+    def test_a_poll_out_when_the_put_lands_is_ignored_end_to_end(self, qtbot):
+        """The real path: the poll thread is blocked on a pre-put read while
+        the put completes; its report lands after arming and is ignored."""
+        import threading
+
+        from geecs_console.services import background
+
+        class GatedHealth:
+            def __init__(self):
+                self.gate = threading.Event()
+                self.gate.set()
+                self.status = HealthStatus.OK
+
+            def poll(self):
+                self.gate.wait(3.0)
+                return HealthReport(gateway=self.status)
+
+        probe = GatedHealth()
+        restart = self.FakeRestart()
+        win = MainWindow(
+            configs=FakeConfigs(),
+            presets=FakePresetStore(),
+            settings=FakeSettings(),
+            submitter=FakeSubmitter(),
+            health=probe,
+            gateway_restart=restart,
+        )
+        qtbot.addWidget(win)
+        if win._monitor is not None:
+            win._monitor.dispose()
+        win._health_timer.stop()
+        qtbot.waitUntil(lambda: "gateway: ok" in win.gateway_chip.text(), timeout=3000)
+        win._ask_binary = lambda *args, **kwargs: True
+        poller = win._health_poller
+
+        def landed():
+            return poller not in background._INFLIGHT
+
+        # Poll #2 goes out and blocks (its heartbeat read is pre-put).
+        probe.gate.clear()
+        poller.poll_async()
+        assert poller.polls_started == 2
+        win._on_restart_gateway()
+        self.settle(qtbot, win)
+        assert win._restart_pending and win._restart_arm_sequence == 2
+        # Now poll #2 returns its pre-put OK, after arming.
+        probe.gate.set()
+        qtbot.waitUntil(landed, timeout=3000)
+        qtbot.wait(50)  # the queued report_ready delivery
+        assert "gateway back" not in win.log_tail.toPlainText()
+        assert win._restart_pending
+        # Post-arm polls narrate the bounce.
+        probe.status = HealthStatus.DOWN
+        poller.poll_async()
+        qtbot.waitUntil(
+            lambda: "gateway restarting — heartbeat down" in win.log_tail.toPlainText(),
+            timeout=3000,
+        )
+        probe.status = HealthStatus.OK
+        poller.poll_async()
+        qtbot.waitUntil(
+            lambda: "gateway back — heartbeat OK" in win.log_tail.toPlainText(),
+            timeout=3000,
+        )
+        assert win.log_tail.toPlainText().count("gateway back") == 1
         assert not win._restart_pending
 
     def test_second_click_while_in_flight_is_a_noop(self, qtbot):

@@ -179,6 +179,35 @@ class TestHealthPollerGuiHop:
         assert consumer.results == []
         assert poller._busy is False
 
+    def test_health_reports_are_stamped_with_the_poll_sequence(self, qtbot):
+        from geecs_console.services.health import HealthReport, HealthStatus
+
+        probe = GatedProbe(HealthReport(gateway=HealthStatus.OK))
+        poller = HealthPoller(probe)
+        consumer = Consumer()
+        poller.report_ready.connect(consumer.take, Qt.ConnectionType.QueuedConnection)
+        assert poller.polls_started == 0
+        poller.poll_async()
+        _drain(qtbot, lambda: len(consumer.results) == 1)
+        poller.poll_async()
+        _drain(qtbot, lambda: len(consumer.results) == 2)
+        assert [r.sequence for r in consumer.results] == [1, 2]
+        assert all(r.gateway is HealthStatus.OK for r in consumer.results)
+        assert poller.polls_started == 2
+        assert probe.report.sequence == 0  # the probe's own report is untouched
+
+    def test_skipped_polls_do_not_take_a_sequence(self, qtbot):
+        probe = GatedProbe("r")
+        probe.gate.clear()
+        poller = HealthPoller(probe)
+        consumer = Consumer()
+        poller.report_ready.connect(consumer.take, Qt.ConnectionType.QueuedConnection)
+        poller.poll_async()
+        poller.poll_async()  # skipped: one is out
+        assert poller.polls_started == 1
+        probe.gate.set()
+        _drain(qtbot, lambda: consumer.results == ["r"])  # non-reports pass through
+
     def test_none_report_is_not_emitted(self, qtbot):
         probe = GatedProbe(None)
         poller = HealthPoller(probe)

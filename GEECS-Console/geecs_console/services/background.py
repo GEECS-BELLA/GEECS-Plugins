@@ -19,6 +19,7 @@ signal that crosses a thread boundary now comes through here.
 
 from __future__ import annotations
 
+import dataclasses
 import functools
 import logging
 import threading
@@ -26,6 +27,8 @@ import warnings
 from typing import TYPE_CHECKING, Any, Callable, Optional
 
 from PySide6.QtCore import QObject, Qt, QTimer, Signal, Slot
+
+from geecs_console.services.health import HealthReport
 
 if TYPE_CHECKING:
     from geecs_console.services.health import HealthProbe
@@ -222,6 +225,16 @@ class HealthPoller(_GuiHopWorker):
     report has landed on the GUI thread, so the ``_busy`` flag is only
     ever written there and at most one hop per poller is ever pending.
 
+    Every poll gets a 1-based **sequence** (:attr:`polls_started`, GUI
+    thread), and a delivered :class:`~geecs_console.services.health.HealthReport`
+    is stamped with its poll's sequence — exact, because one poll is in
+    flight at a time and the stamp is applied on the GUI thread before
+    the next can start.  A consumer that records ``polls_started`` at
+    some GUI-thread moment can then tell a report from a poll that began
+    before it (the window's gateway-restart narration; review of PR
+    #796).  Non-``HealthReport`` payloads (test probes) pass through
+    untouched.
+
     Parameters
     ----------
     probe :
@@ -237,6 +250,12 @@ class HealthPoller(_GuiHopWorker):
         super().__init__()
         self._probe = probe
         self._busy = False
+        self._sequence = 0
+
+    @property
+    def polls_started(self) -> int:
+        """How many polls have started (GUI-thread state); the last one's sequence."""
+        return self._sequence
 
     @Slot()
     def poll_async(self) -> None:
@@ -247,6 +266,7 @@ class HealthPoller(_GuiHopWorker):
         if self._busy:
             return
         self._busy = True
+        self._sequence += 1
         _hold(self)
         threading.Thread(
             target=self._run, name="console-health-poll", daemon=True
@@ -261,6 +281,10 @@ class HealthPoller(_GuiHopWorker):
         self._hop(report)
 
     def _deliver(self, payload: object) -> None:
+        # GUI thread, before _busy clears: the in-flight poll IS the latest
+        # started one, so its sequence is exactly self._sequence.
+        if isinstance(payload, HealthReport):
+            payload = dataclasses.replace(payload, sequence=self._sequence)
         self._busy = False
         if payload is not None:
             self.report_ready.emit(payload)
