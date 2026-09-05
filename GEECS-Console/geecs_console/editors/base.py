@@ -34,7 +34,13 @@ What lives here:
   pair name something in the fetched listing?  Free text + completer
   stays (the editors must work with the DB unreachable); the gate is at
   Save, where an unknown name blocks with a near-miss hint and an empty
-  listing downgrades to :data:`UNCHECKED_TARGETS_NOTE`.
+  listing downgrades to :data:`UNCHECKED_TARGETS_NOTE`, and a listing
+  still loading (:attr:`ConfigEditorDialog.completions_pending`) refuses
+  the save until it lands.  Wired into the save-set and scan-variable
+  editors (the two whose targets name device variables); the trigger
+  and action-plan editors do not run it — action steps' ``device`` /
+  ``variable`` texts are a deliberate follow-up (their steps also name
+  non-DB verbs such as waits).
 
 The prompt methods are plain bound methods so tests can monkeypatch them
 per instance (``editor._prompt_unsaved = lambda: "discard"``) — the
@@ -73,6 +79,7 @@ logger = logging.getLogger(__name__)
 #: could not be checked (no completions listing: offline, DB down, fetch
 #: failed).  The save goes through — the editors must stay usable off the
 #: lab network — but the operator is told what was skipped.
+COMPLETIONS_PENDING_NOTE = "device listing still loading — Save again in a moment"
 UNCHECKED_TARGETS_NOTE = (
     "device and variable names were not checked against the database "
     "(completions unavailable)"
@@ -353,14 +360,31 @@ class ConfigEditorDialog(QDialog):
         return bool(self._device_vars)
 
     @property
+    def completions_pending(self) -> bool:
+        """Whether a real listing was requested and has not landed yet.
+
+        Distinct from :attr:`targets_unchecked`: "still loading" is not
+        "DB down".  A Save in this window would persist unchecked names
+        against a provider that is about to answer (Codex review of PR
+        #796), so the editors refuse the save until the fetch lands.
+        """
+        return self._completions_expected and not self.completions_applied
+
+    @property
     def targets_unchecked(self) -> bool:
         """Whether a save should carry :data:`UNCHECKED_TARGETS_NOTE`.
 
-        True only when a listing was expected (a real provider) and none
-        arrived — the offline / DB-down case.  The ``EmptyCompletions``
-        default never expected one, so it stays quiet.
+        True only when a listing was expected (a real provider), the fetch
+        has landed (:attr:`completions_applied`), and it came back empty —
+        the offline / DB-down case.  The ``EmptyCompletions`` default never
+        expected one, so it stays quiet; a fetch still in flight is
+        :attr:`completions_pending`, not unchecked.
         """
-        return self._completions_expected and not self.completions_available
+        return (
+            self._completions_expected
+            and self.completions_applied
+            and not self.completions_available
+        )
 
     def _target_problem(
         self, device: str, variable: Optional[str] = None

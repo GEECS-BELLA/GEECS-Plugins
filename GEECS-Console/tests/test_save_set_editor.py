@@ -483,6 +483,41 @@ class TestSaveTimeTargetCheck:
         assert "not checked" in message
         assert store.load("diag").entries[0].scalars == ["MeanCount"]
 
+    def test_a_listing_still_loading_refuses_the_save(self, qtbot, track, store):
+        # Loading is not offline: refuse until the fetch lands (Codex
+        # review of PR #796), then the ordinary check applies.
+        import threading
+
+        gate = threading.Event()
+
+        class SlowCompletions(FakeCompletions):
+            def device_variables(self):
+                gate.wait(5.0)
+                return super().device_variables()
+
+        editor = self._editor(
+            track,
+            store,
+            SlowCompletions(
+                {
+                    "UC_ALineEbeam1": ["MeanCounts"],
+                    "U_HP_Daq": ["AnalogOutput.Channel 1"],
+                }
+            ),
+        )
+        select_set(editor, "diag")
+        editor.device_list.setCurrentRow(0)
+        editor.scalar_edit.setText("MeanCount")
+        editor._on_add_scalar()
+        assert editor.completions_pending
+        assert editor._save() is False
+        assert "still loading" in editor.message_label.text()
+        gate.set()
+        qtbot.waitUntil(lambda: editor.completions_applied, timeout=5000)
+        assert not editor.completions_pending
+        assert editor._save() is False  # the near miss now blocks properly
+        assert "MeanCount" in editor.message_label.text()
+
     def test_the_no_completions_default_saves_quietly(self, editor, store):
         select_set(editor, "diag")
         editor.device_list.setCurrentRow(0)

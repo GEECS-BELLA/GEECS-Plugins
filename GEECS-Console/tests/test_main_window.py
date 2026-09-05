@@ -1443,6 +1443,21 @@ class TestRestartGateway:
         assert "refused" in win.statusBar().currentMessage()
         assert "scan is active" in win.statusBar().currentMessage()
 
+    def test_refused_while_the_document_stream_says_running(self, qtbot):
+        """A start document paints RUNNING before the matching status poll
+        lands; the poll alone would wave the restart through in that window
+        (Codex review of PR #796)."""
+        win, restart = self.make(qtbot)
+        win._apply_health_report(HealthReport(gateway=HealthStatus.OK))
+        drive_status(win, "idle")  # the poll has not caught up yet
+        win._on_scan_state("running")  # …but the start document has landed
+        win._on_restart_gateway()
+        assert restart.calls == []
+        assert "scan is active" in win.statusBar().currentMessage()
+        win._on_scan_state("done")  # a terminal pill is quiet again
+        win._on_restart_gateway()
+        assert len(restart.calls) == 1
+
     def test_refused_while_a_manual_set_is_in_flight(self, qtbot):
         """A worker-side manual move never changes re_state, so the gate
         also reads the movable panel's in-flight flag (review of PR #796)."""

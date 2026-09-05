@@ -131,6 +131,13 @@ _HEALTH_DOT_COLORS = {
 # RE returning to idle means the scan is over either way.  Deliberately NOT
 # "paused" — that state is resumable, the scan is not over.
 _TERMINAL_SCAN_STATES = frozenset({"aborted", "done", "idle"})
+#: Pill states under which no scan is in progress on the document stream.
+#: The restart gate reads the pill beside the polled status: a start
+#: document paints RUNNING before the matching status poll lands, and the
+#: poll alone would wave a restart through in that window (Codex review
+#: of PR #796).  "unknown" (manager unreachable) is quiet — there is
+#: nothing to protect that the poll could see either.
+_QUIET_PILL_STATES = frozenset({"idle", "done", "aborted", "unknown", ""})
 
 #: After a terminal document renders, live-state asserts from the status
 #: poll are suppressed this long — a snapshot *taken* pre-stop but
@@ -1507,11 +1514,13 @@ class MainWindow(QMainWindow):
 
         Two activities would see the CA disconnect mid-flight: a scan on
         the manager (the Start gate's ``_scanning()`` — the worker's
-        ophyd-async signals) and the R7 panel's manual set/move (a
+        ophyd-async signals — OR the document-driven pill, which a start
+        document paints RUNNING before the matching status poll lands;
+        Codex review of PR #796) and the R7 panel's manual set/move (a
         worker-side ``move_variable`` never changes ``re_state``, so
         ``_scanning()`` alone would wave it through — review of PR #796).
         """
-        if self._scanning():
+        if self._scanning() or self._scan_state_text not in _QUIET_PILL_STATES:
             return "Gateway restart refused — a scan is active on the manager."
         if self._movable.set_in_flight:
             return "Gateway restart refused — a manual set/move is in flight."

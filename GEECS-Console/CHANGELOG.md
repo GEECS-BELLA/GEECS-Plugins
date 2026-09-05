@@ -60,6 +60,14 @@ semantic.
   and the once-seen interpreter-exit segfault.
 
 ### Fixed
+- Editors (#772): a device listing still *loading* no longer reads as
+  "DB unavailable" — Save refuses with "device listing still loading" until
+  the fetch lands, instead of persisting unchecked names one poll early
+  (`completions_pending`; Codex review of PR #796).
+- Ops → Restart gateway: the scan-active gate also reads the
+  document-driven state pill, so the window between a start document and
+  the matching status poll can no longer wave a restart through (Codex
+  review of PR #796).
 
 - **Restart gateway… (adversarial review of PR #796)**: the restart put
   rides the device-panel backend's persistent CA loop (new

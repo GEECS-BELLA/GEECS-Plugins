@@ -78,7 +78,7 @@ def catalog_document(tmp_path) -> dict:
     return yaml.safe_load(path.read_text())
 
 
-def make_editor(qtbot, tmp_path, experiment=EXPERIMENT, completions=None):
+def make_editor(qtbot, tmp_path, experiment=EXPERIMENT, completions=None, wait=True):
     """Build an editor with crash-safe test teardown (see module docstring)."""
     store = ScanVariableStore(experiment, experiments_root=tmp_path)
     editor = ScanVariableEditor(
@@ -88,7 +88,8 @@ def make_editor(qtbot, tmp_path, experiment=EXPERIMENT, completions=None):
     qtbot.addWidget(editor)
     editor._confirm_discard = lambda: True  # revert confirms (teardown safety)
     editor._prompt_unsaved = lambda: "discard"  # teardown close must never block
-    qtbot.waitUntil(lambda: editor.completions_applied, timeout=5000)
+    if wait:
+        qtbot.waitUntil(lambda: editor.completions_applied, timeout=5000)
     return editor
 
 
@@ -647,6 +648,40 @@ class TestSaveTimeTargetCheck:
         assert document["variables"]["new_variable"]["target"] == (
             "U_Grating2Rotation:Position.Axis1"
         )
+
+    def test_a_listing_still_loading_refuses_the_save(self, qtbot, tmp_path):
+        # A real provider that has not answered yet is "loading", not
+        # "DB down": saving now would persist unchecked names one poll
+        # before the check could run (Codex review of PR #796).
+        import threading
+
+        gate = threading.Event()
+
+        class SlowCompletions(FakeCompletions):
+            def device_variables(self):
+                gate.wait(5.0)
+                return super().device_variables()
+
+        editor = make_editor(
+            qtbot,
+            tmp_path,
+            completions=SlowCompletions({"U_Grating2Rotation": ["Position.Axis 1"]}),
+            wait=False,
+        )
+        self._new_simple(editor, "U_Grating2Rotation", "Position.Axis1")
+        assert editor.completions_pending
+        editor.save_button.click()
+        assert editor.dirty
+        assert "still loading" in editor.error_label.text()
+        assert not (
+            tmp_path / EXPERIMENT / "scan_devices" / "scan_variables.yaml"
+        ).exists()
+        gate.set()
+        qtbot.waitUntil(lambda: editor.completions_applied, timeout=5000)
+        assert not editor.completions_pending
+        editor.save_button.click()  # now the real check runs: near miss blocks
+        assert editor.dirty
+        assert "Position.Axis 1" in editor.error_label.text()
 
     def test_the_no_completions_default_saves_quietly(self, qtbot, tmp_path):
         # EmptyCompletions (no experiment / offline construction) never

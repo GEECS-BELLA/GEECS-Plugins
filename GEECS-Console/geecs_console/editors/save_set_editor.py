@@ -48,6 +48,7 @@ from PySide6.QtWidgets import (
 from pydantic import ValidationError
 
 from geecs_console.editors.base import (
+    COMPLETIONS_PENDING_NOTE,
     UNCHECKED_TARGETS_NOTE,
     ConfigEditorDialog,
     resolve_device,
@@ -869,6 +870,9 @@ class SaveSetEditor(ConfigEditorDialog):
             return False
         # Shape is fine — now do the names exist?  (#772: the completer only
         # suggests; free text stays so the editor works with the DB down.)
+        if self.completions_pending:
+            self._show_message(f"Not saved — {COMPLETIONS_PENDING_NOTE}.", error=True)
+            return False
         problems = self._entry_problems()
         if problems:
             self._show_message("Not saved — " + "; ".join(problems), error=True)

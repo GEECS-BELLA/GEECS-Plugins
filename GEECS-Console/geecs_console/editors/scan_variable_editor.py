@@ -62,6 +62,7 @@ from PySide6.QtWidgets import (
 )
 
 from geecs_console.editors.base import (
+    COMPLETIONS_PENDING_NOTE,
     UNCHECKED_TARGETS_NOTE,
     ConfigEditorDialog,
     resolve_device,
@@ -799,6 +800,9 @@ class ScanVariableEditor(ConfigEditorDialog):
         # Shape is fine — now do the names exist?  (#772: the completer only
         # suggests; a near miss like `Position.Axis1` used to save cleanly
         # and fail 20 s into the first move as a bare connect timeout.)
+        if self.completions_pending:
+            self._show_error(f"Not saved — {COMPLETIONS_PENDING_NOTE}.")
+            return False
         problems = self._target_problems()
         if problems:
             self._show_error("\n".join(problems))
