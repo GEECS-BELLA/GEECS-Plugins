@@ -65,8 +65,11 @@ submission as "not in the list of allowed plans"; the script prints
 endpoint; stage 2 reads its venv), the CA gateway's heartbeat /
 `devices_connected` / `version` PVs (reused from `lab_status.sh
 --hardware`, read-only), and every PVA image gateway's `version` +
-`heartbeat` PVs (roster = the checked-in Phoebus fleet screen; a
-DB-driven roster is still owed). A `[WARN] PVA fleet runs mixed
+`heartbeat` PVs. The roster is read live from the GEECS DB (endpoint
+IPs hosting the experiment's image devices, `geecs_pva_gateway.fleet`);
+a roster host absent from `config.ini [pva] addr_list` is **not
+deployed** — printed as a `[ -- ]` row, never `[DOWN]` — because no
+instance was installed there. A `[WARN] PVA fleet runs mixed
 versions` line means a rollout is incomplete or a box's
 pull-on-restart no-oped — the GeecsPvaGateway runbook's known failure.
 

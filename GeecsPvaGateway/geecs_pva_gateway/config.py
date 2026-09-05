@@ -14,7 +14,7 @@ import socket
 from pydantic import BaseModel, Field
 
 from geecs_ca_gateway.config import effective_vartype
-from geecs_core.pv_naming import pv_name
+from geecs_core.pv_naming import normalize_component, pv_name
 from geecs_core.transport.udp_client import detect_local_ip
 
 logger = logging.getLogger(__name__)
@@ -33,6 +33,30 @@ def local_ip_addresses(probe_target: str | None = None) -> set[str]:
         addresses.add(detect_local_ip(probe_target))
         addresses.discard("")
     return addresses
+
+
+def instance_pv_prefix(experiment: str, host: str) -> str:
+    """Prefix of one instance's identity PVs (``version``/``heartbeat``/``restart``).
+
+    The identity component is the served host (an IP, dots normalised to
+    underscores — PV_CONTRACT). The one composition shared by the server
+    and the fleet tooling, so the probe and the screen can never drift from
+    what an instance actually serves.
+    """
+    return pv_name(experiment, "pvagateway", normalize_component(host))
+
+
+def image_variables(metadata: list[dict]) -> list[str]:
+    """Names of the image-typed variables among one device's DB metadata rows.
+
+    The camera test everywhere in this package (a device with none is not a
+    camera); shared with :mod:`geecs_pva_gateway.fleet`.
+    """
+    return sorted(
+        meta["name"]
+        for meta in metadata
+        if effective_vartype(meta.get("variabletype"), meta.get("choices")) == "image"
+    )
 
 
 class CameraSpec(BaseModel):
@@ -99,12 +123,7 @@ class PvaGatewayConfig(BaseModel):
                 continue
             if devices is not None and device not in devices:
                 continue
-            image_vars = [
-                meta["name"]
-                for meta in var_map.get(device, [])
-                if effective_vartype(meta.get("variabletype"), meta.get("choices"))
-                == "image"
-            ]
+            image_vars = image_variables(var_map.get(device, []))
             if not image_vars:
                 continue  # not a camera (e.g. a timing box on the same host)
             cameras.append(
@@ -113,7 +132,7 @@ class PvaGatewayConfig(BaseModel):
                     host=ip,
                     port=port,
                     experiment=experiment,
-                    image_variables=sorted(image_vars),
+                    image_variables=image_vars,
                 )
             )
         if devices:
