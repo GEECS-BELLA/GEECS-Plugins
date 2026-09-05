@@ -879,8 +879,9 @@ class MainWindow(QMainWindow):
             info_addr=getattr(submitter, "info_addr", None),
             doc_addr=getattr(submitter, "doc_addr", None),
         )
-        # Queued connections throughout — poll results and stream documents
-        # arrive from daemon threads and must never paint widgets directly.
+        # Queued connections throughout.  Since 0.30.0 (#787) every one of
+        # these signals is already emitted on the GUI thread (the workers'
+        # hop); queued keeps the delivery off the emitting call stack.
         self._monitor.status_ready.connect(
             self._on_queue_status, Qt.ConnectionType.QueuedConnection
         )

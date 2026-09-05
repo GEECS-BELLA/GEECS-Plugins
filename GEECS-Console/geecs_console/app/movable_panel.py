@@ -30,9 +30,13 @@ window↔controller cycle that defers C++ teardown to the cyclic GC — a
 segfault under offscreen pytest), every dependency constructor-injected,
 blocking work on the controller's own :class:`BackgroundResult` worker
 (issue #510: the daemon thread emits on the worker, never the window),
-monitor values delivered through the controller's **queued** ``value_ready``
-signal, and an idempotent :meth:`dispose` (called from the window's
-``closeEvent``) that unsubscribes, disconnects, and severs every
+monitor values posted from the CA loop thread through a
+:class:`~geecs_console.services.background.GuiRelay` — the readback
+worker — whose ``delivered`` signal is emitted **on the GUI thread**
+(#787; before 0.30.0 the CA thread emitted a controller-owned signal
+directly, the race class behind the offscreen segfaults), and an
+idempotent :meth:`dispose` (called from the window's ``closeEvent``) that
+unsubscribes, closes the relay, disconnects, and severs every
 controller→window reference.
 """
 
@@ -41,10 +45,10 @@ from __future__ import annotations
 import logging
 from typing import Any, Callable, Optional
 
-from PySide6.QtCore import QObject, Qt, Signal, Slot
+from PySide6.QtCore import QObject, Qt, Slot
 from PySide6.QtWidgets import QComboBox, QLabel, QLineEdit, QPushButton
 
-from geecs_console.services.background import BackgroundResult
+from geecs_console.services.background import BackgroundResult, GuiRelay
 from geecs_console.services.device_panel import (
     DevicePanelBackend,
     format_readback,
@@ -91,9 +95,6 @@ class MovablePanelController(QObject):
         One-arg callable for status-bar + log-tail messages.
     """
 
-    #: (target_index, value) from the CA monitor thread — connected queued.
-    value_ready = Signal(int, object)
-
     def __init__(
         self,
         *,
@@ -128,7 +129,12 @@ class MovablePanelController(QObject):
         self._set_in_flight = False
         self._disposed = False
 
-        self.value_ready.connect(self._apply_value, Qt.ConnectionType.QueuedConnection)
+        #: Readback worker: the backend calls ``post((index, value))`` on
+        #: the CA loop thread; ``delivered`` fires on the GUI thread.
+        self._readback_relay = GuiRelay()
+        self._readback_relay.delivered.connect(
+            self._apply_value, Qt.ConnectionType.QueuedConnection
+        )
         self._set_worker = BackgroundResult()
         self._set_worker.result_ready.connect(
             self._apply_set_result, Qt.ConnectionType.QueuedConnection
@@ -206,11 +212,12 @@ class MovablePanelController(QObject):
             return
         try:
             subscribe_many = getattr(self._backend, "subscribe_many", None)
+            post = self._readback_relay.post
             if subscribe_many is not None:
                 subscribe_many(
                     self._current_experiment(),
                     list(self._targets),
-                    self.value_ready.emit,
+                    lambda index, value: post((index, value)),
                 )
             elif len(self._targets) == 1:
                 # Older/injected single-monitor backends (duck-typed seam).
@@ -219,7 +226,7 @@ class MovablePanelController(QObject):
                     self._current_experiment(),
                     device,
                     variable,
-                    lambda value: self.value_ready.emit(0, value),
+                    lambda value: post((0, value)),
                 )
             else:
                 self._report(
@@ -254,9 +261,10 @@ class MovablePanelController(QObject):
         self._combo.blockSignals(False)
         self.resubscribe()
 
-    @Slot(int, object)
-    def _apply_value(self, index: int, value: object) -> None:
-        """Render one monitor value (GUI-thread slot, delivered queued)."""
+    @Slot(object)
+    def _apply_value(self, payload: object) -> None:
+        """Render one ``(index, value)`` monitor payload (GUI-thread slot)."""
+        index, value = payload
         if not (0 <= index < len(self._values)):
             return  # straggler from a retired subscription shape
         self._values[index] = value
@@ -447,8 +455,11 @@ class MovablePanelController(QObject):
                 worker.result_ready.disconnect(slot)
             except (RuntimeError, TypeError):
                 pass
+        # A readback still crossing the hop lands and is dropped, never
+        # emitted at a controller being torn down.
+        self._readback_relay.close()
         try:
-            self.value_ready.disconnect(self._apply_value)
+            self._readback_relay.delivered.disconnect(self._apply_value)
         except (RuntimeError, TypeError):
             pass
         # Sever every controller → window edge (the #534 lifetime rule) —

@@ -222,3 +222,77 @@ class TestHealthPollerGuiHop:
                 w for w in background._INFLIGHT if isinstance(w, HealthPoller)
             ],
         )
+
+
+class TestGuiRelay:
+    """The long-lived producer's hop (#787): post from any thread, land on the GUI."""
+
+    def test_posted_payloads_land_on_the_gui_thread_in_order(self, qtbot):
+        from geecs_console.services.background import GuiRelay
+
+        relay = GuiRelay()
+        consumer = Consumer()
+        relay.delivered.connect(consumer.take, Qt.ConnectionType.QueuedConnection)
+
+        def producer():
+            for index in range(5):
+                relay.post((index, index * 1.5))
+
+        thread = threading.Thread(target=producer)
+        thread.start()
+        thread.join()
+        _drain(qtbot, lambda: len(consumer.results) == 5)
+        assert consumer.results == [(i, i * 1.5) for i in range(5)]
+        assert set(consumer.threads) == {threading.get_ident()}
+        _drain(qtbot, lambda: relay not in background._INFLIGHT)
+
+    def test_close_drops_in_flight_payloads_and_releases_the_hold(self, qtbot):
+        from geecs_console.services.background import GuiRelay
+
+        relay = GuiRelay()
+        consumer = Consumer()
+        relay.delivered.connect(consumer.take, Qt.ConnectionType.QueuedConnection)
+        relay.post("in flight")
+        relay.close()
+        relay.post("after close")  # never even posted
+        _drain(qtbot, lambda: relay not in background._INFLIGHT)
+        assert consumer.results == []
+
+    def test_concurrent_posters_keep_the_hold_count_consistent(self, qtbot):
+        # Two threads posting at once exercise the locked read-modify-write
+        # of the in-flight counter; every hold must be released.
+        from geecs_console.services.background import GuiRelay
+
+        relay = GuiRelay()
+        received: list = []
+        relay.delivered.connect(received.append, Qt.ConnectionType.QueuedConnection)
+        threads = [
+            threading.Thread(target=lambda: [relay.post(n) for n in range(200)])
+            for _ in range(4)
+        ]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        _drain(qtbot, lambda: len(received) == 800, timeout=10000)
+        _drain(qtbot, lambda: relay not in background._INFLIGHT)
+
+
+class TestDisconnectQuietly:
+    def test_never_connected_signal_does_not_warn(self, qtbot, recwarn):
+        from geecs_console.services.background import disconnect_quietly
+
+        worker = BackgroundResult()
+        disconnect_quietly(worker.result_ready)
+        assert not [w for w in recwarn if "Failed to disconnect" in str(w.message)]
+
+    def test_detaches_a_connected_slot(self, qtbot):
+        from geecs_console.services.background import disconnect_quietly
+
+        worker = BackgroundResult()
+        consumer = Consumer()
+        worker.result_ready.connect(consumer.take, Qt.ConnectionType.QueuedConnection)
+        disconnect_quietly(worker.result_ready, consumer.take)
+        worker.run_async(lambda: 1, "t")
+        _drain(qtbot, lambda: worker not in background._INFLIGHT)
+        assert consumer.results == []

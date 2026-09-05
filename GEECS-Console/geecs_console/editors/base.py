@@ -13,12 +13,14 @@ What lives here:
 - The Enter-key guard, both mechanisms applied uniformly: no
   default/auto-default buttons (:meth:`_guard_enter_keys`) and a
   :meth:`keyPressEvent` that swallows Return/Enter.
-- The completions scaffold: one queued ``completions_ready`` signal, a
-  daemon-thread fetch with the ``EmptyCompletions`` inline fast-path (no
-  thread for a constant — offline construction stays thread-free), the
+- The completions scaffold: one fetch on the blessed
+  ``services/background.py::BackgroundResult`` worker (the daemon thread
+  never emits toward the dialog — the result hops onto the GUI thread
+  first; #787), with the ``EmptyCompletions`` inline fast-path (no thread
+  for a constant — offline construction stays thread-free), the
   normalized ``{device: [variable, ...]}`` word lists in
   :attr:`_device_vars`, the public ``completions_applied`` flag tests
-  wait on, and the one-shot signal disconnect at close.
+  wait on, and the one-shot worker disconnect at close.
 - The unified unsaved-changes flow: :meth:`_prompt_unsaved`
   (Save/Discard/Cancel, three-way string result) resolved by
   :meth:`_resolve_unsaved` through the per-editor hooks
@@ -43,12 +45,11 @@ from __future__ import annotations
 
 import difflib
 import logging
-import threading
 from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import Optional
 
-from PySide6.QtCore import QFile, Qt, Signal, Slot
+from PySide6.QtCore import QFile, Qt, Slot
 from PySide6.QtGui import QCloseEvent, QKeyEvent
 from PySide6.QtUiTools import QUiLoader
 from PySide6.QtWidgets import (
@@ -60,6 +61,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from geecs_console.services.background import BackgroundResult
 from geecs_console.services.device_completions import (
     CompletionsProvider,
     EmptyCompletions,
@@ -201,11 +203,6 @@ class ConfigEditorDialog(QDialog):
     #: recognizable thread dumps).
     COMPLETIONS_THREAD_NAME: str = "editor-completions-fetch"
 
-    #: One ``{device: [variable, ...]}`` mapping per finished provider
-    #: call (emitted from the fetch daemon thread; delivered queued to
-    #: :meth:`_apply_completions`).
-    completions_ready = Signal(object)
-
     # ------------------------------------------------------------------
     # UI loading
     # ------------------------------------------------------------------
@@ -261,11 +258,13 @@ class ConfigEditorDialog(QDialog):
     # ------------------------------------------------------------------
 
     def _init_completions(self, provider: Optional[CompletionsProvider]) -> None:
-        """Install the completions state and the queued signal connection.
+        """Install the completions state and the fetch worker.
 
-        Call early in ``__init__`` (before any fetch).  The connection is
-        forced queued: the fetch emits from a daemon thread, and a direct
-        delivery would touch state on the wrong thread.
+        Call early in ``__init__`` (before any fetch).  The worker's
+        ``result_ready`` is emitted on the GUI thread (the
+        ``BackgroundResult`` hop) and connected queued, so the mapping
+        lands in :meth:`_apply_completions` one event-loop turn later —
+        never touching dialog state from the fetch thread.
 
         Parameters
         ----------
@@ -286,43 +285,42 @@ class ConfigEditorDialog(QDialog):
         #: True once the (async) completions fetch has been delivered on
         #: the GUI thread — tests wait on this instead of sleeping.
         self.completions_applied = False
-        #: Guards the one-shot signal disconnect in :meth:`closeEvent`.
+        #: Guards the one-shot worker disconnect in :meth:`closeEvent`.
         self._completions_disconnected = False
-        self.completions_ready.connect(
+        self._completions_worker = BackgroundResult()
+        self._completions_worker.result_ready.connect(
             self._apply_completions, Qt.ConnectionType.QueuedConnection
         )
 
     def _start_completions_fetch(self) -> None:
-        """Fetch completions on a short-lived daemon thread (queued delivery).
+        """Fetch completions on the worker's short-lived daemon thread.
 
         The :class:`EmptyCompletions` default is answered inline (no
         thread to spawn for a constant) — offline construction stays
-        thread-free.
-
-        Known debt: the daemon thread emits a *dialog-owned* signal
-        instead of routing through the blessed
-        ``services/background.py::BackgroundResult`` worker, and an
-        Esc-closed dialog (``reject`` → ``done()``, no ``QCloseEvent``)
-        never runs the close-time disconnect.  Consolidate onto
-        ``BackgroundResult`` here, once — not per editor.
+        thread-free.  The fetch callable never raises (a failing provider
+        yields ``{}``) — ``BackgroundResult`` swallows a raise without
+        emitting, which would leave ``completions_applied`` False forever.
+        Since 0.30.0 (#787) this rides the blessed worker instead of a
+        dialog-owned signal emitted from the thread; a dialog closed by
+        Esc (``reject``, no ``QCloseEvent``) before the fetch lands is
+        therefore safe too — the result is emitted on the GUI thread, at
+        a dialog that is hidden, not half-destroyed.
         """
         if isinstance(self._completions, EmptyCompletions):
             self.completions_applied = True
             return
         provider = self._completions
 
-        def fetch() -> None:
+        def fetch() -> dict:
             """Run the provider's one blocking call off the GUI thread."""
             try:
                 mapping = provider.device_variables()
             except Exception as exc:  # noqa: BLE001 — providers should not raise
                 logger.info("completions fetch failed: %s", exc)
                 mapping = {}
-            self.completions_ready.emit(mapping or {})
+            return mapping or {}
 
-        threading.Thread(
-            target=fetch, name=self.COMPLETIONS_THREAD_NAME, daemon=True
-        ).start()
+        self._completions_worker.run_async(fetch, name=self.COMPLETIONS_THREAD_NAME)
 
     @Slot(object)
     def _apply_completions(self, mapping: object) -> None:
@@ -331,7 +329,7 @@ class ConfigEditorDialog(QDialog):
         Parameters
         ----------
         mapping : dict
-            The provider result delivered by the queued signal.
+            The provider result delivered by the worker's ``result_ready``.
         """
         self.completions_applied = True
         if not isinstance(mapping, dict):
@@ -510,7 +508,7 @@ class ConfigEditorDialog(QDialog):
         super().reject()
 
     def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802 (Qt override)
-        """Close via QDialog (one prompt), then disconnect the completions signal.
+        """Close via QDialog (one prompt), then detach the completions worker.
 
         :meth:`reject` is the **only** prompt owner: ``QDialog::closeEvent``
         routes a *visible* close through the virtual ``reject()`` (ours,
@@ -524,12 +522,14 @@ class ConfigEditorDialog(QDialog):
         super().closeEvent(event)
         if not event.isAccepted():
             return  # the operator canceled — the dialog stays open
-        # A still-running completions fetch must not queue an event onto a
-        # dialog being torn down.  Once only: closeEvent can run twice
-        # (explicit close + owner teardown) and a second disconnect warns.
+        # A still-running completions fetch must not land on a dialog being
+        # torn down.  Once only: closeEvent can run twice (explicit close +
+        # owner teardown) and a second disconnect warns.
         if not self._completions_disconnected:
             self._completions_disconnected = True
             try:
-                self.completions_ready.disconnect(self._apply_completions)
+                self._completions_worker.result_ready.disconnect(
+                    self._apply_completions
+                )
             except (RuntimeError, TypeError):
                 pass
