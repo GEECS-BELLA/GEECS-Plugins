@@ -14,14 +14,10 @@
 # network. Tier 2 performs READ-ONLY Channel Access gets (gateway heartbeat,
 # device count) through the GeecsBluesky env; it never writes a PV.
 #
-# NEVER probe MySQL (3306) with a bare TCP connect. The server counts a
-# connect that drops before the handshake against max_connect_errors and,
-# past 100, blocks the host with error 1129 until an admin runs FLUSH HOSTS —
-# and it sees every VPN client as ONE NAT address, so a /dev/tcp or nc probe
-# in a watch loop blocked the DB for the whole VPN pool (2026-09-04, #790).
-# The DB probe is scripts/mysql_probe.py (a bounded real handshake; a refused
-# login is not counted) and the shared port_open in scripts/lib/net_probes.sh
-# refuses port 3306 outright.
+# The DB is probed only through scripts/mysql_probe.py (a bounded, real
+# handshake) — never a bare TCP connect of the MySQL port, which counts toward
+# the server's host block (error 1129; #790). Why, and the remedy:
+# docs/platform/fleet_map.md, the MySQL admonition.
 set -u  # deliberately not -e: a failed probe is a *finding*, not an error
 
 CONFIG="$HOME/.config/geecs_python_api/config.ini"
@@ -58,8 +54,10 @@ if [ -n "$TILED_URI" ]; then
     p="$(printf '%s' "$TILED_URI" | sed -nE 's|^[a-z]+://[^:/]+:([0-9]+).*|\1|p')"
     if [ -n "$p" ]; then TILED_PORT="$p"; fi
 fi
-# The DB server, Tiled server, and CA gateway share one box (see
-# GeecsCAGateway/DEPLOYMENT.md "one box" section) — derive all from tiled uri.
+# The Tiled server and CA gateway share one box (see GeecsCAGateway/DEPLOYMENT.md
+# "one box" section) — derive both from tiled uri. The DB host is
+# Configurations.INI's [Database] ipaddress when the probe can read it (the
+# server the real clients use); the Tiled host is only its fallback.
 DB_PORT=3306
 CA_PORT=5064
 DATA_ROOT="$(ini_get Paths GEECS_DATA_LOCAL_BASE_PATH)"
@@ -83,13 +81,21 @@ fi
 
 NET_UP=1
 # Handshake-completing probe (see header): rc 0 reachable, 3 reachable-but-
-# blocked, 4 no connector available, anything else = nothing answered.
+# blocked, 4 no connector available, 5 answered but handshake incomplete,
+# 137 the probe itself was killed at the wall (a stalled credential lookup
+# or connect — not a verdict), anything else = nothing answered. The probe's
+# line names the host:port it actually probed (INI target or fallback).
 db_line="$(mysql_probe "$LAB_HOST" "$DB_PORT")"
-case $? in
-    0) ok "MySQL       $LAB_HOST:$DB_PORT (${db_line#ok })" ;;
-    3) warn "MySQL       $LAB_HOST:$DB_PORT answers but has BLOCKED this address (MySQL 1129: too many aborted connects — a bare port probe somewhere on the VPN); GeecsDb calls fail fast until a DB admin runs FLUSH HOSTS" ;;
+db_rc=$?
+db_target="$(printf '%s' "$db_line" | awk '{print $2}')"
+db_rest="$(printf '%s' "$db_line" | cut -d' ' -f3-)"
+case $db_rc in
+    0) ok "MySQL       $db_target ($db_rest)" ;;
+    3) warn "MySQL       $db_target answers but has BLOCKED this address (MySQL 1129: too many aborted connects — a bare port probe somewhere on the VPN); GeecsDb calls fail fast until a DB admin runs FLUSH HOSTS" ;;
     4) skip "MySQL       $LAB_HOST:$DB_PORT not probed — ${db_line#no-connector }; a bare TCP probe is never the fallback" ;;
-    *) bad "MySQL       $LAB_HOST:$DB_PORT — GeecsDb calls would hang ~75 s; do not make them"; NET_UP=0 ;;
+    5) warn "MySQL       $db_target $db_rest" ;;
+    137) skip "MySQL       $LAB_HOST:$DB_PORT not probed — the probe was killed at its $(( TCP_TIMEOUT + 10 )) s wall (a stalled credential lookup on the data share, or a stalled connect); not a DB verdict" ;;
+    *) bad "MySQL       ${db_target:-$LAB_HOST:$DB_PORT} — GeecsDb calls would hang ~75 s; do not make them"; NET_UP=0 ;;
 esac
 if port_open "$LAB_HOST" "$TILED_PORT"; then
     version="$(curl -s -m "$TCP_TIMEOUT" "http://$LAB_HOST:$TILED_PORT/api/v1/" | sed -nE 's/.*"library_version":"([^"]+)".*/\1/p')"

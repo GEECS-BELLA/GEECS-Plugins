@@ -3,17 +3,17 @@
 #
 #   bounded SECS CMD...       hard wall-clock bound around any command (macOS has no `timeout`)
 #   port_open HOST PORT       bare TCP connect, bounded — REFUSES port 3306 (see below)
-#   mysql_probe HOST PORT     handshake-completing MySQL probe; rc 0 ok / 1 down / 3 blocked / 4 no connector
+#   mysql_probe HOST PORT     handshake-completing MySQL probe; rc per scripts/mysql_probe.py
+#                             (0 ok / 1 down / 3 blocked / 4 no connector / 5 unverified;
+#                             137 = killed at the wall). HOST/PORT are the fallback target —
+#                             Configurations.INI's [Database] ipaddress wins when readable.
 #
-# Why MySQL is special (#790): the server counts every connection that opens
-# TCP to 3306 and drops without completing the handshake against
-# max_connect_errors (default 100) and then refuses the host with error 1129
-# until an admin runs FLUSH HOSTS — and it sees every VPN client as the VPN
-# pool's ONE NAT address, so a bare /dev/tcp or nc probe in a watch loop
-# blocked the DB for the whole pool (2026-09-04). A completed handshake — even
-# a refused login — is not counted. So the DB probe is scripts/mysql_probe.py,
-# and the bare probe here refuses that port outright. Callers may set
-# TCP_TIMEOUT (seconds per probe, default 2).
+# Why MySQL is special (#790): a bare connect of the MySQL port counts toward
+# the server's host block (error 1129), so the DB probe is
+# scripts/mysql_probe.py (a completed handshake) and port_open refuses that
+# port outright — the story and remedy live in docs/platform/fleet_map.md,
+# the MySQL admonition. Callers may set TCP_TIMEOUT (seconds per probe,
+# default 2).
 
 MYSQL_PORT=3306
 _NET_PROBES_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -72,6 +72,8 @@ probe_python() {  # probe_python MODULE — first interpreter that imports MODUL
 mysql_probe() {  # mysql_probe HOST PORT — prints the probe's status line; rc per scripts/mysql_probe.py
     local py
     py="$(probe_python mysql.connector)" || { echo "no-connector no interpreter with mysql-connector-python (GEECS-Core / GeecsBluesky poetry env; see /env-doctor)"; return 4; }
-    # Bound = connect timeout + interpreter start-up and imports.
-    bounded "$(( ${TCP_TIMEOUT:-2} + 10 ))" "$py" "$_NET_PROBES_DIR/../mysql_probe.py" --host "$1" --port "$2" --timeout "${TCP_TIMEOUT:-2}"
+    # Bound = credential lookup + connect timeout + interpreter start-up and
+    # imports; the lookup is bounded inside the probe too (a stalled data-share
+    # read falls back to the probe user instead of eating the whole wall).
+    bounded "$(( ${TCP_TIMEOUT:-2} + 10 ))" "$py" "$_NET_PROBES_DIR/../mysql_probe.py" --host "$1" --port "$2" --timeout "${TCP_TIMEOUT:-2}" --creds-timeout "${TCP_TIMEOUT:-2}"
 }
