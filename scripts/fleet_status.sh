@@ -238,18 +238,21 @@ if [ "$NET_UP" -eq 1 ]; then
     if [ -n "$EXPERIMENT" ]; then
         hw="$("$REPO_ROOT/scripts/lab_status.sh" --hardware --experiment "$EXPERIMENT" 2>&1 | sed -n '/Tier 2/,$p')"
         ca_rec="$(printf '%s\n' "$hw" | grep -m1 '^role=CA gateway')"
-        alive="$(printf '%s\n' "$hw" | grep -m1 'gateway alive')"
-        if [ -n "$alive" ]; then
-            ok "CA gateway   $LAB_HOST:5064  ${alive#*] }"
-            printf '%s\n' "$hw" | grep '\[WARN\]' | sed 's/^ *\[WARN\] /  [WARN] CA gateway: /'
-        else
-            # A [DOWN] verdict, else whatever tier 2 died with (a traceback's
-            # last line, an env error) — never an empty finding.
-            err="$(printf '%s\n' "$hw" | grep -m1 -E '\[DOWN\]' | sed 's/^ *\[DOWN\] //')"
-            [ -n "$err" ] || err="tier 2 gave no verdict: $(printf '%s\n' "$hw" | grep -v '^role=' | tail -1)"
+        rec_field() { printf '%s\n' "$ca_rec" | tr '\t' '\n' | sed -n "s/^$1=//p" | paste -sd';' -; }
+        if [ -z "$ca_rec" ]; then
+            # Tier 2 died before its verdict (a traceback, an env error):
+            # name its last line — never an empty finding — and record it.
+            err="tier 2 gave no verdict: $(printf '%s\n' "$hw" | tail -1)"
             bad "CA gateway   $LAB_HOST:5064  $err"
+            rec "role=CA gateway	state=down	note=$(printf '%s' "$err" | cut -c1-80)"
+        elif [ "$(rec_field state)" = "ok" ]; then
+            ok "CA gateway   $LAB_HOST:5064  version=$(rec_field version)  $(rec_field info)"
+            printf '%s\n' "$hw" | grep '\[WARN\]' | sed 's/^ *\[WARN\] /  [WARN] CA gateway: /'
+            rec "$ca_rec"
+        else
+            bad "CA gateway   $LAB_HOST:5064  $(rec_field note)"
+            rec "$ca_rec"
         fi
-        rec "${ca_rec:-role=CA gateway	state=down	note=$(printf '%s' "$err" | cut -c1-80 | tr '\t' ' ')}"
     else
         skip "CA gateway   no experiment name (config.ini [Experiment] expt, or --experiment NAME)"
     fi
@@ -459,9 +462,13 @@ for port in $FLEET_PORTS; do
     case "$SEEN" in *" $pid "*) continue;; esac
     SEEN="$SEEN$pid "
     unit="$(sed -nE "s#.*/([^/]+\.service)\$#\1#p" "/proc/$pid/cgroup" 2>/dev/null | head -1)"
-    # A child of a unit already listed (the RE Manager forked by the
-    # geecs-qserver launcher) is that unit, not a second process for the role.
-    case "$SEEN_UNITS" in *" $unit "*) continue;; esac
+    # A same-role child of a unit already listed (the RE Manager forked by
+    # the geecs-qserver launcher) is that unit, not a second process for the
+    # role. A different role in the same cgroup (the doc proxy the same
+    # launcher forks) is still its own row.
+    if [ -n "$unit" ] && [ "$(role_for_port "$port")" = "$(role_for_unit "$unit")" ]; then
+        case "$SEEN_UNITS" in *" $unit "*) continue;; esac
+    fi
     if [ -n "$unit" ]; then managed="systemd ($unit)"; else managed="UNMANAGED"; fi
     emit "$(role_for_port "$port")" "$(role_for_port "$port") :$port" "$managed" "running pid $pid" "$pid" "" ""
 done

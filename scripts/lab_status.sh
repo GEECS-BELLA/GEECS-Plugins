@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # lab_status.sh — bounded probes of lab-network and hardware reachability.
 #
-# This script owns the canonical host/port/timeout facts (the /lab-status
-# skill points here; do not restate them in prose). Every probe is bounded
+# The canonical host/port/timeout facts live in scripts/lib/lab_env.sh (the
+# config.ini reader + endpoints this script and fleet_status.sh share; the
+# /lab-status skill points there — do not restate them in prose). Every
+# probe is bounded
 # to seconds — the point is to replace the 75-second GeecsDb hang and the
 # blind "is the trigger even firing?" scan attempt with one cheap command.
 #

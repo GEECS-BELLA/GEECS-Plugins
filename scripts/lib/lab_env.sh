@@ -10,7 +10,9 @@
 # client contract); nothing lab-specific lives here beyond port numbers that
 # the fleet map (docs/platform/fleet_map.md) treats as constants.
 
-CONFIG="${CONFIG:-$HOME/.config/geecs_python_api/config.ini}"
+# GEECS_CONFIG_INI overrides the path (tests); never a bare CONFIG, which
+# build tooling commonly exports.
+CONFIG="${GEECS_CONFIG_INI:-$HOME/.config/geecs_python_api/config.ini}"
 TCP_TIMEOUT="${TCP_TIMEOUT:-2}"   # seconds per port probe / HTTP get (net_probes.sh reads it)
 
 ini_get() {  # ini_get SECTION KEY — first match, trimmed

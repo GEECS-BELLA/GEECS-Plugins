@@ -124,7 +124,7 @@ sha, package version). Quote versions and shas exactly as printed.
 
 When the observed picture contradicts `docs/platform/fleet_map.md`
 (a service on a different host, a checkout path the table doesn't
-name, a service the table calls "pending deploy" that is listening),
+name, a unit the map lists that is not listening),
 say so explicitly and offer to update the fleet map in the same PR as
 whatever change the user makes next — the map's own rule is "update
 this page in the same PR".

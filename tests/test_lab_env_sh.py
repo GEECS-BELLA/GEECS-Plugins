@@ -15,7 +15,7 @@ pytestmark = pytest.mark.skipif(shutil.which("bash") is None, reason="needs bash
 
 
 def _run(config: Path, snippet: str) -> str:
-    script = f'CONFIG="{config}"; . "{LIB}"; {snippet}'
+    script = f'GEECS_CONFIG_INI="{config}"; . "{LIB}"; {snippet}'
     return subprocess.run(
         ["bash", "-c", script], capture_output=True, text=True, check=True
     ).stdout

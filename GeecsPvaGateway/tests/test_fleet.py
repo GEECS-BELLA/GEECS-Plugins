@@ -261,17 +261,16 @@ def test_fleet_subcommand_dispatch(monkeypatch, capsys, tmp_path):
     monkeypatch.setattr(
         fleet, "fleet_roster", lambda experiment, config_path=None: _hosts()
     )
+    from contextlib import nullcontext
+
+    answers = {
+        "testexp:pvagateway:192_168_6_100:version": "0.5.0",
+        "testexp:pvagateway:192_168_6_100:heartbeat": 7,
+        "testexp:pvagateway:192_168_7_161:version": "0.5.0",
+        "testexp:pvagateway:192_168_7_161:heartbeat": 8,
+    }
     monkeypatch.setattr(
-        fleet,
-        "_p4p_getter",
-        lambda hosts, timeout: _getter(
-            {
-                "testexp:pvagateway:192_168_6_100:version": "0.5.0",
-                "testexp:pvagateway:192_168_6_100:heartbeat": 7,
-                "testexp:pvagateway:192_168_7_161:version": "0.5.0",
-                "testexp:pvagateway:192_168_7_161:heartbeat": 8,
-            }
-        ),
+        fleet, "_p4p_context", lambda hosts, timeout: nullcontext(_getter(answers))
     )
     assert cli.main(["fleet", "--experiment", "testexp", "--timeout", "0.1"]) == 0
     out = capsys.readouterr().out.splitlines()

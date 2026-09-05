@@ -14,8 +14,8 @@ Two facts, one home each — nothing hand-curated in code:
   the hosts running an instance, space-separated (commas tolerated; a
   ``host:port`` entry counts by its host) — the same list a cross-subnet
   client puts in ``EPICS_PVA_ADDR_LIST`` (DEPLOYMENT.md "Client access"),
-  mirroring ``[epics] ca_addr_list``. Only the fleet tooling reads the key;
-  ``scripts/fleet_status.sh`` exports it for its own probe. A roster host
+  mirroring ``[epics] ca_addr_list``. Only the fleet tooling reads the key
+  (``geecs-pva-gateway fleet`` searches exactly those hosts). A roster host
   absent from it is **not deployed**: the box hosts cameras only nominally
   and no instance was ever installed there — a failed probe is not an
   outage. When the key is absent every roster host counts as deployed (the
@@ -32,9 +32,9 @@ from __future__ import annotations
 import argparse
 import configparser
 import logging
-import os
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager, nullcontext
 from pathlib import Path
 
 from pydantic import BaseModel, Field
@@ -248,24 +248,21 @@ class FleetProbe(BaseModel):
         return "\t".join(fields)
 
 
-def _p4p_getter(hosts: list[str], timeout: float) -> Callable[[str], object]:
-    """A ``get(pv) -> value`` over a p4p context searching *hosts* by unicast.
+@contextmanager
+def _p4p_context(hosts: list[str], timeout: float) -> Iterator[Callable[[str], object]]:
+    """Yield a ``get(pv) -> value`` over a p4p context searching *hosts* by unicast.
 
     UDP broadcast does not cross a VPN, so the address list is the deployed
-    hosts themselves (``EPICS_PVA_AUTO_ADDR_LIST=NO``).
+    hosts themselves (``EPICS_PVA_AUTO_ADDR_LIST=NO``) — passed as the
+    context's own ``conf``, never written to the process environment; the
+    context is closed on exit so a library caller leaks nothing.
     """
-    os.environ["EPICS_PVA_ADDR_LIST"] = " ".join(hosts)
-    os.environ["EPICS_PVA_AUTO_ADDR_LIST"] = "NO"
     from p4p.client.thread import Context
 
-    ctx = Context(
-        "pva", unwrap=False
-    )  # raw Values: str(NT wrapper) carries a timestamp
-
-    def get(pv: str) -> object:
-        return ctx.get(pv, timeout=timeout)["value"]
-
-    return get
+    conf = {"EPICS_PVA_ADDR_LIST": " ".join(hosts), "EPICS_PVA_AUTO_ADDR_LIST": "NO"}
+    # unwrap=False: raw Values (str(NT wrapper) would carry a timestamp).
+    with Context("pva", conf=conf, useenv=True, unwrap=False) as ctx:
+        yield lambda pv: ctx.get(pv, timeout=timeout)["value"]
 
 
 def probe_fleet(
@@ -285,15 +282,20 @@ def probe_fleet(
     )
     if not deployed:
         return result
-    get = getter or _p4p_getter([h.ip for h in deployed], timeout)
-    for host in deployed:
-        try:
-            version = str(get(host.instance_pv(experiment, "version")))
-            beats = int(get(host.instance_pv(experiment, "heartbeat")))
-        except Exception as exc:  # noqa: BLE001 — a failed probe is a finding
-            result.probes.append(HostProbe(host=host, error=type(exc).__name__))
-            continue
-        result.probes.append(HostProbe(host=host, version=version, heartbeat=beats))
+    source = (
+        nullcontext(getter)
+        if getter
+        else _p4p_context([h.ip for h in deployed], timeout)
+    )
+    with source as get:
+        for host in deployed:
+            try:
+                version = str(get(host.instance_pv(experiment, "version")))
+                beats = int(get(host.instance_pv(experiment, "heartbeat")))
+            except Exception as exc:  # noqa: BLE001 — a failed probe is a finding
+                result.probes.append(HostProbe(host=host, error=type(exc).__name__))
+                continue
+            result.probes.append(HostProbe(host=host, version=version, heartbeat=beats))
     return result
 
 
