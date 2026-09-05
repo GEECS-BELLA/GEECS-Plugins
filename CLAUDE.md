@@ -357,15 +357,14 @@ unit, a script, or a default argument is a fork the next site has to
 find by failure. The contract page is `docs/platform/site_profile.md`;
 `/land`'s scope check flags new lab literals outside the allowed places.
 
-The rule binds **new** units, scripts, and defaults. Known residue,
-scheduled for the site-profile arc's literal-cleanup phase
-(`Planning/site_profile/00_overview.md`, PR #775, Phase 4) and not to be fixed
-opportunistically: the `America/Los_Angeles` defaults in
-`geecs_bluesky` (`assets/tiled_readback.py`), the `"Undulator"` default
-in `geecs_data_utils.geecs_paths_config`, and `EXPERIMENT_FILE_IDS` in
-`geecs_data_utils.doc_id_lookup`. (The PVA fleet roster is DB-driven since
-GeecsPvaGateway 0.5.0: `geecs_pva_gateway.fleet`, deployed hosts from
-`config.ini [pva] addr_list`.)
+The rule binds **new** units, scripts, and defaults, and the existing
+ones were cleaned up in 2026-09 (the PVA fleet roster comes from the DB
+with the deployed set in `config.ini [pva] addr_list`; timezone defaults
+are the host's zone; no default experiment in code). The one literal
+deliberately left is `EXPERIMENT_FILE_IDS` in
+`geecs_data_utils.doc_id_lookup` (Google Doc index IDs, read only by
+LiveWatch) — it moves with the LogMaker refactor under "Known debt"
+below, not opportunistically.
 
 ## Known debt we have deliberately deferred
 
@@ -382,7 +381,11 @@ revisit. Speculative cleanup is not.
 
 - **`LogMaker4GoogleDocs` needs a refactor.** It works in production
   (Google Doc log uploads) and is optional everywhere, but don't extend it
-  or use it as a style reference until that refactor happens.
+  or use it as a style reference until that refactor happens. The
+  per-experiment Google Doc index IDs (`EXPERIMENT_FILE_IDS` in
+  `geecs_data_utils.doc_id_lookup`, LiveWatch's facility dropdown) get
+  their config home in that refactor; the candidates are the configs
+  repo's per-experiment tree or the share INI LogMaker already reads.
 
 If you find yourself adding to this list, consider whether you're capturing
 real institutional knowledge or accumulating procrastination. Both are

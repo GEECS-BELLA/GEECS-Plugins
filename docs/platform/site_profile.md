@@ -154,6 +154,37 @@ baked into the scripts and the example file.
    it to `site.env.example` and here in the same PR — that is the
    contract growing, not breaking.
 
+## Decided, and deferred deliberately
+
+Settled while the profile was built (2026-09), so nobody re-litigates
+them by accident:
+
+- `site.env` lives at `/etc/geecs/site.env` and the units are **system**
+  units. A user-scope variant (`~/.config/geecs/site.env`, `systemctl
+  --user`) would avoid the one-time sudo but survives neither a reboot
+  without lingering nor a change of login user; the sudo is one line.
+- The checkout root is a `site.env` value. `/home/<service account>`
+  needs no privilege; `/opt/geecs` is tidier and costs one `chown`. Either
+  is fine — the profile carries it, nothing else assumes it.
+- Ports are fleet-map constants, not site values; every client assumes
+  them.
+
+Deferred, on purpose, until something forces them:
+
+- **Containers.** Only the HTTP-shaped services (portal, MCP, Tiled) are
+  candidates, and only if a host migration proves painful; `site.env` is
+  exactly what a compose file would consume, so nothing here is wasted.
+  The CA gateway, the PVA gateways, and the queueserver stay on bare
+  systemd with host networking (EPICS UDP, the GEECS wire protocol, SMB
+  mounts) — and there is nobody to run a container platform.
+- **Passwordless sudo for deploys.** A `sudoers.d` rule letting the
+  service account run `systemctl {daemon-reload,restart,start,stop}
+  geecs-*` would remove the owner's step from routine restarts. Worth it
+  on a dedicated services box; the owner's decision, not a phase.
+- **Second-facility validation.** Portability here is by construction.
+  The first real second site will find the values this page missed —
+  step 5 of onboarding above is how the contract grows.
+
 ## Keeping the repository honest
 
 - Root `CLAUDE.md` carries this as a cross-package invariant; `/land`'s

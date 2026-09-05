@@ -15,10 +15,9 @@ checkout last moved — run `scripts/fleet_status.sh` (the
 back into this table.
 
 !!! note "Snapshot"
-    Reflects the fleet as observed on **2026-09-04**, after the Phase 3
-    promotion of the interim services host (Phase 3 of
-    `Planning/site_profile/00_overview.md`, executed that day; this table
-    updated in PR #792). The five repo-managed Linux services — CA
+    Reflects the fleet as observed on **2026-09-04**, after the
+    site-profile cutover of the interim services host (PR #792 updated
+    this table the same day). The five repo-managed Linux services — CA
     gateway, queueserver worker, capture daemon, GEECS-MCP HTTP, Data
     Portal — run as **system** units rendered from the host's `site.env`
     ([Site Profile](site_profile.md)), from the per-service-family clones
@@ -235,6 +234,30 @@ they are not re-learned when the script is read in a hurry:
    then `scripts/fleet_status.sh` from a client — every row should read
    systemd / clean clone / matching versions. Update this page's table
    in the same PR.
+
+### Moving the services to another host
+
+The migration *is* the bootstrap: a `site.env` for the new host, the
+bootstrap run there, the root steps, and the clients' `config.ini`
+changing one value if the address changes. Nothing about the old box
+migrates but its recipe. The order that keeps every step reversible by
+restarting what was stopped, learned on the 2026-09-04 cutover:
+
+1. **The queueserver family in one window with no scan running** — stop
+   the RE Manager, the doc proxy, and the capture daemon; start
+   `geecs-qserver` then `geecs-capture`; `qserver status` (readiness,
+   not just the port) and the capture heartbeat file are the checks.
+   Redis is started by the launch script, so its own unit stays
+   inactive — expected, not a finding.
+2. **MCP** — bake its venv from the worker's clone, then start
+   `geecs-mcp`; OSPREY's profile URL does not change unless the host
+   address does.
+3. **Portal**, then **the CA gateway last and only with the owner's go**
+   — the gateway restart drops every CA client for ~10 s.
+4. `scripts/fleet_status.sh` from a client: every row systemd, clean
+   clone, matching versions, nothing UNMANAGED. Rewrite this page's
+   table to the observed truth in the same PR, and remove the old box's
+   rows the day its services stop.
 
 ## How the planes connect
 
