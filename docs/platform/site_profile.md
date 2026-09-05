@@ -157,17 +157,11 @@ baked into the scripts and the example file.
 ## Decided, and deferred deliberately
 
 Settled while the profile was built (2026-09), so nobody re-litigates
-them by accident:
-
-- `site.env` lives at `/etc/geecs/site.env` and the units are **system**
-  units. A user-scope variant (`~/.config/geecs/site.env`, `systemctl
-  --user`) would avoid the one-time sudo but survives neither a reboot
-  without lingering nor a change of login user; the sudo is one line.
-- The checkout root is a `site.env` value. `/home/<service account>`
-  needs no privilege; `/opt/geecs` is tidier and costs one `chown`. Either
-  is fine — the profile carries it, nothing else assumes it.
-- Ports are fleet-map constants, not site values; every client assumes
-  them.
+it by accident: `site.env` lives at `/etc/geecs/site.env` and the units
+are **system** units. A user-scope variant (`~/.config/geecs/site.env`,
+`systemctl --user`) would avoid root entirely but survives neither a
+reboot without lingering nor a change of login user; the root steps are
+the few lines the bootstrap prints.
 
 Deferred, on purpose, until something forces them:
 
@@ -181,9 +175,6 @@ Deferred, on purpose, until something forces them:
   service account run `systemctl {daemon-reload,restart,start,stop}
   geecs-*` would remove the owner's step from routine restarts. Worth it
   on a dedicated services box; the owner's decision, not a phase.
-- **Second-facility validation.** Portability here is by construction.
-  The first real second site will find the values this page missed —
-  step 5 of onboarding above is how the contract grows.
 
 ## Keeping the repository honest
 

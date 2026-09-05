@@ -360,10 +360,12 @@ find by failure. The contract page is `docs/platform/site_profile.md`;
 The rule binds **new** units, scripts, and defaults, and the existing
 ones were cleaned up in 2026-09 (the PVA fleet roster comes from the DB
 with the deployed set in `config.ini [pva] addr_list`; timezone defaults
-are the host's zone; no default experiment in code). The one literal
-deliberately left is `EXPERIMENT_FILE_IDS` in
-`geecs_data_utils.doc_id_lookup` (Google Doc index IDs, read only by
-LiveWatch) — it moves with the LogMaker refactor under "Known debt"
+are the host's zone; no default experiment in code). The literals
+deliberately left are the LiveWatch/LogMaker path's — `EXPERIMENT_FILE_IDS`
+in `geecs_data_utils.doc_id_lookup` (Google Doc index IDs) and the
+facility list in `ScanAnalysis/LiveWatchGUI/live_watch_window.py` that
+reads them (plus the timezone in `apps_script/Code.gs`, the Google-side
+log generator) — they move with the LogMaker refactor under "Known debt"
 below, not opportunistically.
 
 ## Known debt we have deliberately deferred

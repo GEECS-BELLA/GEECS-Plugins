@@ -238,26 +238,49 @@ they are not re-learned when the script is read in a hurry:
 ### Moving the services to another host
 
 The migration *is* the bootstrap: a `site.env` for the new host, the
-bootstrap run there, the root steps, and the clients' `config.ini`
-changing one value if the address changes. Nothing about the old box
-migrates but its recipe. The order that keeps every step reversible by
-restarting what was stopped, learned on the 2026-09-04 cutover:
+bootstrap run there, the root steps, then the clients pointed at it.
+Nothing about the old box migrates but its recipe, and the old box keeps
+running until the new one passes `/fleet-status` — that is what makes
+every step reversible. Two shapes, decided at the migration
+([the interim fact above](#one-clone-per-service)):
 
-1. **The queueserver family in one window with no scan running** — stop
-   the RE Manager, the doc proxy, and the capture daemon; start
-   `geecs-qserver` then `geecs-capture`; `qserver status` (readiness,
-   not just the port) and the capture heartbeat file are the checks.
-   Redis is started by the launch script, so its own unit stays
-   inactive — expected, not a finding.
-2. **MCP** — bake its venv from the worker's clone, then start
-   `geecs-mcp`; OSPREY's profile URL does not change unless the host
-   address does.
-3. **Portal**, then **the CA gateway last and only with the owner's go**
-   — the gateway restart drops every CA client for ~10 s.
-4. `scripts/fleet_status.sh` from a client: every row systemd, clean
-   clone, matching versions, nothing UNMANAGED. Rewrite this page's
-   table to the observed truth in the same PR, and remove the old box's
-   rows the day its services stop.
+- **Only the worker family moves** (queueserver, capture, MCP, portal);
+  the CA gateway, Tiled and the DB stay on the gateway's box. Bring the
+  units up on the new host in the order below, verify, then stop them on
+  the old box. Client side: `[qserver] host` in every `config.ini`, the
+  portal's address, and OSPREY's MCP profile URL change; `[epics]
+  ca_addr_list` and `[tiled] uri` do not.
+- **The gateway (and Tiled) follow.** The new `site.env` carries the new
+  serving interface and beacon address; every client's `[epics]
+  ca_addr_list` (and `[tiled] uri`) changes, and every Phoebus settings
+  file with it. The gateway runbook says what a gateway move or restart
+  does to clients — monitors reconnect on their own; a routed or VPN
+  Phoebus display can look stuck until it is reopened
+  ([GeecsCAGateway/DEPLOYMENT.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsCAGateway/DEPLOYMENT.md)).
+
+Order for the worker family, on the new host, in one window with no
+scan running:
+
+1. **Redis first, as the runbook's distro unit** (`systemctl enable --now
+   redis-server`, [qserver runbook](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsBluesky/qserver/deploy/DEPLOYMENT.md)).
+   The launch script's own daemonized Redis is a fallback only: it lives
+   in the `geecs-qserver` cgroup and dies with every unit restart, taking
+   the queue and history with it. An inactive `redis-server` unit on a
+   service host is a finding.
+2. **`geecs-qserver`** (it pulls in `geecs-qserver-ready`), then
+   **`geecs-capture`**; `qserver status` (readiness, not just the port)
+   and the capture heartbeat file are the checks.
+3. **`geecs-mcp`** from a venv baked on the new host, then
+   **`geecs-data-portal`**.
+4. `scripts/fleet_status.sh` from a client pointed at the new host: every
+   row systemd, clean clone, matching versions, nothing UNMANAGED. Then
+   stop and disable the old box's units, and rewrite this page's table to
+   the observed truth in the same PR.
+
+The same order, minus the client changes, is the one that kept each
+step reversible on the 2026-09-04 same-box promotion (hand-started
+processes → units): queueserver family, MCP, portal, and the gateway
+last and only with the owner's go.
 
 ## How the planes connect
 
