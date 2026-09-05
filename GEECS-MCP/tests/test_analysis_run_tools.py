@@ -71,10 +71,11 @@ def configs(tmp_path, monkeypatch):
     (diag_dir / "windows_only.yaml").write_text(
         yaml.safe_dump(
             {
+                "schema_version": 2,
                 "name": "windows_only",
-                # Stands in for a Windows-SDK class: unimportable here.
-                "image_analyzer": "no_such_sdk.wavekit.HasoAnalyzer",
-                "image": {"type": "camera", "bit_depth": 16},
+                # The real Windows-SDK analyzer: its module hard-imports
+                # WaveKit, so the class is unimportable on this host.
+                "analyzer": {"kind": "haso", "wavekit_config_file_path": "/wfs.dat"},
                 "scan": {},
             }
         )

@@ -39,10 +39,10 @@ def fake_camera_config():
 def fake_line_config():
     """Minimal Line1DConfig the Standard1DAnalyzer constructor will accept."""
     from image_analysis.config import Line1DConfig
-    from image_analysis.config.array1d_processing import Data1DConfig
+    from image_analysis.config.array1d_processing import Data1DLoading
 
     return Line1DConfig(
-        data_loading=Data1DConfig(data_type="tdms_scope"),
+        data_loading=Data1DLoading(data_type="tdms_scope"),
     )
 
 

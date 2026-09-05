@@ -64,7 +64,7 @@ class TestUseInjectedDataThroughDiagnosticFactory:
     @pytest.fixture
     def fake_line_diagnostic(self):
         from image_analysis.config import Line1DConfig
-        from image_analysis.config.array1d_processing import Data1DConfig
+        from image_analysis.config.array1d_processing import Data1DLoading
         from image_analysis.config.diagnostic import DiagnosticAnalysisConfig
 
         return DiagnosticAnalysisConfig.model_validate(
@@ -78,7 +78,7 @@ class TestUseInjectedDataThroughDiagnosticFactory:
                     "kwargs": {},
                 },
                 "image": Line1DConfig(
-                    data_loading=Data1DConfig(data_type="tdms_scope"),
+                    data_loading=Data1DLoading(data_type="tdms_scope"),
                 ),
                 "scan": {"mode": "per_shot"},
             }

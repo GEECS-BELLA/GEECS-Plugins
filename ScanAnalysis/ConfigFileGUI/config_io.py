@@ -21,7 +21,7 @@ from image_analysis.config.loader import (
     load_line_config,
 )
 from image_analysis.config.array1d_processing import (
-    Data1DConfig,
+    Data1DLoading,
     Data1DType,
     Line1DConfig,
 )
@@ -297,7 +297,7 @@ def create_new_line_config(name: str) -> Line1DConfig:
     return Line1DConfig(
         name=name,
         description="",
-        data_loading=Data1DConfig(data_type=Data1DType.CSV),
+        data_loading=Data1DLoading(data_type=Data1DType.CSV),
     )
 
 

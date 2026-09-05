@@ -803,7 +803,8 @@ class TestProcessingSelector:
                             "image_analysis.analyzers."
                             "HASO_himg_has_processor.HASOHimgHasProcessor"
                         ),
-                        "kwargs": {},
+                        # the v1 form; the schema lift maps it to kind haso
+                        "kwargs": {"wavekit_config_file_path": "/wfs.dat"},
                     },
                     "scan": {"priority": 100},
                 }

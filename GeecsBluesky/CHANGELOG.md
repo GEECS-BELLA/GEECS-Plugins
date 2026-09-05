@@ -4,6 +4,16 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.76.1] - 2026-09-05
+
+### Changed
+
+- `poetry.lock` refreshed for the `optimize` extra: ScanAnalysis 1.19.0 /
+  ImageAnalysis 2.0.0 bring `geecs-schemas` as a path dependency (the
+  analysis-config schema overhaul; `diag.scan` is typed in-document, the
+  evaluators' `load_diagnostic(..., overrides={"scan": {...}})` calls are
+  unchanged). Test fixtures use the schema `Data1DLoading` model.
+
 ## [0.76.0] - 2026-09-04
 
 ### Changed

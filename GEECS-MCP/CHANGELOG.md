@@ -4,6 +4,16 @@ All notable changes to `geecs-mcp` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.8.7] - 2026-09-05
+
+### Changed
+
+- `poetry.lock` refreshed for the `analysis-run` extra: ScanAnalysis 1.19.0
+  / ImageAnalysis 2.0.0 bring `geecs-schemas` as a path dependency (the
+  analysis-config schema overhaul). No code change — the runner still goes
+  through `load_diagnostic` + `create_scan_analyzer`; the Windows-only
+  test stand-in is now the real `haso` analyzer kind.
+
 ## [0.8.6] - 2026-09-04
 
 ### Changed

@@ -25,7 +25,7 @@ import pytest
 
 from ConfigFileGUI.config_io import load_config, save_config
 from image_analysis.config.array2d_processing import CameraConfig
-from image_analysis.config.array1d_processing import Line1DConfig, Data1DConfig
+from image_analysis.config.array1d_processing import Data1DLoading, Line1DConfig
 
 
 # ---------------------------------------------------------------------------
@@ -85,7 +85,7 @@ class TestFloatPrecisionRoundtrip:
 
         cfg = CameraConfig(
             bit_depth=16,
-            thresholding=ThresholdingConfig(enabled=True, value=0.2008),
+            thresholding=ThresholdingConfig(value=0.2008),
         )
         reloaded = _roundtrip_camera(cfg, tmp_path)
         assert math.isclose(reloaded.thresholding.value, 0.2008, rel_tol=1e-9)
@@ -96,7 +96,7 @@ class TestFloatPrecisionRoundtrip:
         tiny = 1e-13
         cfg = CameraConfig(
             bit_depth=16,
-            thresholding=ThresholdingConfig(enabled=True, value=tiny),
+            thresholding=ThresholdingConfig(value=tiny),
         )
         reloaded = _roundtrip_camera(cfg, tmp_path)
         assert math.isclose(reloaded.thresholding.value, tiny, rel_tol=1e-9)
@@ -119,7 +119,7 @@ class TestLine1DConfigRoundtrip:
         from image_analysis.config.array1d_processing import Data1DType
 
         cfg = Line1DConfig(
-            data_loading=Data1DConfig(data_type=Data1DType.CSV),
+            data_loading=Data1DLoading(data_type=Data1DType.CSV),
         )
         reloaded = _roundtrip_line(cfg, tmp_path)
         assert reloaded.data_loading.data_type == cfg.data_loading.data_type
@@ -129,7 +129,7 @@ class TestLine1DConfigRoundtrip:
 
         cfg = Line1DConfig(
             description="line desc",
-            data_loading=Data1DConfig(data_type=Data1DType.CSV),
+            data_loading=Data1DLoading(data_type=Data1DType.CSV),
         )
         reloaded = _roundtrip_line(cfg, tmp_path)
         assert reloaded.model_dump() == cfg.model_dump()
@@ -208,7 +208,7 @@ class TestDiagnosticAnalysisConfigRoundtrip:
                     "image_analysis.analyzers.HASO_himg_has_processor."
                     "HASOHimgHasProcessor"
                 ),
-                "kwargs": {"mask_top": 125},
+                "kwargs": {"wavekit_config_file_path": "/wfs.dat", "mask_top": 125},
             },
             "scan": {"priority": 10, "save": True},
         }
@@ -226,7 +226,7 @@ class TestDiagnosticAnalysisConfigRoundtrip:
             image={
                 "type": "camera",
                 "bit_depth": 16,
-                "thresholding": {"enabled": True, "value": tiny},
+                "thresholding": {"value": tiny},
             },
         )
         reloaded = self._roundtrip(data, tmp_path)

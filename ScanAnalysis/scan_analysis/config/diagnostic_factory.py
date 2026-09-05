@@ -4,7 +4,7 @@ This module is thin by design: the image-analyzer instantiation lives
 in ImageAnalysis (:func:`image_analysis.config.create_image_analyzer`),
 and this factory only adds the scan-side wrapping —
 :class:`Array2DScanAnalyzer` or :class:`Array1DScanAnalyzer` —
-populated from the validated ``scan:`` block.
+populated from the typed ``scan:`` section.
 
 Pattern:
 
@@ -31,7 +31,7 @@ from image_analysis.config import (
     create_image_analyzer,
 )
 
-from .diagnostic_models import ScanRuntimeConfig
+from .diagnostic_models import ScanRuntime
 
 if TYPE_CHECKING:
     from scan_analysis.base import ScanAnalyzer
@@ -60,10 +60,9 @@ def create_scan_analyzer(
     Parameters
     ----------
     diag : DiagnosticAnalysisConfig
-        Validated diagnostic. Both halves consumed here:
-        ``image_analyzer`` + ``image`` go to
-        :func:`image_analysis.config.create_image_analyzer`, ``scan``
-        is parsed into a :class:`ScanRuntimeConfig`.
+        Validated diagnostic. ``analyzer`` + ``image`` go to
+        :func:`image_analysis.config.create_image_analyzer`; the typed
+        ``scan`` section (:class:`ScanRuntime`) drives the wrapper.
     id : str, optional
         Task-queue ID for the analyzer instance. Defaults to
         ``diag.source_id`` when the diagnostic was loaded from a YAML
@@ -94,15 +93,13 @@ def create_scan_analyzer(
     ------
     ValueError
         Propagated from :func:`create_image_analyzer` or from
-        validating ``diag.scan`` against :class:`ScanRuntimeConfig`.
+        building the inner analyzer.
     TypeError
         If the resolved wrapper class can't be instantiated with the
         inferred kwargs.
     """
     image_analyzer = create_image_analyzer(diag)
-    # diag.scan is weakly typed at the ImageAnalysis layer; validate
-    # against the scan-side runtime model here.
-    scan_cfg = ScanRuntimeConfig.model_validate(diag.scan or {})
+    scan_cfg: ScanRuntime = diag.scan  # typed in-document since v2
 
     source_id = getattr(diag, "source_id", None)
     effective_id = id if id is not None else source_id or diag.name
@@ -121,7 +118,7 @@ def create_scan_analyzer(
 def _wrap_in_scan_analyzer(
     *,
     diag: DiagnosticAnalysisConfig,
-    scan_cfg: ScanRuntimeConfig,
+    scan_cfg: ScanRuntime,
     image_analyzer: Any,
     analyzer_id: str,
     priority: int,
@@ -164,7 +161,9 @@ def _wrap_in_scan_analyzer(
         "device_name": diag.name,
         "data_device_name": scan_cfg.device,
         "image_analyzer": image_analyzer,
-        "renderer_kwargs": scan_cfg.renderer_kwargs,
+        # Only the options the YAML set — the renderer's own defaults apply
+        # to the rest (RendererOptions replaced the renderer_kwargs dict).
+        "renderer_kwargs": scan_cfg.renderer.as_kwargs(),
         "analysis_mode": scan_cfg.mode,
         "use_injected_data": use_injected_data,
         # Output naming (#412). ImageAnalysis emits bare scalar keys;
@@ -188,7 +187,7 @@ def _wrap_in_scan_analyzer(
         analyzer = wrapper_class(**wrapper_kwargs)
     except TypeError as exc:
         raise TypeError(
-            f"Failed to wrap {diag.image_analyzer.class_path} in "
+            f"Failed to wrap analyzer kind {diag.analyzer.kind!r} in "
             f"{wrapper_class.__name__} for diagnostic '{diag.name}': {exc}"
         ) from exc
 

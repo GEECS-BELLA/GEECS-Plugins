@@ -3,6 +3,37 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.19.0] - 2026-09-05
+
+### Changed
+
+- **The scan-side config models live in GEECS-Schemas.** `ScanRuntimeConfig`,
+  `BackgroundSource`, `FromCurrentScanSpec`, `AutodetectBackgroundSpec`,
+  `AnalyzerRef` and `AnalysisGroupConfig` are now `geecs_schemas.analysis`'s
+  `ScanRuntime` / `BackgroundSource` / … / `AnalysisGroup`, re-exported from
+  `scan_analysis.config` under the old names as aliases (the schema
+  overhaul — GEECS-Schemas 0.19.0, ImageAnalysis 2.0.0). `diag.scan` is the
+  typed `ScanRuntime` section in-document, so the group loader and
+  `create_scan_analyzer` read `diag.scan.priority` / fields directly — the
+  second-stage `ScanRuntimeConfig.model_validate(diag.scan or {})` is gone.
+  `scan.renderer` (typed `RendererOptions`) replaces the `renderer_kwargs`
+  dict in the YAML; the wrappers still receive a kwargs dict, built from the
+  options the YAML set (`RendererOptions.as_kwargs()`), so the renderers'
+  own defaults apply as before. `ResolvedDiagnosticConfig` stays here (the
+  loader's runtime wrapper, not a document).
+- `geecs-schemas` (path dep) is a main dependency.
+- **ConfigFileGUI (the Qt editor) is frozen on the v1 authoring shape** —
+  it still writes `image_analyzer` / `image.analysis` YAML, which the v1
+  lift reads, and its import-level breakage is patched (`Data1DLoading`,
+  `label`); its per-analyzer `analysis` widget and pipeline form are not
+  ported. It is retired once the web config editor reaches parity
+  (owner decision 2026-09-05).
+
+### Removed
+
+- `ImageAnalyzerSpec` / `resolve_image_analyzer_value` re-exports (the v1
+  `image_analyzer` field is gone from the document).
+
 ## [1.18.1] - 2026-09-03
 
 ### Fixed

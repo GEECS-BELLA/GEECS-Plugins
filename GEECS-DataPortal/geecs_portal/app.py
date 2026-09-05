@@ -334,12 +334,10 @@ class _DiagInfo:
 
     @classmethod
     def from_diagnostic(cls, diag) -> "_DiagInfo":
-        # ``diag.scan`` is the raw ``scan:`` mapping at the ImageAnalysis
-        # layer (ScanRuntimeConfig lives in ScanAnalysis, which the
-        # selector must not need) — read the one key the wrapper reads.
-        scan = diag.scan or {}
+        # ``diag.scan`` is the typed ScanRuntime section (GEECS-Schemas) —
+        # read the one field the wrapper reads.
         return cls(
-            device=str(scan.get("device") or diag.name),
+            device=str(diag.scan.device or diag.name),
             output_name=str(getattr(diag, "effective_output_name", None) or diag.name),
         )
 

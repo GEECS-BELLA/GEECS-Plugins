@@ -39,7 +39,6 @@ from image_analysis.config import load_diagnostic
 from .diagnostic_models import (
     AnalysisGroupConfig,
     ResolvedDiagnosticConfig,
-    ScanRuntimeConfig,
 )
 
 logger = logging.getLogger(__name__)
@@ -247,12 +246,10 @@ def resolve_group(
         seen[ref] = 1
 
         diagnostic = load_diagnostic(analyzer_index[ref])
-        # diagnostic.scan is weakly typed at the ImageAnalysis layer;
-        # validate to read the priority field. ``or {}`` covers the
-        # legitimate "no scan block in the YAML" case.
-        scan_cfg = ScanRuntimeConfig.model_validate(diagnostic.scan or {})
         effective_priority = (
-            ref_entry.priority if ref_entry.priority is not None else scan_cfg.priority
+            ref_entry.priority
+            if ref_entry.priority is not None
+            else diagnostic.scan.priority
         )
 
         if not ref_entry.enabled:

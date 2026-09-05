@@ -403,7 +403,7 @@ class ConfigEditorPanel(QWidget):
         """
         from image_analysis.config.array1d_processing import (
             BackgroundConfig as BG1D,
-            Data1DConfig,
+            Data1DLoading,
             FilteringConfig as Filter1D,
             InterpolationConfig,
             PipelineStepType,
@@ -426,11 +426,11 @@ class ConfigEditorPanel(QWidget):
         self._top_widgets["description"] = desc_edit
 
         # Data format
-        data_format = QLineEdit(str(getattr(config, "data_format", "") or ""))
+        data_format = QLineEdit(str(getattr(config, "label", "") or ""))
         data_format.setPlaceholderText("Data format (e.g. csv, tdms)")
         data_format.textChanged.connect(self._on_value_changed)
         top_layout.addRow("Data Format:", data_format)
-        self._top_widgets["data_format"] = data_format
+        self._top_widgets["label"] = data_format
 
         # Processing dtype
         proc_dtype = QLineEdit(str(getattr(config, "processing_dtype", "") or ""))
@@ -450,7 +450,7 @@ class ConfigEditorPanel(QWidget):
 
         # --- Section model mapping ---
         section_models: Dict[str, Type[BaseModel]] = {
-            "data_loading": Data1DConfig,
+            "data_loading": Data1DLoading,
             "background": BG1D,
             "roi": ROI1DConfig,
             "filtering": Filter1D,

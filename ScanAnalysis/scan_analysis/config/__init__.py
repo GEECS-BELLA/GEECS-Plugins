@@ -1,10 +1,12 @@
 """Configuration system for scan analysis.
 
-This package provides the unified diagnostic config schema and
-loader for scan analyzers. Each diagnostic is one YAML file under
-``scan_analysis_configs/analyzers/<namespace>/<id>.yaml`` carrying
-both an ``image:`` section (consumed by ImageAnalysis) and a
-``scan:`` section (consumed by ScanAnalysis). Diagnostics are
+This package provides the loader and factory for scan analyzers over
+the analysis-config documents defined in ``geecs_schemas.analysis``.
+Each diagnostic is one YAML file under
+``scan_analysis_configs/analyzers/<namespace>/<id>.yaml`` carrying an
+``analyzer:`` section (which analyzer, with its parameters), an
+``image:`` section (consumed by ImageAnalysis) and a typed ``scan:``
+section (consumed here). Diagnostics are
 collected into analysis groups under
 ``scan_analysis_configs/groups/<namespace>/<group>.yaml``, which
 LiveWatch and the task queue consume directly.
@@ -41,21 +43,20 @@ ImageAnalysis derives its own search root as
 ``<scan_analysis_configs_path>/analyzers`` automatically.
 """
 
-# Unified diagnostic schema — the top-level model lives in ImageAnalysis
-# (it owns the image_analyzer + image: shape), re-exported here for
-# back-compat with callers used to importing from scan_analysis.config.
-from image_analysis.config import (
-    DiagnosticAnalysisConfig,
-    ImageAnalyzerSpec,
-    resolve_image_analyzer_value,
-)
+# The documents live in GEECS-Schemas (geecs_schemas.analysis); the
+# historical names are kept as aliases in diagnostic_models.
+from image_analysis.config import DiagnosticAnalysisConfig
 from .diagnostic_models import (
+    AnalysisDiagnostic,
+    AnalysisGroup,
     AnalysisGroupConfig,
     AnalyzerRef,
     AutodetectBackgroundSpec,
     BackgroundSource,
     FromCurrentScanSpec,
+    RendererOptions,
     ResolvedDiagnosticConfig,
+    ScanRuntime,
     ScanRuntimeConfig,
 )
 
@@ -70,18 +71,19 @@ from .analysis_group_loader import (
 from .diagnostic_factory import create_scan_analyzer
 
 __all__ = [
-    # Unified diagnostic models
+    # The documents (geecs_schemas.analysis) + transitional aliases
+    "AnalysisDiagnostic",
     "DiagnosticAnalysisConfig",
+    "ScanRuntime",
     "ScanRuntimeConfig",
+    "RendererOptions",
     "ResolvedDiagnosticConfig",
     "AnalyzerRef",
+    "AnalysisGroup",
     "AnalysisGroupConfig",
     "BackgroundSource",
     "AutodetectBackgroundSpec",
     "FromCurrentScanSpec",
-    # image_analyzer field model + helpers
-    "ImageAnalyzerSpec",
-    "resolve_image_analyzer_value",
     # Loader
     "load_analysis_group",
     "discover_analyzers",

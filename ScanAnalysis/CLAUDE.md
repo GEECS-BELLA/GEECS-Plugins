@@ -26,13 +26,17 @@ scan_analysis/
 ## Config System (YAML → Pydantic → Factory → Instances)
 
 Scan analysis is driven by YAML config files stored in the
-**GEECS-Plugins-configs** repository (not this repo). Image-analyzer-driven
-scan analyzers (Array2D / Array1D) use the **unified diagnostic schema**:
-one YAML per diagnostic under `analyzers/<namespace>/<id>.yaml`, carrying
-both an `image:` section (consumed by ImageAnalysis) and a `scan:` section
-(consumed by ScanAnalysis). Diagnostics are assembled into analysis groups
-under `groups/<namespace>/<group>.yaml`, which `LiveWatch` and the task
-queue consume directly. Scatter analyzers sit outside the YAML config
+**GEECS-Plugins-configs** repository (not this repo). The documents are
+**GEECS-Schemas'** (`geecs_schemas.analysis`, format v2 since
+ScanAnalysis 1.19.0): one `AnalysisDiagnostic` YAML per diagnostic under
+`analyzers/<namespace>/<id>.yaml`, carrying `analyzer:` (which analyzer,
+with its typed parameters), `image:` (the camera / line processing
+section, consumed by ImageAnalysis) and `scan:` (the typed `ScanRuntime`
+section, consumed here); diagnostics are assembled into `AnalysisGroup`
+files under `groups/<namespace>/<group>.yaml`, which `LiveWatch` and the
+task queue consume directly. Pre-v2 files (`image_analyzer` class path,
+`image.analysis`, constructor `kwargs`, `scan.renderer_kwargs`) lift
+automatically at load. Scatter analyzers sit outside the YAML config
 system entirely — they are plain Python subclasses of
 `ScatterPlotterAnalysis` (see below) because they don't consume images.
 
@@ -56,23 +60,19 @@ for a in analyzers:
 `task_queue.load_analyzers_from_config(group_name, config_dir=...)` is a
 thin wrapper around the same two calls.
 
-### Unified diagnostic schema
-
-The top-level `DiagnosticAnalysisConfig` lives in **`image_analysis.config`**
-(it owns the `image_analyzer` + `image:` shape and carries `scan:` as a
-weakly-typed dict). `scan_analysis.config` re-exports it and owns the
-scan-side models in `diagnostic_models.py`:
+### The documents (`geecs_schemas.analysis`)
 
 ```
-DiagnosticAnalysisConfig          # One YAML per diagnostic (image_analysis.config)
+AnalysisDiagnostic                # One YAML per diagnostic (schema_version: 2)
   name: str                       # Device/channel name for input-data discovery
-  image_analyzer: ImageAnalyzerSpec  # Analyzer class path (+ optional kwargs)
-  image: CameraConfig | Line1DConfig | None  # Routed by `type: camera | line`
   output_name: Optional[str]      # Output stem override (defaults to name)
   metric_suffix: Optional[str]    # Scalar-key-only suffix (no dir/file effect)
-  scan: dict                      # Validated by ScanAnalysis into ScanRuntimeConfig
+  analyzer: AnalyzerSpec          # kind-discriminated union: beam | magspec | ict | ...
+                                  #   with the analyzer's OWN parameters as fields
+  image: CameraConfig | Line1DConfig | None   # routed by `type: camera | line`
+  scan: ScanRuntime               # typed in-document (below)
 
-ScanRuntimeConfig                 # Validates the scan: dict (diagnostic_models.py)
+ScanRuntime                       # the scan: section
   priority: int                   # Lower = runs first (100 default)
   mode: Literal["per_shot", "per_bin"]  # default per_shot
   save: bool                      # Write per-shot/bin outputs to the analysis tree
@@ -83,25 +83,29 @@ ScanRuntimeConfig                 # Validates the scan: dict (diagnostic_models.
                                   #   stack (auto-fallback to per-shot files);
                                   #   WARNING: only for analyzers that use base
                                   #   load_image and don't derive per-shot
-                                  #   output names from file_path (see
-                                  #   diagnostic_models.py field docs)
-  renderer_kwargs: dict           # Extra renderer options (colormap mode, ...)
+                                  #   output names from file_path
+  renderer: RendererOptions       # typed figure options; unset = renderer default
   background_source: Optional[BackgroundSource]
                                   # scan_number | from_current_scan | autodetect
 
-AnalysisGroupConfig               # One YAML per group under groups/
-  analyzers: List[AnalyzerRef]    # Bare stem strings or {ref, enabled, priority}
+AnalysisGroup                     # One YAML per group under groups/
+  analyzers: List[AnalyzerRef]    # bare stems or {ref, enabled, priority}
 
-ResolvedDiagnosticConfig          # What the loader hands the factory
+ResolvedDiagnosticConfig          # What the loader hands the factory (this package)
   id: str                         # Diagnostic filename stem (task-queue ID)
   enabled: bool                   # Refs with enabled: false are excluded
   priority: int                   # Group override, else the diagnostic's own
-  diagnostic: DiagnosticAnalysisConfig
+  diagnostic: AnalysisDiagnostic
 ```
 
-There is no `scan.type` field: the factory picks the wrapper class from
+`scan_analysis.config` re-exports the models and keeps the pre-1.19.0
+names as aliases (`ScanRuntimeConfig`, `AnalysisGroupConfig`,
+`DiagnosticAnalysisConfig`). The factory picks the wrapper class from
 the type of `diag.image` — `Line1DConfig` → `Array1DScanAnalyzer`,
-anything else → `Array2DScanAnalyzer`.
+anything else → `Array2DScanAnalyzer` — and passes
+`scan.renderer.as_kwargs()` (only the options the YAML set) to the
+wrapper's `renderer_kwargs`, so `Image2DRendererConfig` /
+`Line1DRendererConfig` defaults still apply.
 
 **Output-naming contract (#412)** — image analyzers emit **bare** scalar
 keys (`x_fwhm`, not `UC_TopView_x_fwhm`); the ScanAnalyzer wrapper applies
@@ -114,19 +118,26 @@ output trees and s-file columns (`output_name: UC_TopView_left` /
 directory or file names. This keeps ImageAnalysis reusable standalone —
 `ImageAnalysis/CLAUDE.md` points here for the full contract.
 
-### The `image_analyzer` field (`image_analysis.config`)
+### The `analyzer:` section
 
-`ImageAnalyzerSpec` and `resolve_image_analyzer_value` live in
-`image_analysis.config` and are re-exported by `scan_analysis.config`.
-The field accepts two forms (the former alias registry — `beam`,
-`standard`, … — was removed along with `aliases.py`):
+Which analyzer runs, and its parameters, in one typed block chosen by
+`kind` (the former `image_analyzer` class path + `image.analysis` dict +
+constructor `kwargs`). ImageAnalysis maps kind → class
+(`image_analysis.config.registry`):
 
 ```yaml
-image_analyzer: image_analysis.analyzers.beam_analyzer.BeamAnalyzer  # bare class path
-image_analyzer:                       # verbose, for constructor kwargs
-  class_path: image_analysis.analyzers.HASO_himg_has_processor.HASOHimgHasProcessor
-  kwargs: {mask_top: 125}
+analyzer: {kind: beam, compute_slopes: false}
+analyzer:
+  kind: haso                                  # no image: section for this kind
+  wavekit_config_file_path: /path/to/wfs.dat
+  mask: {top: 125, bottom: 300, left: 10, right: 670}
 ```
+
+### ConfigFileGUI (frozen)
+
+The Qt editor under `ConfigFileGUI/` still authors the v1 shape (the lift
+reads it); only its import-level breakage was patched in 1.19.0. It is
+retired once the web config editor (data portal) reaches parity.
 
 ### Scatter (`analyzers/common/scatter_plotter_analysis.py`)
 

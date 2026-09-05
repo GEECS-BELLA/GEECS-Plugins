@@ -463,9 +463,9 @@ class ScanAnalyzerEditorPanel(QWidget):
             # fields. Both branches must produce a valid model so the UI
             # can show an empty form without crashing.
             if model_cls.__name__ == "Line1DConfig":
-                from image_analysis.config.array1d_processing import Data1DConfig
+                from image_analysis.config.array1d_processing import Data1DLoading
 
-                return model_cls(data_loading=Data1DConfig(data_type="csv"))
+                return model_cls(data_loading=Data1DLoading(data_type="csv"))
             return model_cls()
 
     def _on_image_type_changed(self, new_kind: str) -> None:

@@ -3,6 +3,17 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.20.3] - 2026-09-05
+
+### Changed
+
+- The processing selector reads the diagnostic's typed `scan` section
+  (`diag.scan.device`) — `AnalysisDiagnostic` v2 from GEECS-Schemas 0.19.0 /
+  ImageAnalysis 2.0.0 types `scan:` in-document; the raw-mapping read is
+  gone. `poetry.lock` refreshed for the new `geecs-schemas` path dependency
+  of ImageAnalysis / ScanAnalysis. Behaviour unchanged; legacy flat camera
+  configs in the tree still degrade to a log line.
+
 ## [0.20.2] - 2026-09-03
 
 ### Fixed
