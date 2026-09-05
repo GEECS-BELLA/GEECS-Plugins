@@ -74,8 +74,11 @@ geecs_bluesky/
                             #   ANSWER_* live here since W5)
   qserver_ready.py          # geecs-qserver-ensure-ready: the service-start
                             #   readiness assertion (#793) — open the worker
-                            #   env if closed, wait idle, assert the manager
-                            #   lists every GEECS plan; injectable transport
+                            #   env if closed, wait for it, then the SAME
+                            #   qs_client.readiness_verdict the preflight
+                            #   runs (one definition of ready); address from
+                            #   QS_CONTROL_ADDR > [qserver] > loopback;
+                            #   injectable transport
   plan_names.py             # the queueserver plan / function-verb names,
                             #   import-light (log_markers rule): startup.py
                             #   exports them, qs_client submits/asks by them,
@@ -89,10 +92,13 @@ geecs_bluesky/
                             #   failed-item-at-front guard, sequenced stop,
                             #   read verbs, function-verb task polling);
                             #   submit_preflight.py = client-side pre-submit
-                            #   checks (validate, worker_ready — env open +
-                            #   plan allowed, a refusal naming the recovery
-                            #   gesture (#793) — snapshot_images, unserved,
-                            #   liveness, staleness) + build_submission_record
+                            #   checks (validate, worker_ready — the shared
+                            #   readiness_verdict (env exists ∧ plan list
+                            #   answered ∧ non-empty ∧ plan present; an
+                            #   unanswered list is NOT ready), a refusal
+                            #   naming the recovery gesture (#793) —
+                            #   snapshot_images, unserved, liveness,
+                            #   staleness) + build_submission_record
                             #   (the record travels BESIDE the request:
                             #   submit_scan(request, submission=...)).
                             #   bluesky-queueserver-api rides the qs-client

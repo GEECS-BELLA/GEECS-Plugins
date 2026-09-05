@@ -232,15 +232,14 @@ def _check_worker_ready(
 ) -> None:
     """Refuse when the manager cannot run the plan about to be queued (#793).
 
-    Two facts, both from the manager: the worker environment exists
-    (``status()``; ``re_state`` is ``None`` and the plan list is empty
-    while it is closed — the state a fresh ``geecs-qserver`` restart
-    leaves behind until something opens it) and
-    :data:`~geecs_bluesky.plan_names.SCAN_REQUEST_PLAN` is in
-    ``allowed_plan_names()`` (an environment that opened onto a partial
-    import, or a permissions file that excludes the plan, is still
-    broken).  The manager not answering is a *different* failure the
-    submit reports itself — recorded ``skipped``, never a refusal.
+    The verdict is :func:`~geecs_bluesky.qs_client.client.readiness_verdict`
+    — the same function the ``geecs-qserver-ready`` service-start
+    assertion runs — over ``status()`` and ``allowed_plan_names()``:
+    environment exists, plan list answered and non-empty,
+    :data:`~geecs_bluesky.plan_names.SCAN_REQUEST_PLAN` present.  Every
+    not-ready state is a refusal carrying the verdict's sentence, except
+    an unreachable manager, which the submit reports itself — recorded
+    ``skipped``, never a refusal.
 
     Parameters
     ----------
@@ -252,7 +251,7 @@ def _check_worker_ready(
         Passed to the client factory.
     """
     from geecs_bluesky.plan_names import SCAN_REQUEST_PLAN
-    from geecs_bluesky.qs_client.client import StubQueueClient
+    from geecs_bluesky.qs_client.client import StubQueueClient, readiness_verdict
 
     owned = client is None
     if owned:
@@ -263,36 +262,25 @@ def _check_worker_ready(
                 ("worker_ready", "skipped", "no [qserver] config — submission is off")
             )
             return
+        # The ONE definition of ready (client.readiness_verdict), assembled
+        # here from the two reads so any client with status() +
+        # allowed_plan_names() qualifies; an unanswered plan list is
+        # plans_unknown — not ready, never silently passed.
         status = client.status()
-        if not status.connected:
-            report.outcomes.append(
-                (
-                    "worker_ready",
-                    "skipped",
-                    f"manager unreachable ({status.detail or 'no answer'})",
-                )
-            )
-            return
-        if not status.worker_exists:
-            report.refusal = (
-                "The queueserver worker environment is closed: the RE Manager "
-                "answers but knows no plans, so every submission would be "
-                "refused as 'not in the list of allowed plans'. Open it on the "
-                "worker host — `systemctl restart geecs-qserver-ready` (the "
-                "readiness unit) or `qserver environment open` — then resubmit."
-            )
-            return
-        names = client.allowed_plan_names()
-        if SCAN_REQUEST_PLAN not in names:
-            listed = ", ".join(names) if names else "none"
-            report.refusal = (
-                f"The RE Manager does not list {SCAN_REQUEST_PLAN} among the "
-                f"plans this client may submit (listed: {listed}). The worker's "
-                "startup profile did not register it, or the permissions file "
-                "excludes it — see GeecsBluesky/qserver/README.md, Troubleshooting."
-            )
-            return
-        report.outcomes.append(("worker_ready", "passed", ""))
+        plans = None
+        if status.connected and status.worker_exists:
+            try:
+                plans = client.allowed_plan_names()
+            except Exception as exc:
+                logger.warning("plans_allowed read failed: %s", exc)
+        verdict = readiness_verdict(status, plans, SCAN_REQUEST_PLAN)
+        if verdict.ready:
+            report.outcomes.append(("worker_ready", "passed", ""))
+        elif verdict.state == "unreachable":
+            # Fail-open: the submit itself reports an unreachable manager.
+            report.outcomes.append(("worker_ready", "skipped", verdict.detail))
+        else:
+            report.refusal = verdict.detail
     finally:
         if owned:
             close = getattr(client, "close", None)

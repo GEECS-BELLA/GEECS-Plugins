@@ -52,7 +52,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   otherwise builds and closes one from the shared `[qserver]` config, so the
   console and the MCP get the check with no signature change (their
   `run_submit_preflight` patches take two positionals — unchanged).
-  `QueueClient` grows `allowed_plan_names()` and `close()`.
+  `QueueClient` grows `allowed_plan_names()`, `close()` and `readiness()`.
+- **One definition of "ready"**: `qs_client.readiness_verdict(status,
+  plans_allowed, expected_plans) -> ReadinessVerdict` (states `ready` /
+  `unreachable` / `environment_closed` / `plans_unknown` / `plans_empty` /
+  `plan_missing`, each with the operator-facing sentence). Ready ⇔ the
+  manager answered ∧ its worker environment exists ∧ the plan list was
+  answered ∧ non-empty ∧ every expected plan present — an **unanswered plan
+  list is `plans_unknown`, never ready**. The `worker_ready` preflight and
+  `geecs-qserver-ensure-ready` both run it (the entry point maps the raw
+  manager payload through the shared `queue_status_from_manager`), so the
+  preflight refusal and the readiness unit's NOT READY line are the same
+  sentence; a probe script gets it by import instead of re-deriving it.
+  The entry point's manager address honours `QS_CONTROL_ADDR`, then the
+  shared config's `[qserver] control_addr`/`host`, then loopback.
 - **`geecs_bluesky.plan_names`** — the import-light home of the plan and
   function-verb names: `startup.py`'s `__all__` is built from it,
   `qs_client` submits and asks by it, `qserver_ready` asserts it; pinned

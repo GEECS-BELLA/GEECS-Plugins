@@ -36,11 +36,36 @@ from collections.abc import Callable, Sequence
 from typing import Any
 
 from geecs_bluesky.plan_names import GEECS_PLAN_NAMES
+from geecs_bluesky.qs_client.client import (
+    queue_status_from_manager,
+    read_qserver_config,
+    readiness_verdict,
+)
 
 logger = logging.getLogger(__name__)
 
-#: Default control-socket address as seen from the worker host itself.
+#: Fallback control-socket address as seen from the worker host itself;
+#: :func:`default_control_addr` prefers the shared config's ``[qserver]``.
 DEFAULT_CONTROL_ADDR = "tcp://localhost:60615"
+
+
+def default_control_addr() -> str:
+    """The manager address to assert against, in override order.
+
+    ``QS_CONTROL_ADDR`` (environment) → ``[qserver] control_addr`` / ``host``
+    of the shared ``~/.config/geecs_python_api/config.ini`` (the service
+    account's, rendered from ``site.env`` — the one home of the worker
+    address) → loopback on the standard port.
+    """
+    env = os.environ.get("QS_CONTROL_ADDR", "").strip()
+    if env:
+        return env
+    config = read_qserver_config()
+    if config is not None and config.control_addr:
+        return config.control_addr
+    return DEFAULT_CONTROL_ADDR
+
+
 #: The permissions group the plan list is asked for — the CLI's default;
 #: ``user_group_permissions.yaml`` allows every ``geecs_*`` plan to it.
 DEFAULT_USER_GROUP = "primary"
@@ -204,21 +229,24 @@ def ensure_ready(
         % (status.get("worker_environment_state"), status.get("re_state"))
     )
 
-    reply = _call(request, "plans_allowed", {"user_group": user_group})
-    allowed = sorted((reply.get("plans_allowed") or {}).keys())
-    missing = [name for name in expected_plans if name not in allowed]
-    if missing:
-        raise NotReady(
-            f"plans_allowed lacks {', '.join(missing)} (listed: "
-            f"{', '.join(allowed) or 'none'}; user_group={user_group!r}) — the "
-            "startup profile did not register them or user_group_permissions.yaml "
-            "excludes them; see qserver/README.md Troubleshooting"
-        )
+    # The ONE definition of ready (qs_client.readiness_verdict), shared with
+    # the pre-submit worker_ready check: an unanswered plan list is not ready.
+    plans_reply, err = request("plans_allowed", {"user_group": user_group})
+    plans = None
+    if plans_reply is not None and plans_reply.get("success", True):
+        plans = plans_reply.get("plans_allowed") or {}
+    else:
+        log("plans_allowed unanswered: %s" % (err or (plans_reply or {}).get("msg")))
+    verdict = readiness_verdict(
+        queue_status_from_manager(status), plans, list(expected_plans)
+    )
+    if not verdict.ready:
+        raise NotReady(f"{verdict.detail} (user_group={user_group!r})")
     log(
         "ready: %d allowed plans, all %d expected present"
-        % (len(allowed), len(expected_plans))
+        % (len(verdict.allowed_plans), len(expected_plans))
     )
-    return allowed
+    return list(verdict.allowed_plans)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -232,8 +260,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     parser.add_argument(
         "--control-addr",
-        default=os.environ.get("QS_CONTROL_ADDR", DEFAULT_CONTROL_ADDR),
-        help="manager 0MQ control socket (env QS_CONTROL_ADDR; default %(default)s)",
+        default=None,
+        help=(
+            "manager 0MQ control socket; default: QS_CONTROL_ADDR, else the "
+            "shared config's [qserver] control_addr/host, else "
+            f"{DEFAULT_CONTROL_ADDR}"
+        ),
     )
     parser.add_argument(
         "--user-group",
@@ -250,9 +282,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.timeout <= 0:
         parser.error("--timeout must be positive")
     logging.basicConfig(level=logging.INFO, format="%(message)s", stream=sys.stderr)
+    control_addr = args.control_addr or default_control_addr()
+    logger.info("asserting readiness of the manager at %s", control_addr)
     try:
         ensure_ready(
-            _zmq_request(args.control_addr),
+            _zmq_request(control_addr),
             user_group=args.user_group,
             timeout_s=args.timeout,
         )

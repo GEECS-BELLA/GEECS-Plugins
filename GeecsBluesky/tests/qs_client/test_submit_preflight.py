@@ -300,12 +300,33 @@ class TestWorkerReady:
             for check, result, detail in report.outcomes
         )
 
-    def test_plan_list_failure_is_skipped(self, engine, monkeypatch):
+    def test_unanswered_plan_list_is_a_refusal_not_a_pass(self, engine, monkeypatch):
+        """Shared-verdict rule: an unanswered plan list is unknown, never ready."""
         fake = _FakeQueueClient(plans_error=RuntimeError("boom"))
         monkeypatch.setattr(submit_preflight, "_make_default_client", lambda e: fake)
         report = run_submit_preflight(_request(), "Undulator")
-        assert report.refusal is None
-        assert ("worker_ready", "skipped", "boom") in report.outcomes
+        assert report.refusal is not None
+        assert "could not be read" in report.refusal
+        assert not any(check == "worker_ready" for check, _, _ in report.outcomes)
+
+    def test_empty_plan_list_is_a_refusal(self, engine, monkeypatch):
+        fake = _FakeQueueClient(plans=[])
+        monkeypatch.setattr(submit_preflight, "_make_default_client", lambda e: fake)
+        report = run_submit_preflight(_request(), "Undulator")
+        assert report.refusal is not None
+        assert "lists no allowed plans" in report.refusal
+
+    def test_verdict_is_the_shared_one(self, engine, monkeypatch):
+        """The preflight's sentence IS readiness_verdict's — one definition."""
+        from geecs_bluesky.qs_client.client import QueueStatus, readiness_verdict
+
+        closed = QueueStatus(connected=True, re_state=None, worker_exists=False)
+        fake = _FakeQueueClient(status=closed)
+        monkeypatch.setattr(submit_preflight, "_make_default_client", lambda e: fake)
+        report = run_submit_preflight(_request(), "Undulator")
+        assert (
+            report.refusal == readiness_verdict(closed, None, SCAN_REQUEST_PLAN).detail
+        )
 
     def test_owned_client_is_closed_but_a_passed_one_is_not(self, engine, monkeypatch):
         owned = _FakeQueueClient()

@@ -32,12 +32,19 @@ class _Manager:
     """Scripted manager: a queue of status snapshots, recording every call."""
 
     def __init__(
-        self, statuses, *, plans=GEECS_PLAN_NAMES, open_reply=None, answer=True
+        self,
+        statuses,
+        *,
+        plans=GEECS_PLAN_NAMES,
+        open_reply=None,
+        answer=True,
+        plans_answer=True,
     ):
         self.statuses = list(statuses)
         self.plans = list(plans)
         self.open_reply = open_reply or {"success": True}
         self.answer = answer
+        self.plans_answer = plans_answer
         self.calls: list[tuple[str, dict | None]] = []
 
     def __call__(self, method, params):
@@ -50,6 +57,8 @@ class _Manager:
         if method == "environment_open":
             return self.open_reply, ""
         if method == "plans_allowed":
+            if not self.plans_answer:
+                return None, "timeout"
             return _plans(self.plans), ""
         raise AssertionError(f"unexpected method {method!r}")
 
@@ -94,14 +103,39 @@ def test_missing_plan_is_not_ready_and_names_it() -> None:
     assert "geecs_scan_request_plan" in message
     assert "geecs_noscan_plan" in message
     assert "geecs_run_action_plan" not in message.split("(listed")[0]
-    assert "user_group_permissions.yaml" in message
+    assert "permissions file" in message
+    assert "user_group='primary'" in message
 
 
 def test_empty_plan_list_after_open_is_not_ready() -> None:
     """The exact #793 invariant: open 'succeeded', plan list still empty."""
     manager = _Manager([_status(exists=False), _status(exists=True)], plans=[])
-    with pytest.raises(NotReady, match="listed: none"):
+    with pytest.raises(NotReady, match="lists no allowed plans"):
         ensure_ready(manager, timeout_s=30, log=lambda s: None)
+
+
+def test_unanswered_plan_list_is_not_ready() -> None:
+    """Shared-verdict rule: env up but plans_allowed unanswered → NOT READY."""
+    manager = _Manager([_status(exists=True)], plans_answer=False)
+    log = []
+    with pytest.raises(NotReady, match="could not be read"):
+        ensure_ready(manager, timeout_s=30, log=log.append)
+    assert any("plans_allowed unanswered" in line for line in log)
+
+
+def test_verdict_is_the_shared_one() -> None:
+    """ensure_ready's sentence IS qs_client.readiness_verdict's — one definition."""
+    from geecs_bluesky.qs_client.client import QueueStatus, readiness_verdict
+
+    manager = _Manager([_status(exists=True)], plans=["geecs_run_action_plan"])
+    with pytest.raises(NotReady) as excinfo:
+        ensure_ready(manager, timeout_s=30, log=lambda s: None)
+    expected = readiness_verdict(
+        QueueStatus(connected=True, worker_exists=True),
+        {"geecs_run_action_plan": {}},
+        list(GEECS_PLAN_NAMES),
+    ).detail
+    assert str(excinfo.value).startswith(expected)
 
 
 def test_manager_never_answering_is_not_ready(monkeypatch) -> None:
@@ -189,12 +223,34 @@ class TestMain:
         monkeypatch.setattr(qserver_ready, "_zmq_request", no_zmq)
         assert qserver_ready.main([]) == 2
 
-    def test_control_addr_env_default(self, monkeypatch) -> None:
+    def test_control_addr_precedence(self, monkeypatch) -> None:
+        """flag > QS_CONTROL_ADDR > [qserver] control_addr/host > loopback."""
+        from geecs_bluesky.qs_client.client import QserverConfig
+
         seen = {}
-        monkeypatch.setenv("QS_CONTROL_ADDR", "tcp://worker:60615")
         monkeypatch.setattr(
-            qserver_ready, "_zmq_request", lambda addr: seen.setdefault("addr", addr)
+            qserver_ready, "_zmq_request", lambda addr: seen.__setitem__("addr", addr)
         )
         monkeypatch.setattr(qserver_ready, "ensure_ready", lambda *a, **k: [])
+        monkeypatch.delenv("QS_CONTROL_ADDR", raising=False)
+
+        monkeypatch.setattr(qserver_ready, "read_qserver_config", lambda: None)
+        assert qserver_ready.main([]) == 0
+        assert seen["addr"] == qserver_ready.DEFAULT_CONTROL_ADDR
+
+        monkeypatch.setattr(
+            qserver_ready,
+            "read_qserver_config",
+            lambda: QserverConfig(
+                "tcp://192.168.6.14:60615", "tcp://h:60625", "h:5568"
+            ),
+        )
+        assert qserver_ready.main([]) == 0
+        assert seen["addr"] == "tcp://192.168.6.14:60615"
+
+        monkeypatch.setenv("QS_CONTROL_ADDR", "tcp://worker:60615")
         assert qserver_ready.main([]) == 0
         assert seen["addr"] == "tcp://worker:60615"
+
+        assert qserver_ready.main(["--control-addr", "tcp://flag:1"]) == 0
+        assert seen["addr"] == "tcp://flag:1"
