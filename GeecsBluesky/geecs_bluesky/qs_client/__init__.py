@@ -43,6 +43,7 @@ from geecs_bluesky.qs_client.client import (
     make_queue_client,
     queue_status_from_manager,
     read_qserver_config,
+    readiness_from_reads,
     readiness_verdict,
 )
 from geecs_bluesky.qs_client.submit_preflight import (
@@ -59,6 +60,7 @@ __all__ = [
     "QueueStatus",
     "ReadinessVerdict",
     "readiness_verdict",
+    "readiness_from_reads",
     "queue_status_from_manager",
     "StubQueueClient",
     "SubmitResult",
