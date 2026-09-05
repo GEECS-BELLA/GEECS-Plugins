@@ -55,7 +55,11 @@ from geecs_console.editors.shot_control_editor import open_shot_control_editor
 from geecs_console.services import ops_paths
 from geecs_console.services.action_library_store import ActionLibraryStore
 from geecs_console.app.tooltips import ToolTipSuppressor, apply_operator_tooltips
-from geecs_console.services.background import BackgroundResult, HealthPoller
+from geecs_console.services.background import (
+    BackgroundResult,
+    HealthPoller,
+    disconnect_quietly,
+)
 from geecs_console.services.device_completions import (
     CompletionsProvider,
     GeecsDbCompletions,
@@ -509,6 +513,9 @@ class MainWindow(QMainWindow):
         self._menus: list = []
         ops = self.menuBar().addMenu("Ops")
         self._menus.append(ops)
+        # QMenu shows its actions' tooltips only when asked (Restart
+        # gateway… carries an operator tooltip — review of PR #796).
+        ops.setToolTipsVisible(True)
         for text, handler in (
             ("Open experiment config folder", self._on_open_experiment_configs),
             ("Open user config (config.ini)", self._on_open_user_config),
@@ -1068,20 +1075,14 @@ class MainWindow(QMainWindow):
             self._set_tooltips_shown(True)
         poller = getattr(self, "_health_poller", None)
         if poller is not None:
-            try:
-                poller.report_ready.disconnect(self._apply_health_report)
-            except (RuntimeError, TypeError):
-                pass
+            disconnect_quietly(poller.report_ready, self._apply_health_report)
         monitor = getattr(self, "_monitor", None)
         if monitor is not None:
             monitor.dispose()
         for worker_name in ("_stop_worker", "_submit_worker", "_restart_worker"):
             worker = getattr(self, worker_name, None)
             if worker is not None:
-                try:
-                    worker.result_ready.disconnect()
-                except (RuntimeError, TypeError):
-                    pass
+                disconnect_quietly(worker.result_ready)
         movable = getattr(self, "_movable", None)
         if movable is not None:
             movable.dispose()

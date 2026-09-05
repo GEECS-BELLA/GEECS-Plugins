@@ -314,7 +314,7 @@ are prefixed by region (`r3_radio_1d`, `r5_start_button`, …).
   (recorded by the worker at the claim); `_on_scan_document` feeds it to
   `set_scan_number`, which delegates to `NowPanelController` (10 s
   expiry to "(previous)").
-- **Ops menu**: four items, handlers in `main_window.py`, path resolution
+- **Ops menu**: five items, handlers in `main_window.py`, path resolution
   factored into `services/ops_paths.py` as small pure `-> Path | None`
   functions (unit-tested against tmp trees, no Finder).  *Open experiment
   config folder* (configs-repo dir for the current experiment); *Open user
@@ -326,10 +326,24 @@ are prefixed by region (`r3_radio_1d`, `r5_start_button`, …).
   path construction) and NEVER creates directories — a missing folder
   reports "no scans today" (repo scan-folder invariant, pinned by
   tree-unchanged tests in `tests/test_ops_paths.py`); *GEECS-Plugins on
-  GitHub*.  All open via `QDesktopServices.openUrl`.  Menus created in
-  `_build_menus` must be referenced on the window (`self._menus`) —
-  PySide6 garbage-collects the `addMenu` wrapper and tears down the C++
-  menu with it.
+  GitHub*.  Those four open via `QDesktopServices.openUrl`.  *Restart
+  gateway…* (#773) writes `Restart` to `{experiment}:cagateway:restart`
+  (`services/gateway_restart.py`; PV via `ca_pv`/`bare_pv`) through the
+  device-panel backend's `put_pv` — the console's one CA put, on
+  `GatewayDevicePanel`'s **persistent** loop, never a per-call
+  `asyncio.run` (aioca's per-loop channel cache makes the gateway's own
+  CONN_DOWN hit the closed loop) — on the restart `BackgroundResult`
+  worker; enabled only with an experiment and a known gateway chip,
+  refused (`_restart_refusal`, checked before AND after the confirmation
+  modal) while a scan is active on the manager or the R7 panel's manual
+  set/move is in flight; the health poll then narrates the bounce in the
+  log tail, counting only reports whose `HealthReport.sequence` is past
+  the `HealthPoller.polls_started` recorded when the put completed (a
+  poll already out then read a pre-put heartbeat).  The Ops QMenu has
+  `setToolTipsVisible(True)` so that action's operator tooltip renders.
+  Menus created in `_build_menus` must be referenced on the window
+  (`self._menus`) — PySide6 garbage-collects the `addMenu` wrapper and
+  tears down the C++ menu with it.
 - **Per-shot beeps (Preferences)**: two checkable actions persisted via
   `ConsoleSettings`, both default off.  "Per-shot beep" sounds
   `QApplication.beep()` (no sound assets, no multimedia dep) on every

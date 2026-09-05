@@ -59,6 +59,25 @@ semantic.
   for it.  Still open on #787: the window ↔ controller reference cycles
   and the once-seen interpreter-exit segfault.
 
+### Fixed
+
+- **Restart gateway… (adversarial review of PR #796)**: the restart put
+  rides the device-panel backend's persistent CA loop (new
+  `GatewayDevicePanel.put_pv`, which the R7 `set` now delegates to)
+  instead of a per-call `asyncio.run` — aioca caches channels per loop,
+  so the gateway's own CONN_DOWN used to print `RuntimeError: Event loop
+  is closed` from the CA thread on every click; the gate is re-checked
+  after the confirmation modal (status polls keep landing during its
+  nested `exec()`) and also refuses while the movable panel's manual
+  set/move is in flight (a worker-side move never changes `re_state`);
+  and the bounce narration ignores reports from health polls that began
+  before the put completed (`HealthReport.sequence`, stamped by
+  `HealthPoller`) — a pre-put "OK" landing late no longer reads as
+  "gateway back".  The Ops menu now renders its actions' tooltips.
+- The save-set editor's scalar completer resolves the entry's device
+  case-insensitively, matching its save-time check; the scan-variable
+  editor's completer uses the shared `resolve_device` helper.
+
 ## [0.29.0] - 2026-09-04
 
 ### Removed

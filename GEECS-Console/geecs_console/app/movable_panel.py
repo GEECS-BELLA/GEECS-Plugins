@@ -48,7 +48,11 @@ from typing import Any, Callable, Optional
 from PySide6.QtCore import QObject, Qt, Slot
 from PySide6.QtWidgets import QComboBox, QLabel, QLineEdit, QPushButton
 
-from geecs_console.services.background import BackgroundResult, GuiRelay
+from geecs_console.services.background import (
+    BackgroundResult,
+    GuiRelay,
+    disconnect_quietly,
+)
 from geecs_console.services.device_panel import (
     DevicePanelBackend,
     format_readback,
@@ -458,21 +462,14 @@ class MovablePanelController(QObject):
             self._backend.unsubscribe()
         except Exception:  # noqa: BLE001 — teardown must not raise
             pass
-        for worker, slot in (
-            (self._set_worker, self._apply_set_result),
-            (self._completions_worker, self._apply_completions),
-        ):
-            try:
-                worker.result_ready.disconnect(slot)
-            except (RuntimeError, TypeError):
-                pass
+        disconnect_quietly(self._set_worker.result_ready, self._apply_set_result)
+        disconnect_quietly(
+            self._completions_worker.result_ready, self._apply_completions
+        )
         # A readback still crossing the hop lands and is dropped, never
         # emitted at a controller being torn down.
         self._readback_relay.close()
-        try:
-            self._readback_relay.delivered.disconnect(self._apply_value)
-        except (RuntimeError, TypeError):
-            pass
+        disconnect_quietly(self._readback_relay.delivered, self._apply_value)
         # Sever every controller → window edge (the #534 lifetime rule) —
         # the completions provider included: the window passes it as a
         # lambda closing over itself (review, PR #598).

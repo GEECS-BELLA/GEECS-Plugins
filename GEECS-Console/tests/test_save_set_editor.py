@@ -353,6 +353,26 @@ class TestCompleters:
         editor.device_list.setCurrentRow(1)
         assert editor._variable_model.stringList() == ["PressureTorr"]
 
+    def test_variable_completer_matches_the_device_case_insensitively(
+        self, qtbot, track, store
+    ):
+        # The save-time check resolves devices case-insensitively; the
+        # completer must agree (review of PR #796).
+        editor = track(
+            SaveSetEditor(
+                experiment="HTU",
+                store=store,
+                completions=FakeCompletions({"uc_alineebeam1": ["MaxCounts"]}),
+            )
+        )
+        qtbot.waitUntil(
+            lambda: editor._device_model.stringList() == ["uc_alineebeam1"],
+            timeout=2000,
+        )
+        select_set(editor, "diag")
+        editor.device_list.setCurrentRow(0)  # the set's entry: "UC_ALineEbeam1"
+        assert editor._variable_model.stringList() == ["MaxCounts"]
+
     def test_no_provider_means_empty_completers(self, editor):
         select_set(editor, "diag")
         assert editor._device_model.stringList() == []

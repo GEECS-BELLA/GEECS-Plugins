@@ -1342,6 +1342,14 @@ class TestOpsMenu:
             "GEECS-Plugins on GitHub",
         ]
 
+    def test_ops_menu_shows_its_actions_tooltips(self, window):
+        # QMenu only renders action tooltips under setToolTipsVisible(True);
+        # Restart gateway… carries one (review of PR #796).
+        ops = window._menus[0]
+        assert ops.title() == "Ops"
+        assert ops.toolTipsVisible()
+        assert window.restart_gateway_action.toolTip()
+
 
 class TestRestartGateway:
     """Ops → Restart gateway… (#773): gating, confirmation, one put, narration."""

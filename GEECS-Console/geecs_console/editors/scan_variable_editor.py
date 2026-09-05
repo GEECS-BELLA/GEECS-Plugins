@@ -61,7 +61,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from geecs_console.editors.base import UNCHECKED_TARGETS_NOTE, ConfigEditorDialog
+from geecs_console.editors.base import (
+    UNCHECKED_TARGETS_NOTE,
+    ConfigEditorDialog,
+    resolve_device,
+)
 from geecs_console.services.device_completions import (
     CompletionsProvider,
     EmptyCompletions,
@@ -936,17 +940,11 @@ class ScanVariableEditor(ConfigEditorDialog):
             The variable completer's model.
         device_text : str
             The paired device field's current text (exact match wins, else a
-            unique case-insensitive match).
+            unique case-insensitive match — :func:`resolve_device`, the
+            same rule the save-time check applies).
         """
-        device = device_text.strip()
-        variables = self._device_vars.get(device)
-        if variables is None and device:
-            matches = [
-                known for known in self._device_vars if known.lower() == device.lower()
-            ]
-            if len(matches) == 1:
-                variables = self._device_vars[matches[0]]
-        model.setStringList(variables or [])
+        device = resolve_device(self._device_vars, device_text.strip())
+        model.setStringList(self._device_vars[device] if device is not None else [])
 
     # Close paths (keyPressEvent / reject / closeEvent): ConfigEditorDialog
     # — the unsaved-changes prompt now offers Save alongside Discard/Cancel.

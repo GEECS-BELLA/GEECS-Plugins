@@ -61,7 +61,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from geecs_console.services.background import BackgroundResult
+from geecs_console.services.background import BackgroundResult, disconnect_quietly
 from geecs_console.services.device_completions import (
     CompletionsProvider,
     EmptyCompletions,
@@ -527,9 +527,6 @@ class ConfigEditorDialog(QDialog):
         # owner teardown) and a second disconnect warns.
         if not self._completions_disconnected:
             self._completions_disconnected = True
-            try:
-                self._completions_worker.result_ready.disconnect(
-                    self._apply_completions
-                )
-            except (RuntimeError, TypeError):
-                pass
+            disconnect_quietly(
+                self._completions_worker.result_ready, self._apply_completions
+            )

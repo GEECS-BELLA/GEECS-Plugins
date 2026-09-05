@@ -47,7 +47,11 @@ from PySide6.QtWidgets import (
 )
 from pydantic import ValidationError
 
-from geecs_console.editors.base import UNCHECKED_TARGETS_NOTE, ConfigEditorDialog
+from geecs_console.editors.base import (
+    UNCHECKED_TARGETS_NOTE,
+    ConfigEditorDialog,
+    resolve_device,
+)
 from geecs_console.services.device_completions import (
     CompletionsProvider,
     GeecsDbCompletions,
@@ -301,10 +305,19 @@ class SaveSetEditor(ConfigEditorDialog):
         self._refresh_variable_completer()
 
     def _refresh_variable_completer(self) -> None:
-        """Point the scalar completer at the selected device's variables."""
+        """Point the scalar completer at the selected device's variables.
+
+        Case-insensitive on the device (:func:`resolve_device`) — the same
+        rule the save-time check applies, so an entry saved as
+        ``uc_alineebeam1`` still completes its scalars.
+        """
         entry = self._current_entry()
-        device = entry["device"] if entry is not None else ""
-        self._variable_model.setStringList(self._device_vars.get(device, []))
+        device = resolve_device(
+            self._device_vars, str(entry["device"]).strip() if entry else ""
+        )
+        self._variable_model.setStringList(
+            self._device_vars[device] if device is not None else []
+        )
 
     # ------------------------------------------------------------------
     # Document plumbing
