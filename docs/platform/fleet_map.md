@@ -241,8 +241,9 @@ The migration *is* the bootstrap: a `site.env` for the new host, the
 bootstrap run there, the root steps, then the clients pointed at it.
 Nothing about the old box migrates but its recipe, and the old box keeps
 running until the new one passes `/fleet-status` — that is what makes
-every step reversible. Two shapes, decided at the migration
-([the interim fact above](#one-clone-per-service)):
+every step reversible. Two shapes — whether the gateway and Tiled
+follow is decided at the migration (the planned-additions paragraph
+under [The picture](#the-picture)):
 
 - **Only the worker family moves** (queueserver, capture, MCP, portal);
   the CA gateway, Tiled and the DB stay on the gateway's box. Bring the
