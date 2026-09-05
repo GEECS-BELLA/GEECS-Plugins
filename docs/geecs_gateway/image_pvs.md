@@ -66,7 +66,9 @@ Each gateway instance also serves three **instance PVs** for fleet health:
 
 `<host_token>` is the server's IP with dots as underscores
 (`192.168.6.100` → `192_168_6_100`). A Phoebus fleet screen reading these
-ships in the package (`GeecsPvaGateway/deploy/fleet_status.bob`).
+is generated per experiment from the DB roster
+(`GeecsPvaGateway/deploy/gen_fleet_status.py --experiment X` →
+`fleet_status_<x>.bob`; HTU's `fleet_status_undulator.bob` is committed).
 
 ## Reading images
 
@@ -116,9 +118,12 @@ camera-server fleet spans several lab subnets, so:
       settings file (environment variables don't reach a macOS
       `open`-launched app)
 
-The roster of record for the fleet list is `HOSTS` in
-`GeecsPvaGateway/deploy/gen_fleet_status.py`; the current expansion is kept
-in `GeecsPvaGateway/DEPLOYMENT.md` §Client access. The CA variables
+The fleet list is kept once, in `config.ini` `[pva] addr_list` — the
+camera servers running an instance (the DB roster of camera-hosting
+endpoints, minus hosts where no instance was installed; see
+`GeecsPvaGateway/DEPLOYMENT.md` §Client access) — and copied from there
+into `EPICS_PVA_ADDR_LIST` or the Phoebus settings by hand; only the fleet
+tooling reads the key itself. The CA variables
 (`EPICS_CA_*`) belong to the scalar gateway and are unaffected — a client
 using both gateways sets both families.
 

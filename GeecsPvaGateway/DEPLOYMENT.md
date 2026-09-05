@@ -105,8 +105,10 @@ pvput undulator:pvagateway:<ip_token>:restart 1   # e.g. 192_168_6_100
 The server exits with code 86, NSSM relaunches `launch.bat`, which reinstalls
 the four intra-repo packages (`GEECS-Schemas`, `GEECS-Data-Utils`,
 `GeecsCAGateway`, `GeecsPvaGateway`) from the share clone and re-resolves the DB config. Watch the instance's
-`version` PV flip on the fleet screen (`deploy/fleet_status.bob` — one row per
-host: version, heartbeat, and a confirm-dialog restart button); the rollout is
+`version` PV flip on the fleet screen (`deploy/fleet_status_<experiment>.bob`
+— one row per camera server: version, heartbeat, and a confirm-dialog restart
+button for each deployed host; HTU's `fleet_status_undulator.bob` is committed);
+the rollout is
 done when the version column reads uniform. An unreachable share falls through
 to the installed versions — a restart never bricks an instance.
 
@@ -185,24 +187,32 @@ PV. Two regimes:
   - Phoebus: `org.phoebus.pv.pva/epics_pva_addr_list=<fleet list>` in the
     settings file (env vars don't reach a macOS `open`-launched app)
 
-  The roster of record for `<fleet list>` is `HOSTS` in
-  `deploy/gen_fleet_status.py` (the fleet-screen generator): the DB-derived
-  camera-hosting endpoints that **should** run a gateway. When a box is
-  added, or a box is retired/confirmed deprecated, update `HOSTS`,
-  regenerate the screen, and update this list. Roster entries whose box is
-  not (yet) running an instance show as disconnected rows on the fleet
-  screen — prune them once their deprecation is confirmed. Currently:
+  `<fleet list>` is kept once, in the client `config.ini`
 
-  ```
-  192.168.6.66 192.168.6.73 192.168.6.80 192.168.6.100 192.168.7.161
-  192.168.7.162 192.168.7.163 192.168.7.164 192.168.7.203 192.168.8.197
-  192.168.8.199 192.168.8.201 192.168.8.207
+  ```ini
+  [pva]
+  addr_list = 192.168.6.100 192.168.7.161 ...
   ```
 
-  (one line, space-separated, in the actual setting). Note the fleet screen
-  itself is a cross-subnet client: a Phoebus instance without this list shows
-  the rows on other subnets as disconnected — which mid-rollout reads as
-  "rollout failed" when it's only a display setting.
+  (space-separated, one entry per deployed server) and copied from there
+  into the two settings above by hand — only the fleet tooling reads the
+  key. It names the camera servers actually running an instance. The
+  **roster** (which
+  hosts *should* run one) is not hand-kept: `geecs_pva_gateway.fleet`
+  derives it from the GEECS DB — every endpoint IP hosting an enabled
+  device with an image-typed variable for the experiment. A roster host
+  absent from `addr_list` is **not deployed**: it hosts cameras only
+  nominally and no instance was installed there, so the fleet screen shows
+  a "not deployed" label instead of disconnected cells and
+  `scripts/fleet_status.sh` prints a `[ -- ]` row, not `[DOWN]`. When a
+  box is added, retired, or gets its instance installed: edit `addr_list`,
+  rerun `deploy/gen_fleet_status.py --experiment <name>` (on the lab
+  network — it queries the DB), and commit the regenerated
+  `fleet_status_<experiment>.bob`. HTU's reference values (2026-09-04): 11
+  roster hosts in the DB, 9 deployed. Note the fleet screen itself is a
+  cross-subnet client: a Phoebus instance without this list shows the rows
+  on other subnets as disconnected — which mid-rollout reads as "rollout
+  failed" when it's only a display setting.
 
 The CA variables (`EPICS_CA_*`) are the scalar gateway's and are unaffected.
 If the fleet ever outgrows a hand-kept list, the standard escalation is a PVA

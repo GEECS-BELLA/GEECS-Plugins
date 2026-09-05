@@ -46,7 +46,6 @@ TCP_TIMEOUT=2          # seconds per port probe / HTTP get
 SSH_TIMEOUT=25         # seconds per host (one ssh call per host)
 PVA_TIMEOUT=2          # seconds per PVA get
 FETCH_TIMEOUT=20       # seconds for the local `git fetch origin`
-PVA_ROSTER="$REPO_ROOT/GeecsPvaGateway/deploy/fleet_status.bob"  # the checked-in fleet roster
 
 EXPERIMENT=""
 DO_SSH=1
@@ -276,56 +275,71 @@ if [ "$NET_UP" -eq 1 ]; then
         skip "CA gateway   no experiment name (config.ini [Experiment] expt, or --experiment NAME)"
     fi
 
-    # PVA image fleet — one gateway per camera server; roster = the checked-in
-    # Phoebus fleet screen (the DB-driven roster is still owed). Read-only gets.
-    if [ -f "$PVA_ROSTER" ]; then
-        pvs="$(grep -o 'pv_name>pva://[^<]*:version' "$PVA_ROSTER" | sed 's|pv_name>pva://||' | sort -u)"
-        if [ -n "$pvs" ] && poetry -C "$REPO_ROOT/GeecsPvaGateway" env info --path >/dev/null 2>&1; then
-            PVA_PVS="$pvs" PVA_TIMEOUT="$PVA_TIMEOUT" REC_FILE="$REC_FILE" bounded 60 poetry -C "$REPO_ROOT/GeecsPvaGateway" run python - <<'PY'
+    # PVA image fleet — one gateway per camera server. Roster = the DB
+    # (endpoints hosting the experiment's image devices); deployed = the
+    # client config.ini [pva] addr_list (geecs_pva_gateway.fleet). A roster
+    # host absent from that list is NOT DEPLOYED — informational, not DOWN.
+    # Read-only gets.
+    if [ -z "$EXPERIMENT" ]; then
+        skip "PVA fleet    no experiment name (config.ini [Experiment] expt, or --experiment NAME)"
+    elif poetry -C "$REPO_ROOT/GeecsPvaGateway" env info --path >/dev/null 2>&1; then
+        EXPERIMENT="$EXPERIMENT" PVA_TIMEOUT="$PVA_TIMEOUT" REC_FILE="$REC_FILE" bounded 90 poetry -C "$REPO_ROOT/GeecsPvaGateway" run python - <<'PY'
+import logging
 import os
-import re
 
-pvs = os.environ["PVA_PVS"].split()
+logging.basicConfig(level=logging.WARNING, format="  [WARN] PVA fleet: %(message)s")
+from geecs_pva_gateway.fleet import fleet_roster  # noqa: E402
+
+experiment = os.environ["EXPERIMENT"]
 timeout = float(os.environ["PVA_TIMEOUT"])
-# Host IPs are encoded in the PV name (dots -> underscores, PV_CONTRACT).
-hosts = [re.sub(r"_", ".", pv.split(":")[2]) for pv in pvs]
+try:
+    hosts = fleet_roster(experiment)
+except Exception as exc:  # noqa: BLE001 — an unreadable roster is a finding
+    print(f"  [DOWN] PVA fleet    roster unreadable from the DB ({type(exc).__name__}: {exc})")
+    with open(os.environ["REC_FILE"], "a") as fh:
+        fh.write("role=PVA image gateways\tstate=down\tnote=DB roster unreadable\n")
+    raise SystemExit(0)
+deployed = [h for h in hosts if h.deployed]
+not_deployed = [h for h in hosts if not h.deployed]
 # Unicast search to each camera server: UDP broadcast does not cross a VPN.
-os.environ["EPICS_PVA_ADDR_LIST"] = " ".join(hosts)
+os.environ["EPICS_PVA_ADDR_LIST"] = " ".join(h.ip for h in deployed)
 os.environ["EPICS_PVA_AUTO_ADDR_LIST"] = "NO"
 from p4p.client.thread import Context  # noqa: E402
 
 versions = {}
 down = []
 with Context("pva", unwrap=False) as ctx:  # raw Values: str(NT wrapper) carries a timestamp
-    for pv, host in zip(pvs, hosts):
-        base = pv[: -len(":version")]
+    for host in deployed:
         try:
-            ver = str(ctx.get(pv, timeout=timeout)["value"])
-            beats = int(ctx.get(base + ":heartbeat", timeout=timeout)["value"])
+            ver = str(ctx.get(host.instance_pv(experiment, "version"), timeout=timeout)["value"])
+            beats = int(ctx.get(host.instance_pv(experiment, "heartbeat"), timeout=timeout)["value"])
         except Exception as exc:  # noqa: BLE001 — a failed probe is a finding
-            print(f"  [DOWN] PVA gateway  {host:<15}  ({type(exc).__name__})")
-            down.append(host)
+            print(f"  [DOWN] PVA gateway  {host.ip:<15}  ({type(exc).__name__}; {len(host.cameras)} cameras)")
+            down.append(host.ip)
             continue
-        versions.setdefault(ver, []).append(host)
-        print(f"  [ OK ] PVA gateway  {host:<15}  geecs-pva-gateway {ver}  heartbeat={beats}")
+        versions.setdefault(ver, []).append(host.ip)
+        print(f"  [ OK ] PVA gateway  {host.ip:<15}  geecs-pva-gateway {ver}  heartbeat={beats}  {len(host.cameras)} cameras")
+for host in not_deployed:
+    print(f"  [ -- ] PVA gateway  {host.ip:<15}  not deployed ({len(host.cameras)} cameras in the DB: {', '.join(host.cameras)}) — add to config.ini [pva] addr_list once installed")
 if len(versions) > 1:
     print("  [WARN] PVA fleet runs mixed versions — a rollout is incomplete or a box missed its pull-on-restart:")
     for ver, hs in sorted(versions.items()):
         print(f"         {ver}: {', '.join(hs)}")
 n_ok = sum(len(hs) for hs in versions.values())
 ver_txt = ", ".join(f"{v} ×{len(hs)}" for v, hs in sorted(versions.items())) or "?"
-note = f"{n_ok} up" + (f", {len(down)} unreachable: {' '.join(down)}" if down else "")
+note = f"{n_ok} of {len(deployed)} deployed up"
+if down:
+    note += f", {len(down)} unreachable: {' '.join(down)}"
+if not_deployed:
+    note += f", {len(not_deployed)} not deployed"
 if len(versions) > 1:
     note += "|MIXED versions"
 state = "ok" if n_ok else "down"
 with open(os.environ["REC_FILE"], "a") as fh:
     fh.write(f"role=PVA image gateways\tstate={state}\truns=NSSM\tcheckout=share clone\tversion={ver_txt}\tnote={note}\n")
 PY
-        else
-            skip "PVA fleet    GeecsPvaGateway poetry env not installed (needs p4p; see /env-doctor)"
-        fi
     else
-        skip "PVA fleet    roster file missing ($PVA_ROSTER)"
+        skip "PVA fleet    GeecsPvaGateway poetry env not installed (needs p4p; see /env-doctor)"
     fi
     echo
 fi
