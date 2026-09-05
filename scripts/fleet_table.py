@@ -21,6 +21,7 @@ ROLE_ORDER = [
     "Tiled",
     "Data Portal",
     "Queueserver RE Manager",
+    "Queueserver readiness",
     "Bluesky doc proxy",
     "Capture daemon",
     "GEECS-MCP",
@@ -156,7 +157,12 @@ def version(rec: dict[str, str]) -> str:
         pkg
         and pkg not in ("tiled",)
         and rec.get("role")
-        in ("Capture daemon", "Queueserver RE Manager", "Bluesky doc proxy")
+        in (
+            "Capture daemon",
+            "Queueserver RE Manager",
+            "Queueserver readiness",
+            "Bluesky doc proxy",
+        )
     ):
         return f"{pkg} {ver}"
     return ver

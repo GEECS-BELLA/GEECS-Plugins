@@ -53,6 +53,18 @@ def test_baked_venv_and_behind_master_are_facts_ahead_is_a_finding() -> None:
     assert "2 ahead, 0 behind master" in fleet_table.notes(m["GEECS-MCP"])
 
 
+def test_readiness_oneshot_is_its_own_clean_row() -> None:
+    """The geecs-qserver-ready oneshot (active/exited) is not a second RE Manager process."""
+    m = _merged(
+        "role=Queueserver RE Manager\tsvc=geecs-qserver.service\tmanaged=systemd\tstate=active/running\tpkg=geecs-bluesky\tpyproject=0.76.0\tinstalled=0.76.0",
+        "role=Queueserver readiness\tsvc=geecs-qserver-ready.service\tmanaged=systemd\tstate=active/exited\tpkg=geecs-bluesky\tpyproject=0.76.0",
+    )
+    assert fleet_table.glyph(m["Queueserver RE Manager"]) == "✓"
+    assert fleet_table.notes(m["Queueserver RE Manager"]) == []
+    assert fleet_table.glyph(m["Queueserver readiness"]) == "✓"
+    assert fleet_table.version(m["Queueserver readiness"]) == "geecs-bluesky 0.76.0"
+
+
 def test_mcp_not_listening_is_down_not_absent() -> None:
     m = _merged("role=GEECS-MCP\tstate=down\tnote=not listening")
     assert fleet_table.glyph(m["GEECS-MCP"]) == "✗"

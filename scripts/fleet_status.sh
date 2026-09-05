@@ -292,7 +292,8 @@ role_for_port() { case "$1" in
     60615) echo "Queueserver RE Manager";; 5568) echo "Bluesky doc proxy";; *) echo "port $1";; esac; }
 role_for_unit() { case "$1" in
     geecs-ca-gateway*) echo "CA gateway";; tiled*) echo "Tiled";; geecs-data-portal*) echo "Data Portal";;
-    geecs-mcp*) echo "GEECS-MCP";; geecs-qserver*) echo "Queueserver RE Manager";; geecs-capture*) echo "Capture daemon";;
+    geecs-mcp*) echo "GEECS-MCP";; geecs-qserver-ready*) echo "Queueserver readiness";;
+    geecs-qserver*) echo "Queueserver RE Manager";; geecs-capture*) echo "Capture daemon";;
     *) echo "$1";; esac; }
 FLEET_PORTS="5064 8000 8200 8100 60615 5568"
 SEEN=" "
