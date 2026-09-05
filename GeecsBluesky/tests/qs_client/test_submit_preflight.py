@@ -3,20 +3,50 @@
 The engine seams (`validate_scan_request`, the resolver, the served-set
 provider) are monkeypatched at their `geecs_bluesky` homes — the lazy
 imports inside `submit_preflight` resolve at call time, so patching the
-source modules is enough.  CA reads are patched at `_read_pv`.
+source modules is enough.  CA reads are patched at `_read_pv`; the
+manager client the ``worker_ready`` check builds is patched at
+`_make_default_client` (a ready fake by default — never the real
+``[qserver]`` config of the machine running the tests).
 """
 
 from __future__ import annotations
 
 import pytest
 
+from geecs_bluesky.plan_names import GEECS_PLAN_NAMES, SCAN_REQUEST_PLAN
 from geecs_bluesky.qs_client import submit_preflight
+from geecs_bluesky.qs_client.client import QueueStatus, StubQueueClient
 from geecs_bluesky.qs_client.submit_preflight import (
     PreflightReport,
     build_submission_record,
     run_submit_preflight,
 )
 from geecs_schemas import ScanRequest
+
+
+class _FakeQueueClient:
+    """A manager client the worker_ready check reads (status + plan list)."""
+
+    def __init__(self, status=None, plans=None, plans_error=None):
+        self._status = status or QueueStatus(
+            connected=True, re_state="idle", manager_state="idle", worker_exists=True
+        )
+        self._plans = list(GEECS_PLAN_NAMES) if plans is None else list(plans)
+        self._plans_error = plans_error
+        self.closed = 0
+        self.status_calls = 0
+
+    def status(self):
+        self.status_calls += 1
+        return self._status
+
+    def allowed_plan_names(self):
+        if self._plans_error is not None:
+            raise self._plans_error
+        return list(self._plans)
+
+    def close(self):
+        self.closed += 1
 
 
 def _request(**overrides) -> ScanRequest:
@@ -75,6 +105,10 @@ def engine(monkeypatch):
     )
     monkeypatch.setattr(submit_preflight, "_read_pv", _make_pv_reader(reads))
     monkeypatch.setattr(submit_preflight, "_STALENESS_WINDOW_S", 0.0)
+    # Default: a ready manager (environment open, every GEECS plan listed).
+    monkeypatch.setattr(
+        submit_preflight, "_make_default_client", lambda experiment: _FakeQueueClient()
+    )
     return reads
 
 
@@ -115,6 +149,7 @@ class TestRunSubmitPreflight:
         assert ("gateway_liveness", "passed", "") in report.outcomes
         assert ("free_run_staleness", "passed", "") in report.outcomes
         assert ("unserved_variables", "passed", "") in report.outcomes
+        assert ("worker_ready", "passed", "") in report.outcomes
 
     def test_validation_failure_is_a_refusal(self, engine, monkeypatch):
         def _boom(request, resolver):
@@ -206,7 +241,146 @@ class TestRunSubmitPreflight:
         )
         report = run_submit_preflight(_request(), "Undulator")
         assert report.refusal is None
-        assert report.outcomes == [("validate", "passed", "")]
+        assert report.outcomes == [
+            ("validate", "passed", ""),
+            ("worker_ready", "passed", ""),
+        ]
+
+
+class TestWorkerReady:
+    """#793 part 2: the execution surface is checked before queueing."""
+
+    def test_closed_environment_is_a_refusal_naming_the_recovery(
+        self, engine, monkeypatch
+    ):
+        fake = _FakeQueueClient(
+            status=QueueStatus(connected=True, re_state=None, worker_exists=False)
+        )
+        monkeypatch.setattr(submit_preflight, "_make_default_client", lambda e: fake)
+        report = run_submit_preflight(_request(), "Undulator")
+        assert report.refusal is not None
+        assert "worker environment is closed" in report.refusal
+        assert "geecs-qserver-ready" in report.refusal
+        assert "qserver environment open" in report.refusal
+        # the device checks never ran — nothing to ask about a dead surface
+        assert report.questions == []
+        assert not any(check == "gateway_liveness" for check, _, _ in report.outcomes)
+
+    def test_missing_plan_is_a_refusal_listing_what_is_allowed(
+        self, engine, monkeypatch
+    ):
+        fake = _FakeQueueClient(plans=["geecs_run_action_plan"])
+        monkeypatch.setattr(submit_preflight, "_make_default_client", lambda e: fake)
+        report = run_submit_preflight(_request(), "Undulator")
+        assert report.refusal is not None
+        assert SCAN_REQUEST_PLAN in report.refusal
+        assert "geecs_run_action_plan" in report.refusal
+
+    def test_unreachable_manager_is_skipped_not_refused(self, engine, monkeypatch):
+        fake = _FakeQueueClient(status=QueueStatus(connected=False, detail="timeout"))
+        monkeypatch.setattr(submit_preflight, "_make_default_client", lambda e: fake)
+        report = run_submit_preflight(_request(), "Undulator")
+        assert report.refusal is None
+        assert (
+            "worker_ready",
+            "skipped",
+            "manager unreachable (timeout)",
+        ) in report.outcomes
+        # the rest of the pipeline still ran
+        assert ("gateway_liveness", "passed", "") in report.outcomes
+
+    def test_stub_client_is_skipped(self, engine, monkeypatch):
+        monkeypatch.setattr(
+            submit_preflight, "_make_default_client", lambda e: StubQueueClient()
+        )
+        report = run_submit_preflight(_request(), "Undulator")
+        assert report.refusal is None
+        assert any(
+            check == "worker_ready" and result == "skipped" and "[qserver]" in detail
+            for check, result, detail in report.outcomes
+        )
+
+    def test_unanswered_plan_list_is_skipped_with_a_note_not_passed(
+        self, engine, monkeypatch
+    ):
+        """plans_unknown is fail-open here (a VPN round trip timing out must
+        not block a submit) — recorded ``skipped`` with the verdict's
+        sentence, never ``passed``; the service-start assertion stays strict."""
+        fake = _FakeQueueClient(plans_error=RuntimeError("boom"))
+        monkeypatch.setattr(submit_preflight, "_make_default_client", lambda e: fake)
+        report = run_submit_preflight(_request(), "Undulator")
+        assert report.refusal is None
+        outcome = next(o for o in report.outcomes if o[0] == "worker_ready")
+        assert outcome[1] == "skipped"
+        assert "could not be read" in outcome[2]
+        # the rest of the pipeline still ran
+        assert ("gateway_liveness", "passed", "") in report.outcomes
+
+    def test_opening_environment_is_a_refusal_saying_retry(self, engine, monkeypatch):
+        fake = _FakeQueueClient(
+            status=QueueStatus(
+                connected=True,
+                manager_state="creating_environment",
+                worker_exists=False,
+                worker_environment_state="initializing",
+            )
+        )
+        monkeypatch.setattr(submit_preflight, "_make_default_client", lambda e: fake)
+        report = run_submit_preflight(_request(), "Undulator")
+        assert report.refusal is not None
+        assert "being opened" in report.refusal
+        assert "restart geecs-qserver-ready" not in report.refusal.split("do not")[0]
+
+    def test_empty_plan_list_is_a_refusal(self, engine, monkeypatch):
+        fake = _FakeQueueClient(plans=[])
+        monkeypatch.setattr(submit_preflight, "_make_default_client", lambda e: fake)
+        report = run_submit_preflight(_request(), "Undulator")
+        assert report.refusal is not None
+        assert "lists no allowed plans" in report.refusal
+
+    def test_verdict_is_the_shared_one(self, engine, monkeypatch):
+        """The preflight's sentence IS readiness_verdict's — one definition."""
+        from geecs_bluesky.qs_client.client import QueueStatus, readiness_verdict
+
+        closed = QueueStatus(connected=True, re_state=None, worker_exists=False)
+        fake = _FakeQueueClient(status=closed)
+        monkeypatch.setattr(submit_preflight, "_make_default_client", lambda e: fake)
+        report = run_submit_preflight(_request(), "Undulator")
+        assert (
+            report.refusal == readiness_verdict(closed, None, SCAN_REQUEST_PLAN).detail
+        )
+
+    def test_owned_client_is_closed_but_a_passed_one_is_not(self, engine, monkeypatch):
+        owned = _FakeQueueClient()
+        monkeypatch.setattr(submit_preflight, "_make_default_client", lambda e: owned)
+        run_submit_preflight(_request(), "Undulator")
+        assert owned.closed == 1
+
+        passed = _FakeQueueClient()
+        monkeypatch.setattr(
+            submit_preflight,
+            "_make_default_client",
+            lambda e: pytest.fail("a passed client must be used, not a new one"),
+        )
+        report = run_submit_preflight(_request(), "Undulator", client=passed)
+        assert passed.status_calls == 1
+        assert passed.closed == 0
+        assert ("worker_ready", "passed", "") in report.outcomes
+
+    def test_validation_refusal_wins_before_the_manager_is_asked(
+        self, engine, monkeypatch
+    ):
+        monkeypatch.setattr(
+            "geecs_bluesky.scan_request_runner.validate_scan_request",
+            lambda request, resolver: (_ for _ in ()).throw(ValueError("bad request")),
+        )
+        monkeypatch.setattr(
+            submit_preflight,
+            "_make_default_client",
+            lambda e: pytest.fail("manager must not be asked about an invalid request"),
+        )
+        report = run_submit_preflight(_request(), "Undulator")
+        assert report.refusal == "bad request"
 
 
 class TestBuildSubmissionRecord:

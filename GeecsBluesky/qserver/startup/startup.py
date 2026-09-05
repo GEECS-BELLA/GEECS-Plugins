@@ -42,6 +42,7 @@ import geecs_bluesky  # noqa: F401
 
 from bluesky_queueserver import parameter_annotation_decorator
 
+from geecs_bluesky.plan_names import GEECS_PLAN_NAMES, GEECS_WORKER_FUNCTIONS
 from geecs_bluesky.plans.named_plans import (
     NOSCAN_PLAN_ANNOTATION,
     OPTIMIZE_PLAN_ANNOTATION,
@@ -200,6 +201,13 @@ def geecs_move_variable(name: str, value: float) -> dict:
     -------
     dict
         ``move_variable``'s summary: ``{variable, kind, value, targets}``.
+
+    Raises
+    ------
+    GeecsUnservedVariablesError
+        The target (or a pseudo component) is not served by the gateway —
+        refused before any device is built (#772); the manager relays the
+        message as the task failure the client renders.
     """
     return session.move_variable(name, value)
 
@@ -250,13 +258,7 @@ set_optimization_loader(_optimization_loader)
 if _optimization_loader is not None:
     warm_up_optimization_stack()
 
-__all__ = [
-    "RE",
-    "geecs_scan_request_plan",
-    "geecs_run_action_plan",
-    "geecs_noscan_plan",
-    "geecs_scan_plan",
-    "geecs_optimize_plan",
-    "geecs_move_variable",
-    "geecs_describe_action",
-]
+# The export list is the canonical name list (geecs_bluesky.plan_names) —
+# the same tuple the readiness check (qserver_ready) asserts the manager
+# serves after `environment open`, so the two cannot drift (#793).
+__all__ = ["RE", *GEECS_PLAN_NAMES, *GEECS_WORKER_FUNCTIONS]

@@ -23,6 +23,20 @@ Checks, in order (names are the ``PreflightOutcome.check`` vocabulary):
 - ``validate`` — the engine's own :func:`validate_scan_request` (THE one
   definition of what must resolve; issue #529).  A failure is a hard
   refusal, never a question.
+- ``worker_ready`` — is the execution surface actually ready (#793): the
+  manager answers, its worker environment is open, and the plan this
+  submission will queue (:data:`~geecs_bluesky.plan_names.SCAN_REQUEST_PLAN`)
+  is in its allowed-plans list.  A closed environment or a missing plan
+  is a hard refusal naming the recovery gesture — the manager's own
+  answer would be the misleading "Plan ... is not in the list of allowed
+  plans"; so is an environment still being opened (retry shortly).  An
+  unreachable manager is *skipped* (fail-open: the submit itself reports
+  that failure), and so is an **unanswered plan list** (``plans_unknown``
+  — the second round trip timing out over VPN must not block a submit
+  the manager itself would refuse precisely if the list were truly
+  empty); a client without a ``[qserver]`` config is skipped too.  Reads
+  the caller's :class:`~.client.QueueClient` when given (``client=``),
+  else builds and closes one from the shared config.
 - ``snapshot_images`` — a snapshot-role save-set entry with ``images:
   true`` asks for images the role never saves (#754); the engine's
   :func:`snapshot_images_ignored` over the resolved devices config (reused,
@@ -110,13 +124,15 @@ def _resolve_devices_config(request: Any, resolver: Any) -> dict[str, dict]:
     return save_set_to_devices_config(save_set)
 
 
-def run_submit_preflight(request: Any, experiment: str) -> PreflightReport:
+def run_submit_preflight(
+    request: Any, experiment: str, *, client: Any | None = None
+) -> PreflightReport:
     """Run every pre-submit check; return findings for the client to render.
 
-    Blocking (config reads, one DB query, a few CA reads) — GUI clients
-    call it on a background worker, never the GUI thread.  Never raises:
-    any check that blows up unexpectedly is recorded as ``skipped`` with
-    the error text.
+    Blocking (config reads, one manager round trip, one DB query, a few CA
+    reads) — GUI clients call it on a background worker, never the GUI
+    thread.  Never raises: any check that blows up unexpectedly is
+    recorded as ``skipped`` with the error text.
 
     Parameters
     ----------
@@ -124,6 +140,13 @@ def run_submit_preflight(request: Any, experiment: str) -> PreflightReport:
         The validated request the client built (not yet stamped).
     experiment : str
         The selected experiment (resolver + PV prefix).
+    client : QueueClient, optional
+        The caller's manager client, read by the ``worker_ready`` check
+        (``status()`` + ``allowed_plan_names()``).  ``None`` builds one
+        from the shared ``[qserver]`` config for the duration of the check
+        and closes it — so every existing caller gets the check without a
+        signature change; a caller that already holds a client should
+        pass it and save the connection.
 
     Returns
     -------
@@ -142,6 +165,15 @@ def run_submit_preflight(request: Any, experiment: str) -> PreflightReport:
         report.outcomes.append(("validate", "passed", ""))
     except Exception as exc:
         report.refusal = str(exc)
+        return report
+
+    # -- worker ready (hard gate; fail-open when the manager is unreachable)
+    try:
+        _check_worker_ready(report, client, experiment)
+    except Exception as exc:
+        logger.warning("worker-ready preflight failed: %s", exc)
+        report.outcomes.append(("worker_ready", "skipped", str(exc)))
+    if report.refusal is not None:
         return report
 
     try:
@@ -184,6 +216,86 @@ def run_submit_preflight(request: Any, experiment: str) -> PreflightReport:
             report.outcomes.append(("free_run_staleness", "skipped", str(exc)))
 
     return report
+
+
+def _make_default_client(experiment: str) -> Any:
+    """Build the check's own manager client (a seam tests patch).
+
+    :func:`~geecs_bluesky.qs_client.client.make_queue_client` — the stub
+    when no ``[qserver]`` section exists, in which case the check is
+    skipped rather than refused (an unconfigured install cannot submit
+    anyway, and says so at submit).
+    """
+    from geecs_bluesky.qs_client.client import make_queue_client
+
+    return make_queue_client(experiment, user="geecs-preflight")
+
+
+#: Readiness states the pre-submit check records as ``skipped`` (with the
+#: verdict's sentence as the note) instead of refusing: the manager did not
+#: answer, or answered ``status`` but not ``plans_allowed``.  Fail-open by
+#: design — the submit itself reports an unreachable manager, and a truly
+#: empty plan list is refused by the manager at ``queue add``; a bounded
+#: round trip timing out over VPN must not block a scan.
+_FAIL_OPEN_READINESS_STATES = frozenset({"unreachable", "plans_unknown"})
+
+
+def _check_worker_ready(
+    report: PreflightReport, client: Any | None, experiment: str
+) -> None:
+    """Refuse when the manager cannot run the plan about to be queued (#793).
+
+    The verdict is the shared
+    :func:`~geecs_bluesky.qs_client.client.readiness_from_reads` — the
+    same assembly the ``geecs-qserver-ready`` service-start assertion
+    runs — over ``status()`` and ``allowed_plan_names()``: environment
+    exists, plan list answered and non-empty,
+    :data:`~geecs_bluesky.plan_names.SCAN_REQUEST_PLAN` present.  Every
+    not-ready state is a refusal carrying the verdict's sentence, except
+    the two fail-open ones recorded ``skipped`` with the sentence as the
+    note: an unreachable manager (the submit reports it itself) and an
+    unanswered plan list (``plans_unknown`` — one bounded round trip
+    timing out over VPN; the submit is refused by the manager anyway if
+    the list is truly empty).  The service-start assertion stays strict
+    on ``plans_unknown``: there, an unanswered list means not ready.
+
+    Parameters
+    ----------
+    report :
+        The report to append the outcome (or refusal) to.
+    client :
+        The caller's client, or ``None`` to build (and close) one.
+    experiment :
+        Passed to the client factory.
+    """
+    from geecs_bluesky.plan_names import SCAN_REQUEST_PLAN
+    from geecs_bluesky.qs_client.client import StubQueueClient, readiness_from_reads
+
+    owned = client is None
+    if owned:
+        client = _make_default_client(experiment)
+    try:
+        if isinstance(client, StubQueueClient):
+            report.outcomes.append(
+                ("worker_ready", "skipped", "no [qserver] config — submission is off")
+            )
+            return
+        # The ONE assembly of ready (status → plans if the env exists →
+        # verdict); any client with status() + allowed_plan_names() qualifies.
+        verdict = readiness_from_reads(
+            client.status(), client.allowed_plan_names, SCAN_REQUEST_PLAN
+        )
+        if verdict.ready:
+            report.outcomes.append(("worker_ready", "passed", ""))
+        elif verdict.state in _FAIL_OPEN_READINESS_STATES:
+            report.outcomes.append(("worker_ready", "skipped", verdict.detail))
+        else:
+            report.refusal = verdict.detail
+    finally:
+        if owned:
+            close = getattr(client, "close", None)
+            if callable(close):
+                close()
 
 
 def _check_snapshot_images(

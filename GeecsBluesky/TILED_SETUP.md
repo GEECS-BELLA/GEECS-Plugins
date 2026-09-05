@@ -117,9 +117,8 @@ api_key = <stable key>
   for legacy filename compatibility, or whether direct native filenames are
   the canonical Bluesky path.
 - **Tiled not yet read by ScanAnalysis** — post-scan analysis continues to
-  use the file-based path (bridged by the s-file export).  The
-  `geecs_bluesky.analysis` contracts can run image analysis over archived
-  Tiled runs, but `ScanAnalysis` itself does not read Tiled.
+  use the file-based path (bridged by the s-file export); `ScanAnalysis`
+  itself does not read Tiled.
 
 ---
 

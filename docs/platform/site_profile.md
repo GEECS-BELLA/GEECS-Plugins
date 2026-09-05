@@ -47,7 +47,11 @@ Two kinds of keys, documented line by line in the example file:
   re-mapped. To check what a unit gets: `systemctl show <unit> -p
   EnvironmentFiles` names the file, `cat /etc/geecs/site.env` shows the
   values (`systemctl show-environment` is the *manager's* environment and
-  never reflects an `EnvironmentFile=`).
+  never reflects an `EnvironmentFile=`).  One runtime key is optional
+  and absent from the example on purpose: `QS_CONTROL_ADDR`
+  (`tcp://host:60615`) points `geecs-qserver-ready` at a manager that
+  is not on loopback; the readiness unit reads only this key for its
+  address, never the client `config.ini`.
 - **Install-time values** — the service account and its home, the
   checkout root, the absolute poetry path, the repo URL, the Tiled URI,
   the queueserver host, the data-share mount, the configs-repo path.

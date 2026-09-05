@@ -4,6 +4,105 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.75.0] - 2026-09-04
+
+### Removed
+
+- **`geecs_bluesky.analysis` and the `analysis` extra** (#786). The post-run
+  analysis contract added in 0.14.0 — result/feature/provenance models, the
+  sidecar writers, the `ImageAnalyzerAdapter`, and *derived analysis runs
+  published to Tiled* — had no importer anywhere in the repo, and the extra
+  that nominally served it installed ImageAnalysis for nothing (the only
+  in-package `image_analysis` importers are the optimization evaluators,
+  which need `optimize`). The approach is abandoned, not paused: post-run
+  analysis runs from the data portal against the scan folder, and the
+  derived-run direction is not being pursued. Gone with it: the
+  `tiled_camera_analysis_sidecar` notebook and every doc reference. The
+  `imageanalysis` path dependency stays optional under `optimize` only.
+  `find_geecs_run` keeps skipping start docs tagged
+  `purpose: geecs_bluesky_analysis` / `analysis_of` — a legacy-record guard
+  for catalogs that already hold such runs, nothing writes them any more.
+
+### Added
+
+- **A running `geecs-qserver` means ready** (#793 part 1). bluesky-queueserver
+  never opens the worker environment on its own, so a restarted manager knows
+  no plans and refuses every submission as "Plan ... is not in the list of
+  allowed plans" while `qserver status` looks healthy (live 2026-09-04, after
+  the site-profile re-render onto a fresh clone). New entry point
+  `geecs-qserver-ensure-ready` (`geecs_bluesky/qserver_ready.py`): wait for
+  the manager, open the environment if closed (on the first closed + idle
+  snapshot the run sees — a manager mid `closing_environment` is waited
+  out, not refused), wait for it to come up, then **assert `plans_allowed`
+  lists every GEECS plan** — exit 1 with a precise message otherwise. After
+  an open this run requested, the plan list is re-read for a short settle
+  window (~10 s) before an empty or incomplete list is concluded: the
+  manager reports the environment up before its own plan-list download
+  has landed. Talks over `bluesky_queueserver`'s own `zmq_single_request`
+  (the `qserver` extra; no `qs-client` needed on the worker), transport
+  injectable for tests. The address asserted is the manager on *this*
+  host (loopback), or `QS_CONTROL_ADDR` when set in `site.env` — never
+  the client-side `[qserver]` section of the service account's
+  `config.ini`, which names the worker clients talk to. New `qserver/deploy/geecs-qserver-ready.service`
+  oneshot template (`Requires=`/`PartOf=geecs-qserver` — re-runs on every
+  manager restart; `systemctl restart geecs-qserver-ready` is the recovery
+  gesture); `deploy/render_units.sh` and `deploy/bootstrap_host.sh` render
+  and enable both queueserver units together (a clone lacking the new
+  template is skipped whole, never half-rendered). Runbooks updated;
+  `qserver/README.md` Troubleshooting gains the symptom.
+- **`worker_ready` pre-submit check** (#793 part 2) in
+  `qs_client.submit_preflight`, beside `gateway_liveness`: the manager
+  answers, its worker environment exists, and `geecs_scan_request_plan` is
+  in `plans_allowed`. Closed environment / missing plan → a **refusal**
+  naming the recovery gesture; an environment still being opened → a
+  refusal saying retry shortly (`environment_opening`); unreachable
+  manager, an unanswered plan list (`plans_unknown` — the round trip timed
+  out) or the stub client → `skipped` with the verdict's sentence as the
+  note (fail-open — the submit reports an unreachable manager itself, and
+  the manager refuses a truly empty list at `queue add`). Reads the
+  caller's client when passed (`run_submit_preflight(..., client=)`),
+  otherwise builds and closes one from the shared `[qserver]` config, so the
+  console and the MCP get the check with no signature change (their
+  `run_submit_preflight` patches take two positionals — unchanged).
+  `QueueClient` grows `allowed_plan_names()`, `close()` and `readiness()`.
+- **One definition of "ready"**: `qs_client.readiness_verdict(status,
+  plans_allowed, expected_plans) -> ReadinessVerdict` (states `ready` /
+  `unreachable` / `environment_opening` / `environment_closed` /
+  `plans_unknown` / `plans_empty` / `plan_missing`, each with the
+  operator-facing sentence; `QueueStatus` carries the manager's
+  `worker_environment_state` so `initializing` is visible). Ready ⇔ the
+  manager answered ∧ its worker environment exists ∧ the plan list was
+  answered ∧ non-empty ∧ every expected plan present — an **unanswered plan
+  list is `plans_unknown`, never ready**. The `worker_ready` preflight and
+  `geecs-qserver-ensure-ready` both run it (the entry point maps the raw
+  manager payload through the shared `queue_status_from_manager`), so the
+  preflight refusal and the readiness unit's NOT READY line are the same
+  sentence; a probe script gets it by import instead of re-deriving it.
+  `readiness_from_reads(status, read_plans, expected_plans)` is the one
+  "status → plan list only if the environment exists → verdict" assembly
+  behind `QueueClient.readiness()`, the preflight and the entry point.
+- **`geecs_bluesky.plan_names`** — the import-light home of the plan and
+  function-verb names: `startup.py`'s `__all__` is built from it,
+  `qs_client` submits and asks by it, `qserver_ready` asserts it; pinned
+  against the real plan functions in `tests/test_plan_names.py`.
+
+### Changed
+
+- **Manual moves refuse an unserved target before any device is built**
+  (#772 part 2). `GeecsSession.move_variable` runs
+  `scan_request_runner.check_movable_served` — every `(device, variable)` the
+  target writes, each pseudo component, vetted against the gateway's served
+  set (the same provider the scan path's unserved-variables preflight uses).
+  An unserved target raises `GeecsUnservedVariablesError` ending
+  "— move not started" (relayed by the worker; the console's movable panel
+  renders it verbatim for *catalog* names, which are the ones that reach
+  `move_variable` — a raw `Device:Variable` string takes the panel's direct
+  gateway put and never meets this check; MCP and notebook clients calling
+  `move_variable` hit it for any name) instead of the 20 s ophyd `NotConnectedError`
+  naming a PV that sent the 2026-09-02 `Position.Axis1` incident down a
+  gateway-connectivity rabbit hole. Served set unknown (DB unreachable) →
+  warn and proceed, never refuse for a DB blip.
+
 ## [0.74.0] - 2026-09-04
 
 ### Removed

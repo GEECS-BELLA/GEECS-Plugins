@@ -12,6 +12,11 @@ Pins the manual-move contract, the counterpart of ``test_run_action``:
   ``"scan in progress — move not started"`` (the GUI surfaces it
   verbatim).
 - A non-finite value is refused before any device is built.
+- An **unserved** target (any pseudo component) is refused before any
+  device is built, in words ending ``"— move not started"`` (#772) — the
+  same served-set check the scan path runs, so a typo'd variable never
+  surfaces as a 20 s ``NotConnectedError`` naming a PV.  Served set
+  unknown (DB unreachable) → the move proceeds with a warning.
 """
 
 from __future__ import annotations
@@ -23,7 +28,11 @@ import pytest
 
 pytest.importorskip("aioca")  # session is CA-only
 
-from geecs_bluesky.exceptions import GeecsConfigurationError  # noqa: E402
+from geecs_bluesky import scan_request_runner as runner  # noqa: E402
+from geecs_bluesky.exceptions import (  # noqa: E402
+    GeecsConfigurationError,
+    GeecsUnservedVariablesError,
+)
 from geecs_bluesky.session import GeecsSession  # noqa: E402
 from geecs_schemas import PseudoScanVariable, ScanVariable  # noqa: E402
 
@@ -51,6 +60,17 @@ BUMP_X = PseudoScanVariable(
         {"target": "U_S4H:Current", "forward": "x * -2"},
     ],
 )
+
+
+@pytest.fixture(autouse=True)
+def _served_set_unknown(monkeypatch):
+    """Default: no served-set provider (the check skips) — no DB in tests."""
+    monkeypatch.setattr(runner, "make_served_set_provider", lambda session: None)
+
+
+def _serve(monkeypatch, served: dict) -> None:
+    provider = SimpleNamespace(served_by_device=lambda: served)
+    monkeypatch.setattr(runner, "make_served_set_provider", lambda session: provider)
 
 
 @pytest.fixture()
@@ -289,3 +309,110 @@ def test_non_numeric_value_refused_as_configuration_error(session) -> None:
 
     with pytest.raises(GeecsConfigurationError, match="not a number"):
         session.move_variable("bump_x", "sideways", _Untouchable())
+
+
+# ---------------------------------------------------------------------------
+# Unserved targets refuse pre-build (#772 part 2)
+# ---------------------------------------------------------------------------
+
+
+def _forbid_device_build(session, monkeypatch) -> None:
+    for factory in ("settable", "motor", "confirm_settable", "pseudo_movable"):
+        monkeypatch.setattr(
+            session,
+            factory,
+            lambda *a, **k: pytest.fail(
+                "no device may be built for an unserved target"
+            ),
+        )
+
+
+def test_unserved_raw_target_refused_before_any_device(session, monkeypatch) -> None:
+    """The live #772 shape: a near-miss variable name, refused in words."""
+    _serve(monkeypatch, {"U_Grating2Rotation": {"Position.Axis 1", "CONNECTED"}})
+    _forbid_device_build(session, monkeypatch)
+
+    with pytest.raises(GeecsUnservedVariablesError) as excinfo:
+        session.move_variable("U_Grating2Rotation:Position.Axis1", 1.0)
+
+    message = str(excinfo.value)
+    assert "U_Grating2Rotation:Position.Axis1 is not served by the gateway" in message
+    assert message.endswith("— move not started")
+    assert "TestExp" in message
+    assert excinfo.value.unserved == {"U_Grating2Rotation": ["Position.Axis1"]}
+    assert not session._manual_move_lock.locked()
+
+
+def test_unserved_pseudo_component_refused_naming_the_component(
+    session, monkeypatch
+) -> None:
+    """A pseudo is vetted component by component; the bad one is named."""
+    _serve(monkeypatch, {"U_S3H": {"Current"}, "U_S4H": {"Voltage"}})
+    _forbid_device_build(session, monkeypatch)
+
+    with pytest.raises(GeecsUnservedVariablesError) as excinfo:
+        session.move_variable("bump_x", 0.5, _CatalogResolver({"bump_x": BUMP_X}))
+
+    assert "U_S4H:Current is not served" in str(excinfo.value)
+    assert "U_S3H" not in str(excinfo.value).split(" is not served")[0]
+
+
+def test_unknown_device_refused_too(session, monkeypatch) -> None:
+    """A device absent from the served set is unserved (not a KeyError)."""
+    _serve(monkeypatch, {"U_S1H": {"Current"}})
+    _forbid_device_build(session, monkeypatch)
+
+    with pytest.raises(GeecsUnservedVariablesError, match="U_Nope:Current is not"):
+        session.move_variable("U_Nope:Current", 1.0)
+
+
+def test_served_target_moves(session, monkeypatch) -> None:
+    _serve(monkeypatch, {"U_S1H": {"Current"}})
+    result = session.move_variable("U_S1H:Current", 2.5)
+    assert result["targets"] == {"U_S1H:Current": 2.5}
+
+
+def test_unknown_served_set_proceeds_with_a_warning(
+    session, monkeypatch, caplog
+) -> None:
+    """DB unreachable → served set None → the move is never refused for it."""
+    provider = SimpleNamespace(served_by_device=lambda: None)
+    monkeypatch.setattr(runner, "make_served_set_provider", lambda session: provider)
+    with caplog.at_level("WARNING", logger="geecs_bluesky.scan_request_runner"):
+        result = session.move_variable("U_S1H:Current", 1.0)
+    assert result["value"] == 1.0
+    assert any(
+        "served set could not be determined" in r.message for r in caplog.records
+    )
+
+
+def test_movable_target_pairs_enumerates_writes() -> None:
+    from geecs_bluesky.scan_request_runner import (
+        PlainMovableTarget,
+        movable_target_pairs,
+        resolve_movable_target,
+    )
+
+    plain = PlainMovableTarget(
+        "U_EMQ", "Current_Limit.Ch1", "setpoint", "U_EMQ:Current.Ch1"
+    )
+    assert movable_target_pairs(plain) == [
+        ("U_EMQ", "Current_Limit.Ch1"),
+        ("U_EMQ", "Current.Ch1"),  # the confirm readback connects too
+    ]
+    bare = PlainMovableTarget("U_S1H", "Current", "setpoint", None)
+    assert movable_target_pairs(bare) == [("U_S1H", "Current")]
+    pseudo = resolve_movable_target(BUMP_X, "bump_x")
+    assert movable_target_pairs(pseudo) == [("U_S3H", "Current"), ("U_S4H", "Current")]
+
+
+def test_unserved_confirm_readback_refused(session, monkeypatch) -> None:
+    """The confirm variable is monitored, so it must be served as well."""
+    _serve(monkeypatch, {"U_EMQTripletBipolar": {"Current_Limit.Ch1"}})
+    _forbid_device_build(session, monkeypatch)
+    emq = ScanVariable(
+        target="U_EMQTripletBipolar:Current_Limit.Ch1",
+        confirm="U_EMQTripletBipolar:Current.Ch1",
+    )
+    with pytest.raises(GeecsUnservedVariablesError, match="Current.Ch1 is not served"):
+        session.move_variable("emq1", 1.5, _CatalogResolver({"emq1": emq}))

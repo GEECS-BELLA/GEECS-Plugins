@@ -30,6 +30,7 @@ TEMPLATES = [
     REPO_ROOT / "GeecsCAGateway/deploy/geecs-ca-gateway.service",
     REPO_ROOT / "GEECS-DataPortal/deploy/geecs-data-portal.service",
     REPO_ROOT / "GeecsBluesky/qserver/deploy/geecs-qserver.service",
+    REPO_ROOT / "GeecsBluesky/qserver/deploy/geecs-qserver-ready.service",
     REPO_ROOT / "GeecsBluesky/capture/deploy/geecs-capture.service",
     REPO_ROOT / "GEECS-MCP/deploy/geecs-mcp.service",
 ]
@@ -101,3 +102,13 @@ def test_in_tree_templates_render(tmp_path: Path) -> None:
         ), t.name
         assert "User=geecs\n" in rendered  # the example's GEECS_SERVICE_USER
         assert "EnvironmentFile=/etc/geecs/site.env" in rendered
+
+
+def test_default_template_list_is_every_in_tree_template(tmp_path: Path) -> None:
+    """With no template arguments the script renders its own default list —
+    which must be exactly the in-tree templates (a new service's template
+    that is not in that list would never reach a host)."""
+    result = _render(tmp_path / "out")
+    assert result.returncode == 0, result.stderr
+    rendered = sorted(p.name for p in (tmp_path / "out").glob("*.service"))
+    assert rendered == sorted(t.name for t in TEMPLATES)

@@ -63,7 +63,11 @@ from geecs_bluesky.db_runtime import (
     ScalarPolicyProvider,
     resolve_entry_scalars,
 )
-from geecs_bluesky.exceptions import GeecsConfigurationError, GeecsDeviceDownError
+from geecs_bluesky.exceptions import (
+    GeecsConfigurationError,
+    GeecsDeviceDownError,
+    GeecsUnservedVariablesError,
+)
 from geecs_bluesky.forward_expr import CompiledForward, compile_forward
 from geecs_bluesky.models.shot_control import ShotControlWrites
 from geecs_bluesky.plans.action_compiler import compile_action_plan
@@ -1543,6 +1547,96 @@ def _preflight_unserved(
     return run_unserved_variables_check(
         devices_config,
         provider.served_by_device if provider is not None else None,
+    )
+
+
+def movable_target_pairs(target: "MovableTarget") -> list[tuple[str, str]]:
+    """Every ``(device, variable)`` a movable target connects to.
+
+    The written setpoint(s) — one for a plain target, one per component for
+    a pseudo variable — plus a plain target's confirm readback when it has
+    one: ``CaConfirmSettable`` monitors it, so an unserved confirm variable
+    fails to connect exactly like an unserved setpoint.
+
+    Parameters
+    ----------
+    target :
+        A resolved :data:`MovableTarget`.
+
+    Returns
+    -------
+    list of (str, str)
+        The written ``(device, variable)`` pairs, in target order.
+    """
+    if isinstance(target, PseudoMovableTarget):
+        return [(device, variable) for device, variable, _forward in target.components]
+    pairs = [(target.device, target.variable)]
+    if target.confirm:
+        confirm_device, _, confirm_variable = target.confirm.partition(":")
+        if confirm_variable:
+            pairs.append((confirm_device, confirm_variable))
+    return pairs
+
+
+def check_movable_served(session: Any, target: "MovableTarget") -> None:
+    """Refuse a manual move whose target the gateway does not serve (#772).
+
+    The manual-move counterpart of the save-set unserved-variables
+    pre-flight: a ``Device:Variable`` outside the gateway's served set
+    (``get='yes'`` union settable, per enabled device) has no PV, so
+    ``build_movable`` would die in a 20 s ophyd ``NotConnectedError``
+    whose message names a PV, not the mistake (live 2026-09-02: a
+    composite saved with ``Position.Axis1`` for a device whose variable is
+    ``Position.Axis 1``).  Checked **before** any device is built; a
+    pseudo variable is vetted component by component.
+
+    Same failure semantics as the scan path: a served set that cannot be
+    determined (DB unreachable, no experiment) passes with one warning —
+    a move is never refused for a DB blip.
+
+    Parameters
+    ----------
+    session :
+        The :class:`~geecs_bluesky.session.GeecsSession` (duck-typed:
+        ``experiment``).
+    target :
+        The resolved movable target about to be built.
+
+    Raises
+    ------
+    GeecsUnservedVariablesError
+        Naming every unserved ``Device:Variable`` of the target; the
+        message ends in ``"— move not started"`` like the session's other
+        refusals, which clients render verbatim.
+    """
+    provider = make_served_set_provider(session)
+    served = provider.served_by_device() if provider is not None else None
+    if served is None:
+        logger.warning(
+            "Manual move of %s: the gateway served set could not be determined; "
+            "skipping the served-variable check (an unserved target would fail "
+            "to connect downstream)",
+            target.label,
+        )
+        return
+    unserved: dict[str, list[str]] = {}
+    for device, variable in movable_target_pairs(target):
+        if variable not in served.get(device, set()):
+            unserved.setdefault(device, []).append(variable)
+    if not unserved:
+        return
+    experiment = getattr(session, "experiment", None) or "the experiment"
+    names = ", ".join(
+        f"{device}:{variable}"
+        for device, variables in unserved.items()
+        for variable in variables
+    )
+    plural = "are" if sum(len(v) for v in unserved.values()) > 1 else "is"
+    raise GeecsUnservedVariablesError(
+        f"{names} {plural} not served by the gateway (no such settable or "
+        f"get='yes' variable on an enabled {experiment} device — check the "
+        f"spelling against the device's variable list) — move not started",
+        unserved,
     )
 
 

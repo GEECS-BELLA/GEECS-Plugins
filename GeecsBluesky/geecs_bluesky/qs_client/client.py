@@ -35,9 +35,12 @@ from __future__ import annotations
 import logging
 import threading
 import time
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional, Protocol, runtime_checkable
+
+from geecs_bluesky.plan_names import RUN_ACTION_PLAN, SCAN_REQUEST_PLAN
 
 logger = logging.getLogger(__name__)
 
@@ -134,6 +137,193 @@ class QueueStatus:
     items_in_queue: int = 0
     running_item_uid: Optional[str] = None
     detail: str = ""
+    #: The manager's ``worker_environment_state`` (``closed`` /
+    #: ``initializing`` / ``idle`` / ``executing_plan`` / ``closing`` …) —
+    #: read by the readiness verdict to tell "still opening" from "closed".
+    worker_environment_state: Optional[str] = None
+
+
+def queue_status_from_manager(raw: Mapping[str, Any]) -> QueueStatus:
+    """Map the manager's raw ``status`` payload to a :class:`QueueStatus`.
+
+    The one mapping for every transport (``REManagerAPI`` in
+    :class:`ZmqQueueClient`, ``zmq_single_request`` in the readiness entry
+    point), so the fields the readiness verdict reads cannot drift.
+    """
+    return QueueStatus(
+        connected=True,
+        re_state=raw.get("re_state"),
+        manager_state=raw.get("manager_state"),
+        worker_exists=bool(raw.get("worker_environment_exists")),
+        items_in_queue=int(raw.get("items_in_queue") or 0),
+        running_item_uid=raw.get("running_item_uid") or None,
+        detail="",
+        worker_environment_state=raw.get("worker_environment_state"),
+    )
+
+
+@dataclass(frozen=True)
+class ReadinessVerdict:
+    """Whether the manager can run the GEECS plans — the ONE definition (#793).
+
+    ``state`` is one of ``ready``, ``unreachable``, ``environment_opening``,
+    ``environment_closed``, ``plans_unknown``, ``plans_empty``,
+    ``plan_missing``; ``detail`` is the operator-facing sentence, naming
+    the recovery gesture where there is one.  ``ready`` is true only for
+    ``state == "ready"``.
+    """
+
+    ready: bool
+    state: str
+    detail: str
+    allowed_plans: tuple[str, ...] = ()
+
+
+#: Manager / worker-environment states in which the environment is being
+#: created: not ready *yet*, and not a state any recovery gesture should
+#: interrupt (restarting the readiness unit kills the open in flight).
+_OPENING_MANAGER_STATE = "creating_environment"
+_OPENING_ENV_STATE = "initializing"
+
+
+def readiness_verdict(
+    status: QueueStatus,
+    plans_allowed: Mapping[str, Any] | Sequence[str] | None,
+    expected_plans: str | Sequence[str] | None = None,
+) -> ReadinessVerdict:
+    """Pure readiness verdict over a status snapshot and a plan list.
+
+    Ready ⇔ the manager answered ∧ its worker environment exists ∧ the
+    plan list was answered ∧ it is non-empty ∧ every expected plan is in
+    it.  An **unanswered** plan list (``None``) is ``plans_unknown`` —
+    never ready: a manager that answers ``status`` but not
+    ``plans_allowed`` cannot be trusted to run anything.  An environment
+    that is being *created* (``manager_state == "creating_environment"``,
+    or one that exists but is still ``initializing``) is
+    ``environment_opening`` — not ready yet, but the "closed" recovery
+    advice would be wrong: the readiness unit (or a hand ``environment
+    open``) is already importing the startup profile, which takes minutes
+    with the optimize stack, and restarting the unit would kill that open.
+    Shared by the ``worker_ready`` pre-submit check and the
+    ``geecs-qserver-ready`` service-start assertion (and any probe
+    script) so "ready" is defined exactly once.
+
+    Parameters
+    ----------
+    status :
+        A :class:`QueueStatus` (``connected=False`` → unreachable).
+    plans_allowed :
+        The manager's ``plans_allowed`` mapping (or just its names), or
+        ``None`` when the list could not be read.
+    expected_plans :
+        Plan name(s) that must be present; ``None`` requires only a
+        non-empty list.
+
+    Returns
+    -------
+    ReadinessVerdict
+        The verdict, with ``allowed_plans`` sorted when the list answered.
+    """
+    if not status.connected:
+        return ReadinessVerdict(
+            False,
+            "unreachable",
+            f"manager unreachable ({status.detail or 'no answer'})",
+        )
+    if status.manager_state == _OPENING_MANAGER_STATE or (
+        status.worker_exists and status.worker_environment_state == _OPENING_ENV_STATE
+    ):
+        return ReadinessVerdict(
+            False,
+            "environment_opening",
+            "The queueserver worker environment is being opened (the readiness "
+            "unit after a manager start, or a hand `environment open`) — the "
+            "startup profile is still importing, which takes minutes with the "
+            "optimize stack. Retry shortly; do not restart geecs-qserver-ready "
+            "meanwhile, that would kill the open in flight.",
+        )
+    if not status.worker_exists:
+        return ReadinessVerdict(
+            False,
+            "environment_closed",
+            "The queueserver worker environment is closed: the RE Manager answers "
+            "but knows no plans, so every submission would be refused as 'not in "
+            "the list of allowed plans'. Open it on the worker host — `systemctl "
+            "restart geecs-qserver-ready` (the readiness unit) or `qserver "
+            "environment open` — then resubmit.",
+        )
+    if plans_allowed is None:
+        return ReadinessVerdict(
+            False,
+            "plans_unknown",
+            "The RE Manager answered but its allowed-plans list could not be read — "
+            "readiness cannot be confirmed; check the manager journal.",
+        )
+    allowed = tuple(sorted(plans_allowed))
+    if not allowed:
+        return ReadinessVerdict(
+            False,
+            "plans_empty",
+            "The RE Manager lists no allowed plans although its worker environment "
+            "exists — the startup profile registered nothing (import error?) or the "
+            "permissions file allows nothing; see GeecsBluesky/qserver/README.md, "
+            "Troubleshooting.",
+            allowed,
+        )
+    expected = (
+        [expected_plans]
+        if isinstance(expected_plans, str)
+        else list(expected_plans or ())
+    )
+    missing = [name for name in expected if name not in allowed]
+    if missing:
+        return ReadinessVerdict(
+            False,
+            "plan_missing",
+            f"The RE Manager does not list {', '.join(missing)} among the plans this "
+            f"client may submit (listed: {', '.join(allowed)}). The worker's startup "
+            "profile did not register it, or the permissions file excludes it — see "
+            "GeecsBluesky/qserver/README.md, Troubleshooting.",
+            allowed,
+        )
+    return ReadinessVerdict(True, "ready", "", allowed)
+
+
+def readiness_from_reads(
+    status: QueueStatus,
+    read_plans: Callable[[], Mapping[str, Any] | Sequence[str] | None],
+    expected_plans: str | Sequence[str] | None = None,
+) -> ReadinessVerdict:
+    """:func:`readiness_verdict` over a status snapshot and a *deferred* plan read.
+
+    The one assembly of "status → plan list only if the environment exists
+    → verdict", shared by :meth:`ZmqQueueClient.readiness`, the
+    ``worker_ready`` pre-submit check and ``geecs-qserver-ensure-ready``
+    (each brings its own transport; none re-derives the sequence).  The
+    plan list is read only when the manager answered and its environment
+    exists (a closed manager knows no plans — the read would be a wasted
+    round trip); a read that raises or returns ``None`` is
+    ``plans_unknown``.
+
+    Parameters
+    ----------
+    status :
+        The status snapshot already read.
+    read_plans :
+        Zero-argument callable returning the ``plans_allowed`` mapping (or
+        its names), or ``None`` when unanswered; exceptions are caught
+        and logged.
+    expected_plans :
+        As for :func:`readiness_verdict`.
+    """
+    plans: Mapping[str, Any] | Sequence[str] | None = None
+    if status.connected and status.worker_exists:
+        try:
+            plans = read_plans()
+        except Exception as exc:
+            logger.warning("plans_allowed read failed: %s", exc)
+            plans = None
+    return readiness_verdict(status, plans, expected_plans)
 
 
 @dataclass(frozen=True)
@@ -245,6 +435,27 @@ class QueueClient(Protocol):
         """Run ``geecs_describe_action`` on the worker; raises on failure."""
         ...
 
+    def allowed_plan_names(self) -> list[str]:
+        """Return the plan names the manager will accept from this client.
+
+        Empty while the worker environment is closed (the manager knows
+        no plans until it opens — #793); raises on failure.
+        """
+        ...
+
+    def close(self) -> None:
+        """Release the manager connection (idempotent; no-op when unopened)."""
+        ...
+
+    def readiness(
+        self, expected_plans: str | Sequence[str] | None = None
+    ) -> ReadinessVerdict:
+        """:func:`readiness_verdict` over a live ``status()`` + plan list.
+
+        Never raises: an unreadable plan list yields ``plans_unknown``.
+        """
+        ...
+
 
 _STUB_MESSAGE = (
     "no queueserver configured — add a [qserver] section (host = <worker>) "
@@ -315,6 +526,19 @@ class StubQueueClient:
     def describe_action(self, name: str) -> list[dict]:
         """Refuse with the missing-config message."""
         raise RuntimeError(_STUB_MESSAGE)
+
+    def allowed_plan_names(self) -> list[str]:
+        """Refuse with the missing-config message."""
+        raise RuntimeError(_STUB_MESSAGE)
+
+    def close(self) -> None:
+        """Nothing to release."""
+
+    def readiness(
+        self, expected_plans: str | Sequence[str] | None = None
+    ) -> ReadinessVerdict:
+        """Unreachable, naming the missing config."""
+        return readiness_verdict(self.status(), None, expected_plans)
 
 
 class ZmqQueueClient:
@@ -403,15 +627,7 @@ class ZmqQueueClient:
             raw = self._manager().status()
         except Exception as exc:
             return QueueStatus(connected=False, detail=str(exc))
-        return QueueStatus(
-            connected=True,
-            re_state=raw.get("re_state"),
-            manager_state=raw.get("manager_state"),
-            worker_exists=bool(raw.get("worker_environment_exists")),
-            items_in_queue=int(raw.get("items_in_queue") or 0),
-            running_item_uid=raw.get("running_item_uid") or None,
-            detail="",
-        )
+        return queue_status_from_manager(raw)
 
     def _submit_item(
         self,
@@ -496,7 +712,7 @@ class ZmqQueueClient:
         record-less submissions from this client.
         """
         return self._submit_item(
-            "geecs_scan_request_plan",
+            SCAN_REQUEST_PLAN,
             [request],
             kwargs={"submission": submission} if submission is not None else None,
             clear_pending=clear_pending,
@@ -504,7 +720,7 @@ class ZmqQueueClient:
 
     def submit_action(self, name: str) -> SubmitResult:
         """Queue the on-demand action plan (actions are queue items, decision 2)."""
-        return self._submit_item("geecs_run_action_plan", [name], clear_pending=False)
+        return self._submit_item(RUN_ACTION_PLAN, [name], clear_pending=False)
 
     def run_action(self, name: str) -> None:
         """Queue the action item; raise the refusal message on failure."""
@@ -619,6 +835,37 @@ class ZmqQueueClient:
             BFunc("geecs_describe_action", name), user=self._user
         )
         return self._wait_for_task(response["task_uid"], timeout_s=30.0)
+
+    def allowed_plan_names(self) -> list[str]:
+        """The manager's ``plans_allowed`` for this client's user group.
+
+        The manager serves the list from the worker environment: closed
+        environment → empty list, and every ``queue add`` then fails with
+        "Plan ... is not in the list of allowed plans" whatever the name
+        (#793).  ``submit_preflight``'s ``worker_ready`` check reads this
+        so that failure is named before queueing.
+        """
+        api = self._manager()
+        response = api.plans_allowed()
+        return sorted((response.get("plans_allowed") or {}).keys())
+
+    def readiness(
+        self, expected_plans: str | Sequence[str] | None = None
+    ) -> ReadinessVerdict:
+        """The shared verdict over one status poll and one plan-list read."""
+        return readiness_from_reads(
+            self.status(), self.allowed_plan_names, expected_plans
+        )
+
+    def close(self) -> None:
+        """Close the cached ``REManagerAPI`` (and its zmq thread), if any."""
+        with self._api_lock:
+            api, self._api = self._api, None
+        if api is not None:
+            try:
+                api.close()
+            except Exception as exc:  # best-effort release
+                logger.debug("REManagerAPI close failed: %s", exc)
 
 
 def make_queue_client(

@@ -59,7 +59,9 @@ geecs_bluesky/
                             #   optimization loader) + post-run s-file export
                             #   + move_variable — manual scan-variable move
                             #   (plain/confirm/pseudo, fresh movable per
-                            #   call, refused mid-scan)
+                            #   call, refused mid-scan; an unserved target
+                            #   refuses pre-build via the runner's
+                            #   check_movable_served — #772)
                             #   + run_action / describe_action — on-demand
                             #   ActionPlan execution & dry-run (G-actions v1)
   preflight.py              # Pre-flight checks as a pipeline (pass/ask/abort);
@@ -70,6 +72,22 @@ geecs_bluesky/
                             #   renders Ask as a modal (its submit_preflight
                             #   is the live consumer — OperatorQuestion +
                             #   ANSWER_* live here since W5)
+  qserver_ready.py          # geecs-qserver-ensure-ready: the service-start
+                            #   readiness assertion (#793) — open the worker
+                            #   env if closed, wait for it, then the SAME
+                            #   qs_client.readiness_from_reads assembly the
+                            #   preflight runs (one definition of ready;
+                            #   the plan list is re-read for a short settle
+                            #   window after OUR open — the manager reports
+                            #   the env up before its plan download lands);
+                            #   address = QS_CONTROL_ADDR else loopback
+                            #   (never the client-side [qserver] config —
+                            #   the unit asserts the LOCAL manager);
+                            #   injectable transport
+  plan_names.py             # the queueserver plan / function-verb names,
+                            #   import-light (log_markers rule): startup.py
+                            #   exports them, qs_client submits/asks by them,
+                            #   qserver_ready asserts the manager lists them
   qs_client/                # the RE Manager CLIENT seam (extracted from
                             #   GEECS-Console 2026-08-21, shared by every
                             #   client — console, notebooks, OSPREY MCP):
@@ -79,7 +97,16 @@ geecs_bluesky/
                             #   failed-item-at-front guard, sequenced stop,
                             #   read verbs, function-verb task polling);
                             #   submit_preflight.py = client-side pre-submit
-                            #   checks + build_submission_record provenance
+                            #   checks (validate, worker_ready — the shared
+                            #   readiness_verdict (env exists ∧ plan list
+                            #   answered ∧ non-empty ∧ plan present; an
+                            #   env still opening is environment_opening,
+                            #   "retry shortly"), a refusal naming the
+                            #   recovery gesture (#793) — fail-open only
+                            #   for unreachable and plans_unknown (the
+                            #   round trip timed out; recorded skipped) —
+                            #   snapshot_images, unserved, liveness,
+                            #   staleness) + build_submission_record
                             #   (the record travels BESIDE the request:
                             #   submit_scan(request, submission=...)).
                             #   bluesky-queueserver-api rides the qs-client
@@ -171,10 +198,6 @@ geecs_bluesky/
     nonscalar_save.py       # NonScalarSaveSupport mixin — save-path column + asset docs
     contributor.py          # FreeRunContributorSupport — reference-relative labeling
     scan_context.py         # ScanContext — bin_number / shot_index_in_bin / scan_event_index
-  analysis/                 # Post-run analysis contracts: models (AnalysisResult,
-                            #   FeatureRow, provenance), derived analysis runs
-                            #   published to Tiled, ImageAnalyzerAdapter, camera
-                            #   end-to-end analysis over archived Tiled runs
   capture/                  # the central PVA image-capture daemon (`capture`
                             #   extra: p4p + h5py + pyzmq; CLIs
                             #   geecs-capture-daemon + geecs-capture-diff):
@@ -248,7 +271,16 @@ assembling a `ScanRequest` and yielding from the funnel; Phase 2b-ii) and
 the `function_execute` manual verbs `geecs_move_variable` /
 `geecs_describe_action`, subscribes Tiled + the s-file stop-doc callback,
 registers the optimization loader), `user_group_permissions.yaml`, and
-`deploy/` (systemd unit + runbook).  Read `qserver/README.md` first —
+`deploy/` (two systemd unit templates + runbook: the manager and the
+`geecs-qserver-ready` oneshot).  **A running service means ready (#793)**:
+bluesky-queueserver never opens the worker environment on its own, so a
+restarted manager knows no plans and refuses every submission as "not in
+the list of allowed plans"; the readiness unit runs
+`geecs_bluesky/qserver_ready.py` (`geecs-qserver-ensure-ready`) after
+every manager start — wait, open if closed, wait for idle, **assert
+`plans_allowed` ⊇ `plan_names.GEECS_PLAN_NAMES`** — over
+`bluesky_queueserver`'s own `zmq_single_request` (no qs-client extra on
+the worker).  Read `qserver/README.md` first —
 its Troubleshooting section is the empirical contract (permissions file,
 `--keep-re`, manager-restart-after-install, failed-items-requeue-at-front,
 CLI parses Python literals not JSON).

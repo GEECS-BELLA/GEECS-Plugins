@@ -24,5 +24,7 @@ scripts/fleet_status.sh                                       # from any client:
 
 The unit templates themselves stay with their services
 (`GeecsCAGateway/deploy/`, `GEECS-DataPortal/deploy/`,
-`GeecsBluesky/qserver/deploy/`, `GeecsBluesky/capture/deploy/`,
-`GEECS-MCP/deploy/`); this directory only knows their list.
+`GeecsBluesky/qserver/deploy/` — two units, the manager and the
+`geecs-qserver-ready` readiness oneshot, rendered and enabled together —
+`GeecsBluesky/capture/deploy/`, `GEECS-MCP/deploy/`); this directory only
+knows their list.

@@ -166,6 +166,19 @@ class _FakeManagerAPI:
             return self.task_results.pop(0)
         return {"status": "running"}
 
+    def plans_allowed(self, *, reload=False, user_group=None) -> dict:
+        self.calls.append(("plans_allowed",))
+        return {
+            "success": True,
+            "plans_allowed": {
+                "geecs_scan_request_plan": {"name": "geecs_scan_request_plan"},
+                "geecs_run_action_plan": {"name": "geecs_run_action_plan"},
+            },
+        }
+
+    def close(self) -> None:
+        self.calls.append(("close",))
+
 
 def _client(fake: _FakeManagerAPI) -> ZmqQueueClient:
     client = ZmqQueueClient(
@@ -378,3 +391,44 @@ class TestQueueStartFailure:
         assert not result.ok
         assert "REMAINS queued" in result.message
         assert result.item_uid == "uid-1"
+
+
+class TestPlanListAndClose:
+    """#793 part 2 plumbing: the plan-list read verb and connection release."""
+
+    def test_allowed_plan_names_are_sorted_keys(self):
+        fake = _FakeManagerAPI()
+        assert _client(fake).allowed_plan_names() == [
+            "geecs_run_action_plan",
+            "geecs_scan_request_plan",
+        ]
+        assert ("plans_allowed",) in fake.calls
+
+    def test_closed_environment_reads_as_no_plans(self):
+        fake = _FakeManagerAPI()
+        fake.plans_allowed = lambda **kw: {"success": True, "plans_allowed": {}}
+        assert _client(fake).allowed_plan_names() == []
+
+    def test_close_releases_the_api_once_and_is_idempotent(self):
+        fake = _FakeManagerAPI()
+        client = _client(fake)
+        client.close()
+        client.close()
+        assert fake.calls.count(("close",)) == 1
+        assert client._api is None
+
+    def test_stub_refuses_plan_list_and_closes_quietly(self):
+        stub = StubQueueClient()
+        with pytest.raises(RuntimeError, match="no queueserver configured"):
+            stub.allowed_plan_names()
+        stub.close()
+
+    def test_submit_verbs_use_the_canonical_plan_names(self):
+        from geecs_bluesky.plan_names import RUN_ACTION_PLAN, SCAN_REQUEST_PLAN
+
+        fake = _FakeManagerAPI()
+        client = _client(fake)
+        client.submit_scan({"mode": "noscan"})
+        client.submit_action("reset_plc")
+        added = [c[1]["name"] for c in fake.calls if c[0] == "item_add"]
+        assert added == [SCAN_REQUEST_PLAN, RUN_ACTION_PLAN]

@@ -47,8 +47,13 @@ In another terminal:
 
 ```bash
 qserver status
-qserver environment open
+geecs-qserver-ensure-ready     # opens the environment if closed, waits for idle,
+                               # asserts plans_allowed lists every GEECS plan; exit 0 = ready
 ```
+
+(`qserver environment open` is the raw gesture underneath; the entry point
+adds the plan-list assertion. Under systemd the `geecs-qserver-ready`
+oneshot runs it after every manager start — `deploy/DEPLOYMENT.md` § 2.)
 
 Once the environment is open, `geecs_scan_request_plan` (the document API)
 and the three named plans — `geecs_noscan_plan`, `geecs_scan_plan`,
@@ -137,7 +142,17 @@ correctly — only live GUI progress is lost.
   started" refusal. Background execution bypasses that gate, so the GEECS
   plans guard the other direction themselves: both queue plans refuse to
   start while the session's manual-move lock is held ("manual move in
-  progress — scan/action not started").
+  progress — scan/action not started"). A target the gateway does not
+  serve (a misspelled variable, a pseudo component naming a variable the
+  device does not have) is refused **before** any device is built —
+  "`Device:Variable` is not served by the gateway … — move not started"
+  — the same served-set check the scan path runs over save sets (#772);
+  before that check the symptom was a 20 s `NotConnectedError` naming a
+  PV. Served set unknown (DB unreachable) → the move proceeds with a
+  warning in the worker log. Which callers reach it: the console's
+  movable panel only for **catalog** names (a raw `Device:Variable`
+  string typed there takes the panel's direct gateway put, never this
+  verb); MCP and notebook clients calling `move_variable` for any name.
 
 - **Preview an action** — `geecs_describe_action(name)` via
   `function_execute`: pure config resolution against *this worker's*
@@ -147,6 +162,22 @@ correctly — only live GUI progress is lost.
 
 ## Troubleshooting
 
+- **Every submission fails with `Plan 'geecs_scan_request_plan' is not in
+  the list of allowed plans`** (any plan name, and `qserver status`
+  otherwise looks healthy) — the worker environment is **closed**, so the
+  manager's plan list is empty and every name fails validation
+  identically; the message points at the plan, the cause is the
+  environment (`worker_environment_exists: False`, `re_state: None`,
+  `plans_allowed: {}`). A fresh clone or an unattended restart leaves the
+  manager this way — bluesky-queueserver never opens the environment on
+  its own. Fix: `systemctl restart geecs-qserver-ready` (or
+  `geecs-qserver-ensure-ready` / `qserver environment open` by hand); the
+  console's `worker_ready` preflight names this state instead of relaying
+  the manager string (GEECS-Plugins#793). The same state without any unit
+  failing: the RE worker *child* died while the manager survived — no
+  systemd event fires, `geecs-qserver-ready` stays `active (exited)` from
+  its last successful run, and only the console/MCP preflight refusal
+  names the gesture (`systemctl restart geecs-qserver-ready`).
 - **`queue add` returns `success: False` with no reason at the CLI** — the
   manager was launched without a permissions file, or the file lacks the
   group the client submits as (the `qserver` CLI uses `primary` by

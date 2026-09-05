@@ -2,7 +2,9 @@
 
 How to install the bluesky-queueserver RE Manager as a service on a dedicated
 Ubuntu host, what local services it depends on, and how an operator verifies
-the manager is ready to accept scan requests. The launch mechanics are in
+the manager is ready to accept scan requests. **A running `geecs-qserver`
+means ready**: the companion `geecs-qserver-ready` oneshot opens the worker
+environment and asserts the plan list after every (re)start (§ 2, § 3). The launch mechanics are in
 `../launch_re_manager.sh`; day-to-day operator checks and known failure modes
 are in `../README.md`.
 
@@ -145,19 +147,41 @@ by `deploy/render_units.sh` from the host's `site.env`; the experiment
 `EPICS_CA_AUTO_ADDR_LIST=NO`) reach the process from the same file via
 `EnvironmentFile=`. Nothing is typed into the unit by hand.
 
+The queueserver is **two units** from the same template directory:
+`geecs-qserver.service` (the manager) and `geecs-qserver-ready.service`, a
+`Type=oneshot` readiness assertion ordered after it (`Requires=` +
+`PartOf=`, so it re-runs on every manager restart). bluesky-queueserver
+treats `environment open` as an operator gesture — a freshly restarted
+manager knows *no* plans until something opens its worker environment, and
+until then every submission is refused with "Plan ... is not in the list of
+allowed plans" while `qserver status` looks healthy (live 2026-09-04,
+GEECS-Plugins#793). For GEECS a running service means ready, so the
+readiness unit runs `geecs-qserver-ensure-ready`: wait for the manager,
+open the environment if closed, wait for idle, then **assert
+`plans_allowed` lists every GEECS plan** (`geecs_bluesky.plan_names`),
+exiting non-zero with a precise message otherwise. A separate unit on
+purpose: the manager's start is never blocked by the optimize-stack import
+warm-up, a failed open shows as one failed unit rather than a crash-looping
+manager, and `systemctl restart geecs-qserver-ready` is the recovery
+gesture. The entry point asserts the manager on *this* host (loopback);
+the only override is an optional `QS_CONTROL_ADDR=tcp://host:60615` key in
+`site.env` (it never reads the client-side `[qserver]` section of the
+service account's `config.ini` — that names the worker *clients* talk to).
+
 ```bash
 # as the service account — or run deploy/bootstrap_host.sh for the whole host
 <root>/qs-checkout/deploy/render_units.sh /etc/geecs/site.env ~/deploy-staging
-sudo install -m 0644 ~/deploy-staging/geecs-qserver.service /etc/systemd/system/
+sudo install -m 0644 ~/deploy-staging/geecs-qserver.service ~/deploy-staging/geecs-qserver-ready.service /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable --now geecs-qserver.service
+sudo systemctl enable --now geecs-qserver.service geecs-qserver-ready.service
 ```
 
-Check the service and journal:
+Check both units and the journal:
 
 ```bash
-systemctl status geecs-qserver.service
+systemctl status geecs-qserver.service geecs-qserver-ready.service
 journalctl -u geecs-qserver.service -n 100 --no-pager
+journalctl -u geecs-qserver-ready.service -n 20 --no-pager   # "ready: N allowed plans" or NOT READY: <why>
 ```
 
 The unit intentionally carries a commented-out
@@ -254,22 +278,26 @@ cd <root>/qs-checkout/GeecsBluesky
 poetry run qserver status
 ```
 
-Expected: the manager responds, Redis is reachable, and the RE Manager state
-is visible.
-
-Open the worker environment:
-
-```bash
-poetry run qserver environment open
-```
-
-Then confirm the environment reaches the opened or idle state:
+Expected: the manager responds, Redis is reachable, the worker environment
+exists and is `idle` — the readiness unit opened it. Nothing to type: if
+`qserver status` shows `worker_environment_exists: False` the readiness
+unit failed, was not installed, or ran fine and the RE worker child died
+later while the manager survived (no systemd event fires for that — the
+unit stays `active (exited)`; the console/MCP preflight refusal is what
+names the gesture); read its journal, fix the cause, and re-run it (the
+same command a fresh clone's first deploy uses):
 
 ```bash
-poetry run qserver status
+journalctl -u geecs-qserver-ready.service -n 50 --no-pager
+sudo systemctl restart geecs-qserver-ready.service
+# the equivalent by hand, in the worker's env (exit 0 = ready, 1 = NOT READY: <why>):
+poetry run geecs-qserver-ensure-ready
 ```
 
-If `environment open` fails, inspect the service journal first:
+`qserver environment open` still works as the raw gesture, but it does not
+check the plan list — the readiness entry point does, which is the
+invariant that matters (`plans_allowed` non-empty and containing every
+GEECS plan). If the open itself fails, inspect the manager's journal first:
 
 ```bash
 journalctl -u geecs-qserver.service -n 200 --no-pager

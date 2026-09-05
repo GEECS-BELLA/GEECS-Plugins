@@ -1,0 +1,47 @@
+# GEECS queueserver READINESS assertion — systemd oneshot unit TEMPLATE (#793).
+#
+# Do not copy this file to /etc/systemd/system by hand. Render it from the
+# host's site.env with `deploy/render_units.sh` (or `deploy/bootstrap_host.sh`)
+# — see docs/platform/site_profile.md. @PLACEHOLDER@ holes are filled at render
+# time (paths + identity); ${VARIABLE} values come from site.env at start via
+# EnvironmentFile= (valid only in command arguments).
+#
+# Why this unit exists: bluesky-queueserver treats `environment open` as an
+# operator gesture — a freshly (re)started manager knows NO plans until
+# something opens its worker environment, and until then every submission is
+# refused with "Plan ... is not in the list of allowed plans" while
+# `qserver status` looks healthy. For GEECS a running geecs-qserver means
+# READY TO ACCEPT SCANS, so readiness is part of the service definition:
+# this oneshot waits for the manager, opens the environment if closed, waits
+# for idle, and asserts plans_allowed lists every GEECS plan — exiting
+# non-zero with a precise message otherwise. It is a separate unit on
+# purpose: the manager's start is never blocked by the optimize-stack import
+# warm-up, a failed open shows as ONE failed unit instead of crash-looping
+# the manager, and `systemctl restart geecs-qserver-ready` is the documented
+# recovery gesture. PartOf= re-runs it whenever geecs-qserver restarts.
+
+[Unit]
+Description=GEECS queueserver readiness (open the worker environment, assert the plan list)
+After=geecs-qserver.service
+Requires=geecs-qserver.service
+PartOf=geecs-qserver.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User=@SERVICE_USER@
+Environment=HOME=@SERVICE_HOME@
+# The host's site profile (same file as geecs-qserver). The entry point
+# asserts the manager on THIS host (loopback) — never the client-side
+# [qserver] address in the service account's config.ini; the one override
+# is an optional QS_CONTROL_ADDR=tcp://host:60615 key in site.env.
+EnvironmentFile=@SITE_ENV@
+WorkingDirectory=@CHECKOUT_ROOT@/qs-checkout/GeecsBluesky
+# Poetry's ABSOLUTE path is required (systemd PATH omits ~/.local/bin). The
+# environment open imports the startup profile and warms the optimize stack
+# (torch/botorch) — minutes cold — hence the generous budget.
+ExecStart=@POETRY@ run geecs-qserver-ensure-ready --timeout 600
+TimeoutStartSec=660
+
+[Install]
+WantedBy=multi-user.target

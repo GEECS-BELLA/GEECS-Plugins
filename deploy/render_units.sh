@@ -50,6 +50,7 @@ TEMPLATES=(
     GeecsCAGateway/deploy/geecs-ca-gateway.service
     GEECS-DataPortal/deploy/geecs-data-portal.service
     GeecsBluesky/qserver/deploy/geecs-qserver.service
+    GeecsBluesky/qserver/deploy/geecs-qserver-ready.service
     GeecsBluesky/capture/deploy/geecs-capture.service
     GEECS-MCP/deploy/geecs-mcp.service
 )

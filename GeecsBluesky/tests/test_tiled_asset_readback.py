@@ -514,8 +514,8 @@ def test_find_geecs_run_matches_scan_identity_by_date() -> None:
     assert found is target
 
 
-def test_find_geecs_run_ignores_derived_analysis_runs() -> None:
-    """Raw run lookup should not collide with derived analysis records."""
+def test_find_geecs_run_ignores_legacy_derived_analysis_records() -> None:
+    """Raw run lookup skips the derived-run records a deleted contract left behind."""
     target_time = datetime(
         2026, 6, 29, 21, 0, tzinfo=ZoneInfo("America/Los_Angeles")
     ).timestamp()

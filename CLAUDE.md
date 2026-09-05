@@ -161,9 +161,7 @@ GeecsPvaGateway      →  GEECS-Core (transport, DB, pv_naming),
                         — the distributed PVA image server on the camera
                         servers
 GeecsBluesky         →  GEECS-Data-Utils, GEECS-Core, GEECS-Schemas
-                        (+ ImageAnalysis, optional via the `analysis` extra —
-                        post-run image analysis over archived Tiled runs;
-                        + ScanAnalysis/ImageAnalysis/xopt, optional via the
+                        (+ ScanAnalysis/ImageAnalysis/xopt, optional via the
                         `optimize` extra — the relocated Xopt/evaluator
                         stack in geecs_bluesky.optimization;
                         + bluesky-queueserver-api, optional via the
@@ -363,9 +361,8 @@ The rule binds **new** units, scripts, and defaults. Known residue,
 scheduled for the site-profile arc's literal-cleanup phase
 (`Planning/site_profile/00_overview.md`, PR #775, Phase 4) and not to be fixed
 opportunistically: the `America/Los_Angeles` defaults in
-`geecs_bluesky` (`assets/tiled_readback.py`, `analysis/camera.py`,
-`analysis/assets.py`), the `"Undulator"` default in
-`geecs_data_utils.geecs_paths_config`, and `EXPERIMENT_FILE_IDS` in
+`geecs_bluesky` (`assets/tiled_readback.py`), the `"Undulator"` default
+in `geecs_data_utils.geecs_paths_config`, and `EXPERIMENT_FILE_IDS` in
 `geecs_data_utils.doc_id_lookup`. (The PVA fleet roster is DB-driven since
 GeecsPvaGateway 0.5.0: `geecs_pva_gateway.fleet`, deployed hosts from
 `config.ini [pva] addr_list`.)

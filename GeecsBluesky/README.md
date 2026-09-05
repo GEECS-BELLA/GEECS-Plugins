@@ -99,7 +99,7 @@ Ad-hoc acquisition without touching the data tree: `save_data=False`.
 
 Scalars round-trip from Tiled; native files (images, traces) load through the
 asset contract by date/scan/device — see `geecs_bluesky.assets`
-(`load_asset_from_tiled`) and the `tiled_camera_analysis_sidecar` notebook.
+(`load_asset_from_tiled`) and the `tiled_external_asset_readback` notebook.
 
 ## Running the tests
 

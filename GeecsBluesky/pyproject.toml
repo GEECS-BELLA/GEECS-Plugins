@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "geecs-bluesky"
-version = "0.74.0"
+version = "0.75.0"
 description = "Bluesky / ophyd-async bridge for the GEECS control system"
 authors = ["Sam Barber <sbarber@lbl.gov>"]
 readme = "README.md"
@@ -19,6 +19,8 @@ bluesky = ">=1.12"
 # (write_scalar_files_from_tiled) live here; it also supplies pandas/nptdms
 # transitively, so they are not pinned separately above.
 geecs_data_utils = { path = "../GEECS-Data-Utils", develop = true }
+# optimize-extra only (the evaluators' load_diagnostic); nothing in the core
+# engine imports ImageAnalysis, and no separate extra installs it alone.
 imageanalysis = { path = "../ImageAnalysis", develop = true, optional = true }
 
 # The GEECS access library: GeecsDb metadata, pv_naming, and the
@@ -79,7 +81,6 @@ pyzmq = { version = ">=24", optional = true }
 
 [tool.poetry.extras]
 tiled = ["tiled"]
-analysis = ["imageanalysis"]
 ca = ["aioca"]
 optimize = ["xopt", "gest-api", "scananalysis", "imageanalysis"]
 qserver = ["bluesky-queueserver"]
@@ -89,6 +90,9 @@ capture = ["p4p", "h5py", "pyzmq"]
 [tool.poetry.scripts]
 geecs-capture-daemon = "geecs_bluesky.capture.__main__:main"
 geecs-capture-diff = "geecs_bluesky.capture.diff:main"
+# The service-start readiness assertion (#793): the geecs-qserver-ready
+# oneshot unit runs it after the manager; needs only the qserver extra.
+geecs-qserver-ensure-ready = "geecs_bluesky.qserver_ready:main"
 
 [tool.poetry.group.dev.dependencies]
 pytest = ">=7.0"

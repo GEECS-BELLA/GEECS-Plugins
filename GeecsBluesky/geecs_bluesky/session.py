@@ -1556,6 +1556,12 @@ class GeecsSession:
         GeecsConfigurationError
             Unknown catalog name, a pseudo formula that fails to compile
             or evaluate, or a *value* that is non-finite or not a number.
+        GeecsUnservedVariablesError
+            A target ``Device:Variable`` (any pseudo component) the gateway
+            does not serve — refused before any device is built, message
+            ending ``"— move not started"`` (#772; the same check the
+            scan path runs over save sets, via
+            :func:`~geecs_bluesky.scan_request_runner.check_movable_served`).
         TimeoutError
             The move did not complete within *timeout*.  The in-flight
             coroutine is cancelled, but a GEECS blocking set already sent
@@ -1573,6 +1579,7 @@ class GeecsSession:
             PlainMovableTarget,
             PseudoMovableTarget,
             build_movable,
+            check_movable_served,
             resolve_movable_target,
         )
 
@@ -1600,6 +1607,10 @@ class GeecsSession:
                 target = resolve_movable_target(
                     resolver.resolve_scan_variable(name), name
                 )
+            # #772: an unserved target must refuse here, in words, not 20 s
+            # later as a NotConnectedError naming a PV (pseudo components
+            # included).  Served set unknown → warn and proceed.
+            check_movable_served(self, target)
             movable = build_movable(self, target)
             try:
 
