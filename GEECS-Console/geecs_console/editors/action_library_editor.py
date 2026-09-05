@@ -21,9 +21,9 @@ Design notes
 - Device/variable fields carry a ``QCompleter`` fed by an injectable
   :class:`~geecs_console.services.device_completions.CompletionsProvider`
   (the shared editor seam) — fetched **once on a short-lived daemon thread**
-  (the package's no-QThread rule) and marshaled back through the queued
-  ``completions_ready`` signal, so a slow or unreachable DB never blocks
-  the GUI thread.  The production ``GeecsDbCompletions`` degrades to empty
+  (the package's no-QThread rule) through the shared ``BackgroundResult``
+  worker, whose result lands on the GUI thread, so a slow or unreachable
+  DB never blocks the GUI thread.  The production ``GeecsDbCompletions`` degrades to empty
   on any failure; tests inject fakes; the constructor default is
   ``EmptyCompletions`` (offline).
 - Enter never accepts the dialog (every button is non-default and the

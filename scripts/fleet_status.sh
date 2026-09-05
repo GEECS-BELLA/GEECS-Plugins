@@ -22,7 +22,9 @@
 #   0. reachability — scripts/lab_status.sh tier 1 (the same gate /lab-status
 #      uses); network DOWN => stage 3 only, remote = UNKNOWN
 #   1. self-reported versions over the services' own protocols: Tiled
-#      (HTTP), Data Portal (/health), MCP (port), CA gateway (lab_status.sh
+#      (HTTP), Data Portal (/health), queueserver readiness (0MQ status +
+#      plans_allowed — a listening manager with a closed worker environment
+#      is NOT READY, #793), MCP (port), CA gateway (lab_status.sh
 #      --hardware, read-only CA), PVA image fleet (read-only pvAccess gets)
 #   2. host checkouts over ssh: every geecs-* systemd unit -> the clone it
 #      runs from -> branch / sha / dirty / installed-vs-pyproject version /
@@ -113,26 +115,10 @@ warn() { printf '  [WARN] %s\n' "$1"; }
 skip() { printf '  [ -- ] %s\n' "$1"; }
 info() { printf '         %s\n' "$1"; }
 
-bounded() {  # bounded SECS CMD... — hard wall-clock bound (macOS has no `timeout`)
-    local secs="$1"; shift
-    # Explicit stdin redirect: a background job in a non-interactive shell
-    # otherwise gets /dev/null, which would starve `ssh bash -s` / `python -`.
-    "$@" </dev/stdin &
-    local job=$!
-    # Watchdog detached from our stdout so a command substitution around
-    # bounded() does not wait out the full timeout on the held pipe.
-    ( sleep "$secs"; kill -9 "$job" 2>/dev/null ) >/dev/null 2>&1 </dev/null &
-    local watchdog=$!
-    wait "$job" 2>/dev/null
-    local rc=$?
-    kill "$watchdog" 2>/dev/null
-    wait "$watchdog" 2>/dev/null
-    return "$rc"
-}
-
-port_open() {  # port_open HOST PORT
-    bounded "$TCP_TIMEOUT" bash -c "exec 3<>/dev/tcp/$1/$2" 2>/dev/null
-}
+# bounded / port_open / mysql_probe live once, in the shared lib — the DB
+# special case (never a bare TCP probe of 3306, #790) with them.
+# shellcheck source=lib/net_probes.sh
+. "$REPO_ROOT/scripts/lib/net_probes.sh"
 
 # Every probe also appends a tab-separated key=value record (with a role=)
 # to REC_FILE; scripts/fleet_table.py renders those as the --summary table.
@@ -141,7 +127,11 @@ LOG_FILE="$(mktemp -t fleet_log.XXXXXX)"
 trap 'rm -f "$REC_FILE" "$LOG_FILE"' EXIT
 rec() { printf '%s\n' "$1" >> "$REC_FILE"; }
 if [ "$SUMMARY" -eq 1 ]; then
-    exec 3>&1 1>"$LOG_FILE"   # the verbose log goes to a file; the table is printed at the end
+    # The verbose log goes to a file; the table is printed at the end. stderr
+    # rides along (a probe's library warning — bluesky_queueserver's manager
+    # timeout, say — must land in the log, not above the table; --watch
+    # captures 2>&1 the same way).
+    exec 3>&1 4>&2 1>"$LOG_FILE" 2>&1
 fi
 
 # --- endpoints from config.ini (never hardcode hosts here) -----------------
@@ -223,10 +213,37 @@ if [ "$NET_UP" -eq 1 ]; then
         rec "role=Data Portal	state=down"
     fi
 
-    # Queueserver — ZMQ, no cheap self-report; port liveness (stage 2 finds the process).
+    # Queueserver — listening is not ready: a manager whose RE worker
+    # environment is closed knows zero plans and refuses every submission
+    # (#793). Ask it over 0MQ (status + plans_allowed, read-only) when an env
+    # with bluesky-queueserver is at hand; otherwise fall back to port
+    # liveness and say readiness is unknown. The address is config.ini's
+    # [qserver] control_addr override when set (the same precedence as
+    # geecs_bluesky.qs_client), else tcp://<host>:60615.
     QS_HOST="${WORKER_HOST:-$LAB_HOST}"
-    if port_open "$QS_HOST" 60615; then ok "Queueserver  $QS_HOST:60615  RE Manager control port listening"; rec "role=Queueserver RE Manager	state=ok"
-    else bad "Queueserver  $QS_HOST:60615  RE Manager not listening"; rec "role=Queueserver RE Manager	state=down"; fi
+    QS_ADDR="$(ini_get qserver control_addr)"
+    QS_ADDR="${QS_ADDR:-tcp://$QS_HOST:60615}"
+    QS_LABEL="${QS_ADDR#tcp://}"                 # host:port for the log lines
+    QS_HOST="${QS_LABEL%:*}"; QS_PORT="${QS_LABEL##*:}"
+    qs_py="$(probe_python bluesky_queueserver.manager.comms)"
+    if [ -n "$qs_py" ]; then
+        qs_line="$(bounded "$(( TCP_TIMEOUT * 2 + 10 ))" "$qs_py" "$REPO_ROOT/scripts/qserver_probe.py" --addr "$QS_ADDR" --timeout "$TCP_TIMEOUT")"
+        case $? in
+            0) ok "Queueserver  $QS_LABEL  ready — ${qs_line#ready }"
+               rec "role=Queueserver RE Manager	state=ok" ;;   # the table's Notes column is for attention items only
+            5) warn "Queueserver  $QS_LABEL  NOT READY — ${qs_line#notready }"
+               rec "role=Queueserver RE Manager	state=ok	note=NOT READY: ${qs_line#notready }" ;;
+            6) warn "Queueserver  $QS_LABEL  readiness UNKNOWN — ${qs_line#unknown }"
+               rec "role=Queueserver RE Manager	state=ok	note=readiness unknown: ${qs_line#unknown }" ;;
+            *) bad "Queueserver  $QS_LABEL  ${qs_line:-RE Manager not answering}"
+               rec "role=Queueserver RE Manager	state=down" ;;
+        esac
+    elif port_open "$QS_HOST" "$QS_PORT"; then
+        ok "Queueserver  $QS_LABEL  RE Manager control port listening — readiness UNKNOWN (no env with bluesky-queueserver to ask; see /env-doctor)"
+        rec "role=Queueserver RE Manager	state=ok	note=readiness unknown (port only)"
+    else
+        bad "Queueserver  $QS_LABEL  RE Manager not listening"; rec "role=Queueserver RE Manager	state=down"
+    fi
     if port_open "$QS_HOST" 5568; then ok "Doc proxy    $QS_HOST:5568   document stream listening"; rec "role=Bluesky doc proxy	state=ok"
     else bad "Doc proxy    $QS_HOST:5568   not listening"; rec "role=Bluesky doc proxy	state=down"; fi
 
@@ -649,7 +666,7 @@ fi
 [ "$NET_UP" -eq 0 ] && [ "$LOCAL_ONLY" -eq 0 ] && echo "remote: UNKNOWN (network down) — rerun on the lab network for the deployed picture"
 
 if [ "$SUMMARY" -eq 1 ]; then
-    exec 1>&3
+    exec 1>&3 2>&4
     if [ "$NET_UP" -eq 1 ]; then
         python3 "$REPO_ROOT/scripts/fleet_table.py" < "$REC_FILE"
     elif [ "$LOCAL_ONLY" -eq 1 ]; then

@@ -1022,10 +1022,10 @@ geecs-schemas = {path = "../GEECS-Schemas", develop = true}
 ophyd-async = ">=0.19.3,<1.0"
 
 [package.extras]
-analysis = ["imageanalysis @ file:///Users/samuelbarber/Desktop/Code/Github_repos/GEECS-Plugins/ImageAnalysis"]
+analysis = ["imageanalysis @ file:///GEECS-Plugins/ImageAnalysis"]
 ca = ["aioca (>=1.7)"]
 capture = ["h5py (>=3.8)", "p4p (>=4.1)", "pyzmq (>=24)"]
-optimize = ["gest-api (>=0.1)", "imageanalysis @ file:///Users/samuelbarber/Desktop/Code/Github_repos/GEECS-Plugins/ImageAnalysis", "scananalysis @ file:///Users/samuelbarber/Desktop/Code/Github_repos/GEECS-Plugins/ScanAnalysis", "xopt (>=3.1,<4.0)"]
+optimize = ["gest-api (>=0.1)", "imageanalysis @ file:///GEECS-Plugins/ImageAnalysis", "scananalysis @ file:///GEECS-Plugins/ScanAnalysis", "xopt (>=3.1,<4.0)"]
 qs-client = ["bluesky-queueserver-api (>=0.0.13,<0.0.14)"]
 qserver = ["bluesky-queueserver (>=0.0.25,<0.0.26)"]
 tiled = ["tiled[client] (>=0.2)"]

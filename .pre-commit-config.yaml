@@ -68,14 +68,25 @@ repos:
 
   - repo: local
     hooks:
-      # A lock generated from inside a session worktree records that
-      # worktree's absolute path in the geecs-bluesky extras lines and
-      # dangles when the worktree is removed — always run `poetry lock`
-      # from the main checkout (PR #690 finding 6).
+      # Poetry writes a path dependency inside an extras string as the
+      # absolute file:// URL of the checkout that ran `poetry lock` — a user
+      # home path in a public repo (#753), a dangling path when locked from a
+      # session worktree (PR #690 finding 6). No Poetry knob emits a portable
+      # form, so this auto-fixer normalizes the prefix to file:///GEECS-Plugins/
+      # (inert at install time: the locked package carries its own
+      # lock-relative source url). Ordered BEFORE the reject hook below so a
+      # fresh relock passes in the same run; scripts/commit.sh re-stages it.
+      - id: scrub-lock-paths
+        name: poetry.lock path-dependency URLs normalized to file:///GEECS-Plugins/
+        language: python
+        entry: python scripts/scrub_lock_paths.py
+        files: poetry\.lock$
+      # Backstop: whatever the scrub left (a URL whose last component is not
+      # a repo package) must not carry a worktree or home path.
       - id: poetry-lock-no-worktree-paths
-        name: poetry.lock free of session-worktree paths
+        name: poetry.lock free of session-worktree and home paths
         language: pygrep
-        entry: '\.claude/worktrees/'
+        entry: '\.claude/worktrees/|file:///Users/|file:///home/'
         files: poetry\.lock$
       - id: jupyter-notebook-clear-output
         name: jupyter-notebook-jupyter-clear
