@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -441,6 +442,7 @@ def test_load_asset_from_tiled_finds_run_and_loads_text_array(
         day=23,
         scan_number=42,
         experiment="Undulator",
+        timezone="America/Los_Angeles",
         device_name="U_BCaveMagSpec",
         device_type=MAGSPEC_CAMERA_DEVICE_TYPE,
         event_field="interpSpec",
@@ -509,6 +511,7 @@ def test_find_geecs_run_matches_scan_identity_by_date() -> None:
         day=23,
         scan_number=14,
         experiment="Undulator",
+        timezone="America/Los_Angeles",
     )
 
     assert found is target
@@ -547,6 +550,79 @@ def test_find_geecs_run_ignores_legacy_derived_analysis_records() -> None:
         day=29,
         scan_number=1,
         experiment="Undulator",
+        timezone="America/Los_Angeles",
     )
 
     assert found is raw_run
+
+
+@pytest.fixture
+def host_zone(monkeypatch):
+    """Set the process's local zone rules (POSIX ``TZ`` + ``tzset``), restored after."""
+    if not hasattr(time, "tzset"):
+        pytest.skip("POSIX TZ only")
+
+    def _set(name: str) -> None:
+        monkeypatch.setenv("TZ", name)
+        time.tzset()
+
+    yield _set
+    monkeypatch.undo()
+    time.tzset()
+
+
+def test_timezone_default_is_the_host_zone(host_zone) -> None:
+    """``timezone=None`` uses the host's rules: one instant, two calendar days."""
+    # 21:00 Pacific on 2026-06-29 is 04:00 UTC on 2026-06-30.
+    instant = datetime(
+        2026, 6, 29, 21, 0, tzinfo=ZoneInfo("America/Los_Angeles")
+    ).timestamp()
+    doc = {"time": instant}
+
+    host_zone("America/Los_Angeles")
+    assert tiled_readback._date_matches(doc, year=2026, month=6, day=29, timezone=None)
+    start, stop = tiled_readback._day_bounds(2026, 6, 29, None)
+    assert start.timestamp() <= instant < stop.timestamp()
+
+    host_zone("UTC")
+    assert not tiled_readback._date_matches(
+        doc, year=2026, month=6, day=29, timezone=None
+    )
+    assert tiled_readback._date_matches(doc, year=2026, month=6, day=30, timezone=None)
+    start, stop = tiled_readback._day_bounds(2026, 6, 30, None)
+    assert start.timestamp() <= instant < stop.timestamp()
+
+    # An explicit name still wins over the host zone.
+    assert tiled_readback._date_matches(
+        doc, year=2026, month=6, day=29, timezone="America/Los_Angeles"
+    )
+
+
+def test_host_zone_day_bounds_follow_dst(host_zone) -> None:
+    """Bounds use the rules for *that* date, not today's offset (the fixed-offset trap)."""
+    host_zone("America/Los_Angeles")
+    winter, _ = tiled_readback._day_bounds(2026, 1, 15, None)
+    summer, _ = tiled_readback._day_bounds(2026, 7, 15, None)
+    assert winter.utcoffset().total_seconds() == -8 * 3600
+    assert summer.utcoffset().total_seconds() == -7 * 3600
+    assert (
+        winter.timestamp()
+        == datetime(2026, 1, 15, tzinfo=ZoneInfo("America/Los_Angeles")).timestamp()
+    )
+
+    # The stop bound is the *next* local midnight, not start + 24 h: on the
+    # fall-back day (25 h long) a run in the last local hour must still fit.
+    fall_back_start, fall_back_stop = tiled_readback._day_bounds(2026, 11, 1, None)
+    late_run = datetime(
+        2026, 11, 1, 23, 30, tzinfo=ZoneInfo("America/Los_Angeles")
+    ).timestamp()
+    assert fall_back_start.timestamp() <= late_run < fall_back_stop.timestamp()
+    assert (
+        fall_back_stop.timestamp()
+        == datetime(2026, 11, 2, tzinfo=ZoneInfo("America/Los_Angeles")).timestamp()
+    )
+    _, spring_stop = tiled_readback._day_bounds(2026, 3, 8, None)
+    assert (
+        spring_stop.timestamp()
+        == datetime(2026, 3, 9, tzinfo=ZoneInfo("America/Los_Angeles")).timestamp()
+    )

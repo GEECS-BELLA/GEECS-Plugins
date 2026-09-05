@@ -249,9 +249,11 @@ Order chosen so each step is reversible by restarting what was stopped:
   writes `fleet_status_<experiment>.bob`; `scripts/fleet_status.sh`
   reads the `.bob` for its experiment. HTU's file is regenerated and the
   four unreachable hosts are pruned or confirmed with Sam.
-- Timezone: the four `America/Los_Angeles` defaults in `geecs_bluesky`
-  (assets, camera, tiled_readback ×3) default to the host zone
-  (`datetime.now().astimezone().tzinfo`); the portal unit
+- Timezone: the `America/Los_Angeles` defaults in `geecs_bluesky`
+  (`assets/tiled_readback.py`; the `analysis/` copies went with #786)
+  default to the host zone, resolved per queried date through a naive
+  local midnight's `astimezone()` — not `datetime.now().astimezone().tzinfo`,
+  whose fixed offset is wrong across a DST change; the portal unit
   inherits `TZ` from `site.env` via `EnvironmentFile=` (no template hole). Minor bump.
 - `geecs_paths_config.py` default experiment `"Undulator"` → required,
   or read from `config.ini [Experiment]` (it already reads the file).
