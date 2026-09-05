@@ -1,0 +1,2560 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "ArrayCalibrationSpec": {
+      "additionalProperties": false,
+      "description": "Pixel-to-energy map given explicitly, one energy per image column.",
+      "properties": {
+        "kind": {
+          "const": "array",
+          "default": "array",
+          "description": "Explicit per-column energy axis.",
+          "title": "Kind",
+          "type": "string"
+        },
+        "values": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "number"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Inline energy axis, one value per column.",
+          "title": "Values"
+        },
+        "file": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "A saved .npy energy axis (alternative to values).",
+          "title": "File"
+        }
+      },
+      "title": "ArrayCalibrationSpec",
+      "type": "object"
+    },
+    "AutodetectBackgroundSpec": {
+      "additionalProperties": false,
+      "description": "Use the averaged-background file another analyzer already wrote for this scan.\n\nLooks in the day's ``analysis/`` folder for exactly one\n``ScanNNN<device>_averaged.<ext>`` matching this scan and device.",
+      "properties": {},
+      "title": "AutodetectBackgroundSpec",
+      "type": "object"
+    },
+    "BCaveMagOptSpec": {
+      "additionalProperties": false,
+      "description": "HTU BCave stitched-spectrum optimizer metrics over the trace pipeline.",
+      "properties": {
+        "kind": {
+          "const": "bcave_mag_opt",
+          "default": "bcave_mag_opt",
+          "description": "HTU BCave stitched-spectrum optimizer analyzer.",
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "title": "BCaveMagOptSpec",
+      "type": "object"
+    },
+    "BCaveMagSpecStitcherSpec": {
+      "additionalProperties": false,
+      "description": "HTU BCave magspec camera with a Gaussian-weighted vertical lineout for optimization.",
+      "properties": {
+        "kind": {
+          "const": "bcave_magspec_stitcher",
+          "default": "bcave_magspec_stitcher",
+          "description": "HTU BCave magspec camera analyzer.",
+          "title": "Kind",
+          "type": "string"
+        },
+        "gaussian_sigma": {
+          "default": 20.0,
+          "description": "Width of the Gaussian weighting, pixels.",
+          "exclusiveMinimum": 0,
+          "title": "Gaussian Sigma",
+          "type": "number"
+        },
+        "gaussian_center": {
+          "default": 250.0,
+          "description": "Centre of the Gaussian weighting, pixels.",
+          "title": "Gaussian Center",
+          "type": "number"
+        }
+      },
+      "title": "BCaveMagSpecStitcherSpec",
+      "type": "object"
+    },
+    "BackgroundConfig": {
+      "additionalProperties": false,
+      "description": "Subtract a background from every frame before analysis.\n\nTwo stages: a primary background (a constant level, a saved frame, or\nthe frame's own border), then an optional extra constant taken off\nafterwards.  Backgrounds that depend on the scan \u2014 another scan's\ndark frames, or an aggregate of this scan's own shots \u2014 are requested\nwith ``scan.background_source`` on the diagnostic instead; the scan\nanalyzer resolves that to a file and rewrites this section to\n``from_file`` before shots are processed.",
+      "properties": {
+        "method": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/BackgroundMethod"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Primary background: 'constant' subtracts constant_level, 'from_file' subtracts the saved frame at file_path, 'edge' estimates the level from the frame border. Leave unset to apply only additional_constant."
+        },
+        "file_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "format": "path",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Saved background frame for method 'from_file'. May contain the {scan_dir} placeholder, filled in with the scan folder at run time.",
+          "title": "File Path"
+        },
+        "constant_level": {
+          "default": 0.0,
+          "description": "Level subtracted for method 'constant'; also the fallback when a 'from_file' background cannot be read.",
+          "minimum": 0.0,
+          "title": "Constant Level",
+          "type": "number"
+        },
+        "additional_constant": {
+          "default": 0.0,
+          "description": "Extra constant subtracted after the primary background.",
+          "title": "Additional Constant",
+          "type": "number"
+        },
+        "edge_width": {
+          "default": 1,
+          "description": "Border width in pixels averaged for method 'edge'.",
+          "minimum": 1,
+          "title": "Edge Width",
+          "type": "integer"
+        }
+      },
+      "title": "BackgroundConfig",
+      "type": "object"
+    },
+    "BackgroundMethod": {
+      "description": "How the primary background is obtained.",
+      "enum": [
+        "constant",
+        "from_file",
+        "edge"
+      ],
+      "title": "BackgroundMethod",
+      "type": "string"
+    },
+    "BackgroundSource": {
+      "additionalProperties": false,
+      "description": "Where a scan-dependent background comes from \u2014 exactly one of the three.\n\nFor a fixed background file use ``image.background`` directly; this\ndirective is for backgrounds that need scan context.  The scan\nanalyzer resolves it to a cached ``.npy`` and points the image\nsection's background at that file before shots are processed.",
+      "properties": {
+        "scan_number": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Average this earlier scan's frames of the same device and use that.",
+          "title": "Scan Number"
+        },
+        "from_current_scan": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FromCurrentScanSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Collapse this scan's own shots into a background."
+        },
+        "autodetect": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AutodetectBackgroundSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Find a precomputed averaged background in the day's analysis folder."
+        }
+      },
+      "title": "BackgroundSource",
+      "type": "object"
+    },
+    "BeamAnalyzerSpec": {
+      "additionalProperties": false,
+      "description": "Beam profile metrics: centroid, rms size, FWHM, total counts along x, y and the 45\u00b0 axes.",
+      "properties": {
+        "kind": {
+          "const": "beam",
+          "default": "beam",
+          "description": "Beam profile analyzer.",
+          "title": "Kind",
+          "type": "string"
+        },
+        "compute_slopes": {
+          "default": false,
+          "description": "Also compute beam slope / straightness metrics from line-by-line fits. Expensive; leave off unless the tilt matters.",
+          "title": "Compute Slopes",
+          "type": "boolean"
+        },
+        "enabled_stats": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Emit only these statistics (e.g. ['image_total', 'x_CoM', 'y_fwhm']); unset emits all 18. Names are <axis>_<stat>.",
+          "title": "Enabled Stats"
+        }
+      },
+      "title": "BeamAnalyzerSpec",
+      "type": "object"
+    },
+    "CameraConfig": {
+      "additionalProperties": false,
+      "description": "How a camera's frames are cleaned up before the analyzer measures them.\n\nEach processing section is optional and only runs when it is listed in\n``pipeline``; the list order is the execution order.  An empty pipeline\npasses the raw frame straight to the analyzer.  Identity (which device,\nwhat to call the outputs) lives on the enclosing diagnostic, not here.",
+      "properties": {
+        "type": {
+          "const": "camera",
+          "default": "camera",
+          "description": "Marks this as a camera (2D image) section.",
+          "title": "Type",
+          "type": "string"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Free-text note about this camera / view.",
+          "title": "Description"
+        },
+        "metadata": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Free-form documentation (location, notes, calibration constants). Nothing in the pipeline reads it; keep such notes here so the rest of the schema can stay strict.",
+          "title": "Metadata"
+        },
+        "bit_depth": {
+          "default": 16,
+          "description": "Camera bit depth: 8, 10, 12, 14, 16 or 32.",
+          "maximum": 32,
+          "minimum": 8,
+          "title": "Bit Depth",
+          "type": "integer"
+        },
+        "roi": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ROIConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Region-of-interest crop."
+        },
+        "background": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/BackgroundConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Background subtraction."
+        },
+        "crosshair_masking": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CrosshairMaskingConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Crosshair masking."
+        },
+        "circular_mask": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CircularMaskConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Circular masking."
+        },
+        "vignette": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/VignetteConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Vignette correction."
+        },
+        "thresholding": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ThresholdingConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Thresholding."
+        },
+        "filtering": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FilteringConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Smoothing filters."
+        },
+        "normalization": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NormalizationConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Intensity normalization."
+        },
+        "transforms": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TransformConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Rotation, flips, distortion correction."
+        },
+        "pipeline": {
+          "description": "The steps that run, in order. A step runs only if listed here AND its section is present; empty means the raw frame is analyzed.",
+          "items": {
+            "$ref": "#/$defs/ProcessingStepType"
+          },
+          "title": "Pipeline",
+          "type": "array"
+        }
+      },
+      "title": "CameraConfig",
+      "type": "object"
+    },
+    "CircularMaskConfig": {
+      "additionalProperties": false,
+      "description": "Keep (or discard) only the pixels inside a circle.",
+      "properties": {
+        "center": {
+          "default": [
+            512,
+            512
+          ],
+          "description": "Pixel coordinates (x, y) of the circle centre.",
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "integer"
+            }
+          ],
+          "title": "Center",
+          "type": "array"
+        },
+        "radius": {
+          "default": 100,
+          "description": "Circle radius in pixels.",
+          "exclusiveMinimum": 0,
+          "title": "Radius",
+          "type": "integer"
+        },
+        "mask_outside": {
+          "default": true,
+          "description": "True masks everything outside the circle; False masks the inside.",
+          "title": "Mask Outside",
+          "type": "boolean"
+        },
+        "mask_value": {
+          "default": 0.0,
+          "description": "Pixel value written into the masked region.",
+          "title": "Mask Value",
+          "type": "number"
+        }
+      },
+      "title": "CircularMaskConfig",
+      "type": "object"
+    },
+    "CrosshairConfig": {
+      "additionalProperties": false,
+      "description": "One crosshair to mask out of the frame (a fiducial drawn on a screen, say).",
+      "properties": {
+        "center": {
+          "description": "Pixel coordinates (x, y) of the crosshair centre.",
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "integer"
+            }
+          ],
+          "title": "Center",
+          "type": "array"
+        },
+        "width": {
+          "description": "Crosshair width in pixels.",
+          "exclusiveMinimum": 0,
+          "title": "Width",
+          "type": "integer"
+        },
+        "height": {
+          "description": "Crosshair height in pixels.",
+          "exclusiveMinimum": 0,
+          "title": "Height",
+          "type": "integer"
+        },
+        "thickness": {
+          "description": "Thickness of the crosshair lines in pixels.",
+          "exclusiveMinimum": 0,
+          "title": "Thickness",
+          "type": "integer"
+        },
+        "angle": {
+          "default": 0.0,
+          "description": "Rotation of the crosshair in degrees.",
+          "title": "Angle",
+          "type": "number"
+        }
+      },
+      "required": [
+        "center",
+        "width",
+        "height",
+        "thickness"
+      ],
+      "title": "CrosshairConfig",
+      "type": "object"
+    },
+    "CrosshairMaskingConfig": {
+      "additionalProperties": false,
+      "description": "Blank out one or more crosshairs so they do not count as signal.",
+      "properties": {
+        "crosshairs": {
+          "description": "The crosshairs to mask.",
+          "items": {
+            "$ref": "#/$defs/CrosshairConfig"
+          },
+          "title": "Crosshairs",
+          "type": "array"
+        },
+        "mask_value": {
+          "default": 0.0,
+          "description": "Pixel value written into the masked region.",
+          "title": "Mask Value",
+          "type": "number"
+        }
+      },
+      "title": "CrosshairMaskingConfig",
+      "type": "object"
+    },
+    "Data1DLoading": {
+      "additionalProperties": false,
+      "description": "How to read one trace file into an x-vs-y array.\n\nMirrors ``geecs_data_utils.io.array1d.Data1DConfig`` field for field \u2014\nthe reader is handed ``Data1DConfig.model_validate(loading.model_dump())``\n\u2014 so the schema package stays pydantic-only while the reader keeps its\nown model.",
+      "properties": {
+        "data_type": {
+          "$ref": "#/$defs/Data1DType",
+          "description": "File format: 'tek_scope_hdf5' or 'tdms_scope' for scope captures, 'csv' / 'tsv' for delimited text, 'npy' for a saved array."
+        },
+        "trace_index": {
+          "default": 0,
+          "description": "Which trace / channel holds the y values (scope formats).",
+          "minimum": 0,
+          "title": "Trace Index",
+          "type": "integer"
+        },
+        "x_trace_index": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Which trace holds the x values; unset derives x from the waveform properties (scope formats).",
+          "title": "X Trace Index"
+        },
+        "delimiter": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Column delimiter for csv/tsv; unset uses the format's default.",
+          "title": "Delimiter"
+        },
+        "x_column": {
+          "default": 0,
+          "description": "Column index of x (text formats).",
+          "minimum": 0,
+          "title": "X Column",
+          "type": "integer"
+        },
+        "y_column": {
+          "default": 1,
+          "description": "Column index of y (text formats).",
+          "minimum": 0,
+          "title": "Y Column",
+          "type": "integer"
+        },
+        "auxiliary_columns": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "description": "Extra named columns to load alongside y, for analyzers that need them (name -> column index).",
+          "title": "Auxiliary Columns",
+          "type": "object"
+        }
+      },
+      "required": [
+        "data_type"
+      ],
+      "title": "Data1DLoading",
+      "type": "object"
+    },
+    "Data1DType": {
+      "description": "The file formats the 1D reader understands.",
+      "enum": [
+        "tek_scope_hdf5",
+        "tdms_scope",
+        "csv",
+        "tsv",
+        "npy"
+      ],
+      "title": "Data1DType",
+      "type": "string"
+    },
+    "DnnAxisCalibrationSpec": {
+      "additionalProperties": false,
+      "description": "The MATLAB-era DNN spectrometer calibration: camera geometry + electron trajectory tables.",
+      "properties": {
+        "kind": {
+          "const": "dnn_axis",
+          "default": "dnn_axis",
+          "description": "DNN camera + trajectory table calibration.",
+          "title": "Kind",
+          "type": "string"
+        },
+        "camera_calibration_file": {
+          "description": "Tab-delimited camera geometry table (one row per camera).",
+          "title": "Camera Calibration File",
+          "type": "string"
+        },
+        "trajectory_calibration_file": {
+          "description": "Tab-delimited screen-position vs momentum table.",
+          "title": "Trajectory Calibration File",
+          "type": "string"
+        },
+        "camera_number": {
+          "description": "Which camera row of the geometry table to use.",
+          "maximum": 4,
+          "minimum": 1,
+          "title": "Camera Number",
+          "type": "integer"
+        },
+        "magnetic_field_t": {
+          "default": 1.0,
+          "description": "Dipole field in tesla the trajectory table is scaled to. A live teslameter reading in the shot's auxiliary data overrides it.",
+          "title": "Magnetic Field T",
+          "type": "number"
+        },
+        "lanex_calibration_file": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Lanex counts-to-charge table; when given, spectra are reported in fC.",
+          "title": "Lanex Calibration File"
+        }
+      },
+      "required": [
+        "camera_calibration_file",
+        "trajectory_calibration_file",
+        "camera_number"
+      ],
+      "title": "DnnAxisCalibrationSpec",
+      "type": "object"
+    },
+    "DownrampPhaseSpec": {
+      "additionalProperties": false,
+      "description": "HTU downramp phase-map analyzer over the camera pipeline.",
+      "properties": {
+        "kind": {
+          "const": "downramp_phase",
+          "default": "downramp_phase",
+          "description": "HTU downramp phase analyzer.",
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "title": "DownrampPhaseSpec",
+      "type": "object"
+    },
+    "FilteringConfig": {
+      "additionalProperties": false,
+      "description": "Smooth the frame with a Gaussian and/or a median filter.",
+      "properties": {
+        "gaussian_sigma": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Gaussian blur width in pixels; unset skips the Gaussian.",
+          "title": "Gaussian Sigma"
+        },
+        "median_kernel_size": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Median filter window (odd, in pixels); unset skips the median.",
+          "title": "Median Kernel Size"
+        }
+      },
+      "title": "FilteringConfig",
+      "type": "object"
+    },
+    "FrogRetrievalSpec": {
+      "additionalProperties": false,
+      "description": "Grenouille / FROG pulse retrieval through the vendor DLL (Windows-only at run time).",
+      "properties": {
+        "kind": {
+          "const": "frog_retrieval",
+          "default": "frog_retrieval",
+          "description": "FROG pulse retrieval via the vendor DLL.",
+          "title": "Kind",
+          "type": "string"
+        },
+        "delt": {
+          "default": 0.85,
+          "description": "Time-delay step per raw pixel, fs.",
+          "title": "Delt",
+          "type": "number"
+        },
+        "dellam": {
+          "default": -0.085,
+          "description": "Wavelength step per raw pixel, nm (negative for Grenouille).",
+          "title": "Dellam",
+          "type": "number"
+        },
+        "lam0": {
+          "default": 400.0,
+          "description": "Centre wavelength of the trace, nm.",
+          "title": "Lam0",
+          "type": "number"
+        },
+        "N": {
+          "default": 512,
+          "description": "Retrieval grid size: 512, 256, 128 or 64.",
+          "title": "N",
+          "type": "integer"
+        },
+        "target_error": {
+          "default": 0.005,
+          "description": "FROG error at which the retrieval stops early.",
+          "title": "Target Error",
+          "type": "number"
+        },
+        "max_time_seconds": {
+          "default": 5.0,
+          "description": "Wall-clock cap on one retrieval, seconds.",
+          "title": "Max Time Seconds",
+          "type": "number"
+        },
+        "max_iterations": {
+          "default": 1000000000,
+          "description": "Iteration cap on one retrieval.",
+          "title": "Max Iterations",
+          "type": "integer"
+        },
+        "noise_subtype": {
+          "default": 4,
+          "description": "Vendor NoiseSubtraction SUBTYPE parameter.",
+          "title": "Noise Subtype",
+          "type": "integer"
+        },
+        "noise_rad": {
+          "default": 1.0,
+          "description": "Vendor NoiseSubtraction RAD parameter.",
+          "title": "Noise Rad",
+          "type": "number"
+        }
+      },
+      "title": "FrogRetrievalSpec",
+      "type": "object"
+    },
+    "FrogSpectralPhaseSpec": {
+      "additionalProperties": false,
+      "description": "Fit a polynomial spectral phase to a retrieved FROG spectrum (GDD, TOD, \u2026).",
+      "properties": {
+        "kind": {
+          "const": "frog_spectral_phase",
+          "default": "frog_spectral_phase",
+          "description": "Spectral-phase polynomial fit.",
+          "title": "Kind",
+          "type": "string"
+        },
+        "fit_order": {
+          "default": 3,
+          "description": "Polynomial order of the phase fit.",
+          "minimum": 0,
+          "title": "Fit Order",
+          "type": "integer"
+        },
+        "mask_threshold": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": 0.5,
+          "description": "Fit only where the spectral intensity exceeds this fraction of its peak.",
+          "title": "Mask Threshold"
+        },
+        "min_points": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Minimum number of points required for a fit.",
+          "title": "Min Points"
+        },
+        "fit_num_points": {
+          "default": 300,
+          "description": "Number of points the fitted phase is evaluated on.",
+          "minimum": 2,
+          "title": "Fit Num Points",
+          "type": "integer"
+        },
+        "reference_wavelength_nm": {
+          "default": 800.0,
+          "description": "Wavelength the phase expansion is taken about, nm.",
+          "exclusiveMinimum": 0,
+          "title": "Reference Wavelength Nm",
+          "type": "number"
+        },
+        "sign_reference_order": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Polynomial order whose sign is forced to sign_reference; unset leaves the fit as is.",
+          "title": "Sign Reference Order"
+        },
+        "sign_reference": {
+          "default": 1.0,
+          "description": "Sign (+1 / -1) imposed on sign_reference_order.",
+          "title": "Sign Reference",
+          "type": "number"
+        },
+        "sign_epsilon": {
+          "default": 0.0,
+          "description": "Dead band around zero within which the sign is not flipped.",
+          "minimum": 0,
+          "title": "Sign Epsilon",
+          "type": "number"
+        }
+      },
+      "title": "FrogSpectralPhaseSpec",
+      "type": "object"
+    },
+    "FromCurrentScanSpec": {
+      "additionalProperties": false,
+      "description": "Build the background from this scan's own shots, collapsed pixel by pixel.\n\n'median' is the safe choice when shots genuinely vary (jitter, a\nparameter sweep).  'percentile' suits cases where the background sits\nbelow the signal at a known fraction of pixels.  Risky when shots are\nnearly identical \u2014 the background can swallow the signal \u2014 so avoid\nit inside optimizer loops.",
+      "properties": {
+        "method": {
+          "default": "median",
+          "description": "How the shot stack is collapsed: per-pixel median or percentile.",
+          "enum": [
+            "median",
+            "percentile"
+          ],
+          "title": "Method",
+          "type": "string"
+        },
+        "percentile": {
+          "anyOf": [
+            {
+              "maximum": 100.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Percentile (0-100) for method 'percentile'; must be unset for 'median'.",
+          "title": "Percentile"
+        }
+      },
+      "title": "FromCurrentScanSpec",
+      "type": "object"
+    },
+    "HasoAnalyzerSpec": {
+      "additionalProperties": false,
+      "description": "HASO wavefront sensor: slopes to phase and Zernike terms through WaveKit (Windows, licensed).",
+      "properties": {
+        "kind": {
+          "const": "haso",
+          "default": "haso",
+          "description": "HASO wavefront analyzer via WaveKit.",
+          "title": "Kind",
+          "type": "string"
+        },
+        "wavekit_config_file_path": {
+          "description": "The WaveKit sensor configuration (.dat) for this HASO head.",
+          "format": "path",
+          "title": "Wavekit Config File Path",
+          "type": "string"
+        },
+        "mask": {
+          "$ref": "#/$defs/PupilMask",
+          "description": "Pupil mask applied to the slopes."
+        },
+        "background_path": {
+          "anyOf": [
+            {
+              "format": "path",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "A .has slopes file subtracted as background.",
+          "title": "Background Path"
+        },
+        "laser_wavelength": {
+          "default": 800.0,
+          "description": "Probe wavelength, nm.",
+          "exclusiveMinimum": 0,
+          "title": "Laser Wavelength",
+          "type": "number"
+        }
+      },
+      "required": [
+        "wavekit_config_file_path"
+      ],
+      "title": "HasoAnalyzerSpec",
+      "type": "object"
+    },
+    "HiResMagCamSpec": {
+      "additionalProperties": false,
+      "description": "HTU high-resolution magspec camera: beam metrics plus a bow-tie fit of the trace.",
+      "properties": {
+        "kind": {
+          "const": "hi_res_mag_cam",
+          "default": "hi_res_mag_cam",
+          "description": "HTU HiResMagCam bow-tie analyzer.",
+          "title": "Kind",
+          "type": "string"
+        },
+        "n_beam_size_clearance": {
+          "default": 4,
+          "description": "Bow-tie fit: beam-size clearance in pixels.",
+          "minimum": 0,
+          "title": "N Beam Size Clearance",
+          "type": "integer"
+        },
+        "min_total_counts": {
+          "default": 2500.0,
+          "description": "Bow-tie fit: skip frames with fewer total counts.",
+          "minimum": 0,
+          "title": "Min Total Counts",
+          "type": "number"
+        },
+        "threshold_factor": {
+          "default": 10.0,
+          "description": "Bow-tie fit: threshold factor.",
+          "exclusiveMinimum": 0,
+          "title": "Threshold Factor",
+          "type": "number"
+        }
+      },
+      "title": "HiResMagCamSpec",
+      "type": "object"
+    },
+    "IctAnalyzerSpec": {
+      "additionalProperties": false,
+      "description": "Integrating current transformer: charge from a scope trace by low-pass filtering and integrating.",
+      "properties": {
+        "kind": {
+          "const": "ict",
+          "default": "ict",
+          "description": "ICT charge analyzer.",
+          "title": "Kind",
+          "type": "string"
+        },
+        "butterworth_order": {
+          "default": 1,
+          "description": "Order of the low-pass Butterworth filter.",
+          "minimum": 1,
+          "title": "Butterworth Order",
+          "type": "integer"
+        },
+        "butterworth_crit_f": {
+          "default": 0.125,
+          "description": "Normalised critical frequency of the low-pass filter.",
+          "exclusiveMinimum": 0,
+          "title": "Butterworth Crit F",
+          "type": "number"
+        },
+        "calibration_factor": {
+          "default": 0.1,
+          "description": "ICT calibration factor, V\u00b7s per C.",
+          "title": "Calibration Factor",
+          "type": "number"
+        },
+        "dt": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Sample interval in seconds; unset derives it from the trace.",
+          "title": "Dt"
+        }
+      },
+      "title": "IctAnalyzerSpec",
+      "type": "object"
+    },
+    "Line1DConfig": {
+      "additionalProperties": false,
+      "description": "How a device's traces are loaded and cleaned up before the analyzer measures them.\n\nThe scale factors apply first, so ROI bounds and thresholds are written\nin the scaled units.  Each processing section is optional and runs only\nwhen listed in ``pipeline``, in that order.",
+      "properties": {
+        "type": {
+          "const": "line",
+          "default": "line",
+          "description": "Marks this as a line (1D trace) section.",
+          "title": "Type",
+          "type": "string"
+        },
+        "description": {
+          "default": "",
+          "description": "Free-text note about this trace.",
+          "title": "Description",
+          "type": "string"
+        },
+        "metadata": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Free-form documentation (location, notes, calibration constants). Nothing in the pipeline reads it.",
+          "title": "Metadata"
+        },
+        "data_loading": {
+          "$ref": "#/$defs/Data1DLoading",
+          "description": "How to read one trace file."
+        },
+        "label": {
+          "default": "x vs y",
+          "description": "Human-readable description of what the trace is, e.g. 'charge density vs energy'. Shown on figures; not interpreted.",
+          "title": "Label",
+          "type": "string"
+        },
+        "x_units": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "X-axis units (e.g. 'nm', 's'); overrides units read from the file.",
+          "title": "X Units"
+        },
+        "y_units": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Y-axis units (e.g. 'V', 'counts'); overrides units read from the file.",
+          "title": "Y Units"
+        },
+        "x_scale_factor": {
+          "default": 1.0,
+          "description": "Multiplier applied to x before any processing (1e9 turns seconds into nanoseconds). ROI bounds are in the scaled units.",
+          "title": "X Scale Factor",
+          "type": "number"
+        },
+        "y_scale_factor": {
+          "default": 1.0,
+          "description": "Multiplier applied to y before any processing. Thresholds are in the scaled units.",
+          "title": "Y Scale Factor",
+          "type": "number"
+        },
+        "processing_dtype": {
+          "default": "float64",
+          "description": "NumPy dtype used while processing.",
+          "enum": [
+            "float16",
+            "float32",
+            "float64",
+            "int8",
+            "int16",
+            "int32",
+            "int64",
+            "uint8",
+            "uint16",
+            "uint32",
+            "uint64"
+          ],
+          "title": "Processing Dtype",
+          "type": "string"
+        },
+        "storage_dtype": {
+          "default": "float32",
+          "description": "NumPy dtype used when saving processed traces.",
+          "enum": [
+            "float16",
+            "float32",
+            "float64",
+            "int8",
+            "int16",
+            "int32",
+            "int64",
+            "uint8",
+            "uint16",
+            "uint32",
+            "uint64"
+          ],
+          "title": "Storage Dtype",
+          "type": "string"
+        },
+        "roi": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LineROIConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "X-range crop."
+        },
+        "interpolation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LineInterpolationConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Resampling onto a uniform x grid."
+        },
+        "background": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LineBackgroundConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Background subtraction."
+        },
+        "filtering": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LineFilteringConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Smoothing."
+        },
+        "thresholding": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LineThresholdingConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Thresholding."
+        },
+        "pipeline": {
+          "description": "The steps that run, in order. A step runs only if listed here AND its section is present; empty means the raw trace is analyzed.",
+          "items": {
+            "$ref": "#/$defs/LinePipelineStepType"
+          },
+          "title": "Pipeline",
+          "type": "array"
+        }
+      },
+      "required": [
+        "data_loading"
+      ],
+      "title": "Line1DConfig",
+      "type": "object"
+    },
+    "LineAnalyzerSpec": {
+      "additionalProperties": false,
+      "description": "Run the trace pipeline and report basic trace statistics (peak, centroid, width, area).",
+      "properties": {
+        "kind": {
+          "const": "line",
+          "default": "line",
+          "description": "Trace statistics analyzer.",
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "title": "LineAnalyzerSpec",
+      "type": "object"
+    },
+    "LineBackgroundConfig": {
+      "additionalProperties": false,
+      "description": "Subtract a background from the trace's y values.\n\nField names match the camera :class:`~geecs_schemas.analysis.processing_2d.BackgroundConfig`\n(``constant_level``, ``file_path``) since 0.19.0; the older 1D spellings\n``constant_value`` / ``background_file`` are lifted automatically.",
+      "properties": {
+        "method": {
+          "$ref": "#/$defs/LineBackgroundMethod",
+          "default": "none",
+          "description": "'constant' subtracts constant_level from y; 'from_file' subtracts the trace at file_path (any supported data_type); 'none' skips."
+        },
+        "constant_level": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Level subtracted from y for method 'constant'.",
+          "title": "Constant Level"
+        },
+        "file_path": {
+          "anyOf": [
+            {
+              "format": "path",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Background trace file for method 'from_file'.",
+          "title": "File Path"
+        }
+      },
+      "title": "LineBackgroundConfig",
+      "type": "object"
+    },
+    "LineBackgroundMethod": {
+      "description": "How the trace background is obtained.",
+      "enum": [
+        "none",
+        "constant",
+        "from_file"
+      ],
+      "title": "LineBackgroundMethod",
+      "type": "string"
+    },
+    "LineFilterMethod": {
+      "description": "Smoothing filters for traces.",
+      "enum": [
+        "none",
+        "gaussian",
+        "median",
+        "bilateral"
+      ],
+      "title": "LineFilterMethod",
+      "type": "string"
+    },
+    "LineFilteringConfig": {
+      "additionalProperties": false,
+      "description": "Smooth the trace.",
+      "properties": {
+        "method": {
+          "$ref": "#/$defs/LineFilterMethod",
+          "default": "none",
+          "description": "'gaussian' (uses sigma), 'median' (uses kernel_size), 'bilateral', or 'none'."
+        },
+        "kernel_size": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": 3,
+          "description": "Filter window in samples (odd), for the median filter.",
+          "title": "Kernel Size"
+        },
+        "sigma": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": 1.0,
+          "description": "Gaussian width in samples, for the Gaussian filter.",
+          "title": "Sigma"
+        }
+      },
+      "title": "LineFilteringConfig",
+      "type": "object"
+    },
+    "LineInterpolationConfig": {
+      "additionalProperties": false,
+      "description": "Resample the trace onto a uniform x grid (so waterfall plots share an axis).",
+      "properties": {
+        "num_points": {
+          "default": 1500,
+          "description": "Number of points in the resampled trace.",
+          "minimum": 10,
+          "title": "Num Points",
+          "type": "integer"
+        },
+        "x_min": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Start of the grid; unset uses the data minimum.",
+          "title": "X Min"
+        },
+        "x_max": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "End of the grid; unset uses the data maximum.",
+          "title": "X Max"
+        }
+      },
+      "title": "LineInterpolationConfig",
+      "type": "object"
+    },
+    "LinePipelineStepType": {
+      "description": "The trace processing steps a pipeline may list.",
+      "enum": [
+        "roi",
+        "interpolation",
+        "background",
+        "filtering",
+        "thresholding"
+      ],
+      "title": "LinePipelineStepType",
+      "type": "string"
+    },
+    "LineROIConfig": {
+      "additionalProperties": false,
+      "description": "Keep only the part of the trace between two x values.\n\nThe bounds are in the trace's x units (after ``x_scale_factor``), not\nsample indices \u2014 a time window in seconds, a wavelength band in nm.\nEither bound may be left open.",
+      "properties": {
+        "x_min": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Lowest x value kept (inclusive); unset = no lower bound.",
+          "title": "X Min"
+        },
+        "x_max": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Highest x value kept (inclusive); unset = no upper bound.",
+          "title": "X Max"
+        }
+      },
+      "title": "LineROIConfig",
+      "type": "object"
+    },
+    "LineStitcherSpec": {
+      "additionalProperties": false,
+      "description": "Concatenate this device's trace with its sibling devices' traces into one spectrum.",
+      "properties": {
+        "kind": {
+          "const": "line_stitcher",
+          "default": "line_stitcher",
+          "description": "Multi-device trace stitcher.",
+          "title": "Kind",
+          "type": "string"
+        },
+        "sibling_devices": {
+          "description": "The other devices whose traces are appended to this diagnostic's device. Each must have a folder in the scan.",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Sibling Devices",
+          "type": "array"
+        }
+      },
+      "required": [
+        "sibling_devices"
+      ],
+      "title": "LineStitcherSpec",
+      "type": "object"
+    },
+    "LineThresholdMethod": {
+      "description": "How the trace threshold level is chosen.",
+      "enum": [
+        "none",
+        "absolute",
+        "percentile"
+      ],
+      "title": "LineThresholdMethod",
+      "type": "string"
+    },
+    "LineThresholdingConfig": {
+      "additionalProperties": false,
+      "description": "Clip trace values below (or above) a level.",
+      "properties": {
+        "method": {
+          "$ref": "#/$defs/LineThresholdMethod",
+          "default": "none",
+          "description": "'absolute' uses threshold_value, 'percentile' uses percentile, 'none' skips."
+        },
+        "threshold_value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Level in y units for method 'absolute'.",
+          "title": "Threshold Value"
+        },
+        "percentile": {
+          "anyOf": [
+            {
+              "maximum": 100,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Percentile of y (0-100) for method 'percentile'.",
+          "title": "Percentile"
+        },
+        "clip_below": {
+          "default": true,
+          "description": "True clips values below the level; False clips values above.",
+          "title": "Clip Below",
+          "type": "boolean"
+        }
+      },
+      "title": "LineThresholdingConfig",
+      "type": "object"
+    },
+    "MagSpecAnalyzerSpec": {
+      "additionalProperties": false,
+      "description": "Magnetic spectrometer: beam metrics plus an energy-calibrated, resampled spectrum.",
+      "properties": {
+        "kind": {
+          "const": "magspec",
+          "default": "magspec",
+          "description": "Energy-calibrated magnetic spectrometer analyzer.",
+          "title": "Kind",
+          "type": "string"
+        },
+        "calibration": {
+          "description": "How image columns map to energy.",
+          "discriminator": {
+            "mapping": {
+              "array": "#/$defs/ArrayCalibrationSpec",
+              "dnn_axis": "#/$defs/DnnAxisCalibrationSpec",
+              "polynomial": "#/$defs/PolynomialCalibrationSpec"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/PolynomialCalibrationSpec"
+            },
+            {
+              "$ref": "#/$defs/ArrayCalibrationSpec"
+            },
+            {
+              "$ref": "#/$defs/DnnAxisCalibrationSpec"
+            }
+          ],
+          "title": "Calibration"
+        },
+        "energy_range": {
+          "description": "(min, max) of the uniform energy grid the spectrum is resampled onto, MeV.",
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Energy Range",
+          "type": "array"
+        },
+        "num_energy_points": {
+          "default": 500,
+          "description": "Number of points on the uniform energy grid.",
+          "minimum": 2,
+          "title": "Num Energy Points",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "calibration",
+        "energy_range"
+      ],
+      "title": "MagSpecAnalyzerSpec",
+      "type": "object"
+    },
+    "NormalizationConfig": {
+      "additionalProperties": false,
+      "description": "Rescale the frame so shots with different exposure or gain compare.",
+      "properties": {
+        "method": {
+          "$ref": "#/$defs/NormalizationMethod",
+          "default": "image_total",
+          "description": "'image_total' divides by the pixel sum, 'image_max' by the peak, 'constant' by constant_value, 'distribute_value' divides by the sum then multiplies by constant_value."
+        },
+        "constant_value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Divisor for 'constant' or multiplier for 'distribute_value'; required for those.",
+          "title": "Constant Value"
+        }
+      },
+      "title": "NormalizationConfig",
+      "type": "object"
+    },
+    "NormalizationMethod": {
+      "description": "What the frame is divided by.",
+      "enum": [
+        "image_total",
+        "image_max",
+        "constant",
+        "distribute_value"
+      ],
+      "title": "NormalizationMethod",
+      "type": "string"
+    },
+    "PhaseDownrampSpec": {
+      "additionalProperties": false,
+      "description": "HTU phase-map processor: density from a probe phase map (reads its own TSV/phase files).",
+      "properties": {
+        "kind": {
+          "const": "phase_downramp",
+          "default": "phase_downramp",
+          "description": "HTU phase-downramp processor.",
+          "title": "Kind",
+          "type": "string"
+        },
+        "pixel_scale": {
+          "description": "Spatial calibration, \u00b5m per pixel (vertical).",
+          "exclusiveMinimum": 0,
+          "title": "Pixel Scale",
+          "type": "number"
+        },
+        "wavelength_nm": {
+          "description": "Probe wavelength, nm.",
+          "exclusiveMinimum": 0,
+          "title": "Wavelength Nm",
+          "type": "number"
+        },
+        "threshold_fraction": {
+          "default": 0.5,
+          "description": "Zero phase values below this fraction of the maximum.",
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Threshold Fraction",
+          "type": "number"
+        },
+        "roi": {
+          "anyOf": [
+            {
+              "maxItems": 4,
+              "minItems": 4,
+              "prefixItems": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "integer"
+                }
+              ],
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Crop as (x_min, x_max, y_min, y_max); negatives count from the end.",
+          "title": "Roi"
+        },
+        "background_path": {
+          "anyOf": [
+            {
+              "format": "path",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "A background phase map to subtract.",
+          "title": "Background Path"
+        }
+      },
+      "required": [
+        "pixel_scale",
+        "wavelength_nm"
+      ],
+      "title": "PhaseDownrampSpec",
+      "type": "object"
+    },
+    "PolynomialCalibrationSpec": {
+      "additionalProperties": false,
+      "description": "Pixel-to-energy map as a polynomial in the column index (E = c0 + c1\u00b7x + c2\u00b7x\u00b2 + ...).",
+      "properties": {
+        "kind": {
+          "const": "polynomial",
+          "default": "polynomial",
+          "description": "Polynomial pixel-to-energy calibration.",
+          "title": "Kind",
+          "type": "string"
+        },
+        "coeffs": {
+          "description": "Polynomial coefficients, lowest order first, energy in MeV.",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 1,
+          "title": "Coeffs",
+          "type": "array"
+        }
+      },
+      "required": [
+        "coeffs"
+      ],
+      "title": "PolynomialCalibrationSpec",
+      "type": "object"
+    },
+    "ProcessingStepType": {
+      "description": "The camera processing steps a pipeline may list.",
+      "enum": [
+        "background",
+        "vignette",
+        "crosshair_masking",
+        "roi",
+        "circular_mask",
+        "thresholding",
+        "filtering",
+        "normalization",
+        "transforms"
+      ],
+      "title": "ProcessingStepType",
+      "type": "string"
+    },
+    "PupilMask": {
+      "additionalProperties": false,
+      "description": "Rectangular pupil mask on the HASO slopes grid, inclusive bounds; -1 means the far edge.",
+      "properties": {
+        "top": {
+          "default": 1,
+          "description": "Top row of the pupil (inclusive).",
+          "title": "Top",
+          "type": "integer"
+        },
+        "bottom": {
+          "default": -1,
+          "description": "Bottom row of the pupil (inclusive); -1 = last row.",
+          "title": "Bottom",
+          "type": "integer"
+        },
+        "left": {
+          "default": 1,
+          "description": "Left column of the pupil (inclusive).",
+          "title": "Left",
+          "type": "integer"
+        },
+        "right": {
+          "default": -1,
+          "description": "Right column of the pupil (inclusive); -1 = last column.",
+          "title": "Right",
+          "type": "integer"
+        }
+      },
+      "title": "PupilMask",
+      "type": "object"
+    },
+    "ROIConfig": {
+      "additionalProperties": false,
+      "description": "Crop the frame to a rectangular region of interest, in pixels.",
+      "properties": {
+        "x_min": {
+          "default": 0,
+          "description": "Left edge (inclusive), pixels.",
+          "minimum": 0,
+          "title": "X Min",
+          "type": "integer"
+        },
+        "x_max": {
+          "default": 1024,
+          "description": "Right edge (exclusive), pixels.",
+          "exclusiveMinimum": 0,
+          "title": "X Max",
+          "type": "integer"
+        },
+        "y_min": {
+          "default": 0,
+          "description": "Top edge (inclusive), pixels.",
+          "minimum": 0,
+          "title": "Y Min",
+          "type": "integer"
+        },
+        "y_max": {
+          "default": 1024,
+          "description": "Bottom edge (exclusive), pixels.",
+          "exclusiveMinimum": 0,
+          "title": "Y Max",
+          "type": "integer"
+        }
+      },
+      "title": "ROIConfig",
+      "type": "object"
+    },
+    "RendererOptions": {
+      "additionalProperties": false,
+      "description": "Cosmetic overrides for the scan summary figures (colormap, labels, layout).\n\nLeave a field unset to keep the renderer's default.  The waterfall_*\nfields and ``mode`` apply to trace diagnostics only; ``figsize`` and\n``figsize_inches`` to camera diagnostics only.",
+      "properties": {
+        "colormap_mode": {
+          "anyOf": [
+            {
+              "enum": [
+                "auto",
+                "sequential",
+                "diverging",
+                "custom"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "'sequential' runs 0 to max; 'diverging' is symmetric about zero; 'auto' picks diverging when the data crosses zero; 'custom' uses vmin/vmax as given.",
+          "title": "Colormap Mode"
+        },
+        "cmap": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Matplotlib colormap name (e.g. 'plasma', 'RdBu_r').",
+          "title": "Cmap"
+        },
+        "vmin": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Colour scale minimum.",
+          "title": "Vmin"
+        },
+        "vmax": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Colour scale maximum (2D: the old plot_scale).",
+          "title": "Vmax"
+        },
+        "duration": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Animation frame duration, ms.",
+          "title": "Duration"
+        },
+        "dpi": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Figure resolution, dots per inch.",
+          "title": "Dpi"
+        },
+        "xlabel": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "X-axis label.",
+          "title": "Xlabel"
+        },
+        "ylabel": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Y-axis label.",
+          "title": "Ylabel"
+        },
+        "colorbar_label": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Colour bar label.",
+          "title": "Colorbar Label"
+        },
+        "mode": {
+          "anyOf": [
+            {
+              "enum": [
+                "waterfall",
+                "overlay",
+                "grid"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Trace summary layout: 'waterfall' heat map (x vs scan parameter), 'overlay' of all bins, or a 'grid' of one plot per bin. 1D only.",
+          "title": "Mode"
+        },
+        "waterfall_sort_key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "For a noscan waterfall, order rows by this s-file column instead of shot number ('Device:Var' or a substring). 1D only.",
+          "title": "Waterfall Sort Key"
+        },
+        "waterfall_sort_sigma": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Drop shots whose sort-key value lies outside mean \u00b1 this many standard deviations. 1D only.",
+          "title": "Waterfall Sort Sigma"
+        },
+        "waterfall_sort_bounds": {
+          "anyOf": [
+            {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "number"
+                }
+              ],
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Explicit (low, high) bounds on the sort key; overrides the sigma cut. 1D only.",
+          "title": "Waterfall Sort Bounds"
+        },
+        "waterfall_even_y_spacing": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Draw waterfall rows at equal height regardless of sort-key spacing. 1D only.",
+          "title": "Waterfall Even Y Spacing"
+        },
+        "figsize": {
+          "anyOf": [
+            {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "number"
+                }
+              ],
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Panel (width, height) in inches for grid montages. 2D only.",
+          "title": "Figsize"
+        },
+        "figsize_inches": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Side of the square animation frames, inches. 2D only.",
+          "title": "Figsize Inches"
+        }
+      },
+      "title": "RendererOptions",
+      "type": "object"
+    },
+    "ScanRuntime": {
+      "additionalProperties": false,
+      "description": "How the analyzer runs over a scan: order, granularity, what is saved, where files are.\n\nEvery field has a default, so an omitted ``scan:`` section means\n\"priority 100, per shot, save outputs, no scan-log cell, files under\nthe device's own folder\".",
+      "properties": {
+        "priority": {
+          "default": 100,
+          "description": "Run order within a group: lower runs first. 100 is the background default.",
+          "minimum": 0,
+          "title": "Priority",
+          "type": "integer"
+        },
+        "mode": {
+          "default": "per_shot",
+          "description": "'per_shot' analyzes every frame; 'per_bin' averages each bin's frames first and analyzes once per bin \u2014 for metrics that are not linear in the image.",
+          "enum": [
+            "per_shot",
+            "per_bin"
+          ],
+          "title": "Mode",
+          "type": "string"
+        },
+        "save": {
+          "default": true,
+          "description": "Write per-shot / per-bin outputs (HDF5, PNG) into the analysis tree. S-file scalar columns are written regardless.",
+          "title": "Save",
+          "type": "boolean"
+        },
+        "gdoc_slot": {
+          "anyOf": [
+            {
+              "maximum": 3,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Which cell (0-3) of the scan-log entry's 2x2 figure table gets this analyzer's summary; unset uploads figures as links instead.",
+          "title": "Gdoc Slot"
+        },
+        "device": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Data subfolder under the scan when it differs from the diagnostic name (stitched or post-processed outputs in a sibling folder).",
+          "title": "Device"
+        },
+        "file_tail": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Filename suffix that identifies this device's files ('.png', '.tdms', '_postprocessed.tsv'); unset uses the analyzer's default.",
+          "title": "File Tail"
+        },
+        "data_format": {
+          "anyOf": [
+            {
+              "enum": [
+                "per_shot_files",
+                "device_hdf5"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "'device_hdf5' reads the capture daemon's per-device frame stack (falls back to per-shot files when absent). Only for analyzers that do not derive output names from the shot file path.",
+          "title": "Data Format"
+        },
+        "renderer": {
+          "$ref": "#/$defs/RendererOptions",
+          "description": "Summary-figure cosmetics; unset fields keep the renderer defaults."
+        },
+        "background_source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/BackgroundSource"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "A scan-dependent background (another scan, this scan's own shots, or an autodetected averaged file). Fixed files go on image.background."
+        }
+      },
+      "title": "ScanRuntime",
+      "type": "object"
+    },
+    "StandardAnalyzerSpec": {
+      "additionalProperties": false,
+      "description": "Run the camera pipeline and report the processed frame \u2014 no extra metrics.",
+      "properties": {
+        "kind": {
+          "const": "standard",
+          "default": "standard",
+          "description": "Processed-frame-only camera analyzer.",
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "title": "StandardAnalyzerSpec",
+      "type": "object"
+    },
+    "ThresholdMethod": {
+      "description": "How the threshold level is chosen.",
+      "enum": [
+        "constant",
+        "percentage_max"
+      ],
+      "title": "ThresholdMethod",
+      "type": "string"
+    },
+    "ThresholdMode": {
+      "description": "What happens to pixels on either side of the threshold.",
+      "enum": [
+        "binary",
+        "to_zero",
+        "truncate",
+        "to_zero_inv",
+        "truncate_inv"
+      ],
+      "title": "ThresholdMode",
+      "type": "string"
+    },
+    "ThresholdingConfig": {
+      "additionalProperties": false,
+      "description": "Suppress pixels below (or above) a level \u2014 the usual way to kill noise floor.",
+      "properties": {
+        "method": {
+          "$ref": "#/$defs/ThresholdMethod",
+          "default": "constant",
+          "description": "'constant' uses value as an absolute level; 'percentage_max' uses value as a percentage (0-100) of the frame maximum."
+        },
+        "value": {
+          "default": 100.0,
+          "description": "Threshold level: counts for 'constant', percent for 'percentage_max'.",
+          "minimum": 0.0,
+          "title": "Value",
+          "type": "number"
+        },
+        "mode": {
+          "$ref": "#/$defs/ThresholdMode",
+          "default": "binary",
+          "description": "'to_zero' zeroes pixels below the level (the common choice); 'binary' makes a 0/1 mask; 'truncate' clips above the level; the _inv variants act on the other side."
+        },
+        "invert": {
+          "default": false,
+          "description": "Invert the threshold operation.",
+          "title": "Invert",
+          "type": "boolean"
+        }
+      },
+      "title": "ThresholdingConfig",
+      "type": "object"
+    },
+    "TransformConfig": {
+      "additionalProperties": false,
+      "description": "Rotate, flip, or undistort the frame.",
+      "properties": {
+        "rotation_angle": {
+          "default": 0.0,
+          "description": "Rotation in degrees, positive = counter-clockwise.",
+          "title": "Rotation Angle",
+          "type": "number"
+        },
+        "flip_horizontal": {
+          "default": false,
+          "description": "Mirror left-right.",
+          "title": "Flip Horizontal",
+          "type": "boolean"
+        },
+        "flip_vertical": {
+          "default": false,
+          "description": "Mirror top-bottom.",
+          "title": "Flip Vertical",
+          "type": "boolean"
+        },
+        "distortion_correction": {
+          "default": false,
+          "description": "Apply the polynomial distortion correction.",
+          "title": "Distortion Correction",
+          "type": "boolean"
+        },
+        "distortion_coeffs": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "number"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Distortion coefficients; required when distortion_correction is on.",
+          "title": "Distortion Coeffs"
+        }
+      },
+      "title": "TransformConfig",
+      "type": "object"
+    },
+    "VignetteConfig": {
+      "additionalProperties": false,
+      "description": "Undo lens vignetting so the edges of the frame are not artificially dim.\n\nThe radial-polynomial model follows the MATLAB-era convention: it is\nwritten in full-sensor coordinates, so a frame saved from a sensor\nsub-window needs the sensor size and the window's offset.",
+      "properties": {
+        "method": {
+          "$ref": "#/$defs/VignetteMethod",
+          "default": "radial_polynomial",
+          "description": "'radial_polynomial' evaluates vgnt4/vgnt2/vgnt0 radially from the sensor centre; 'map_file' divides by a saved correction map."
+        },
+        "full_width": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Full sensor width in pixels (required for radial_polynomial).",
+          "title": "Full Width"
+        },
+        "full_height": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Full sensor height in pixels (required for radial_polynomial).",
+          "title": "Full Height"
+        },
+        "x_offset": {
+          "default": 0,
+          "description": "X offset of the saved frame within the full sensor.",
+          "minimum": 0,
+          "title": "X Offset",
+          "type": "integer"
+        },
+        "y_offset": {
+          "default": 0,
+          "description": "Y offset of the saved frame within the full sensor.",
+          "minimum": 0,
+          "title": "Y Offset",
+          "type": "integer"
+        },
+        "vgnt4": {
+          "default": 0.0,
+          "description": "4th-order radial coefficient.",
+          "title": "Vgnt4",
+          "type": "number"
+        },
+        "vgnt2": {
+          "default": 0.0,
+          "description": "2nd-order radial coefficient.",
+          "title": "Vgnt2",
+          "type": "number"
+        },
+        "vgnt0": {
+          "default": 1.0,
+          "description": "0th-order (centre) coefficient.",
+          "title": "Vgnt0",
+          "type": "number"
+        },
+        "min_model_value": {
+          "default": 1e-09,
+          "description": "Floor on the model value to avoid dividing by ~zero at the corners.",
+          "exclusiveMinimum": 0.0,
+          "title": "Min Model Value",
+          "type": "number"
+        },
+        "map_file_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "format": "path",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Saved .npy correction map for method 'map_file'.",
+          "title": "Map File Path"
+        }
+      },
+      "title": "VignetteConfig",
+      "type": "object"
+    },
+    "VignetteMethod": {
+      "description": "How the lens vignette is modelled.",
+      "enum": [
+        "radial_polynomial",
+        "map_file"
+      ],
+      "title": "VignetteMethod",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "One device's analysis: which analyzer, how frames are cleaned up, how it runs over a scan.\n\nThe file's stem is the diagnostic ID that groups reference.  ``name``\nis the device whose folder holds the input files; ``output_name``\n(defaulting to ``name``) labels everything written \u2014 s-file columns,\nthe output folder, figure files.",
+  "properties": {
+    "schema_version": {
+      "default": 2,
+      "description": "Format version of this config file. Leave at 2 \u2014 tools update this automatically when the file format changes.",
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "name": {
+      "description": "The device whose data folder under scans/ScanNNN/ is analyzed.",
+      "minLength": 1,
+      "title": "Name",
+      "type": "string"
+    },
+    "output_name": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Label for everything this analyzer writes (s-file column prefix, output folder). Defaults to name; set it to run two analyzers over one device with distinct outputs.",
+      "title": "Output Name"
+    },
+    "metric_suffix": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Suffix appended to every s-file column name; affects scalars only, never files or folders.",
+      "title": "Metric Suffix"
+    },
+    "description": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Free-text note about this diagnostic.",
+      "title": "Description"
+    },
+    "analyzer": {
+      "description": "Which analyzer runs and its own parameters; chosen by kind.",
+      "discriminator": {
+        "mapping": {
+          "bcave_mag_opt": "#/$defs/BCaveMagOptSpec",
+          "bcave_magspec_stitcher": "#/$defs/BCaveMagSpecStitcherSpec",
+          "beam": "#/$defs/BeamAnalyzerSpec",
+          "downramp_phase": "#/$defs/DownrampPhaseSpec",
+          "frog_retrieval": "#/$defs/FrogRetrievalSpec",
+          "frog_spectral_phase": "#/$defs/FrogSpectralPhaseSpec",
+          "haso": "#/$defs/HasoAnalyzerSpec",
+          "hi_res_mag_cam": "#/$defs/HiResMagCamSpec",
+          "ict": "#/$defs/IctAnalyzerSpec",
+          "line": "#/$defs/LineAnalyzerSpec",
+          "line_stitcher": "#/$defs/LineStitcherSpec",
+          "magspec": "#/$defs/MagSpecAnalyzerSpec",
+          "phase_downramp": "#/$defs/PhaseDownrampSpec",
+          "standard": "#/$defs/StandardAnalyzerSpec"
+        },
+        "propertyName": "kind"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/StandardAnalyzerSpec"
+        },
+        {
+          "$ref": "#/$defs/LineAnalyzerSpec"
+        },
+        {
+          "$ref": "#/$defs/BeamAnalyzerSpec"
+        },
+        {
+          "$ref": "#/$defs/MagSpecAnalyzerSpec"
+        },
+        {
+          "$ref": "#/$defs/FrogRetrievalSpec"
+        },
+        {
+          "$ref": "#/$defs/FrogSpectralPhaseSpec"
+        },
+        {
+          "$ref": "#/$defs/IctAnalyzerSpec"
+        },
+        {
+          "$ref": "#/$defs/LineStitcherSpec"
+        },
+        {
+          "$ref": "#/$defs/HasoAnalyzerSpec"
+        },
+        {
+          "$ref": "#/$defs/DownrampPhaseSpec"
+        },
+        {
+          "$ref": "#/$defs/HiResMagCamSpec"
+        },
+        {
+          "$ref": "#/$defs/BCaveMagSpecStitcherSpec"
+        },
+        {
+          "$ref": "#/$defs/BCaveMagOptSpec"
+        },
+        {
+          "$ref": "#/$defs/PhaseDownrampSpec"
+        }
+      ],
+      "title": "Analyzer"
+    },
+    "image": {
+      "anyOf": [
+        {
+          "discriminator": {
+            "mapping": {
+              "camera": "#/$defs/CameraConfig",
+              "line": "#/$defs/Line1DConfig"
+            },
+            "propertyName": "type"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/CameraConfig"
+            },
+            {
+              "$ref": "#/$defs/Line1DConfig"
+            }
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "How raw frames (type: camera) or traces (type: line) are cleaned up before analysis. Omit for analyzers that read their own file formats (kind haso, phase_downramp).",
+      "title": "Image"
+    },
+    "scan": {
+      "$ref": "#/$defs/ScanRuntime",
+      "description": "How the analyzer runs over a scan: order, per shot or per bin, saving, files."
+    }
+  },
+  "required": [
+    "name",
+    "analyzer"
+  ],
+  "title": "AnalysisDiagnostic",
+  "type": "object"
+}

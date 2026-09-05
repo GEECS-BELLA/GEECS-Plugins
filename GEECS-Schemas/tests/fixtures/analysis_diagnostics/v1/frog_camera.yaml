@@ -1,0 +1,13 @@
+# v1: Grenouille retrieval with output_name and scan.device set.
+name: U_FROG_Grenouille
+output_name: U_FROG_Grenouille-Temporal
+image_analyzer: image_analysis.analyzers.grenouille_analyzer.GrenouilleAnalyzer
+image:
+  type: camera
+  bit_depth: 16
+  description: image of target chamber output port
+  background: {method: constant, constant_level: 0.0}
+  thresholding: {method: constant, value: 0.0, mode: to_zero, invert: false}
+  analysis: {delt: 0.85, dellam: -0.085, lam0: 400.0, N: 512, target_error: 0.0001, max_time_seconds: 15, max_iterations: 1000000000.0}
+  pipeline: {steps: [background, thresholding]}
+scan: {priority: 1, mode: per_shot, save: false, device: U_FROG_Grenouille-Temporal}

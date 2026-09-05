@@ -5,6 +5,42 @@ All notable changes to GEECS-Schemas are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.0] - 2026-09-05
+
+### Added
+
+- **The analysis-config documents** — `geecs_schemas.analysis`, registered as
+  `analysis_diagnostic` (`AnalysisDiagnostic`, format v2) and
+  `analysis_group` (`AnalysisGroup`, v1), with docgen reference sections and
+  published JSON Schema artifacts (`analysis_diagnostic.schema.json`,
+  `analysis_group.schema.json`).  The whole diagnostic now validates with
+  pydantic alone: the camera / line processing models relocate here from
+  ImageAnalysis (`CameraConfig`, `Line1DConfig` and their sections — the 1D
+  sections take a `Line` prefix), the scan-runtime models relocate from
+  ScanAnalysis (`ScanRuntime`, `BackgroundSource`), and the three former
+  untyped holes are closed:
+  - `analyzer:` is a closed discriminated union on `kind` — one spec model
+    per analyzer the suite ships (`beam`, `magspec`, `frog_retrieval`, `ict`,
+    `line_stitcher`, `haso`, … 14 kinds), so the former `image.analysis`
+    dict and the constructor `kwargs` dict become typed fields with unknown
+    keys refused.  The analyzer class path leaves the document (ImageAnalysis
+    keeps kind → class); `V1_CLASS_PATH_TO_KIND` records the old paths.
+  - `scan:` is typed in-document, with `scan.renderer` (`RendererOptions`)
+    replacing the `renderer_kwargs` dict.
+  - `image.pipeline` is the bare step list; `image.data_format` (a display
+    label) becomes `image.label` so it no longer collides with the
+    `scan.data_format` enum; the 1D background fields take the camera
+    spellings (`constant_level`, `file_path`).
+- **v1 lift.** `AnalysisDiagnostic._lift_v1_layout` maps every pre-0.19.0
+  unified diagnostic into v2 at validation (class path → kind, kwargs +
+  `image.analysis` → spec fields, the renames above, HASO's `mask_*` kwargs
+  → `mask`), so the deployed corpus keeps loading unchanged.  Verified
+  against the sibling configs checkout by the new `integration` corpus walk
+  (`tests/test_analysis_corpus.py`): every diagnostic outside the legacy
+  `UNCLASSIFIED/` folder lifts, except `HTU/U_FROG_Beam` — a BeamAnalyzer
+  carrying FROG retrieval keys that v1 silently ignored and v2 refuses by
+  design (the fix is in the configs repo).
+
 ## [0.18.0] - 2026-09-04
 
 ### Removed

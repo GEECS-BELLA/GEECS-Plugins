@@ -1,0 +1,22 @@
+# v1 unified diagnostic (pre-0.19.0): BeamAnalyzer over a camera, as the Qt
+# editor wrote it — explicit nulls, the full default pipeline list.
+name: UC_TopView
+image_analyzer: image_analysis.analyzers.beam_analyzer.BeamAnalyzer
+image:
+  type: camera
+  description: IR mode at the input to amp3
+  bit_depth: 16
+  roi: {x_min: 0, x_max: 650, y_min: 350, y_max: 650}
+  background: {method: constant, file_path: null, constant_level: 5.0, additional_constant: 0.0}
+  crosshair_masking: null
+  circular_mask: null
+  vignette: null
+  thresholding: {method: constant, value: 0.0, mode: to_zero, invert: false}
+  filtering: {gaussian_sigma: null, median_kernel_size: 3}
+  normalization: null
+  transforms: {rotation_angle: 0.0, flip_horizontal: false, flip_vertical: false, distortion_correction: false, distortion_coeffs: null}
+  pipeline:
+    steps: [background, vignette, crosshair_masking, roi, circular_mask, thresholding, filtering, normalization, transforms]
+  analysis: null
+  metadata: {location: Room 148, notes: none, spatial_calibration: 2.44e-05}
+scan: {priority: 10, mode: per_shot, save: true}

@@ -502,3 +502,565 @@ One source variable bound to a symbol in a derived-channel formula.
 | `symbol` | `str` | yes | — | Python-style symbol used in the expression, e.g. 'v' for a voltage input. Must be a valid identifier and must not shadow a reserved math function or constant. |
 | `device` | `str` | yes | — | GEECS source device that provides this input variable, e.g. 'U_DaqPad1'. Inputs may span devices only when the derived channel declares stale_after. |
 | `variable` | `str` | yes | — | GEECS source variable on the input device, e.g. 'Analog Input 10'. The gateway subscribes to it even if it is not exposed as its own raw readback PV. |
+
+## `analysis_diagnostic`
+
+### AnalysisDiagnostic
+
+One device's analysis: which analyzer, how frames are cleaned up, how it runs over a scan.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `schema_version` | `int` | no | 2 | Format version of this config file. Leave at 2 — tools update this automatically when the file format changes. |
+| `name` | `str` | yes | — | The device whose data folder under scans/ScanNNN/ is analyzed. |
+| `output_name` | `str (optional)` | no | None | Label for everything this analyzer writes (s-file column prefix, output folder). Defaults to name; set it to run two analyzers over one device with distinct outputs. |
+| `metric_suffix` | `str (optional)` | no | None | Suffix appended to every s-file column name; affects scalars only, never files or folders. |
+| `description` | `str (optional)` | no | None | Free-text note about this diagnostic. |
+| `analyzer` | `StandardAnalyzerSpec \| LineAnalyzerSpec \| BeamAnalyzerSpec \| MagSpecAnalyzerSpec \| FrogRetrievalSpec \| FrogSpectralPhaseSpec \| IctAnalyzerSpec \| LineStitcherSpec \| HasoAnalyzerSpec \| DownrampPhaseSpec \| HiResMagCamSpec \| BCaveMagSpecStitcherSpec \| BCaveMagOptSpec \| PhaseDownrampSpec` | yes | — | Which analyzer runs and its own parameters; chosen by kind. |
+| `image` | `CameraConfig \| Line1DConfig (optional)` | no | None | How raw frames (type: camera) or traces (type: line) are cleaned up before analysis. Omit for analyzers that read their own file formats (kind haso, phase_downramp). |
+| `scan` | `ScanRuntime` | no | ScanRuntime(priority=100, mode='per_shot', save=True, gdoc_slot=None, device=None, file_tail=None, data_format=None, renderer=RendererOptions(colormap_mode=None, cmap=None, vmin=None, vmax=None, duration=None, dpi=None, xlabel=None, ylabel=None, colorbar_label=None, mode=None, waterfall_sort_key=None, waterfall_sort_sigma=None, waterfall_sort_bounds=None, waterfall_even_y_spacing=None, figsize=None, figsize_inches=None), background_source=None) | How the analyzer runs over a scan: order, per shot or per bin, saving, files. |
+
+Example:
+
+```yaml
+schema_version: 2
+name: UC_TopView                 # the device folder under scans/ScanNNN/
+output_name: UC_TopView_left     # optional: label outputs differently from the device
+analyzer:
+  kind: beam                     # picks the analyzer AND the fields below
+  compute_slopes: false
+  enabled_stats: [image_total, x_CoM, y_CoM, x_fwhm, y_fwhm]
+image:
+  type: camera
+  bit_depth: 16
+  roi: {x_min: 0, x_max: 650, y_min: 350, y_max: 650}
+  background: {method: constant, constant_level: 5.0}
+  filtering: {median_kernel_size: 3}
+  pipeline: [background, roi, filtering]   # only listed steps run, in this order
+scan:
+  priority: 10
+  mode: per_shot
+  save: true
+  gdoc_slot: 0
+  renderer: {cmap: plasma}
+# v1 documents (image_analyzer class path, image.analysis, kwargs) still
+# validate — they are lifted into this shape automatically.
+```
+
+### StandardAnalyzerSpec
+
+Run the camera pipeline and report the processed frame — no extra metrics.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `kind` | `'standard'` | no | 'standard' | Processed-frame-only camera analyzer. |
+
+### LineAnalyzerSpec
+
+Run the trace pipeline and report basic trace statistics (peak, centroid, width, area).
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `kind` | `'line'` | no | 'line' | Trace statistics analyzer. |
+
+### BeamAnalyzerSpec
+
+Beam profile metrics: centroid, rms size, FWHM, total counts along x, y and the 45° axes.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `kind` | `'beam'` | no | 'beam' | Beam profile analyzer. |
+| `compute_slopes` | `bool` | no | False | Also compute beam slope / straightness metrics from line-by-line fits. Expensive; leave off unless the tilt matters. |
+| `enabled_stats` | `list[str] (optional)` | no | None | Emit only these statistics (e.g. ['image_total', 'x_CoM', 'y_fwhm']); unset emits all 18. Names are <axis>_<stat>. |
+
+### MagSpecAnalyzerSpec
+
+Magnetic spectrometer: beam metrics plus an energy-calibrated, resampled spectrum.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `kind` | `'magspec'` | no | 'magspec' | Energy-calibrated magnetic spectrometer analyzer. |
+| `calibration` | `PolynomialCalibrationSpec \| ArrayCalibrationSpec \| DnnAxisCalibrationSpec` | yes | — | How image columns map to energy. |
+| `energy_range` | `tuple[float, float]` | yes | — | (min, max) of the uniform energy grid the spectrum is resampled onto, MeV. |
+| `num_energy_points` | `int` | no | 500 | Number of points on the uniform energy grid. |
+
+### PolynomialCalibrationSpec
+
+Pixel-to-energy map as a polynomial in the column index (E = c0 + c1·x + c2·x² + ...).
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `kind` | `'polynomial'` | no | 'polynomial' | Polynomial pixel-to-energy calibration. |
+| `coeffs` | `list[float]` | yes | — | Polynomial coefficients, lowest order first, energy in MeV. |
+
+### ArrayCalibrationSpec
+
+Pixel-to-energy map given explicitly, one energy per image column.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `kind` | `'array'` | no | 'array' | Explicit per-column energy axis. |
+| `values` | `list[float] (optional)` | no | None | Inline energy axis, one value per column. |
+| `file` | `str (optional)` | no | None | A saved .npy energy axis (alternative to values). |
+
+### DnnAxisCalibrationSpec
+
+The MATLAB-era DNN spectrometer calibration: camera geometry + electron trajectory tables.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `kind` | `'dnn_axis'` | no | 'dnn_axis' | DNN camera + trajectory table calibration. |
+| `camera_calibration_file` | `str` | yes | — | Tab-delimited camera geometry table (one row per camera). |
+| `trajectory_calibration_file` | `str` | yes | — | Tab-delimited screen-position vs momentum table. |
+| `camera_number` | `int` | yes | — | Which camera row of the geometry table to use. |
+| `magnetic_field_t` | `float` | no | 1.0 | Dipole field in tesla the trajectory table is scaled to. A live teslameter reading in the shot's auxiliary data overrides it. |
+| `lanex_calibration_file` | `str (optional)` | no | None | Lanex counts-to-charge table; when given, spectra are reported in fC. |
+
+### FrogRetrievalSpec
+
+Grenouille / FROG pulse retrieval through the vendor DLL (Windows-only at run time).
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `kind` | `'frog_retrieval'` | no | 'frog_retrieval' | FROG pulse retrieval via the vendor DLL. |
+| `delt` | `float` | no | 0.85 | Time-delay step per raw pixel, fs. |
+| `dellam` | `float` | no | -0.085 | Wavelength step per raw pixel, nm (negative for Grenouille). |
+| `lam0` | `float` | no | 400.0 | Centre wavelength of the trace, nm. |
+| `N` | `int` | no | 512 | Retrieval grid size: 512, 256, 128 or 64. |
+| `target_error` | `float` | no | 0.005 | FROG error at which the retrieval stops early. |
+| `max_time_seconds` | `float` | no | 5.0 | Wall-clock cap on one retrieval, seconds. |
+| `max_iterations` | `int` | no | 1000000000 | Iteration cap on one retrieval. |
+| `noise_subtype` | `int` | no | 4 | Vendor NoiseSubtraction SUBTYPE parameter. |
+| `noise_rad` | `float` | no | 1.0 | Vendor NoiseSubtraction RAD parameter. |
+
+### FrogSpectralPhaseSpec
+
+Fit a polynomial spectral phase to a retrieved FROG spectrum (GDD, TOD, …).
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `kind` | `'frog_spectral_phase'` | no | 'frog_spectral_phase' | Spectral-phase polynomial fit. |
+| `fit_order` | `int` | no | 3 | Polynomial order of the phase fit. |
+| `mask_threshold` | `float (optional)` | no | 0.5 | Fit only where the spectral intensity exceeds this fraction of its peak. |
+| `min_points` | `int (optional)` | no | None | Minimum number of points required for a fit. |
+| `fit_num_points` | `int` | no | 300 | Number of points the fitted phase is evaluated on. |
+| `reference_wavelength_nm` | `float` | no | 800.0 | Wavelength the phase expansion is taken about, nm. |
+| `sign_reference_order` | `int (optional)` | no | None | Polynomial order whose sign is forced to sign_reference; unset leaves the fit as is. |
+| `sign_reference` | `float` | no | 1.0 | Sign (+1 / -1) imposed on sign_reference_order. |
+| `sign_epsilon` | `float` | no | 0.0 | Dead band around zero within which the sign is not flipped. |
+
+### IctAnalyzerSpec
+
+Integrating current transformer: charge from a scope trace by low-pass filtering and integrating.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `kind` | `'ict'` | no | 'ict' | ICT charge analyzer. |
+| `butterworth_order` | `int` | no | 1 | Order of the low-pass Butterworth filter. |
+| `butterworth_crit_f` | `float` | no | 0.125 | Normalised critical frequency of the low-pass filter. |
+| `calibration_factor` | `float` | no | 0.1 | ICT calibration factor, V·s per C. |
+| `dt` | `float (optional)` | no | None | Sample interval in seconds; unset derives it from the trace. |
+
+### LineStitcherSpec
+
+Concatenate this device's trace with its sibling devices' traces into one spectrum.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `kind` | `'line_stitcher'` | no | 'line_stitcher' | Multi-device trace stitcher. |
+| `sibling_devices` | `list[str]` | yes | — | The other devices whose traces are appended to this diagnostic's device. Each must have a folder in the scan. |
+
+### HasoAnalyzerSpec
+
+HASO wavefront sensor: slopes to phase and Zernike terms through WaveKit (Windows, licensed).
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `kind` | `'haso'` | no | 'haso' | HASO wavefront analyzer via WaveKit. |
+| `wavekit_config_file_path` | `Path` | yes | — | The WaveKit sensor configuration (.dat) for this HASO head. |
+| `mask` | `PupilMask` | no | PupilMask(top=1, bottom=-1, left=1, right=-1) | Pupil mask applied to the slopes. |
+| `background_path` | `Path (optional)` | no | None | A .has slopes file subtracted as background. |
+| `laser_wavelength` | `float` | no | 800.0 | Probe wavelength, nm. |
+
+### PupilMask
+
+Rectangular pupil mask on the HASO slopes grid, inclusive bounds; -1 means the far edge.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `top` | `int` | no | 1 | Top row of the pupil (inclusive). |
+| `bottom` | `int` | no | -1 | Bottom row of the pupil (inclusive); -1 = last row. |
+| `left` | `int` | no | 1 | Left column of the pupil (inclusive). |
+| `right` | `int` | no | -1 | Right column of the pupil (inclusive); -1 = last column. |
+
+### DownrampPhaseSpec
+
+HTU downramp phase-map analyzer over the camera pipeline.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `kind` | `'downramp_phase'` | no | 'downramp_phase' | HTU downramp phase analyzer. |
+
+### HiResMagCamSpec
+
+HTU high-resolution magspec camera: beam metrics plus a bow-tie fit of the trace.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `kind` | `'hi_res_mag_cam'` | no | 'hi_res_mag_cam' | HTU HiResMagCam bow-tie analyzer. |
+| `n_beam_size_clearance` | `int` | no | 4 | Bow-tie fit: beam-size clearance in pixels. |
+| `min_total_counts` | `float` | no | 2500.0 | Bow-tie fit: skip frames with fewer total counts. |
+| `threshold_factor` | `float` | no | 10.0 | Bow-tie fit: threshold factor. |
+
+### BCaveMagSpecStitcherSpec
+
+HTU BCave magspec camera with a Gaussian-weighted vertical lineout for optimization.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `kind` | `'bcave_magspec_stitcher'` | no | 'bcave_magspec_stitcher' | HTU BCave magspec camera analyzer. |
+| `gaussian_sigma` | `float` | no | 20.0 | Width of the Gaussian weighting, pixels. |
+| `gaussian_center` | `float` | no | 250.0 | Centre of the Gaussian weighting, pixels. |
+
+### BCaveMagOptSpec
+
+HTU BCave stitched-spectrum optimizer metrics over the trace pipeline.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `kind` | `'bcave_mag_opt'` | no | 'bcave_mag_opt' | HTU BCave stitched-spectrum optimizer analyzer. |
+
+### PhaseDownrampSpec
+
+HTU phase-map processor: density from a probe phase map (reads its own TSV/phase files).
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `kind` | `'phase_downramp'` | no | 'phase_downramp' | HTU phase-downramp processor. |
+| `pixel_scale` | `float` | yes | — | Spatial calibration, µm per pixel (vertical). |
+| `wavelength_nm` | `float` | yes | — | Probe wavelength, nm. |
+| `threshold_fraction` | `float` | no | 0.5 | Zero phase values below this fraction of the maximum. |
+| `roi` | `tuple[int, int, int, int] (optional)` | no | None | Crop as (x_min, x_max, y_min, y_max); negatives count from the end. |
+| `background_path` | `Path (optional)` | no | None | A background phase map to subtract. |
+
+### CameraConfig
+
+How a camera's frames are cleaned up before the analyzer measures them.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `type` | `'camera'` | no | 'camera' | Marks this as a camera (2D image) section. |
+| `description` | `str (optional)` | no | None | Free-text note about this camera / view. |
+| `metadata` | `dict[str, Any] (optional)` | no | None | Free-form documentation (location, notes, calibration constants). Nothing in the pipeline reads it; keep such notes here so the rest of the schema can stay strict. |
+| `bit_depth` | `int` | no | 16 | Camera bit depth: 8, 10, 12, 14, 16 or 32. |
+| `roi` | `ROIConfig (optional)` | no | None | Region-of-interest crop. |
+| `background` | `BackgroundConfig (optional)` | no | None | Background subtraction. |
+| `crosshair_masking` | `CrosshairMaskingConfig (optional)` | no | None | Crosshair masking. |
+| `circular_mask` | `CircularMaskConfig (optional)` | no | None | Circular masking. |
+| `vignette` | `VignetteConfig (optional)` | no | None | Vignette correction. |
+| `thresholding` | `ThresholdingConfig (optional)` | no | None | Thresholding. |
+| `filtering` | `FilteringConfig (optional)` | no | None | Smoothing filters. |
+| `normalization` | `NormalizationConfig (optional)` | no | None | Intensity normalization. |
+| `transforms` | `TransformConfig (optional)` | no | None | Rotation, flips, distortion correction. |
+| `pipeline` | `list[ProcessingStepType]` | no | empty | The steps that run, in order. A step runs only if listed here AND its section is present; empty means the raw frame is analyzed. |
+
+### ROIConfig
+
+Crop the frame to a rectangular region of interest, in pixels.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `x_min` | `int` | no | 0 | Left edge (inclusive), pixels. |
+| `x_max` | `int` | no | 1024 | Right edge (exclusive), pixels. |
+| `y_min` | `int` | no | 0 | Top edge (inclusive), pixels. |
+| `y_max` | `int` | no | 1024 | Bottom edge (exclusive), pixels. |
+
+### BackgroundConfig
+
+Subtract a background from every frame before analysis.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `method` | `BackgroundMethod (optional)` | no | None | Primary background: 'constant' subtracts constant_level, 'from_file' subtracts the saved frame at file_path, 'edge' estimates the level from the frame border. Leave unset to apply only additional_constant. |
+| `file_path` | `str \| Path (optional)` | no | None | Saved background frame for method 'from_file'. May contain the {scan_dir} placeholder, filled in with the scan folder at run time. |
+| `constant_level` | `float` | no | 0.0 | Level subtracted for method 'constant'; also the fallback when a 'from_file' background cannot be read. |
+| `additional_constant` | `float` | no | 0.0 | Extra constant subtracted after the primary background. |
+| `edge_width` | `int` | no | 1 | Border width in pixels averaged for method 'edge'. |
+
+### CrosshairMaskingConfig
+
+Blank out one or more crosshairs so they do not count as signal.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `crosshairs` | `list[CrosshairConfig]` | no | empty | The crosshairs to mask. |
+| `mask_value` | `float` | no | 0.0 | Pixel value written into the masked region. |
+
+### CrosshairConfig
+
+One crosshair to mask out of the frame (a fiducial drawn on a screen, say).
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `center` | `tuple[int, int]` | yes | — | Pixel coordinates (x, y) of the crosshair centre. |
+| `width` | `int` | yes | — | Crosshair width in pixels. |
+| `height` | `int` | yes | — | Crosshair height in pixels. |
+| `thickness` | `int` | yes | — | Thickness of the crosshair lines in pixels. |
+| `angle` | `float` | no | 0.0 | Rotation of the crosshair in degrees. |
+
+### CircularMaskConfig
+
+Keep (or discard) only the pixels inside a circle.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `center` | `tuple[int, int]` | no | (512, 512) | Pixel coordinates (x, y) of the circle centre. |
+| `radius` | `int` | no | 100 | Circle radius in pixels. |
+| `mask_outside` | `bool` | no | True | True masks everything outside the circle; False masks the inside. |
+| `mask_value` | `float` | no | 0.0 | Pixel value written into the masked region. |
+
+### VignetteConfig
+
+Undo lens vignetting so the edges of the frame are not artificially dim.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `method` | `VignetteMethod` | no | 'radial_polynomial' | 'radial_polynomial' evaluates vgnt4/vgnt2/vgnt0 radially from the sensor centre; 'map_file' divides by a saved correction map. |
+| `full_width` | `int (optional)` | no | None | Full sensor width in pixels (required for radial_polynomial). |
+| `full_height` | `int (optional)` | no | None | Full sensor height in pixels (required for radial_polynomial). |
+| `x_offset` | `int` | no | 0 | X offset of the saved frame within the full sensor. |
+| `y_offset` | `int` | no | 0 | Y offset of the saved frame within the full sensor. |
+| `vgnt4` | `float` | no | 0.0 | 4th-order radial coefficient. |
+| `vgnt2` | `float` | no | 0.0 | 2nd-order radial coefficient. |
+| `vgnt0` | `float` | no | 1.0 | 0th-order (centre) coefficient. |
+| `min_model_value` | `float` | no | 1e-09 | Floor on the model value to avoid dividing by ~zero at the corners. |
+| `map_file_path` | `str \| Path (optional)` | no | None | Saved .npy correction map for method 'map_file'. |
+
+### ThresholdingConfig
+
+Suppress pixels below (or above) a level — the usual way to kill noise floor.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `method` | `ThresholdMethod` | no | 'constant' | 'constant' uses value as an absolute level; 'percentage_max' uses value as a percentage (0-100) of the frame maximum. |
+| `value` | `float` | no | 100.0 | Threshold level: counts for 'constant', percent for 'percentage_max'. |
+| `mode` | `ThresholdMode` | no | 'binary' | 'to_zero' zeroes pixels below the level (the common choice); 'binary' makes a 0/1 mask; 'truncate' clips above the level; the _inv variants act on the other side. |
+| `invert` | `bool` | no | False | Invert the threshold operation. |
+
+### FilteringConfig
+
+Smooth the frame with a Gaussian and/or a median filter.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `gaussian_sigma` | `float (optional)` | no | None | Gaussian blur width in pixels; unset skips the Gaussian. |
+| `median_kernel_size` | `int (optional)` | no | None | Median filter window (odd, in pixels); unset skips the median. |
+
+### NormalizationConfig
+
+Rescale the frame so shots with different exposure or gain compare.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `method` | `NormalizationMethod` | no | 'image_total' | 'image_total' divides by the pixel sum, 'image_max' by the peak, 'constant' by constant_value, 'distribute_value' divides by the sum then multiplies by constant_value. |
+| `constant_value` | `float (optional)` | no | None | Divisor for 'constant' or multiplier for 'distribute_value'; required for those. |
+
+### TransformConfig
+
+Rotate, flip, or undistort the frame.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `rotation_angle` | `float` | no | 0.0 | Rotation in degrees, positive = counter-clockwise. |
+| `flip_horizontal` | `bool` | no | False | Mirror left-right. |
+| `flip_vertical` | `bool` | no | False | Mirror top-bottom. |
+| `distortion_correction` | `bool` | no | False | Apply the polynomial distortion correction. |
+| `distortion_coeffs` | `list[float] (optional)` | no | None | Distortion coefficients; required when distortion_correction is on. |
+
+### Line1DConfig
+
+How a device's traces are loaded and cleaned up before the analyzer measures them.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `type` | `'line'` | no | 'line' | Marks this as a line (1D trace) section. |
+| `description` | `str` | no | '' | Free-text note about this trace. |
+| `metadata` | `dict[str, Any] (optional)` | no | None | Free-form documentation (location, notes, calibration constants). Nothing in the pipeline reads it. |
+| `data_loading` | `Data1DLoading` | yes | — | How to read one trace file. |
+| `label` | `str` | no | 'x vs y' | Human-readable description of what the trace is, e.g. 'charge density vs energy'. Shown on figures; not interpreted. |
+| `x_units` | `str (optional)` | no | None | X-axis units (e.g. 'nm', 's'); overrides units read from the file. |
+| `y_units` | `str (optional)` | no | None | Y-axis units (e.g. 'V', 'counts'); overrides units read from the file. |
+| `x_scale_factor` | `float` | no | 1.0 | Multiplier applied to x before any processing (1e9 turns seconds into nanoseconds). ROI bounds are in the scaled units. |
+| `y_scale_factor` | `float` | no | 1.0 | Multiplier applied to y before any processing. Thresholds are in the scaled units. |
+| `processing_dtype` | `'float16' \| 'float32' \| 'float64' \| 'int8' \| 'int16' \| 'int32' \| 'int64' \| 'uint8' \| 'uint16' \| 'uint32' \| 'uint64'` | no | 'float64' | NumPy dtype used while processing. |
+| `storage_dtype` | `'float16' \| 'float32' \| 'float64' \| 'int8' \| 'int16' \| 'int32' \| 'int64' \| 'uint8' \| 'uint16' \| 'uint32' \| 'uint64'` | no | 'float32' | NumPy dtype used when saving processed traces. |
+| `roi` | `LineROIConfig (optional)` | no | None | X-range crop. |
+| `interpolation` | `LineInterpolationConfig (optional)` | no | None | Resampling onto a uniform x grid. |
+| `background` | `LineBackgroundConfig (optional)` | no | None | Background subtraction. |
+| `filtering` | `LineFilteringConfig (optional)` | no | None | Smoothing. |
+| `thresholding` | `LineThresholdingConfig (optional)` | no | None | Thresholding. |
+| `pipeline` | `list[LinePipelineStepType]` | no | empty | The steps that run, in order. A step runs only if listed here AND its section is present; empty means the raw trace is analyzed. |
+
+### Data1DLoading
+
+How to read one trace file into an x-vs-y array.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `data_type` | `Data1DType` | yes | — | File format: 'tek_scope_hdf5' or 'tdms_scope' for scope captures, 'csv' / 'tsv' for delimited text, 'npy' for a saved array. |
+| `trace_index` | `int` | no | 0 | Which trace / channel holds the y values (scope formats). |
+| `x_trace_index` | `int (optional)` | no | None | Which trace holds the x values; unset derives x from the waveform properties (scope formats). |
+| `delimiter` | `str (optional)` | no | None | Column delimiter for csv/tsv; unset uses the format's default. |
+| `x_column` | `int` | no | 0 | Column index of x (text formats). |
+| `y_column` | `int` | no | 1 | Column index of y (text formats). |
+| `auxiliary_columns` | `dict[str, int]` | no | empty | Extra named columns to load alongside y, for analyzers that need them (name -> column index). |
+
+### LineROIConfig
+
+Keep only the part of the trace between two x values.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `x_min` | `float (optional)` | no | None | Lowest x value kept (inclusive); unset = no lower bound. |
+| `x_max` | `float (optional)` | no | None | Highest x value kept (inclusive); unset = no upper bound. |
+
+### LineInterpolationConfig
+
+Resample the trace onto a uniform x grid (so waterfall plots share an axis).
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `num_points` | `int` | no | 1500 | Number of points in the resampled trace. |
+| `x_min` | `float (optional)` | no | None | Start of the grid; unset uses the data minimum. |
+| `x_max` | `float (optional)` | no | None | End of the grid; unset uses the data maximum. |
+
+### LineBackgroundConfig
+
+Subtract a background from the trace's y values.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `method` | `LineBackgroundMethod` | no | 'none' | 'constant' subtracts constant_level from y; 'from_file' subtracts the trace at file_path (any supported data_type); 'none' skips. |
+| `constant_level` | `float (optional)` | no | None | Level subtracted from y for method 'constant'. |
+| `file_path` | `Path (optional)` | no | None | Background trace file for method 'from_file'. |
+
+### LineFilteringConfig
+
+Smooth the trace.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `method` | `LineFilterMethod` | no | 'none' | 'gaussian' (uses sigma), 'median' (uses kernel_size), 'bilateral', or 'none'. |
+| `kernel_size` | `int (optional)` | no | 3 | Filter window in samples (odd), for the median filter. |
+| `sigma` | `float (optional)` | no | 1.0 | Gaussian width in samples, for the Gaussian filter. |
+
+### LineThresholdingConfig
+
+Clip trace values below (or above) a level.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `method` | `LineThresholdMethod` | no | 'none' | 'absolute' uses threshold_value, 'percentile' uses percentile, 'none' skips. |
+| `threshold_value` | `float (optional)` | no | None | Level in y units for method 'absolute'. |
+| `percentile` | `float (optional)` | no | None | Percentile of y (0-100) for method 'percentile'. |
+| `clip_below` | `bool` | no | True | True clips values below the level; False clips values above. |
+
+### ScanRuntime
+
+How the analyzer runs over a scan: order, granularity, what is saved, where files are.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `priority` | `int` | no | 100 | Run order within a group: lower runs first. 100 is the background default. |
+| `mode` | `'per_shot' \| 'per_bin'` | no | 'per_shot' | 'per_shot' analyzes every frame; 'per_bin' averages each bin's frames first and analyzes once per bin — for metrics that are not linear in the image. |
+| `save` | `bool` | no | True | Write per-shot / per-bin outputs (HDF5, PNG) into the analysis tree. S-file scalar columns are written regardless. |
+| `gdoc_slot` | `int (optional)` | no | None | Which cell (0-3) of the scan-log entry's 2x2 figure table gets this analyzer's summary; unset uploads figures as links instead. |
+| `device` | `str (optional)` | no | None | Data subfolder under the scan when it differs from the diagnostic name (stitched or post-processed outputs in a sibling folder). |
+| `file_tail` | `str (optional)` | no | None | Filename suffix that identifies this device's files ('.png', '.tdms', '_postprocessed.tsv'); unset uses the analyzer's default. |
+| `data_format` | `'per_shot_files' \| 'device_hdf5' (optional)` | no | None | 'device_hdf5' reads the capture daemon's per-device frame stack (falls back to per-shot files when absent). Only for analyzers that do not derive output names from the shot file path. |
+| `renderer` | `RendererOptions` | no | RendererOptions(colormap_mode=None, cmap=None, vmin=None, vmax=None, duration=None, dpi=None, xlabel=None, ylabel=None, colorbar_label=None, mode=None, waterfall_sort_key=None, waterfall_sort_sigma=None, waterfall_sort_bounds=None, waterfall_even_y_spacing=None, figsize=None, figsize_inches=None) | Summary-figure cosmetics; unset fields keep the renderer defaults. |
+| `background_source` | `BackgroundSource (optional)` | no | None | A scan-dependent background (another scan, this scan's own shots, or an autodetected averaged file). Fixed files go on image.background. |
+
+### RendererOptions
+
+Cosmetic overrides for the scan summary figures (colormap, labels, layout).
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `colormap_mode` | `'auto' \| 'sequential' \| 'diverging' \| 'custom' (optional)` | no | None | 'sequential' runs 0 to max; 'diverging' is symmetric about zero; 'auto' picks diverging when the data crosses zero; 'custom' uses vmin/vmax as given. |
+| `cmap` | `str (optional)` | no | None | Matplotlib colormap name (e.g. 'plasma', 'RdBu_r'). |
+| `vmin` | `float (optional)` | no | None | Colour scale minimum. |
+| `vmax` | `float (optional)` | no | None | Colour scale maximum (2D: the old plot_scale). |
+| `duration` | `float (optional)` | no | None | Animation frame duration, ms. |
+| `dpi` | `int (optional)` | no | None | Figure resolution, dots per inch. |
+| `xlabel` | `str (optional)` | no | None | X-axis label. |
+| `ylabel` | `str (optional)` | no | None | Y-axis label. |
+| `colorbar_label` | `str (optional)` | no | None | Colour bar label. |
+| `mode` | `'waterfall' \| 'overlay' \| 'grid' (optional)` | no | None | Trace summary layout: 'waterfall' heat map (x vs scan parameter), 'overlay' of all bins, or a 'grid' of one plot per bin. 1D only. |
+| `waterfall_sort_key` | `str (optional)` | no | None | For a noscan waterfall, order rows by this s-file column instead of shot number ('Device:Var' or a substring). 1D only. |
+| `waterfall_sort_sigma` | `float (optional)` | no | None | Drop shots whose sort-key value lies outside mean ± this many standard deviations. 1D only. |
+| `waterfall_sort_bounds` | `tuple[float, float] (optional)` | no | None | Explicit (low, high) bounds on the sort key; overrides the sigma cut. 1D only. |
+| `waterfall_even_y_spacing` | `bool (optional)` | no | None | Draw waterfall rows at equal height regardless of sort-key spacing. 1D only. |
+| `figsize` | `tuple[float, float] (optional)` | no | None | Panel (width, height) in inches for grid montages. 2D only. |
+| `figsize_inches` | `float (optional)` | no | None | Side of the square animation frames, inches. 2D only. |
+
+### BackgroundSource
+
+Where a scan-dependent background comes from — exactly one of the three.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `scan_number` | `int (optional)` | no | None | Average this earlier scan's frames of the same device and use that. |
+| `from_current_scan` | `FromCurrentScanSpec (optional)` | no | None | Collapse this scan's own shots into a background. |
+| `autodetect` | `AutodetectBackgroundSpec (optional)` | no | None | Find a precomputed averaged background in the day's analysis folder. |
+
+### FromCurrentScanSpec
+
+Build the background from this scan's own shots, collapsed pixel by pixel.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `method` | `'median' \| 'percentile'` | no | 'median' | How the shot stack is collapsed: per-pixel median or percentile. |
+| `percentile` | `float (optional)` | no | None | Percentile (0-100) for method 'percentile'; must be unset for 'median'. |
+
+### AutodetectBackgroundSpec
+
+Use the averaged-background file another analyzer already wrote for this scan.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+
+## `analysis_group`
+
+### AnalysisGroup
+
+A named set of diagnostics to run after each scan, in priority order.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `schema_version` | `int` | no | 1 | Format version of this config file. Leave at 1 — tools update this automatically when the file format changes. |
+| `name` | `str` | yes | — | Display name, conventionally <facility>_<purpose>. |
+| `description` | `str (optional)` | no | None | Free-text note about when this group is used. |
+| `upload_to_scanlog` | `bool` | no | True | Upload the group's summary figures to the experiment scan log. |
+| `analyzers` | `list[AnalyzerRef]` | no | empty | The diagnostics to run; a bare ID means enabled with the diagnostic's own priority. |
+
+Example:
+
+```yaml
+schema_version: 1
+name: HTU_baseline
+analyzers:
+  - UC_TopView                   # bare ID: enabled, the diagnostic's own priority
+  - {ref: U_FROG, enabled: false}
+  - {ref: U_BCaveICT, priority: 1}
+```
+
+### AnalyzerRef
+
+One diagnostic in a group, optionally disabled or re-prioritised for this group.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `ref` | `str` | yes | — | The diagnostic's ID (its YAML file stem). |
+| `enabled` | `bool` | no | True | False keeps the entry listed but skips it when the group runs. |
+| `priority` | `int (optional)` | no | None | Run order within this group; unset uses the diagnostic's own scan.priority. |

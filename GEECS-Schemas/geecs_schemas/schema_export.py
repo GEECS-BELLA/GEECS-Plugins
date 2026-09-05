@@ -29,6 +29,7 @@ from typing import Optional
 
 from pydantic import BaseModel
 
+from geecs_schemas.analysis import AnalysisDiagnostic, AnalysisGroup
 from geecs_schemas.scan_request import (
     ActionBindings,
     CaptureSettings,
@@ -54,6 +55,10 @@ EXPORTED_SCHEMAS: dict[str, type[BaseModel]] = {
     "action_bindings": ActionBindings,
     "scan_axis": ScanAxis,
     "optimization_spec": OptimizationSpec,
+    # The analysis-config documents (0.19.0): what the web config editor
+    # renders its forms from, one variant per analyzer kind.
+    "analysis_diagnostic": AnalysisDiagnostic,
+    "analysis_group": AnalysisGroup,
 }
 
 #: Where the artifacts live, relative to the repo root.

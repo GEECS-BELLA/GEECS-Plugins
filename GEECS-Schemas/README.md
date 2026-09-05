@@ -85,6 +85,8 @@ independently:
 | `action_plan` | `ActionPlan` | one entry of the action library |
 | `action_plan_library` | `ActionPlanLibrary` | `action_library/actions.yaml` |
 | `experiment_defaults` | `ExperimentDefaults` | (new — legacy kept these choices in GUI state) per-experiment fallbacks where a scan request is silent; defaults run first, then the scan's own |
+| `analysis_diagnostic` | `AnalysisDiagnostic` | the unified analysis diagnostic (`scan_analysis_configs/analyzers/<ns>/<id>.yaml`) — format v2: `analyzer:` is a closed discriminated union on `kind` (one spec model per analyzer the suite ships), `image:` is the camera / line processing section, `scan:` the typed scan-runtime section. v1 files (`image_analyzer` class path, `image.analysis`, constructor `kwargs`) lift automatically |
+| `analysis_group` | `AnalysisGroup` | analysis groups (`scan_analysis_configs/groups/<ns>/<name>.yaml`) — unchanged shape plus the `schema_version` stamp |
 
 `SCHEMA_REGISTRY` in `geecs_schemas/__init__.py` maps the kind strings to the
 models for generic tooling.
@@ -108,6 +110,18 @@ fields are kept for a possible future re-enable),
 `ScanVariable` / `PseudoScanVariable`, `TriggerWrite` /
 `TriggerState`, `DefaultActions`, and the four action
 step types.
+
+The analysis documents live in the `geecs_schemas.analysis` subpackage:
+`processing_2d` (`CameraConfig` + its sections), `processing_1d`
+(`Line1DConfig`, the `Line*` sections, `Data1DLoading` — a field-for-field
+mirror of GEECS-Data-Utils' `Data1DConfig` so this package stays
+pydantic-only), `analyzers` (the `AnalyzerSpec` union and the
+`ANALYZER_SPECS` kind → model table), `renderer` (`RendererOptions`, one
+typed option set for both summary renderers), `scan_runtime`
+(`ScanRuntime`, `BackgroundSource`), `diagnostic` and `group`.  The class
+path left the document in v2: ImageAnalysis keeps kind → class in its own
+registry, so adding an analyzer means one spec model here and one registry
+line there.  `V1_CLASS_PATH_TO_KIND` is the lift's memory of the old paths.
 
 One non-model module: `geecs_schemas.restricted_expr` — the shared
 AST-whitelist core behind both GEECS expression eval sites (the gateway's

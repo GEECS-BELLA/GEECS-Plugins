@@ -1,0 +1,22 @@
+# v1: LineStitcher — required kwargs sibling_devices + name (name is dropped in v2).
+name: HTT-C23_1_MagSpec1-interpSpec
+image_analyzer:
+  class_path: image_analysis.analyzers.line_stitcher.LineStitcher
+  kwargs:
+    sibling_devices: [HTT-C23_2_MagSpec2-interpSpec, HTT-C23_3_MagSpec3-interpSpec, HTT-C23_4_MagSpec4-interpSpec]
+    name: HTT-MagSpecStitcher
+image:
+  type: line
+  description: stitched magspec lineout
+  data_format: Charge density vs Energy
+  data_loading: {data_type: tsv}
+  processing_dtype: float64
+  storage_dtype: float32
+  background: {method: constant, constant_value: 0.0}
+  filtering: {method: median, sigma: 2.0, kernel_size: 15}
+  x_units: MeV
+  x_scale_factor: 1
+  thresholding: {method: absolute, threshold_value: 0.0, clip_below: true}
+  roi: {x_min: 4, x_max: 500}
+  pipeline: {steps: [background, roi, filtering, thresholding]}
+scan: {priority: 5, mode: per_shot, save: true, file_tail: .tsv}
