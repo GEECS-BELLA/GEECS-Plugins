@@ -49,10 +49,11 @@ class BCaveMagSpecStitcherAnalyzer(StandardAnalyzer):
         ----------
         camera_config : CameraConfig
             Validated camera configuration model.
-        gaussian_sigma : float, default=20.0
-            Standard deviation of Gaussian weighting function
-        gaussian_center : float, default=250.0
-            Center position of Gaussian weighting function (in pixels)
+        spec : BCaveMagSpecStitcherSpec, optional
+            Gaussian weighting parameters (``gaussian_sigma``,
+            ``gaussian_center``); defaults when omitted.
+        output_name : str, optional
+            Output identifier; forwarded to ``StandardAnalyzer``.
         """
         super().__init__(camera_config, output_name=output_name)
         spec = spec or BCaveMagSpecStitcherSpec()
@@ -260,8 +261,7 @@ if __name__ == "__main__":
 
     image_analyzer = BCaveMagSpecStitcherAnalyzer(
         camera_config=load_camera_config("U_BCaveMagSpec"),
-        gaussian_sigma=20.0,
-        gaussian_center=250.0,
+        spec=BCaveMagSpecStitcherSpec(gaussian_sigma=20.0, gaussian_center=250.0),
     )
 
     # Example file path (update to actual path)

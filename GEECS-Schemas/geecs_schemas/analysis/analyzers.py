@@ -51,6 +51,15 @@ class StandardAnalyzerSpec(AnalyzerSpecBase):
     )
 
 
+class TraceAnalyzerSpec(AnalyzerSpecBase):
+    """Run the trace pipeline and report the processed trace, no extra metrics (the 1D peer of ``standard``)."""
+
+    image_kind: ClassVar[ImageKind] = "line"
+    kind: Literal["trace"] = Field(
+        "trace", description="Processed-trace-only line analyzer."
+    )
+
+
 class LineAnalyzerSpec(AnalyzerSpecBase):
     """Run the trace pipeline and report basic trace statistics (peak, centroid, width, area)."""
 
@@ -234,8 +243,12 @@ class FrogSpectralPhaseSpec(AnalyzerSpecBase):
         800.0, gt=0, description="Wavelength the phase expansion is taken about, nm."
     )
     sign_reference_order: Optional[int] = Field(
-        None,
-        description="Polynomial order whose sign is forced to sign_reference; unset leaves the fit as is.",
+        2,
+        ge=0,
+        description=(
+            "Polynomial order whose sign is forced to sign_reference (2 = the "
+            "GDD term, the default); set null to leave the fit's sign as is."
+        ),
     )
     sign_reference: float = Field(
         1.0, description="Sign (+1 / -1) imposed on sign_reference_order."
@@ -279,6 +292,15 @@ class LineStitcherSpec(AnalyzerSpecBase):
         description=(
             "The other devices whose traces are appended to this diagnostic's "
             "device. Each must have a folder in the scan."
+        ),
+    )
+    output_label: Optional[str] = Field(
+        None,
+        description=(
+            "Name of the folder (under the scan) and filename label the "
+            "stitched traces are written to; defaults to the diagnostic's "
+            "output_name. Must differ from the master device's name — the "
+            "stitcher refuses to write into the raw data folder."
         ),
     )
 
@@ -400,6 +422,7 @@ class PhaseDownrampSpec(AnalyzerSpecBase):
 AnalyzerSpec = Annotated[
     Union[
         StandardAnalyzerSpec,
+        TraceAnalyzerSpec,
         LineAnalyzerSpec,
         BeamAnalyzerSpec,
         MagSpecAnalyzerSpec,
@@ -449,4 +472,5 @@ __all__ = [
     "PolynomialCalibrationSpec",
     "PupilMask",
     "StandardAnalyzerSpec",
+    "TraceAnalyzerSpec",
 ]

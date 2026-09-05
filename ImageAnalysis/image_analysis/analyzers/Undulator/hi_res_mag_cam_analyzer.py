@@ -50,12 +50,11 @@ class HiResMagCamAnalyzer(BeamAnalyzer):
             Validated camera configuration model. (Use
             ``image_analysis.config.loader.load_camera_config("UC_HiResMagCam")``
             to get the standard config.)
-        n_beam_size_clearance : int, default=4
-            Bowtie fit parameter: beam size clearance
-        min_total_counts : float, default=2500.0
-            Bowtie fit parameter: minimum total counts threshold
-        threshold_factor : float, default=10.0
-            Bowtie fit parameter: threshold factor for fit
+        spec : HiResMagCamSpec, optional
+            Bow-tie fit parameters (``n_beam_size_clearance``,
+            ``min_total_counts``, ``threshold_factor``); defaults when omitted.
+        output_name : str, optional
+            Output identifier; forwarded to ``BeamAnalyzer``.
         """
         super().__init__(camera_config, output_name=output_name)
         spec = spec or HiResMagCamSpec()

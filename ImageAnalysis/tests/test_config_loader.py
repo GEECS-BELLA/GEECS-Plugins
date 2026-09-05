@@ -182,6 +182,27 @@ class TestLoadDiagnosticOverrides:
         with pytest.raises(ValueError, match="Invalid diagnostic config"):
             load_diagnostic(path, overrides={"scan": {"mode": "per_frame"}})
 
+    def test_overrides_on_a_v1_file_may_use_v2_names(self, tmp_path):
+        path = tmp_path / "U_Line.yaml"
+        path.write_text(
+            yaml.safe_dump(
+                {
+                    "name": "U_Line",
+                    "image_analyzer": "image_analysis.analyzers.line_analyzer.LineAnalyzer",
+                    "image": {
+                        "type": "line",
+                        "data_loading": {"data_type": "csv"},
+                        "background": {"method": "constant", "constant_value": 1.0},
+                    },
+                }
+            )
+        )
+        diag = load_diagnostic(
+            path, overrides={"image": {"background": {"constant_level": 2.5}}}
+        )
+        # the v1 key is lifted onto the v2 name; the override (already v2) wins
+        assert diag.image.background.constant_level == 2.5
+
     def test_empty_or_none_overrides_are_no_overrides(self, tmp_path):
         path = self._write_diagnostic(tmp_path)
         assert load_diagnostic(path, overrides={}).scan.mode == "per_shot"

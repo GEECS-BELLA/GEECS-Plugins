@@ -21,7 +21,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   untyped holes are closed:
   - `analyzer:` is a closed discriminated union on `kind` — one spec model
     per analyzer the suite ships (`beam`, `magspec`, `frog_retrieval`, `ict`,
-    `line_stitcher`, `haso`, … 14 kinds), so the former `image.analysis`
+    `line_stitcher`, `haso`, `trace` — the 1D peer of `standard` — … 15
+    kinds), so the former `image.analysis`
     dict and the constructor `kwargs` dict become typed fields with unknown
     keys refused.  The analyzer class path leaves the document (ImageAnalysis
     keeps kind → class); `V1_CLASS_PATH_TO_KIND` records the old paths.
@@ -34,7 +35,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **v1 lift.** `AnalysisDiagnostic._lift_v1_layout` maps every pre-0.19.0
   unified diagnostic into v2 at validation (class path → kind, kwargs +
   `image.analysis` → spec fields, the renames above, HASO's `mask_*` kwargs
-  → `mask`), so the deployed corpus keeps loading unchanged.  Verified
+  → `mask`, LineStitcher's `name` kwarg → `output_label`), so the deployed
+  corpus keeps loading unchanged. A `line_stitcher` whose output label equals
+  the master device's data folder is refused at load — the stitched traces
+  would overwrite the raw inputs (the review of the first draft caught this).  Verified
   against the sibling configs checkout by the new `integration` corpus walk
   (`tests/test_analysis_corpus.py`): every diagnostic outside the legacy
   `UNCLASSIFIED/` folder lifts, except `HTU/U_FROG_Beam` — a BeamAnalyzer

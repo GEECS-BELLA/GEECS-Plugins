@@ -128,3 +128,10 @@ class TestFrogSpectralPhaseAnalyzer:
         result = analyzer.analyze_image(data)
 
         assert result.scalars["gdd_fs2"] == pytest.approx(180.0, rel=1e-6)
+
+
+def test_default_spec_keeps_the_gdd_sign_reference():
+    """The pre-2.0 default (sign_reference_order=2) is preserved by the spec."""
+    analyzer = FrogSpectralPhaseAnalyzer(_make_config())
+    assert analyzer.analysis_config.sign_reference_order == 2
+    assert analyzer.analysis_config.sign_reference == 1.0

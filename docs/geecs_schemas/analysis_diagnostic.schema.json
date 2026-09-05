@@ -854,14 +854,15 @@
         "sign_reference_order": {
           "anyOf": [
             {
+              "minimum": 0,
               "type": "integer"
             },
             {
               "type": "null"
             }
           ],
-          "default": null,
-          "description": "Polynomial order whose sign is forced to sign_reference; unset leaves the fit as is.",
+          "default": 2,
+          "description": "Polynomial order whose sign is forced to sign_reference (2 = the GDD term, the default); set null to leave the fit's sign as is.",
           "title": "Sign Reference Order"
         },
         "sign_reference": {
@@ -1462,6 +1463,19 @@
           "minItems": 1,
           "title": "Sibling Devices",
           "type": "array"
+        },
+        "output_label": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Name of the folder (under the scan) and filename label the stitched traces are written to; defaults to the diagnostic's output_name. Must differ from the master device's name \u2014 the stitcher refuses to write into the raw data folder.",
+          "title": "Output Label"
         }
       },
       "required": [
@@ -2243,6 +2257,21 @@
       "title": "ThresholdingConfig",
       "type": "object"
     },
+    "TraceAnalyzerSpec": {
+      "additionalProperties": false,
+      "description": "Run the trace pipeline and report the processed trace, no extra metrics (the 1D peer of ``standard``).",
+      "properties": {
+        "kind": {
+          "const": "trace",
+          "default": "trace",
+          "description": "Processed-trace-only line analyzer.",
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "title": "TraceAnalyzerSpec",
+      "type": "object"
+    },
     "TransformConfig": {
       "additionalProperties": false,
       "description": "Rotate, flip, or undistort the frame.",
@@ -2469,13 +2498,17 @@
           "line_stitcher": "#/$defs/LineStitcherSpec",
           "magspec": "#/$defs/MagSpecAnalyzerSpec",
           "phase_downramp": "#/$defs/PhaseDownrampSpec",
-          "standard": "#/$defs/StandardAnalyzerSpec"
+          "standard": "#/$defs/StandardAnalyzerSpec",
+          "trace": "#/$defs/TraceAnalyzerSpec"
         },
         "propertyName": "kind"
       },
       "oneOf": [
         {
           "$ref": "#/$defs/StandardAnalyzerSpec"
+        },
+        {
+          "$ref": "#/$defs/TraceAnalyzerSpec"
         },
         {
           "$ref": "#/$defs/LineAnalyzerSpec"

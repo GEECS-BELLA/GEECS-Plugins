@@ -516,7 +516,7 @@ One device's analysis: which analyzer, how frames are cleaned up, how it runs ov
 | `output_name` | `str (optional)` | no | None | Label for everything this analyzer writes (s-file column prefix, output folder). Defaults to name; set it to run two analyzers over one device with distinct outputs. |
 | `metric_suffix` | `str (optional)` | no | None | Suffix appended to every s-file column name; affects scalars only, never files or folders. |
 | `description` | `str (optional)` | no | None | Free-text note about this diagnostic. |
-| `analyzer` | `StandardAnalyzerSpec \| LineAnalyzerSpec \| BeamAnalyzerSpec \| MagSpecAnalyzerSpec \| FrogRetrievalSpec \| FrogSpectralPhaseSpec \| IctAnalyzerSpec \| LineStitcherSpec \| HasoAnalyzerSpec \| DownrampPhaseSpec \| HiResMagCamSpec \| BCaveMagSpecStitcherSpec \| BCaveMagOptSpec \| PhaseDownrampSpec` | yes | — | Which analyzer runs and its own parameters; chosen by kind. |
+| `analyzer` | `StandardAnalyzerSpec \| TraceAnalyzerSpec \| LineAnalyzerSpec \| BeamAnalyzerSpec \| MagSpecAnalyzerSpec \| FrogRetrievalSpec \| FrogSpectralPhaseSpec \| IctAnalyzerSpec \| LineStitcherSpec \| HasoAnalyzerSpec \| DownrampPhaseSpec \| HiResMagCamSpec \| BCaveMagSpecStitcherSpec \| BCaveMagOptSpec \| PhaseDownrampSpec` | yes | — | Which analyzer runs and its own parameters; chosen by kind. |
 | `image` | `CameraConfig \| Line1DConfig (optional)` | no | None | How raw frames (type: camera) or traces (type: line) are cleaned up before analysis. Omit for analyzers that read their own file formats (kind haso, phase_downramp). |
 | `scan` | `ScanRuntime` | no | ScanRuntime(priority=100, mode='per_shot', save=True, gdoc_slot=None, device=None, file_tail=None, data_format=None, renderer=RendererOptions(colormap_mode=None, cmap=None, vmin=None, vmax=None, duration=None, dpi=None, xlabel=None, ylabel=None, colorbar_label=None, mode=None, waterfall_sort_key=None, waterfall_sort_sigma=None, waterfall_sort_bounds=None, waterfall_even_y_spacing=None, figsize=None, figsize_inches=None), background_source=None) | How the analyzer runs over a scan: order, per shot or per bin, saving, files. |
 
@@ -554,6 +554,14 @@ Run the camera pipeline and report the processed frame — no extra metrics.
 | Field | Type | Required | Default | What it does |
 |---|---|---|---|---|
 | `kind` | `'standard'` | no | 'standard' | Processed-frame-only camera analyzer. |
+
+### TraceAnalyzerSpec
+
+Run the trace pipeline and report the processed trace, no extra metrics (the 1D peer of ``standard``).
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `kind` | `'trace'` | no | 'trace' | Processed-trace-only line analyzer. |
 
 ### LineAnalyzerSpec
 
@@ -645,7 +653,7 @@ Fit a polynomial spectral phase to a retrieved FROG spectrum (GDD, TOD, …).
 | `min_points` | `int (optional)` | no | None | Minimum number of points required for a fit. |
 | `fit_num_points` | `int` | no | 300 | Number of points the fitted phase is evaluated on. |
 | `reference_wavelength_nm` | `float` | no | 800.0 | Wavelength the phase expansion is taken about, nm. |
-| `sign_reference_order` | `int (optional)` | no | None | Polynomial order whose sign is forced to sign_reference; unset leaves the fit as is. |
+| `sign_reference_order` | `int (optional)` | no | 2 | Polynomial order whose sign is forced to sign_reference (2 = the GDD term, the default); set null to leave the fit's sign as is. |
 | `sign_reference` | `float` | no | 1.0 | Sign (+1 / -1) imposed on sign_reference_order. |
 | `sign_epsilon` | `float` | no | 0.0 | Dead band around zero within which the sign is not flipped. |
 
@@ -669,6 +677,7 @@ Concatenate this device's trace with its sibling devices' traces into one spectr
 |---|---|---|---|---|
 | `kind` | `'line_stitcher'` | no | 'line_stitcher' | Multi-device trace stitcher. |
 | `sibling_devices` | `list[str]` | yes | — | The other devices whose traces are appended to this diagnostic's device. Each must have a folder in the scan. |
+| `output_label` | `str (optional)` | no | None | Name of the folder (under the scan) and filename label the stitched traces are written to; defaults to the diagnostic's output_name. Must differ from the master device's name — the stitcher refuses to write into the raw data folder. |
 
 ### HasoAnalyzerSpec
 

@@ -327,8 +327,9 @@ upload_summary_to_gdoc(
   upload enabled.
 - **`enabled: false`** on a group ref — Disable an analyzer without
   removing it from the group config.
-- **`image_analyzer`** — Fully qualified class path; resolved at runtime.
-  Adding a new analyzer class requires no factory changes.
+- **`analyzer.kind`** — Picks the analyzer and types its parameters; the
+  class path lives in ImageAnalysis' registry, not the YAML. Adding a new
+  analyzer = one spec model in GEECS-Schemas + one registry line.
 - **Embedded `image:` config** — The per-device image-processing config
   (ROI, background, pipeline) lives inside the diagnostic YAML itself;
   there is no separate camera-config lookup.
@@ -372,14 +373,14 @@ pinned by tests in `tests/test_task_queue.py::TestScanFolderCreationInvariant`.
    `scan:` section:
 
    ```yaml
+   schema_version: 2
    name: MyDevice                      # device/channel name for data discovery
-   image_analyzer: image_analysis.analyzers.beam_analyzer.BeamAnalyzer
+   analyzer: {kind: beam}              # + the analyzer's own parameters
    image:                              # consumed by ImageAnalysis
      type: camera                      # camera → Array2D; line → Array1D
      roi: {x_min: 0, x_max: 650, y_min: 350, y_max: 650}
      background: {method: constant, constant_level: 5.0}
-     pipeline:
-       steps: [background, roi]
+     pipeline: [background, roi]
    scan:                               # consumed by ScanAnalysis
      priority: 50
      mode: per_shot                    # or per_bin
@@ -399,8 +400,8 @@ pinned by tests in `tests/test_task_queue.py::TestScanFolderCreationInvariant`.
    ```
 
 4. No Python changes needed in ScanAnalysis itself. The factory
-   (`create_scan_analyzer`) resolves the `image_analyzer` class path,
-   builds the inner `ImageAnalyzer` via
+   (`create_scan_analyzer`) resolves `analyzer.kind` through ImageAnalysis'
+   registry, builds the inner `ImageAnalyzer` via
    `image_analysis.config.create_image_analyzer`, and wraps it in
    `Array1DScanAnalyzer` or `Array2DScanAnalyzer` based on the type of
    the `image:` section.

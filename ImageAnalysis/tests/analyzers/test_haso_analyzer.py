@@ -54,7 +54,7 @@ try:
 except Exception:
     DATA_FILE = Path("__data_not_available__")
 
-MASK_KWARGS = dict(mask_top=200, mask_bottom=500, mask_left=10, mask_right=680)
+MASK = dict(top=200, bottom=500, left=10, right=680)
 
 
 @pytest.fixture(scope="module")
@@ -64,9 +64,12 @@ def haso_result():
     if not DATA_FILE.exists():
         pytest.skip(f"Data file not found: {DATA_FILE}")
 
+    from geecs_schemas.analysis import HasoAnalyzerSpec, PupilMask
+
     analyzer = HASOHimgHasProcessor(
-        wavekit_config_file_path=WAVEKIT_CONFIG,
-        **MASK_KWARGS,
+        spec=HasoAnalyzerSpec(
+            wavekit_config_file_path=WAVEKIT_CONFIG, mask=PupilMask(**MASK)
+        )
     )
     return analyzer.analyze_image_file(image_filepath=DATA_FILE)
 

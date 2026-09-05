@@ -18,7 +18,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from geecs_schemas._base import SchemaModel
 
@@ -88,13 +88,23 @@ class Data1DLoading(SchemaModel):
         ),
     )
 
+    @model_validator(mode="before")
+    @classmethod
+    def _accept_model_instances(cls, data: Any) -> Any:
+        """Accept any pydantic model with the same fields (GEECS-Data-Utils' ``Data1DConfig``)."""
+        if isinstance(data, BaseModel) and not isinstance(data, cls):
+            return data.model_dump(mode="json")
+        return data
+
     @model_validator(mode="after")
     def validate_auxiliary_columns(self) -> "Data1DLoading":
-        """Validate named auxiliary column definitions."""
+        """Validate named auxiliary column definitions (mirrors ``Data1DConfig``)."""
         seen: set[int] = set()
         for name, column in self.auxiliary_columns.items():
             if not name.strip():
                 raise ValueError("auxiliary column names must be non-empty")
+            if column < 0:
+                raise ValueError("auxiliary column indices must be non-negative")
             if column in {self.x_column, self.y_column}:
                 raise ValueError(
                     "auxiliary column indices must differ from x_column and y_column"

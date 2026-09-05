@@ -37,7 +37,7 @@ ImageSection = Annotated[
 #: is the lift's memory of where each kind used to live.
 V1_CLASS_PATH_TO_KIND: dict[str, str] = {
     "image_analysis.analyzers.standard_analyzer.StandardAnalyzer": "standard",
-    "image_analysis.analyzers.standard_1d_analyzer.Standard1DAnalyzer": "line",
+    "image_analysis.analyzers.standard_1d_analyzer.Standard1DAnalyzer": "trace",
     "image_analysis.analyzers.line_analyzer.LineAnalyzer": "line",
     "image_analysis.analyzers.beam_analyzer.BeamAnalyzer": "beam",
     "image_analysis.analyzers.magspec_manual_calib_analyzer.MagSpecManualCalibAnalyzer": "magspec",
@@ -53,13 +53,19 @@ V1_CLASS_PATH_TO_KIND: dict[str, str] = {
     "image_analysis.analyzers.density_from_phase_analysis.PhaseDownrampProcessor": "phase_downramp",
 }
 
-# v1 constructor kwargs that did not survive into the spec: LineStitcher's
-# ``name`` (it labelled the stitched-output folder, which is what
-# ``output_name`` already does) and BCaveMagOpt's ``line_config_name`` (never
-# accepted by the constructor — the v1 form could not catch that).
+# v1 constructor kwargs that did not survive into the spec: BCaveMagOpt's
+# ``line_config_name`` (never accepted by the constructor — the v1 form could
+# not catch that).
 _V1_DROPPED_KWARGS: dict[str, frozenset[str]] = {
-    "line_stitcher": frozenset({"name"}),
     "bcave_mag_opt": frozenset({"line_config_name"}),
+}
+
+# v1 constructor kwargs renamed on the spec: LineStitcher's ``name`` labelled
+# the stitched-output folder next to the master device; it is the spec's
+# ``output_label`` (the deployed stitchers set it to something other than
+# the diagnostic name, so it cannot be dropped in favour of ``output_name``).
+_V1_RENAMED_KWARGS: dict[str, dict[str, str]] = {
+    "line_stitcher": {"name": "output_label"},
 }
 
 _V1_LINE_BACKGROUND_RENAMES = {
@@ -104,7 +110,9 @@ def _lift_v1_image(image: Any) -> tuple[Any, dict[str, Any]]:
     if isinstance(analysis, Mapping) and isinstance(analysis.get("magspec"), Mapping):
         analysis = dict(analysis["magspec"])  # the legacy nested magspec form
     if "data_format" in image:
-        image["label"] = image.pop("data_format")
+        # A v2 key already present (an override written in the new spelling)
+        # wins over the lifted v1 key — same rule for every rename below.
+        image.setdefault("label", image.pop("data_format"))
     pipeline = image.get("pipeline")
     if isinstance(pipeline, Mapping):
         image["pipeline"] = list(pipeline.get("steps") or [])
@@ -112,7 +120,7 @@ def _lift_v1_image(image: Any) -> tuple[Any, dict[str, Any]]:
         background = dict(image["background"])
         for old, new in _V1_LINE_BACKGROUND_RENAMES.items():
             if old in background:
-                background[new] = background.pop(old)
+                background.setdefault(new, background.pop(old))
         image["background"] = background
     return image, dict(analysis)
 
@@ -124,6 +132,9 @@ def _lift_v1_params(
     params = {**kwargs, **analysis}
     for dropped in _V1_DROPPED_KWARGS.get(kind, ()):
         params.pop(dropped, None)
+    for old, new in _V1_RENAMED_KWARGS.get(kind, {}).items():
+        if old in params:
+            params.setdefault(new, params.pop(old))
     if kind == "haso":
         mask = {
             side: params.pop(f"mask_{side}")
@@ -214,8 +225,10 @@ class AnalysisDiagnostic(VersionedSchemaModel):
         ``image.analysis`` merge into the analyzer spec, ``image.data_format``
         becomes ``image.label``, ``pipeline: {steps: [...]}`` becomes the bare
         list, the 1D background fields take the camera spellings, and
-        ``scan.renderer_kwargs`` becomes ``scan.renderer``.  A declared
-        ``schema_version`` below 2 is normalised to 2; a newer one is kept.
+        ``scan.renderer_kwargs`` becomes ``scan.renderer``.  A v1-layout
+        document is always stamped 2 (its layout defines its version); a
+        v2-layout document with a stale stamp is normalised up to 2 and one
+        with a newer stamp is left alone.
 
         Parameters
         ----------
@@ -257,7 +270,7 @@ class AnalysisDiagnostic(VersionedSchemaModel):
             if isinstance(scan, Mapping):
                 scan = dict(scan)
                 if "renderer_kwargs" in scan:
-                    scan["renderer"] = scan.pop("renderer_kwargs")
+                    scan.setdefault("renderer", scan.pop("renderer_kwargs"))
                 lifted["scan"] = scan
             elif scan is None:
                 lifted.pop("scan", None)
@@ -279,6 +292,16 @@ class AnalysisDiagnostic(VersionedSchemaModel):
                 f"analyzer kind {self.analyzer.kind!r} needs image.type "
                 f"{wanted!r}, but the document has {have!r}"
             )
+        if self.analyzer.kind == "line_stitcher":
+            label = self.analyzer.output_label or self.effective_output_name
+            master = self.scan.device or self.name
+            if label == master:
+                raise ValueError(
+                    f"line_stitcher output label {label!r} equals the master "
+                    "device's data folder; the stitched traces would overwrite "
+                    "the raw input files. Set analyzer.output_label (or "
+                    "output_name) to a different name."
+                )
         renderer = self.scan.renderer
         if have == "camera":
             wrong = renderer.fields_set_for(renderer.LINE_ONLY)

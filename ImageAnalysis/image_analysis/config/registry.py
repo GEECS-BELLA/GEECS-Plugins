@@ -24,6 +24,7 @@ __all__ = ["ANALYZER_CLASS_PATHS", "analyzer_class", "import_class_path"]
 #: kind → fully qualified class path of the ImageAnalyzer implementing it.
 ANALYZER_CLASS_PATHS: dict[str, str] = {
     "standard": "image_analysis.analyzers.standard_analyzer.StandardAnalyzer",
+    "trace": "image_analysis.analyzers.standard_1d_analyzer.Standard1DAnalyzer",
     "line": "image_analysis.analyzers.line_analyzer.LineAnalyzer",
     "beam": "image_analysis.analyzers.beam_analyzer.BeamAnalyzer",
     "magspec": "image_analysis.analyzers.magspec_manual_calib_analyzer.MagSpecManualCalibAnalyzer",

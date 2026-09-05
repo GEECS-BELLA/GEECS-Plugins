@@ -34,9 +34,10 @@ loading through the v1 lift.
   registry` maps kind → class. Every analyzer constructor now takes its
   spec by keyword: `BeamAnalyzer(camera_config, *, spec=BeamAnalyzerSpec(...),
   output_name=...)`, `ICT1DAnalyzer(line_config, *, spec=...)`,
-  `LineStitcher(line_config, *, spec=LineStitcherSpec(sibling_devices=[...]),
-  output_name=...)` (the separate `name` kwarg is gone — `output_name`
-  labels the stitched outputs), `MagSpecManualCalibAnalyzer(camera_config,
+  `LineStitcher(line_config, *, spec=LineStitcherSpec(sibling_devices=[...],
+  output_label=...), output_name=...)` (the `name` kwarg is the spec's
+  `output_label`, defaulting to `output_name`; the stitcher refuses a label
+  equal to the master device folder, which would overwrite the raw inputs), `MagSpecManualCalibAnalyzer(camera_config,
   *, spec=MagSpecAnalyzerSpec(...))`, `HiResMagCamAnalyzer(camera_config, *,
   spec=...)`, `BCaveMagSpecStitcherAnalyzer(camera_config, *, spec=...)`,
   `HASOHimgHasProcessor(spec=HasoAnalyzerSpec(...))` (the flat `mask_*`
@@ -45,6 +46,9 @@ loading through the v1 lift.
   are optional (`BeamAnalyzer(camera_config)` still works in a notebook).
   `BeamAnalysisConfig`, `FrogRetrievalConfig`, `ICTAnalysisConfig` and
   `FrogSpectralPhaseConfig` are aliases of the corresponding specs.
+- **`trace` kind.** `Standard1DAnalyzer` (processed trace, no metrics) is
+  its own kind, `trace` — the 1D peer of `standard`; `line` is
+  `LineAnalyzer` with its statistics, as before.
 - **Factory and loader.** `create_image_analyzer` resolves the class from
   the kind and passes `spec` / `camera_config` / `line_config` /
   `output_name` only where the constructor declares them.
@@ -56,6 +60,9 @@ loading through the v1 lift.
 
 ### Removed
 
+- The stale `__main__` demo blocks in `HASO_himg_has_processor.py` (which
+  also carried a lab share path), `Undulator/BCaveMagSpecStitcher.py` and
+  `density_from_phase_analysis.py` were deleted or moved to the spec form.
 - `ImageAnalyzerSpec`, `resolve_image_analyzer_value`, `PipelineConfig`
   (both dimensions), the `analysis` field on `CameraConfig` /
   `Line1DConfig`, and the loader's `_unwrap_diagnostic_image_section`.

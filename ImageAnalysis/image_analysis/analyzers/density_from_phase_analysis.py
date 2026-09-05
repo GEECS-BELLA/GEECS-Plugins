@@ -833,9 +833,8 @@ if __name__ == "__main__":
     )
     from dataclasses import asdict
 
-    config_dict = asdict(config)
     print(phase_file_path)
-    image_analyzer: PhaseDownrampProcessor = PhaseDownrampProcessor(**config_dict)
+    image_analyzer = PhaseDownrampProcessor(spec=PhaseDownrampSpec(**asdict(config)))
     image_analyzer.use_interactive = True
     image_analyzer.analyze_image_file(phase_file_path)
 

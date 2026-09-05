@@ -46,7 +46,7 @@ class TestRegistry:
         assert SCHEMA_REGISTRY["analysis_group"] is AnalysisGroup
 
     def test_every_union_member_has_a_distinct_kind(self):
-        assert len(ANALYZER_SPECS) == 14
+        assert len(ANALYZER_SPECS) == 15
         for kind, model in ANALYZER_SPECS.items():
             assert model.model_fields["kind"].default == kind
             assert model.image_kind in ("camera", "line", None)
@@ -224,9 +224,14 @@ class TestV1Lift:
         )
         assert diag.scan.file_tail == ".himg"
 
-    def test_line_stitcher_drops_the_redundant_name_kwarg(self):
+    def test_line_stitcher_keeps_its_output_label(self):
+        # v1's ``name`` kwarg labelled the stitched-output folder next to the
+        # master device; dropping it would make the stitcher write over its
+        # own raw input files (the deployed stitchers set it to something
+        # other than the diagnostic name).
         diag = lift("line_stitcher")
         assert isinstance(diag.analyzer, LineStitcherSpec)
+        assert diag.analyzer.output_label == "HTT-MagSpecStitcher"
         assert len(diag.analyzer.sibling_devices) == 3
         assert diag.image.filtering.kernel_size == 15
         assert diag.image.roi.x_max == 500
@@ -256,6 +261,49 @@ class TestV1Lift:
         message = str(excinfo.value)
         for key in ("delt", "dellam", "lam0", "N"):
             assert key in message
+
+    def test_line_stitcher_label_may_not_be_the_master_folder(self):
+        with pytest.raises(ValidationError, match="overwrite the raw input"):
+            AnalysisDiagnostic.model_validate(
+                {
+                    "name": "MagCam1",
+                    "analyzer": {
+                        "kind": "line_stitcher",
+                        "sibling_devices": ["MagCam2"],
+                    },
+                    "image": {"type": "line", "data_loading": {"data_type": "tsv"}},
+                }
+            )
+        ok = AnalysisDiagnostic.model_validate(
+            {
+                "name": "MagCam1",
+                "output_name": "Stitched",
+                "analyzer": {"kind": "line_stitcher", "sibling_devices": ["MagCam2"]},
+                "image": {"type": "line", "data_loading": {"data_type": "tsv"}},
+            }
+        )
+        assert ok.analyzer.output_label is None  # output_name carries the label
+
+    def test_explicit_schema_version_1_is_lifted_too(self):
+        data = load_v1("beam_camera")
+        data["schema_version"] = 1
+        diag = AnalysisDiagnostic.model_validate(data)
+        assert diag.schema_version == 2
+        assert diag.analyzer.kind == "beam"
+
+    def test_standard_1d_is_the_trace_kind(self):
+        data = load_v1("ict_line")
+        data["image_analyzer"] = (
+            "image_analysis.analyzers.standard_1d_analyzer.Standard1DAnalyzer"
+        )
+        data["image"].pop("analysis")
+        assert AnalysisDiagnostic.model_validate(data).analyzer.kind == "trace"
+
+    def test_data1d_loading_refuses_negative_columns(self):
+        from geecs_schemas.analysis import Data1DLoading
+
+        with pytest.raises(ValidationError, match="non-negative"):
+            Data1DLoading(data_type="tsv", auxiliary_columns={"w": -3})
 
     def test_unknown_class_path_is_refused_with_the_kind_list(self):
         data = load_v1("beam_camera")

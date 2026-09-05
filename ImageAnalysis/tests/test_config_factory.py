@@ -165,13 +165,55 @@ class TestCreateImageAnalyzer:
     def test_required_spec_fields_reach_the_constructor(self):
         diag = AnalysisDiagnostic(
             name="Master",
-            analyzer={"kind": "line_stitcher", "sibling_devices": ["A", "B"]},
+            analyzer={
+                "kind": "line_stitcher",
+                "sibling_devices": ["A", "B"],
+                "output_label": "Stitched",
+            },
             image={"type": "line", "data_loading": {"data_type": "tsv"}},
         )
         analyzer = create_image_analyzer(diag)
         assert isinstance(diag.analyzer, LineStitcherSpec)
         assert analyzer.sibling_devices == ["A", "B"]
-        assert analyzer.name == "Master"  # the stitched-output label = output_name
+        assert analyzer.name == "Stitched"  # the stitched-output folder label
+
+    def test_stitcher_label_defaults_to_output_name(self):
+        diag = AnalysisDiagnostic(
+            name="Master",
+            output_name="Master-stitched",
+            analyzer={"kind": "line_stitcher", "sibling_devices": ["A"]},
+            image={"type": "line", "data_loading": {"data_type": "tsv"}},
+        )
+        assert create_image_analyzer(diag).name == "Master-stitched"
+
+    def test_v1_stitcher_name_kwarg_survives_as_the_label(self, tmp_path):
+        path = tmp_path / "analyzers" / "HTT" / "Stitch.yaml"
+        path.parent.mkdir(parents=True)
+        path.write_text(
+            yaml.safe_dump(
+                {
+                    "name": "HTT-MagCam1-interpSpec",
+                    "image_analyzer": {
+                        "class_path": "image_analysis.analyzers.line_stitcher.LineStitcher",
+                        "kwargs": {
+                            "sibling_devices": ["HTT-MagCam2-interpSpec"],
+                            "name": "HTT-MagSpecStitcher",
+                        },
+                    },
+                    "image": {"type": "line", "data_loading": {"data_type": "tsv"}},
+                }
+            )
+        )
+        analyzer = create_image_analyzer(load_diagnostic("Stitch", config_dir=tmp_path))
+        assert analyzer.name == "HTT-MagSpecStitcher"
+
+    def test_trace_kind_is_the_plain_1d_analyzer(self):
+        diag = AnalysisDiagnostic(
+            name="Spectro",
+            analyzer={"kind": "trace"},
+            image={"type": "line", "data_loading": {"data_type": "csv"}},
+        )
+        assert create_image_analyzer(diag).__class__.__name__ == "Standard1DAnalyzer"
 
     def test_parameterless_kinds_take_no_spec(self):
         diag = AnalysisDiagnostic(

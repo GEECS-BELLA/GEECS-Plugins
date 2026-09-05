@@ -23,7 +23,6 @@ import yaml
 
 from geecs_schemas.analysis import AnalysisDiagnostic, AnalysisGroup
 
-from test_corpus_integration import CONFIGS, skip_without_corpus
 
 #: namespace/stem → why the v2 schema refuses it (fix belongs in the configs repo).
 KNOWN_INVALID = {
@@ -33,8 +32,8 @@ KNOWN_INVALID = {
 SKIPPED_NAMESPACES = {"UNCLASSIFIED"}
 
 
-def diagnostics():
-    root = CONFIGS / "scan_analysis_configs" / "analyzers"
+def diagnostics(configs):
+    root = configs / "scan_analysis_configs" / "analyzers"
     return sorted(
         path
         for path in root.glob("*/*.y*ml")
@@ -42,17 +41,16 @@ def diagnostics():
     )
 
 
-def groups():
-    return sorted((CONFIGS / "scan_analysis_configs" / "groups").glob("*/*.y*ml"))
+def groups(configs):
+    return sorted((configs / "scan_analysis_configs" / "groups").glob("*/*.y*ml"))
 
 
 @pytest.mark.integration
-@skip_without_corpus
 class TestAnalysisCorpus:
-    def test_every_diagnostic_lifts_to_v2(self):
+    def test_every_diagnostic_lifts_to_v2(self, configs_repo):
         failures = {}
         lifted = 0
-        for path in diagnostics():
+        for path in diagnostics(configs_repo):
             key = f"{path.parent.name}/{path.stem}"
             try:
                 diag = AnalysisDiagnostic.model_validate(
@@ -73,7 +71,7 @@ class TestAnalysisCorpus:
         assert not missing, f"KNOWN_INVALID entries now validate — drop them: {missing}"
         assert lifted >= 40
 
-    def test_every_group_validates(self):
-        for path in groups():
+    def test_every_group_validates(self, configs_repo):
+        for path in groups(configs_repo):
             group = AnalysisGroup.model_validate(yaml.safe_load(path.read_text()))
             assert group.schema_version == 1, path

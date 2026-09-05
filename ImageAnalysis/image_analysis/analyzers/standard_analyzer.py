@@ -96,8 +96,7 @@ class StandardAnalyzer(ImageAnalyzer):
 
         The string-by-name convenience that this constructor used to
         offer has moved to the loader layer — call
-        ``image_analysis.config.loader.load_camera_config(name)`` (or
-        ``image_analysis.config.load_image_analyzer(name)``) to get a
+        ``image_analysis.config.loader.load_camera_config(name)`` to get a
         ``CameraConfig`` first, then hand it here.
         """
         self.camera_config = camera_config

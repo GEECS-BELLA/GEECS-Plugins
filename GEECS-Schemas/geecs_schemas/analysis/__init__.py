@@ -29,6 +29,7 @@ from geecs_schemas.analysis.analyzers import (
     PolynomialCalibrationSpec,
     PupilMask,
     StandardAnalyzerSpec,
+    TraceAnalyzerSpec,
 )
 from geecs_schemas.analysis.diagnostic import (
     CURRENT_SCHEMA_VERSION,
@@ -86,4 +87,5 @@ __all__ = [
     "RendererOptions",
     "ScanRuntime",
     "StandardAnalyzerSpec",
+    "TraceAnalyzerSpec",
 ]

@@ -66,8 +66,7 @@ class Standard1DAnalyzer(ImageAnalyzer):
 
         The string-by-name convenience that this constructor used to
         offer has moved to the loader layer — call
-        ``image_analysis.config.loader.load_line_config(name)`` (or
-        ``image_analysis.config.load_image_analyzer(name)``) to get a
+        ``image_analysis.config.loader.load_line_config(name)`` to get a
         ``Line1DConfig`` first, then hand it here.
         """
         # Initialize base class first so any defaults it sets can be overridden below.

@@ -496,25 +496,3 @@ class HASOHimgHasProcessor(ImageAnalyzer):
 
         # Save the array to the specified path using tab-delimited format.
         np.savetxt(save_path, arr, delimiter="\t", fmt="%s")
-
-
-if __name__ == "__main__":
-    path_to_himg = Path(
-        "Z:/data/Undulator/Y2025/02-Feb/25_0219/scans/Scan002/U_HasoLift/Scan002_U_HasoLift_001.himg"
-    )
-    path_to_has = Path(
-        "Z:/data/Undulator/Y2025/02-Feb/25_0219/scans/Scan002/U_HasoLift/Scan002_U_HasoLift_001_raw.has"
-    )
-
-    # Create analyzer with explicit parameters
-    haso_processor = HASOHimgHasProcessor(
-        wavekit_config_file_path=Path(
-            "Z:/software/control-all-loasis/HTU/Active Version/GEECS-Plugins/ImageAnalysis/image_analysis/third_party_sdks/wavekit_43/WFS_HASO4_LIFT_680_8244_gain_enabled.dat"
-        ),
-        mask_top=75,
-        mask_bottom=246,
-        mask_left=10,
-        mask_right=670,
-    )
-
-    haso_processor.analyze_image_file(image_filepath=path_to_himg)

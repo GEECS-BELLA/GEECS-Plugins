@@ -58,9 +58,11 @@ class LineStitcher(LineAnalyzer):
         super().__init__(line_config, output_name=output_name)
         self.sibling_devices: List[str] = list(spec.sibling_devices)
         # Label for the stitched-output folder / filenames written next to
-        # the master device: the diagnostic's output name (v1's separate
-        # ``name`` kwarg said the same thing twice).
-        self.name = output_name or "stitched"
+        # the master device (v1's ``name`` kwarg). It must differ from the
+        # master device's folder or the stitched TSVs would land on top of
+        # the raw inputs — the schema refuses that at load, and load_image
+        # refuses it again at run time.
+        self.name = spec.output_label or output_name or "stitched"
         self._device_in_filename: Optional[str] = None
 
     def load_image(self, file_path: Path) -> Array1D:
@@ -85,6 +87,12 @@ class LineStitcher(LineAnalyzer):
         """
         file_path = Path(file_path)
         master_device = file_path.parent.name
+        if self.name == master_device:
+            raise ValueError(
+                f"LineStitcher output label {self.name!r} equals the master "
+                f"device folder {master_device!r}; refusing to run — the "
+                "stitched output would overwrite the raw input files."
+            )
         filename = file_path.name
         base_dir = file_path.parent.parent
         data_config = self.line_config.data_loading
