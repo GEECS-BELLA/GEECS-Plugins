@@ -60,7 +60,8 @@ class GeecsPathsConfig:
         config_path : Path, optional
             Path to the configuration file (default: ~/.config/geecs_python_api/config.ini).
         default_experiment : str, optional
-            Default experiment name (default: "Undulator").
+            Experiment name; when omitted, read from ``[Experiment] expt`` in the
+            config file (may stay None on analysis-only machines).
         set_base_path : Path, optional
             Default path for locating GEECS data (default: Z:/data).
         image_analysis_configs_path : Path, optional

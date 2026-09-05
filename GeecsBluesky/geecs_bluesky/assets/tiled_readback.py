@@ -132,7 +132,7 @@ def find_geecs_run(
     day: int,
     scan_number: int,
     experiment: str | None = None,
-    timezone: str = "America/Los_Angeles",
+    timezone: str | None = None,
 ) -> Any:
     """Find one archived GEECS Bluesky run in a Tiled catalog.
 
@@ -398,7 +398,7 @@ def load_asset_from_tiled(
     device_type: str | None = None,
     tiled_uri: str | None = None,
     tiled_api_key: str | None = None,
-    timezone: str = "America/Los_Angeles",
+    timezone: str | None = None,
     root_map: Mapping[str, str] | None = None,
     retry_intervals: Iterable[float] | None = None,
 ) -> FilledTiledGeecsAsset:
@@ -437,7 +437,7 @@ def load_camera_image_from_tiled(
     device_type: str | None = None,
     tiled_uri: str | None = None,
     tiled_api_key: str | None = None,
-    timezone: str = "America/Los_Angeles",
+    timezone: str | None = None,
     root_map: Mapping[str, str] | None = None,
     retry_intervals: Iterable[float] | None = None,
 ) -> FilledTiledCameraAsset:
@@ -536,7 +536,7 @@ def _search_catalog(
     day: int,
     scan_number: int,
     experiment: str | None,
-    timezone: str,
+    timezone: str | None,
 ) -> Any:
     try:
         from tiled.queries import Key
@@ -576,7 +576,7 @@ def _run_matches(
     day: int,
     scan_number: int,
     experiment: str | None,
-    timezone: str,
+    timezone: str | None,
 ) -> bool:
     start = _start_doc(run)
     if _is_analysis_run(start):
@@ -613,11 +613,11 @@ def _date_matches(
     year: int,
     month: int,
     day: int,
-    timezone: str,
+    timezone: str | None,
 ) -> bool:
     start_time = start_doc.get("time")
     if not _is_missing(start_time):
-        dt = datetime.fromtimestamp(float(start_time), ZoneInfo(timezone))
+        dt = datetime.fromtimestamp(float(start_time), _zone(timezone))
         return (dt.year, dt.month, dt.day) == (year, month, day)
 
     scan_folder = start_doc.get("scan_folder")
@@ -628,18 +628,33 @@ def _date_matches(
     ) and f"{year % 100:02d}_{month:02d}{day:02d}" in str(scan_folder)
 
 
+def _zone(timezone: str | None) -> ZoneInfo | None:
+    """``ZoneInfo`` for an IANA name; ``None`` means the host's own zone rules.
+
+    The host zone is the one facility value that already has a home:
+    ``TZ`` in the service host's ``site.env`` (every systemd unit inherits
+    it) and the OS setting on a client. Nothing in this package names a
+    zone by default.
+    """
+    return ZoneInfo(timezone) if timezone else None
+
+
 def _day_bounds(
     year: int,
     month: int,
     day: int,
-    timezone: str,
+    timezone: str | None,
 ) -> tuple[datetime, datetime]:
-    tz = ZoneInfo(timezone)
-    start = datetime.combine(
-        datetime(year, month, day).date(),
-        datetime_time.min,
-        tzinfo=tz,
+    tz = _zone(timezone)
+    local_midnight = datetime.combine(
+        datetime(year, month, day).date(), datetime_time.min
     )
+    if tz is None:
+        # A naive datetime's astimezone() applies the host's rules for
+        # *that* date (DST-correct), unlike datetime.now().astimezone().tzinfo.
+        start = local_midnight.astimezone()
+    else:
+        start = local_midnight.replace(tzinfo=tz)
     return start, start + timedelta(days=1)
 
 

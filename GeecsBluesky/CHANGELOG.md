@@ -4,6 +4,19 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.76.0] - 2026-09-04
+
+### Changed
+
+- **Timezone defaults are the host's zone, not `America/Los_Angeles`.**
+  The three `timezone="America/Los_Angeles"` defaults in
+  `assets/tiled_readback.py` become `timezone=None`,
+  meaning the process's own zone rules — `TZ` from `site.env` for the
+  systemd units, the OS setting on a client — applied DST-correctly for
+  the queried date (a naive local midnight's `astimezone()`, not today's
+  fixed offset). An explicit IANA name still wins. Site-profile arc Phase 4
+  (the timezone literal; plan `Planning/site_profile/00_overview.md`).
+
 ## [0.75.0] - 2026-09-04
 
 ### Removed

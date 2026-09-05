@@ -3,6 +3,16 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.26.1] - 2026-09-04
+
+### Fixed
+
+- `GeecsPathsConfig.__init__` docstring no longer claims a `"Undulator"`
+  default experiment: the code has read `[Experiment] expt` from the
+  config file (or left it None) since the experiment became optional. The
+  last mention of the literal in this package's API surface (site-profile
+  arc Phase 4, the default-experiment literal).
+
 ## [0.26.0] - 2026-09-01
 
 ### Added
