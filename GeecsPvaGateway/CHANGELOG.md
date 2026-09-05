@@ -3,6 +3,36 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.5.0] - 2026-09-04
+
+### Added
+
+- **`geecs_pva_gateway.fleet` — the fleet roster from the DB, with a
+  "not deployed" state.** `fleet_roster(experiment)` returns the
+  experiment's camera servers (endpoint IPs hosting enabled image
+  devices — the same camera test `PvaGatewayConfig` applies per host,
+  now via the shared `config.image_variables`), each marked `deployed`
+  by membership in the client `config.ini` `[pva] addr_list` (the
+  clients' `EPICS_PVA_ADDR_LIST`, mirroring `[epics] ca_addr_list`;
+  absent key = all deployed). A roster host missing from the list hosts
+  cameras only nominally — no instance was ever installed — so a failed
+  probe there is not an outage. Site-profile arc Phase 4, item 1.
+
+### Changed
+
+- **`deploy/gen_fleet_status.py` takes `--experiment`** (default: the
+  config.ini experiment) and writes `fleet_status_<experiment>.bob` from
+  the DB roster; the hand-curated `HOSTS`/`EXPERIMENT` literals are gone.
+  Not-deployed hosts render as a labelled row with no live PVs and no
+  restart button. `deploy/fleet_status.bob` is replaced by
+  `deploy/fleet_status_undulator.bob` (HTU, the reference deployment:
+  11 camera servers in the DB, 9 deployed — the two hosts that dropped
+  out of the old 13-host list no longer have image devices).
+- `scripts/fleet_status.sh` reads the roster live from the DB through
+  this package's env instead of grepping the checked-in screen, and
+  prints not-deployed hosts as `[ -- ]` rows (previously `[DOWN]` every
+  run).
+
 ## [0.4.5] - 2026-08-29
 
 ### Fixed

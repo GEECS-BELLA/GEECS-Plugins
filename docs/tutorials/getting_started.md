@@ -109,6 +109,9 @@ api_key = <ask the Tiled admin>
 [epics]
 ca_addr_list = 192.168.6.14
 
+[pva]
+addr_list = 192.168.6.100 192.168.7.161 192.168.8.197   # the camera servers running an image gateway
+
 [qserver]
 host = 192.168.6.14
 ```
@@ -131,6 +134,7 @@ What each section is for, and who reads it:
 | `[Experiment] rep_rate_hz` | Machine rep rate, for shot-count estimates | Scanner/Console |
 | `[tiled] uri`, `[tiled] api_key` | Tiled data-server access (optional) | GeecsBluesky, Scan Browser |
 | `[epics] ca_addr_list` | EPICS client addressing (optional, gateway clients) | GeecsBluesky and other CA clients |
+| `[pva] addr_list` | The camera servers running a PVA image gateway — the deployed fleet. Doubles as `EPICS_PVA_ADDR_LIST` for clients on another subnet/VPN; a DB roster host absent here counts as *not deployed* (optional) | `scripts/fleet_status.sh`, the fleet-screen generator, cross-subnet PVA clients |
 | `[qserver] host` | The queueserver worker machine — scans submit to the RE Manager there. Without this section the Console runs but cannot submit scans. Optional per-address overrides: `control_addr` (`tcp://host:60615`), `info_addr` (`tcp://host:60625`), `doc_addr` (`host:5568`) | GEECS Console (queueserver client) |
 
 Database credentials are **not** stored here: tools follow

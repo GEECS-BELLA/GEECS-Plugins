@@ -359,10 +359,11 @@ scheduled for the site-profile arc's literal-cleanup phase
 (`Planning/site_profile/00_overview.md`, PR #775, Phase 4) and not to be fixed
 opportunistically: the `America/Los_Angeles` defaults in
 `geecs_bluesky` (`assets/tiled_readback.py`, `analysis/camera.py`,
-`analysis/assets.py`), the hand-curated `HOSTS` roster + `EXPERIMENT` in
-`GeecsPvaGateway/deploy/gen_fleet_status.py`, the `"Undulator"` default
-in `geecs_data_utils.geecs_paths_config`, and `EXPERIMENT_FILE_IDS` in
-`geecs_data_utils.doc_id_lookup`.
+`analysis/assets.py`), the `"Undulator"` default in
+`geecs_data_utils.geecs_paths_config`, and `EXPERIMENT_FILE_IDS` in
+`geecs_data_utils.doc_id_lookup`. (The PVA fleet roster is DB-driven since
+GeecsPvaGateway 0.5.0: `geecs_pva_gateway.fleet`, deployed hosts from
+`config.ini [pva] addr_list`.)
 
 ## Known debt we have deliberately deferred
 

@@ -35,6 +35,19 @@ def local_ip_addresses(probe_target: str | None = None) -> set[str]:
     return addresses
 
 
+def image_variables(metadata: list[dict]) -> list[str]:
+    """Names of the image-typed variables among one device's DB metadata rows.
+
+    The camera test everywhere in this package (a device with none is not a
+    camera); shared with :mod:`geecs_pva_gateway.fleet`.
+    """
+    return sorted(
+        meta["name"]
+        for meta in metadata
+        if effective_vartype(meta.get("variabletype"), meta.get("choices")) == "image"
+    )
+
+
 class CameraSpec(BaseModel):
     """One GEECS camera device: endpoint, image variables, PV names."""
 
@@ -99,12 +112,7 @@ class PvaGatewayConfig(BaseModel):
                 continue
             if devices is not None and device not in devices:
                 continue
-            image_vars = [
-                meta["name"]
-                for meta in var_map.get(device, [])
-                if effective_vartype(meta.get("variabletype"), meta.get("choices"))
-                == "image"
-            ]
+            image_vars = image_variables(var_map.get(device, []))
             if not image_vars:
                 continue  # not a camera (e.g. a timing box on the same host)
             cameras.append(
@@ -113,7 +121,7 @@ class PvaGatewayConfig(BaseModel):
                     host=ip,
                     port=port,
                     experiment=experiment,
-                    image_variables=sorted(image_vars),
+                    image_variables=image_vars,
                 )
             )
         if devices:

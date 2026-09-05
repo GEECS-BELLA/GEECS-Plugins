@@ -25,7 +25,7 @@ back into this table.
     named in [one clone per service](#one-clone-per-service) (with its two
     stated exceptions), all at `master` on that date. Also running: the
     GEECS DB and Tiled (not repo clones) and the PVA image gateways (0.4.4
-    on the 9 reachable camera servers of a 13-host roster — see the PVA
+    on the 9 deployed camera servers of an 11-host DB roster — see the PVA
     row). The one interim fact left: the worker-side services share the
     *gateway's* box until the dedicated services server arrives. When a
     service moves, deploys, or a new one lands, update this page in the
@@ -56,7 +56,7 @@ flowchart TB
         portal["GEECS Data Portal<br/>:8200 (GEECS-DataPortal)"]
     end
 
-    subgraph camsrv["Camera servers (13-host roster, Windows)"]
+    subgraph camsrv["Camera servers (DB roster: 11 hosts, 9 deployed; Windows)"]
         cams["GEECS camera devices<br/>(LabVIEW)"]
         pvagw["PVA image gateway<br/>(GeecsPvaGateway)<br/>TCP 5075 / UDP 5076"]
     end
@@ -130,7 +130,7 @@ rendered from it, never edited by hand.
 | GEECS-MCP server (HTTP mode) | 192.168.6.14 (co-located with the worker by design; stdio mode remains available per machine) | baked non-editably from the **worker's** clone `<root>/qs-checkout` into `<root>/geecs-mcp-venv` (config-truth parity, by design) | HTTP 8100 (`/mcp`) | systemd `geecs-mcp` | tool call `scan_status` from an agent | [GEECS-MCP/deploy/DEPLOYMENT.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GEECS-MCP/deploy/DEPLOYMENT.md) |
 | Capture daemon (`geecs_bluesky.capture`) | 192.168.6.14 (with the worker — co-location is a **requirement**: shared filesystem view + local heartbeat) | `<root>/qs-checkout` (shares the worker's clone — the co-location requirement extends to code state) | consumes doc stream (5568) + pvAccess; no listening port | systemd `geecs-capture` | heartbeat file refreshing every ~10 s (`~/.local/state/geecs-capture/heartbeat.json` in the service user's home); discovery line in `journalctl -u geecs-capture` | [GeecsBluesky/capture/deploy/DEPLOYMENT.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsBluesky/capture/deploy/DEPLOYMENT.md) |
 | GEECS Data Portal (GEECS-DataPortal) | 192.168.6.14 (interim; moves with the services-server consolidation) | `<root>/portal-checkout` | HTTP 8200 | systemd `geecs-data-portal` | `GET /health` (catalog probe); any day page in a browser | [GEECS-DataPortal/DEPLOYMENT.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GEECS-DataPortal/DEPLOYMENT.md) |
-| PVA image gateways (GeecsPvaGateway) | each camera server — 13 roster hosts (`deploy/fleet_status.bob`); 9 answering on 2026-09-04, the other 4 unreachable pending the roster prune (Phase 4 of the site-profile plan) | — (installs from the lab's shared "Active Version" clone on the data share; per host only a baked venv — **the share clone's checked-out commit is the fleet pin**) | pvAccess TCP 5075 / UDP 5076 | NSSM service `GeecsPvaGateway` (auto-start, pull-on-restart) | fleet status Phoebus screen (`deploy/fleet_status.bob`) | [GeecsPvaGateway/DEPLOYMENT.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsPvaGateway/DEPLOYMENT.md) |
+| PVA image gateways (GeecsPvaGateway) | each deployed camera server — the roster is the DB (endpoints hosting the experiment's image devices: 11 for Undulator on 2026-09-04), the deployed set is `config.ini [pva] addr_list` (9); the other 2 hosts are *not deployed* (cameras only nominally, no instance installed) and show as such on the screen and in `scripts/fleet_status.sh` | — (installs from the lab's shared "Active Version" clone on the data share; per host only a baked venv — **the share clone's checked-out commit is the fleet pin**) | pvAccess TCP 5075 / UDP 5076 | NSSM service `GeecsPvaGateway` (auto-start, pull-on-restart) | fleet status Phoebus screen (`deploy/fleet_status_undulator.bob`, generated per experiment by `deploy/gen_fleet_status.py`) | [GeecsPvaGateway/DEPLOYMENT.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsPvaGateway/DEPLOYMENT.md) |
 | GEECS MySQL DB | 192.168.6.14 | — | 3306 | LabVIEW/GEECS infrastructure (not managed by this repo) | any `GeecsDb` client connect | — |
 | Data share (NAS) | NAS appliance | — | SMB | storage infrastructure (not managed by this repo) | mount visible, scan folders resolvable | — |
 | GEECS LabVIEW devices | Windows device hosts | — | GEECS wire protocol (UDP/TCP) | Master Control / device GUIs | device `CONNECTED` PV via the gateway | — |
@@ -260,7 +260,8 @@ share — for anyone with a browser.
 
 Every client machine points at the fleet through the same file,
 `~/.config/geecs_python_api/config.ini` — the CA gateway address
-(`[epics] ca_addr_list`), the Tiled URI and API key (`[tiled]`), the
+(`[epics] ca_addr_list`), the deployed PVA image-gateway hosts
+(`[pva] addr_list`), the Tiled URI and API key (`[tiled]`), the
 data-share path (`[Paths] geecs_data`), and the queueserver address
 (`[qserver]`). See the
 [Getting started](../tutorials/getting_started.md) tutorial for the
