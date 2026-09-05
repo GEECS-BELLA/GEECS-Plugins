@@ -19,16 +19,21 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SCRUB = REPO_ROOT / "scripts" / "scrub_lock_paths.py"
-# Every committed lock — the three the #753 rewrite touched and every other
-# package's — excluding the legacy dump and dot-dirs (worktrees, venvs).
-REAL_LOCKS = sorted(
-    lock
-    for lock in REPO_ROOT.glob("**/poetry.lock")
-    if not any(
-        part == "extras" or part.startswith(".")
-        for part in lock.relative_to(REPO_ROOT).parts
+
+
+def committed_locks() -> list[Path]:
+    """Every committed lock — the root's and each package's, `extras/` excluded.
+
+    Committed locks sit at depth 0 or 1 only, so a one-level glob finds them
+    all; a recursive walk would also traverse every `.venv`, `.git` and
+    worktree in a developer checkout (~20 s of collection time).
+    """
+    return sorted(
+        lock
+        for lock in [REPO_ROOT / "poetry.lock", *REPO_ROOT.glob("*/poetry.lock")]
+        if lock.is_file() and lock.parent.name != "extras"
     )
-)
+
 
 MAC = "file:///Users/someone/Desktop/Code/GEECS-Plugins"
 WIN = "file:///C:/Users/someone/GEECS-Plugins"
@@ -128,12 +133,13 @@ def test_real_locks_are_clean() -> None:
     """The committed locks carry no checkout path (the #753 state, kept by the hook)."""
     # The three rewritten by #753 must be in the set, and the glob must see
     # past them to every package's lock.
+    real_locks = committed_locks()
     for known in ("poetry.lock", "GEECS-MCP/poetry.lock", "GEECS-Console/poetry.lock"):
-        assert REPO_ROOT / known in REAL_LOCKS
-    assert len(REAL_LOCKS) > 3, REAL_LOCKS
-    result = _run("--check", *map(str, REAL_LOCKS))
+        assert REPO_ROOT / known in real_locks
+    assert len(real_locks) > 3, real_locks
+    result = _run("--check", *map(str, real_locks))
     assert result.returncode == 0, result.stderr
-    for lock in REAL_LOCKS:
+    for lock in real_locks:
         for line in lock.read_text().splitlines():
             if "file://" in line:
                 assert "file:///Users/" not in line and "file:///home/" not in line, (
