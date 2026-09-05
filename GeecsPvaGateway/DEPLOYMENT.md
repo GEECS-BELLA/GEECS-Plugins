@@ -219,6 +219,21 @@ If the fleet ever outgrows a hand-kept list, the standard escalation is a PVA
 nameserver — but that reintroduces a central hop; don't reach for it while a
 one-line list works.
 
+## Fleet probe from any client
+
+```bash
+poetry -C GeecsPvaGateway run geecs-pva-gateway fleet --experiment Undulator
+```
+
+reads every deployed host's `version` + `heartbeat` PVs (read-only, unicast
+to the `[pva] addr_list` hosts — no broadcast needed over a VPN) and prints
+one line per roster host: `[ OK ]` with version and heartbeat, `[DOWN]`
+with the error, `[ -- ] not deployed` for DB hosts absent from `addr_list`,
+and a `[WARN]` when versions are mixed (a rollout is incomplete). The last
+line is a tab-separated `role=PVA image gateways` record — the contract
+`scripts/fleet_status.sh` consumes for its table. Exit 0 when any host
+answered.
+
 ## Instance PVs
 
 | PV | Meaning |

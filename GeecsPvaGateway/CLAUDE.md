@@ -26,11 +26,14 @@ instance-PV semantics — as a contract.
 ```
 geecs_pva_gateway/
   __main__.py   # geecs-pva-gateway --experiment NAME [--host IP] [--devices A,B] [--list]
+                #   + `geecs-pva-gateway fleet` (read-only fleet probe, fleet.py)
   config.py     # CameraSpec / PvaGatewayConfig; DB-scoped served set
                 #   (enabled devices on this host's IP with image-typed vars)
   fleet.py      # fleet roster: camera servers from the DB per experiment,
                 #   each marked deployed by config.ini [pva] addr_list
-                #   (absent = not deployed: no instance, not an outage)
+                #   (absent = not deployed: no instance, not an outage);
+                #   probe_fleet/fleet_main = the `fleet` subcommand that
+                #   scripts/fleet_status.sh calls (lines + one role= record)
   server.py     # GeecsPvaGateway + per-camera worker: gated + supervised
                 #   subscription, decode off-loop, latest-wins posting,
                 #   version/heartbeat/restart instance PVs (restart -> exit 86)
@@ -49,7 +52,8 @@ deploy/
 tests/
   test_config.py  # scoping/naming units (fake DB rows, no network)
   test_fleet.py   # roster derivation, the [pva] addr_list deployed mark,
-                  #   the generated screen's rows (fake DB rows, no network)
+                  #   the generated screen's rows, the fleet probe's lines +
+                  #   record and the `fleet` dispatch (fake DB/getter, no network)
   test_server.py  # end-to-end over a binary wire-format fake camera +
                   #   isolate=True PVA server
   test_entrypoint.py # CLI exit codes (incl. the restart code 86 contract)

@@ -3,6 +3,21 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.6.0] - 2026-09-05
+
+### Added
+
+- **`geecs-pva-gateway fleet --experiment NAME`** — the read-only fleet
+  liveness probe (`fleet.probe_fleet` / `fleet_main`): every deployed
+  host's `version` + `heartbeat` instance PVs by unicast, printed as the
+  `[ OK ]` / `[DOWN]` / `[ -- ] not deployed` / `[WARN] mixed versions`
+  lines plus one tab-separated `role=PVA image gateways` record for the
+  fleet table (`info=` facts, `note=` findings). `scripts/fleet_status.sh`
+  calls it instead of re-deriving the roster and the PV names in a bash
+  heredoc (#776 review item 7): the roster, the naming, and the probe now
+  live in this package. The serve form (`geecs-pva-gateway --experiment`)
+  is unchanged — `deploy/launch.bat` on every camera server uses it.
+
 ## [0.5.0] - 2026-09-04
 
 ### Added
