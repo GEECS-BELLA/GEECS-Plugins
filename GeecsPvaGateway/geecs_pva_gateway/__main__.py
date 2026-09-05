@@ -1,4 +1,9 @@
-"""CLI: ``geecs-pva-gateway --experiment NAME`` — DB-scoped serve, then run."""
+"""CLI: ``geecs-pva-gateway --experiment NAME`` — DB-scoped serve, then run.
+
+``geecs-pva-gateway fleet ...`` is the read-only fleet probe
+(:func:`geecs_pva_gateway.fleet.fleet_main`); the serve form stays flat
+because ``deploy/launch.bat`` on every camera server invokes it that way.
+"""
 
 from __future__ import annotations
 
@@ -13,8 +18,14 @@ from geecs_pva_gateway.server import RESTART_EXIT_CODE, GeecsPvaGateway, __versi
 
 def main(argv: list[str] | None = None) -> int:
     """Entry point for the ``geecs-pva-gateway`` console script."""
+    args_in = sys.argv[1:] if argv is None else argv
+    if args_in[:1] == ["fleet"]:
+        from geecs_pva_gateway.fleet import fleet_main
+
+        return fleet_main(args_in[1:])
     parser = argparse.ArgumentParser(
-        description="Serve this host's GEECS camera images as NTNDArray PVs."
+        description="Serve this host's GEECS camera images as NTNDArray PVs.",
+        epilog="`geecs-pva-gateway fleet --experiment NAME` probes the deployed fleet instead (read-only).",
     )
     parser.add_argument("--experiment", required=True, help="GEECS experiment name")
     parser.add_argument(

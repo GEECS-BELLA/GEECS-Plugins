@@ -29,14 +29,17 @@ ROLE_ORDER = [
 HEADERS = ["", "Service", "Runs as", "Checkout", "Version", "Notes"]
 
 
-def _add_note(rec: dict[str, str], text: str) -> None:
-    rec["notes"] = (rec.get("notes", "") + "|" + text).strip("|")
+def _add_note(rec: dict[str, str], text: str, key: str = "notes") -> None:
+    rec[key] = (rec.get(key, "") + "|" + text).strip("|")
 
 
 def parse(lines: list[str]) -> dict[str, dict[str, str]]:
     """Merge records by role.
 
     Stage-1/3 records (no ``svc=``) describe the role and merge first-wins.
+    ``note=`` values are findings (they mark the row ``!``); ``info=`` values
+    are facts worth showing that need no attention (device counts, a baked
+    venv, a distance behind master that is only unmerged docs).
     Stage-2 records (``svc=``) each describe ONE process; a role can have
     several (a loaded-but-dead unit plus the hand-started process that
     really owns the port). The row is the live one; the others are named
@@ -53,7 +56,10 @@ def parse(lines: list[str]) -> dict[str, dict[str, str]]:
         for part in line.split("\t"):
             if "=" in part:
                 k, v = part.split("=", 1)
-                kv[k] = v
+                if k in ("note", "info") and kv.get(k):
+                    kv[k] = kv[k] + "|" + v  # a record may carry several
+                else:
+                    kv[k] = v
         role = kv.get("role")
         if not role:
             continue
@@ -67,6 +73,8 @@ def parse(lines: list[str]) -> dict[str, dict[str, str]]:
         for k, v in kv.items():
             if k == "note":
                 _add_note(rec, v)
+            elif k == "info":
+                _add_note(rec, v, "infos")
             elif v and not rec.get(k):
                 rec[k] = v
     merged: dict[str, dict[str, str]] = {}
@@ -83,6 +91,8 @@ def parse(lines: list[str]) -> dict[str, dict[str, str]]:
             for k, v in chosen.items():
                 if k == "note":
                     _add_note(rec, v)
+                elif k == "info":
+                    _add_note(rec, v, "infos")
                 elif k == "state":
                     # The service's own verdict (stage 1) stays the verdict;
                     # the process state is kept beside it for the glyph.
@@ -153,12 +163,14 @@ def version(rec: dict[str, str]) -> str:
 
 
 def notes(rec: dict[str, str]) -> list[str]:
-    """Everything that makes this row need attention, short form."""
+    """Everything that makes this row need attention, short form.
+
+    Facts that need no action (a baked venv, a clone behind master, device
+    counts) are :func:`infos`; they never mark a row ``!``.
+    """
     out: list[str] = []
     if rec.get("managed") == "UNMANAGED":
         out.append("no systemd unit")
-    if rec.get("baked"):
-        out.append("baked venv")
     if rec.get("worktree_of"):
         out.append(f"WORKTREE of {rec['worktree_of']} (not a clone)")
     if rec.get("disk"):
@@ -177,7 +189,9 @@ def notes(rec: dict[str, str]) -> list[str]:
             if "baked" not in rec.get("stale", "")
             else "reinstall pending"
         )
-    if rec.get("master_rel") and rec["master_rel"] != "= origin/master":
+    if rec.get("master_rel") and " ahead" in rec["master_rel"]:
+        # Ahead of master = running unmerged code: a fact to act on. Behind
+        # only = merges the host has not pulled; informational (see infos).
         out.append(rec["master_rel"].replace(" origin/master", " master"))
     if rec.get("disk_master_rel"):
         out.append(
@@ -188,6 +202,19 @@ def notes(rec: dict[str, str]) -> list[str]:
         out.append(f"unit {proc}")
     if rec.get("notes"):
         out.extend(n for n in rec["notes"].split("|") if n)
+    return out
+
+
+def infos(rec: dict[str, str]) -> list[str]:
+    """Facts shown in the Notes column that do not mark the row ``!``."""
+    out: list[str] = []
+    if rec.get("baked"):
+        out.append("baked venv")
+    rel = rec.get("master_rel", "")
+    if rel and rel != "= origin/master" and " ahead" not in rel:
+        out.append(rel.replace(" origin/master", " master"))
+    if rec.get("infos"):
+        out.extend(n for n in rec["infos"].split("|") if n)
     return out
 
 
@@ -224,7 +251,7 @@ def render(merged: dict[str, dict[str, str]], width: int) -> str:
                 runs_as(rec),
                 checkout(rec),
                 version(rec),
-                "; ".join(notes(rec)) or "—",
+                "; ".join(notes(rec) + infos(rec)) or "—",
             ]
         )
     # Column widths: fixed-ish for the first five, the notes column absorbs the rest.

@@ -20,11 +20,8 @@
 # docs/platform/fleet_map.md, the MySQL admonition.
 set -u  # deliberately not -e: a failed probe is a *finding*, not an error
 
-CONFIG="$HOME/.config/geecs_python_api/config.ini"
-TCP_TIMEOUT=2   # seconds per port probe (read by the shared probes)
-# shellcheck source=lib/net_probes.sh
-. "$(cd "$(dirname "$0")" && pwd)/lib/net_probes.sh"   # bounded / port_open / mysql_probe
 CA_TIMEOUT=3    # seconds per CA read (tier 2)
+TCP_TIMEOUT=2   # seconds per port probe (lab_env.sh reads it)
 
 HARDWARE=0
 EXPERIMENT=""
@@ -37,37 +34,10 @@ while [ $# -gt 0 ]; do
     shift
 done
 
-ini_get() {  # ini_get SECTION KEY — first match, trimmed
-    awk -F'=' -v s="[$1]" -v k="$2" '
-        $0 == s { insec = 1; next }
-        /^\[/   { insec = 0 }
-        insec && $1 ~ "^[ \t]*"k"[ \t]*$" { gsub(/^[ \t]+|[ \t\r]+$/, "", $2); print $2; exit }
-    ' "$CONFIG" 2>/dev/null
-}
-
-# --- resolve endpoints from the shared config (one source of truth) --------
-TILED_URI="$(ini_get tiled uri)"
-LAB_HOST=""
-TILED_PORT="8000"
-if [ -n "$TILED_URI" ]; then
-    LAB_HOST="$(printf '%s' "$TILED_URI" | sed -E 's|^[a-z]+://||; s|[:/].*$||')"
-    p="$(printf '%s' "$TILED_URI" | sed -nE 's|^[a-z]+://[^:/]+:([0-9]+).*|\1|p')"
-    if [ -n "$p" ]; then TILED_PORT="$p"; fi
-fi
-# The Tiled server and CA gateway share one box (see GeecsCAGateway/DEPLOYMENT.md
-# "one box" section) — derive both from tiled uri. The DB host is
-# Configurations.INI's [Database] ipaddress when the probe can read it (the
-# server the real clients use); the Tiled host is only its fallback.
-DB_PORT=3306
-CA_PORT=5064
-DATA_ROOT="$(ini_get Paths GEECS_DATA_LOCAL_BASE_PATH)"
-if [ -z "$EXPERIMENT" ]; then EXPERIMENT="$(ini_get Experiment expt)"; fi
-if [ -z "$EXPERIMENT" ]; then EXPERIMENT="$(ini_get Experiment exp_name)"; fi
-
-ok()   { printf '  [ OK ] %s\n' "$1"; }
-bad()  { printf '  [DOWN] %s\n' "$1"; }
-warn() { printf '  [WARN] %s\n' "$1"; }
-skip() { printf '  [ -- ] %s\n' "$1"; }
+# config.ini reader, endpoints (LAB_HOST, TILED_PORT, DATA_ROOT, DB_PORT,
+# CA_PORT), printers and the bounded port probe — shared with fleet_status.sh.
+. "$(cd "$(dirname "$0")" && pwd)/lib/lab_env.sh"
+[ -n "$EXPERIMENT" ] || EXPERIMENT="$(config_experiment)"
 
 echo "== Tier 1: lab network (bounded, read-nothing) =="
 if [ ! -f "$CONFIG" ]; then
@@ -139,10 +109,12 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BLUESKY_DIR="$REPO_ROOT/GeecsBluesky"
 if [ -z "$EXPERIMENT" ]; then
     bad "no experiment name (pass --experiment NAME); cannot build gateway PV names"
+    echo "role=CA gateway	state=down	note=no experiment name"
     exit 1
 fi
 if ! poetry -C "$BLUESKY_DIR" env info --path >/dev/null 2>&1; then
     bad "GeecsBluesky poetry env not installed — tier 2 needs its aioca (see /env-doctor)"
+    echo "role=CA gateway	state=down	note=GeecsBluesky env not installed"
     exit 1
 fi
 EXPERIMENT="$EXPERIMENT" CA_TIMEOUT="$CA_TIMEOUT" poetry -C "$BLUESKY_DIR" run python - <<'PY'
@@ -172,11 +144,16 @@ async def main():
     except Exception as exc:  # noqa: BLE001 — a failed probe is a finding
         print(f"  [DOWN] gateway PVs unreadable ({type(exc).__name__}: {exc})")
         print("         network may be up while the gateway service is not")
+        print(f"role=CA gateway\tstate=down\tnote=PVs unreadable ({type(exc).__name__})")
         raise SystemExit(1)
     print(f"  [ OK ] gateway alive: heartbeat={int(heartbeat)}, "
           f"devices_connected={int(connected)}, version={version}")
     if int(connected) == 0:
         print("  [WARN] zero devices connected — GEECS side likely down")
+    # The machine-readable form of the verdict, for fleet_status.sh (a stated
+    # contract: one tab-separated key=value record, same shape as its own).
+    note = "\tnote=zero devices connected" if int(connected) == 0 else ""
+    print(f"role=CA gateway\tstate=ok\tversion={version}\tinfo={int(connected)} devices connected{note}")
 
 
 asyncio.run(main())

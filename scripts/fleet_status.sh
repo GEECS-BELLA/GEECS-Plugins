@@ -39,12 +39,11 @@
 set -u  # deliberately not -e: a failed probe is a *finding*, not an error
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-CONFIG="$HOME/.config/geecs_python_api/config.ini"
 PORTAL_PORT=8200       # fleet map: GEECS Data Portal
 MCP_PORT=8100          # fleet map: GEECS-MCP HTTP mode
 TCP_TIMEOUT=2          # seconds per port probe / HTTP get
 SSH_TIMEOUT=25         # seconds per host (one ssh call per host)
-PVA_TIMEOUT=2          # seconds per PVA get
+PVA_TIMEOUT=2          # seconds per PVA get (geecs-pva-gateway fleet --timeout)
 FETCH_TIMEOUT=20       # seconds for the local `git fetch origin`
 
 EXPERIMENT=""
@@ -100,24 +99,9 @@ if [ "$WATCH" != "0" ]; then
     done
 fi
 
-ini_get() {  # ini_get SECTION KEY — first match, trimmed
-    awk -F'=' -v s="[$1]" -v k="$2" '
-        $0 == s { insec = 1; next }
-        /^\[/   { insec = 0 }
-        insec && $1 ~ "^[ \t]*"k"[ \t]*$" { gsub(/^[ \t]+|[ \t\r]+$/, "", $2); print $2; exit }
-    ' "$CONFIG" 2>/dev/null
-}
-
-ok()   { printf '  [ OK ] %s\n' "$1"; }
-bad()  { printf '  [DOWN] %s\n' "$1"; }
-warn() { printf '  [WARN] %s\n' "$1"; }
-skip() { printf '  [ -- ] %s\n' "$1"; }
-info() { printf '         %s\n' "$1"; }
-
-# bounded / port_open / mysql_probe live once, in the shared lib — the DB
-# special case (never a bare TCP probe of 3306, #790) with them.
-# shellcheck source=lib/net_probes.sh
-. "$REPO_ROOT/scripts/lib/net_probes.sh"
+# config.ini reader, endpoints (LAB_HOST, TILED_PORT, WORKER_HOST), printers,
+# bounded() and port_open() — shared with lab_status.sh (scripts/lib/lab_env.sh).
+. "$REPO_ROOT/scripts/lib/lab_env.sh"
 
 # Every probe also appends a tab-separated key=value record (with a role=)
 # to REC_FILE; scripts/fleet_table.py renders those as the --summary table.
@@ -133,14 +117,8 @@ if [ "$SUMMARY" -eq 1 ]; then
     exec 3>&1 4>&2 1>"$LOG_FILE" 2>&1
 fi
 
-# --- endpoints from config.ini (never hardcode hosts here) -----------------
-TILED_URI="$(ini_get tiled uri)"
-LAB_HOST="$(printf '%s' "$TILED_URI" | sed -E 's|^[a-z]+://||; s|[:/].*$||')"
-TILED_PORT="$(printf '%s' "$TILED_URI" | sed -nE 's|^[a-z]+://[^:/]+:([0-9]+).*|\1|p')"
-TILED_PORT="${TILED_PORT:-8000}"
-WORKER_HOST="$(ini_get qserver host)"
-if [ -z "$EXPERIMENT" ]; then EXPERIMENT="$(ini_get Experiment expt)"; fi
-if [ -z "$EXPERIMENT" ]; then EXPERIMENT="$(ini_get Experiment exp_name)"; fi
+# Endpoints come from lab_env.sh (config.ini); only the experiment fallback is ours.
+[ -n "$EXPERIMENT" ] || EXPERIMENT="$(config_experiment)"
 
 # Hosts to visit over ssh: the lab server and the worker, deduplicated
 # (today they are one box; the fleet map says which services live where).
@@ -251,93 +229,41 @@ if [ "$NET_UP" -eq 1 ]; then
         ok "GEECS-MCP    ${WORKER_HOST:-$LAB_HOST}:$MCP_PORT  listening (version via ssh below)"
         rec "role=GEECS-MCP	state=ok"
     else
-        skip "GEECS-MCP    ${WORKER_HOST:-$LAB_HOST}:$MCP_PORT  not listening (HTTP mode is 'pending deploy' on the fleet map)"
-        rec "role=GEECS-MCP	state=absent	note=not listening (pending deploy)"
+        warn "GEECS-MCP    ${WORKER_HOST:-$LAB_HOST}:$MCP_PORT  not listening — the fleet map has systemd geecs-mcp on this host (unit down, or the port moved); stage 2 says which"
+        rec "role=GEECS-MCP	state=down	note=not listening"
     fi
 
-    # CA gateway — reuse /lab-status tier 2 (read-only CA gets of heartbeat,
-    # devices_connected, version). Contract: it prints "version=<str>".
+    # CA gateway — /lab-status tier 2 (read-only CA gets). Contract: its
+    # stdout carries one `role=CA gateway<TAB>...` record; the rest is prose.
     if [ -n "$EXPERIMENT" ]; then
         hw="$("$REPO_ROOT/scripts/lab_status.sh" --hardware --experiment "$EXPERIMENT" 2>&1 | sed -n '/Tier 2/,$p')"
+        ca_rec="$(printf '%s\n' "$hw" | grep -m1 '^role=CA gateway')"
         alive="$(printf '%s\n' "$hw" | grep -m1 'gateway alive')"
         if [ -n "$alive" ]; then
             ok "CA gateway   $LAB_HOST:5064  ${alive#*] }"
-            gver="$(printf '%s' "$alive" | sed -nE 's/.*version=([^, ]+).*/\1/p')"
-            gdev="$(printf '%s' "$alive" | sed -nE 's/.*devices_connected=([0-9]+).*/\1/p')"
-            rec "role=CA gateway	state=ok	version=$gver	note=$gdev devices connected"
             printf '%s\n' "$hw" | grep '\[WARN\]' | sed 's/^ *\[WARN\] /  [WARN] CA gateway: /'
         else
-            err="$(printf '%s\n' "$hw" | grep -m1 -E 'unreadable|not installed|no experiment' )"
-            bad "CA gateway   $LAB_HOST:5064  ${err#*] }"
-            rec "role=CA gateway	state=down"
+            # A [DOWN] verdict, else whatever tier 2 died with (a traceback's
+            # last line, an env error) — never an empty finding.
+            err="$(printf '%s\n' "$hw" | grep -m1 -E '\[DOWN\]' | sed 's/^ *\[DOWN\] //')"
+            [ -n "$err" ] || err="tier 2 gave no verdict: $(printf '%s\n' "$hw" | grep -v '^role=' | tail -1)"
+            bad "CA gateway   $LAB_HOST:5064  $err"
         fi
+        rec "${ca_rec:-role=CA gateway	state=down	note=$(printf '%s' "$err" | cut -c1-80 | tr '\t' ' ')}"
     else
         skip "CA gateway   no experiment name (config.ini [Experiment] expt, or --experiment NAME)"
     fi
 
-    # PVA image fleet — one gateway per camera server. Roster = the DB
-    # (endpoints hosting the experiment's image devices); deployed = the
-    # client config.ini [pva] addr_list (geecs_pva_gateway.fleet). A roster
-    # host absent from that list is NOT DEPLOYED — informational, not DOWN.
-    # Read-only gets.
+    # PVA image fleet — `geecs-pva-gateway fleet`: the package owns the roster
+    # (DB + config.ini [pva] addr_list), the instance PV names, and the
+    # probe; its stdout is prose plus one `role=PVA image gateways` record.
     if [ -z "$EXPERIMENT" ]; then
         skip "PVA fleet    no experiment name (config.ini [Experiment] expt, or --experiment NAME)"
     elif poetry -C "$REPO_ROOT/GeecsPvaGateway" env info --path >/dev/null 2>&1; then
-        EXPERIMENT="$EXPERIMENT" PVA_TIMEOUT="$PVA_TIMEOUT" REC_FILE="$REC_FILE" bounded 90 poetry -C "$REPO_ROOT/GeecsPvaGateway" run python - <<'PY'
-import logging
-import os
-
-logging.basicConfig(level=logging.WARNING, format="  [WARN] PVA fleet: %(message)s")
-from geecs_pva_gateway.fleet import fleet_roster  # noqa: E402
-
-experiment = os.environ["EXPERIMENT"]
-timeout = float(os.environ["PVA_TIMEOUT"])
-try:
-    hosts = fleet_roster(experiment)
-except Exception as exc:  # noqa: BLE001 — an unreadable roster is a finding
-    print(f"  [DOWN] PVA fleet    roster unreadable from the DB ({type(exc).__name__}: {exc})")
-    with open(os.environ["REC_FILE"], "a") as fh:
-        fh.write("role=PVA image gateways\tstate=down\tnote=DB roster unreadable\n")
-    raise SystemExit(0)
-deployed = [h for h in hosts if h.deployed]
-not_deployed = [h for h in hosts if not h.deployed]
-# Unicast search to each camera server: UDP broadcast does not cross a VPN.
-os.environ["EPICS_PVA_ADDR_LIST"] = " ".join(h.ip for h in deployed)
-os.environ["EPICS_PVA_AUTO_ADDR_LIST"] = "NO"
-from p4p.client.thread import Context  # noqa: E402
-
-versions = {}
-down = []
-with Context("pva", unwrap=False) as ctx:  # raw Values: str(NT wrapper) carries a timestamp
-    for host in deployed:
-        try:
-            ver = str(ctx.get(host.instance_pv(experiment, "version"), timeout=timeout)["value"])
-            beats = int(ctx.get(host.instance_pv(experiment, "heartbeat"), timeout=timeout)["value"])
-        except Exception as exc:  # noqa: BLE001 — a failed probe is a finding
-            print(f"  [DOWN] PVA gateway  {host.ip:<15}  ({type(exc).__name__}; {len(host.cameras)} cameras)")
-            down.append(host.ip)
-            continue
-        versions.setdefault(ver, []).append(host.ip)
-        print(f"  [ OK ] PVA gateway  {host.ip:<15}  geecs-pva-gateway {ver}  heartbeat={beats}  {len(host.cameras)} cameras")
-for host in not_deployed:
-    print(f"  [ -- ] PVA gateway  {host.ip:<15}  not deployed ({len(host.cameras)} cameras in the DB: {', '.join(host.cameras)}) — add to config.ini [pva] addr_list once installed")
-if len(versions) > 1:
-    print("  [WARN] PVA fleet runs mixed versions — a rollout is incomplete or a box missed its pull-on-restart:")
-    for ver, hs in sorted(versions.items()):
-        print(f"         {ver}: {', '.join(hs)}")
-n_ok = sum(len(hs) for hs in versions.values())
-ver_txt = ", ".join(f"{v} ×{len(hs)}" for v, hs in sorted(versions.items())) or "?"
-note = f"{n_ok} of {len(deployed)} deployed up"
-if down:
-    note += f", {len(down)} unreachable: {' '.join(down)}"
-if not_deployed:
-    note += f", {len(not_deployed)} not deployed"
-if len(versions) > 1:
-    note += "|MIXED versions"
-state = "ok" if n_ok else "down"
-with open(os.environ["REC_FILE"], "a") as fh:
-    fh.write(f"role=PVA image gateways\tstate={state}\truns=NSSM\tcheckout=share clone\tversion={ver_txt}\tnote={note}\n")
-PY
+        pva_out="$(bounded 90 poetry -C "$REPO_ROOT/GeecsPvaGateway" run geecs-pva-gateway fleet --experiment "$EXPERIMENT" --timeout "$PVA_TIMEOUT" 2>&1)"
+        printf '%s\n' "$pva_out" | grep -v '^role=' | grep -v '^$'
+        pva_rec="$(printf '%s\n' "$pva_out" | grep -m1 '^role=PVA image gateways')"
+        rec "${pva_rec:-role=PVA image gateways	state=down	note=no record from geecs-pva-gateway fleet}"
     else
         skip "PVA fleet    GeecsPvaGateway poetry env not installed (needs p4p; see /env-doctor)"
     fi
@@ -367,6 +293,7 @@ role_for_unit() { case "$1" in
     *) echo "$1";; esac; }
 FLEET_PORTS="5064 8000 8200 8100 60615 5568"
 SEEN=" "
+SEEN_UNITS=" "
 reflog_ts() {  # unix time HEAD last moved (checkout/pull/reset), from the reflog
     local f; f="$(git -C "$1" rev-parse --git-path logs/HEAD 2>/dev/null)"
     [ -f "$f" ] && tail -1 "$f" | sed -E "s/^[0-9a-f]+ [0-9a-f]+ .*> ([0-9]+) [-+][0-9]{4}\t.*/\1/"
@@ -521,6 +448,7 @@ for scope in "" "--user"; do
         wd="$(systemctl $scope show -p WorkingDirectory --value "$u")"
         label="$u"; [ -n "$scope" ] && label="$u (user unit)"
         [ "$pid" != "0" ] && SEEN="$SEEN$pid "
+        SEEN_UNITS="$SEEN_UNITS$u "
         emit "$(role_for_unit "$u")" "$label" "systemd" "$active" "$pid" "$wd" ""
     done
 done
@@ -531,6 +459,9 @@ for port in $FLEET_PORTS; do
     case "$SEEN" in *" $pid "*) continue;; esac
     SEEN="$SEEN$pid "
     unit="$(sed -nE "s#.*/([^/]+\.service)\$#\1#p" "/proc/$pid/cgroup" 2>/dev/null | head -1)"
+    # A child of a unit already listed (the RE Manager forked by the
+    # geecs-qserver launcher) is that unit, not a second process for the role.
+    case "$SEEN_UNITS" in *" $unit "*) continue;; esac
     if [ -n "$unit" ]; then managed="systemd ($unit)"; else managed="UNMANAGED"; fi
     emit "$(role_for_port "$port")" "$(role_for_port "$port") :$port" "$managed" "running pid $pid" "$pid" "" ""
 done

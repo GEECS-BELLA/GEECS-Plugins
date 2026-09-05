@@ -184,3 +184,101 @@ def test_generator_needs_an_experiment(tmp_path, capsys):
         == 2
     )
     assert "no experiment" in capsys.readouterr().err
+
+
+# --- the probe (`geecs-pva-gateway fleet`) ------------------------------------
+
+from geecs_pva_gateway import __main__ as cli  # noqa: E402
+from geecs_pva_gateway.fleet import probe_fleet  # noqa: E402
+
+
+def _hosts():
+    return [
+        FleetHost(ip="192.168.6.100", cameras=["UC_A", "UC_B"]),
+        FleetHost(ip="192.168.7.161", cameras=["UC_C"]),
+        FleetHost(ip="192.168.6.66", cameras=["UC_Lone"], deployed=False),
+    ]
+
+
+def _getter(answers: dict[str, object]):
+    def get(pv: str) -> object:
+        if pv in answers:
+            return answers[pv]
+        raise TimeoutError(pv)
+
+    return get
+
+
+def test_probe_lines_and_record_split_findings_from_facts():
+    """OK/DOWN/not-deployed lines; the record carries facts as info= and findings as note=."""
+    answers = {
+        "undulator:pvagateway:192_168_6_100:version": "0.5.0",
+        "undulator:pvagateway:192_168_6_100:heartbeat": 42,
+    }
+    result = probe_fleet("Undulator", _hosts(), getter=_getter(answers))
+    lines = result.lines()
+    assert (
+        lines[0].startswith("  [ OK ] PVA gateway  192.168.6.100")
+        and "0.5.0" in lines[0]
+    )
+    assert (
+        lines[1].startswith("  [DOWN] PVA gateway  192.168.7.161")
+        and "TimeoutError" in lines[1]
+    )
+    assert (
+        lines[2].startswith("  [ -- ] PVA gateway  192.168.6.66")
+        and "not deployed" in lines[2]
+    )
+    rec = dict(kv.split("=", 1) for kv in result.record().split("\t"))
+    assert rec["role"] == "PVA image gateways" and rec["state"] == "ok"
+    assert rec["version"] == "0.5.0 ×1"
+    fields = result.record().split("\t")
+    assert "info=1 of 2 deployed up" in fields and "info=1 not deployed" in fields
+    assert "note=1 unreachable: 192.168.7.161" in fields
+    assert not any(f.startswith("note=MIXED") for f in fields)
+
+
+def test_probe_flags_mixed_versions_and_all_down():
+    answers = {
+        "undulator:pvagateway:192_168_6_100:version": "0.5.0",
+        "undulator:pvagateway:192_168_6_100:heartbeat": 1,
+        "undulator:pvagateway:192_168_7_161:version": "0.4.4",
+        "undulator:pvagateway:192_168_7_161:heartbeat": 2,
+    }
+    result = probe_fleet("Undulator", _hosts(), getter=_getter(answers))
+    assert any("mixed versions" in line for line in result.lines())
+    assert "note=MIXED versions" in result.record().split("\t")
+    assert "version=0.4.4 ×1, 0.5.0 ×1" in result.record().split("\t")
+
+    result = probe_fleet("Undulator", _hosts(), getter=_getter({}))
+    assert "state=down" in result.record().split("\t")
+
+
+def test_fleet_subcommand_dispatch(monkeypatch, capsys, tmp_path):
+    """`geecs-pva-gateway fleet` prints the lines then the record; the serve form is untouched."""
+    from geecs_pva_gateway import fleet
+
+    monkeypatch.setattr(
+        fleet, "fleet_roster", lambda experiment, config_path=None: _hosts()
+    )
+    monkeypatch.setattr(
+        fleet,
+        "_p4p_getter",
+        lambda hosts, timeout: _getter(
+            {
+                "testexp:pvagateway:192_168_6_100:version": "0.5.0",
+                "testexp:pvagateway:192_168_6_100:heartbeat": 7,
+                "testexp:pvagateway:192_168_7_161:version": "0.5.0",
+                "testexp:pvagateway:192_168_7_161:heartbeat": 8,
+            }
+        ),
+    )
+    assert cli.main(["fleet", "--experiment", "testexp", "--timeout", "0.1"]) == 0
+    out = capsys.readouterr().out.splitlines()
+    assert out[-1].startswith("role=PVA image gateways\tstate=ok")
+    assert sum(line.startswith("  [ OK ]") for line in out) == 2
+    assert any(line.startswith("  [ -- ]") for line in out)
+
+    # No experiment anywhere: exit 2 and still a record line for the table.
+    assert cli.main(["fleet", "--config", str(tmp_path / "none.ini")]) == 2
+    assert "note=no experiment name" in capsys.readouterr().out

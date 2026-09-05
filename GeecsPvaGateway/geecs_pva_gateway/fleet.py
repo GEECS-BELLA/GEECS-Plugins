@@ -22,13 +22,19 @@ Two facts, one home each — nothing hand-curated in code:
   pre-``[pva]`` behaviour).
 
 Consumers: ``deploy/gen_fleet_status.py`` (the Phoebus fleet screen) and
-``scripts/fleet_status.sh`` (the observed-fleet probe).
+``geecs-pva-gateway fleet`` (:func:`probe_fleet` / :func:`fleet_main`), the
+read-only liveness probe ``scripts/fleet_status.sh`` calls — so the roster,
+the instance PV names, and the probe live in one package.
 """
 
 from __future__ import annotations
 
+import argparse
 import configparser
 import logging
+import os
+import sys
+from collections.abc import Callable
 from pathlib import Path
 
 from pydantic import BaseModel, Field
@@ -142,3 +148,196 @@ def fleet_roster(
         )
         hosts.append(FleetHost(ip=ip, cameras=[], deployed=True))
     return sorted(hosts, key=lambda h: _ip_key(h.ip))
+
+
+# --- the liveness probe (`geecs-pva-gateway fleet`) ----------------------------
+
+FLEET_ROLE = "PVA image gateways"
+
+
+class HostProbe(BaseModel):
+    """One deployed host's answer to the version/heartbeat gets."""
+
+    host: FleetHost
+    version: str | None = None
+    heartbeat: int | None = None
+    error: str | None = None
+
+    @property
+    def up(self) -> bool:
+        """True when both instance PVs answered."""
+        return self.version is not None
+
+
+class FleetProbe(BaseModel):
+    """The whole fleet's probe: per-host results plus the roster's not-deployed hosts."""
+
+    experiment: str
+    probes: list[HostProbe] = Field(default_factory=list)
+    not_deployed: list[FleetHost] = Field(default_factory=list)
+
+    @property
+    def versions(self) -> dict[str, list[str]]:
+        """``{version: [ip, ...]}`` over the hosts that answered."""
+        out: dict[str, list[str]] = {}
+        for p in self.probes:
+            if p.up:
+                out.setdefault(str(p.version), []).append(p.host.ip)
+        return out
+
+    @property
+    def down(self) -> list[HostProbe]:
+        """Deployed hosts that did not answer."""
+        return [p for p in self.probes if not p.up]
+
+    def lines(self) -> list[str]:
+        """Human lines in the fleet_status.sh style (``[ OK ]``/``[DOWN]``/``[ -- ]``/``[WARN]``)."""
+        out = []
+        for p in self.probes:
+            n = len(p.host.cameras)
+            if p.up:
+                out.append(
+                    f"  [ OK ] PVA gateway  {p.host.ip:<15}  geecs-pva-gateway {p.version}"
+                    f"  heartbeat={p.heartbeat}  {n} cameras"
+                )
+            else:
+                out.append(
+                    f"  [DOWN] PVA gateway  {p.host.ip:<15}  ({p.error}; {n} cameras)"
+                )
+        for h in self.not_deployed:
+            out.append(
+                f"  [ -- ] PVA gateway  {h.ip:<15}  not deployed ({len(h.cameras)} cameras in the DB: "
+                f"{', '.join(h.cameras)}) — add to config.ini [pva] addr_list once installed"
+            )
+        if len(self.versions) > 1:
+            out.append(
+                "  [WARN] PVA fleet runs mixed versions — a rollout is incomplete or a box missed its pull-on-restart:"
+            )
+            for ver, hs in sorted(self.versions.items()):
+                out.append(f"         {ver}: {', '.join(hs)}")
+        return out
+
+    def record(self) -> str:
+        """One tab-separated ``key=value`` record for the fleet table.
+
+        ``info=`` carries facts (hosts up, hosts not deployed); ``note=``
+        carries findings (unreachable hosts, mixed versions) — the table
+        marks a row ``!`` on notes only.
+        """
+        versions = self.versions
+        n_ok = sum(len(hs) for hs in versions.values())
+        ver_txt = (
+            ", ".join(f"{v} ×{len(hs)}" for v, hs in sorted(versions.items())) or "?"
+        )
+        fields = [
+            f"role={FLEET_ROLE}",
+            f"state={'ok' if n_ok else 'down'}",
+            "runs=NSSM",
+            "checkout=share clone",
+            f"version={ver_txt}",
+            f"info={n_ok} of {len(self.probes)} deployed up",
+        ]
+        if self.not_deployed:
+            fields.append(f"info={len(self.not_deployed)} not deployed")
+        if self.down:
+            fields.append(
+                f"note={len(self.down)} unreachable: {' '.join(p.host.ip for p in self.down)}"
+            )
+        if len(versions) > 1:
+            fields.append("note=MIXED versions")
+        return "\t".join(fields)
+
+
+def _p4p_getter(hosts: list[str], timeout: float) -> Callable[[str], object]:
+    """A ``get(pv) -> value`` over a p4p context searching *hosts* by unicast.
+
+    UDP broadcast does not cross a VPN, so the address list is the deployed
+    hosts themselves (``EPICS_PVA_AUTO_ADDR_LIST=NO``).
+    """
+    os.environ["EPICS_PVA_ADDR_LIST"] = " ".join(hosts)
+    os.environ["EPICS_PVA_AUTO_ADDR_LIST"] = "NO"
+    from p4p.client.thread import Context
+
+    ctx = Context(
+        "pva", unwrap=False
+    )  # raw Values: str(NT wrapper) carries a timestamp
+
+    def get(pv: str) -> object:
+        return ctx.get(pv, timeout=timeout)["value"]
+
+    return get
+
+
+def probe_fleet(
+    experiment: str,
+    hosts: list[FleetHost],
+    *,
+    timeout: float = 2.0,
+    getter: Callable[[str], object] | None = None,
+) -> FleetProbe:
+    """Read every deployed host's ``version`` + ``heartbeat`` instance PVs (read-only).
+
+    *getter* is injectable (tests); the default opens a p4p context.
+    """
+    deployed = [h for h in hosts if h.deployed]
+    result = FleetProbe(
+        experiment=experiment, not_deployed=[h for h in hosts if not h.deployed]
+    )
+    if not deployed:
+        return result
+    get = getter or _p4p_getter([h.ip for h in deployed], timeout)
+    for host in deployed:
+        try:
+            version = str(get(host.instance_pv(experiment, "version")))
+            beats = int(get(host.instance_pv(experiment, "heartbeat")))
+        except Exception as exc:  # noqa: BLE001 — a failed probe is a finding
+            result.probes.append(HostProbe(host=host, error=type(exc).__name__))
+            continue
+        result.probes.append(HostProbe(host=host, version=version, heartbeat=beats))
+    return result
+
+
+def fleet_main(argv: list[str] | None = None) -> int:
+    """``geecs-pva-gateway fleet``: print the probe's lines and its record; exit 0 when any host is up."""
+    parser = argparse.ArgumentParser(
+        prog="geecs-pva-gateway fleet",
+        description="Probe every deployed PVA image gateway's version/heartbeat PVs (read-only).",
+    )
+    parser.add_argument(
+        "--experiment",
+        default=None,
+        help="GEECS experiment (default: config.ini [Experiment])",
+    )
+    parser.add_argument(
+        "--timeout", type=float, default=2.0, help="seconds per PVA get (default 2)"
+    )
+    parser.add_argument(
+        "--config",
+        type=Path,
+        default=None,
+        help="client config.ini (default: the user's)",
+    )
+    args = parser.parse_args(argv)
+    logging.basicConfig(level=logging.WARNING, format="  [WARN] PVA fleet: %(message)s")
+
+    experiment = args.experiment or default_experiment(args.config)
+    if not experiment:
+        print(
+            "no experiment: pass --experiment or set config.ini [Experiment]",
+            file=sys.stderr,
+        )
+        print(f"role={FLEET_ROLE}\tstate=down\tnote=no experiment name")
+        return 2
+    try:
+        hosts = fleet_roster(experiment, config_path=args.config)
+    except Exception as exc:  # noqa: BLE001 — an unreadable roster is a finding
+        print(
+            f"  [DOWN] PVA fleet    roster unreadable from the DB ({type(exc).__name__}: {exc})"
+        )
+        print(f"role={FLEET_ROLE}\tstate=down\tnote=DB roster unreadable")
+        return 1
+    result = probe_fleet(experiment, hosts, timeout=args.timeout)
+    for line in result.lines():
+        print(line)
+    print(result.record())
+    return 0 if result.versions else 1
