@@ -4,6 +4,88 @@ All notable changes to GEECS-Console are documented here.  Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is
 semantic.
 
+## [0.30.0] - 2026-09-04
+
+### Added
+
+- **Save-time device/variable check in the editors** (#772 part 1).  The
+  scan-variable editor (simple target, confirm target, every composite
+  component row) and the save-set editor (entry device, listed scalars)
+  check every name against the fetched completions listing when Save is
+  clicked: an unknown device (case-insensitive, like the completer) or an
+  unknown variable for that device blocks the save with an inline error
+  naming the variable and row plus a difflib "did you mean" hint — the
+  live case was `Position.Axis1` for `Position.Axis 1`, which used to
+  save cleanly and fail 20 s into the first move as a bare connect
+  timeout.  Free text stays: with the DB unreachable a real provider
+  that came back empty saves with a "names were not checked" note, and
+  the `EmptyCompletions` default (no experiment) stays quiet.  Shared
+  helpers in `editors/base.py` (`target_problem`, `resolve_device`,
+  `near_miss`).
+- **Ops → Restart gateway…** (#773): writes `Restart` to the
+  experiment's `cagateway:restart` PV (the gateway's one client-writable
+  PV — the operator fix for frozen readbacks and the DB-resync after a
+  device edit) through `GatewaySetpointPut` on a `BackgroundResult`
+  worker (`services/gateway_restart.py`, import-safe offline, PV name
+  via `ca_pv`/`bare_pv`).  Enabled only with an experiment and a known
+  gateway chip; refused while a scan is active on the manager; one
+  confirmation modal states the cost (fleet-wide CA disconnect for a few
+  seconds; a gateway outside its restart-on-exit-86 supervisor stays
+  down); the health poll then narrates the bounce in the log tail
+  ("gateway restarting — heartbeat down" / "gateway back — heartbeat
+  OK").  Operator tooltips are now applied after the menus are built,
+  since the catalog names this action.
+
+### Changed
+
+- **Every cross-thread signal now rides the `services/background.py`
+  hop** (#787).  The three residual daemon-thread emitters inventoried
+  after 0.28.2 moved: the scan monitor's stream workers are
+  `_GuiHopWorker`s (the zmq thread posts tagged payloads; `document` /
+  `line` / `pause_reason` / `stream_failed` fire on the GUI thread, and
+  `stop()` also gates a payload already in flight), the movable panel's
+  aioca readback callback posts through the new public `GuiRelay` (the
+  controller's `value_ready(int, object)` signal is gone — `delivered`
+  carries `(index, value)`), and the editors' completions fetch is a
+  plain `BackgroundResult` (the dialogs' `completions_ready` signal is
+  gone).  Long-lived producers take the in-flight hold on their own
+  thread, so the counter is now lock-guarded.  `ScanMonitorController.
+  dispose()` severs the workers' public signals instead of
+  `QObject.disconnect()` on the whole worker (which cut the internal hop
+  and stranded an in-flight hold), and disconnects quietly — the
+  `libpyside: Failed to disconnect (None)` RuntimeWarning on a
+  never-connected poller is gone (`disconnect_quietly`).  Delivery takes
+  one more event-loop turn; tests that assumed a same-turn landing wait
+  for it.  Still open on #787: the window ↔ controller reference cycles
+  and the once-seen interpreter-exit segfault.
+
+### Fixed
+- Editors (#772): a device listing still *loading* no longer reads as
+  "DB unavailable" — Save refuses with "device listing still loading" until
+  the fetch lands, instead of persisting unchecked names one poll early
+  (`completions_pending`; Codex review of PR #796).
+- Ops → Restart gateway: the scan-active gate also reads the
+  document-driven state pill, so the window between a start document and
+  the matching status poll can no longer wave a restart through (Codex
+  review of PR #796).
+
+- **Restart gateway… (adversarial review of PR #796)**: the restart put
+  rides the device-panel backend's persistent CA loop (new
+  `GatewayDevicePanel.put_pv`, which the R7 `set` now delegates to)
+  instead of a per-call `asyncio.run` — aioca caches channels per loop,
+  so the gateway's own CONN_DOWN used to print `RuntimeError: Event loop
+  is closed` from the CA thread on every click; the gate is re-checked
+  after the confirmation modal (status polls keep landing during its
+  nested `exec()`) and also refuses while the movable panel's manual
+  set/move is in flight (a worker-side move never changes `re_state`);
+  and the bounce narration ignores reports from health polls that began
+  before the put completed (`HealthReport.sequence`, stamped by
+  `HealthPoller`) — a pre-put "OK" landing late no longer reads as
+  "gateway back".  The Ops menu now renders its actions' tooltips.
+- The save-set editor's scalar completer resolves the entry's device
+  case-insensitively, matching its save-time check; the scan-variable
+  editor's completer uses the shared `resolve_device` helper.
+
 ## [0.29.0] - 2026-09-04
 
 ### Removed

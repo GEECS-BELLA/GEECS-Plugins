@@ -16,6 +16,13 @@ Threading model (mirrors the health-probe precedent — **no QThread**, ever):
 event loop running ``run_forever`` in a single daemon ``threading.Thread``,
 created lazily on first use.  ``camonitor`` / subscription close / ``caput``
 are submitted onto that loop via ``asyncio.run_coroutine_threadsafe``.
+That loop is also the console's one home for *any* CA put — the R7 ``:SP``
+set and the Ops gateway-restart write (``put_pv``, the seam
+``services/gateway_restart.py`` rides): aioca caches channels per event
+loop and its connection callback posts to that loop with no closed-loop
+guard, so a put on a throwaway ``asyncio.run`` loop strands a channel that
+later raises ``RuntimeError: Event loop is closed`` from the CA thread when
+the channel goes down (exactly what a gateway restart does).
 Nothing here ever blocks the GUI thread: ``subscribe`` / ``unsubscribe``
 return immediately, and the blocking ``set`` is dispatched by the window to
 a short-lived daemon thread.  Teardown never joins — the loop thread is
@@ -80,6 +87,12 @@ class DevicePanelBackend(Protocol):
         """Write *value* to the setpoint, blocking until done; raise on failure."""
         ...
 
+    def put_pv(
+        self, pv: str, value: Any, *, timeout: Optional[float] = None, name: str = ""
+    ) -> None:
+        """Write *value* to the bare *pv* (any gateway PV), blocking; raise on failure."""
+        ...
+
 
 class StubDevicePanel:
     """The no-network default: readback never updates, sets report unwired."""
@@ -127,6 +140,18 @@ class StubDevicePanel:
 
     def set(self, experiment: str, device: str, variable: str, value: Any) -> None:
         """Refuse the set so the window surfaces a clear offline message.
+
+        Raises
+        ------
+        RuntimeError
+            Always — the stub has no gateway to write to.
+        """
+        raise RuntimeError("device panel backend not wired (offline stub)")
+
+    def put_pv(
+        self, pv: str, value: Any, *, timeout: Optional[float] = None, name: str = ""
+    ) -> None:
+        """Refuse the put so the window surfaces a clear offline message.
 
         Raises
         ------
@@ -439,16 +464,49 @@ class GatewayDevicePanel:
             Whatever the put raises (timeout, GEECS rejection, no CA) — the
             window renders it in the status bar.
         """
-        from geecs_bluesky.devices.ca._pv import ca_pv
-        from geecs_bluesky.devices.ca._pv import setpoint_pv as sp
+        self.put_pv(
+            setpoint_pv(experiment, device, variable),
+            value,
+            name=f"{device}:{variable}",
+        )
+
+    def put_pv(
+        self, pv: str, value: Any, *, timeout: Optional[float] = None, name: str = ""
+    ) -> None:
+        """Blocking put of *value* to the bare *pv* on the persistent CA loop.
+
+        The one place a console CA put runs: :meth:`set` (the ``:SP``
+        setpoint) and the Ops gateway restart
+        (``services/gateway_restart.py``) both come here, so every put's
+        aioca channel lives on the long-lived loop — never on a per-call
+        ``asyncio.run`` loop whose closing strands the channel (see the
+        module docstring).  Called from a short-lived daemon thread, never
+        the GUI thread.
+
+        Parameters
+        ----------
+        pv : str
+            The bare PV name (from the naming contract — never hand-built).
+        value : Any
+            The scalar to write; wire-coerced by
+            :func:`~geecs_bluesky.devices.ca.gateway_put.wire_value`.
+        timeout : float, optional
+            Put budget in seconds; the backend's default when omitted.
+        name : str, optional
+            The put's label in error messages (defaults to the PV).
+
+        Raises
+        ------
+        Exception
+            Whatever the put raises (timeout, GEECS rejection, no CA) — the
+            caller renders it.
+        """
         from geecs_bluesky.devices.ca.gateway_put import GatewaySetpointPut, wire_value
 
+        budget = self._put_timeout if timeout is None else timeout
         put = GatewaySetpointPut(
-            setpoint_pv=sp(ca_pv(experiment or None, device, variable)),
-            coerce=wire_value,
-            timeout=self._put_timeout,
-            name=f"{device}:{variable}",
+            setpoint_pv=pv, coerce=wire_value, timeout=budget, name=name or pv
         )
         loop = self._ensure_loop()
         future = asyncio.run_coroutine_threadsafe(put.put(value), loop)
-        future.result(timeout=self._put_timeout + _DISPATCH_SLACK_S)
+        future.result(timeout=budget + _DISPATCH_SLACK_S)

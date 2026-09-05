@@ -15,7 +15,10 @@ completions come from the shared
 queued signal (the no-QThread rule; see ``services/health.py``).  The
 production provider, ``GeecsDbCompletions``, imports ``GeecsDb`` lazily and
 degrades to empty on any failure, so offline means an empty completer, not
-an exception; ``EmptyCompletions`` is the no-fetch default.
+an exception; ``EmptyCompletions`` is the no-fetch default.  Save also
+checks every entry's device and listed scalars against that listing (#772):
+an unknown name blocks the save with a "did you mean" hint; with no listing
+the save goes through and the message says the names were not checked.
 
 The reserved ``at_scan_start`` / ``at_scan_end`` entry fields (not applied by
 the engine in this version) have no widgets; the editor carries them through
@@ -44,7 +47,12 @@ from PySide6.QtWidgets import (
 )
 from pydantic import ValidationError
 
-from geecs_console.editors.base import ConfigEditorDialog
+from geecs_console.editors.base import (
+    COMPLETIONS_PENDING_NOTE,
+    UNCHECKED_TARGETS_NOTE,
+    ConfigEditorDialog,
+    resolve_device,
+)
 from geecs_console.services.device_completions import (
     CompletionsProvider,
     GeecsDbCompletions,
@@ -298,10 +306,19 @@ class SaveSetEditor(ConfigEditorDialog):
         self._refresh_variable_completer()
 
     def _refresh_variable_completer(self) -> None:
-        """Point the scalar completer at the selected device's variables."""
+        """Point the scalar completer at the selected device's variables.
+
+        Case-insensitive on the device (:func:`resolve_device`) — the same
+        rule the save-time check applies, so an entry saved as
+        ``uc_alineebeam1`` still completes its scalars.
+        """
         entry = self._current_entry()
-        device = entry["device"] if entry is not None else ""
-        self._variable_model.setStringList(self._device_vars.get(device, []))
+        device = resolve_device(
+            self._device_vars, str(entry["device"]).strip() if entry else ""
+        )
+        self._variable_model.setStringList(
+            self._device_vars[device] if device is not None else []
+        )
 
     # ------------------------------------------------------------------
     # Document plumbing
@@ -851,6 +868,15 @@ class SaveSetEditor(ConfigEditorDialog):
         if model is None:
             self._refresh_gating()
             return False
+        # Shape is fine — now do the names exist?  (#772: the completer only
+        # suggests; free text stays so the editor works with the DB down.)
+        if self.completions_pending:
+            self._show_message(f"Not saved — {COMPLETIONS_PENDING_NOTE}.", error=True)
+            return False
+        problems = self._entry_problems()
+        if problems:
+            self._show_message("Not saved — " + "; ".join(problems), error=True)
+            return False
         name = self._current_name()
         try:
             self._store.save(name, model)
@@ -861,8 +887,37 @@ class SaveSetEditor(ConfigEditorDialog):
         self._unsaved.discard(name)
         self._refresh_set_list(select=name)
         self._refresh_gating()
-        self._show_message(f"Saved {name!r}.")
+        if self.targets_unchecked:
+            self._show_message(f"Saved {name!r} — {UNCHECKED_TARGETS_NOTE}.")
+        else:
+            self._show_message(f"Saved {name!r}.")
         return True
+
+    def _entry_problems(self) -> list[str]:
+        """Name every entry device / scalar the fetched listing does not know.
+
+        Returns
+        -------
+        list of str
+            One sentence per unknown device (its scalars are then skipped —
+            they cannot be checked without a device) or unknown scalar
+            variable; empty when everything resolves or no listing is
+            loaded (the save then carries :data:`UNCHECKED_TARGETS_NOTE`).
+        """
+        if self._document is None or not self.completions_available:
+            return []
+        lines: list[str] = []
+        for entry in self._document.get("entries", []):
+            device = str(entry.get("device", "")).strip()
+            problem = self._target_problem(device)
+            if problem:
+                lines.append(problem)
+                continue
+            for variable in entry.get("scalars", []) or []:
+                problem = self._target_problem(device, str(variable).strip())
+                if problem:
+                    lines.append(problem)
+        return lines
 
     def _on_save(self) -> None:
         """Save button handler."""

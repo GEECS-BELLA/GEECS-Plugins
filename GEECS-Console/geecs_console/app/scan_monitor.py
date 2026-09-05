@@ -15,13 +15,17 @@ manager client:
   (``FAILED_MOVE_LOG_PREFIX``) so a ``paused`` pill can say *why*.
 
 Controller rules (#534 checklist): ``QObject`` with **no Qt parent**;
-injected addresses and callables, never the window; every daemon thread
-emits on a **worker-owned** signal connected ``QueuedConnection`` by the
-consumer (emitting a window-owned signal from a daemon thread segfaults
-under offscreen pytest — ``services/background.py`` rule); an idempotent
-:meth:`dispose` the window's ``closeEvent`` calls.  The stream sockets are
-long-lived daemon threads: ``dispose()`` marks them stale (signals stop),
-closes what can be closed safely, and never joins.
+injected addresses and callables, never the window; **no daemon thread
+emits toward a consumer** — each stream worker is a
+``services/background.py::_GuiHopWorker``: the zmq thread posts a tagged
+payload through the worker's own queued hop and the public signal
+(``document`` / ``line`` / ``pause_reason`` / ``stream_failed``) is
+emitted on the GUI thread (#787 — the pre-0.30.0 shape emitted from the
+zmq thread at the window, the race class that segfaulted offscreen
+pytest); an idempotent :meth:`dispose` the window's ``closeEvent`` calls.
+The stream sockets are long-lived daemon threads: ``dispose()`` marks them
+stale (posting stops, and a payload already in flight lands and is
+dropped), severs the public signals, and never joins.
 """
 
 from __future__ import annotations
@@ -31,6 +35,8 @@ import threading
 from typing import Any, Optional
 
 from PySide6.QtCore import QObject, Signal
+
+from geecs_console.services.background import _GuiHopWorker, disconnect_quietly
 
 logger = logging.getLogger(__name__)
 
@@ -51,38 +57,95 @@ def _failed_move_prefix() -> str:
         return _FAILED_MOVE_PREFIX_FALLBACK
 
 
-class DocumentStreamWorker(QObject):
+class _StreamWorker(_GuiHopWorker):
+    """Shared shape of the two stream workers: a gated, abandoned thread.
+
+    ``start()`` spawns the daemon thread (idempotent); :meth:`stop` only
+    gates emission and **abandons** the thread: the socket/loop inside
+    must never be touched from another thread (pyzmq sockets are not
+    thread-safe — a cross-thread close can trip a libzmq assertion, which
+    *aborts* the process rather than raising; #653 review finding 3), and
+    the thread dies with the app anyway.  The gate is checked twice: on
+    the zmq thread before posting, and again in :meth:`_deliver` on the
+    GUI thread — so after ``stop()`` nothing is emitted, not even a
+    payload that was already in flight.
+    """
+
+    #: Public signals a consumer may have connected (severed by
+    #: :meth:`sever`; the internal hop connection is left alone).
+    PUBLIC_SIGNALS: tuple[str, ...] = ("stream_failed",)
+
+    stream_failed = Signal(str)
+
+    def __init__(self, addr: str, thread_name: str) -> None:
+        super().__init__()
+        self._addr = addr
+        self._thread_name = thread_name
+        self._stopped = False
+        self._thread: Optional[threading.Thread] = None
+
+    def start(self) -> None:
+        """Spawn the stream thread (idempotent)."""
+        if self._thread is not None:
+            return
+        self._thread = threading.Thread(
+            target=self._run, name=self._thread_name, daemon=True
+        )
+        self._thread.start()
+
+    def _run(self) -> None:  # pragma: no cover — subclasses own the socket loop
+        raise NotImplementedError
+
+    def stop(self) -> None:
+        """Gate further emissions (idempotent; touches nothing else, never joins)."""
+        self._stopped = True
+
+    def sever(self) -> None:
+        """Detach every consumer from the public signals (GUI thread, idempotent).
+
+        Deliberately **not** ``QObject.disconnect()`` on the whole worker:
+        that would also cut the internal ``_landed`` → ``_forward`` hop,
+        stranding an in-flight payload's hold forever.
+        """
+        for name in self.PUBLIC_SIGNALS:
+            disconnect_quietly(getattr(self, name))
+
+    def _fail(self, message: str) -> None:
+        """Post a setup failure (zmq thread) unless already stopped."""
+        if not self._stopped:
+            self._post(("failed", message))
+
+    def _deliver(self, payload: object) -> None:
+        """Dispatch one tagged payload on the GUI thread (gated on ``stop``)."""
+        if self._stopped:
+            return
+        tag, *args = payload  # type: ignore[misc]
+        if tag == "failed":
+            self.stream_failed.emit(*args)
+        else:
+            self._emit(tag, *args)
+
+    def _emit(self, tag: str, *args: Any) -> None:  # pragma: no cover — subclass
+        raise NotImplementedError
+
+
+class DocumentStreamWorker(_StreamWorker):
     """Daemon-thread consumer of the worker's bluesky document stream.
 
     Emits ``document(name, doc)`` for every document received and
     ``stream_failed(str)`` if the stream cannot be set up (bad address,
     missing import) — post-setup, the zmq SUB socket reconnects on its own
-    and needs no supervision.  Signals are worker-owned; consumers connect
-    them ``QueuedConnection``.  ``start()`` spawns the thread; :meth:`stop`
-    only gates emission and **abandons** the daemon thread: the
-    dispatcher's zmq socket/loop must never be touched from another thread
-    (pyzmq sockets are not thread-safe — a cross-thread close can trip a
-    libzmq assertion, which *aborts* the process rather than raising; #653
-    review finding 3).
+    and needs no supervision.  Both signals are emitted **on the GUI
+    thread** (the :class:`_StreamWorker` hop); consumers connect them
+    ``QueuedConnection`` as before.
     """
 
+    PUBLIC_SIGNALS = ("document", "stream_failed")
+
     document = Signal(str, object)
-    stream_failed = Signal(str)
 
     def __init__(self, doc_addr: str) -> None:
-        super().__init__()
-        self._addr = doc_addr
-        self._stopped = False
-        self._thread: Optional[threading.Thread] = None
-
-    def start(self) -> None:
-        """Spawn the dispatcher thread (idempotent)."""
-        if self._thread is not None:
-            return
-        self._thread = threading.Thread(
-            target=self._run, name="qs-doc-stream", daemon=True
-        )
-        self._thread.start()
+        super().__init__(doc_addr, "qs-doc-stream")
 
     def _run(self) -> None:
         try:
@@ -92,59 +155,39 @@ class DocumentStreamWorker(QObject):
 
             def _forward(name: str, doc: dict) -> None:
                 if not self._stopped:
-                    self.document.emit(name, dict(doc))
+                    self._post(("document", name, dict(doc)))
 
             dispatcher.subscribe(_forward)
             dispatcher.start()  # blocks for the thread's lifetime
         except Exception as exc:
             if not self._stopped:
                 logger.warning("document stream at %s ended", self._addr, exc_info=True)
-                try:
-                    self.stream_failed.emit(
-                        f"document stream unavailable ({exc}) — live "
-                        "per-shot progress is off"
-                    )
-                except RuntimeError:
-                    pass  # the worker was deleted during teardown
+                self._fail(
+                    f"document stream unavailable ({exc}) — live "
+                    "per-shot progress is off"
+                )
 
-    def stop(self) -> None:
-        """Gate further emissions (idempotent).
-
-        Deliberately touches nothing else: the dispatcher is abandoned
-        with its daemon thread (see the class docstring — a cross-thread
-        zmq close can abort the process, and the thread dies with the app
-        anyway).
-        """
-        self._stopped = True
+    def _emit(self, tag: str, *args: Any) -> None:
+        self.document.emit(*args)
 
 
-class ConsoleStreamWorker(QObject):
+class ConsoleStreamWorker(_StreamWorker):
     """Daemon-thread consumer of the manager's console-output text stream.
 
     Emits ``line(str)`` per received line, ``pause_reason(str)`` when a
     line carries the engine's failed-move prefix — the paused pill's "why"
-    — and ``stream_failed(str)`` if the monitor cannot be set up.
-    Text only: this stream never carries documents (see qserver/README.md).
+    — and ``stream_failed(str)`` if the monitor cannot be set up.  All on
+    the GUI thread (the :class:`_StreamWorker` hop).  Text only: this
+    stream never carries documents (see qserver/README.md).
     """
+
+    PUBLIC_SIGNALS = ("line", "pause_reason", "stream_failed")
 
     line = Signal(str)
     pause_reason = Signal(str)
-    stream_failed = Signal(str)
 
     def __init__(self, info_addr: str) -> None:
-        super().__init__()
-        self._addr = info_addr
-        self._stopped = False
-        self._thread: Optional[threading.Thread] = None
-
-    def start(self) -> None:
-        """Spawn the monitor thread (idempotent)."""
-        if self._thread is not None:
-            return
-        self._thread = threading.Thread(
-            target=self._run, name="qs-console-stream", daemon=True
-        )
-        self._thread.start()
+        super().__init__(info_addr, "qs-console-stream")
 
     def _run(self) -> None:
         try:
@@ -173,28 +216,28 @@ class ConsoleStreamWorker(QObject):
         except Exception as exc:
             if not self._stopped:
                 logger.warning("console stream at %s ended", self._addr, exc_info=True)
-                try:
-                    self.stream_failed.emit(
-                        f"console-output stream unavailable ({exc}) — the "
-                        "log tail and pause reasons are off"
-                    )
-                except RuntimeError:
-                    pass  # the worker was deleted during teardown
+                self._fail(
+                    f"console-output stream unavailable ({exc}) — the "
+                    "log tail and pause reasons are off"
+                )
 
     def _handle_text(self, text: str, prefix: str) -> None:
+        """Split *text* into lines and post each (plus any pause reason)."""
         for raw_line in text.splitlines():
             stripped = raw_line.rstrip()
             if not stripped or self._stopped:
                 continue
-            self.line.emit(stripped)
+            self._post(("line", stripped))
             if prefix in stripped:
                 # Everything after the prefix is the engine's reason text.
                 reason = stripped.split(prefix, 1)[1].lstrip(" :-")
-                self.pause_reason.emit(reason or stripped)
+                self._post(("pause_reason", reason or stripped))
 
-    def stop(self) -> None:
-        """Stop the loop and further emissions (idempotent; never joins)."""
-        self._stopped = True
+    def _emit(self, tag: str, *args: Any) -> None:
+        if tag == "line":
+            self.line.emit(*args)
+        elif tag == "pause_reason":
+            self.pause_reason.emit(*args)
 
 
 class _StatusProbe:
@@ -281,11 +324,7 @@ class ScanMonitorController(QObject):
         for worker in (self.documents, self.console):
             if worker is not None:
                 worker.stop()
-                try:
-                    worker.disconnect()
-                except (RuntimeError, TypeError):
-                    pass
-        try:
-            self._poller.report_ready.disconnect()
-        except (RuntimeError, TypeError):
-            pass
+                worker.sever()
+        # Quietly: a monitor whose status_ready nobody connected (tests)
+        # would otherwise warn "Failed to disconnect (None)".
+        disconnect_quietly(self._poller.report_ready)

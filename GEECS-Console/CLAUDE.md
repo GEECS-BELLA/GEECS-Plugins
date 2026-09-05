@@ -215,17 +215,24 @@ are prefixed by region (`r3_radio_1d`, `r5_start_button`, …).
   over `Submitter.status()`), the document stream (`RemoteDispatcher`
   on the worker's proxy out-port — per-shot progress, totals, scan
   number, terminal states), and the manager console-output stream (log
-  tail + failed-move pause reasons).  Stream workers emit on
-  worker-owned signals connected `QueuedConnection`;
-  `stop()`/`dispose()` only gate emission and **abandon** the daemon
-  threads — a zmq socket must never be closed from another thread (a
-  libzmq assertion aborts the process; #653 review).  Stream setup
-  failure emits `stream_failed(str)`, which the window surfaces via
-  `_report` — degraded mode (no progress/log stream) is never silent.
+  tail + failed-move pause reasons).  **Since 0.30.0 (#787) the stream
+  workers are `_GuiHopWorker`s**: the zmq thread posts a tagged payload
+  through the worker's own queued hop and `document` / `line` /
+  `pause_reason` / `stream_failed` are emitted on the GUI thread (the
+  window still connects them `QueuedConnection`); `stop()`/`dispose()`
+  gate emission on **both** sides of the hop (a payload already in
+  flight lands and is dropped) and **abandon** the daemon threads — a
+  zmq socket must never be closed from another thread (a libzmq
+  assertion aborts the process; #653 review).  `dispose()` severs the
+  public signals only (`sever()`), never `QObject.disconnect()` on the
+  whole worker — that would cut the internal hop and strand an
+  in-flight hold.  Stream setup failure emits `stream_failed(str)`,
+  which the window surfaces via `_report` — degraded mode (no
+  progress/log stream) is never silent.
 - **Movable panel (R7)** — owned by
   `app/movable_panel.py::MovablePanelController` since 0.19.0 (the #534
   controller shape: no Qt parent, injected widgets + callables, its own
-  `BackgroundResult` set worker and queued `value_ready` signal, and a
+  `BackgroundResult` set worker and `GuiRelay` readback worker, and a
   `dispose()` the window's `closeEvent` calls).  Selection resolves
   catalog-first (`ConsoleConfigs.scan_variable_specs()` — the same
   catalog the R3 axis picker lists): a plain `ScanVariable` monitors its
@@ -252,8 +259,13 @@ are prefixed by region (`r3_radio_1d`, `r5_start_button`, …).
   `run_coroutine_threadsafe`) — the same **no-QThread** rule as the health
   poller (a worker QThread aborted under offscreen pytest: "QThread
   destroyed while running").  Values reach the GUI through the
-  controller's `value_ready(int, object)` signal, connected **queued** to
-  a `@Slot(int, object)` — never paint widgets off the GUI thread.  Selection
+  controller's `GuiRelay` readback worker (`services/background.py`):
+  the CA loop thread calls `post((index, value))`, the payload hops onto
+  the GUI thread and `delivered` fires there, connected **queued** to
+  `_apply_value` — never paint widgets off the GUI thread (until 0.30.0
+  the CA thread emitted a controller-owned `value_ready` directly; #787).
+  `dispose()` closes the relay so a readback still crossing the hop is
+  dropped, never emitted at a dying controller.  Selection
   commits (dropdown pick / Enter / focus leave) resubscribe; per-keystroke
   edits only regate the Set button (no CA-monitor churn while typing); a
   generation counter drops straggler callbacks from retired monitors.  Set
@@ -302,7 +314,7 @@ are prefixed by region (`r3_radio_1d`, `r5_start_button`, …).
   (recorded by the worker at the claim); `_on_scan_document` feeds it to
   `set_scan_number`, which delegates to `NowPanelController` (10 s
   expiry to "(previous)").
-- **Ops menu**: four items, handlers in `main_window.py`, path resolution
+- **Ops menu**: five items, handlers in `main_window.py`, path resolution
   factored into `services/ops_paths.py` as small pure `-> Path | None`
   functions (unit-tested against tmp trees, no Finder).  *Open experiment
   config folder* (configs-repo dir for the current experiment); *Open user
@@ -314,10 +326,24 @@ are prefixed by region (`r3_radio_1d`, `r5_start_button`, …).
   path construction) and NEVER creates directories — a missing folder
   reports "no scans today" (repo scan-folder invariant, pinned by
   tree-unchanged tests in `tests/test_ops_paths.py`); *GEECS-Plugins on
-  GitHub*.  All open via `QDesktopServices.openUrl`.  Menus created in
-  `_build_menus` must be referenced on the window (`self._menus`) —
-  PySide6 garbage-collects the `addMenu` wrapper and tears down the C++
-  menu with it.
+  GitHub*.  Those four open via `QDesktopServices.openUrl`.  *Restart
+  gateway…* (#773) writes `Restart` to `{experiment}:cagateway:restart`
+  (`services/gateway_restart.py`; PV via `ca_pv`/`bare_pv`) through the
+  device-panel backend's `put_pv` — the console's one CA put, on
+  `GatewayDevicePanel`'s **persistent** loop, never a per-call
+  `asyncio.run` (aioca's per-loop channel cache makes the gateway's own
+  CONN_DOWN hit the closed loop) — on the restart `BackgroundResult`
+  worker; enabled only with an experiment and a known gateway chip,
+  refused (`_restart_refusal`, checked before AND after the confirmation
+  modal) while a scan is active on the manager or the R7 panel's manual
+  set/move is in flight; the health poll then narrates the bounce in the
+  log tail, counting only reports whose `HealthReport.sequence` is past
+  the `HealthPoller.polls_started` recorded when the put completed (a
+  poll already out then read a pre-put heartbeat).  The Ops QMenu has
+  `setToolTipsVisible(True)` so that action's operator tooltip renders.
+  Menus created in `_build_menus` must be referenced on the window
+  (`self._menus`) — PySide6 garbage-collects the `addMenu` wrapper and
+  tears down the C++ menu with it.
 - **Per-shot beeps (Preferences)**: two checkable actions persisted via
   `ConsoleSettings`, both default off.  "Per-shot beep" sounds
   `QApplication.beep()` (no sound assets, no multimedia dep) on every
@@ -397,20 +423,30 @@ are prefixed by region (`r3_radio_1d`, `r5_start_button`, …).
   `QueuedConnection`; delivery now takes two event-loop turns, so a
   test that assumes a startup result has landed waits for it
   (`qtbot.waitUntil`).  **Since 0.28.2 `HealthPoller` rides the same
-  hop** (#767 — the last emitter of the old shape *in this module*; the
-  stream workers in `app/scan_monitor.py`, the aioca readback callback
-  in `app/movable_panel.py` and the editors' completions thread in
-  `editors/base.py` still emit from their threads toward a consumer
-  QObject — inventoried in #787, not yet moved): the hop lives once in
-  the private `_GuiHopWorker` base both workers subclass (`_hop` on the
-  daemon thread, `_forward` → the subclass's `_deliver` on the GUI
-  thread), and the poller's in-flight skip lasts until the report has
-  landed, so `_busy` is only written on the GUI thread.  Any new
-  background worker subclasses `_GuiHopWorker`; when one of the
-  residual emitters bites, move it onto the same base.  `closeEvent`
-  disconnects each window-owned worker's `result_ready`; the
-  actions-menu, now-panel and queue-panel controllers' workers are
-  detached inside their `dispose()` instead.
+  hop** (#767): the hop lives once in the private `_GuiHopWorker` base
+  (`_hop` on the daemon thread, `_forward` → the subclass's `_deliver`
+  on the GUI thread), and the poller's in-flight skip lasts until the
+  report has landed, so `_busy` is only written on the GUI thread.
+  **Since 0.30.0 every cross-thread signal in the console comes through
+  this module** (#787 — the three residual emitters moved): the stream
+  workers in `app/scan_monitor.py` subclass `_GuiHopWorker` directly
+  (typed signals, tagged payloads), the movable panel's aioca readback
+  callback posts through a `GuiRelay` (the public hop for long-lived
+  foreign-thread producers — `post()` from any thread, `delivered` on
+  the GUI thread, `close()` drops in-flight payloads), and the editors'
+  completions fetch is a plain `BackgroundResult`.  Long-lived producers
+  take the in-flight hold *on their own thread* per payload (`_post`),
+  so the `_INFLIGHT` counter is guarded by `_INFLIGHT_LOCK`.  Any new
+  background worker subclasses `_GuiHopWorker` or uses `GuiRelay`; a
+  daemon thread emitting a Qt signal at a consumer is a bug.  Teardown
+  paths use `disconnect_quietly` — a blind `disconnect()` on a
+  never-connected signal warns in PySide6.  `closeEvent` disconnects
+  each window-owned worker's `result_ready`; the actions-menu,
+  now-panel, queue-panel and movable-panel controllers' workers are
+  detached inside their `dispose()` instead.  Still open on #787: the
+  window ↔ controller reference cycles (a dropped window dies only at
+  the cyclic GC — the conftest safe-point collection covers the tests)
+  and the once-seen interpreter-exit segfault.
 - **Actions menu (G-actions v1)** — owned by
   `app/actions_menu.py::ActionsMenuController` since 0.18.1 (issue #534
   step 3): the window creates the QMenu (kept in `self._menus`) and the
