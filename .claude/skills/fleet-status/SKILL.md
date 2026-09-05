@@ -91,6 +91,7 @@ started (for a baked venv: after the install). The warnings to act on:
 | `STAGED: N` / `UNSTAGED: N` | the deployed tree differs from its HEAD | look before touching: it may be a live hotfix nobody committed, or a stray `git add` |
 | `Queueserver … NOT READY — worker environment CLOSED` | the unit is up but nothing opened the RE worker environment (every `geecs-qserver` restart recreates this until #793's readiness step lands); the console gets "Plan … is not in the list of allowed plans" | `qserver environment open` from any client env (GeecsBluesky's), then re-run; the plan name in the console's error is a red herring |
 | `Queueserver … readiness UNKNOWN (port only)` | no local env with `bluesky-queueserver` to ask the manager | `/env-doctor` for GeecsBluesky; the port is listening but that proves nothing about plans |
+| `Queueserver … readiness UNKNOWN — plans_allowed unanswered` | the manager answered `status` but not the plan list (a wedged or overloaded manager, or a refused user group) — readiness is an assertion about plans, so none is made | re-run; if it repeats, read the manager's journal on the host before touching the environment |
 
 Any unit whose clone is on a branch other than `master` is a fact to
 surface, not a fault — feature-branch deploys for live checks are

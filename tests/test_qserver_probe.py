@@ -10,6 +10,8 @@ from __future__ import annotations
 import importlib.util
 from pathlib import Path
 
+import pytest
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PROBE = REPO_ROOT / "scripts" / "qserver_probe.py"
 
@@ -81,6 +83,29 @@ def test_no_answer_is_down() -> None:
     assert line.startswith("down ")
 
 
+def test_unanswered_plans_allowed_is_unknown_never_ready() -> None:
+    """The second 0MQ request timed out: status alone cannot assert readiness."""
+    code, line = summarize(_status(), None, "primary")
+    assert code == 6
+    assert line.startswith("unknown ")
+    assert "plans_allowed unanswered" in line
+    assert not line.startswith("ready")
+
+
+def test_refused_plans_allowed_is_unknown_never_ready() -> None:
+    reply = {"success": False, "msg": "user group 'primary' is not defined"}
+    code, line = summarize(_status(), reply, "primary")
+    assert code == 6
+    assert line.startswith("unknown ")
+    assert "plans_allowed unanswered" in line and "not defined" in line
+
+
+def test_closed_environment_wins_over_an_unanswered_plan_list() -> None:
+    status = _status(worker_environment_exists=False, worker_environment_state="closed")
+    code, line = summarize(status, None, "primary")
+    assert code == 5 and line.startswith("notready ")
+
+
 def test_running_item_and_queue_depth_are_reported() -> None:
     status = _status(
         manager_state="executing_queue",
@@ -97,3 +122,43 @@ def test_fleet_status_wires_the_probe() -> None:
     text = (REPO_ROOT / "scripts" / "fleet_status.sh").read_text()
     assert "qserver_probe.py" in text
     assert "notready" in text.lower() or "NOT READY" in text
+
+
+@pytest.mark.parametrize(
+    ("ini", "expected"),
+    [
+        ("[qserver]\nhost = worker.example\n", "tcp://worker.example:60615"),
+        (
+            "[qserver]\nhost = worker.example\ncontrol_addr = tcp://10.0.0.9:61000\n",
+            "tcp://10.0.0.9:61000",
+        ),
+        ("[qserver]\ncontrol_addr = tcp://10.0.0.9:61000\n", "tcp://10.0.0.9:61000"),
+        ("[tiled]\nuri = http://x:8000\n", None),
+        ("[qserver]\n", None),
+    ],
+)
+def test_control_addr_follows_the_qs_client_precedence(
+    tmp_path: Path, ini: str, expected: str | None
+) -> None:
+    """``control_addr`` verbatim, else ``tcp://<host>:60615`` — never a hand-built address over an override."""
+    path = tmp_path / "config.ini"
+    path.write_text(ini)
+    assert qserver_probe.control_addr_from_ini(path) == expected
+
+
+def test_missing_config_yields_no_address(tmp_path: Path) -> None:
+    assert qserver_probe.control_addr_from_ini(tmp_path / "absent.ini") is None
+
+
+def test_explicit_addr_wins() -> None:
+    assert qserver_probe.resolve_control_addr("tcp://h:1") == "tcp://h:1"
+
+
+def test_fleet_status_honors_the_control_addr_override_and_the_unknown_verdict() -> (
+    None
+):
+    text = (REPO_ROOT / "scripts" / "fleet_status.sh").read_text()
+    assert "ini_get qserver control_addr" in text
+    assert "readiness UNKNOWN" in text
+    # exit 6 (unknown) is its own case — never the ready branch, never a bare ✓.
+    assert "6)" in text
