@@ -163,7 +163,10 @@ exiting non-zero with a precise message otherwise. A separate unit on
 purpose: the manager's start is never blocked by the optimize-stack import
 warm-up, a failed open shows as one failed unit rather than a crash-looping
 manager, and `systemctl restart geecs-qserver-ready` is the recovery
-gesture.
+gesture. The entry point asserts the manager on *this* host (loopback);
+the only override is an optional `QS_CONTROL_ADDR=tcp://host:60615` key in
+`site.env` (it never reads the client-side `[qserver]` section of the
+service account's `config.ini` — that names the worker *clients* talk to).
 
 ```bash
 # as the service account — or run deploy/bootstrap_host.sh for the whole host

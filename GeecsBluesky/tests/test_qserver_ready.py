@@ -36,12 +36,16 @@ class _Manager:
         statuses,
         *,
         plans=GEECS_PLAN_NAMES,
+        plans_sequence=None,
         open_reply=None,
         answer=True,
         plans_answer=True,
     ):
         self.statuses = list(statuses)
         self.plans = list(plans)
+        # Successive plans_allowed replies (the last one repeats) — the
+        # manager's plan list landing *after* the environment reads up.
+        self.plans_sequence = [list(p) for p in (plans_sequence or [])]
         self.open_reply = open_reply or {"success": True}
         self.answer = answer
         self.plans_answer = plans_answer
@@ -59,6 +63,11 @@ class _Manager:
         if method == "plans_allowed":
             if not self.plans_answer:
                 return None, "timeout"
+            if self.plans_sequence:
+                head = self.plans_sequence[0]
+                if len(self.plans_sequence) > 1:
+                    self.plans_sequence.pop(0)
+                return _plans(head), ""
             return _plans(self.plans), ""
         raise AssertionError(f"unexpected method {method!r}")
 
@@ -108,10 +117,57 @@ def test_missing_plan_is_not_ready_and_names_it() -> None:
 
 
 def test_empty_plan_list_after_open_is_not_ready() -> None:
-    """The exact #793 invariant: open 'succeeded', plan list still empty."""
+    """The exact #793 invariant: open 'succeeded', plan list still empty.
+
+    The fake stays empty across the post-open settle re-reads, so the
+    conclusion is reached only after the settle window is exhausted.
+    """
     manager = _Manager([_status(exists=False), _status(exists=True)], plans=[])
+    log = []
+    with pytest.raises(NotReady, match="lists no allowed plans"):
+        ensure_ready(manager, timeout_s=30, log=log.append)
+    reads = [m for m, _ in manager.calls].count("plans_allowed")
+    assert reads == qserver_ready.PLAN_LIST_SETTLE_POLLS + 1
+    assert (
+        sum("re-reading" in line for line in log)
+        == qserver_ready.PLAN_LIST_SETTLE_POLLS
+    )
+
+
+def test_plan_list_landing_after_the_open_is_ready() -> None:
+    """The manager reports the env up before its plan-list download lands.
+
+    A fresh manager reads an EMPTY list in that window and a deploy that
+    adds a plan reads the STALE one; both settle within a few polls.
+    """
+    manager = _Manager(
+        [_status(exists=False), _status(exists=True)],
+        plans_sequence=[[], ["geecs_run_action_plan"], GEECS_PLAN_NAMES],
+    )
+    log = []
+    allowed = ensure_ready(manager, timeout_s=30, log=log.append)
+    assert allowed == sorted(GEECS_PLAN_NAMES)
+    assert [m for m, _ in manager.calls].count("plans_allowed") == 3
+    assert any("re-reading" in line for line in log)
+    assert log[-1].startswith("ready: 5 allowed plans")
+
+
+def test_no_settle_window_without_our_open() -> None:
+    """An environment someone else opened is judged on the first read."""
+    manager = _Manager([_status(exists=True)], plans=[])
     with pytest.raises(NotReady, match="lists no allowed plans"):
         ensure_ready(manager, timeout_s=30, log=lambda s: None)
+    assert [m for m, _ in manager.calls].count("plans_allowed") == 1
+
+
+def test_unanswered_plan_list_after_open_is_not_retried() -> None:
+    """plans_unknown is never a settling state — unanswered is not ready."""
+    manager = _Manager(
+        [_status(exists=False), _status(exists=True)], plans_answer=False
+    )
+    with pytest.raises(NotReady, match="could not be read"):
+        ensure_ready(manager, timeout_s=30, log=lambda s: None)
+    assert [m for m, _ in manager.calls].count("plans_allowed") == 1
 
 
 def test_unanswered_plan_list_is_not_ready() -> None:
@@ -190,10 +246,39 @@ def test_environment_never_up_before_deadline_is_not_ready(monkeypatch) -> None:
         ensure_ready(manager, timeout_s=20, log=lambda s: None)
 
 
-def test_busy_manager_without_environment_is_not_something_open_fixes() -> None:
+def test_closing_environment_is_waited_out_then_opened() -> None:
+    """Unit started mid-`environment close`: wait for closed+idle, then open."""
+    manager = _Manager(
+        [
+            _status(exists=False, manager="closing_environment", env="closing"),
+            _status(exists=False, manager="closing_environment", env="closing"),
+            _status(exists=False),  # settled: closed + idle → ours to open
+            _status(exists=True),
+        ]
+    )
+    ensure_ready(manager, timeout_s=30, log=lambda s: None)
+    methods = [m for m, _ in manager.calls]
+    assert methods.count("environment_open") == 1
+    # the open came after the closing polls, not on the first snapshot
+    assert methods.index("environment_open") > 2
+
+
+def test_environment_closed_by_hand_mid_run_is_reopened_once() -> None:
+    """`qserver environment close` after startup: the next run opens exactly once."""
+    manager = _Manager([_status(exists=False), _status(exists=True)])
+    ensure_ready(manager, timeout_s=30, log=lambda s: None)
+    assert [m for m, _ in manager.calls].count("environment_open") == 1
+
+
+def test_busy_manager_without_environment_waits_until_the_deadline(
+    monkeypatch,
+) -> None:
+    ticks = iter(range(0, 100000, 5))
+    monkeypatch.setattr(qserver_ready.time, "monotonic", lambda: float(next(ticks)))
     manager = _Manager([_status(exists=False, manager="closing_environment")])
-    with pytest.raises(NotReady, match="not a state 'environment open' can fix"):
-        ensure_ready(manager, timeout_s=30, log=lambda s: None)
+    with pytest.raises(NotReady, match="not up before the deadline"):
+        ensure_ready(manager, timeout_s=20, log=lambda s: None)
+    assert "environment_open" not in [m for m, _ in manager.calls]
 
 
 class TestMain:
@@ -224,7 +309,13 @@ class TestMain:
         assert qserver_ready.main([]) == 2
 
     def test_control_addr_precedence(self, monkeypatch) -> None:
-        """flag > QS_CONTROL_ADDR > [qserver] control_addr/host > loopback."""
+        """flag > QS_CONTROL_ADDR > loopback — the client-side config is ignored.
+
+        The unit asserts the manager on THIS host; a service account's
+        ``config.ini`` naming another worker (the client-side address)
+        must never redirect it.
+        """
+        from geecs_bluesky.qs_client import client as qs_client
         from geecs_bluesky.qs_client.client import QserverConfig
 
         seen = {}
@@ -233,20 +324,15 @@ class TestMain:
         )
         monkeypatch.setattr(qserver_ready, "ensure_ready", lambda *a, **k: [])
         monkeypatch.delenv("QS_CONTROL_ADDR", raising=False)
+        monkeypatch.setattr(
+            qs_client,
+            "read_qserver_config",
+            lambda: QserverConfig("tcp://other-box:60615", "tcp://h:60625", "h:5568"),
+        )
 
-        monkeypatch.setattr(qserver_ready, "read_qserver_config", lambda: None)
         assert qserver_ready.main([]) == 0
         assert seen["addr"] == qserver_ready.DEFAULT_CONTROL_ADDR
-
-        monkeypatch.setattr(
-            qserver_ready,
-            "read_qserver_config",
-            lambda: QserverConfig(
-                "tcp://192.168.6.14:60615", "tcp://h:60625", "h:5568"
-            ),
-        )
-        assert qserver_ready.main([]) == 0
-        assert seen["addr"] == "tcp://192.168.6.14:60615"
+        assert seen["addr"].startswith("tcp://localhost:")
 
         monkeypatch.setenv("QS_CONTROL_ADDR", "tcp://worker:60615")
         assert qserver_ready.main([]) == 0
@@ -254,3 +340,8 @@ class TestMain:
 
         assert qserver_ready.main(["--control-addr", "tcp://flag:1"]) == 0
         assert seen["addr"] == "tcp://flag:1"
+
+    def test_default_addr_port_is_the_client_modules(self) -> None:
+        from geecs_bluesky.qs_client.client import _CONTROL_PORT
+
+        assert qserver_ready.DEFAULT_CONTROL_ADDR.endswith(f":{_CONTROL_PORT}")

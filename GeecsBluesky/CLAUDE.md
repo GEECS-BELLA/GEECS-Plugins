@@ -75,9 +75,14 @@ geecs_bluesky/
   qserver_ready.py          # geecs-qserver-ensure-ready: the service-start
                             #   readiness assertion (#793) — open the worker
                             #   env if closed, wait for it, then the SAME
-                            #   qs_client.readiness_verdict the preflight
-                            #   runs (one definition of ready); address from
-                            #   QS_CONTROL_ADDR > [qserver] > loopback;
+                            #   qs_client.readiness_from_reads assembly the
+                            #   preflight runs (one definition of ready;
+                            #   the plan list is re-read for a short settle
+                            #   window after OUR open — the manager reports
+                            #   the env up before its plan download lands);
+                            #   address = QS_CONTROL_ADDR else loopback
+                            #   (never the client-side [qserver] config —
+                            #   the unit asserts the LOCAL manager);
                             #   injectable transport
   plan_names.py             # the queueserver plan / function-verb names,
                             #   import-light (log_markers rule): startup.py
@@ -95,8 +100,11 @@ geecs_bluesky/
                             #   checks (validate, worker_ready — the shared
                             #   readiness_verdict (env exists ∧ plan list
                             #   answered ∧ non-empty ∧ plan present; an
-                            #   unanswered list is NOT ready), a refusal
-                            #   naming the recovery gesture (#793) —
+                            #   env still opening is environment_opening,
+                            #   "retry shortly"), a refusal naming the
+                            #   recovery gesture (#793) — fail-open only
+                            #   for unreachable and plans_unknown (the
+                            #   round trip timed out; recorded skipped) —
                             #   snapshot_images, unserved, liveness,
                             #   staleness) + build_submission_record
                             #   (the record travels BESIDE the request:
