@@ -281,8 +281,11 @@ poetry run qserver status
 Expected: the manager responds, Redis is reachable, the worker environment
 exists and is `idle` — the readiness unit opened it. Nothing to type: if
 `qserver status` shows `worker_environment_exists: False` the readiness
-unit failed or was not installed; read its journal, fix the cause, and
-re-run it (the same command a fresh clone's first deploy uses):
+unit failed, was not installed, or ran fine and the RE worker child died
+later while the manager survived (no systemd event fires for that — the
+unit stays `active (exited)`; the console/MCP preflight refusal is what
+names the gesture); read its journal, fix the cause, and re-run it (the
+same command a fresh clone's first deploy uses):
 
 ```bash
 journalctl -u geecs-qserver-ready.service -n 50 --no-pager
