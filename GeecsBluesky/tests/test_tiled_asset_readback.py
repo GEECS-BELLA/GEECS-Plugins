@@ -442,6 +442,7 @@ def test_load_asset_from_tiled_finds_run_and_loads_text_array(
         day=23,
         scan_number=42,
         experiment="Undulator",
+        timezone="America/Los_Angeles",
         device_name="U_BCaveMagSpec",
         device_type=MAGSPEC_CAMERA_DEVICE_TYPE,
         event_field="interpSpec",
@@ -607,4 +608,21 @@ def test_host_zone_day_bounds_follow_dst(host_zone) -> None:
     assert (
         winter.timestamp()
         == datetime(2026, 1, 15, tzinfo=ZoneInfo("America/Los_Angeles")).timestamp()
+    )
+
+    # The stop bound is the *next* local midnight, not start + 24 h: on the
+    # fall-back day (25 h long) a run in the last local hour must still fit.
+    fall_back_start, fall_back_stop = tiled_readback._day_bounds(2026, 11, 1, None)
+    late_run = datetime(
+        2026, 11, 1, 23, 30, tzinfo=ZoneInfo("America/Los_Angeles")
+    ).timestamp()
+    assert fall_back_start.timestamp() <= late_run < fall_back_stop.timestamp()
+    assert (
+        fall_back_stop.timestamp()
+        == datetime(2026, 11, 2, tzinfo=ZoneInfo("America/Los_Angeles")).timestamp()
+    )
+    _, spring_stop = tiled_readback._day_bounds(2026, 3, 8, None)
+    assert (
+        spring_stop.timestamp()
+        == datetime(2026, 3, 9, tzinfo=ZoneInfo("America/Los_Angeles")).timestamp()
     )

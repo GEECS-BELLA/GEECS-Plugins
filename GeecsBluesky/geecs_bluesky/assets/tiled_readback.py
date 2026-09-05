@@ -646,15 +646,18 @@ def _day_bounds(
     timezone: str | None,
 ) -> tuple[datetime, datetime]:
     tz = _zone(timezone)
-    local_midnight = datetime.combine(
-        datetime(year, month, day).date(), datetime_time.min
-    )
+    date = datetime(year, month, day).date()
     if tz is None:
         # A naive datetime's astimezone() applies the host's rules for
         # *that* date (DST-correct), unlike datetime.now().astimezone().tzinfo.
-        start = local_midnight.astimezone()
-    else:
-        start = local_midnight.replace(tzinfo=tz)
+        # Both bounds are resolved this way: the result carries a fixed
+        # offset, so start + 1 day would be an hour off across a DST change
+        # (the fall-back day's last local hour would fall outside the bounds).
+        return (
+            datetime.combine(date, datetime_time.min).astimezone(),
+            datetime.combine(date + timedelta(days=1), datetime_time.min).astimezone(),
+        )
+    start = datetime.combine(date, datetime_time.min, tzinfo=tz)
     return start, start + timedelta(days=1)
 
 
