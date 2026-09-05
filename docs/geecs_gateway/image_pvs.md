@@ -118,10 +118,12 @@ camera-server fleet spans several lab subnets, so:
       settings file (environment variables don't reach a macOS
       `open`-launched app)
 
-The fleet list has one home: `config.ini` `[pva] addr_list` — the camera
-servers running an instance (the DB roster of camera-hosting endpoints,
-minus hosts where no instance was installed; see
-`GeecsPvaGateway/DEPLOYMENT.md` §Client access). The CA variables
+The fleet list is kept once, in `config.ini` `[pva] addr_list` — the
+camera servers running an instance (the DB roster of camera-hosting
+endpoints, minus hosts where no instance was installed; see
+`GeecsPvaGateway/DEPLOYMENT.md` §Client access) — and copied from there
+into `EPICS_PVA_ADDR_LIST` or the Phoebus settings by hand; only the fleet
+tooling reads the key itself. The CA variables
 (`EPICS_CA_*`) belong to the scalar gateway and are unaffected — a client
 using both gateways sets both families.
 

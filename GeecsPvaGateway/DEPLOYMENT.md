@@ -187,14 +187,17 @@ PV. Two regimes:
   - Phoebus: `org.phoebus.pv.pva/epics_pva_addr_list=<fleet list>` in the
     settings file (env vars don't reach a macOS `open`-launched app)
 
-  `<fleet list>` has one home: the client `config.ini`
+  `<fleet list>` is kept once, in the client `config.ini`
 
   ```ini
   [pva]
-  addr_list = 192.168.6.100 192.168.7.161 ...   # space-separated, one entry per deployed server
+  addr_list = 192.168.6.100 192.168.7.161 ...
   ```
 
-  — the camera servers actually running an instance. The **roster** (which
+  (space-separated, one entry per deployed server) and copied from there
+  into the two settings above by hand — only the fleet tooling reads the
+  key. It names the camera servers actually running an instance. The
+  **roster** (which
   hosts *should* run one) is not hand-kept: `geecs_pva_gateway.fleet`
   derives it from the GEECS DB — every endpoint IP hosting an enabled
   device with an image-typed variable for the experiment. A roster host

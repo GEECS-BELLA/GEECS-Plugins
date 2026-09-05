@@ -101,6 +101,26 @@ def test_default_experiment_reads_config(tmp_path):
     assert fleet.default_experiment(tmp_path / "missing.ini") == ""
 
 
+def test_addr_list_tolerates_inline_comment_port_suffix_and_hostname(
+    fake_db, tmp_path, caplog
+):
+    """The documented config.ini shapes parse: a '#' comment, host:port, a bare hostname."""
+    cfg = _config(
+        tmp_path,
+        "[pva]\naddr_list = 192.168.6.100:5076 camserver7  # the deployed servers\n",
+    )
+    with caplog.at_level("WARNING", logger="geecs_pva_gateway.fleet"):
+        hosts = fleet_roster("Undulator", config_path=cfg)
+    by_ip = {h.ip: h for h in hosts}
+    assert by_ip["192.168.6.100"].deployed  # matched by host, port ignored
+    assert not by_ip["192.168.6.66"].deployed
+    assert "#" not in by_ip and "the" not in by_ip  # the comment never became hosts
+    assert [h.ip for h in hosts][
+        -1
+    ] == "camserver7"  # hostnames sort last, no TypeError
+    assert "camserver7" in caplog.text  # ...and are flagged: no DB cameras on that name
+
+
 # --- the generator (deploy/ is not a package: load it by path) ----------------
 
 _GEN = Path(__file__).resolve().parents[1] / "deploy" / "gen_fleet_status.py"

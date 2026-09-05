@@ -14,7 +14,7 @@ import socket
 from pydantic import BaseModel, Field
 
 from geecs_ca_gateway.config import effective_vartype
-from geecs_core.pv_naming import pv_name
+from geecs_core.pv_naming import normalize_component, pv_name
 from geecs_core.transport.udp_client import detect_local_ip
 
 logger = logging.getLogger(__name__)
@@ -33,6 +33,17 @@ def local_ip_addresses(probe_target: str | None = None) -> set[str]:
         addresses.add(detect_local_ip(probe_target))
         addresses.discard("")
     return addresses
+
+
+def instance_pv_prefix(experiment: str, host: str) -> str:
+    """Prefix of one instance's identity PVs (``version``/``heartbeat``/``restart``).
+
+    The identity component is the served host (an IP, dots normalised to
+    underscores — PV_CONTRACT). The one composition shared by the server
+    and the fleet tooling, so the probe and the screen can never drift from
+    what an instance actually serves.
+    """
+    return pv_name(experiment, "pvagateway", normalize_component(host))
 
 
 def image_variables(metadata: list[dict]) -> list[str]:

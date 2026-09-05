@@ -16,7 +16,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   clients' `EPICS_PVA_ADDR_LIST`, mirroring `[epics] ca_addr_list`;
   absent key = all deployed). A roster host missing from the list hosts
   cameras only nominally — no instance was ever installed — so a failed
-  probe there is not an outage. Site-profile arc Phase 4, item 1.
+  probe there is not an outage. Site-profile arc Phase 4 (the PVA-roster
+  literal; plan `Planning/site_profile/00_overview.md`).
 
 ### Changed
 

@@ -9,14 +9,17 @@ Two facts, one home each — nothing hand-curated in code:
 - **Deployed** — the client ``~/.config/geecs_python_api/config.ini``::
 
       [pva]
-      addr_list = 192.168.6.100 192.168.7.161   # hosts running an instance
+      addr_list = 192.168.6.100 192.168.7.161
 
-  the same space-separated list clients set as ``EPICS_PVA_ADDR_LIST`` for
-  cross-subnet unicast search (DEPLOYMENT.md "Client access"), mirroring
-  ``[epics] ca_addr_list``. A roster host absent from it is **not
-  deployed**: the box hosts cameras only nominally and no instance was ever
-  installed there — a failed probe is not an outage. When the key is absent
-  every roster host counts as deployed (the pre-``[pva]`` behaviour).
+  the hosts running an instance, space-separated (commas tolerated; a
+  ``host:port`` entry counts by its host) — the same list a cross-subnet
+  client puts in ``EPICS_PVA_ADDR_LIST`` (DEPLOYMENT.md "Client access"),
+  mirroring ``[epics] ca_addr_list``. Only the fleet tooling reads the key;
+  ``scripts/fleet_status.sh`` exports it for its own probe. A roster host
+  absent from it is **not deployed**: the box hosts cameras only nominally
+  and no instance was ever installed there — a failed probe is not an
+  outage. When the key is absent every roster host counts as deployed (the
+  pre-``[pva]`` behaviour).
 
 Consumers: ``deploy/gen_fleet_status.py`` (the Phoebus fleet screen) and
 ``scripts/fleet_status.sh`` (the observed-fleet probe).
@@ -30,8 +33,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
-from geecs_core.pv_naming import normalize_component, pv_name
-from geecs_pva_gateway.config import image_variables
+from geecs_pva_gateway.config import image_variables, instance_pv_prefix
 
 logger = logging.getLogger(__name__)
 
@@ -45,19 +47,17 @@ class FleetHost(BaseModel):
     cameras: list[str] = Field(default_factory=list)
     deployed: bool = True
 
-    @property
-    def token(self) -> str:
-        """Instance identity component (the served host, per the naming policy)."""
-        return normalize_component(self.ip)
-
     def instance_pv(self, experiment: str, name: str) -> str:
         """Full name of one instance PV (``version``, ``heartbeat``, ``restart``)."""
-        return f"{pv_name(experiment, 'pvagateway', self.token)}:{name}"
+        return f"{instance_pv_prefix(experiment, self.ip)}:{name}"
 
 
-def _ip_key(ip: str) -> tuple:
-    parts = ip.split(".")
-    return tuple(int(p) if p.isdigit() else p for p in parts)
+def _ip_key(host: str) -> tuple:
+    """Sort key: dotted quads numerically, anything else (a hostname) after them."""
+    parts = host.split(".")
+    if all(p.isdigit() for p in parts):
+        return (0, tuple(int(p) for p in parts))
+    return (1, (host,))
 
 
 def camera_endpoints(
@@ -86,7 +86,7 @@ def camera_endpoints(
 
 def read_config(config_path: Path | None = None) -> configparser.ConfigParser:
     """Parse the client config.ini (missing file → empty parser, never raises)."""
-    parser = configparser.ConfigParser()
+    parser = configparser.ConfigParser(inline_comment_prefixes=("#", ";"))
     path = (config_path or USER_CONFIG_PATH).expanduser()
     if path.exists():
         parser.read(path)
@@ -104,11 +104,15 @@ def default_experiment(config_path: Path | None = None) -> str:
 
 
 def deployed_addr_list(config_path: Path | None = None) -> list[str] | None:
-    """Hosts listed in config.ini ``[pva] addr_list``; ``None`` when the key is absent."""
+    """Hosts listed in config.ini ``[pva] addr_list``; ``None`` when the key is absent.
+
+    Entries are space- or comma-separated; a ``host:port`` entry (EPICS
+    address-list syntax) counts by its host.
+    """
     raw = read_config(config_path).get("pva", "addr_list", fallback=None)
     if raw is None:
         return None
-    return raw.replace(",", " ").split()
+    return [entry.split(":", 1)[0] for entry in raw.replace(",", " ").split()]
 
 
 def fleet_roster(
