@@ -108,6 +108,13 @@ work.)
 Use `./scripts/commit.sh -m "..."` after `git add` — the pre-commit
 auto-fixers (ruff, ruff-format) rewrite files mid-commit and abort a plain
 `git commit`; the helper applies fixes, re-stages, and commits in one shot.
+`poetry.lock` files ride the same path: Poetry writes the locking
+checkout's absolute path into path-dependency extras, and the
+`scrub-lock-paths` hook normalizes it to `file:///GEECS-Plugins/…` — never
+hand-edit those URLs to bare names or `file:../` (`file:../` installs
+nothing; the bare form is the one whose PyPI fallthrough #753 observed in
+its PEP 621 experiment — root `CLAUDE.md` § Agent & Worktree Policy has
+the precise statement).
 Style: NumPy docstrings, type hints on public functions, Pydantic v2
 (`model_validate`/`model_dump`, never `.dict()`/`.parse_obj()`).
 

@@ -45,8 +45,8 @@ files = [
 
 [[package]]
 name = "geecs-core"
-version = "0.1.0"
-description = "The GEECS access library: UDP/TCP wire protocol, experiment database, PV naming contract, and the entry-level GeecsDevice client"
+version = "0.4.0"
+description = "The GEECS access library: UDP/TCP wire protocol, experiment database, PV naming contract, exceptions, the wire-protocol test double, and the entry-level GeecsDevice client"
 optional = false
 python-versions = ">=3.11,<3.12"
 groups = ["main"]
@@ -63,7 +63,7 @@ url = "../GEECS-Core"
 
 [[package]]
 name = "geecs-schemas"
-version = "0.9.1"
+version = "0.18.0"
 description = "Versioned Pydantic schemas for GEECS scanner configs (scan requests, save sets, scan variables, trigger profiles, action plans) plus legacy-YAML converters."
 optional = false
 python-versions = ">=3.11,<3.12"
