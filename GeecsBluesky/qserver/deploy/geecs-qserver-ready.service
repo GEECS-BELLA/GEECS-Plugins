@@ -31,8 +31,10 @@ Type=oneshot
 RemainAfterExit=yes
 User=@SERVICE_USER@
 Environment=HOME=@SERVICE_HOME@
-# The host's site profile (same file as geecs-qserver; nothing here is read
-# from it directly, the manager is on loopback).
+# The host's site profile (same file as geecs-qserver). The entry point
+# asserts the manager on THIS host (loopback) — never the client-side
+# [qserver] address in the service account's config.ini; the one override
+# is an optional QS_CONTROL_ADDR=tcp://host:60615 key in site.env.
 EnvironmentFile=@SITE_ENV@
 WorkingDirectory=@CHECKOUT_ROOT@/qs-checkout/GeecsBluesky
 # Poetry's ABSOLUTE path is required (systemd PATH omits ~/.local/bin). The

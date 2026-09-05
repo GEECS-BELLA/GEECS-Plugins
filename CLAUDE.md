@@ -82,19 +82,24 @@ case, but the right fix is to launch from the repo root.
 Remove worktrees after their PR is merged unless they are intentionally
 long-lived for a distinct development stream.
 
-**Never run `poetry lock` from inside a session worktree.** Poetry
-serializes the geecs-bluesky extras as absolute `file://` URLs resolved
-from wherever the lock runs, so a worktree-generated lock embeds that
-worktree's path — which dangles when the worktree is removed. A
-pre-commit hook (`poetry-lock-no-worktree-paths`) rejects any
-`poetry.lock` containing `.claude/worktrees/`. If your worktree PR needs
-a relock, relock inside the worktree and then strip the
-`/.claude/worktrees/<name>` prefix from the generated lock — that is the
-general remedy, correct even when the PR itself edited a
-`pyproject.toml` (the usual reason a relock is needed, and a state the
-main checkout does not have). Only when no pyproject changed is running
-`poetry lock` in the same package directory of the **main checkout** and
-copying the lock over an equivalent shortcut.
+**Lock files carry no checkout paths.** Poetry serializes the
+geecs-bluesky extras as absolute `file://` URLs resolved from wherever
+`poetry lock` runs — the maintainer's home path on a normal relock (a
+public-repo hygiene breach, #753), a dangling path when locked from a
+session worktree. The auto-fixing pre-commit hook `scrub-lock-paths`
+(`scripts/scrub_lock_paths.py`) normalizes every such URL to
+`file:///GEECS-Plugins/<Package>` — inert at install time, because the
+locked package carries its own lock-relative source url — and
+`scripts/commit.sh` re-stages the fix, so relocking from any checkout,
+worktrees included, commits clean; `poetry-lock-no-worktree-paths` is the
+backstop that rejects a surviving `.claude/worktrees/`, `file:///Users/`
+or `file:///home/`. Never hand-edit those URLs to a bare name or a
+relative `file:../` form: `file:../` silently installs nothing, and while
+a hand-substituted bare name installed fine in the #753 experiments, the
+bare form is what Poetry's PEP 621 extras emit — and there a consumer
+activating the extra resolved the name to **PyPI** (`geecs-data-utils` is
+a live PyPI name). The hook keeps the one form verified in both
+experiments.
 
 `geecs-plugins-bluesky` (a sibling directory of this checkout) is **no longer
 a worktree** — it has been promoted to its own standalone clone with an
@@ -356,11 +361,11 @@ The rule binds **new** units, scripts, and defaults. Known residue,
 scheduled for the site-profile arc's literal-cleanup phase
 (`Planning/site_profile/00_overview.md`, PR #775, Phase 4) and not to be fixed
 opportunistically: the `America/Los_Angeles` defaults in
-`geecs_bluesky` (`assets/tiled_readback.py`, `analysis/camera.py`,
-`analysis/assets.py`), the hand-curated `HOSTS` roster + `EXPERIMENT` in
-`GeecsPvaGateway/deploy/gen_fleet_status.py`, the `"Undulator"` default
+`geecs_bluesky` (`assets/tiled_readback.py`), the `"Undulator"` default
 in `geecs_data_utils.geecs_paths_config`, and `EXPERIMENT_FILE_IDS` in
-`geecs_data_utils.doc_id_lookup`.
+`geecs_data_utils.doc_id_lookup`. (The PVA fleet roster is DB-driven since
+GeecsPvaGateway 0.5.0: `geecs_pva_gateway.fleet`, deployed hosts from
+`config.ini [pva] addr_list`.)
 
 ## Known debt we have deliberately deferred
 

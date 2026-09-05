@@ -28,6 +28,9 @@ geecs_pva_gateway/
   __main__.py   # geecs-pva-gateway --experiment NAME [--host IP] [--devices A,B] [--list]
   config.py     # CameraSpec / PvaGatewayConfig; DB-scoped served set
                 #   (enabled devices on this host's IP with image-typed vars)
+  fleet.py      # fleet roster: camera servers from the DB per experiment,
+                #   each marked deployed by config.ini [pva] addr_list
+                #   (absent = not deployed: no instance, not an outage)
   server.py     # GeecsPvaGateway + per-camera worker: gated + supervised
                 #   subscription, decode off-loop, latest-wins posting,
                 #   version/heartbeat/restart instance PVs (restart -> exit 86)
@@ -37,12 +40,16 @@ deploy/
                   #   Python 3.11 itself when `py -3.11` is missing)
   launch.bat      # pull-on-restart launcher (reinstall from the shared
                   #   GEECS-Plugins clone; its checked-out commit = fleet pin)
-  gen_fleet_status.py # generator for fleet_status.bob; its HOSTS list is the
-                  #   fleet roster of record — edit + rerun, never hand-edit
-  fleet_status.bob# GENERATED Phoebus fleet screen: version/heartbeat/restart
-                  #   per host
+  gen_fleet_status.py # --experiment X -> fleet_status_<x>.bob from
+                  #   fleet.py's roster (DB + [pva] addr_list); rerun + commit
+                  #   when the fleet changes, never hand-edit
+  fleet_status_undulator.bob # GENERATED Phoebus fleet screen (HTU, the
+                  #   reference deployment): version/heartbeat/restart per
+                  #   deployed host, a "not deployed" label otherwise
 tests/
   test_config.py  # scoping/naming units (fake DB rows, no network)
+  test_fleet.py   # roster derivation, the [pva] addr_list deployed mark,
+                  #   the generated screen's rows (fake DB rows, no network)
   test_server.py  # end-to-end over a binary wire-format fake camera +
                   #   isolate=True PVA server
   test_entrypoint.py # CLI exit codes (incl. the restart code 86 contract)

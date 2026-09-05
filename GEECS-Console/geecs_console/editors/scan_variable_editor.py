@@ -18,8 +18,11 @@ the right pane is a form derived from the actual schema models:
 
 Edits accumulate in an in-memory draft of plain dicts (so *invalid
 intermediate* states are representable while typing); Save validates the
-whole draft through ``ScanVariables.model_validate`` and writes via the
-store — pydantic errors are shown inline in the error label, never a crash.
+whole draft through ``ScanVariables.model_validate``, then checks every
+``Device:Variable`` target against the fetched completions listing (#772 —
+an unknown device or variable blocks the save with a "did you mean" hint;
+with no listing the save goes through with a note), and writes via the
+store — errors are shown inline in the error label, never a crash.
 Revert reloads from disk; closing with unsaved changes prompts first.
 
 Ergonomics: device and variable fields carry ``QCompleter`` popups fed by an
@@ -58,7 +61,12 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from geecs_console.editors.base import ConfigEditorDialog
+from geecs_console.editors.base import (
+    COMPLETIONS_PENDING_NOTE,
+    UNCHECKED_TARGETS_NOTE,
+    ConfigEditorDialog,
+    resolve_device,
+)
 from geecs_console.services.device_completions import (
     CompletionsProvider,
     EmptyCompletions,
@@ -789,6 +797,16 @@ class ScanVariableEditor(ConfigEditorDialog):
         except ValidationError as exc:
             self._show_error(_format_validation_error(exc, self._variables))
             return False
+        # Shape is fine — now do the names exist?  (#772: the completer only
+        # suggests; a near miss like `Position.Axis1` used to save cleanly
+        # and fail 20 s into the first move as a bare connect timeout.)
+        if self.completions_pending:
+            self._show_error(f"Not saved — {COMPLETIONS_PENDING_NOTE}.")
+            return False
+        problems = self._target_problems()
+        if problems:
+            self._show_error("\n".join(problems))
+            return False
         try:
             path = self._store.save(catalog)
         except ScanVariableStoreError as exc:
@@ -798,7 +816,49 @@ class ScanVariableEditor(ConfigEditorDialog):
         self._update_dirty()
         self._clear_error()
         self.dirty_label.setText(f"saved → {path}")
+        if self.targets_unchecked:
+            self._show_warning(f"saved, but {UNCHECKED_TARGETS_NOTE}")
         return True
+
+    def _target_problems(self) -> list[str]:
+        """Name every draft target the fetched listing does not know.
+
+        Returns
+        -------
+        list of str
+            One ``name → field: problem`` line per unknown device/variable
+            (simple ``target`` and ``confirm``; composite ``component N``),
+            empty when everything resolves — or when no listing is loaded
+            (nothing to check against; the save then carries
+            :data:`UNCHECKED_TARGETS_NOTE`).
+        """
+        if not self.completions_available:
+            return []
+        lines: list[str] = []
+        for name, draft in self._variables.items():
+            if draft.get("kind") == "pseudo":
+                for row, entry in enumerate(draft.get("targets", []), start=1):
+                    problem = self._check_target(str(entry.get("target", "")))
+                    if problem:
+                        lines.append(f"{name} → component {row}: {problem}")
+                continue
+            problem = self._check_target(str(draft.get("target", "")))
+            if problem:
+                lines.append(f"{name} → target: {problem}")
+            confirm = draft.get("confirm")
+            if confirm:
+                problem = self._check_target(str(confirm))
+                if problem:
+                    lines.append(f"{name} → confirm: {problem}")
+        return lines
+
+    def _check_target(self, target: str) -> Optional[str]:
+        """One ``Device:Variable`` string against the listing (shape is pydantic's)."""
+        device, variable = _split_target(target)
+        device, variable = device.strip(), variable.strip()
+        if not device or not variable:
+            return None
+        return self._target_problem(device, variable)
 
     def _on_save(self) -> None:
         """Save button handler."""
@@ -840,6 +900,17 @@ class ScanVariableEditor(ConfigEditorDialog):
         self.error_label.setStyleSheet("color: #d9534f;")
         self.error_label.setText(message)
 
+    def _show_warning(self, message: str) -> None:
+        """Show *message* inline in the error label, in the warning color.
+
+        Parameters
+        ----------
+        message : str
+            A non-blocking note (the save went through).
+        """
+        self.error_label.setStyleSheet("color: #d9a21b;")
+        self.error_label.setText(message)
+
     def _clear_error(self) -> None:
         """Clear the inline error label."""
         self.error_label.setText("")
@@ -873,17 +944,11 @@ class ScanVariableEditor(ConfigEditorDialog):
             The variable completer's model.
         device_text : str
             The paired device field's current text (exact match wins, else a
-            unique case-insensitive match).
+            unique case-insensitive match — :func:`resolve_device`, the
+            same rule the save-time check applies).
         """
-        device = device_text.strip()
-        variables = self._device_vars.get(device)
-        if variables is None and device:
-            matches = [
-                known for known in self._device_vars if known.lower() == device.lower()
-            ]
-            if len(matches) == 1:
-                variables = self._device_vars[matches[0]]
-        model.setStringList(variables or [])
+        device = resolve_device(self._device_vars, device_text.strip())
+        model.setStringList(self._device_vars[device] if device is not None else [])
 
     # Close paths (keyPressEvent / reject / closeEvent): ConfigEditorDialog
     # — the unsaved-changes prompt now offers Save alongside Discard/Cancel.

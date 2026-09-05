@@ -52,6 +52,13 @@ class HealthReport:
     gateway: HealthStatus = HealthStatus.UNKNOWN
     tiled: HealthStatus = HealthStatus.UNKNOWN
     db: HealthStatus = HealthStatus.UNKNOWN
+    #: Which poll produced it: the 1-based count of polls the
+    #: :class:`~geecs_console.services.background.HealthPoller` had started
+    #: (stamped at delivery; probes leave it 0).  Lets a consumer tell a
+    #: report from a poll that began *before* some GUI-thread event — the
+    #: gateway-restart narration must not read a pre-put "OK" as "back"
+    #: (review of PR #796).  0 = not from the poller (a seed or a test).
+    sequence: int = 0
 
 
 @runtime_checkable

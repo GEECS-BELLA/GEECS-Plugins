@@ -84,6 +84,12 @@ OPERATOR_TOOLTIPS: dict[str, str] = {
         "STANDBY / SCAN / ... device writes). Empty means the scan "
         "leaves the trigger alone."
     ),
+    "restart_gateway_action": (
+        "Ask the CA gateway to restart itself — the fix for frozen readbacks "
+        "(a stale GEECS subscription) and the way to pick up device-database "
+        "edits.  Every CA client loses the gateway for a few seconds; refused "
+        "while a scan is active."
+    ),
     "gateway_chip": (
         "CA gateway health: reads the experiment's heartbeat PV "
         "every few seconds. WARN means the gateway runs but reports "

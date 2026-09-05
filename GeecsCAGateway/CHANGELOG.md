@@ -3,6 +3,18 @@
 All notable changes to `geecs-ca-gateway` are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and semantic versioning.
 
+## [0.20.2] - 2026-09-04
+
+### Fixed
+
+- **`poetry.lock` relocked** — its labels for the intra-repo path deps
+  lagged the tree (`geecs-schemas 0.9.1`, `geecs-core 0.1.0` vs 0.18.0 /
+  0.4.0). Labels only: with `develop = true` Poetry installs the tree
+  regardless and `poetry check --lock` was already clean, but `poetry
+  show` and the lock's own text misreported what the gateway runs. No
+  dependency versions from PyPI moved. Follow-up to the #777 live check,
+  which spotted the stale labels by inspection.
+
 ## [0.20.1] - 2026-09-03
 
 ### Changed

@@ -149,7 +149,10 @@ correctly — only live GUI progress is lost.
   — the same served-set check the scan path runs over save sets (#772);
   before that check the symptom was a 20 s `NotConnectedError` naming a
   PV. Served set unknown (DB unreachable) → the move proceeds with a
-  warning in the worker log.
+  warning in the worker log. Which callers reach it: the console's
+  movable panel only for **catalog** names (a raw `Device:Variable`
+  string typed there takes the panel's direct gateway put, never this
+  verb); MCP and notebook clients calling `move_variable` for any name.
 
 - **Preview an action** — `geecs_describe_action(name)` via
   `function_execute`: pure config resolution against *this worker's*
@@ -170,7 +173,11 @@ correctly — only live GUI progress is lost.
   its own. Fix: `systemctl restart geecs-qserver-ready` (or
   `geecs-qserver-ensure-ready` / `qserver environment open` by hand); the
   console's `worker_ready` preflight names this state instead of relaying
-  the manager string (GEECS-Plugins#793).
+  the manager string (GEECS-Plugins#793). The same state without any unit
+  failing: the RE worker *child* died while the manager survived — no
+  systemd event fires, `geecs-qserver-ready` stays `active (exited)` from
+  its last successful run, and only the console/MCP preflight refusal
+  names the gesture (`systemctl restart geecs-qserver-ready`).
 - **`queue add` returns `success: False` with no reason at the CLI** — the
   manager was launched without a permissions file, or the file lacks the
   group the client submits as (the `qserver` CLI uses `primary` by

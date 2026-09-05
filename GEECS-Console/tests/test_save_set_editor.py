@@ -353,6 +353,26 @@ class TestCompleters:
         editor.device_list.setCurrentRow(1)
         assert editor._variable_model.stringList() == ["PressureTorr"]
 
+    def test_variable_completer_matches_the_device_case_insensitively(
+        self, qtbot, track, store
+    ):
+        # The save-time check resolves devices case-insensitively; the
+        # completer must agree (review of PR #796).
+        editor = track(
+            SaveSetEditor(
+                experiment="HTU",
+                store=store,
+                completions=FakeCompletions({"uc_alineebeam1": ["MaxCounts"]}),
+            )
+        )
+        qtbot.waitUntil(
+            lambda: editor._device_model.stringList() == ["uc_alineebeam1"],
+            timeout=2000,
+        )
+        select_set(editor, "diag")
+        editor.device_list.setCurrentRow(0)  # the set's entry: "UC_ALineEbeam1"
+        assert editor._variable_model.stringList() == ["MaxCounts"]
+
     def test_no_provider_means_empty_completers(self, editor):
         select_set(editor, "diag")
         assert editor._device_model.stringList() == []
@@ -392,3 +412,116 @@ class TestEnterGuard:
             for row in range(editor.device_list.count())
         ]
         assert "UC_NewCam" in devices
+
+
+class TestSaveTimeTargetCheck:
+    """#772: unknown devices / scalars block Save; no listing ⇒ save + note."""
+
+    COMPLETIONS = {
+        "UC_ALineEbeam1": ["MaxCounts", "MeanCounts"],
+        "U_HP_Daq": ["PressureTorr"],
+    }
+
+    def _editor(self, track, store, completions):
+        editor = track(
+            SaveSetEditor(experiment="HTU", store=store, completions=completions)
+        )
+        return editor
+
+    def test_unknown_scalar_blocks_save_with_a_hint(self, qtbot, track, store):
+        editor = self._editor(track, store, FakeCompletions(self.COMPLETIONS))
+        qtbot.waitUntil(lambda: editor.completions_applied, timeout=2000)
+        select_set(editor, "diag")
+        editor.device_list.setCurrentRow(0)  # UC_ALineEbeam1
+        editor.scalar_edit.setText("MeanCount")
+        editor._on_add_scalar()
+        assert editor._save() is False
+        message = editor.message_label.text()
+        assert message.startswith("Not saved")
+        assert "'MeanCount' is not a variable of 'UC_ALineEbeam1'" in message
+        assert "did you mean 'MeanCounts'" in message
+        assert store.load("diag").entries[0].scalars == []
+
+    def test_unknown_device_blocks_save_with_a_hint(self, qtbot, track, store):
+        editor = self._editor(track, store, FakeCompletions(self.COMPLETIONS))
+        qtbot.waitUntil(lambda: editor.completions_applied, timeout=2000)
+        select_set(editor, "diag")
+        editor.device_edit.setText("UC_ALineEbeam9")
+        editor._on_add_device()
+        assert editor._save() is False
+        message = editor.message_label.text()
+        assert "unknown device 'UC_ALineEbeam9'" in message
+        assert "did you mean 'UC_ALineEbeam1'" in message
+        assert [e.device for e in store.load("diag").entries] == [
+            "UC_ALineEbeam1",
+            "U_HP_Daq",
+        ]
+
+    def test_known_names_save_cleanly(self, qtbot, track, store):
+        editor = self._editor(track, store, FakeCompletions(self.COMPLETIONS))
+        qtbot.waitUntil(lambda: editor.completions_applied, timeout=2000)
+        select_set(editor, "diag")
+        editor.device_list.setCurrentRow(0)
+        editor.scalar_edit.setText("MeanCounts")
+        editor._on_add_scalar()
+        assert editor._save() is True
+        assert editor.message_label.text() == "Saved 'diag'."
+        assert store.load("diag").entries[0].scalars == ["MeanCounts"]
+
+    def test_without_a_listing_the_save_goes_through_with_a_note(
+        self, qtbot, track, store
+    ):
+        editor = self._editor(track, store, FakeCompletions({}))  # offline shape
+        qtbot.waitUntil(lambda: editor.completions_applied, timeout=2000)
+        select_set(editor, "diag")
+        editor.device_list.setCurrentRow(0)
+        editor.scalar_edit.setText("MeanCount")
+        editor._on_add_scalar()
+        assert editor._save() is True
+        message = editor.message_label.text()
+        assert message.startswith("Saved 'diag'")
+        assert "not checked" in message
+        assert store.load("diag").entries[0].scalars == ["MeanCount"]
+
+    def test_a_listing_still_loading_refuses_the_save(self, qtbot, track, store):
+        # Loading is not offline: refuse until the fetch lands (Codex
+        # review of PR #796), then the ordinary check applies.
+        import threading
+
+        gate = threading.Event()
+
+        class SlowCompletions(FakeCompletions):
+            def device_variables(self):
+                gate.wait(5.0)
+                return super().device_variables()
+
+        editor = self._editor(
+            track,
+            store,
+            SlowCompletions(
+                {
+                    "UC_ALineEbeam1": ["MeanCounts"],
+                    "U_HP_Daq": ["AnalogOutput.Channel 1"],
+                }
+            ),
+        )
+        select_set(editor, "diag")
+        editor.device_list.setCurrentRow(0)
+        editor.scalar_edit.setText("MeanCount")
+        editor._on_add_scalar()
+        assert editor.completions_pending
+        assert editor._save() is False
+        assert "still loading" in editor.message_label.text()
+        gate.set()
+        qtbot.waitUntil(lambda: editor.completions_applied, timeout=5000)
+        assert not editor.completions_pending
+        assert editor._save() is False  # the near miss now blocks properly
+        assert "MeanCount" in editor.message_label.text()
+
+    def test_the_no_completions_default_saves_quietly(self, editor, store):
+        select_set(editor, "diag")
+        editor.device_list.setCurrentRow(0)
+        editor.scalar_edit.setText("MeanCount")
+        editor._on_add_scalar()
+        assert editor._save() is True
+        assert editor.message_label.text() == "Saved 'diag'."

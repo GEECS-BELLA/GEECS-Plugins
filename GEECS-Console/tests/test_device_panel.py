@@ -130,6 +130,10 @@ class TestProtocolAndStub:
         with pytest.raises(RuntimeError, match="not wired"):
             StubDevicePanel().set("Exp", "Dev", "Var", 1.0)
 
+    def test_stub_put_pv_raises(self):
+        with pytest.raises(RuntimeError, match="not wired"):
+            StubDevicePanel().put_pv("exp:cagateway:restart", "Restart")
+
 
 # ----------------------------------------------------------------------
 # GatewayDevicePanel against a fake aioca (no live CA)
@@ -273,6 +277,49 @@ class TestGatewayDevicePanel:
         assert pv == "dev:trigger_source:SP"
         assert value == "Single shot"
         assert wait is True
+
+    def test_put_pv_writes_any_bare_pv_with_wire_coercion(self, fake_aioca):
+        panel = GatewayDevicePanel()
+        panel.put_pv("htu:cagateway:restart", "Restart", timeout=5.0)
+        panel.put_pv("htu:dev:var:SP", 2.5)  # backend default budget
+        assert fake_aioca.puts == [
+            ("htu:cagateway:restart", "Restart", True, 5.0),
+            ("htu:dev:var:SP", 2.5, True, 10.0),
+        ]
+
+    def test_put_pv_runs_every_put_on_the_one_persistent_loop(self, monkeypatch):
+        # Review of PR #796: aioca caches channels per event loop, so a put
+        # on a throwaway loop strands its channel; both the R7 set and the
+        # gateway restart must share the backend's long-lived loop.
+        import asyncio
+
+        fake = FakeAioca()
+        module = fake.make_module()
+        loops = []
+
+        async def recording_caput(pv, value, wait=False, timeout=None):
+            loops.append(asyncio.get_running_loop())
+
+        module.caput = recording_caput
+        monkeypatch.setitem(sys.modules, "aioca", module)
+        panel = GatewayDevicePanel()
+        panel.put_pv("htu:cagateway:restart", "Restart")
+        panel.set("HTU", "Dev", "Var", 1.0)
+        assert len(loops) == 2
+        assert loops[0] is loops[1] is panel._loop
+        assert panel._loop.is_running()  # persistent: never closed after a put
+
+    def test_put_pv_failure_propagates(self, monkeypatch):
+        fake = FakeAioca()
+        module = fake.make_module()
+
+        async def failing_caput(pv, value, wait=False, timeout=None):
+            raise TimeoutError("no gateway answered")
+
+        module.caput = failing_caput
+        monkeypatch.setitem(sys.modules, "aioca", module)
+        with pytest.raises(TimeoutError, match="no gateway answered"):
+            GatewayDevicePanel().put_pv("htu:cagateway:restart", "Restart")
 
     def test_set_failure_propagates(self, monkeypatch):
         fake = FakeAioca()

@@ -21,7 +21,7 @@ from p4p.nt import NTNDArray, NTScalar
 from p4p.server import Server
 from p4p.server.thread import SharedPV
 
-from geecs_core.pv_naming import normalize_component, pv_name
+from geecs_pva_gateway.config import instance_pv_prefix
 from geecs_core.transport.tcp_subscriber import GeecsTcpSubscriber
 from geecs_data_utils.io import decode_imaq_image_string
 
@@ -267,11 +267,11 @@ class GeecsPvaGateway:
             for var in spec.image_variables
         ]
 
-    def _instance_token(self) -> str:
-        """Identity component for the instance PVs: the served host."""
+    def _instance_host(self) -> str:
+        """Identity for the instance PVs: the served host (else this machine's name)."""
         if self._config.cameras:
-            return normalize_component(self._config.cameras[0].host)
-        return normalize_component(socket.gethostname())
+            return self._config.cameras[0].host
+        return socket.gethostname()
 
     async def run(self, *, isolate: bool = False) -> None:
         """Serve until cancelled. ``isolate`` sandboxes ports for tests."""
@@ -296,7 +296,7 @@ class GeecsPvaGateway:
                 providers[name] = pv
 
         self._restart_event = asyncio.Event()
-        prefix = pv_name(self._config.experiment, "pvagateway", self._instance_token())
+        prefix = instance_pv_prefix(self._config.experiment, self._instance_host())
         heartbeat_pv = SharedPV(nt=NTScalar("I"), initial=0)
         providers[f"{prefix}:version"] = SharedPV(nt=NTScalar("s"), initial=__version__)
         providers[f"{prefix}:heartbeat"] = heartbeat_pv

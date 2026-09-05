@@ -97,6 +97,7 @@ class TestMainWindowOperatorTooltips:
         "progress_bar",
         "queue_table",
         "queue_clear_button",
+        "restart_gateway_action",
         "device_combo",
         "set_field",
         "set_button",

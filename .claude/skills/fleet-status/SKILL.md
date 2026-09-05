@@ -56,12 +56,20 @@ calling the services directly.
 
 **Stage 1 — self-reported versions.** Each service over its own
 protocol: Tiled's library version (HTTP), the Data Portal's `/health`
-(`ok`, catalog probe, package version), MCP port liveness (no version
+(`ok`, catalog probe, package version), the queueserver's **readiness**
+(0MQ `status` + `plans_allowed`, read-only: manager state, worker
+environment state, allowed-plan count, queue depth — a manager that
+answers with its environment closed knows zero plans and refuses every
+submission as "not in the list of allowed plans"; the script prints
+`NOT READY` for that, never `OK`, #793), MCP port liveness (no version
 endpoint; stage 2 reads its venv), the CA gateway's heartbeat /
 `devices_connected` / `version` PVs (reused from `lab_status.sh
 --hardware`, read-only), and every PVA image gateway's `version` +
-`heartbeat` PVs (roster = the checked-in Phoebus fleet screen; a
-DB-driven roster is still owed). A `[WARN] PVA fleet runs mixed
+`heartbeat` PVs. The roster is read live from the GEECS DB (endpoint
+IPs hosting the experiment's image devices, `geecs_pva_gateway.fleet`);
+a roster host absent from `config.ini [pva] addr_list` is **not
+deployed** — printed as a `[ -- ]` row, never `[DOWN]` — because no
+instance was installed there. A `[WARN] PVA fleet runs mixed
 versions` line means a rollout is incomplete or a box's
 pull-on-restart no-oped — the GeecsPvaGateway runbook's known failure.
 
@@ -84,6 +92,9 @@ started (for a baked venv: after the install). The warnings to act on:
 | `checkout moved <time> after the process started` | the running process predates the code on disk | restart it — after confirming that checkout is the intended one |
 | `checkout moved <time> after the baked install` | the MCP-style venv was baked from an older checkout state | pip reinstall from the checkout, then restart |
 | `STAGED: N` / `UNSTAGED: N` | the deployed tree differs from its HEAD | look before touching: it may be a live hotfix nobody committed, or a stray `git add` |
+| `Queueserver … NOT READY — worker environment CLOSED` | the unit is up but nothing opened the RE worker environment (every `geecs-qserver` restart recreates this until #793's readiness step lands); the console gets "Plan … is not in the list of allowed plans" | `qserver environment open` from any client env (GeecsBluesky's), then re-run; the plan name in the console's error is a red herring |
+| `Queueserver … readiness UNKNOWN (port only)` | no local env with `bluesky-queueserver` to ask the manager | `/env-doctor` for GeecsBluesky; the port is listening but that proves nothing about plans |
+| `Queueserver … readiness UNKNOWN — plans_allowed unanswered` | the manager answered `status` but not the plan list (a wedged or overloaded manager, or a refused user group) — readiness is an assertion about plans, so none is made | re-run; if it repeats, read the manager's journal on the host before touching the environment |
 
 Any unit whose clone is on a branch other than `master` is a fact to
 surface, not a fault — feature-branch deploys for live checks are

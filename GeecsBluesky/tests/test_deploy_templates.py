@@ -1,19 +1,18 @@
-"""The queueserver's two unit templates are wired into the deploy tooling (#793).
+"""The queueserver readiness unit template and its entry point (#793).
 
-Text-level pins (no systemd, no shell): the readiness oneshot is a
-site-profile template by the renderer's own definition, is ordered after
-and re-run with the manager, runs the entry point this package ships, and
-is listed wherever the manager's template is listed — render_units.sh's
-default list and bootstrap_host.sh's per-service table.
+Package-side pins only: the unit's directives (a oneshot ordered after and
+re-run with the manager, running the entry point this package ships) and
+the console-script declaration.  That the template *renders* through
+``deploy/render_units.sh`` — and is in the script's default list — is the
+root suite's job (``tests/test_render_units_sh.py``), a real render, not a
+text grep.
 """
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 PACKAGE = Path(__file__).resolve().parents[1]
-REPO = PACKAGE.parent
 READY = PACKAGE / "qserver" / "deploy" / "geecs-qserver-ready.service"
 MANAGER = PACKAGE / "qserver" / "deploy" / "geecs-qserver.service"
 
@@ -24,22 +23,6 @@ def _directives(path: Path) -> list[str]:
         for line in path.read_text().splitlines()
         if line.strip() and not line.lstrip().startswith("#")
     ]
-
-
-def test_readiness_unit_is_a_site_profile_template() -> None:
-    directives = _directives(READY)
-    # is_unit_template (deploy/site_env_lib.sh): both holes, as directives.
-    assert "User=@SERVICE_USER@" in directives
-    assert "EnvironmentFile=@SITE_ENV@" in directives
-    # Every placeholder used is one the renderer fills.
-    used = set(re.findall(r"@([A-Z_]+)@", "\n".join(directives)))
-    assert used <= {
-        "SERVICE_USER",
-        "SERVICE_HOME",
-        "CHECKOUT_ROOT",
-        "POETRY",
-        "SITE_ENV",
-    }
 
 
 def test_readiness_unit_is_a_oneshot_bound_to_the_manager() -> None:
@@ -64,13 +47,3 @@ def test_entry_point_is_declared() -> None:
     assert (
         'geecs-qserver-ensure-ready = "geecs_bluesky.qserver_ready:main"' in pyproject
     )
-
-
-def test_render_and_bootstrap_list_both_queueserver_units() -> None:
-    rel = READY.relative_to(REPO).as_posix()
-    render = (REPO / "deploy" / "render_units.sh").read_text()
-    assert rel in render
-    bootstrap = (REPO / "deploy" / "bootstrap_host.sh").read_text()
-    assert rel in bootstrap
-    # enabled together with the manager
-    assert re.search(r'qserver\) echo "geecs-qserver geecs-qserver-ready"', bootstrap)

@@ -29,10 +29,14 @@ Checks, in order (names are the ``PreflightOutcome.check`` vocabulary):
   is in its allowed-plans list.  A closed environment or a missing plan
   is a hard refusal naming the recovery gesture — the manager's own
   answer would be the misleading "Plan ... is not in the list of allowed
-  plans".  An unreachable manager is *skipped* (fail-open: the submit
-  itself reports that failure); so is a client without a ``[qserver]``
-  config.  Reads the caller's :class:`~.client.QueueClient` when given
-  (``client=``), else builds and closes one from the shared config.
+  plans"; so is an environment still being opened (retry shortly).  An
+  unreachable manager is *skipped* (fail-open: the submit itself reports
+  that failure), and so is an **unanswered plan list** (``plans_unknown``
+  — the second round trip timing out over VPN must not block a submit
+  the manager itself would refuse precisely if the list were truly
+  empty); a client without a ``[qserver]`` config is skipped too.  Reads
+  the caller's :class:`~.client.QueueClient` when given (``client=``),
+  else builds and closes one from the shared config.
 - ``snapshot_images`` — a snapshot-role save-set entry with ``images:
   true`` asks for images the role never saves (#754); the engine's
   :func:`snapshot_images_ignored` over the resolved devices config (reused,
@@ -227,19 +231,33 @@ def _make_default_client(experiment: str) -> Any:
     return make_queue_client(experiment, user="geecs-preflight")
 
 
+#: Readiness states the pre-submit check records as ``skipped`` (with the
+#: verdict's sentence as the note) instead of refusing: the manager did not
+#: answer, or answered ``status`` but not ``plans_allowed``.  Fail-open by
+#: design — the submit itself reports an unreachable manager, and a truly
+#: empty plan list is refused by the manager at ``queue add``; a bounded
+#: round trip timing out over VPN must not block a scan.
+_FAIL_OPEN_READINESS_STATES = frozenset({"unreachable", "plans_unknown"})
+
+
 def _check_worker_ready(
     report: PreflightReport, client: Any | None, experiment: str
 ) -> None:
     """Refuse when the manager cannot run the plan about to be queued (#793).
 
-    The verdict is :func:`~geecs_bluesky.qs_client.client.readiness_verdict`
-    — the same function the ``geecs-qserver-ready`` service-start
-    assertion runs — over ``status()`` and ``allowed_plan_names()``:
-    environment exists, plan list answered and non-empty,
+    The verdict is the shared
+    :func:`~geecs_bluesky.qs_client.client.readiness_from_reads` — the
+    same assembly the ``geecs-qserver-ready`` service-start assertion
+    runs — over ``status()`` and ``allowed_plan_names()``: environment
+    exists, plan list answered and non-empty,
     :data:`~geecs_bluesky.plan_names.SCAN_REQUEST_PLAN` present.  Every
     not-ready state is a refusal carrying the verdict's sentence, except
-    an unreachable manager, which the submit reports itself — recorded
-    ``skipped``, never a refusal.
+    the two fail-open ones recorded ``skipped`` with the sentence as the
+    note: an unreachable manager (the submit reports it itself) and an
+    unanswered plan list (``plans_unknown`` — one bounded round trip
+    timing out over VPN; the submit is refused by the manager anyway if
+    the list is truly empty).  The service-start assertion stays strict
+    on ``plans_unknown``: there, an unanswered list means not ready.
 
     Parameters
     ----------
@@ -251,7 +269,7 @@ def _check_worker_ready(
         Passed to the client factory.
     """
     from geecs_bluesky.plan_names import SCAN_REQUEST_PLAN
-    from geecs_bluesky.qs_client.client import StubQueueClient, readiness_verdict
+    from geecs_bluesky.qs_client.client import StubQueueClient, readiness_from_reads
 
     owned = client is None
     if owned:
@@ -262,22 +280,14 @@ def _check_worker_ready(
                 ("worker_ready", "skipped", "no [qserver] config — submission is off")
             )
             return
-        # The ONE definition of ready (client.readiness_verdict), assembled
-        # here from the two reads so any client with status() +
-        # allowed_plan_names() qualifies; an unanswered plan list is
-        # plans_unknown — not ready, never silently passed.
-        status = client.status()
-        plans = None
-        if status.connected and status.worker_exists:
-            try:
-                plans = client.allowed_plan_names()
-            except Exception as exc:
-                logger.warning("plans_allowed read failed: %s", exc)
-        verdict = readiness_verdict(status, plans, SCAN_REQUEST_PLAN)
+        # The ONE assembly of ready (status → plans if the env exists →
+        # verdict); any client with status() + allowed_plan_names() qualifies.
+        verdict = readiness_from_reads(
+            client.status(), client.allowed_plan_names, SCAN_REQUEST_PLAN
+        )
         if verdict.ready:
             report.outcomes.append(("worker_ready", "passed", ""))
-        elif verdict.state == "unreachable":
-            # Fail-open: the submit itself reports an unreachable manager.
+        elif verdict.state in _FAIL_OPEN_READINESS_STATES:
             report.outcomes.append(("worker_ready", "skipped", verdict.detail))
         else:
             report.refusal = verdict.detail

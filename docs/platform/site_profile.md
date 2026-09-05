@@ -20,7 +20,7 @@ only as an example or a placeholder.
 
 | Side | Home | Who reads it |
 |---|---|---|
-| **Client** | `~/.config/geecs_python_api/config.ini` — `[Experiment]`, `[Paths]`, `[epics] ca_addr_list`, `[tiled]`, `[qserver]`, `[mcp]` (reference: [Getting started](../tutorials/getting_started.md)) | every Python client and every service process; `scripts/lab_status.sh`, `scripts/fleet_status.sh` |
+| **Client** | `~/.config/geecs_python_api/config.ini` — `[Experiment]`, `[Paths]`, `[epics] ca_addr_list`, `[pva] addr_list`, `[tiled]`, `[qserver]`, `[mcp]` (reference: [Getting started](../tutorials/getting_started.md)) | every Python client and every service process; `scripts/lab_status.sh`, `scripts/fleet_status.sh` |
 | **Host** | `/etc/geecs/site.env` — one file per service host, from [`deploy/site.env.example`](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/deploy/site.env.example) | every systemd unit (`EnvironmentFile=`), `deploy/render_units.sh`, `deploy/bootstrap_host.sh` |
 
 On a service host `site.env` is the root: the bootstrap renders the
@@ -47,7 +47,11 @@ Two kinds of keys, documented line by line in the example file:
   re-mapped. To check what a unit gets: `systemctl show <unit> -p
   EnvironmentFiles` names the file, `cat /etc/geecs/site.env` shows the
   values (`systemctl show-environment` is the *manager's* environment and
-  never reflects an `EnvironmentFile=`).
+  never reflects an `EnvironmentFile=`).  One runtime key is optional
+  and absent from the example on purpose: `QS_CONTROL_ADDR`
+  (`tcp://host:60615`) points `geecs-qserver-ready` at a manager that
+  is not on loopback; the readiness unit reads only this key for its
+  address, never the client `config.ini`.
 - **Install-time values** — the service account and its home, the
   checkout root, the absolute poetry path, the repo URL, the Tiled URI,
   the queueserver host, the data-share mount, the configs-repo path.

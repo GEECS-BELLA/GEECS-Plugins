@@ -300,14 +300,36 @@ class TestWorkerReady:
             for check, result, detail in report.outcomes
         )
 
-    def test_unanswered_plan_list_is_a_refusal_not_a_pass(self, engine, monkeypatch):
-        """Shared-verdict rule: an unanswered plan list is unknown, never ready."""
+    def test_unanswered_plan_list_is_skipped_with_a_note_not_passed(
+        self, engine, monkeypatch
+    ):
+        """plans_unknown is fail-open here (a VPN round trip timing out must
+        not block a submit) — recorded ``skipped`` with the verdict's
+        sentence, never ``passed``; the service-start assertion stays strict."""
         fake = _FakeQueueClient(plans_error=RuntimeError("boom"))
         monkeypatch.setattr(submit_preflight, "_make_default_client", lambda e: fake)
         report = run_submit_preflight(_request(), "Undulator")
+        assert report.refusal is None
+        outcome = next(o for o in report.outcomes if o[0] == "worker_ready")
+        assert outcome[1] == "skipped"
+        assert "could not be read" in outcome[2]
+        # the rest of the pipeline still ran
+        assert ("gateway_liveness", "passed", "") in report.outcomes
+
+    def test_opening_environment_is_a_refusal_saying_retry(self, engine, monkeypatch):
+        fake = _FakeQueueClient(
+            status=QueueStatus(
+                connected=True,
+                manager_state="creating_environment",
+                worker_exists=False,
+                worker_environment_state="initializing",
+            )
+        )
+        monkeypatch.setattr(submit_preflight, "_make_default_client", lambda e: fake)
+        report = run_submit_preflight(_request(), "Undulator")
         assert report.refusal is not None
-        assert "could not be read" in report.refusal
-        assert not any(check == "worker_ready" for check, _, _ in report.outcomes)
+        assert "being opened" in report.refusal
+        assert "restart geecs-qserver-ready" not in report.refusal.split("do not")[0]
 
     def test_empty_plan_list_is_a_refusal(self, engine, monkeypatch):
         fake = _FakeQueueClient(plans=[])

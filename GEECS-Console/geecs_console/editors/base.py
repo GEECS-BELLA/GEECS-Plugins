@@ -13,12 +13,14 @@ What lives here:
 - The Enter-key guard, both mechanisms applied uniformly: no
   default/auto-default buttons (:meth:`_guard_enter_keys`) and a
   :meth:`keyPressEvent` that swallows Return/Enter.
-- The completions scaffold: one queued ``completions_ready`` signal, a
-  daemon-thread fetch with the ``EmptyCompletions`` inline fast-path (no
-  thread for a constant — offline construction stays thread-free), the
+- The completions scaffold: one fetch on the blessed
+  ``services/background.py::BackgroundResult`` worker (the daemon thread
+  never emits toward the dialog — the result hops onto the GUI thread
+  first; #787), with the ``EmptyCompletions`` inline fast-path (no thread
+  for a constant — offline construction stays thread-free), the
   normalized ``{device: [variable, ...]}`` word lists in
   :attr:`_device_vars`, the public ``completions_applied`` flag tests
-  wait on, and the one-shot signal disconnect at close.
+  wait on, and the one-shot worker disconnect at close.
 - The unified unsaved-changes flow: :meth:`_prompt_unsaved`
   (Save/Discard/Cancel, three-way string result) resolved by
   :meth:`_resolve_unsaved` through the per-editor hooks
@@ -27,6 +29,18 @@ What lives here:
   :meth:`reject`).
 - One name-prompt convention (:meth:`_prompt_name`: stripped text or
   ``None`` on cancel) and one Yes/No confirm (:meth:`_confirm`).
+- The save-time **target check** (#772): :func:`target_problem` and the
+  :meth:`_target_problem` convenience — does a ``device`` / ``variable``
+  pair name something in the fetched listing?  Free text + completer
+  stays (the editors must work with the DB unreachable); the gate is at
+  Save, where an unknown name blocks with a near-miss hint and an empty
+  listing downgrades to :data:`UNCHECKED_TARGETS_NOTE`, and a listing
+  still loading (:attr:`ConfigEditorDialog.completions_pending`) refuses
+  the save until it lands.  Wired into the save-set and scan-variable
+  editors (the two whose targets name device variables); the trigger
+  and action-plan editors do not run it — action steps' ``device`` /
+  ``variable`` texts are a deliberate follow-up (their steps also name
+  non-DB verbs such as waits).
 
 The prompt methods are plain bound methods so tests can monkeypatch them
 per instance (``editor._prompt_unsaved = lambda: "discard"``) — the
@@ -35,12 +49,13 @@ pattern the editor test suites already use.
 
 from __future__ import annotations
 
+import difflib
 import logging
-import threading
+from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import Optional
 
-from PySide6.QtCore import QFile, Qt, Signal, Slot
+from PySide6.QtCore import QFile, Qt, Slot
 from PySide6.QtGui import QCloseEvent, QKeyEvent
 from PySide6.QtUiTools import QUiLoader
 from PySide6.QtWidgets import (
@@ -52,12 +67,128 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from geecs_console.services.background import BackgroundResult, disconnect_quietly
 from geecs_console.services.device_completions import (
     CompletionsProvider,
     EmptyCompletions,
 )
 
 logger = logging.getLogger(__name__)
+
+#: Appended to a successful save's message when the device/variable names
+#: could not be checked (no completions listing: offline, DB down, fetch
+#: failed).  The save goes through — the editors must stay usable off the
+#: lab network — but the operator is told what was skipped.
+COMPLETIONS_PENDING_NOTE = "device listing still loading — Save again in a moment"
+UNCHECKED_TARGETS_NOTE = (
+    "device and variable names were not checked against the database "
+    "(completions unavailable)"
+)
+
+#: ``difflib`` similarity floor for a "did you mean" hint.  The live case
+#: (#772) was ``Position.Axis1`` vs ``Position.Axis 1`` — ratio 0.97; the
+#: default 0.6 still rejects unrelated names.
+_NEAR_MISS_CUTOFF = 0.6
+
+
+def resolve_device(
+    device_vars: Mapping[str, Sequence[str]], device: str
+) -> Optional[str]:
+    """Return the listing's key for *device*, or ``None`` when unknown.
+
+    An exact key wins; otherwise a *unique* case-insensitive match (the
+    completer already tolerates case, so the check must too — see the
+    editors' ``_refresh_variable_model``).
+
+    Parameters
+    ----------
+    device_vars : mapping
+        The fetched ``{device: [variable, ...]}`` listing.
+    device : str
+        The device text as typed (already stripped).
+
+    Returns
+    -------
+    str or None
+        The listing's spelling of the device, or ``None``.
+    """
+    if device in device_vars:
+        return device
+    lowered = device.lower()
+    matches = [known for known in device_vars if known.lower() == lowered]
+    return matches[0] if len(matches) == 1 else None
+
+
+def near_miss(text: str, candidates: Iterable[str]) -> Optional[str]:
+    """The candidate closest to *text* (case-insensitive), or ``None``.
+
+    Parameters
+    ----------
+    text : str
+        The unknown name.
+    candidates : iterable of str
+        The known names to compare against.
+
+    Returns
+    -------
+    str or None
+        The best candidate in its own spelling when one is close enough
+        (:data:`_NEAR_MISS_CUTOFF`), else ``None``.
+    """
+    by_lower = {candidate.lower(): candidate for candidate in candidates}
+    matches = difflib.get_close_matches(
+        text.lower(), list(by_lower), n=1, cutoff=_NEAR_MISS_CUTOFF
+    )
+    return by_lower[matches[0]] if matches else None
+
+
+def target_problem(
+    device_vars: Mapping[str, Sequence[str]],
+    device: str,
+    variable: Optional[str] = None,
+) -> Optional[str]:
+    """Why ``device`` (and ``variable``) name nothing in the listing, or ``None``.
+
+    The save-time check behind #772: the editors' device/variable fields are
+    free text with a *suggesting* completer, so a near miss like
+    ``Position.Axis1`` for ``Position.Axis 1`` is accepted silently and only
+    fails later — as a 20 s ophyd connect timeout on the worker that never
+    says "no such variable".  This names the problem at Save.
+
+    Parameters
+    ----------
+    device_vars : mapping
+        The fetched ``{device: [variable, ...]}`` listing.  **Empty means
+        unchecked**: with nothing to compare against the result is ``None``
+        and the caller downgrades to :data:`UNCHECKED_TARGETS_NOTE`.
+    device : str
+        The device text (stripped).
+    variable : str, optional
+        The variable text (stripped); ``None`` checks the device only (a
+        save-set entry names a device, its scalars name variables).
+
+    Returns
+    -------
+    str or None
+        One sentence naming the unknown name, with a "did you mean" hint
+        when a close spelling exists; ``None`` when the target checks out
+        or the listing is empty.
+    """
+    if not device_vars:
+        return None
+    known = resolve_device(device_vars, device)
+    if known is None:
+        hint = near_miss(device, device_vars)
+        suffix = f" — did you mean {hint!r}?" if hint else ""
+        return f"unknown device {device!r}{suffix}"
+    if variable is None:
+        return None
+    variables = device_vars[known]
+    if variable in variables:
+        return None
+    hint = near_miss(variable, variables)
+    suffix = f" — did you mean {hint!r}?" if hint else ""
+    return f"{variable!r} is not a variable of {known!r}{suffix}"
 
 
 class ConfigEditorDialog(QDialog):
@@ -78,11 +209,6 @@ class ConfigEditorDialog(QDialog):
     #: Name of the completions-fetch daemon thread (subclass-set for
     #: recognizable thread dumps).
     COMPLETIONS_THREAD_NAME: str = "editor-completions-fetch"
-
-    #: One ``{device: [variable, ...]}`` mapping per finished provider
-    #: call (emitted from the fetch daemon thread; delivered queued to
-    #: :meth:`_apply_completions`).
-    completions_ready = Signal(object)
 
     # ------------------------------------------------------------------
     # UI loading
@@ -139,11 +265,13 @@ class ConfigEditorDialog(QDialog):
     # ------------------------------------------------------------------
 
     def _init_completions(self, provider: Optional[CompletionsProvider]) -> None:
-        """Install the completions state and the queued signal connection.
+        """Install the completions state and the fetch worker.
 
-        Call early in ``__init__`` (before any fetch).  The connection is
-        forced queued: the fetch emits from a daemon thread, and a direct
-        delivery would touch state on the wrong thread.
+        Call early in ``__init__`` (before any fetch).  The worker's
+        ``result_ready`` is emitted on the GUI thread (the
+        ``BackgroundResult`` hop) and connected queued, so the mapping
+        lands in :meth:`_apply_completions` one event-loop turn later —
+        never touching dialog state from the fetch thread.
 
         Parameters
         ----------
@@ -156,46 +284,50 @@ class ConfigEditorDialog(QDialog):
         )
         #: The fetched completion word lists (empty until the fetch lands).
         self._device_vars: dict[str, list[str]] = {}
+        #: Whether a listing was ever expected: a dialog built on the
+        #: :class:`EmptyCompletions` default (no experiment, tests) has
+        #: nothing to check *by design* and gets no "unchecked" note; a
+        #: real provider that came back empty (offline, DB down) does.
+        self._completions_expected = not isinstance(self._completions, EmptyCompletions)
         #: True once the (async) completions fetch has been delivered on
         #: the GUI thread — tests wait on this instead of sleeping.
         self.completions_applied = False
-        #: Guards the one-shot signal disconnect in :meth:`closeEvent`.
+        #: Guards the one-shot worker disconnect in :meth:`closeEvent`.
         self._completions_disconnected = False
-        self.completions_ready.connect(
+        self._completions_worker = BackgroundResult()
+        self._completions_worker.result_ready.connect(
             self._apply_completions, Qt.ConnectionType.QueuedConnection
         )
 
     def _start_completions_fetch(self) -> None:
-        """Fetch completions on a short-lived daemon thread (queued delivery).
+        """Fetch completions on the worker's short-lived daemon thread.
 
         The :class:`EmptyCompletions` default is answered inline (no
         thread to spawn for a constant) — offline construction stays
-        thread-free.
-
-        Known debt: the daemon thread emits a *dialog-owned* signal
-        instead of routing through the blessed
-        ``services/background.py::BackgroundResult`` worker, and an
-        Esc-closed dialog (``reject`` → ``done()``, no ``QCloseEvent``)
-        never runs the close-time disconnect.  Consolidate onto
-        ``BackgroundResult`` here, once — not per editor.
+        thread-free.  The fetch callable never raises (a failing provider
+        yields ``{}``) — ``BackgroundResult`` swallows a raise without
+        emitting, which would leave ``completions_applied`` False forever.
+        Since 0.30.0 (#787) this rides the blessed worker instead of a
+        dialog-owned signal emitted from the thread; a dialog closed by
+        Esc (``reject``, no ``QCloseEvent``) before the fetch lands is
+        therefore safe too — the result is emitted on the GUI thread, at
+        a dialog that is hidden, not half-destroyed.
         """
         if isinstance(self._completions, EmptyCompletions):
             self.completions_applied = True
             return
         provider = self._completions
 
-        def fetch() -> None:
+        def fetch() -> dict:
             """Run the provider's one blocking call off the GUI thread."""
             try:
                 mapping = provider.device_variables()
             except Exception as exc:  # noqa: BLE001 — providers should not raise
                 logger.info("completions fetch failed: %s", exc)
                 mapping = {}
-            self.completions_ready.emit(mapping or {})
+            return mapping or {}
 
-        threading.Thread(
-            target=fetch, name=self.COMPLETIONS_THREAD_NAME, daemon=True
-        ).start()
+        self._completions_worker.run_async(fetch, name=self.COMPLETIONS_THREAD_NAME)
 
     @Slot(object)
     def _apply_completions(self, mapping: object) -> None:
@@ -204,7 +336,7 @@ class ConfigEditorDialog(QDialog):
         Parameters
         ----------
         mapping : dict
-            The provider result delivered by the queued signal.
+            The provider result delivered by the worker's ``result_ready``.
         """
         self.completions_applied = True
         if not isinstance(mapping, dict):
@@ -221,6 +353,57 @@ class ConfigEditorDialog(QDialog):
         Default is a no-op — an editor whose cell editors read
         :attr:`_device_vars` lazily at edit-open needs no replumbing.
         """
+
+    @property
+    def completions_available(self) -> bool:
+        """Whether a non-empty listing arrived (so targets can be checked)."""
+        return bool(self._device_vars)
+
+    @property
+    def completions_pending(self) -> bool:
+        """Whether a real listing was requested and has not landed yet.
+
+        Distinct from :attr:`targets_unchecked`: "still loading" is not
+        "DB down".  A Save in this window would persist unchecked names
+        against a provider that is about to answer (Codex review of PR
+        #796), so the editors refuse the save until the fetch lands.
+        """
+        return self._completions_expected and not self.completions_applied
+
+    @property
+    def targets_unchecked(self) -> bool:
+        """Whether a save should carry :data:`UNCHECKED_TARGETS_NOTE`.
+
+        True only when a listing was expected (a real provider), the fetch
+        has landed (:attr:`completions_applied`), and it came back empty —
+        the offline / DB-down case.  The ``EmptyCompletions`` default never
+        expected one, so it stays quiet; a fetch still in flight is
+        :attr:`completions_pending`, not unchecked.
+        """
+        return (
+            self._completions_expected
+            and self.completions_applied
+            and not self.completions_available
+        )
+
+    def _target_problem(
+        self, device: str, variable: Optional[str] = None
+    ) -> Optional[str]:
+        """:func:`target_problem` against this dialog's fetched listing.
+
+        Parameters
+        ----------
+        device : str
+            The device text (stripped).
+        variable : str, optional
+            The variable text (stripped); ``None`` checks the device only.
+
+        Returns
+        -------
+        str or None
+            The problem sentence, or ``None`` (known, or nothing to check).
+        """
+        return target_problem(self._device_vars, device, variable)
 
     # ------------------------------------------------------------------
     # Unsaved-changes flow (one prompt, both close paths)
@@ -349,7 +532,7 @@ class ConfigEditorDialog(QDialog):
         super().reject()
 
     def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802 (Qt override)
-        """Close via QDialog (one prompt), then disconnect the completions signal.
+        """Close via QDialog (one prompt), then detach the completions worker.
 
         :meth:`reject` is the **only** prompt owner: ``QDialog::closeEvent``
         routes a *visible* close through the virtual ``reject()`` (ours,
@@ -363,12 +546,11 @@ class ConfigEditorDialog(QDialog):
         super().closeEvent(event)
         if not event.isAccepted():
             return  # the operator canceled — the dialog stays open
-        # A still-running completions fetch must not queue an event onto a
-        # dialog being torn down.  Once only: closeEvent can run twice
-        # (explicit close + owner teardown) and a second disconnect warns.
+        # A still-running completions fetch must not land on a dialog being
+        # torn down.  Once only: closeEvent can run twice (explicit close +
+        # owner teardown) and a second disconnect warns.
         if not self._completions_disconnected:
             self._completions_disconnected = True
-            try:
-                self.completions_ready.disconnect(self._apply_completions)
-            except (RuntimeError, TypeError):
-                pass
+            disconnect_quietly(
+                self._completions_worker.result_ready, self._apply_completions
+            )

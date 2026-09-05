@@ -15,8 +15,15 @@ worker environment to finish initializing, then **assert the manager lists
 every plan this code implements** (:data:`~geecs_bluesky.plan_names.GEECS_PLAN_NAMES`).
 The plan-list assertion is the point: an open that succeeded onto a partial
 import, or a permissions file that excludes a plan, is still broken, and
-only that check catches it.  Exit codes: 0 ready; 1 not ready (the message
-says exactly what was found); 2 usage.
+only that check catches it.  The plan list is read through the same
+``qs_client.readiness_from_reads`` assembly the pre-submit ``worker_ready``
+check runs (one definition of ready); after an open this run requested it
+is re-read for a short settle window, because the manager reports the
+environment up before its own plan-list download has landed.  Exit codes:
+0 ready; 1 not ready (the message says exactly what was found); 2 usage.
+
+The address asserted is the manager on **this** host (loopback), or
+``QS_CONTROL_ADDR`` when set — never the client-side ``[qserver]`` config.
 
 Talks to the manager over its 0MQ control socket through
 ``bluesky_queueserver.manager.comms.zmq_single_request`` — the ``qserver``
@@ -37,33 +44,30 @@ from typing import Any
 
 from geecs_bluesky.plan_names import GEECS_PLAN_NAMES
 from geecs_bluesky.qs_client.client import (
+    _CONTROL_PORT,
     queue_status_from_manager,
-    read_qserver_config,
-    readiness_verdict,
+    readiness_from_reads,
 )
 
 logger = logging.getLogger(__name__)
 
-#: Fallback control-socket address as seen from the worker host itself;
-#: :func:`default_control_addr` prefers the shared config's ``[qserver]``.
-DEFAULT_CONTROL_ADDR = "tcp://localhost:60615"
+#: The control socket of the manager on THIS host — the one the unit
+#: asserts.  The port is the client module's (one definition).
+DEFAULT_CONTROL_ADDR = f"tcp://localhost:{_CONTROL_PORT}"
 
 
 def default_control_addr() -> str:
-    """The manager address to assert against, in override order.
+    """The manager address to assert against: ``QS_CONTROL_ADDR``, else loopback.
 
-    ``QS_CONTROL_ADDR`` (environment) → ``[qserver] control_addr`` / ``host``
-    of the shared ``~/.config/geecs_python_api/config.ini`` (the service
-    account's, rendered from ``site.env`` — the one home of the worker
-    address) → loopback on the standard port.
+    Deliberately NOT the client-side ``[qserver]`` section of the service
+    account's ``config.ini``: that names the worker *clients* talk to, and
+    a carried-over config naming another box would make this unit report
+    ready against the wrong manager.  The unit asserts the local manager;
+    the only override is the environment variable, settable from
+    ``site.env`` through the unit's ``EnvironmentFile=``.
     """
     env = os.environ.get("QS_CONTROL_ADDR", "").strip()
-    if env:
-        return env
-    config = read_qserver_config()
-    if config is not None and config.control_addr:
-        return config.control_addr
-    return DEFAULT_CONTROL_ADDR
+    return env or DEFAULT_CONTROL_ADDR
 
 
 #: The permissions group the plan list is asked for — the CLI's default;
@@ -74,6 +78,16 @@ DEFAULT_USER_GROUP = "primary"
 DEFAULT_TIMEOUT_S = 600.0
 #: Poll interval while waiting on the manager.
 POLL_S = 2.0
+#: After the environment came up on *our* open, the manager reports
+#: ``worker_environment_exists`` before its own plan-list download task
+#: has landed, so the first ``plans_allowed`` reads can still return the
+#: pre-open list (empty on a fresh manager, stale after a deploy that adds
+#: a plan).  Re-read up to this many times at ``POLL_S`` (~10 s) before
+#: concluding ``plans_empty`` / ``plan_missing``.
+PLAN_LIST_SETTLE_POLLS = 5
+#: The verdict states the post-open settle re-reads (never ``plans_unknown``
+#: — an unanswered list is not ready, full stop).
+_SETTLING_STATES = ("plans_empty", "plan_missing")
 
 #: ``request(method, params) -> (msg, err_msg)``: the manager transport.
 Request = Callable[[str, dict[str, Any] | None], tuple[dict[str, Any] | None, str]]
@@ -128,21 +142,45 @@ _TRANSIENT_ENV_STATES = ("initializing", "closing")
 
 
 def _wait_for_environment(
-    request: Request, deadline: float, *, closed_grace: int = 3
-) -> dict:
+    request: Request,
+    deadline: float,
+    *,
+    log: Callable[[str], None],
+    initial: dict | None = None,
+    closed_grace: int = 3,
+) -> tuple[dict, bool]:
     """Poll until the worker environment exists and has finished initializing.
+
+    *initial* is a status snapshot already read (the manager's first
+    answer), judged before any further poll.
+
+    Opens the environment when (and only when) a poll reads it settled
+    closed (``closed`` + ``idle``) before this run has asked for an open —
+    the fresh-restart state, but also the state after someone ran
+    ``qserver environment close``.  A manager still ``closing_environment``
+    (or otherwise busy without an environment) is waited out, not
+    refused: it settles to closed + idle, and then we open.
 
     "Exists and not transient" — not "idle": a manager that is executing a
     plan when the readiness unit is (re)run by hand is ready too, and its
     plan list is served regardless.  A ``closed`` + ``idle`` snapshot
-    *after* we asked for an open means the open failed and the manager
-    settled back (startup profile import error) — but the first polls after
-    the request may still read the pre-open state, so up to *closed_grace*
+    *after* our open means the open failed and the manager settled back
+    (startup profile import error) — but the first polls after the
+    request may still read the pre-open state, so up to *closed_grace*
     consecutive such snapshots are tolerated before that is concluded.
+
+    Returns
+    -------
+    tuple of (dict, bool)
+        The status snapshot that read up, and whether this run opened the
+        environment (the post-open plan-list settle applies then).
     """
+    opened = False
     closed_polls = 0
+    status = initial
     while True:
-        status = _wait_for_manager(request, deadline)
+        if status is None:
+            status = _wait_for_manager(request, deadline)
         exists = bool(status.get("worker_environment_exists"))
         manager_state = status.get("manager_state")
         env_state = status.get("worker_environment_state")
@@ -151,14 +189,20 @@ def _wait_for_environment(
             and manager_state != "creating_environment"
             and env_state not in _TRANSIENT_ENV_STATES
         ):
-            return status
-        if env_state == "closed" and manager_state == "idle":
-            closed_polls += 1
-            if closed_polls > closed_grace:
-                raise NotReady(
-                    "the worker environment is closed after 'environment open' — "
-                    "the startup profile failed to import (journalctl -u geecs-qserver)"
-                )
+            return status, opened
+        if not exists and env_state == "closed" and manager_state == "idle":
+            if not opened:
+                log("worker environment closed — opening it")
+                _call(request, "environment_open", {})
+                opened = True
+            else:
+                closed_polls += 1
+                if closed_polls > closed_grace:
+                    raise NotReady(
+                        "the worker environment is closed after 'environment open' — "
+                        "the startup profile failed to import "
+                        "(journalctl -u geecs-qserver)"
+                    )
         else:
             closed_polls = 0
         if time.monotonic() >= deadline:
@@ -168,6 +212,7 @@ def _wait_for_environment(
                 f"worker_environment_state={env_state!r})"
             )
         time.sleep(POLL_S)
+        status = None
 
 
 def ensure_ready(
@@ -214,33 +259,43 @@ def ensure_ready(
             status.get("re_state"),
         )
     )
-    if not status.get("worker_environment_exists"):
-        if status.get("manager_state") not in ("idle", "creating_environment"):
-            raise NotReady(
-                f"manager is {status.get('manager_state')!r} with no worker environment — "
-                "not a state 'environment open' can fix"
-            )
-        if status.get("manager_state") == "idle":
-            log("worker environment closed — opening it")
-            _call(request, "environment_open", {})
-    status = _wait_for_environment(request, deadline)
+    status, opened = _wait_for_environment(request, deadline, log=log, initial=status)
     log(
         "worker environment up (worker_environment_state=%r, re_state=%r)"
         % (status.get("worker_environment_state"), status.get("re_state"))
     )
 
-    # The ONE definition of ready (qs_client.readiness_verdict), shared with
-    # the pre-submit worker_ready check: an unanswered plan list is not ready.
-    plans_reply, err = request("plans_allowed", {"user_group": user_group})
-    plans = None
-    if plans_reply is not None and plans_reply.get("success", True):
-        plans = plans_reply.get("plans_allowed") or {}
-    else:
-        log("plans_allowed unanswered: %s" % (err or (plans_reply or {}).get("msg")))
-    verdict = readiness_verdict(
-        queue_status_from_manager(status), plans, list(expected_plans)
-    )
-    if not verdict.ready:
+    def read_plans() -> dict | None:
+        reply, err = request("plans_allowed", {"user_group": user_group})
+        if reply is None or not reply.get("success", True):
+            log("plans_allowed unanswered: %s" % (err or (reply or {}).get("msg")))
+            return None
+        return reply.get("plans_allowed") or {}
+
+    # The ONE assembly of ready (qs_client.readiness_from_reads), shared
+    # with the pre-submit worker_ready check: an unanswered plan list is
+    # not ready.  After OUR open the manager's plan-list download may still
+    # be in flight when the environment first reads up, so an empty or
+    # incomplete list is re-read for a short settle window (F1, #795).
+    settle_polls = PLAN_LIST_SETTLE_POLLS if opened else 0
+    while True:
+        verdict = readiness_from_reads(
+            queue_status_from_manager(status), read_plans, list(expected_plans)
+        )
+        if verdict.ready:
+            break
+        if (
+            verdict.state in _SETTLING_STATES
+            and settle_polls > 0
+            and time.monotonic() < deadline
+        ):
+            settle_polls -= 1
+            log(
+                "plan list not settled after the open (%s) — re-reading" % verdict.state
+            )
+            time.sleep(POLL_S)
+            status = _wait_for_manager(request, deadline)
+            continue
         raise NotReady(f"{verdict.detail} (user_group={user_group!r})")
     log(
         "ready: %d allowed plans, all %d expected present"
@@ -255,16 +310,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         prog="geecs-qserver-ensure-ready",
         description=(
             "Wait for the GEECS RE Manager, open its worker environment if closed, "
-            "wait for idle, and assert every GEECS plan is allowed."
+            "wait for it to come up, and assert every GEECS plan is allowed."
         ),
     )
     parser.add_argument(
         "--control-addr",
         default=None,
         help=(
-            "manager 0MQ control socket; default: QS_CONTROL_ADDR, else the "
-            "shared config's [qserver] control_addr/host, else "
-            f"{DEFAULT_CONTROL_ADDR}"
+            "manager 0MQ control socket; default: QS_CONTROL_ADDR, else "
+            f"{DEFAULT_CONTROL_ADDR} (the manager on this host)"
         ),
     )
     parser.add_argument(
