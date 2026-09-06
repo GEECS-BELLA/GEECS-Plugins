@@ -70,6 +70,8 @@ class TestOptIn:
         assert client.get("/api/run/uid-002").json()["config_editor"] is True
         page = client.get("/run/uid-002").text
         assert 'id="cedrawer"' in page and "openConfigEditor" in page
+        # the drawer switches documents and duplicates them without leaving the page
+        assert 'id="cediag"' in page and "ceDuplicate" in page
 
     def test_editor_writes_land_in_the_tree_and_the_selector_sees_them(
         self, scan_folder, configs_tree

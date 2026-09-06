@@ -495,10 +495,24 @@
       else if (!state.kind) main.innerHTML = '<div class="ce-empty">select a diagnostic or group</div>';
     })();
 
+    // Start a new document from the current form's content (a variant of the
+    // open diagnostic for the same device, say); Save then creates it.
+    async function duplicate(namespace, id, patch) {
+      if (!state.get) return;
+      const doc = Object.assign({}, state.get(), patch || {});
+      state.id = id; state.namespace = namespace; state.etag = null;
+      await buildForm(state.kind, doc, []);
+      if (side) renderSide();
+    }
+
     return {
       open,
       ready,
+      duplicate,
       isDirty: () => state.dirty,
+      current: () => ({ kind: state.kind, id: state.id, namespace: state.namespace, etag: state.etag }),
+      listing: () => state.listing,
+      reloadListing: loadListing,
       refreshPreview: () => { if (state.get && hasPreview && state.kind === "analyzer") preview(state.get()); },
     };
   }

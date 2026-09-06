@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Scan {{ summary.scan_number or uid[:8] }} — GEECS Data Portal{% endblock %}
 {% block head %}
-{% if config_editor %}<link rel="stylesheet" href="{{ root }}/configs/static/editor.css">{% endif %}
+{% if config_editor %}<link rel="stylesheet" href="{{ root }}/configs/static/editor.css?v={{ portal_version | urlencode }}">{% endif %}
 <style>
   main { max-width: none; margin: 0; padding: 0; }
   /* the config editor drawer: slides over the page from the right */
@@ -14,8 +14,13 @@
   .cedrawer .cehead .t { font-weight: 600; color: var(--accent); margin-right: auto; }
   .cedrawer .cehead select, .cedrawer .cehead input { background: var(--panel2); color: var(--ink); border: 1px solid var(--line); border-radius: 3px; padding: 0.15rem 0.4rem; font: inherit; font-size: 12px; }
   .cedrawer .cehead input { width: 5rem; }
-  .cedrawer .cebody { flex: 1; min-height: 0; padding: 0.6rem 0.9rem; }
-  .cedrawer .cebody .ce { height: 100%; }
+  .cedrawer .cebody { flex: 1; min-height: 0; padding: 0.6rem 0.9rem; display: flex; flex-direction: column; overflow: hidden; }
+  /* the mount wrapper is the flex item; the editor grid fills it and its panes scroll */
+  .cedrawer .cebody #ceditor { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+  .cedrawer .cebody .ce { flex: 1 1 auto; min-height: 0; height: auto; }
+  .cedrawer .cehead .grp { color: var(--dim); font-size: 11px; }
+  .cedrawer .cehead .dup { display: flex; gap: 0.3rem; align-items: center; }
+  .cedrawer .cehead .dup input { width: 9rem; }
   .frame { display: grid; grid-template-columns: 17rem minmax(0, 1fr); min-height: calc(100vh - 3rem); }
   .rail { background: var(--panel); border-right: 1px solid var(--line);
           padding: 0.9rem; display: flex; flex-direction: column; gap: 1rem; }
@@ -304,6 +309,9 @@
 <div class="cedrawer" id="cedrawer">
   <div class="cehead">
     <span class="t" id="cetitle">config editor</span>
+    <label class="dim">diagnostic
+      <select id="cediag" title="switch the document under edit; diagnostics for the preview device are listed first"></select></label>
+    <span class="dup"><input id="cedup" placeholder="new id" title="create a copy of the open diagnostic under this id (same namespace); Save then writes it"><button class="act" onclick="ceDuplicate()">duplicate as</button></span>
     <label class="dim">preview device
       <select id="cedev">{% for d in devices %}<option value="{{ d }}"{% if d == sel_device %} selected{% endif %}>{{ d }}</option>{% endfor %}</select></label>
     <label class="dim">shot <input type="number" id="ceshot" min="1" value="{{ shot }}"></label>
@@ -623,6 +631,8 @@ function openConfigEditor(id) {
       preview: { params: cePreviewParams, label: "live preview (unsaved document, current shot)" },
       onSaved: (saved) => {
         refreshAnalysis(true);
+        CE.reloadListing().then(ceFillDiagnostics);
+        document.getElementById("cetitle").textContent = saved.id;
         // the Images tab's processed view keys the diagnostic by name; a
         // save changes it — re-fetch the shot image if it is showing it
         const img = document.getElementById("shotimg");
@@ -630,9 +640,51 @@ function openConfigEditor(id) {
       },
     });
     ["cedev", "ceshot"].forEach((k) => document.getElementById(k).addEventListener("change", () => CE && CE.refreshPreview()));
+    document.getElementById("cedev").addEventListener("change", () => ceFillDiagnostics(CE.listing()));
+    document.getElementById("cediag").addEventListener("change", (e) => ceSwitch(e.target.value));
   });
   ensure.then(() => { document.getElementById("cetitle").textContent = id; return CE.open("analyzer", id); })
+        .then(() => CE.ready.then(() => ceFillDiagnostics(CE.listing())))
         .catch((e) => { document.getElementById("ceditor").innerHTML = `<div class="plotmsg">${esc(e.message)}</div>`; });
+}
+// The drawer's diagnostic switcher: every loadable diagnostic, the ones whose
+// data device is the preview device first (the Analysis tab's applicability
+// test), the rest below — several configs per device is the normal case.
+function ceFillDiagnostics(listing) {
+  const sel = document.getElementById("cediag");
+  if (!sel || !listing) return;
+  const device = document.getElementById("cedev").value;
+  const current = CE && CE.current().id;
+  const mine = listing.analyzers.filter(a => a.device === device);
+  const others = listing.analyzers.filter(a => a.device !== device);
+  sel.innerHTML = "";
+  const group = (label, items) => {
+    if (!items.length) return;
+    const og = document.createElement("optgroup"); og.label = label;
+    for (const a of items) { const o = document.createElement("option"); o.value = a.id; o.textContent = a.valid ? a.id : `${a.id} (invalid)`; og.appendChild(o); }
+    sel.appendChild(og);
+  };
+  group(`for ${device}`, mine);
+  group("other devices", others);
+  if (current) sel.value = current;
+}
+function ceSwitch(id) {
+  if (!CE || !id || id === CE.current().id) return;
+  if (CE.isDirty() && !confirm("Discard unsaved changes and open " + id + "?")) { document.getElementById("cediag").value = CE.current().id; return; }
+  document.getElementById("cetitle").textContent = id;
+  CE.open("analyzer", id).then(() => ceFillDiagnostics(CE.listing()));
+}
+function ceDuplicate() {
+  const input = document.getElementById("cedup");
+  const id = (input.value || "").trim();
+  if (!CE || !id) return;
+  const cur = CE.current();
+  const device = document.getElementById("cedev").value;
+  // the copy targets the preview device: a variant config for THIS camera
+  CE.duplicate(cur.namespace, id, { name: device }).then(() => {
+    document.getElementById("cetitle").textContent = `${id} (new — Save to create)`;
+    input.value = "";
+  });
 }
 function closeConfigEditor() {
   if (CE && CE.isDirty() && !confirm("Discard unsaved changes in the config editor?")) return;

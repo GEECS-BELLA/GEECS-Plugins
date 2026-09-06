@@ -40,8 +40,11 @@ WorkingDirectory=@CHECKOUT_ROOT@/portal-checkout/GEECS-DataPortal
 # extra the feature needs). The quotes matter — share paths carry spaces;
 # systemd substitutes "${VAR}" as one argument. To run the portal without
 # analysis features, drop the --processing-configs argument from the
-# rendered unit (a site choice, not a template edit).
-ExecStart=@POETRY@ run geecs-data-portal --experiment ${GEECS_EXPERIMENT} --processing-configs "${GEECS_CONFIGS_ROOT}/scan_analysis_configs"
+# rendered unit (a site choice, not a template edit). --config-editor
+# mounts the analysis config editor at /configs over that same tree — a
+# WRITE verb (saves YAML into the configs checkout on the share); drop it
+# from the rendered unit on a read-only viewer.
+ExecStart=@POETRY@ run geecs-data-portal --experiment ${GEECS_EXPERIMENT} --processing-configs "${GEECS_CONFIGS_ROOT}/scan_analysis_configs" --config-editor
 Restart=on-failure
 RestartSec=10
 # An analysis run in flight cannot be interrupted (DEPLOYMENT.md): give a
