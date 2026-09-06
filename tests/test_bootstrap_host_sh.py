@@ -146,21 +146,19 @@ def test_a_present_but_disabled_unit_reports_one_state_not_two(
     assert warning.rstrip().endswith("the root steps below install the package")
 
 
-def test_a_host_with_no_systemd_at_all_still_completes(tmp_path: Path) -> None:
+def test_a_systemctl_that_fails_hard_does_not_abort_the_bootstrap(
+    tmp_path: Path,
+) -> None:
     """The script runs under ``set -e -o pipefail``.
 
-    With no ``systemctl`` on PATH the probe exits 127; if its pipeline is not
-    guarded, the whole bootstrap aborts in the prerequisites stage instead of
-    printing the plan. That is the CI and macOS condition.
+    Exit 127 is what the shell reports for a missing ``systemctl`` (no systemd
+    on the host at all); an unguarded pipeline propagates it and aborts the
+    whole bootstrap in its prerequisites stage instead of printing the plan.
+    Stubbed rather than removed from PATH, because ``systemctl`` lives in
+    ``/usr/bin`` alongside the tools the script legitimately needs — a CI
+    runner cannot be given a PATH that has the latter but not the former.
     """
-    env = dict(os.environ, PATH="/usr/bin:/bin")
-    r = subprocess.run(
-        ["bash", str(BOOTSTRAP), str(_site_env(tmp_path)), "--dry-run"],
-        capture_output=True,
-        text=True,
-        env=env,
-        cwd=REPO_ROOT,
-    )
+    r = _run(tmp_path, "exit 127\n")
     assert r.returncode == 0, r.stdout + r.stderr
     assert "redis-server.service is absent" in r.stdout
     assert "root steps" in r.stdout
