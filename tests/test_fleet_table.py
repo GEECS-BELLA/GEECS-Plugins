@@ -77,3 +77,42 @@ def test_real_findings_still_mark_attention() -> None:
     rec = m["Data Portal"]
     assert fleet_table.glyph(rec) == "!"
     assert fleet_table.notes(rec) == ["venv 0.20.1 ≠ pyproject 0.20.2"]
+
+
+def test_supervised_redis_is_a_clean_row_unsupervised_is_a_finding() -> None:
+    """The Redis row's whole job: answering is not the same as supervised.
+
+    Host finding 2026-09-06 — the queueserver ran for two weeks against a
+    hand-built Redis in no unit, because ``launch_re_manager.sh`` starts its
+    own daemonized ``redis-server`` whenever nothing answers on 6379.
+    """
+    m = _merged(
+        "role=Redis\tsvc=redis-server.service\tmanaged=systemd\tstate=active/running\tversion=6.0.16\tinfo=loopback 6379, enabled"
+    )
+    rec = m["Redis"]
+    assert fleet_table.glyph(rec) == "✓"
+    assert fleet_table.notes(rec) == []
+    assert fleet_table.version(rec) == "6.0.16"
+
+    m = _merged(
+        "role=Redis\tsvc=redis :6379\tmanaged=geecs-qserver.service\tstate=running pid 453172\tversion=8.10.1\tnote=answering on 6379 but NOT supervised by redis-server.service (owner: geecs-qserver.service) — the launcher fallback"
+    )
+    rec = m["Redis"]
+    assert fleet_table.glyph(rec) == "!"
+    assert len(fleet_table.notes(rec)) == 1
+    assert "NOT supervised" in fleet_table.notes(rec)[0]
+
+
+def test_absent_redis_is_down() -> None:
+    m = _merged(
+        "role=Redis\tsvc=redis :6379\tmanaged=none\tstate=down\tnote=nothing on 6379 — the queueserver keeps no queue/history/permissions"
+    )
+    rec = m["Redis"]
+    assert fleet_table.glyph(rec) == "✗"
+
+
+def test_redis_sorts_after_the_services_that_depend_on_it() -> None:
+    """Display order: the state store reads below its consumers, not above."""
+    order = fleet_table.ROLE_ORDER
+    assert order.index("Redis") > order.index("Queueserver RE Manager")
+    assert order.index("Redis") > order.index("Capture daemon")
