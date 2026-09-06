@@ -40,13 +40,22 @@ the launcher's fallback (below) starts an unsupervised Redis instead, which
 looks like a working queueserver.
 
 Start the packaged Redis on an **empty** dataset rather than downgrading the
-dump. Of the RE Manager's keys only `qs_default_plan_history` holds anything
-you cannot recreate: permissions are re-published from
-`user_group_permissions.yaml` by the launcher's `--user-group-permissions` on
-every start, `qs_default_running_plan` is empty unless a plan is mid-flight,
-and the autostart/stop-pending keys are transient flags. Archive the old dump
-rather than deleting it — reading it again needs a Redis of the version that
-wrote it.
+dump — but know what that discards. Two of the RE Manager's keys hold data
+nothing recreates:
+
+- `qs_default_plan_queue` — the **pending queue**, what the console's queue
+  panel fills. Drain it or note its contents first; do not assume it is
+  empty. (On the 2026-09-06 migration the key was absent entirely, so
+  nothing was queued — that was luck, not a property of the procedure.)
+- `qs_default_plan_history` — the record of past plans.
+
+Everything else is re-derived on the next start: permissions are re-published
+from `user_group_permissions.yaml` by the launcher's
+`--user-group-permissions` (the manager reloads them on startup by default),
+`qs_default_running_plan` is empty unless a plan is mid-flight, and the
+queue-mode, lock, autostart and stop-pending keys are flags. Archive the old
+dump rather than deleting it — reading it again needs a Redis of the version
+that wrote it.
 
 ## The launcher starts its own Redis when none answers
 
@@ -64,9 +73,16 @@ host ended up running a hand-built 8.10.1 for two weeks.
 supervised by the unit. After any Redis work, confirm the unit owns the port:
 
 ```bash
-systemctl show -p MainPID --value redis-server.service   # must equal
-ss -ltnp 'sport = :6379'                                 # the pid here
+redis-cli -h 127.0.0.1 info server | grep -E 'process_id|redis_version'
+systemctl show -p MainPID --value redis-server.service
 ```
+
+The two pids must match. Ask the **server** for its pid, not `ss -p`: without
+`sudo`, `ss -p` omits the owner of another account's socket, and the packaged
+Redis runs as the `redis` account — so `ss` reports nothing to compare and
+reproduces the false absence this section warns about. `redis-cli` answers any
+client on loopback, no privileges needed, and also gives you the version that
+decides whether an existing `dump.rdb` can be loaded at all.
 
 Redis may warn at startup that `vm.overcommit_memory` is disabled. Apply the
 host-level sysctl fix once:

@@ -15,10 +15,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   package is 6.0.16 (reads to version 9): given the newer dump it exits with
   `Can't handle RDB format version 15`, logged to
   `/var/log/redis/redis-server.log` and *not* the journal, which shows only
-  `status=1/FAILURE`. The notes now say to start the packaged Redis empty
-  (only `qs_default_plan_history` is unrecoverable; permissions come from
-  `user_group_permissions.yaml` via the launcher's
-  `--user-group-permissions` every start) and record why a missing package
+  `status=1/FAILURE`. The notes now say to start the packaged Redis empty and
+  spell out what that discards — `qs_default_plan_queue` (the pending queue)
+  and `qs_default_plan_history` hold data nothing recreates, while
+  permissions come back from `user_group_permissions.yaml` via the launcher's
+  `--user-group-permissions` every start — and record why a missing package
   does not fail loudly: `launch_re_manager.sh` starts an unsupervised
   `redis-server --daemonize yes` whenever nothing answers on 6379, and
   `geecs-qserver.service` only orders after `redis-server.service` without

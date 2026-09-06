@@ -92,7 +92,14 @@ echo "  git $(git --version 2>/dev/null | awk '{print $3}'), $(python3.11 --vers
 # Judge the packaged unit, not just a listener on the port.
 REDIS_ROOT_STEP=""
 if wanted qserver; then
-    redis_enabled="$(systemctl is-enabled redis-server.service 2>/dev/null || echo absent)"
+    # systemctl PRINTS the state and still exits non-zero (is-enabled 1 for
+    # disabled), so `$(cmd || echo default)` would capture both and split the
+    # warning across two lines. Take the first line; default only when empty.
+    # `|| true` inside the group is required, not decorative: this script runs
+    # under `set -e -o pipefail`, so an is-enabled exit of 1 (disabled) or 127
+    # (no systemd at all) would otherwise abort the whole bootstrap.
+    redis_enabled="$({ systemctl is-enabled redis-server.service 2>/dev/null || true; } | head -1)"
+    [ -n "$redis_enabled" ] || redis_enabled="absent"
     if [ "$redis_enabled" = "enabled" ]; then
         echo "  redis-server.service enabled (the queueserver state store)"
     else
@@ -263,7 +270,7 @@ if [ -n "$REDIS_ROOT_STEP" ]; then
     # First: geecs-qserver.service is ordered After= this unit, and its
     # launcher's fallback is what we are here to prevent. Never carry a
     # dump.rdb across Redis major versions — see the qserver runbook.
-    echo "  sudo apt-get install -y redis-server   # queueserver state store; the package default (loopback only) is correct"
+    echo "  sudo apt-get update && sudo apt-get install -y redis-server   # queueserver state store; the package default (loopback only) is correct"
     echo "  echo 'vm.overcommit_memory = 1' | sudo tee /etc/sysctl.d/99-redis-overcommit.conf >/dev/null && sudo sysctl --system >/dev/null"
     echo "  sudo systemctl enable --now redis-server.service"
 fi
