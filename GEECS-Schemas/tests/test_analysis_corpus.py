@@ -5,15 +5,11 @@ every group under ``scan_analysis_configs/groups/`` in the sibling
 GEECS-Plugins-Configs checkout must validate as v2 — directly once the
 corpus is regenerated, through the one-shot converter while it is still v1.
 
-Two documented exceptions:
-
-* ``analyzers/UNCLASSIFIED/`` holds legacy *flat camera configs* (no
-  ``image_analyzer``, no ``image:`` wrapper) that the 2026 unified-config
-  migration copied over without a scan pairing.  They never loaded as
-  diagnostics and are slated for deletion, not conversion — the walk skips
-  the folder.
-* :data:`KNOWN_INVALID` lists files the v2 schema refuses on purpose (the
-  fix belongs in the configs repo); empty since the corpus regeneration.
+Every namespace is walked, ``UNCLASSIFIED`` included: the legacy flat
+camera configs that used to live there were deleted with the corpus
+regeneration, and what remains are real v2 diagnostics. A stray file the
+schema refuses fails the walk unless :data:`KNOWN_INVALID` names it (the
+fix belongs in the configs repo); the dict is empty since the regeneration.
 """
 
 from __future__ import annotations
@@ -31,16 +27,10 @@ from geecs_schemas.convert.analysis_diagnostics import convert_v1_diagnostic
 #: went with it.
 KNOWN_INVALID: dict[str, str] = {}
 
-SKIPPED_NAMESPACES = {"UNCLASSIFIED"}
-
 
 def diagnostics(configs):
     root = configs / "scan_analysis_configs" / "analyzers"
-    return sorted(
-        path
-        for path in root.glob("*/*.y*ml")
-        if path.parent.name not in SKIPPED_NAMESPACES
-    )
+    return sorted(root.glob("*/*.y*ml"))
 
 
 def groups(configs):
