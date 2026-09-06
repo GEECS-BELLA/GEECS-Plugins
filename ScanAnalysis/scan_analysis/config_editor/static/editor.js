@@ -63,11 +63,15 @@
     // anyOf [T, null] -> {inner, optional: true}
     unwrapOptional(node) {
       const n = this.resolve(node);
-      const alts = n.anyOf || n.oneOf;
-      if (alts && alts.length === 2 && alts.some((a) => a.type === "null")) {
-        const inner = alts.find((a) => a.type !== "null");
+      const alts = n.anyOf;
+      if (alts && alts.some((a) => a.type === "null")) {
+        // Optional[T]: the non-null alternative; Optional[Union[str, Path]]
+        // arrives as several string alternatives — the first one is the form
+        const others = alts.filter((a) => a.type !== "null");
+        const inner = others.length === 1 ? others[0] : (others.find((a) => a.type === "string") || others[0]);
         return { inner: this.resolve(Object.assign({}, inner, { description: n.description, title: n.title })), optional: true, meta: n };
       }
+      if (alts && alts.every((a) => a.type === "string")) return { inner: Object.assign({}, n, { type: "string", anyOf: undefined }), optional: false, meta: n };
       return { inner: n, optional: false, meta: n };
     }
     kindOf(n) {
@@ -234,7 +238,16 @@
       }
       const get = () => {
         const out = {};
-        for (const [key, r] of children) { const v = r.get(); if (v !== undefined) out[key] = v; }
+        for (const [key, r] of children) {
+          const v = r.get();
+          if (v === undefined) continue;
+          // a scalar equal to its schema default is left unwritten — the
+          // file keeps only what the author set (canonical-form doctrine)
+          const sub = this.schema.unwrapOptional(props[key]);
+          const isScalar = ["bool", "number", "string", "enum"].includes(this.schema.kindOf(sub.inner));
+          if (isScalar && sub.inner.default !== undefined && JSON.stringify(v) === JSON.stringify(sub.inner.default) && !(n.required || []).includes(key)) continue;
+          out[key] = v;
+        }
         return out;
       };
       if (path.length === 0) return { node: body, get };
@@ -252,9 +265,10 @@
         : this.object(inner, present ? value : this.schema.defaultFor(inner), path, false);
       const fs = el("fieldset", { class: present ? "" : "off" });
       const legend = el("legend", { title: meta.description || inner.description || "" }, el("label", {}, check, " ", String(path[path.length - 1])));
-      fs.append(legend, r.node.tagName === "FIELDSET" ? (r.node.querySelector(".obj") || r.node) : r.node);
+      fs.append(legend);
+      const help = kind === "map" ? null : this.help(meta); if (help) fs.append(help);
+      fs.append(r.node.tagName === "FIELDSET" ? (r.node.querySelector(".obj") || r.node) : r.node);
       check.addEventListener("change", () => { fs.classList.toggle("off", !check.checked); this.onChange(); });
-      const help = this.help(meta); if (help) fs.append(help);
       return { node: fs, get: () => (check.checked ? r.get() : undefined) };
     }
     union(n, value, path) {
