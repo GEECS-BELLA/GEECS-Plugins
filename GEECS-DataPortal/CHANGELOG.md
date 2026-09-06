@@ -3,6 +3,21 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.21.1] - 2026-09-06
+
+### Fixed
+
+- The config editor preview draws the analyzer's **own figure** — its
+  default palette (plasma for the 2D family), or the document's
+  `scan.renderer` `cmap` / `vmin` / `vmax` when set — instead of the
+  Images tab's gray pixel view, so the preview matches what a run of that
+  document renders.
+
+### Changed
+
+- The drawer's preview is on demand (`preview` button, `auto` toggle) —
+  ScanAnalysis 1.20.1; the label drops "live".
+
 ## [0.21.0] - 2026-09-06
 
 ### Added
@@ -13,9 +28,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   ScanAnalysis' editor router is mounted at `/configs`; the Analysis tab
   gets an **edit** button per analyzer (and an "edit configs" link to the
   full editor page) that opens the editor in a drawer over the scan page
-  with a **live preview**: the document under edit is rendered on the
+  with a **preview**: the document under edit is rendered on the
   drawer's device + shot through `image_analysis.ephemeral.
-  render_document_ephemeral` as you type (debounced), so an ROI or
+  render_document_ephemeral` (0.21.1: on demand or per edit), so an ROI or
   threshold is dialled in without saving per iteration or switching
   windows. Save writes the configs tree (the selector and the Analysis
   list pick it up by mtime as before) and refreshes the shot image if it

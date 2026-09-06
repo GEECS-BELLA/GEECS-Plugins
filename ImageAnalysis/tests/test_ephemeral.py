@@ -282,6 +282,27 @@ class TestRenderedEphemeral:
         assert len(fig.axes[0].images) == 1
         assert plt.get_fignums() == []
 
+    def test_explicit_limits_win_over_the_window(self):
+        """A document's scan.renderer vmin/vmax reach the image, over the percentile window."""
+        import matplotlib.pyplot as plt
+
+        from image_analysis.analyzers.standard_analyzer import StandardAnalyzer
+        from image_analysis.tools.rendering import render_result_figure
+
+        plt.close("all")
+        image = np.arange(35.0).reshape(5, 7)
+        result = ImageAnalyzerResult(data_type="2d", processed_image=image)
+        fig = render_result_figure(
+            StandardAnalyzer, result, window=(5, 95), vmin=1.0, vmax=1000.0
+        )
+        assert fig.axes[0].images[0].get_clim() == (1.0, 1000.0)
+        fig = render_result_figure(
+            StandardAnalyzer, result, window=(5, 95), vmax=1000.0
+        )
+        lo, hi = fig.axes[0].images[0].get_clim()
+        assert hi == 1000.0 and 0.0 < lo < 34.0  # window's low edge kept
+        assert plt.get_fignums() == []
+
     def test_1d_renderer_honours_the_ax_contract(self):
         import matplotlib.pyplot as plt
 

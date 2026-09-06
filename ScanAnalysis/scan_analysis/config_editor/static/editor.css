@@ -47,6 +47,11 @@
 .ce-preview img { max-width: 100%; background: #fff; border: 1px solid var(--line); border-radius: 3px; display: block; }
 .ce-preview .msg { color: var(--dim); font-size: 12px; }
 .ce-preview .perr { color: var(--err, #cf5347); font-size: 12px; white-space: pre-wrap; }
+.ce-preview-head { display: flex; align-items: center; gap: 0.5rem; }
+.ce-preview-head h4 { flex: 1; }
+.ce-preview-head .ce-auto { display: flex; align-items: center; gap: 0.2rem; color: var(--dim); font-size: 11px; cursor: pointer; }
+.ce-preview.stale img { opacity: 0.45; }
+.ce-preview.stale .msg { color: #d9a441; }
 .ce-empty { color: var(--dim); padding: 1rem; }
 .ce-new { display: flex; gap: 0.3rem; align-items: center; margin-top: 0.4rem; flex-wrap: wrap; }
 .ce-new input { width: 8rem; }

@@ -628,7 +628,7 @@ function openConfigEditor(id) {
     CE = ConfigEditor.mount(document.getElementById("ceditor"), {
       base: `${ROOT}/configs`,
       layout: "drawer",
-      preview: { params: cePreviewParams, label: "live preview (unsaved document, current shot)" },
+      preview: { params: cePreviewParams, label: "preview (unsaved document, current shot)" },
       onSaved: (saved) => {
         refreshAnalysis(true);
         CE.reloadListing().then(ceFillDiagnostics);

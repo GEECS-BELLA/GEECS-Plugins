@@ -17,10 +17,12 @@ this package; the architecture rules below are its distillation.
   the `--processing-configs` tree: it writes analysis-config YAML into
   **that tree only** (the share copy of the configs repo, uncommitted —
   same standing as the console's config writes), never the scans tree
-  (pinned in `tests/test_config_editor_mount.py`).  Its live preview
+  (pinned in `tests/test_config_editor_mount.py`).  Its preview
   renders the *unsaved* document on the scan page's current shot through
   `image_analysis.ephemeral.render_document_ephemeral` — the same
-  write-free seam as the Images tab.  The other is `POST /api/run/{uid}/analysis`, which
+  write-free seam as the Images tab, but drawn the analyzer's own way
+  (its default palette or the document's `scan.renderer` cmap/vmin/vmax,
+  never the pixel view's gray; pinned there too).  The other is `POST /api/run/{uid}/analysis`, which
   runs ONE ScanAnalysis analyzer on ONE scan on the user's click —
   `geecs_portal/analysis_runs.py`, calling `ScanAnalyzer.run_analysis`
   directly on a single worker thread with an in-memory job record.
@@ -253,8 +255,8 @@ configured + extra installed + folder resolvable) — a bookmarked
 `/api/run/{uid}` payload): the Analysis tab's per-analyzer **edit** button
 opens `scan_analysis.config_editor`'s form in a drawer over the page
 (`openConfigEditor` in `run.html` loads `/configs/static/editor.js` on
-first use); the drawer's own device + shot pick what the live preview
-renders; a save refreshes the analyzer list and, when the Images tab
+first use); the drawer's own device + shot pick what the preview
+renders (on demand via its `preview` button, or per edit with `auto`); a save refreshes the analyzer list and, when the Images tab
 shows that diagnostic, the shot image.  The editor's own API is documented
 in `ScanAnalysis/CLAUDE.md`.
 `GET /run/{uid}/artifact?path=<relative>` serves one produced file —

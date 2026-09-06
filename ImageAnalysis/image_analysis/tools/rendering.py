@@ -399,6 +399,8 @@ def render_result_figure(
     *,
     window: Optional[Tuple[float, float]] = None,
     cmap: Optional[str] = None,
+    vmin: Optional[float] = None,
+    vmax: Optional[float] = None,
     figsize: Tuple[float, float] = (5.0, 4.2),
     dpi: int = 110,
 ) -> "Figure":
@@ -410,8 +412,9 @@ def render_result_figure(
     instance method taking plot kwargs — so its overlays (projections,
     markers, calibrated axes, whatever ``render_data`` carries) land on
     our axes without pyplot. 2D results take ``cmap`` and a percentile
-    ``window`` (→ ``vmin``/``vmax`` over the processed image); 1D results
-    take neither.
+    ``window`` (→ ``vmin``/``vmax`` over the processed image), or explicit
+    ``vmin``/``vmax`` (a document's ``scan.renderer`` limits, say), which
+    win over the window; 1D results take none of them.
 
     Raises
     ------
@@ -427,6 +430,10 @@ def render_result_figure(
         if cmap:
             kwargs["cmap"] = cmap
         kwargs.update(window_limits(result.processed_image, window))
+        if vmin is not None:
+            kwargs["vmin"] = vmin
+        if vmax is not None:
+            kwargs["vmax"] = vmax
     return _draw(
         lambda ax: renderer.render_image(result, ax=ax, **kwargs), figsize, dpi
     )

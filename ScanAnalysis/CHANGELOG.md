@@ -3,6 +3,16 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.20.1] - 2026-09-06
+
+### Changed
+
+- Config editor preview is **on demand**: a `preview` button renders the
+  edited (unsaved) document on the host's current shot; an `auto` toggle
+  (remembered per browser, off by default) restores re-rendering after
+  every edit. Opening a document still renders once; after an edit the
+  stale image dims until the next render. `mount()` is unchanged.
+
 ## [1.20.0] - 2026-09-06
 
 ### Added

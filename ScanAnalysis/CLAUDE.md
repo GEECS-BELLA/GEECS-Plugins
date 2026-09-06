@@ -161,11 +161,13 @@ Three layers, so the data portal is one host and not the only one:
   kind-discriminated `analyzer:` union as a select that swaps the
   variant's fields, enums, **ordered** enum lists for pipelines, arrays of
   objects, tuples, JSON textareas for free mappings), live YAML preview,
-  server-side error placement by pydantic location, and the optional live
-  preview pane. No build chain, no library — the portal's doctrine.
+  server-side error placement by pydantic location, and the optional
+  preview pane (a `preview` button renders the edited document on the
+  host's shot; `auto` re-renders per edit, remembered in localStorage).
+  No build chain, no library — the portal's doctrine.
 - **Hosts.** `scan-config-editor --configs <tree>` serves it standalone
   (a laptop clone of the configs repo; commit yourself). The data portal
-  mounts it at `/configs` with the live preview of the **unsaved** document
+  mounts it at `/configs` with the preview of the **unsaved** document
   on the scan page's current shot (`GEECS-DataPortal/CLAUDE.md`).
 
 Adding a field to a schema model is all an editor change needs: the form

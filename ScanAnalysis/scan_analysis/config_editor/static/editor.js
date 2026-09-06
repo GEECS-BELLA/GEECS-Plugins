@@ -338,7 +338,20 @@
     const errBox = el("div", { class: "ce-errors" });
     const okBox = el("div", { class: "ce-ok" });
     const previewBox = el("div", { class: "ce-preview" });
-    if (hasPreview) right.append(el("h4", {}, opts.preview.label || "preview"), previewBox);
+    // The preview renders the edited (unsaved) document on the host's shot.
+    // On demand by default - one render per click - or after every edit
+    // with "auto" on; the choice is remembered per browser.
+    let autoPreview = false, previewStale = false;
+    try { autoPreview = localStorage.getItem("ce.autoPreview") === "1"; } catch (_) { /* storage blocked */ }
+    const previewBtn = el("button", { type: "button", title: "render the current shot through the document as edited (not saved)", onclick: () => { if (state.get && state.kind === "analyzer") preview(state.get()); } }, "preview");
+    const autoBox = el("input", { type: "checkbox", title: "re-render after every edit (one request per change)" });
+    autoBox.checked = autoPreview;
+    autoBox.addEventListener("change", () => {
+      autoPreview = autoBox.checked;
+      try { localStorage.setItem("ce.autoPreview", autoPreview ? "1" : "0"); } catch (_) { /* storage blocked */ }
+      if (autoPreview && previewStale) previewBtn.click();
+    });
+    if (hasPreview) right.append(el("div", { class: "ce-preview-head" }, el("h4", {}, opts.preview.label || "preview"), previewBtn, el("label", { class: "ce-auto" }, autoBox, " auto")), previewBox);
     right.append(el("h4", {}, "yaml"), yamlBox, okBox, errBox);
 
     // ----- listing
@@ -433,7 +446,10 @@
       Form.showErrors(state.formRoot, report.errors);
       if (report.ok) {
         yamlBox.textContent = report.yaml; errBox.textContent = ""; okBox.textContent = "valid";
-        if (hasPreview && state.kind === "analyzer") previewDebounced(doc);
+        if (hasPreview && state.kind === "analyzer") {
+          // first render on open; afterwards only in auto mode, else flag the image stale
+          if (autoPreview || !previewBox.hasChildNodes()) previewDebounced(doc); else markPreviewStale();
+        }
       } else {
         errBox.textContent = report.errors.map((e) => `${e.loc}: ${e.msg}`).join("\n"); okBox.textContent = "";
       }
@@ -480,11 +496,16 @@
       }
       const blob = await r.blob();
       const url = URL.createObjectURL(blob);
-      previewBox.innerHTML = "";
+      previewBox.innerHTML = ""; previewBox.classList.remove("stale"); previewStale = false;
       const img = el("img", { src: url, alt: "preview" }); img.onload = () => URL.revokeObjectURL(url);
       previewBox.append(img, el("div", { class: "msg" }, `${params.device} / shot ${params.shot} - rendered through the document above (unsaved)`));
     }
     const previewDebounced = debounce(preview, 300);
+    function markPreviewStale() {
+      previewStale = true; previewBox.classList.add("stale");
+      const m = previewBox.querySelector(".msg");
+      if (m) m.textContent = "edited since this render - click preview (or turn on auto)";
+    }
 
     // ----- boot
     const ready = (async () => {

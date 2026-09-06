@@ -1855,9 +1855,12 @@ def create_app(
         if resolved.array is None:
             raise LookupError(resolved.reason or resolved.kind)
         diag = AnalysisDiagnostic.model_validate(document)
-        render = _render_opts(_display(str(params.get("display") or "")))
+        # The analyzer's own figure, as a run of this document would draw it:
+        # its default palette (not the pixel view's gray) unless the document's
+        # scan.renderer names one, autoscaled unless it sets vmin/vmax.
+        opts = diag.scan.renderer
         (fig,) = ephemeral.render_document_ephemeral(
-            diag, [resolved.array], **_figure_kwargs(render)
+            diag, [resolved.array], cmap=opts.cmap, vmin=opts.vmin, vmax=opts.vmax
         )
         return resources.figure_png(fig)
 

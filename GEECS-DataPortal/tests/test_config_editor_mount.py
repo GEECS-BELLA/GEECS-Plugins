@@ -173,3 +173,43 @@ class TestPreview:
                 (configs_tree / "analyzers" / "HTU" / "UC_Crop.yaml").read_text()
             )["image"]
         )
+
+    def test_draws_with_the_analyzers_palette_and_the_documents_renderer(
+        self, scan_folder, configs_tree, monkeypatch
+    ):
+        """Not the Images tab's gray: the analyzer's default unless scan.renderer says."""
+        np = pytest.importorskip("numpy")
+        pytest.importorskip("PIL")
+        import image_analysis.ephemeral as ephemeral
+        from matplotlib.figure import Figure
+        from PIL import Image
+
+        frame = (np.arange(64, dtype=np.uint16).reshape(8, 8) * 500).astype(np.uint16)
+        Image.fromarray(frame).save(scan_folder / "cam" / "Scan002_cam_001.png")
+        seen: list[dict] = []
+
+        def fake_render(diag, frames, **kwargs):
+            seen.append(kwargs)
+            return [Figure()]
+
+        monkeypatch.setattr(ephemeral, "render_document_ephemeral", fake_render)
+        client = _client(scan_folder, configs_tree, config_editor=True)
+        doc = client.get("/configs/api/analyzers/UC_Crop").json()["document"]
+        params = {"uid": "uid-002", "device": "cam", "shot": 1}
+        assert (
+            client.post(
+                "/configs/api/preview", json={"document": doc, "params": params}
+            ).status_code
+            == 200
+        )
+        doc["scan"]["renderer"] = {"cmap": "viridis", "vmax": 1000.0}
+        assert (
+            client.post(
+                "/configs/api/preview", json={"document": doc, "params": params}
+            ).status_code
+            == 200
+        )
+        assert seen[0]["cmap"] is None and seen[0]["vmin"] is None
+        assert seen[0]["vmax"] is None
+        assert seen[1]["cmap"] == "viridis" and seen[1]["vmax"] == 1000.0
+        assert "window" not in seen[1]

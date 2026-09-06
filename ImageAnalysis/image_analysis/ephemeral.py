@@ -182,6 +182,8 @@ def render_diagnostic_ephemeral(
     auxiliary_data: Optional[Dict[str, Any]] = None,
     window: Optional[Tuple[float, float]] = None,
     cmap: Optional[str] = None,
+    vmin: Optional[float] = None,
+    vmax: Optional[float] = None,
     figsize: Tuple[float, float] = (5.0, 4.2),
     dpi: int = 110,
 ) -> List["Figure"]:
@@ -204,6 +206,8 @@ def render_diagnostic_ephemeral(
         Display window over each processed image → ``vmin``/``vmax``.
     cmap : str, optional
         Matplotlib colormap name for 2D results.
+    vmin, vmax : float, optional
+        Explicit colour limits for 2D results; win over ``window``.
     figsize, dpi
         Figure geometry.
 
@@ -220,7 +224,14 @@ def render_diagnostic_ephemeral(
     )
     return [
         render_result_figure(
-            analyzer, result, window=window, cmap=cmap, figsize=figsize, dpi=dpi
+            analyzer,
+            result,
+            window=window,
+            cmap=cmap,
+            vmin=vmin,
+            vmax=vmax,
+            figsize=figsize,
+            dpi=dpi,
         )
         for result in _analyze_frames(analyzer, frames, auxiliary_data)
     ]
@@ -250,6 +261,8 @@ def render_document_ephemeral(
     auxiliary_data: Optional[Dict[str, Any]] = None,
     window: Optional[Tuple[float, float]] = None,
     cmap: Optional[str] = None,
+    vmin: Optional[float] = None,
+    vmax: Optional[float] = None,
     figsize: Tuple[float, float] = (5.0, 4.2),
     dpi: int = 110,
 ) -> List["Figure"]:
@@ -258,7 +271,14 @@ def render_document_ephemeral(
     analyzer = _ephemeral_analyzer_for(diag)
     return [
         render_result_figure(
-            analyzer, result, window=window, cmap=cmap, figsize=figsize, dpi=dpi
+            analyzer,
+            result,
+            window=window,
+            cmap=cmap,
+            vmin=vmin,
+            vmax=vmax,
+            figsize=figsize,
+            dpi=dpi,
         )
         for result in _analyze_frames(analyzer, frames, auxiliary_data)
     ]

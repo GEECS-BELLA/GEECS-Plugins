@@ -3,6 +3,15 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.1.1] — 2026-09-06
+
+### Added
+
+- `render_result_figure` / `render_diagnostic_ephemeral` /
+  `render_document_ephemeral` take explicit `vmin` / `vmax` (2D results),
+  winning over the percentile `window` — so a host can draw a document with
+  its own `scan.renderer` limits, the way a run of it would.
+
 ## [2.1.0] — 2026-09-06
 
 ### Added
