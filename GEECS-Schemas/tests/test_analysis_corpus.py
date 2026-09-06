@@ -12,9 +12,8 @@ Two documented exceptions:
   migration copied over without a scan pairing.  They never loaded as
   diagnostics and are slated for deletion, not conversion — the walk skips
   the folder.
-* :data:`KNOWN_INVALID` lists files the v1 loader accepted only because it
-  ignored unknown ``image.analysis`` keys; v2 refuses them by design, and
-  the fix is in the configs repo.
+* :data:`KNOWN_INVALID` lists files the v2 schema refuses on purpose (the
+  fix belongs in the configs repo); empty since the corpus regeneration.
 """
 
 from __future__ import annotations
@@ -26,10 +25,11 @@ from geecs_schemas.analysis import AnalysisDiagnostic, AnalysisGroup
 from geecs_schemas.convert.analysis_diagnostics import convert_v1_diagnostic
 
 
-#: namespace/stem → why the v2 schema refuses it (fix belongs in the configs repo).
-KNOWN_INVALID = {
-    "HTU/U_FROG_Beam": "BeamAnalyzer carrying FROG retrieval keys under image.analysis",
-}
+#: namespace/stem → why the v2 schema refuses it (fix belongs in the configs
+#: repo). Empty since the corpus was regenerated in v2 (branch
+#: analysis-config-v2 there, 2026-09-05) — U_FROG_Beam's ignored FROG keys
+#: went with it.
+KNOWN_INVALID: dict[str, str] = {}
 
 SKIPPED_NAMESPACES = {"UNCLASSIFIED"}
 
