@@ -23,7 +23,7 @@ import pytest
 import yaml
 
 from geecs_schemas.analysis import AnalysisDiagnostic, AnalysisGroup
-from geecs_schemas.convert import convert_v1_diagnostic
+from geecs_schemas.convert.analysis_diagnostics import convert_v1_diagnostic
 
 
 #: namespace/stem → why the v2 schema refuses it (fix belongs in the configs repo).

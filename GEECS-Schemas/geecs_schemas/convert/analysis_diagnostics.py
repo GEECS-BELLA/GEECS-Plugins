@@ -37,6 +37,8 @@ Mapping:
   → ``image.label``; the 1D background fields ``constant_value`` /
   ``background_file`` → ``constant_level`` / ``file_path``.
 - ``scan.renderer_kwargs`` → ``scan.renderer``.
+- Stale ``enabled`` flags inside processing sections (pre-#412 residue the
+  old nested models ignored) are dropped; the pipeline list is the gate.
 - A ``schema_version: 2`` stamp is added.
 
 Groups are unchanged apart from the ``schema_version: 1`` stamp.
@@ -144,6 +146,13 @@ def _image(image: Any) -> tuple[Any, dict[str, Any]]:
     pipeline = image.get("pipeline")
     if isinstance(pipeline, Mapping):
         image["pipeline"] = list(pipeline.get("steps") or [])
+    # The pre-#412 processing sections carried an ``enabled`` flag the old
+    # (extra-tolerant) nested models ignored; the pipeline list is the gate.
+    for key, section in list(image.items()):
+        if isinstance(section, Mapping) and "enabled" in section and key != "metadata":
+            section = dict(section)
+            section.pop("enabled")
+            image[key] = section
     if image.get("type") == "line" and isinstance(image.get("background"), Mapping):
         background = dict(image["background"])
         for old, new in _LINE_BACKGROUND_RENAMES.items():

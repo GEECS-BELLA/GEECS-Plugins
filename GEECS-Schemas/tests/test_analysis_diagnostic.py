@@ -30,8 +30,11 @@ from geecs_schemas.analysis import (
     RendererOptions,
 )
 from geecs_schemas.analysis.analyzers import AnalyzerSpec, DnnAxisCalibrationSpec
-from geecs_schemas.convert import SchemaConversionError, convert_v1_diagnostic
-from geecs_schemas.convert.analysis_diagnostics import V1_CLASS_PATH_TO_KIND
+from geecs_schemas.convert import SchemaConversionError
+from geecs_schemas.convert.analysis_diagnostics import (
+    V1_CLASS_PATH_TO_KIND,
+    convert_v1_diagnostic,
+)
 
 FIXTURES = Path(__file__).parent / "fixtures" / "analysis_diagnostics"
 
@@ -328,6 +331,14 @@ class TestV1Converter:
         data["image_analyzer"] = "some.module.NewAnalyzer"
         with pytest.raises(SchemaConversionError, match="unknown analyzer class"):
             convert_v1_diagnostic(data)
+
+    def test_stale_enabled_flags_are_dropped(self):
+        data = load_v1("beam_camera")
+        data["image"]["thresholding"]["enabled"] = True
+        data["image"]["background"]["enabled"] = False
+        document = convert_v1_diagnostic(data)
+        assert "enabled" not in document["image"]["thresholding"]
+        assert "enabled" not in document["image"]["background"]
 
     def test_converter_output_is_canonical(self):
         # set fields only, no default-None noise, schema_version first
