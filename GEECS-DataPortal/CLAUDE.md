@@ -8,10 +8,19 @@ this package; the architecture rules below are its distillation.
 
 ## Architecture rules
 
-- **Read-only, except explicit analysis runs** (charter amendment,
-  owner ruling 2026-09-01 — `Planning/data_portal/04_analysis_run_design.md`).
-  The portal itself has no write verbs: no annotations, no config
-  writes.  The one exception is `POST /api/run/{uid}/analysis`, which
+- **Read-only, except explicit analysis runs and the config editor**
+  (charter amendments: owner rulings 2026-09-01 —
+  `Planning/data_portal/04_analysis_run_design.md` — and 2026-09-06).
+  The portal itself has no write verbs: no annotations.  Two exceptions,
+  both explicit opt-ins.  **The config editor** (`--config-editor`,
+  0.21.0) mounts ScanAnalysis' `config_editor` router at `/configs` over
+  the `--processing-configs` tree: it writes analysis-config YAML into
+  **that tree only** (the share copy of the configs repo, uncommitted —
+  same standing as the console's config writes), never the scans tree
+  (pinned in `tests/test_config_editor_mount.py`).  Its live preview
+  renders the *unsaved* document on the scan page's current shot through
+  `image_analysis.ephemeral.render_document_ephemeral` — the same
+  write-free seam as the Images tab.  The other is `POST /api/run/{uid}/analysis`, which
   runs ONE ScanAnalysis analyzer on ONE scan on the user's click —
   `geecs_portal/analysis_runs.py`, calling `ScanAnalyzer.run_analysis`
   directly on a single worker thread with an in-memory job record.
@@ -129,7 +138,8 @@ geecs_portal/
                  #   palette, base layout, multi-axis ladder, display
   resources.py   # (folder, device, shot) → PNG bytes / tiered refusal
   static/        # the vendored Plotly bundle (the ONE committed JS asset)
-  __main__.py    # CLI (geecs-data-portal): real TiledScanCatalog + uvicorn
+  __main__.py    # CLI (geecs-data-portal): real TiledScanCatalog + uvicorn;
+                 #   --config-editor mounts scan_analysis.config_editor at /configs
   templates/     # base.html / day.html / run.html (Jinja2, dark palette)
 tests/
   test_app.py        # TestClient over FakeCatalog/StubCatalog (+ /api)
@@ -239,6 +249,14 @@ inapplicable analyzers collapsed; it polls every 1.5 s while a run is
 active and the tab button exists only when `analysis_enabled` (feature
 configured + extra installed + folder resolvable) — a bookmarked
 `tab=analysis` otherwise falls back to Plot.
+**The config editor drawer** (0.21.0, `config_editor` in the page and
+`/api/run/{uid}` payload): the Analysis tab's per-analyzer **edit** button
+opens `scan_analysis.config_editor`'s form in a drawer over the page
+(`openConfigEditor` in `run.html` loads `/configs/static/editor.js` on
+first use); the drawer's own device + shot pick what the live preview
+renders; a save refreshes the analyzer list and, when the Images tab
+shows that diagnostic, the shot image.  The editor's own API is documented
+in `ScanAnalysis/CLAUDE.md`.
 `GET /run/{uid}/artifact?path=<relative>` serves one produced file —
 the resolved path must stay inside the scan's own analysis folder
 (`analysis_runs.contained_artifact`; symlinks resolved), else 404.

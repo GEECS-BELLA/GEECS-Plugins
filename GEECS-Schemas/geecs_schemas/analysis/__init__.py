@@ -5,6 +5,7 @@ is described here — pydantic only, so editors, the data portal, MCP and
 CI can validate a diagnostic without the analysis stack installed.
 """
 
+from geecs_schemas.analysis.canonical import canonical_document
 from geecs_schemas.analysis.analyzers import (
     ANALYZER_SPECS,
     AnalyzerSpec,
@@ -86,4 +87,5 @@ __all__ = [
     "ScanRuntime",
     "StandardAnalyzerSpec",
     "TraceAnalyzerSpec",
+    "canonical_document",
 ]

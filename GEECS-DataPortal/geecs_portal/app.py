@@ -348,6 +348,7 @@ def create_app(
     default_experiment: str = "",
     processing_config_dir: Optional[Path] = None,
     analysis_factory: Optional[analysis_runs.AnalyzerFactory] = None,
+    config_editor: bool = False,
 ) -> FastAPI:
     """Build the portal application over an injected catalog.
 
@@ -378,6 +379,13 @@ def create_app(
     -------
     FastAPI
         The configured application.
+    config_editor : bool, default False
+        Mount the analysis config editor (``scan_analysis.config_editor``)
+        at ``/configs`` over the same ``processing_config_dir`` tree, with a
+        live preview of the document under edit on the scan page's current
+        shot. A **write verb** (it saves YAML into the configs tree) and
+        therefore explicit opt-in — ``--config-editor`` on the CLI; nothing
+        without ``processing_config_dir`` and the ``analysis`` extra.
     """
     # The analysis-run worker (04 design) outlives requests: built
     # before the app so the lifespan can refuse new runs and log any
@@ -409,6 +417,7 @@ def create_app(
     # within-scan navigation never re-reads the share (owner doctrine,
     # 2026-08-29 — lazy stays the rule ACROSS scans only).
     data_cache = ShotDataCache()
+    config_editor_enabled = False  # set when the editor router mounts (below)
 
     def _load_run(uid: str):
         """Load one run, mapping failures to honest HTTP status codes.
@@ -1336,6 +1345,7 @@ def create_app(
             "next_day": (run_day + timedelta(days=1)).isoformat() if run_day else None,
             "processing_options": _processing_names(),
             "analysis_enabled": _analysis_enabled_for(folder),
+            "config_editor": config_editor_enabled,
             "page": f"{_root(request)}/run/{uid}",
             "portal_version": _portal_version(),
         }
@@ -1571,6 +1581,7 @@ def create_app(
                     else "plot"
                 ),
                 "analysis_enabled": analysis_enabled,
+                "config_editor": config_editor_enabled and analysis_enabled,
                 "devices": devices,
                 "sel_device": sel_device,
                 "kind": kind,
@@ -1801,5 +1812,69 @@ def create_app(
             media_type="image/png",
             headers=_png_headers(detail),
         )
+
+    # ---- the analysis config editor (04 design "deferred": its own arc) ----
+    # Mounted at /configs over the processing tree. The store writes only
+    # into that tree (never the scans tree); the live preview renders the
+    # UNSAVED document on the current shot through the same write-free
+    # ephemeral seam the Images tab uses, so dialling in an ROI is a
+    # type-and-look loop without a save per iteration.
+    def _config_editor_preview(document: dict, params: dict) -> bytes:
+        ephemeral = _ephemeral_module()
+        from geecs_schemas.analysis import AnalysisDiagnostic
+
+        uid = str(params.get("uid") or "")
+        device = str(params.get("device") or "")
+        day = str(params.get("day") or "")
+        try:
+            shot = int(params.get("shot") or 0)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("shot must be an integer") from exc
+        if not uid or not device or shot < 1:
+            raise LookupError("preview needs a scan, a device and a shot (>= 1)")
+        try:
+            detail = _load_run(uid)
+            folder, _ = _image_folder(detail, day, device)
+            if detail.data is not None and shot > len(detail.data):
+                raise LookupError("shot beyond the run's recorded events")
+            acq, column_present = _acq_timestamp(detail, device, shot)
+            if column_present and acq is None:
+                raise LookupError("device missed this shot (no timestamp)")
+            complete = bool(detail.summary.exit_status)
+            resolved = resources.load_shot_array(
+                folder,
+                device,
+                shot,
+                acq_timestamp=acq,
+                data_cache=data_cache if complete else None,
+                cache_key=(uid, device) if complete else None,
+            )
+        except HTTPException as exc:
+            kind = LookupError if exc.status_code == 404 else ValueError
+            raise kind(str(exc.detail)) from exc
+        if resolved.array is None:
+            raise LookupError(resolved.reason or resolved.kind)
+        diag = AnalysisDiagnostic.model_validate(document)
+        render = _render_opts(_display(str(params.get("display") or "")))
+        (fig,) = ephemeral.render_document_ephemeral(
+            diag, [resolved.array], **_figure_kwargs(render)
+        )
+        return resources.figure_png(fig)
+
+    if config_editor and processing_config_dir is not None:
+        try:
+            from scan_analysis.config_editor import create_editor_router
+            from scan_analysis.config_store import ConfigStore
+        except ImportError as exc:  # the analysis extra without the editor extra
+            logger.warning("config editor requested but not installed: %s", exc)
+        else:
+            app.include_router(
+                create_editor_router(
+                    ConfigStore(Path(processing_config_dir)),
+                    preview=_config_editor_preview,
+                ),
+                prefix="/configs",
+            )
+            config_editor_enabled = True
 
     return app

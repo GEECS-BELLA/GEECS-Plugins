@@ -3,6 +3,17 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.1.0] — 2026-09-06
+
+### Added
+
+- `image_analysis.ephemeral.run_document_ephemeral` /
+  `render_document_ephemeral`: the write-free runners for an in-memory,
+  already-validated `AnalysisDiagnostic` (no name or path to load) — the
+  config editor's live preview of an unsaved document. Same contract as
+  the name-based forms: `file_path` in auxiliary data refused, the kind
+  denylist applied before instantiation.
+
 ## [2.0.0] — 2026-09-05
 
 ### Changed — the config models live in GEECS-Schemas; analyzers take typed specs

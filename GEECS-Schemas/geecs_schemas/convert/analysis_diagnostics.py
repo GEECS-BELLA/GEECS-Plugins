@@ -60,14 +60,14 @@ import sys
 from pathlib import Path
 from typing import Any, Mapping, Optional
 
-from pydantic import BaseModel, ValidationError
+from pydantic import ValidationError
 
 from geecs_schemas.analysis import ANALYZER_SPECS, AnalysisDiagnostic, AnalysisGroup
+from geecs_schemas.analysis.canonical import canonical_document
 from geecs_schemas.convert._common import SchemaConversionError, load_legacy
 
 __all__ = [
     "V1_CLASS_PATH_TO_KIND",
-    "canonical_document",
     "convert_v1_diagnostic",
     "is_v1_diagnostic",
     "regenerate_tree",
@@ -234,36 +234,6 @@ def convert_group(source: Mapping[str, Any] | str | Path) -> dict[str, Any]:
     except ValidationError as exc:
         raise SchemaConversionError(f"{source}: {exc}") from exc
     return canonical_document(model)
-
-
-def canonical_document(model: BaseModel) -> dict[str, Any]:
-    """The canonical on-disk form: set fields only, minus ``None`` values whose default is ``None``.
-
-    ``schema_version`` is always written first so a reader sees the format
-    before the content.
-    """
-    dumped = model.model_dump(mode="json", exclude_unset=True)
-    pruned = _prune_default_nones(model, dumped)
-    version = getattr(model, "schema_version", None)
-    if version is not None:
-        pruned = {
-            "schema_version": version,
-            **{k: v for k, v in pruned.items() if k != "schema_version"},
-        }
-    return pruned
-
-
-def _prune_default_nones(model: BaseModel, dumped: dict[str, Any]) -> dict[str, Any]:
-    out: dict[str, Any] = {}
-    for name, value in dumped.items():
-        field = type(model).model_fields.get(name)
-        if value is None and field is not None and field.default is None:
-            continue
-        child = getattr(model, name, None)
-        if isinstance(child, BaseModel) and isinstance(value, dict):
-            value = _prune_default_nones(child, value)
-        out[name] = value
-    return out
 
 
 def regenerate_tree(

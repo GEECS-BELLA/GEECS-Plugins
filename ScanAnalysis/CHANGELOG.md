@@ -3,6 +3,35 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.20.0] - 2026-09-06
+
+### Added
+
+- **The web config editor** — the successor to the Qt `ConfigFileGUI`,
+  built in three layers so the data portal is one host and not the only one:
+  - `scan_analysis.config_store.ConfigStore`: plain Python over a
+    `scan_analysis_configs` tree — list (validity + summary per file),
+    read (raw document + etag), validate (pydantic locations + the canonical
+    YAML), save (atomic temp+rename; optimistic etag — a stale etag or a
+    duplicate stem across namespaces is a `ConflictError`; an invalid
+    document is never written), delete, `pending_changes()` (git status of
+    the tree), and the JSON Schema the form renders from. Writes touch only
+    the configs tree.
+  - `scan_analysis.config_editor`: a mountable FastAPI router (`/api/list`,
+    `/api/schema/{kind}`, read / validate / PUT / DELETE per document, and
+    `POST /api/preview` when the host supplies a renderer) plus the editor
+    page and its two assets — a hand-written schema-driven form
+    (`static/editor.js`: objects, optionals, the kind-discriminated analyzer
+    union, enums, ordered enum lists for pipelines, arrays of objects,
+    tuples, JSON mappings) with a live YAML preview and server-side error
+    placement. No build chain, no library. Behind the new `editor` extra
+    (fastapi, uvicorn, jinja2).
+  - `scan-config-editor` console script: the standalone host (`--configs
+    <tree>`, default from config.ini; `--read-only`), for editing a local
+    clone of the configs repo.
+  The portal mounts the same router at `/configs` with a live preview of the
+  unsaved document on the scan page's current shot (GEECS-DataPortal 0.21.0).
+
 ## [1.19.0] - 2026-09-05
 
 ### Changed

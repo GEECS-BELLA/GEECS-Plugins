@@ -37,6 +37,7 @@ from .tools.rendering import RenderError, render_frame_figure, render_result_fig
 from .types import Array2D, ImageAnalyzerResult
 
 if TYPE_CHECKING:
+    from geecs_schemas.analysis import AnalysisDiagnostic
     from matplotlib.figure import Figure
 
     from .base import ImageAnalyzer
@@ -45,9 +46,11 @@ __all__ = [
     "EPHEMERAL_DENYLIST",
     "RenderError",
     "render_diagnostic_ephemeral",
+    "render_document_ephemeral",
     "render_frame_figure",
     "render_result_figure",
     "run_diagnostic_ephemeral",
+    "run_document_ephemeral",
 ]
 
 #: Analyzer kinds that cannot run ephemerally: their side effects
@@ -128,6 +131,12 @@ def _ephemeral_analyzer(
     auxiliary_data: Optional[Dict[str, Any]],
 ) -> "ImageAnalyzer":
     """The write-free gate + one analyzer instantiation (shared by both runners)."""
+    _refuse_file_path(auxiliary_data)
+    diag = load_diagnostic(name_or_path, config_dir=config_dir, overrides=overrides)
+    return _ephemeral_analyzer_for(diag)
+
+
+def _refuse_file_path(auxiliary_data: Optional[Dict[str, Any]]) -> None:
     if auxiliary_data is not None and "file_path" in auxiliary_data:
         raise ValueError(
             "auxiliary_data['file_path'] is forbidden in ephemeral runs: "
@@ -135,8 +144,9 @@ def _ephemeral_analyzer(
             "next to their input. Pass loaded frames only."
         )
 
-    diag = load_diagnostic(name_or_path, config_dir=config_dir, overrides=overrides)
 
+def _ephemeral_analyzer_for(diag: "AnalysisDiagnostic") -> "ImageAnalyzer":
+    """Denylist gate + instantiation for an already-validated document."""
     kind = diag.analyzer.kind
     if kind in EPHEMERAL_DENYLIST:
         raise ValueError(
@@ -208,6 +218,44 @@ def render_diagnostic_ephemeral(
         overrides=overrides,
         auxiliary_data=auxiliary_data,
     )
+    return [
+        render_result_figure(
+            analyzer, result, window=window, cmap=cmap, figsize=figsize, dpi=dpi
+        )
+        for result in _analyze_frames(analyzer, frames, auxiliary_data)
+    ]
+
+
+def run_document_ephemeral(
+    diag: "AnalysisDiagnostic",
+    frames: Sequence[Array2D],
+    *,
+    auxiliary_data: Optional[Dict[str, Any]] = None,
+) -> List[ImageAnalyzerResult]:
+    """:func:`run_diagnostic_ephemeral` for an in-memory, already-validated document.
+
+    The config editor's preview: the document under edit has not been
+    saved, so there is no name or path to load — the same write-free
+    contract (``file_path`` refused, the kind denylist) applies unchanged.
+    """
+    _refuse_file_path(auxiliary_data)
+    analyzer = _ephemeral_analyzer_for(diag)
+    return _analyze_frames(analyzer, frames, auxiliary_data)
+
+
+def render_document_ephemeral(
+    diag: "AnalysisDiagnostic",
+    frames: Sequence[Array2D],
+    *,
+    auxiliary_data: Optional[Dict[str, Any]] = None,
+    window: Optional[Tuple[float, float]] = None,
+    cmap: Optional[str] = None,
+    figsize: Tuple[float, float] = (5.0, 4.2),
+    dpi: int = 110,
+) -> List["Figure"]:
+    """:func:`render_diagnostic_ephemeral` for an in-memory, already-validated document."""
+    _refuse_file_path(auxiliary_data)
+    analyzer = _ephemeral_analyzer_for(diag)
     return [
         render_result_figure(
             analyzer, result, window=window, cmap=cmap, figsize=figsize, dpi=dpi

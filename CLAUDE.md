@@ -178,7 +178,10 @@ GEECS-DataPortal     →  GEECS-Data-Utils (tiled extra — the ScanCatalog
                         image_analysis.ephemeral's write-free seam, and
                         the Analysis tab's direct ScanAnalyzer runs)
 ScanAnalysis         →  GEECS-Data-Utils, ImageAnalysis, GEECS-Schemas,
-                        LogMaker4GoogleDocs
+                        LogMaker4GoogleDocs (+ fastapi/jinja2/uvicorn via
+                        the `editor` extra — scan_analysis.config_editor,
+                        the web config editor the portal mounts at /configs
+                        and `scan-config-editor` serves standalone)
 GEECS-MCP            →  GeecsBluesky (qs-client + ca extras — the queue
                         client, preflight, config resolver/listings),
                         GEECS-Data-Utils (tiled extra — results lookup),

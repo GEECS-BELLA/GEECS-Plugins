@@ -3,6 +3,25 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.21.0] - 2026-09-06
+
+### Added
+
+- **The analysis config editor, in the scan page** (`--config-editor`, the
+  04 design's deferred item; a second **write verb** after analysis runs,
+  explicit opt-in, needs `--processing-configs` + the `analysis` extra).
+  ScanAnalysis' editor router is mounted at `/configs`; the Analysis tab
+  gets an **edit** button per analyzer (and an "edit configs" link to the
+  full editor page) that opens the editor in a drawer over the scan page
+  with a **live preview**: the document under edit is rendered on the
+  drawer's device + shot through `image_analysis.ephemeral.
+  render_document_ephemeral` as you type (debounced), so an ROI or
+  threshold is dialled in without saving per iteration or switching
+  windows. Save writes the configs tree (the selector and the Analysis
+  list pick it up by mtime as before) and refreshes the shot image if it
+  shows that diagnostic. `/api/run/{uid}` and the page carry
+  `config_editor`. Nothing on the scans path is touched (pinned).
+
 ## [0.20.3] - 2026-09-05
 
 ### Changed

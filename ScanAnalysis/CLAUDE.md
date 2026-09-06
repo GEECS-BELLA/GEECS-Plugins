@@ -133,12 +133,44 @@ analyzer:
   mask: {top: 125, bottom: 300, left: 10, right: 670}
 ```
 
-### ConfigFileGUI (frozen)
+### The config editor (`config_store.py` + `config_editor/`)
 
-The Qt editor under `ConfigFileGUI/` still authors the v1 shape, which the
-v2-only loader refuses — it can browse and edit but its saved analyzer
-files no longer load. Only its import-level breakage was patched in 1.19.0;
-it is retired once the web config editor (data portal) reaches parity.
+The web successor to the Qt `ConfigFileGUI` (which still authors the v1
+shape the loader refuses; it is deleted once this reaches parity in use).
+Three layers, so the data portal is one host and not the only one:
+
+- **`scan_analysis.config_store.ConfigStore(root)`** — plain Python, no
+  web, no Qt: `list(kind)` (validity + summary per file), `read(kind, id)`
+  (raw document + **etag**), `validate(kind, document)` (pydantic locations
+  + canonical YAML via `geecs_schemas.analysis.canonical_document`),
+  `save(kind, namespace, id, document, etag=)` (atomic temp+rename;
+  stale etag / duplicate stem across namespaces → `ConflictError`; an
+  invalid document is never written; `etag=None` = create, refuses to
+  overwrite), `delete`, `pending_changes()` (git status of the tree),
+  `schema(kind)` (the JSON Schema the form renders). Writes touch only the
+  configs tree — the repo's scan-folder invariant is irrelevant by
+  construction, and pinned portal-side.
+- **`scan_analysis.config_editor.create_editor_router(store, preview=,
+  read_only=)`** — a FastAPI router (the `editor` extra): `/api/list`,
+  `/api/schema/{kind}`, `GET/PUT/DELETE /api/{analyzers|groups}/…`,
+  `POST /api/validate/{kind}`, `POST /api/preview` (404 unless the host
+  passes a `preview(document, params) -> PNG bytes`), the editor page and
+  `static/editor.js` + `editor.css`. Every URL is relative to the mount.
+  `editor.js` is a hand-written schema-driven form over pydantic's JSON
+  Schema (objects, `anyOf [T, null]` optionals as toggled sections, the
+  kind-discriminated `analyzer:` union as a select that swaps the
+  variant's fields, enums, **ordered** enum lists for pipelines, arrays of
+  objects, tuples, JSON textareas for free mappings), live YAML preview,
+  server-side error placement by pydantic location, and the optional live
+  preview pane. No build chain, no library — the portal's doctrine.
+- **Hosts.** `scan-config-editor --configs <tree>` serves it standalone
+  (a laptop clone of the configs repo; commit yourself). The data portal
+  mounts it at `/configs` with the live preview of the **unsaved** document
+  on the scan page's current shot (`GEECS-DataPortal/CLAUDE.md`).
+
+Adding a field to a schema model is all an editor change needs: the form
+is generated. Adding an analyzer kind (a spec in GEECS-Schemas + a registry
+line in ImageAnalysis) shows up in the kind select automatically.
 
 ### Scatter (`analyzers/common/scatter_plotter_analysis.py`)
 
