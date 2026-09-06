@@ -123,6 +123,7 @@
       const { inner, optional, meta } = this.schema.unwrapOptional(node);
       const kind = this.schema.kindOf(inner);
       if (kind === "const") return { node: null, get: () => inner.const };
+      if (value === undefined && !optional && inner.default !== undefined) value = inner.default;
       if (optional && ["object", "union", "map"].includes(kind)) return this.renderOptionalSection(inner, meta, value, path);
       return this[kind](inner, value, path, optional);
     }
@@ -244,8 +245,10 @@
           // a scalar equal to its schema default is left unwritten — the
           // file keeps only what the author set (canonical-form doctrine)
           const sub = this.schema.unwrapOptional(props[key]);
+          const required = (n.required || []).includes(key);
           const isScalar = ["bool", "number", "string", "enum"].includes(this.schema.kindOf(sub.inner));
-          if (isScalar && sub.inner.default !== undefined && JSON.stringify(v) === JSON.stringify(sub.inner.default) && !(n.required || []).includes(key)) continue;
+          if (isScalar && sub.inner.default !== undefined && JSON.stringify(v) === JSON.stringify(sub.inner.default) && !required) continue;
+          if (!required && v !== null && typeof v === "object" && !Array.isArray(v) && Object.keys(v).length === 0) continue;
           out[key] = v;
         }
         return out;
@@ -489,7 +492,7 @@
       let initial = opts.initial || null;
       if (!initial && layout === "page") { const m = location.hash.match(/^#\/(analyzer|group)s\/(.+)$/); if (m) initial = { kind: m[1], id: decodeURIComponent(m[2]) }; }
       if (initial) { try { await open(initial.kind, initial.id); } catch (e) { main.innerHTML = `<div class="ce-empty">${esc(e.message)}</div>`; } }
-      else main.innerHTML = '<div class="ce-empty">select a diagnostic or group</div>';
+      else if (!state.kind) main.innerHTML = '<div class="ce-empty">select a diagnostic or group</div>';
     })();
 
     return {
