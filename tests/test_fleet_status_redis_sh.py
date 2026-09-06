@@ -173,6 +173,7 @@ def test_listening_without_the_unit_is_the_launcher_fallback(tmp_path: Path) -> 
     # Exits 3 while printing "inactive": the state must appear once, not twice.
     assert notes.count("inactive") == 1, notes
     assert "no systemd unit" in notes
+    assert fleet_table.runs_as(row) == "unmanaged"
 
 
 def test_nothing_listening_is_reported_with_the_consequence(tmp_path: Path) -> None:
@@ -209,6 +210,9 @@ def test_unit_active_but_another_server_holds_the_port(tmp_path: Path) -> None:
     )
     assert fleet_table.glyph(row) == "!"
     assert "the unit does not supervise" in " ".join(fleet_table.notes(row))
+    # The supervision field must be the supervision verdict: anything else
+    # here (the unit state, say) renders the Runs-as column as "?".
+    assert fleet_table.runs_as(row) == "unmanaged"
 
 
 def test_a_host_with_neither_a_queueserver_nor_a_listener_gets_no_redis_row(
@@ -233,6 +237,35 @@ def _fmt_host_records() -> str:
     return text[start:end]
 
 
+def _harness() -> str:
+    """``fmt_host_records`` plus stub printers, ready to run under bash."""
+    return (
+        "ok(){ printf '  [ OK ] %s\\n' \"$1\"; }\n"
+        "bad(){ printf '  [DOWN] %s\\n' \"$1\"; }\n"
+        "warn(){ printf '  [WARN] %s\\n' \"$1\"; }\n"
+        "info(){ printf '         %s\\n' \"$1\"; }\n"
+        "skip(){ printf '  [ -- ] %s\\n' \"$1\"; }\n"
+        "rec(){ :; }\nnote_sha(){ :; }\n" + _fmt_host_records() + "fmt_host_records\n"
+    )
+
+
+def _log_lines(tmp_path: Path, record: str) -> str:
+    """Run the real log formatter over one record.
+
+    The record arrives on the function's stdin, so the harness itself cannot
+    come from stdin — it goes in as ``-c`` and the record through the
+    environment.
+    """
+    r = subprocess.run(
+        ["bash", "-c", 'printf "%s\\n" "$REC_IN" | { ' + _harness() + " }"],
+        capture_output=True,
+        text=True,
+        env={"PATH": "/usr/bin:/bin", "HOME": str(tmp_path), "REC_IN": record},
+    )
+    assert r.returncode == 0, r.stderr
+    return r.stdout
+
+
 def test_the_full_log_surfaces_the_note_not_just_the_header(tmp_path: Path) -> None:
     """``--summary`` is not the only reader: the default log must warn too.
 
@@ -242,25 +275,33 @@ def test_the_full_log_surfaces_the_note_not_just_the_header(tmp_path: Path) -> N
     the attention lines an operator scans.
     """
     rec = _record(tmp_path, listening=True, active="inactive", enabled="absent")
-    harness = (
-        "ok(){ printf '  [ OK ] %s\\n' \"$1\"; }\n"
-        "bad(){ printf '  [DOWN] %s\\n' \"$1\"; }\n"
-        "warn(){ printf '  [WARN] %s\\n' \"$1\"; }\n"
-        "info(){ printf '         %s\\n' \"$1\"; }\n"
-        "skip(){ printf '  [ -- ] %s\\n' \"$1\"; }\n"
-        "rec(){ :; }\nnote_sha(){ :; }\n" + _fmt_host_records() + "fmt_host_records\n"
-    )
-    # The record arrives on the function's stdin, so the harness script
-    # itself cannot come from stdin — pass it as -c and the record via env.
-    r = subprocess.run(
-        ["bash", "-c", 'printf "%s\\n" "$REC_IN" | { ' + harness + " }"],
-        capture_output=True,
-        text=True,
-        env={"PATH": "/usr/bin:/bin", "HOME": str(tmp_path), "REC_IN": rec},
-    )
-    assert r.returncode == 0, r.stderr
-    assert "[WARN]" in r.stdout, r.stdout
-    assert "launcher fallback" in r.stdout, r.stdout
+    out = _log_lines(tmp_path, rec)
+    assert "[WARN]" in out, out
+    assert "launcher fallback" in out, out
+
+
+def test_an_explicit_note_replaces_the_generic_unmanaged_guess(
+    tmp_path: Path,
+) -> None:
+    """One explanation per row, and the accurate one.
+
+    ``managed=UNMANAGED`` normally earns "started by hand — tmux/nohup?",
+    which is wrong for Redis: the queueserver launcher started it. The
+    generic line is suppressed when the record carries its own note.
+    """
+    rec = _record(tmp_path, listening=True, active="inactive", enabled="absent")
+    out = _log_lines(tmp_path, rec)
+    assert "launcher fallback" in out
+    assert "tmux/nohup" not in out, out
+    assert out.count("[WARN]") == 1, out
+
+
+def test_an_info_only_record_still_renders_its_facts(tmp_path: Path) -> None:
+    """The healthy row's payload is an ``info=``, which must print as a fact."""
+    rec = _record(tmp_path, listening=True, active="active", enabled="enabled")
+    out = _log_lines(tmp_path, rec)
+    assert "loopback 6379, enabled" in out, out
+    assert "[WARN]" not in out, out
 
 
 def test_listening_with_no_unit_file_at_all_is_the_two_week_state(

@@ -521,7 +521,10 @@ if [ "$redis_here" = "1" ]; then
         printf "%b\n" "role=Redis\tsvc=redis-server.service\tmanaged=none\tstate=$redis_state\tnote=nothing answering on 6379 — the queueserver has no state store, and its launcher will start an UNSUPERVISED redis on the next start"
     elif [ "$redis_active" = "active" ] && [ -n "$redis_pid" ] && [ -n "$redis_main" ] \
          && [ "$redis_main" != "0" ] && [ "$redis_pid" != "$redis_main" ]; then
-        printf "%b\n" "role=Redis\tsvc=redis :6379\tmanaged=$redis_state\tstate=running (not the unit)\tversion=${redis_ver:-?}\tnote=redis-server.service is active as pid $redis_main but the server on 6379 is pid $redis_pid — the queueserver talks to a Redis the unit does not supervise (the launcher fallback, with the unit bound elsewhere)"
+        # managed=UNMANAGED, not the unit state: the server on 6379 is
+        # precisely the thing no unit supervises, and fleet_table.runs_as
+        # renders anything else in this field as "?".
+        printf "%b\n" "role=Redis\tsvc=redis :6379\tmanaged=UNMANAGED\tstate=running (not the unit)\tversion=${redis_ver:-?}\tnote=redis-server.service is active as pid $redis_main but the server on 6379 is pid $redis_pid — the queueserver talks to a Redis the unit does not supervise (the launcher fallback, with the unit bound elsewhere)"
     elif [ "$redis_active" = "active" ]; then
         r="role=Redis\tsvc=redis-server.service\tmanaged=systemd\tstate=$redis_state\tversion=${redis_ver:-?}"
         if [ "$redis_enabled" != "enabled" ]; then
