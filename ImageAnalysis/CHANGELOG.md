@@ -8,8 +8,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Changed — the config models live in GEECS-Schemas; analyzers take typed specs
 
 The analysis-config schema overhaul (GEECS-Schemas 0.19.0). Breaking for
-anyone constructing configs or analyzers in code; every deployed YAML keeps
-loading through the v1 lift.
+anyone constructing configs or analyzers in code, and for the on-disk
+YAML: the configs repo is regenerated in v2 form (one-shot converter
+`geecs_schemas.convert.analysis_diagnostics`); a pre-v2 file is refused at
+load with a pointer to it. There is no runtime lift — the corpus is the
+whole universe of diagnostics, so it is rewritten rather than supported.
 
 - **Config models relocated.** `CameraConfig`, `Line1DConfig` and every
   processing sub-model now live in `geecs_schemas.analysis` and are

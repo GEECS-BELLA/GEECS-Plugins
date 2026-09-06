@@ -1,8 +1,8 @@
 """Tests for ``image_analysis.config.factory`` and ``load_diagnostic`` over v2 documents.
 
 The document model itself is GEECS-Schemas' (``AnalysisDiagnostic``) and is
-tested there; here the concern is the Mode-2 path — find the YAML, lift
-it if it is v1, hand the typed spec to the right class.
+tested there; here the concern is the Mode-2 path — find the YAML, hand the
+typed spec to the right class.
 """
 
 from __future__ import annotations
@@ -13,7 +13,6 @@ import pytest
 import yaml
 from geecs_schemas.analysis import (
     AnalysisDiagnostic,
-    BeamAnalyzerSpec,
     CameraConfig,
     LineStitcherSpec,
 )
@@ -76,7 +75,7 @@ class TestLoadDiagnostic:
         assert diag.analyzer.kind == "frog_retrieval"
         assert diag.analyzer.N == 256
 
-    def test_v1_document_is_lifted(self, tmp_path):
+    def test_v1_document_is_refused_with_converter_hint(self, tmp_path):
         path = tmp_path / "analyzers" / "HTU" / "Legacy.yaml"
         path.parent.mkdir(parents=True)
         path.write_text(
@@ -84,21 +83,12 @@ class TestLoadDiagnostic:
                 {
                     "name": "UC_Legacy",
                     "image_analyzer": "image_analysis.analyzers.beam_analyzer.BeamAnalyzer",
-                    "image": {
-                        "type": "camera",
-                        "analysis": {"compute_slopes": True},
-                        "pipeline": {"steps": ["roi"]},
-                        "roi": {"x_min": 0, "x_max": 4, "y_min": 0, "y_max": 4},
-                    },
-                    "scan": {"renderer_kwargs": {"cmap": "viridis"}},
+                    "image": {"type": "camera"},
                 }
             )
         )
-        diag = load_diagnostic("Legacy", config_dir=tmp_path)
-        assert diag.schema_version == 2
-        assert diag.analyzer == BeamAnalyzerSpec(compute_slopes=True)
-        assert [s.value for s in diag.image.pipeline] == ["roi"]
-        assert diag.scan.renderer.cmap == "viridis"
+        with pytest.raises(ValueError, match="convert.analysis_diagnostics"):
+            load_diagnostic("Legacy", config_dir=tmp_path)
 
     def test_missing_name_raises_keyerror(self, configs_tree):
         with pytest.raises(KeyError, match="not found"):
@@ -185,27 +175,6 @@ class TestCreateImageAnalyzer:
             image={"type": "line", "data_loading": {"data_type": "tsv"}},
         )
         assert create_image_analyzer(diag).name == "Master-stitched"
-
-    def test_v1_stitcher_name_kwarg_survives_as_the_label(self, tmp_path):
-        path = tmp_path / "analyzers" / "HTT" / "Stitch.yaml"
-        path.parent.mkdir(parents=True)
-        path.write_text(
-            yaml.safe_dump(
-                {
-                    "name": "HTT-MagCam1-interpSpec",
-                    "image_analyzer": {
-                        "class_path": "image_analysis.analyzers.line_stitcher.LineStitcher",
-                        "kwargs": {
-                            "sibling_devices": ["HTT-MagCam2-interpSpec"],
-                            "name": "HTT-MagSpecStitcher",
-                        },
-                    },
-                    "image": {"type": "line", "data_loading": {"data_type": "tsv"}},
-                }
-            )
-        )
-        analyzer = create_image_analyzer(load_diagnostic("Stitch", config_dir=tmp_path))
-        assert analyzer.name == "HTT-MagSpecStitcher"
 
     def test_trace_kind_is_the_plain_1d_analyzer(self):
         diag = AnalysisDiagnostic(

@@ -740,13 +740,12 @@ class TestProcessingSelector:
             yaml.safe_dump(
                 {
                     "name": "UC_Crop",
-                    "image_analyzer": (
-                        "image_analysis.analyzers.standard_analyzer.StandardAnalyzer"
-                    ),
+                    "schema_version": 2,
+                    "analyzer": {"kind": "standard"},
                     "image": {
                         "type": "camera",
                         "bit_depth": 16,
-                        "pipeline": {"steps": ["roi"]},
+                        "pipeline": ["roi"],
                         "roi": {"x_min": 1, "x_max": 4, "y_min": 0, "y_max": 2},
                     },
                     "scan": {"priority": 100},
@@ -758,13 +757,12 @@ class TestProcessingSelector:
             yaml.safe_dump(
                 {
                     "name": "UC_CropThresh",
-                    "image_analyzer": (
-                        "image_analysis.analyzers.standard_analyzer.StandardAnalyzer"
-                    ),
+                    "schema_version": 2,
+                    "analyzer": {"kind": "standard"},
                     "image": {
                         "type": "camera",
                         "bit_depth": 16,
-                        "pipeline": {"steps": ["roi", "thresholding"]},
+                        "pipeline": ["roi", "thresholding"],
                         "roi": {"x_min": 1, "x_max": 4, "y_min": 0, "y_max": 2},
                         # Cutoff between the raw marker (1000) and the
                         # bin average of two markers (500): only
@@ -797,14 +795,11 @@ class TestProcessingSelector:
         haso.write_text(
             yaml.safe_dump(
                 {
+                    "schema_version": 2,
                     "name": "U_Haso",
-                    "image_analyzer": {
-                        "class_path": (
-                            "image_analysis.analyzers."
-                            "HASO_himg_has_processor.HASOHimgHasProcessor"
-                        ),
-                        # the v1 form; the schema lift maps it to kind haso
-                        "kwargs": {"wavekit_config_file_path": "/wfs.dat"},
+                    "analyzer": {
+                        "kind": "haso",
+                        "wavekit_config_file_path": "/wfs.dat",
                     },
                     "scan": {"priority": 100},
                 }

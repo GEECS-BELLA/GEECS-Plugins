@@ -57,17 +57,23 @@ def _diag(
     """Construct a ``DiagnosticAnalysisConfig`` for stubbing the loader."""
     from image_analysis.config.diagnostic import DiagnosticAnalysisConfig
 
+    kind = _KIND_BY_CLASS_PATH[class_path]
     return DiagnosticAnalysisConfig.model_validate(
         {
             "name": name,
-            "image_analyzer": {
-                "class_path": class_path,
-                "kwargs": analyzer_kwargs or {},
-            },
+            "analyzer": {"kind": kind, **(analyzer_kwargs or {})},
             "image": image,
             "scan": scan or {},
         }
     )
+
+
+#: the v2 documents name analyzers by kind; these tests still speak in the
+#: class paths they were written with.
+_KIND_BY_CLASS_PATH = {
+    "image_analysis.analyzers.beam_analyzer.BeamAnalyzer": "beam",
+    "image_analysis.analyzers.standard_1d_analyzer.Standard1DAnalyzer": "trace",
+}
 
 
 # ---------------------------------------------------------------------------

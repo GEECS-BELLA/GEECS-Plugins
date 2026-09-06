@@ -61,8 +61,9 @@ def configs(tmp_path, monkeypatch):
     (diag_dir / "test_diag.yaml").write_text(
         yaml.safe_dump(
             {
+                "schema_version": 2,
                 "name": "test_diag",
-                "image_analyzer": _BEAM,
+                "analyzer": {"kind": "beam"},
                 "image": {"type": "camera", "bit_depth": 16},
                 "scan": {"priority": 5},
             }
@@ -330,8 +331,9 @@ class TestExistingStatusRows:
         (configs / "analyzers" / "HTU" / "test_diag_b.yaml").write_text(
             yaml.safe_dump(
                 {
+                    "schema_version": 2,
                     "name": "test_diag_b",
-                    "image_analyzer": _BEAM,
+                    "analyzer": {"kind": "beam"},
                     "image": {"type": "camera", "bit_depth": 16},
                     "scan": {},
                 }

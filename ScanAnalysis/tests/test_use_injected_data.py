@@ -50,12 +50,7 @@ class TestUseInjectedDataThroughDiagnosticFactory:
         return DiagnosticAnalysisConfig.model_validate(
             {
                 "name": "UC_Test",
-                "image_analyzer": {
-                    "class_path": (
-                        "image_analysis.analyzers.beam_analyzer.BeamAnalyzer"
-                    ),
-                    "kwargs": {},
-                },
+                "analyzer": {"kind": "beam"},
                 "image": CameraConfig(),
                 "scan": {"mode": "per_bin"},
             }
@@ -70,13 +65,7 @@ class TestUseInjectedDataThroughDiagnosticFactory:
         return DiagnosticAnalysisConfig.model_validate(
             {
                 "name": "U_TestLine",
-                "image_analyzer": {
-                    "class_path": (
-                        "image_analysis.analyzers.standard_1d_analyzer"
-                        ".Standard1DAnalyzer"
-                    ),
-                    "kwargs": {},
-                },
+                "analyzer": {"kind": "trace"},
                 "image": Line1DConfig(
                     data_loading=Data1DLoading(data_type="tdms_scope"),
                 ),

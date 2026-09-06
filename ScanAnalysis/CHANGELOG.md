@@ -23,11 +23,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   loader's runtime wrapper, not a document).
 - `geecs-schemas` (path dep) is a main dependency.
 - **ConfigFileGUI (the Qt editor) is frozen on the v1 authoring shape** —
-  it still writes `image_analyzer` / `image.analysis` YAML, which the v1
-  lift reads, and its import-level breakage is patched (`Data1DLoading`,
-  `label`); its per-analyzer `analysis` widget and pipeline form are not
-  ported. It is retired once the web config editor reaches parity
-  (owner decision 2026-09-05).
+  it still writes `image_analyzer` / `image.analysis` YAML, which the
+  v2-only loader now refuses, so analyzer files it saves do not load; its
+  import-level breakage is patched (`Data1DLoading`, `label`) and nothing
+  else is ported. It is retired once the web config editor reaches parity
+  (owner decision 2026-09-05: the corpus is canonical, no runtime lift).
 
 ### Removed
 

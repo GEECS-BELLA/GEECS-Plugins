@@ -32,18 +32,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     label) becomes `image.label` so it no longer collides with the
     `scan.data_format` enum; the 1D background fields take the camera
     spellings (`constant_level`, `file_path`).
-- **v1 lift.** `AnalysisDiagnostic._lift_v1_layout` maps every pre-0.19.0
-  unified diagnostic into v2 at validation (class path → kind, kwargs +
-  `image.analysis` → spec fields, the renames above, HASO's `mask_*` kwargs
-  → `mask`, LineStitcher's `name` kwarg → `output_label`), so the deployed
-  corpus keeps loading unchanged. A `line_stitcher` whose output label equals
-  the master device's data folder is refused at load — the stitched traces
-  would overwrite the raw inputs (the review of the first draft caught this).  Verified
-  against the sibling configs checkout by the new `integration` corpus walk
+- **One-shot converter, no runtime lift.** The analysis-config corpus in
+  GEECS-Plugins-configs is the whole universe of diagnostics, so the models
+  validate v2 only — a pre-v2 document (`image_analyzer`, or
+  `schema_version: 1`) is refused with a pointer to
+  `geecs_schemas.convert.analysis_diagnostics`, the mechanical v1 → v2
+  rewrite (class path → kind, kwargs + `image.analysis` → spec fields,
+  HASO's `mask_*` → `mask`, LineStitcher's `name` → `output_label`, the
+  renames above; canonical YAML: set fields only, default-`None` noise
+  dropped, `schema_version` first). Run it once on the configs tree
+  (`python -m geecs_schemas.convert.analysis_diagnostics <tree> --write`)
+  and it can go the way of the scan-variables converter. Verified against
+  the sibling configs checkout by the new `integration` corpus walk
   (`tests/test_analysis_corpus.py`): every diagnostic outside the legacy
-  `UNCLASSIFIED/` folder lifts, except `HTU/U_FROG_Beam` — a BeamAnalyzer
-  carrying FROG retrieval keys that v1 silently ignored and v2 refuses by
-  design (the fix is in the configs repo).
+  `UNCLASSIFIED/` folder converts, except `HTU/U_FROG_Beam` — a
+  BeamAnalyzer carrying FROG retrieval keys that v1 silently ignored and
+  the converter refuses by design (fixed in the configs repo).
 
 ## [0.18.0] - 2026-09-04
 

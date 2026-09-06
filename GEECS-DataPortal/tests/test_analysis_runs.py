@@ -51,10 +51,9 @@ def configs_tree(tmp_path) -> Path:
         (analyzers / f"{name}.yaml").write_text(
             yaml.safe_dump(
                 {
+                    "schema_version": 2,
                     "name": name,
-                    "image_analyzer": (
-                        "image_analysis.analyzers.standard_analyzer.StandardAnalyzer"
-                    ),
+                    "analyzer": {"kind": "standard"},
                     "image": {"type": "camera", "bit_depth": 16},
                     "scan": {"priority": 100, "device": device},
                 }

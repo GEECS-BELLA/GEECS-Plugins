@@ -119,7 +119,9 @@ processing code and analyzers use (`array2d_processing`,
 analysis stack:
 
 - **`loader`** — `load_diagnostic(stem_or_path, config_dir=, overrides=)`
-  → `AnalysisDiagnostic` (v1 files lift automatically);
+  → `AnalysisDiagnostic` (v2 only — a pre-v2 file is refused with a
+  pointer to `geecs_schemas.convert.analysis_diagnostics`, the one-shot
+  rewrite the configs repo went through);
   `load_camera_config` / `load_line_config` → the `image:` section of a
   diagnostic, or a bare section; `list_diagnostics`.
 - **`factory`** — `create_image_analyzer(diag)`: resolves the class from
@@ -181,7 +183,7 @@ analyzer = StandardAnalyzer(camera_config=cfg)
 # Mode 2: config-driven factory (production scan path)
 from image_analysis.config import load_diagnostic, create_image_analyzer
 
-diag = load_diagnostic("UC_GaiaMode")          # → AnalysisDiagnostic (v1 files lift)
+diag = load_diagnostic("UC_GaiaMode")          # → AnalysisDiagnostic
 analyzer = create_image_analyzer(diag)         # → ImageAnalyzer instance
 ```
 

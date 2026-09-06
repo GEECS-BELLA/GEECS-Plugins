@@ -45,7 +45,7 @@ def create_image_analyzer(diag: AnalysisDiagnostic) -> Any:
     Parameters
     ----------
     diag : AnalysisDiagnostic
-        Validated diagnostic (v1 documents are already lifted).
+        Validated diagnostic.
 
     Returns
     -------

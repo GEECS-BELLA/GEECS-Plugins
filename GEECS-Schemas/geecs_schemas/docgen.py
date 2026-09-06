@@ -219,8 +219,8 @@ scan:
   save: true
   gdoc_slot: 0
   renderer: {cmap: plasma}
-# v1 documents (image_analyzer class path, image.analysis, kwargs) still
-# validate — they are lifted into this shape automatically.
+# pre-v2 files (image_analyzer class path, image.analysis, kwargs) are
+# refused; regenerate them with geecs_schemas.convert.analysis_diagnostics.
 """,
     "analysis_group": """\
 schema_version: 1

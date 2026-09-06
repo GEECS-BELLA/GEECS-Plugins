@@ -3,8 +3,8 @@
 :class:`AnalysisDiagnostic` (format v2) replaced ImageAnalysis' own
 ``DiagnosticAnalysisConfig`` in 2.0; the old name is kept as an alias for
 the transition.  The v1 layout (``image_analyzer`` class path,
-``image.analysis``, constructor ``kwargs``) is lifted automatically at
-validation — see the schema module for the mapping.
+``image.analysis``, constructor ``kwargs``) is refused; the configs repo was
+regenerated with ``geecs_schemas.convert.analysis_diagnostics``.
 """
 
 from geecs_schemas.analysis import (

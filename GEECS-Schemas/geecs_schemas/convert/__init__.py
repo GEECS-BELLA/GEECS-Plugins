@@ -1,7 +1,8 @@
 """Converters from the remaining legacy scanner-config YAML dialects.
 
 Scan variables have no converter: ``scan_variables.yaml`` is new-schema only
-(GEECS-Plugins#779).
+(GEECS-Plugins#779).  ``analysis_diagnostics`` is the one-shot v1 → v2
+rewrite of the analysis-config corpus (a CLI, not a runtime lift).
 
 One module per legacy dialect; every converter accepts a parsed dict or a
 YAML path and fails loudly (:class:`SchemaConversionError`) naming exactly
@@ -10,6 +11,12 @@ they migrate (vision doc §4) so a flag day is never needed.
 """
 
 from geecs_schemas.convert._common import SchemaConversionError
+from geecs_schemas.convert.analysis_diagnostics import (
+    convert_group,
+    convert_v1_diagnostic,
+    is_v1_diagnostic,
+    regenerate_tree,
+)
 from geecs_schemas.convert.actions import (
     convert_action_library,
     convert_assigned_actions,
@@ -33,6 +40,10 @@ from geecs_schemas.convert.trigger_profiles import (
 
 __all__ = [
     "SchemaConversionError",
+    "convert_v1_diagnostic",
+    "convert_group",
+    "is_v1_diagnostic",
+    "regenerate_tree",
     "convert_action_library",
     "convert_assigned_actions",
     "convert_save_element",

@@ -34,9 +34,9 @@ with its typed parameters), `image:` (the camera / line processing
 section, consumed by ImageAnalysis) and `scan:` (the typed `ScanRuntime`
 section, consumed here); diagnostics are assembled into `AnalysisGroup`
 files under `groups/<namespace>/<group>.yaml`, which `LiveWatch` and the
-task queue consume directly. Pre-v2 files (`image_analyzer` class path,
-`image.analysis`, constructor `kwargs`, `scan.renderer_kwargs`) lift
-automatically at load. Scatter analyzers sit outside the YAML config
+task queue consume directly. The corpus is v2 only (it was regenerated with
+the one-shot `geecs_schemas.convert.analysis_diagnostics`; a pre-v2 file is
+refused at load). Scatter analyzers sit outside the YAML config
 system entirely — they are plain Python subclasses of
 `ScatterPlotterAnalysis` (see below) because they don't consume images.
 
@@ -135,9 +135,10 @@ analyzer:
 
 ### ConfigFileGUI (frozen)
 
-The Qt editor under `ConfigFileGUI/` still authors the v1 shape (the lift
-reads it); only its import-level breakage was patched in 1.19.0. It is
-retired once the web config editor (data portal) reaches parity.
+The Qt editor under `ConfigFileGUI/` still authors the v1 shape, which the
+v2-only loader refuses — it can browse and edit but its saved analyzer
+files no longer load. Only its import-level breakage was patched in 1.19.0;
+it is retired once the web config editor (data portal) reaches parity.
 
 ### Scatter (`analyzers/common/scatter_plotter_analysis.py`)
 

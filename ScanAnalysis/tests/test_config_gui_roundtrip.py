@@ -152,8 +152,9 @@ class TestDiagnosticAnalysisConfigRoundtrip:
     def _build_data(self, **overrides):
         """Return a minimal diagnostic dict, merge ``overrides`` shallow."""
         base = {
+            "schema_version": 2,
             "name": "UC_Test",
-            "image_analyzer": ("image_analysis.analyzers.beam_analyzer.BeamAnalyzer"),
+            "analyzer": {"kind": "beam"},
             "image": {"type": "camera", "bit_depth": 16},
             "scan": {"priority": 50, "mode": "per_shot"},
         }
@@ -184,9 +185,7 @@ class TestDiagnosticAnalysisConfigRoundtrip:
 
         data = self._build_data(
             name="U_Line",
-            image_analyzer=(
-                "image_analysis.analyzers.standard_1d_analyzer.Standard1DAnalyzer"
-            ),
+            analyzer={"kind": "trace"},
             image={
                 "type": "line",
                 "data_loading": {"data_type": "tdms_scope"},
@@ -202,13 +201,12 @@ class TestDiagnosticAnalysisConfigRoundtrip:
         from image_analysis.config import DiagnosticAnalysisConfig
 
         data = {
+            "schema_version": 2,
             "name": "HasoLift",
-            "image_analyzer": {
-                "class_path": (
-                    "image_analysis.analyzers.HASO_himg_has_processor."
-                    "HASOHimgHasProcessor"
-                ),
-                "kwargs": {"wavekit_config_file_path": "/wfs.dat", "mask_top": 125},
+            "analyzer": {
+                "kind": "haso",
+                "wavekit_config_file_path": "/wfs.dat",
+                "mask": {"top": 125},
             },
             "scan": {"priority": 10, "save": True},
         }

@@ -3,8 +3,8 @@
 Three public entry points:
 
 * :func:`load_diagnostic` — a diagnostic YAML (by stem or path) →
-  :class:`~geecs_schemas.analysis.AnalysisDiagnostic`.  v1 files lift
-  automatically.
+  :class:`~geecs_schemas.analysis.AnalysisDiagnostic` (format v2; a pre-v2
+  file is refused with a pointer to the one-shot converter).
 * :func:`load_camera_config` / :func:`load_line_config` — the ``image:``
   section of a diagnostic (by stem or path), or a bare camera / line
   YAML or dict, → :class:`CameraConfig` / :class:`Line1DConfig`.  The
@@ -46,8 +46,8 @@ __all__ = [
 _CONFIG_MANAGER = scan_analysis_config
 
 #: Keys whose presence marks a YAML as a diagnostic document rather than a
-#: bare processing section: the v2 analyzer block, the v1 class path, or
-#: the ``image:`` wrapper itself.
+#: bare processing section: the analyzer block, the ``image:`` wrapper, or
+#: the pre-v2 class path (so a stale file gets the model's converter hint).
 _DIAGNOSTIC_MARKERS = ("analyzer", "image_analyzer", "image")
 
 
@@ -115,8 +115,8 @@ def _load_image_section(
         logger.info("Loaded %s configuration from %s", label, path)
 
     if any(marker in data for marker in _DIAGNOSTIC_MARKERS):
-        # A diagnostic document: validate the whole thing (the v1 lift
-        # runs) and hand back its image section.
+        # A diagnostic document: validate the whole thing and hand back its
+        # image section.
         try:
             diag = AnalysisDiagnostic.model_validate(data)
         except ValidationError as exc:
@@ -195,13 +195,12 @@ def load_diagnostic(
         key-by-key, everything else replaced wholesale), so a consumer can
         run a per-call variant — the optimizer's ``scan: {mode: per_bin}``
         — without forking the file.  Override typos surface exactly like a
-        bad YAML.  Overrides are written in the document's own layout (a
-        v1 file takes v1 keys; the lift runs after the merge).
+        bad YAML.
 
     Returns
     -------
     AnalysisDiagnostic
-        The validated, fully typed document (v1 files lifted to v2).
+        The validated, fully typed document.
 
     Raises
     ------

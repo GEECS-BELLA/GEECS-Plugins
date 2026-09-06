@@ -33,7 +33,6 @@ from geecs_schemas.analysis.analyzers import (
 )
 from geecs_schemas.analysis.diagnostic import (
     CURRENT_SCHEMA_VERSION,
-    V1_CLASS_PATH_TO_KIND,
     AnalysisDiagnostic,
     ImageSection,
 )
@@ -51,7 +50,6 @@ from geecs_schemas.analysis.scan_runtime import (
 __all__ = [
     "ANALYZER_SPECS",
     "CURRENT_SCHEMA_VERSION",
-    "V1_CLASS_PATH_TO_KIND",
     "AnalysisDiagnostic",
     "AnalysisGroup",
     "AnalyzerRef",

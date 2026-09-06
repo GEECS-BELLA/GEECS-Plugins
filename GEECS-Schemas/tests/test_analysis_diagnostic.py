@@ -1,8 +1,11 @@
-"""AnalysisDiagnostic / AnalysisGroup: the v2 shape, the v1 lift, and the cross-section checks.
+"""AnalysisDiagnostic / AnalysisGroup: the v2 shape, the v1 converter, and the cross-section checks.
 
 Fixtures under ``tests/fixtures/analysis_diagnostics/v1/`` are sanitized
-copies of real GEECS-Plugins-Configs files in the pre-0.19.0 layout; the
-corpus walk in ``test_corpus_integration.py`` covers the real ones.
+copies of real GEECS-Plugins-Configs files in the pre-0.19.0 layout; they
+go through the one-shot converter (``geecs_schemas.convert.
+analysis_diagnostics``), never through the model directly — the model
+refuses v1.  The corpus walk in ``test_analysis_corpus.py`` covers the
+real files.
 """
 
 from __future__ import annotations
@@ -16,7 +19,6 @@ from pydantic import ValidationError
 from geecs_schemas import SCHEMA_REGISTRY
 from geecs_schemas.analysis import (
     ANALYZER_SPECS,
-    V1_CLASS_PATH_TO_KIND,
     AnalysisDiagnostic,
     AnalysisGroup,
     BeamAnalyzerSpec,
@@ -28,6 +30,8 @@ from geecs_schemas.analysis import (
     RendererOptions,
 )
 from geecs_schemas.analysis.analyzers import AnalyzerSpec, DnnAxisCalibrationSpec
+from geecs_schemas.convert import SchemaConversionError, convert_v1_diagnostic
+from geecs_schemas.convert.analysis_diagnostics import V1_CLASS_PATH_TO_KIND
 
 FIXTURES = Path(__file__).parent / "fixtures" / "analysis_diagnostics"
 
@@ -37,7 +41,8 @@ def load_v1(stem: str) -> dict:
 
 
 def lift(stem: str) -> AnalysisDiagnostic:
-    return AnalysisDiagnostic.model_validate(load_v1(stem))
+    """Convert a v1 fixture with the one-shot converter and validate the result."""
+    return AnalysisDiagnostic.model_validate(convert_v1_diagnostic(load_v1(stem)))
 
 
 class TestRegistry:
@@ -151,6 +156,19 @@ class TestV2Shape:
         assert again == diag
         assert again.model_dump(mode="json") == dumped
 
+    def test_v1_layout_is_refused_with_a_pointer_to_the_converter(self):
+        with pytest.raises(ValidationError, match="convert.analysis_diagnostics"):
+            AnalysisDiagnostic.model_validate(load_v1("beam_camera"))
+        with pytest.raises(ValidationError, match="convert.analysis_diagnostics"):
+            AnalysisDiagnostic.model_validate(
+                {
+                    "schema_version": 1,
+                    "name": "x",
+                    "analyzer": {"kind": "beam"},
+                    "image": {"type": "camera"},
+                }
+            )
+
     def test_newer_schema_version_is_kept(self):
         diag = AnalysisDiagnostic.model_validate(
             {
@@ -170,7 +188,7 @@ class TestV2Shape:
         assert "AnalysisDiagnostic" in schema.get("title", "AnalysisDiagnostic")
 
 
-class TestV1Lift:
+class TestV1Converter:
     def test_beam_camera(self):
         diag = lift("beam_camera")
         assert diag.schema_version == 2
@@ -250,13 +268,13 @@ class TestV1Lift:
     def test_legacy_nested_magspec_block_is_flattened(self):
         data = load_v1("magspec_dnn")
         data["image"]["analysis"] = {"magspec": data["image"]["analysis"]}
-        diag = AnalysisDiagnostic.model_validate(data)
+        diag = AnalysisDiagnostic.model_validate(convert_v1_diagnostic(data))
         assert diag.analyzer.num_energy_points == 1000
 
     def test_ignored_v1_keys_become_errors(self):
         # U_FROG_Beam in the real corpus: FROG keys under a BeamAnalyzer that
         # v1 silently ignored.
-        with pytest.raises(ValidationError) as excinfo:
+        with pytest.raises(SchemaConversionError) as excinfo:
             lift("beam_with_frog_keys")
         message = str(excinfo.value)
         for key in ("delt", "dellam", "lam0", "N"):
@@ -284,10 +302,10 @@ class TestV1Lift:
         )
         assert ok.analyzer.output_label is None  # output_name carries the label
 
-    def test_explicit_schema_version_1_is_lifted_too(self):
+    def test_explicit_schema_version_1_converts_too(self):
         data = load_v1("beam_camera")
         data["schema_version"] = 1
-        diag = AnalysisDiagnostic.model_validate(data)
+        diag = AnalysisDiagnostic.model_validate(convert_v1_diagnostic(data))
         assert diag.schema_version == 2
         assert diag.analyzer.kind == "beam"
 
@@ -297,7 +315,7 @@ class TestV1Lift:
             "image_analysis.analyzers.standard_1d_analyzer.Standard1DAnalyzer"
         )
         data["image"].pop("analysis")
-        assert AnalysisDiagnostic.model_validate(data).analyzer.kind == "trace"
+        assert convert_v1_diagnostic(data)["analyzer"] == {"kind": "trace"}
 
     def test_data1d_loading_refuses_negative_columns(self):
         from geecs_schemas.analysis import Data1DLoading
@@ -308,16 +326,18 @@ class TestV1Lift:
     def test_unknown_class_path_is_refused_with_the_kind_list(self):
         data = load_v1("beam_camera")
         data["image_analyzer"] = "some.module.NewAnalyzer"
-        with pytest.raises(ValidationError, match="unknown v1 analyzer class"):
-            AnalysisDiagnostic.model_validate(data)
+        with pytest.raises(SchemaConversionError, match="unknown analyzer class"):
+            convert_v1_diagnostic(data)
 
-    def test_v1_and_v2_analyzer_blocks_cannot_mix(self):
-        data = load_v1("beam_camera")
-        data["analyzer"] = {"kind": "beam"}
-        with pytest.raises(ValidationError, match="cannot carry both"):
-            AnalysisDiagnostic.model_validate(data)
+    def test_converter_output_is_canonical(self):
+        # set fields only, no default-None noise, schema_version first
+        document = convert_v1_diagnostic(load_v1("beam_camera"))
+        assert list(document)[0] == "schema_version"
+        assert "crosshair_masking" not in document["image"]
+        assert "file_path" not in document["image"]["background"]
+        assert document["analyzer"] == {"kind": "beam"}
 
-    def test_lift_is_idempotent_through_a_dump(self):
+    def test_converted_documents_round_trip(self):
         for stem in (
             "beam_camera",
             "ict_line",
@@ -326,15 +346,19 @@ class TestV1Lift:
             "line_stitcher",
             "magspec_dnn",
         ):
-            diag = lift(stem)
-            dumped = diag.model_dump(mode="json")
-            assert "image_analyzer" not in dumped
-            assert AnalysisDiagnostic.model_validate(dumped) == diag
+            document = convert_v1_diagnostic(load_v1(stem))
+            diag = AnalysisDiagnostic.model_validate(document)
+            assert "image_analyzer" not in document
+            # converting a v2 document is a no-op
+            assert convert_v1_diagnostic(document) == document
+            assert (
+                AnalysisDiagnostic.model_validate(diag.model_dump(mode="json")) == diag
+            )
 
-    def test_lift_does_not_mutate_the_input(self):
+    def test_converter_does_not_mutate_the_input(self):
         data = load_v1("ict_line")
         before = yaml.safe_dump(data)
-        AnalysisDiagnostic.model_validate(data)
+        convert_v1_diagnostic(data)
         assert yaml.safe_dump(data) == before
 
 

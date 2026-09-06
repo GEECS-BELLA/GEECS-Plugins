@@ -2,7 +2,7 @@
 
 The loader reads two shapes:
 
-* A diagnostic document (v2, or v1 lifted automatically) — ``load_diagnostic``
+* A diagnostic document (v2) — ``load_diagnostic``
   returns the typed document; ``load_camera_config`` / ``load_line_config``
   return its ``image:`` section.
 * A bare camera / line mapping — ``load_camera_config`` /
@@ -60,7 +60,7 @@ class TestImageSectionLoaders:
         cfg = load_camera_config(path)
         assert cfg.bit_depth == 16
 
-    def test_load_camera_config_from_v1_diagnostic_yaml(self, tmp_path):
+    def test_v1_diagnostic_yaml_is_refused_with_converter_hint(self, tmp_path):
         path = tmp_path / "UC_Legacy.yaml"
         path.write_text(
             yaml.safe_dump(
@@ -71,7 +71,8 @@ class TestImageSectionLoaders:
                 }
             )
         )
-        assert load_camera_config(path).bit_depth == 12
+        with pytest.raises(ValueError, match="convert.analysis_diagnostics"):
+            load_camera_config(path)
 
     def test_load_line_config_from_diagnostic_yaml(self, tmp_path):
         path = tmp_path / "U_Line.yaml"
@@ -181,27 +182,6 @@ class TestLoadDiagnosticOverrides:
             load_diagnostic(path, overrides={"image": {"bit_depth": 99}})
         with pytest.raises(ValueError, match="Invalid diagnostic config"):
             load_diagnostic(path, overrides={"scan": {"mode": "per_frame"}})
-
-    def test_overrides_on_a_v1_file_may_use_v2_names(self, tmp_path):
-        path = tmp_path / "U_Line.yaml"
-        path.write_text(
-            yaml.safe_dump(
-                {
-                    "name": "U_Line",
-                    "image_analyzer": "image_analysis.analyzers.line_analyzer.LineAnalyzer",
-                    "image": {
-                        "type": "line",
-                        "data_loading": {"data_type": "csv"},
-                        "background": {"method": "constant", "constant_value": 1.0},
-                    },
-                }
-            )
-        )
-        diag = load_diagnostic(
-            path, overrides={"image": {"background": {"constant_level": 2.5}}}
-        )
-        # the v1 key is lifted onto the v2 name; the override (already v2) wins
-        assert diag.image.background.constant_level == 2.5
 
     def test_empty_or_none_overrides_are_no_overrides(self, tmp_path):
         path = self._write_diagnostic(tmp_path)

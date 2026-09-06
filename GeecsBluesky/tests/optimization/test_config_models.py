@@ -50,7 +50,7 @@ def _diag(*, name: str, scan: dict | None = None):
     return DiagnosticAnalysisConfig.model_validate(
         {
             "name": name,
-            "image_analyzer": {"class_path": _BEAM_PATH, "kwargs": {}},
+            "analyzer": {"kind": "beam"},
             "image": _camera_image(),
             "scan": scan or {},
         }
