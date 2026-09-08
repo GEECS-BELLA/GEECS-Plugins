@@ -78,7 +78,10 @@ class TestListing:
         )
         # nested files are seen (the loaders rglob) with their folder as namespace
         assert entries["Deep"].valid and entries["Deep"].namespace == "PW/sub"
-        assert store.namespaces("analyzer") == ["HTU", "PW", "PW/sub"]
+        assert store.namespaces("analyzer") == [
+            "HTU",
+            "PW",
+        ]  # nested: readable, not a save target
         assert store.known_ids() == [
             "Broken",
             "Deep",
@@ -111,6 +114,9 @@ class TestReadValidate:
         assert loaded.etag
         loaded = ConfigStore(tree).read("analyzer", "Listy")
         assert not loaded.valid and "mapping" in loaded.errors[0]["msg"]
+        (tree / "analyzers" / "HTU" / "Latin1.yaml").write_bytes(b"name: caf\xe9\n")
+        loaded = ConfigStore(tree).read("analyzer", "Latin1")
+        assert not loaded.valid and "decode" in loaded.errors[0]["msg"].lower()
 
     def test_read_missing_is_not_found(self, tree):
         with pytest.raises(NotFound):

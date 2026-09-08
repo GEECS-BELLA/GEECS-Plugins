@@ -217,17 +217,16 @@ class ConfigStore:
         return self.root / _FOLDERS[kind]
 
     def namespaces(self, kind: DocumentKind) -> list[str]:
-        """The namespaces present for ``kind``, sorted.
+        """The namespaces a document can be saved into: the top-level folders.
 
-        Every sub-folder, plus the (relative) folder of every file found
-        deeper down.
+        Files deeper down are listed and readable (``_files`` walks the whole
+        tree like the runtime loaders) but their nested folder is not offered
+        as a save target — ``save`` takes one path segment.
         """
         folder = self.folder(kind)
         if not folder.is_dir():
             return []
-        names = {p.name for p in folder.iterdir() if p.is_dir()}
-        names.update(self._ns(kind, p) for p in self._files(kind))
-        return sorted(n for n in names if n)
+        return sorted(p.name for p in folder.iterdir() if p.is_dir())
 
     def _files(self, kind: DocumentKind) -> list[Path]:
         """Every YAML file under the kind's folder, at any depth.
@@ -334,7 +333,7 @@ class ConfigStore:
         path = self.path_for(kind, doc_id)
         try:
             raw = self._read_raw(path)
-        except (yaml.YAMLError, DocumentInvalid) as exc:
+        except (yaml.YAMLError, DocumentInvalid, UnicodeDecodeError) as exc:
             raw, valid, errors = {}, False, [{"loc": "", "msg": _one_line(exc)}]
         else:
             report = self.validate(kind, raw)
@@ -345,7 +344,7 @@ class ConfigStore:
             kind=kind,
             document=raw,
             etag=self._etag(path),
-            yaml=path.read_text(encoding="utf-8"),
+            yaml=path.read_text(encoding="utf-8", errors="replace"),
             valid=valid,
             errors=errors,
         )

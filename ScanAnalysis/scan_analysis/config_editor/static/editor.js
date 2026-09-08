@@ -467,6 +467,7 @@
           if (autoPreview || !previewBox.hasChildNodes()) previewDebounced(doc); else markPreviewStale();
         }
       } else {
+        yamlBox.textContent = untouchedInvalid ? state.loadYaml : "";
         errBox.textContent = (banner ? banner + "\n\n" : "") + report.errors.map((e) => `${e.loc}: ${e.msg}`).join("\n"); okBox.textContent = "";
       }
       return report;
