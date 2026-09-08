@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.20.0] - 2026-09-08
 
+### Added
+
+- `geecs_schemas.analysis` exports every processing sub-model (the 2D
+  `ROIConfig`, `BackgroundConfig`, … and the 1D `Line*` models) alongside
+  `CameraConfig` / `Line1DConfig`, so `from geecs_schemas.analysis import …`
+  is the one documented import for the whole vocabulary.
+
 ### Removed
 
 - `geecs_schemas.convert.analysis_diagnostics` (the one-shot v1 → v2
