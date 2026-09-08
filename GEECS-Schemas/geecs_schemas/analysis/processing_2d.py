@@ -8,8 +8,7 @@ source of truth for which steps run and in what order — a step runs if
 and only if it appears there, and its matching section must be present.
 
 Formerly ImageAnalysis' own camera processing models (moved here in GEECS-Schemas
-0.19.0) so the whole diagnostic document validates with pydantic alone;
-ImageAnalysis re-exports every name from here.
+0.19.0) so the whole diagnostic document validates with pydantic alone.
 """
 
 from __future__ import annotations

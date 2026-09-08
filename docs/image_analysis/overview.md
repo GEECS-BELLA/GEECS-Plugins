@@ -97,11 +97,8 @@ image_analysis/
 │   ├── grenouille_analyzer.py   #   FROG pulse characterisation
 │   ├── HASO_himg_has_processor.py  # HASO wavefront sensor
 │   └── …
-├── config/                      # Pydantic models + loaders
-│   ├── array2d_processing.py    #   CameraConfig + per-step configs
-│   ├── array1d_processing.py    #   Line1DConfig + per-step configs
-│   ├── diagnostic.py            #   AnalysisDiagnostic (the YAML schema)
-│   ├── factory.py               #   create_image_analyzer(config)
+├── config/                      # loaders + factory (the MODELS live in geecs_schemas.analysis)
+│   ├── factory.py               #   create_image_analyzer(diag)
 │   └── loader.py                #   load_diagnostic(path)
 ├── processing/                  # Pipeline runtime
 │   ├── array2d/

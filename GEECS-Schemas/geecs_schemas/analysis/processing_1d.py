@@ -7,9 +7,9 @@ not indices), interpolation onto a uniform grid, background, filtering,
 thresholding.  As with cameras, a step runs only when listed.
 
 Formerly ImageAnalysis' own 1D processing models (moved here in GEECS-Schemas
-0.19.0).  The 1D sub-models carry a ``Line`` prefix here so they never
-collide with the camera models of the same role; ImageAnalysis re-exports
-them under their historical short names.
+0.19.0).  The 1D sub-models carry a ``Line`` prefix so they never collide
+with the camera models of the same role; consumers import them by these
+names.
 """
 
 from __future__ import annotations

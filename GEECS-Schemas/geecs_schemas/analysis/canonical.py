@@ -1,7 +1,6 @@
 """The canonical on-disk form of an analysis document.
 
-One rule for every writer (the converter, the config editor's store, a
-notebook): a document is written with the fields that were set, minus
+One rule for every writer (the config editor's store, a notebook): a document is written with the fields that were set, minus
 ``None`` values whose field default is already ``None``, and with
 ``schema_version`` first so a reader sees the format before the content.
 Pydantic-only; YAML serialisation is the caller's.

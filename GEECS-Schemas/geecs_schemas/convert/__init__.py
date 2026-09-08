@@ -1,9 +1,8 @@
 """Converters from the remaining legacy scanner-config YAML dialects.
 
 Scan variables have no converter: ``scan_variables.yaml`` is new-schema only
-(GEECS-Plugins#779).  ``analysis_diagnostics`` is the one-shot v1 → v2
-rewrite of the analysis-config corpus (a CLI, not a runtime lift); import it
-by module so ``python -m`` runs it cleanly.
+(GEECS-Plugins#779).  Analysis diagnostics have none either: the corpus was
+rewritten to v2 once (0.19.0) and is authored v2-only since.
 
 One module per legacy dialect; every converter accepts a parsed dict or a
 YAML path and fails loudly (:class:`SchemaConversionError`) naming exactly

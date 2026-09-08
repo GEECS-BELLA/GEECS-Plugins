@@ -68,8 +68,8 @@ The configuration model post-PR-E is two-tier:
 * **Per-diagnostic configs** under `scan_analysis_configs/analyzers/`. One
   YAML per camera or 1D signal. Each is a
   [`AnalysisDiagnostic`](../image_analysis/overview.md#how-a-diagnostic-is-described)
-  bundling the ImageAnalysis-owned `image:` block, the ScanAnalysis-owned
-  `scan:` block, and a `name` + `image_analyzer` class path.
+  bundling the typed `analyzer:` spec (`kind` + its parameters), the
+  ImageAnalysis-owned `image:` block and the ScanAnalysis-owned `scan:` block.
 
 * **Per-group configs** under `scan_analysis_configs/groups/`. One YAML
   per analyzer group — a named collection of analyzer refs that get run
@@ -97,7 +97,7 @@ wraps it in the appropriate `ScanAnalyzer` (`Array2DScanAnalyzer` for
 camera configs, `Array1DScanAnalyzer` for line configs), and dispatches
 them per-scan according to their priorities.
 
-Authoring these YAMLs by hand is fine; the
+Authoring these YAMLs by hand is fine;
 the **[config editor](../tutorials/analysis.md)** is the friendlier path.
 
 ---
