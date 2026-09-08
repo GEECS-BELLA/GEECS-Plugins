@@ -83,6 +83,30 @@ for tool in git python3.11; do command -v "$tool" >/dev/null || prereq_fail "mis
 echo "  git $(git --version 2>/dev/null | awk '{print $3}'), $(python3.11 --version 2>/dev/null || echo 'python3.11 ?'), poetry $("$GEECS_POETRY" --version 2>/dev/null | awk '{print $NF}' | tr -d ')')"
 [ -d "$GEECS_DATA_ROOT" ] && echo "  data share mounted at $GEECS_DATA_ROOT" || echo "  WARNING: data share not mounted at $GEECS_DATA_ROOT (services start without it, then fail loudly)"
 [ -d "$GEECS_CONFIGS_ROOT" ] && echo "  configs repo at $GEECS_CONFIGS_ROOT" || echo "  WARNING: configs repo not at $GEECS_CONFIGS_ROOT"
+# Redis is the state store the queueserver keeps its queue, history and
+# permissions in. A missing package does NOT fail loudly: the unit treats
+# redis-server.service as ordering only, and launch_re_manager.sh starts its
+# own "redis-server --daemonize yes" whenever nothing answers on 6379 — so the
+# omission silently becomes an UNSUPERVISED Redis that dies with the launcher,
+# is absent after a reboot, and comes back empty (host finding 2026-09-06).
+# Judge the packaged unit, not just a listener on the port.
+REDIS_ROOT_STEP=""
+if wanted qserver; then
+    # systemctl PRINTS the state and still exits non-zero (is-enabled 1 for
+    # disabled), so `$(cmd || echo default)` would capture both and split the
+    # warning across two lines. Take the first line; default only when empty.
+    # `|| true` inside the group is required, not decorative: this script runs
+    # under `set -e -o pipefail`, so an is-enabled exit of 1 (disabled) or 127
+    # (no systemd at all) would otherwise abort the whole bootstrap.
+    redis_enabled="$({ systemctl is-enabled redis-server.service 2>/dev/null || true; } | head -1)"
+    [ -n "$redis_enabled" ] || redis_enabled="absent"
+    if [ "$redis_enabled" = "enabled" ]; then
+        echo "  redis-server.service enabled (the queueserver state store)"
+    else
+        echo "  WARNING: redis-server.service is $redis_enabled — the queueserver launcher would start an UNSUPERVISED redis on 6379; the root steps below install the package"
+        REDIS_ROOT_STEP="yes"
+    fi
+fi
 
 say "clones (one per service family, at $REF)"
 # Clone dirs that are NOT usable clones are recorded here; every later stage
@@ -242,6 +266,14 @@ elif [ "$DRY" -eq 1 ]; then echo "  [dry] render_units.sh $SITE_ENV $STAGE ${TEM
 else RENDER_QUIET=1 "$REPO_ROOT/deploy/render_units.sh" "$SITE_ENV" "$STAGE" "${TEMPLATE_PATHS[@]}" | sed 's/^/  /'; fi
 
 say "root steps (a human runs these; nothing above needed sudo)"
+if [ -n "$REDIS_ROOT_STEP" ]; then
+    # First: geecs-qserver.service is ordered After= this unit, and its
+    # launcher's fallback is what we are here to prevent. Never carry a
+    # dump.rdb across Redis major versions — see the qserver runbook.
+    echo "  sudo apt-get update && sudo apt-get install -y redis-server   # queueserver state store; the package default (loopback only) is correct"
+    echo "  echo 'vm.overcommit_memory = 1' | sudo tee /etc/sysctl.d/99-redis-overcommit.conf >/dev/null && sudo sysctl --system >/dev/null"
+    echo "  sudo systemctl enable --now redis-server.service"
+fi
 echo "  sudo install -D -m 0644 \"$SITE_ENV\" \"$SITE_ENV_INSTALLED\""
 if [ "${#TEMPLATE_PATHS[@]}" -gt 0 ]; then
     echo "  sudo install -m 0644 \"$STAGE\"/*.service /etc/systemd/system/"
@@ -265,6 +297,11 @@ if [ "$SKIP_CLONES" != " " ]; then
     # parsed as part of the name by bash 3.2 under UTF-8 (unbound variable).
     echo "WARNING: skipped clone dir(s):${SKIP_CLONES}— not clones of their own (linked worktree or unreadable .git)." >&2
     echo "         Replace each in a maintenance window per docs/platform/site_profile.md, then rerun this script." >&2
+    echo
+fi
+if [ -n "$REDIS_ROOT_STEP" ]; then
+    echo "WARNING: redis-server.service is not enabled on this host — run the Redis root step above BEFORE" >&2
+    echo "         enabling geecs-qserver, or its launcher will start an unsupervised Redis (see the qserver runbook)." >&2
     echo
 fi
 echo "Then: scripts/fleet_status.sh from any client — every row should read systemd / clean / matching versions."

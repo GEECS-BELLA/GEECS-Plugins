@@ -80,10 +80,17 @@ versions` line means a rollout is incomplete or a box's
 pull-on-restart no-oped — the GeecsPvaGateway runbook's known failure.
 
 **Stage 2 — host checkouts (ssh).** On each host derived from
-config.ini, services are discovered two ways and deduplicated by pid:
-every `geecs-*` (+ `tiled`) systemd unit in **both** system and user
+config.ini, services are discovered three ways. Two are deduplicated by
+pid: every `geecs-*` (+ `tiled`) systemd unit in **both** system and user
 scope, and **whoever owns each fleet port** — a queueserver started by
-hand in tmux has no unit and must still show up. Each process is mapped
+hand in tmux has no unit and must still show up. The third is **Redis**,
+deliberately *not* judged by pid: `ss -p` reveals a pid only for the ssh
+user's own processes (or root) and the packaged Redis runs as the `redis`
+account, so a pid comparison reports a healthy service as absent. Its
+listener is read without `-p`, its supervision comes from the unit state,
+and `redis-cli info server` supplies the version and the server's own pid.
+The `Redis` row appears only where it is relevant: a queueserver unit on
+that host, or something already on 6379. Each process is mapped
 to the clone it runs from (its cwd, or the baked venv's recorded source
 path for the MCP pattern), then: branch, short sha, commit date,
 staged/unstaged counts, pyproject version vs the version installed in
@@ -101,6 +108,10 @@ started (for a baked venv: after the install). The warnings to act on:
 | `Queueserver … NOT READY — worker environment CLOSED` | the unit is up but nothing opened the RE worker environment (every `geecs-qserver` restart recreates this until #793's readiness step lands); the console gets "Plan … is not in the list of allowed plans" | `qserver environment open` from any client env (GeecsBluesky's), then re-run; the plan name in the console's error is a red herring |
 | `Queueserver … readiness UNKNOWN (port only)` | no local env with `bluesky-queueserver` to ask the manager | `/env-doctor` for GeecsBluesky; the port is listening but that proves nothing about plans |
 | `Queueserver … readiness UNKNOWN — plans_allowed unanswered` | the manager answered `status` but not the plan list (a wedged or overloaded manager, or a refused user group) — readiness is an assertion about plans, so none is made | re-run; if it repeats, read the manager's journal on the host before touching the environment |
+| `Redis … answering on 6379 but redis-server.service is <state>` | the queueserver's state store is the **launcher's fallback**, not a supervised service: `launch_re_manager.sh` starts its own daemonized `redis-server` whenever nothing answers, and the unit only orders `After=` it. It dies with whatever started it, is gone after a reboot, and returns empty — the queue and history with it | install the distro package and enable the unit ([qserver runbook](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsBluesky/qserver/deploy/redis.conf-notes.md)); note the pending queue and history do not survive, and **never** carry a `dump.rdb` from a newer Redis onto an older one |
+| `Redis … is disabled — no Redis after a reboot` | the unit runs now but is not enabled, so the next boot has none and the launcher's fallback takes over silently | `sudo systemctl enable redis-server.service` |
+| `Redis … active as pid N but the server on 6379 is pid M` | the unit is up yet something else holds the port; the queueserver talks to the one the unit does not supervise | read both before acting — stop the stray, then confirm the unit owns 6379 |
+| `Redis … nothing answering on 6379` | no state store at all; the next queueserver start manufactures an unsupervised one | install/enable the package **before** starting `geecs-qserver` |
 
 Any unit whose clone is on a branch other than `master` is a fact to
 surface, not a fault — feature-branch deploys for live checks are

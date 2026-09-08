@@ -77,3 +77,15 @@ def test_real_findings_still_mark_attention() -> None:
     rec = m["Data Portal"]
     assert fleet_table.glyph(rec) == "!"
     assert fleet_table.notes(rec) == ["venv 0.20.1 ≠ pyproject 0.20.2"]
+
+
+def test_redis_sorts_after_the_services_that_depend_on_it() -> None:
+    """Display order: the state store reads below its consumers, not above.
+
+    The Redis row's glyph and notes are asserted in
+    ``test_fleet_status_redis_sh.py`` against records the script really
+    emits, not hand-copied fixtures that can fossilize apart from it.
+    """
+    order = fleet_table.ROLE_ORDER
+    assert order.index("Redis") > order.index("Queueserver RE Manager")
+    assert order.index("Redis") > order.index("Capture daemon")
