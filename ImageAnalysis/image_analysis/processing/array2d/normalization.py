@@ -7,7 +7,7 @@ implemented as a separate function for clarity and testability.
 
 import logging
 from ...types import Array2D
-from image_analysis.config.array2d_processing import (
+from geecs_schemas.analysis.processing_2d import (
     NormalizationConfig,
     NormalizationMethod,
 )

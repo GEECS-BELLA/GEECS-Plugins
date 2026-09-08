@@ -6,7 +6,7 @@ the device's files are, whether to run per shot or per bin, what to save,
 which scan-log cell gets the summary figure, and where a scan-dependent
 background comes from.
 
-Relocated from ``scan_analysis.config.diagnostic_models`` (GEECS-Schemas
+Formerly ScanAnalysis' own ``ScanRuntimeConfig`` (moved here in GEECS-Schemas
 0.19.0) so the whole document types in one place.
 """
 

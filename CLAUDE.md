@@ -150,7 +150,7 @@ LogMaker4GoogleDocs  →  (no intra-repo deps — pure Google API wrapper)
 GEECS-Schemas        →  (no intra-repo deps — pydantic-only config vocabulary)
 
 ImageAnalysis        →  GEECS-Data-Utils, GEECS-Schemas (the analysis-config
-                        documents and processing models it re-exports)
+                        documents and processing models it consumes)
 GEECS-Core           →  (no intra-repo deps — the GEECS access library:
                         transport, DB, PV naming, exceptions, fake server)
 GeecsCAGateway       →  GEECS-Core (the access library it serves over CA),

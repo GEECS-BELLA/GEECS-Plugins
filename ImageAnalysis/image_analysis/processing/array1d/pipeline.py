@@ -16,7 +16,7 @@ import logging
 import numpy as np
 
 from .background import compute_background, subtract_background
-from image_analysis.config.array1d_processing import Line1DConfig, PipelineStepType
+from geecs_schemas.analysis.processing_1d import Line1DConfig, LinePipelineStepType
 from .filtering import apply_filtering
 from .interpolation import apply_interpolation
 from .roi import apply_roi_1d
@@ -79,14 +79,14 @@ def apply_line_processing_pipeline(
 
     # Execute pipeline steps in order
     for step in steps:
-        if step == PipelineStepType.ROI:
+        if step == LinePipelineStepType.ROI:
             if config.roi is not None:
                 processed = apply_roi_1d(processed, config.roi)
                 if return_intermediate:
                     intermediate["roi"] = processed.copy()
                 logger.debug("Applied ROI filtering")
 
-        elif step == PipelineStepType.BACKGROUND:
+        elif step == LinePipelineStepType.BACKGROUND:
             if config.background is not None:
                 background = compute_background(
                     processed, config.background, config.data_loading
@@ -96,21 +96,21 @@ def apply_line_processing_pipeline(
                     intermediate["background"] = processed.copy()
                 logger.debug("Applied background subtraction")
 
-        elif step == PipelineStepType.FILTERING:
+        elif step == LinePipelineStepType.FILTERING:
             if config.filtering is not None:
                 processed = apply_filtering(processed, config.filtering)
                 if return_intermediate:
                     intermediate["filtered"] = processed.copy()
                 logger.debug("Applied filtering")
 
-        elif step == PipelineStepType.THRESHOLDING:
+        elif step == LinePipelineStepType.THRESHOLDING:
             if config.thresholding is not None:
                 processed = apply_thresholding(processed, config.thresholding)
                 if return_intermediate:
                     intermediate["thresholded"] = processed.copy()
                 logger.debug("Applied thresholding")
 
-        elif step == PipelineStepType.INTERPOLATION:
+        elif step == LinePipelineStepType.INTERPOLATION:
             if config.interpolation is not None:
                 processed = apply_interpolation(processed, config.interpolation)
                 if return_intermediate:
@@ -148,23 +148,27 @@ def validate_pipeline_config(config: Line1DConfig) -> list[str]:
     # Check if pipeline steps reference configs that don't exist
     if config.pipeline:
         for step in config.pipeline:
-            if step == PipelineStepType.ROI and config.roi is None:
+            if step == LinePipelineStepType.ROI and config.roi is None:
                 warnings.append("Pipeline includes ROI step but no ROI config provided")
             elif (
-                step == PipelineStepType.INTERPOLATION and config.interpolation is None
+                step == LinePipelineStepType.INTERPOLATION
+                and config.interpolation is None
             ):
                 warnings.append(
                     "Pipeline includes INTERPOLATION step but no interpolation config provided"
                 )
-            elif step == PipelineStepType.BACKGROUND and config.background is None:
+            elif step == LinePipelineStepType.BACKGROUND and config.background is None:
                 warnings.append(
                     "Pipeline includes BACKGROUND step but no background config provided"
                 )
-            elif step == PipelineStepType.FILTERING and config.filtering is None:
+            elif step == LinePipelineStepType.FILTERING and config.filtering is None:
                 warnings.append(
                     "Pipeline includes FILTERING step but no filtering config provided"
                 )
-            elif step == PipelineStepType.THRESHOLDING and config.thresholding is None:
+            elif (
+                step == LinePipelineStepType.THRESHOLDING
+                and config.thresholding is None
+            ):
                 warnings.append(
                     "Pipeline includes THRESHOLDING step but no thresholding config provided"
                 )

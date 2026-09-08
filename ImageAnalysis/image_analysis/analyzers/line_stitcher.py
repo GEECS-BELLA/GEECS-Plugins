@@ -23,7 +23,7 @@ from geecs_schemas.analysis import LineStitcherSpec
 
 from image_analysis.data_1d_utils import read_1d_data
 from image_analysis.analyzers.line_analyzer import LineAnalyzer
-from image_analysis.config.array1d_processing import Line1DConfig
+from geecs_schemas.analysis.processing_1d import Line1DConfig
 from image_analysis.types import Array1D, ImageAnalyzerResult
 
 logger = logging.getLogger(__name__)

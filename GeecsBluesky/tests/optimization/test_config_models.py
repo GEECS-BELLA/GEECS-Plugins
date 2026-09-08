@@ -3,7 +3,7 @@
 Tests validate schema correctness, auto-generation of device_requirements,
 BaseOptimizerConfig validation logic, and the generator factory.
 No live connections or scan files required — the diagnostic loader is
-patched to return synthesised ``DiagnosticAnalysisConfig`` fakes.
+patched to return synthesised ``AnalysisDiagnostic`` fakes.
 """
 
 from __future__ import annotations
@@ -30,24 +30,24 @@ _BEAM_PATH = "image_analysis.analyzers.beam_analyzer.BeamAnalyzer"
 def _camera_image():
     """Return a minimal CameraConfig for embedding in fake diagnostics.
 
-    The device identity lives on ``DiagnosticAnalysisConfig.name``; ``CameraConfig``
+    The device identity lives on ``AnalysisDiagnostic.name``; ``CameraConfig``
     no longer carries a ``name`` field, so a default instance is all that is needed.
     """
-    from image_analysis.config import CameraConfig
+    from geecs_schemas.analysis import CameraConfig
 
     return CameraConfig()
 
 
 def _diag(*, name: str, scan: dict | None = None):
-    """Build a ``DiagnosticAnalysisConfig`` for stubbing ``load_diagnostic``.
+    """Build a ``AnalysisDiagnostic`` for stubbing ``load_diagnostic``.
 
     Uses BeamAnalyzer + a trivial CameraConfig so every test gets a 2D-style
     diagnostic by default; bespoke variants are still constructed inline
     when a test needs them.
     """
-    from image_analysis.config.diagnostic import DiagnosticAnalysisConfig
+    from geecs_schemas.analysis import AnalysisDiagnostic
 
-    return DiagnosticAnalysisConfig.model_validate(
+    return AnalysisDiagnostic.model_validate(
         {
             "name": name,
             "analyzer": {"kind": "beam"},

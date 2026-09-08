@@ -1,4 +1,4 @@
-"""Generate documentation screenshots for ConfigFileGUI and LiveWatchGUI.
+"""Generate documentation screenshots for LiveWatchGUI.
 
 Runs each app headlessly (QT_QPA_PLATFORM=offscreen) and grabs representative
 states to docs/tutorials/assets/. Designed to be re-run when the GUIs change.
@@ -46,38 +46,6 @@ def _save(widget, name: str) -> None:
     print(f"  saved {out.name}  ({pix.width()}x{pix.height()})")
 
 
-def shoot_configgui(app: QApplication) -> None:
-    """Render ConfigFileGUI through four representative states."""
-    from ConfigFileGUI.config_editor_window import ConfigEditorWindow
-
-    print("ConfigFileGUI:")
-
-    w = ConfigEditorWindow(scan_config_dir=SAMPLE_CONFIGS)
-    w.resize(1400, 900)
-    w.show()
-    _settle(app)
-    _save(w, "configgui_01_initial.png")
-
-    cam_path = SAMPLE_CONFIGS / "analyzers/HTU/UC_TopView.yaml"
-    w._on_file_selected(cam_path, "analyzer")
-    _settle(app)
-    _save(w, "configgui_02_analyzer_camera.png")
-
-    w._toggle_yaml_action.setChecked(True)
-    w._on_toggle_yaml_preview(True)
-    _settle(app)
-    _save(w, "configgui_03_yaml_preview.png")
-
-    w._toggle_yaml_action.setChecked(False)
-    w._on_toggle_yaml_preview(False)
-    grp_path = SAMPLE_CONFIGS / "groups/HTU/baseline.yaml"
-    w._on_file_selected(grp_path, "group")
-    _settle(app)
-    _save(w, "configgui_04_group.png")
-
-    w.close()
-
-
 def shoot_livewatch(app: QApplication) -> None:
     """Render LiveWatchGUI with sample configs wired into the group dropdown."""
     # Point ScanPaths at the sample configs *before* importing LiveWatchWindow
@@ -117,7 +85,6 @@ def shoot_livewatch(app: QApplication) -> None:
 def main() -> int:
     """Generate every documentation screenshot in one pass."""
     app = QApplication(sys.argv)
-    shoot_configgui(app)
     shoot_livewatch(app)
     return 0
 

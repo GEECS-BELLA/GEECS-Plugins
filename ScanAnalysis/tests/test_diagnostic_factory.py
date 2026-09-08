@@ -1,13 +1,14 @@
-"""Tests for the diagnostic-factory: DiagnosticAnalysisConfig → ScanAnalyzer."""
+"""Tests for the diagnostic-factory: AnalysisDiagnostic → ScanAnalyzer."""
 
 from __future__ import annotations
 
 import yaml
 
 
-from image_analysis.config import DiagnosticAnalysisConfig, load_diagnostic
-from image_analysis.config.array1d_processing import Line1DConfig
-from image_analysis.config.array2d_processing import CameraConfig
+from geecs_schemas.analysis import AnalysisDiagnostic
+from image_analysis.config import load_diagnostic
+from geecs_schemas.analysis.processing_1d import Line1DConfig
+from geecs_schemas.analysis.processing_2d import CameraConfig
 from scan_analysis.analyzers.common.array1d_scan_analysis import Array1DScanAnalyzer
 from scan_analysis.analyzers.common.array2D_scan_analysis import Array2DScanAnalyzer
 from scan_analysis.config.diagnostic_factory import create_scan_analyzer
@@ -33,7 +34,7 @@ def _diag(
     alias="beam",
     image=None,
     scan=None,
-) -> DiagnosticAnalysisConfig:
+) -> AnalysisDiagnostic:
     """Build a minimal AnalysisDiagnostic for factory tests.
 
     ``alias`` is a test-fixture shorthand for picking the analyzer spec.
@@ -45,7 +46,7 @@ def _diag(
     elif image is None and alias == "standard_1d":
         image = {"type": "line", "data_loading": {"data_type": "csv"}}
     # haso: no image section
-    return DiagnosticAnalysisConfig(
+    return AnalysisDiagnostic(
         name=name,
         analyzer=_SPECS_BY_ALIAS[alias],
         image=image,

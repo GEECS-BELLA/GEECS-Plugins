@@ -16,12 +16,14 @@ import logging
 
 import numpy as np
 
-from image_analysis.config.array1d_processing import InterpolationConfig
+from geecs_schemas.analysis.processing_1d import LineInterpolationConfig
 
 logger = logging.getLogger(__name__)
 
 
-def apply_interpolation(data: np.ndarray, config: InterpolationConfig) -> np.ndarray:
+def apply_interpolation(
+    data: np.ndarray, config: LineInterpolationConfig
+) -> np.ndarray:
     """Apply interpolation to map 1D data onto a uniform x-axis grid.
 
     This function takes unevenly-spaced 1D data and interpolates it onto
@@ -32,7 +34,7 @@ def apply_interpolation(data: np.ndarray, config: InterpolationConfig) -> np.nda
     ----------
     data : np.ndarray
         Input data in Nx2 format (x, y)
-    config : InterpolationConfig
+    config : LineInterpolationConfig
         Interpolation configuration
 
     Returns

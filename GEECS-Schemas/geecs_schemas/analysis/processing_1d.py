@@ -6,7 +6,7 @@ then run through the ``pipeline`` steps in order — ROI (in x-value units,
 not indices), interpolation onto a uniform grid, background, filtering,
 thresholding.  As with cameras, a step runs only when listed.
 
-Relocated from ``image_analysis.config.array1d_processing`` (GEECS-Schemas
+Formerly ImageAnalysis' own 1D processing models (moved here in GEECS-Schemas
 0.19.0).  The 1D sub-models carry a ``Line`` prefix here so they never
 collide with the camera models of the same role; ImageAnalysis re-exports
 them under their historical short names.

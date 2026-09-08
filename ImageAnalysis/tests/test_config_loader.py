@@ -60,7 +60,7 @@ class TestImageSectionLoaders:
         cfg = load_camera_config(path)
         assert cfg.bit_depth == 16
 
-    def test_v1_diagnostic_yaml_is_refused_with_converter_hint(self, tmp_path):
+    def test_v1_diagnostic_yaml_is_refused(self, tmp_path):
         path = tmp_path / "UC_Legacy.yaml"
         path.write_text(
             yaml.safe_dump(
@@ -71,7 +71,7 @@ class TestImageSectionLoaders:
                 }
             )
         )
-        with pytest.raises(ValueError, match="convert.analysis_diagnostics"):
+        with pytest.raises(ValueError, match="pre-v2"):
             load_camera_config(path)
 
     def test_load_line_config_from_diagnostic_yaml(self, tmp_path):

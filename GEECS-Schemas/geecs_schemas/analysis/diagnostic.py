@@ -9,8 +9,8 @@ tracks.
 This is format version 2.  Version 1 (the pre-0.19.0 unified diagnostic,
 no ``schema_version``, an ``image_analyzer`` class path, analyzer settings
 split between ``image.analysis`` and constructor ``kwargs``) is refused
-here; the corpus was regenerated with
-:mod:`geecs_schemas.convert.analysis_diagnostics`.
+here; the corpus was regenerated in v2 once (0.19.0) and is authored
+v2-only since.
 """
 
 from __future__ import annotations
@@ -33,9 +33,7 @@ ImageSection = Annotated[
 ]
 
 #: The pre-0.19.0 layout is recognised by these keys; such a document is
-#: refused with a pointer to the one-shot converter
-#: (:mod:`geecs_schemas.convert.analysis_diagnostics`) — the corpus is
-#: regenerated in v2, not lifted at run time.
+#: refused — the corpus is v2 only, nothing is lifted at run time.
 _V1_MARKERS = ("image_analyzer",)
 
 
@@ -110,13 +108,13 @@ class AnalysisDiagnostic(VersionedSchemaModel):
     @model_validator(mode="before")
     @classmethod
     def _refuse_v1_layout(cls, data: object) -> object:
-        """Refuse the pre-0.19.0 layout with a pointer to the converter.
+        """Refuse the pre-0.19.0 layout.
 
         A v1 document (``image_analyzer`` class path, analyzer settings in
         ``image.analysis`` / constructor ``kwargs``) or an explicit
-        ``schema_version: 1`` is not lifted here: the analysis-config corpus
-        is regenerated in v2 with
-        ``python -m geecs_schemas.convert.analysis_diagnostics``.
+        ``schema_version: 1`` is not lifted: the analysis-config corpus was
+        regenerated in v2 once (GEECS-Schemas 0.19.0), so a v1 file is a
+        stray to rewrite by hand or restore from the configs repo.
 
         Parameters
         ----------
@@ -140,8 +138,9 @@ class AnalysisDiagnostic(VersionedSchemaModel):
         ):
             raise ValueError(
                 "this is a pre-v2 analysis diagnostic (image_analyzer / "
-                "schema_version 1); regenerate it with "
-                "`python -m geecs_schemas.convert.analysis_diagnostics <tree> --write`"
+                "schema_version 1); the corpus is v2 only — rewrite it as "
+                "`analyzer: {kind: ...}` + `image:` + `scan:` or restore it "
+                "from the configs repo"
             )
         return data
 

@@ -11,10 +11,10 @@ from image_analysis.analyzers.frog_spectral_phase_analyzer import (
 )
 from geecs_schemas.analysis import FrogSpectralPhaseSpec
 
-from image_analysis.config.array1d_processing import (
+from geecs_schemas.analysis.processing_1d import (
     Data1DLoading,
     Line1DConfig,
-    ROI1DConfig,
+    LineROIConfig,
 )
 
 
@@ -28,7 +28,7 @@ def _make_config() -> Line1DConfig:
             y_column=5,
             auxiliary_columns={"weights": 4},
         ),
-        roi=ROI1DConfig(x_min=780.0, x_max=820.0),
+        roi=LineROIConfig(x_min=780.0, x_max=820.0),
         x_units="nm",
         y_units="rad",
     )

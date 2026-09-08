@@ -18,7 +18,7 @@ from image_analysis.tools.rendering import base_render_image
 from geecs_schemas.analysis import HiResMagCamSpec
 
 from image_analysis.analyzers.beam_analyzer import BeamAnalyzer
-from image_analysis.config.array2d_processing import CameraConfig
+from geecs_schemas.analysis.processing_2d import CameraConfig
 from image_analysis.algorithms.bowtie_fit import BowtieFitAlgorithm
 from image_analysis.types import ImageAnalyzerResult
 

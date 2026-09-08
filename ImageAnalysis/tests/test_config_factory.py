@@ -17,11 +17,7 @@ from geecs_schemas.analysis import (
     LineStitcherSpec,
 )
 
-from image_analysis.config import (
-    DiagnosticAnalysisConfig,
-    create_image_analyzer,
-    load_diagnostic,
-)
+from image_analysis.config import create_image_analyzer, load_diagnostic
 
 
 def _write_diagnostic(
@@ -59,7 +55,7 @@ class TestLoadDiagnostic:
     def test_load_by_stem_returns_typed_document(self, configs_tree):
         diag = load_diagnostic("UC_GaiaMode", config_dir=configs_tree)
         assert isinstance(diag, AnalysisDiagnostic)
-        assert DiagnosticAnalysisConfig is AnalysisDiagnostic  # transitional alias
+        assert AnalysisDiagnostic is AnalysisDiagnostic  # transitional alias
         assert diag.name == "UC_GaiaMode"
         assert isinstance(diag.image, CameraConfig)
         assert diag.image.bit_depth == 16
@@ -75,7 +71,7 @@ class TestLoadDiagnostic:
         assert diag.analyzer.kind == "frog_retrieval"
         assert diag.analyzer.N == 256
 
-    def test_v1_document_is_refused_with_converter_hint(self, tmp_path):
+    def test_v1_document_is_refused(self, tmp_path):
         path = tmp_path / "analyzers" / "HTU" / "Legacy.yaml"
         path.parent.mkdir(parents=True)
         path.write_text(
@@ -87,7 +83,7 @@ class TestLoadDiagnostic:
                 }
             )
         )
-        with pytest.raises(ValueError, match="convert.analysis_diagnostics"):
+        with pytest.raises(ValueError, match="pre-v2"):
             load_diagnostic("Legacy", config_dir=tmp_path)
 
     def test_missing_name_raises_keyerror(self, configs_tree):

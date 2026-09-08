@@ -4,7 +4,7 @@ Three public entry points:
 
 * :func:`load_diagnostic` — a diagnostic YAML (by stem or path) →
   :class:`~geecs_schemas.analysis.AnalysisDiagnostic` (format v2; a pre-v2
-  file is refused with a pointer to the one-shot converter).
+  file is refused: the corpus is v2 only).
 * :func:`load_camera_config` / :func:`load_line_config` — the ``image:``
   section of a diagnostic (by stem or path), or a bare camera / line
   YAML or dict, → :class:`CameraConfig` / :class:`Line1DConfig`.  The
@@ -47,7 +47,7 @@ _CONFIG_MANAGER = scan_analysis_config
 
 #: Keys whose presence marks a YAML as a diagnostic document rather than a
 #: bare processing section: the analyzer block, the ``image:`` wrapper, or
-#: the pre-v2 class path (so a stale file gets the model's converter hint).
+#: the pre-v2 class path (so a stale file gets the model's v2-only message).
 _DIAGNOSTIC_MARKERS = ("analyzer", "image_analyzer", "image")
 
 

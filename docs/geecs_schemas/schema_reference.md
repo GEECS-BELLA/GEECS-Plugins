@@ -544,7 +544,7 @@ scan:
   gdoc_slot: 0
   renderer: {cmap: plasma}
 # pre-v2 files (image_analyzer class path, image.analysis, kwargs) are
-# refused; regenerate them with geecs_schemas.convert.analysis_diagnostics.
+# refused; the corpus is v2 only.
 ```
 
 ### StandardAnalyzerSpec

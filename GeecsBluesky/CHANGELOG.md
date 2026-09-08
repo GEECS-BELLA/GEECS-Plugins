@@ -4,6 +4,14 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.76.2] - 2026-09-08
+
+### Changed
+
+- Optimization tests import the analysis-config models from
+  `geecs_schemas.analysis` (the ImageAnalysis/ScanAnalysis re-export shims
+  and aliases are gone — ImageAnalysis 2.2.0, ScanAnalysis 1.21.0).
+
 ## [0.76.1] - 2026-09-05
 
 ### Changed

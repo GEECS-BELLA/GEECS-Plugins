@@ -29,7 +29,7 @@ from image_analysis.processing.array2d import apply_camera_processing_pipeline
 from image_analysis.types import Array2D, ImageAnalyzerResult
 
 # Import existing tools and base classes
-import image_analysis.config.array2d_processing as cfg_2d
+import geecs_schemas.analysis.processing_2d as cfg_2d
 from image_analysis.base import ImageAnalyzer
 
 logger = logging.getLogger(__name__)

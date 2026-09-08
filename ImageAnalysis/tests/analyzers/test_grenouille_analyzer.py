@@ -22,7 +22,7 @@ from geecs_data_utils import ScanPaths, ScanTag
 from geecs_schemas.analysis import FrogRetrievalSpec
 
 from image_analysis.analyzers.grenouille_analyzer import GrenouilleAnalyzer
-from image_analysis.config.array2d_processing import (
+from geecs_schemas.analysis.processing_2d import (
     BackgroundConfig,
     CameraConfig,
     FilteringConfig,

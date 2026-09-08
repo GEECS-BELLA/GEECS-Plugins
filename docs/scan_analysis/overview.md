@@ -9,7 +9,7 @@ s-file. Display figures can optionally be uploaded to a Google Doc e-log via
 
 The fastest way to see it in action is the
 [Analysis tutorial](../tutorials/analysis.md), which walks the canonical
-ConfigFileGUI → group → LiveWatch loop end to end.
+config editor → group → LiveWatch loop end to end.
 
 ---
 
@@ -67,7 +67,7 @@ The configuration model post-PR-E is two-tier:
 
 * **Per-diagnostic configs** under `scan_analysis_configs/analyzers/`. One
   YAML per camera or 1D signal. Each is a
-  [`DiagnosticAnalysisConfig`](../image_analysis/overview.md#how-a-diagnostic-is-described)
+  [`AnalysisDiagnostic`](../image_analysis/overview.md#how-a-diagnostic-is-described)
   bundling the ImageAnalysis-owned `image:` block, the ScanAnalysis-owned
   `scan:` block, and a `name` + `image_analyzer` class path.
 
@@ -98,7 +98,7 @@ camera configs, `Array1DScanAnalyzer` for line configs), and dispatches
 them per-scan according to their priorities.
 
 Authoring these YAMLs by hand is fine; the
-**[ConfigFileGUI](../tutorials/analysis.md)** is the friendlier path.
+the **[config editor](../tutorials/analysis.md)** is the friendlier path.
 
 ---
 
@@ -126,10 +126,9 @@ scan_analysis/
 ├── task_queue.py             # Heartbeat-based queue; claim/release/status YAML
 ├── gdoc_upload.py            # Optional LogMaker4GoogleDocs integration
 ├── config/
-│   ├── diagnostic_models.py      # AnalyzerRef, AnalysisGroupConfig,
-│   │                             #   ResolvedDiagnosticConfig, ScanRuntimeConfig
 │   ├── diagnostic_factory.py     # create_scan_analyzer(diag, ...)
-│   └── analysis_group_loader.py  # discover_analyzers/groups + load_analysis_group
+│   └── analysis_group_loader.py  # discover_analyzers/groups + load_analysis_group,
+│                                 #   ResolvedDiagnosticConfig (models: geecs_schemas.analysis)
 └── analyzers/
     ├── common/
     │   ├── array2D_scan_analysis.py   # Wraps an ImageAnalyzer for 2D shots
@@ -194,7 +193,7 @@ the full surface area.
 ## See also
 
 - The [Analysis tutorial](../tutorials/analysis.md) — the no-Python
-  ConfigFileGUI → group → LiveWatch path.
+  config editor → group → LiveWatch path.
 - [Image Analysis overview](../image_analysis/overview.md) — the
   per-shot processing layer that diagnostic configs configure.
 - [Data Utils overview](../geecs_data_utils/overview.md) — `ScanTag` and

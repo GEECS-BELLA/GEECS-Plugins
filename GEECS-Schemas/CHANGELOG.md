@@ -5,6 +5,16 @@ All notable changes to GEECS-Schemas are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.0] - 2026-09-08
+
+### Removed
+
+- `geecs_schemas.convert.analysis_diagnostics` (the one-shot v1 → v2
+  converter and CLI) and its v1 fixtures: the configs corpus was
+  regenerated once and is authored v2-only since. `AnalysisDiagnostic`
+  still refuses a v1 layout, with a message that says so instead of
+  pointing at the converter.
+
 ## [0.19.1] - 2026-09-08
 
 ### Fixed

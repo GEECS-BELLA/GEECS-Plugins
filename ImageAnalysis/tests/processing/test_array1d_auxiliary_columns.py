@@ -6,12 +6,12 @@ import numpy as np
 import pytest
 
 from image_analysis.analyzers.standard_1d_analyzer import Standard1DAnalyzer
-from image_analysis.config.array1d_processing import (
+from geecs_schemas.analysis.processing_1d import (
     Data1DLoading,
-    InterpolationConfig,
+    LineInterpolationConfig,
     Line1DConfig,
-    PipelineStepType,
-    ROI1DConfig,
+    LinePipelineStepType,
+    LineROIConfig,
 )
 from image_analysis.data_1d_utils import read_1d_data
 
@@ -44,9 +44,9 @@ def _line_config(path: Path, interpolation: bool = False) -> Line1DConfig:
     listed explicitly.
     """
     _write_columnar_tsv(path)
-    steps = [PipelineStepType.ROI]
+    steps = [LinePipelineStepType.ROI]
     if interpolation:
-        steps.append(PipelineStepType.INTERPOLATION)
+        steps.append(LinePipelineStepType.INTERPOLATION)
     return Line1DConfig(
         description="weighted line test",
         data_loading=Data1DLoading(
@@ -56,8 +56,8 @@ def _line_config(path: Path, interpolation: bool = False) -> Line1DConfig:
             y_column=1,
             auxiliary_columns={"weights": 2},
         ),
-        roi=ROI1DConfig(x_min=2.0, x_max=4.0),
-        interpolation=InterpolationConfig(num_points=10) if interpolation else None,
+        roi=LineROIConfig(x_min=2.0, x_max=4.0),
+        interpolation=LineInterpolationConfig(num_points=10) if interpolation else None,
         pipeline=steps,
     )
 

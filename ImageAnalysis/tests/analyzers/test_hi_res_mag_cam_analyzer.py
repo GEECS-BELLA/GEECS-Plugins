@@ -9,7 +9,7 @@ from geecs_schemas.analysis import HiResMagCamSpec
 from image_analysis.analyzers.Undulator.hi_res_mag_cam_analyzer import (
     HiResMagCamAnalyzer,
 )
-from image_analysis.config.array2d_processing import (
+from geecs_schemas.analysis.processing_2d import (
     BackgroundConfig,
     CameraConfig,
 )

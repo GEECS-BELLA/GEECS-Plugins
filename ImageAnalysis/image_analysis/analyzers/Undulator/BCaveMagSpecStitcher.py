@@ -19,7 +19,7 @@ from image_analysis.tools.rendering import base_render_image
 from geecs_schemas.analysis import BCaveMagSpecStitcherSpec
 
 from image_analysis.analyzers.standard_analyzer import StandardAnalyzer
-from image_analysis.config.array2d_processing import CameraConfig
+from geecs_schemas.analysis.processing_2d import CameraConfig
 from image_analysis.types import AnalyzerResultDict
 
 import logging

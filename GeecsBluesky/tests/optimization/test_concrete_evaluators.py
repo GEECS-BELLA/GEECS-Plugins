@@ -27,7 +27,7 @@ from unittest.mock import MagicMock
 
 
 def _fake_diag(device_name: str):
-    """Minimal DiagnosticAnalysisConfig stand-in with ``.name`` set."""
+    """Minimal AnalysisDiagnostic stand-in with ``.name`` set."""
     diag = MagicMock()
     diag.name = device_name
     return diag

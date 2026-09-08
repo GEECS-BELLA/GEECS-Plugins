@@ -3,6 +3,20 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.21.0] - 2026-09-08
+
+### Removed
+
+- **The Qt `ConfigFileGUI`** (6,300 lines) — superseded by the web config
+  editor (`config_editor/`, 1.20.0); it authored the v1 shape the loader
+  refuses. `LiveWatchGUI` stays (PyQt5 remains a Windows dependency for it).
+- `scan_analysis.config.diagnostic_models` and the aliases
+  `ScanRuntimeConfig` / `AnalysisGroupConfig` / `DiagnosticAnalysisConfig`:
+  import `ScanRuntime`, `AnalysisGroup`, `AnalysisDiagnostic` from
+  `geecs_schemas.analysis`. `ResolvedDiagnosticConfig` now lives in
+  `analysis_group_loader` (its producer); `scan_analysis.config` exports
+  only the loader, the factory and that wrapper.
+
 ## [1.20.2] - 2026-09-08
 
 ### Fixed

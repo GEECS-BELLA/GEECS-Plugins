@@ -10,7 +10,7 @@ import numpy as np
 import logging
 from scipy.ndimage import median_filter, gaussian_filter
 from ...types import Array2D
-from image_analysis.config.array2d_processing import FilteringConfig
+from geecs_schemas.analysis.processing_2d import FilteringConfig
 
 logger = logging.getLogger(__name__)
 

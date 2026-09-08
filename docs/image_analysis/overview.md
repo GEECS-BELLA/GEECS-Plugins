@@ -12,7 +12,7 @@ traces, scope captures, FROG spectra).
 
 The fastest way to see it in action is the
 [Analysis tutorial](../tutorials/analysis.md), which walks the canonical
-ConfigFileGUI → group → LiveWatch loop end to end.
+config editor → group → LiveWatch loop end to end.
 
 ---
 
@@ -100,7 +100,7 @@ image_analysis/
 ├── config/                      # Pydantic models + loaders
 │   ├── array2d_processing.py    #   CameraConfig + per-step configs
 │   ├── array1d_processing.py    #   Line1DConfig + per-step configs
-│   ├── diagnostic.py            #   DiagnosticAnalysisConfig (the YAML schema)
+│   ├── diagnostic.py            #   AnalysisDiagnostic (the YAML schema)
 │   ├── factory.py               #   create_image_analyzer(config)
 │   └── loader.py                #   load_diagnostic(path)
 ├── processing/                  # Pipeline runtime
@@ -135,7 +135,7 @@ analyzer = create_image_analyzer(diag)
 result = analyzer.analyze_image(my_image_array)
 
 # 2. From a programmatically-built CameraConfig
-from image_analysis.config import CameraConfig
+from geecs_schemas.analysis import CameraConfig
 from image_analysis.analyzers.beam_analyzer import BeamAnalyzer
 
 # CameraConfig has no ``name`` field after #412 — analyzer identity flows
@@ -167,7 +167,7 @@ metadata.
 
 ## See also
 
-- The [Analysis tutorial](../tutorials/analysis.md) — how ConfigFileGUI
+- The [Analysis tutorial](../tutorials/analysis.md) — how the config editor
   edits these configs and LiveWatch dispatches them at scan time.
 - [Scan Analysis overview](../scan_analysis/overview.md) — how a
   diagnostic config is wrapped into a per-scan workflow (binning,

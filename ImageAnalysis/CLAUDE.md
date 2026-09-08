@@ -23,14 +23,12 @@ image_analysis/
   types.py                         # ImageAnalyzerResult, Array1D, Array2D type aliases
   config/                          # Public configuration API — single entry point
     __init__.py                    # Exports: load_camera_config, load_line_config,
-                                   #          load_diagnostic, create_image_analyzer,
-                                   #          CameraConfig, Line1DConfig + all sub-models
+                                   #          load_diagnostic, list_diagnostics,
+                                   #          create_image_analyzer, analyzer_class
+                                   #          (the MODELS come from geecs_schemas.analysis)
     loader.py                      # YAML → typed model loaders
     factory.py                     # create_image_analyzer(AnalysisDiagnostic)
     registry.py                    # analyzer kind → implementing class
-    diagnostic.py                  # re-export: AnalysisDiagnostic (+ DiagnosticAnalysisConfig alias)
-    array2d_processing.py          # re-export: CameraConfig + 2D sub-models (geecs_schemas.analysis)
-    array1d_processing.py          # re-export: Line1DConfig + 1D sub-models, to_data1d_config
   processing/
     array2d/
       background.py                # apply_background(image, config, *, cache=None)
@@ -113,15 +111,14 @@ v2), the processing sections `CameraConfig` / `Line1DConfig`, the analyzer
 spec union `AnalyzerSpec` (one typed spec per analyzer, discriminated on
 `kind`), and the scan-runtime section `ScanRuntime`. They are pydantic-only,
 so the portal, MCP, CI and the config editor validate a diagnostic without
-this package. `image_analysis.config` re-exports them under the names the
-processing code and analyzers use (`array2d_processing`,
-`array1d_processing`, `diagnostic`) and owns the three things that need the
-analysis stack:
+this package. There is one definition of each model, in GEECS-Schemas —
+the processing code and analyzers import it from there (the 1D models
+under their `Line*` names; no re-export shims). `image_analysis.config`
+owns the three things that need the analysis stack:
 
 - **`loader`** — `load_diagnostic(stem_or_path, config_dir=, overrides=)`
-  → `AnalysisDiagnostic` (v2 only — a pre-v2 file is refused with a
-  pointer to `geecs_schemas.convert.analysis_diagnostics`, the one-shot
-  rewrite the configs repo went through);
+  → `AnalysisDiagnostic` (v2 only — a pre-v2 file is refused; the configs
+  repo was regenerated once and is authored v2-only since);
   `load_camera_config` / `load_line_config` → the `image:` section of a
   diagnostic, or a bare section; `list_diagnostics`.
 - **`factory`** — `create_image_analyzer(diag)`: resolves the class from
@@ -153,8 +150,8 @@ present. Scan-context backgrounds (`scan.background_source`) are resolved
 by ScanAnalysis, which rewrites `image.background` to a static
 `from_file` before per-shot processing. `Line1DConfig.data_loading` is the
 schema `Data1DLoading`; `image_analysis.data_1d_utils.read_1d_data` (and
-`config.array1d_processing.to_data1d_config`) hand it to GEECS-Data-Utils'
-reader as its own `Data1DConfig`.
+its `to_data1d_config`) hand it to GEECS-Data-Utils' reader as its own
+`Data1DConfig` (the two are mirrors, pinned by a test).
 
 **Adding an analyzer** = one spec model in
 `geecs_schemas.analysis.analyzers` (joined into `AnalyzerSpec`, with
@@ -266,7 +263,7 @@ class MyAnalyzerSpec(AnalyzerSpecBase):
 # 3. the class
 from geecs_schemas.analysis import MyAnalyzerSpec
 from image_analysis.analyzers.standard_analyzer import StandardAnalyzer
-from image_analysis.config import CameraConfig
+from geecs_schemas.analysis import CameraConfig
 from image_analysis.types import ImageAnalyzerResult
 
 class MyAnalyzer(StandardAnalyzer):

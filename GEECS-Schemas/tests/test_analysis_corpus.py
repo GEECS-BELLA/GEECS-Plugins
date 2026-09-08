@@ -3,7 +3,7 @@
 Every diagnostic under ``scan_analysis_configs/analyzers/<namespace>/`` and
 every group under ``scan_analysis_configs/groups/`` in the sibling
 GEECS-Plugins-Configs checkout must validate as v2 — directly once the
-corpus is regenerated, through the one-shot converter while it is still v1.
+corpus is v2 only (regenerated once for 0.19.0).
 
 Every namespace is walked, ``UNCLASSIFIED`` included: the legacy flat
 camera configs that used to live there were deleted with the corpus
@@ -18,7 +18,6 @@ import pytest
 import yaml
 
 from geecs_schemas.analysis import AnalysisDiagnostic, AnalysisGroup
-from geecs_schemas.convert.analysis_diagnostics import convert_v1_diagnostic
 
 
 #: namespace/stem → why the v2 schema refuses it (fix belongs in the configs
@@ -39,14 +38,14 @@ def groups(configs):
 
 @pytest.mark.integration
 class TestAnalysisCorpus:
-    def test_every_diagnostic_converts_to_v2(self, configs_repo):
+    def test_every_diagnostic_validates_as_v2(self, configs_repo):
         failures = {}
         lifted = 0
         for path in diagnostics(configs_repo):
             key = f"{path.parent.name}/{path.stem}"
             try:
                 diag = AnalysisDiagnostic.model_validate(
-                    convert_v1_diagnostic(yaml.safe_load(path.read_text()))
+                    yaml.safe_load(path.read_text())
                 )
             except Exception as exc:  # noqa: BLE001 — collected and reported below
                 failures[key] = str(exc).splitlines()[0]

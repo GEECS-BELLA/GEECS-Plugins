@@ -44,10 +44,10 @@ class TestUseInjectedDataThroughDiagnosticFactory:
 
     @pytest.fixture
     def fake_camera_diagnostic(self):
-        from image_analysis.config import CameraConfig
-        from image_analysis.config.diagnostic import DiagnosticAnalysisConfig
+        from geecs_schemas.analysis import CameraConfig
+        from geecs_schemas.analysis import AnalysisDiagnostic
 
-        return DiagnosticAnalysisConfig.model_validate(
+        return AnalysisDiagnostic.model_validate(
             {
                 "name": "UC_Test",
                 "analyzer": {"kind": "beam"},
@@ -58,11 +58,11 @@ class TestUseInjectedDataThroughDiagnosticFactory:
 
     @pytest.fixture
     def fake_line_diagnostic(self):
-        from image_analysis.config import Line1DConfig
-        from image_analysis.config.array1d_processing import Data1DLoading
-        from image_analysis.config.diagnostic import DiagnosticAnalysisConfig
+        from geecs_schemas.analysis import Line1DConfig
+        from geecs_schemas.analysis.processing_1d import Data1DLoading
+        from geecs_schemas.analysis import AnalysisDiagnostic
 
-        return DiagnosticAnalysisConfig.model_validate(
+        return AnalysisDiagnostic.model_validate(
             {
                 "name": "U_TestLine",
                 "analyzer": {"kind": "trace"},

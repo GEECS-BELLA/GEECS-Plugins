@@ -3,6 +3,21 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.2.0] — 2026-09-08
+
+### Removed
+
+- The re-export shims `image_analysis.config.array2d_processing`,
+  `array1d_processing` and `diagnostic` (and the config-model re-exports
+  from `image_analysis.processing.array2d` / `array1d`): one definition per
+  model — import `CameraConfig`, `Line1DConfig`, the processing sub-models
+  and `AnalysisDiagnostic` from `geecs_schemas.analysis` (1D models under
+  their `Line*` names). `image_analysis.config` exports only the loader,
+  the factory and the registry. `to_data1d_config` moved to
+  `image_analysis.data_1d_utils`, next to the reader it serves.
+- The v1 refusal message no longer points at a converter (removed from
+  GEECS-Schemas 0.20.0): the corpus is v2 only.
+
 ## [2.1.1] — 2026-09-06
 
 ### Added

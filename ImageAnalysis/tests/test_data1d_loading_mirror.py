@@ -7,7 +7,7 @@ kept in step by this test — the one place both are importable.
 from geecs_data_utils.io.array1d import Data1DConfig, Data1DType as UtilsType
 from geecs_schemas.analysis import Data1DLoading, Data1DType
 
-from image_analysis.config.array1d_processing import to_data1d_config
+from image_analysis.data_1d_utils import to_data1d_config
 
 
 def test_field_names_and_defaults_match():

@@ -30,7 +30,7 @@ from scan_analysis.config import create_scan_analyzer
 @pytest.fixture
 def fake_camera_config():
     """Minimal CameraConfig the BeamAnalyzer constructor will accept."""
-    from image_analysis.config import CameraConfig
+    from geecs_schemas.analysis import CameraConfig
 
     return CameraConfig()
 
@@ -38,8 +38,8 @@ def fake_camera_config():
 @pytest.fixture
 def fake_line_config():
     """Minimal Line1DConfig the Standard1DAnalyzer constructor will accept."""
-    from image_analysis.config import Line1DConfig
-    from image_analysis.config.array1d_processing import Data1DLoading
+    from geecs_schemas.analysis import Line1DConfig
+    from geecs_schemas.analysis.processing_1d import Data1DLoading
 
     return Line1DConfig(
         data_loading=Data1DLoading(data_type="tdms_scope"),
@@ -54,11 +54,11 @@ def _diag(
     analyzer_kwargs: dict | None = None,
     scan: dict | None = None,
 ):
-    """Construct a ``DiagnosticAnalysisConfig`` for stubbing the loader."""
-    from image_analysis.config.diagnostic import DiagnosticAnalysisConfig
+    """Construct a ``AnalysisDiagnostic`` for stubbing the loader."""
+    from geecs_schemas.analysis import AnalysisDiagnostic
 
     kind = _KIND_BY_CLASS_PATH[class_path]
-    return DiagnosticAnalysisConfig.model_validate(
+    return AnalysisDiagnostic.model_validate(
         {
             "name": name,
             "analyzer": {"kind": kind, **(analyzer_kwargs or {})},

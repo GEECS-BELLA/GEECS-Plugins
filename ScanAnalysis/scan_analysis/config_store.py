@@ -3,7 +3,7 @@
 Plain Python over a ``scan_analysis_configs`` tree — no web framework,
 no Qt — so the config editor's web router, a notebook, MCP or a script
 all edit configs the same way.  Replaces the Qt editor's
-``ConfigFileGUI.config_io`` / ``scan_config_io`` layer.
+Qt ``ConfigFileGUI`` (deleted in 1.21.0).
 
 Rules the store enforces:
 

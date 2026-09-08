@@ -25,13 +25,8 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any, Dict, Optional, Type
 
-from image_analysis.config import (
-    DiagnosticAnalysisConfig,
-    Line1DConfig,
-    create_image_analyzer,
-)
-
-from .diagnostic_models import ScanRuntime
+from geecs_schemas.analysis import AnalysisDiagnostic, Line1DConfig, ScanRuntime
+from image_analysis.config import create_image_analyzer
 
 if TYPE_CHECKING:
     from scan_analysis.base import ScanAnalyzer
@@ -42,7 +37,7 @@ __all__ = ["create_scan_analyzer"]
 
 
 def create_scan_analyzer(
-    diag: DiagnosticAnalysisConfig,
+    diag: AnalysisDiagnostic,
     *,
     id: Optional[str] = None,
     priority: Optional[int] = None,
@@ -59,7 +54,7 @@ def create_scan_analyzer(
 
     Parameters
     ----------
-    diag : DiagnosticAnalysisConfig
+    diag : AnalysisDiagnostic
         Validated diagnostic. ``analyzer`` + ``image`` go to
         :func:`image_analysis.config.create_image_analyzer`; the typed
         ``scan`` section (:class:`ScanRuntime`) drives the wrapper.
@@ -117,7 +112,7 @@ def create_scan_analyzer(
 
 def _wrap_in_scan_analyzer(
     *,
-    diag: DiagnosticAnalysisConfig,
+    diag: AnalysisDiagnostic,
     scan_cfg: ScanRuntime,
     image_analyzer: Any,
     analyzer_id: str,

@@ -14,9 +14,7 @@ from scan_analysis.config.analysis_group_loader import (
     load_analysis_group,
     resolve_group,
 )
-from scan_analysis.config.diagnostic_models import (
-    AnalysisGroupConfig,
-)
+from geecs_schemas.analysis import AnalysisGroup
 
 
 # ---------------------------------------------------------------------------
@@ -116,9 +114,7 @@ class TestResolveGroup:
 
     def test_resolves_string_refs_in_priority_order(self, configs_tree):
         idx = discover_analyzers(configs_tree)
-        group = AnalysisGroupConfig(
-            name="test", analyzers=["GaiaMode", "OAPin2", "FROG"]
-        )
+        group = AnalysisGroup(name="test", analyzers=["GaiaMode", "OAPin2", "FROG"])
         result = resolve_group(group, idx)
 
         # Priorities: FROG=30, OAPin2=50, GaiaMode=100
@@ -127,7 +123,7 @@ class TestResolveGroup:
 
     def test_group_priority_override_applies(self, configs_tree):
         idx = discover_analyzers(configs_tree)
-        group = AnalysisGroupConfig(
+        group = AnalysisGroup(
             name="test",
             analyzers=[{"ref": "GaiaMode", "priority": 5}, "OAPin2"],
         )
@@ -139,7 +135,7 @@ class TestResolveGroup:
 
     def test_disabled_entries_excluded(self, configs_tree):
         idx = discover_analyzers(configs_tree)
-        group = AnalysisGroupConfig(
+        group = AnalysisGroup(
             name="test",
             analyzers=["GaiaMode", {"ref": "OAPin2", "enabled": False}],
         )
@@ -149,13 +145,13 @@ class TestResolveGroup:
 
     def test_unknown_ref_raises_with_known_ids(self, configs_tree):
         idx = discover_analyzers(configs_tree)
-        group = AnalysisGroupConfig(name="test", analyzers=["NotARealAnalyzer"])
+        group = AnalysisGroup(name="test", analyzers=["NotARealAnalyzer"])
         with pytest.raises(ValueError, match="unknown analyzer 'NotARealAnalyzer'"):
             resolve_group(group, idx)
 
     def test_duplicate_refs_rejected(self, configs_tree):
         idx = discover_analyzers(configs_tree)
-        group = AnalysisGroupConfig(name="test", analyzers=["GaiaMode", "GaiaMode"])
+        group = AnalysisGroup(name="test", analyzers=["GaiaMode", "GaiaMode"])
         with pytest.raises(ValueError, match="duplicate analyzer reference"):
             resolve_group(group, idx)
 
@@ -165,7 +161,7 @@ class TestResolveGroup:
             yaml.safe_dump({"analyzer": {"kind": "beam"}})
         )
         idx = discover_analyzers(configs_tree)
-        group = AnalysisGroupConfig(name="test", analyzers=["GaiaMode"])
+        group = AnalysisGroup(name="test", analyzers=["GaiaMode"])
         with pytest.raises(ValueError, match="Invalid diagnostic config"):
             resolve_group(group, idx)
 
@@ -221,5 +217,5 @@ class TestLoadAnalysisGroup:
 
 
 # NB: single-diagnostic loading moved to ``image_analysis.config.load_diagnostic``
-# (returns ``DiagnosticAnalysisConfig`` directly). See
+# (returns ``AnalysisDiagnostic`` directly). See
 # ``ImageAnalysis/tests/test_config_factory.py::TestLoadDiagnostic``.

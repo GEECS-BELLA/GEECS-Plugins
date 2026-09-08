@@ -21,7 +21,7 @@ import matplotlib.pyplot as plt
 
 # Import the StandardAnalyzer parent class
 from image_analysis.analyzers.standard_analyzer import StandardAnalyzer
-import image_analysis.config.array2d_processing as cfg_2d
+import geecs_schemas.analysis.processing_2d as cfg_2d
 
 # Import beam-specific tools
 from image_analysis.algorithms.basic_beam_stats import (

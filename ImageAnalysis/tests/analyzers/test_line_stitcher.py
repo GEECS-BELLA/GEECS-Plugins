@@ -18,7 +18,7 @@ import pytest
 from geecs_schemas.analysis import LineStitcherSpec
 
 from image_analysis.analyzers.line_stitcher import LineStitcher
-from image_analysis.config.array1d_processing import (
+from geecs_schemas.analysis.processing_1d import (
     Data1DLoading,
     Line1DConfig,
 )

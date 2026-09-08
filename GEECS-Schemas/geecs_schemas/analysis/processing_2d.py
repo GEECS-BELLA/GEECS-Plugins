@@ -7,7 +7,7 @@ transforms.  The ``pipeline`` list on :class:`CameraConfig` is the single
 source of truth for which steps run and in what order — a step runs if
 and only if it appears there, and its matching section must be present.
 
-Relocated from ``image_analysis.config.array2d_processing`` (GEECS-Schemas
+Formerly ImageAnalysis' own camera processing models (moved here in GEECS-Schemas
 0.19.0) so the whole diagnostic document validates with pydantic alone;
 ImageAnalysis re-exports every name from here.
 """

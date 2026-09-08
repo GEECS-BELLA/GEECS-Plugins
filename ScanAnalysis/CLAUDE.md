@@ -12,9 +12,9 @@ scan_analysis/
   task_queue.py                    # Task claiming, heartbeat, YAML status system
   gdoc_upload.py                   # GDoc upload integration (optional logmaker dep)
   config/
-    diagnostic_models.py           # Scan-side runtime + group Pydantic models
-    diagnostic_factory.py          # create_scan_analyzer(DiagnosticAnalysisConfig)
-    analysis_group_loader.py       # discover_analyzers/groups + load_analysis_group
+    diagnostic_factory.py          # create_scan_analyzer(AnalysisDiagnostic)
+    analysis_group_loader.py       # discover_analyzers/groups + load_analysis_group,
+                                   #   ResolvedDiagnosticConfig (the models: geecs_schemas.analysis)
   analyzers/
     common/
       single_device_scan_analyzer.py   # SingleDeviceScanAnalyzer base
@@ -34,9 +34,9 @@ with its typed parameters), `image:` (the camera / line processing
 section, consumed by ImageAnalysis) and `scan:` (the typed `ScanRuntime`
 section, consumed here); diagnostics are assembled into `AnalysisGroup`
 files under `groups/<namespace>/<group>.yaml`, which `LiveWatch` and the
-task queue consume directly. The corpus is v2 only (it was regenerated with
-the one-shot `geecs_schemas.convert.analysis_diagnostics`; a pre-v2 file is
-refused at load). Scatter analyzers sit outside the YAML config
+task queue consume directly. The corpus is v2 only (regenerated once for
+GEECS-Schemas 0.19.0; a pre-v2 file is refused at load; there is no
+converter). Scatter analyzers sit outside the YAML config
 system entirely — they are plain Python subclasses of
 `ScatterPlotterAnalysis` (see below) because they don't consume images.
 
@@ -98,9 +98,9 @@ ResolvedDiagnosticConfig          # What the loader hands the factory (this pack
   diagnostic: AnalysisDiagnostic
 ```
 
-`scan_analysis.config` re-exports the models and keeps the pre-1.19.0
-names as aliases (`ScanRuntimeConfig`, `AnalysisGroupConfig`,
-`DiagnosticAnalysisConfig`). The factory picks the wrapper class from
+`scan_analysis.config` exports only its own things — the group loader,
+`ResolvedDiagnosticConfig` and `create_scan_analyzer`; the models are
+imported from `geecs_schemas.analysis`. The factory picks the wrapper class from
 the type of `diag.image` — `Line1DConfig` → `Array1DScanAnalyzer`,
 anything else → `Array2DScanAnalyzer` — and passes
 `scan.renderer.as_kwargs()` (only the options the YAML set) to the
@@ -135,9 +135,8 @@ analyzer:
 
 ### The config editor (`config_store.py` + `config_editor/`)
 
-The web successor to the Qt `ConfigFileGUI` (which still authors the v1
-shape the loader refuses; it is deleted once this reaches parity in use).
-Three layers, so the data portal is one host and not the only one:
+The config editor (the Qt `ConfigFileGUI` it replaced was deleted in
+1.21.0). Three layers, so the data portal is one host and not the only one:
 
 - **`scan_analysis.config_store.ConfigStore(root)`** — plain Python, no
   web, no Qt: `list(kind)` (validity + summary per file), `read(kind, id)`

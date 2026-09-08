@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from image_analysis.config.array2d_processing import (
+from geecs_schemas.analysis.processing_2d import (
     CameraConfig,
     ProcessingStepType,
     VignetteConfig,

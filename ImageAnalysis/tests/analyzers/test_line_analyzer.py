@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from image_analysis.analyzers.line_analyzer import LineAnalyzer
-from image_analysis.config.array1d_processing import Data1DLoading, Line1DConfig
+from geecs_schemas.analysis.processing_1d import Data1DLoading, Line1DConfig
 from image_analysis.tools.synthetic_generators import gaussian_peak_1d
 
 

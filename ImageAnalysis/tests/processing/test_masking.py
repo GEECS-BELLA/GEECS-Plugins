@@ -10,7 +10,7 @@ from image_analysis.processing.array2d.masking import (
     apply_roi_cropping,
     create_mask_from_threshold,
 )
-from image_analysis.config.array2d_processing import (
+from geecs_schemas.analysis.processing_2d import (
     CircularMaskConfig,
     ROIConfig,
 )
