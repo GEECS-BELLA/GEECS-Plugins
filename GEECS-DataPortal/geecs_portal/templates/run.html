@@ -311,7 +311,7 @@
     <span class="t" id="cetitle">config editor</span>
     <label class="dim">diagnostic
       <select id="cediag" title="switch the document under edit; diagnostics for the preview device are listed first"></select></label>
-    <span class="dup"><input id="cedup" placeholder="new id" title="create a copy of the open diagnostic under this id (same namespace); Save then writes it"><button class="act" onclick="ceDuplicate()">duplicate as</button></span>
+    <span class="dup"><input id="cedup" placeholder="new id" title="create a copy of the open diagnostic under this id (same namespace) for the preview device; output_name, scan.device and the stitcher label are not copied; Save then writes it"><button class="act" onclick="ceDuplicate()">duplicate as</button></span>
     <label class="dim">preview device
       <select id="cedev">{% for d in devices %}<option value="{{ d }}"{% if d == sel_device %} selected{% endif %}>{{ d }}</option>{% endfor %}</select></label>
     <label class="dim">shot <input type="number" id="ceshot" min="1" value="{{ shot }}"></label>
@@ -681,6 +681,7 @@ function ceDuplicate() {
   const cur = CE.current();
   const device = document.getElementById("cedev").value;
   // the copy targets the preview device: a variant config for THIS camera
+  // (the editor drops output_name / scan.device / output_label from the copy)
   CE.duplicate(cur.namespace, id, { name: device }).then(() => {
     document.getElementById("cetitle").textContent = `${id} (new — Save to create)`;
     input.value = "";

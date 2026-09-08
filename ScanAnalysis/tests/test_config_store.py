@@ -33,9 +33,18 @@ def tree(tmp_path: Path) -> Path:
     (a / "Broken.yaml").write_text(
         yaml.safe_dump({"name": "x", "analyzer": {"kind": "nope"}})
     )
+    (a / "Tabbed.yaml").write_text(
+        "name: Tabbed\n\tanalyzer: {kind: beam}\n"
+    )  # a tab: not YAML
+    (a / "Listy.yaml").write_text("- not\n- a mapping\n")
     (tmp_path / "analyzers" / "PW").mkdir()
     (tmp_path / "analyzers" / "PW" / "PW_B.yaml").write_text(
         yaml.safe_dump(_doc("PW_B"))
+    )
+    # a file below the namespace folder: the runtime loaders (rglob) load it
+    (tmp_path / "analyzers" / "PW" / "sub").mkdir()
+    (tmp_path / "analyzers" / "PW" / "sub" / "Deep.yaml").write_text(
+        yaml.safe_dump(_doc("Deep"))
     )
     g = tmp_path / "groups" / "HTU"
     g.mkdir(parents=True)
@@ -54,14 +63,30 @@ class TestListing:
     def test_lists_valid_and_invalid_with_summaries(self, tree):
         store = ConfigStore(tree)
         entries = {e.id: e for e in store.list("analyzer")}
-        assert set(entries) == {"UC_A", "Broken", "PW_B"}
+        assert set(entries) == {"UC_A", "Broken", "PW_B", "Tabbed", "Listy", "Deep"}
         assert (
             entries["UC_A"].valid and entries["UC_A"].summary["analyzer_kind"] == "beam"
         )
         assert entries["UC_A"].summary["device"] == "UC_A"
         assert not entries["Broken"].valid and "kind" in (entries["Broken"].error or "")
-        assert store.namespaces("analyzer") == ["HTU", "PW"]
-        assert store.known_ids() == ["Broken", "PW_B", "UC_A"]
+        # malformed files are entries, not a crash of the whole listing
+        assert not entries["Tabbed"].valid and "cannot start any token" in (
+            entries["Tabbed"].error or ""
+        )
+        assert not entries["Listy"].valid and "mapping" in (
+            entries["Listy"].error or ""
+        )
+        # nested files are seen (the loaders rglob) with their folder as namespace
+        assert entries["Deep"].valid and entries["Deep"].namespace == "PW/sub"
+        assert store.namespaces("analyzer") == ["HTU", "PW", "PW/sub"]
+        assert store.known_ids() == [
+            "Broken",
+            "Deep",
+            "Listy",
+            "PW_B",
+            "Tabbed",
+            "UC_A",
+        ]
 
     def test_groups_list(self, tree):
         (entry,) = ConfigStore(tree).list("group")
@@ -75,6 +100,17 @@ class TestReadValidate:
         assert loaded.document["scan"]["priority"] == 5
         assert loaded.etag and "-" in loaded.etag
         assert "name: UC_A" in loaded.yaml
+
+    def test_read_malformed_file_is_an_invalid_document(self, tree):
+        """The editor gets the file as it is plus the parse error — never a 500."""
+        loaded = ConfigStore(tree).read("analyzer", "Tabbed")
+        assert not loaded.valid and loaded.document == {}
+        assert (
+            "cannot start any token" in loaded.errors[0]["msg"] and "\t" in loaded.yaml
+        )
+        assert loaded.etag
+        loaded = ConfigStore(tree).read("analyzer", "Listy")
+        assert not loaded.valid and "mapping" in loaded.errors[0]["msg"]
 
     def test_read_missing_is_not_found(self, tree):
         with pytest.raises(NotFound):

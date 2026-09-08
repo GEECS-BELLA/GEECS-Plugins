@@ -241,9 +241,12 @@ def regenerate_tree(
     *,
     write: bool = False,
     out: Optional[Path] = None,
-    skip_namespaces: frozenset[str] = frozenset({"UNCLASSIFIED"}),
+    skip_namespaces: frozenset[str] = frozenset(),
 ) -> list[str]:
     """Convert every diagnostic and group under a ``scan_analysis_configs`` tree.
+
+    Every namespace is walked (``UNCLASSIFIED`` included — real v2 diagnostics
+    live there since the corpus regeneration); ``skip_namespaces`` is opt-in.
 
     Returns a report (one line per file).  With ``write=False`` nothing is
     written; with ``write=True`` files are rewritten in place (or under

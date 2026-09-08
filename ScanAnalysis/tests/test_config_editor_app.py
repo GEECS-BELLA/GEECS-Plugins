@@ -44,9 +44,28 @@ class TestPagesAndStatic:
     def test_page_and_assets(self, client):
         assert client.get("/").status_code == 200
         assert "ConfigEditor.mount" in client.get("/").text
-        assert client.get("/static/editor.js").status_code == 200
+        js = client.get("/static/editor.js")
+        assert js.status_code == 200
+        assert (
+            js.headers["cache-control"] == "no-cache"
+        )  # ships with ScanAnalysis, not the host
         assert client.get("/static/editor.css").status_code == 200
         assert client.get("/static/other.js").status_code == 404
+
+    def test_a_malformed_file_never_takes_the_editor_down(self, tree):
+        """A tab-indented file is an invalid entry in the listing and an invalid document on read."""
+        (tree / "analyzers" / "HTU" / "Tabbed.yaml").write_text("name: T\n\tx: 1\n")
+        client = TestClient(create_editor_app(tree))
+        listing = client.get("/api/list")
+        assert listing.status_code == 200
+        bad = [a for a in listing.json()["analyzers"] if a["id"] == "Tabbed"]
+        assert (
+            bad and not bad[0]["valid"] and "cannot start any token" in bad[0]["error"]
+        )
+        r = client.get("/api/analyzers/Tabbed")
+        assert r.status_code == 200
+        body = r.json()
+        assert not body["valid"] and body["document"] == {} and "\t" in body["yaml"]
 
 
 class TestApi:

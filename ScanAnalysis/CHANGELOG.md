@@ -3,6 +3,28 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.20.2] - 2026-09-08
+
+### Fixed
+
+- `ConfigStore.list` / `read` no longer crash on a file that is not valid
+  YAML (a tab, a top-level list): it is an invalid entry, and `read` returns
+  the file as it is with the parse error, so the editor stays up and shows
+  it (review of #803, finding 1).
+- The editor keeps **Save disabled** when the opened file does not validate
+  on disk and shows the on-disk YAML plus the error; the schema-shaped form
+  is a reconstruction that drops unknown keys, so saving it unedited would
+  have silently gutted the file (finding 2). Editing arms Save with a
+  "replaces an invalid file" banner.
+- The store walks the tree the way the runtime loaders do (`rglob`), so a
+  nested file is listed, counted for id uniqueness and cross-referenced;
+  its namespace is the relative folder (finding 3).
+- `duplicate()` drops `output_name`, `scan.device` and the stitcher
+  `output_label` from the copy — a copy is a new identity, not a second
+  writer into the original's outputs (finding 5).
+- `/static/*` is served with `Cache-Control: no-cache`, so an editor.js
+  change reaches browsers without a host version bump (finding 7).
+
 ## [1.20.1] - 2026-09-06
 
 ### Changed

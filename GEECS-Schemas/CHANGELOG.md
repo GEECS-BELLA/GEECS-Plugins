@@ -5,6 +5,15 @@ All notable changes to GEECS-Schemas are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.1] - 2026-09-08
+
+### Fixed
+
+- `geecs_schemas.convert.analysis_diagnostics.regenerate_tree` (and the CLI)
+  walk every namespace by default — `UNCLASSIFIED` holds real diagnostics
+  since the corpus regeneration, and a skipped v1 file there would only
+  surface when the loader refused it at run time (review of #803, finding 4).
+
 ## [0.19.0] - 2026-09-05
 
 ### Added

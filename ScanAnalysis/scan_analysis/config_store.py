@@ -179,6 +179,12 @@ _MODELS: dict[str, type[BaseModel]] = {
 _FOLDERS: dict[str, str] = {"analyzer": "analyzers", "group": "groups"}
 
 
+def _one_line(exc: BaseException) -> str:
+    """A parse error on one line (PyYAML's span several: problem, mark, context)."""
+    text = " ".join(str(exc).split())
+    return text[:240] if text else type(exc).__name__
+
+
 def _errors(exc: ValidationError) -> list[dict[str, str]]:
     return [
         {"loc": ".".join(str(part) for part in err["loc"]), "msg": err["msg"]}
@@ -211,21 +217,39 @@ class ConfigStore:
         return self.root / _FOLDERS[kind]
 
     def namespaces(self, kind: DocumentKind) -> list[str]:
-        """The namespace sub-folders present for ``kind`` (sorted)."""
+        """The namespaces present for ``kind``, sorted.
+
+        Every sub-folder, plus the (relative) folder of every file found
+        deeper down.
+        """
         folder = self.folder(kind)
         if not folder.is_dir():
             return []
-        return sorted(p.name for p in folder.iterdir() if p.is_dir())
+        names = {p.name for p in folder.iterdir() if p.is_dir()}
+        names.update(self._ns(kind, p) for p in self._files(kind))
+        return sorted(n for n in names if n)
 
     def _files(self, kind: DocumentKind) -> list[Path]:
+        """Every YAML file under the kind's folder, at any depth.
+
+        The same walk the runtime loaders do (``rglob`` in
+        ``image_analysis.config.loader`` and ScanAnalysis'
+        ``analysis_group_loader``), so what the store lists, checks for
+        duplicate ids and cross-references is exactly what a run will load.
+        """
         folder = self.folder(kind)
         if not folder.is_dir():
             return []
         return sorted(
             p
-            for p in folder.glob("*/*")
+            for p in folder.rglob("*")
             if p.suffix in (".yaml", ".yml") and p.is_file()
         )
+
+    def _ns(self, kind: DocumentKind, path: Path) -> str:
+        """The namespace of a file: its folder relative to the kind's root."""
+        rel = path.parent.relative_to(self.folder(kind)).as_posix()
+        return "" if rel == "." else rel
 
     def path_for(self, kind: DocumentKind, doc_id: str) -> Path:
         """The existing file for ``doc_id`` (unique stem across namespaces)."""
@@ -235,7 +259,7 @@ class ConfigStore:
         if len(matches) > 1:
             raise ConflictError(
                 f"{kind} id {doc_id!r} exists in several namespaces: "
-                f"{sorted(p.parent.name for p in matches)}"
+                f"{sorted(self._ns(kind, p) for p in matches)}"
             )
         return matches[0]
 
@@ -258,24 +282,18 @@ class ConfigStore:
         entries: list[Entry] = []
         model = _MODELS[kind]
         for path in self._files(kind):
-            raw = self._read_raw(path)
+            ns = self._ns(kind, path)
             try:
-                doc = model.model_validate(raw)
+                doc = model.model_validate(self._read_raw(path))
             except ValidationError as exc:
                 entries.append(
-                    Entry(
-                        path.stem, path.parent.name, kind, False, _errors(exc)[0]["msg"]
-                    )
+                    Entry(path.stem, ns, kind, False, _errors(exc)[0]["msg"])
                 )
                 continue
             except Exception as exc:  # noqa: BLE001 — a broken YAML is an entry, not a crash
-                entries.append(
-                    Entry(path.stem, path.parent.name, kind, False, str(exc))
-                )
+                entries.append(Entry(path.stem, ns, kind, False, _one_line(exc)))
                 continue
-            entries.append(
-                Entry(path.stem, path.parent.name, kind, True, None, self._summary(doc))
-            )
+            entries.append(Entry(path.stem, ns, kind, True, None, self._summary(doc)))
         return entries
 
     @staticmethod
@@ -306,19 +324,30 @@ class ConfigStore:
         return data
 
     def read(self, kind: DocumentKind, doc_id: str) -> Loaded:
-        """Read one document as it is on disk, with its etag."""
+        """Read one document as it is on disk, with its etag.
+
+        A file that is not even a YAML mapping still loads — as an invalid
+        document with an empty ``document`` and the parse error in
+        ``errors`` — so the editor can show the file as it is instead of
+        failing the request.
+        """
         path = self.path_for(kind, doc_id)
-        raw = self._read_raw(path)
-        report = self.validate(kind, raw)
+        try:
+            raw = self._read_raw(path)
+        except (yaml.YAMLError, DocumentInvalid) as exc:
+            raw, valid, errors = {}, False, [{"loc": "", "msg": _one_line(exc)}]
+        else:
+            report = self.validate(kind, raw)
+            valid, errors = report.ok, report.errors
         return Loaded(
             id=path.stem,
-            namespace=path.parent.name,
+            namespace=self._ns(kind, path),
             kind=kind,
             document=raw,
             etag=self._etag(path),
             yaml=path.read_text(encoding="utf-8"),
-            valid=report.ok,
-            errors=report.errors,
+            valid=valid,
+            errors=errors,
         )
 
     # ------------------------------------------------------------- validating
@@ -376,12 +405,12 @@ class ConfigStore:
         elsewhere = [
             p
             for p in self._files(kind)
-            if p.stem == doc_id and p.parent.name != namespace
+            if p.stem == doc_id and self._ns(kind, p) != namespace
         ]
         if elsewhere:
             raise ConflictError(
                 f"{kind} id {doc_id!r} already exists in namespace "
-                f"{elsewhere[0].parent.name!r}; ids are unique across the tree"
+                f"{self._ns(kind, elsewhere[0])!r}; ids are unique across the tree"
             )
         exists = target.exists() or target.with_suffix(".yml").exists()
         if exists:

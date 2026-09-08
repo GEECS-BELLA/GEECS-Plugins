@@ -106,7 +106,9 @@ def create_editor_router(
     def static(name: str) -> FileResponse:
         if name not in ("editor.js", "editor.css"):
             raise HTTPException(status_code=404)
-        return FileResponse(_STATIC / name)
+        # the asset ships with ScanAnalysis, not the host page that cache-busts
+        # it by its own version: revalidate every time (the files are small)
+        return FileResponse(_STATIC / name, headers={"Cache-Control": "no-cache"})
 
     @router.get("/api/list")
     def listing() -> JSONResponse:

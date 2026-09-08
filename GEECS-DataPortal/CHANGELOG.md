@@ -3,6 +3,16 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.21.2] - 2026-09-08
+
+### Changed
+
+- The unit template no longer bakes `--config-editor` into `ExecStart`; it
+  appends `$GEECS_PORTAL_EXTRA_ARGS` from `site.env` (the reference
+  `site.env.example` sets `--config-editor`), so a read-only viewer is a
+  site.env choice, not a hand-edit of the rendered unit (review of #803,
+  finding 6). The drawer's "duplicate as" says what is not copied.
+
 ## [0.21.1] - 2026-09-06
 
 ### Fixed

@@ -323,7 +323,7 @@
     const hasPreview = !!opts.preview;
     const layout = opts.layout || "page";
 
-    const state = { kind: null, id: null, namespace: null, etag: null, listing: null, schemas: {}, form: null, dirty: false, get: null, formRoot: null, dirtyEl: null };
+    const state = { kind: null, id: null, namespace: null, etag: null, listing: null, schemas: {}, form: null, dirty: false, get: null, formRoot: null, dirtyEl: null, saveBtn: null, loadError: null, loadYaml: null };
 
     container.innerHTML = "";
     const root = el("div", { class: "ce" + (layout === "drawer" ? " ce-drawer" : hasPreview ? "" : " ce-nopreview") });
@@ -392,6 +392,11 @@
     async function open(kind, id) {
       const loaded = await api(base, `/${kind}s/${encodeURIComponent(id)}`);
       state.kind = kind; state.id = loaded.id; state.namespace = loaded.namespace; state.etag = loaded.etag; state.dirty = false;
+      // A file that does not validate on disk (a stray v1 file, a typo) is
+      // shown as it is: the form is only a schema-shaped reconstruction that
+      // drops unknown keys, so Save stays off until the user edits on purpose.
+      state.loadError = loaded.valid ? null : (loaded.errors || []).map((e) => (e.loc ? `${e.loc}: ` : "") + e.msg).join("\n");
+      state.loadYaml = loaded.valid ? null : loaded.yaml;
       await buildForm(kind, loaded.document, loaded.errors);
       if (side) renderSide();
       if (layout === "page") location.hash = `#/${kind}s/${encodeURIComponent(id)}`;
@@ -401,7 +406,7 @@
       const doc = schema.defaultFor(schema.root);
       if (kind === "analyzer") { doc.name = id; doc.analyzer = { kind: "beam" }; doc.image = { type: "camera" }; }
       if (kind === "group") doc.name = id;
-      state.kind = kind; state.id = id; state.namespace = namespace; state.etag = null;
+      state.kind = kind; state.id = id; state.namespace = namespace; state.etag = null; state.loadError = null; state.loadYaml = null;
       await buildForm(kind, doc, []);
       if (side) renderSide();
     }
@@ -412,7 +417,8 @@
       const dirty = el("span", { class: "dirty" });
       const bar = el("div", { class: "ce-bar" }, title, dirty);
       if (!readOnly) {
-        bar.append(el("button", { type: "button", class: "primary", onclick: save }, state.etag ? "Save" : "Create"));
+        state.saveBtn = el("button", { type: "button", class: "primary", onclick: save, disabled: !!state.loadError, title: state.loadError ? "this file does not validate on disk - edit it first, Save then replaces it" : "" }, state.etag ? "Save" : "Create");
+        bar.append(state.saveBtn);
         if (state.etag) bar.append(el("button", { type: "button", onclick: () => open(kind, state.id) }, "Reload"));
         if (state.etag) bar.append(el("button", { type: "button", onclick: remove }, "Delete"));
       }
@@ -436,7 +442,14 @@
       await validate();
       if (state.etag === null) markDirty();
     }
-    function markDirty() { state.dirty = true; if (state.dirtyEl) state.dirtyEl.textContent = "unsaved"; }
+    function markDirty() { state.dirty = true; if (state.dirtyEl) state.dirtyEl.textContent = "unsaved"; if (state.saveBtn) { state.saveBtn.disabled = false; state.saveBtn.title = ""; } }
+    // The banner an invalid-on-disk file keeps until it is saved over.
+    function loadBanner() {
+      if (!state.loadError) return "";
+      return state.dirty
+        ? `Save will REPLACE a file that does not validate on disk:\n${state.loadError}`
+        : `This file does not validate on disk:\n${state.loadError}\nThe form is a reconstruction from the schema (unknown keys dropped); the YAML pane shows the file as it is. Edit to enable Save.`;
+    }
     const onFormChange = () => { markDirty(); validateDebounced(); };
 
     async function validate() {
@@ -444,14 +457,17 @@
       const doc = state.get();
       const report = await api(base, `/validate/${state.kind}`, { method: "POST", body: JSON.stringify({ document: doc }) });
       Form.showErrors(state.formRoot, report.errors);
+      const banner = loadBanner();
+      const untouchedInvalid = !!state.loadError && !state.dirty;
       if (report.ok) {
-        yamlBox.textContent = report.yaml; errBox.textContent = ""; okBox.textContent = "valid";
-        if (hasPreview && state.kind === "analyzer") {
+        yamlBox.textContent = untouchedInvalid ? state.loadYaml : report.yaml;
+        errBox.textContent = banner; okBox.textContent = banner ? "" : "valid";
+        if (hasPreview && state.kind === "analyzer" && !untouchedInvalid) {
           // first render on open; afterwards only in auto mode, else flag the image stale
           if (autoPreview || !previewBox.hasChildNodes()) previewDebounced(doc); else markPreviewStale();
         }
       } else {
-        errBox.textContent = report.errors.map((e) => `${e.loc}: ${e.msg}`).join("\n"); okBox.textContent = "";
+        errBox.textContent = (banner ? banner + "\n\n" : "") + report.errors.map((e) => `${e.loc}: ${e.msg}`).join("\n"); okBox.textContent = "";
       }
       return report;
     }
@@ -462,7 +478,7 @@
       if (!report || !report.ok) return;
       try {
         const saved = await api(base, `/${state.kind}s/${encodeURIComponent(state.namespace)}/${encodeURIComponent(state.id)}`, { method: "PUT", body: JSON.stringify({ document: state.get(), etag: state.etag }) });
-        state.etag = saved.etag; state.dirty = false; state.dirtyEl.textContent = "saved"; okBox.textContent = "saved";
+        state.etag = saved.etag; state.dirty = false; state.loadError = null; state.loadYaml = null; state.dirtyEl.textContent = "saved"; okBox.textContent = "saved"; errBox.textContent = "";
         await loadListing();
         if (opts.onSaved) opts.onSaved(saved);
         const btn = main.querySelector("button.primary"); if (btn) btn.textContent = "Save";
@@ -520,8 +536,13 @@
     // open diagnostic for the same device, say); Save then creates it.
     async function duplicate(namespace, id, patch) {
       if (!state.get) return;
-      const doc = Object.assign({}, state.get(), patch || {});
-      state.id = id; state.namespace = namespace; state.etag = null;
+      const doc = Object.assign(JSON.parse(JSON.stringify(state.get())), patch || {});
+      // The copy is a new identity: anything that pins the original's data
+      // folder or output location would make the two overwrite each other.
+      delete doc.output_name;
+      if (doc.scan) delete doc.scan.device;
+      if (doc.analyzer) delete doc.analyzer.output_label;
+      state.id = id; state.namespace = namespace; state.etag = null; state.loadError = null; state.loadYaml = null;
       await buildForm(state.kind, doc, []);
       if (side) renderSide();
     }
