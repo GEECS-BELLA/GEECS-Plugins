@@ -473,7 +473,72 @@ for port in $FLEET_PORTS; do
     if [ -n "$unit" ]; then managed="systemd ($unit)"; else managed="UNMANAGED"; fi
     emit "$(role_for_port "$port")" "$(role_for_port "$port") :$port" "$managed" "running pid $pid" "$pid" "" ""
 done
-[ "$SEEN" = " " ] && echo "nounits"
+# 3) Redis — the state store the queueserver keeps (queue, history, permissions).
+# Not a GEECS package and not resolvable to a checkout, so it gets its own
+# record instead of the port-owner path above: what matters here is whether it
+# is SUPERVISED, not which code it runs. launch_re_manager.sh starts its own
+# "redis-server --daemonize yes" whenever nothing answers on 6379 (the unit
+# treats redis-server.service as ordering only, not a requirement), so
+# answering and supervised are different facts — a launcher-started Redis dies
+# with whatever started it and comes back empty.
+#
+# Deliberately NOT judged by pid: ss -p reveals the pid only for the ssh
+# user own processes (or root), and the packaged Redis runs as the redis
+# account, so a pid comparison reports a false absence. The listener is read
+# without -p and supervision comes from the unit state, both readable by any
+# account. Reported only where relevant: a queueserver unit here, or
+# something already on 6379.
+redis_listening=0
+ss -ltnH "sport = :6379" 2>/dev/null | grep -q . && redis_listening=1
+redis_here=0
+case "$SEEN_UNITS" in *" geecs-qserver.service "*) redis_here=1;; esac
+[ "$redis_listening" = "1" ] && redis_here=1
+if [ "$redis_here" = "1" ]; then
+    # systemctl PRINTS the state and still exits non-zero (is-active 3 for
+    # inactive, is-enabled 1 for disabled), so `$(cmd || echo default)` would
+    # capture both strings and embed a newline — splitting this one-line
+    # record in two, which the table drops and the log misreads as an ssh
+    # notice. Take the first line; default only when nothing was printed.
+    # `|| true` guards the pipeline for a caller with -e/pipefail; this
+    # snippet itself runs under set -u only.
+    redis_active="$({ systemctl is-active redis-server.service 2>/dev/null || true; } | head -1)"
+    [ -n "$redis_active" ] || redis_active="inactive"
+    redis_enabled="$({ systemctl is-enabled redis-server.service 2>/dev/null || true; } | head -1)"
+    [ -n "$redis_enabled" ] || redis_enabled="absent"
+    redis_info="$(redis-cli -h 127.0.0.1 info server 2>/dev/null)"
+    redis_ver="$(printf "%s" "$redis_info" | sed -nE "s/^redis_version:([0-9.]+).*/\1/p" | head -1)"
+    # The listening server names its own pid to any loopback client — no
+    # privileges, unlike ss -p. This is what lets the verdict be exact.
+    redis_pid="$(printf "%s" "$redis_info" | sed -nE "s/^process_id:([0-9]+).*/\1/p" | head -1)"
+    redis_main="$(systemctl show -p MainPID --value redis-server.service 2>/dev/null | head -1)"
+    # state= on a stage-2 record is the UNIT state (fleet_table maps it to
+    # proc_state for the glyph), so it must be systemd-shaped.
+    redis_state="$(systemctl show -p ActiveState --value redis-server.service 2>/dev/null)/$(systemctl show -p SubState --value redis-server.service 2>/dev/null)"
+    # NOT "absent/…": fleet_table.glyph reads a leading "absent" as the
+    # not-deployed dot, which would render this finding as benign.
+    case "$redis_state" in /|"") redis_state="inactive/no-unit";; esac
+    if [ "$redis_listening" = "0" ]; then
+        printf "%b\n" "role=Redis\tsvc=redis-server.service\tmanaged=none\tstate=$redis_state\tnote=nothing answering on 6379 — the queueserver has no state store, and its launcher will start an UNSUPERVISED redis on the next start"
+    elif [ "$redis_active" = "active" ] && [ -n "$redis_pid" ] && [ -n "$redis_main" ] \
+         && [ "$redis_main" != "0" ] && [ "$redis_pid" != "$redis_main" ]; then
+        # managed=UNMANAGED, not the unit state: the server on 6379 is
+        # precisely the thing no unit supervises, and fleet_table.runs_as
+        # renders anything else in this field as "?".
+        printf "%b\n" "role=Redis\tsvc=redis :6379\tmanaged=UNMANAGED\tstate=running (not the unit)\tversion=${redis_ver:-?}\tnote=redis-server.service is active as pid $redis_main but the server on 6379 is pid $redis_pid — the queueserver talks to a Redis the unit does not supervise (the launcher fallback, with the unit bound elsewhere)"
+    elif [ "$redis_active" = "active" ]; then
+        r="role=Redis\tsvc=redis-server.service\tmanaged=systemd\tstate=$redis_state\tversion=${redis_ver:-?}"
+        if [ "$redis_enabled" != "enabled" ]; then
+            r="$r\tnote=redis-server.service is $redis_enabled — no Redis after a reboot, and the launcher would then start an unsupervised one"
+        else
+            r="$r\tinfo=loopback 6379, enabled"
+        fi
+        printf "%b\n" "$r"
+    else
+        printf "%b\n" "role=Redis\tsvc=redis :6379\tmanaged=UNMANAGED\tstate=running (no unit)\tversion=${redis_ver:-?}\tnote=answering on 6379 but redis-server.service is $redis_active — this is the qserver launcher fallback: it dies with whatever started it and comes back empty. Install the distro package per the qserver runbook"
+    fi
+    redis_reported=1
+fi
+[ "$SEEN" = " " ] && [ "${redis_reported:-0}" = "0" ] && echo "nounits"
 exit 0
 '
 
@@ -488,8 +553,8 @@ fmt_host_records() {  # stdin: service records -> pretty lines; side effect: not
             *) info "ssh: $line"; continue ;;   # known-hosts notices, remote warnings — not records
         esac
         rec "$line"
-        local role svc managed state since clone branch sha full cdate staged unstaged stale pkg pyproject installed baked pyexe disk disk_full disk_date worktree_of
-        role=""; svc=""; managed=""; state=""; since=""; clone=""; branch=""; sha=""; full=""; cdate=""; staged=""; unstaged=""; stale=""; pkg=""; pyproject=""; installed=""; baked=""; pyexe=""; disk=""; disk_full=""; disk_date=""; worktree_of=""
+        local role svc managed state since clone branch sha full cdate staged unstaged stale pkg pyproject installed baked pyexe disk disk_full disk_date worktree_of rnotes rinfos
+        role=""; svc=""; managed=""; state=""; since=""; clone=""; branch=""; sha=""; full=""; cdate=""; staged=""; unstaged=""; stale=""; pkg=""; pyproject=""; installed=""; baked=""; pyexe=""; disk=""; disk_full=""; disk_date=""; worktree_of=""; rnotes=""; rinfos=""
         local IFS=$'\t' kv
         for kv in $line; do
             case "$kv" in
@@ -500,13 +565,32 @@ fmt_host_records() {  # stdin: service records -> pretty lines; side effect: not
                 installed=*) installed="${kv#*=}" ;; baked=*) baked="${kv#*=}" ;; pyexe=*) pyexe="${kv#*=}" ;;
                 disk=*) disk="${kv#*=}" ;; disk_full=*) disk_full="${kv#*=}" ;; disk_date=*) disk_date="${kv#*=}" ;;
                 worktree_of=*) worktree_of="${kv#*=}" ;;
+                # A stage-2 record may carry its own findings and facts (the
+                # Redis row does): note= is a finding, info= is a fact — the
+                # same split fleet_table.py renders as ! vs plain. Without
+                # this the payload was parsed into nothing and the log showed
+                # only the header line.
+                note=*) rnotes="${rnotes:+$rnotes|}${kv#*=}" ;;
+                info=*) rinfos="${rinfos:+$rinfos|}${kv#*=}" ;;
             esac
         done
         unset IFS
         local tag="[ OK ]"
         case "$state" in active/*|running*) ;; *) tag="[DOWN]" ;; esac
         printf '  %s %-34s %-16s since %s\n' "$tag" "$svc" "$state" "${since:-?}"
-        [ "$managed" = "UNMANAGED" ] && warn "$svc: no systemd unit owns this process (started by hand — tmux/nohup?); it will not survive a reboot or crash"
+        if [ -n "$rnotes" ]; then
+            local n; local IFS='|'
+            for n in $rnotes; do [ -n "$n" ] && warn "$svc: $n"; done
+            unset IFS
+        fi
+        if [ -n "$rinfos" ]; then
+            local i; local IFS='|'
+            for i in $rinfos; do [ -n "$i" ] && info "$i"; done
+            unset IFS
+        fi
+        # An explicit note supersedes the generic guess: Redis on 6379 without
+        # a unit was started by the queueserver launcher, not by hand in tmux.
+        [ "$managed" = "UNMANAGED" ] && [ -z "$rnotes" ] && warn "$svc: no systemd unit owns this process (started by hand — tmux/nohup?); it will not survive a reboot or crash"
         if [ -n "$clone" ]; then
             local d=""
             [ "${staged:-0}" != "0" ] && d="$d  STAGED: $staged file(s)"

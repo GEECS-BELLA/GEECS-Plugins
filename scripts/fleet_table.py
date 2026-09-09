@@ -25,6 +25,7 @@ ROLE_ORDER = [
     "Bluesky doc proxy",
     "Capture daemon",
     "GEECS-MCP",
+    "Redis",
     "PVA image gateways",
 ]
 HEADERS = ["", "Service", "Runs as", "Checkout", "Version", "Notes"]

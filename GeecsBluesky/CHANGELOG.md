@@ -4,7 +4,7 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [0.76.2] - 2026-09-08
+## [0.76.3] - 2026-09-08
 
 ### Changed
 
@@ -12,7 +12,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `geecs_schemas.analysis` (the ImageAnalysis/ScanAnalysis re-export shims
   and aliases are gone — ImageAnalysis 2.2.0, ScanAnalysis 1.21.0).
 
-## [0.76.1] - 2026-09-05
+
+## [0.76.2] - 2026-09-08
 
 ### Changed
 
@@ -21,6 +22,29 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   analysis-config schema overhaul; `diag.scan` is typed in-document, the
   evaluators' `load_diagnostic(..., overrides={"scan": {...}})` calls are
   unchanged). Test fixtures use the schema `Data1DLoading` model.
+
+
+## [0.76.1] - 2026-09-06
+
+### Documentation
+
+- **`qserver/deploy/redis.conf-notes.md`: never carry a `dump.rdb` across
+  Redis major versions, and the launcher starts its own Redis when none
+  answers.** Migrating the interim host off its source-built Redis failed
+  because the spike binary was 8.10.1 (RDB format version 15) and the jammy
+  package is 6.0.16 (reads to version 9): given the newer dump it exits with
+  `Can't handle RDB format version 15`, logged to
+  `/var/log/redis/redis-server.log` and *not* the journal, which shows only
+  `status=1/FAILURE`. The notes now say to start the packaged Redis empty and
+  spell out what that discards — `qs_default_plan_queue` (the pending queue)
+  and `qs_default_plan_history` hold data nothing recreates, while
+  permissions come back from `user_group_permissions.yaml` via the launcher's
+  `--user-group-permissions` every start — and record why a missing package
+  does not fail loudly: `launch_re_manager.sh` starts an unsupervised
+  `redis-server --daemonize yes` whenever nothing answers on 6379, and
+  `geecs-qserver.service` only orders after `redis-server.service` without
+  requiring it. Closes the last site-profile Phase 4 gap; the detection side
+  is in `scripts/fleet_status.sh` and `deploy/bootstrap_host.sh`.
 
 ## [0.76.0] - 2026-09-04
 

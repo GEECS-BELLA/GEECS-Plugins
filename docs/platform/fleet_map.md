@@ -267,7 +267,11 @@ scan running:
    The launch script's own daemonized Redis is a fallback only: it lives
    in the `geecs-qserver` cgroup and dies with every unit restart, taking
    the queue and history with it. An inactive `redis-server` unit on a
-   service host is a finding.
+   service host is a finding — `scripts/fleet_status.sh` reports it as the
+   `Redis` row, and `deploy/bootstrap_host.sh` prints the package's root
+   steps when the unit is not enabled. Do not carry a `dump.rdb` from a
+   newer Redis onto an older one; start empty instead (the runbook's
+   notes give the RDB-version reason).
 2. **`geecs-qserver`** (it pulls in `geecs-qserver-ready`), then
    **`geecs-capture`**; `qserver status` (readiness, not just the port)
    and the capture heartbeat file are the checks.
