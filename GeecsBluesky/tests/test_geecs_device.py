@@ -111,6 +111,24 @@ def test_lookups_accept_geecs_or_attribute_spelling() -> None:
         magnet.child("nope")
 
 
+def test_protocol_named_variables_bind_with_a_trailing_underscore() -> None:
+    """The Amp4 camera has a 'trigger' enum: it must not shadow trigger()."""
+    rows = CAMERA_ROWS + [
+        {"name": "trigger", "settable": True, "variabletype": "choice"},
+        {"name": "name", "variabletype": "string"},
+        {"name": "read", "variabletype": "numeric"},
+    ]
+    cam = GeecsTriggeredDevice("UC_TestCam", rows, experiment="Undulator")
+    assert (
+        callable(cam.trigger) and cam.trigger.__func__ is GeecsTriggeredDevice.trigger
+    )
+    assert isinstance(cam.trigger_, CaSettable)
+    assert cam.child("trigger") is cam.trigger_
+    assert cam.name == "UC_TestCam" and isinstance(cam.name_, SignalR)
+    assert isinstance(cam.read_, SignalR) and callable(cam.read)
+    assert cam.trigger_.name == "UC_TestCam-trigger_"
+
+
 def test_attribute_collision_is_loud() -> None:
     rows = [
         {"name": "Position.Axis 1", "variabletype": "numeric"},

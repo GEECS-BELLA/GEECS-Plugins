@@ -190,7 +190,7 @@ class GeecsDevice(Device):
                 continue
             if meta.name.lower() == ACQ_TIMESTAMP_VARIABLE:
                 continue  # GeecsTriggeredDevice owns the shot stamp child
-            attr = identifier_name(meta.name)
+            attr = self._attribute_for(meta.name)
             if attr.lower() in {a.lower() for a in self._attr_of.values()}:
                 raise ValueError(
                     f"{device}: variables {meta.name!r} and "
@@ -217,6 +217,21 @@ class GeecsDevice(Device):
         self._selected: tuple[str, ...] = self._default_selected
 
     # ------------------------------------------------------------------ build
+    @classmethod
+    def _attribute_for(cls, variable: str) -> str:
+        """The attribute a variable is bound to; protocol names get a trailing ``_``.
+
+        A GEECS variable may be called ``trigger``, ``name``, ``read`` or
+        ``set`` — binding it verbatim would overwrite the Bluesky protocol
+        method of the same name (the Amp4 camera has a ``trigger`` enum).
+        Such variables bind as ``trigger_``; GEECS-name lookups
+        (:meth:`child`, :meth:`configure`) are unaffected.
+        """
+        attr = identifier_name(variable)
+        if attr.startswith("_") or hasattr(cls, attr):
+            attr = attr.lstrip("_") + "_"
+        return attr
+
     def _build_child(
         self, meta: VariableMeta, motor_attrs: set[str]
     ) -> tuple[Device, SignalR]:
