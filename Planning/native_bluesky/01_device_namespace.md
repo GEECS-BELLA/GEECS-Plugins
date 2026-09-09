@@ -1,8 +1,64 @@
 # Phase 1 — devices as long-lived nouns, connected on first use
 
-Status: **in progress** (branch `feature/native-bluesky-plans`). Additive:
-nothing in the existing per-scan construction path changes in this phase;
-the namespace is built *beside* it and the existing plans keep running.
+Status: **built and accepted on hardware 2026-09-09** (branch
+`phase/01-device-namespace`, PR into `feature/native-bluesky-plans`).
+Additive: nothing in the existing per-scan construction path changes in this
+phase; the namespace is built *beside* it and the existing plans keep running.
+
+## What the hardware run taught (2026-09-09, worker box, live gateway)
+
+Three things the mock could not show, each now a rule in the code:
+
+1. **The gateway does not serve every DB variable.** Its served set is
+   subscribed (`get='yes'`) ∪ settable (+ `acq_timestamp`, `CONNECTED`), the
+   same rule the unserved-variables preflight uses. A root device connects
+   every child, so the namespace builds children **only for served
+   variables** (`namespace.served_variable_names`; `include_unserved=True`
+   for offline tooling).
+2. **Many DB rows have no `variabletype`, and the PVs behind them are enums,
+   strings and char-array paths.** The Amp4 camera's `Analysis`, `save`,
+   `trigger`, `localsavingpath`, … all failed a guessed `float`, and one
+   failed child fails the device. Rule: declare `float` only for
+   numeric-typed rows or rows with a numeric hint (`tolerance`/`min`/`max`
+   — `U_S1H:Current` has no type but a tolerance); everything else is
+   `datatype=None`, the CA backend's inferred converter.
+3. **GEECS variable names collide with Bluesky protocol names.** The camera
+   has a settable enum literally called `trigger` (external trigger on/off);
+   bound verbatim it overwrote `trigger()`. Any variable whose attribute
+   collides with a class attribute (`trigger`, `name`, `read`, `set`, …)
+   binds with a trailing underscore (`trigger_`); GEECS-name lookups are
+   unaffected. Checked against the triggered class so the name is the same
+   on every device.
+
+And one design question the DB cannot answer today — **which devices are
+shot-triggered**: `acq_timestamp` is generated inside LabVIEW and is not a
+DB variable (yet). The gateway's PV contract says the PV exists on every
+device but only acquirers push it, so a live probe misclassifies an idle
+camera. Agreed shortcut (Sam): a device whose devicetype variables mention a
+trigger is an acquirer, **unless** its devicetype is a trigger *source*
+(`TRIGGER_SOURCE_DEVICETYPES`: DG645, DG535, Highland DDG, TDK-Lambda). A DB
+`acq_timestamp` row wins outright once it exists; `DeviceRoster.triggered`
+overrides per device. Checked live against all 105 Undulator devices: the
+43 pushing `acq_timestamp` were all classified triggerable; the 10 extra
+classifications were idle acquirers (cameras, ICT scopes, DAQ pads, FROG).
+An optional startup probe logs any device the rule and the gateway disagree
+on, so the exclusion list cannot rot silently.
+
+**Acceptance run** (`tests/test_namespace_hardware.py`, integration-marked):
+namespace of 105 devices from the live DB (53 triggerable); HTU-NoGas armed
+and disarmed through the existing `ShotController`; stock `bp.count` — 3
+shots on `UC_Amp4_IR_input`, `acq_timestamp` advancing at exactly 1 Hz,
+the 9 subscribed columns + the shot stamp; stock `bp.list_scan` over
+`U_S1H.Current` −1 → +1 A in 0.5 A steps — readbacks −0.99984, −0.49966,
+0.00008, 0.50008, 0.99989 A (tolerance 0.05 from the DB); setpoint
+restored to its pre-scan readback in the finalize. Both runs `success`;
+run metadata carries the stock `motors`, `detectors`, `plan_pattern`.
+
+Known naming wart for phase 2: a numeric settable with a DB tolerance
+becomes a `CaMotor`, whose readback attribute is `position`, so the
+camera's `exposure` column reads `UC_Amp4_IR_input-exposure-position`.
+Harmless, but event-key naming should be settled when the preamble starts
+writing s-files from these runs.
 
 ## What exists today (why this phase is needed)
 

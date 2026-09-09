@@ -24,6 +24,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
     preprocessor that connects a namespace device the first time a plan
     touches it (message-level `ensure_connected`; connected devices stay
     connected).
+  - Hardware-driven rules (accepted live 2026-09-09, see
+    `Planning/native_bluesky/01_device_namespace.md`): children only for the
+    gateway's served set (subscribed ∪ settable); non-numeric / untyped
+    variables use the CA backend's inferred datatype; variables named like a
+    protocol method bind with a trailing underscore (`trigger_`); a device is
+    triggerable when its devicetype variables mention a trigger and its type
+    is not a trigger source (`TRIGGER_SOURCE_DEVICETYPES`), a DB
+    `acq_timestamp` row or `DeviceRoster.triggered` overriding.
+  - `tests/test_namespace_hardware.py` (integration-marked): stock `count`
+    and `list_scan` over the namespace against the live gateway.
 
 ### Changed
 
