@@ -3,6 +3,21 @@
 All notable changes to `geecs-ca-gateway` are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and semantic versioning.
 
+## [0.21.0] - 2026-09-09
+
+### Changed
+
+- `effective_vartype` and the vartype tables now live in
+  `geecs_core.db.variable_types` (GEECS-Core 0.5.0); `config.py` re-exports
+  them under the old private names so call sites and `audit.py` are
+  unchanged.
+- **Served type change** carried by that rule: a variable whose `choice`
+  row is a comma-separated option list is served as an enum PV even when
+  `variabletype` says `numeric` (previously a float PV). 18 Undulator
+  variables — filter-wheel style `1,2,3,4,5,6` lists that name
+  configurations — change from `DBR_DOUBLE` to `DBR_ENUM`. PV_CONTRACT.md
+  § "Variable typing" records the rule.
+
 ## [0.20.2] - 2026-09-04
 
 ### Fixed

@@ -392,6 +392,12 @@ not as a gateway derived PV.
 
 ### DB `variabletype` → PV dtype
 
+The resolution rule is `geecs_core.db.variable_types.effective_vartype`
+(GEECS-Core ≥ 0.5.0) — one function shared by this gateway, the PVA gateway
+and GeecsBluesky, so a client's declared type always matches the served PV.
+The canonical DB source is `devicetype_variable.choice_id` → the `choice`
+table (ids 1–4 base types, 5+ option lists); `variabletype` is secondary.
+
 | DB `variabletype` | dtype    | caproto channel | Notes |
 |-------------------|----------|-----------------|-------|
 | `numeric`         | `float`  | `ChannelDouble` | precision + EGU from DB |
@@ -408,7 +414,10 @@ Resolution quirks (all DB-driven, all pinned by tests):
   `image`, `1darray`), it is the *authoritative* type — even when
   `variabletype` says `choice`. (`variabletype='choice'` + `choices='image'`
   is an image variable streaming raw bytes, not a one-option enum.)
-- A blank `variabletype` with a real comma-separated option list infers `enum`.
+- A real comma-separated option list is **always** `enum`, even when
+  `variabletype` says `numeric`: filter-wheel style `1,2,3,4,5,6` lists name
+  configurations, not values (rule change 0.21.0; previously `variabletype`
+  won and such variables were served as floats).
 - A `choice` with no options, more than **16** options, or any option label
   longer than **26** characters cannot be a CA enum (`DBR_ENUM` limits) and
   degrades to a plain string PV — the option text still round-trips verbatim;

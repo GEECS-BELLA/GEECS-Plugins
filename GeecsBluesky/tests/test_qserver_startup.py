@@ -45,6 +45,9 @@ def _no_tiled_subscription(monkeypatch: pytest.MonkeyPatch) -> None:
     through a real or fake config file.
     """
     monkeypatch.setattr("geecs_bluesky.session.subscribe_tiled", lambda *a, **kw: None)
+    # The DB-backed device namespace is exercised by its own test below;
+    # every other in-process run skips it (no GEECS DB here).
+    monkeypatch.setenv("QS_DEVICE_NAMESPACE", "off")
 
 
 def test_startup_profile_defines_re_and_plan_headless(tmp_path: Path) -> None:
@@ -66,6 +69,7 @@ def test_startup_profile_defines_re_and_plan_headless(tmp_path: Path) -> None:
 
     env = dict(os.environ)
     env["QS_EXPERIMENT"] = "TestExp"
+    env["QS_DEVICE_NAMESPACE"] = "off"  # no DB in the hermetic probe
     env["HOME"] = str(tmp_path / "home")
     env.pop("EPICS_CA_ADDR_LIST", None)
     env.pop("EPICS_CA_AUTO_ADDR_LIST", None)
@@ -224,3 +228,42 @@ def test_annotated_plans_carry_descriptions_and_still_validate() -> None:
         SCHEMA_ARTIFACT.as_posix()
         in SCAN_REQUEST_PLAN_ANNOTATION["parameters"]["request"]["description"]
     )
+
+
+def test_startup_exports_the_device_namespace_and_installs_connect_last(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Devices from the roster land in the namespace/__all__; connect_on_demand is outermost."""
+    from geecs_bluesky.namespace import DeviceRoster, GeecsNamespace
+    from geecs_bluesky.preprocessors import connect_on_demand
+
+    monkeypatch.setenv("QS_EXPERIMENT", "TestExp")
+    monkeypatch.setenv("QS_DEVICE_NAMESPACE", "db")
+    roster = DeviceRoster(
+        experiment="TestExp",
+        variables={
+            "U_S1H": [
+                {
+                    "name": "Current",
+                    "settable": True,
+                    "variabletype": None,
+                    "choices": "numeric",
+                    "tolerance": 0.05,
+                    "units": "",
+                    "min": None,
+                    "max": None,
+                },
+            ]
+        },
+        subscribed={"U_S1H": ["Current"]},
+    )
+    monkeypatch.setattr(
+        GeecsNamespace,
+        "from_experiment",
+        classmethod(lambda cls, exp, **kw: cls(roster)),
+    )
+    ns = runpy.run_path(str(STARTUP_PATH), run_name="__not_main__")
+    assert "U_S1H" in ns and "U_S1H" in ns["__all__"]
+    assert ns["U_S1H"].Current.name == "U_S1H-Current"
+    funcs = [getattr(p, "func", p) for p in ns["RE"].preprocessors]
+    assert funcs[-1] is connect_on_demand and funcs.count(connect_on_demand) == 1

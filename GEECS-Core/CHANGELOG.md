@@ -3,6 +3,25 @@
 All notable changes to `geecs-core` are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and semantic versioning.
 
+## [0.5.0] - 2026-09-09
+
+### Added
+
+- `geecs_core.db.variable_types`: the one DB-type rule — `effective_vartype`,
+  `VARTYPE_TO_DTYPE`, `SKIP_VARTYPES`, `CHOICE_TYPE_DESCRIPTORS`,
+  `is_scalar_vartype` — moved verbatim from `geecs_ca_gateway.config` so the
+  CA gateway, the PVA gateway and GeecsBluesky share it without importing a
+  gateway's config module (GEECS-Plugins#807 phase 1). The canonical source is
+  `devicetype_variable.choice_id` → the `choice` table (ids 1–4 base types,
+  5+ enum lists); `variabletype` is the secondary annotation.
+
+### Changed
+
+- **Rule change** carried by the move: a comma-separated option list is
+  always `choice`, even when `variabletype` says `numeric` (filter-wheel
+  style `1,2,3,4,5,6` lists name configurations, not values). Previously
+  `variabletype` won; 18 Undulator variables change from numeric to enum.
+
 ## [0.4.0] - 2026-08-27
 
 ### Added

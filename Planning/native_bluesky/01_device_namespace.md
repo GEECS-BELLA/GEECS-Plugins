@@ -1,180 +1,134 @@
 # Phase 1 — devices as long-lived nouns, connected on first use
 
-Status: **built and accepted on hardware 2026-09-09** (branch
-`phase/01-device-namespace`, PR into `feature/native-bluesky-plans`).
-Additive: nothing in the existing per-scan construction path changes in this
-phase; the namespace is built *beside* it and the existing plans keep running.
+Status: **built; hardware-accepted 2026-09-09 in its first form, then
+re-cut to compose the existing device layer** (see `01a_device_layer_audit.md`
+for why). Branch `phase/01-device-namespace`, PR into
+`feature/native-bluesky-plans`. Additive: the per-scan construction path is
+untouched; the namespace is built beside it and the existing plans keep
+running.
 
-## What the hardware run taught (2026-09-09, worker box, live gateway)
-
-Three things the mock could not show, each now a rule in the code:
-
-1. **The gateway does not serve every DB variable.** Its served set is
-   subscribed (`get='yes'`) ∪ settable (+ `acq_timestamp`, `CONNECTED`), the
-   same rule the unserved-variables preflight uses. A root device connects
-   every child, so the namespace builds children **only for served
-   variables** (`namespace.served_variable_names`; `include_unserved=True`
-   for offline tooling).
-2. **Many DB rows have no `variabletype`, and the PVs behind them are enums,
-   strings and char-array paths.** The Amp4 camera's `Analysis`, `save`,
-   `trigger`, `localsavingpath`, … all failed a guessed `float`, and one
-   failed child fails the device. Rule: declare `float` only for
-   numeric-typed rows or rows with a numeric hint (`tolerance`/`min`/`max`
-   — `U_S1H:Current` has no type but a tolerance); everything else is
-   `datatype=None`, the CA backend's inferred converter.
-3. **GEECS variable names collide with Bluesky protocol names.** The camera
-   has a settable enum literally called `trigger` (external trigger on/off);
-   bound verbatim it overwrote `trigger()`. Any variable whose attribute
-   collides with a class attribute (`trigger`, `name`, `read`, `set`, …)
-   binds with a trailing underscore (`trigger_`); GEECS-name lookups are
-   unaffected. Checked against the triggered class so the name is the same
-   on every device.
-
-And one design question the DB cannot answer today — **which devices are
-shot-triggered**: `acq_timestamp` is generated inside LabVIEW and is not a
-DB variable (yet). The gateway's PV contract says the PV exists on every
-device but only acquirers push it, so a live probe misclassifies an idle
-camera. Agreed shortcut (Sam): a device whose devicetype variables mention a
-trigger is an acquirer, **unless** its devicetype is a trigger *source*
-(`TRIGGER_SOURCE_DEVICETYPES`: DG645, DG535, Highland DDG, TDK-Lambda). A DB
-`acq_timestamp` row wins outright once it exists; `DeviceRoster.triggered`
-overrides per device. Checked live against all 105 Undulator devices: the
-43 pushing `acq_timestamp` were all classified triggerable; the 10 extra
-classifications were idle acquirers (cameras, ICT scopes, DAQ pads, FROG).
-An optional startup probe logs any device the rule and the gateway disagree
-on, so the exclusion list cannot rot silently.
-
-**Acceptance run** (`tests/test_namespace_hardware.py`, integration-marked):
-namespace of 105 devices from the live DB (53 triggerable); HTU-NoGas armed
-and disarmed through the existing `ShotController`; stock `bp.count` — 3
-shots on `UC_Amp4_IR_input`, `acq_timestamp` advancing at exactly 1 Hz,
-the 9 subscribed columns + the shot stamp; stock `bp.list_scan` over
-`U_S1H.Current` −1 → +1 A in 0.5 A steps — readbacks −0.99984, −0.49966,
-0.00008, 0.50008, 0.99989 A (tolerance 0.05 from the DB); setpoint
-restored to its pre-scan readback in the finalize. Both runs `success`;
-run metadata carries the stock `motors`, `detectors`, `plan_pattern`.
-
-Known naming wart for phase 2: a numeric settable with a DB tolerance
-becomes a `CaMotor`, whose readback attribute is `position`, so the
-camera's `exposure` column reads `UC_Amp4_IR_input-exposure-position`.
-Harmless, but event-key naming should be settled when the preamble starts
-writing s-files from these runs.
-
-## What exists today (why this phase is needed)
-
-Every scan constructs fresh device objects from the request's save sets and
-axes (`plans/scan_request_plan.py` → `_DeferredConnectFactories` →
-`GeecsSession.detector/motor/...`), connects them in the preamble
-(`_connect_in_batches` → `ensure_connected`, 20 s per batch) and disconnects
-them in the finalize. The ophyd class is chosen by the device's *role in the
-request* (detector / contributor / snapshot / motor / settable), not by the
-device. The queue-server namespace holds **no devices** (`startup.py`
-exports `RE`, the plans and two functions), so no stock plan can be given a
-device by name, and `user_group_permissions.yaml` gives operators
-`allowed_devices: []`.
+## Why this phase exists
 
 Stock plans take devices as arguments (`count(detectors)`,
 `scan(detectors, motor, ...)`) and stage them. For those to run under the
 queue server, devices must be **nouns in the worker namespace**, resolvable
-by name (`U_S1H`, `U_S1H.current`) and connected without a preamble.
+by name (`U_S1H`, `U_S1H.Current`) and connected without a preamble. Today
+every scan constructs fresh role-specific objects from the request and the
+startup namespace holds no devices at all.
 
-## Design
+## Design — compose, do not invent
 
-### `GeecsDevice` — one ophyd-async device per GEECS device
+The device layer under `geecs_bluesky/devices/ca` already owns every solved
+problem (the audit's table). The namespace only decides **which existing
+class each GEECS device is** and **what hangs off it**:
 
-Built from the GEECS DB roster (`GeecsDb.get_experiment_devices`,
-`get_experiment_device_types`, `get_experiment_device_variables`,
-`get_subscribed_variables` — the same batch queries GeecsPvaGateway uses).
-Children, one per scalar variable, attribute-named with `safe_name(var)`:
+| GEECS device … | becomes | because |
+|---|---|---|
+| acquires per shot (`looks_triggerable`) | `CaGenericDetector(device, subscribed_vars, datatypes=…)` | shot monitor + `trigger()`, shot-ID columns, save controls, asset docs — all already there |
+| anything else | `CaSnapshotReadable(device, subscribed_vars, datatypes=…)` | one sample per row |
+| each served **settable** variable | attached child: `CaMotor` if the DB gives a tolerance (readback convergence), else `CaSettable` | `bps.mv(U_S1H.Current, 0.5)` moves with GEECS semantics; ophyd-async registers and names a child attached after construction |
 
-| variable meta | child |
-|---|---|
-| not settable, scalar | `epics_signal_r(dtype, ca_pv(exp, dev, var))` |
-| settable, `tolerance` in DB **or** catalog `kind: motor` | `CaMotor(dev, var, tolerance=…)` — Movable with readback convergence |
-| settable, otherwise | `CaSettable(dev, var)` — Movable, `:SP` put |
-| `variabletype` image / 1darray / 2darray | **not a CA child** (non-scalar; served over PVA — #806) |
-| device has `acq_timestamp` | device is **Triggerable**: the shot monitor + `trigger()` from `CaTriggerable`, extracted into a mixin so the class is reused, not re-implemented |
-| every device | non-readable `connected_status` child (`Device:CONNECTED`) |
+Rules the namespace applies come from their existing homes, never
+restated:
 
-`dtype`: `numeric` → `float`; `string`/`path`/`choice` → `str`; unknown →
-`float` (the existing `CaSettable` default). Recorded as a decision to
-revisit if a variable type surprises us.
+- **Which variables exist as children** — the gateway's served set
+  (subscribed ∪ settable), from `db_runtime.GeecsDbServedSetProvider`. A
+  root device connects every child, so an unserved child would make it
+  unconnectable (found on hardware).
+- **Which variables `read()` returns** — the DB subscribed list, from
+  `db_runtime.GeecsDbScalarPolicy` (what a `db_scalars` save-set entry
+  logs). A subscribed settable's Movable child is registered as a readable
+  (`add_readables`), so its column is `U_S1H-Current-position`.
+- **Every variable's CA type** — `geecs_core.db.variable_types.effective_vartype`
+  (moved there from the CA gateway in this PR; canonical source is
+  `devicetype_variable.choice_id` → the `choice` table): `numeric` → float,
+  `string`/`path` → str (a path PV is a char array; ophyd-async's `str`
+  reads it as a long string), an option list → enum read as `str` with the
+  choices as metadata, `image`/`1darray` → not a child. No inference, no
+  guessing; the declared type is the type the gateway served the PV with.
+- **Triggerable or not** — `acq_timestamp` is generated inside LabVIEW and
+  is not a DB row yet, so: trigger-named devicetype variables minus the
+  trigger-source devicetypes (DG645, DG535, Highland DDG, TDK-Lambda);
+  a DB `acq_timestamp` row wins; `DeviceRoster.triggered` overrides per
+  device. Checked against all 105 Undulator devices: the 43 pushing
+  `acq_timestamp` all classified; the 10 extras were idle acquirers.
 
-**What `read()` returns — selection through `configure`.** A GEECS save set
-names the variables to log; a stock plan just says `count([UC_Amp4Input])`.
-The device therefore *selects* which children it reads: default = the DB
-"subscribed" (`get='yes'`) list (what GEECS itself logs), else all scalar
-variables; a plan changes it with the stock `bps.configure(dev,
-variables=[...])` (the Bluesky `Configurable` convention — `configure`
-returns `(old, new)` and the selection is reported in
-`read_configuration`, so every descriptor records what was logged and why).
-Phase 2's preamble issues that `configure` from `md["geecs"]["capture"]`.
-`stage()` starts caching the selected signals (monitor-backed reads);
-`unstage()` stops.
+Naming: the namespace and attribute names keep the GEECS spelling when it
+is an identifier (`U_S1H`, `Current`), else `safe_name`; a settable whose
+name collides with a Bluesky/ophyd attribute (`trigger` — the Amp4
+camera's external-trigger enum) binds as `trigger_`. Lookups
+(`namespace.variable`, `namespace.resolve("U_S1H:current")`) accept either
+spelling case-insensitively.
 
-Naming: attribute/namespace names are `safe_name(...)` of the GEECS names
-(the same normalisation PV components use); the device keeps the original
-GEECS device and variable names for PV minting and column headers. A
-collision between two GEECS devices normalising to one name fails the
-namespace build loudly.
+## Lazy connection — `connect_on_demand`
 
-### `GeecsNamespace`
+Installed **outermost** on the RunEngine (`install_connect_on_demand`,
+which removes any earlier instance and re-appends itself; the RE composes
+preprocessors first-appended-innermost, so anything appended later —
+`SupplementalData`, the phase-2 preamble — would otherwise inject messages
+it never sees). Before the first message touching a namespace object it
+yields `ensure_connected(obj)`: message-level, the same stub the current
+preamble uses, so the "no blocking connect inside the RE loop" rule holds.
+Two message shapes carry devices: `msg.obj` (`stage`, `set`, `trigger`,
+`read`, …) and `declare_stream`'s `msg.args`, where the RunEngine
+*describes* the devices before any `read` (found by the P1 test). Stock
+plans stage the **root** ancestor of every device, so a scan over
+`U_S1H.Current` connects all of `U_S1H`'s served children; a bare
+`bps.mv(U_S1H.Current, …)` connects only the child. Connected devices stay
+connected.
 
-`GeecsNamespace.from_experiment(experiment, *, resolver=None)` → the roster
-from the DB; `GeecsNamespace.from_roster(...)` for tests / offline. Holds
-`devices: dict[str, GeecsDevice]` keyed by namespace name, plus
-`by_geecs_name`, `resolve("Device:Variable")` → the child object, and
-`export_into(namespace_dict)` for the startup profile (`__all__` grows by
-the device names). A DB failure at `environment open` **raises** — a worker
-whose device roster is silently empty would fail every plan with
-"unknown device", which is worse than a loud startup failure.
+## Queue server
 
-### Lazy connection: `connect_on_demand` preprocessor
+The startup profile builds the namespace from the DB at `environment open`
+(`QS_DEVICE_NAMESPACE=off` skips it — hermetic tests, a box without DB
+reach), exports the devices into the namespace and `__all__`, and installs
+`connect_on_demand` last. `user_group_permissions.yaml` gives operators
+`allowed_devices: ":?.*:depth=3"` so `U_S1H.Current` is addressable in a
+plan argument. Clutter in the device tree is a permissions/UI concern
+(`:depth=`), not a reason to shape the device model.
 
-Installed once on the RunEngine (`RE.preprocessors.append(...)`). A
-`plan_mutator` that, on the first message in a run touching a namespace
-object (`stage`, `set`, `trigger`, `read`, `configure`, `locate`, …),
-yields `ensure_connected(obj, mock=…, timeout=…)` before it. Connecting is
-**message-level** — the same `ensure_connected` stub the current preamble
-uses — so the standing rule "a lazy connect inside the RE loop deadlocks"
-(which is about *blocking* `run_coroutine_threadsafe` calls from plan
-code) is respected. `ensure_connected` is idempotent (cached connect task),
-so re-touching a device costs nothing.
+## Hardware acceptance (2026-09-09, worker box, live gateway)
 
-Connected devices **stay connected** (no disconnect on `unstage`). This is
-what every EPICS deployment does; channel count is bounded by what plans
-actually use. Revisit with a TTL only if the gateway shows strain.
+`tests/test_namespace_hardware.py` (hardware-marked; `-m integration` does
+not select it): namespace of 105 devices (53 triggerable); HTU-NoGas armed
+and disarmed through the existing `ShotController`; stock `bp.count` — 3
+shots on `UC_Amp4_IR_input`, `acq_timestamp` advancing at exactly 1 Hz, the
+9 subscribed columns + the shot stamp; stock `bp.list_scan` over
+`U_S1H.Current` −1 → +1 A in 0.5 A steps — readbacks −0.99984, −0.49966,
+0.00008, 0.50008, 0.99989 A (DB tolerance 0.05); setpoint restored in the
+finalize. Both runs `success`; run metadata carries the stock `motors`,
+`detectors`, `plan_pattern`. **The re-cut (composition) form has not yet
+been re-run on hardware** — owed before merge; expected identical numbers.
 
-### Queue server
+Three defects the mock could not show, each now a rule above: the served
+set, DB-derived types, the `trigger` name collision.
 
-`startup.py` builds the namespace after the session and exports the
-devices; `user_group_permissions.yaml` operator `allowed_devices` becomes
-`":?.*:depth=3"` so `U_S1H.current` is addressable in plan arguments.
-Plan-argument resolution of dotted sub-device names is stock queueserver
-behaviour (`profile_ops`, `:depth=`).
+## Reuse ledger (for the PR body)
 
-## Acceptance for this phase
+| new symbol | reuses | replaces | new because |
+|---|---|---|---|
+| `namespace.GeecsNamespace` | `CaGenericDetector`, `CaSnapshotReadable`, `CaMotor`, `CaSettable`, `GeecsDbServedSetProvider`, `GeecsDbScalarPolicy`, `GeecsDbDeviceTypes`, `effective_vartype`, `safe_name` | (phase 3) per-scan device factories in `session.py`, `_DeferredConnectFactories`, `_build_request_detectors` | devices as nouns did not exist |
+| `namespace.looks_triggerable` | — | — | the DB cannot answer it yet (LabVIEW-internal `acq_timestamp`) |
+| `namespace.identifier_name` | `safe_name` | — | attribute spelling for plan arguments |
+| `preprocessors.connect_on_demand` | `ensure_connected` (the preamble's stub) | (phase 2) `_connect_in_batches` in the preamble | connection was never lazy |
+| `devices/ca/shot_monitor.py` | moved verbatim from `triggerable.py` | the same code in `triggerable.py` (deleted there) | one implementation for two hosts |
+| `geecs_core.db.variable_types` | moved verbatim from `geecs_ca_gateway.config` | the gateway's copy (deleted; PVA gateway re-pointed) | three packages need it |
+| `datatypes=` on the readables | — | — | the served set is not all floats |
 
-- Unit: namespace from a fake roster (mock), attribute naming, `resolve`,
-  selection/`configure`, Triggerable only for `acq_timestamp` devices,
-  collision detection, DB-failure raise.
-- Mock RE: stock `bp.count([dev], num=3)` and `bp.scan([dev], dev2.var,
-  …)` run against namespace devices with **no GEECS preamble**, connected
-  by the preprocessor, shots paced by `ca_mock_helpers.start_pacer`.
-- Existing suite unchanged (740 green at the branch point).
-- Hardware (headless from the Mac via `GeecsSession.RE`): `bp.count` on
-  the amp4in cameras and `bp.scan` over `U_S1H.current` −1 → 1 A / 0.5 A
-  with the connect-on-demand preprocessor, HTU-NoGas trigger profile
-  armed by hand for this phase (the preamble is phase 2).
+Deleted in this PR: `devices/geecs_device.py` (the first attempt's parallel
+device) and its tests.
 
-## Decisions taken here (record in #807 when the phase lands)
+## Decisions taken here
 
-- Settable children reuse `CaSettable`/`CaMotor` rather than a bare
-  `SignalRW(read_pv, write_pv)`: the gateway acks a `:SP` put before the
-  hardware moves, so move-complete needs the readback convergence those
-  classes already implement.
-- Selection via `configure`, not via passing individual signals as
-  detectors: keeps `detectors=[device]` (how humans, save sets and the
-  OSPREY panel name things) and records the selection in the descriptor.
+- Compose the existing classes; attach **every** served settable (not only
+  catalog scan variables): the noun is the whole device, phase 3's
+  retirement of `CaActionSignalFactory` needs every settable reachable, and
+  tree clutter is handled by `:depth=` permissions.
+- Types from the DB only; `choices`/`choice_id` is canonical; an option
+  list is always an enum (Sam). No inference fallback.
+- Motor vs settable from the DB tolerance (every catalog `kind: motor`
+  target that exists in the DB carries one); catalog `confirm` and
+  `pseudo` entries become namespace nouns in phase 3 with the axis
+  expansion.
 - Keep-connected after first use; no TTL.
 - Loud failure on an unreachable DB at environment open.

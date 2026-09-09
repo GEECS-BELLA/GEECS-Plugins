@@ -503,3 +503,22 @@ def test_from_geecs_experiment_all_variables(monkeypatch) -> None:
     by_name = {d.name: d for d in cfg.devices}
     assert {v.geecs_var for v in by_name["U_A"].variables} == {"Current", "Voltage"}
     assert {v.geecs_var for v in by_name["U_B"].variables} == {"Voltage"}
+
+
+def test_numeric_looking_option_list_is_an_enum() -> None:
+    """PV_CONTRACT §4: an option list is always enum, even with variabletype=numeric."""
+    meta = [
+        {
+            "name": "FilterWheel",
+            "units": "",
+            "min": None,
+            "max": None,
+            "settable": True,
+            "variabletype": "numeric",
+            "choices": "1,2,3,4,5,6",
+        }
+    ]
+    spec = DeviceSpec.from_db_metadata("D", "h", 1, meta)
+    (var,) = spec.variables
+    assert var.dtype == "enum"
+    assert var.choices == ["1", "2", "3", "4", "5", "6"]

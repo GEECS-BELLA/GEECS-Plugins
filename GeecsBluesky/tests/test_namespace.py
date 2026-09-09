@@ -1,154 +1,203 @@
-"""GeecsNamespace — the experiment's devices as nouns (#807 phase 1).
+"""GeecsNamespace — the experiment's devices as nouns, composed from the ca layer (#807 phase 1).
 
 Built from an explicit roster (no DB); the DB path is exercised with a fake
 ``GeecsDb`` so the loud-failure contract is pinned without a database.
+Pins the hardware-derived rules of
+``Planning/native_bluesky/01_device_namespace.md``: served-set children,
+DB-derived types, protocol-name collisions, the triggerable shortcut.
 """
 
 from __future__ import annotations
 
-from types import SimpleNamespace
-
 import pytest
+from ophyd_async.core import SignalR
 
+from geecs_bluesky.devices.ca.generic_detector import CaGenericDetector
+from geecs_bluesky.devices.ca.motor import CaMotor
 from geecs_bluesky.devices.ca.settable import CaSettable
-from geecs_bluesky.devices.geecs_device import GeecsDevice, GeecsTriggeredDevice
+from geecs_bluesky.devices.ca.snapshot import CaSnapshotReadable
 from geecs_bluesky.exceptions import GeecsConfigurationError
-from geecs_bluesky.namespace import DeviceRoster, GeecsNamespace
+from geecs_bluesky.namespace import (
+    DeviceRoster,
+    GeecsNamespace,
+    identifier_name,
+    looks_triggerable,
+    python_type,
+)
+
+
+def row(name, *, settable=False, variabletype=None, choices="numeric", tolerance=None):
+    return {
+        "name": name,
+        "settable": settable,
+        "variabletype": variabletype,
+        "choices": choices,
+        "tolerance": tolerance,
+        "units": "",
+        "min": None,
+        "max": None,
+    }
+
 
 ROSTER = DeviceRoster(
     experiment="TestExp",
     variables={
         "UC_TestCam": [
-            {"name": "trigger", "settable": True, "variabletype": "choice"},
-            {"name": "MeanCounts", "variabletype": "numeric"},
-            {"name": "image", "variabletype": "image"},
-        ],
-        "U_DG645_Box": [
-            {"name": "Trigger.Source", "settable": True, "variabletype": "choice"},
+            row("MeanCounts"),
+            row("MaxCounts"),
+            row("Unsubscribed"),  # served? no: not subscribed, not settable
+            row("exposure", settable=True, tolerance=0.0),  # numeric settable, DB tol 0
+            row(
+                "trigger", settable=True, choices="on,off"
+            ),  # enum; collides with trigger()
+            row("localsavingpath", settable=True, choices="path"),
+            row("image", choices="image"),  # non-scalar
         ],
         "U_S1H": [
-            {
-                "name": "current",
-                "settable": True,
-                "variabletype": "numeric",
-                "tolerance": 0.01,
-            },
-            {"name": "voltage", "variabletype": "numeric"},
+            row(
+                "Current", settable=True, tolerance=0.05
+            ),  # untyped numeric with tolerance
+            row("Voltage"),  # subscribed readback
+            row(
+                "Enable_Output", settable=True, variabletype="choice", choices="on,off"
+            ),
+            row("Position.Axis 1"),  # not subscribed → not served
         ],
-        "U_ImagesOnly": [{"name": "image", "variabletype": "image"}],
+        "U_ImagesOnly": [row("image", choices="image")],
         "U DG645 ShotControl": [
-            {"name": "Trigger.Mode", "settable": True, "variabletype": "string"}
+            row("Trigger.Source", settable=True, choices="a,b"),
+            row("Trigger.Rate", settable=True),
         ],
     },
     types={
         "UC_TestCam": "Point Grey Camera",
         "U_S1H": "Magnet PS",
-        "U_DG645_Box": "DG645",
+        "U DG645 ShotControl": "DG645",
     },
-    subscribed={"UC_TestCam": ["MeanCounts"]},
+    subscribed={
+        "UC_TestCam": ["MeanCounts", "MaxCounts"],
+        "U_S1H": ["Current", "Voltage"],
+    },
 )
 
 
-def test_namespace_builds_one_device_per_rostered_device() -> None:
+# ------------------------------------------------------------------ rules
+def test_identifier_name_keeps_geecs_spelling_when_valid() -> None:
+    assert identifier_name("U_S1H") == "U_S1H"
+    assert identifier_name("Current") == "Current"
+    assert identifier_name("Position.Axis 1") == "position_axis_1"
+
+
+def test_python_type_follows_effective_vartype() -> None:
+    assert python_type(row("x")) is float  # choices=numeric
+    assert python_type(row("x", choices="on,off")) is str  # enum → label string
+    assert python_type(row("x", choices="path")) is str  # long string
+    assert python_type(row("x", variabletype="numeric", choices="1,2,3")) is str  # enum
+    assert python_type(row("x", choices="image")) is None  # non-scalar
+    assert python_type(row("x", choices="1darray")) is None
+
+
+def test_looks_triggerable_heuristic() -> None:
+    assert looks_triggerable([row("trigger"), row("MeanCounts")], "Point Grey Camera")
+    assert looks_triggerable([row("EnableTrigger")], "PicoscopeV2")
+    assert not looks_triggerable([row("Current")], "Magnet PS")
+    dg645 = [row("Trigger.Source"), row("Trigger.ExecuteSingleShot")]
+    assert not looks_triggerable(dg645, "DG645")
+    assert not looks_triggerable(dg645, "DG645 Delay Generator")  # token match
+    assert looks_triggerable(dg645 + [row("acq_timestamp")], "DG645")  # DB row wins
+
+
+# -------------------------------------------------------------- composition
+def test_namespace_composes_the_existing_device_classes() -> None:
     ns = GeecsNamespace(ROSTER)
-    assert len(ns) == 4  # U_ImagesOnly has no scalars and is skipped
-    assert set(ns.devices) == {
-        "UC_TestCam",
-        "U_S1H",
-        "u_dg645_shotcontrol",
-        "U_DG645_Box",
-    }
-    assert isinstance(
-        ns["UC_TestCam"], GeecsTriggeredDevice
-    )  # trigger variable → acquirer
-    assert not isinstance(ns["U_DG645_Box"], GeecsTriggeredDevice)  # trigger *source*
-    assert isinstance(ns["U_S1H"], GeecsDevice) and not isinstance(
-        ns["U_S1H"], GeecsTriggeredDevice
+    assert set(ns.devices) == {"UC_TestCam", "U_S1H", "u_dg645_shotcontrol"}
+    cam, magnet, box = ns["UC_TestCam"], ns["U_S1H"], ns["U DG645 ShotControl"]
+    assert isinstance(cam, CaGenericDetector)  # trigger-named variable → acquirer
+    assert isinstance(magnet, CaSnapshotReadable)
+    assert isinstance(box, CaSnapshotReadable)  # DG645 is a trigger *source*
+    assert cam.name == "UC_TestCam" and cam._geecs_device_name == "UC_TestCam"
+    assert ns["u_dg645_shotcontrol"] is box and "uc_testcam" in ns and "nope" not in ns
+
+
+def test_served_set_decides_which_children_exist() -> None:
+    cam = GeecsNamespace(ROSTER)["UC_TestCam"]
+    assert isinstance(cam.meancounts, SignalR) and isinstance(cam.maxcounts, SignalR)
+    assert not hasattr(cam, "unsubscribed")  # not served
+    assert not hasattr(cam, "image")  # non-scalar
+    magnet = GeecsNamespace(ROSTER)["U_S1H"]
+    assert not hasattr(magnet, "position_axis_1")
+
+
+def test_settables_attach_as_movable_children_with_db_types() -> None:
+    ns = GeecsNamespace(ROSTER)
+    magnet, cam = ns["U_S1H"], ns["UC_TestCam"]
+    assert isinstance(magnet.Current, CaMotor)  # DB tolerance → convergence motor
+    assert magnet.Current._tolerance == pytest.approx(0.05)
+    assert magnet.Current.name == "U_S1H-Current"  # named by the parent
+    assert isinstance(magnet.Enable_Output, CaSettable) and not isinstance(
+        magnet.Enable_Output, CaMotor
     )
-    assert ns["UC_TestCam"].devicetype == "Point Grey Camera"
-    assert ns["UC_TestCam"].selected == ("MeanCounts",)
-    assert ns["U DG645 ShotControl"].geecs_name == "U DG645 ShotControl"
-    assert ns["u_dg645_shotcontrol"] is ns["U DG645 ShotControl"]
-    assert "uc_testcam" in ns and "nope" not in ns
+    assert isinstance(cam.exposure, CaMotor)  # tol 0.0 → motor with the default tol
+    assert cam.exposure._tolerance == pytest.approx(0.005)
+    assert isinstance(cam.localsavingpath, CaSettable)
+    # the settable's readback column header is the GEECS "Device Variable" form
+    assert magnet.Current._column_headers == {"U_S1H-Current-position": "U_S1H Current"}
+
+
+def test_protocol_named_settable_binds_with_a_trailing_underscore() -> None:
+    cam = GeecsNamespace(ROSTER)["UC_TestCam"]
+    assert callable(cam.trigger) and cam.trigger.__func__ is CaGenericDetector.trigger
+    assert isinstance(cam.trigger_, CaSettable)
+
+
+async def test_read_returns_the_subscribed_list_plus_shot_stamp() -> None:
+    ns = GeecsNamespace(ROSTER)
+    cam, magnet = ns["UC_TestCam"], ns["U_S1H"]
+    await cam.connect(mock=True)
+    await magnet.connect(mock=True)
+    assert set(await cam.read()) == {
+        "UC_TestCam-acq_timestamp",
+        "UC_TestCam-meancounts",
+        "UC_TestCam-maxcounts",
+    }
+    # Current is subscribed AND settable → its Movable child's readback is logged
+    assert set(await magnet.read()) == {"U_S1H-Current-position", "U_S1H-voltage"}
+    assert hasattr(cam, "trigger") and not hasattr(magnet, "trigger")
+
+
+def test_variable_and_resolve_accept_either_spelling() -> None:
+    ns = GeecsNamespace(ROSTER)
+    magnet = ns["U_S1H"]
+    assert ns.variable("U_S1H", "current") is magnet.Current
+    assert ns.resolve("u_s1h:CURRENT") is magnet.Current
+    assert ns.resolve("U_S1H:voltage") is magnet.voltage
+    assert ns.resolve("UC_TestCam:trigger") is ns["UC_TestCam"].trigger_
+    assert ns.resolve("U_S1H") is magnet
+    with pytest.raises(KeyError, match="no served scalar variable 'nope'"):
+        ns.variable("U_S1H", "nope")
     with pytest.raises(KeyError, match="no device 'nope'"):
         ns["nope"]
 
 
-def test_only_served_variables_become_children() -> None:
-    """Served = subscribed ∪ settable ∪ acq_timestamp (the gateway's rule)."""
-    ns = GeecsNamespace(ROSTER)
-    magnet = ns["U_S1H"]
-    # 'voltage' is neither subscribed nor settable → not served → no child
-    assert magnet.variables == ("current",)
-    assert not hasattr(magnet, "voltage")
-    cam = ns["UC_TestCam"]
-    assert cam.variables == ("trigger", "MeanCounts") and hasattr(cam, "acq_timestamp")
-    assert isinstance(cam.trigger_, CaSettable) and callable(cam.trigger)
-    everything = GeecsNamespace(ROSTER, include_unserved=True)
-    assert everything["U_S1H"].variables == ("current", "voltage")
-
-
-def test_served_variable_names_rule() -> None:
-    from geecs_bluesky.namespace import served_variable_names
-
-    rows = [
-        {"name": "acq_timestamp"},
-        {"name": "a", "settable": True},
-        {"name": "b"},
-        {"name": "c"},
-    ]
-    assert served_variable_names(rows, ["c"]) == {"acq_timestamp", "a", "c"}
-
-
-def test_resolve_device_and_device_colon_variable() -> None:
-    ns = GeecsNamespace(ROSTER)
-    assert ns.resolve("U_S1H") is ns["U_S1H"]
-    assert ns.resolve("U_S1H:current") is ns["U_S1H"].current
-    assert ns.resolve("u_s1h:CURRENT") is ns["U_S1H"].current
-    assert (
-        ns.resolve("U DG645 ShotControl:Trigger.Mode")
-        is ns["U DG645 ShotControl"].trigger_mode
+def test_roster_triggered_override_wins() -> None:
+    roster = DeviceRoster(
+        experiment="TestExp",
+        variables=ROSTER.variables,
+        types=ROSTER.types,
+        subscribed=ROSTER.subscribed,
+        triggered={"U_S1H": True, "UC_TestCam": False},
     )
-
-
-def test_catalog_motor_kind_promotes_a_settable() -> None:
-    rows = {
-        "U_Plain": [{"name": "current", "settable": True, "variabletype": "numeric"}]
-    }
-    roster = DeviceRoster(experiment="TestExp", variables=rows)
-    from geecs_bluesky.devices.ca.motor import CaMotor
-
-    assert not isinstance(GeecsNamespace(roster)["U_Plain"].current, CaMotor)
-    promoted = GeecsNamespace(roster, motor_targets={"U_Plain": {"current"}})
-    assert isinstance(promoted["U_Plain"].current, CaMotor)
-
-
-def test_motor_targets_from_catalog_reads_kind_motor_entries() -> None:
-    catalog = SimpleNamespace(
-        variables={
-            "jet_x": SimpleNamespace(
-                kind="motor", target="U_ESP_JetXYZ:Position.Axis 1"
-            ),
-            "amp": SimpleNamespace(kind="setpoint", target="U_Amp:power"),
-            "pseudo": SimpleNamespace(kind="pseudo", targets=[]),
-        }
-    )
-    resolver = SimpleNamespace(scan_variable_catalog=lambda: catalog)
-    assert GeecsNamespace.motor_targets_from_catalog(resolver) == {
-        "U_ESP_JetXYZ": {"Position.Axis 1"}
-    }
-    broken = SimpleNamespace(
-        scan_variable_catalog=lambda: (_ for _ in ()).throw(OSError("x"))
-    )
-    assert GeecsNamespace.motor_targets_from_catalog(broken) == {}
+    ns = GeecsNamespace(roster)
+    assert isinstance(ns["U_S1H"], CaGenericDetector)
+    assert isinstance(ns["UC_TestCam"], CaSnapshotReadable)
 
 
 def test_name_collision_between_devices_is_loud() -> None:
     roster = DeviceRoster(
         experiment="TestExp",
         variables={
-            "U Foo": [{"name": "a", "settable": True, "variabletype": "numeric"}],
-            "U-Foo": [{"name": "a", "settable": True, "variabletype": "numeric"}],
+            "U Foo": [row("a", settable=True)],
+            "U-Foo": [row("a", settable=True)],
         },
     )
     with pytest.raises(
@@ -157,63 +206,57 @@ def test_name_collision_between_devices_is_loud() -> None:
         GeecsNamespace(roster)
 
 
-def test_roster_triggered_override_wins(caplog) -> None:
-    roster = DeviceRoster(
-        experiment="TestExp",
-        variables=ROSTER.variables,
-        types=ROSTER.types,
-        triggered={"U_S1H": True, "UC_TestCam": False},
-        live_triggered=frozenset({"UC_TestCam"}),
-    )
-    with caplog.at_level("WARNING", logger="geecs_bluesky.namespace"):
-        ns = GeecsNamespace(roster)
-    assert isinstance(ns["U_S1H"], GeecsTriggeredDevice)
-    assert not isinstance(ns["UC_TestCam"], GeecsTriggeredDevice)
-    # the live probe disagrees with the classification → loud, not silent
-    assert "pushing acq_timestamp but NOT classified" in caplog.text
-    assert "UC_TestCam" in caplog.text
-
-
 def test_export_into_binds_names_and_refuses_shadowing() -> None:
     ns = GeecsNamespace(ROSTER)
     target: dict = {"RE": object()}
-    names = ns.export_into(target)
-    assert names == ["UC_TestCam", "U_DG645_Box", "U_S1H", "u_dg645_shotcontrol"]
+    assert ns.export_into(target) == ["UC_TestCam", "U_S1H", "u_dg645_shotcontrol"]
     assert target["U_S1H"] is ns["U_S1H"]
     with pytest.raises(GeecsConfigurationError, match="would shadow"):
         ns.export_into({"U_S1H": object()})
 
 
+# ----------------------------------------------------------------- DB path
 class _FakeDb:
     def __init__(self, *, fail: bool = False) -> None:
         self.fail = fail
         self.calls: list[str] = []
 
-    def _q(self, name: str, value):
+    def _q(self, name, value):
         self.calls.append(name)
         if self.fail:
             raise ConnectionError("db down")
         return value
 
-    def get_experiment_device_variables(self, experiment):
+    def get_experiment_device_variables(self, experiment, *, enabled_only=True):
         return self._q("variables", ROSTER.variables)
 
-    def get_experiment_device_types(self, experiment):
+    def get_experiment_device_types(self, experiment, *, enabled_only=True):
         return self._q("types", ROSTER.types)
 
-    def get_subscribed_variables(self, experiment):
+    def get_subscribed_variables(self, experiment, *, enabled_only=True):
         return self._q("subscribed", ROSTER.subscribed)
 
-    def get_experiment_devices(self, experiment):
-        return self._q("devices", {"U_S1H": ("192.168.0.1", 1234)})
 
-
-def test_from_experiment_uses_the_four_batch_queries() -> None:
+def test_from_experiment_reuses_the_db_runtime_providers() -> None:
     db = _FakeDb()
     ns = GeecsNamespace.from_experiment("TestExp", geecs_db=db)
-    assert db.calls == ["variables", "types", "subscribed", "devices"]
-    assert ns.roster.endpoints == {"U_S1H": ("192.168.0.1", 1234)}
-    assert len(ns) == 4
+    assert (
+        ns.roster.served
+        == {  # GeecsDbServedSetProvider's rule: subscribed ∪ settable
+            "UC_TestCam": {
+                "MeanCounts",
+                "MaxCounts",
+                "exposure",
+                "trigger",
+                "localsavingpath",
+            },
+            "U_S1H": {"Current", "Voltage", "Enable_Output"},
+            "U DG645 ShotControl": {"Trigger.Source", "Trigger.Rate"},
+        }
+    )
+    assert ns.roster.types["UC_TestCam"] == "Point Grey Camera"
+    assert set(ns.devices) == {"UC_TestCam", "U_S1H", "u_dg645_shotcontrol"}
+    assert "variables" in db.calls and "subscribed" in db.calls and "types" in db.calls
 
 
 def test_db_failure_at_build_is_loud_not_empty() -> None:

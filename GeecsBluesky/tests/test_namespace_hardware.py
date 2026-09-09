@@ -1,11 +1,12 @@
 """Phase-1 hardware acceptance: stock plans over the device namespace (#807).
 
-Integration-marked (skipped in CI).  Run by hand on a host with CA reach to
-the GEECS gateway and the GEECS DB (the qserver box)::
+Hardware-marked (skipped in CI; ``-m integration`` does NOT select it — it
+arms the machine trigger).  Run by hand on a host with CA reach to the
+GEECS gateway and the GEECS DB (the qserver box)::
 
     GEECS_HW_SCAN_VARIABLE=U_S1H:Current GEECS_HW_SCAN_START=-1 \\
     GEECS_HW_SCAN_END=1 GEECS_HW_SCAN_STEP=0.5 \\
-    poetry run pytest tests/test_namespace_hardware.py -m integration -s
+    poetry run pytest tests/test_namespace_hardware.py -m hardware -s
 
 What it proves (``Planning/native_bluesky/01_device_namespace.md``,
 "Acceptance"): the namespace builds from the live DB, ``bp.count`` and
@@ -39,7 +40,7 @@ from pathlib import Path
 
 import pytest
 
-pytestmark = pytest.mark.integration
+pytestmark = pytest.mark.hardware
 pytest.importorskip("aioca")
 
 
@@ -64,7 +65,7 @@ def _sweep_points(start: float, end: float, step: float) -> list[float]:
     return [round(start + sign * i * abs(step), 6) for i in range(n)]
 
 
-@pytest.mark.integration
+@pytest.mark.hardware
 def test_stock_plans_over_the_namespace_on_hardware() -> None:
     """Namespace from the live DB; stock count + scan over it; trigger by hand."""
     import bluesky.plan_stubs as bps
@@ -79,7 +80,7 @@ def test_stock_plans_over_the_namespace_on_hardware() -> None:
     from geecs_bluesky.scan_request_runner import trigger_writes_from_profile
     from geecs_bluesky.session import GeecsSession
     from geecs_bluesky.shot_controller import ShotController
-    from geecs_core.pv_naming import pv_name
+    from geecs_core.pv_naming import pv_name, setpoint_pv
 
     experiment = os.environ.get("GEECS_HW_EXPERIMENT", "Undulator")
     camera_name = os.environ.get("GEECS_HW_CAMERA_DEVICE", "UC_Amp4_IR_input")
@@ -89,15 +90,13 @@ def test_stock_plans_over_the_namespace_on_hardware() -> None:
     docs_out = os.environ.get("GEECS_HW_DOCS_OUT")
 
     resolver = ConfigsRepoResolver(experiment)
-    namespace = GeecsNamespace.from_experiment(
-        experiment, resolver=resolver, probe_gateway=True
-    )
+    namespace = GeecsNamespace.from_experiment(experiment)
     print(f"\nnamespace: {len(namespace)} devices for {experiment}")
     camera = namespace[camera_name]
-    assert hasattr(camera, "trigger"), (
-        f"{camera_name} has no acq_timestamp — not triggerable"
+    assert hasattr(camera, "trigger"), f"{camera_name} not classified triggerable"
+    print(
+        f"camera {type(camera).__name__} {camera.name}; children: {len(list(camera.children()))}"
     )
-    print(f"camera {camera!r}; default selection: {camera.selected}")
 
     session = GeecsSession(experiment, tiled=False)
     RE = session.RE
@@ -119,9 +118,11 @@ def test_stock_plans_over_the_namespace_on_hardware() -> None:
             float(os.environ["GEECS_HW_SCAN_STEP"]),
         )
         initial = float(
-            try_caget_once(pv_name(experiment, device_name, variable), timeout=5.0)
+            try_caget_once(
+                setpoint_pv(pv_name(experiment, device_name, variable)), timeout=5.0
+            )
         )
-        print(f"sweep {sweep_target} over {points} (pre-scan readback {initial})")
+        print(f"sweep {sweep_target} over {points} (pre-scan setpoint {initial})")
 
     docs = _Docs()
 
@@ -140,7 +141,7 @@ def test_stock_plans_over_the_namespace_on_hardware() -> None:
         yield from controller.disarm()
         if movable is not None and initial is not None:
             yield from bps.mv(movable, initial)
-            print(f"restored {sweep_target} to pre-scan readback {initial}")
+            print(f"restored {sweep_target} to pre-scan setpoint {initial}")
 
     RE(bpp.finalize_wrapper(acceptance(), cleanup()), docs)
 

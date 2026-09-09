@@ -19,6 +19,7 @@ The stale-frame drain and baseline capture happen **synchronously inside**
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 
 from ophyd_async.core import StandardReadable
 from ophyd_async.epics.core import epics_signal_r
@@ -61,8 +62,13 @@ class CaAcqTimestampReadable(AcqTimestampMonitorMixin, StandardReadable):
         Experiment PV-namespace prefix (e.g. ``"Undulator"``).
     name : str
         ophyd-async device name (namespaces the event keys).
-    datatype : type
-        Scalar CA datatype for the data variables (default ``float``).
+    datatype : type or None
+        Scalar CA datatype for the data variables (default ``float``);
+        ``None`` lets ophyd-async infer it from the PV at connect.
+    datatypes : mapping, optional
+        Per-variable overrides of *datatype*, keyed by GEECS variable name
+        (case-insensitive) — the namespace passes the DB-derived type of
+        every served variable so the declared type always matches the PV.
 
     Class attributes subclasses may override
     ----------------------------------------
@@ -86,11 +92,13 @@ class CaAcqTimestampReadable(AcqTimestampMonitorMixin, StandardReadable):
         *,
         experiment: str | None = None,
         name: str = "",
-        datatype: type = float,
+        datatype: type | None = float,
+        datatypes: Mapping[str, type | None] | None = None,
     ) -> None:
         if isinstance(variables, str):
             variables = [variables]
         self._geecs_device_name = device
+        per_variable = {k.lower(): v for k, v in (datatypes or {}).items()}
         with self.add_children_as_readables():
             for var in variables:
                 if var == self._acq_timestamp_variable:
@@ -98,7 +106,10 @@ class CaAcqTimestampReadable(AcqTimestampMonitorMixin, StandardReadable):
                 setattr(
                     self,
                     safe_name(var),
-                    epics_signal_r(datatype, ca_pv(experiment, device, var)),
+                    epics_signal_r(
+                        per_variable.get(var.lower(), datatype),
+                        ca_pv(experiment, device, var),
+                    ),
                 )
             self.acq_timestamp = epics_signal_r(
                 float, ca_pv(experiment, device, self._acq_timestamp_variable)

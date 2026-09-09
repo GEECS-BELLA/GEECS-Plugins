@@ -261,4 +261,24 @@ if _optimization_loader is not None:
 # The export list is the canonical name list (geecs_bluesky.plan_names) —
 # the same tuple the readiness check (qserver_ready) asserts the manager
 # serves after `environment open`, so the two cannot drift (#793).
-__all__ = ["RE", *GEECS_PLAN_NAMES, *GEECS_WORKER_FUNCTIONS]
+
+# ── Device namespace (GEECS-Plugins#807 phase 1) ──────────────────────────
+# Every enabled device of the experiment as a long-lived ophyd-async noun —
+# built from the GEECS DB (loud on failure), connected on first use — so
+# stock ``bluesky.plans`` verbs can be given devices by name
+# (``count([UC_Amp4_IR_input])``, ``scan([...], U_S1H.Current, -1, 1, 5)``).
+# QS_DEVICE_NAMESPACE=off skips it (hermetic tests, a box without DB reach).
+from geecs_bluesky.namespace import GeecsNamespace  # noqa: E402
+from geecs_bluesky.preprocessors import install_connect_on_demand  # noqa: E402
+
+_DEVICE_NAMES: list[str] = []
+if os.environ.get("QS_DEVICE_NAMESPACE", "db").strip().lower() != "off":
+    namespace = GeecsNamespace.from_experiment(_experiment)
+    _DEVICE_NAMES = namespace.export_into(globals())
+# Installed LAST on purpose: connect_on_demand must be the OUTERMOST
+# preprocessor so it also sees messages later preprocessors inject
+# (SupplementalData baselines, the phase-2 preamble).  Re-run this after
+# appending anything else to RE.preprocessors.
+install_connect_on_demand(RE, mock=session._mock)
+
+__all__ = ["RE", *GEECS_PLAN_NAMES, *GEECS_WORKER_FUNCTIONS, *_DEVICE_NAMES]

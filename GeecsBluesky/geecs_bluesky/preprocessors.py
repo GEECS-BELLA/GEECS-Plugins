@@ -30,7 +30,6 @@ TOUCH_COMMANDS: frozenset[str] = frozenset(
         "set",
         "trigger",
         "read",
-        "describe",
         "configure",
         "locate",
         "kickoff",
@@ -80,38 +79,51 @@ def connect_on_demand(
     """Connect namespace devices the first time a plan touches them.
 
     A :func:`~bluesky.preprocessors.plan_mutator`: before the first message
-    in *plan* whose object satisfies *predicate* (default: the object, or an
-    ancestor, is a :class:`~geecs_bluesky.devices.geecs_device.GeecsDevice`),
-    it yields ``ensure_connected(obj)``.  The connect is **message-level** —
-    the same ``ensure_connected`` stub the request preamble uses — so the
-    standing rule that a *blocking* connect inside the RE loop deadlocks is
+    in *plan* that touches an object satisfying *predicate* (default: the
+    object, or an ancestor, is a namespace device), it yields
+    ``ensure_connected(obj)``.  The connect is **message-level** — the same
+    ``ensure_connected`` stub the request preamble uses — so the standing
+    rule that a *blocking* connect inside the RE loop deadlocks is
     respected: nothing here blocks the loop.  ``ensure_connected`` is
     idempotent (cached connect task), so a device touched by later plans
     costs one no-op await.  Connected devices stay connected.
 
-    Only the touched object's subtree connects: staging ``U_S1H.current``
-    connects that Movable, not every variable of ``U_S1H``.
+    Two message shapes carry devices.  Most name one in ``msg.obj``
+    (``stage``, ``set``, ``trigger``, ``read`` …).  ``declare_stream`` names
+    several in ``msg.args`` with ``obj=None`` — and the RunEngine
+    *describes* them right there, before any ``read``; the stock plans and
+    ``SupplementalData`` both declare streams, so it is handled too.
+
+    What connects is the touched object's subtree.  Note the stock plans
+    stage the **root** ancestor of every device (``stage_wrapper``), so a
+    scan over ``U_S1H.Current`` connects all of ``U_S1H``'s served
+    children; ``bps.mv(U_S1H.Current, …)`` alone connects only ``Current``.
     """
     seen: set[int] = set()
 
-    def _insert_connect(msg: Msg) -> tuple[Any, Any]:
-        obj = msg.obj
-        if (
-            obj is None
-            or msg.command not in TOUCH_COMMANDS
-            or id(obj) in seen
-            or not predicate(obj)
-        ):
-            return None, None
+    def _needs_connect(obj: Any) -> bool:
+        if obj is None or id(obj) in seen or not predicate(obj):
+            return False
         seen.add(id(obj))
-        if is_connected(obj):
+        return not is_connected(obj)
+
+    def _insert_connect(msg: Msg) -> tuple[Any, Any]:
+        if msg.command == "declare_stream":
+            targets = [d for d in msg.args if _needs_connect(d)]
+        elif msg.command in TOUCH_COMMANDS:
+            targets = [msg.obj] if _needs_connect(msg.obj) else []
+        else:
+            return None, None
+        if not targets:
             return None, None
 
         def _connect_then_forward() -> Generator[Msg, Any, Any]:
             logger.debug(
-                "connect_on_demand: connecting %s before %s", obj.name, msg.command
+                "connect_on_demand: connecting %s before %s",
+                ", ".join(t.name for t in targets),
+                msg.command,
             )
-            yield from ensure_connected(obj, mock=mock, timeout=timeout)
+            yield from ensure_connected(*targets, mock=mock, timeout=timeout)
             return (yield msg)
 
         return _connect_then_forward(), None
@@ -122,10 +134,20 @@ def connect_on_demand(
 def install_connect_on_demand(
     run_engine: Any, *, mock: bool = False, timeout: float = DEFAULT_CONNECT_TIMEOUT
 ) -> None:
-    """Append :func:`connect_on_demand` to ``run_engine.preprocessors`` once."""
-    for existing in run_engine.preprocessors:
-        if getattr(existing, "func", None) is connect_on_demand:
-            return
+    """Install :func:`connect_on_demand` as the **outermost** RunEngine preprocessor.
+
+    The RunEngine composes ``preprocessors`` in list order, first-appended
+    innermost — so a preprocessor appended *later* (``SupplementalData``,
+    the phase-2 preamble) injects messages that an earlier-appended
+    ``connect_on_demand`` never sees, and a baseline read of an unconnected
+    device fails.  This therefore removes any existing instance and
+    re-appends itself last; call it again after installing anything else.
+    """
+    run_engine.preprocessors[:] = [
+        p
+        for p in run_engine.preprocessors
+        if getattr(p, "func", None) is not connect_on_demand
+    ]
     run_engine.preprocessors.append(
         partial(connect_on_demand, mock=mock, timeout=timeout)
     )

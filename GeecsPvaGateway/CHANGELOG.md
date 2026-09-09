@@ -3,6 +3,13 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.6.1] - 2026-09-09
+
+### Changed
+
+- `effective_vartype` is imported from `geecs_core.db.variable_types`
+  (GEECS-Core 0.5.0) instead of `geecs_ca_gateway.config`. No behaviour change.
+
 ## [0.6.0] - 2026-09-05
 
 ### Added

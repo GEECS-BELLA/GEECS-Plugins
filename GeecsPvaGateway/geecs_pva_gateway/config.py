@@ -13,7 +13,7 @@ import socket
 
 from pydantic import BaseModel, Field
 
-from geecs_ca_gateway.config import effective_vartype
+from geecs_core.db.variable_types import effective_vartype
 from geecs_core.pv_naming import normalize_component, pv_name
 from geecs_core.transport.udp_client import detect_local_ip
 
