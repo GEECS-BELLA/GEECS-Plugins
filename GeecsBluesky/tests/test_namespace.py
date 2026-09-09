@@ -58,6 +58,31 @@ def test_namespace_builds_one_device_per_rostered_device() -> None:
         ns["nope"]
 
 
+def test_only_served_variables_become_children() -> None:
+    """Served = subscribed ∪ settable ∪ acq_timestamp (the gateway's rule)."""
+    ns = GeecsNamespace(ROSTER)
+    magnet = ns["U_S1H"]
+    # 'voltage' is neither subscribed nor settable → not served → no child
+    assert magnet.variables == ("current",)
+    assert not hasattr(magnet, "voltage")
+    cam = ns["UC_TestCam"]
+    assert cam.variables == ("MeanCounts",) and hasattr(cam, "acq_timestamp")
+    everything = GeecsNamespace(ROSTER, include_unserved=True)
+    assert everything["U_S1H"].variables == ("current", "voltage")
+
+
+def test_served_variable_names_rule() -> None:
+    from geecs_bluesky.namespace import served_variable_names
+
+    rows = [
+        {"name": "acq_timestamp"},
+        {"name": "a", "settable": True},
+        {"name": "b"},
+        {"name": "c"},
+    ]
+    assert served_variable_names(rows, ["c"]) == {"acq_timestamp", "a", "c"}
+
+
 def test_resolve_device_and_device_colon_variable() -> None:
     ns = GeecsNamespace(ROSTER)
     assert ns.resolve("U_S1H") is ns["U_S1H"]
@@ -105,8 +130,8 @@ def test_name_collision_between_devices_is_loud() -> None:
     roster = DeviceRoster(
         experiment="TestExp",
         variables={
-            "U Foo": [{"name": "a", "variabletype": "numeric"}],
-            "U-Foo": [{"name": "a", "variabletype": "numeric"}],
+            "U Foo": [{"name": "a", "settable": True, "variabletype": "numeric"}],
+            "U-Foo": [{"name": "a", "settable": True, "variabletype": "numeric"}],
         },
     )
     with pytest.raises(

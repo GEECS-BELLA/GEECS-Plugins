@@ -42,7 +42,7 @@ ROSTER = DeviceRoster(
             },
         ],
     },
-    subscribed={"UC_TestCam": ["MeanCounts"]},
+    subscribed={"UC_TestCam": ["MeanCounts", "MaxCounts"]},
 )
 
 
@@ -177,12 +177,18 @@ def test_stock_count_runs_over_a_namespace_camera(session, namespace) -> None:
     events = docs.primary_events()
     assert len(events) == 3
     for ev in events:
-        assert set(ev["data"]) == {"UC_TestCam-acq_timestamp", "UC_TestCam-MeanCounts"}
+        assert set(ev["data"]) == {
+            "UC_TestCam-acq_timestamp",
+            "UC_TestCam-MeanCounts",
+            "UC_TestCam-MaxCounts",
+        }
     stamps = [ev["data"]["UC_TestCam-acq_timestamp"] for ev in events]
     assert len(set(stamps)) == 3  # three distinct shots
     config = docs.primary_descriptor()["configuration"]
     assert list(config) == ["UC_TestCam"], config
-    assert config["UC_TestCam"]["data"]["UC_TestCam-variables"] == "MeanCounts"
+    assert (
+        config["UC_TestCam"]["data"]["UC_TestCam-variables"] == "MeanCounts,MaxCounts"
+    )
     assert docs.docs["stop"][0]["exit_status"] == "success"
 
 

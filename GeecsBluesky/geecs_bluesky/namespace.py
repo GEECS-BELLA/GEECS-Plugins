@@ -20,7 +20,7 @@ and offline tooling build from an explicit :class:`DeviceRoster` instead.
 from __future__ import annotations
 
 import logging
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -34,6 +34,28 @@ from geecs_bluesky.devices.geecs_device import (
 from geecs_bluesky.exceptions import GeecsConfigurationError
 
 logger = logging.getLogger(__name__)
+
+
+def served_variable_names(
+    rows: list[Mapping[str, Any]], subscribed: Sequence[str]
+) -> set[str]:
+    """The variables the GEECS CA gateway serves for one device.
+
+    The gateway's served set is the DB's ``get='yes'`` (subscribed) variables
+    **union** every settable variable, plus the per-device ``acq_timestamp``
+    shot stamp — the same rule :class:`~geecs_bluesky.db_runtime.GeecsDbServedSetProvider`
+    applies for the unserved-variables preflight.  A child built for an
+    unserved variable can never connect, and a root device connects every
+    child, so the namespace only builds children for this set.
+    """
+    served = {str(name) for name in subscribed}
+    served.update(str(row["name"]) for row in rows if row.get("settable"))
+    served.update(
+        str(row["name"])
+        for row in rows
+        if str(row["name"]).lower() == ACQ_TIMESTAMP_VARIABLE
+    )
+    return served
 
 
 @dataclass(frozen=True)
@@ -102,6 +124,10 @@ class GeecsNamespace:
     motor_targets : mapping, optional
         ``{device: {variable, ...}}`` of settable variables the scan-variable
         catalog marks ``kind: motor`` (see :meth:`motor_targets_from_catalog`).
+    include_unserved : bool
+        Build children for every DB variable, not just the gateway's served
+        set (:func:`served_variable_names`).  Off by default — an unserved
+        child makes the whole device unconnectable.  For offline tooling.
     """
 
     def __init__(
@@ -109,6 +135,7 @@ class GeecsNamespace:
         roster: DeviceRoster,
         *,
         motor_targets: Mapping[str, set[str]] | None = None,
+        include_unserved: bool = False,
     ) -> None:
         self.experiment = roster.experiment
         self.roster = roster
@@ -117,7 +144,12 @@ class GeecsNamespace:
         motor_targets = motor_targets or {}
         skipped: list[str] = []
         for device, rows in roster.variables.items():
-            metas = [VariableMeta.from_db(row) for row in rows]
+            if include_unserved:
+                kept = list(rows)
+            else:
+                served = served_variable_names(rows, roster.subscribed.get(device, ()))
+                kept = [row for row in rows if str(row["name"]) in served]
+            metas = [VariableMeta.from_db(row) for row in kept]
             triggered = any(m.name.lower() == ACQ_TIMESTAMP_VARIABLE for m in metas)
             if not triggered and not any(m.is_scalar for m in metas):
                 skipped.append(device)
