@@ -60,7 +60,9 @@ column `u_s1h-current-position`, `uc_amp4_ir_input-meancounts` — the same
 mangling the existing device classes and the gateway's PV components use. A
 settable whose name collides with a Bluesky/ophyd attribute (`trigger` — the
 Amp4 camera's external-trigger enum) binds as `trigger_`; one that collides
-with an existing readable child raises. Lookups (`namespace.variable`,
+with an existing readable child raises, and two served variables that
+`safe_name` to the same attribute (`Trigger`/`trigger`, `A.B`/`A B`) raise at
+build — the rule both gateways apply to PV names after normalization. Lookups (`namespace.variable`,
 `namespace.resolve("U_S1H:Current")`) accept either spelling
 case-insensitively. Each attached child's `_column_headers` ("Device
 Variable") is aggregated onto the parent, which is where the s-file exporter

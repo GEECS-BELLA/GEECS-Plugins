@@ -310,16 +310,22 @@ class GeecsNamespace:
         settables = {
             n: (row, py) for n, (row, py) in typed.items() if row.get("settable")
         }
-        # GEECS names are case-insensitive downstream (PV components, event
-        # keys), so two served variables differing only by case would silently
-        # merge; refuse rather than pick one (review #7).
+        # A GEECS name mangles into an attribute / event-column component
+        # through safe_name — lowercased, runs of punctuation and whitespace
+        # collapsed to one underscore — so 'Trigger'/'trigger' AND
+        # 'Position.Axis 1'/'Position Axis 1' all land on one attribute.
+        # Refuse rather than silently drop one, the way both gateways raise on
+        # a PV-name collision after normalization (gateway.py, PVA server.py).
         by_lower: dict[str, str] = {}
+        by_attr: dict[str, str] = {}
         for n in typed:
-            if n.lower() in by_lower:
+            attr = safe_name(n)
+            if attr in by_attr:
                 raise GeecsConfigurationError(
-                    f"device namespace: {device}: variables {by_lower[n.lower()]!r} "
-                    f"and {n!r} differ only by case"
+                    f"device namespace: {device}: variables {by_attr[attr]!r} and "
+                    f"{n!r} both normalise to {attr!r}"
                 )
+            by_attr[attr] = n
             by_lower[n.lower()] = n
         # Readable columns: the subscribed list, minus settables (their
         # Movable child carries the readback) — the same subscribed list the

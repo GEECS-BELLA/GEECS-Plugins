@@ -203,30 +203,41 @@ def test_roster_triggered_override_wins() -> None:
     assert isinstance(ns["UC_TestCam"], CaSnapshotReadable)
 
 
-def test_case_different_variable_names_are_refused() -> None:
-    """GEECS names are case-insensitive downstream; two served variables that
-    differ only by case would silently merge — refuse instead (review #7)."""
+@pytest.mark.parametrize(
+    ("first", "second"),
+    [
+        ("Trigger", "trigger"),  # case only
+        ("Position.Axis 1", "Position Axis 1"),  # punctuation vs whitespace
+        ("Wavelength (nm)", "wavelength_nm"),  # already-mangled spelling
+    ],
+)
+def test_variables_normalising_to_one_attribute_are_refused(first, second) -> None:
+    """safe_name is lossy (lowercase, punctuation runs → one underscore), so two
+    served variables can land on one attribute/event key; refuse rather than
+    silently drop one — as both gateways do on a PV collision after
+    normalization (review #7 + codex P2)."""
     roster = DeviceRoster(
         experiment="TestExp",
-        variables={
-            "UC_X": [row("Trigger"), row("trigger", settable=True, choices="on,off")]
-        },
+        variables={"UC_X": [row(first), row(second)]},
         types={"UC_X": "Point Grey Camera"},
-        subscribed={"UC_X": ["Trigger"]},
+        subscribed={"UC_X": [first, second]},
     )
-    with pytest.raises(GeecsConfigurationError, match="differ only by case"):
+    with pytest.raises(GeecsConfigurationError, match="both normalise to"):
         GeecsNamespace(roster)
 
 
-def test_settable_colliding_with_a_readable_child_is_refused() -> None:
-    """'Position.Axis 1' (readable) and 'position_axis_1' (settable) both want one
-    attribute; a rename would hide the readable — raise (review N1)."""
+def test_settable_colliding_with_a_device_child_is_refused() -> None:
+    """A settable named like a child the device class itself creates — the
+    gateway liveness signal ``connected_status`` — would hide that child if it
+    were merely renamed; raise instead (review N1).  (Variables colliding with
+    each other are caught earlier, by the normalisation guard above.)"""
     roster = DeviceRoster(
         experiment="TestExp",
         variables={
-            "U_X": [row("Position.Axis 1"), row("position_axis_1", settable=True)],
+            "UC_X": [row("MeanCounts"), row("connected_status", settable=True)],
         },
-        subscribed={"U_X": ["Position.Axis 1"]},
+        subscribed={"UC_X": ["MeanCounts"]},
+        triggered={"UC_X": True},  # a CaGenericDetector: it creates connected_status
     )
     with pytest.raises(GeecsConfigurationError, match="collides with the child"):
         GeecsNamespace(roster)

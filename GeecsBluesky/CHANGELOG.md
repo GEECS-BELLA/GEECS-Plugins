@@ -20,7 +20,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
     `CaMotor` (positive DB tolerance) or `CaSettable` child, its column
     header aggregated onto the parent; ophyd names and event keys follow
     `EVENT_SCHEMA.md` (`safe_name`, e.g. `u_s1h-current-position`) while the
-    namespace binding keeps the GEECS spelling (`U_S1H`); every variable typed by
+    namespace binding keeps the GEECS spelling (`U_S1H`); two served variables
+    that normalise to one attribute raise at build (the gateways' PV-collision
+    rule); every variable typed by
     `geecs_core.db.variable_types.effective_vartype` (the rule the gateway
     typed the PV with); a settable named like a Bluesky method (`trigger`)
     binds as `trigger_`; `resolve("U_S1H:Current")`; `export_into(globals())`.
