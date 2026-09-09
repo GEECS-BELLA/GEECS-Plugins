@@ -10,7 +10,6 @@ GEECS preamble**, connected lazily by the preprocessor, shots paced by
 from __future__ import annotations
 
 import asyncio
-from collections import defaultdict
 
 import bluesky.plans as bp
 import pytest
@@ -26,6 +25,7 @@ from geecs_bluesky.preprocessors import (
     is_namespace_object,
 )
 from geecs_bluesky.session import GeecsSession
+from tests.ca_mock_helpers import DocCollector
 
 
 def row(name, *, settable=False, choices="numeric", tolerance=None):
@@ -66,18 +66,6 @@ def namespace() -> GeecsNamespace:
     return GeecsNamespace(ROSTER)
 
 
-class _Docs:
-    def __init__(self) -> None:
-        self.docs: dict[str, list[dict]] = defaultdict(list)
-
-    def __call__(self, name: str, doc: dict) -> None:
-        self.docs[name].append(doc)
-
-    def primary_events(self) -> list[dict]:
-        uids = {d["uid"] for d in self.docs["descriptor"] if d["name"] == "primary"}
-        return [e for e in self.docs["event"] if e["descriptor"] in uids]
-
-
 def _pacer(RE, cam, magnet=None, *, t0: float):
     """The fake trigger (+ a GEECS convergence stand-in for a staged motor)."""
 
@@ -88,9 +76,9 @@ def _pacer(RE, cam, magnet=None, *, t0: float):
         while True:
             ticks += 1
             set_mock_value(cam.acq_timestamp, t0 + ticks)
-            if magnet is not None and is_connected(magnet.Current):
+            if magnet is not None and is_connected(magnet.current):
                 set_mock_value(
-                    magnet.Current.position, await magnet.Current._setpoint.get_value()
+                    magnet.current.position, await magnet.current._setpoint.get_value()
                 )
             await asyncio.sleep(0.02)
 
@@ -131,7 +119,7 @@ def test_connect_is_inserted_once_per_namespace_object_only(
     def plan():
         yield Msg("stage", cam)
         yield Msg("read", cam)  # already seen: no second connect
-        yield Msg("stage", magnet.Current)  # a child: connects the child subtree
+        yield Msg("stage", magnet.current)  # a child: connects the child subtree
         yield Msg("stage", foreign)  # not ours: untouched
         yield Msg("checkpoint")
 
@@ -140,16 +128,16 @@ def test_connect_is_inserted_once_per_namespace_object_only(
         for m in _drive(connect_on_demand(plan(), mock=True))
     ]
     assert commands == [
-        ("connect_stub", "UC_TestCam"),
-        ("stage", "UC_TestCam"),
-        ("read", "UC_TestCam"),
-        ("connect_stub", "U_S1H-Current"),
-        ("stage", "U_S1H-Current"),
+        ("connect_stub", "uc_testcam"),
+        ("stage", "uc_testcam"),
+        ("read", "uc_testcam"),
+        ("connect_stub", "u_s1h-current"),
+        ("stage", "u_s1h-current"),
         ("stage", "foreign"),
         ("checkpoint", None),
     ]
     assert is_namespace_object(cam.meancounts) and is_namespace_object(
-        magnet.Current.position
+        magnet.current.position
     )
     assert not is_namespace_object(foreign)
 
@@ -171,7 +159,7 @@ def test_stock_count_runs_over_a_namespace_camera(session, namespace) -> None:
     cam._trigger_timeout = 2.0
     assert not is_connected(cam)
     pacer = _pacer(RE, cam, t0=1000.0)
-    docs = _Docs()
+    docs = DocCollector()
     try:
         RE(bp.count([cam], num=3), docs)
     finally:
@@ -182,11 +170,11 @@ def test_stock_count_runs_over_a_namespace_camera(session, namespace) -> None:
     assert len(events) == 3
     for ev in events:
         assert set(ev["data"]) == {
-            "UC_TestCam-acq_timestamp",
-            "UC_TestCam-meancounts",
-            "UC_TestCam-maxcounts",
+            "uc_testcam-acq_timestamp",
+            "uc_testcam-meancounts",
+            "uc_testcam-maxcounts",
         }
-    assert len({ev["data"]["UC_TestCam-acq_timestamp"] for ev in events}) == 3
+    assert len({ev["data"]["uc_testcam-acq_timestamp"] for ev in events}) == 3
     assert docs.docs["stop"][0]["exit_status"] == "success"
 
 
@@ -195,22 +183,22 @@ def test_stock_scan_moves_a_namespace_motor_child(session, namespace) -> None:
     install_connect_on_demand(RE, mock=True)
     cam, magnet = namespace["UC_TestCam"], namespace["U_S1H"]
     cam._trigger_timeout = 2.0
-    assert not is_connected(magnet.Current)
+    assert not is_connected(magnet.current)
     pacer = _pacer(RE, cam, magnet, t0=2000.0)
-    docs = _Docs()
+    docs = DocCollector()
     try:
-        RE(bp.scan([cam], magnet.Current, -1.0, 1.0, 5), docs)
+        RE(bp.scan([cam], magnet.current, -1.0, 1.0, 5), docs)
     finally:
         pacer.cancel()
     # bluesky's stage_wrapper stages the ROOT ancestor of a motor, so the whole
     # U_S1H device (all served children) is connected, not just Current.
-    assert is_connected(magnet.Current) and is_connected(magnet)
+    assert is_connected(magnet.current) and is_connected(magnet)
     events = docs.primary_events()
-    assert [ev["data"]["U_S1H-Current-position"] for ev in events] == pytest.approx(
+    assert [ev["data"]["u_s1h-current-position"] for ev in events] == pytest.approx(
         [-1.0, -0.5, 0.0, 0.5, 1.0]
     )
     start = docs.docs["start"][0]
-    assert start["plan_name"] == "scan" and start["motors"] == ("U_S1H-Current",)
+    assert start["plan_name"] == "scan" and start["motors"] == ("u_s1h-current",)
     assert docs.docs["stop"][0]["exit_status"] == "success"
 
 
@@ -224,11 +212,11 @@ def test_baseline_of_an_unconnected_device_connects_when_installed_last(
     RE.preprocessors.append(SupplementalData(baseline=[magnet]))
     install_connect_on_demand(RE, mock=True)  # outermost → sees the baseline reads
     pacer = _pacer(RE, cam, t0=3000.0)
-    docs = _Docs()
+    docs = DocCollector()
     try:
         RE(bp.count([cam], num=1), docs)
     finally:
         pacer.cancel()
     baseline = [d for d in docs.docs["descriptor"] if d["name"] == "baseline"]
-    assert baseline and "U_S1H-voltage" in baseline[0]["data_keys"]
+    assert baseline and "u_s1h-voltage" in baseline[0]["data_keys"]
     assert is_connected(magnet)

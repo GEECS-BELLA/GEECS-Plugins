@@ -35,28 +35,14 @@ from __future__ import annotations
 
 import json
 import os
-from collections import defaultdict
 from pathlib import Path
 
 import pytest
 
+from tests.ca_mock_helpers import DocCollector
+
 pytestmark = pytest.mark.hardware
 pytest.importorskip("aioca")
-
-
-class _Docs:
-    def __init__(self) -> None:
-        self.docs: dict[str, list[dict]] = defaultdict(list)
-
-    def __call__(self, name: str, doc: dict) -> None:
-        self.docs[name].append(doc)
-
-    def primary_events(self) -> list[dict]:
-        uids = {d["uid"] for d in self.docs["descriptor"] if d["name"] == "primary"}
-        return [e for e in self.docs["event"] if e["descriptor"] in uids]
-
-    def dump(self, path: Path) -> None:
-        path.write_text(json.dumps(self.docs, default=str, indent=1))
 
 
 def _sweep_points(start: float, end: float, step: float) -> list[float]:
@@ -124,7 +110,7 @@ def test_stock_plans_over_the_namespace_on_hardware() -> None:
         )
         print(f"sweep {sweep_target} over {points} (pre-scan setpoint {initial})")
 
-    docs = _Docs()
+    docs = DocCollector()
 
     def acceptance():
         # The phase-2 preprocessor's future job, by hand: reachability of the
@@ -146,7 +132,7 @@ def test_stock_plans_over_the_namespace_on_hardware() -> None:
     RE(bpp.finalize_wrapper(acceptance(), cleanup()), docs)
 
     if docs_out:
-        docs.dump(Path(docs_out))
+        Path(docs_out).write_text(json.dumps(docs.docs, default=str, indent=1))
         print(f"documents written to {docs_out}")
 
     starts = docs.docs["start"]
@@ -178,7 +164,7 @@ def test_stock_plans_over_the_namespace_on_hardware() -> None:
         print(f"scan: {len(points)} points, readbacks {readbacks}")
 
 
-def _run_of(event: dict, docs: _Docs) -> str:
+def _run_of(event: dict, docs: DocCollector) -> str:
     for d in docs.docs["descriptor"]:
         if d["uid"] == event["descriptor"]:
             return d["run_start"]

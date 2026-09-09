@@ -52,6 +52,9 @@ bin), so it honours the same mode dispatch.
 ```
 geecs_bluesky/
   session.py                # GeecsSession — headless scans (RE + Tiled + discipline)
+  namespace.py              # GeecsNamespace — every device as a long-lived noun for
+                            # stock plans, composed from devices/ca (#807 phase 1)
+  preprocessors.py          # RunEngine preprocessors: connect_on_demand (outermost)
                             #   + session.run(ScanRequest) — the headless door:
                             #   RE(geecs_scan_request_plan) with the two
                             #   explicit seams (failed_move_policy="raise",

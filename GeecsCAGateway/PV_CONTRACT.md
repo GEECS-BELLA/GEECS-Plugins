@@ -414,10 +414,10 @@ Resolution quirks (all DB-driven, all pinned by tests):
   `image`, `1darray`), it is the *authoritative* type — even when
   `variabletype` says `choice`. (`variabletype='choice'` + `choices='image'`
   is an image variable streaming raw bytes, not a one-option enum.)
-- A real comma-separated option list is **always** `enum`, even when
-  `variabletype` says `numeric`: filter-wheel style `1,2,3,4,5,6` lists name
-  configurations, not values (rule change 0.21.0; previously `variabletype`
-  won and such variables were served as floats).
+- A blank `variabletype` with a real comma-separated option list infers `enum`.
+  (Known DB defect, 2026-09-09: 18 Undulator rows carry `variabletype='numeric'`
+  with a filter-wheel style list and are served as floats; the fix is
+  `variabletype='choice'` in the DB, which flips gateway and clients together.)
 - A `choice` with no options, more than **16** options, or any option label
   longer than **26** characters cannot be a CA enum (`DBR_ENUM` limits) and
   degrades to a plain string PV — the option text still round-trips verbatim;

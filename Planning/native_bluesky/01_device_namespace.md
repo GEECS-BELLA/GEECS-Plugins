@@ -26,7 +26,7 @@ class each GEECS device is** and **what hangs off it**:
 |---|---|---|
 | acquires per shot (`looks_triggerable`) | `CaGenericDetector(device, subscribed_vars, datatypes=…)` | shot monitor + `trigger()`, shot-ID columns, save controls, asset docs — all already there |
 | anything else | `CaSnapshotReadable(device, subscribed_vars, datatypes=…)` | one sample per row |
-| each served **settable** variable | attached child: `CaMotor` if the DB gives a tolerance (readback convergence), else `CaSettable` | `bps.mv(U_S1H.Current, 0.5)` moves with GEECS semantics; ophyd-async registers and names a child attached after construction |
+| each served **settable** variable | attached child: `CaMotor` if the DB gives a **positive** tolerance (readback convergence), else `CaSettable` | `bps.mv(U_S1H.current, 0.5)` moves with GEECS semantics; ophyd-async registers and names a child attached after construction |
 
 Rules the namespace applies come from their existing homes, never
 restated:
@@ -53,12 +53,18 @@ restated:
   device. Checked against all 105 Undulator devices: the 43 pushing
   `acq_timestamp` all classified; the 10 extras were idle acquirers.
 
-Naming: the namespace and attribute names keep the GEECS spelling when it
-is an identifier (`U_S1H`, `Current`), else `safe_name`; a settable whose
-name collides with a Bluesky/ophyd attribute (`trigger` — the Amp4
-camera's external-trigger enum) binds as `trigger_`. Lookups
-(`namespace.variable`, `namespace.resolve("U_S1H:current")`) accept either
-spelling case-insensitively.
+Naming: only the **namespace binding** keeps the GEECS spelling (`U_S1H`);
+ophyd device names, child attributes and therefore event-column keys are
+`safe_name` (lowercase) as `EVENT_SCHEMA.md` requires — `U_S1H.current`,
+column `u_s1h-current-position`, `uc_amp4_ir_input-meancounts` — the same
+mangling the existing device classes and the gateway's PV components use. A
+settable whose name collides with a Bluesky/ophyd attribute (`trigger` — the
+Amp4 camera's external-trigger enum) binds as `trigger_`; one that collides
+with an existing readable child raises. Lookups (`namespace.variable`,
+`namespace.resolve("U_S1H:Current")`) accept either spelling
+case-insensitively. Each attached child's `_column_headers` ("Device
+Variable") is aggregated onto the parent, which is where the s-file exporter
+reads them.
 
 ## Lazy connection — `connect_on_demand`
 
@@ -112,7 +118,6 @@ set, DB-derived types, the `trigger` name collision.
 | `namespace.looks_triggerable` | — | — | the DB cannot answer it yet (LabVIEW-internal `acq_timestamp`) |
 | `namespace.identifier_name` | `safe_name` | — | attribute spelling for plan arguments |
 | `preprocessors.connect_on_demand` | `ensure_connected` (the preamble's stub) | (phase 2) `_connect_in_batches` in the preamble | connection was never lazy |
-| `devices/ca/shot_monitor.py` | moved verbatim from `triggerable.py` | the same code in `triggerable.py` (deleted there) | one implementation for two hosts |
 | `geecs_core.db.variable_types` | moved verbatim from `geecs_ca_gateway.config` | the gateway's copy (deleted; PVA gateway re-pointed) | three packages need it |
 | `datatypes=` on the readables | — | — | the served set is not all floats |
 
@@ -125,11 +130,15 @@ device) and its tests.
   catalog scan variables): the noun is the whole device, phase 3's
   retirement of `CaActionSignalFactory` needs every settable reachable, and
   tree clutter is handled by `:depth=` permissions.
-- Types from the DB only; `choices`/`choice_id` is canonical; an option
-  list is always an enum (Sam). No inference fallback.
-- Motor vs settable from the DB tolerance (every catalog `kind: motor`
-  target that exists in the DB carries one); catalog `confirm` and
-  `pseudo` entries become namespace nouns in phase 3 with the axis
-  expansion.
+- Types from the DB only; `choices`/`choice_id` is canonical. No inference
+  fallback.
+- Motor vs settable from a **positive** DB tolerance (every catalog
+  `kind: motor` target that exists in the DB carries one; `0`/NULL means a
+  plain setpoint — exposure-like numerics never echo within a tolerance);
+  catalog `kind: motor` opt-in, `confirm` and `pseudo` entries become
+  namespace nouns in phase 3 with the axis expansion.
+- The variable-type rule moved to GEECS-Core **unchanged**; the 18
+  Undulator rows with `variabletype='numeric'` and an option list are a DB
+  fix (`variabletype='choice'`) so gateway and clients flip together.
 - Keep-connected after first use; no TTL.
 - Loud failure on an unreachable DB at environment open.

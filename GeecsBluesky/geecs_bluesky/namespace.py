@@ -84,7 +84,6 @@ TRIGGER_SOURCE_DEVICETYPES: frozenset[str] = frozenset(
 #: metadata; ``str`` on a char-array (path) PV is the long-string convention.
 _DTYPE_TO_PYTHON: dict[str, type] = {
     "float": float,
-    "int": int,
     "string": str,
     "path": str,
     "enum": str,
@@ -95,18 +94,17 @@ _SYNTHESIZED: frozenset[str] = frozenset({"connected", ACQ_TIMESTAMP_VARIABLE})
 
 _TRIGGER_VARIABLE = re.compile("trig", re.IGNORECASE)
 
-#: Default readback tolerance for a motor whose DB tolerance is ``0`` (exact).
-_DEFAULT_MOTOR_TOLERANCE = 0.005
-
 
 # --------------------------------------------------------------------- rules
 def identifier_name(geecs_name: str) -> str:
-    """The attribute / namespace name for a GEECS name.
+    """The **namespace binding** for a GEECS device name.
 
-    The GEECS spelling is kept when it is a Python identifier (``U_S1H``,
-    ``Current``) — what operators see in GEECS and will type into a plan
-    argument; anything else (``Position.Axis 1``) goes through
-    :func:`~geecs_bluesky.utils.safe_name`.
+    The GEECS spelling is kept when it is a Python identifier (``U_S1H``) —
+    what operators see in GEECS and will type into a plan argument; anything
+    else goes through :func:`~geecs_bluesky.utils.safe_name`.  Only the
+    binding keeps GEECS case: ophyd device names, child attributes and hence
+    event-column keys are ``safe_name`` (lowercase), as ``EVENT_SCHEMA.md``
+    requires (``u_s1h-current-position``, ``uc_amp4_ir_input-meancounts``).
     """
     return geecs_name if geecs_name.isidentifier() else safe_name(geecs_name)
 
@@ -308,6 +306,7 @@ class GeecsNamespace:
         if not typed and not triggered:
             return None
         ns_name = identifier_name(device)
+        ophyd_name = safe_name(device)  # event keys per EVENT_SCHEMA.md
         settables = {
             n: (row, py) for n, (row, py) in typed.items() if row.get("settable")
         }
@@ -336,7 +335,7 @@ class GeecsNamespace:
             device,
             readables,
             experiment=roster.experiment,
-            name=ns_name,
+            name=ophyd_name,
             datatypes=datatypes,
         )
         dev._geecs_namespace_member = True  # connect_on_demand's marker
@@ -350,16 +349,20 @@ class GeecsNamespace:
                 )
             child = self._movable(device, var, row, py, roster.experiment)
             setattr(dev, attr, child)  # ophyd-async registers + names the child
+            # The s-file exporter reads `_column_headers` off the top-level
+            # detectors only (run_wrapper), so the parent aggregates its
+            # children's "Device Variable" headers.
             child._column_headers = {
                 getattr(child, child._readback_attr_name).name: f"{device} {var}"
             }
+            dev._column_headers.update(child._column_headers)
             if var.lower() in {v.lower() for v in roster.subscribed.get(device, ())}:
                 dev.add_readables([child])  # subscribed settable: log its readback
             attrs[var.lower()] = attr
             attrs[attr.lower()] = attr
         for var in readables:
             attrs[var.lower()] = safe_name(var)
-        self._attrs[ns_name] = attrs
+        self._attrs[dev.name] = attrs  # keyed by the ophyd name variable() sees
         return ns_name, dev
 
     @staticmethod
@@ -373,7 +376,7 @@ class GeecsNamespace:
         device (a readable signal, ``acq_timestamp``, ``connected_status``) is
         a real collision and raises rather than being renamed (review N1).
         """
-        attr = identifier_name(variable)
+        attr = safe_name(variable)  # lowercase: event keys follow EVENT_SCHEMA.md
         if attr.startswith("_") or hasattr(CaGenericDetector, attr):
             return attr.lstrip("_") + "_"
         existing = getattr(dev, attr, None)
@@ -392,12 +395,13 @@ class GeecsNamespace:
     ) -> Any:
         """One served settable → ``CaMotor`` (DB tolerance) or ``CaSettable``."""
         tolerance = row.get("tolerance")
-        if py is float and tolerance is not None:
+        if py is float and tolerance is not None and float(tolerance) > 0:
+            # A positive DB tolerance means "confirm the readback converged".
+            # 0 / NULL → a plain setpoint: many numeric settables (exposure,
+            # command-like values) never echo within a tolerance, and the
+            # catalog's `kind: motor` opt-in arrives with the axes in phase 3.
             return CaMotor(
-                device,
-                var,
-                experiment=experiment,
-                tolerance=float(tolerance) or _DEFAULT_MOTOR_TOLERANCE,
+                device, var, experiment=experiment, tolerance=float(tolerance)
             )
         return CaSettable(device, var, experiment=experiment, datatype=py)
 

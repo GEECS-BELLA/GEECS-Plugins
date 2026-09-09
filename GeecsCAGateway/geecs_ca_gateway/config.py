@@ -18,7 +18,7 @@ from geecs_core.pv_naming import normalize_component as normalize_pv_component
 
 logger = logging.getLogger(__name__)
 
-# The DB type rule lives in GEECS-Core (moved 2026-09-09, 0.20.3): one home for
+# The DB type rule lives in GEECS-Core (moved 2026-09-09, 0.20.3 / GEECS-Core 0.5.0): one home for
 # the gateway, the PVA gateway and GeecsBluesky.  The private aliases keep this
 # module's call sites and `audit.py` unchanged.
 from geecs_core.db.variable_types import (  # noqa: E402

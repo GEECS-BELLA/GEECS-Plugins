@@ -17,7 +17,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
     `CaGenericDetector` (acquirers) or `CaSnapshotReadable` (everything else)
     per device, built from the DB roster with the `db_runtime` providers'
     served-set and subscribed-list rules; each served settable attached as a
-    `CaMotor` (DB tolerance) or `CaSettable` child; every variable typed by
+    `CaMotor` (positive DB tolerance) or `CaSettable` child, its column
+    header aggregated onto the parent; ophyd names and event keys follow
+    `EVENT_SCHEMA.md` (`safe_name`, e.g. `u_s1h-current-position`) while the
+    namespace binding keeps the GEECS spelling (`U_S1H`); every variable typed by
     `geecs_core.db.variable_types.effective_vartype` (the rule the gateway
     typed the PV with); a settable named like a Bluesky method (`trigger`)
     binds as `trigger_`; `resolve("U_S1H:Current")`; `export_into(globals())`.
@@ -45,10 +48,6 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   variable CA types) and `datatype=None`; `CaSettable` accepts
   `datatype=None`. The served set mixes numerics, enums and char-array paths
   and one wrong child fails a device's connect.
-- `devices/ca/triggerable.py`: the `acq_timestamp` monitor and `trigger()`
-  moved into reusable mixins (`devices/ca/shot_monitor.py`); public surface
-  and private state names unchanged.
-
 ## [0.76.3] - 2026-09-08
 
 ### Changed

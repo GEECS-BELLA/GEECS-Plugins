@@ -20,12 +20,12 @@ def test_bare_descriptor_in_choices_is_authoritative() -> None:
     assert effective_vartype("string", "path") == "path"
 
 
-def test_an_option_list_is_always_an_enum() -> None:
-    # 18 Undulator rows: variabletype='numeric' with a filter-wheel style list —
-    # the options name configurations, not values (Sam, 2026-09-09)
-    assert effective_vartype("numeric", "1,2,3,4,5,6") == "choice"
+def test_variabletype_wins_over_an_option_list() -> None:
+    # The rule the gateway serves with today.  18 Undulator rows carry
+    # variabletype='numeric' + a filter-wheel list and SHOULD be 'choice';
+    # that is a DB fix (variabletype), not a rule change — see the module doc.
+    assert effective_vartype("numeric", "1,2,3,4,5,6") == "numeric"
     assert effective_vartype("choice", "on,off") == "choice"
-    assert effective_vartype("string", "a,b") == "choice"
 
 
 def test_blank_variabletype_falls_back_on_choices_shape() -> None:

@@ -58,3 +58,19 @@ def start_pacer(
             await asyncio.sleep(interval)
 
     return asyncio.run_coroutine_threadsafe(pace(), run_engine._loop)
+
+
+class DocCollector:
+    """Collect RunEngine documents; pick the ``primary`` stream's events."""
+
+    def __init__(self) -> None:
+        from collections import defaultdict
+
+        self.docs: dict[str, list[dict]] = defaultdict(list)
+
+    def __call__(self, name: str, doc: dict) -> None:
+        self.docs[name].append(doc)
+
+    def primary_events(self) -> list[dict]:
+        uids = {d["uid"] for d in self.docs["descriptor"] if d["name"] == "primary"}
+        return [e for e in self.docs["event"] if e["descriptor"] in uids]

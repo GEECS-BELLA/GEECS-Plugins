@@ -92,7 +92,9 @@ def test_python_type_follows_effective_vartype() -> None:
     assert python_type(row("x")) is float  # choices=numeric
     assert python_type(row("x", choices="on,off")) is str  # enum → label string
     assert python_type(row("x", choices="path")) is str  # long string
-    assert python_type(row("x", variabletype="numeric", choices="1,2,3")) is str  # enum
+    # variabletype wins over an option list (the gateway's served type today;
+    # the 18 such Undulator rows are a DB fix — see geecs_core.db.variable_types)
+    assert python_type(row("x", variabletype="numeric", choices="1,2,3")) is float
     assert python_type(row("x", choices="image")) is None  # non-scalar
     assert python_type(row("x", choices="1darray")) is None
 
@@ -115,7 +117,7 @@ def test_namespace_composes_the_existing_device_classes() -> None:
     assert isinstance(cam, CaGenericDetector)  # trigger-named variable → acquirer
     assert isinstance(magnet, CaSnapshotReadable)
     assert isinstance(box, CaSnapshotReadable)  # DG645 is a trigger *source*
-    assert cam.name == "UC_TestCam" and cam._geecs_device_name == "UC_TestCam"
+    assert cam.name == "uc_testcam" and cam._geecs_device_name == "UC_TestCam"
     assert ns["u_dg645_shotcontrol"] is box and "uc_testcam" in ns and "nope" not in ns
 
 
@@ -131,17 +133,22 @@ def test_served_set_decides_which_children_exist() -> None:
 def test_settables_attach_as_movable_children_with_db_types() -> None:
     ns = GeecsNamespace(ROSTER)
     magnet, cam = ns["U_S1H"], ns["UC_TestCam"]
-    assert isinstance(magnet.Current, CaMotor)  # DB tolerance → convergence motor
-    assert magnet.Current._tolerance == pytest.approx(0.05)
-    assert magnet.Current.name == "U_S1H-Current"  # named by the parent
-    assert isinstance(magnet.Enable_Output, CaSettable) and not isinstance(
-        magnet.Enable_Output, CaMotor
+    assert isinstance(magnet.current, CaMotor)  # DB tolerance → convergence motor
+    assert magnet.current._tolerance == pytest.approx(0.05)
+    assert magnet.current.name == "u_s1h-current"  # named by the parent, safe_name
+    assert isinstance(magnet.enable_output, CaSettable) and not isinstance(
+        magnet.enable_output, CaMotor
     )
-    assert isinstance(cam.exposure, CaMotor)  # tol 0.0 → motor with the default tol
-    assert cam.exposure._tolerance == pytest.approx(0.005)
+    # tol 0.0 → a plain setpoint, not a convergence motor (review #2)
+    assert isinstance(cam.exposure, CaSettable) and not isinstance(
+        cam.exposure, CaMotor
+    )
     assert isinstance(cam.localsavingpath, CaSettable)
-    # the settable's readback column header is the GEECS "Device Variable" form
-    assert magnet.Current._column_headers == {"U_S1H-Current-position": "U_S1H Current"}
+    # the settable's readback column header is the GEECS "Device Variable" form,
+    # and the parent aggregates it (the s-file exporter reads top-level devices)
+    assert magnet.current._column_headers == {"u_s1h-current-position": "U_S1H Current"}
+    assert magnet._column_headers["u_s1h-current-position"] == "U_S1H Current"
+    assert magnet._column_headers["u_s1h-voltage"] == "U_S1H Voltage"
 
 
 def test_protocol_named_settable_binds_with_a_trailing_underscore() -> None:
@@ -156,20 +163,20 @@ async def test_read_returns_the_subscribed_list_plus_shot_stamp() -> None:
     await cam.connect(mock=True)
     await magnet.connect(mock=True)
     assert set(await cam.read()) == {
-        "UC_TestCam-acq_timestamp",
-        "UC_TestCam-meancounts",
-        "UC_TestCam-maxcounts",
+        "uc_testcam-acq_timestamp",
+        "uc_testcam-meancounts",
+        "uc_testcam-maxcounts",
     }
     # Current is subscribed AND settable → its Movable child's readback is logged
-    assert set(await magnet.read()) == {"U_S1H-Current-position", "U_S1H-voltage"}
+    assert set(await magnet.read()) == {"u_s1h-current-position", "u_s1h-voltage"}
     assert hasattr(cam, "trigger") and not hasattr(magnet, "trigger")
 
 
 def test_variable_and_resolve_accept_either_spelling() -> None:
     ns = GeecsNamespace(ROSTER)
     magnet = ns["U_S1H"]
-    assert ns.variable("U_S1H", "current") is magnet.Current
-    assert ns.resolve("u_s1h:CURRENT") is magnet.Current
+    assert ns.variable("U_S1H", "Current") is magnet.current  # GEECS spelling
+    assert ns.resolve("u_s1h:CURRENT") is magnet.current
     assert ns.resolve("U_S1H:voltage") is magnet.voltage
     assert ns.resolve("UC_TestCam:trigger") is ns["UC_TestCam"].trigger_
     assert ns.resolve("U_S1H") is magnet

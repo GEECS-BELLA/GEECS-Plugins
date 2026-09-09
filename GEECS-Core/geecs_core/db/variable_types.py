@@ -6,10 +6,13 @@ The canonical type of a GEECS variable is ``devicetype_variable.choice_id``
 from 5 up is an enum option list (``on,off``).  The ``variabletype`` column
 on the same table is a secondary annotation, blank on roughly half the rows.
 :func:`effective_vartype` folds the two into one answer, descriptor first.
-A comma-separated option list is **always** an enum, even when
-``variabletype`` says ``numeric``: a filter wheel's ``1,2,3,4,5,6`` names
-configurations, not numbers (Sam, 2026-09-09 — 18 Undulator rows; before
-this rule the gateway served them as floats).
+Known DB defect for the type sweep (Sam, 2026-09-09): 18 Undulator rows
+carry ``variabletype='numeric'`` with a filter-wheel style option list
+(``1,2,3,4,5,6``) that names configurations, not numbers.  They *should* be
+``choice`` — fix them in the DB (``variabletype``), not here: this rule is
+what the gateway serves today, and every consumer's declared type must keep
+matching the served PV (changing the rule alone would break the existing
+scan path's ``float`` declarations for those variables).
 
 This is the rule the CA gateway types its PVs with (``GeecsCAGateway``), the
 PVA gateway picks image variables with, and GeecsBluesky declares its ophyd
@@ -55,9 +58,8 @@ def effective_vartype(variabletype: str | None, choices: str | None) -> str:
     ``string``, ``path``) it is the AUTHORITATIVE type — even when
     ``variabletype`` says otherwise (e.g. ``variabletype='choice'`` with
     ``choices='image'`` is an image variable streaming raw bytes, not a
-    one-option enum).  A real option list (``on,off``, ``1,2,3``) is always a
-    ``choice`` — numeric-looking options name configurations, not values.
-    Otherwise trust ``variabletype``; blank falls back to ``numeric``.
+    one-option enum).  Otherwise trust ``variabletype``; if it is blank, a real
+    option list is a ``choice``, else fall back to ``numeric``.
 
     Parameters
     ----------
@@ -78,10 +80,10 @@ def effective_vartype(variabletype: str | None, choices: str | None) -> str:
     descriptor = raw_choices.lower()
     if descriptor in CHOICE_TYPE_DESCRIPTORS:
         return descriptor
-    if "," in raw_choices:
-        return "choice"
     if vartype:
         return vartype
+    if "," in raw_choices:
+        return "choice"
     return "numeric"
 
 

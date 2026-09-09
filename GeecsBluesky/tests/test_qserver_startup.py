@@ -264,6 +264,6 @@ def test_startup_exports_the_device_namespace_and_installs_connect_last(
     )
     ns = runpy.run_path(str(STARTUP_PATH), run_name="__not_main__")
     assert "U_S1H" in ns and "U_S1H" in ns["__all__"]
-    assert ns["U_S1H"].Current.name == "U_S1H-Current"
+    assert ns["U_S1H"].current.name == "u_s1h-current"
     funcs = [getattr(p, "func", p) for p in ns["RE"].preprocessors]
     assert funcs[-1] is connect_on_demand and funcs.count(connect_on_demand) == 1
