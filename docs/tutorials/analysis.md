@@ -113,7 +113,7 @@ In the standalone editor page, pick a group under `groups/` (e.g.
 `HTU/baseline.yaml`). The group form shows:
 
 - **`name`** and **`description`** — the group's human-readable identity.
-- **`upload_to_scan-log`** — when ticked, each member's display files go to
+- **`upload_to_scanlog`** — when ticked, each member's display files go to
   the Google Doc e-log on completion.
 - **`analyzers`** — the roster. Each entry is a diagnostic id (with
   type-ahead over every analyzer in the tree) and an optional per-group
@@ -126,7 +126,7 @@ A representative group YAML reads:
 ```yaml
 name: HTU_baseline
 description: standard HTU shift analysis
-upload_to_scan-log: true
+upload_to_scanlog: true
 analyzers:
   - Amp4Input
   - Amp4Output

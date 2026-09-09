@@ -22,16 +22,17 @@ Each diagnostic is one YAML file (one camera, one 1D signal). At the top
 level it carries three sections:
 
 ```yaml
+schema_version: 2
 name: UC_TopView
-image_analyzer: image_analysis.analyzers.beam_analyzer.BeamAnalyzer
+analyzer:
+  kind: beam            # which analyzer runs, plus its typed parameters
 image:
   type: camera          # or "line" for a 1D Line1DConfig
   bit_depth: 16
   roi: {x_min: 0, x_max: 650, y_min: 350, y_max: 650}
   background: {method: constant, constant_level: 5.0}
   thresholding: {method: constant, value: 0.0, mode: to_zero}
-  pipeline:
-    steps: [background, roi, thresholding]
+  pipeline: [background, roi, thresholding]
 scan:
   priority: 50
   mode: per_shot
@@ -39,9 +40,10 @@ scan:
 
 - **`name`** is the diagnostic identifier (matches the device or signal
   name in the GEECS database).
-- **`image_analyzer`** is the dotted path of the Python class that runs
-  against each processed shot — `BeamAnalyzer`, `StandardAnalyzer`,
-  `Standard1DAnalyzer`, custom subclasses, etc.
+- **`analyzer:`** picks the analyzer by `kind` (`beam`, `standard`,
+  `trace`, `magspec`, …) and carries that kind's typed parameters — one
+  spec model per analyzer in `geecs_schemas.analysis`, no class paths, no
+  free-form kwargs.
 - **`image:`** is the typed Pydantic config for per-shot processing. The
   `type: camera | line` discriminator routes the dict to either a
   [`CameraConfig`](api/core_modules.md) or a `Line1DConfig`.
@@ -52,11 +54,11 @@ scan:
 
 ## Pipeline is the source of truth
 
-The `image.pipeline.steps` list is the **only** thing that decides which
+The `image.pipeline` list is the **only** thing that decides which
 processing steps run, and in what order. The step config blocks
 (`background:`, `roi:`, `thresholding:`, …) describe *how* each step
 behaves; whether the step actually runs is purely a function of whether
-it appears in `pipeline.steps`.
+it appears in `pipeline`.
 
 ```yaml
 image:

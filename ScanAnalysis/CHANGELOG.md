@@ -5,6 +5,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [1.21.0] - 2026-09-08
 
+### Fixed
+
+- Editor: a free-mapping textarea (`metadata`, `auxiliary_columns`) that does
+  not parse as JSON is an error state — validate, preview and Save refuse
+  until it is fixed — instead of reading as "unset" and silently dropping the
+  mapping on Save (Codex review of #803).
+
 ### Removed
 
 - **The Qt `ConfigFileGUI`** (6,300 lines) — superseded by the web config

@@ -168,7 +168,10 @@
       const ta = el("textarea", { rows: 3, spellcheck: "false", oninput: () => this.onChange() });
       ta.value = value === undefined || value === null ? "" : JSON.stringify(value, null, 1);
       const err = el("div", { class: "ferr" });
-      return { node: this.field(n, path, ta, err), get: () => { err.textContent = ""; if (!ta.value.trim()) return undefined; try { return JSON.parse(ta.value); } catch (e) { err.textContent = "invalid JSON: " + e.message; return undefined; } } };
+      // Unparseable text is an error state, never "unset": get() throws, and
+      // the editor refuses to validate, preview or save until it is fixed —
+      // otherwise a typo in `metadata` would silently drop the mapping on Save.
+      return { node: this.field(n, path, ta, err), get: () => { err.textContent = ""; if (!ta.value.trim()) return undefined; try { return JSON.parse(ta.value); } catch (e) { err.textContent = "invalid JSON: " + e.message; throw new FormParseError(path.join("."), e.message); } } };
     }
     map(n, value, path) { return this.json(Object.assign({}, n, { description: (n.description || "") + " (JSON mapping)" }), value, path); }
 
@@ -316,6 +319,10 @@
     }
   }
 
+  class FormParseError extends Error {
+    constructor(loc, detail) { super(`${loc}: invalid JSON (${detail}) - fix it before validating or saving`); this.loc = loc; }
+  }
+
   // -------------------------------------------------------------- editor
   function mount(container, opts) {
     const base = opts.base || "";
@@ -343,7 +350,7 @@
     // with "auto" on; the choice is remembered per browser.
     let autoPreview = false, previewStale = false;
     try { autoPreview = localStorage.getItem("ce.autoPreview") === "1"; } catch (_) { /* storage blocked */ }
-    const previewBtn = el("button", { type: "button", title: "render the current shot through the document as edited (not saved)", onclick: () => { if (state.get && state.kind === "analyzer") preview(state.get()); } }, "preview");
+    const previewBtn = el("button", { type: "button", title: "render the current shot through the document as edited (not saved)", onclick: () => { const d = currentDoc(); if (d && state.kind === "analyzer") preview(d); } }, "preview");
     const autoBox = el("input", { type: "checkbox", title: "re-render after every edit (one request per change)" });
     autoBox.checked = autoPreview;
     autoBox.addEventListener("change", () => {
@@ -442,6 +449,15 @@
       await validate();
       if (state.etag === null) markDirty();
     }
+    // The form's document, or null (with the error shown) when a free-mapping
+    // textarea does not parse.
+    function currentDoc() {
+      if (!state.get) return null;
+      try { return state.get(); } catch (e) {
+        if (!(e instanceof FormParseError)) throw e;
+        errBox.textContent = e.message; okBox.textContent = ""; return null;
+      }
+    }
     function markDirty() { state.dirty = true; if (state.dirtyEl) state.dirtyEl.textContent = "unsaved"; if (state.saveBtn) { state.saveBtn.disabled = false; state.saveBtn.title = ""; } }
     // The banner an invalid-on-disk file keeps until it is saved over.
     function loadBanner() {
@@ -453,8 +469,8 @@
     const onFormChange = () => { markDirty(); validateDebounced(); };
 
     async function validate() {
-      if (!state.get) return null;
-      const doc = state.get();
+      const doc = currentDoc();
+      if (!doc) return null;
       const report = await api(base, `/validate/${state.kind}`, { method: "POST", body: JSON.stringify({ document: doc }) });
       Form.showErrors(state.formRoot, report.errors);
       const banner = loadBanner();
@@ -478,7 +494,8 @@
       const report = await validate();
       if (!report || !report.ok) return;
       try {
-        const saved = await api(base, `/${state.kind}s/${encodeURIComponent(state.namespace)}/${encodeURIComponent(state.id)}`, { method: "PUT", body: JSON.stringify({ document: state.get(), etag: state.etag }) });
+        const doc = currentDoc(); if (!doc) return;
+        const saved = await api(base, `/${state.kind}s/${encodeURIComponent(state.namespace)}/${encodeURIComponent(state.id)}`, { method: "PUT", body: JSON.stringify({ document: doc, etag: state.etag }) });
         state.etag = saved.etag; state.dirty = false; state.loadError = null; state.loadYaml = null; state.dirtyEl.textContent = "saved"; okBox.textContent = "saved"; errBox.textContent = "";
         await loadListing();
         if (opts.onSaved) opts.onSaved(saved);
@@ -536,8 +553,8 @@
     // Start a new document from the current form's content (a variant of the
     // open diagnostic for the same device, say); Save then creates it.
     async function duplicate(namespace, id, patch) {
-      if (!state.get) return;
-      const doc = Object.assign(JSON.parse(JSON.stringify(state.get())), patch || {});
+      const cur = currentDoc(); if (!cur) return;
+      const doc = Object.assign(JSON.parse(JSON.stringify(cur)), patch || {});
       // The copy is a new identity: anything that pins the original's data
       // folder or output location would make the two overwrite each other.
       delete doc.output_name;
@@ -556,7 +573,7 @@
       current: () => ({ kind: state.kind, id: state.id, namespace: state.namespace, etag: state.etag }),
       listing: () => state.listing,
       reloadListing: loadListing,
-      refreshPreview: () => { if (state.get && hasPreview && state.kind === "analyzer") preview(state.get()); },
+      refreshPreview: () => { const d = currentDoc(); if (d && hasPreview && state.kind === "analyzer") preview(d); },
     };
   }
 

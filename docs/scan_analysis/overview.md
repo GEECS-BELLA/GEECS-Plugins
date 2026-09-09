@@ -82,7 +82,7 @@ Group YAMLs look like:
 ```yaml
 name: HTU_baseline
 description: standard HTU shift analysis
-upload_to_scan-log: true
+upload_to_scanlog: true
 analyzers:
   - Amp4Input
   - Amp4Output
