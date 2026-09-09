@@ -4,6 +4,35 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Added
+
+- **Device namespace (native-Bluesky refactor, #807 phase 1)** — devices as
+  long-lived nouns, addressable by name and lazily connected, so stock
+  `bluesky.plans` verbs can run under the queue server:
+  - `geecs_bluesky.devices.geecs_device.GeecsDevice` / `GeecsTriggeredDevice`:
+    one ophyd-async device per GEECS device, built from the DB roster; one
+    child per scalar variable (readbacks as signals, settables as
+    `CaSettable`/`CaMotor` Movables), non-scalars skipped (PVA/#806), read
+    selection via the stock `configure(variables=...)` convention.
+  - `geecs_bluesky.namespace.GeecsNamespace` / `DeviceRoster`: build the
+    experiment's devices from the four `GeecsDb` batch queries (loud on DB
+    failure), resolve `Device`/`Device:Variable`, export into the worker
+    namespace.
+  - `geecs_bluesky.preprocessors.connect_on_demand`: a RunEngine
+    preprocessor that connects a namespace device the first time a plan
+    touches it (message-level `ensure_connected`; connected devices stay
+    connected).
+
+### Changed
+
+- `devices/ca/triggerable.py`: the `acq_timestamp` monitor and `trigger()`
+  moved into reusable mixins (`devices/ca/shot_monitor.py`);
+  `CaAcqTimestampReadable`/`CaTriggerable` keep their public surface and
+  private state, and `GeecsTriggeredDevice` reuses the same machinery.
+
+
 ## [0.76.3] - 2026-09-08
 
 ### Changed
