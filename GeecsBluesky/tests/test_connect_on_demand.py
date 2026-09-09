@@ -29,7 +29,7 @@ ROSTER = DeviceRoster(
     experiment="TestExp",
     variables={
         "UC_TestCam": [
-            {"name": "acq_timestamp", "variabletype": "numeric"},
+            {"name": "trigger", "settable": True, "variabletype": "choice"},
             {"name": "MeanCounts", "variabletype": "numeric"},
             {"name": "MaxCounts", "variabletype": "numeric"},
         ],

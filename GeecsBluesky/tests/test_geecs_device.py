@@ -129,6 +129,21 @@ def test_protocol_named_variables_bind_with_a_trailing_underscore() -> None:
     assert cam.trigger_.name == "UC_TestCam-trigger_"
 
 
+def test_looks_triggerable_heuristic() -> None:
+    from geecs_bluesky.devices.geecs_device import looks_triggerable
+
+    camera = [{"name": "trigger"}, {"name": "MeanCounts"}]
+    assert looks_triggerable(camera, "Point Grey Camera")
+    assert looks_triggerable([{"name": "EnableTrigger"}], "PicoscopeV2")
+    assert not looks_triggerable([{"name": "Current"}], "Magnet PS")
+    # a trigger *source* has Trigger.* variables but never acquires
+    dg645 = [{"name": "Trigger.Source"}, {"name": "Trigger.ExecuteSingleShot"}]
+    assert not looks_triggerable(dg645, "DG645")
+    assert not looks_triggerable(dg645, " dg645 ")
+    # a DB acq_timestamp row is authoritative, even on an excluded type
+    assert looks_triggerable(dg645 + [{"name": "acq_timestamp"}], "DG645")
+
+
 def test_attribute_collision_is_loud() -> None:
     rows = [
         {"name": "Position.Axis 1", "variabletype": "numeric"},

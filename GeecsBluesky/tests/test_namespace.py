@@ -10,6 +10,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from geecs_bluesky.devices.ca.settable import CaSettable
 from geecs_bluesky.devices.geecs_device import GeecsDevice, GeecsTriggeredDevice
 from geecs_bluesky.exceptions import GeecsConfigurationError
 from geecs_bluesky.namespace import DeviceRoster, GeecsNamespace
@@ -18,9 +19,12 @@ ROSTER = DeviceRoster(
     experiment="TestExp",
     variables={
         "UC_TestCam": [
-            {"name": "acq_timestamp", "variabletype": "numeric"},
+            {"name": "trigger", "settable": True, "variabletype": "choice"},
             {"name": "MeanCounts", "variabletype": "numeric"},
             {"name": "image", "variabletype": "image"},
+        ],
+        "U_DG645_Box": [
+            {"name": "Trigger.Source", "settable": True, "variabletype": "choice"},
         ],
         "U_S1H": [
             {
@@ -36,16 +40,28 @@ ROSTER = DeviceRoster(
             {"name": "Trigger.Mode", "settable": True, "variabletype": "string"}
         ],
     },
-    types={"UC_TestCam": "Point Grey Camera", "U_S1H": "Magnet PS"},
+    types={
+        "UC_TestCam": "Point Grey Camera",
+        "U_S1H": "Magnet PS",
+        "U_DG645_Box": "DG645",
+    },
     subscribed={"UC_TestCam": ["MeanCounts"]},
 )
 
 
 def test_namespace_builds_one_device_per_rostered_device() -> None:
     ns = GeecsNamespace(ROSTER)
-    assert len(ns) == 3  # U_ImagesOnly has no scalars and is skipped
-    assert set(ns.devices) == {"UC_TestCam", "U_S1H", "u_dg645_shotcontrol"}
-    assert isinstance(ns["UC_TestCam"], GeecsTriggeredDevice)
+    assert len(ns) == 4  # U_ImagesOnly has no scalars and is skipped
+    assert set(ns.devices) == {
+        "UC_TestCam",
+        "U_S1H",
+        "u_dg645_shotcontrol",
+        "U_DG645_Box",
+    }
+    assert isinstance(
+        ns["UC_TestCam"], GeecsTriggeredDevice
+    )  # trigger variable → acquirer
+    assert not isinstance(ns["U_DG645_Box"], GeecsTriggeredDevice)  # trigger *source*
     assert isinstance(ns["U_S1H"], GeecsDevice) and not isinstance(
         ns["U_S1H"], GeecsTriggeredDevice
     )
@@ -66,7 +82,8 @@ def test_only_served_variables_become_children() -> None:
     assert magnet.variables == ("current",)
     assert not hasattr(magnet, "voltage")
     cam = ns["UC_TestCam"]
-    assert cam.variables == ("MeanCounts",) and hasattr(cam, "acq_timestamp")
+    assert cam.variables == ("trigger", "MeanCounts") and hasattr(cam, "acq_timestamp")
+    assert isinstance(cam.trigger_, CaSettable) and callable(cam.trigger)
     everything = GeecsNamespace(ROSTER, include_unserved=True)
     assert everything["U_S1H"].variables == ("current", "voltage")
 
@@ -140,11 +157,28 @@ def test_name_collision_between_devices_is_loud() -> None:
         GeecsNamespace(roster)
 
 
+def test_roster_triggered_override_wins(caplog) -> None:
+    roster = DeviceRoster(
+        experiment="TestExp",
+        variables=ROSTER.variables,
+        types=ROSTER.types,
+        triggered={"U_S1H": True, "UC_TestCam": False},
+        live_triggered=frozenset({"UC_TestCam"}),
+    )
+    with caplog.at_level("WARNING", logger="geecs_bluesky.namespace"):
+        ns = GeecsNamespace(roster)
+    assert isinstance(ns["U_S1H"], GeecsTriggeredDevice)
+    assert not isinstance(ns["UC_TestCam"], GeecsTriggeredDevice)
+    # the live probe disagrees with the classification → loud, not silent
+    assert "pushing acq_timestamp but NOT classified" in caplog.text
+    assert "UC_TestCam" in caplog.text
+
+
 def test_export_into_binds_names_and_refuses_shadowing() -> None:
     ns = GeecsNamespace(ROSTER)
     target: dict = {"RE": object()}
     names = ns.export_into(target)
-    assert names == ["UC_TestCam", "U_S1H", "u_dg645_shotcontrol"]
+    assert names == ["UC_TestCam", "U_DG645_Box", "U_S1H", "u_dg645_shotcontrol"]
     assert target["U_S1H"] is ns["U_S1H"]
     with pytest.raises(GeecsConfigurationError, match="would shadow"):
         ns.export_into({"U_S1H": object()})
@@ -179,7 +213,7 @@ def test_from_experiment_uses_the_four_batch_queries() -> None:
     ns = GeecsNamespace.from_experiment("TestExp", geecs_db=db)
     assert db.calls == ["variables", "types", "subscribed", "devices"]
     assert ns.roster.endpoints == {"U_S1H": ("192.168.0.1", 1234)}
-    assert len(ns) == 3
+    assert len(ns) == 4
 
 
 def test_db_failure_at_build_is_loud_not_empty() -> None:

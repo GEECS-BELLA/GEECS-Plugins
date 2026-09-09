@@ -89,7 +89,9 @@ def test_stock_plans_over_the_namespace_on_hardware() -> None:
     docs_out = os.environ.get("GEECS_HW_DOCS_OUT")
 
     resolver = ConfigsRepoResolver(experiment)
-    namespace = GeecsNamespace.from_experiment(experiment, resolver=resolver)
+    namespace = GeecsNamespace.from_experiment(
+        experiment, resolver=resolver, probe_gateway=True
+    )
     print(f"\nnamespace: {len(namespace)} devices for {experiment}")
     camera = namespace[camera_name]
     assert hasattr(camera, "trigger"), (

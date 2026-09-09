@@ -30,6 +30,7 @@ from geecs_bluesky.devices.geecs_device import (
     GeecsTriggeredDevice,
     VariableMeta,
     identifier_name,
+    looks_triggerable,
 )
 from geecs_bluesky.exceptions import GeecsConfigurationError
 
@@ -74,15 +75,29 @@ class DeviceRoster:
     types: Mapping[str, str] = field(default_factory=dict)
     subscribed: Mapping[str, list[str]] = field(default_factory=dict)
     endpoints: Mapping[str, tuple[str, int]] = field(default_factory=dict)
+    #: Explicit per-device triggerable overrides (``True``/``False``); a
+    #: device absent here is classified by :func:`looks_triggerable`.
+    triggered: Mapping[str, bool] = field(default_factory=dict)
+    #: Devices observed pushing ``acq_timestamp`` (a live gateway probe);
+    #: advisory — logged against the classification, never the rule.
+    live_triggered: frozenset[str] = frozenset()
 
     @classmethod
     def from_geecs_db(
-        cls, experiment: str, *, geecs_db: Any | None = None
+        cls,
+        experiment: str,
+        *,
+        geecs_db: Any | None = None,
+        probe_gateway: bool = False,
+        probe_timeout: float = 4.0,
     ) -> DeviceRoster:
         """Load the roster with the DB's batch queries (one connection each).
 
         Raises :class:`GeecsConfigurationError` on any DB failure — see the
-        module docstring for why this is loud rather than empty.
+        module docstring for why this is loud rather than empty.  With
+        *probe_gateway*, also read every device's ``acq_timestamp`` once
+        (fail-open, concurrent) to fill :attr:`live_triggered` — advisory
+        input for the startup classification log, not a rule.
         """
         if geecs_db is None:
             try:
@@ -105,12 +120,38 @@ class DeviceRoster:
                 "worker cannot register devices without it — check the DB "
                 "configuration ([Database] in config.ini) and connectivity."
             ) from exc
+        live: frozenset[str] = frozenset()
+        if probe_gateway:
+            live = cls._probe_live_triggered(experiment, list(variables), probe_timeout)
         return cls(
             experiment=experiment,
             variables=variables,
             types=types,
             subscribed=subscribed,
             endpoints=endpoints,
+            live_triggered=live,
+        )
+
+    @staticmethod
+    def _probe_live_triggered(
+        experiment: str, devices: list[str], timeout: float
+    ) -> frozenset[str]:
+        """Devices whose ``acq_timestamp`` PV reads positive right now (fail-open)."""
+        try:
+            from geecs_bluesky.devices.ca.oneshot import try_caget_many
+            from geecs_core.pv_naming import pv_name
+
+            values = try_caget_many(
+                [pv_name(experiment, d, ACQ_TIMESTAMP_VARIABLE) for d in devices],
+                timeout=timeout,
+            )
+        except Exception:
+            logger.warning(
+                "device namespace: acq_timestamp probe failed", exc_info=True
+            )
+            return frozenset()
+        return frozenset(
+            d for d, v in zip(devices, values) if isinstance(v, (int, float)) and v > 0
         )
 
 
@@ -150,7 +191,11 @@ class GeecsNamespace:
                 served = served_variable_names(rows, roster.subscribed.get(device, ()))
                 kept = [row for row in rows if str(row["name"]) in served]
             metas = [VariableMeta.from_db(row) for row in kept]
-            triggered = any(m.name.lower() == ACQ_TIMESTAMP_VARIABLE for m in metas)
+            devicetype = roster.types.get(device, "")
+            if device in roster.triggered:
+                triggered = bool(roster.triggered[device])
+            else:
+                triggered = looks_triggerable(rows, devicetype)
             if not triggered and not any(m.is_scalar for m in metas):
                 skipped.append(device)
                 continue
@@ -168,11 +213,12 @@ class GeecsNamespace:
                 experiment=roster.experiment,
                 subscribed=roster.subscribed.get(device),
                 motor_variables=motor_targets.get(device, ()),
-                devicetype=roster.types.get(device, ""),
+                devicetype=devicetype,
                 name=ns_name,
             )
             self._devices[ns_name] = dev
             self._by_geecs_name[device.lower()] = dev
+        self._log_classification(roster)
         if skipped:
             logger.info(
                 "device namespace: %d device(s) without scalar variables not "
@@ -186,6 +232,29 @@ class GeecsNamespace:
             roster.experiment,
         )
 
+    def _log_classification(self, roster: DeviceRoster) -> None:
+        """Log the triggerable split; warn where the live probe disagrees."""
+        triggered = sorted(
+            d.geecs_name
+            for d in self._devices.values()
+            if isinstance(d, GeecsTriggeredDevice)
+        )
+        logger.info(
+            "device namespace: %d triggerable device(s): %s",
+            len(triggered),
+            ", ".join(triggered) or "none",
+        )
+        if not roster.live_triggered:
+            return
+        live_only = sorted(roster.live_triggered - set(triggered))
+        if live_only:
+            logger.warning(
+                "device namespace: pushing acq_timestamp but NOT classified "
+                "triggerable (fix looks_triggerable / TRIGGER_SOURCE_DEVICETYPES "
+                "or set roster.triggered): %s",
+                ", ".join(live_only),
+            )
+
     # ------------------------------------------------------------ builders
     @classmethod
     def from_experiment(
@@ -194,9 +263,12 @@ class GeecsNamespace:
         *,
         resolver: Any | None = None,
         geecs_db: Any | None = None,
+        probe_gateway: bool = False,
     ) -> GeecsNamespace:
         """Build from the GEECS DB (loud on failure); catalog motor kinds if a resolver is given."""
-        roster = DeviceRoster.from_geecs_db(experiment, geecs_db=geecs_db)
+        roster = DeviceRoster.from_geecs_db(
+            experiment, geecs_db=geecs_db, probe_gateway=probe_gateway
+        )
         motors = (
             cls.motor_targets_from_catalog(resolver) if resolver is not None else {}
         )

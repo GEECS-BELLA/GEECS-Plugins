@@ -39,6 +39,7 @@ device keeps the original GEECS names for PV minting and lookups
 from __future__ import annotations
 
 import logging
+import re
 import time
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
@@ -78,6 +79,40 @@ NUMERIC_TYPES: frozenset[str] = frozenset(
 
 #: Variables the gateway serves for every device that are never data columns.
 _RESERVED_VARIABLES: frozenset[str] = frozenset({"connected"})
+
+#: Devicetypes that carry ``Trigger.*`` variables because they *generate* or
+#: *route* triggers (delay generators, a bipolar supply with a trigger input)
+#: — never acquirers.  The triggerable heuristic excludes them.
+TRIGGER_SOURCE_DEVICETYPES: frozenset[str] = frozenset(
+    {"dg645", "dg535", "highland t564 ddg", "tdk-lambda z bipolar"}
+)
+
+_TRIGGER_VARIABLE = re.compile("trig", re.IGNORECASE)
+
+
+def looks_triggerable(
+    rows: Iterable[Mapping[str, Any] | "VariableMeta"], devicetype: str = ""
+) -> bool:
+    """Whether a device acquires per shot (so it gets a Bluesky ``trigger()``).
+
+    The GEECS shot stamp ``acq_timestamp`` is generated inside LabVIEW and is
+    not (yet) a DB variable, so this is the agreed shortcut (Sam,
+    2026-09-09): a device whose devicetype variables mention a trigger
+    (``trigger``, ``TriggerDelay``, ``AutoTrigger``, ``EnableTrigger``, …)
+    is a triggered acquirer — cameras, spectrometers, ICT scopes, DAQ pads —
+    unless its devicetype is a trigger *source*
+    (:data:`TRIGGER_SOURCE_DEVICETYPES`).  A DB row literally named
+    ``acq_timestamp`` is authoritative and wins outright once the DB grows
+    it.  Checked live 2026-09-09 against every Undulator device pushing
+    ``acq_timestamp``: no misses; the only extras were idle acquirers and
+    the excluded sources.
+    """
+    names = [str(r.name if isinstance(r, VariableMeta) else r["name"]) for r in rows]
+    if any(n.lower() == ACQ_TIMESTAMP_VARIABLE for n in names):
+        return True
+    if devicetype.strip().lower() in TRIGGER_SOURCE_DEVICETYPES:
+        return False
+    return any(_TRIGGER_VARIABLE.search(n) for n in names)
 
 
 def identifier_name(geecs_name: str) -> str:
@@ -228,7 +263,9 @@ class GeecsDevice(Device):
         (:meth:`child`, :meth:`configure`) are unaffected.
         """
         attr = identifier_name(variable)
-        if attr.startswith("_") or hasattr(cls, attr):
+        # Checked against the most-derived class so 'trigger' binds as
+        # 'trigger_' on every device, triggered or not (stable names).
+        if attr.startswith("_") or hasattr(GeecsTriggeredDevice, attr):
             attr = attr.lstrip("_") + "_"
         return attr
 
