@@ -92,7 +92,7 @@ def no_db(monkeypatch):
         "geecs_bluesky.scan_request_runner.make_scalar_policy", lambda session: None
     )
     monkeypatch.setattr(
-        "geecs_bluesky.plans.scan_request_plan.make_scalar_policy",
+        "geecs_bluesky.plans.preamble.make_scalar_policy",
         lambda session: None,
     )
     monkeypatch.setattr(
@@ -1111,9 +1111,7 @@ def test_trigger_profile_builds_the_controller_worker_side(
         def quiesce(self):
             yield from ()
 
-    monkeypatch.setattr(
-        "geecs_bluesky.plans.scan_request_plan.ShotController", _StubController
-    )
+    monkeypatch.setattr("geecs_bluesky.plans.preamble.ShotController", _StubController)
     folder = tmp_path / "Scan007"
     monkeypatch.setattr(
         "geecs_bluesky.plans.scan_request_plan.claim_scan_number",
@@ -1241,7 +1239,7 @@ def test_telemetry_documents_match_on_both_doors(
 
     for target in (
         "geecs_bluesky.scan_request_runner.make_scalar_policy",
-        "geecs_bluesky.plans.scan_request_plan.make_scalar_policy",
+        "geecs_bluesky.plans.preamble.make_scalar_policy",
     ):
         monkeypatch.setattr(target, lambda session: _FakeScalarPolicy())
 
@@ -1581,7 +1579,7 @@ class _TablePolicy:
 def _install_policy(monkeypatch, policy) -> None:
     for target in (
         "geecs_bluesky.scan_request_runner.make_scalar_policy",
-        "geecs_bluesky.plans.scan_request_plan.make_scalar_policy",
+        "geecs_bluesky.plans.preamble.make_scalar_policy",
     ):
         monkeypatch.setattr(target, lambda session: policy)
 

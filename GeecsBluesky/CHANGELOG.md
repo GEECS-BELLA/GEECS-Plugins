@@ -4,6 +4,25 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.77.1] - 2026-09-09
+
+### Changed
+
+- **Scan preamble extracted to `plans/preamble.py`** (GEECS-Plugins#807
+  phase 2, step A) — a pure move, no behaviour change. `resolve_request`
+  (validation + trigger profile → `ShotController` + strict decision, shared
+  with optimize) and `prepare_step_scan` (save sets, preflights, action
+  slots, axis resolution, capture toggle, deferred construction, the in-plan
+  connect batches, the fail-fast gates, the metadata spec) now have **one
+  implementation with two callers**: `geecs_scan_request_plan`, unchanged in
+  behaviour, and — next — the RunEngine preprocessor that gives stock
+  `bluesky.plans` verbs the same preamble. `_DeferredConnectFactories`, the
+  connect/disconnect plan stubs and their two constants moved with the code.
+  `PreparedScan.as_claimed_kwargs()` keeps the funnel's
+  `build_claimed_scan_plan` call a one-liner.
+  Tests that patch `make_scalar_policy` / `ShotController` by module path now
+  target `geecs_bluesky.plans.preamble`.
+
 ## [0.77.0] - 2026-09-09
 
 ### Added
