@@ -667,6 +667,57 @@ class GeecsSession:
             md=md,
         )
 
+    def configure_claimed_scan(
+        self,
+        *,
+        scan_number: int | None,
+        scan_folder: str | None,
+        detectors: Sequence[Any],
+        motor: Any | Sequence[Any] | None,
+        positions: Sequence[Any],
+        shots_per_step: int,
+        description: str = "",
+        scan_info_overrides: dict | None = None,
+    ) -> list[tuple]:
+        """Everything that happens between a claimed scan number and the run.
+
+        ScanInfo write → role wiring (schema-v1 shot ids, contributor
+        anchoring) → native-save configuration.  Split out of
+        :meth:`build_claimed_scan_plan` (GEECS-Plugins#807 phase 2) so the
+        RunEngine preamble preprocessor — which does **not** build an inner
+        plan, the stock plan being the inner plan — shares this tail rather
+        than copying it.  A ``None`` *scan_number* (failed claim, or
+        ``save_data=False``) skips the ScanInfo write and configures no
+        native saving, exactly as every call site always did.
+
+        Returns
+        -------
+        list of tuple
+            The ``(detector, event_path, device_command_path)`` triples the
+            save-enable plan drives.
+        """
+        detectors = list(detectors)
+        if scan_number is not None:
+            self._write_scan_info(
+                scan_number,
+                scan_folder,
+                motor=motor,
+                positions=positions,
+                shots_per_step=shots_per_step,
+                description=description,
+                overrides=scan_info_overrides,
+            )
+
+        # Role wiring: schema-v1 shot ids + contributor anchoring.
+        reference = detectors[0]
+        for det in detectors:
+            if hasattr(det, "configure_shot_id"):
+                det.configure_shot_id(self.rep_rate_hz)
+            if hasattr(det, "set_reference") and det is not reference:
+                det.set_reference(reference)
+
+        return self._configure_saving(detectors, scan_number, scan_folder)
+
     def build_claimed_scan_plan(
         self,
         *,
@@ -721,26 +772,17 @@ class GeecsSession:
             The composed plan generator (``build_step_scan_plan``).
         """
         detectors = list(detectors)
-        if scan_number is not None:
-            self._write_scan_info(
-                scan_number,
-                scan_folder,
-                motor=motor,
-                positions=positions,
-                shots_per_step=shots_per_step,
-                description=description,
-                overrides=scan_info_overrides,
-            )
-
-        # Role wiring: schema-v1 shot ids + contributor anchoring.
+        saving_detectors = self.configure_claimed_scan(
+            scan_number=scan_number,
+            scan_folder=scan_folder,
+            detectors=detectors,
+            motor=motor,
+            positions=positions,
+            shots_per_step=shots_per_step,
+            description=description,
+            scan_info_overrides=scan_info_overrides,
+        )
         reference = detectors[0]
-        for det in detectors:
-            if hasattr(det, "configure_shot_id"):
-                det.configure_shot_id(self.rep_rate_hz)
-            if hasattr(det, "set_reference") and det is not reference:
-                det.set_reference(reference)
-
-        saving_detectors = self._configure_saving(detectors, scan_number, scan_folder)
 
         return build_step_scan_plan(
             strict=strict,

@@ -22,6 +22,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `build_claimed_scan_plan` call a one-liner.
   Tests that patch `make_scalar_policy` / `ShotController` by module path now
   target `geecs_bluesky.plans.preamble`.
+- `GeecsSession.configure_claimed_scan()` — the post-claim tail (ScanInfo
+  write → role wiring → native-save configuration) split out of
+  `build_claimed_scan_plan`, which now calls it. The preamble preprocessor
+  needs that tail without building an inner plan (the stock plan *is* the
+  inner plan), so this keeps one implementation rather than a copy.
 
 ## [0.77.0] - 2026-09-09
 
