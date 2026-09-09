@@ -139,7 +139,7 @@ class BaseEvaluator:
 
     Attributes
     ----------
-    diagnostics : list of DiagnosticAnalysisConfig
+    diagnostics : list of AnalysisDiagnostic
         Resolved diagnostics from ``analyzers``.
     scan_analyzers : dict[str, ScanAnalyzer]
         One ScanAnalyzer per diagnostic, keyed by GEECS device name.

@@ -20,7 +20,7 @@ structural, not conventional:
   confused about the contract, and silently dropping the key would turn
   that confusion into wrong-but-plausible output.
 * Analyzers with unconditional side effects — writes or subprocess
-  spawns not gated on ``file_path`` — are refused by class path via
+  spawns not gated on ``file_path`` — are refused by analyzer kind via
   :data:`EPHEMERAL_DENYLIST` **before import**, so a denylisted
   analyzer's vendor SDK or DLL dependency is never even imported on
   hosts that lack it. The denylist shrinks as analyzers grow an
@@ -37,6 +37,7 @@ from .tools.rendering import RenderError, render_frame_figure, render_result_fig
 from .types import Array2D, ImageAnalyzerResult
 
 if TYPE_CHECKING:
+    from geecs_schemas.analysis import AnalysisDiagnostic
     from matplotlib.figure import Figure
 
     from .base import ImageAnalyzer
@@ -45,12 +46,14 @@ __all__ = [
     "EPHEMERAL_DENYLIST",
     "RenderError",
     "render_diagnostic_ephemeral",
+    "render_document_ephemeral",
     "render_frame_figure",
     "render_result_figure",
     "run_diagnostic_ephemeral",
+    "run_document_ephemeral",
 ]
 
-#: Analyzer class paths that cannot run ephemerally: their side effects
+#: Analyzer kinds that cannot run ephemerally: their side effects
 #: are not gated on ``auxiliary_data["file_path"]``, so no calling
 #: convention makes them pure. Remove an entry only when the analyzer
 #: gains an explicit no-write mode.
@@ -63,12 +66,7 @@ __all__ = [
 #:   temp files and spawns a ~seconds 32-bit DLL subprocess per frame —
 #:   cleaned up afterwards, but a per-request viewer must not trigger
 #:   either.
-EPHEMERAL_DENYLIST = frozenset(
-    {
-        "image_analysis.analyzers.HASO_himg_has_processor.HASOHimgHasProcessor",
-        "image_analysis.analyzers.grenouille_analyzer.GrenouilleAnalyzer",
-    }
-)
+EPHEMERAL_DENYLIST = frozenset({"haso", "frog_retrieval"})
 
 
 def run_diagnostic_ephemeral(
@@ -133,6 +131,12 @@ def _ephemeral_analyzer(
     auxiliary_data: Optional[Dict[str, Any]],
 ) -> "ImageAnalyzer":
     """The write-free gate + one analyzer instantiation (shared by both runners)."""
+    _refuse_file_path(auxiliary_data)
+    diag = load_diagnostic(name_or_path, config_dir=config_dir, overrides=overrides)
+    return _ephemeral_analyzer_for(diag)
+
+
+def _refuse_file_path(auxiliary_data: Optional[Dict[str, Any]]) -> None:
     if auxiliary_data is not None and "file_path" in auxiliary_data:
         raise ValueError(
             "auxiliary_data['file_path'] is forbidden in ephemeral runs: "
@@ -140,12 +144,13 @@ def _ephemeral_analyzer(
             "next to their input. Pass loaded frames only."
         )
 
-    diag = load_diagnostic(name_or_path, config_dir=config_dir, overrides=overrides)
 
-    class_path = diag.image_analyzer.class_path
-    if class_path in EPHEMERAL_DENYLIST:
+def _ephemeral_analyzer_for(diag: "AnalysisDiagnostic") -> "ImageAnalyzer":
+    """Denylist gate + instantiation for an already-validated document."""
+    kind = diag.analyzer.kind
+    if kind in EPHEMERAL_DENYLIST:
         raise ValueError(
-            f"Analyzer {class_path} cannot run ephemerally: its side "
+            f"Analyzer kind {kind!r} cannot run ephemerally: its side "
             f"effects (writes / subprocess spawns) are not gated on "
             f"auxiliary file paths. Use the scan pipeline for this "
             f"diagnostic, or give the analyzer a no-write mode and "
@@ -177,6 +182,8 @@ def render_diagnostic_ephemeral(
     auxiliary_data: Optional[Dict[str, Any]] = None,
     window: Optional[Tuple[float, float]] = None,
     cmap: Optional[str] = None,
+    vmin: Optional[float] = None,
+    vmax: Optional[float] = None,
     figsize: Tuple[float, float] = (5.0, 4.2),
     dpi: int = 110,
 ) -> List["Figure"]:
@@ -199,6 +206,8 @@ def render_diagnostic_ephemeral(
         Display window over each processed image → ``vmin``/``vmax``.
     cmap : str, optional
         Matplotlib colormap name for 2D results.
+    vmin, vmax : float, optional
+        Explicit colour limits for 2D results; win over ``window``.
     figsize, dpi
         Figure geometry.
 
@@ -215,7 +224,61 @@ def render_diagnostic_ephemeral(
     )
     return [
         render_result_figure(
-            analyzer, result, window=window, cmap=cmap, figsize=figsize, dpi=dpi
+            analyzer,
+            result,
+            window=window,
+            cmap=cmap,
+            vmin=vmin,
+            vmax=vmax,
+            figsize=figsize,
+            dpi=dpi,
+        )
+        for result in _analyze_frames(analyzer, frames, auxiliary_data)
+    ]
+
+
+def run_document_ephemeral(
+    diag: "AnalysisDiagnostic",
+    frames: Sequence[Array2D],
+    *,
+    auxiliary_data: Optional[Dict[str, Any]] = None,
+) -> List[ImageAnalyzerResult]:
+    """:func:`run_diagnostic_ephemeral` for an in-memory, already-validated document.
+
+    The config editor's preview: the document under edit has not been
+    saved, so there is no name or path to load — the same write-free
+    contract (``file_path`` refused, the kind denylist) applies unchanged.
+    """
+    _refuse_file_path(auxiliary_data)
+    analyzer = _ephemeral_analyzer_for(diag)
+    return _analyze_frames(analyzer, frames, auxiliary_data)
+
+
+def render_document_ephemeral(
+    diag: "AnalysisDiagnostic",
+    frames: Sequence[Array2D],
+    *,
+    auxiliary_data: Optional[Dict[str, Any]] = None,
+    window: Optional[Tuple[float, float]] = None,
+    cmap: Optional[str] = None,
+    vmin: Optional[float] = None,
+    vmax: Optional[float] = None,
+    figsize: Tuple[float, float] = (5.0, 4.2),
+    dpi: int = 110,
+) -> List["Figure"]:
+    """:func:`render_diagnostic_ephemeral` for an in-memory, already-validated document."""
+    _refuse_file_path(auxiliary_data)
+    analyzer = _ephemeral_analyzer_for(diag)
+    return [
+        render_result_figure(
+            analyzer,
+            result,
+            window=window,
+            cmap=cmap,
+            vmin=vmin,
+            vmax=vmax,
+            figsize=figsize,
+            dpi=dpi,
         )
         for result in _analyze_frames(analyzer, frames, auxiliary_data)
     ]

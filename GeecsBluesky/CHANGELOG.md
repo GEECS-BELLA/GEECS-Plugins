@@ -4,6 +4,26 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.76.3] - 2026-09-08
+
+### Changed
+
+- Optimization tests import the analysis-config models from
+  `geecs_schemas.analysis` (the ImageAnalysis/ScanAnalysis re-export shims
+  and aliases are gone — ImageAnalysis 2.2.0, ScanAnalysis 1.21.0).
+
+
+## [0.76.2] - 2026-09-08
+
+### Changed
+
+- `poetry.lock` refreshed for the `optimize` extra: ScanAnalysis 1.19.0 /
+  ImageAnalysis 2.0.0 bring `geecs-schemas` as a path dependency (the
+  analysis-config schema overhaul; `diag.scan` is typed in-document, the
+  evaluators' `load_diagnostic(..., overrides={"scan": {...}})` calls are
+  unchanged). Test fixtures use the schema `Data1DLoading` model.
+
+
 ## [0.76.1] - 2026-09-06
 
 ### Documentation

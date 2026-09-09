@@ -3,6 +3,61 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.21.2] - 2026-09-08
+
+### Changed
+
+- The unit template no longer bakes `--config-editor` into `ExecStart`; it
+  appends `$GEECS_PORTAL_EXTRA_ARGS` from `site.env` (the reference
+  `site.env.example` sets `--config-editor`), so a read-only viewer is a
+  site.env choice, not a hand-edit of the rendered unit (review of #803,
+  finding 6). The drawer's "duplicate as" says what is not copied.
+
+## [0.21.1] - 2026-09-06
+
+### Fixed
+
+- The config editor preview draws the analyzer's **own figure** — its
+  default palette (plasma for the 2D family), or the document's
+  `scan.renderer` `cmap` / `vmin` / `vmax` when set — instead of the
+  Images tab's gray pixel view, so the preview matches what a run of that
+  document renders.
+
+### Changed
+
+- The drawer's preview is on demand (`preview` button, `auto` toggle) —
+  ScanAnalysis 1.20.1; the label drops "live".
+
+## [0.21.0] - 2026-09-06
+
+### Added
+
+- **The analysis config editor, in the scan page** (`--config-editor`, the
+  04 design's deferred item; a second **write verb** after analysis runs,
+  explicit opt-in, needs `--processing-configs` + the `analysis` extra).
+  ScanAnalysis' editor router is mounted at `/configs`; the Analysis tab
+  gets an **edit** button per analyzer (and an "edit configs" link to the
+  full editor page) that opens the editor in a drawer over the scan page
+  with a **preview**: the document under edit is rendered on the
+  drawer's device + shot through `image_analysis.ephemeral.
+  render_document_ephemeral` (0.21.1: on demand or per edit), so an ROI or
+  threshold is dialled in without saving per iteration or switching
+  windows. Save writes the configs tree (the selector and the Analysis
+  list pick it up by mtime as before) and refreshes the shot image if it
+  shows that diagnostic. `/api/run/{uid}` and the page carry
+  `config_editor`. Nothing on the scans path is touched (pinned).
+
+## [0.20.3] - 2026-09-05
+
+### Changed
+
+- The processing selector reads the diagnostic's typed `scan` section
+  (`diag.scan.device`) — `AnalysisDiagnostic` v2 from GEECS-Schemas 0.19.0 /
+  ImageAnalysis 2.0.0 types `scan:` in-document; the raw-mapping read is
+  gone. `poetry.lock` refreshed for the new `geecs-schemas` path dependency
+  of ImageAnalysis / ScanAnalysis. Behaviour unchanged; legacy flat camera
+  configs in the tree still degrade to a log line.
+
 ## [0.20.2] - 2026-09-03
 
 ### Fixed

@@ -43,6 +43,15 @@ def main() -> None:
         ),
     )
     parser.add_argument(
+        "--config-editor",
+        action="store_true",
+        help=(
+            "mount the analysis config editor at /configs over the "
+            "--processing-configs tree (a WRITE verb: saves YAML into that "
+            "tree; live preview on the scan page). Needs the analysis extra."
+        ),
+    )
+    parser.add_argument(
         "--root-path",
         default="",
         help=(
@@ -74,6 +83,7 @@ def main() -> None:
         processing_config_dir=(
             Path(args.processing_configs) if args.processing_configs else None
         ),
+        config_editor=args.config_editor,
     )
     uvicorn.run(
         app,

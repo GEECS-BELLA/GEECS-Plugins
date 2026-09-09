@@ -9,23 +9,6 @@ This module provides all processing operations for 2D image data, including:
 - Pipeline orchestration
 """
 
-# Config models
-from image_analysis.config.array2d_processing import (
-    CameraConfig,
-    BackgroundConfig,
-    FilteringConfig,
-    CrosshairMaskingConfig,
-    ROIConfig,
-    TransformConfig,
-    ThresholdingConfig,
-    CircularMaskConfig,
-    VignetteConfig,
-    BackgroundMethod,
-    ThresholdMethod,
-    ThresholdMode,
-    VignetteMethod,
-)
-
 # Background operations
 from .background import (
     apply_background,
@@ -112,19 +95,6 @@ __all__ = [
     # Unified processing pipeline
     "apply_camera_processing_pipeline",
     # Configuration models
-    "CameraConfig",
-    "BackgroundConfig",
-    "FilteringConfig",
-    "CrosshairMaskingConfig",
-    "ROIConfig",
-    "TransformConfig",
-    "ThresholdingConfig",
-    "CircularMaskConfig",
-    "VignetteConfig",
-    "BackgroundMethod",
-    "ThresholdMethod",
-    "ThresholdMode",
-    "VignetteMethod",
     # Function registry
     "PROCESSING_FUNCTIONS",
 ]

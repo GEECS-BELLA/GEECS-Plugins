@@ -12,9 +12,9 @@ scan_analysis/
   task_queue.py                    # Task claiming, heartbeat, YAML status system
   gdoc_upload.py                   # GDoc upload integration (optional logmaker dep)
   config/
-    diagnostic_models.py           # Scan-side runtime + group Pydantic models
-    diagnostic_factory.py          # create_scan_analyzer(DiagnosticAnalysisConfig)
-    analysis_group_loader.py       # discover_analyzers/groups + load_analysis_group
+    diagnostic_factory.py          # create_scan_analyzer(AnalysisDiagnostic)
+    analysis_group_loader.py       # discover_analyzers/groups + load_analysis_group,
+                                   #   ResolvedDiagnosticConfig (the models: geecs_schemas.analysis)
   analyzers/
     common/
       single_device_scan_analyzer.py   # SingleDeviceScanAnalyzer base
@@ -26,13 +26,17 @@ scan_analysis/
 ## Config System (YAML → Pydantic → Factory → Instances)
 
 Scan analysis is driven by YAML config files stored in the
-**GEECS-Plugins-configs** repository (not this repo). Image-analyzer-driven
-scan analyzers (Array2D / Array1D) use the **unified diagnostic schema**:
-one YAML per diagnostic under `analyzers/<namespace>/<id>.yaml`, carrying
-both an `image:` section (consumed by ImageAnalysis) and a `scan:` section
-(consumed by ScanAnalysis). Diagnostics are assembled into analysis groups
-under `groups/<namespace>/<group>.yaml`, which `LiveWatch` and the task
-queue consume directly. Scatter analyzers sit outside the YAML config
+**GEECS-Plugins-configs** repository (not this repo). The documents are
+**GEECS-Schemas'** (`geecs_schemas.analysis`, format v2 since
+ScanAnalysis 1.19.0): one `AnalysisDiagnostic` YAML per diagnostic under
+`analyzers/<namespace>/<id>.yaml`, carrying `analyzer:` (which analyzer,
+with its typed parameters), `image:` (the camera / line processing
+section, consumed by ImageAnalysis) and `scan:` (the typed `ScanRuntime`
+section, consumed here); diagnostics are assembled into `AnalysisGroup`
+files under `groups/<namespace>/<group>.yaml`, which `LiveWatch` and the
+task queue consume directly. The corpus is v2 only (regenerated once for
+GEECS-Schemas 0.19.0; a pre-v2 file is refused at load; there is no
+converter). Scatter analyzers sit outside the YAML config
 system entirely — they are plain Python subclasses of
 `ScatterPlotterAnalysis` (see below) because they don't consume images.
 
@@ -56,23 +60,19 @@ for a in analyzers:
 `task_queue.load_analyzers_from_config(group_name, config_dir=...)` is a
 thin wrapper around the same two calls.
 
-### Unified diagnostic schema
-
-The top-level `DiagnosticAnalysisConfig` lives in **`image_analysis.config`**
-(it owns the `image_analyzer` + `image:` shape and carries `scan:` as a
-weakly-typed dict). `scan_analysis.config` re-exports it and owns the
-scan-side models in `diagnostic_models.py`:
+### The documents (`geecs_schemas.analysis`)
 
 ```
-DiagnosticAnalysisConfig          # One YAML per diagnostic (image_analysis.config)
+AnalysisDiagnostic                # One YAML per diagnostic (schema_version: 2)
   name: str                       # Device/channel name for input-data discovery
-  image_analyzer: ImageAnalyzerSpec  # Analyzer class path (+ optional kwargs)
-  image: CameraConfig | Line1DConfig | None  # Routed by `type: camera | line`
   output_name: Optional[str]      # Output stem override (defaults to name)
   metric_suffix: Optional[str]    # Scalar-key-only suffix (no dir/file effect)
-  scan: dict                      # Validated by ScanAnalysis into ScanRuntimeConfig
+  analyzer: AnalyzerSpec          # kind-discriminated union: beam | magspec | ict | ...
+                                  #   with the analyzer's OWN parameters as fields
+  image: CameraConfig | Line1DConfig | None   # routed by `type: camera | line`
+  scan: ScanRuntime               # typed in-document (below)
 
-ScanRuntimeConfig                 # Validates the scan: dict (diagnostic_models.py)
+ScanRuntime                       # the scan: section
   priority: int                   # Lower = runs first (100 default)
   mode: Literal["per_shot", "per_bin"]  # default per_shot
   save: bool                      # Write per-shot/bin outputs to the analysis tree
@@ -83,25 +83,29 @@ ScanRuntimeConfig                 # Validates the scan: dict (diagnostic_models.
                                   #   stack (auto-fallback to per-shot files);
                                   #   WARNING: only for analyzers that use base
                                   #   load_image and don't derive per-shot
-                                  #   output names from file_path (see
-                                  #   diagnostic_models.py field docs)
-  renderer_kwargs: dict           # Extra renderer options (colormap mode, ...)
+                                  #   output names from file_path
+  renderer: RendererOptions       # typed figure options; unset = renderer default
   background_source: Optional[BackgroundSource]
                                   # scan_number | from_current_scan | autodetect
 
-AnalysisGroupConfig               # One YAML per group under groups/
-  analyzers: List[AnalyzerRef]    # Bare stem strings or {ref, enabled, priority}
+AnalysisGroup                     # One YAML per group under groups/
+  analyzers: List[AnalyzerRef]    # bare stems or {ref, enabled, priority}
 
-ResolvedDiagnosticConfig          # What the loader hands the factory
+ResolvedDiagnosticConfig          # What the loader hands the factory (this package)
   id: str                         # Diagnostic filename stem (task-queue ID)
   enabled: bool                   # Refs with enabled: false are excluded
   priority: int                   # Group override, else the diagnostic's own
-  diagnostic: DiagnosticAnalysisConfig
+  diagnostic: AnalysisDiagnostic
 ```
 
-There is no `scan.type` field: the factory picks the wrapper class from
+`scan_analysis.config` exports only its own things — the group loader,
+`ResolvedDiagnosticConfig` and `create_scan_analyzer`; the models are
+imported from `geecs_schemas.analysis`. The factory picks the wrapper class from
 the type of `diag.image` — `Line1DConfig` → `Array1DScanAnalyzer`,
-anything else → `Array2DScanAnalyzer`.
+anything else → `Array2DScanAnalyzer` — and passes
+`scan.renderer.as_kwargs()` (only the options the YAML set) to the
+wrapper's `renderer_kwargs`, so `Image2DRendererConfig` /
+`Line1DRendererConfig` defaults still apply.
 
 **Output-naming contract (#412)** — image analyzers emit **bare** scalar
 keys (`x_fwhm`, not `UC_TopView_x_fwhm`); the ScanAnalyzer wrapper applies
@@ -114,19 +118,60 @@ output trees and s-file columns (`output_name: UC_TopView_left` /
 directory or file names. This keeps ImageAnalysis reusable standalone —
 `ImageAnalysis/CLAUDE.md` points here for the full contract.
 
-### The `image_analyzer` field (`image_analysis.config`)
+### The `analyzer:` section
 
-`ImageAnalyzerSpec` and `resolve_image_analyzer_value` live in
-`image_analysis.config` and are re-exported by `scan_analysis.config`.
-The field accepts two forms (the former alias registry — `beam`,
-`standard`, … — was removed along with `aliases.py`):
+Which analyzer runs, and its parameters, in one typed block chosen by
+`kind` (the former `image_analyzer` class path + `image.analysis` dict +
+constructor `kwargs`). ImageAnalysis maps kind → class
+(`image_analysis.config.registry`):
 
 ```yaml
-image_analyzer: image_analysis.analyzers.beam_analyzer.BeamAnalyzer  # bare class path
-image_analyzer:                       # verbose, for constructor kwargs
-  class_path: image_analysis.analyzers.HASO_himg_has_processor.HASOHimgHasProcessor
-  kwargs: {mask_top: 125}
+analyzer: {kind: beam, compute_slopes: false}
+analyzer:
+  kind: haso                                  # no image: section for this kind
+  wavekit_config_file_path: /path/to/wfs.dat
+  mask: {top: 125, bottom: 300, left: 10, right: 670}
 ```
+
+### The config editor (`config_store.py` + `config_editor/`)
+
+The config editor (the Qt `ConfigFileGUI` it replaced was deleted in
+1.21.0). Three layers, so the data portal is one host and not the only one:
+
+- **`scan_analysis.config_store.ConfigStore(root)`** — plain Python, no
+  web, no Qt: `list(kind)` (validity + summary per file), `read(kind, id)`
+  (raw document + **etag**), `validate(kind, document)` (pydantic locations
+  + canonical YAML via `geecs_schemas.analysis.canonical_document`),
+  `save(kind, namespace, id, document, etag=)` (atomic temp+rename;
+  stale etag / duplicate stem across namespaces → `ConflictError`; an
+  invalid document is never written; `etag=None` = create, refuses to
+  overwrite), `delete`, `pending_changes()` (git status of the tree),
+  `schema(kind)` (the JSON Schema the form renders). Writes touch only the
+  configs tree — the repo's scan-folder invariant is irrelevant by
+  construction, and pinned portal-side.
+- **`scan_analysis.config_editor.create_editor_router(store, preview=,
+  read_only=)`** — a FastAPI router (the `editor` extra): `/api/list`,
+  `/api/schema/{kind}`, `GET/PUT/DELETE /api/{analyzers|groups}/…`,
+  `POST /api/validate/{kind}`, `POST /api/preview` (404 unless the host
+  passes a `preview(document, params) -> PNG bytes`), the editor page and
+  `static/editor.js` + `editor.css`. Every URL is relative to the mount.
+  `editor.js` is a hand-written schema-driven form over pydantic's JSON
+  Schema (objects, `anyOf [T, null]` optionals as toggled sections, the
+  kind-discriminated `analyzer:` union as a select that swaps the
+  variant's fields, enums, **ordered** enum lists for pipelines, arrays of
+  objects, tuples, JSON textareas for free mappings), live YAML preview,
+  server-side error placement by pydantic location, and the optional
+  preview pane (a `preview` button renders the edited document on the
+  host's shot; `auto` re-renders per edit, remembered in localStorage).
+  No build chain, no library — the portal's doctrine.
+- **Hosts.** `scan-config-editor --configs <tree>` serves it standalone
+  (a laptop clone of the configs repo; commit yourself). The data portal
+  mounts it at `/configs` with the preview of the **unsaved** document
+  on the scan page's current shot (`GEECS-DataPortal/CLAUDE.md`).
+
+Adding a field to a schema model is all an editor change needs: the form
+is generated. Adding an analyzer kind (a spec in GEECS-Schemas + a registry
+line in ImageAnalysis) shows up in the kind select automatically.
 
 ### Scatter (`analyzers/common/scatter_plotter_analysis.py`)
 
@@ -316,8 +361,9 @@ upload_summary_to_gdoc(
   upload enabled.
 - **`enabled: false`** on a group ref — Disable an analyzer without
   removing it from the group config.
-- **`image_analyzer`** — Fully qualified class path; resolved at runtime.
-  Adding a new analyzer class requires no factory changes.
+- **`analyzer.kind`** — Picks the analyzer and types its parameters; the
+  class path lives in ImageAnalysis' registry, not the YAML. Adding a new
+  analyzer = one spec model in GEECS-Schemas + one registry line.
 - **Embedded `image:` config** — The per-device image-processing config
   (ROI, background, pipeline) lives inside the diagnostic YAML itself;
   there is no separate camera-config lookup.
@@ -361,14 +407,14 @@ pinned by tests in `tests/test_task_queue.py::TestScanFolderCreationInvariant`.
    `scan:` section:
 
    ```yaml
+   schema_version: 2
    name: MyDevice                      # device/channel name for data discovery
-   image_analyzer: image_analysis.analyzers.beam_analyzer.BeamAnalyzer
+   analyzer: {kind: beam}              # + the analyzer's own parameters
    image:                              # consumed by ImageAnalysis
      type: camera                      # camera → Array2D; line → Array1D
      roi: {x_min: 0, x_max: 650, y_min: 350, y_max: 650}
      background: {method: constant, constant_level: 5.0}
-     pipeline:
-       steps: [background, roi]
+     pipeline: [background, roi]
    scan:                               # consumed by ScanAnalysis
      priority: 50
      mode: per_shot                    # or per_bin
@@ -388,8 +434,8 @@ pinned by tests in `tests/test_task_queue.py::TestScanFolderCreationInvariant`.
    ```
 
 4. No Python changes needed in ScanAnalysis itself. The factory
-   (`create_scan_analyzer`) resolves the `image_analyzer` class path,
-   builds the inner `ImageAnalyzer` via
+   (`create_scan_analyzer`) resolves `analyzer.kind` through ImageAnalysis'
+   registry, builds the inner `ImageAnalyzer` via
    `image_analysis.config.create_image_analyzer`, and wraps it in
    `Array1DScanAnalyzer` or `Array2DScanAnalyzer` based on the type of
    the `image:` section.

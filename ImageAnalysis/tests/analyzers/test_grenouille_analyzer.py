@@ -19,8 +19,10 @@ from pathlib import Path
 import pytest
 from geecs_data_utils import ScanPaths, ScanTag
 
+from geecs_schemas.analysis import FrogRetrievalSpec
+
 from image_analysis.analyzers.grenouille_analyzer import GrenouilleAnalyzer
-from image_analysis.config.array2d_processing import (
+from geecs_schemas.analysis.processing_2d import (
     BackgroundConfig,
     CameraConfig,
     FilteringConfig,
@@ -59,22 +61,24 @@ def _make_config() -> CameraConfig:
     Edit here (not in the YAML) when config values change and tests need updating.
     """
     return CameraConfig(
-        name=CAMERA_NAME,
         bit_depth=16,
         background=BackgroundConfig(method="constant", constant_level=1.0),
         thresholding=ThresholdingConfig(
-            enabled=True, method="constant", value=0.0, mode="to_zero", invert=False
+            method="constant", value=0.0, mode="to_zero", invert=False
         ),
         filtering=FilteringConfig(gaussian_sigma=None, median_kernel_size=5),
-        analysis={
-            "delt": 0.85,
-            "dellam": -0.085,
-            "lam0": 400.0,
-            "N": 512,
-            "target_error": 0.0001,
-            "max_time_seconds": 15,
-            "max_iterations": 1000000000,
-        },
+    )
+
+
+def _make_spec() -> FrogRetrievalSpec:
+    return FrogRetrievalSpec(
+        delt=0.85,
+        dellam=-0.085,
+        lam0=400.0,
+        N=512,
+        target_error=0.0001,
+        max_time_seconds=15,
+        max_iterations=1000000000,
     )
 
 
@@ -84,7 +88,7 @@ def grenouille_result():
         pytest.skip(f"Data file not found: {DATA_FILE}")
 
     try:
-        analyzer = GrenouilleAnalyzer(camera_config=_make_config())
+        analyzer = GrenouilleAnalyzer(camera_config=_make_config(), spec=_make_spec())
     except Exception as exc:
         pytest.skip(f"Could not initialise GrenouilleAnalyzer: {exc}")
 

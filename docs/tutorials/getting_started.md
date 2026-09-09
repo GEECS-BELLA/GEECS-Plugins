@@ -127,7 +127,7 @@ What each section is for, and who reads it:
 |---|---|---|
 | `[Paths] geecs_data` | Root of the experiment data share; also where `Configurations.INI` (database credentials) lives | Everything that touches scan data or the GEECS database |
 | `[Paths] GEECS_DATA_LOCAL_BASE_PATH` | The data share as mounted on *this* machine (scan-folder resolution; `scripts/lab_status.sh`'s mount probe) | GEECS-Data-Utils `GeecsPathsConfig`, the fleet scripts |
-| `[Paths] scan_analysis_configs_path` | Analyzer/diagnostic YAMLs in the configs repo | ScanAnalysis, LiveWatch, ConfigFileGUI |
+| `[Paths] scan_analysis_configs_path` | Analyzer/diagnostic YAMLs in the configs repo | ScanAnalysis, LiveWatch, the config editor |
 | `[Paths] image_analysis_configs_path` | Camera/1D analyzer configs in the configs repo | ImageAnalysis |
 | `[Paths] scanner_config_root_path` | The configs repo root (scanner configs, derived channels, experiment defaults) | GEECS Console, GeecsBluesky, the CA gateway, GEECS-MCP |
 | `[Experiment] expt` | Your experiment's GEECS name (e.g. `Undulator`) | Nearly everything |

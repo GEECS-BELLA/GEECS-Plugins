@@ -25,7 +25,7 @@ EXPECTED_SCALARS = ["x_CoM", "y_CoM", "image_total", "image_peak_value"]
 def test_beam_analyzer_end_to_end(canonical_scan):
     """BeamAnalyzer loads a real image and returns finite scalars."""
     from image_analysis.analyzers.beam_analyzer import BeamAnalyzer
-    from image_analysis.config.array2d_processing import (
+    from geecs_schemas.analysis.processing_2d import (
         BackgroundConfig,
         CameraConfig,
     )

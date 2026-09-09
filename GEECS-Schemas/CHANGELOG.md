@@ -5,6 +5,76 @@ All notable changes to GEECS-Schemas are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.0] - 2026-09-08
+
+### Added
+
+- `geecs_schemas.analysis` exports every processing sub-model (the 2D
+  `ROIConfig`, `BackgroundConfig`, … and the 1D `Line*` models) alongside
+  `CameraConfig` / `Line1DConfig`, so `from geecs_schemas.analysis import …`
+  is the one documented import for the whole vocabulary.
+
+### Removed
+
+- `geecs_schemas.convert.analysis_diagnostics` (the one-shot v1 → v2
+  converter and CLI) and its v1 fixtures: the configs corpus was
+  regenerated once and is authored v2-only since. `AnalysisDiagnostic`
+  still refuses a v1 layout, with a message that says so instead of
+  pointing at the converter.
+
+## [0.19.1] - 2026-09-08
+
+### Fixed
+
+- `geecs_schemas.convert.analysis_diagnostics.regenerate_tree` (and the CLI)
+  walk every namespace by default — `UNCLASSIFIED` holds real diagnostics
+  since the corpus regeneration, and a skipped v1 file there would only
+  surface when the loader refused it at run time (review of #803, finding 4).
+
+## [0.19.0] - 2026-09-05
+
+### Added
+
+- **The analysis-config documents** — `geecs_schemas.analysis`, registered as
+  `analysis_diagnostic` (`AnalysisDiagnostic`, format v2) and
+  `analysis_group` (`AnalysisGroup`, v1), with docgen reference sections and
+  published JSON Schema artifacts (`analysis_diagnostic.schema.json`,
+  `analysis_group.schema.json`).  The whole diagnostic now validates with
+  pydantic alone: the camera / line processing models relocate here from
+  ImageAnalysis (`CameraConfig`, `Line1DConfig` and their sections — the 1D
+  sections take a `Line` prefix), the scan-runtime models relocate from
+  ScanAnalysis (`ScanRuntime`, `BackgroundSource`), and the three former
+  untyped holes are closed:
+  - `analyzer:` is a closed discriminated union on `kind` — one spec model
+    per analyzer the suite ships (`beam`, `magspec`, `frog_retrieval`, `ict`,
+    `line_stitcher`, `haso`, `trace` — the 1D peer of `standard` — … 15
+    kinds), so the former `image.analysis`
+    dict and the constructor `kwargs` dict become typed fields with unknown
+    keys refused.  The analyzer class path leaves the document (ImageAnalysis
+    keeps kind → class); `V1_CLASS_PATH_TO_KIND` records the old paths.
+  - `scan:` is typed in-document, with `scan.renderer` (`RendererOptions`)
+    replacing the `renderer_kwargs` dict.
+  - `image.pipeline` is the bare step list; `image.data_format` (a display
+    label) becomes `image.label` so it no longer collides with the
+    `scan.data_format` enum; the 1D background fields take the camera
+    spellings (`constant_level`, `file_path`).
+- **One-shot converter, no runtime lift.** The analysis-config corpus in
+  GEECS-Plugins-configs is the whole universe of diagnostics, so the models
+  validate v2 only — a pre-v2 document (`image_analyzer`, or
+  `schema_version: 1`) is refused with a pointer to
+  `geecs_schemas.convert.analysis_diagnostics`, the mechanical v1 → v2
+  rewrite (class path → kind, kwargs + `image.analysis` → spec fields,
+  HASO's `mask_*` → `mask`, LineStitcher's `name` → `output_label`, the
+  renames above; canonical YAML: set fields only, default-`None` noise
+  dropped, `schema_version` first). Run it once on the configs tree
+  (`python -m geecs_schemas.convert.analysis_diagnostics <tree> --write`)
+  and it can go the way of the scan-variables converter. Verified against
+  the sibling configs checkout by the new `integration` corpus walk
+  (`tests/test_analysis_corpus.py`): every diagnostic outside the legacy
+  `UNCLASSIFIED/` folder converts, except `HTU/U_FROG_Beam` — a
+  BeamAnalyzer carrying FROG retrieval keys that v1 silently ignored and
+  the converter refuses by design (fixed in the configs repo).
+
 ## [0.18.0] - 2026-09-04
 
 ### Removed

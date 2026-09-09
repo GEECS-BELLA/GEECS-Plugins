@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "AnalyzerRef": {
+      "additionalProperties": false,
+      "description": "One diagnostic in a group, optionally disabled or re-prioritised for this group.",
+      "properties": {
+        "ref": {
+          "description": "The diagnostic's ID (its YAML file stem).",
+          "minLength": 1,
+          "title": "Ref",
+          "type": "string"
+        },
+        "enabled": {
+          "default": true,
+          "description": "False keeps the entry listed but skips it when the group runs.",
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "priority": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Run order within this group; unset uses the diagnostic's own scan.priority.",
+          "title": "Priority"
+        }
+      },
+      "required": [
+        "ref"
+      ],
+      "title": "AnalyzerRef",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "A named set of diagnostics to run after each scan, in priority order.\n\nEntries may be written as bare diagnostic IDs or as ``{ref, enabled,\npriority}`` mappings; bare IDs are stored as enabled entries with no\npriority override.",
+  "properties": {
+    "schema_version": {
+      "default": 1,
+      "description": "Format version of this config file. Leave at 1 \u2014 tools update this automatically when the file format changes.",
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "name": {
+      "description": "Display name, conventionally <facility>_<purpose>.",
+      "minLength": 1,
+      "title": "Name",
+      "type": "string"
+    },
+    "description": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Free-text note about when this group is used.",
+      "title": "Description"
+    },
+    "upload_to_scanlog": {
+      "default": true,
+      "description": "Upload the group's summary figures to the experiment scan log.",
+      "title": "Upload To Scanlog",
+      "type": "boolean"
+    },
+    "analyzers": {
+      "description": "The diagnostics to run; a bare ID means enabled with the diagnostic's own priority.",
+      "items": {
+        "$ref": "#/$defs/AnalyzerRef"
+      },
+      "title": "Analyzers",
+      "type": "array"
+    }
+  },
+  "required": [
+    "name"
+  ],
+  "title": "AnalysisGroup",
+  "type": "object"
+}

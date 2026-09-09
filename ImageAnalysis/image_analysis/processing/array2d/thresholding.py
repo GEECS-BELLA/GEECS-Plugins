@@ -8,7 +8,7 @@ to images, including constant value thresholds and percentage-based thresholds.
 import numpy as np
 import logging
 from ...types import Array2D
-from image_analysis.config.array2d_processing import ThresholdMethod, ThresholdMode
+from geecs_schemas.analysis.processing_2d import ThresholdMethod, ThresholdMode
 
 logger = logging.getLogger(__name__)
 

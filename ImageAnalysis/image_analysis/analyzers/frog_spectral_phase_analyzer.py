@@ -13,7 +13,7 @@ import math
 from typing import Dict, Optional
 
 import numpy as np
-from pydantic import BaseModel, Field
+from geecs_schemas.analysis import FrogSpectralPhaseSpec
 
 from image_analysis.algorithms.polynomial_fit import (
     PolynomialFitConfig,
@@ -22,7 +22,7 @@ from image_analysis.algorithms.polynomial_fit import (
     fit_polynomial,
 )
 from image_analysis.analyzers.standard_1d_analyzer import Standard1DAnalyzer
-from image_analysis.config.array1d_processing import Line1DConfig
+from geecs_schemas.analysis.processing_1d import Line1DConfig
 from image_analysis.types import Array1D, ImageAnalyzerResult
 
 logger = logging.getLogger(__name__)
@@ -31,66 +31,9 @@ _SPEED_OF_LIGHT_M_PER_S = 299_792_458.0
 _RAD_PER_SECOND_TO_RAD_PER_FS = 1e-15
 
 
-class FrogSpectralPhaseConfig(BaseModel):
-    """Typed configuration for :class:`FrogSpectralPhaseAnalyzer`.
-
-    Attributes
-    ----------
-    fit_order : int
-        Polynomial fit order. ``3`` (default) covers GD / GDD / TOD.
-    mask_threshold : float, optional
-        Threshold applied to normalized weights. Samples below this
-        threshold are excluded from the fit. If no ``weights`` auxiliary
-        column is loaded, the threshold is applied to ``abs(phase)``
-        instead. Set to ``None`` to disable masking.
-    min_points : int, optional
-        Minimum number of valid samples (after masking) required to
-        attempt the fit. The fit raises if fewer survive. ``None``
-        (default) uses the polynomial-fit machinery's own lower bound
-        (``fit_order + 1``).
-    fit_num_points : int
-        Number of points on the output fit grid that
-        :meth:`analyze_image` returns as ``result.line_data``. Default
-        ``300``. This is also the per-shot ``line_data`` row count seen
-        by ``Array1DScanAnalyzer`` for waterfall + averaging.
-    reference_wavelength_nm : float
-        Reference wavelength (nm) used to build angular-frequency
-        detuning. Conventionally the central wavelength of the pulse
-        (800 nm by default for Ti:Sa).
-    sign_reference_order : int, optional
-        Polynomial order used to resolve the FROG ``phi`` vs ``-phi``
-        sign ambiguity by comparing the sign of one coefficient against
-        ``sign_reference``. ``2`` corresponds to the GDD-like term.
-        **Set to ``None`` to skip sign canonicalization entirely** —
-        useful when you know the physical sign already or when the
-        canonical reference is unreliable (e.g. near-zero GDD where the
-        sign of the reference coefficient is noise-dominated).
-    sign_reference : float
-        Desired sign of the ``sign_reference_order`` coefficient.
-        ``+1.0`` (default) means "flip the polynomial if needed so the
-        reference coefficient comes out positive." Ignored when
-        ``sign_reference_order`` is ``None``.
-    sign_epsilon : float
-        Tolerance below which the sign reference is treated as
-        ambiguous (no flip applied). Ignored when
-        ``sign_reference_order`` is ``None``.
-    """
-
-    fit_order: int = Field(default=3, ge=0)
-    mask_threshold: Optional[float] = Field(default=0.5, ge=0)
-    min_points: Optional[int] = Field(default=None, ge=1)
-    fit_num_points: int = Field(default=300, ge=2)
-    reference_wavelength_nm: float = Field(default=800.0, gt=0)
-    sign_reference_order: Optional[int] = Field(
-        default=2,
-        ge=0,
-        description=(
-            "Polynomial order used to canonicalize the FROG phi vs -phi "
-            "sign. Set to null to skip sign canonicalization."
-        ),
-    )
-    sign_reference: float = 1.0
-    sign_epsilon: float = Field(default=0.0, ge=0)
+#: The fit parameters — the ``frog_spectral_phase`` analyzer spec from
+#: GEECS-Schemas (``analyzer: {kind: frog_spectral_phase, ...}``).
+FrogSpectralPhaseConfig = FrogSpectralPhaseSpec
 
 
 class FrogSpectralPhaseAnalyzer(Standard1DAnalyzer):
@@ -105,9 +48,10 @@ class FrogSpectralPhaseAnalyzer(Standard1DAnalyzer):
         self,
         line_config: Line1DConfig,
         *,
+        spec: Optional[FrogSpectralPhaseConfig] = None,
         output_name: Optional[str] = None,
     ):
-        """Initialize the analyzer with a typed line configuration.
+        """Initialize the analyzer with a typed line configuration and fit spec.
 
         Matches the post-PR-E ``Standard1DAnalyzer`` contract — the
         constructor takes a validated ``Line1DConfig`` only. String-by-name
@@ -127,8 +71,8 @@ class FrogSpectralPhaseAnalyzer(Standard1DAnalyzer):
             Output identifier; forwarded to ``Standard1DAnalyzer``.
         """
         super().__init__(line_config=line_config, output_name=output_name)
-        self.analysis_config = FrogSpectralPhaseConfig.model_validate(
-            self.line_config.analysis or {}
+        self.analysis_config: FrogSpectralPhaseConfig = (
+            spec or FrogSpectralPhaseConfig()
         )
         logger.info(
             "Initialized FrogSpectralPhaseAnalyzer (output_name=%r)",

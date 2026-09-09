@@ -74,6 +74,7 @@ arguments**. It does not expand in `WorkingDirectory=`, `User=`,
 |---|---|---|
 | `@PLACEHOLDER@` | at render time, by `deploy/render_units.sh` (one `sed`) | `@SERVICE_USER@`, `@SERVICE_HOME@`, `@CHECKOUT_ROOT@`, `@POETRY@`, `@SITE_ENV@` |
 | `${VARIABLE}` | at start, by systemd from `site.env` | `--experiment ${GEECS_EXPERIMENT}`, `--doc-addr ${GEECS_QS_DOC_ADDR}`, `--processing-configs "${GEECS_CONFIGS_ROOT}/scan_analysis_configs"` (quoted: substituted as one argument, spaces survive) |
+| `$VARIABLE` (unbraced) | at start, by systemd from `site.env` | `$GEECS_PORTAL_EXTRA_ARGS` — split on whitespace into several arguments; unset adds nothing. For optional flag lists only (the portal's `--config-editor`) |
 
 Values that services read from the environment directly (the EPICS
 addressing, `TZ`, `QS_EXPERIMENT`) need no hole at all — `EnvironmentFile=`

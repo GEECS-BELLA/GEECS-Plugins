@@ -22,21 +22,6 @@ from .background import (
     save_background_to_file,
     subtract_background,
 )
-from image_analysis.config.array1d_processing import (
-    BackgroundConfig,
-    BackgroundMethod,
-    Data1DConfig,
-    Data1DType,
-    FilteringConfig,
-    FilterMethod,
-    InterpolationConfig,
-    Line1DConfig,
-    PipelineConfig,
-    PipelineStepType,
-    ROI1DConfig,
-    ThresholdingConfig,
-    ThresholdMethod,
-)
 from .filtering import (
     apply_bilateral_filter,
     apply_filtering,
@@ -50,19 +35,6 @@ from .thresholding import apply_thresholding, find_threshold_crossings
 
 __all__ = [
     # Configuration models
-    "Line1DConfig",
-    "Data1DConfig",
-    "Data1DType",
-    "BackgroundConfig",
-    "BackgroundMethod",
-    "FilteringConfig",
-    "FilterMethod",
-    "InterpolationConfig",
-    "ROI1DConfig",
-    "ThresholdingConfig",
-    "ThresholdMethod",
-    "PipelineConfig",
-    "PipelineStepType",
     # Background operations
     "compute_background",
     "subtract_background",

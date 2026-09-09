@@ -14,7 +14,7 @@ Notes
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Optional, NamedTuple, Union
+from typing import TYPE_CHECKING, Optional, NamedTuple
 from pathlib import Path
 
 from dataclasses import dataclass
@@ -32,6 +32,8 @@ except ModuleNotFoundError as e:
     errmsg = "could not import wkpy, e.g. might be running on non windows machine"
     e.args += (errmsg,)
     raise
+
+from geecs_schemas.analysis import HasoAnalyzerSpec
 
 from image_analysis.base import ImageAnalyzer
 from image_analysis.types import ImageAnalyzerResult
@@ -121,47 +123,36 @@ class HASOHimgHasProcessor(ImageAnalyzer):
 
     def __init__(
         self,
-        wavekit_config_file_path: Union[str, Path],
-        mask_top: int = 1,
-        mask_bottom: int = -1,
-        mask_left: int = 1,
-        mask_right: int = -1,
-        background_path: Optional[Union[str, Path]] = None,
-        laser_wavelength: float = 800.0,
+        spec: HasoAnalyzerSpec,
+        *,
+        output_name: Optional[str] = None,
     ):
-        """Construct HASOHimgHasProcessor with explicit parameters.
+        """Construct HASOHimgHasProcessor from the ``haso`` analyzer spec.
 
         Parameters
         ----------
-        wavekit_config_file_path : str or Path
-            Path to the WaveKit config file matching the HASO device.
-        mask_top : int, default=1
-            Top boundary of the rectangular pupil mask (inclusive).
-        mask_bottom : int, default=-1
-            Bottom boundary of the rectangular pupil mask (inclusive).
-        mask_left : int, default=1
-            Left boundary of the rectangular pupil mask (inclusive).
-        mask_right : int, default=-1
-            Right boundary of the rectangular pupil mask (inclusive).
-        background_path : str or Path, optional
-            Path to a `.has` slopes file used for background subtraction.
-        laser_wavelength : float, default=800.0
-            Probe laser wavelength in nanometers.
+        spec : HasoAnalyzerSpec
+            WaveKit config path, pupil mask, optional background slopes
+            file and probe wavelength — the ``analyzer:`` section of the
+            diagnostic.
+        output_name : str, optional
+            Output identifier from the diagnostic; recorded for consumers.
         """
         super().__init__()
 
-        # Build mask from individual parameters
+        self.spec = spec
+        self._output_name = output_name
         self.mask = SlopesMask(
-            top=mask_top,
-            bottom=mask_bottom,
-            left=mask_left,
-            right=mask_right,
+            top=spec.mask.top,
+            bottom=spec.mask.bottom,
+            left=spec.mask.left,
+            right=spec.mask.right,
         )
-
-        # Convert paths
-        self.wavekit_config_file_path = Path(wavekit_config_file_path)
-        self.background_path = Path(background_path) if background_path else None
-        self.laser_wavelength = laser_wavelength
+        self.wavekit_config_file_path = Path(spec.wavekit_config_file_path)
+        self.background_path = (
+            Path(spec.background_path) if spec.background_path else None
+        )
+        self.laser_wavelength = spec.laser_wavelength
 
         # Use default filter parameters
         self.filter_params = HASOHimgHasProcessor.default_filter_params
@@ -505,25 +496,3 @@ class HASOHimgHasProcessor(ImageAnalyzer):
 
         # Save the array to the specified path using tab-delimited format.
         np.savetxt(save_path, arr, delimiter="\t", fmt="%s")
-
-
-if __name__ == "__main__":
-    path_to_himg = Path(
-        "Z:/data/Undulator/Y2025/02-Feb/25_0219/scans/Scan002/U_HasoLift/Scan002_U_HasoLift_001.himg"
-    )
-    path_to_has = Path(
-        "Z:/data/Undulator/Y2025/02-Feb/25_0219/scans/Scan002/U_HasoLift/Scan002_U_HasoLift_001_raw.has"
-    )
-
-    # Create analyzer with explicit parameters
-    haso_processor = HASOHimgHasProcessor(
-        wavekit_config_file_path=Path(
-            "Z:/software/control-all-loasis/HTU/Active Version/GEECS-Plugins/ImageAnalysis/image_analysis/third_party_sdks/wavekit_43/WFS_HASO4_LIFT_680_8244_gain_enabled.dat"
-        ),
-        mask_top=75,
-        mask_bottom=246,
-        mask_left=10,
-        mask_right=670,
-    )
-
-    haso_processor.analyze_image_file(image_filepath=path_to_himg)

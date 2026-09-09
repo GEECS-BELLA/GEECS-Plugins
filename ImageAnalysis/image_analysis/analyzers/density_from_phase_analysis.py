@@ -28,6 +28,8 @@ from dataclasses import dataclass
 import scipy.ndimage as ndimage
 import logging
 
+from geecs_schemas.analysis import PhaseDownrampSpec
+
 from image_analysis.base import ImageAnalyzer
 from geecs_data_utils.io.images import read_imaq_image
 from image_analysis.types import ImageAnalyzerResult
@@ -395,29 +397,35 @@ class PhasePreprocessor:
 class PhaseDownrampProcessor(ImageAnalyzer):
     """HTU-specific processor for phase downramp features with plotting outputs."""
 
-    def __init__(self, debug_mode: bool = False, **config):
-        """Initialize with `PhaseAnalysisConfig` derived from kwargs.
+    def __init__(
+        self,
+        spec: PhaseDownrampSpec,
+        *,
+        debug_mode: bool = False,
+        output_name: Optional[str] = None,
+    ):
+        """Initialize from the ``phase_downramp`` analyzer spec.
 
         Parameters
         ----------
+        spec : PhaseDownrampSpec
+            The analyzer's parameters (pixel scale, wavelength, threshold,
+            ROI, background path) — the ``analyzer:`` section of the
+            diagnostic.
         debug_mode : bool, default=False
             If True, show intermediate plots.
-        **config
-            Keyword arguments for `PhaseAnalysisConfig`.
-
-        Raises
-        ------
-        ValueError
-            If configuration is invalid for `PhaseAnalysisConfig`.
+        output_name : str, optional
+            Output identifier from the diagnostic; recorded for consumers.
         """
-        try:
-            self.config = PhaseAnalysisConfig(**config)
-        except TypeError as e:
-            logging.error(
-                "Failed to create PhaseAnalysisConfig from provided config dict."
-            )
-            logging.error(f"Provided config: {config}")
-            raise ValueError(f"Invalid config for PhaseAnalysisConfig: {e}") from e
+        self.spec = spec
+        self._output_name = output_name
+        self.config = PhaseAnalysisConfig(
+            pixel_scale=spec.pixel_scale,
+            wavelength_nm=spec.wavelength_nm,
+            threshold_fraction=spec.threshold_fraction,
+            roi=spec.roi,
+            background_path=spec.background_path,
+        )
 
         self.debug_mode = debug_mode
         self.processor = PhasePreprocessor(self.config)
@@ -825,9 +833,8 @@ if __name__ == "__main__":
     )
     from dataclasses import asdict
 
-    config_dict = asdict(config)
     print(phase_file_path)
-    image_analyzer: PhaseDownrampProcessor = PhaseDownrampProcessor(**config_dict)
+    image_analyzer = PhaseDownrampProcessor(spec=PhaseDownrampSpec(**asdict(config)))
     image_analyzer.use_interactive = True
     image_analyzer.analyze_image_file(phase_file_path)
 

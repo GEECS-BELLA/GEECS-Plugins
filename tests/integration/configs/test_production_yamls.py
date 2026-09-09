@@ -122,17 +122,16 @@ def test_production_yaml_loads(yaml_path: Path) -> None:
     """Every HTT / HTU diagnostic YAML loads cleanly under the current schema.
 
     This pins the contract between the plugins repo's
-    ``DiagnosticAnalysisConfig`` schema and the production configs.
+    ``AnalysisDiagnostic`` schema and the production configs.
     Any schema change that breaks an existing production YAML will
     fail this test with the specific YAML path and pydantic error,
     rather than only being discovered when someone tries to run a
     real scan in the lab.
     """
     from image_analysis.config import load_diagnostic
-    from image_analysis.config.diagnostic import DiagnosticAnalysisConfig
+    from geecs_schemas.analysis import AnalysisDiagnostic
 
     diag = load_diagnostic(yaml_path)
-    assert isinstance(diag, DiagnosticAnalysisConfig), (
-        f"load_diagnostic returned {type(diag).__name__}, expected "
-        f"DiagnosticAnalysisConfig"
+    assert isinstance(diag, AnalysisDiagnostic), (
+        f"load_diagnostic returned {type(diag).__name__}, expected AnalysisDiagnostic"
     )

@@ -8,12 +8,12 @@ import logging
 import numpy as np
 from numpy.typing import NDArray
 
-from image_analysis.config.array1d_processing import ROI1DConfig
+from geecs_schemas.analysis.processing_1d import LineROIConfig
 
 logger = logging.getLogger(__name__)
 
 
-def build_roi_mask_1d(x_data: NDArray, roi_config: ROI1DConfig) -> NDArray:
+def build_roi_mask_1d(x_data: NDArray, roi_config: LineROIConfig) -> NDArray:
     """Build a boolean mask for x-values inside the configured ROI."""
     mask = np.ones(len(x_data), dtype=bool)
 
@@ -28,7 +28,7 @@ def build_roi_mask_1d(x_data: NDArray, roi_config: ROI1DConfig) -> NDArray:
     return mask
 
 
-def apply_roi_1d(data: NDArray, roi_config: ROI1DConfig) -> NDArray:
+def apply_roi_1d(data: NDArray, roi_config: LineROIConfig) -> NDArray:
     """Apply ROI to 1D data based on x-axis values.
 
     This function filters the data to keep only points where the x-values
@@ -40,7 +40,7 @@ def apply_roi_1d(data: NDArray, roi_config: ROI1DConfig) -> NDArray:
     ----------
     data : NDArray
         Nx2 array where column 0 is x-values and column 1 is y-values
-    roi_config : ROI1DConfig
+    roi_config : LineROIConfig
         ROI configuration specifying x_min and/or x_max
 
     Returns
@@ -53,17 +53,17 @@ def apply_roi_1d(data: NDArray, roi_config: ROI1DConfig) -> NDArray:
     --------
     Apply time window to scope trace::
 
-        roi = ROI1DConfig(x_min=0.0e-6, x_max=10.0e-6)
+        roi = LineROIConfig(x_min=0.0e-6, x_max=10.0e-6)
         filtered_data = apply_roi_1d(scope_data, roi)
 
     Apply wavelength range to spectrum::
 
-        roi = ROI1DConfig(x_min=400, x_max=700)
+        roi = LineROIConfig(x_min=400, x_max=700)
         filtered_spectrum = apply_roi_1d(spectrum_data, roi)
 
     Apply only lower bound::
 
-        roi = ROI1DConfig(x_min=0.0)  # Keep only positive x values
+        roi = LineROIConfig(x_min=0.0)  # Keep only positive x values
         filtered_data = apply_roi_1d(data, roi)
     """
     if data.shape[0] == 0:

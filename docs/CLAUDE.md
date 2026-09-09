@@ -54,7 +54,7 @@ audiences — the GEECS MCP Server (agents operating the lab) and Skills
 | Hero landing surface | `docs/index.md` |
 
 If you find yourself wanting to document a workflow that spans two packages
-(say, "configure analysis in ConfigFileGUI then run via LiveWatch"), it
+(say, "configure analysis in the config editor then run via LiveWatch"), it
 belongs under `tutorials/`, not under either constituent package.
 
 ## Building & previewing locally
@@ -85,7 +85,7 @@ reproducible:
    (loading a sample config, toggling panels, picking a group), and
    captures each state via `widget.grab().save(path, "PNG")`.
 2. Output PNGs live under `docs/<tab>/assets/` — e.g.
-   `docs/tutorials/assets/configgui_02_analyzer_camera.png`.
+   `docs/tutorials/assets/livewatch_02_group_selected.png`.
 3. Naming convention: `<app>_NN_<state>.png` so screenshots are
    self-sorting and the state is greppable from the filename.
 4. Re-run the script whenever the GUIs change in a user-visible way:

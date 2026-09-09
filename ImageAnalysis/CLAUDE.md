@@ -23,13 +23,12 @@ image_analysis/
   types.py                         # ImageAnalyzerResult, Array1D, Array2D type aliases
   config/                          # Public configuration API — single entry point
     __init__.py                    # Exports: load_camera_config, load_line_config,
-                                   #          load_diagnostic, create_image_analyzer,
-                                   #          CameraConfig, Line1DConfig + all sub-models
+                                   #          load_diagnostic, list_diagnostics,
+                                   #          create_image_analyzer, analyzer_class
+                                   #          (the MODELS come from geecs_schemas.analysis)
     loader.py                      # YAML → typed model loaders
-    factory.py                     # create_image_analyzer(DiagnosticAnalysisConfig)
-    diagnostic.py                  # DiagnosticAnalysisConfig + type-discriminated image:
-    array2d_processing.py          # CameraConfig + 2D sub-models (re-exported)
-    array1d_processing.py          # Line1DConfig + 1D sub-models (re-exported)
+    factory.py                     # create_image_analyzer(AnalysisDiagnostic)
+    registry.py                    # analyzer kind → implementing class
   processing/
     array2d/
       background.py                # apply_background(image, config, *, cache=None)
@@ -106,77 +105,61 @@ Key methods:
 
 ## Config System
 
-### 2D Image Configs (`CameraConfig`)
+**The models live in GEECS-Schemas** (`geecs_schemas.analysis`, since
+ImageAnalysis 2.0): the diagnostic document `AnalysisDiagnostic` (format
+v2), the processing sections `CameraConfig` / `Line1DConfig`, the analyzer
+spec union `AnalyzerSpec` (one typed spec per analyzer, discriminated on
+`kind`), and the scan-runtime section `ScanRuntime`. They are pydantic-only,
+so the portal, MCP, CI and the config editor validate a diagnostic without
+this package. There is one definition of each model, in GEECS-Schemas —
+the processing code and analyzers import it from there (the 1D models
+under their `Line*` names; no re-export shims). `image_analysis.config`
+owns the three things that need the analysis stack:
 
-YAML files live in the **GEECS-Plugins-configs** repo. Loaded via:
+- **`loader`** — `load_diagnostic(stem_or_path, config_dir=, overrides=)`
+  → `AnalysisDiagnostic` (v2 only — a pre-v2 file is refused; the configs
+  repo was regenerated once and is authored v2-only since);
+  `load_camera_config` / `load_line_config` → the `image:` section of a
+  diagnostic, or a bare section; `list_diagnostics`.
+- **`factory`** — `create_image_analyzer(diag)`: resolves the class from
+  `diag.analyzer.kind` and passes `spec=` / `camera_config=` /
+  `line_config=` / `output_name=` where the constructor declares them.
+- **`registry`** — `ANALYZER_CLASS_PATHS` (kind → class path, imported on
+  demand so vendor SDKs stay unimported) and `analyzer_class(kind)`.
+  `tests/test_config_registry.py` pins it against the schema's union.
 
-```python
-from image_analysis.config import load_camera_config
-cfg = load_camera_config("UC_GaiaMode")  # finds UC_GaiaMode.yaml in configs repo
+A v2 diagnostic:
+
+```yaml
+schema_version: 2
+name: UC_TopView                  # device folder under scans/ScanNNN/
+output_name: UC_TopView_left      # optional output label (defaults to name)
+analyzer: {kind: beam, compute_slopes: false}   # the analyzer + ITS parameters
+image:                            # camera | line | omitted (haso, phase_downramp)
+  type: camera
+  bit_depth: 16
+  roi: {x_min: 0, x_max: 650, y_min: 350, y_max: 650}
+  background: {method: constant, constant_level: 5.0}
+  pipeline: [background, roi]     # the bare list; only listed steps run
+scan: {priority: 10, mode: per_shot, save: true, renderer: {cmap: plasma}}
 ```
 
-`CameraConfig` fields (all processing sections are `Optional` — omit to skip).
-Post-#412 the schema runs `extra="forbid"`: unknown keys are rejected at
-load time rather than silently allowed. `name` is gone — analyzer
-identity lives on the diagnostic (`output_name`); `camera_type` was
-deprecated and removed:
+`CameraConfig` / `Line1DConfig` are `extra="forbid"` down to every nested
+section; a step runs only when listed in `pipeline` AND its section is
+present. Scan-context backgrounds (`scan.background_source`) are resolved
+by ScanAnalysis, which rewrites `image.background` to a static
+`from_file` before per-shot processing. `Line1DConfig.data_loading` is the
+schema `Data1DLoading`; `image_analysis.data_1d_utils.read_1d_data` (and
+its `to_data1d_config`) hand it to GEECS-Data-Utils' reader as its own
+`Data1DConfig` (the two are mirrors, pinned by a test).
 
-```python
-class CameraConfig(BaseModel):
-    type: Literal["camera"] = "camera"          # discriminator for the unified-diagnostic union
-    description: Optional[str]
-    metadata: Optional[Dict[str, Any]]          # documentary only — location, notes, spatial_calibration, etc.
-    bit_depth: int = 16                         # 8, 10, 12, 14, 16, 32
-
-    roi: Optional[ROIConfig]                    # x_min, x_max, y_min, y_max (pixels)
-    background: Optional[BackgroundConfig]      # method, file_path, constant_level, additional_constant
-    crosshair_masking: Optional[CrosshairMaskingConfig]
-    circular_mask: Optional[CircularMaskConfig]
-    vignette: Optional[VignetteConfig]          # radial_polynomial or map_file method
-    thresholding: Optional[ThresholdingConfig]
-    filtering: Optional[FilteringConfig]        # gaussian_sigma, median_kernel_size
-    normalization: Optional[NormalizationConfig]
-    transforms: Optional[TransformConfig]       # rotation_angle, flip_horizontal, flip_vertical
-    pipeline: Optional[PipelineConfig]          # Ordered list of ProcessingStepType
-    analysis: Optional[Dict[str, Any]]          # Analyzer-specific (validated per-analyzer)
-```
-
-`BackgroundConfig.method` options: `constant`, `from_file`. Scan-context
-backgrounds (cross-scan dark via `scan.background_source.scan_number`, or
-dynamic from-current-scan via `scan.background_source.from_current_scan`)
-are expressed at the diagnostic config layer in ScanAnalysis. The scan
-analyzer computes / caches the resulting `.npy`, then rewrites this
-config to a static `FROM_FILE` background pointing at the cache before
-the per-shot pipeline runs.
-
-### 1D Line Configs (`Line1DConfig`)
-
-```python
-from image_analysis.config import load_line_config
-cfg = load_line_config("U_BCaveICT")
-```
-
-Same `extra="forbid"` policy and missing-`name` rationale as `CameraConfig`:
-
-```python
-class Line1DConfig(BaseModel):
-    type: Literal["line"] = "line"  # discriminator for the unified-diagnostic union
-    description: str
-    data_loading: Data1DConfig      # data_type (tek_scope_hdf5, tdms_scope, csv, tsv, npy),
-                                    # trace_index, x_column, y_column, delimiter
-    x_scale_factor: float = 1.0    # Applied FIRST before any processing
-    y_scale_factor: float = 1.0
-    x_units: Optional[str]
-    y_units: Optional[str]
-
-    roi: Optional[ROI1DConfig]              # x_min, x_max in data units (not pixels)
-    background: Optional[BackgroundConfig]
-    filtering: Optional[FilteringConfig]
-    thresholding: Optional[ThresholdingConfig]
-    interpolation: Optional[InterpolationConfig]  # Resample to uniform x-axis
-    pipeline: Optional[PipelineConfig]
-    analysis: Optional[Dict[str, Any]]
-```
+**Adding an analyzer** = one spec model in
+`geecs_schemas.analysis.analyzers` (joined into `AnalyzerSpec`, with
+`image_kind` = `"camera"` / `"line"` / `None`) + one line in
+`ANALYZER_CLASS_PATHS` + a constructor that takes the spec:
+`def __init__(self, camera_config, *, spec: MySpec | None = None,
+output_name=None)`. Specs whose fields all have defaults may be optional
+(notebook construction without one); specs with required fields are not.
 
 ## Analyzers
 
@@ -197,7 +180,7 @@ analyzer = StandardAnalyzer(camera_config=cfg)
 # Mode 2: config-driven factory (production scan path)
 from image_analysis.config import load_diagnostic, create_image_analyzer
 
-diag = load_diagnostic("UC_GaiaMode")          # → DiagnosticAnalysisConfig
+diag = load_diagnostic("UC_GaiaMode")          # → AnalysisDiagnostic
 analyzer = create_image_analyzer(diag)         # → ImageAnalyzer instance
 ```
 
@@ -240,9 +223,9 @@ Key methods:
 
 ### `BeamAnalyzer(StandardAnalyzer)`
 
-Adds beam-specific metrics (centroid, size, moments). Uses `analysis:` section of
-`CameraConfig` validated into a typed `BeamAnalysisConfig`. Most commonly used
-2D analyzer.
+Adds beam-specific metrics (centroid, size, moments). Its parameters are
+the `beam` spec (`BeamAnalyzerSpec`, alias `BeamAnalysisConfig`) passed as
+`spec=`. Most commonly used 2D analyzer.
 
 ### `LineAnalyzer(Standard1DAnalyzer)`
 
@@ -255,8 +238,8 @@ to all scalar keys.
 ### `ICT1DAnalyzer(Standard1DAnalyzer)`
 
 Specialized for Integrated Current Transformer (charge measurement). Applies
-Butterworth filter, calibration factor, time-step integration from `analysis:`
-section of config.
+Butterworth filter, calibration factor, time-step integration from the
+`ict` spec (`IctAnalyzerSpec`, alias `ICTAnalysisConfig`).
 
 ### `DensityFromPhaseAnalyzer(ImageAnalyzer)`
 
@@ -266,45 +249,50 @@ masking.
 
 ## Adding a New Analyzer
 
-### 2D analyzer
-
 ```python
-from image_analysis.analyzers.standard_analyzer import StandardAnalyzer
-from image_analysis.config import CameraConfig
-from image_analysis.types import ImageAnalyzerResult
-from pydantic import BaseModel
+# 1. geecs_schemas/analysis/analyzers.py — the spec (and add it to AnalyzerSpec)
+class MyAnalyzerSpec(AnalyzerSpecBase):
+    """One-line operator description."""
+    image_kind: ClassVar[ImageKind] = "camera"
+    kind: Literal["my_analyzer"] = Field("my_analyzer", description="...")
+    threshold: float = Field(0.1, description="...")
 
-class MyAnalysisConfig(BaseModel):
-    threshold: float = 0.1
-    # ... typed config fields from analysis: section of CameraConfig
+# 2. image_analysis/config/registry.py — one line
+#    "my_analyzer": "image_analysis.analyzers.my_analyzer.MyAnalyzer",
+
+# 3. the class
+from geecs_schemas.analysis import MyAnalyzerSpec
+from image_analysis.analyzers.standard_analyzer import StandardAnalyzer
+from geecs_schemas.analysis import CameraConfig
+from image_analysis.types import ImageAnalyzerResult
 
 class MyAnalyzer(StandardAnalyzer):
-    def __init__(self, camera_config: CameraConfig, **kwargs):
-        super().__init__(camera_config=camera_config, **kwargs)
-        self._my_cfg = MyAnalysisConfig(**(self.camera_config.analysis or {}))
+    def __init__(self, camera_config: CameraConfig, *, spec: MyAnalyzerSpec | None = None, output_name=None):
+        super().__init__(camera_config=camera_config, output_name=output_name)
+        self.spec = spec or MyAnalyzerSpec()
 
     def analyze_image(self, image, auxiliary_data=None) -> ImageAnalyzerResult:
         result = super().analyze_image(image, auxiliary_data)  # preprocessing + base result
-        # Add custom scalars
-        result.scalars["my_metric"] = compute_something(result.processed_image, self._my_cfg)
+        result.scalars["my_metric"] = compute_something(result.processed_image, self.spec)
         return result
 ```
 
-### 1D analyzer
-
-Same pattern but inherit from `Standard1DAnalyzer`, take a typed
-`Line1DConfig`, and use `self.line_config.analysis`.
+1D analyzers inherit from `Standard1DAnalyzer`, take `line_config`, and
+declare `image_kind = "line"`. Every field needs a `description=` (the
+schema docgen test fails CI otherwise).
 
 ## Key Design Decisions
 
 - **Processing happens in `preprocess_image()` / `preprocess_data()`** — `analyze_image()`
   receives already-processed data. Keep analysis logic separate from preprocessing.
-- **`analysis:` dict in config** — typed per-analyzer via a local Pydantic model
-  defined in the analyzer class. Validated at `__init__` time, not at config-load time.
+- **Analyzer parameters are typed at the document layer** — the `analyzer:`
+  spec union in GEECS-Schemas. A typo in a parameter name is a load error,
+  not a silently ignored key (the pre-2.0 `analysis:` dict was validated
+  leniently at `__init__`).
 - **Scale factors applied first** — `x_scale_factor` / `y_scale_factor` run before
   ROI, so ROI boundaries and thresholds should be specified in scaled units.
 - **Output naming lives at the diagnostic layer (#412)** — analyzers emit
-  **bare** scalar keys; `DiagnosticAnalysisConfig.output_name` and
+  **bare** scalar keys; `AnalysisDiagnostic.output_name` and
   `metric_suffix` (read by ScanAnalysis) namespace them on the way to disk
   and in-memory consumers. See `ScanAnalysis/CLAUDE.md` for the full
   contract and the override use cases (output_name=UC_TopView_left vs
@@ -394,7 +382,7 @@ The write gate is structural, and it depends on two conventions that
    transient temp files, subprocess spawns — gate them on `file_path`
    too, or add it to the denylist below.
 2. **Analyzers with un-gated side effects go on `EPHEMERAL_DENYLIST`**
-   (class-path strings, checked *before* the class is imported — which
+   (analyzer kinds, checked *before* the class is imported — which
    also keeps vendor SDK / DLL imports off hosts that lack them). Two
    current entries: **HASO** writes five sidecars per shot from
    `load_image` (instance state set there is what `analyze_image`

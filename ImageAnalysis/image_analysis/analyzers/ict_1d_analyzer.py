@@ -24,7 +24,7 @@ from typing import Optional, Dict
 
 
 from image_analysis.analyzers.standard_1d_analyzer import Standard1DAnalyzer
-from image_analysis.config.array1d_processing import Line1DConfig
+from geecs_schemas.analysis.processing_1d import Line1DConfig
 from image_analysis.types import Array1D, ImageAnalyzerResult
 from image_analysis.algorithms.ict_algorithms import (
     ICTAnalysisConfig,
@@ -64,14 +64,14 @@ class ICT1DAnalyzer(Standard1DAnalyzer):
         self,
         line_config: Line1DConfig,
         *,
+        spec: Optional[ICTAnalysisConfig] = None,
         output_name: Optional[str] = None,
     ):
         super().__init__(line_config, output_name=output_name)
 
-        # Validate analysis config (if present) into a typed model
-        self.analysis_config = ICTAnalysisConfig.model_validate(
-            self.line_config.analysis or {}
-        )
+        # The ICT parameters: the ``ict`` spec (defaults when constructed
+        # directly without one).
+        self.analysis_config: ICTAnalysisConfig = spec or ICTAnalysisConfig()
 
         logger.info("Initialized ICT1DAnalyzer (output_name=%r)", self.output_name)
 

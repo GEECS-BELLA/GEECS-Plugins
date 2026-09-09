@@ -3,7 +3,8 @@
 This tutorial walks the full GEECS-Plugins analysis loop end to end, using
 only the GUIs. By the end you'll have:
 
-1. Built a per-camera analyzer config in **ConfigFileGUI**
+1. Tuned a per-camera analyzer config in the **web config editor**, watching
+   the result on a real shot
 2. Added it to a group config that LiveWatch can dispatch
 3. Run that group against a real scan with **LiveWatch**
 
@@ -46,101 +47,77 @@ If those three are in place, you're ready.
 
 ## 1. Author the analyzer config
 
-Launch ConfigFileGUI:
+The config editor is part of the data portal (the scan browser on the worker
+host, port 8200). Open a recent scan of the camera you want to tune, switch
+to its **Analysis** tab and click **edit** next to the diagnostic. The editor
+opens in a drawer over the scan page, with a **preview** of that diagnostic
+rendered on the drawer's device and shot.
+
+There is also a standalone page — the portal's **edit configs** link, or on a
+laptop with a clone of the configs repo:
 
 ```bash
-poetry run python ScanAnalysis/ConfigFileGUI/main.py
+poetry run scan-config-editor --configs /path/to/GEECS-Plugins-Configs/scan_analysis_configs
 ```
 
-Click **File → Open Directory…** and pick your `scan_analysis_configs/`
-root. The left panel populates with the analyzer and group trees:
+Either way the form is generated from the diagnostic schema, so every field
+carries its description. The key sections of a diagnostic:
 
-![ConfigFileGUI initial view with the analyzer/group tree on the left](
-assets/configgui_01_initial.png)
+- **`name`**, `output_name`, `description` — which device folder is analyzed
+  and what the outputs are called.
+- **`analyzer`** — `kind` picks the analyzer (`beam`, `standard`, `magspec`,
+  …) and the form swaps in that kind's parameters. There are no class paths
+  and no free-form `kwargs`: every parameter is typed.
+- **`image`** — the per-shot processing. `type: camera` is the 2D pipeline,
+  `type: line` the 1D one. Each step (ROI, background, thresholding, …) is a
+  section you tick on, **and** an entry in the ordered `pipeline` list — a
+  step runs only if it is listed there.
+- **`scan`** — how ScanAnalysis invokes it: priority, mode (`per_shot` vs
+  `per_bin`), the Google Doc slot, renderer cosmetics.
 
-For this tutorial, we'll edit an *existing* camera analyzer rather than
-build one from scratch — the field-by-field experience is identical, and
-starting from a working file is the friendlier introduction. Click any
-camera analyzer in the tree (e.g. `HTU/UC_TopView.yaml`):
+Edit any field. The validator runs as you type; the YAML pane on the right
+shows exactly what will be written, and the **preview** button (or **auto**)
+re-renders the current shot through the unsaved document — dial an ROI in
+here, not by saving and re-running.
 
-![ConfigFileGUI showing the UC_TopView camera analyzer with the Image
-section expanded](
-assets/configgui_02_analyzer_camera.png)
-
-The editor renders the typed form. The key sections:
-
-- **Top fields** (`name`, `image_analyzer`, `kwargs`). The `image_analyzer`
-  is the dotted path of the Python class that runs against each shot —
-  swap it to use a different analyzer family (e.g.
-  `image_analysis.analyzers.standard_analyzer.StandardAnalyzer` instead of
-  `BeamAnalyzer`). `kwargs` are constructor arguments handed to that class.
-- **Image** section — the per-shot processing pipeline. `type: camera`
-  picks the `CameraConfig` schema; switching to `line` re-renders for a 1D
-  signal. ROI, Background, Thresholding, etc. are individual processing
-  steps; tick the header checkbox to include a step in the active
-  pipeline, leave it unchecked to omit.
-- **Scan** section — controls how this analyzer is invoked at the scan
-  orchestration level: priority, mode (`per_shot` vs aggregated), GDoc
-  upload slot.
-
-Edit any field you like. The validator runs as you type — invalid values
-show in the status bar.
-
-### Verifying the YAML
-
-If you want to see exactly what gets written when you save, toggle
-**Tools → Toggle YAML Preview**:
-
-![ConfigFileGUI with the YAML preview pane showing the serialised form
-alongside the form editor](
-assets/configgui_03_yaml_preview.png)
-
-The preview updates live. A representative camera-analyzer YAML looks like:
+A representative camera-analyzer YAML looks like:
 
 ```yaml
+schema_version: 2
 name: UC_TopView
-image_analyzer: image_analysis.analyzers.beam_analyzer.BeamAnalyzer
+analyzer:
+  kind: beam
 image:
   type: camera
   bit_depth: 16
   roi: {x_min: 0, x_max: 650, y_min: 350, y_max: 650}
   background: {method: constant, constant_level: 5.0}
   thresholding: {method: constant, value: 0.0, mode: to_zero}
-  pipeline:
-    steps: [background, roi, thresholding]
+  pipeline: [background, roi, thresholding]
 scan:
   priority: 50
   mode: per_shot
 ```
 
-**Save** when you're satisfied (`Ctrl+S` or the button below the editor).
-The file is written, the canonical formatting is preserved, and the next
-analyzer in the tree is one click away.
+**Save** writes the file into the configs tree on the share (the portal's
+`--processing-configs` root) in canonical form. It is a normal uncommitted
+change in that checkout — commit it when you are happy with it. The
+Analysis tab picks the new configuration up immediately.
 
 ## 2. Add the analyzer to a group
 
 Groups are the unit LiveWatch dispatches. A group is a named list of
 analyzer refs, each optionally overridden per-group.
 
-In the left tree, scroll down to `groups/` and click an existing group
-(e.g. `HTU/baseline.yaml`):
-
-![ConfigFileGUI showing the HTU_baseline group config with its analyzer
-roster and per-entry controls](
-assets/configgui_04_group.png)
-
-The group editor shows:
+In the standalone editor page, pick a group under `groups/` (e.g.
+`HTU/baseline.yaml`). The group form shows:
 
 - **`name`** and **`description`** — the group's human-readable identity.
-- **`upload_to_scan-log`** — when ticked, each member's display files go to
+- **`upload_to_scanlog`** — when ticked, each member's display files go to
   the Google Doc e-log on completion.
-- **Add analyzer** picker — type-ahead over every analyzer YAML in the
-  tree. Start typing the name of the analyzer you just edited; pick it
-  from the dropdown; click **Add**.
-- **Per-entry rows** — each analyzer ref has a checkbox (include this
-  run), a priority dropdown (override the analyzer's own
-  `scan.priority` per-group, or leave unset to inherit), and a remove
-  button.
+- **`analyzers`** — the roster. Each entry is a diagnostic id (with
+  type-ahead over every analyzer in the tree) and an optional per-group
+  `priority` override; unknown ids are flagged before you can save.
 
 Save the group when you're done.
 
@@ -149,7 +126,7 @@ A representative group YAML reads:
 ```yaml
 name: HTU_baseline
 description: standard HTU shift analysis
-upload_to_scan-log: true
+upload_to_scanlog: true
 analyzers:
   - Amp4Input
   - Amp4Output
@@ -248,12 +225,12 @@ display files will appear in the experiment's Google Doc.
 
 You now have the full loop. The places to go from here:
 
-- **Author a new analyzer from scratch.** Same flow as Step 1, but click
-  **New Config…** below the tree. ConfigFileGUI seeds defaults you can
-  tweak.
-- **Build a custom group.** Same flow as Step 2, but start from
-  **New Config…** to pick a group YAML location.
-- **Inspect the underlying API.** Everything ConfigFileGUI and LiveWatch
+- **Author a new analyzer from scratch.** In the drawer, **duplicate as**
+  copies the open diagnostic under a new id for the previewed device; the
+  standalone page's **new** starts from the schema defaults.
+- **Build a custom group.** Same flow as Step 2, from **new** on the
+  standalone page.
+- **Inspect the underlying API.** Everything the editor and LiveWatch
   do is also available headlessly via Python — see
   [Image Analysis overview](../image_analysis/overview.md) for the
   per-image API and

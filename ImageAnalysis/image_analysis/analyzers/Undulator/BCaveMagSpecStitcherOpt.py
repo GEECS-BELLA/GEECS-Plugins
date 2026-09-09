@@ -9,7 +9,7 @@ import numpy as np
 
 # Import the Standard1DAnalyzer parent class
 from image_analysis.analyzers.standard_1d_analyzer import Standard1DAnalyzer
-from image_analysis.config.array1d_processing import Line1DConfig
+from geecs_schemas.analysis.processing_1d import Line1DConfig
 
 # Import line-specific tools
 from image_analysis.types import Array1D, ImageAnalyzerResult

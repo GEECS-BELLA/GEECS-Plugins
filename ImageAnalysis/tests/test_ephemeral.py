@@ -19,25 +19,23 @@ from image_analysis.config import list_diagnostics
 from image_analysis.ephemeral import EPHEMERAL_DENYLIST, run_diagnostic_ephemeral
 from image_analysis.types import ImageAnalyzerResult
 
-_STANDARD_PATH = "image_analysis.analyzers.standard_analyzer.StandardAnalyzer"
-_HASO_PATH = "image_analysis.analyzers.HASO_himg_has_processor.HASOHimgHasProcessor"
-_GRENOUILLE_PATH = "image_analysis.analyzers.grenouille_analyzer.GrenouilleAnalyzer"
 
-
-def _write_diagnostic(path: Path, name: str, *, image_analyzer=_STANDARD_PATH) -> None:
-    """Write a minimal 2D diagnostic YAML at ``path``."""
+def _write_diagnostic(path: Path, name: str, *, kind: str = "standard") -> None:
+    """Write a minimal v2 diagnostic YAML at ``path``."""
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
+        "schema_version": 2,
         "name": name,
-        "image_analyzer": image_analyzer,
+        "analyzer": {"kind": kind},
         "image": {"type": "camera", "bit_depth": 16},
         "scan": {"priority": 100},
     }
-    if image_analyzer == _HASO_PATH:
-        # HASO-style: no embedded image config, kwargs on the spec.
+    if kind == "haso":
+        # HASO-style: no image section, the spec carries everything.
         payload = {
+            "schema_version": 2,
             "name": name,
-            "image_analyzer": {"class_path": image_analyzer, "kwargs": {}},
+            "analyzer": {"kind": "haso", "wavekit_config_file_path": "/wfs.dat"},
             "scan": {"priority": 100},
         }
     path.write_text(yaml.safe_dump(payload))
@@ -92,7 +90,7 @@ class TestRunDiagnosticEphemeral:
             config_dir=configs_tree,
             overrides={
                 "image": {
-                    "pipeline": {"steps": ["roi"]},
+                    "pipeline": ["roi"],
                     "roi": {"x_min": 2, "x_max": 6, "y_min": 1, "y_max": 4},
                 }
             },
@@ -135,7 +133,7 @@ class TestRunDiagnosticEphemeral:
             )
 
     def test_denylisted_analyzer_is_refused_before_import(self, tmp_path):
-        """HASO is refused by class-path string, not by a failed import.
+        """HASO is refused by analyzer kind, not by a failed import.
 
         A ``ValueError`` naming the ephemeral contract (rather than an
         ``ImportError`` from the vendor SDK) proves the check runs
@@ -144,11 +142,11 @@ class TestRunDiagnosticEphemeral:
         _write_diagnostic(
             tmp_path / "analyzers" / "HTU" / "U_HasoLift.yaml",
             "U_HasoLift",
-            image_analyzer=_HASO_PATH,
+            kind="haso",
         )
-        assert _HASO_PATH in EPHEMERAL_DENYLIST
+        assert "haso" in EPHEMERAL_DENYLIST
         assert (
-            _GRENOUILLE_PATH in EPHEMERAL_DENYLIST
+            "frog_retrieval" in EPHEMERAL_DENYLIST
         )  # un-gated temp files + DLL subprocess
         with pytest.raises(ValueError, match="cannot run ephemerally"):
             run_diagnostic_ephemeral(
@@ -217,7 +215,7 @@ class TestRenderedEphemeral:
         _write_diagnostic(
             tmp_path / "analyzers" / "HTU" / "U_HasoR.yaml",
             "U_HasoR",
-            image_analyzer=_HASO_PATH,
+            kind="haso",
         )
         with pytest.raises(ValueError, match="cannot run ephemerally"):
             render_diagnostic_ephemeral(
@@ -282,6 +280,27 @@ class TestRenderedEphemeral:
         result = ImageAnalyzerResult(data_type="2d", processed_image=np.ones((5, 7)))
         fig = render_result_figure(renderer, result, cmap="viridis")
         assert len(fig.axes[0].images) == 1
+        assert plt.get_fignums() == []
+
+    def test_explicit_limits_win_over_the_window(self):
+        """A document's scan.renderer vmin/vmax reach the image, over the percentile window."""
+        import matplotlib.pyplot as plt
+
+        from image_analysis.analyzers.standard_analyzer import StandardAnalyzer
+        from image_analysis.tools.rendering import render_result_figure
+
+        plt.close("all")
+        image = np.arange(35.0).reshape(5, 7)
+        result = ImageAnalyzerResult(data_type="2d", processed_image=image)
+        fig = render_result_figure(
+            StandardAnalyzer, result, window=(5, 95), vmin=1.0, vmax=1000.0
+        )
+        assert fig.axes[0].images[0].get_clim() == (1.0, 1000.0)
+        fig = render_result_figure(
+            StandardAnalyzer, result, window=(5, 95), vmax=1000.0
+        )
+        lo, hi = fig.axes[0].images[0].get_clim()
+        assert hi == 1000.0 and 0.0 < lo < 34.0  # window's low edge kept
         assert plt.get_fignums() == []
 
     def test_1d_renderer_honours_the_ax_contract(self):

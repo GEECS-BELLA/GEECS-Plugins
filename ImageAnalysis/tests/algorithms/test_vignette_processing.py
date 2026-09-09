@@ -2,9 +2,8 @@
 
 import numpy as np
 
-from image_analysis.config.array2d_processing import (
+from geecs_schemas.analysis.processing_2d import (
     CameraConfig,
-    PipelineConfig,
     ProcessingStepType,
     VignetteConfig,
     VignetteMethod,
@@ -35,7 +34,7 @@ def test_radial_vignette_constant_model():
 
 
 def test_pipeline_applies_vignette_step():
-    """Pipeline runs the vignette step when VIGNETTE is in pipeline.steps."""
+    """Pipeline runs the vignette step when VIGNETTE is in the pipeline list."""
     image = np.full((3, 3), 10.0, dtype=float)
     camera_cfg = CameraConfig(
         vignette=VignetteConfig(
@@ -46,7 +45,7 @@ def test_pipeline_applies_vignette_step():
             vgnt2=0.0,
             vgnt0=2.0,
         ),
-        pipeline=PipelineConfig(steps=[ProcessingStepType.VIGNETTE]),
+        pipeline=[ProcessingStepType.VIGNETTE],
     )
 
     out = apply_camera_processing_pipeline(image, camera_cfg, background_cache=None)

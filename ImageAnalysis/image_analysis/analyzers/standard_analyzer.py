@@ -29,7 +29,7 @@ from image_analysis.processing.array2d import apply_camera_processing_pipeline
 from image_analysis.types import Array2D, ImageAnalyzerResult
 
 # Import existing tools and base classes
-import image_analysis.config.array2d_processing as cfg_2d
+import geecs_schemas.analysis.processing_2d as cfg_2d
 from image_analysis.base import ImageAnalyzer
 
 logger = logging.getLogger(__name__)
@@ -96,8 +96,7 @@ class StandardAnalyzer(ImageAnalyzer):
 
         The string-by-name convenience that this constructor used to
         offer has moved to the loader layer — call
-        ``image_analysis.config.loader.load_camera_config(name)`` (or
-        ``image_analysis.config.load_image_analyzer(name)``) to get a
+        ``image_analysis.config.loader.load_camera_config(name)`` to get a
         ``CameraConfig`` first, then hand it here.
         """
         self.camera_config = camera_config
@@ -186,8 +185,7 @@ class StandardAnalyzer(ImageAnalyzer):
             "background_enabled": (
                 self.camera_config.background is not None
                 and any(
-                    step.value == "background"
-                    for step in self.camera_config.pipeline.steps
+                    step.value == "background" for step in self.camera_config.pipeline
                 )
             ),
         }

@@ -34,15 +34,41 @@ from typing import Dict, Iterable, List, Optional, Union
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from geecs_schemas.analysis import AnalysisDiagnostic, AnalysisGroup
 from image_analysis.config import load_diagnostic
 
-from .diagnostic_models import (
-    AnalysisGroupConfig,
-    ResolvedDiagnosticConfig,
-    ScanRuntimeConfig,
-)
-
 logger = logging.getLogger(__name__)
+
+
+class ResolvedDiagnosticConfig(BaseModel):
+    """A diagnostic loaded from disk and resolved against a group reference.
+
+    Pairs the on-disk :class:`~geecs_schemas.analysis.AnalysisDiagnostic`
+    with its filename-derived ID and the group's effective priority — what
+    :func:`scan_analysis.config.create_scan_analyzer` consumes.  Not a
+    document anyone writes.
+
+    Attributes
+    ----------
+    id : str
+        Filename stem of the diagnostic YAML; the task queue's status key,
+        unique within a resolved group.
+    enabled : bool
+        Disabled references are dropped by the loader, so ``True`` in practice.
+    priority : int
+        The group's override if given, else the diagnostic's own
+        ``scan.priority``; the loader sorts ascending by it.
+    diagnostic : AnalysisDiagnostic
+        The validated on-disk diagnostic.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(min_length=1)
+    enabled: bool = True
+    priority: int = Field(ge=0)
+    diagnostic: AnalysisDiagnostic
+
 
 __all__ = [
     "LoadedAnalysisGroup",
@@ -199,7 +225,7 @@ def _iter_yaml_files(directory: Path) -> Iterable[Path]:
 
 
 def resolve_group(
-    group_cfg: AnalysisGroupConfig,
+    group_cfg: AnalysisGroup,
     analyzer_index: Dict[str, Path],
 ) -> LoadedAnalysisGroup:
     """Resolve a parsed group config against a diagnostic index.
@@ -213,7 +239,7 @@ def resolve_group(
 
     Parameters
     ----------
-    group_cfg : AnalysisGroupConfig
+    group_cfg : AnalysisGroup
         Parsed group YAML (already validated by Pydantic).
     analyzer_index : dict
         ``{diagnostic_id: path}`` from :func:`discover_analyzers`.
@@ -247,12 +273,10 @@ def resolve_group(
         seen[ref] = 1
 
         diagnostic = load_diagnostic(analyzer_index[ref])
-        # diagnostic.scan is weakly typed at the ImageAnalysis layer;
-        # validate to read the priority field. ``or {}`` covers the
-        # legitimate "no scan block in the YAML" case.
-        scan_cfg = ScanRuntimeConfig.model_validate(diagnostic.scan or {})
         effective_priority = (
-            ref_entry.priority if ref_entry.priority is not None else scan_cfg.priority
+            ref_entry.priority
+            if ref_entry.priority is not None
+            else diagnostic.scan.priority
         )
 
         if not ref_entry.enabled:
@@ -337,7 +361,7 @@ def load_analysis_group(
         data = yaml.safe_load(f) or {}
 
     try:
-        group_cfg = AnalysisGroupConfig.model_validate(data)
+        group_cfg = AnalysisGroup.model_validate(data)
     except ValidationError as exc:
         raise ValueError(f"Invalid group config at {group_path}: {exc}") from exc
 

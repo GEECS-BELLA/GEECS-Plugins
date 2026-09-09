@@ -44,18 +44,13 @@ class TestUseInjectedDataThroughDiagnosticFactory:
 
     @pytest.fixture
     def fake_camera_diagnostic(self):
-        from image_analysis.config import CameraConfig
-        from image_analysis.config.diagnostic import DiagnosticAnalysisConfig
+        from geecs_schemas.analysis import CameraConfig
+        from geecs_schemas.analysis import AnalysisDiagnostic
 
-        return DiagnosticAnalysisConfig.model_validate(
+        return AnalysisDiagnostic.model_validate(
             {
                 "name": "UC_Test",
-                "image_analyzer": {
-                    "class_path": (
-                        "image_analysis.analyzers.beam_analyzer.BeamAnalyzer"
-                    ),
-                    "kwargs": {},
-                },
+                "analyzer": {"kind": "beam"},
                 "image": CameraConfig(),
                 "scan": {"mode": "per_bin"},
             }
@@ -63,22 +58,16 @@ class TestUseInjectedDataThroughDiagnosticFactory:
 
     @pytest.fixture
     def fake_line_diagnostic(self):
-        from image_analysis.config import Line1DConfig
-        from image_analysis.config.array1d_processing import Data1DConfig
-        from image_analysis.config.diagnostic import DiagnosticAnalysisConfig
+        from geecs_schemas.analysis import Line1DConfig
+        from geecs_schemas.analysis.processing_1d import Data1DLoading
+        from geecs_schemas.analysis import AnalysisDiagnostic
 
-        return DiagnosticAnalysisConfig.model_validate(
+        return AnalysisDiagnostic.model_validate(
             {
                 "name": "U_TestLine",
-                "image_analyzer": {
-                    "class_path": (
-                        "image_analysis.analyzers.standard_1d_analyzer"
-                        ".Standard1DAnalyzer"
-                    ),
-                    "kwargs": {},
-                },
+                "analyzer": {"kind": "trace"},
                 "image": Line1DConfig(
-                    data_loading=Data1DConfig(data_type="tdms_scope"),
+                    data_loading=Data1DLoading(data_type="tdms_scope"),
                 ),
                 "scan": {"mode": "per_shot"},
             }

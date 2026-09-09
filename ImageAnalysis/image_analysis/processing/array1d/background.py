@@ -17,10 +17,10 @@ from typing import Optional
 
 import numpy as np
 
-from image_analysis.config.array1d_processing import (
-    BackgroundConfig,
-    BackgroundMethod,
-    Data1DConfig,
+from geecs_data_utils.io.array1d import Data1DConfig
+from geecs_schemas.analysis.processing_1d import (
+    LineBackgroundConfig,
+    LineBackgroundMethod,
 )
 
 logger = logging.getLogger(__name__)
@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 
 def compute_background(
     data: np.ndarray,
-    config: BackgroundConfig,
+    config: LineBackgroundConfig,
     data_loading: Optional[Data1DConfig] = None,
 ) -> Optional[np.ndarray]:
     """Compute background for 1D data based on configuration.
@@ -37,7 +37,7 @@ def compute_background(
     ----------
     data : np.ndarray
         Input data in Nx2 format (x, y)
-    config : BackgroundConfig
+    config : LineBackgroundConfig
         Background configuration
     data_loading : Data1DConfig, optional
         Loader config used when ``method == FROM_FILE`` to read the
@@ -55,30 +55,30 @@ def compute_background(
     ValueError
         If data format is invalid or configuration is inconsistent
     """
-    if config.method == BackgroundMethod.NONE:
+    if config.method == LineBackgroundMethod.NONE:
         return None
 
     # Validate input data format
     if data.ndim != 2 or data.shape[1] != 2:
         raise ValueError(f"Expected Nx2 array, got shape {data.shape}")
 
-    if config.method == BackgroundMethod.CONSTANT:
+    if config.method == LineBackgroundMethod.CONSTANT:
         # Create background array with constant y-value
         background = np.column_stack(
-            [data[:, 0], np.full(len(data), config.constant_value)]
+            [data[:, 0], np.full(len(data), config.constant_level)]
         )
-        logger.info(f"Computed constant background: {config.constant_value}")
+        logger.info(f"Computed constant background: {config.constant_level}")
         return background
 
-    elif config.method == BackgroundMethod.FROM_FILE:
+    elif config.method == LineBackgroundMethod.FROM_FILE:
         if data_loading is None:
             raise ValueError(
                 "FROM_FILE background requires a data_loading config to know "
                 "how to read the file. Pipeline callers should pass through "
                 "the Line1DConfig.data_loading."
             )
-        background = load_background_from_file(config.background_file, data_loading)
-        logger.info(f"Loaded background from file: {config.background_file}")
+        background = load_background_from_file(config.file_path, data_loading)
+        logger.info(f"Loaded background from file: {config.file_path}")
         return background
 
     else:

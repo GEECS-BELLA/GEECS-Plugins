@@ -2,23 +2,22 @@
 
 Three public entry points:
 
-* :func:`load_camera_config` — bare camera YAML or unified diagnostic
-  YAML → :class:`CameraConfig`.
-* :func:`load_line_config` — bare line YAML or unified diagnostic YAML
-  → :class:`Line1DConfig`.
-* :func:`load_diagnostic` — unified diagnostic YAML (by stem or path) →
-  :class:`DiagnosticAnalysisConfig`.
+* :func:`load_diagnostic` — a diagnostic YAML (by stem or path) →
+  :class:`~geecs_schemas.analysis.AnalysisDiagnostic` (format v2; a pre-v2
+  file is refused: the corpus is v2 only).
+* :func:`load_camera_config` / :func:`load_line_config` — the ``image:``
+  section of a diagnostic (by stem or path), or a bare camera / line
+  YAML or dict, → :class:`CameraConfig` / :class:`Line1DConfig`.  The
+  notebook convenience: get the processing section without building an
+  analyzer.
+* :func:`list_diagnostics` — the diagnostic IDs under a configs tree.
 
-Plus the low-level :func:`find_config_file` for resolving a camera /
-line config name to its path on disk (used by the bare-name forms of
-``load_camera_config`` / ``load_line_config``).
+Plus :func:`find_config_file` for resolving a stem to its path.  Lookup
+uses the scan-analysis configs root (``SCAN_ANALYSIS_CONFIG_DIR`` or
+``scan_analysis_configs_path`` in the shared GEECS user config), searched
+recursively.
 
-Lookup of standalone camera / line configs uses the unified ScanAnalysis
-config root set via ``SCAN_ANALYSIS_CONFIG_DIR`` or
-``scan_analysis_configs_path`` in the shared GEECS user config. The
-base directory is searched recursively.
-
-For the typed-config → live-analyzer step, see
+For typed config → live analyzer see
 :func:`image_analysis.config.factory.create_image_analyzer`.
 """
 
@@ -29,240 +28,149 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
 import yaml
+from geecs_schemas.analysis import AnalysisDiagnostic, CameraConfig, Line1DConfig
 from pydantic import ValidationError
 
-from . import array2d_processing as cfg_2d
-from . import array1d_processing as cfg_1d
-from .diagnostic import DiagnosticAnalysisConfig
 from geecs_data_utils.config_roots import scan_analysis_config
 
 logger = logging.getLogger(__name__)
 
 __all__ = [
     "find_config_file",
+    "list_diagnostics",
     "load_camera_config",
     "load_diagnostic",
     "load_line_config",
 ]
 
-# ----------------------------------------------------------------------
-# Base directory management
-# ----------------------------------------------------------------------
-
 _CONFIG_MANAGER = scan_analysis_config
-_CONFIG_CACHE: Dict[str, Path] = (
-    _CONFIG_MANAGER.cache
-)  # Cache for resolved config paths
 
-# ----------------------------------------------------------------------
-# Core helpers
-# ----------------------------------------------------------------------
+#: Keys whose presence marks a YAML as a diagnostic document rather than a
+#: bare processing section: the analyzer block, the ``image:`` wrapper, or
+#: the pre-v2 class path (so a stale file gets the model's v2-only message).
+_DIAGNOSTIC_MARKERS = ("analyzer", "image_analyzer", "image")
 
 
 def find_config_file(
-    camera_name: str, *, config_dir: Optional[Path] = None, use_cache: bool = True
+    name: str, *, config_dir: Optional[Path] = None, use_cache: bool = True
 ) -> Path:
-    r"""
-    Resolve config file by name, searching recursively if needed.
-
-    Search order:
-    1. Check cache (if enabled)
-    2. Direct children of base directory (fast path)
-    3. Recursive search in subdirectories
+    """Resolve a config stem to its YAML path, searching the configs root recursively.
 
     Parameters
     ----------
-    camera_name : str
-        Logical name of the camera configuration (file stem).
-    config_dir : Optional[Path]
-        Directory containing YAML config files. If None, uses the global base dir.
-    use_cache : bool, default=True
-        Whether to use cached paths for performance.
-
-    Returns
-    -------
-    Path
-        Path to the YAML configuration file.
+    name : str
+        File stem (``UC_TopView``).
+    config_dir : Path, optional
+        Root to search; defaults to the configured scan-analysis root.
+    use_cache : bool, default True
+        Reuse previously resolved paths.
 
     Raises
     ------
     ValueError
-        If no base directory is available.
+        If no root is configured and ``config_dir`` is not given.
     FileNotFoundError
-        If the file is not found under the base directory.
-
-    Notes
-    -----
-    If multiple configs with the same name exist in different subdirectories,
-    the first one found (alphabetically) is used and a warning is logged.
+        If nothing matches.
     """
-    patterns = [
-        "{name}.yaml",
-        "{name}.yml",
-        "default_{name}_settings.yaml",
-        "default_{name}_settings.yml",
-    ]
-    missing_base_message = (
-        "config_dir is required (no unified analysis config root set). "
-        "Set SCAN_ANALYSIS_CONFIG_DIR or pass config_dir explicitly."
-    )
     return _CONFIG_MANAGER.find_config(
-        camera_name,
-        patterns=patterns,
+        name,
+        patterns=["{name}.yaml", "{name}.yml"],
         config_dir=config_dir,
         use_cache=use_cache,
-        missing_base_message=missing_base_message,
+        missing_base_message=(
+            "config_dir is required (no unified analysis config root set). "
+            "Set SCAN_ANALYSIS_CONFIG_DIR or pass config_dir explicitly."
+        ),
         not_found_label="Config",
     )
 
 
-def _load_camera_config_dict(
+def _read_yaml(path: Path) -> Dict[str, Any]:
+    with open(path, "r") as f:
+        data = yaml.safe_load(f)
+    return {} if data is None else data
+
+
+def _load_image_section(
     config_source: Union[str, Path, Dict[str, Any]],
     *,
     config_dir: Optional[Path],
-) -> Dict[str, Any]:
-    """Load raw config dict from name/path/dict.
-
-    Unwraps the ``image:`` section if the YAML is a unified diagnostic,
-    so callers always receive the flat camera/line config shape. Per
-    #412, ``CameraConfig`` / ``Line1DConfig`` no longer carry a
-    ``name`` field — analyzer identity is set at construction time by
-    the diagnostic factory via the ``output_name`` kwarg.
-    """
-    source_path: Optional[Path] = None
-    if isinstance(config_source, str):
-        source_path = find_config_file(config_source, config_dir=config_dir)
-        with open(source_path, "r") as f:
-            data = yaml.safe_load(f)
-        logger.info("Loaded camera configuration from %s", source_path)
-    elif isinstance(config_source, Path):
-        if not config_source.exists():
-            raise FileNotFoundError(f"Configuration file not found: {config_source}")
-        source_path = config_source
-        with open(source_path, "r") as f:
-            data = yaml.safe_load(f)
-        logger.info("Loaded configuration from %s", source_path)
-    elif isinstance(config_source, dict):
-        data = config_source.copy()
-        logger.info("Using provided configuration dictionary")
+    expected: type,
+    label: str,
+) -> Any:
+    """Shared body of :func:`load_camera_config` / :func:`load_line_config`."""
+    if isinstance(config_source, dict):
+        data: Dict[str, Any] = dict(config_source)
+        source = "<dict>"
     else:
-        raise ValueError(f"Invalid config_source type: {type(config_source)}")
-
-    if data is None:
-        data = {}
-
-    data = _unwrap_diagnostic_image_section(data)
-    # Filename-stem name injection used to live here as a cosmetic
-    # fallback; removed in #412 along with the ``name`` field itself.
-    # If a legacy standalone YAML still carries a top-level ``name``,
-    # CameraConfig's ``extra="allow"`` policy keeps it as model_extra
-    # without affecting behavior.
-    return data
-
-
-def _unwrap_diagnostic_image_section(data: Dict[str, Any]) -> Dict[str, Any]:
-    r"""Return the ``image:`` subdict of a unified diagnostic YAML.
-
-    A unified diagnostic config (per the schema in issue #400) lives in
-    one file with both ImageAnalysis-side and ScanAnalysis-side
-    sections. ImageAnalysis only consumes the ``image:`` body.
-
-    Per #412, the previous "inject top-level ``name`` as ``image.name``"
-    behavior is gone — ``CameraConfig`` / ``Line1DConfig`` no longer
-    have a ``name`` field. Analyzer identity flows through the
-    diagnostic factory's ``output_name`` constructor kwarg instead.
-
-    Flat configs (no ``image:`` key) pass through unchanged so legacy
-    standalone files in ``image_analysis_configs/`` keep working
-    without modification.
-
-    Parameters
-    ----------
-    data : dict
-        Raw YAML-loaded dict.
-
-    Returns
-    -------
-    dict
-        Either the unwrapped image section (when ``image:`` is present)
-        or the original dict (when it is not).
-
-    Raises
-    ------
-    ValueError
-        If ``image`` is present but is not a mapping.
-    """
-    if not isinstance(data, dict) or "image" not in data:
-        return data
-
-    image = data.get("image") or {}
-    if not isinstance(image, dict):
-        raise ValueError(
-            f"Diagnostic config 'image' section must be a mapping, "
-            f"got {type(image).__name__}"
+        path = (
+            Path(config_source)
+            if isinstance(config_source, Path)
+            else find_config_file(config_source, config_dir=config_dir)
         )
+        if not path.exists():
+            raise FileNotFoundError(f"Configuration file not found: {path}")
+        data = _read_yaml(path)
+        source = str(path)
+        logger.info("Loaded %s configuration from %s", label, path)
 
-    return dict(image)
+    if any(marker in data for marker in _DIAGNOSTIC_MARKERS):
+        # A diagnostic document: validate the whole thing and hand back its
+        # image section.
+        try:
+            diag = AnalysisDiagnostic.model_validate(data)
+        except ValidationError as exc:
+            raise ValueError(f"Invalid diagnostic config at {source}: {exc}") from exc
+        if not isinstance(diag.image, expected):
+            raise ValueError(
+                f"{source}: expected a {label} image section, got "
+                f"{type(diag.image).__name__ if diag.image is not None else 'none'}"
+            )
+        return diag.image
 
-
-# ----------------------------------------------------------------------
-# Public entry point (model-first)
-# ----------------------------------------------------------------------
+    # A bare processing section (camera / line) — validate directly.
+    try:
+        return expected.model_validate(data)
+    except ValidationError as exc:
+        raise ValueError(f"Invalid {label} configuration at {source}: {exc}") from exc
 
 
 def load_camera_config(
     config_source: Union[str, Path, Dict[str, Any]],
     *,
     config_dir: Optional[Path] = None,
-) -> cfg_2d.CameraConfig:
-    """Load and validate a :class:`CameraConfig` from name / path / dict.
+) -> CameraConfig:
+    """Load a :class:`CameraConfig` from a diagnostic stem / path, a bare camera YAML, or a dict.
 
     Parameters
     ----------
     config_source : str, Path, or dict
-        - ``str``: camera name (file stem), resolved against ``config_dir``
-          (or the globally configured base dir). Unified diagnostic YAMLs
-          and legacy bare-camera YAMLs are both handled — the ``image:``
-          subsection is unwrapped transparently when present.
-        - ``Path``: explicit ``.yaml`` / ``.yml`` file path.
-        - ``dict``: already-loaded raw config (passed straight to
-          ``CameraConfig.model_validate``).
+        A stem resolved under ``config_dir`` (or the configured root), an
+        explicit YAML path, or an already-loaded mapping.  Diagnostic
+        documents (v1 or v2) yield their ``image:`` section; a bare camera
+        mapping validates directly.
     config_dir : Path, optional
-        Directory containing YAML config files. Defaults to the global
-        base dir.
+        Root to search for a stem.
 
-    Returns
-    -------
-    CameraConfig
-        Validated camera configuration model.
+    Raises
+    ------
+    ValueError
+        If the document is invalid or its image section is not a camera.
     """
-    data = _load_camera_config_dict(config_source, config_dir=config_dir)
-    try:
-        return cfg_2d.CameraConfig.model_validate(data)
-    except ValidationError as e:
-        raise ValueError(f"Invalid camera configuration: {e}") from e
+    return _load_image_section(
+        config_source, config_dir=config_dir, expected=CameraConfig, label="camera"
+    )
 
 
 def load_line_config(
     config_source: Union[str, Path, Dict[str, Any]],
     *,
     config_dir: Optional[Path] = None,
-) -> cfg_1d.Line1DConfig:
-    """Load and validate a :class:`Line1DConfig` from name / path / dict.
-
-    See :func:`load_camera_config` for parameter semantics — this is the
-    1D counterpart.
-    """
-    data = _load_camera_config_dict(config_source, config_dir=config_dir)
-    try:
-        return cfg_1d.Line1DConfig.model_validate(data)
-    except ValidationError as e:
-        raise ValueError(f"Invalid line configuration: {e}") from e
-
-
-# ----------------------------------------------------------------------
-# Unified diagnostic loader
-# ----------------------------------------------------------------------
+) -> Line1DConfig:
+    """Load a :class:`Line1DConfig`; the 1D counterpart of :func:`load_camera_config`."""
+    return _load_image_section(
+        config_source, config_dir=config_dir, expected=Line1DConfig, label="line"
+    )
 
 
 def load_diagnostic(
@@ -270,51 +178,38 @@ def load_diagnostic(
     *,
     config_dir: Optional[Path] = None,
     overrides: Optional[Dict[str, Any]] = None,
-) -> DiagnosticAnalysisConfig:
-    """Load a unified diagnostic YAML by name or path.
+) -> AnalysisDiagnostic:
+    """Load a diagnostic YAML by stem or path.
 
     Parameters
     ----------
     name_or_path : str or Path
-        Diagnostic ID (filename stem, e.g. ``"UC_VisaEBeam1"``) or an
-        absolute path to a unified diagnostic YAML. Filename stems must
-        be globally unique across the ``analyzers/`` tree, so the bare
-        stem suffices — no namespace prefix needed.
+        Diagnostic ID (filename stem, unique across the ``analyzers/``
+        tree) or an explicit path.
     config_dir : Path, optional
         Root of the scan-analysis configs tree (the parent of
-        ``analyzers/``). When ``None`` and ``name_or_path`` is a
-        string, falls back to
-        ``ScanPaths.paths_config.scan_analysis_configs_path`` — the
-        same default the task queue uses.
+        ``analyzers/``); defaults to
+        ``ScanPaths.paths_config.scan_analysis_configs_path``.
     overrides : dict, optional
-        Deep-merged into the raw YAML before validation. Nested dicts
-        are merged key-by-key (so ``{"scan": {"mode": "per_bin"}}``
-        replaces only ``scan.mode`` and leaves the rest of ``scan``
-        untouched); anything else (scalars, lists) replaces wholesale.
-        Pydantic re-validates the merged result, so override typos and
-        type mismatches surface with the same error path as a bad YAML
-        on disk. Use this when a single consumer (e.g. the optimizer's
-        ``MultiDeviceScanEvaluator``) needs a per-call variant of a
-        diagnostic without forking the YAML.
+        Deep-merged into the raw YAML before validation (nested dicts
+        key-by-key, everything else replaced wholesale), so a consumer can
+        run a per-call variant — the optimizer's ``scan: {mode: per_bin}``
+        — without forking the file.  Override typos surface exactly like a
+        bad YAML.
 
     Returns
     -------
-    DiagnosticAnalysisConfig
-        Validated top-level config. The discriminated
-        ``image:`` field has been routed to a typed :class:`CameraConfig`
-        or :class:`Line1DConfig`; the ``scan:`` field is left as a raw
-        dict at this layer (ScanAnalysis validates it against its own
-        ``ScanRuntimeConfig`` at build time).
+    AnalysisDiagnostic
+        The validated, fully typed document.
 
     Raises
     ------
     FileNotFoundError
-        If the diagnostic can't be located.
+        If a path does not exist.
     KeyError
-        If the named stem isn't present under ``analyzers/``.
+        If a stem is not present under ``analyzers/``.
     ValueError
-        On invalid YAML, validation errors, or when ``config_dir`` is
-        needed but no default is available.
+        On invalid YAML or validation errors, or when no root is available.
     """
     if isinstance(name_or_path, Path):
         diag_path = name_or_path
@@ -331,53 +226,32 @@ def load_diagnostic(
             )
         diag_path = index[name_or_path]
 
-    with open(diag_path, "r") as f:
-        data = yaml.safe_load(f) or {}
-
+    data = _read_yaml(diag_path)
     if overrides:
         data = _deep_merge(data, overrides)
 
     try:
-        diagnostic = DiagnosticAnalysisConfig.model_validate(data)
-        diagnostic._source_id = diag_path.stem
-        return diagnostic
+        diagnostic = AnalysisDiagnostic.model_validate(data)
     except ValidationError as exc:
         raise ValueError(f"Invalid diagnostic config at {diag_path}: {exc}") from exc
+    diagnostic._source_id = diag_path.stem
+    return diagnostic
 
 
 def list_diagnostics(*, config_dir: Optional[Path] = None) -> List[str]:
-    """List the diagnostic IDs available under a configs tree.
+    """List the diagnostic IDs (YAML stems) under a configs tree, sorted.
 
-    Parameters
-    ----------
-    config_dir : Path, optional
-        Root of the scan-analysis configs tree (the parent of
-        ``analyzers/``). Same default resolution as
-        :func:`load_diagnostic`.
-
-    Returns
-    -------
-    list of str
-        Sorted diagnostic IDs (YAML filename stems) as *discovered* —
-        each resolves via ``load_diagnostic(stem, config_dir=config_dir)``,
-        which may still raise on a malformed YAML (listing proves
-        discovery, not validity).
+    Listing proves discovery, not validity: each stem resolves via
+    :func:`load_diagnostic`, which may still raise on a malformed file.
     """
     base_dir = _resolve_default_config_dir(config_dir)
     return sorted(_discover_analyzers(base_dir))
 
 
 def _deep_merge(base: Dict[str, Any], overlay: Dict[str, Any]) -> Dict[str, Any]:
-    """Return ``base`` with ``overlay`` recursively merged in.
+    """Return ``base`` with ``overlay`` merged in: nested dicts key-by-key, else replaced.
 
-    Nested dicts are merged key-by-key. Anything else — scalars, lists,
-    None — replaces wholesale (no list concatenation; that would create
-    surprising semantics when an overlay tries to *replace* a list).
-    Always returns a new dict; ``base`` and ``overlay`` are not mutated.
-
-    Used by :func:`load_diagnostic` to apply per-call overrides on top
-    of the on-disk YAML before Pydantic validation, but generic enough
-    to apply to any dict pair.
+    Always a new dict; neither input is mutated.
     """
     out: Dict[str, Any] = dict(base)
     for key, value in overlay.items():
@@ -410,29 +284,22 @@ def _resolve_default_config_dir(config_dir: Optional[Path]) -> Path:
 
 
 def _discover_analyzers(base_dir: Path) -> Dict[str, Path]:
-    """Build a mapping from diagnostic stem to its YAML path.
-
-    Mirrors :func:`scan_analysis.config.analysis_group_loader.discover_analyzers`
-    but lives here so ImageAnalysis can load diagnostics without
-    importing from ScanAnalysis.
-    """
+    """Map diagnostic stem → YAML path under ``<base_dir>/analyzers``; stems must be unique."""
     analyzers_dir = base_dir / "analyzers"
     if not analyzers_dir.is_dir():
         raise FileNotFoundError(
             f"Analyzer directory not found: {analyzers_dir}. "
             f"Expected the unified-configs layout under {base_dir}."
         )
-
     index: Dict[str, Path] = {}
     for path in sorted(
         list(analyzers_dir.rglob("*.yaml")) + list(analyzers_dir.rglob("*.yml"))
     ):
-        stem = path.stem
-        if stem in index:
+        if path.stem in index:
             raise ValueError(
-                f"Duplicate diagnostic ID '{stem}' at {path} and "
-                f"{index[stem]}. Diagnostic file stems must be unique "
+                f"Duplicate diagnostic ID '{path.stem}' at {path} and "
+                f"{index[path.stem]}. Diagnostic file stems must be unique "
                 f"across the entire 'analyzers/' tree."
             )
-        index[stem] = path
+        index[path.stem] = path
     return index

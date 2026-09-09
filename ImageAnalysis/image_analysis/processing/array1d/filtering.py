@@ -18,7 +18,7 @@ from typing import Optional
 import numpy as np
 from scipy import ndimage, signal
 
-from image_analysis.config.array1d_processing import FilteringConfig, FilterMethod
+from geecs_schemas.analysis.processing_1d import LineFilteringConfig, LineFilterMethod
 
 logger = logging.getLogger(__name__)
 
@@ -220,14 +220,14 @@ def apply_bilateral_filter(
     return result
 
 
-def apply_filtering(data: np.ndarray, config: FilteringConfig) -> np.ndarray:
+def apply_filtering(data: np.ndarray, config: LineFilteringConfig) -> np.ndarray:
     """Apply filtering to 1D data based on configuration.
 
     Parameters
     ----------
     data : np.ndarray
         Input data in Nx2 format (x, y)
-    config : FilteringConfig
+    config : LineFilteringConfig
         Filtering configuration
 
     Returns
@@ -240,19 +240,19 @@ def apply_filtering(data: np.ndarray, config: FilteringConfig) -> np.ndarray:
     ValueError
         If data format is invalid or filter method is unsupported
     """
-    if config.method == FilterMethod.NONE:
+    if config.method == LineFilterMethod.NONE:
         return data.copy()
 
     if data.ndim != 2 or data.shape[1] != 2:
         raise ValueError(f"Expected Nx2 array, got shape {data.shape}")
 
-    if config.method == FilterMethod.GAUSSIAN:
+    if config.method == LineFilterMethod.GAUSSIAN:
         return apply_gaussian_filter(data, sigma=config.sigma)
 
-    elif config.method == FilterMethod.MEDIAN:
+    elif config.method == LineFilterMethod.MEDIAN:
         return apply_median_filter(data, kernel_size=config.kernel_size)
 
-    elif config.method == FilterMethod.BILATERAL:
+    elif config.method == LineFilterMethod.BILATERAL:
         # For bilateral, use sigma as spatial sigma
         return apply_bilateral_filter(data, sigma_spatial=config.sigma)
 

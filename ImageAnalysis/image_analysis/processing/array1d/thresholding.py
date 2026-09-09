@@ -16,19 +16,22 @@ import logging
 
 import numpy as np
 
-from image_analysis.config.array1d_processing import ThresholdingConfig, ThresholdMethod
+from geecs_schemas.analysis.processing_1d import (
+    LineThresholdingConfig,
+    LineThresholdMethod,
+)
 
 logger = logging.getLogger(__name__)
 
 
-def apply_thresholding(data: np.ndarray, config: ThresholdingConfig) -> np.ndarray:
+def apply_thresholding(data: np.ndarray, config: LineThresholdingConfig) -> np.ndarray:
     """Apply thresholding to 1D data based on configuration.
 
     Parameters
     ----------
     data : np.ndarray
         Input data in Nx2 format (x, y)
-    config : ThresholdingConfig
+    config : LineThresholdingConfig
         Thresholding configuration
 
     Returns
@@ -41,16 +44,16 @@ def apply_thresholding(data: np.ndarray, config: ThresholdingConfig) -> np.ndarr
     ValueError
         If data format is invalid or threshold method is unsupported
     """
-    if config.method == ThresholdMethod.NONE:
+    if config.method == LineThresholdMethod.NONE:
         return data.copy()
 
     if data.ndim != 2 or data.shape[1] != 2:
         raise ValueError(f"Expected Nx2 array, got shape {data.shape}")
 
     # Determine threshold value
-    if config.method == ThresholdMethod.ABSOLUTE:
+    if config.method == LineThresholdMethod.ABSOLUTE:
         threshold = config.threshold_value
-    elif config.method == ThresholdMethod.PERCENTILE:
+    elif config.method == LineThresholdMethod.PERCENTILE:
         threshold = np.percentile(data[:, 1], config.percentile)
     else:
         raise ValueError(f"Unsupported threshold method: {config.method}")

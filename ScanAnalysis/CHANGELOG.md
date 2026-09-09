@@ -3,6 +3,119 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.21.0] - 2026-09-08
+
+### Fixed
+
+- Editor: a free-mapping textarea (`metadata`, `auxiliary_columns`) that does
+  not parse as JSON is an error state — validate, preview and Save refuse
+  until it is fixed — instead of reading as "unset" and silently dropping the
+  mapping on Save (Codex review of #803).
+
+### Removed
+
+- **The Qt `ConfigFileGUI`** (6,300 lines) — superseded by the web config
+  editor (`config_editor/`, 1.20.0); it authored the v1 shape the loader
+  refuses. `LiveWatchGUI` stays (PyQt5 remains a Windows dependency for it).
+- `scan_analysis.config.diagnostic_models` and the aliases
+  `ScanRuntimeConfig` / `AnalysisGroupConfig` / `DiagnosticAnalysisConfig`:
+  import `ScanRuntime`, `AnalysisGroup`, `AnalysisDiagnostic` from
+  `geecs_schemas.analysis`. `ResolvedDiagnosticConfig` now lives in
+  `analysis_group_loader` (its producer); `scan_analysis.config` exports
+  only the loader, the factory and that wrapper.
+
+## [1.20.2] - 2026-09-08
+
+### Fixed
+
+- `ConfigStore.list` / `read` no longer crash on a file that is not valid
+  YAML (a tab, a top-level list): it is an invalid entry, and `read` returns
+  the file as it is with the parse error, so the editor stays up and shows
+  it (review of #803, finding 1).
+- The editor keeps **Save disabled** when the opened file does not validate
+  on disk and shows the on-disk YAML plus the error; the schema-shaped form
+  is a reconstruction that drops unknown keys, so saving it unedited would
+  have silently gutted the file (finding 2). Editing arms Save with a
+  "replaces an invalid file" banner.
+- The store walks the tree the way the runtime loaders do (`rglob`), so a
+  nested file is listed, counted for id uniqueness and cross-referenced;
+  its namespace is the relative folder (finding 3).
+- `duplicate()` drops `output_name`, `scan.device` and the stitcher
+  `output_label` from the copy — a copy is a new identity, not a second
+  writer into the original's outputs (finding 5).
+- `/static/*` is served with `Cache-Control: no-cache`, so an editor.js
+  change reaches browsers without a host version bump (finding 7).
+
+## [1.20.1] - 2026-09-06
+
+### Changed
+
+- Config editor preview is **on demand**: a `preview` button renders the
+  edited (unsaved) document on the host's current shot; an `auto` toggle
+  (remembered per browser, off by default) restores re-rendering after
+  every edit. Opening a document still renders once; after an edit the
+  stale image dims until the next render. `mount()` is unchanged.
+
+## [1.20.0] - 2026-09-06
+
+### Added
+
+- **The web config editor** — the successor to the Qt `ConfigFileGUI`,
+  built in three layers so the data portal is one host and not the only one:
+  - `scan_analysis.config_store.ConfigStore`: plain Python over a
+    `scan_analysis_configs` tree — list (validity + summary per file),
+    read (raw document + etag), validate (pydantic locations + the canonical
+    YAML), save (atomic temp+rename; optimistic etag — a stale etag or a
+    duplicate stem across namespaces is a `ConflictError`; an invalid
+    document is never written), delete, `pending_changes()` (git status of
+    the tree), and the JSON Schema the form renders from. Writes touch only
+    the configs tree.
+  - `scan_analysis.config_editor`: a mountable FastAPI router (`/api/list`,
+    `/api/schema/{kind}`, read / validate / PUT / DELETE per document, and
+    `POST /api/preview` when the host supplies a renderer) plus the editor
+    page and its two assets — a hand-written schema-driven form
+    (`static/editor.js`: objects, optionals, the kind-discriminated analyzer
+    union, enums, ordered enum lists for pipelines, arrays of objects,
+    tuples, JSON mappings) with a live YAML preview and server-side error
+    placement. No build chain, no library. Behind the new `editor` extra
+    (fastapi, uvicorn, jinja2).
+  - `scan-config-editor` console script: the standalone host (`--configs
+    <tree>`, default from config.ini; `--read-only`), for editing a local
+    clone of the configs repo.
+  The portal mounts the same router at `/configs` with a live preview of the
+  unsaved document on the scan page's current shot (GEECS-DataPortal 0.21.0).
+
+## [1.19.0] - 2026-09-05
+
+### Changed
+
+- **The scan-side config models live in GEECS-Schemas.** `ScanRuntimeConfig`,
+  `BackgroundSource`, `FromCurrentScanSpec`, `AutodetectBackgroundSpec`,
+  `AnalyzerRef` and `AnalysisGroupConfig` are now `geecs_schemas.analysis`'s
+  `ScanRuntime` / `BackgroundSource` / … / `AnalysisGroup`, re-exported from
+  `scan_analysis.config` under the old names as aliases (the schema
+  overhaul — GEECS-Schemas 0.19.0, ImageAnalysis 2.0.0). `diag.scan` is the
+  typed `ScanRuntime` section in-document, so the group loader and
+  `create_scan_analyzer` read `diag.scan.priority` / fields directly — the
+  second-stage `ScanRuntimeConfig.model_validate(diag.scan or {})` is gone.
+  `scan.renderer` (typed `RendererOptions`) replaces the `renderer_kwargs`
+  dict in the YAML; the wrappers still receive a kwargs dict, built from the
+  options the YAML set (`RendererOptions.as_kwargs()`), so the renderers'
+  own defaults apply as before. `ResolvedDiagnosticConfig` stays here (the
+  loader's runtime wrapper, not a document).
+- `geecs-schemas` (path dep) is a main dependency.
+- **ConfigFileGUI (the Qt editor) is frozen on the v1 authoring shape** —
+  it still writes `image_analyzer` / `image.analysis` YAML, which the
+  v2-only loader now refuses, so analyzer files it saves do not load; its
+  import-level breakage is patched (`Data1DLoading`, `label`) and nothing
+  else is ported. It is retired once the web config editor reaches parity
+  (owner decision 2026-09-05: the corpus is canonical, no runtime lift).
+
+### Removed
+
+- `ImageAnalyzerSpec` / `resolve_image_analyzer_value` re-exports (the v1
+  `image_analyzer` field is gone from the document).
+
 ## [1.18.1] - 2026-09-03
 
 ### Fixed

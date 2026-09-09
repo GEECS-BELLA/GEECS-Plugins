@@ -21,7 +21,7 @@ def _make_beam_config():
     analyzer instance (``output_name``) and on the wrapping
     ``Array2DScanAnalyzer`` (``device_name`` → ``output_name`` fallback).
     """
-    from image_analysis.config.array2d_processing import (
+    from geecs_schemas.analysis.processing_2d import (
         BackgroundConfig,
         CameraConfig,
     )

@@ -1,0 +1,7 @@
+name: HTU_baseline
+analyzers:
+- Amp2Input
+- ref: Amp4Output
+  enabled: false
+- ref: UC_TopView
+  priority: 3

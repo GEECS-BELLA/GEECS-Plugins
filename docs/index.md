@@ -34,7 +34,7 @@ follow that split; the bottom row is for navigation and troubleshooting.
     ---
 
     Process per-shot images, configure analysis pipelines, run automated
-    per-scan analysis via LiveWatch. Edit configs in ConfigFileGUI; run
+    per-scan analysis via LiveWatch. Edit configs in the data portal's config editor; run
     them headlessly or interactively via the Image/Scan Analysis APIs.
 
     [:octicons-arrow-right-24: Analysis tutorial](tutorials/analysis.md) ·

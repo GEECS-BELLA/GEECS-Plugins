@@ -15,9 +15,11 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
+from geecs_schemas.analysis import LineStitcherSpec
+
 from image_analysis.analyzers.line_stitcher import LineStitcher
-from image_analysis.config.array1d_processing import (
-    Data1DConfig,
+from geecs_schemas.analysis.processing_1d import (
+    Data1DLoading,
     Line1DConfig,
 )
 from image_analysis.types import ImageAnalyzerResult
@@ -69,7 +71,7 @@ class TestLineStitcherMultiDeviceLoading:
 
     def _make_line_config(self) -> Line1DConfig:
         return Line1DConfig(
-            data_loading=Data1DConfig(
+            data_loading=Data1DLoading(
                 data_type="tsv",
                 delimiter="\t",
                 x_column=0,
@@ -94,8 +96,8 @@ class TestLineStitcherMultiDeviceLoading:
 
         stitcher = LineStitcher(
             line_config=self._make_line_config(),
-            sibling_devices=["DevB", "DevC"],
-            name="stitched",
+            spec=LineStitcherSpec(sibling_devices=["DevB", "DevC"]),
+            output_name="stitched",
         )
 
         result = stitcher.analyze_image_file(master)
@@ -127,8 +129,8 @@ class TestLineStitcherMultiDeviceLoading:
 
         stitcher = LineStitcher(
             line_config=self._make_line_config(),
-            sibling_devices=["DevB", "DevC"],
-            name="stitched",
+            spec=LineStitcherSpec(sibling_devices=["DevB", "DevC"]),
+            output_name="stitched",
         )
 
         with caplog.at_level("WARNING"):

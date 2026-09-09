@@ -21,7 +21,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 from image_analysis.base import ImageAnalyzer
-from image_analysis.config.array1d_processing import Line1DConfig, PipelineStepType
+from geecs_schemas.analysis.processing_1d import Line1DConfig, LinePipelineStepType
 from image_analysis.data_1d_utils import read_1d_data
 from image_analysis.processing.array1d.pipeline import apply_line_processing_pipeline
 from image_analysis.processing.array1d.roi import build_roi_mask_1d
@@ -66,8 +66,7 @@ class Standard1DAnalyzer(ImageAnalyzer):
 
         The string-by-name convenience that this constructor used to
         offer has moved to the loader layer — call
-        ``image_analysis.config.loader.load_line_config(name)`` (or
-        ``image_analysis.config.load_image_analyzer(name)``) to get a
+        ``image_analysis.config.loader.load_line_config(name)`` to get a
         ``Line1DConfig`` first, then hand it here.
         """
         # Initialize base class first so any defaults it sets can be overridden below.
@@ -229,7 +228,7 @@ class Standard1DAnalyzer(ImageAnalyzer):
         if (
             auxiliary_columns
             and self.line_config.roi is not None
-            and PipelineStepType.ROI in steps
+            and LinePipelineStepType.ROI in steps
         ):
             roi_mask = build_roi_mask_1d(scaled_data[:, 0], self.line_config.roi)
             auxiliary_columns = {
@@ -319,7 +318,7 @@ class Standard1DAnalyzer(ImageAnalyzer):
         """
         params: Dict[str, Any] = {
             "data_type": self.line_config.data_loading.data_type,
-            "data_format": self.line_config.data_format,
+            "data_format": self.line_config.label,
         }
         if self._output_name is not None:
             params["output_name"] = self._output_name
@@ -559,23 +558,14 @@ def _validate_auxiliary_column_data(
     return validated
 
 
-def _pipeline_steps(config: Line1DConfig) -> list[PipelineStepType]:
-    """Return configured pipeline steps, including the default order."""
-    if config.pipeline is not None:
-        return list(config.pipeline.steps)
-
-    return [
-        PipelineStepType.ROI,
-        PipelineStepType.BACKGROUND,
-        PipelineStepType.FILTERING,
-        PipelineStepType.THRESHOLDING,
-        PipelineStepType.INTERPOLATION,
-    ]
+def _pipeline_steps(config: Line1DConfig) -> list[LinePipelineStepType]:
+    """Return the configured pipeline steps (the list is the source of truth)."""
+    return list(config.pipeline)
 
 
 def _interpolation_enabled(
     config: Line1DConfig,
-    steps: list[PipelineStepType],
+    steps: list[LinePipelineStepType],
 ) -> bool:
     """Return whether interpolation will modify the primary line grid.
 
@@ -583,4 +573,6 @@ def _interpolation_enabled(
     truth — if the step is in the list and the sub-config is present,
     it runs. There is no separate ``enabled`` flag on the sub-config.
     """
-    return PipelineStepType.INTERPOLATION in steps and config.interpolation is not None
+    return (
+        LinePipelineStepType.INTERPOLATION in steps and config.interpolation is not None
+    )

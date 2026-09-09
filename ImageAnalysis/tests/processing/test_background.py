@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from image_analysis.config.array2d_processing import BackgroundConfig
+from geecs_schemas.analysis.processing_2d import BackgroundConfig
 from image_analysis.processing.array2d.background import (
     _compute_edge_background_level,
     _compute_median_background,

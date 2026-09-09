@@ -20,7 +20,7 @@ first — toolchain, config file, and a smoke test.
 
     ---
 
-    Build a per-camera analyzer config in ConfigFileGUI, add it to a
+    Build a per-camera analyzer config in the web config editor, add it to a
     group, run that group on a real scan via LiveWatch. Lands summary
     figures and (optionally) e-log uploads.
 

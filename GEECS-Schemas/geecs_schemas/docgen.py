@@ -198,6 +198,38 @@ derived_channels:
     precision: 6
     description: "Convectron pressure from U_VacuumGauge analog input 0"
 """,
+    "analysis_diagnostic": """\
+schema_version: 2
+name: UC_TopView                 # the device folder under scans/ScanNNN/
+output_name: UC_TopView_left     # optional: label outputs differently from the device
+analyzer:
+  kind: beam                     # picks the analyzer AND the fields below
+  compute_slopes: false
+  enabled_stats: [image_total, x_CoM, y_CoM, x_fwhm, y_fwhm]
+image:
+  type: camera
+  bit_depth: 16
+  roi: {x_min: 0, x_max: 650, y_min: 350, y_max: 650}
+  background: {method: constant, constant_level: 5.0}
+  filtering: {median_kernel_size: 3}
+  pipeline: [background, roi, filtering]   # only listed steps run, in this order
+scan:
+  priority: 10
+  mode: per_shot
+  save: true
+  gdoc_slot: 0
+  renderer: {cmap: plasma}
+# pre-v2 files (image_analyzer class path, image.analysis, kwargs) are
+# refused; the corpus is v2 only.
+""",
+    "analysis_group": """\
+schema_version: 1
+name: HTU_baseline
+analyzers:
+  - UC_TopView                   # bare ID: enabled, the diagnostic's own priority
+  - {ref: U_FROG, enabled: false}
+  - {ref: U_BCaveICT, priority: 1}
+""",
 }
 
 

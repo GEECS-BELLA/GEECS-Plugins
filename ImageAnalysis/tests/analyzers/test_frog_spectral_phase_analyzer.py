@@ -9,33 +9,38 @@ from image_analysis.analyzers.frog_spectral_phase_analyzer import (
     FrogSpectralPhaseAnalyzer,
     wavelength_nm_to_omega_rad_per_fs,
 )
-from image_analysis.config.array1d_processing import (
-    Data1DConfig,
+from geecs_schemas.analysis import FrogSpectralPhaseSpec
+
+from geecs_schemas.analysis.processing_1d import (
+    Data1DLoading,
     Line1DConfig,
-    ROI1DConfig,
+    LineROIConfig,
 )
 
 
 def _make_config() -> Line1DConfig:
     return Line1DConfig(
         description="synthetic FROG spectral phase",
-        data_loading=Data1DConfig(
+        data_loading=Data1DLoading(
             data_type="tsv",
             delimiter="\t",
             x_column=3,
             y_column=5,
             auxiliary_columns={"weights": 4},
         ),
-        roi=ROI1DConfig(x_min=780.0, x_max=820.0),
+        roi=LineROIConfig(x_min=780.0, x_max=820.0),
         x_units="nm",
         y_units="rad",
-        analysis={
-            "fit_order": 3,
-            "mask_threshold": 0.05,
-            "reference_wavelength_nm": 800.0,
-            "sign_reference_order": 2,
-            "sign_reference": 1.0,
-        },
+    )
+
+
+def _make_spec() -> FrogSpectralPhaseSpec:
+    return FrogSpectralPhaseSpec(
+        fit_order=3,
+        mask_threshold=0.05,
+        reference_wavelength_nm=800.0,
+        sign_reference_order=2,
+        sign_reference=1.0,
     )
 
 
@@ -96,7 +101,7 @@ class TestFrogSpectralPhaseAnalyzer:
         file_path = tmp_path / "retrieved_lineouts.tsv"
         expected = _write_frog_lineout(file_path)
 
-        analyzer = FrogSpectralPhaseAnalyzer(_make_config())
+        analyzer = FrogSpectralPhaseAnalyzer(_make_config(), spec=_make_spec())
         result = analyzer.analyze_image_file(file_path)
 
         assert result.data_type == "1d"
@@ -116,10 +121,17 @@ class TestFrogSpectralPhaseAnalyzer:
         _write_frog_lineout(file_path)
         data = np.genfromtxt(file_path, delimiter="\t", skip_header=1)[:, [3, 5]]
 
-        analyzer = FrogSpectralPhaseAnalyzer(_make_config())
+        analyzer = FrogSpectralPhaseAnalyzer(_make_config(), spec=_make_spec())
         # Direct analyze_image with no auxiliary_data — the analyzer
         # falls back to an unweighted fit when no `weights` aux column
         # was loaded.
         result = analyzer.analyze_image(data)
 
         assert result.scalars["gdd_fs2"] == pytest.approx(180.0, rel=1e-6)
+
+
+def test_default_spec_keeps_the_gdd_sign_reference():
+    """The pre-2.0 default (sign_reference_order=2) is preserved by the spec."""
+    analyzer = FrogSpectralPhaseAnalyzer(_make_config())
+    assert analyzer.analysis_config.sign_reference_order == 2
+    assert analyzer.analysis_config.sign_reference == 1.0

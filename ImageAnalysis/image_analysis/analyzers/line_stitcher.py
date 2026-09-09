@@ -19,9 +19,11 @@ from typing import Dict, List, Optional, Union
 
 import numpy as np
 
+from geecs_schemas.analysis import LineStitcherSpec
+
 from image_analysis.data_1d_utils import read_1d_data
 from image_analysis.analyzers.line_analyzer import LineAnalyzer
-from image_analysis.config.array1d_processing import Line1DConfig
+from geecs_schemas.analysis.processing_1d import Line1DConfig
 from image_analysis.types import Array1D, ImageAnalyzerResult
 
 logger = logging.getLogger(__name__)
@@ -49,12 +51,18 @@ class LineStitcher(LineAnalyzer):
     def __init__(
         self,
         line_config: Line1DConfig,
-        sibling_devices: List[str],
-        name: str,
+        *,
+        spec: LineStitcherSpec,
+        output_name: Optional[str] = None,
     ):
-        super().__init__(line_config)
-        self.sibling_devices = sibling_devices
-        self.name = name
+        super().__init__(line_config, output_name=output_name)
+        self.sibling_devices: List[str] = list(spec.sibling_devices)
+        # Label for the stitched-output folder / filenames written next to
+        # the master device (v1's ``name`` kwarg). It must differ from the
+        # master device's folder or the stitched TSVs would land on top of
+        # the raw inputs — the schema refuses that at load, and load_image
+        # refuses it again at run time.
+        self.name = spec.output_label or output_name or "stitched"
         self._device_in_filename: Optional[str] = None
 
     def load_image(self, file_path: Path) -> Array1D:
@@ -79,6 +87,12 @@ class LineStitcher(LineAnalyzer):
         """
         file_path = Path(file_path)
         master_device = file_path.parent.name
+        if self.name == master_device:
+            raise ValueError(
+                f"LineStitcher output label {self.name!r} equals the master "
+                f"device folder {master_device!r}; refusing to run — the "
+                "stitched output would overwrite the raw input files."
+            )
         filename = file_path.name
         base_dir = file_path.parent.parent
         data_config = self.line_config.data_loading

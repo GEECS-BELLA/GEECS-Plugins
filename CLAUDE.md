@@ -12,7 +12,7 @@ tooling. Each subdirectory is an independent Python package with its own
 | `ImageAnalysis/` | Per-image analysis: pipelines, offline analyzers, config models |
 | `GEECS-Console/` | Greenfield PySide6 operator console (Bluesky/gateway architecture): scan submission, live health/device panels, config editors, Tiled scan browser |
 | `GEECS-Data-Utils/` | Scan path navigation, scalar loading, binning, Parquet database |
-| `GEECS-Schemas/` | Pydantic-only config vocabulary: versioned schemas for every scanner config kind (scan request, save set, scan variables, trigger profile, action plans, derived channels) + legacy-YAML converters + the docgen Markdown reference generator. Depends on pydantic alone — importable from anywhere |
+| `GEECS-Schemas/` | Pydantic-only config vocabulary: versioned schemas for every scanner config kind (scan request, save set, scan variables, trigger profile, action plans, derived channels) and for the analysis configs (`geecs_schemas.analysis`: the `AnalysisDiagnostic` v2 document with its kind-discriminated analyzer specs, `AnalysisGroup`) + legacy-YAML converters + the docgen Markdown reference generator. Depends on pydantic alone — importable from anywhere |
 | `GeecsBluesky/` | Bluesky RunEngine backend: the queueserver worker (`qserver/` — RE Manager profile serving `geecs_scan_request_plan`) + headless GeecsSession, CA-backed ophyd-async devices (via GeecsCAGateway's PVs), Tiled integration |
 | `GEECS-Core/` | The GEECS access **library**: UDP/TCP wire protocol (`transport/`), experiment DB (`db/GeecsDb`), PV naming contract, the one `GeecsError` tree, and the `FakeGeecsServer` test double — extracted from GeecsCAGateway 2026-08-20; see its `DESIGN.md` for the layering rules — plus the thin synchronous `GeecsDevice` client (`client/`), the successor to GEECS-PythonAPI's device objects |
 | `GeecsCAGateway/` | The caproto CA gateway serving GEECS devices as PVs (readback + `:SP`) for Phoebus/Archiver/ophyd-async, built on GEECS-Core — see its `PV_CONTRACT.md` (client API contract), `DEPLOYMENT.md`, and `DESIGN.md` |
@@ -149,7 +149,8 @@ GEECS-Data-Utils     →  (no intra-repo deps — foundational data layer)
 LogMaker4GoogleDocs  →  (no intra-repo deps — pure Google API wrapper)
 GEECS-Schemas        →  (no intra-repo deps — pydantic-only config vocabulary)
 
-ImageAnalysis        →  GEECS-Data-Utils
+ImageAnalysis        →  GEECS-Data-Utils, GEECS-Schemas (the analysis-config
+                        documents and processing models it consumes)
 GEECS-Core           →  (no intra-repo deps — the GEECS access library:
                         transport, DB, PV naming, exceptions, fake server)
 GeecsCAGateway       →  GEECS-Core (the access library it serves over CA),
@@ -176,7 +177,11 @@ GEECS-DataPortal     →  GEECS-Data-Utils (tiled extra — the ScanCatalog
                         ephemeral-processing selector over
                         image_analysis.ephemeral's write-free seam, and
                         the Analysis tab's direct ScanAnalyzer runs)
-ScanAnalysis         →  GEECS-Data-Utils, ImageAnalysis, LogMaker4GoogleDocs
+ScanAnalysis         →  GEECS-Data-Utils, ImageAnalysis, GEECS-Schemas,
+                        LogMaker4GoogleDocs (+ fastapi/jinja2/uvicorn via
+                        the `editor` extra — scan_analysis.config_editor,
+                        the web config editor the portal mounts at /configs
+                        and `scan-config-editor` serves standalone)
 GEECS-MCP            →  GeecsBluesky (qs-client + ca extras — the queue
                         client, preflight, config resolver/listings),
                         GEECS-Data-Utils (tiled extra — results lookup),

@@ -52,22 +52,22 @@ If you're writing a new analyzer, start by inheriting from one of these. The `St
 
 ## What each analyzer needs
 
-Every analyzer takes a YAML config (one per device) describing its processing pipeline and analysis parameters. Configs are typically stored alongside your experiment configuration so they're version-controlled with your scan setup. A diagnostic config typically has an `image:` section (the per-shot processing pipeline, `type: camera` or `type: line`) and a `scan:` section (how the analyzer runs at the scan orchestration level) — HASO-style analyzers omit `image:` and pass constructor kwargs through the verbose `image_analyzer:` form instead. The skeleton:
+Every analyzer takes a YAML config (one per device) describing its processing pipeline and analysis parameters. Configs are typically stored alongside your experiment configuration so they're version-controlled with your scan setup. A diagnostic config has an `analyzer:` section (`kind` + that analyzer's typed parameters), an `image:` section (the per-shot processing pipeline, `type: camera` or `type: line`) and a `scan:` section (how the analyzer runs at the scan orchestration level) — HASO-style analyzers omit `image:` because they read their own file formats; everything they need is on their spec. The skeleton:
 
 ```yaml
+schema_version: 2
 name: U_DeviceName
-image_analyzer: image_analysis.analyzers.beam_analyzer.BeamAnalyzer
+analyzer:
+  kind: beam     # one of the registered kinds; its parameters follow
 image:
   type: camera   # or "line" for a 1D signal
-  # processing step blocks (roi, background, ...) + pipeline.steps
-  analysis:
-    # analyzer-specific parameters
+  # processing step blocks (roi, background, ...) + the ordered pipeline list
 scan:
   priority: 50
   mode: per_shot
 ```
 
-The annotated version of this file — every section explained, with a full worked example — is in the [Image Analysis Overview](overview.md#how-a-diagnostic-is-described); the [Analysis tutorial](../tutorials/analysis.md) walks through editing one field by field. The exact shape of the `analysis` block depends on the analyzer — look at an existing config or run the analyzer once and let the Pydantic validation tell you what it expects.
+The annotated version of this file — every section explained, with a full worked example — is in the [Image Analysis Overview](overview.md#how-a-diagnostic-is-described); the [Analysis tutorial](../tutorials/analysis.md) walks through editing one field by field. The parameters each `kind` accepts are in the [schema reference](../geecs_schemas/schema_reference.md) — and the config editor's form shows them with their descriptions.
 
 ## When an analyzer is part of a scan
 

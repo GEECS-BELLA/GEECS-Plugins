@@ -15,8 +15,10 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 from image_analysis.tools.rendering import base_render_image
+from geecs_schemas.analysis import HiResMagCamSpec
+
 from image_analysis.analyzers.beam_analyzer import BeamAnalyzer
-from image_analysis.config.array2d_processing import CameraConfig
+from geecs_schemas.analysis.processing_2d import CameraConfig
 from image_analysis.algorithms.bowtie_fit import BowtieFitAlgorithm
 from image_analysis.types import ImageAnalyzerResult
 
@@ -36,9 +38,9 @@ class HiResMagCamAnalyzer(BeamAnalyzer):
     def __init__(
         self,
         camera_config: CameraConfig,
-        n_beam_size_clearance: int = 4,
-        min_total_counts: float = 2500.0,
-        threshold_factor: float = 10.0,
+        *,
+        spec: Optional[HiResMagCamSpec] = None,
+        output_name: Optional[str] = None,
     ):
         """Initialize HiResMagCam analyzer with bowtie fit algorithm.
 
@@ -48,26 +50,27 @@ class HiResMagCamAnalyzer(BeamAnalyzer):
             Validated camera configuration model. (Use
             ``image_analysis.config.loader.load_camera_config("UC_HiResMagCam")``
             to get the standard config.)
-        n_beam_size_clearance : int, default=4
-            Bowtie fit parameter: beam size clearance
-        min_total_counts : float, default=2500.0
-            Bowtie fit parameter: minimum total counts threshold
-        threshold_factor : float, default=10.0
-            Bowtie fit parameter: threshold factor for fit
+        spec : HiResMagCamSpec, optional
+            Bow-tie fit parameters (``n_beam_size_clearance``,
+            ``min_total_counts``, ``threshold_factor``); defaults when omitted.
+        output_name : str, optional
+            Output identifier; forwarded to ``BeamAnalyzer``.
         """
-        super().__init__(camera_config)
+        super().__init__(camera_config, output_name=output_name)
+        spec = spec or HiResMagCamSpec()
+        self.spec = spec
 
-        # Initialize bowtie fit algorithm with custom parameters
+        # Initialize bowtie fit algorithm with the spec's parameters
         self.algo = BowtieFitAlgorithm(
-            n_beam_size_clearance=n_beam_size_clearance,
-            min_total_counts=min_total_counts,
-            threshold_factor=threshold_factor,
+            n_beam_size_clearance=spec.n_beam_size_clearance,
+            min_total_counts=spec.min_total_counts,
+            threshold_factor=spec.threshold_factor,
         )
 
         # Store parameters for potential inspection
-        self.n_beam_size_clearance = n_beam_size_clearance
-        self.min_total_counts = min_total_counts
-        self.threshold_factor = threshold_factor
+        self.n_beam_size_clearance = spec.n_beam_size_clearance
+        self.min_total_counts = spec.min_total_counts
+        self.threshold_factor = spec.threshold_factor
 
     def analyze_image(
         self, image: np.ndarray, auxiliary_data: Optional[dict] = None

@@ -16,8 +16,10 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 from image_analysis.tools.rendering import base_render_image
+from geecs_schemas.analysis import BCaveMagSpecStitcherSpec
+
 from image_analysis.analyzers.standard_analyzer import StandardAnalyzer
-from image_analysis.config.array2d_processing import CameraConfig
+from geecs_schemas.analysis.processing_2d import CameraConfig
 from image_analysis.types import AnalyzerResultDict
 
 import logging
@@ -37,8 +39,9 @@ class BCaveMagSpecStitcherAnalyzer(StandardAnalyzer):
     def __init__(
         self,
         camera_config: "CameraConfig",
-        gaussian_sigma: float = 20.0,
-        gaussian_center: float = 250.0,
+        *,
+        spec: Optional[BCaveMagSpecStitcherSpec] = None,
+        output_name: Optional[str] = None,
     ):
         """Initialize BCaveMagSpecStitcher analyzer.
 
@@ -46,14 +49,16 @@ class BCaveMagSpecStitcherAnalyzer(StandardAnalyzer):
         ----------
         camera_config : CameraConfig
             Validated camera configuration model.
-        gaussian_sigma : float, default=20.0
-            Standard deviation of Gaussian weighting function
-        gaussian_center : float, default=250.0
-            Center position of Gaussian weighting function (in pixels)
+        spec : BCaveMagSpecStitcherSpec, optional
+            Gaussian weighting parameters (``gaussian_sigma``,
+            ``gaussian_center``); defaults when omitted.
+        output_name : str, optional
+            Output identifier; forwarded to ``StandardAnalyzer``.
         """
-        super().__init__(camera_config)
-        self.gaussian_sigma = gaussian_sigma
-        self.gaussian_center = gaussian_center
+        super().__init__(camera_config, output_name=output_name)
+        spec = spec or BCaveMagSpecStitcherSpec()
+        self.gaussian_sigma = spec.gaussian_sigma
+        self.gaussian_center = spec.gaussian_center
 
     def analyze_image(
         self, image: np.ndarray, auxiliary_data: Optional[dict] = None
@@ -256,8 +261,7 @@ if __name__ == "__main__":
 
     image_analyzer = BCaveMagSpecStitcherAnalyzer(
         camera_config=load_camera_config("U_BCaveMagSpec"),
-        gaussian_sigma=20.0,
-        gaussian_center=250.0,
+        spec=BCaveMagSpecStitcherSpec(gaussian_sigma=20.0, gaussian_center=250.0),
     )
 
     # Example file path (update to actual path)

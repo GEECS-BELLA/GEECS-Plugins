@@ -11,7 +11,7 @@ import cv2
 import logging
 from typing import Tuple
 from ...types import Array2D
-from image_analysis.config.array2d_processing import (
+from geecs_schemas.analysis.processing_2d import (
     CrosshairMaskingConfig,
     ROIConfig,
     CircularMaskConfig,

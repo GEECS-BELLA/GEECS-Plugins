@@ -1,13 +1,14 @@
-"""Tests for the diagnostic-factory: DiagnosticAnalysisConfig → ScanAnalyzer."""
+"""Tests for the diagnostic-factory: AnalysisDiagnostic → ScanAnalyzer."""
 
 from __future__ import annotations
 
 import yaml
 
 
-from image_analysis.config import DiagnosticAnalysisConfig, load_diagnostic
-from image_analysis.config.array1d_processing import Line1DConfig
-from image_analysis.config.array2d_processing import CameraConfig
+from geecs_schemas.analysis import AnalysisDiagnostic
+from image_analysis.config import load_diagnostic
+from geecs_schemas.analysis.processing_1d import Line1DConfig
+from geecs_schemas.analysis.processing_2d import CameraConfig
 from scan_analysis.analyzers.common.array1d_scan_analysis import Array1DScanAnalyzer
 from scan_analysis.analyzers.common.array2D_scan_analysis import Array2DScanAnalyzer
 from scan_analysis.config.diagnostic_factory import create_scan_analyzer
@@ -18,14 +19,13 @@ from scan_analysis.config.diagnostic_factory import create_scan_analyzer
 # ---------------------------------------------------------------------------
 
 
-# Bare class-path strings for the analyzers exercised in these tests.
-# The 2D-vs-1D dimension lives on the image: section's ``type`` field,
-# not on the analyzer spec, so all of these are bare strings.
-_BEAM = "image_analysis.analyzers.beam_analyzer.BeamAnalyzer"
-_STANDARD_1D = "image_analysis.analyzers.standard_1d_analyzer.Standard1DAnalyzer"
-_HASO = "image_analysis.analyzers.HASO_himg_has_processor.HASOHimgHasProcessor"
-
-_SPECS_BY_ALIAS = {"beam": _BEAM, "standard_1d": _STANDARD_1D, "haso": _HASO}
+# The analyzer specs exercised in these tests, by a test-local alias. The
+# 2D-vs-1D dimension lives on the image: section's ``type`` field.
+_SPECS_BY_ALIAS = {
+    "beam": {"kind": "beam"},
+    "standard_1d": {"kind": "trace"},
+    "haso": {"kind": "haso", "wavekit_config_file_path": "/wfs.dat"},
+}
 
 
 def _diag(
@@ -34,22 +34,21 @@ def _diag(
     alias="beam",
     image=None,
     scan=None,
-) -> DiagnosticAnalysisConfig:
-    """Build a minimal DiagnosticAnalysisConfig for factory tests.
+) -> AnalysisDiagnostic:
+    """Build a minimal AnalysisDiagnostic for factory tests.
 
-    ``alias`` is a test-fixture shorthand for picking which class path
-    to use; it's not an on-disk alias registry (those were removed in
-    PR-E). The default ``image:`` section matches the alias: camera
-    for ``beam``, line for ``standard_1d``, omitted for ``haso``.
+    ``alias`` is a test-fixture shorthand for picking the analyzer spec.
+    The default ``image:`` section matches the alias: camera for ``beam``,
+    line for ``standard_1d``, omitted for ``haso``.
     """
     if image is None and alias == "beam":
         image = {"type": "camera", "bit_depth": 16}
     elif image is None and alias == "standard_1d":
         image = {"type": "line", "data_loading": {"data_type": "csv"}}
     # haso: no image section
-    return DiagnosticAnalysisConfig(
+    return AnalysisDiagnostic(
         name=name,
-        image_analyzer=_SPECS_BY_ALIAS[alias],
+        analyzer=_SPECS_BY_ALIAS[alias],
         image=image,
         scan=scan or {},
     )
@@ -125,8 +124,9 @@ class TestScanRuntimeAttachment:
         path.write_text(
             yaml.safe_dump(
                 {
+                    "schema_version": 2,
                     "name": "CAM-TEA-MagSpecA-interpSpec",
-                    "image_analyzer": _STANDARD_1D,
+                    "analyzer": {"kind": "trace"},
                     "image": {
                         "type": "line",
                         "description": "test",

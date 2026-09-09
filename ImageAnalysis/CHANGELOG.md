@@ -3,6 +3,108 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.2.0] — 2026-09-08
+
+### Removed
+
+- The re-export shims `image_analysis.config.array2d_processing`,
+  `array1d_processing` and `diagnostic` (and the config-model re-exports
+  from `image_analysis.processing.array2d` / `array1d`): one definition per
+  model — import `CameraConfig`, `Line1DConfig`, the processing sub-models
+  and `AnalysisDiagnostic` from `geecs_schemas.analysis` (1D models under
+  their `Line*` names). `image_analysis.config` exports only the loader,
+  the factory and the registry. `to_data1d_config` moved to
+  `image_analysis.data_1d_utils`, next to the reader it serves.
+- The v1 refusal message no longer points at a converter (removed from
+  GEECS-Schemas 0.20.0): the corpus is v2 only.
+
+## [2.1.1] — 2026-09-06
+
+### Added
+
+- `render_result_figure` / `render_diagnostic_ephemeral` /
+  `render_document_ephemeral` take explicit `vmin` / `vmax` (2D results),
+  winning over the percentile `window` — so a host can draw a document with
+  its own `scan.renderer` limits, the way a run of it would.
+
+## [2.1.0] — 2026-09-06
+
+### Added
+
+- `image_analysis.ephemeral.run_document_ephemeral` /
+  `render_document_ephemeral`: the write-free runners for an in-memory,
+  already-validated `AnalysisDiagnostic` (no name or path to load) — the
+  config editor's live preview of an unsaved document. Same contract as
+  the name-based forms: `file_path` in auxiliary data refused, the kind
+  denylist applied before instantiation.
+
+## [2.0.0] — 2026-09-05
+
+### Changed — the config models live in GEECS-Schemas; analyzers take typed specs
+
+The analysis-config schema overhaul (GEECS-Schemas 0.19.0). Breaking for
+anyone constructing configs or analyzers in code, and for the on-disk
+YAML: the configs repo is regenerated in v2 form (one-shot converter
+`geecs_schemas.convert.analysis_diagnostics`); a pre-v2 file is refused at
+load with a pointer to it. There is no runtime lift — the corpus is the
+whole universe of diagnostics, so it is rewritten rather than supported.
+
+- **Config models relocated.** `CameraConfig`, `Line1DConfig` and every
+  processing sub-model now live in `geecs_schemas.analysis` and are
+  re-exported here under their historical names
+  (`image_analysis.config.array2d_processing` / `array1d_processing`).
+  Two shape changes come with the move: `pipeline` is the bare step list
+  (`pipeline: [background, roi]`, was `pipeline: {steps: [...]}`) and the
+  `analysis` dict is gone from both image configs (see the next item).
+  On `Line1DConfig`, `data_format` (a display label) is renamed `label`,
+  the background fields take the camera spellings (`constant_level`,
+  `file_path` — were `constant_value`, `background_file`), `data_loading`
+  is the schema `Data1DLoading` (a field-for-field mirror of
+  GEECS-Data-Utils' `Data1DConfig`; `read_1d_data` accepts either), and the
+  dtype fields are a closed set of NumPy dtype names. Nested processing
+  models now refuse unknown keys like the top-level ones already did — the
+  `enabled: true` leftovers that validated silently before are errors now.
+- **`analyzer:` replaces `image_analyzer` + `image.analysis` + `kwargs`.**
+  The diagnostic document is GEECS-Schemas' `AnalysisDiagnostic` (format
+  v2); `DiagnosticAnalysisConfig` is kept as an alias. Its `analyzer:`
+  section is a closed discriminated union on `kind`, one typed spec per
+  analyzer, and the class path has left the YAML — `image_analysis.config.
+  registry` maps kind → class. Every analyzer constructor now takes its
+  spec by keyword: `BeamAnalyzer(camera_config, *, spec=BeamAnalyzerSpec(...),
+  output_name=...)`, `ICT1DAnalyzer(line_config, *, spec=...)`,
+  `LineStitcher(line_config, *, spec=LineStitcherSpec(sibling_devices=[...],
+  output_label=...), output_name=...)` (the `name` kwarg is the spec's
+  `output_label`, defaulting to `output_name`; the stitcher refuses a label
+  equal to the master device folder, which would overwrite the raw inputs), `MagSpecManualCalibAnalyzer(camera_config,
+  *, spec=MagSpecAnalyzerSpec(...))`, `HiResMagCamAnalyzer(camera_config, *,
+  spec=...)`, `BCaveMagSpecStitcherAnalyzer(camera_config, *, spec=...)`,
+  `HASOHimgHasProcessor(spec=HasoAnalyzerSpec(...))` (the flat `mask_*`
+  kwargs are the spec's `mask` block), `PhaseDownrampProcessor(spec=
+  PhaseDownrampSpec(...))` (was `**config`). Specs with all-default fields
+  are optional (`BeamAnalyzer(camera_config)` still works in a notebook).
+  `BeamAnalysisConfig`, `FrogRetrievalConfig`, `ICTAnalysisConfig` and
+  `FrogSpectralPhaseConfig` are aliases of the corresponding specs.
+- **`trace` kind.** `Standard1DAnalyzer` (processed trace, no metrics) is
+  its own kind, `trace` — the 1D peer of `standard`; `line` is
+  `LineAnalyzer` with its statistics, as before.
+- **Factory and loader.** `create_image_analyzer` resolves the class from
+  the kind and passes `spec` / `camera_config` / `line_config` /
+  `output_name` only where the constructor declares them.
+  `load_camera_config` / `load_line_config` return the `image:` section of
+  a diagnostic (v1 or v2) or validate a bare section; the legacy
+  `default_<name>_settings.yaml` lookup pattern is dropped.
+  `EPHEMERAL_DENYLIST` is keyed by kind (`haso`, `frog_retrieval`).
+- **Dependency.** `geecs-schemas` (path dep) is a main dependency.
+
+### Removed
+
+- The stale `__main__` demo blocks in `HASO_himg_has_processor.py` (which
+  also carried a lab share path), `Undulator/BCaveMagSpecStitcher.py` and
+  `density_from_phase_analysis.py` were deleted or moved to the spec form.
+- `ImageAnalyzerSpec`, `resolve_image_analyzer_value`, `PipelineConfig`
+  (both dimensions), the `analysis` field on `CameraConfig` /
+  `Line1DConfig`, and the loader's `_unwrap_diagnostic_image_section`.
+
 ## [1.14.1] — 2026-09-03
 
 ### Fixed

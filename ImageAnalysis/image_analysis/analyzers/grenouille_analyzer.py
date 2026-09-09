@@ -22,7 +22,7 @@ import pandas as pd
 
 # Import the StandardAnalyzer parent class
 from image_analysis.analyzers.standard_analyzer import StandardAnalyzer
-from image_analysis.config.array2d_processing import CameraConfig
+from geecs_schemas.analysis.processing_2d import CameraConfig
 
 from image_analysis.algorithms.frog_dll_retrieval import (
     FrogDllRetrieval,
@@ -48,16 +48,16 @@ class GrenouilleAnalyzer(StandardAnalyzer):
         self,
         camera_config: CameraConfig,
         *,
+        spec: Optional[FrogRetrievalConfig] = None,
         output_name: Optional[str] = None,
     ):
-        """Initialize the FROG analyzer with a validated camera config."""
+        """Initialize the FROG analyzer with a validated camera config and retrieval spec."""
         super().__init__(camera_config=camera_config, output_name=output_name)
         self.retrieval = FrogDllRetrieval.from_config()
 
-        # Validate analysis config (if present) into a typed model
-        self.analysis_config = FrogRetrievalConfig.model_validate(
-            self.camera_config.analysis or {}
-        )
+        # The retrieval parameters: the ``frog_retrieval`` spec (defaults
+        # when constructed directly without one).
+        self.analysis_config: FrogRetrievalConfig = spec or FrogRetrievalConfig()
 
         logger.info("Initialized GrenouilleAnalyzer (output_name=%r)", self.output_name)
 

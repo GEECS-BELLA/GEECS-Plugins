@@ -4,10 +4,12 @@ import math
 
 import pytest
 
+from geecs_schemas.analysis import HiResMagCamSpec
+
 from image_analysis.analyzers.Undulator.hi_res_mag_cam_analyzer import (
     HiResMagCamAnalyzer,
 )
-from image_analysis.config.array2d_processing import (
+from geecs_schemas.analysis.processing_2d import (
     BackgroundConfig,
     CameraConfig,
 )
@@ -52,7 +54,8 @@ class TestHiResMagCamAnalyzerInstantiation:
 
     def test_custom_parameters_stored(self):
         analyzer = HiResMagCamAnalyzer(
-            _make_config(), n_beam_size_clearance=6, min_total_counts=5000.0
+            _make_config(),
+            spec=HiResMagCamSpec(n_beam_size_clearance=6, min_total_counts=5000.0),
         )
         assert analyzer.n_beam_size_clearance == 6
         assert analyzer.min_total_counts == 5000.0
