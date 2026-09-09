@@ -17,7 +17,7 @@ phase-2 preprocessor's job, done by hand here).  No scan number is claimed
 and Tiled is off: this is a device/plan-layer check, not a data run.
 
 **MOVES HARDWARE** when ``GEECS_HW_SCAN_VARIABLE`` is set: the swept
-setpoint is restored to its pre-scan readback in a ``finally``.  With the
+setpoint is restored to its pre-scan setpoint in a ``finally``.  With the
 variable unset only the ``count`` half runs.
 
 Environment

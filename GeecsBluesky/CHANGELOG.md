@@ -35,7 +35,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
     devices/sub-devices in plan arguments (`allowed_devices: ":?.*:depth=3"`).
   - `tests/test_namespace_hardware.py` (hardware-marked): stock `count` +
     `list_scan` over the namespace against the live gateway — accepted
-    2026-09-09 (3 shots at 1 Hz on `UC_Amp4_IR_input`; `U_S1H:Current`
+    2026-09-09 in both the first and the composed form (3 shots at 1 Hz on `UC_Amp4_IR_input`; `U_S1H:Current`
     −1 → 1 A in 0.5 A steps, readbacks within 0.4 mA, setpoint restored).
 
 ### Changed

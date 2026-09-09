@@ -47,6 +47,8 @@ from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
+from ophyd_async.core import Device
+
 from geecs_core.db.variable_types import (
     VARTYPE_TO_DTYPE,
     effective_vartype,
@@ -204,13 +206,33 @@ class DeviceRoster:
         )
 
     def served_for(self, device: str) -> set[str]:
-        """The served variable names for *device* (lower-cased)."""
-        if self.served is not None:
-            return {v.lower() for v in self.served.get(device, ())}
-        rows = self.variables.get(device, [])
-        return {v.lower() for v in self.subscribed.get(device, ())} | {
-            str(r["name"]).lower() for r in rows if r.get("settable")
-        }
+        """The served variable names for *device* (lower-cased).
+
+        Without an explicit ``served`` map (rosters built in tests / offline)
+        the gateway rule is still the provider's: it is run over this roster
+        through :class:`_RosterDb`, so the rule is never restated here.
+        """
+        served = self.served
+        if served is None:
+            served = GeecsDbServedSetProvider(
+                self.experiment, db=_RosterDb(self)
+            ).served_by_device()
+        return {v.lower() for v in (served or {}).get(device, ())}
+
+
+class _RosterDb:
+    """A :class:`DeviceRoster` behind the two ``GeecsDb`` calls the served-set provider makes."""
+
+    def __init__(self, roster: DeviceRoster) -> None:
+        self._roster = roster
+
+    def get_subscribed_variables(self, experiment: str, *, enabled_only: bool = True):
+        return {d: list(v) for d, v in self._roster.subscribed.items()}
+
+    def get_experiment_device_variables(
+        self, experiment: str, *, enabled_only: bool = True
+    ):
+        return {d: list(rows) for d, rows in self._roster.variables.items()}
 
 
 # ----------------------------------------------------------------- namespace
@@ -289,10 +311,20 @@ class GeecsNamespace:
         settables = {
             n: (row, py) for n, (row, py) in typed.items() if row.get("settable")
         }
+        # GEECS names are case-insensitive downstream (PV components, event
+        # keys), so two served variables differing only by case would silently
+        # merge; refuse rather than pick one (review #7).
+        by_lower: dict[str, str] = {}
+        for n in typed:
+            if n.lower() in by_lower:
+                raise GeecsConfigurationError(
+                    f"device namespace: {device}: variables {by_lower[n.lower()]!r} "
+                    f"and {n!r} differ only by case"
+                )
+            by_lower[n.lower()] = n
         # Readable columns: the subscribed list, minus settables (their
         # Movable child carries the readback) — the same subscribed list the
         # scan path's scalar policy resolves for a db_scalars save-set entry.
-        by_lower = {n.lower(): n for n in typed}
         readables = [
             by_lower[v.lower()]
             for v in roster.subscribed.get(device, ())
@@ -337,15 +369,21 @@ class GeecsNamespace:
         The Amp4 camera has a settable enum called ``trigger`` (external
         trigger on/off) — bound verbatim it would overwrite ``trigger()``.
         Checked against the detector class so the name is stable on every
-        device, triggered or not.
+        device, triggered or not.  A name already bound to a *child* of this
+        device (a readable signal, ``acq_timestamp``, ``connected_status``) is
+        a real collision and raises rather than being renamed (review N1).
         """
         attr = identifier_name(variable)
-        if (
-            attr.startswith("_")
-            or hasattr(CaGenericDetector, attr)
-            or hasattr(dev, attr)
-        ):
-            attr = attr.lstrip("_") + "_"
+        if attr.startswith("_") or hasattr(CaGenericDetector, attr):
+            return attr.lstrip("_") + "_"
+        existing = getattr(dev, attr, None)
+        if isinstance(existing, Device):
+            raise GeecsConfigurationError(
+                f"device namespace: {dev._geecs_device_name}: settable {variable!r} "
+                f"collides with the child already bound as {attr!r}"
+            )
+        if existing is not None:
+            return attr + "_"
         return attr
 
     @staticmethod

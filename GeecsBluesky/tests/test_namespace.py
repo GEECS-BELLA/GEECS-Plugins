@@ -192,6 +192,35 @@ def test_roster_triggered_override_wins() -> None:
     assert isinstance(ns["UC_TestCam"], CaSnapshotReadable)
 
 
+def test_case_different_variable_names_are_refused() -> None:
+    """GEECS names are case-insensitive downstream; two served variables that
+    differ only by case would silently merge — refuse instead (review #7)."""
+    roster = DeviceRoster(
+        experiment="TestExp",
+        variables={
+            "UC_X": [row("Trigger"), row("trigger", settable=True, choices="on,off")]
+        },
+        types={"UC_X": "Point Grey Camera"},
+        subscribed={"UC_X": ["Trigger"]},
+    )
+    with pytest.raises(GeecsConfigurationError, match="differ only by case"):
+        GeecsNamespace(roster)
+
+
+def test_settable_colliding_with_a_readable_child_is_refused() -> None:
+    """'Position.Axis 1' (readable) and 'position_axis_1' (settable) both want one
+    attribute; a rename would hide the readable — raise (review N1)."""
+    roster = DeviceRoster(
+        experiment="TestExp",
+        variables={
+            "U_X": [row("Position.Axis 1"), row("position_axis_1", settable=True)],
+        },
+        subscribed={"U_X": ["Position.Axis 1"]},
+    )
+    with pytest.raises(GeecsConfigurationError, match="collides with the child"):
+        GeecsNamespace(roster)
+
+
 def test_name_collision_between_devices_is_loud() -> None:
     roster = DeviceRoster(
         experiment="TestExp",

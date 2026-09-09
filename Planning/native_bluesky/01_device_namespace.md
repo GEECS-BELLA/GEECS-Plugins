@@ -1,8 +1,8 @@
 # Phase 1 — devices as long-lived nouns, connected on first use
 
-Status: **built; hardware-accepted 2026-09-09 in its first form, then
-re-cut to compose the existing device layer** (see `01a_device_layer_audit.md`
-for why). Branch `phase/01-device-namespace`, PR into
+Status: **built; hardware-accepted 2026-09-09 — first form, then re-cut to
+compose the existing device layer (see `01a_device_layer_audit.md` for why)
+and re-accepted in the composed form the same day with identical numbers.** Branch `phase/01-device-namespace`, PR into
 `feature/native-bluesky-plans`. Additive: the per-scan construction path is
 untouched; the namespace is built beside it and the existing plans keep
 running.
@@ -97,8 +97,9 @@ shots on `UC_Amp4_IR_input`, `acq_timestamp` advancing at exactly 1 Hz, the
 `U_S1H.Current` −1 → +1 A in 0.5 A steps — readbacks −0.99984, −0.49966,
 0.00008, 0.50008, 0.99989 A (DB tolerance 0.05); setpoint restored in the
 finalize. Both runs `success`; run metadata carries the stock `motors`,
-`detectors`, `plan_pattern`. **The re-cut (composition) form has not yet
-been re-run on hardware** — owed before merge; expected identical numbers.
+`detectors`, `plan_pattern`. **Re-run on the composed form (PR #808 HEAD):
+passed with identical numbers** — camera `CaGenericDetector UC_Amp4_IR_input`
+with 51 children, 53 triggerable of 105.
 
 Three defects the mock could not show, each now a rule above: the served
 set, DB-derived types, the `trigger` name collision.
