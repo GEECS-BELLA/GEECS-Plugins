@@ -18,7 +18,7 @@ later. (Sam, 2026-09-08.)
 | shots per step, fire-between-arm-and-wait, per-step actions, failed-move pause | `per_step` / `per_shot` callable pre-bound into the registered plan | `plans/per_step.py` (phase 3) |
 | validate → resolve → claim → ScanInfo → save paths → trigger profile → setup actions; save-off → disarm → closeout | one `RunEngine` preprocessor keyed on `md["geecs"]` | `preprocessors.py` (phase 2) |
 | trigger box to STANDBY on pause, re-arm on resume | `Pausable` on `ShotController` (the RE calls `pause()`/`resume()` on every object it has seen) | `shot_controller.py` (phase 4) |
-| background telemetry | `bluesky.preprocessors.SupplementalData` | startup (phase 2) |
+| background telemetry | stays in the read set (columns in `primary`) — **not** `SupplementalData`, which would move it to a separate `baseline` stream and change the event schema (correction, `02_preamble_preprocessor.md`) | per-step (phase 3) |
 | which devices exist, lazy connection | device namespace built at `environment open`; connect on first message | `namespace.py`, `devices/geecs_device.py`, `preprocessors.connect_on_demand` (phase 1) |
 
 Everything else is a stock plan (`bluesky.plans`) registered through a
@@ -28,7 +28,7 @@ template that expands into a stock plan call (`qs_client.submit_scan`).
 ## Phases
 
 1. `01_device_namespace.md` — devices as long-lived nouns, lazily connected.
-2. preprocessor preamble/finalize + SupplementalData.
+2. `02_preamble_preprocessor.md` — preamble/finalize as one RunEngine preprocessor keyed on `md["geecs"]`. (SupplementalData dropped: see the correction there.)
 3. per-step + registration table (`count`, `list_grid_scan` first), hardware.
 4. native pause; retire `pause_semantics.py`.
 5. `submit_scan` expansion; retire the funnel and the named plans; OSPREY follows.
