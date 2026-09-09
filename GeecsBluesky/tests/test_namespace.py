@@ -10,6 +10,10 @@ DB-derived types, protocol-name collisions, the triggerable shortcut.
 from __future__ import annotations
 
 import pytest
+
+pytest.importorskip(
+    "aioca"
+)  # CA backend needs the `ca` extra (CI's pure-unit job lacks it)
 from ophyd_async.core import SignalR
 
 from geecs_bluesky.devices.ca.generic_detector import CaGenericDetector

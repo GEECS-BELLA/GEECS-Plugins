@@ -234,6 +234,7 @@ def test_startup_exports_the_device_namespace_and_installs_connect_last(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Devices from the roster land in the namespace/__all__; connect_on_demand is outermost."""
+    pytest.importorskip("aioca")  # the roster builds CA devices
     from geecs_bluesky.namespace import DeviceRoster, GeecsNamespace
     from geecs_bluesky.preprocessors import connect_on_demand
 

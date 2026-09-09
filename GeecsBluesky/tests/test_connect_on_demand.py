@@ -13,6 +13,10 @@ import asyncio
 
 import bluesky.plans as bp
 import pytest
+
+pytest.importorskip(
+    "aioca"
+)  # CA backend needs the `ca` extra (CI's pure-unit job lacks it)
 from bluesky.preprocessors import SupplementalData
 from bluesky.utils import Msg
 from ophyd_async.core import set_mock_value
