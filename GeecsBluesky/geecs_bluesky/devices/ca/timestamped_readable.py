@@ -13,6 +13,8 @@ setpoints.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 import logging
 
 from ophyd_async.epics.core import epics_signal_rw
@@ -56,6 +58,8 @@ class CaTimestampedReadable(
         ``save_nonscalar_data`` is true.
     acq_timestamp_variable : str
         GEECS variable that advances per shot (default ``"acq_timestamp"``).
+    datatypes : mapping, optional
+        Per-variable CA datatypes (see :class:`CaAcqTimestampReadable`).
     """
 
     def __init__(
@@ -68,9 +72,16 @@ class CaTimestampedReadable(
         save_nonscalar_data: bool = False,
         save_control_only: bool = False,
         acq_timestamp_variable: str = "acq_timestamp",
+        datatypes: Mapping[str, type | None] | None = None,
     ) -> None:
         self._acq_timestamp_variable = acq_timestamp_variable
-        super().__init__(device, list(variable_list), experiment=experiment, name=name)
+        super().__init__(
+            device,
+            list(variable_list),
+            experiment=experiment,
+            name=name,
+            datatypes=datatypes,
+        )
         self._column_headers = {
             f"{name}-{safe_name(var)}": f"{device} {var}"
             for var in variable_list

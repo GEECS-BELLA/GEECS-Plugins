@@ -156,9 +156,8 @@ GEECS-Core           →  (no intra-repo deps — the GEECS access library:
 GeecsCAGateway       →  GEECS-Core (the access library it serves over CA),
                         GEECS-Schemas (schema-only vocabulary for optional
                         derived-channel overlays)
-GeecsPvaGateway      →  GEECS-Core (transport, DB, pv_naming),
-                        GeecsCAGateway (config helpers, e.g.
-                        effective_vartype), GEECS-Data-Utils (IMAQ decode)
+GeecsPvaGateway      →  GEECS-Core (transport, DB, pv_naming, the DB
+                        variable-type rule), GEECS-Data-Utils (IMAQ decode)
                         — the distributed PVA image server on the camera
                         servers
 GeecsBluesky         →  GEECS-Data-Utils, GEECS-Core, GEECS-Schemas
@@ -204,8 +203,8 @@ experiment DB, the PV naming contract, and the exception tree. The gateways
 build their servers on it; GeecsBluesky and GEECS-Console import its library
 parts (`GeecsDb`, `pv_naming`, wire-level exceptions) and consume the CA
 gateway purely as a *service* (the PVs, via stock ophyd-async EPICS
-signals) — nothing imports the gateway's server code except GeecsPvaGateway
-(config helpers).
+signals) — nothing imports the gateway's code; the DB variable-type rule
+both gateways and GeecsBluesky share lives in `geecs_core.db.variable_types`.
 
 `GEECS-Data-Utils` is the foundational layer — everything depends on it and it
 depends on nothing else in the repo. `GEECS-Console` sits at the top of the

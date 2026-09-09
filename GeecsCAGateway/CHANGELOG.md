@@ -3,6 +3,15 @@
 All notable changes to `geecs-ca-gateway` are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and semantic versioning.
 
+## [0.20.3] - 2026-09-09
+
+### Changed
+
+- `effective_vartype` and the vartype tables now live in
+  `geecs_core.db.variable_types` (GEECS-Core 0.5.0); `config.py` re-exports
+  them under the old private names so call sites and `audit.py` are
+  unchanged. No behaviour change; PV_CONTRACT.md § 4 names the rule's home.
+
 ## [0.20.2] - 2026-09-04
 
 ### Fixed

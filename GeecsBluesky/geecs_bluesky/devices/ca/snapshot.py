@@ -9,6 +9,8 @@ alongside each triggered shot event.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 import logging
 
 from ophyd_async.core import StandardReadable
@@ -33,8 +35,12 @@ class CaSnapshotReadable(StandardReadable):
         Experiment PV-namespace prefix (e.g. ``"Undulator"``).
     name : str
         ophyd-async device name (namespaces the event keys).
-    datatype : type
-        Scalar CA datatype for the variables (default ``float``).
+    datatype : type or None
+        Scalar CA datatype for the variables (default ``float``); ``None``
+        lets ophyd-async infer it from the PV at connect.
+    datatypes : mapping, optional
+        Per-variable overrides of *datatype*, keyed by GEECS variable name
+        (case-insensitive).
     """
 
     def __init__(
@@ -44,18 +50,23 @@ class CaSnapshotReadable(StandardReadable):
         *,
         experiment: str | None = None,
         name: str = "snapshot",
-        datatype: type = float,
+        datatype: type | None = float,
+        datatypes: Mapping[str, type | None] | None = None,
         save_control_only: bool = False,
     ) -> None:
         if isinstance(variable_list, str):
             variable_list = [variable_list]
         self._geecs_device_name = device
+        per_variable = {k.lower(): v for k, v in (datatypes or {}).items()}
         with self.add_children_as_readables():
             for var in variable_list:
                 setattr(
                     self,
                     safe_name(var),
-                    epics_signal_r(datatype, ca_pv(experiment, device, var)),
+                    epics_signal_r(
+                        per_variable.get(var.lower(), datatype),
+                        ca_pv(experiment, device, var),
+                    ),
                 )
         super().__init__(name=name)
         self._column_headers = {

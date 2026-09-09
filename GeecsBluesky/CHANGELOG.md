@@ -4,6 +4,52 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.77.0] - 2026-09-09
+
+### Added
+
+- **Device namespace (native-Bluesky refactor, GEECS-Plugins#807 phase 1)** —
+  every enabled device of the experiment as a long-lived ophyd-async noun,
+  addressable by name and connected on first use, so stock `bluesky.plans`
+  verbs run under the queue server. The namespace owns no device behaviour;
+  it composes the existing device layer:
+  - `geecs_bluesky.namespace.GeecsNamespace` / `DeviceRoster`: one
+    `CaGenericDetector` (acquirers) or `CaSnapshotReadable` (everything else)
+    per device, built from the DB roster with the `db_runtime` providers'
+    served-set and subscribed-list rules; each served settable attached as a
+    `CaMotor` (positive DB tolerance) or `CaSettable` child, its column
+    header aggregated onto the parent; ophyd names and event keys follow
+    `EVENT_SCHEMA.md` (`safe_name`, e.g. `u_s1h-current-position`) while the
+    namespace binding keeps the GEECS spelling (`U_S1H`); two served variables
+    that normalise to one attribute raise at build (the gateways' PV-collision
+    rule); every variable typed by
+    `geecs_core.db.variable_types.effective_vartype` (the rule the gateway
+    typed the PV with); a settable named like a Bluesky method (`trigger`)
+    binds as `trigger_`; `resolve("U_S1H:Current")`; `export_into(globals())`.
+  - Triggerable classification (`looks_triggerable`): a device whose
+    devicetype variables mention a trigger acquires per shot, unless its
+    devicetype is a trigger source (`TRIGGER_SOURCE_DEVICETYPES`); a DB
+    `acq_timestamp` row or `DeviceRoster.triggered` overrides. Verified
+    against all 105 Undulator devices.
+  - `geecs_bluesky.preprocessors.connect_on_demand` /
+    `install_connect_on_demand`: a RunEngine preprocessor that connects a
+    namespace device the first time a plan touches it (message-level
+    `ensure_connected`; `declare_stream` args included; installed outermost).
+  - The startup profile exports the namespace (`QS_DEVICE_NAMESPACE=off`
+    skips it) and installs the preprocessor last; operators may address
+    devices/sub-devices in plan arguments (`allowed_devices: ":?.*:depth=3"`).
+  - `tests/test_namespace_hardware.py` (hardware-marked): stock `count` +
+    `list_scan` over the namespace against the live gateway — accepted
+    2026-09-09 in both the first and the composed form (3 shots at 1 Hz on `UC_Amp4_IR_input`; `U_S1H:Current`
+    −1 → 1 A in 0.5 A steps, readbacks within 0.4 mA, setpoint restored).
+
+### Changed
+
+- `CaAcqTimestampReadable`, `CaTriggerable`, `CaGenericDetector`,
+  `CaTimestampedReadable`, `CaSnapshotReadable` accept `datatypes=` (per-
+  variable CA types) and `datatype=None`; `CaSettable` accepts
+  `datatype=None`. The served set mixes numerics, enums and char-array paths
+  and one wrong child fails a device's connect.
 ## [0.76.3] - 2026-09-08
 
 ### Changed

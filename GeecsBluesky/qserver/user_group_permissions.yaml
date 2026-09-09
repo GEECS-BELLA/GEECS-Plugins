@@ -40,7 +40,11 @@ user_groups:
       - ":geecs_.*"
     forbidden_plans:
       - null
-    allowed_devices: []
+    # Devices are nouns in the namespace (#807 phase 1): a plan argument may
+    # name a device or a sub-device (``U_S1H``, ``U_S1H.Current``); depth 3
+    # reaches a settable child's own children without exposing signal guts.
+    allowed_devices:
+      - ":?.*:depth=3"
     forbidden_devices:
       - null
     allowed_functions:
