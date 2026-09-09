@@ -64,9 +64,8 @@ it appears in `pipeline`.
 image:
   background: {method: constant, constant_level: 5.0}    # config exists
   thresholding: {method: constant, value: 0.0}           # config exists
-  filtering: {kernel_size: 3}                            # config exists
-  pipeline:
-    steps: [background, thresholding]                    # …but filtering doesn't run
+  filtering: {median_kernel_size: 3}                     # config exists
+  pipeline: [background, thresholding]                   # …but filtering doesn't run
 ```
 
 The full set of step types (the values of `ProcessingStepType`):
