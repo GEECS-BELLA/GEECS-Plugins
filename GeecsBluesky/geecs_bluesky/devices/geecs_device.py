@@ -65,9 +65,16 @@ NON_SCALAR_TYPES: frozenset[str] = frozenset(
     {"image", "1darray", "2darray", "3darray", "array", "waveform"}
 )
 
-#: GEECS ``variabletype`` values read as ``str``; everything else is ``float``
-#: (the existing ``CaSettable`` default — revisit if a type surprises us).
-STRING_TYPES: frozenset[str] = frozenset({"string", "path", "choice", "enum"})
+#: GEECS ``variabletype`` values that are definitely CA numerics.  Anything
+#: else — including the many DB rows with **no** ``variabletype`` — is left to
+#: ophyd-async to infer from the PV at connect (``datatype=None``): the
+#: gateway serves enums, strings and char-array paths that a guessed
+#: ``float`` cannot coerce, and a guess wrong on one child fails the whole
+#: device's connect.  A DB ``tolerance``/``min``/``max`` is taken as a numeric
+#: hint (``U_S1H:Current`` has no variabletype but a tolerance).
+NUMERIC_TYPES: frozenset[str] = frozenset(
+    {"numeric", "double", "float", "int", "integer"}
+)
 
 #: Variables the gateway serves for every device that are never data columns.
 _RESERVED_VARIABLES: frozenset[str] = frozenset({"connected"})
@@ -118,9 +125,18 @@ class VariableMeta:
         return (self.variabletype or "") not in NON_SCALAR_TYPES
 
     @property
-    def datatype(self) -> type:
-        """The Python type the CA signal is created with."""
-        return str if (self.variabletype or "") in STRING_TYPES else float
+    def is_numeric(self) -> bool:
+        """Whether the DB says (or hints) this is a numeric CA scalar."""
+        if (self.variabletype or "") in NUMERIC_TYPES:
+            return True
+        if self.variabletype:
+            return False  # an explicit non-numeric type (choice, string, path, …)
+        return any(v is not None for v in (self.tolerance, self.min, self.max))
+
+    @property
+    def datatype(self) -> type | None:
+        """``float`` for numerics; ``None`` = let ophyd-async infer from the PV."""
+        return float if self.is_numeric else None
 
 
 class GeecsDevice(Device):
@@ -209,8 +225,9 @@ class GeecsDevice(Device):
         if not meta.settable:
             signal = epics_signal_r(meta.datatype, ca_pv(experiment, device, meta.name))
             return signal, signal
-        if meta.datatype is str:
-            child = CaSettable(device, meta.name, experiment=experiment, datatype=str)
+        if not meta.is_numeric:
+            # enum / string / path setpoint: type inferred at connect
+            child = CaSettable(device, meta.name, experiment=experiment, datatype=None)
             return child, child.readback
         is_motor = identifier_name(meta.name).lower() in motor_attrs or bool(
             meta.tolerance and meta.tolerance > 0

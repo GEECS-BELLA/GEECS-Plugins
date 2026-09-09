@@ -57,7 +57,11 @@ def test_variable_meta_from_db_normalises_type_and_flags() -> None:
     )
     assert meta.settable is True and meta.variabletype == "numeric"
     assert meta.is_scalar and meta.datatype is float
-    assert VariableMeta.from_db({"name": "p", "variabletype": "path"}).datatype is str
+    # explicit non-numeric types and untyped rows are inferred at connect
+    assert VariableMeta.from_db({"name": "p", "variabletype": "path"}).datatype is None
+    assert VariableMeta.from_db({"name": "u"}).datatype is None
+    # an untyped row with a tolerance is a numeric (U_S1H:Current in the DB)
+    assert VariableMeta.from_db({"name": "c", "tolerance": 0.05}).datatype is float
     assert not VariableMeta.from_db({"name": "im", "variabletype": "image"}).is_scalar
 
 

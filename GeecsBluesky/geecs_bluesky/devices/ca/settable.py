@@ -45,8 +45,9 @@ class CaSettable(StandardReadable):
         ophyd-async device name (namespaces the event keys).
     settle_time : float
         Seconds to wait after the CA put resolves before completing the status.
-    datatype : type
-        Scalar CA datatype (default ``float``).
+    datatype : type or None
+        Scalar CA datatype (default ``float``); ``None`` lets ophyd-async infer
+        it from the PV at connect (enum / string / char-array setpoints).
     _readback_attr : str
         Name for the readback signal attribute on the device instance.
         Subclasses can override (e.g. ``"position"`` for motors).
@@ -60,7 +61,7 @@ class CaSettable(StandardReadable):
         experiment: str | None = None,
         name: str = "settable",
         settle_time: float = 0.0,
-        datatype: type = float,
+        datatype: type | None = float,
         _readback_attr: str = "readback",
     ) -> None:
         readback_pv = ca_pv(experiment, device, variable)
