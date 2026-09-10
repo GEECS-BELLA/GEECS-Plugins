@@ -149,3 +149,47 @@ OFF put completed in 155 ms
   UC_BCaveMagSpecCam2                2478            8.0
 Trigger.Source restored: 'External rising edges'
 ```
+
+## M2 — phase-0 hardware acceptance: one camera as a StandardDetector (2026-09-09, Scan 065)
+
+**Purpose.** Retire §7's "acquire/data split can be satisfied by a GEECS
+camera" and "a step scan composes" assumptions; measure the strict per-shot
+cadence; prove the detector's own lifecycle brackets native saving.
+
+**Method.** `tests/test_phase0_hardware.py` on the worker host
+(`~/deploy-staging/GEECS-Plugins`, branch `phase/00-one-camera-detector`,
+commit 0f931c3f). `GeecsDetector("UC_Amp4_IR_input")` with 8 DB-subscribed
+scalars + `LvNativeFileDataLogic` on a `StaticPathProvider` into a claimed
+scan folder; `ShotControl.from_profile(HTU-NoGas)`; `bps.mv(shot_control,
+"ARMED")` → stock `bp.count([cam], 3, per_shot=geecs_per_shot)` → stock
+`bp.list_scan([cam], U_S1H.Current, [-1, -0.5, 0, 0.5, 1],
+per_step=geecs_per_step)` → finalize: STANDBY + restore the setpoint.
+
+**Findings.**
+
+1. **Both stock plans ran strict GEECS scans unchanged.** 3 + 5 events,
+   `exit_status: success`, every row carrying the camera's stamp, its 8
+   scalars, `save_path`, and (scan) the magnet readback within tolerance
+   (−0.9998 … 0.9999 A). Setpoint restored to 8e-05 A; trigger back in
+   STANDBY; `save` read `off` (enum `['on', 'off']`, index 1).
+2. **Native saving bracketed by the detector's lifecycle.** `Scan065/
+   UC_Amp4_IR_input/` holds exactly 8 PNGs, one per event, named with the
+   row's stamp (`UC_Amp4_IR_input_3871866045.102.png` ↔
+   `acq_timestamp 3871866045.102`); still 8 two minutes later — no orphans
+   in STANDBY. `localsavingpath` was written as the Windows share path
+   (`Z:\data\...\Scan065\UC_Amp4_IR_input`) by the config.ini mapping.
+3. **Cadence.** Count: 0.95 s, 0.99 s between shots — **1 Hz strict
+   achieved** with no motor. Scan: exactly 2.000 s per step — every other
+   edge. The step's move (`CaMotor` set + tolerance confirm) plus the
+   ~200 ms fire put pushes past the ~550 ms budget measured in M1, so the
+   single shot lands on the next-next edge. Expected from M1; the plan
+   layer can recover it (issue the fire earlier, overlap move and prepare)
+   — not a phase-0 concern.
+4. The drain offset rides in the descriptor's configuration
+   (`uc_amp4_ir_input-drain_offset: 0.0`, uncalibrated).
+5. 28 s wall for 8 shots including the DB roster, connects and the 7 s
+   first move (0 → −1 A).
+
+**Verdict.** Phase 0 accepted. The three-logic split fits a GEECS camera
+without an areaDetector IOC; the strict `take_reading` is the only GEECS
+code in the scan path.
