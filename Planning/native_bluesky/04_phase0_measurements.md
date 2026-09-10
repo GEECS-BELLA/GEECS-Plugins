@@ -193,3 +193,16 @@ per_step=geecs_per_step)` → finalize: STANDBY + restore the setpoint.
 **Verdict.** Phase 0 accepted. The three-logic split fits a GEECS camera
 without an areaDetector IOC; the strict `take_reading` is the only GEECS
 code in the scan path.
+
+## M3 — re-acceptance after the adversarial review (2026-09-10, Scan 001 of 26_0910)
+
+**Purpose.** Re-run M2's acceptance on the review-fixed code (#811 commit
+79f24fba: `ShotControl` pause bookkeeping and never-raise notifications,
+`CaAcqTimestampReadable` composing `GeecsAcquireLogic`, the
+`-nonscalar_save_path` contract column, `native_save`).
+
+**Result.** `1 passed in 27.7 s`: 3 + 5 events, stamps advancing once per
+shot (count 1.0 / 0.999 s; scan 2.0 s/step as in M2), readbacks
+−0.99984 … 0.99989 A, setpoint restored to 8e-05 A, 8 native PNGs in
+`Scan001/UC_Amp4_IR_input/` named by the rows' stamps, 24.4 s wall for 8
+shots. Same shape as M2 — the fixes changed no behaviour on the strict path.
