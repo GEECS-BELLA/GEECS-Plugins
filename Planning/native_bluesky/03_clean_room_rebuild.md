@@ -592,6 +592,20 @@ Still open, for Sam:
    - Feature-branch → master: decide after phase 1 is complete and
      exercised.
    - **#812 (test speed) goes first.**
+   - **Foundation first, top layers later (Sam, 2026-09-10):** the feature
+     branch is long-running and develops the complete, stable
+     implementation in logical foundational steps; the Console and MCP are
+     rewired *once*, when the foundation is stable — not reworked at every
+     step. Phase 1's acceptance is therefore headless (RunEngine / queue
+     server level), not through the Console.
+   - **`GeecsSession` goes.** It was the headless engine for scans and
+     tests; native patterns replace it with a small helper that builds a
+     RunEngine with the namespace, preprocessors and callbacks installed.
+   - **The optimization stack stays importable** (its tests keep passing);
+     Xopt on the new shape gets its own hardware acceptance later.
+   - **GEECS-MCP gets only the edit that keeps it importable** when the
+     runner and `preflight.py` go; its real update waits for the stable
+     foundation.
 6. Two small carry-overs, unrelated to this direction: write
    `Amplitude.Ch AB: 0.5` explicitly in every state of `HTU-NoGas` so "no
    gas" stops being order-dependent, and add a check that all profiles in
