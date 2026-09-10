@@ -122,7 +122,7 @@ def test_stock_plans_run_as_geecs_scans_on_hardware() -> None:
         base = dict(
             mode="noscan",
             shots_per_step=shots,
-            acquisition="free_run",
+            acquisition="strict",
             save_sets=[save_set],
             trigger_profile=profile,
             description="#807 phase 2 hardware acceptance",
