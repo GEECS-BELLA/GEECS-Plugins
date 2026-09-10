@@ -306,6 +306,16 @@ class _PutRejected(Exception):
         """PV plus the decoded CA message — the operator-useful rendering."""
         return f"{self.name}: {self._message}"
 
+    def __bool__(self) -> bool:
+        """Falsy on error, exactly like ``CANothing`` (``ok`` is False).
+
+        Load-bearing for this test: the real object being falsy is what made
+        ``exc.__cause__ or exc`` silently select the useless ``FailedStatus``.
+        A truthy stand-in cannot see that bug — it was caught on hardware,
+        not here, and this method is why it cannot come back.
+        """
+        return False
+
 
 _REJECTED_PV = "Undulator:U_DG645:Trigger:SP"
 _REJECTED_MESSAGE = "Channel write request failed"

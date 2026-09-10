@@ -25,6 +25,26 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `CONNECTED` device-down gate, and the strict one-row-per-shot semantics
   are unchanged.
 
+  Hardware-verified 2026-09-10 against the live gateway (a `:SP` put to a
+  nonexistent PV, `UC_ModeImager` armed read-only): one fire, no refire,
+  no event row, and the ERROR line naming the PV and the CA message.
+
+- Both plan-side error handlers selected the cause with
+  `exc.__cause__ or exc`, which discards exactly the object they exist to
+  report: `aioca.CANothing.__bool__` is `errorcode == ECA_NORMAL`, so a
+  *failed* CA put is falsy and `or` silently fell through to the
+  `FailedStatus`, whose text is only the status repr. The operator got
+  `<AsyncStatus …, done>` — `done` because `AsyncStatusBase.__repr__` also
+  tests the exception for truthiness. Now `is not None` in both
+  `plans/single_shot.py` and `plans/step_scan.py` (the `FAILED MOVE`
+  line, where the same bug hid any CA-layer move failure;
+  `GeecsMotorTimeoutError` is truthy, which is why the tolerance path
+  never exposed it).
+
+  Caught on hardware, not in tests: the mock stand-in was a plain
+  exception and therefore truthy. It now mirrors `CANothing`'s falsiness
+  and repr/str split.
+
 
 ## [0.76.3] - 2026-09-08
 

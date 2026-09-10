@@ -192,7 +192,14 @@ def geecs_single_shot(
                 # the bare ECA errorcode).  Hence ``%s`` on the cause, with
                 # its type spelled out separately so an exception with an
                 # empty message still names itself.
-                cause = exc.__cause__ or exc
+                #
+                # ``is not None``, never ``or``: ``CANothing.__bool__`` is
+                # ``errorcode == ECA_NORMAL``, so the *failed* put whose
+                # identity this line exists to report is falsy, and
+                # ``exc.__cause__ or exc`` silently selects the useless
+                # ``FailedStatus`` instead (caught on hardware 2026-09-10 —
+                # the mock stand-in was truthy and could not see it).
+                cause = exc.__cause__ if exc.__cause__ is not None else exc
                 logger.error(
                     "single-shot attempt %d of %d failed, but not from a "
                     "missing frame — re-firing cannot help, so the failure "
