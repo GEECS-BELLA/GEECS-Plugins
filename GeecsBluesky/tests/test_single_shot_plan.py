@@ -282,8 +282,33 @@ def test_single_shot_refire_exhaustion_propagates() -> None:
         assert events == []  # a failed shot records nothing
 
 
-class _PutRejected(RuntimeError):
-    """Stands in for ``aioca.CANothing``: a gateway ``:SP`` write GEECS refused."""
+class _PutRejected(Exception):
+    """Stands in for ``aioca.CANothing``: a gateway ``:SP`` write GEECS refused.
+
+    Mirrors ``CANothing``'s repr/str split deliberately — ``__repr__`` shows
+    the PV and the bare ECA errorcode, and *only* ``__str__`` renders the CA
+    message.  A stand-in without that split (a plain ``RuntimeError``, whose
+    repr embeds its whole message) would let a ``%r`` log line pass the
+    assertions below while dropping the CA message in production.
+    """
+
+    def __init__(self, name: str, errorcode: int, message: str) -> None:
+        super().__init__(name, errorcode)
+        self.name = name
+        self.errorcode = errorcode
+        self._message = message
+
+    def __repr__(self) -> str:
+        """The bare errorcode — no CA message, exactly like ``CANothing``."""
+        return f"_PutRejected({self.name!r}, {self.errorcode})"
+
+    def __str__(self) -> str:
+        """PV plus the decoded CA message — the operator-useful rendering."""
+        return f"{self.name}: {self._message}"
+
+
+_REJECTED_PV = "Undulator:U_DG645:Trigger:SP"
+_REJECTED_MESSAGE = "Channel write request failed"
 
 
 class _RejectedPut:
@@ -296,9 +321,7 @@ class _RejectedPut:
         """Fail immediately, carrying the PV name the way a CA error does."""
 
         async def _put() -> None:
-            raise _PutRejected(
-                "Undulator:U_DG645:Trigger:SP: Channel write request failed"
-            )
+            raise _PutRejected(_REJECTED_PV, 80, _REJECTED_MESSAGE)
 
         return AsyncStatus(_put())
 
@@ -336,7 +359,11 @@ def test_single_shot_failed_fire_propagates_without_refire(caplog) -> None:
         ]
         assert [r.levelno for r in records] == [logging.ERROR]  # no refire warning
         message = records[0].getMessage()
-        assert "Trigger:SP" in message  # names the PV that actually failed
+        assert _REJECTED_PV in message  # names the PV that actually failed
+        # The CA message itself, not just the PV: CANothing renders it only
+        # through str(), so a %r log line would silently drop it.
+        assert _REJECTED_MESSAGE in message
+        assert "_PutRejected" in message  # and the exception type
         assert "U_Combined" not in message  # never blamed on a camera
         assert "unknown device" not in message
 

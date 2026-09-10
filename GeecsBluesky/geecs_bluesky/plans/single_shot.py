@@ -118,7 +118,11 @@ def geecs_single_shot(
     :exc:`~geecs_bluesky.exceptions.GeecsTriggerTimeoutError` cause is a
     missing frame; anything else is logged with its real cause and
     propagates on the first attempt rather than burning the budget against
-    a fault refire cannot fix (see :func:`_no_frame_timeout`).  Then on
+    a fault refire cannot fix (see :func:`_no_frame_timeout`).  That ERROR
+    line is deliberately the record: the ``FailedStatus`` propagates
+    unwrapped (the run's stop-document reason is the status repr), so the
+    scan log is where the failing PV and its CA message are written down.
+    Then on
     **gateway liveness**: a frameless device whose ``CONNECTED`` PV reads
     Disconnected went down mid-scan, so
     :exc:`~geecs_bluesky.exceptions.GeecsDeviceDownError` is raised instead
@@ -182,15 +186,22 @@ def geecs_single_shot(
                 # burn the budget against the real fault (live 2026-09-10,
                 # Scan033: a rejected SINGLESHOT put failed all three attempts
                 # in under a second and the scan died blaming the cameras).
-                # Name the actual cause — it is the only record of which PV
-                # failed and why.
+                # Name the actual cause — this line is the only record of
+                # which PV failed and why: the FailedStatus that propagates
+                # carries the status object's repr, and ``aioca.CANothing``
+                # renders the CA message only through ``str`` (its repr is
+                # the bare ECA errorcode).  Hence ``%s`` on the cause, with
+                # its type spelled out separately so an exception with an
+                # empty message still names itself.
+                cause = exc.__cause__ or exc
                 logger.error(
                     "single-shot attempt %d of %d failed, but not from a "
                     "missing frame — re-firing cannot help, so the failure "
-                    "propagates: %r",
+                    "propagates: %s: %s",
                     attempt,
                     attempts,
-                    exc.__cause__ or exc,
+                    type(cause).__name__,
+                    cause,
                 )
                 raise
             device_name = timeout.device_name
