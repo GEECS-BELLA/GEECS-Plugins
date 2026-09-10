@@ -253,3 +253,33 @@ def test_plain_count_is_refused_clearly(RE: RunEngine, box: FakeBox) -> None:
     with pytest.raises(FailedStatus) as info:
         RE(bp.count([cam], num=1))
     assert "EXTERNAL_EDGE" in str(info.value)
+
+
+def test_a_failed_fire_is_not_a_dropped_frame(
+    RE: RunEngine, box: FakeBox, shot_control: ShotControl
+) -> None:
+    """Codex review of #811: a refused SINGLESHOT put re-raises; no refire, no extra shot."""
+    cam = _camera(RE, box, "UC_Cam", shot_timeout=0.5)
+
+    class RefusingBox(FakeBox):
+        def __call__(self, device: str, variable: str):
+            inner = super().__call__(device, variable)
+            outer = self
+
+            class Setter:
+                async def put(self, value: str) -> None:
+                    if variable == "Trigger.ExecuteSingleShot":
+                        outer.fires += 1
+                        raise RuntimeError("GEECS refused the set")
+                    await inner.put(value)
+
+            return Setter()
+
+    refusing = RefusingBox()
+    sc = ShotControl(WRITES, experiment="TestExp", name="sc2", setter_factory=refusing)
+    connect_mock(RE, sc)
+    RE(bps.mv(sc, "ARMED"))
+    with pytest.raises(FailedStatus) as info:
+        RE(bp.count([cam], num=1, per_shot=geecs_per_shot(sc, max_refires=2)))
+    assert isinstance(info.value.__cause__, RuntimeError)
+    assert refusing.fires == 1  # no refire on a failed fire

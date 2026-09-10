@@ -39,20 +39,6 @@ from geecs_bluesky.exceptions import (
 logger = logging.getLogger(__name__)
 
 
-def _no_frame_device(exc: BaseException) -> str:
-    """Name the device that produced no frame, from a wait failure.
-
-    The RunEngine wraps the status's own error in
-    :exc:`~bluesky.utils.FailedStatus` (``raise FailedStatus(ret) from exc``),
-    so the device-attributed :exc:`GeecsTriggerTimeoutError` rides on
-    ``__cause__``.
-    """
-    cause = exc.__cause__
-    if isinstance(cause, GeecsTriggerTimeoutError):
-        return cause.device_name
-    return "unknown device"
-
-
 def _confirm_device_down(devices: Sequence[Any], device_name: str):
     """Plan: ``True`` iff the named device's gateway ``CONNECTED`` PV says down.
 
@@ -187,14 +173,20 @@ def fire_and_await_shot(
                     len(triggerables),
                 )
         except FailedStatus as exc:
-            # No cancellation of abandoned statuses is needed: the RunEngine
-            # stashes a late FailedStatus and throws it into the plan at the
-            # next yield, but co-missing devices share the same ~3 s deadline
-            # so the stash is consumed right here at the wait; a straggler
-            # that lands inside the next attempt is caught by this same try
-            # (it wraps the whole attempt: trigger + fire + wait) and merely
-            # consumes one refire instead of aborting the scan.
-            device_name = _no_frame_device(exc)
+            # Only a detector's no-frame timeout is a dropped frame.  A failed
+            # *fire* (the SINGLESHOT put refused or ambiguous) or any other
+            # failed status is not, and re-firing on it could issue extra
+            # physical shots — re-raise those untouched (Codex review of
+            # #811).  No cancellation of abandoned statuses is needed: the
+            # RunEngine stashes a late FailedStatus and throws it into the
+            # plan at the next yield, but co-missing devices share the same
+            # deadline so the stash is consumed right here at the wait; a
+            # straggler that lands inside the next attempt is caught by this
+            # same try and merely consumes one refire.
+            cause = exc.__cause__
+            if not isinstance(cause, GeecsTriggerTimeoutError):
+                raise
+            device_name = cause.device_name
             down = yield from _confirm_device_down(devices, device_name)
             if down:
                 raise GeecsDeviceDownError(

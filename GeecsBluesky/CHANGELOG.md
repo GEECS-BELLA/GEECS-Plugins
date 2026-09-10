@@ -41,6 +41,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `plans/single_shot.py` — the arm → fire → await → refire seam is
   `fire_and_await_shot`, called by `geecs_single_shot` (the funnel) and by
   `geecs_take_reading`: one implementation, two callers.
+- The refire is gated on the failed status's cause being a detector's
+  `GeecsTriggerTimeoutError` (a dropped frame); a failed **fire** (the
+  SINGLESHOT put refused) or any other failed status re-raises untouched,
+  so a refire can never issue an extra physical shot (Codex review of #811).
 - `devices/ca/triggerable.py` — `CaAcqTimestampReadable` / `CaTriggerable`
   compose `GeecsAcquireLogic` for the stamp monitor, the synchronous
   baseline and the shot wait instead of carrying their own copy (review of
