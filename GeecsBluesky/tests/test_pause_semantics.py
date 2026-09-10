@@ -593,6 +593,24 @@ def test_hard_pause_mid_move_resume_replays_only_the_move() -> None:
 # ---------------------------------------------------------------------------
 
 
+class _FalsyMoveError(Exception):
+    """A move failure that is falsy, as ``aioca.CANothing`` is on error.
+
+    ``CANothing.__bool__`` is ``errorcode == ECA_NORMAL``, so a move that
+    fails at the CA layer carries a *falsy* cause.  That is what makes this
+    class load-bearing rather than decorative: with a truthy stand-in, the
+    FAILED MOVE line's ``exc.__cause__ or exc`` and ``exc.__cause__ if ... is
+    not None`` select the same object and the reason assertion below cannot
+    tell them apart — which is how the ``or`` idiom survived here until it
+    was caught on hardware.  ``GeecsMotorTimeoutError`` is truthy, so the
+    tolerance path never exercised this.
+    """
+
+    def __bool__(self) -> bool:
+        """Falsy, like a ``CANothing`` carrying a CA error code."""
+        return False
+
+
 class _FlakyMotor:
     """Movable failing its move to *fail_at* the first *failures* times."""
 
@@ -613,7 +631,7 @@ class _FlakyMotor:
 
         async def _move() -> None:
             if fail:
-                raise RuntimeError(
+                raise _FalsyMoveError(
                     f"simulated move failure: {self.name} did not reach {value}"
                 )
             self._position = float(value)

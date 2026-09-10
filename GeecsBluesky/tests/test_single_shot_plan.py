@@ -26,7 +26,7 @@ from geecs_bluesky.plans.step_scan import geecs_step_scan
 
 pytest.importorskip("aioca")
 
-from ophyd_async.core import set_mock_value  # noqa: E402
+from ophyd_async.core import AsyncStatus, set_mock_value  # noqa: E402
 
 from geecs_bluesky.devices.ca import CaGenericDetector, CaMotor  # noqa: E402
 from tests.ca_mock_helpers import connect_mock, follow_setpoint  # noqa: E402
@@ -280,6 +280,102 @@ def test_single_shot_refire_exhaustion_propagates() -> None:
         assert isinstance(excinfo.value.__cause__, GeecsTriggerTimeoutError)
         assert excinfo.value.__cause__.device_name == "U_Combined"
         assert events == []  # a failed shot records nothing
+
+
+class _PutRejected(Exception):
+    """Stands in for ``aioca.CANothing``: a gateway ``:SP`` write GEECS refused.
+
+    Mirrors ``CANothing``'s repr/str split deliberately — ``__repr__`` shows
+    the PV and the bare ECA errorcode, and *only* ``__str__`` renders the CA
+    message.  A stand-in without that split (a plain ``RuntimeError``, whose
+    repr embeds its whole message) would let a ``%r`` log line pass the
+    assertions below while dropping the CA message in production.
+    """
+
+    def __init__(self, name: str, errorcode: int, message: str) -> None:
+        super().__init__(name, errorcode)
+        self.name = name
+        self.errorcode = errorcode
+        self._message = message
+
+    def __repr__(self) -> str:
+        """The bare errorcode — no CA message, exactly like ``CANothing``."""
+        return f"_PutRejected({self.name!r}, {self.errorcode})"
+
+    def __str__(self) -> str:
+        """PV plus the decoded CA message — the operator-useful rendering."""
+        return f"{self.name}: {self._message}"
+
+    def __bool__(self) -> bool:
+        """Falsy on error, exactly like ``CANothing`` (``ok`` is False).
+
+        Load-bearing for this test: the real object being falsy is what made
+        ``exc.__cause__ or exc`` silently select the useless ``FailedStatus``.
+        A truthy stand-in cannot see that bug — it was caught on hardware,
+        not here, and this method is why it cannot come back.
+        """
+        return False
+
+
+_REJECTED_PV = "Undulator:U_DG645:Trigger:SP"
+_REJECTED_MESSAGE = "Channel write request failed"
+
+
+class _RejectedPut:
+    """Minimal Movable whose put fails the way a rejected gateway ``:SP`` write does."""
+
+    name = "trigger_sp"
+    parent = None
+
+    def set(self, value: str) -> AsyncStatus:
+        """Fail immediately, carrying the PV name the way a CA error does."""
+
+        async def _put() -> None:
+            raise _PutRejected(_REJECTED_PV, 80, _REJECTED_MESSAGE)
+
+        return AsyncStatus(_put())
+
+
+def test_single_shot_failed_fire_propagates_without_refire(caplog) -> None:
+    """A rejected SINGLESHOT put is not a frame drop: fail on attempt 1, named.
+
+    Regression for the live 2026-09-10 Scan033 signature: the ``try`` spans
+    the whole attempt, so a ``fire()`` whose gateway put was refused arrived
+    as ``FailedStatus`` and was reported as "no frame from unknown device",
+    burning all three fires in under a second and failing the scan with the
+    cameras blamed.  Refire cannot fix a write that never landed, so the
+    failure must propagate on the first attempt with its real cause named.
+    """
+    with _setup_scan() as (_motor, cam, RE, events):
+        cam._trigger_timeout = 0.5
+        # Live per the gateway: nothing here is a device-down case either.
+        set_mock_value(cam.connected_status, "Connected")
+        calls = {"fire": 0}
+
+        def rejected_fire():
+            calls["fire"] += 1
+            yield from bps.abs_set(_RejectedPut(), "SINGLESHOT", group="fire")
+            yield from bps.wait("fire")
+
+        with caplog.at_level(logging.WARNING, logger="geecs_bluesky.plans.single_shot"):
+            with pytest.raises(FailedStatus) as excinfo:
+                RE(_single_shot_run([cam], rejected_fire, max_refires=2))
+
+        assert calls["fire"] == 1  # no refire against a write that never landed
+        assert events == []  # a failed shot records nothing
+        assert isinstance(excinfo.value.__cause__, _PutRejected)
+        records = [
+            r for r in caplog.records if r.name == "geecs_bluesky.plans.single_shot"
+        ]
+        assert [r.levelno for r in records] == [logging.ERROR]  # no refire warning
+        message = records[0].getMessage()
+        assert _REJECTED_PV in message  # names the PV that actually failed
+        # The CA message itself, not just the PV: CANothing renders it only
+        # through str(), so a %r log line would silently drop it.
+        assert _REJECTED_MESSAGE in message
+        assert "_PutRejected" in message  # and the exception type
+        assert "U_Combined" not in message  # never blamed on a camera
+        assert "unknown device" not in message
 
 
 def test_single_shot_partial_miss_drains_orphan_frame() -> None:

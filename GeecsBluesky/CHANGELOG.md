@@ -4,6 +4,48 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.78.0] - 2026-09-10
+
+### Fixed
+
+- `geecs_single_shot` no longer reports every attempt failure as a camera
+  frame drop. Its `try` spans the whole attempt (trigger + `fire()` +
+  wait), so a `fire()` whose gateway `:SP` write was refused also arrives
+  as `FailedStatus` — and was logged as "no frame from unknown device
+  (known camera frame-drop intermittency)", retried twice more against a
+  write that never landed, and propagated with the cameras blamed.
+  Observed live 2026-09-10 (Undulator Scan033): three attempts in 838 ms
+  against a 3.0 s trigger timeout, no device named, and no
+  `Shot controller → SINGLESHOT` line for any of them.
+
+  Only a `GeecsTriggerTimeoutError` cause is a missing frame now. Anything
+  else is logged at ERROR with its real cause — `aioca.CANothing` carries
+  the PV name and the CA message — and propagates on the first attempt
+  instead of burning the refire budget. Frame-drop refire, the
+  `CONNECTED` device-down gate, and the strict one-row-per-shot semantics
+  are unchanged.
+
+  Hardware-verified 2026-09-10 against the live gateway (a `:SP` put to a
+  nonexistent PV, `UC_ModeImager` armed read-only): one fire, no refire,
+  no event row, and the ERROR line naming the PV and the CA message.
+
+- Both plan-side error handlers selected the cause with
+  `exc.__cause__ or exc`, which discards exactly the object they exist to
+  report: `aioca.CANothing.__bool__` is `errorcode == ECA_NORMAL`, so a
+  *failed* CA put is falsy and `or` silently fell through to the
+  `FailedStatus`, whose text is only the status repr. The operator got
+  `<AsyncStatus …, done>` — `done` because `AsyncStatusBase.__repr__` also
+  tests the exception for truthiness. Now `is not None` in both
+  `plans/single_shot.py` and `plans/step_scan.py` (the `FAILED MOVE`
+  line, where the same bug hid any CA-layer move failure;
+  `GeecsMotorTimeoutError` is truthy, which is why the tolerance path
+  never exposed it).
+
+  Caught on hardware, not in tests: the mock stand-in was a plain
+  exception and therefore truthy. It now mirrors `CANothing`'s falsiness
+  and repr/str split.
+
+
 ## [0.77.0] - 2026-09-10
 
 ### Fixed

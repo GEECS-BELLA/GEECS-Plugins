@@ -372,10 +372,12 @@ own share; any design must handle h5py's non-thread-safety).
 
 ### Phase 5 — capture in the strict contract (small-medium)
 
-- Per-shot check between `bps.wait` and `create`
-  (`plans/single_shot.py:146-182`) reading the daemon's frames-captured
+- Per-shot check in `plans/single_shot.py`, between `bps.wait(group=grp)`
+  and `bps.create(name)` (named rather than numbered — the range went stale
+  twice in one PR), reading the daemon's frames-captured
   counter; must distinguish "no frame, refire helps" from "writer stalled,
-  refire won't" (pattern: `_confirm_device_down` `:56` +
+  refire won't" (pattern: `_no_frame_timeout` `:42` — classify the cause
+  before retrying — plus `_confirm_device_down` `:62` +
   `plans/liveness.py:29`). Never insert between `create` and `save`.
 - `capture_policy` knob threaded through the exact `failed_move_policy`
   chain (`plans/step_scan.py:201` → `orchestration.py:83` →

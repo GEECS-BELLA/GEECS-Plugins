@@ -168,7 +168,13 @@ def move_with_failed_move_pause(
             f"{getattr(m, 'name', m)} -> {t!r}" for m, t in zip(motors, targets)
         )
         while True:
-            cause = exc.__cause__ or exc
+            # ``is not None``, never ``or``: a move that failed at the CA
+            # layer carries an ``aioca.CANothing`` cause, whose ``__bool__``
+            # is False for an error — ``or`` would discard exactly the
+            # object naming the PV and the CA message, leaving the operator
+            # the ``FailedStatus`` repr.  (``GeecsMotorTimeoutError`` is
+            # truthy, which is why the tolerance path never exposed this.)
+            cause = exc.__cause__ if exc.__cause__ is not None else exc
             logger.error(
                 "%s: commanded %s, one axis failed - see cause for which: "
                 "%s; resume retries the move from the last checkpoint, stop "
