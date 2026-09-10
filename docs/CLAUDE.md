@@ -52,6 +52,14 @@ audiences — the GEECS MCP Server (agents operating the lab) and Skills
 | API reference auto-generated from docstrings | `docs/<package>/api/` (uses mkdocstrings) |
 | Hands-on example using real data | `docs/<package>/examples/*.ipynb` |
 | Hero landing surface | `docs/index.md` |
+| Self-contained interactive page (a diagram or tool that needs its own script and layout) | `docs/sites/<name>/index.html`, linked from its purpose group's landing page; conventions in `docs/sites/README.md` |
+
+`docs/sites/` is the one place HTML is authored directly. It exists for
+pages that are a picture or a tool first (the platform data-flow map is
+the first); anything that can be Markdown stays Markdown. A site page is
+never in `nav:`; its purpose group's landing page links to it, and the
+page links back to the docs root. `docs/sites/README.md` carries the
+rules and the page table; add a row when you add a page.
 
 If you find yourself wanting to document a workflow that spans two packages
 (say, "configure analysis in the config editor then run via LiveWatch"), it

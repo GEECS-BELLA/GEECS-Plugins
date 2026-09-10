@@ -32,6 +32,10 @@ back into this table.
 
 ## The picture
 
+The diagram below is the operations view: hosts, ports and links. For the
+same fleet drawn as a *data flow*, with a clickable detail panel per
+component, see the [Data Flow Map](../sites/data_flow/index.html).
+
 ```mermaid
 flowchart TB
     subgraph clients["Operator & analysis machines (Windows / macOS / Linux)"]
