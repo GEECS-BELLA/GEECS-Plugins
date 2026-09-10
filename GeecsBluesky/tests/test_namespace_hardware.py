@@ -39,16 +39,10 @@ from pathlib import Path
 
 import pytest
 
-from tests.ca_mock_helpers import DocCollector
+from tests.ca_mock_helpers import DocCollector, sweep_points
 
 pytestmark = pytest.mark.hardware
 pytest.importorskip("aioca")
-
-
-def _sweep_points(start: float, end: float, step: float) -> list[float]:
-    n = int(round(abs(end - start) / abs(step))) + 1
-    sign = 1.0 if end >= start else -1.0
-    return [round(start + sign * i * abs(step), 6) for i in range(n)]
 
 
 @pytest.mark.hardware
@@ -98,7 +92,7 @@ def test_stock_plans_over_the_namespace_on_hardware() -> None:
     if sweep_target:
         device_name, _, variable = sweep_target.partition(":")
         movable = namespace.resolve(sweep_target)
-        points = _sweep_points(
+        points = sweep_points(
             float(os.environ["GEECS_HW_SCAN_START"]),
             float(os.environ["GEECS_HW_SCAN_END"]),
             float(os.environ["GEECS_HW_SCAN_STEP"]),

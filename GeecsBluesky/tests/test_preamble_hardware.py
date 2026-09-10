@@ -34,7 +34,6 @@ from __future__ import annotations
 
 import configparser
 import os
-from collections import defaultdict
 from pathlib import Path
 
 import pytest
@@ -42,30 +41,10 @@ import pytest
 pytestmark = pytest.mark.hardware
 pytest.importorskip("aioca")
 
-
-class Docs:
-    def __init__(self) -> None:
-        self.docs: dict[str, list[dict]] = defaultdict(list)
-
-    def __call__(self, name: str, doc: dict) -> None:
-        self.docs[name].append(doc)
-
-    @property
-    def start(self) -> dict:
-        return self.docs["start"][0]
-
-    def primary_events(self) -> list[dict]:
-        uids = {d["uid"] for d in self.docs["descriptor"] if d["name"] == "primary"}
-        return [e for e in self.docs["event"] if e["descriptor"] in uids]
+from tests.ca_mock_helpers import DocCollector, sweep_points  # noqa: E402
 
 
-def _sweep_points(start: float, end: float, step: float) -> list[float]:
-    n = int(round(abs(end - start) / abs(step))) + 1
-    sign = 1.0 if end >= start else -1.0
-    return [round(start + sign * i * abs(step), 6) for i in range(n)]
-
-
-def _assert_prepared(docs: Docs, experiment: str, save_set: str) -> Path:
+def _assert_prepared(docs: DocCollector, experiment: str, save_set: str) -> Path:
     """Every GEECS key a downstream reader needs, plus the ScanInfo ini."""
     start = docs.start
     assert start["bluesky_backend"] is True
@@ -140,7 +119,7 @@ def test_stock_plans_run_as_geecs_scans_on_hardware() -> None:
         return ScanRequest.model_validate(base).model_dump(mode="json")
 
     # ---- 1. a stock count as a noscan -------------------------------------
-    docs = Docs()
+    docs = DocCollector()
     session.RE(bp.count(detectors, num=shots, md={"geecs": request()}), docs)
     folder = _assert_prepared(docs, experiment, save_set)
     events = docs.primary_events()
@@ -166,7 +145,7 @@ def test_stock_plans_run_as_geecs_scans_on_hardware() -> None:
     device_name, _, variable = str(target.target).partition(":")
     movable = namespace.variable(device_name, variable)
     print(f"catalog {sweep_target} -> {target.target} -> {movable.name}")
-    points = _sweep_points(
+    points = sweep_points(
         float(os.environ["GEECS_HW_SCAN_START"]),
         float(os.environ["GEECS_HW_SCAN_END"]),
         float(os.environ["GEECS_HW_SCAN_STEP"]),
@@ -182,7 +161,7 @@ def test_stock_plans_run_as_geecs_scans_on_hardware() -> None:
         )
     )
     print(f"sweep {sweep_target} over {points} (pre-scan setpoint {initial})")
-    docs2 = Docs()
+    docs2 = DocCollector()
     try:
         session.RE(
             bp.list_scan(

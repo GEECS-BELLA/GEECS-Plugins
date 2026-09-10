@@ -31,6 +31,8 @@ from typing import Any
 from bluesky.protocols import Reading
 from event_model import DataKey
 
+from geecs_bluesky.devices.reset_support import reset_next
+
 logger = logging.getLogger(__name__)
 
 
@@ -133,6 +135,16 @@ class ShotIdSupport:
 
     _acq_timestamp_variable: str = "acq_timestamp"
     _shot_id_tracker: ShotIdTracker | None = None
+
+    def reset_run_configuration(self) -> None:
+        """Drop the shot-ID tracker so the next run seeds its own.
+
+        Long-lived namespace devices outlive the run that configured them
+        (GEECS-Plugins#807 phase 2); a tracker seeded from the previous
+        scan's t0 would number the next scan's shots from the wrong origin.
+        """
+        self._shot_id_tracker = None
+        reset_next(super())
 
     def configure_shot_id(
         self,

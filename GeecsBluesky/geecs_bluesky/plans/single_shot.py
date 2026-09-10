@@ -130,6 +130,48 @@ def geecs_single_shot(
     ------
     Bluesky messages.
     """
+    yield from fire_and_await_shot(devices, fire, max_refires=max_refires)
+    yield from bps.create(name)
+    for obj in devices:
+        yield from bps.read(obj)
+    yield from bps.save()
+
+
+def fire_and_await_shot(
+    devices: Sequence[Any],
+    fire: Callable,
+    *,
+    max_refires: int = 2,
+    pending_wait: Any = None,
+):
+    """Arm the waiters, fire one shot, and await the frames, with refire.
+
+    The acquisition half of :func:`geecs_single_shot`, split out because the
+    **stock-plan door** needs exactly this and not the event bundling:
+    ``bps.trigger_and_read`` has already issued the triggers and is about to
+    wait, so the preprocessor
+    (:func:`~geecs_bluesky.preprocessors.geecs_preamble`) hands that pending
+    wait in and gets the fire, the refire loop, and the device-down gating
+    from this one implementation rather than a second copy of the seam.
+
+    Parameters
+    ----------
+    devices:
+        The devices of the shot.  Triggerable ones are armed and awaited.
+    fire:
+        Plan-stub callable emitting exactly one trigger.
+    max_refires:
+        Extra fire attempts after the first fails (see :func:`geecs_single_shot`).
+    pending_wait:
+        A ``Msg("wait", group=…)`` whose triggers the **caller** already
+        issued.  When given, the first attempt fires into that gap and yields
+        this message instead of arming a group of its own; a refire falls
+        back to a fresh group, which also re-baselines every device.
+
+    Yields
+    ------
+    Bluesky messages.
+    """
     triggerables = [obj for obj in devices if isinstance(obj, Triggerable)]
     attempts = max_refires + 1
     for attempt in range(1, attempts + 1):
@@ -137,13 +179,19 @@ def geecs_single_shot(
         # must never be waited on again (a fresh trigger supersedes them).
         grp = short_uid("single_shot")
         try:
-            for obj in triggerables:
-                yield from bps.trigger(obj, group=grp, wait=False)
-            fire_t0 = time.monotonic()
-            yield from fire()
-            fire_done = time.monotonic()
-            if triggerables:
-                yield from bps.wait(group=grp)
+            if attempt == 1 and pending_wait is not None:
+                fire_t0 = time.monotonic()
+                yield from fire()
+                fire_done = time.monotonic()
+                yield pending_wait
+            else:
+                for obj in triggerables:
+                    yield from bps.trigger(obj, group=grp, wait=False)
+                fire_t0 = time.monotonic()
+                yield from fire()
+                fire_done = time.monotonic()
+                if triggerables:
+                    yield from bps.wait(group=grp)
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(
                     "shot phases: fire %.1f ms, frame wait %.1f ms (%d triggerables)",
@@ -178,11 +226,7 @@ def geecs_single_shot(
                 device_name,
             )
         else:
-            break
-    yield from bps.create(name)
-    for obj in devices:
-        yield from bps.read(obj)
-    yield from bps.save()
+            return
 
 
 def geecs_confirm_quiescent(

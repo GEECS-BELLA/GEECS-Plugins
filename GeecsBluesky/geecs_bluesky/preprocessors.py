@@ -18,11 +18,13 @@ that for you.
 from __future__ import annotations
 
 import logging
+import math
 from collections import ChainMap
 from collections.abc import Generator
 from functools import partial
 from typing import Any
 
+import bluesky.plan_stubs as bps
 import bluesky.preprocessors as bpp
 from bluesky.preprocessors import plan_mutator
 from bluesky.utils import Msg
@@ -172,6 +174,74 @@ def install_connect_on_demand(
 GEECS_MD_KEY = "geecs"
 
 
+def _positions_match(value: Any, wanted: Any) -> bool:
+    """Whether a commanded position is the declared one (floats compared loosely)."""
+    try:
+        return math.isclose(float(value), float(wanted), rel_tol=1e-9, abs_tol=1e-9)
+    except (TypeError, ValueError):
+        return value == wanted
+
+
+def _check_plan_covers_save_set(msg: Msg, prepared: Any) -> None:
+    """Refuse a plan that does not read every device the save set records.
+
+    On the funnel the read set **is** the save set — one list built once and
+    handed to the plan.  The stock-plan door decouples them: the preamble
+    turns native saving on for the save set's devices while the plan reads
+    whatever the caller passed to ``bp.count``/``bp.list_scan``.  A device
+    that is saved but not read writes one file per shot with no
+    ``acq_timestamp`` row to join it to — the same orphan-frame failure the
+    Gate-2 save windowing exists to prevent, arriving from the other side.
+
+    Every stock ``bluesky.plans`` verb records ``md["detectors"]``, so the
+    check is available at ``open_run``, before the claim.
+    """
+    listed = msg.kwargs.get("detectors")
+    if not isinstance(listed, (list, tuple)):
+        logger.warning(
+            "geecs_preamble: the plan declares no detectors in its metadata, so "
+            "the save set cannot be checked against what the plan reads"
+        )
+        return
+    read = {str(name) for name in listed}
+    # The telemetry tail is not the plan's to read — the preprocessor
+    # injects it into the event (see _read_telemetry_into_event).
+    telemetry = {d.name for d in prepared.telemetry_readables}
+    saved = {d.name for d in prepared.detectors} - telemetry
+    missing = sorted(saved - read)
+    if missing:
+        raise GeecsConfigurationError(
+            f"the save set records {missing}, which this plan does not read. "
+            "Native saving would write files with no event row to join them "
+            "to. Pass the save set's devices to the plan — "
+            "`resolver.resolve_save_set(name)` names them — or drop them "
+            "from the save set."
+        )
+
+
+def _check_plan_geometry(msg: Msg, prepared: Any) -> None:
+    """Refuse a plan whose shape disagrees with the request it is recorded as.
+
+    ScanInfo, the start document and the Tiled catalog take the number of
+    steps and shots from the **request**; the rows actually recorded come
+    from the stock plan's own arguments.  ``bp.count(num=2)`` under a
+    request declaring ``shots_per_step: 5`` would write a scan record that
+    its own data contradicts, and nothing downstream could tell.
+    """
+    declared = prepared.spec.n_shots
+    actual = msg.kwargs.get("num_points")
+    if actual is None or declared == actual:
+        return
+    raise GeecsConfigurationError(
+        f"the request declares {declared} recorded shots "
+        f"(steps x shots_per_step) but the plan takes {actual} points. "
+        "ScanInfo and the catalog record the request's numbers, so they must "
+        "agree — note a stock step scan records one shot per point, so "
+        "shots_per_step > 1 needs the per-step hook (GEECS-Plugins#807 "
+        "phase 3), not a stock plan."
+    )
+
+
 def geecs_preamble(
     plan: Generator[Msg, Any, Any],
     *,
@@ -201,7 +271,7 @@ def geecs_preamble(
 
     The devices come from the **namespace**, not from fresh per-scan
     construction: the objects the preamble configures must be the ones the
-    plan was handed (`preamble.namespace_detectors`).
+    plan was handed (`GeecsNamespace.select`).
 
     Note
     ----
@@ -219,15 +289,23 @@ def geecs_preamble(
         _save_cleanup_plan,
         claim_scan_number,
         claimed_scan_metadata,
+        save_control_only_off_plan,
         save_enable_plan,
     )
-    from geecs_bluesky.plans.scan_request_plan import _worker_session
+    from geecs_bluesky.plan_session import get_plan_session
+    from geecs_bluesky.plans.single_shot import fire_and_await_shot
+    from geecs_bluesky.plans.step_scan import geecs_execution_md, normalize_motors
+    from geecs_bluesky.scan_log import scan_log
 
-    sess = session if session is not None else _worker_session
+    sess = session if session is not None else get_plan_session()
     created: list = []
     state: dict[str, Any] = {}
-    forwarded: set[int] = set()
-    armed_groups: set[Any] = set()
+    # The forwarded messages themselves, not their ids: a Msg is dropped
+    # once the RunEngine has processed it and CPython reuses the address,
+    # so an id set can make a later open_run in a multi-run plan look
+    # already-forwarded and silently skip its preamble.
+    forwarded: list[Msg] = []
+    armed_groups: dict[Any, list] = {}
 
     def _cleanup() -> Generator[Msg, Any, Any]:
         """The funnel's finalize chain, innermost first, for whatever ran."""
@@ -241,6 +319,16 @@ def geecs_preamble(
             yield from closeout()
         if created:
             yield from _disconnect_plan(created)
+        # The namespace devices are long-lived nouns: what this run
+        # configured on them (saving mode, save path, asset definitions,
+        # shot-ID origin) must not survive into the next plan, GEECS or not.
+        # Only if a preamble actually ran — a plan without the key is
+        # untouched on the way out as well as on the way in.
+        if namespace is not None and state:
+            namespace.reset_run_configuration()
+        log_ctx = state.pop("scan_log", None)
+        if log_ctx is not None:
+            log_ctx.__exit__(None, None, None)
 
     def _fire_before_wait(msg: Msg) -> tuple[Any, Any]:
         """Insert the shot between arming the waiters and waiting on them.
@@ -250,35 +338,103 @@ def geecs_preamble(
         fire to land in exactly that gap — the detectors have baselined their
         ``acq_timestamp`` and are waiting, so a shot fired now cannot be
         missed — which is why ``bps.trigger_and_read`` alone cannot express
-        it (see ``plans/single_shot.py``).  Doing it here means a **stock**
-        plan needs no ``per_shot`` hook at all.
+        it.  Doing it here means a **stock** plan needs no ``per_shot`` hook
+        at all.
+
+        The fire, the bounded refire on a dropped frame and the device-down
+        gating all come from
+        :func:`~geecs_bluesky.plans.single_shot.fire_and_await_shot`, the
+        same implementation ``geecs_single_shot`` uses: the seam is
+        inserted here, but it is not re-derived here.
         """
         fire = state.get("fire")
         if fire is None:
             return None, None
-        if msg.command == "trigger" and id(msg.obj) in state["detectors"]:
+        if msg.command == "trigger":
             group = msg.kwargs.get("group")
             if group is not None:
-                armed_groups.add(group)
+                armed_groups.setdefault(group, []).append(msg.obj)
             return None, None
         if msg.command != "wait":
             return None, None
         group = msg.kwargs.get("group")
-        if group not in armed_groups:
+        triggered = armed_groups.pop(group, None)
+        if triggered is None:
             return None, None
-        armed_groups.discard(group)
+        if not any(id(obj) in state["detectors"] for obj in triggered):
+            # Some other group of the plan's own — not the shot.
+            return None, None
+        return (
+            fire_and_await_shot(triggered, fire, pending_wait=msg),
+            None,
+        )
 
-        def _fire_then_wait() -> Generator[Msg, Any, Any]:
-            yield from fire()
-            return (yield msg)
+    def _check_commanded_position(msg: Msg) -> None:
+        """Refuse a move to a position the run never declared.
 
-        return _fire_then_wait(), None
+        ScanInfo, the start document and the Tiled catalog all record the
+        **request's** positions, while a stock plan moves to whatever its
+        own arguments say.  Equal point counts hide a value mismatch, so
+        every commanded position is checked against the declared list: a
+        scan whose data does not match its own record is worse than a scan
+        that stops.
+        """
+        declared = state.get("declared_positions")
+        if not declared:
+            return
+        axis = state["movable_index"].get(id(msg.obj))
+        if axis is None:
+            return
+        wanted = [row[axis] for row in declared]
+        value = msg.args[0] if msg.args else None
+        if any(_positions_match(value, w) for w in wanted):
+            return
+        raise GeecsConfigurationError(
+            f"{getattr(msg.obj, 'name', msg.obj)}: the plan moves to {value!r}, "
+            f"which is not among the positions this run declared ({wanted!r}). "
+            "ScanInfo and the catalog record the request's positions, so the "
+            "plan's points and the request's axes must be the same list."
+        )
+
+    def _read_telemetry_into_event(msg: Msg) -> tuple[Any, Any]:
+        """Add the telemetry columns to the event the plan is about to save.
+
+        Background telemetry is a **soft tier of extra columns in the
+        ``primary`` stream, one value per row** — not a separate baseline
+        stream (``Planning/native_bluesky/02_preamble_preprocessor.md``).
+        The funnel gets that by appending the group to the plan's read set;
+        a stock plan reads only the devices it was handed, so the reads are
+        inserted here, between the plan's last ``read`` and its ``save``.
+        The event is still one row, and the schema is unchanged.
+        """
+        telemetry = state.get("telemetry")
+        if not telemetry or msg.command != "save" or state.get("in_telemetry"):
+            return None, None
+
+        def _read_then_save() -> Generator[Msg, Any, Any]:
+            # plan_mutator re-processes the message this generator yields,
+            # so the forwarded save must not be mutated again.
+            state["in_telemetry"] = True
+            try:
+                for device in telemetry:
+                    yield from bps.read(device)
+                return (yield msg)
+            finally:
+                state["in_telemetry"] = False
+
+        return _read_then_save(), None
 
     def _prepare(msg: Msg) -> tuple[Any, Any]:
         fired = _fire_before_wait(msg)
         if fired != (None, None):
             return fired
-        if msg.command != "open_run" or id(msg) in forwarded:
+        telemetry_read = _read_telemetry_into_event(msg)
+        if telemetry_read != (None, None):
+            return telemetry_read
+        if msg.command == "set":
+            _check_commanded_position(msg)
+            return None, None
+        if msg.command != "open_run" or any(msg is f for f in forwarded):
             return None, None
         request = msg.kwargs.get(md_key)
         if request is None:
@@ -294,6 +450,13 @@ def geecs_preamble(
 
             res = ConfigsRepoResolver(sess.experiment)
 
+        if namespace is None:
+            raise GeecsConfigurationError(
+                "geecs_preamble needs a device namespace: the objects it "
+                "configures must be the ones the plan was handed. Install it "
+                "with namespace=..., or set QS_DEVICE_NAMESPACE back on."
+            )
+
         def _run_preamble() -> Generator[Msg, Any, Any]:
             resolved = resolve_request(sess, res, request)
             if not resolved.strict:
@@ -301,20 +464,24 @@ def geecs_preamble(
                     "stock plans run strict shot control only: free-run is "
                     "retired (GEECS-Plugins#807). Set acquisition='strict'."
                 )
-            if resolved.controller is None:
-                raise GeecsConfigurationError(
-                    "strict shot control requires a trigger_profile — the plan "
-                    "fires every shot, so there must be a shot-control device"
-                )
-            resolved.controller.require_strict_single_shot()
+            # The controller-present and single-shot-capable checks are
+            # prepare_step_scan's (plans/preamble.py); not repeated here.
             prepared = yield from prepare_step_scan(
                 sess, res, resolved, created, namespace=namespace
             )
             state["controller"] = prepared.controller
             state["closeout"] = prepared.closeout
+            _check_plan_covers_save_set(msg, prepared)
+            _check_plan_geometry(msg, prepared)
 
             # The claim: every failure above it burns no scan number.
             scan_number, scan_folder = claim_scan_number(sess.experiment)
+            # The per-scan log handler, and the flush of everything buffered
+            # before the claim — the funnel does this around its run
+            # (scan_request_plan.py), and /triage reads the result.
+            log_ctx = scan_log(scan_number, scan_folder)
+            log_ctx.__enter__()
+            state["scan_log"] = log_ctx
             saving = sess.configure_claimed_scan(
                 scan_number=scan_number,
                 scan_folder=scan_folder,
@@ -327,19 +494,34 @@ def geecs_preamble(
             )
             state["saving"] = saving
 
+            # The scan motors carry `_column_headers` too, and the
+            # Tiled→s-file exporter needs them to put the legacy
+            # "Device Variable" header back on the axis column.
+            movables = normalize_motors(prepared.motor_arg)
+            scalar_devices = list(prepared.detectors) + movables
             md = claimed_scan_metadata(
                 experiment=sess.experiment,
                 scan_number=scan_number,
                 scan_folder=scan_folder,
                 saving_detectors=saving,
-                devices=prepared.detectors,
+                devices=scalar_devices,
                 extra_md={
                     "description": prepared.request.description,
+                    **geecs_execution_md(
+                        motors=movables,
+                        positions=prepared.spec.positions,
+                        shots_per_step=prepared.request.capture.shots_per_step,
+                        fires_own_shots=True,
+                    ),
                     **prepared.spec.md,
                 },
             )
             if prepared.setup is not None:
                 yield from prepared.setup()
+            # Capture-owned cameras: a save flag left on out-of-band must
+            # not keep writing to a stale path. Eager — turning saving OFF
+            # needs no trigger windowing, unlike turning it on.
+            yield from save_control_only_off_plan(scalar_devices)
 
             # Order is load-bearing (Gate-2 save windowing).  arm_single_shot
             # drives the box to ARMED — single-shot source, so the free run
@@ -351,12 +533,24 @@ def geecs_preamble(
             yield from prepared.controller.arm_single_shot(prepared.detectors)
             if saving:
                 yield from save_enable_plan(saving)
+            state["telemetry"] = list(prepared.telemetry_readables)
             state["fire"] = prepared.controller.fire_shot
             state["detectors"] = {id(d) for d in prepared.detectors}
+            state["movable_index"] = {id(m): i for i, m in enumerate(movables)}
+            state["declared_positions"] = [
+                row if isinstance(row, (list, tuple)) else (row,)
+                for row in prepared.spec.positions
+                if row is not None
+            ]
 
-            # Injected md wins over the plan's own, as inject_md_wrapper does.
-            new = msg._replace(kwargs=ChainMap(md, msg.kwargs))
-            forwarded.add(id(new))
+            # Injected md wins over the plan's own, as inject_md_wrapper
+            # does.  The raw request itself is dropped: the resolved picture
+            # is already in the metadata, and an unresolved copy of it in
+            # every start document is a key no consumer declares and the
+            # funnel's door never emits.
+            passthrough = {k: v for k, v in msg.kwargs.items() if k != md_key}
+            new = msg._replace(kwargs=ChainMap(md, passthrough))
+            forwarded.append(new)
             logger.info(
                 "geecs_preamble: scan %s prepared (%d detectors) for %s",
                 scan_number,
@@ -384,9 +578,19 @@ def install_geecs_preamble(
     preamble's own connects and reads still pass through it (the RunEngine
     composes preprocessors first-appended-innermost).
     """
-    had_connect = any(
-        getattr(p, "func", None) is connect_on_demand for p in run_engine.preprocessors
+    existing = next(
+        (
+            p
+            for p in run_engine.preprocessors
+            if getattr(p, "func", None) is connect_on_demand
+        ),
+        None,
     )
+    # Re-appending must preserve how connect_on_demand was configured — a
+    # mock worker installs it with mock=True, and re-deriving the kwargs
+    # here would quietly send a mock worker at real Channel Access.
+    connect_kwargs = dict(getattr(existing, "keywords", None) or {})
+    connect_kwargs.setdefault("mock", mock)
     run_engine.preprocessors[:] = [
         p
         for p in run_engine.preprocessors
@@ -395,5 +599,5 @@ def install_geecs_preamble(
     run_engine.preprocessors.append(
         partial(geecs_preamble, session=session, resolver=resolver, namespace=namespace)
     )
-    if had_connect:
-        install_connect_on_demand(run_engine, mock=mock)
+    if existing is not None:
+        install_connect_on_demand(run_engine, **connect_kwargs)

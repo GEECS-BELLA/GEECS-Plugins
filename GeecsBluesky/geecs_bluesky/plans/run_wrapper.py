@@ -202,6 +202,29 @@ def claimed_scan_metadata(
     return md
 
 
+def save_control_only_off_plan(devices: list | None):
+    """Plan: drive ``save="off"`` for every capture-owned camera in *devices*.
+
+    A save flag left on out-of-band must never keep writing native files to
+    a stale path during a toggle-off scan.  Eager — turning saving OFF needs
+    no trigger windowing, unlike turning it on (Gate-2, ``CLAUDE.md``).
+
+    Both scan doors need this, so it is one plan stub rather than a copy in
+    each: :func:`geecs_run_wrapper` for the funnel, and the stock-plan
+    preamble preprocessor.
+
+    Yields
+    ------
+    Bluesky messages.
+    """
+    off_args: list = []
+    for dev in devices or []:
+        if getattr(dev, "_save_control_only", False) and hasattr(dev, "save"):
+            off_args.extend([dev.save, "off"])
+    if off_args:
+        yield from bps.mv(*off_args)
+
+
 def geecs_run_wrapper(
     plan,
     *,
@@ -267,16 +290,7 @@ def geecs_run_wrapper(
 
     wrapped = bpp.inject_md_wrapper(plan, md)
 
-    # Active save-off for capture-owned cameras (save_control_only devices):
-    # a save flag left on out-of-band must never keep writing native files
-    # to a stale path during a toggle-off scan. Eager — turning OFF needs no
-    # trigger windowing, unlike save-on.
-    off_args: list = []
-    for dev in devices or []:
-        if getattr(dev, "_save_control_only", False) and hasattr(dev, "save"):
-            off_args.extend([dev.save, "off"])
-    if off_args:
-        yield from bps.mv(*off_args)
+    yield from save_control_only_off_plan(devices)
 
     if not saving:
         yield from wrapped

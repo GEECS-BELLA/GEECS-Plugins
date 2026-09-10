@@ -202,27 +202,14 @@ RUN_ACTION_PLAN_ANNOTATION: dict = {
 }
 
 
-#: The worker-wide default session (installed once at worker startup).
-_worker_session: Any | None = None
-
-
-def set_plan_session(session: Any | None) -> None:
-    """Install the worker-wide default :class:`GeecsSession` for the plan.
-
-    The queueserver registers plans by name with JSON args, so the session
-    cannot travel in the call — a worker startup script constructs one
-    headless session and installs it here; ``RE(geecs_scan_request_plan(
-    request))`` then needs nothing else.  Pass ``None`` to clear (tests).
-
-    Parameters
-    ----------
-    session :
-        The session whose RunEngine will execute the plan.  The plan's
-        connect messages run on that engine's loop, so running the plan on
-        a *different* RunEngine than ``session.RE`` is unsupported.
-    """
-    global _worker_session
-    _worker_session = session
+# The worker-wide default session lives in `geecs_bluesky.plan_session` (a
+# neutral home shared with the stock-plan preamble preprocessor, which
+# outlives this module).  Re-exported here so existing importers of
+# `set_plan_session` keep working.
+from geecs_bluesky.plan_session import (  # noqa: E402
+    get_plan_session,
+    set_plan_session,
+)
 
 
 #: The worker-wide optimization loader (installed once at worker startup,
@@ -357,7 +344,7 @@ def geecs_scan_request_plan(
     pin test named there before adding any annotation back.
     """
     if session is None:
-        session = _worker_session
+        session = get_plan_session()
         if session is None:
             raise GeecsConfigurationError(
                 "geecs_scan_request_plan has no session: install one with "
@@ -925,7 +912,7 @@ def geecs_run_action_plan(
         reference (fail-fast, before any signal connects).
     """
     if session is None:
-        session = _worker_session
+        session = get_plan_session()
         if session is None:
             raise GeecsConfigurationError(
                 "geecs_run_action_plan has no session: install one with "

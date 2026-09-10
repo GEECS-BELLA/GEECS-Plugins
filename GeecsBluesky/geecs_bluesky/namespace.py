@@ -355,15 +355,18 @@ class GeecsNamespace:
                 )
             child = self._movable(device, var, row, py, roster.experiment)
             setattr(dev, attr, child)  # ophyd-async registers + names the child
-            # The s-file exporter reads `_column_headers` off the top-level
-            # detectors only (run_wrapper), so the parent aggregates its
-            # children's "Device Variable" headers.
             child._column_headers = {
                 getattr(child, child._readback_attr_name).name: f"{device} {var}"
             }
-            dev._column_headers.update(child._column_headers)
             if var.lower() in {v.lower() for v in roster.subscribed.get(device, ())}:
                 dev.add_readables([child])  # subscribed settable: log its readback
+                # The s-file exporter reads `_column_headers` off the
+                # top-level detectors only (run_wrapper), so the parent
+                # aggregates its children's "Device Variable" headers —
+                # but only for children that produce a column.  A header
+                # for a key no event carries would put a phantom column
+                # name in front of the exporter.
+                dev._column_headers.update(child._column_headers)
             attrs[var.lower()] = attr
             attrs[attr.lower()] = attr
         for var in readables:
@@ -454,12 +457,13 @@ class GeecsNamespace:
                 f"variable {variable!r}"
             ) from None
 
-    def variable_names(self, device: str) -> tuple[str, ...]:
+    def _variable_names(self, device: str) -> tuple[str, ...]:
         """The GEECS variable names *device* has children for (its served scalars).
 
         The device object itself does not carry this — it is a plain
         ``CaGenericDetector``/``CaSnapshotReadable`` — so the namespace, which
-        built the children, answers it.
+        built the children, answers it.  Internal: :meth:`select` is the only
+        caller, and it lives here precisely so this can stay private.
         """
         dev = self[device]
         attrs = self._attrs[dev.name]
@@ -474,6 +478,117 @@ class GeecsNamespace:
         """The object for ``"Device"`` or ``"Device:Variable"`` (either spelling)."""
         device, sep, variable = target.partition(":")
         return self.variable(device, variable) if sep else self[device]
+
+    # -------------------------------------------------------------- per-run
+    def reset_run_configuration(self) -> None:
+        """Clear every device's per-run configuration.
+
+        A namespace device is a **long-lived noun**: it outlives the run that
+        configured its native saving, save path, asset definitions and
+        shot-ID origin.  The per-scan device classes were discarded at the
+        end of a scan and got this for free; these are not, and stale state
+        is not inert (an unrelated later run would emit a
+        ``nonscalar_save_path`` column, and asset documents, pointing at the
+        previous scan's folder).  The preamble calls this before it
+        configures a run and again on the way out, so a crash between the
+        two cannot leak into the next plan either.
+        """
+        for device in self._devices.values():
+            reset = getattr(device, "reset_run_configuration", None)
+            if reset is not None:
+                reset()
+
+    def select(self, devices_config: Mapping[str, Mapping[str, Any]]) -> list[Any]:
+        """The save set's devices, **selected** from the namespace, configured.
+
+        The role assignment is ``_build_request_detectors``' — the first
+        synchronous entry leads, later synchronous entries follow, and
+        asynchronous entries are snapshots — but the objects are the
+        long-lived nouns a stock plan is handed, not fresh per-scan devices.
+        That identity is the whole point: two objects for one device would
+        double the connections and apply the saving configuration to
+        something the plan never reads.
+
+        Roles are asserted rather than chosen, because a device's class was
+        already decided by :func:`looks_triggerable` when the namespace was
+        built: a synchronous save-set entry must be a triggerable device, an
+        asynchronous one must not be.  A mismatch is a configuration error
+        worth hearing about, not something to paper over.
+
+        The recorded scalars must also match: a namespace device reads the
+        DB's subscribed list, so a save-set entry naming a different set (an
+        explicit ``scalars:`` list) cannot be honoured without per-run
+        reselection — refused loudly rather than silently logging different
+        columns.
+        """
+        detectors: list[Any] = []
+        leader_assigned = False
+        for device_name, cfg in devices_config.items():
+            variables = list(cfg.get("variable_list") or [])
+            synchronous = bool(cfg.get("synchronous", False))
+            try:
+                device = self[device_name]
+            except KeyError as exc:
+                raise GeecsConfigurationError(
+                    f"save set names {device_name!r}, which is not in the device "
+                    f"namespace for {self.experiment}"
+                ) from exc
+
+            triggerable = isinstance(device, CaGenericDetector)
+            if synchronous and not triggerable:
+                raise GeecsConfigurationError(
+                    f"{device_name}: the save set marks it synchronous "
+                    "(shot-triggered) but the namespace built it as a "
+                    "non-triggered device — fix the save-set role, or the "
+                    "triggerable classification for its devicetype"
+                )
+            if not synchronous and triggerable:
+                logger.warning(
+                    "%s: save-set role is asynchronous but the device is "
+                    "shot-triggered; reading it once per row anyway",
+                    device_name,
+                )
+            if not synchronous and not variables:
+                logger.warning(
+                    "Skipping asynchronous device %s: no scalars to record",
+                    device_name,
+                )
+                continue
+
+            # acq_timestamp / CONNECTED are gateway-synthesized: a save set
+            # may name the shot stamp explicitly, and a triggered device
+            # always reads it, so they are never part of this comparison.
+            wanted = {safe_name(v) for v in variables if v.lower() not in _SYNTHESIZED}
+            have = {safe_name(v) for v in self._variable_names(device_name)}
+            missing = wanted - have
+            if missing:
+                raise GeecsConfigurationError(
+                    f"{device_name}: the save set records {sorted(missing)}, which "
+                    "the namespace device does not read (it reads the DB's "
+                    "subscribed list). Add them to the device's subscribed "
+                    "variables, or drop them from the save set."
+                )
+
+            save = bool(cfg.get("save_nonscalar_data", False))
+            save_control_only = bool(cfg.get("save_control_only", False))
+            if hasattr(device, "configure_saving_mode"):
+                device.configure_saving_mode(
+                    save_nonscalar_data=save, save_control_only=save_control_only
+                )
+            elif save or save_control_only:
+                raise GeecsConfigurationError(
+                    f"{device_name}: native saving was requested but the "
+                    "namespace device has no save-control support"
+                )
+
+            # Order marks the leading synchronous device (the reference the
+            # scan metadata records), so preserve it.
+            if synchronous and not leader_assigned:
+                detectors.insert(0, device)
+                leader_assigned = True
+            else:
+                detectors.append(device)
+        return detectors
 
     # ----------------------------------------------------------------- export
     def export_into(self, namespace: dict[str, Any]) -> list[str]:

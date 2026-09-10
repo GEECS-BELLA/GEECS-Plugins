@@ -43,6 +43,34 @@ from geecs_bluesky.plans.single_shot import geecs_single_shot
 logger = logging.getLogger(__name__)
 
 
+def geecs_execution_md(
+    *,
+    motors: list,
+    positions: list,
+    shots_per_step: int,
+    fires_own_shots: bool,
+) -> dict[str, Any]:
+    """The GEECS execution keys every scan's start document must carry.
+
+    Not decoration: ``tiled_catalog`` reads ``acquisition_mode``,
+    ``tiled_schema`` reads ``motor``, ``positions`` and ``shots_per_step``,
+    and the event-schema version gates how readers interpret the columns.
+    Both doors emit them from here — the funnel through
+    :func:`geecs_step_scan`'s own metadata, the stock-plan door through the
+    preamble preprocessor — so a scan cannot be recorded differently
+    depending on which one ran it.
+    """
+    return {
+        "acquisition_mode": "strict_shot_control",
+        "geecs_event_schema": 1,
+        # True when the plan fires each shot (strict single-shot).
+        "fires_own_shots": fires_own_shots,
+        "motor": motor_md(motors),
+        "positions": list(positions),
+        "shots_per_step": shots_per_step,
+    }
+
+
 def normalize_motors(motor: Any | Sequence[Any] | None) -> list[Any]:
     """Return the motor argument as a list (``None`` → ``[]``).
 
@@ -287,14 +315,13 @@ def geecs_step_scan(
 
     _md: dict[str, Any] = {
         "plan_name": "geecs_step_scan",
-        "acquisition_mode": "strict_shot_control",
-        "geecs_event_schema": 1,
-        # True when the plan fires each shot (strict single-shot).
-        "fires_own_shots": fire_shot is not None,
-        "motor": motor_md(_motors),
+        **geecs_execution_md(
+            motors=_motors,
+            positions=_positions,
+            shots_per_step=shots_per_step,
+            fires_own_shots=fire_shot is not None,
+        ),
         "detectors": [getattr(d, "name", str(d)) for d in detectors],
-        "positions": _positions,
-        "shots_per_step": shots_per_step,
         "num_points": len(_positions),
         **(md or {}),
     }

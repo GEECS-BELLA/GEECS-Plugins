@@ -67,7 +67,6 @@ logger = logging.getLogger(__name__)
 
 __all__ = [
     "PreparedScan",
-    "namespace_detectors",
     "ResolvedRequest",
     "prepare_step_scan",
     "resolve_request",
@@ -246,104 +245,44 @@ def _disconnect_plan(created: list):
     yield from bps.wait_for([_disconnect_all])
 
 
-def namespace_detectors(
-    namespace: Any, devices_config: dict[str, dict[str, Any]], *, free_run: bool
-) -> list:
-    """The save set's devices, taken from the **namespace** instead of built.
+def _namespace_movable(namespace: Any, target: Any) -> Any:
+    """The namespace child for one resolved axis, or a refusal.
 
-    The role assignment is `_build_request_detectors`' — free-run: the first
-    synchronous entry is the reference and later ones contributors; strict:
-    every synchronous entry is triggered; asynchronous entries are snapshots
-    — but the objects are the long-lived namespace nouns a stock plan is
-    handed, not fresh per-scan devices.  That identity is the whole point:
-    two objects for one device would double the connections and apply the
-    saving configuration to something the plan never reads.
-
-    Roles are asserted rather than chosen, because a namespace device's class
-    is already decided by :func:`~geecs_bluesky.namespace.looks_triggerable`:
-    a synchronous save-set entry must be a triggerable device, an
-    asynchronous one must not be.  A mismatch is a configuration error worth
-    hearing about, not something to paper over.
-
-    The recorded scalars must also match: the namespace device reads the DB's
-    subscribed list, so a save-set entry naming a different set (an explicit
-    ``scalars:`` list) cannot be honoured without per-run reselection —
-    refused loudly rather than silently logging different columns.
+    ``build_movable`` (``scan_request_runner.py``) dispatches a catalog
+    target onto three topologies — pseudo, confirm-elsewhere, and
+    tolerance-checked motor.  The namespace builds its children from the DB
+    alone and knows none of that yet (the catalog's ``kind: motor`` opt-in
+    arrives with the axes in phase 3), so a target needing a topology the
+    namespace cannot express is **refused**.  Silently degrading a
+    confirming or motor axis to a fire-and-forget setpoint would let a stock
+    ``list_scan`` step to the next point before the readback converged —
+    every row taken at the wrong position, and nothing in the data saying so.
     """
-    from geecs_bluesky.devices.ca.generic_detector import CaGenericDetector
-    from geecs_bluesky.utils import safe_name
+    from geecs_bluesky.devices.ca.motor import CaMotor
 
-    detectors: list = []
-    reference_assigned = False
-    for device_name, cfg in devices_config.items():
-        variables = list(cfg.get("variable_list") or [])
-        synchronous = bool(cfg.get("synchronous", False))
-        try:
-            device = namespace[device_name]
-        except KeyError as exc:
-            raise GeecsConfigurationError(
-                f"save set names {device_name!r}, which is not in the device "
-                f"namespace for {getattr(namespace, 'experiment', '?')}"
-            ) from exc
-
-        triggerable = isinstance(device, CaGenericDetector)
-        if synchronous and not triggerable:
-            raise GeecsConfigurationError(
-                f"{device_name}: the save set marks it synchronous (shot-triggered) "
-                "but the namespace built it as a non-triggered device — fix the "
-                "save-set role, or the triggerable classification for its devicetype"
-            )
-        if not synchronous and triggerable:
-            logger.warning(
-                "%s: save-set role is asynchronous but the device is "
-                "shot-triggered; reading it once per row anyway",
-                device_name,
-            )
-        if not synchronous and not variables:
-            logger.warning(
-                "Skipping asynchronous device %s: no scalars to record", device_name
-            )
-            continue
-
-        # acq_timestamp / CONNECTED are gateway-synthesized: a save set may
-        # name the shot stamp explicitly, and a triggered device always reads
-        # it, so they are never part of this comparison.
-        from geecs_bluesky.namespace import ACQ_TIMESTAMP_VARIABLE
-
-        synthesized = {ACQ_TIMESTAMP_VARIABLE, "connected"}
-        wanted = {safe_name(v) for v in variables if v.lower() not in synthesized}
-        have = {safe_name(v) for v in namespace.variable_names(device_name)}
-        missing = wanted - have
-        if missing:
-            raise GeecsConfigurationError(
-                f"{device_name}: the save set records {sorted(missing)}, which the "
-                "namespace device does not read (it reads the DB's subscribed "
-                "list). Add them to the device's subscribed variables, or drop "
-                "them from the save set."
-            )
-
-        save = bool(cfg.get("save_nonscalar_data", False))
-        save_control_only = bool(cfg.get("save_control_only", False))
-        if hasattr(device, "configure_saving_mode"):
-            device.configure_saving_mode(
-                save_nonscalar_data=save, save_control_only=save_control_only
-            )
-        elif save or save_control_only:
-            raise GeecsConfigurationError(
-                f"{device_name}: native saving was requested but the namespace "
-                "device has no save-control support"
-            )
-
-        # Free-run contributor anchoring is applied post-claim by
-        # GeecsSession.configure_claimed_scan (set_reference); order is what
-        # marks the reference, so preserve it.
-        if synchronous and not reference_assigned:
-            detectors.insert(0, device)
-            reference_assigned = True
-        else:
-            detectors.append(device)
-    _ = free_run  # role order is positional; the flag stays for symmetry
-    return detectors
+    label = getattr(target, "label", target)
+    if not hasattr(target, "device"):
+        raise GeecsConfigurationError(
+            f"{label}: pseudo/composite scan variables are not supported on the "
+            "stock-plan door yet (the namespace builds no pseudo axes until "
+            "GEECS-Plugins#807 phase 3). Submit it through geecs_scan_request_plan."
+        )
+    if getattr(target, "confirm", None) is not None:
+        raise GeecsConfigurationError(
+            f"{label}: this scan variable confirms on {target.confirm!r}, a "
+            "topology the device namespace does not build yet "
+            "(GEECS-Plugins#807 phase 3). Submit it through "
+            "geecs_scan_request_plan, which builds a CaConfirmSettable."
+        )
+    movable = namespace.variable(target.device, target.variable)
+    if getattr(target, "kind", None) == "motor" and not isinstance(movable, CaMotor):
+        raise GeecsConfigurationError(
+            f"{label}: the catalog declares kind: motor, but the namespace built "
+            "a plain setpoint because the DB carries no positive tolerance for "
+            "it — a move would complete before the readback converged. Set the "
+            "devicetype_variable tolerance in the GEECS DB."
+        )
+    return movable
 
 
 @dataclass(frozen=True)
@@ -376,6 +315,7 @@ class PreparedScan:
     per_step: Any = None
     closeout: Any = None
     telemetry_selected: dict = field(default_factory=dict)
+    telemetry_readables: list = field(default_factory=list)
 
     def as_claimed_kwargs(self) -> dict:
         """The ``build_claimed_scan_plan`` keywords this preparation implies."""
@@ -524,12 +464,13 @@ def prepare_step_scan(
     else:
         # Stock-plan door: the objects must be the ones the plan itself is
         # handed, so the save set SELECTS namespace devices instead of
-        # constructing new ones (see namespace_detectors).
-        detectors = namespace_detectors(namespace, devices_config, free_run=not strict)
-        movables = [
-            namespace.variable(target.device, target.variable)
-            for target in axis_resolved
-        ]
+        # constructing new ones (GeecsNamespace.select).  Every device is
+        # reset first: these nouns outlive the run, so a previous scan's
+        # saving mode, save path, asset definitions or shot-ID origin would
+        # otherwise still be set on the ones this save set does not name.
+        namespace.reset_run_configuration()
+        detectors = namespace.select(devices_config)
+        movables = [_namespace_movable(namespace, target) for target in axis_resolved]
     created.extend(factories.created)
 
     # ---- phase 3: in-plan connects (still pre-claim) ----------------------
@@ -545,6 +486,10 @@ def prepare_step_scan(
     # Telemetry is soft: appended as extra snapshot columns, never the
     # reference (index 0 stays the save set's).
     all_detectors = list(detectors) + telemetry_readables
+    # The stock-plan door reads only what the plan was handed, so the
+    # telemetry tail has to be injected into the same event by the
+    # preprocessor; it is kept addressable for that.
+
     if controller is not None and not session._mock:
         # Fail fast on an unreachable shot-control PV (the session does this
         # at attach time; in-plan it joins the pre-claim connect stage).
@@ -594,4 +539,5 @@ def prepare_step_scan(
         per_step=per_step,
         closeout=closeout,
         telemetry_selected=telemetry_selected,
+        telemetry_readables=list(telemetry_readables),
     )

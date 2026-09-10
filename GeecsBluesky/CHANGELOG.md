@@ -4,6 +4,127 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.79.0] - 2026-09-09
+
+Adversarial review of the phase-2 door (GEECS-Plugins#807, PR #809).  Every
+finding was about the same thing: what the ScanRequest funnel guaranteed **by
+construction** — one list of devices, one topology per axis, disposable
+per-scan objects — is, on the stock-plan door, a precondition on the caller.
+Each is now either enforced or refused, and the acceptance test the plan of
+record specified is in the suite.
+
+### Fixed
+
+- **Per-run device state leaked between runs.** A namespace device is a
+  long-lived noun, so the saving mode, save path, asset definitions and
+  shot-ID origin one run configured stayed set on it. An unrelated later
+  plan emitted a `nonscalar_save_path` column — and external asset
+  documents — resolving into the *previous* scan's folder. Every mixin that
+  holds per-run state now has a cooperative `reset_run_configuration`
+  (`devices/reset_support.py` chains them along the MRO), and
+  `GeecsNamespace.reset_run_configuration()` clears the whole namespace both
+  before a run configures it and on the way out.
+- **The `acq_timestamp` s-file header went missing on the stock door.** The
+  detector constructors add it when their save flags are fixed at build
+  time; a namespace device gets its mode per-run, so the header now follows
+  `configure_saving_mode`. Without it a saved scan's images have no join
+  key back to its rows.
+- **A stock scan wrote no `scans/ScanNNN/scan.log`.** The preamble now
+  attaches the per-scan log handler around the forwarded run, as the funnel
+  does, so `/triage` can read these scans.
+- **Capture-owned cameras were not driven `save="off"`.** Extracted as
+  `run_wrapper.save_control_only_off_plan` and called from both doors.
+- **The scan motors were missing from `geecs_scalar_headers`**, so the
+  Tiled→s-file exporter could not put the legacy `Device Variable` header
+  back on the axis column. The namespace also stopped contributing headers
+  for settable children it does not read — phantom column names.
+- **The raw ScanRequest rode into every start document** as a `geecs` key
+  no consumer declares and the funnel never emits. Dropped; the resolved
+  picture was already there.
+- **`install_geecs_preamble` re-derived `connect_on_demand`'s
+  configuration** instead of carrying it, so re-installing after a mock
+  worker's `install_connect_on_demand(RE, mock=True)` would have sent that
+  worker at real Channel Access.
+
+### Changed
+
+- **The stock door reuses `geecs_single_shot`'s refire.** The message-level
+  fire had the arm→fire→wait seam but none of the recovery around it: a
+  dropped frame (~1% per shot, live-measured) propagated a `FailedStatus`
+  into a stock plan that has no handler, aborting the run — at that rate a
+  100-shot scan aborts more often than not. The retry loop, the bounded
+  refire and the gateway-liveness gating are now one implementation,
+  `plans/single_shot.fire_and_await_shot`, called by `geecs_single_shot`
+  and by the preprocessor (which hands it the plan's pending `wait`).
+- **Background telemetry reaches the event again.** It was prepared,
+  connected and advertised, but a stock plan reads only its own detectors,
+  so no telemetry column was ever emitted. The preprocessor now inserts the
+  reads between the plan's last `read` and its `save`: still one row, still
+  the `primary` stream, no schema change.
+- **The GEECS execution keys are shared.** `acquisition_mode`,
+  `geecs_event_schema`, `fires_own_shots`, `motor`, `positions` and
+  `shots_per_step` — read by `tiled_catalog` and `tiled_schema` — come from
+  one `plans/step_scan.geecs_execution_md`, so a scan cannot be recorded
+  differently depending on which door ran it.
+- **Save-set selection moved to the namespace** as
+  `GeecsNamespace.select(devices_config)`, replacing
+  `plans/preamble.namespace_detectors`: it emits no plan messages, and as a
+  method it uses the namespace's own `_SYNTHESIZED` set and triggerable
+  classification instead of re-deriving them, which also lets
+  `variable_names` go back to being private.
+- The worker-wide default session moved to **`geecs_bluesky/plan_session.py`**
+  (`set_plan_session` / new `get_plan_session`). It has two consumers now,
+  and the preprocessor should not import a private name from the funnel
+  module that phase C deletes. Re-exported from `plans/scan_request_plan`.
+- **The queueserver installs the preamble** (`qserver/startup/startup.py`),
+  so the door is reachable from the worker rather than hand-driven sessions
+  only. A plan without `md["geecs"]` is untouched.
+
+### Added — refusals, where the funnel's guarantee cannot be kept
+
+- A plan that does **not read every device the save set records** is refused
+  before the claim. Saving files for a device with no `acq_timestamp` row to
+  join them to is the orphan-frame failure the Gate-2 windowing exists to
+  prevent, arriving from the other side.
+- A plan whose **shape contradicts the request it is recorded as** is
+  refused: `bp.count(num=2)` under a request declaring `shots_per_step: 5`
+  would write ScanInfo and a catalog row its own data contradicts. Equal
+  point counts do not hide a different set of points either — each
+  commanded position is checked against the declared list.
+- **Scan-axis topologies the namespace cannot build** are refused rather
+  than degraded: a pseudo/composite variable, a `confirm:` target, and a
+  `kind: motor` variable with no positive DB tolerance. Silently handing
+  back a fire-and-forget setpoint would let a stock `list_scan` step to the
+  next point before the readback converged — every row at the wrong
+  position, with nothing in the data saying so. They arrive with the
+  catalog axes in phase 3.
+
+### Testing
+
+- 11 new tests (19 in `tests/test_preamble_preprocessor.py`), one per
+  finding above, including the **document-parity test the plan of record
+  specified**: one request through both doors, every GEECS-owned start-doc
+  key compared exactly, identical `ScanInfo`, and the event columns compared
+  as an exact set — the funnel's three `ScanContext` columns (`bin_number`,
+  `scan_event_index`, `shot_index_in_bin`) are asserted as the *only*
+  difference, so any other divergence fails. That test found the missing
+  `acq_timestamp` header, the phantom settable headers, the stray `geecs`
+  key and the six missing execution keys.
+- `Docs` and `_sweep_points` were copies of `tests/ca_mock_helpers`'
+  `DocCollector` and of each other; the shared helpers gained the `start`
+  property and `sweep_points`, and the copies are gone.
+- The Gate-2 ordering test now records the save writes into the **same**
+  ordered log as the shot-control writes, so swapping `arm_single_shot` and
+  `save_enable_plan` fails it. Previously only the trigger states were
+  pinned and the reorder passed.
+
+### Known gap
+
+- Stock plans do not yet emit the `ScanContext` per-row columns
+  (`bin_number`, `scan_event_index`, `shot_index_in_bin`). Those come from
+  the per-step function in phase 3, which is also when `ScanContext`
+  retires; the parity test pins the difference so it cannot widen.
+
 ## [0.78.1] - 2026-09-09
 
 ### Fixed
@@ -19,11 +140,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Changed
 
 - **Hardware-accepted 2026-09-09** on the Undulator machine: a stock
-  `bp.count` ran as a noscan (scan 61 — 3 shots, the preprocessor firing
-  each one) and a stock `bp.list_scan` ran as a step scan (scan 62 — the
+  `bp.count` ran as a noscan (scan 63 — 3 shots, the preprocessor firing
+  each one) and a stock `bp.list_scan` ran as a step scan (scan 64 — the
   catalog axis `S1H` swept −1 → +1 A in 0.5 A steps, readbacks within
   0.4 mA, setpoint restored). Both claimed real scan numbers, wrote their
-  `ScanInfo` ini, and recorded the full detector surface — `shot_id`,
+  `ScanInfo` ini, exported an s-file, registered in the **Tiled catalog**
+  (so both are listed in the data portal beside the operators' scans), and
+  recorded the full detector surface — `shot_id`,
   `shot_offset`, `nonscalar_save_path`, the image asset — so the composed
   namespace device keeps every capability the per-scan classes had. The
   catalog axis resolved to `U_S1H:Current` and to the same object the plan

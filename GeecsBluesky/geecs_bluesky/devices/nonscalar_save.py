@@ -27,6 +27,8 @@ from event_model.documents import Datum, PartialResource
 
 from geecs_bluesky.assets import AssetDefinition
 
+from geecs_bluesky.devices.reset_support import reset_next
+
 logger = logging.getLogger(__name__)
 
 
@@ -38,6 +40,7 @@ class NonScalarSaveSupport:
     """
 
     _save_nonscalar_data: bool = False
+    _save_control_only: bool = False
     _nonscalar_save_path: Path | None = None
     _asset_definitions: tuple[AssetDefinition, ...] = ()
     _asset_scan_number: int | None = None
@@ -78,6 +81,49 @@ class NonScalarSaveSupport:
             )
         self._save_nonscalar_data = bool(save_nonscalar_data)
         self._save_control_only = bool(save_control_only) and not save_nonscalar_data
+        # A file-producing device surfaces acq_timestamp as an s-file column
+        # so saved files tie back to scan rows — the constructors add that
+        # header when their save flags are fixed at build time, and this is
+        # the same rule for a device whose mode is per-run.
+        self._acq_timestamp_header(self._save_nonscalar_data or self._save_control_only)
+
+    def _acq_timestamp_header(self, present: bool) -> None:
+        """Add or remove the ``acq_timestamp`` s-file header for this device."""
+        from geecs_bluesky.utils import safe_name
+
+        headers = getattr(self, "_column_headers", None)
+        if headers is None:
+            return
+        variable = getattr(self, "_acq_timestamp_variable", "acq_timestamp")
+        key = f"{self.name}-{safe_name(variable)}"
+        if present:
+            headers[key] = (
+                f"{getattr(self, '_geecs_device_name', self.name)} {variable}"
+            )
+        else:
+            headers.pop(key, None)
+
+    def reset_run_configuration(self) -> None:
+        """Forget everything a single run configured (GEECS-Plugins#807 phase 2).
+
+        The per-scan device classes get this for free by being discarded at
+        the end of the scan; a **long-lived namespace device** does not, and
+        stale state is not inert — ``_save_nonscalar_data`` with a stale
+        ``_nonscalar_save_path`` makes an unrelated later run emit a
+        ``nonscalar_save_path`` column, and stale ``_asset_definitions``
+        make it emit StreamResource/Datum documents resolving into the
+        previous scan's files.  The preamble resets every namespace device
+        before it configures this run's, and again on the way out.
+        """
+        self._save_nonscalar_data = False
+        self._save_control_only = False
+        self._nonscalar_save_path = None
+        self._asset_definitions = ()
+        self._asset_scan_number = None
+        self._asset_root_path = None
+        self._asset_local_root_path = None
+        self._acq_timestamp_header(False)
+        reset_next(super())
 
     def configure_nonscalar_file_logging(self, save_path: str | Path) -> None:
         """Record the scanner-owned save directory for the ``nonscalar_save_path`` column."""

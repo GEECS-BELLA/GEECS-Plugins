@@ -60,6 +60,13 @@ def start_pacer(
     return asyncio.run_coroutine_threadsafe(pace(), run_engine._loop)
 
 
+def sweep_points(start: float, end: float, step: float) -> list[float]:
+    """Inclusive sweep from *start* to *end* in steps of ``abs(step)``."""
+    n = int(round(abs(end - start) / abs(step))) + 1
+    sign = 1.0 if end >= start else -1.0
+    return [round(start + sign * i * abs(step), 6) for i in range(n)]
+
+
 class DocCollector:
     """Collect RunEngine documents; pick the ``primary`` stream's events."""
 
@@ -70,6 +77,11 @@ class DocCollector:
 
     def __call__(self, name: str, doc: dict) -> None:
         self.docs[name].append(doc)
+
+    @property
+    def start(self) -> dict:
+        """The run's start document."""
+        return self.docs["start"][0]
 
     def primary_events(self) -> list[dict]:
         uids = {d["uid"] for d in self.docs["descriptor"] if d["name"] == "primary"}

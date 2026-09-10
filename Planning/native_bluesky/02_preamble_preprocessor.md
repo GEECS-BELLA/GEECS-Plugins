@@ -1,7 +1,9 @@
 # Phase 2 — the preamble and finalize as one RunEngine preprocessor
 
-Status: **designed, not yet built.** Branch `phase/02-preamble-preprocessor`
-off `feature/native-bluesky-plans` (phase 1 merged, #808). Issue #807.
+Status: **built and hardware-accepted** (PR #809, adversarially reviewed).
+Branch `phase/02-preamble-preprocessor` off `feature/native-bluesky-plans`
+(phase 1 merged, #808). Issue #807. What actually shipped, and the two
+places it differs from this design, are in the section at the end.
 
 ## Goal
 
@@ -178,3 +180,44 @@ moved once.
   leave `geecs_optimize` as the one plan that keeps an in-plan preamble
   until the optimization work lands. Recommendation: leave it; it is not a
   stock plan and phase 3's registration table does not cover it.
+
+## What shipped (and where it differs from the design above)
+
+Steps A, B and C all landed: the preamble is extracted (`plans/preamble.py`),
+the preprocessor calls it, and `qserver/startup/startup.py` installs it with
+`connect_on_demand` re-appended outermost. The parity test specified above
+exists — it compares every GEECS-owned start-document key exactly and the
+event columns as an exact set — and it earned its place immediately by
+finding four divergences during review (a missing `acq_timestamp` s-file
+header, phantom headers for unread settable children, a stray raw `geecs`
+key in the start document, and six missing execution keys that
+`tiled_catalog`/`tiled_schema` read).
+
+Three differences from the plan above, all forced by the same fact — the
+funnel guaranteed things **by construction** that this door can only enforce
+or refuse:
+
+1. **The read set is no longer the save set.** The funnel built one device
+   list and handed it to the plan; here the caller passes the detectors and
+   the save set selects namespace devices. A plan that does not read every
+   saved device is **refused** before the claim, because native saving on an
+   unread device writes frames with no `acq_timestamp` row to join them to.
+2. **Scan-axis topologies are refused, not degraded.** `build_movable`
+   dispatches a catalog target onto pseudo, confirm-elsewhere and
+   tolerance-checked-motor; the namespace builds children from the DB alone
+   and knows none of that until phase 3. A target needing one of those
+   raises rather than quietly becoming a fire-and-forget setpoint.
+3. **Devices must be reset between runs.** Long-lived nouns keep whatever a
+   run configured. `GeecsNamespace.reset_run_configuration()` runs before
+   and after each preamble; the mixins chain through
+   `devices/reset_support.py`.
+
+On correction 1 (telemetry): confirmed, and implemented as **inserted reads
+between the plan's last `read` and its `save`** — same row, same `primary`
+stream, no schema change — rather than `SupplementalData`.
+
+**Known gap, owned by phase 3:** stock plans emit no `ScanContext` columns
+(`bin_number`, `scan_event_index`, `shot_index_in_bin`). Those arrive with
+the per-step function, which is also when `ScanContext` retires. The parity
+test asserts them as the *only* column difference, so the gap cannot widen
+unnoticed.

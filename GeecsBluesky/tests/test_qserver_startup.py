@@ -236,7 +236,7 @@ def test_startup_exports_the_device_namespace_and_installs_connect_last(
     """Devices from the roster land in the namespace/__all__; connect_on_demand is outermost."""
     pytest.importorskip("aioca")  # the roster builds CA devices
     from geecs_bluesky.namespace import DeviceRoster, GeecsNamespace
-    from geecs_bluesky.preprocessors import connect_on_demand
+    from geecs_bluesky.preprocessors import connect_on_demand, geecs_preamble
 
     monkeypatch.setenv("QS_EXPERIMENT", "TestExp")
     monkeypatch.setenv("QS_DEVICE_NAMESPACE", "db")
@@ -268,3 +268,8 @@ def test_startup_exports_the_device_namespace_and_installs_connect_last(
     assert ns["U_S1H"].current.name == "u_s1h-current"
     funcs = [getattr(p, "func", p) for p in ns["RE"].preprocessors]
     assert funcs[-1] is connect_on_demand and funcs.count(connect_on_demand) == 1
+    # The stock-plan preamble is installed, and INSIDE connect_on_demand so
+    # its own connects and reads still pass through it (#807 phase 2).
+    assert funcs == [geecs_preamble, connect_on_demand]
+    preamble = ns["RE"].preprocessors[0]
+    assert preamble.keywords["namespace"] is not None

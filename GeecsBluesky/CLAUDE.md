@@ -54,7 +54,15 @@ geecs_bluesky/
   session.py                # GeecsSession — headless scans (RE + Tiled + discipline)
   namespace.py              # GeecsNamespace — every device as a long-lived noun for
                             # stock plans, composed from devices/ca (#807 phase 1)
+  plan_session.py           # set_plan_session / get_plan_session — the worker-wide
+                            #   default GeecsSession (shared by the funnel and the
+                            #   stock-plan preamble; neutral of both)
   preprocessors.py          # RunEngine preprocessors: connect_on_demand (outermost)
+                            #   + geecs_preamble — a stock bluesky.plans verb whose
+                            #   md carries {"geecs": ScanRequest} gets the whole
+                            #   GEECS preamble/finalize and a plan-owned shot per
+                            #   trigger group (#807 phase 2). install_geecs_preamble
+                            #   keeps connect_on_demand outermost.
                             #   + session.run(ScanRequest) — the headless door:
                             #   RE(geecs_scan_request_plan) with the two
                             #   explicit seams (failed_move_policy="raise",
@@ -148,7 +156,14 @@ geecs_bluesky/
                             #   motor list = multi-axis grid; per_step hook)
     free_run_step_scan.py   # geecs_free_run_step_scan — reference-paced + t0-sync + tail flush
     optimize.py             # geecs_adaptive_scan — optimization as a scan (iteration = bin)
-    single_shot.py          # geecs_single_shot + geecs_confirm_quiescent
+    preamble.py             # resolve_request + prepare_step_scan — the funnel's
+                            #   preamble body, extracted so the ScanRequest door
+                            #   and the stock-plan preprocessor share ONE
+                            #   implementation (#807 phase 2)
+    single_shot.py          # geecs_single_shot + geecs_confirm_quiescent;
+                            #   fire_and_await_shot is the arm→fire→wait seam with
+                            #   the bounded refire and device-down gating, used by
+                            #   both the funnel's shot and the preprocessor's
     t0_sync.py              # geecs_t0_sync — coordinated per-device t0 capture
     run_wrapper.py          # geecs_run_wrapper + claim_scan_number (numbering + save + md)
     named_plans.py          # geecs_noscan_plan / geecs_scan_plan /

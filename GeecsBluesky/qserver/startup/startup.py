@@ -269,16 +269,28 @@ if _optimization_loader is not None:
 # (``count([UC_Amp4_IR_input])``, ``scan([...], U_S1H.Current, -1, 1, 5)``).
 # QS_DEVICE_NAMESPACE=off skips it (hermetic tests, a box without DB reach).
 from geecs_bluesky.namespace import GeecsNamespace  # noqa: E402
-from geecs_bluesky.preprocessors import install_connect_on_demand  # noqa: E402
+from geecs_bluesky.preprocessors import (  # noqa: E402
+    install_connect_on_demand,
+    install_geecs_preamble,
+)
 
 _DEVICE_NAMES: list[str] = []
+namespace = None
 if os.environ.get("QS_DEVICE_NAMESPACE", "db").strip().lower() != "off":
     namespace = GeecsNamespace.from_experiment(_experiment)
     _DEVICE_NAMES = namespace.export_into(globals())
-# Installed LAST on purpose: connect_on_demand must be the OUTERMOST
-# preprocessor so it also sees messages later preprocessors inject
-# (SupplementalData baselines, the phase-2 preamble).  Re-run this after
-# appending anything else to RE.preprocessors.
+
+# ── Stock-plan preamble (GEECS-Plugins#807 phase 2) ───────────────────────
+# A stock bluesky.plans verb carrying md={"geecs": <ScanRequest>} gets the
+# full GEECS preamble and finalize — validate, resolve, claim, ScanInfo,
+# native saving, setup/closeout actions, arm/fire/disarm.  A plan without
+# that key is untouched, so installing it costs nothing for plain plans.
+# It installs connect_on_demand LAST for us: connect_on_demand must be the
+# OUTERMOST preprocessor so it also sees messages later preprocessors
+# inject (SupplementalData baselines, the preamble's own connects and
+# reads).  Re-run install_connect_on_demand after appending anything else
+# to RE.preprocessors.
 install_connect_on_demand(RE, mock=session._mock)
+install_geecs_preamble(RE, session=session, namespace=namespace)
 
 __all__ = ["RE", *GEECS_PLAN_NAMES, *GEECS_WORKER_FUNCTIONS, *_DEVICE_NAMES]
