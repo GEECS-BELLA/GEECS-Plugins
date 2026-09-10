@@ -8,19 +8,26 @@ One device, the protocols Bluesky already has for it
   writes, each completing before the next (the TriggerProfile semantics).
   ``"SINGLESHOT"`` is the momentary fire — a move that never becomes the
   standing state.
-- **Pausable**, state-dependent (§10.3): in strict mode the RunEngine
-  pausing simply stops the plan firing and the box stays ``ARMED``, so
-  ``pause()`` does nothing; in gated mode edges flow on their own, so
-  ``pause()`` drives ``OFF`` and ``resume()`` restores ``SCAN``.  The
-  RunEngine calls both on every Pausable it has seen in a message
-  (bluesky 1.15.0 ``run_engine.py``), so being the ``set`` target is
-  enough to be paused.
+- **Pausable**, keyed on the standing state (§10.3): ``ARMED`` (strict) is
+  quiescent by construction — the single-shot source cannot free-run — so
+  the RunEngine pausing simply stops the plan firing and ``pause()`` does
+  nothing.  ``SCAN`` and ``STANDBY`` both pass external edges
+  (:data:`~geecs_bluesky.models.shot_control.QUIESCE_FROM`; §11.1 — STANDBY is the machine's idle state, not a
+  quiet one), so a pause there drives ``OFF`` and ``resume()`` restores
+  what the plan had.  The RunEngine calls both on every Pausable it has
+  seen in a message (bluesky 1.15.0 ``run_engine.py``), so being the
+  ``set`` target is enough to be paused.  Neither notification ever raises:
+  an exception out of ``pause()`` aborts the run the operator meant to
+  pause, and out of ``resume()`` lands after the RunEngine has already
+  rewound — failures are logged loudly instead.
 
 The write machinery is :class:`~geecs_bluesky.shot_controller.ShotController`
 (``from_writes``: one cached gateway ``:SP`` put per distinct target, the
-hardware-proven stringified-wire convention) — composed, not copied.  The
-standing state is a config signal, so every descriptor records which state
-the box was in.
+hardware-proven stringified-wire convention) — composed, not copied — and
+its ``last_state`` is the one standing-state field; the ``state`` config
+signal mirrors it so every descriptor records which state the box was in.
+:func:`trigger_writes_from_profile` adapts the configs-repo
+``TriggerProfile`` into the controller's ``ShotControlWrites``.
 """
 
 from __future__ import annotations
@@ -38,10 +45,67 @@ from ophyd_async.core import (
 )
 
 from geecs_bluesky.exceptions import GeecsConfigurationError
-from geecs_bluesky.models.shot_control import ShotControlWrites
+from geecs_bluesky.models.shot_control import QUIESCE_FROM, ShotControlWrites
 from geecs_bluesky.shot_controller import ShotController
 
 logger = logging.getLogger(__name__)
+
+
+def _state_write_triples(
+    profile: TriggerProfile, state: TriggerState
+) -> list[tuple[str | None, str, str]]:
+    """Normalize one state's writes to ``(device, variable, value)`` triples.
+
+    Handles both TriggerProfile generations (single-device dict shape and
+    multi-device ordered write lists); order is preserved exactly
+    (schema-documented: writes apply top to bottom).
+    """
+    writes = profile.writes_for(state)
+    if isinstance(writes, dict):
+        device = getattr(profile, "device", None)
+        return [(device, variable, value) for variable, value in writes.items()]
+    triples: list[tuple[str | None, str, str]] = []
+    for write in writes:
+        if isinstance(write, dict):
+            triples.append((write["device"], write["variable"], write["value"]))
+        else:
+            triples.append((write.device, write.variable, write.value))
+    return triples
+
+
+def trigger_writes_from_profile(profile: TriggerProfile) -> ShotControlWrites:
+    """Adapt a TriggerProfile into the controller's ``ShotControlWrites``.
+
+    Each state becomes the profile's **ordered** write list (possibly
+    spanning several devices); the controller replays them sequentially,
+    each write completing before the next.
+
+    Raises
+    ------
+    GeecsConfigurationError
+        The profile writes no device at all.
+    """
+    states: dict[str, list[tuple[str, str, str]]] = {}
+    any_device = False
+    for state in TriggerState:
+        triples: list[tuple[str, str, str]] = []
+        for device, variable, value in _state_write_triples(profile, state):
+            if device is None:
+                raise GeecsConfigurationError(
+                    f"trigger profile {profile.name!r} has a write to "
+                    f"{variable!r} with no device — it cannot be sent"
+                )
+            triples.append((device, variable, value))
+            any_device = True
+        if triples:
+            states[state.value] = triples
+    if not any_device:
+        raise GeecsConfigurationError(
+            f"trigger profile {profile.name!r} names no trigger device — "
+            "it cannot drive a scan's trigger"
+        )
+    name = getattr(profile, "name", "") or ""
+    return ShotControlWrites(name=name, states=states)
 
 
 class ShotControl(StandardReadable):
@@ -81,10 +145,10 @@ class ShotControl(StandardReadable):
             setter_factory=setter_factory,
         )
         with self.add_children_as_readables(StandardReadableFormat.CONFIG_SIGNAL):
-            # The last *standing* state driven (never SINGLESHOT); "" until
-            # the first move.
+            # Mirrors the controller's last standing state (never SINGLESHOT);
+            # "" until the first move.
             self.state, self._set_state = soft_signal_r_and_setter(str, "")
-        self._resume_to: TriggerState | None = None
+        self._resume_to: str | None = None
         super().__init__(name=name)
 
     @classmethod
@@ -92,10 +156,6 @@ class ShotControl(StandardReadable):
         cls, profile: TriggerProfile, *, experiment: str | None = None, **kwargs: Any
     ) -> ShotControl:
         """Build from a TriggerProfile (the configs-repo document)."""
-        # Deferred: the adapter lives with the request runner until the plan
-        # layer relocates it (phase 1); importing it there is the one copy.
-        from geecs_bluesky.scan_request_runner import trigger_writes_from_profile
-
         return cls(
             trigger_writes_from_profile(profile), experiment=experiment, **kwargs
         )
@@ -106,20 +166,30 @@ class ShotControl(StandardReadable):
         return self._writes.name
 
     def defines(self, state: str | TriggerState) -> bool:
-        """Whether the profile writes anything for *state*."""
-        return self._controller.defines_state(_state(state).value)
+        """Whether the profile writes anything for *state* (``False`` for unknown names)."""
+        try:
+            name = _state(state).value
+        except GeecsConfigurationError:
+            return False
+        return self._controller.defines_state(name)
 
     @property
     def standing_state(self) -> str:
         """The last standing state driven, ``""`` before the first move."""
-        return self._standing
-
-    _standing: str = ""
+        return self._controller.last_state or ""
 
     @AsyncStatus.wrap
     async def set(self, value: str | TriggerState) -> None:
-        """Drive the box to *value*: that state's writes, in order."""
-        await self._drive(_state(value))
+        """Drive the box to *value*: that state's writes, in order.
+
+        A standing state the plan drives supersedes any pause bookkeeping:
+        a run stopped while paused must not make a later, unrelated resume
+        re-assert the state it was paused from.
+        """
+        state = _state(value)
+        await self._drive(state)
+        if state is not TriggerState.SINGLESHOT:
+            self._resume_to = None
 
     async def _drive(self, state: TriggerState) -> None:
         setters = self._controller.state_setters(state.value)
@@ -130,26 +200,57 @@ class ShotControl(StandardReadable):
             )
         for setter, value in setters:
             await setter.put(value)
-        if state is not TriggerState.SINGLESHOT:
-            self._standing = state.value
-            self._set_state(state.value)
+        self._controller.record_state(state.value)
+        self._set_state(self.standing_state)
 
     async def pause(self) -> None:
-        """Stop edges on a RunEngine pause only if they flow on their own (SCAN)."""
-        if self._standing == TriggerState.SCAN.value:
-            self._resume_to = TriggerState.SCAN
-            logger.info("%s: pause — SCAN → OFF", self.name)
+        """Stop edges on a RunEngine pause if the standing state lets them flow."""
+        try:
+            standing = self.standing_state
+            if standing not in QUIESCE_FROM:
+                logger.debug("%s: pause — %r needs no quiesce", self.name, standing)
+                return
+            if not self.defines(TriggerState.OFF):
+                logger.warning(
+                    "%s: trigger profile %r defines no OFF writes — paused with "
+                    "the trigger still free-running (add an OFF state)",
+                    self.name,
+                    self.profile_name,
+                )
+                return
+            self._resume_to = standing
             await self._drive(TriggerState.OFF)
+            logger.info("%s: pause — %s → OFF", self.name, standing)
+        except Exception:
+            logger.exception(
+                "%s: pause quiesce failed — the scan is paused but the trigger "
+                "may still be running",
+                self.name,
+            )
 
     async def resume(self) -> None:
         """Restore, on RunEngine resume, the state ``pause`` left."""
-        if self._resume_to is not None:
-            state, self._resume_to = self._resume_to, None
-            logger.info("%s: resume — → %s", self.name, state.value)
-            await self._drive(state)
+        standing, self._resume_to = self._resume_to, None
+        if standing is None:
+            return
+        try:
+            await self._drive(TriggerState(standing))
+            logger.info("%s: resume — → %s", self.name, standing)
+        except Exception:
+            logger.exception(
+                "%s: could not re-assert %s on resume — check the trigger",
+                self.name,
+                standing,
+            )
 
 
 def _state(value: str | TriggerState) -> TriggerState:
     if isinstance(value, Enum):
-        return TriggerState(value.value)
-    return TriggerState(str(value).upper())
+        value = value.value
+    try:
+        return TriggerState(str(value).upper())
+    except ValueError:
+        names = ", ".join(s.value for s in TriggerState)
+        raise GeecsConfigurationError(
+            f"{value!r} is not a trigger state (one of {names})"
+        ) from None

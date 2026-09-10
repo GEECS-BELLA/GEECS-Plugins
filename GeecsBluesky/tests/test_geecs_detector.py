@@ -192,7 +192,7 @@ def test_native_saving_lifecycle(RE: RunEngine, tmp_path: Path) -> None:
     # so the worker path passes through unchanged.
     assert _run(RE, lambda: cam.localsavingpath.get_value()) == str(directory)
     describe = _run(RE, lambda: cam.describe())
-    assert describe["uc_testcam-save_path"]["dtype"] == "string"
+    assert describe["uc_testcam-nonscalar_save_path"]["dtype"] == "string"
     _run(RE, lambda: cam.unstage())
     assert _run(RE, lambda: cam.save.get_value()) == "off"
     assert seen[-1] == "off"
@@ -236,3 +236,25 @@ def test_failed_status_carries_the_geecs_error(RE: RunEngine) -> None:
     with pytest.raises(FailedStatus) as info:
         RE(plan())
     assert isinstance(info.value.__cause__, GeecsTriggerTimeoutError)
+
+
+def test_native_save_without_a_path_clears_a_stale_flag_and_adds_no_column(
+    RE: RunEngine,
+) -> None:
+    """A camera whose frames are not wanted still owns ``save`` (found live 26_0828)."""
+    cam = GeecsDetector(
+        "UC_TestCam",
+        ["MeanCounts"],
+        experiment="TestExp",
+        name="uc_testcam",
+        native_save=True,
+    )
+    connect_mock(RE, cam)
+    set_mock_value(cam.acq_timestamp, 1000.0)
+    set_mock_value(cam.save, "on")  # left on by a crashed run
+    _run(RE, lambda: cam.stage())
+    assert _run(RE, lambda: cam.save.get_value()) == "off"
+    _run(RE, lambda: cam.prepare(STRICT_TRIGGER_INFO))
+    assert _run(RE, lambda: cam.save.get_value()) == "off"
+    assert "uc_testcam-nonscalar_save_path" not in _run(RE, lambda: cam.describe())
+    _run(RE, lambda: cam.unstage())

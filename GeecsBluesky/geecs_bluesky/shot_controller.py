@@ -212,7 +212,7 @@ class ShotController:
                 yield from bps.abs_set(setter, value, group=group)
                 yield from bps.wait(group)
             if ordered:
-                self._record_state(name)
+                self.record_state(name)
                 logger.info("Shot controller → %s", name)
             return
         group = f"shot_ctrl_{state}"
@@ -223,7 +223,7 @@ class ShotController:
                 yield from bps.abs_set(setter, val, group=group)
         if writes:
             yield from bps.wait(group)
-            self._record_state(state)
+            self.record_state(state)
             logger.info("Shot controller → %s", state)
 
     def state_setters(self, state: str | ShotControlState) -> list[tuple[Any, str]]:
@@ -247,7 +247,7 @@ class ShotController:
             if var in self._setters
         ]
 
-    def _record_state(self, state: str | ShotControlState) -> None:
+    def record_state(self, state: str | ShotControlState) -> None:
         """Remember *state* as :attr:`last_state` if it is a standing state.
 
         ``SINGLESHOT`` is a momentary fire, not a standing state — recording

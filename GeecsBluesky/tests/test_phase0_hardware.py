@@ -237,7 +237,7 @@ def test_one_camera_as_a_standard_detector_on_hardware() -> None:
 
     if save:
         directory = Path(folder) / camera_name
-        assert [e["data"][f"{camera.name}-save_path"] for e in events] == [
+        assert [e["data"][f"{camera.name}-nonscalar_save_path"] for e in events] == [
             str(directory)
         ] * len(events)
         files = _wait_for_files(directory, expected_events)

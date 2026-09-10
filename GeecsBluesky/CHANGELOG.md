@@ -39,6 +39,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `plans/single_shot.py` — the arm → fire → await → refire seam is
   `fire_and_await_shot`, called by `geecs_single_shot` (the funnel) and by
   `geecs_take_reading`: one implementation, two callers.
+- `devices/ca/triggerable.py` — `CaAcqTimestampReadable` / `CaTriggerable`
+  compose `GeecsAcquireLogic` for the stamp monitor, the synchronous
+  baseline and the shot wait instead of carrying their own copy (review of
+  #811); `_last_acq` / `_shot_queue` / `_monitoring` / `_trigger_timeout`
+  remain as views for the funnel-era callers.
+- `trigger_writes_from_profile` (TriggerProfile → `ShotControlWrites`) now
+  lives in `devices/shot_control.py` next to the device that consumes it;
+  `scan_request_runner` imports it from there.  `QUIESCE_FROM` (the
+  standing states a pause must quiesce from) has its one home in
+  `models/shot_control.py`; the device and `plans/pause_semantics.py` both
+  import it.
+- `ShotController._record_state` → `record_state` (public; the device
+  records through it so `last_state` is the one standing-state field).
 
 ## [0.77.0] - 2026-09-09
 

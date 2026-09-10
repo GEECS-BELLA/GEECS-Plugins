@@ -100,7 +100,7 @@ __all__ = ["FAILED_MOVE_LOG_PREFIX", "QUIESCE_FROM", "ShotControlPauseQuiescer"]
 #: deliberately absent: strict mode's single-shot source cannot free-run, so
 #: the paused state is quiescent by construction (pinned by test).  OFF and
 #: None (never driven) are already stopped / not the scan's to touch.
-QUIESCE_FROM = frozenset({ShotControlState.SCAN.value, ShotControlState.STANDBY.value})
+from geecs_bluesky.models.shot_control import QUIESCE_FROM  # noqa: E402 — one home for the rule
 
 
 class ShotControlPauseQuiescer:

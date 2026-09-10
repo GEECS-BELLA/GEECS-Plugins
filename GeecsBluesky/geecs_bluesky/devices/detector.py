@@ -20,9 +20,12 @@ ophyd-async 0.19 composes a detector from three logics
 
 Every per-run fact about the device is set through its own lifecycle —
 ``stage → prepare → trigger → unstage`` — never from outside it (§3, the
-second leg).  A plain ``bp.count([cam])`` is refused with a clear error: a
-GEECS camera cannot self-trigger, so the fire must come from the plan
-(:mod:`geecs_bluesky.plans.strict`).
+second leg).  A plain ``bp.count([cam])`` is refused at prepare: a GEECS
+camera cannot self-trigger, so the fire must come from the plan
+(:mod:`geecs_bluesky.plans.strict`).  (With
+``OPHYD_ASYNC_PRESERVE_DETECTOR_STATE=YES`` ophyd-async takes
+:meth:`GeecsTriggerLogic.default_trigger_info` instead and the implicit
+prepare succeeds — the shot then times out waiting for a fire nobody sends.)
 """
 
 from __future__ import annotations
@@ -142,19 +145,32 @@ class GeecsAcquireLogic(DetectorAcquireLogic):
         device_name: str,
         *,
         shot_timeout: float = 3.0,
+        queue_maxsize: int | None = None,
     ) -> None:
         self._signal = acq_timestamp
         self._device = device_name
         self.shot_timeout = shot_timeout
         self._last: float | None = None
         self._t0: float | None = None
-        self._queue: asyncio.Queue[float] = asyncio.Queue(maxsize=self._queue_maxsize)
+        self._queue: asyncio.Queue[float] = asyncio.Queue(
+            maxsize=queue_maxsize or self._queue_maxsize
+        )
         self._monitoring = False
 
     @property
     def last_acq_timestamp(self) -> float | None:
         """Latest stamp seen by the monitor (``None`` before the first shot)."""
         return self._last
+
+    @property
+    def queue(self) -> asyncio.Queue[float]:
+        """The bounded drop-oldest queue of stamp updates (drained by ``baseline``)."""
+        return self._queue
+
+    @property
+    def monitoring(self) -> bool:
+        """Whether the persistent stamp monitor is attached."""
+        return self._monitoring
 
     def attach(self) -> None:
         """Start the persistent stamp monitor (from the detector's ``connect``)."""
@@ -194,7 +210,13 @@ class GeecsAcquireLogic(DetectorAcquireLogic):
         """Nothing to start: LabVIEW is always acquiring; the plan fires the box."""
 
     async def wait_for_idle(self) -> None:
-        """Wait for the stamp to advance past the baseline."""
+        """Wait for the stamp to advance past the baseline.
+
+        Cold cache (baseline ``None``, no update since the monitor attached):
+        deliberately **no** CA-get baseline — a get raced the shot itself, so
+        the first positive arrival *is* the shot; ``baseline()`` already
+        drained anything older.
+        """
         loop = asyncio.get_running_loop()
         deadline = loop.time() + self.shot_timeout
         while True:
@@ -208,6 +230,7 @@ class GeecsAcquireLogic(DetectorAcquireLogic):
                     self._device, self.shot_timeout
                 ) from None
             if value != self._t0:
+                logger.debug("%s: shot (%s → %s)", self._device, self._t0, value)
                 return
 
     async def ensure_stopped(self) -> None:
@@ -258,6 +281,14 @@ class _ConstantProvider(ReadableDataProvider):
         }
 
 
+class _NoProvider(ReadableDataProvider):
+    async def make_datakeys(self) -> dict[str, DataKey]:
+        return {}
+
+    async def make_readings(self) -> dict[str, Reading]:
+        return {}
+
+
 class LvNativeFileDataLogic(DetectorDataLogic):
     """LabVIEW's native file saving as the detector's data logic.
 
@@ -269,6 +300,11 @@ class LvNativeFileDataLogic(DetectorDataLogic):
     provider; closed (``save=off``) by :meth:`stop`, which ``stage`` and
     ``unstage`` both call, so a stale ``save=on`` left by a crash is switched
     off before the next run writes anywhere.
+
+    A camera whose frames are **not** wanted this run still carries the
+    logic (``native_save=True`` on the detector, no path provider): a
+    ``save=on`` left by a crash would otherwise write today's shots into
+    yesterday's folder (found live 26_0828) — so ``stage`` always clears it.
 
     The device directory is created with ``mkdir(exist_ok=True)`` **inside an
     existing scan folder** only — the scan folder itself is claimed by the
@@ -286,13 +322,16 @@ class LvNativeFileDataLogic(DetectorDataLogic):
         share path); defaults to the config.ini mapping.
     """
 
-    datakey_suffix = "-save_path"
+    #: The column name is the event-schema contract (``EVENT_SCHEMA.md``,
+    #: ``geecs_data_utils.tiled_schema.COMPANION_SUFFIXES``): renaming it is
+    #: a contract change that travels with those files, not a detector edit.
+    datakey_suffix = "-nonscalar_save_path"
 
     def __init__(
         self,
         localsavingpath: SignalRW[str],
         save: SignalRW[str],
-        path_provider: PathProvider,
+        path_provider: PathProvider | None,
         *,
         device_path: Callable[[str], str] = device_server_save_path,
     ) -> None:
@@ -303,7 +342,14 @@ class LvNativeFileDataLogic(DetectorDataLogic):
         self.directory: Path | None = None
 
     async def prepare_single(self, datakey_name: str) -> ReadableDataProvider:
-        """Point the device at this run's directory and switch saving on."""
+        """Point the device at this run's directory and switch saving on.
+
+        Without a path provider the device records scalars only: saving
+        stays off (``stop`` already cleared a stale flag at ``stage``) and no
+        column is produced.
+        """
+        if self._path_provider is None:
+            return _NoProvider()
         info = self._path_provider(datakey_name)
         directory = Path(info.directory_path)
         if not directory.parent.is_dir():
@@ -343,8 +389,13 @@ class GeecsDetector(StandardDetector):
         ``float`` otherwise.
     path_provider :
         When given, the device saves its native files there
-        (:class:`LvNativeFileDataLogic`); without it the detector records
-        scalars only.
+        (:class:`LvNativeFileDataLogic`).
+    native_save :
+        The device has ``localsavingpath``/``save`` controls.  Implied by
+        *path_provider*; set it without one for a camera whose frames are
+        not wanted this run, so a stale ``save=on`` is still cleared at
+        ``stage`` (see :class:`LvNativeFileDataLogic`).  Without either the
+        detector records scalars only.
     shot_timeout :
         Seconds to wait for the stamp after a fire.
     """
@@ -358,6 +409,7 @@ class GeecsDetector(StandardDetector):
         name: str = "",
         datatypes: Mapping[str, type | None] | None = None,
         path_provider: PathProvider | None = None,
+        native_save: bool = False,
         shot_timeout: float = 3.0,
     ) -> None:
         self._geecs_device_name = device
@@ -389,7 +441,7 @@ class GeecsDetector(StandardDetector):
             self._acquire,
             ScalarsDataLogic((*scalars, self.acq_timestamp)),
         ]
-        if path_provider is not None:
+        if native_save or path_provider is not None:
             path_pv = ca_pv(experiment, device, "localsavingpath")
             save_pv = ca_pv(experiment, device, "save")
             self.localsavingpath = epics_signal_rw(str, path_pv, setpoint_pv(path_pv))

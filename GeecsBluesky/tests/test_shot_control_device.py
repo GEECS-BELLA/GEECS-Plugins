@@ -159,3 +159,69 @@ def test_run_engine_pauses_the_box_it_set(
     assert shot_control.standing_state == "OFF"
     RE.resume()
     assert shot_control.standing_state == "SCAN"
+
+
+def test_stop_from_a_paused_gated_run_does_not_leak_into_the_next(
+    RE: RunEngine, shot_control: ShotControl
+) -> None:
+    """Review P1: pause in SCAN, stop, then a strict run's pause/resume must not drive SCAN."""
+    RE(mv(shot_control, "SCAN"))
+    _run(RE, lambda: shot_control.pause())  # SCAN → OFF, remembers SCAN
+    assert shot_control.standing_state == "OFF"
+    # The run is stopped: finalize drives STANDBY, resume() is never called.
+    RE(mv(shot_control, "STANDBY"))
+    # Next run, strict: ARMED, pause (no-op), resume — must stay ARMED.
+    RE(mv(shot_control, "ARMED"))
+    _run(RE, lambda: shot_control.pause())
+    _run(RE, lambda: shot_control.resume())
+    assert shot_control.standing_state == "ARMED"
+    assert Recorder.log[-2:] == [("DG", "Amplitude", "4.0"), ("DG", "Source", "single")]
+
+
+def test_pause_from_standby_quiesces_too(
+    RE: RunEngine, shot_control: ShotControl
+) -> None:
+    """STANDBY passes external edges (§11.1): a pause there drives OFF as well."""
+    RE(mv(shot_control, "STANDBY"))
+    _run(RE, lambda: shot_control.pause())
+    assert shot_control.standing_state == "OFF"
+    _run(RE, lambda: shot_control.resume())
+    assert shot_control.standing_state == "STANDBY"
+
+
+def test_pause_without_off_logs_and_never_raises(RE: RunEngine, caplog) -> None:
+    """A profile with no OFF: the pause is logged, the box left alone, nothing raised."""
+    sc = ShotControl(
+        ShotControlWrites(name="no_off", states={"SCAN": [("DG", "Source", "edges")]}),
+        experiment="TestExp",
+        name="sc",
+        setter_factory=Recorder,
+    )
+    connect_mock(RE, sc)
+    RE(mv(sc, "SCAN"))
+    n = len(Recorder.log)
+    with caplog.at_level("WARNING"):
+        _run(RE, lambda: sc.pause())
+        _run(RE, lambda: sc.resume())
+    assert len(Recorder.log) == n
+    assert sc.standing_state == "SCAN"
+    assert "defines no OFF" in caplog.text
+
+
+def test_unknown_state_name_is_a_configuration_error(
+    RE: RunEngine, shot_control: ShotControl
+) -> None:
+    assert shot_control.defines("armed") and not shot_control.defines("FOO")
+    with pytest.raises(GeecsConfigurationError, match="not a trigger state"):
+        _run(RE, lambda: shot_control.set("FOO"))
+
+
+def test_standing_state_has_one_source(
+    RE: RunEngine, shot_control: ShotControl
+) -> None:
+    """The composed controller's last_state is the field; the config signal mirrors it."""
+    RE(mv(shot_control, "SCAN"))
+    assert shot_control._controller.last_state == "SCAN"
+    assert _run(RE, lambda: shot_control.state.get_value()) == "SCAN"
+    RE(mv(shot_control, "SINGLESHOT"))
+    assert shot_control._controller.last_state == "SCAN"

@@ -236,7 +236,7 @@ def test_native_saving_brackets_the_run(
     RE.subscribe(col)
     RE(bp.count([cam], num=2, per_shot=geecs_per_shot(shot_control)))
     directory = str(tmp_path / "Scan001" / "UC_Cam")
-    assert [e["data"]["uc_cam-save_path"] for e in col.primary_events()] == [
+    assert [e["data"]["uc_cam-nonscalar_save_path"] for e in col.primary_events()] == [
         directory
     ] * 2
     assert Path(directory).is_dir()
