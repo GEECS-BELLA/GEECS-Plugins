@@ -156,10 +156,15 @@ def test_stock_plans_run_as_geecs_scans_on_hardware() -> None:
         float(os.environ["GEECS_HW_SCAN_END"]),
         float(os.environ["GEECS_HW_SCAN_STEP"]),
     )
+    # A direct CA read: the namespace device is connected lazily by
+    # connect_on_demand when a *plan* touches it, so it is not connected yet.
+    from geecs_bluesky.devices.ca.oneshot import try_caget_once
+    from geecs_core.pv_naming import pv_name, setpoint_pv
+
     initial = float(
-        __import__("asyncio")
-        .run_coroutine_threadsafe(movable._setpoint.get_value(), session.RE._loop)
-        .result(timeout=5)
+        try_caget_once(
+            setpoint_pv(pv_name(experiment, device_name, variable)), timeout=5.0
+        )
     )
     print(f"sweep {sweep_target} over {points} (pre-scan setpoint {initial})")
     docs2 = Docs()
