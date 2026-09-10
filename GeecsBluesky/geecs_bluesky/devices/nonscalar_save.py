@@ -45,6 +45,40 @@ class NonScalarSaveSupport:
     _asset_local_root_path: str | None = None
     _pending_asset_docs: deque[Asset]
 
+    def configure_saving_mode(
+        self, *, save_nonscalar_data: bool, save_control_only: bool = False
+    ) -> None:
+        """Set the native-save mode for **this run** (GEECS-Plugins#807 phase 2).
+
+        The per-scan device classes fix these at construction, which a
+        long-lived namespace device cannot do: the same camera saves natively
+        in one scan and is capture-owned in the next.  The two control
+        children (``localsavingpath``, ``save``) are the device's own served
+        settables, so nothing is created here — only the flags the save-enable
+        plan and :meth:`~geecs_bluesky.session.GeecsSession._configure_saving`
+        read.  ``save_control_only`` is ignored when *save_nonscalar_data* is
+        true, exactly as the constructors do.
+
+        Raises
+        ------
+        GeecsConfigurationError
+            The device has no ``save`` control, so neither mode can be driven.
+        """
+        from geecs_bluesky.exceptions import GeecsConfigurationError
+
+        if (save_nonscalar_data or save_control_only) and not hasattr(self, "save"):
+            raise GeecsConfigurationError(
+                f"{getattr(self, '_geecs_device_name', self)}: native saving was "
+                "requested but the device serves no 'save' control"
+            )
+        if save_nonscalar_data and not hasattr(self, "localsavingpath"):
+            raise GeecsConfigurationError(
+                f"{getattr(self, '_geecs_device_name', self)}: native saving was "
+                "requested but the device serves no 'localsavingpath' control"
+            )
+        self._save_nonscalar_data = bool(save_nonscalar_data)
+        self._save_control_only = bool(save_control_only) and not save_nonscalar_data
+
     def configure_nonscalar_file_logging(self, save_path: str | Path) -> None:
         """Record the scanner-owned save directory for the ``nonscalar_save_path`` column."""
         self._nonscalar_save_path = Path(save_path)

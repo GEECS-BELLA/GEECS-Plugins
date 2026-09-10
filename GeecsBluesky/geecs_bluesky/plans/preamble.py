@@ -67,6 +67,7 @@ logger = logging.getLogger(__name__)
 
 __all__ = [
     "PreparedScan",
+    "namespace_detectors",
     "ResolvedRequest",
     "prepare_step_scan",
     "resolve_request",
@@ -245,6 +246,100 @@ def _disconnect_plan(created: list):
     yield from bps.wait_for([_disconnect_all])
 
 
+def namespace_detectors(
+    namespace: Any, devices_config: dict[str, dict[str, Any]], *, free_run: bool
+) -> list:
+    """The save set's devices, taken from the **namespace** instead of built.
+
+    The role assignment is `_build_request_detectors`' — free-run: the first
+    synchronous entry is the reference and later ones contributors; strict:
+    every synchronous entry is triggered; asynchronous entries are snapshots
+    — but the objects are the long-lived namespace nouns a stock plan is
+    handed, not fresh per-scan devices.  That identity is the whole point:
+    two objects for one device would double the connections and apply the
+    saving configuration to something the plan never reads.
+
+    Roles are asserted rather than chosen, because a namespace device's class
+    is already decided by :func:`~geecs_bluesky.namespace.looks_triggerable`:
+    a synchronous save-set entry must be a triggerable device, an
+    asynchronous one must not be.  A mismatch is a configuration error worth
+    hearing about, not something to paper over.
+
+    The recorded scalars must also match: the namespace device reads the DB's
+    subscribed list, so a save-set entry naming a different set (an explicit
+    ``scalars:`` list) cannot be honoured without per-run reselection —
+    refused loudly rather than silently logging different columns.
+    """
+    from geecs_bluesky.devices.ca.generic_detector import CaGenericDetector
+    from geecs_bluesky.utils import safe_name
+
+    detectors: list = []
+    reference_assigned = False
+    for device_name, cfg in devices_config.items():
+        variables = list(cfg.get("variable_list") or [])
+        synchronous = bool(cfg.get("synchronous", False))
+        try:
+            device = namespace[device_name]
+        except KeyError as exc:
+            raise GeecsConfigurationError(
+                f"save set names {device_name!r}, which is not in the device "
+                f"namespace for {getattr(namespace, 'experiment', '?')}"
+            ) from exc
+
+        triggerable = isinstance(device, CaGenericDetector)
+        if synchronous and not triggerable:
+            raise GeecsConfigurationError(
+                f"{device_name}: the save set marks it synchronous (shot-triggered) "
+                "but the namespace built it as a non-triggered device — fix the "
+                "save-set role, or the triggerable classification for its devicetype"
+            )
+        if not synchronous and triggerable:
+            logger.warning(
+                "%s: save-set role is asynchronous but the device is "
+                "shot-triggered; reading it once per row anyway",
+                device_name,
+            )
+        if not synchronous and not variables:
+            logger.warning(
+                "Skipping asynchronous device %s: no scalars to record", device_name
+            )
+            continue
+
+        wanted = {safe_name(v) for v in variables}
+        have = {safe_name(v) for v in device.variables}
+        missing = wanted - have
+        if missing:
+            raise GeecsConfigurationError(
+                f"{device_name}: the save set records {sorted(missing)}, which the "
+                "namespace device does not read (it reads the DB's subscribed "
+                "list). Add them to the device's subscribed variables, or drop "
+                "them from the save set."
+            )
+
+        save = bool(cfg.get("save_nonscalar_data", False))
+        save_control_only = bool(cfg.get("save_control_only", False))
+        if hasattr(device, "configure_saving_mode"):
+            device.configure_saving_mode(
+                save_nonscalar_data=save, save_control_only=save_control_only
+            )
+        elif save or save_control_only:
+            raise GeecsConfigurationError(
+                f"{device_name}: native saving was requested but the namespace "
+                "device has no save-control support"
+            )
+
+        # Free-run contributor anchoring is applied post-claim by
+        # GeecsSession.configure_claimed_scan (set_reference); order is what
+        # marks the reference, so preserve it.
+        if synchronous and not reference_assigned:
+            detectors.insert(0, device)
+            reference_assigned = True
+        else:
+            detectors.append(device)
+    _ = free_run  # role order is positional; the flag stays for symmetry
+    return detectors
+
+
 @dataclass(frozen=True)
 class ResolvedRequest:
     """What :func:`resolve_request` settles before the mode branch."""
@@ -336,8 +431,15 @@ def prepare_step_scan(
     created: list,
     *,
     submission: Any | None = None,
+    namespace: Any | None = None,
 ):
     """The pre-claim preamble for a step/noscan request; returns a :class:`PreparedScan`.
+
+    *namespace* is the device-source seam.  ``None`` (the funnel) builds
+    fresh per-scan devices through the session factories, as it always has.
+    A :class:`~geecs_bluesky.namespace.GeecsNamespace` (the preprocessor
+    door) instead **selects** the save set's devices from the namespace, so
+    the objects are the very ones a stock plan was handed.
 
     A plan (it yields the connect messages), so the caller drives it with
     ``yield from``.  Everything it constructs is appended to *created* — the
@@ -408,8 +510,20 @@ def prepare_step_scan(
             setup_plans + per_step_plans + closeout_plans, registry, factory
         )
 
-    detectors = _build_request_detectors(factories, devices_config, free_run=not strict)
-    movables = [build_movable(factories, target) for target in axis_resolved]
+    if namespace is None:
+        detectors = _build_request_detectors(
+            factories, devices_config, free_run=not strict
+        )
+        movables = [build_movable(factories, target) for target in axis_resolved]
+    else:
+        # Stock-plan door: the objects must be the ones the plan itself is
+        # handed, so the save set SELECTS namespace devices instead of
+        # constructing new ones (see namespace_detectors).
+        detectors = namespace_detectors(namespace, devices_config, free_run=not strict)
+        movables = [
+            namespace.variable(target.device, target.variable)
+            for target in axis_resolved
+        ]
     created.extend(factories.created)
 
     # ---- phase 3: in-plan connects (still pre-claim) ----------------------

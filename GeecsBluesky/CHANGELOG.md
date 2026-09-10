@@ -22,6 +22,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `build_claimed_scan_plan` call a one-liner.
   Tests that patch `make_scalar_policy` / `ShotController` by module path now
   target `geecs_bluesky.plans.preamble`.
+- **Device-source seam** on `prepare_step_scan(..., namespace=...)`
+  (#807 phase 2): `None` keeps the funnel's per-scan construction; a
+  `GeecsNamespace` makes the save set **select** namespace devices instead
+  (`plans/preamble.namespace_detectors`), so a stock plan's detectors and
+  the preamble's are the same objects — two objects for one device would
+  double the connections and configure saving on something the plan never
+  reads. Save-set roles are asserted against the namespace's triggerable
+  classification, and a save set recording scalars the device does not read
+  is refused rather than silently logging different columns.
+- `NonScalarSaveSupport.configure_saving_mode()` — native-save mode as a
+  **per-run** setting. The per-scan classes fix it at construction, which a
+  long-lived namespace device cannot do (the same camera saves natively in
+  one scan and is capture-owned in the next). It only sets the flags; the
+  two control children are the device's own served settables.
 - `GeecsSession.configure_claimed_scan()` — the post-claim tail (ScanInfo
   write → role wiring → native-save configuration) split out of
   `build_claimed_scan_plan`, which now calls it. The preamble preprocessor
