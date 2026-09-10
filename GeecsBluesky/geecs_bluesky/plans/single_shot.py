@@ -182,11 +182,11 @@ def geecs_single_shot(
                 # burn the budget against the real fault (live 2026-09-10,
                 # Scan033: a rejected SINGLESHOT put failed all three attempts
                 # in under a second and the scan died blaming the cameras).
-                # Name the actual cause - it is the only record of which PV
+                # Name the actual cause — it is the only record of which PV
                 # failed and why.
                 logger.error(
                     "single-shot attempt %d of %d failed, but not from a "
-                    "missing frame - re-firing cannot help, so the failure "
+                    "missing frame — re-firing cannot help, so the failure "
                     "propagates: %r",
                     attempt,
                     attempts,

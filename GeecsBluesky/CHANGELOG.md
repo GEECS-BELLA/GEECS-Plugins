@@ -16,7 +16,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   write that never landed, and propagated with the cameras blamed.
   Observed live 2026-09-10 (Undulator Scan033): three attempts in 838 ms
   against a 3.0 s trigger timeout, no device named, and no
-  `Shot controller -> SINGLESHOT` line for any of them.
+  `Shot controller → SINGLESHOT` line for any of them.
 
   Only a `GeecsTriggerTimeoutError` cause is a missing frame now. Anything
   else is logged at ERROR with its real cause — `aioca.CANothing` carries
