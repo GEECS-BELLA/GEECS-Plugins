@@ -186,8 +186,9 @@ Every DB device is one long-lived noun (#808, kept). Two classes:
     - `LvNativeFileDataLogic` — writes path + name template to
       `localsavingpath`, toggles `save`, describes the resource as
       directory + template + per-shot index (we own the names, §11.6).
-      A per-event reading until a write-complete readback exists (§10.1);
-      streamable after.
+      A per-event reading — there is no write-complete readback (§10.1) —
+      with a bounded end-of-run check that every expected file exists and
+      has stopped growing.
   - `acq_timestamp` as a readable child with the persistent monitor
     (exists, `devices/ca/triggerable.py`); the drain offset as a config
     signal from the calibration store (§4.F).
@@ -512,12 +513,15 @@ Answered 2026-09-09: Q1 sequencing → option 1½ (§8). Q2 refactor in place
 
 Still open, for Sam:
 
-1. **Write-complete readback on LabVIEW-native devices.** Does the device
-   expose any signal that the file for shot k is *closed* (a variable, a
-   counter), or is the only signal that `acq_timestamp` advanced — which
-   says the capture succeeded, not that the write finished? Decides
-   whether `LvNativeFileDataLogic` can be streamable or stays a per-event
-   reading.
+1. ~~Write-complete readback on LabVIEW-native devices~~ **Answered
+   2026-09-09 (Sam): there is none.** `acq_timestamp` advancing says the
+   capture succeeded; nothing says the write finished. Consequence:
+   `LvNativeFileDataLogic` is a **per-event reading**, and because we own
+   the filenames the worker enforces the contract itself — at the run's end
+   it waits, bounded, for every expected file to exist and stop changing
+   size (two agreeing stats), and fails the run loudly otherwise. Once #806
+   moves the cameras to the plugin, this path serves only the few non-image
+   proprietary devices.
 2. **Which amp4in devices are non-essential by default** — a preset fact,
    and the first real test of the two-list model.
 3. **What `pause` drives:** STANDBY (edges continue, GUIs stay live,
@@ -621,7 +625,9 @@ logic:
    latest-wins slot, and that is the **only** place such logic may live.
    (The gateway then has two consumers with opposite delivery contracts in
    one process; its `DESIGN.md` should say so.)
-2. **A write-complete readback on the LabVIEW-native path** (§10.1).
+2. **No write-complete readback on the LabVIEW-native path** (§10.1) —
+   replaced by our own end-of-run file check; contained to the non-image
+   proprietary devices once #806 lands.
 3. **A native home for the non-essential stream** when free-run goes —
    `SupplementalData.flyers` (§4.B).
 
