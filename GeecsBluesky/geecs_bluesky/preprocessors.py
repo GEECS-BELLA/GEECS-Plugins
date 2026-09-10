@@ -4,20 +4,31 @@ Each function here has the ``bluesky.preprocessors`` shape (``plan → plan``)
 so it can be installed once on the RunEngine (``RE.preprocessors.append``)
 and applies to **every** plan, stock or not, with no per-plan code.
 
-Phase 1: :func:`connect_on_demand`.  Later phases add the ``md["geecs"]``
-preamble/finalize preprocessor (``Planning/native_bluesky/00_overview.md``).
+Phase 1: :func:`connect_on_demand`.  Phase 2: :func:`geecs_preamble`, the
+GEECS scan preamble and finalize chain keyed on ``md["geecs"]``
+(``Planning/native_bluesky/02_preamble_preprocessor.md``).
+
+**Install order matters.**  ``RE.preprocessors`` compose in list order,
+first-appended innermost, so :func:`connect_on_demand` must be re-installed
+**last** after :func:`install_geecs_preamble` — otherwise the preamble's own
+connects and reads never pass through it.  ``install_geecs_preamble`` does
+that for you.
 """
 
 from __future__ import annotations
 
 import logging
+from collections import ChainMap
 from collections.abc import Generator
 from functools import partial
 from typing import Any
 
+import bluesky.preprocessors as bpp
 from bluesky.preprocessors import plan_mutator
 from bluesky.utils import Msg
 from ophyd_async.plan_stubs import ensure_connected
+
+from geecs_bluesky.exceptions import GeecsConfigurationError
 
 logger = logging.getLogger(__name__)
 
@@ -151,3 +162,182 @@ def install_connect_on_demand(
     run_engine.preprocessors.append(
         partial(connect_on_demand, mock=mock, timeout=timeout)
     )
+
+
+# ---------------------------------------------------------------------------
+# Phase 2 — the GEECS scan preamble as a preprocessor
+# ---------------------------------------------------------------------------
+
+#: Run-metadata key carrying the ScanRequest a run should be prepared for.
+GEECS_MD_KEY = "geecs"
+
+
+def geecs_preamble(
+    plan: Generator[Msg, Any, Any],
+    *,
+    session: Any = None,
+    resolver: Any = None,
+    namespace: Any = None,
+    md_key: str = GEECS_MD_KEY,
+) -> Generator[Msg, Any, Any]:
+    """Give any plan the GEECS scan preamble, keyed on ``md["geecs"]``.
+
+    A plan that opens its run with ``md={"geecs": <ScanRequest as a dict>}``
+    gets, before the run opens: authoritative validation, name resolution,
+    the shot controller, the unserved/CONNECTED preflights, action-slot
+    compilation, the capture toggle, the connects the preamble itself owns,
+    the **scan-number claim**, the ScanInfo write, native-save configuration
+    — and the GEECS run metadata injected into its start document.  On the
+    way out, in the funnel's nesting order: save-off (innermost, so saving
+    stops while the trigger is still stopped), disarm, closeout actions,
+    disconnect.
+
+    All of it is :mod:`geecs_bluesky.plans.preamble`'s code, the same the
+    funnel plan runs — this only supplies the seam and the ordering, so a
+    stock ``bluesky.plans`` verb behaves exactly like a submitted
+    ``ScanRequest``::
+
+        RE(bp.list_grid_scan([cam], U_S1H.current, pts, md={"geecs": request}))
+
+    The devices come from the **namespace**, not from fresh per-scan
+    construction: the objects the preamble configures must be the ones the
+    plan was handed (`preamble.namespace_detectors`).
+
+    Note
+    ----
+    The request must ride in the **plan's** ``md=``.  RunEngine per-call
+    metadata (``RE(plan, geecs=...)``) is merged at ``_open_run`` and never
+    enters a message, so a preprocessor cannot see it: the start document
+    would carry a ``geecs`` block while the preamble never ran.
+    """
+    from geecs_bluesky.plans.preamble import (
+        _disconnect_plan,
+        prepare_step_scan,
+        resolve_request,
+    )
+    from geecs_bluesky.plans.run_wrapper import (
+        _save_cleanup_plan,
+        claim_scan_number,
+        claimed_scan_metadata,
+        save_enable_plan,
+    )
+    from geecs_bluesky.plans.scan_request_plan import _worker_session
+
+    sess = session if session is not None else _worker_session
+    created: list = []
+    state: dict[str, Any] = {}
+    forwarded: set[int] = set()
+
+    def _cleanup() -> Generator[Msg, Any, Any]:
+        """The funnel's finalize chain, innermost first, for whatever ran."""
+        if state.get("saving"):
+            yield from _save_cleanup_plan(state["saving"])
+        controller = state.get("controller")
+        if controller is not None:
+            yield from controller.disarm()
+        closeout = state.get("closeout")
+        if closeout is not None:
+            yield from closeout()
+        if created:
+            yield from _disconnect_plan(created)
+
+    def _prepare(msg: Msg) -> tuple[Any, Any]:
+        if msg.command != "open_run" or id(msg) in forwarded:
+            return None, None
+        request = msg.kwargs.get(md_key)
+        if request is None:
+            return None, None
+        if sess is None:
+            raise GeecsConfigurationError(
+                "geecs_preamble has no session: install one with "
+                "set_plan_session(...) at worker startup, or pass session=..."
+            )
+        res = resolver
+        if res is None:
+            from geecs_bluesky.config_resolver import ConfigsRepoResolver
+
+            res = ConfigsRepoResolver(sess.experiment)
+
+        def _run_preamble() -> Generator[Msg, Any, Any]:
+            resolved = resolve_request(sess, res, request)
+            prepared = yield from prepare_step_scan(
+                sess, res, resolved, created, namespace=namespace
+            )
+            state["controller"] = prepared.controller
+            state["closeout"] = prepared.closeout
+
+            # The claim: every failure above it burns no scan number.
+            scan_number, scan_folder = claim_scan_number(sess.experiment)
+            saving = sess.configure_claimed_scan(
+                scan_number=scan_number,
+                scan_folder=scan_folder,
+                detectors=prepared.detectors,
+                motor=prepared.motor_arg,
+                positions=prepared.spec.positions,
+                shots_per_step=prepared.request.capture.shots_per_step,
+                description=prepared.request.description,
+                scan_info_overrides=prepared.spec.scan_info,
+            )
+            state["saving"] = saving
+
+            md = claimed_scan_metadata(
+                experiment=sess.experiment,
+                scan_number=scan_number,
+                scan_folder=scan_folder,
+                saving_detectors=saving,
+                devices=prepared.detectors,
+                extra_md={
+                    "description": prepared.request.description,
+                    **prepared.spec.md,
+                },
+            )
+            if prepared.setup is not None:
+                yield from prepared.setup()
+            if prepared.controller is not None:
+                yield from prepared.controller.arm()
+            if saving:
+                yield from save_enable_plan(saving)
+
+            # Injected md wins over the plan's own, as inject_md_wrapper does.
+            new = msg._replace(kwargs=ChainMap(md, msg.kwargs))
+            forwarded.add(id(new))
+            logger.info(
+                "geecs_preamble: scan %s prepared (%d detectors) for %s",
+                scan_number,
+                len(prepared.detectors),
+                msg.kwargs.get("plan_name", "?"),
+            )
+            return (yield new)
+
+        return _run_preamble(), None
+
+    return (yield from bpp.finalize_wrapper(plan_mutator(plan, _prepare), _cleanup()))
+
+
+def install_geecs_preamble(
+    run_engine: Any,
+    *,
+    session: Any = None,
+    resolver: Any = None,
+    namespace: Any = None,
+    mock: bool = False,
+) -> None:
+    """Install :func:`geecs_preamble`, keeping :func:`connect_on_demand` outermost.
+
+    Idempotent, and it re-appends ``connect_on_demand`` afterwards so the
+    preamble's own connects and reads still pass through it (the RunEngine
+    composes preprocessors first-appended-innermost).
+    """
+    had_connect = any(
+        getattr(p, "func", None) is connect_on_demand for p in run_engine.preprocessors
+    )
+    run_engine.preprocessors[:] = [
+        p
+        for p in run_engine.preprocessors
+        if getattr(p, "func", None) not in (geecs_preamble, connect_on_demand)
+    ]
+    run_engine.preprocessors.append(
+        partial(geecs_preamble, session=session, resolver=resolver, namespace=namespace)
+    )
+    if had_connect:
+        install_connect_on_demand(run_engine, mock=mock)

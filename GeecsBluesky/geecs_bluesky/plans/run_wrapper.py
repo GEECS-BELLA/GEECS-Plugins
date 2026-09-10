@@ -145,6 +145,63 @@ def _collect_scalar_headers(devices: list) -> dict[str, str]:
     return headers
 
 
+def claimed_scan_metadata(
+    *,
+    experiment: str = "",
+    scan_number: int | None = None,
+    scan_folder: str | None = None,
+    saving_detectors: list[tuple] | None = None,
+    devices: list | None = None,
+    extra_md: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """The GEECS run metadata for a claimed scan, and the dirs it implies.
+
+    The one assembly of ``bluesky_backend``/``experiment``/``scan_number``/
+    ``scan_id``/``scan_folder``/``nonscalar_save_paths``/
+    ``geecs_scalar_headers`` plus the caller's *extra_md* — shared by
+    :func:`geecs_run_wrapper` (the funnel door) and the preamble
+    preprocessor (the stock-plan door), so neither can drift from what the
+    downstream readers require (s-file export, Tiled schema and catalog,
+    the capture daemon, asset readback).
+
+    Creating the capture-owned camera directories is part of it: the capture
+    daemon never mkdirs (cross-package invariant) and its writers must find
+    them on the first frame, i.e. **before the start document**.
+    """
+    saving = list(saving_detectors or [])
+    md: dict[str, Any] = {"bluesky_backend": True}
+    if experiment:
+        md["experiment"] = experiment
+    if scan_number is not None:
+        md["scan_number"] = scan_number
+        md["scan_id"] = scan_number  # Bluesky display field = GEECS scan number
+    if scan_folder is not None:
+        md["scan_folder"] = scan_folder
+    if saving:
+        md["nonscalar_save_paths"] = {
+            getattr(det, "_geecs_device_name", det.name): event_path
+            for det, event_path, _device_command_path in map(
+                _saving_detector_paths, saving
+            )
+        }
+    scalar_headers = _collect_scalar_headers(devices or [])
+    if scalar_headers:
+        md["geecs_scalar_headers"] = scalar_headers
+    md.update(extra_md or {})
+
+    # Engine-side dir creation for capture-owned camera dirs (the capture
+    # daemon never mkdirs — cross-package invariant), BEFORE the start doc
+    # is emitted so the daemon's writers find them on the first frame. With
+    # native saving off these devices skip save_enable_plan's makedirs;
+    # exist_ok covers the dual-write overlap when both run.
+    capture_names = md.get("capture_devices")
+    if scan_folder is not None and isinstance(capture_names, (list, tuple)):
+        for name in capture_names:
+            os.makedirs(os.path.join(scan_folder, str(name)), exist_ok=True)
+
+    return md
+
+
 def geecs_run_wrapper(
     plan,
     *,
@@ -198,37 +255,15 @@ def geecs_run_wrapper(
     plan keeps ownership of its intrinsic keys (``plan_name``,
     ``acquisition_mode``, ``geecs_event_schema``, positions, …).
     """
+    md = claimed_scan_metadata(
+        experiment=experiment,
+        scan_number=scan_number,
+        scan_folder=scan_folder,
+        saving_detectors=saving_detectors,
+        devices=devices,
+        extra_md=extra_md,
+    )
     saving = list(saving_detectors or [])
-
-    md: dict[str, Any] = {"bluesky_backend": True}
-    if experiment:
-        md["experiment"] = experiment
-    if scan_number is not None:
-        md["scan_number"] = scan_number
-        md["scan_id"] = scan_number  # Bluesky display field = GEECS scan number
-    if scan_folder is not None:
-        md["scan_folder"] = scan_folder
-    if saving:
-        md["nonscalar_save_paths"] = {
-            getattr(det, "_geecs_device_name", det.name): event_path
-            for det, event_path, _device_command_path in map(
-                _saving_detector_paths, saving
-            )
-        }
-    scalar_headers = _collect_scalar_headers(devices or [])
-    if scalar_headers:
-        md["geecs_scalar_headers"] = scalar_headers
-    md.update(extra_md or {})
-
-    # Engine-side dir creation for capture-owned camera dirs (the capture
-    # daemon never mkdirs — cross-package invariant), BEFORE the start doc
-    # is emitted so the daemon's writers find them on the first frame. With
-    # native saving off these devices skip save_enable_plan's makedirs;
-    # exist_ok covers the dual-write overlap when both run.
-    capture_names = md.get("capture_devices")
-    if scan_folder is not None and isinstance(capture_names, (list, tuple)):
-        for name in capture_names:
-            os.makedirs(os.path.join(scan_folder, str(name)), exist_ok=True)
 
     wrapped = bpp.inject_md_wrapper(plan, md)
 

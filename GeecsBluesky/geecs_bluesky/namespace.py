@@ -454,6 +454,22 @@ class GeecsNamespace:
                 f"variable {variable!r}"
             ) from None
 
+    def variable_names(self, device: str) -> tuple[str, ...]:
+        """The GEECS variable names *device* has children for (its served scalars).
+
+        The device object itself does not carry this — it is a plain
+        ``CaGenericDetector``/``CaSnapshotReadable`` — so the namespace, which
+        built the children, answers it.
+        """
+        dev = self[device]
+        attrs = self._attrs[dev.name]
+        # `attrs` maps both GEECS and attribute spellings onto the attribute;
+        # the distinct attributes are the children.
+        seen: dict[str, None] = {}
+        for key, attr in attrs.items():
+            seen.setdefault(attr, None)
+        return tuple(seen)
+
     def resolve(self, target: str) -> Any:
         """The object for ``"Device"`` or ``"Device:Variable"`` (either spelling)."""
         device, sep, variable = target.partition(":")

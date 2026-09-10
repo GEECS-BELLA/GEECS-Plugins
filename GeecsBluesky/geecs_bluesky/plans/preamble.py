@@ -305,8 +305,14 @@ def namespace_detectors(
             )
             continue
 
-        wanted = {safe_name(v) for v in variables}
-        have = {safe_name(v) for v in device.variables}
+        # acq_timestamp / CONNECTED are gateway-synthesized: a save set may
+        # name the shot stamp explicitly, and a triggered device always reads
+        # it, so they are never part of this comparison.
+        from geecs_bluesky.namespace import ACQ_TIMESTAMP_VARIABLE
+
+        synthesized = {ACQ_TIMESTAMP_VARIABLE, "connected"}
+        wanted = {safe_name(v) for v in variables if v.lower() not in synthesized}
+        have = {safe_name(v) for v in namespace.variable_names(device_name)}
         missing = wanted - have
         if missing:
             raise GeecsConfigurationError(

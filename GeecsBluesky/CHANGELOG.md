@@ -4,6 +4,39 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.78.0] - 2026-09-09
+
+### Added
+
+- **`preprocessors.geecs_preamble`** (GEECS-Plugins#807 phase 2) — the GEECS
+  scan preamble and finalize chain as one RunEngine preprocessor, keyed on
+  `md["geecs"]`. A stock `bluesky.plans` verb whose run metadata carries a
+  ScanRequest now gets, before its run opens: validation, name resolution,
+  the shot controller, the unserved/CONNECTED preflights, action slots, the
+  capture toggle, the preamble's own connects, the **scan-number claim**,
+  the ScanInfo write, native-save configuration, setup actions, arm and
+  save-on — and the GEECS run metadata injected into its start document.
+  On the way out, in the funnel's nesting order: save-off, disarm, closeout,
+  disconnect.
+
+  ```python
+  RE(bp.count([cam], num=5, md={"geecs": request}))   # a full GEECS scan
+  ```
+
+  It is the funnel's own code (`plans/preamble.py`), not a second copy; the
+  preprocessor supplies only the seam and the ordering. `install_geecs_preamble`
+  keeps `connect_on_demand` outermost.
+
+  The request must ride in the **plan's** `md=`: RunEngine per-call metadata
+  (`RE(plan, geecs=...)`) never enters a message, so a preprocessor cannot
+  see it. Pinned by a test.
+- `plans/run_wrapper.claimed_scan_metadata()` — the GEECS run-metadata
+  assembly (and the capture-dir creation it implies) split out of
+  `geecs_run_wrapper` so the funnel door and the stock-plan door cannot
+  drift from what the downstream readers require.
+- `GeecsNamespace.variable_names()` — the served scalar names a namespace
+  device has children for.
+
 ## [0.77.1] - 2026-09-09
 
 ### Changed
