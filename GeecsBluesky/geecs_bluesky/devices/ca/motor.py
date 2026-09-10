@@ -31,6 +31,18 @@ logger = logging.getLogger(__name__)
 
 _DEFAULT_MOVE_TIMEOUT = 30.0  # seconds
 
+#: Fallback move-completion tolerance, used only when the GEECS DB records no
+#: usable ``tolerance`` for the variable.  :meth:`GeecsSession.motor` resolves
+#: the per-axis DB value and passes it in; this is the floor when it cannot.
+DEFAULT_TOLERANCE = 0.005
+
+# Binary floating point puts an exactly-on-tolerance arrival a few ULPs *over*
+# the limit: |-10.505 - -10.5| evaluates to 0.005000000000000782, not 0.005.
+# A stage that landed exactly on tolerance therefore polled for the full
+# move_timeout and paused the scan for an operator (U_ModeImagerESP, Scan034).
+# Widen the comparison by a relative epsilon so on-boundary counts as arrived.
+_TOLERANCE_SLACK = 1.0 + 1e-9
+
 
 class CaMotor(CaSettable):
     """GEECS motor over gateway PVs, with position-feedback polling.
@@ -47,7 +59,11 @@ class CaMotor(CaSettable):
         ophyd-async device name (namespaces the event keys).
     tolerance : float
         Move completion tolerance.  ``set()`` resolves when
-        ``|readback − setpoint| ≤ tolerance``.  Default ``0.005``.
+        ``|readback − setpoint| ≤ tolerance``, with a relative epsilon so an
+        arrival landing exactly on the tolerance is not lost to binary
+        floating-point representation.  Defaults to
+        :data:`DEFAULT_TOLERANCE`; :meth:`GeecsSession.motor` normally passes
+        the GEECS DB's per-variable value instead.
     settle_time : float
         Extra seconds to wait after arrival before completing the status.
     move_timeout : float
@@ -62,7 +78,7 @@ class CaMotor(CaSettable):
         *,
         experiment: str | None = None,
         name: str = "motor",
-        tolerance: float = 0.005,
+        tolerance: float = DEFAULT_TOLERANCE,
         settle_time: float = 0.0,
         move_timeout: float = _DEFAULT_MOVE_TIMEOUT,
     ) -> None:
@@ -109,7 +125,7 @@ class CaMotor(CaSettable):
         position = getattr(self, self._readback_attr_name)
         while True:
             current = float(await position.get_value())
-            if abs(current - value) <= self._tolerance:
+            if abs(current - value) <= self._tolerance * _TOLERANCE_SLACK:
                 logger.debug(
                     "%s: arrived at %.6g (target=%.6g, tol=%.4g)",
                     self.name,

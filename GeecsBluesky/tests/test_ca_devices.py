@@ -203,6 +203,44 @@ async def test_motor_set_completes_on_arrival() -> None:
     assert reading["jet-position"]["value"] == 4.5
 
 
+async def test_motor_arrival_exactly_on_tolerance_counts_as_arrived() -> None:
+    """A readback exactly one tolerance from target resolves, not times out.
+
+    Regression for U_ModeImagerESP Scan034: the stage reached -10.505 against
+    a -10.5 target with tolerance 0.005, but ``abs(-10.505 - -10.5)`` is
+    0.005000000000000782 in binary floating point, so the plain ``<=``
+    comparison polled the full move_timeout and paused the scan.
+    """
+    motor = CaMotor(
+        "U_ModeImagerESP",
+        "Position.Axis 1",
+        experiment="Undulator",
+        name="mode",
+        tolerance=0.005,
+        move_timeout=0.3,
+    )
+    await motor.connect(mock=True)
+    set_mock_value(motor.position, -10.505)
+    assert abs(-10.505 - -10.5) > 0.005  # the representation error is real
+    await asyncio.wait_for(motor.set(-10.5), timeout=2.0)
+
+
+async def test_motor_beyond_tolerance_still_times_out() -> None:
+    """The epsilon is representation slack, not a widened tolerance."""
+    motor = CaMotor(
+        "U_ModeImagerESP",
+        "Position.Axis 1",
+        experiment="Undulator",
+        name="mode",
+        tolerance=0.005,
+        move_timeout=0.3,
+    )
+    await motor.connect(mock=True)
+    set_mock_value(motor.position, -10.51)  # 0.01 out — twice the tolerance
+    with pytest.raises(GeecsMotorTimeoutError):
+        await motor.set(-10.5)
+
+
 async def test_motor_set_times_out_when_stuck() -> None:
     """Readback never converging raises GeecsMotorTimeoutError."""
     motor = CaMotor(

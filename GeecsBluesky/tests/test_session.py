@@ -19,6 +19,7 @@ pytest.importorskip("aioca")  # session is CA-only
 
 from ophyd_async.core import callback_on_mock_put, set_mock_value  # noqa: E402
 
+from geecs_bluesky.devices.ca.motor import DEFAULT_TOLERANCE  # noqa: E402
 from geecs_bluesky.exceptions import GeecsConfigurationError  # noqa: E402
 from geecs_bluesky.session import GeecsSession, _json_safe, _positions  # noqa: E402
 from geecs_bluesky.shot_controller import CaPutSetter, ShotController  # noqa: E402
@@ -407,3 +408,95 @@ def test_scan_info_stamps_bluesky_scanner(tmp_path: Path) -> None:
     content = (tmp_path / f"ScanInfo{tmp_path.name}.ini").read_text()
     assert 'Scanner = "bluesky"' in content
     assert "[Scan Info]" in content  # legacy section intact
+
+
+# --------------------------------------------------------------------------
+# Per-variable move tolerance from the GEECS DB
+# --------------------------------------------------------------------------
+
+#: Shape of GeecsDb.get_device_variables() for a three-axis ESP stage.
+_ESP_ROWS = [
+    {"name": "Position.Axis 1", "tolerance": 0.015},
+    {"name": "Position.Axis 2", "tolerance": 0.001},
+    {"name": "Speed.Axis1", "tolerance": 0.0},  # the DB's "unset" spelling
+    {"name": "Home.Axis1", "tolerance": None},
+]
+
+
+def _db_session(monkeypatch: pytest.MonkeyPatch, rows: list, calls: list) -> object:
+    """A non-mock session whose DB lookup returns *rows*, recording each call."""
+
+    def _get(device_name: str) -> list:
+        calls.append(device_name)
+        return rows
+
+    monkeypatch.setattr(
+        "geecs_core.db.geecs_db.GeecsDb.get_device_variables", staticmethod(_get)
+    )
+    return GeecsSession("Undulator", tiled=False, mock=False)
+
+
+def test_variable_tolerance_reads_the_db_value(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The per-axis DB tolerance wins over the hardcoded default."""
+    s = _db_session(monkeypatch, _ESP_ROWS, [])
+    assert s.variable_tolerance("U_ModeImagerESP", "Position.Axis 1") == 0.015
+    # Tighter than the old hardcoded 0.005, not just looser — both directions.
+    assert s.variable_tolerance("U_ModeImagerESP", "Position.Axis 2") == 0.001
+
+
+@pytest.mark.parametrize("variable", ["Speed.Axis1", "Home.Axis1", "Nonexistent"])
+def test_variable_tolerance_falls_back_when_db_has_nothing_usable(
+    monkeypatch: pytest.MonkeyPatch, variable: str
+) -> None:
+    """Zero, NULL and missing all mean "unset" — never a 0.0 tolerance.
+
+    A 0.0 tolerance would demand bit-exact equality of a float readback and
+    never converge, turning every move into a move_timeout.
+    """
+    s = _db_session(monkeypatch, _ESP_ROWS, [])
+    assert s.variable_tolerance("U_ModeImagerESP", variable) == DEFAULT_TOLERANCE
+
+
+def test_variable_tolerance_survives_an_unreachable_db(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A DB outage degrades to the default rather than failing the scan."""
+
+    def _boom(device_name: str) -> list:
+        raise RuntimeError("2003: Can't connect to MySQL server")
+
+    monkeypatch.setattr(
+        "geecs_core.db.geecs_db.GeecsDb.get_device_variables", staticmethod(_boom)
+    )
+    s = GeecsSession("Undulator", tiled=False, mock=False)
+    assert s.variable_tolerance("U_ModeImagerESP", "Position.Axis 1") == (
+        DEFAULT_TOLERANCE
+    )
+
+
+def test_variable_tolerance_is_cached_per_device(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """One DB round trip per device, not one per variable."""
+    calls: list = []
+    s = _db_session(monkeypatch, _ESP_ROWS, calls)
+    s.variable_tolerance("U_ModeImagerESP", "Position.Axis 1")
+    s.variable_tolerance("U_ModeImagerESP", "Position.Axis 2")
+    assert calls == ["U_ModeImagerESP"]
+
+
+def test_mock_session_never_touches_the_db(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Hermetic tests must not need a database."""
+
+    def _boom(device_name: str) -> list:
+        raise AssertionError("mock session must not query the DB")
+
+    monkeypatch.setattr(
+        "geecs_core.db.geecs_db.GeecsDb.get_device_variables", staticmethod(_boom)
+    )
+    s = _session()
+    assert s.variable_tolerance("U_ModeImagerESP", "Position.Axis 1") == (
+        DEFAULT_TOLERANCE
+    )
