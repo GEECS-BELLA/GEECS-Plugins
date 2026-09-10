@@ -232,7 +232,7 @@ run_suite() {
         ImageAnalysis|ScanAnalysis|GEECS-Data-Utils|GEECS-Schemas)
             poetry run pytest "$1/tests" -m "not integration and not gui" --tb=short -q ;;
         GeecsBluesky)
-            (cd GeecsBluesky && poetry run pytest tests -m "not integration and not fake_server" --tb=short -q) ;;
+            (cd GeecsBluesky && poetry run pytest tests -m "not integration and not fake_server" --tb=short -q --durations=10) ;;
         GEECS-Console)
             (cd GEECS-Console && QT_QPA_PLATFORM=offscreen poetry run pytest --tb=short -q) ;;
         GeecsCAGateway|GeecsPvaGateway|GEECS-Core|GEECS-DataPortal|GEECS-LogTriage|GEECS-MCP)
