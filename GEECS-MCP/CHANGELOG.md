@@ -4,6 +4,16 @@ All notable changes to `geecs-mcp` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.8.8] - 2026-09-10
+
+### Changed
+
+- `validate_scan_request`'s tool description says what the client-side
+  preflight checks now that GeecsBluesky 0.79.0 (#807 phase 1) deleted the
+  worker-side resolver: save sets resolve, worker ready, device liveness,
+  trigger staleness — no engine validation, no unserved-variables check
+  until the plan layer.  Text only (Codex review of #816).
+
 ## [0.8.7] - 2026-09-05
 
 ### Changed

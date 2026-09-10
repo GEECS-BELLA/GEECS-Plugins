@@ -178,14 +178,6 @@ class GeecsAcquireLogic(DetectorAcquireLogic):
             self._signal.subscribe_reading(self._on_update)
             self._monitoring = True
 
-    def detach(self) -> None:
-        """Stop the monitor and forget the shot state (``disconnect``)."""
-        if self._monitoring:
-            self._signal.clear_sub(self._on_update)
-            self._monitoring = False
-        self._drain()
-        self._last = None
-
     def _on_update(self, reading: dict[str, Any]) -> None:
         value = reading[self._signal.name]["value"]
         if value is None or value <= 0:
@@ -496,10 +488,6 @@ class GeecsDetector(StandardDetector):
             mock=mock, timeout=timeout, force_reconnect=force_reconnect
         )
         self._acquire.attach()
-
-    async def disconnect(self) -> None:
-        """Stop the stamp monitor; the signals drop their caches with it."""
-        self._acquire.detach()
 
     @AsyncStatus.wrap
     async def stage(self) -> None:

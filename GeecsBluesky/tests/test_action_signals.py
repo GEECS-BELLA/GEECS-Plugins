@@ -94,12 +94,3 @@ async def test_readable_is_dtype_inferred() -> None:
     await signal.connect(mock=True)
     set_mock_value(signal, 2.5)
     assert await signal.get_value() == 2.5
-
-
-async def test_disconnect_drops_caches() -> None:
-    factory = CaActionSignalFactory("Undulator", _Recorder(), mock=True)
-    factory.get_settable("U_A", "V")
-    factory.get_readable("U_A", "V")
-    await factory.disconnect()
-    assert factory._settables == {} and factory._readables == {}
-    assert factory._probes == {}

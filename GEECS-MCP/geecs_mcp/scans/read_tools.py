@@ -347,11 +347,14 @@ def _validate_scan_request_impl(request: dict) -> str:
 
 @mcp.tool(name=tool_names.VALIDATE_SCAN_REQUEST)
 async def validate_scan_request(request: dict) -> str:
-    """Full dry-run of a ScanRequest dict; nothing is submitted.
+    """Dry-run of a ScanRequest dict; nothing is submitted.
 
-    Runs schema validation, the engine's own validation, and the
-    client-side preflight (unserved variables, device liveness, trigger
-    staleness).
+    Runs schema validation and the client-side preflight: every named
+    save set resolves in the configs repo, the worker is ready to run the
+    plan, device liveness (gateway CONNECTED), trigger staleness (free-run
+    requests).  Scan-variable and unserved-variable checks moved with the
+    worker-side resolver (GeecsBluesky 0.79.0, #807 phase 1) and return
+    with the plan layer.
 
     ``valid: false`` with ``refusal`` means fix the
     request; ``warnings`` are the questions an operator would be asked

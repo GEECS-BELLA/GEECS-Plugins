@@ -71,10 +71,3 @@ class CaSnapshotReadable(StandardReadable):
         self._column_headers = {
             f"{name}-{safe_name(var)}": f"{device} {var}" for var in variable_list
         }
-
-    async def disconnect(self) -> None:
-        """Teardown hook, uniform across every CA device type.
-
-        This device holds no persistent monitor subscription, so there is
-        nothing to unsubscribe.
-        """

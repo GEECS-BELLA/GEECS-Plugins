@@ -44,6 +44,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   than the role-ordered reference device.  GEECS-Console and GEECS-MCP
   import unchanged; the Console's save-set union preview degrades to a
   hint (it imported the deleted runner) until the top-layer rewire.
+- The devices' `async disconnect()` teardown hook — the runner's per-scan
+  `session.disconnect` contract.  Nothing calls it, and on `GeecsDetector`
+  it detached the stamp monitor without clearing ophyd-async's connect
+  cache, so `connect_on_demand` would never re-attach it (Codex review of
+  #816).  Namespace devices live as long as the RunEngine.
 - `CaSnapshotReadable(save_control_only=...)` — the runner's snapshot-role
   camera shape, callerless now; `GeecsDetector(native_save=True)` without
   a path provider is the case it covered.

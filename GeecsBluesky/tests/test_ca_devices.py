@@ -318,17 +318,3 @@ async def test_snapshot_reads_latest_values() -> None:
     assert reading["s1h-current"]["value"] == 0.5
     assert set(reading) == {"s1h-current", "s1h-voltage"}
     assert snap.current.source.endswith("undulator:u_s1h:current")
-
-
-async def test_all_ca_devices_define_disconnect() -> None:
-    """Every CA device type honours the teardown contract (a coroutine that does not raise)."""
-    devices = [
-        CaSnapshotReadable("U_S1H", "Current", name="snap"),
-        CaSettable("U_S1H", "Current", name="cur"),
-        CaMotor("U_ESP_JetXYZ", "Position.Axis 1", name="jet"),
-        GeecsDetector("UC_Amp2_IR_input", ["centroidx"], name="det"),
-    ]
-    for dev in devices:
-        await dev.connect(mock=True)
-        assert asyncio.iscoroutinefunction(dev.disconnect), type(dev).__name__
-        await dev.disconnect()  # must not raise

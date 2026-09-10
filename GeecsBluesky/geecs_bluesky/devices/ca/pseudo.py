@@ -107,9 +107,6 @@ class CaPseudoMovable(StandardReadable):
         self.last_commanded: dict[str, float] | None = None
         self._column_headers = {f"{name}-readback": variable_name}
 
-    async def disconnect(self) -> None:
-        """Per-scan teardown hook (uniform across CA device types)."""
-
     async def _capture_baselines(self) -> None:
         """Read every target's streamed readback as this run's baseline."""
         values = await asyncio.gather(
