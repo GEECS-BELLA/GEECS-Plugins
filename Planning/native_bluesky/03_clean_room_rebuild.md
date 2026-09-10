@@ -194,7 +194,8 @@ Every DB device is one long-lived noun (#808, kept). Two classes:
     signal from the calibration store (§4.F).
 - **`ShotControl`** — one device, three protocols: `Movable` over
   `TriggerState` (the profile-defined writes per state — the existing
-  abstraction, §11.1), `Pausable` (`pause → STANDBY`, `resume → ARMED`;
+  abstraction, §11.1), `Pausable` (`pause → OFF`, `resume → ARMED` — Sam's
+  call, §10.3: a paused scan emits no edges and orphans no frames;
   the RE calls these on every Pausable it has seen in a message, §7), and a
   `FlyerController` for gated mode (`prepare → OFF`, `kickoff → SCAN`,
   `complete → N shots then OFF`). Replaces `shot_controller.py`'s plan-stub
@@ -522,10 +523,14 @@ Still open, for Sam:
    size (two agreeing stats), and fails the run loudly otherwise. Once #806
    moves the cameras to the plugin, this path serves only the few non-image
    proprietary devices.
-2. **Which amp4in devices are non-essential by default** — a preset fact,
-   and the first real test of the two-list model.
-3. **What `pause` drives:** STANDBY (edges continue, GUIs stay live,
-   frames land on disk unreferenced) or OFF.
+2. ~~Which amp4in devices are non-essential by default~~ **Answered
+   2026-09-09 (Sam): amp4in is one camera, essential, no non-essential
+   devices — it is a test preset.** Phase 0 therefore exercises the strict
+   path only; the two-list model gets its first real test later, on a
+   preset with a slow or optional camera.
+3. ~~What `pause` drives~~ **Answered 2026-09-09 (Sam): OFF**, not
+   STANDBY — a paused scan emits no edges and orphans no frames; `resume`
+   re-arms.
 4. **Where the baseline/monitor split is recorded** — the experiment
    defaults in the configs repo is the proposal; the first list comes from
    measuring one Tiled run.
