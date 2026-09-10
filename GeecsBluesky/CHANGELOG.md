@@ -4,7 +4,7 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [0.77.0] - 2026-09-10
+## [0.78.0] - 2026-09-10
 
 ### Fixed
 
@@ -45,6 +45,47 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   exception and therefore truthy. It now mirrors `CANothing`'s falsiness
   and repr/str split.
 
+
+## [0.77.0] - 2026-09-10
+
+### Fixed
+
+- **`CaMotor` no longer fails a converged move that lands exactly on its
+  tolerance.** `abs(-10.505 - -10.5)` is `0.005000000000000782` in binary
+  floating point, so a stage that arrived exactly one tolerance from target
+  failed `<= 0.005` by 8e-16, polled the full `move_timeout`, and paused the
+  scan for an operator (`U_ModeImagerESP/Position.Axis 1`, Scan034). The
+  arrival comparison now carries a relative epsilon — representation slack,
+  not a widened tolerance: a miss of twice the tolerance still times out.
+
+### Changed
+
+- **`GeecsSession.motor()` resolves the move tolerance from the GEECS DB**
+  (new `GeecsSession.move_tolerance()`) instead of hardcoding `0.005` for
+  every axis on every device. The DB's per-variable `tolerance` is the
+  facility's own statement of what "arrived" means, and the hardcoded value
+  was wrong in both directions: `U_ModeImagerESP/Position.Axis 1` is
+  0.015 mm (where 0.005 failed converged moves) while axes 2 and 3 are
+  0.001 mm (where 0.005 silently accepted a position 5x outside spec).
+  Passing `tolerance=` still overrides. The lookup is best-effort and cached
+  per device (failures too, so an off-network worker pays one connect timeout
+  per device rather than one per move) — an unreachable DB, a missing row, or
+  the DB's "unset" spellings (NULL, `0.0`) fall back to `DEFAULT_TOLERANCE`,
+  since a `0.0` tolerance would demand bit-exact float equality and never
+  converge. A DB tolerance larger than 1% of the variable's own `min`/`max`
+  travel span is served but logged as suspect: that is the units-mismatch
+  shape, and it would otherwise silently confirm every move on the first
+  poll. The comparison is span-relative rather than absolute because
+  tolerances carry each variable's own units (µm on `U_CompAeroTech`, mm on
+  the ESPs), so any fixed threshold flags correctly-configured axes for their
+  unit choice alone. Mock sessions never query the DB.
+
+- **The same on-boundary fix applied to `CaConfirmSettable`'s confirming
+  poll** (`confirm.py`), which `build_movable` dispatches to *before*
+  `CaMotor` when a scan variable declares `confirm` — so for topology-C axes
+  it, not `CaMotor`, is the arrival check. `abs(1.20 - 1.15)` is
+  `0.050000000000000044`, so an EMQ set landing exactly on the 0.05 default
+  raised `GeecsConfirmTimeoutError` on a converged set.
 
 ## [0.76.3] - 2026-09-08
 
