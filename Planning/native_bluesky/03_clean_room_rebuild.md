@@ -1,7 +1,8 @@
 # Clean-room rebuild: GeecsBluesky as a native Bluesky application
 
-**Status (2026-09-09): direction agreed with Sam — option 1½ in §8; phase 0
-is next.** Written at the end of the session that built #809 as a handoff,
+**Status (2026-09-10): direction agreed with Sam — option 1½ in §8; phase 0
+hardware-accepted (PR #811, awaiting merge); phase 1 decisions recorded in
+§10, #812 (test speed) first.** Written at the end of the session that built #809 as a handoff,
 then amended by the next session after the discussion recorded in §11 and
 §12. Read this before `00_overview.md`, because it supersedes that
 document's phase plan.
@@ -565,7 +566,33 @@ Still open, for Sam:
 4. **Where the baseline/monitor split is recorded** — the experiment
    defaults in the configs repo is the proposal; the first list comes from
    measuring one Tiled run.
-5. Two small carry-overs, unrelated to this direction: write
+5. **Phase-1 decisions (Sam, 2026-09-10):**
+   - **Deletion-led phase 1**, one PR series on the feature branch: delete
+     the funnel, free-run, named plans, `session.py`, the runner, the
+     funnel-only devices and their tests first; the plan layer lands in the
+     same series; the worker flips once at the end. The services stay on
+     `master` throughout, so the lab loses nothing until the flip.
+   - **Queue-item contract:** stock plan names registered once with the
+     strict `take_reading` pre-bound; `md["geecs"]` is provenance only.
+   - **Presets and save sets are disposable configs; the concepts stay** —
+     a preset because the same scan is run often, a save set as a grouping
+     of devices. **Per-scalar selection is deprecated**: it existed to
+     populate the s-file from the old console. **The s-file represents
+     every scalar in the run documents.**
+   - **Scan number claimed worker-side** (the `claim_scan` preprocessor).
+   - **Outputs kept as callbacks:** ScanInfo ini, the s-file from Tiled,
+     and **`scan.log`** (the trace of what went wrong in a scan).
+   - **Namespace rule:** `GeecsDetector` for every `looks_triggerable`
+     device; `native_save=True` iff the DB lists `save` and
+     `localsavingpath` for the device (so the gateway serves their `:SP`);
+     drain offsets from the calibration file, 0.0 until measured.
+   - **Telemetry in phase 1 = everything**: every subscribed scalar of the
+     experiment rides in the run, per event, monitor-backed; pare back
+     (baseline/monitors) later from evidence, not up front.
+   - Feature-branch → master: decide after phase 1 is complete and
+     exercised.
+   - **#812 (test speed) goes first.**
+6. Two small carry-overs, unrelated to this direction: write
    `Amplitude.Ch AB: 0.5` explicitly in every state of `HTU-NoGas` so "no
    gas" stops being order-dependent, and add a check that all profiles in
    an experiment manage the same variable set.
