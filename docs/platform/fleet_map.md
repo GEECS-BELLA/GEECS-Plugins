@@ -29,8 +29,15 @@ back into this table.
     *gateway's* box until the dedicated services server arrives. When a
     service moves, deploys, or a new one lands, update this page in the
     same PR; `scripts/fleet_status.sh` is how you check it still matches.
+    The [Data Flow Map](../sites/data_flow/index.html) carries a per-block
+    status and next-steps panel; when an arc lands or a status changes,
+    update its `INFO` entry in the same PR.
 
 ## The picture
+
+The diagram below is the operations view: hosts, ports and links. For the
+same fleet drawn as a *data flow*, with a clickable detail panel per
+component, see the [Data Flow Map](../sites/data_flow/index.html).
 
 ```mermaid
 flowchart TB
