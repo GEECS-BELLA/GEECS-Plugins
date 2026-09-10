@@ -8,9 +8,11 @@ a host with CA reach to the gateway and the GEECS DB (the qserver box)::
     GEECS_HW_SCAN_END=1 GEECS_HW_SCAN_STEP=0.5 \\
     poetry run pytest tests/test_preamble_hardware.py -m hardware -s
 
-**Side effects, deliberately real:** every run here claims a scan number
-and creates ``scans/ScanNNN/`` with its ``ScanInfoScanNNN.ini`` — that is
-the behaviour under test.  The claimed numbers are printed.
+**Side effects, deliberately real:** every run here claims a scan number,
+creates ``scans/ScanNNN/`` with its ``ScanInfoScanNNN.ini``, registers the
+run in the facility **Tiled** catalog and exports its s-file — that is the
+behaviour under test, and it is what makes the run visible in the data
+portal.  The claimed numbers are printed.
 
 What it proves that the mock cannot: the preamble preprocessor prepares a
 **stock** ``bluesky.plans`` verb exactly as the funnel prepares a submitted
@@ -105,7 +107,13 @@ def test_stock_plans_run_as_geecs_scans_on_hardware() -> None:
 
     resolver = ConfigsRepoResolver(experiment)
     namespace = GeecsNamespace.from_experiment(experiment)
-    session = GeecsSession(experiment, tiled=False)
+    # Subscribe what the worker startup subscribes, or the run never reaches
+    # the Tiled catalog the data portal lists from and never exports an
+    # s-file — the preprocessor path has to be indistinguishable downstream.
+    session = GeecsSession(experiment, tiled=True)
+    from geecs_bluesky.sfile_callback import SFileExportCallback
+
+    session.RE.subscribe(SFileExportCallback())
     install_geecs_preamble(
         session.RE, session=session, resolver=resolver, namespace=namespace
     )
