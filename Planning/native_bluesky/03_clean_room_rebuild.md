@@ -194,8 +194,10 @@ Every DB device is one long-lived noun (#808, kept). Two classes:
     signal from the calibration store (§4.F).
 - **`ShotControl`** — one device, three protocols: `Movable` over
   `TriggerState` (the profile-defined writes per state — the existing
-  abstraction, §11.1), `Pausable` (`pause → OFF`, `resume → ARMED` — Sam's
-  call, §10.3: a paused scan emits no edges and orphans no frames;
+  abstraction, §11.1), `Pausable` (state-dependent, §10.3: in strict mode
+  the RE pausing simply stops the plan firing and the box stays ARMED —
+  `pause()` does nothing; in gated mode edges flow on their own, so
+  `pause() → OFF` and `resume()` restores SCAN;
   the RE calls these on every Pausable it has seen in a message, §7), and a
   `FlyerController` for gated mode (`prepare → OFF`, `kickoff → SCAN`,
   `complete → N shots then OFF`). Replaces `shot_controller.py`'s plan-stub
@@ -528,9 +530,12 @@ Still open, for Sam:
    devices — it is a test preset.** Phase 0 therefore exercises the strict
    path only; the two-list model gets its first real test later, on a
    preset with a slow or optional camera.
-3. ~~What `pause` drives~~ **Answered 2026-09-09 (Sam): OFF**, not
-   STANDBY — a paused scan emits no edges and orphans no frames; `resume`
-   re-arms.
+3. ~~What `pause` drives~~ **Answered 2026-09-09 (Sam): depends on the
+   mode.** Strict: nothing — the plan stops firing, the box stays ARMED;
+   that is the native Bluesky pause and needs no device action. Gated
+   (fly): edges flow on their own, so `pause() → OFF` and `resume()`
+   restores SCAN. `ShotControl.pause()` is therefore state-dependent:
+   ARMED → no-op, SCAN → OFF.
 4. **Where the baseline/monitor split is recorded** — the experiment
    defaults in the configs repo is the proposal; the first list comes from
    measuring one Tiled run.
