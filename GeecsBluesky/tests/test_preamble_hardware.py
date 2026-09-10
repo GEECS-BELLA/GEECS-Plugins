@@ -177,7 +177,12 @@ def test_stock_plans_run_as_geecs_scans_on_hardware() -> None:
                 md={
                     "geecs": request(
                         mode="step",
-                        axes=[{"variable": sweep_target, "positions": points}],
+                        axes=[
+                            {
+                                "variable": sweep_target,
+                                "positions": {"values": points},
+                            }
+                        ],
                     )
                 },
             ),
