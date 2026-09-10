@@ -37,10 +37,12 @@ _DEFAULT_MOVE_TIMEOUT = 30.0  # seconds
 #: resolves the per-axis DB value; this is what it returns when it cannot.
 DEFAULT_TOLERANCE = 0.005
 
-#: Layer-2 tolerances above this multiple of :data:`DEFAULT_TOLERANCE` are
-#: logged as suspect — almost certainly a units mismatch or an uncurated DB
-#: row rather than a genuinely coarse axis.
-_TOLERANCE_SANITY_FACTOR = 10.0
+#: A DB tolerance larger than this fraction of the variable's own travel span
+#: is logged as suspect.  Span-relative, not absolute: tolerances are in each
+#: variable's own units (µm on U_CompAeroTech, mm on the ESPs), so any fixed
+#: threshold flags correctly-configured axes purely for their unit choice —
+#: exactly the unit-blindness it is meant to detect.
+TOLERANCE_SPAN_FRACTION = 0.01
 
 # Binary floating point puts an exactly-on-tolerance arrival a few ULPs *over*
 # the limit: |-10.505 - -10.5| evaluates to 0.005000000000000782, not 0.005.
@@ -52,7 +54,7 @@ _TOLERANCE_SANITY_FACTOR = 10.0
 # epsilon under-covers exactly the large-coordinate axes (U_CompAeroTech reads
 # ~4e4). Four ULPs of the larger operand covers the subtraction plus the
 # comparison with room to spare, and stays far below any real tolerance.
-_ULP_SLACK = 4 * sys.float_info.epsilon
+ULP_SLACK = 4 * sys.float_info.epsilon
 
 
 class CaMotor(CaSettable):
@@ -136,7 +138,7 @@ class CaMotor(CaSettable):
         position = getattr(self, self._readback_attr_name)
         while True:
             current = float(await position.get_value())
-            slack = _ULP_SLACK * max(abs(current), abs(value))
+            slack = ULP_SLACK * max(abs(current), abs(value))
             if abs(current - value) <= self._tolerance + slack:
                 logger.debug(
                     "%s: arrived at %.6g (target=%.6g, tol=%.4g)",

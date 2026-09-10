@@ -30,9 +30,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   per device rather than one per move) — an unreachable DB, a missing row, or
   the DB's "unset" spellings (NULL, `0.0`) fall back to `DEFAULT_TOLERANCE`,
   since a `0.0` tolerance would demand bit-exact float equality and never
-  converge. A DB tolerance more than 10x the default is served but logged as
-  suspect: that is the units-mismatch shape, and it would otherwise silently
-  confirm every move on the first poll. Mock sessions never query the DB.
+  converge. A DB tolerance larger than 1% of the variable's own `min`/`max`
+  travel span is served but logged as suspect: that is the units-mismatch
+  shape, and it would otherwise silently confirm every move on the first
+  poll. The comparison is span-relative rather than absolute because
+  tolerances carry each variable's own units (µm on `U_CompAeroTech`, mm on
+  the ESPs), so any fixed threshold flags correctly-configured axes for their
+  unit choice alone. Mock sessions never query the DB.
 
 - **The same on-boundary fix applied to `CaConfirmSettable`'s confirming
   poll** (`confirm.py`), which `build_movable` dispatches to *before*

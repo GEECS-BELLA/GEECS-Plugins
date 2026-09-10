@@ -553,11 +553,46 @@ def test_implausible_db_tolerance_warns(
 ) -> None:
     """A units-mismatched row is served but flagged, not silently trusted.
 
-    A tolerance far above the default makes every readback "arrive" on the
-    first poll -- the silent false-arrival mode layer 2 exists to catch.
+    A tolerance that is a large fraction of the axis's own travel makes every
+    readback "arrive" on the first poll -- the silent false-arrival mode this
+    poll exists to catch.  1.0 on 25 mm of travel is 4%.
     """
-    rows = [{"name": "Position.Axis 1", "tolerance": 1.0}]  # mm axis, um value
+    rows = [{"name": "Position.Axis 3", "min": 0.0, "max": 25.0, "tolerance": 1.0}]
     s = _db_session(monkeypatch, rows, [])
     with caplog.at_level(logging.WARNING):
-        assert s.move_tolerance("U_ModeImagerESP", "Position.Axis 1") == 1.0
-    assert "check the variable's units" in caplog.text
+        assert s.move_tolerance("U_ModeImagerESP", "Position.Axis 3") == 1.0
+    assert "check its units" in caplog.text
+
+
+def test_real_aerotech_tolerance_does_not_warn(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The production U_CompAeroTech row must stay silent.
+
+    Its genuine 1.0 um tolerance on 115000 um of travel is 0.0009% of range --
+    correctly configured.  An absolute threshold flagged it on every move,
+    which is the unit-blindness the span comparison exists to avoid.
+    """
+    rows = [
+        {"name": "Position.Axis1", "min": -60000.0, "max": 55000.0, "tolerance": 1.0},
+        {"name": "DelayAfterMove", "min": 0.0, "max": 10000.0, "tolerance": 1.0},
+    ]
+    s = _db_session(monkeypatch, rows, [])
+    with caplog.at_level(logging.WARNING):
+        assert s.move_tolerance("U_CompAeroTech", "Position.Axis1") == 1.0
+    assert caplog.text == ""
+
+
+def test_tolerance_without_a_usable_span_is_not_judged(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Rows with no min/max (or a degenerate span) are served without comment."""
+    rows = [
+        {"name": "A", "tolerance": 5.0},
+        {"name": "B", "min": 1.0, "max": 1.0, "tolerance": 5.0},
+    ]
+    s = _db_session(monkeypatch, rows, [])
+    with caplog.at_level(logging.WARNING):
+        assert s.move_tolerance("U_Thing", "A") == 5.0
+        assert s.move_tolerance("U_Thing", "B") == 5.0
+    assert caplog.text == ""

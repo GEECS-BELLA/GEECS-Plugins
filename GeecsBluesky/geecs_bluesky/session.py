@@ -53,7 +53,7 @@ from geecs_bluesky.devices.ca import (
 )
 from geecs_bluesky.devices.ca.motor import (
     DEFAULT_TOLERANCE,
-    _TOLERANCE_SANITY_FACTOR,
+    TOLERANCE_SPAN_FRACTION,
 )
 from geecs_bluesky.forward_expr import CompiledForward
 from geecs_bluesky.models.shot_control import ShotControlConfig, ShotControlWrites
@@ -500,8 +500,12 @@ class GeecsSession:
         """Position-feedback motor (blocking :SP put + readback poll).
 
         *tolerance* defaults to :meth:`move_tolerance` — the GEECS DB's
-        per-variable convergence criterion with layer-2 headroom applied.
-        Passing a value overrides it.
+        per-variable convergence criterion.  Passing a value overrides it.
+
+        The DB value matters in both directions: it is 0.015 mm on
+        ``U_ModeImagerESP/Position.Axis 1`` (where the previously hardcoded
+        0.005 failed converged moves) and 0.001 mm on that device's axes 2
+        and 3 (where 0.005 silently accepted a position 5x outside spec).
         """
         if tolerance is None:
             tolerance = self.move_tolerance(device, variable)
@@ -558,22 +562,44 @@ class GeecsSession:
                 DEFAULT_TOLERANCE,
             )
             return DEFAULT_TOLERANCE
-        if db_tolerance > _TOLERANCE_SANITY_FACTOR * DEFAULT_TOLERANCE:
-            # A units mismatch or an uncurated row (whole-row type inheritance
-            # can land a devicetype default on an instance in other units)
-            # would make every readback "arrive" on the first poll — silently
-            # reinstating the false-arrival mode layer 2 exists to catch.
+        return db_tolerance
+
+    @staticmethod
+    def _warn_if_tolerance_implausible(
+        device: str, variable: str, row: dict[str, Any]
+    ) -> None:
+        """Log a DB tolerance that is large next to the variable's own travel.
+
+        A units mismatch or an uncurated row (whole-row type inheritance can
+        land a devicetype default on an instance in other units) would make
+        every readback "arrive" on the first poll — silently reinstating the
+        false-arrival mode this poll exists to catch.
+
+        The comparison is against the variable's **own** ``min``/``max`` span,
+        never an absolute number: tolerances carry each variable's units, so a
+        fixed threshold flags correctly-configured axes for their unit choice
+        alone.  ``U_CompAeroTech/Position.Axis1`` is a genuine 1.0 µm on
+        115000 µm of travel (0.0009% — silent); the same 1.0 on a 25 mm axis
+        is 4% and worth a look.  Rows without a usable span are not judged.
+        """
+        tolerance = row.get("tolerance")
+        lo, hi = row.get("min"), row.get("max")
+        if not isinstance(lo, (int, float)) or not isinstance(hi, (int, float)):
+            return
+        span = float(hi) - float(lo)
+        if span <= 0:
+            return
+        if float(tolerance) > TOLERANCE_SPAN_FRACTION * span:
             logger.warning(
-                "%s/%s: DB tolerance %g is over %gx the %g default — check the "
-                "variable's units and DB row; moves will confirm on almost any "
+                "%s/%s: DB tolerance %g is %.1f%% of the variable's %g span — "
+                "check its units and DB row; moves may confirm on almost any "
                 "readback",
                 device,
                 variable,
-                db_tolerance,
-                _TOLERANCE_SANITY_FACTOR,
-                DEFAULT_TOLERANCE,
+                tolerance,
+                100.0 * float(tolerance) / span,
+                span,
             )
-        return db_tolerance
 
     def _variable_tolerances(self, device: str) -> dict[str, float]:
         """Cached ``{variable: DB tolerance}`` for *device*, positive values only.
@@ -598,6 +624,7 @@ class GeecsSession:
                 tolerance = row.get("tolerance")
                 if name and isinstance(tolerance, (int, float)) and tolerance > 0:
                     tolerances[name] = float(tolerance)
+                    self._warn_if_tolerance_implausible(device, name, row)
         except Exception:
             logger.warning(
                 "%s: could not read DB tolerances; falling back to the default "
