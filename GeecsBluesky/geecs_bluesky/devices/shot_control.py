@@ -21,13 +21,14 @@ One device, the protocols Bluesky already has for it
   pause, and out of ``resume()`` lands after the RunEngine has already
   rewound — failures are logged loudly instead.
 
-The write machinery is :class:`~geecs_bluesky.shot_controller.ShotController`
-(``from_writes``: one cached gateway ``:SP`` put per distinct target, the
-hardware-proven stringified-wire convention) — composed, not copied — and
-its ``last_state`` is the one standing-state field; the ``state`` config
-signal mirrors it so every descriptor records which state the box was in.
-:func:`trigger_writes_from_profile` adapts the configs-repo
-``TriggerProfile`` into the controller's ``ShotControlWrites``.
+The writes go through one cached gateway ``:SP`` put per distinct
+``(device, variable)`` target (:class:`CaPutSetter` — the hardware-proven
+stringified-wire convention); each state's list replays in declared order,
+every put completing before the next (the TriggerProfile semantics: raise
+an amplitude before switching a source).  The ``state`` config signal
+mirrors the standing state so every descriptor records which state the box
+was in.  :func:`trigger_writes_from_profile` adapts the configs-repo
+``TriggerProfile`` into :class:`~geecs_bluesky.models.shot_control.ShotControlWrites`.
 """
 
 from __future__ import annotations
@@ -44,11 +45,27 @@ from ophyd_async.core import (
     soft_signal_r_and_setter,
 )
 
+from geecs_bluesky.devices.ca.gateway_put import GatewaySetpointPut
 from geecs_bluesky.exceptions import GeecsConfigurationError
 from geecs_bluesky.models.shot_control import QUIESCE_FROM, ShotControlWrites
-from geecs_bluesky.shot_controller import ShotController
+from geecs_core.pv_naming import pv_name, setpoint_pv
 
 logger = logging.getLogger(__name__)
+
+
+class CaPutSetter(GatewaySetpointPut):
+    """One value to one gateway setpoint PV, as its wire string.
+
+    The gateway's ``:SP`` write forwards to the GEECS UDP set and completes
+    only when GEECS accepts (or rejects) it, so put-completion carries the
+    same semantics as the direct UDP ACK.  Values go as strings (labels for
+    enum PVs; numeric strings are coerced by the gateway's typed channel) —
+    the hardware-proven shot-control convention, 10 s default budget,
+    pinned byte-for-byte by ``tests/test_gateway_put.py``.
+    """
+
+    def __init__(self, setpoint_pv: str, timeout: float = 10.0) -> None:
+        super().__init__(setpoint_pv, coerce=str, timeout=timeout)
 
 
 def _state_write_triples(
@@ -138,15 +155,29 @@ class ShotControl(StandardReadable):
         setter_factory: Callable[[str, str], Any] | None = None,
     ) -> None:
         self._writes = writes
-        self._controller = ShotController.from_writes(
-            writes,
-            experiment=experiment,
-            put_timeout=put_timeout,
-            setter_factory=setter_factory,
+        factory = setter_factory or (
+            lambda device, variable: CaPutSetter(
+                setpoint_pv(pv_name(experiment, device, variable)), timeout=put_timeout
+            )
         )
+        # One setter per distinct target, cached across states; each state's
+        # transition is its ordered (setter, value) list.
+        setters: dict[tuple[str, str], Any] = {}
+        self._transitions: dict[str, list[tuple[Any, str]]] = {}
+        for state_name, state_writes in writes.states.items():
+            ordered: list[tuple[Any, str]] = []
+            for device, variable, value in state_writes:
+                key = (device, variable)
+                if key not in setters:
+                    setters[key] = factory(device, variable)
+                ordered.append((setters[key], value))
+            if ordered:
+                self._transitions[state_name] = ordered
+        #: The last *standing* state driven — never the momentary SINGLESHOT
+        #: fire (recording it would make a later re-assert refire a shot).
+        self._standing: str | None = None
         with self.add_children_as_readables(StandardReadableFormat.CONFIG_SIGNAL):
-            # Mirrors the controller's last standing state (never SINGLESHOT);
-            # "" until the first move.
+            # Mirrors the standing state; "" until the first move.
             self.state, self._set_state = soft_signal_r_and_setter(str, "")
         self._resume_to: str | None = None
         super().__init__(name=name)
@@ -171,12 +202,12 @@ class ShotControl(StandardReadable):
             name = _state(state).value
         except GeecsConfigurationError:
             return False
-        return self._controller.defines_state(name)
+        return bool(self._transitions.get(name))
 
     @property
     def standing_state(self) -> str:
         """The last standing state driven, ``""`` before the first move."""
-        return self._controller.last_state or ""
+        return self._standing or ""
 
     @AsyncStatus.wrap
     async def set(self, value: str | TriggerState) -> None:
@@ -192,7 +223,7 @@ class ShotControl(StandardReadable):
             self._resume_to = None
 
     async def _drive(self, state: TriggerState) -> None:
-        setters = self._controller.state_setters(state.value)
+        setters = self._transitions.get(state.value, [])
         if not setters:
             raise GeecsConfigurationError(
                 f"trigger profile {self.profile_name!r} defines no writes for "
@@ -200,7 +231,8 @@ class ShotControl(StandardReadable):
             )
         for setter, value in setters:
             await setter.put(value)
-        self._controller.record_state(state.value)
+        if state is not TriggerState.SINGLESHOT:
+            self._standing = state.value
         self._set_state(self.standing_state)
 
     async def pause(self) -> None:

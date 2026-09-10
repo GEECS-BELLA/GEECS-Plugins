@@ -20,9 +20,12 @@ provenance trail of who was asked what and what they answered.
 
 Checks, in order (names are the ``PreflightOutcome.check`` vocabulary):
 
-- ``validate`` — the engine's own :func:`validate_scan_request` (THE one
-  definition of what must resolve; issue #529).  A failure is a hard
-  refusal, never a question.
+- ``validate`` — every save set the request names resolves in the
+  configs repo.  A failure is a hard refusal, never a question.  (Phase 1
+  of the native-Bluesky rebuild deleted the worker-side ``ScanRequest``
+  resolver this check used to run — scan variables, action plans, the
+  scalar policy; the client expansion of a request into a stock plan
+  call, and its checks, arrive with the plan layer.)
 - ``worker_ready`` — is the execution surface actually ready (#793): the
   manager answers, its worker environment is open, and the plan this
   submission will queue (:data:`~geecs_bluesky.plan_names.SCAN_REQUEST_PLAN`)
@@ -37,20 +40,13 @@ Checks, in order (names are the ``PreflightOutcome.check`` vocabulary):
   empty); a client without a ``[qserver]`` config is skipped too.  Reads
   the caller's :class:`~.client.QueueClient` when given (``client=``),
   else builds and closes one from the shared config.
-- ``snapshot_images`` — a snapshot-role save-set entry with ``images:
-  true`` asks for images the role never saves (#754); the engine's
-  :func:`snapshot_images_ignored` over the resolved devices config (reused,
-  DB-free), raised as a question so the operator learns pre-submit rather
-  than from the worker's scan.log.
-- ``unserved_variables`` — the engine's :class:`UnservedVariablesCheck`
-  over the resolved save sets (reused, not reimplemented — no drift).
-  DB unreachable → skipped with a warning, never a block.
 - ``gateway_liveness`` — one CA read of each save-set device's
   ``CONNECTED`` PV; only the exact ``"Disconnected"`` reading counts as
-  down (fail-open, the engine's doctrine).
-- ``free_run_staleness`` — free-run requests only: the reference device's
-  ``acq_timestamp`` must advance within a short window, else the trigger
-  looks stopped.
+  down (fail-open).  The device names come from the request's save sets
+  resolved through the configs repo (names only — no scalar policy).
+- ``free_run_staleness`` — free-run requests only: the first save-set
+  device's ``acq_timestamp`` must advance within a short window, else the
+  trigger looks stopped.
 
 Every heavy dependency (the engine internals, ``aioca``) is imported
 lazily inside functions — this module must import light and offline.
@@ -102,26 +98,27 @@ class PreflightReport:
     questions: list[PreflightQuestion] = field(default_factory=list)
 
 
-def _resolve_devices_config(request: Any, resolver: Any) -> dict[str, dict]:
-    """Resolve the request's save sets into the effective devices config.
+def _resolve_save_sets(request: Any, resolver: Any) -> list[Any]:
+    """Every save set the request names, resolved (the ``validate`` gate).
 
-    Explicit-scalars-only (no DB scalar policy client-side) — the unserved
-    and liveness checks need the device *names* and explicit variables;
-    the worker's authoritative pass applies the full policy.
+    Raises whatever the resolver raises for an unknown or invalid name —
+    the refusal names the save set.
     """
-    from geecs_bluesky.scan_request_runner import (
-        resolve_save_sets_and_rituals,
-        save_set_to_devices_config,
-    )
+    return [resolver.resolve_save_set(name) for name in request.capture.save_sets]
 
-    if not request.capture.save_sets:
-        # A save-set-less optimize request: the optimizer's requirements are
-        # provisioned worker-side; nothing to check here.
-        return {}
-    save_set, _rituals = resolve_save_sets_and_rituals(
-        resolver, list(request.capture.save_sets)
-    )
-    return save_set_to_devices_config(save_set)
+
+def _resolve_devices_config(save_sets: list[Any]) -> dict[str, dict]:
+    """The save sets' devices as ``{device: {"synchronous": bool}}``.
+
+    Names only — the liveness and staleness checks need nothing more.  An
+    entry is *synchronous* unless its role is ``snapshot``.
+    """
+    devices: dict[str, dict] = {}
+    for save_set in save_sets:
+        for entry in save_set.entries:
+            role = getattr(entry.role, "value", entry.role)
+            devices.setdefault(entry.device, {"synchronous": role != "snapshot"})
+    return devices
 
 
 def run_submit_preflight(
@@ -158,10 +155,8 @@ def run_submit_preflight(
     # -- validate (hard gate) ----------------------------------------------
     try:
         from geecs_bluesky.config_resolver import ConfigsRepoResolver
-        from geecs_bluesky.scan_request_runner import validate_scan_request
 
-        resolver = ConfigsRepoResolver(experiment)
-        validate_scan_request(request, resolver)
+        save_sets = _resolve_save_sets(request, ConfigsRepoResolver(experiment))
         report.outcomes.append(("validate", "passed", ""))
     except Exception as exc:
         report.refusal = str(exc)
@@ -176,26 +171,7 @@ def run_submit_preflight(
     if report.refusal is not None:
         return report
 
-    try:
-        devices_config = _resolve_devices_config(request, resolver)
-    except Exception as exc:  # validate passed, so this is unexpected
-        logger.warning("preflight device resolution failed: %s", exc)
-        report.outcomes.append(
-            ("unserved_variables", "skipped", f"device resolution failed: {exc}")
-        )
-        devices_config = {}
-
-    # -- snapshot-role images (engine helper, reused; DB-free) --------------
-    if devices_config:
-        _check_snapshot_images(report, devices_config)
-
-    # -- unserved variables (engine check, reused) --------------------------
-    if devices_config:
-        try:
-            _check_unserved(report, devices_config, experiment)
-        except Exception as exc:
-            logger.warning("unserved-variables preflight failed: %s", exc)
-            report.outcomes.append(("unserved_variables", "skipped", str(exc)))
+    devices_config = _resolve_devices_config(save_sets)
 
     # -- gateway liveness ----------------------------------------------------
     if devices_config:
@@ -296,82 +272,6 @@ def _check_worker_ready(
             close = getattr(client, "close", None)
             if callable(close):
                 close()
-
-
-def _check_snapshot_images(
-    report: PreflightReport, devices_config: dict[str, dict]
-) -> None:
-    """Warn when a snapshot-role entry asks for images the role cannot save (#754).
-
-    Pure (no DB, no CA): the same helper the worker runs at the role seam,
-    so the two surfaces cannot disagree.  A warning, never a refusal — the
-    entry's scalars are still recorded; only the ``images: true`` is inert.
-    """
-    from geecs_bluesky.scan_request_runner import (
-        snapshot_images_ignored,
-        snapshot_images_ignored_message,
-    )
-
-    ignored = snapshot_images_ignored(devices_config)
-    if not ignored:
-        report.outcomes.append(("snapshot_images", "passed", ""))
-        return
-    report.questions.append(
-        PreflightQuestion(
-            check="snapshot_images",
-            title="Images requested on snapshot-role devices",
-            message=(
-                snapshot_images_ignored_message(ignored)
-                + " Continue without their images?"
-            ),
-            continue_label="Continue without images",
-        )
-    )
-
-
-def _check_unserved(
-    report: PreflightReport, devices_config: dict[str, dict], experiment: str
-) -> None:
-    """Engine ``UnservedVariablesCheck`` over the resolved config (reused)."""
-    from geecs_bluesky.db_runtime import GeecsDbServedSetProvider
-    from geecs_bluesky.preflight import (
-        Ask,
-        Passed,
-        PreflightContext,
-        UnservedVariablesCheck,
-    )
-
-    provider = GeecsDbServedSetProvider(experiment)
-    check = UnservedVariablesCheck(devices_config, provider.served_by_device)
-    # The check inspects the devices config only; the detector-level context
-    # fields are unused by it (its own documented contract).
-    ctx = PreflightContext(
-        detectors=[],
-        strict=False,
-        read_liveness=lambda device: True,
-        drop_devices=lambda detectors, drop_ids: detectors,
-        device_label=lambda device: str(device),
-    )
-    result = check(ctx)
-    if isinstance(result, Passed):
-        served_known = provider.served_by_device() is not None
-        report.outcomes.append(
-            (
-                "unserved_variables",
-                "passed" if served_known else "skipped",
-                "" if served_known else "served set unknown (DB unreachable)",
-            )
-        )
-    elif isinstance(result, Ask):
-        report.questions.append(
-            PreflightQuestion(
-                check="unserved_variables",
-                title=result.question.title,
-                message=result.question.message,
-                continue_label=getattr(result.question, "continue_label", "Continue"),
-                abort_label=getattr(result.question, "abort_label", "Abort"),
-            )
-        )
 
 
 def _read_pv(pv: str, timeout: float, datatype: Any = None) -> Any:

@@ -1,8 +1,9 @@
 # Clean-room rebuild: GeecsBluesky as a native Bluesky application
 
 **Status (2026-09-10): direction agreed with Sam — option 1½ in §8; phase 0
-hardware-accepted (PR #811, awaiting merge); phase 1 decisions recorded in
-§10, #812 (test speed) first.** Written at the end of the session that built #809 as a handoff,
+hardware-accepted and merged (#811); #812 (test speed) merged (#813); phase
+1 decisions recorded in §10; phase 1 PR 1 (the deletions, this branch)
+lands next.** Written at the end of the session that built #809 as a handoff,
 then amended by the next session after the discussion recorded in §11 and
 §12. Read this before `00_overview.md`, because it supersedes that
 document's phase plan.
@@ -61,7 +62,8 @@ is right in five years, not the one that is reachable in small steps.
 
 | thing | state |
 |---|---|
-| `feature/native-bluesky-plans` | integration branch off master; **#808 merged** into it 2026-09-09 (device namespace, phase 1); **phase 0 hardware-accepted 2026-09-09** (`phase/00-one-camera-detector`, Scan 065 — `04_phase0_measurements.md` M2; re-accepted after review as M3), **PR #811** reviewed, dispositioned and CI-green — awaiting Sam's merge |
+| `feature/native-bluesky-plans` | integration branch off master; **#808 merged** 2026-09-09 (device namespace); **#811 merged** 2026-09-10 (phase 0, hardware-accepted — `04_phase0_measurements.md` M2/M3); **#813 merged** 2026-09-10 (test speed, #812) |
+| `phase/01-foundation` (phase 1 PR 1) | **the deletions**: the `ScanRequest` funnel and named plans, free-run, `GeecsSession`, `scan_request_runner`, `preflight`, `pause_semantics`, `t0_sync`, the funnel-only devices (`CaGenericDetector`, `CaTriggerable`, `CaTelemetryReadable`, `CaTimestampedReadable`, the shot-id / contributor / nonscalar-save mixins), `ShotController` (its write machinery folded into `ShotControl`), the optimization glue (`plans/optimize`, `optimize.py`, `session_bridge`, `worker_loader`) and every test of theirs; the namespace builds `GeecsDetector` for every triggerable device (`native_save` iff the DB lists `save` + `localsavingpath`); `run_engine.make_run_engine` replaces the session; the startup profile exports the stock `bluesky.plans` verbs (`plan_names.GEECS_PLAN_NAMES`) over the namespace; `qs_client` keeps its surface (readiness + liveness preflight only) so the Console and MCP stay importable |
 | #809 `phase/02-preamble-preprocessor` | **OPEN, on hold, will not merge** (13 commits, GeecsBluesky 0.79.0, CI green). The evidence behind §3; close with a pointer here once this amendment lands (§8) |
 | #806 image writing | **OPEN, not started.** Phase 1, in parallel with the plan layer (§8). File plugin in GeecsPvaGateway + stock `ADHDFDataLogic`; capture daemon retired |
 | #807 | the decision log; its six-then-three phase plan is superseded by §8 here. Comments there point here |
@@ -477,8 +479,16 @@ the least-verified component while the scan path waited.
    posts timeout events, drain offsets across amp4in, `exposure_timeout`
    behaviour on a real trigger.
 1. **In parallel:** #806 (plugin + stock `ADHDFDataLogic`) ∥ the plan
-   layer (path provider + `claim_scan`, callbacks, client expansion +
-   registration table, deletions). Hardware acceptance each.
+   layer, as a deletion-led PR series (§10.5): **PR 1 — the deletions**
+   (done on `phase/01-foundation`: funnel, free-run, session, runner,
+   funnel-only devices, optimization glue; `GeecsDetector` for every
+   triggerable device; stock plans exported by the profile); **PR 2 —
+   the plan layer** (the `claim_scan` preprocessor + `PathProvider`,
+   the ScanInfo / s-file / `scan.log` callbacks, the registration table
+   with the strict `take_reading` pre-bound, telemetry = everything);
+   **PR 3 — headless hardware acceptance** (HTU-NoGas, `U_S1H:Current`
+   −1 → +1 A in 0.5 A steps, amp4in, setpoint restored), then the worker
+   flips. Hardware acceptance for #806 separately.
 2. Gated batch + the non-essential stream via `SupplementalData.flyers`;
    free-run deleted.
 3. The calibration plan + the preflight validation.
@@ -606,6 +616,25 @@ Still open, for Sam:
    - **GEECS-MCP gets only the edit that keeps it importable** when the
      runner and `preflight.py` go; its real update waits for the stable
      foundation.
+   - **PR 1 scoping (Sam, 2026-09-10, second round):** a **preset** is
+     the device group (`device`, `save_images`, `essential`) **plus the
+     plan call** (stock plan name + args/kwargs with device names as
+     strings) — a saved queue item; the client expands the names against
+     the namespace at submission. Setup/closeout rituals and the
+     `SaveRole` enum are dropped; explicit action plans stay queue items.
+     PR 2 deletes `save_set.py`, its converters and the configs-repo
+     `save_sets/` tree and regenerates the corpus as presets. The
+     **optimization trim is option B**: the Xopt core
+     (`evaluators`, `generators`, `base_optimizer`, `config_models`,
+     `inspection`) stays importable with its tests; `plans/optimize.py`,
+     `optimize.py`, `session_bridge.py`, `worker_loader.py` and the
+     loader hook go — optimization is broken until it is re-glued to the
+     native scan path in its own phase. The **function_execute verbs**
+     (`geecs_move_variable`, `geecs_describe_action`, `run_action`) go
+     with the session: a manual move is a stock `mv` queue item, a
+     preview is client-side resolver work. **Deployment** (site.env,
+     `render_units.sh`, the units) is touched once, at the end of the
+     feature branch when things freeze — not per PR.
 6. Two small carry-overs, unrelated to this direction: write
    `Amplitude.Ch AB: 0.5` explicitly in every state of `HTU-NoGas` so "no
    gas" stops being order-dependent, and add a check that all profiles in

@@ -1,4 +1,4 @@
-"""Tiled catalog integration for GeecsSession (and the queueserver worker).
+"""Tiled catalog integration for the RunEngine (headless and the queueserver worker).
 
 One call — :func:`subscribe_tiled` — reads the catalog location from the
 standard ``~/.config/geecs_python_api/config.ini`` (unless given explicitly),
@@ -126,8 +126,7 @@ def subscribe_tiled(
 
     Reachability is pre-checked with a bounded TCP connect
     (:func:`tiled_server_reachable`) *before* the Tiled client is created, so
-    an off-network caller (e.g. a ``GeecsSession`` built just to inspect a
-    plan) degrades in ~``TILED_REACHABILITY_TIMEOUT_S`` seconds instead of
+    an off-network caller degrades in ~``TILED_REACHABILITY_TIMEOUT_S`` seconds instead of
     hanging for the Tiled client's full HTTP connect timeout.
     """
     if tiled_uri is None:

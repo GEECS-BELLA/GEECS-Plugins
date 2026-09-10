@@ -28,7 +28,7 @@ session's RE-loop connector at creation time.  Because plan generators
 execute *inside* the RunEngine's event loop (where a blocking connect would
 deadlock), callers must pre-connect every signal a compiled plan will touch
 before handing the plan to the RE — see
-:func:`~geecs_bluesky.scan_request_runner.prefetch_action_signals`.
+the action compiler's callers (every signal built and connected before a plan runs).
 
 The factory rides the same per-scan cleanup path as devices: it exposes an
 ``async disconnect()`` so ``session.disconnect(factory)`` treats it

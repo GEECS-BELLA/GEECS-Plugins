@@ -1,158 +1,41 @@
-"""ShotControlConfig — validated DG645 / shot-controller configuration.
+"""ShotControlWrites — the trigger box's per-state ordered write lists.
 
-The GEECS shot controller (a DG645 delay generator) is configured by a small
-YAML document — historically passed around the scanner as a bare, untyped
-``dict``::
+The engine-side shape of a configs-repo
+``geecs_schemas.trigger_profile.TriggerProfile``: a state transition is an
+ordered list of ``(device, variable, value)`` writes, applied top to bottom
+(order is schema-documented — e.g. raise an amplitude before switching a
+trigger source), possibly spanning several devices.  Values are verbatim
+wire strings; a state with no writes is "not defined" for this box.  The
+adapter lives beside the device that consumes it
+(:func:`~geecs_bluesky.devices.shot_control.trigger_writes_from_profile`).
 
-    device: U_DG645_ShotControl
-    variables:
-      Trigger.Source:
-        OFF: "Single shot external rising edges"
-        SCAN: "External rising edges"
-        STANDBY: "External rising edges"
-        SINGLESHOT: ""
-      Trigger.ExecuteSingleShot:
-        OFF: ""
-        SCAN: ""
-        STANDBY: ""
-        SINGLESHOT: "on"
-
-Each named **state** maps a set of device variables to the values that put the
-controller into that state.  An empty-string value means "no-op for this
-state" (leave the variable untouched) — matching the legacy
-``TriggerController`` convention.
-
-This module gives that document a typed home so callers validate once and then
-ask structured questions (``defines_state``, ``values_for_state``) instead of
-digging raw nested dicts.  It is pure data — no hardware, no GEECS engine
-imports — so every scan entry point and any
-future GUI/editor can share it without dragging in the legacy engine.
+The five state names are the schema's :class:`TriggerState`
+(``Planning/native_bluesky/03_clean_room_rebuild.md`` §11.1): OFF is the
+only quiet state, STANDBY and SCAN pass external edges, ARMED is the
+single-shot source for strict acquisition, SINGLESHOT is the momentary fire.
 """
 
 from __future__ import annotations
 
-from enum import Enum
-from typing import Any
-
+from geecs_schemas.trigger_profile import TriggerState
 from pydantic import BaseModel, ConfigDict, Field
-
-
-class ShotControlState(str, Enum):
-    """Named states a shot controller can be driven to.
-
-    ``OFF`` / ``SCAN`` / ``STANDBY`` are the legacy trigger-window states.
-    ``ARMED`` and ``SINGLESHOT`` drive plan-owned single-shot acquisition:
-    ``ARMED`` puts the controller in single-shot mode at data-taking output
-    (e.g. gas jet on + ``Trigger.Source`` → single-shot, halting the
-    free-run), and ``SINGLESHOT`` fires one shot.  Strict acquisition requires
-    a config with a non-empty ``ARMED`` state; use explicit free-run mode for
-    free-running trigger acquisition.
-    Which states a given controller implements depends on its YAML — query
-    with :meth:`ShotControlConfig.defines_state`.
-    """
-
-    OFF = "OFF"
-    SCAN = "SCAN"
-    STANDBY = "STANDBY"
-    SINGLESHOT = "SINGLESHOT"
-    ARMED = "ARMED"
-
-
-class ShotControlConfig(BaseModel):
-    """A shot-controller device plus its per-variable state→value table.
-
-    Parameters
-    ----------
-    device:
-        GEECS device name (e.g. ``"U_DG645_ShotControl"``).
-    variables:
-        ``{variable_name: {state_name: value}}``.  Values are sent verbatim
-        over the GEECS wire protocol (they may be words like ``"on"`` or
-        device-enum strings).  An empty string means "no-op for this state".
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    device: str
-    variables: dict[str, dict[str, str]] = Field(default_factory=dict)
-
-    @classmethod
-    def from_information(
-        cls, information: "ShotControlConfig | dict[str, Any] | None"
-    ) -> "ShotControlConfig | None":
-        """Coerce the legacy ``shot_control_information`` dict (or ``None``).
-
-        Accepts an existing :class:`ShotControlConfig` (returned as-is), the
-        ``{"device": ..., "variables": ...}`` dict the GUI/YAML produces, or
-        ``None``.  An empty/falsy value (``None``, ``{}`` — e.g. a blank
-        shot-control YAML like Bella's) means "no shot control configured" and
-        returns ``None`` rather than raising, matching the legacy
-        ``if shot_control_information:`` guard.
-        """
-        if not information:
-            return None
-        if isinstance(information, ShotControlConfig):
-            return information
-        return cls.model_validate(information)
-
-    @staticmethod
-    def _state_name(state: "ShotControlState | str") -> str:
-        return state.value if isinstance(state, ShotControlState) else str(state)
-
-    def defines_state(self, state: "ShotControlState | str") -> bool:
-        """Whether any variable has a non-empty value for *state*.
-
-        A state listed everywhere as ``""`` (all no-ops) counts as *not*
-        defined — driving to it would do nothing.
-        """
-        name = self._state_name(state)
-        return any(values.get(name) for values in self.variables.values())
-
-    def values_for_state(self, state: "ShotControlState | str") -> dict[str, str]:
-        """Return the ``{variable: value}`` writes that drive *state*.
-
-        Variables whose value for this state is missing or empty are omitted
-        (no-op), so the result contains only the writes that should actually
-        be sent.
-        """
-        name = self._state_name(state)
-        return {
-            var: values[name]
-            for var, values in self.variables.items()
-            if values.get(name)
-        }
-
 
 #: Standing states in which external edges reach the devices, so a RunEngine
 #: pause must drive OFF (SCAN and STANDBY both pass edges — STANDBY is the
 #: machine's idle state, not a quiet one).  ARMED/OFF are quiescent by
-#: construction.  Consumed by the ShotControl device and the pause quiescer.
+#: construction.  Consumed by the ShotControl device's ``pause()``.
 QUIESCE_FROM: frozenset[str] = frozenset(
-    {ShotControlState.SCAN.value, ShotControlState.STANDBY.value}
+    {TriggerState.SCAN.value, TriggerState.STANDBY.value}
 )
 
 
 class ShotControlWrites(BaseModel):
-    """Generalized shot control: per-state **ordered** multi-device write lists.
-
-    The engine-facing successor of the per-variable single-device
-    :class:`ShotControlConfig` pivot, matching the
-    ``geecs_schemas.trigger_profile.TriggerProfile`` semantics: a state
-    transition is an ordered list of ``(device, variable, value)`` writes,
-    applied top to bottom (order is schema-documented — e.g. raise an
-    amplitude before switching a trigger source), possibly spanning several
-    devices.  Values are verbatim wire strings; a state with no writes is
-    "not defined" for this controller.
-
-    This model stays pure data (no hardware, no schema imports) so the
-    trigger-profile adapter lives bluesky-side
-    (:func:`~geecs_bluesky.devices.shot_control.trigger_writes_from_profile`)
-    and callers can store either generation in one slot.
+    """Per-state **ordered** multi-device write lists.
 
     Parameters
     ----------
     name:
-        Profile name, used in log/error messages (e.g. ``"htu_normal"``).
+        Profile name, used in log/error messages (e.g. ``"HTU-NoGas"``).
     states:
         ``{state_name: [(device, variable, value), ...]}`` — the ordered
         writes per state.  Empty-string values are not expected here (the
@@ -165,8 +48,8 @@ class ShotControlWrites(BaseModel):
     states: dict[str, list[tuple[str, str, str]]] = Field(default_factory=dict)
 
     @staticmethod
-    def _state_name(state: "ShotControlState | str") -> str:
-        return state.value if isinstance(state, ShotControlState) else str(state)
+    def _state_name(state: TriggerState | str) -> str:
+        return state.value if isinstance(state, TriggerState) else str(state)
 
     @property
     def devices(self) -> list[str]:
@@ -177,12 +60,10 @@ class ShotControlWrites(BaseModel):
                 seen.setdefault(device)
         return list(seen)
 
-    def defines_state(self, state: "ShotControlState | str") -> bool:
+    def defines_state(self, state: TriggerState | str) -> bool:
         """Whether driving to *state* would write anything at all."""
         return bool(self.states.get(self._state_name(state)))
 
-    def writes_for_state(
-        self, state: "ShotControlState | str"
-    ) -> list[tuple[str, str, str]]:
+    def writes_for_state(self, state: TriggerState | str) -> list[tuple[str, str, str]]:
         """Return the ordered ``(device, variable, value)`` writes for *state*."""
         return list(self.states.get(self._state_name(state), []))

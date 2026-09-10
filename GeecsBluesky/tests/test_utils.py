@@ -8,11 +8,8 @@ from geecs_bluesky.utils import safe_name
 
 pytest.importorskip("aioca")  # devices are CA-backed
 
-from geecs_bluesky.devices.ca import (  # noqa: E402
-    CaGenericDetector,
-    CaMotor,
-    CaSnapshotReadable,
-)
+from geecs_bluesky.devices.ca import CaMotor, CaSnapshotReadable  # noqa: E402
+from geecs_bluesky.devices.detector import GeecsDetector  # noqa: E402
 
 
 def test_safe_name_mangles_and_lowercases() -> None:
@@ -36,8 +33,8 @@ def test_safe_name_agrees_with_the_pv_naming_contract() -> None:
         assert safe_name(raw) == normalize_component(raw)
 
 
-def test_generic_detector_column_headers() -> None:
-    det = CaGenericDetector(
+def test_detector_column_headers() -> None:
+    det = GeecsDetector(
         "UC_Wavemeter",
         ["Wavelength (nm)", "Power (mW)"],
         name="wavemeter",
@@ -45,6 +42,7 @@ def test_generic_detector_column_headers() -> None:
     assert det._column_headers == {
         "wavemeter-wavelength_nm": "UC_Wavemeter Wavelength (nm)",
         "wavemeter-power_mw": "UC_Wavemeter Power (mW)",
+        "wavemeter-acq_timestamp": "UC_Wavemeter acq_timestamp",
     }
 
 

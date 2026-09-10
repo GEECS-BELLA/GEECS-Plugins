@@ -254,7 +254,11 @@ class ScalarsDataLogic(DetectorDataLogic):
     """The device's own scalar variables (and its stamp) as event columns."""
 
     def __init__(self, signals: Sequence[SignalR]) -> None:
-        self._signals = tuple(signals)
+        self._signals: list[SignalR] = list(signals)
+
+    def add(self, *signals: SignalR) -> None:
+        """Add columns (a subscribed settable child's readback, at namespace build)."""
+        self._signals.extend(signals)
 
     async def prepare_single(self, datakey_name: str) -> ReadableDataProvider:
         """One reading per event: the signals' current values."""
@@ -432,16 +436,18 @@ class GeecsDetector(StandardDetector):
             str, ca_pv(experiment, device, "CONNECTED")
         )
         self.drain_offset = soft_signal_rw(float, 0.0, units="s")
-        self._scalars = tuple(scalars)
+        self._scalars: list[SignalR] = list(scalars)
         self._acquire = GeecsAcquireLogic(
             self.acq_timestamp, device, shot_timeout=shot_timeout
         )
+        self._scalars_logic = ScalarsDataLogic((*scalars, self.acq_timestamp))
         logics: list[Any] = [
             GeecsTriggerLogic(self.drain_offset),
             self._acquire,
-            ScalarsDataLogic((*scalars, self.acq_timestamp)),
+            self._scalars_logic,
         ]
-        if native_save or path_provider is not None:
+        self.native_save = bool(native_save or path_provider is not None)
+        if self.native_save:
             path_pv = ca_pv(experiment, device, "localsavingpath")
             save_pv = ca_pv(experiment, device, "save")
             self.localsavingpath = epics_signal_rw(str, path_pv, setpoint_pv(path_pv))
@@ -465,6 +471,17 @@ class GeecsDetector(StandardDetector):
     def last_acq_timestamp(self) -> float | None:
         """Latest stamp seen by the persistent monitor."""
         return self._acquire.last_acq_timestamp
+
+    def add_readables(self, signals: Sequence[SignalR]) -> None:
+        """Add event columns beyond the constructor's *variables*.
+
+        The namespace binds each served settable as a Movable child and,
+        when the DB also subscribes that variable, logs its readback here —
+        the same rule ``StandardReadable.add_readables`` gives the
+        scalar-only devices.  Staged with the other scalars.
+        """
+        self._scalars.extend(signals)
+        self._scalars_logic.add(*signals)
 
     async def connect(
         self,

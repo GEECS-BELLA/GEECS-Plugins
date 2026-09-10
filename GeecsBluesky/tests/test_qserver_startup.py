@@ -38,20 +38,25 @@ def _no_tiled_subscription(monkeypatch: pytest.MonkeyPatch) -> None:
     ``subscribe_tiled`` itself already degrades gracefully off-network (a
     bounded reachability check), but *reading* its config
     (``geecs_data_utils.tiled_catalog.read_tiled_config``) touches the same
-    ``config.ini`` this test suite otherwise avoids entirely (see every
-    other ``GeecsSession(..., tiled=False, mock=True)`` fixture in this
-    package). Startup profile testing is about the profile's own wiring,
-    not Tiled's config resolution, so it is stubbed rather than routed
-    through a real or fake config file.
+    ``config.ini`` this test suite otherwise avoids entirely. Startup
+    profile testing is about the profile's own wiring, not Tiled's config
+    resolution, so it is stubbed rather than routed through a real or fake
+    config file.
     """
-    monkeypatch.setattr("geecs_bluesky.session.subscribe_tiled", lambda *a, **kw: None)
+    monkeypatch.setattr(
+        "geecs_bluesky.tiled_integration.subscribe_tiled", lambda *a, **kw: None
+    )
+    # No 0MQ publisher in-process: a connected-but-peerless PUB socket makes
+    # the zmq context's teardown block (linger) for the next test's whole
+    # timeout — the residual one-test stall of #812.
+    monkeypatch.setenv("QS_DOC_PUBLISH_ADDR", "OFF")
     # The DB-backed device namespace is exercised by its own test below;
     # every other in-process run skips it (no GEECS DB here).
     monkeypatch.setenv("QS_DEVICE_NAMESPACE", "off")
 
 
-def test_startup_profile_defines_re_and_plan_headless(tmp_path: Path) -> None:
-    """QS_EXPERIMENT resolves the experiment; RE and the plan land in the namespace.
+def test_startup_profile_defines_re_and_plans_headless(tmp_path: Path) -> None:
+    """QS_EXPERIMENT resolves the experiment; RE and the stock plans land in the namespace.
 
     Also asserts the load-bearing import order documented at the top of
     ``qserver/startup/startup.py``: ``geecs_bluesky`` (which sets
@@ -59,9 +64,7 @@ def test_startup_profile_defines_re_and_plan_headless(tmp_path: Path) -> None:
     must be set, before ``aioca`` is first imported. Run as a subprocess so
     both modules start uncached — see the module docstring above.
     """
-    # startup.py imports bluesky_queueserver at top level (#727 — the
-    # parameter-annotation decorator), so executing it needs the qserver
-    # extra, same as every other queueserver-touching test here.
+    # The probe asks the manager's own plan discovery what it sees.
     pytest.importorskip("bluesky_queueserver")
     config_dir = tmp_path / "home" / ".config" / "geecs_python_api"
     config_dir.mkdir(parents=True)
@@ -70,6 +73,7 @@ def test_startup_profile_defines_re_and_plan_headless(tmp_path: Path) -> None:
     env = dict(os.environ)
     env["QS_EXPERIMENT"] = "TestExp"
     env["QS_DEVICE_NAMESPACE"] = "off"  # no DB in the hermetic probe
+    env["QS_DOC_PUBLISH_ADDR"] = "OFF"
     env["HOME"] = str(tmp_path / "home")
     env.pop("EPICS_CA_ADDR_LIST", None)
     env.pop("EPICS_CA_AUTO_ADDR_LIST", None)
@@ -90,7 +94,6 @@ def test_startup_profile_fails_loud_without_an_experiment(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Neither QS_EXPERIMENT nor config.ini's [Experiment] expt: fail at import."""
-    pytest.importorskip("bluesky_queueserver")  # startup.py imports it (#727)
     monkeypatch.delenv("QS_EXPERIMENT", raising=False)
 
     class _NoExperimentConfig:
@@ -130,103 +133,82 @@ def test_gen_list_of_plans_and_devices_succeeds_on_startup_dir(
     assert (tmp_path / out_name).exists()
 
 
-def test_plan_signature_passes_manager_validation() -> None:
-    """A real ``queue add`` item validates against the plan's introspected signature.
+def test_stock_plans_pass_manager_validation_over_namespace_devices(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A real ``queue add`` item for a stock plan validates against the profile.
 
-    Pins the signature constraint documented above
-    ``geecs_scan_request_plan``: the RE Manager re-evaluates the
-    signature's annotation *strings* in a bare namespace at submission, so
-    any non-builtin name there (``ScanRequest``, ``ConfigResolver``, even
-    ``typing.Any``) rejects every submission with "``Model`` is not fully
-    defined". List *generation* (the test above) does not exercise this —
-    only item validation does, which is why the in-process test history
-    missed it until the 2026-08-21 live integration checkpoint.
-
-    Uses the manager's own ``_process_plan``/``validate_plan`` pair (the
-    exact code path behind ``queue add``); private queueserver API,
-    accepted for a pin this specific.
+    The manager re-evaluates each plan's signature at submission; the
+    stock verbs' annotations are plain builtins, so ``count([cam], 3)``
+    and ``scan([cam], U_S1H.current, -1, 1, 5)`` validate with the
+    namespace devices as the allowed devices — the queue-item contract
+    the plan layer (PR 2) and the clients build on.  Uses the manager's
+    own ``_process_plan``/``validate_plan`` pair (the exact code path
+    behind ``queue add``); private queueserver API, accepted for a pin
+    this specific.
     """
     pytest.importorskip("bluesky_queueserver")
-
-    from bluesky_queueserver.manager.profile_ops import _process_plan, validate_plan
-
-    from geecs_bluesky.plans.scan_request_plan import geecs_scan_request_plan
-    from geecs_schemas import ScanRequest
-
-    request = ScanRequest.model_validate(
-        {"mode": "noscan", "shots_per_step": 2, "save_sets": ["UC_Test"]}
+    pytest.importorskip("aioca")
+    from bluesky_queueserver.manager.profile_ops import (
+        _process_plan,
+        existing_plans_and_devices_from_nspace,
+        validate_plan,
     )
-    item = {
-        "name": "geecs_scan_request_plan",
-        "args": [request.model_dump(mode="json")],
-        "item_type": "plan",
-    }
-    processed = _process_plan(
-        geecs_scan_request_plan, existing_devices={}, existing_plans={}
+
+    from geecs_bluesky.namespace import GeecsNamespace
+
+    monkeypatch.setenv("QS_EXPERIMENT", "TestExp")
+    monkeypatch.setenv("QS_DEVICE_NAMESPACE", "db")
+    monkeypatch.setattr(
+        GeecsNamespace,
+        "from_experiment",
+        classmethod(lambda cls, exp, **kw: cls(_make_roster())),
     )
-    ok, msg = validate_plan(
-        item, allowed_plans={"geecs_scan_request_plan": processed}, allowed_devices={}
-    )
-    assert ok, msg
-
-
-def test_annotated_plans_carry_descriptions_and_still_validate() -> None:
-    """The #727 annotations reach ``plans_allowed`` without breaking submits.
-
-    The startup wraps both funnel plans with
-    ``parameter_annotation_decorator``; this pins the two things that
-    matter about that: the processed plan (the exact dict the manager
-    serves as ``plans_allowed``) carries a per-parameter description —
-    with the ``request`` description pointing at the published JSON Schema
-    artifact — and a real ``queue add`` item still validates against the
-    decorated signature (the annotation strings must evaluate in the
-    manager's bare namespace, same constraint as the test above).
-    """
-    pytest.importorskip("bluesky_queueserver")
-
-    from bluesky_queueserver import parameter_annotation_decorator
-    from bluesky_queueserver.manager.profile_ops import _process_plan, validate_plan
-
-    from geecs_bluesky.plans.scan_request_plan import (
-        RUN_ACTION_PLAN_ANNOTATION,
-        SCAN_REQUEST_PLAN_ANNOTATION,
-        geecs_run_action_plan,
-        geecs_scan_request_plan,
-    )
-    from geecs_schemas import ScanRequest
-
-    for plan, annotation, item_args in (
-        (
-            geecs_scan_request_plan,
-            SCAN_REQUEST_PLAN_ANNOTATION,
-            [
-                ScanRequest.model_validate(
-                    {"mode": "noscan", "shots_per_step": 2, "save_sets": ["UC_Test"]}
-                ).model_dump(mode="json")
-            ],
-        ),
-        (geecs_run_action_plan, RUN_ACTION_PLAN_ANNOTATION, ["reset_plc"]),
+    ns = runpy.run_path(str(STARTUP_PATH), run_name="__not_main__")
+    plans, devices, *_ = existing_plans_and_devices_from_nspace(nspace=ns)
+    assert {"count", "scan", "mv"} <= set(plans)
+    assert "UC_TestCam" in devices and "U_S1H" in devices
+    for name, args in (
+        ("count", [["UC_TestCam"], 3]),
+        ("scan", [["UC_TestCam"], "U_S1H.current", -1, 1, 5]),
+        ("mv", ["U_S1H.current", 0.0]),
     ):
-        wrapped = parameter_annotation_decorator(annotation)(plan)
-        processed = _process_plan(wrapped, existing_devices={}, existing_plans={})
-        described = {p["name"]: p.get("description") for p in processed["parameters"]}
-        assert set(annotation["parameters"]) <= set(described)
-        assert all(described[name] for name in annotation["parameters"])
+        processed = _process_plan(ns[name], existing_devices={}, existing_plans={})
         ok, msg = validate_plan(
-            {"name": plan.__name__, "args": item_args, "item_type": "plan"},
-            allowed_plans={plan.__name__: processed},
-            allowed_devices={},
+            {"name": name, "args": args, "item_type": "plan"},
+            allowed_plans={name: processed},
+            allowed_devices=devices,
         )
-        assert ok, msg
+        assert ok, (name, msg)
 
-    # The FULL artifact path, from the schemas package's own constant — a
-    # docs reorg that moves the artifact must break this pin, not leave
-    # the served description pointing at a dead path (#730 review).
-    from geecs_schemas.schema_export import SCHEMA_ARTIFACT
 
-    assert (
-        SCHEMA_ARTIFACT.as_posix()
-        in SCAN_REQUEST_PLAN_ANNOTATION["parameters"]["request"]["description"]
+_ROW = {
+    "settable": False,
+    "variabletype": None,
+    "choices": "numeric",
+    "tolerance": None,
+    "units": "",
+    "min": None,
+    "max": None,
+}
+
+
+def _make_roster():
+    from geecs_bluesky.namespace import DeviceRoster
+
+    return DeviceRoster(
+        experiment="TestExp",
+        variables={
+            "UC_TestCam": [
+                {**_ROW, "name": "trigger", "settable": True, "choices": "on,off"},
+                {**_ROW, "name": "MeanCounts"},
+            ],
+            "U_S1H": [
+                {**_ROW, "name": "Current", "settable": True, "tolerance": 0.05},
+            ],
+        },
+        types={"UC_TestCam": "Point Grey Camera", "U_S1H": "Magnet PS"},
+        subscribed={"UC_TestCam": ["MeanCounts"], "U_S1H": ["Current"]},
     )
 
 
@@ -235,33 +217,15 @@ def test_startup_exports_the_device_namespace_and_installs_connect_last(
 ) -> None:
     """Devices from the roster land in the namespace/__all__; connect_on_demand is outermost."""
     pytest.importorskip("aioca")  # the roster builds CA devices
-    from geecs_bluesky.namespace import DeviceRoster, GeecsNamespace
+    from geecs_bluesky.namespace import GeecsNamespace
     from geecs_bluesky.preprocessors import connect_on_demand
 
     monkeypatch.setenv("QS_EXPERIMENT", "TestExp")
     monkeypatch.setenv("QS_DEVICE_NAMESPACE", "db")
-    roster = DeviceRoster(
-        experiment="TestExp",
-        variables={
-            "U_S1H": [
-                {
-                    "name": "Current",
-                    "settable": True,
-                    "variabletype": None,
-                    "choices": "numeric",
-                    "tolerance": 0.05,
-                    "units": "",
-                    "min": None,
-                    "max": None,
-                },
-            ]
-        },
-        subscribed={"U_S1H": ["Current"]},
-    )
     monkeypatch.setattr(
         GeecsNamespace,
         "from_experiment",
-        classmethod(lambda cls, exp, **kw: cls(roster)),
+        classmethod(lambda cls, exp, **kw: cls(_make_roster())),
     )
     ns = runpy.run_path(str(STARTUP_PATH), run_name="__not_main__")
     assert "U_S1H" in ns and "U_S1H" in ns["__all__"]

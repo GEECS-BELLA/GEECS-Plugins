@@ -1,7 +1,7 @@
 """Tests for the shared per-scan scan.log helper (Gate-2 follow-up).
 
 Covers the extracted :mod:`geecs_bluesky.scan_log` helper itself.  CI-safe:
-no CA needed.  The headless :class:`GeecsSession` attachment tests (mock CA
+no CA needed.  The headless attachment tests (mock CA
 backends) live in ``test_scan_log_session.py``.
 """
 

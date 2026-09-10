@@ -18,6 +18,6 @@ from __future__ import annotations
 #: consumers (the console's paused pill, the MCP's ``scan_progress``)
 #: match this prefix in the manager's console-output stream to surface
 #: the *why*.  Emitted by ``plans/step_scan.py``; re-exported by
-#: ``plans.pause_semantics`` (its historical home) and
+#: ``plans.pause_semantics`` (its historical home, deleted in #807 phase 1) and
 #: ``geecs_bluesky.qs_client`` (the client-facing spelling).
 FAILED_MOVE_LOG_PREFIX = "FAILED MOVE - pausing for operator"

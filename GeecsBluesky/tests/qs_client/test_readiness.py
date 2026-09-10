@@ -8,7 +8,7 @@ API shape ``test_queue_client.py`` uses.
 from __future__ import annotations
 
 
-from geecs_bluesky.plan_names import GEECS_PLAN_NAMES, SCAN_REQUEST_PLAN
+from geecs_bluesky.plan_names import GEECS_PLAN_NAMES
 from geecs_bluesky.qs_client.client import (
     QserverConfig,
     QueueStatus,
@@ -34,30 +34,32 @@ OPENING = QueueStatus(
     worker_environment_state="initializing",
 )
 PLANS = {name: {"name": name} for name in GEECS_PLAN_NAMES}
+#: The plan a client asks about — any registered one; `scan` stands in.
+SCAN_PLAN = "scan"
 
 
 class TestReadinessVerdict:
     def test_ready_needs_environment_plans_and_the_expected_plan(self):
-        verdict = readiness_verdict(UP, PLANS, SCAN_REQUEST_PLAN)
+        verdict = readiness_verdict(UP, PLANS, SCAN_PLAN)
         assert verdict.ready and verdict.state == "ready"
         assert verdict.allowed_plans == tuple(sorted(GEECS_PLAN_NAMES))
         assert readiness_verdict(UP, PLANS, list(GEECS_PLAN_NAMES)).ready
         assert readiness_verdict(UP, list(PLANS), None).ready  # names alone suffice
 
     def test_unreachable(self):
-        verdict = readiness_verdict(DOWN, PLANS, SCAN_REQUEST_PLAN)
+        verdict = readiness_verdict(DOWN, PLANS, SCAN_PLAN)
         assert not verdict.ready and verdict.state == "unreachable"
         assert "timeout" in verdict.detail
 
     def test_closed_environment_names_the_recovery_gesture(self):
-        verdict = readiness_verdict(CLOSED, {}, SCAN_REQUEST_PLAN)
+        verdict = readiness_verdict(CLOSED, {}, SCAN_PLAN)
         assert not verdict.ready and verdict.state == "environment_closed"
         assert "geecs-qserver-ready" in verdict.detail
         assert "qserver environment open" in verdict.detail
 
     def test_opening_environment_is_its_own_state_not_closed(self):
         """A manager mid-open must not be told to restart the readiness unit."""
-        verdict = readiness_verdict(OPENING, None, SCAN_REQUEST_PLAN)
+        verdict = readiness_verdict(OPENING, None, SCAN_PLAN)
         assert not verdict.ready and verdict.state == "environment_opening"
         assert "being opened" in verdict.detail
         assert "retry" in verdict.detail.lower()
@@ -73,14 +75,14 @@ class TestReadinessVerdict:
         )
         assert readiness_verdict(initializing, {}, None).state == "environment_opening"
         # an env that exists and settled is judged on its plans as before
-        assert readiness_verdict(UP, PLANS, SCAN_REQUEST_PLAN).ready
+        assert readiness_verdict(UP, PLANS, SCAN_PLAN).ready
 
     def test_unanswered_plan_list_is_unknown_never_ready(self):
         """The coordination rule: no answer ≠ ready, even with the env up."""
         verdict = readiness_verdict(UP, None, None)
         assert not verdict.ready and verdict.state == "plans_unknown"
         assert verdict.allowed_plans == ()
-        assert not readiness_verdict(UP, None, SCAN_REQUEST_PLAN).ready
+        assert not readiness_verdict(UP, None, SCAN_PLAN).ready
 
     def test_empty_plan_list_is_not_ready(self):
         verdict = readiness_verdict(UP, {}, None)
@@ -88,16 +90,14 @@ class TestReadinessVerdict:
         assert "Troubleshooting" in verdict.detail
 
     def test_missing_expected_plan_lists_what_is_allowed(self):
-        verdict = readiness_verdict(
-            UP, {"geecs_run_action_plan": {}}, SCAN_REQUEST_PLAN
-        )
+        verdict = readiness_verdict(UP, {"mv": {}}, SCAN_PLAN)
         assert not verdict.ready and verdict.state == "plan_missing"
-        assert SCAN_REQUEST_PLAN in verdict.detail
-        assert "listed: geecs_run_action_plan" in verdict.detail
+        assert SCAN_PLAN in verdict.detail
+        assert "listed: mv" in verdict.detail
         # several expected: every missing one is named
-        verdict = readiness_verdict(UP, {"geecs_run_action_plan": {}}, GEECS_PLAN_NAMES)
-        assert "geecs_noscan_plan" in verdict.detail
-        assert "geecs_run_action_plan" not in verdict.detail.split("(listed")[0]
+        verdict = readiness_verdict(UP, {"mv": {}}, GEECS_PLAN_NAMES)
+        assert "rel_list_grid_scan" in verdict.detail
+        assert "mv" not in verdict.detail.split("(listed")[0]
 
     def test_precedence_unreachable_before_opening_before_closed_before_plans(
         self,
@@ -118,7 +118,7 @@ class TestReadinessFromReads:
             reads.append(1)
             return PLANS
 
-        assert readiness_from_reads(UP, read, SCAN_REQUEST_PLAN).ready
+        assert readiness_from_reads(UP, read, SCAN_PLAN).ready
         assert reads == [1]
 
     def test_skips_the_read_when_closed_opening_or_down(self):
@@ -161,7 +161,7 @@ def test_queue_status_from_manager_maps_the_payload():
 
 
 def test_stub_readiness_is_unreachable_naming_the_config():
-    verdict = StubQueueClient().readiness(SCAN_REQUEST_PLAN)
+    verdict = StubQueueClient().readiness(SCAN_PLAN)
     assert not verdict.ready and verdict.state == "unreachable"
     assert "[qserver]" in verdict.detail
 
@@ -196,12 +196,12 @@ class TestZmqReadiness:
             status={"worker_environment_exists": True, "manager_state": "idle"},
             plans=PLANS,
         )
-        assert _client(api).readiness(SCAN_REQUEST_PLAN).ready
+        assert _client(api).readiness(SCAN_PLAN).ready
         assert api.calls == ["status", "plans_allowed"]
 
     def test_closed_environment_skips_the_plan_read(self):
         api = _Api(status={"worker_environment_exists": False, "manager_state": "idle"})
-        verdict = _client(api).readiness(SCAN_REQUEST_PLAN)
+        verdict = _client(api).readiness(SCAN_PLAN)
         assert verdict.state == "environment_closed"
         assert api.calls == ["status"]
 
@@ -213,7 +213,7 @@ class TestZmqReadiness:
                 "worker_environment_state": "initializing",
             }
         )
-        verdict = _client(api).readiness(SCAN_REQUEST_PLAN)
+        verdict = _client(api).readiness(SCAN_PLAN)
         assert verdict.state == "environment_opening"
         assert api.calls == ["status"]
 
@@ -222,7 +222,7 @@ class TestZmqReadiness:
             status={"worker_environment_exists": True, "manager_state": "idle"},
             plans_error=RuntimeError("boom"),
         )
-        verdict = _client(api).readiness(SCAN_REQUEST_PLAN)
+        verdict = _client(api).readiness(SCAN_PLAN)
         assert not verdict.ready and verdict.state == "plans_unknown"
 
     def test_status_failure_is_unreachable(self):
@@ -230,5 +230,5 @@ class TestZmqReadiness:
             def status(self):
                 raise RuntimeError("no route")
 
-        verdict = _client(_Down()).readiness(SCAN_REQUEST_PLAN)
+        verdict = _client(_Down()).readiness(SCAN_PLAN)
         assert verdict.state == "unreachable" and "no route" in verdict.detail

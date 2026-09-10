@@ -82,55 +82,34 @@ def main() -> None:
         )
         return
 
+    import bluesky.plan_stubs as bps
+    import bluesky.plans as bp
     from bluesky import RunEngine
+    from bluesky_queueserver.manager.profile_ops import plans_from_nspace
 
-    from geecs_bluesky.plans.named_plans import (
-        geecs_noscan_plan,
-        geecs_optimize_plan,
-        geecs_scan_plan,
-    )
-    from geecs_bluesky.plans.scan_request_plan import (
-        geecs_run_action_plan,
-        geecs_scan_request_plan,
-    )
+    from geecs_bluesky.plan_names import GEECS_PLAN_NAMES
+    from geecs_bluesky.preprocessors import connect_on_demand
 
     if not isinstance(ns.get("RE"), RunEngine):
         _fail(f"ns['RE'] is not a RunEngine: {ns.get('RE')!r}")
         return
-    if ns["RE"] is not ns["session"].RE:
-        _fail("ns['RE'] is not ns['session'].RE — --keep-re contract broken")
+    # The stock plans are bound by their own names — the manager discovers
+    # every generator function in the namespace, so the discovered set must
+    # be exactly the pinned list (a stray generator would become a plan).
+    discovered = sorted(plans_from_nspace(ns))
+    if discovered != sorted(GEECS_PLAN_NAMES):
+        _fail(f"discovered plans {discovered!r} != GEECS_PLAN_NAMES")
         return
-    # The startup rebinds both plan names to parameter_annotation_decorator
-    # wrappers (#727) — the namespace entry must be an annotated wrapper
-    # around the real plan function, not the bare plan and not a stranger.
-    for plan_name, real_plan in (
-        ("geecs_scan_request_plan", geecs_scan_request_plan),
-        ("geecs_run_action_plan", geecs_run_action_plan),
-        ("geecs_noscan_plan", geecs_noscan_plan),
-        ("geecs_scan_plan", geecs_scan_plan),
-        ("geecs_optimize_plan", geecs_optimize_plan),
-    ):
-        wrapped = ns.get(plan_name)
-        if getattr(wrapped, "__wrapped__", None) is not real_plan:
-            _fail(f"ns[{plan_name!r}] does not wrap the real plan function")
+    for name in GEECS_PLAN_NAMES:
+        real = getattr(bps if name == "mv" else bp, name)
+        if ns[name] is not real:
+            _fail(f"ns[{name!r}] is not bluesky's {name}")
             return
-        if not getattr(wrapped, "_custom_parameter_annotation_", None):
-            _fail(f"ns[{plan_name!r}] carries no queueserver parameter annotation")
-            return
-    for verb in ("geecs_move_variable", "geecs_describe_action"):
-        if not callable(ns.get(verb)):
-            _fail(f"ns[{verb!r}] is not callable — function_execute verb missing")
-            return
-    if ns.get("__all__") != [
-        "RE",
-        "geecs_scan_request_plan",
-        "geecs_run_action_plan",
-        "geecs_noscan_plan",
-        "geecs_scan_plan",
-        "geecs_optimize_plan",
-        "geecs_move_variable",
-        "geecs_describe_action",
-    ]:
+    funcs = [getattr(p, "func", p) for p in ns["RE"].preprocessors]
+    if funcs[-1:] != [connect_on_demand] or funcs.count(connect_on_demand) != 1:
+        _fail(f"connect_on_demand is not the outermost preprocessor: {funcs!r}")
+        return
+    if ns.get("__all__") != ["RE", *GEECS_PLAN_NAMES]:
         _fail(f"ns['__all__'] was {ns.get('__all__')!r}")
         return
 

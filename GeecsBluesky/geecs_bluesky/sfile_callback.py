@@ -71,7 +71,7 @@ class SFileExportCallback:
             return
 
         # Parity with the call sites this callback replaces
-        # (GeecsSession post-RE() export): today an aborted or failed run
+        # (a post-RE() export): today an aborted or failed run
         # writes no s-file — the export sites are only reached on clean
         # completion. Preserve that; exporting partials from aborted runs
         # is a deliberate future decision, not a side effect (PR #635

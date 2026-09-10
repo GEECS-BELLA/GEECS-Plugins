@@ -3,7 +3,7 @@
 ## What Is This
 
 Tiled is the persistent scalar/metadata store for all GEECS Bluesky scans.
-Every scan (queue-submitted or headless `GeecsSession`) writes start/stop/event documents
+Every scan (queue-submitted or headless, on `make_run_engine(tiled=True)`) writes start/stop/event documents
 to a Tiled catalog on the DB server (`192.168.6.14`).  Data is then queryable
 from any Python session on the network without touching the raw data files.
 
@@ -66,7 +66,7 @@ is the GEECS scan browser's job (GEECS-Console).
 
 ### Client machines
 
-`GeecsSession` (the worker startup profile's session included) auto-reads Tiled URI + API key from
+`make_run_engine(tiled=True)` (the worker startup profile included) auto-reads Tiled URI + API key from
 `~/.config/geecs_python_api/config.ini` under `[tiled]`:
 
 ```ini

@@ -4,7 +4,7 @@ Owns the ca://-vs-bare addressing rule (:func:`bare_pv` — a schemed name
 hangs raw aioca; issue #490), the wire-value conventions, the timeout policy,
 the ``AsyncStatus`` wrapping, and mock support.  Every setpoint pathway
 delegates here: ``CaSettable``/``CaMotor``'s Layer-1 signal put,
-``ShotController``'s ``CaPutSetter``, and the action factory's wire settable.
+``ShotControl``'s ``CaPutSetter``, and the action factory's wire settable.
 
 Two transports, one policy owner:
 
@@ -24,7 +24,7 @@ Two transports, one policy owner:
 Wire-value conventions (the ``coerce`` parameter — each consumer's pinned,
 hardware-proven convention; do not "unify" them without live verification):
 
-- ``str`` — everything stringified: the ShotController convention (enum
+- ``str`` — everything stringified: the shot-control convention (enum
   labels pass through; the gateway's typed channel coerces numeric strings).
 - :func:`wire_value` — native numerics, wire string otherwise: the
   action-plan convention (a *string* put-with-callback to a float gateway

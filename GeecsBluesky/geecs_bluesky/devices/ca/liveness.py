@@ -9,9 +9,9 @@ which can never match the ``"Disconnected"`` choice string.
 
 Consumers: the client-side pre-submit preflight
 (:mod:`geecs_bluesky.qs_client.submit_preflight`) and the worker's
-pre-claim re-check (:func:`geecs_bluesky.scan_request_runner._preflight_connected`).
+client-side pre-submit liveness check (:mod:`geecs_bluesky.qs_client.submit_preflight`).
 In-plan liveness reads on *built* devices go through their
-``connected_status`` signal instead (:mod:`geecs_bluesky.plans.liveness`).
+``connected_status`` signal instead (the refire gate in :mod:`geecs_bluesky.plans.strict`).
 
 ``aioca`` is imported lazily on first use (the ``ca`` extra).
 """
