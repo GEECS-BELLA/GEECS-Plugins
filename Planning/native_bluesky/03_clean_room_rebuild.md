@@ -1,8 +1,16 @@
 # Clean-room rebuild: GeecsBluesky as a native Bluesky application
 
-**Status: proposed direction, not started.** Written 2026-09-09 at the end of
-the session that built #809, as a handoff to a fresh session. Read this
-before `00_overview.md`, because it supersedes that document's phase plan.
+**Status (2026-09-09): direction agreed with Sam — option 1½ in §8; phase 0
+is next.** Written at the end of the session that built #809 as a handoff,
+then amended by the next session after the discussion recorded in §11 and
+§12. Read this before `00_overview.md`, because it supersedes that
+document's phase plan.
+
+**Staleness rule.** This is the document of record for the rebuild. Any PR
+that changes direction, sequencing, a §7 verdict or a §10 answer edits §2,
+§8 and §10 here **in the same PR**, and the matching #807 comment points
+here instead of restating. A plan of record that lags the code has already
+cost one reassessment; the rule is cheaper than the next one.
 
 Sam's framing, which is the point of the whole document:
 
@@ -41,8 +49,10 @@ is right in five years, not the one that is reachable in small steps.
 2. Treat §7 as a contract: anything marked **ASSUMED** must be verified
    before it is designed on. The previous session asserted API details from
    memory more than once and had to retract them publicly.
-3. §8 has the sequencing question. It is the one real decision, and it is
-   Sam's.
+3. §8 records the sequencing decision (taken 2026-09-09) and the phases.
+4. §11 and §12 are the facts Sam supplied about the hardware and the
+   conclusions drawn from them. They constrain every design choice in §4;
+   read them before proposing a change to §4 or §5.
 
 ---
 
@@ -51,9 +61,9 @@ is right in five years, not the one that is reachable in small steps.
 | thing | state |
 |---|---|
 | `feature/native-bluesky-plans` | integration branch off master; **#808 merged** into it 2026-09-09 (device namespace, phase 1) |
-| #809 `phase/02-preamble-preprocessor` | **OPEN, 13 commits, GeecsBluesky 0.79.0, CI green, not merged.** This is the code this document argues is scaffolding |
-| #806 image writing | **OPEN, not started.** File plugin in GeecsPvaGateway + stock ophyd-async detectors; capture daemon retired |
-| #807 | the plan of record; its six-then-three phase plan is what this document supersedes |
+| #809 `phase/02-preamble-preprocessor` | **OPEN, on hold, will not merge** (13 commits, GeecsBluesky 0.79.0, CI green). The evidence behind §3; close with a pointer here once this amendment lands (§8) |
+| #806 image writing | **OPEN, not started.** Phase 1, in parallel with the plan layer (§8). File plugin in GeecsPvaGateway + stock `ADHDFDataLogic`; capture daemon retired |
+| #807 | the decision log; its six-then-three phase plan is superseded by §8 here. Comments there point here |
 | the worker (`geecs-gw`) | on **master**. Nothing from #809 is deployed, so none of its open defects is a live hazard |
 | hardware acceptance | scans **63 and 64** on 26_0909 via #809's preprocessor: stock `bp.count` as a noscan, stock `bp.list_scan` sweeping `U_S1H:Current` −1→+1 A at 0.5 A. Both in the Tiled catalog with s-files. Scans 56–62 are disposable artifacts of a `tiled=False` run |
 
@@ -127,44 +137,168 @@ The native answer is that there is only one description. Sam:
 > to accommodate save sets we should think, "what is a save set doing and
 > how does Bluesky solve the same problem?"
 
+**A second leg the first pass undersold.** The leaked-state P1 (saving mode,
+save path and asset definitions persisting on namespace nouns) is not a
+reconciliation failure. It is **per-run device configuration done from
+outside the device**: a preamble wrote `localsavingpath`/`save` and the
+asset definitions onto long-lived objects. ophyd-async's answer is the
+detector's own lifecycle — `stage → prepare → trigger/kickoff → unstage`,
+with a `PathProvider` supplying the path — and that leak would exist even
+with one description of the scan if saving were still configured by a
+preamble. So the rebuild has two legs, and §4 is built on both:
+
+1. **one description** — the client expands a request into the plan's
+   `detectors` and points; nothing worker-side re-derives them;
+2. **devices own their per-run state** through the standard lifecycle;
+   nothing outside a device configures it for a run.
+
 ---
 
 ## 4. The target architecture
 
-Assume only the two gateways and ophyd-async.
+Assume only the two gateways and ophyd-async. Two rules drive every choice:
+a scan has **one description** (the plan's arguments), and every per-run
+fact about a device is set through **that device's own lifecycle**, never
+from outside it.
 
-**One namespace of devices, from the DB.** Anything that produces
-non-scalar data is a `StandardDetector` whose data logic writes through the
-PVA gateway file plugin (#806). Everything else is a `StandardReadable`
-over CA gateway PVs. Settables are children of their parent device. A
-device knows its own topology: a motor is a motor because the DB gives it a
-tolerance, not because a scan said so. **This layer is #808 and already
-exists**; what changes is that cameras become detectors.
+### A. Devices — the namespace, extended
 
-**The trigger box is a flyer.** At HTU the box is the master clock. The
-Bluesky expression for "hardware fires, detectors collect N frames" is
-`prepare(TriggerInfo(trigger=DetectorTrigger.EXTERNAL_EDGE, …))` then
-kickoff / complete / collect, with a `StandardFlyer` wrapping a
-`FlyerController`. Strict single-shot and free-run are then the same
-implementation with different counts: strict is one event per step,
-free-run is continuous. Today they are two subsystems, and free-run is
-already slated for deletion.
+Every DB device is one long-lived noun (#808, kept). Two classes:
 
-**Everything persistent is a callback.** ScanInfo, the s-file, the Tiled
-catalog entry and the legacy column headers are all functions of the
-document stream. None belongs in a plan or a preprocessor. The s-file and
-catalog already work this way; ScanInfo does not.
+- **`StandardReadable`** for scalar-only devices; settables as children
+  (`U_S1H.current`). Exists.
+- **`GeecsDetector(StandardDetector)`** for anything that captures —
+  cameras *and* LabVIEW-native non-scalar devices — composed of the three
+  logics ophyd-async 0.19.3 defines (§7):
+  - `GeecsTriggerLogic` — supports `prepare_edge` only (LabVIEW free-runs on
+    external edges; nothing to program). `config_sigs` = exposure + the
+    calibrated drain offset (§11.4); `get_deadtime` = exposure + offset.
+    That one method lets a plan derive `exposure_timeout` per detector and
+    lets the namespace **refuse** "essential at this rep rate" when
+    exposure + offset exceeds the period.
+  - `GeecsAcquireLogic` — near-empty: `ensure_ready` checks the gateway
+    `CONNECTED` PV; the rest are no-ops. LabVIEW is always acquiring.
+  - **Data logic, two implementations behind the same ABC**, chosen at
+    namespace build from the DB (PVA-served image variable → plugin;
+    `save_nonscalar_data` without one → LabVIEW-native):
+    - `ADHDFDataLogic` over the #806 plugin PVs — **stock**, nothing of
+      ours. Streamable; `collections_written` = `NumCaptured_RBV`.
+    - `LvNativeFileDataLogic` — writes path + name template to
+      `localsavingpath`, toggles `save`, describes the resource as
+      directory + template + per-shot index (we own the names, §11.6).
+      A per-event reading until a write-complete readback exists (§10.1);
+      streamable after.
+  - `acq_timestamp` as a readable child with the persistent monitor
+    (exists, `devices/ca/triggerable.py`); the drain offset as a config
+    signal from the calibration store (§4.F).
+- **`ShotControl`** — one device, three protocols: `Movable` over
+  `TriggerState` (the profile-defined writes per state — the existing
+  abstraction, §11.1), `Pausable` (`pause → STANDBY`, `resume → ARMED`;
+  the RE calls these on every Pausable it has seen in a message, §7), and a
+  `FlyerController` for gated mode (`prepare → OFF`, `kickoff → SCAN`,
+  `complete → N shots then OFF`). Replaces `shot_controller.py`'s plan-stub
+  methods and `plans/pause_semantics.py`.
 
-**The scan folder is a `PathProvider`.** ophyd-async ships
-`YMDPathProvider` and `AutoIncrementingPathProvider`, which between them
-are close to the `scans/YY_MMDD/ScanNNN/` convention. The day-scoped claim
-protocol is the part that stays ours.
+### B. Acquisition — three shapes, one mechanism each
 
-**Save sets and scan variables move to the client.** "Record amp4in" is a
-genuinely useful operator preset. It is a named list that a client expands
-into a plan's `detectors` argument before submission. It should never reach
-the worker as an instruction. This is what #807 phase C already said; #809
-did that job in the wrong place.
+**Strict (the default).** Stock plans with a GEECS `per_step` / `per_shot`
+— the one extension point with no stock equivalent, because the fire must
+sit *between* trigger and wait (§11.5 explains why free-running edges are
+not an exact substitute):
+
+```
+move_per_step(step, pos_cache)
+for each shot:
+    trigger(essential, wait=False)    # StandardDetector.trigger re-baselines its count
+    mv(shot_control, SINGLESHOT)
+    wait(group, timeout=max(exposure_timeout over essential))
+    create / read(essential) / save   # one event row
+```
+
+About 25 lines of pure `bps`, one of which is the non-stock idea. On a
+`FailedStatus` from the wait: device confirmed down (the existing
+`CONNECTED` liveness read) → `bps.pause()`, the operator fixes it, `resume`
+rewinds to the checkpoint; otherwise re-trigger **all** essential detectors
+and fire again — the whole-event redo, so positional joins stay exact for
+every essential detector (the orphan frame stays on disk, unreferenced by
+any document, which is Bluesky's normal model). This is
+`fire_and_await_shot`'s behaviour in its native shape; that function is the
+salvage.
+
+**Non-essential stream.** Those detectors are *not* in `detectors`. They
+are `SupplementalData.flyers` (or `fly_during_wrapper` per plan, §7):
+`prepare(TriggerInfo(EXTERNAL_EDGE, number_of_events=0))` — unbounded —
+`kickoff` at `open_run`, `complete`/`collect` at `close_run`, in their own
+stream, joined afterwards by offset-corrected stamp (§11.3). A 700 ms
+camera or a dying device there never holds a shot and never aborts a run.
+This is free-run's **second job** (§11.5), kept natively; its first job
+(the rep-rate hack) dies.
+
+**Gated batch (opt-in).** `bp.fly`-shaped: `prepare(detectors,
+TriggerInfo(EXTERNAL_EDGE, number_of_events=N))`, `prepare(shot_control)` →
+OFF, `kickoff` all → SCAN, `collect_while_completing`. Exact because the
+ordering is built into `prepare → kickoff`. Only for detectors that count
+(plugin-backed); replaces free-run's rep-rate role once #806 lands.
+
+**Telemetry.** `SupplementalData.baseline` for the scalars that do not
+change within a run (read at open and close), `monitors` for the changing
+few. Installed once on the RE from experiment defaults. Which variable goes
+where is an **experiment config fact**, not a DB fact (§10.4): derive it
+once by measurement over a Tiled run, then own the list; unknowns default
+to per-event. Removes the unstaged-read regression path entirely.
+
+### C. Run bookkeeping — a path provider and callbacks
+
+- **`GeecsScanPathProvider(PathProvider)`** returns
+  `PathInfo(scans/YY_MMDD/ScanNNN/<device>, filename, create_dir_depth=1)`.
+  The day-scoped claim is the one GEECS thing with no native home: a
+  ~60-line **`claim_scan` preprocessor** that, on `open_run`, claims the
+  number, injects it into `md`, and points the provider at the run;
+  releases on `close_run`. It does exactly one thing — it is **not** the
+  #809 preamble, and must never grow a second job.
+- **Callbacks:** ScanInfo ini on the start document (new, small); the
+  s-file export from Tiled at stop (exists, `sfile_callback.py`); the Tiled
+  writer (exists — drop the `geecs://` descriptor patch in
+  `tiled_integration.py` once stream documents replace those assets);
+  `scan.log` as a callback.
+
+### D. Clients
+
+The Console expands a `ScanRequest` into a stock plan item — `count`,
+`scan`, `list_scan`, `grid_scan`, `list_grid_scan`, `rel_*`, `fly` —
+registered once each with the GEECS `per_step` pre-bound and the **stock
+signature preserved** (#807's registration table). The save set becomes a
+client-side preset expanding to three lists: essential detectors,
+non-essential flyers, and scalar-only children (`cam.centroid_x` rather
+than `cam` when the preset says "scalars only" for a camera — readables are
+individually addressable). The request rides in `md["geecs"]` as
+provenance only. Blast radius: `GEECS-Console/geecs_console/app/main_window.py`
++ the request builder. GEECS-MCP follows later (§11.7).
+
+### E. Deletions (whole modules, in the same PR as their replacement)
+
+`plans/scan_request_plan.py`, `step_scan.py`, `free_run_step_scan.py`,
+`named_plans.py`, `pause_semantics.py`, `t0_sync.py`, `liveness.py`,
+`orchestration.py`; `session.py` and `scan_request_runner.py` (the resolver
+functions that survive move to the client); `capture/` after #806;
+`devices/contributor.py`, `nonscalar_save.py`, `shot_id.py`,
+`ca/timestamped_readable.py`. Roughly 9k of GeecsBluesky's 24.6k lines.
+**Kept:** `qs_client`, `optimization`, the `devices/ca` bases,
+`namespace.py`, `action_compiler.py`, the qserver deploy tree. The refactor
+is **in place** (§10, Q2 answered): the keepers are half the package and
+the Console and MCP import them; a new package would re-home them for no
+gain.
+
+### F. Calibration
+
+A standalone `measure_shot_offsets` plan (OFF → wait the longest device
+timeout in the set → one fire → read every stamp) writes each device's
+drain offset to the configs repo, from where the config signal reads it.
+Strict runs carry the same data for free (one fire, every device waited
+on, shot time known), so "sync" can also be recomputed from any recent
+strict scan. Sam's validation shortcut (OFF, stalled stamps within
+tolerance) becomes a `qserver_ready`-style preflight — never a scan step,
+because it costs at least the longest device timeout per check (§11.2).
 
 ---
 
@@ -173,46 +307,47 @@ did that job in the wrong place.
 | GEECS today | Native replacement |
 |---|---|
 | save set, as a device list | the plan's `detectors` argument; a client-side preset |
-| save set `synchronous` flag | the `Triggerable` protocol |
+| save set `synchronous` flag | essential (`detectors`) vs non-essential (`SupplementalData.flyers`) |
 | `save_nonscalar_data`, `localsavingpath`, `save` | the detector's data logic, opened and closed per run |
-| save set explicit scalar list | the device's own readables |
+| save set explicit scalar list | the device's own readables, individually addressable |
 | save-set rituals, setup/closeout | plan stubs and `finalize_wrapper` (#647) |
-| `background_telemetry` | monitors, or simply more detectors in the list |
+| `background_telemetry` | `SupplementalData.baseline` + `monitors` |
 | scan variable alias | the namespace attribute (`U_S1H.current`) |
 | `kind: motor`, `confirm:`, pseudo | the device class, chosen once at namespace build |
-| trigger profile states | a `FlyerController` |
-| strict single shot | fly, one event per step |
-| free run | fly, continuous |
-| Gate-2 save windowing | the detector's open/close window |
-| `acq_timestamp` as the shot join key | StreamDatum indices |
-| `shot_id`, `shot_offset`, `bin_number` | `seq_num` and per-stream indices |
-| scan number and folder | a `PathProvider` plus our claim protocol |
+| trigger profile states | `ShotControl`: `Movable` over the states, `Pausable`, `FlyerController` for gated mode |
+| strict single shot | stock `per_step` with the fire between trigger and wait |
+| free run — the rep-rate job | gated batch: fly, detectors count |
+| free run — the contributor job | the non-essential stream: `SupplementalData.flyers` |
+| Gate-2 save windowing | the detector's own capture window (open at prepare, close at unstage) |
+| `acq_timestamp` as the shot join key | **kept** — offset-corrected, it *is* the shot id (§11.3); positional for essential detectors, by stamp for the non-essential stream |
+| `shot_id`, `shot_offset`, `bin_number` | `seq_num`, the stamp, and the per-device drain offset as a config signal |
+| the t0-sync ritual | a once-run calibration plan + a preflight validation (§4.F) |
+| scan number and folder | a `PathProvider` plus the `claim_scan` preprocessor |
 | ScanInfo ini | a start-document callback |
 | s-file, Tiled catalog | callbacks (already true) |
 | capture daemon | deleted by #806 |
 | `ScanRequest` as a worker instruction | a client-side template that expands into a plan call |
 | the funnel, named plans, the #809 preprocessor | deleted |
 
-Almost every hard problem of the last two weeks is one row of this table.
-Orphan frames, save windowing, the refire, the shot join, bin numbers: all
-of them are the detector and flyer contract, hand-rolled because our
-cameras are not detectors yet.
-
 ---
 
 ## 6. What stays GEECS
 
-Five things have no native home, and none of them is in the scan path:
+Six things have no native home, and none of them is in the scan path's
+logic:
 
 1. **The DB as the source of truth** for the device roster, types,
    tolerances and subscribed variables. The namespace builder owns this.
-2. **Day-scoped scan numbering** with a multi-writer claim protocol. A
-   custom `PathProvider`.
+2. **Day-scoped scan numbering** with a multi-writer claim protocol. The
+   `claim_scan` preprocessor plus the path provider.
 3. **The s-file format** and its legacy `Device Variable` column headers.
    A callback, plus header metadata on the devices.
 4. **ScanInfo ini.** A start-document callback.
 5. **PV naming and the served-set rules.** Already owned by the two
    gateways and `geecs_core`.
+6. **The fire between trigger and wait** — one line in `per_step`. It
+   exists because the trigger box has no counter and the cameras stamp with
+   a per-device latency (§11.5).
 
 `ScanRequest` and its JSON Schema also survive, as the **client-side**
 record of intent the GUI needs. What dies is its role as a worker-side
@@ -223,72 +358,111 @@ execution instruction.
 ## 7. Verified versus assumed
 
 **Verified 2026-09-09 against the installed environment** (ophyd-async
-**0.19.3**, bluesky **1.15.0**):
+**0.19.3**, bluesky **1.15.0**, tiled **0.2.9**), by reading the source,
+not the docs:
 
-- `StandardDetector`, `StandardFlyer`, `FlyerController`, `TriggerInfo`,
-  `DetectorTrigger`, `DetectorAcquireLogic`, `DetectorDataLogic`
-- `PathProvider`, `StaticPathProvider`, `AutoIncrementingPathProvider`,
-  `AutoMaxIncrementingPathProvider`, `YMDPathProvider`,
-  `AutoIncrementFilenameProvider`, `UUIDFilenameProvider`
+- `StandardDetector` is a three-logic composition: `DetectorTriggerLogic`
+  (`prepare_internal/edge/level`, `get_deadtime`, `config_sigs`,
+  `default_trigger_info`), `DetectorAcquireLogic` (`ensure_ready`,
+  `start_acquiring`, `wait_for_idle`, `ensure_stopped`) and
+  `DetectorDataLogic`, composed by `add_detector_logics`
+  (`core/_detector.py`). **#806 swaps exactly one of the three.**
 - `TriggerInfo` fields: `trigger`, `livetime`, `deadtime`,
-  `exposures_per_collection`, `collections_per_event`, `number_of_events`,
-  `exposure_timeout`
-- `DetectorTrigger`: `INTERNAL`, `EXTERNAL_EDGE`, `EXTERNAL_LEVEL`
-- `bps.prepare`, `kickoff`, `complete`, `collect`,
-  `collect_while_completing`, `declare_stream`
+  `exposures_per_collection`, `collections_per_event`, `number_of_events`
+  (**0 means unbounded**), `exposure_timeout`. `DetectorTrigger`:
+  `INTERNAL`, `EXTERNAL_EDGE`, `EXTERNAL_LEVEL`. (An earlier #807 comment
+  wrote `number_of_triggers`; that name does not exist in 0.19.3.)
+- External triggering calls `start_acquiring()` inside `prepare`, so
+  detectors are capturing before any `kickoff` — the ordering that makes
+  gated mode exact.
+- `kickoff()` re-reads `collections_written` on every call and honours
+  `events_to_kickoff`, so `prepare(N)` then N × (kickoff → fire →
+  complete) composes, and a failed `complete` can be re-kicked.
+- `trigger()` re-baselines `collections_written` through
+  `_update_prepare_context` on every call, so it is repeatable per step
+  with `EXTERNAL_EDGE`; it refuses a context prepared with
+  `number_of_events != 1`.
+- `StandardFlyer`, `FlyerController` (`prepare/kickoff/complete/stop`);
+  `PathProvider`, `PathInfo(directory_path, filename, create_dir_depth)`,
+  `StaticPathProvider`, `AutoIncrementingPathProvider`, `YMDPathProvider`.
+- `ophyd_async.epics.adcore`: `ADHDFDataLogic`, `NDFileHDF5IO`,
+  `ADAcquireLogic`, `ADContAcqTriggerLogic` exist under those names.
+- bluesky: `Pausable` is called on **every object the RE has seen in any
+  message** (`run_engine.py:1268` for suspend, `:1531` for pause), so a
+  device that appears in a `set` is paused. `SupplementalData(baseline,
+  monitors, flyers)`, `fly_during_wrapper`, `monitor_during_wrapper`,
+  `baseline_wrapper`, `bps.prepare/kickoff/complete/collect/
+  collect_while_completing/declare_stream`, `bp.count(per_shot=)`, the
+  `per_step` hook on the scan plans, `one_nd_step`, `move_per_step`.
+- `TiledWriter` converts `Resource` → `StreamResource` and knows the
+  `application/x-hdf5` mimetype (`callbacks/tiled_writer.py:203-238`).
+- The s-file is exported **from Tiled** at the stop document
+  (`sfile_callback.py`), so Tiled's ingestion is load-bearing for the
+  s-file as well as the catalog.
 - **Naming has moved**: the writer base is not `DetectorWriter` in this
   version, and the flyer's controller is `FlyerController`, not
   `TriggerLogic`. Older docs and blog posts will disagree.
 
-**ASSUMED, must be verified before designing on it:**
+**ASSUMED, must be verified before designing on it** (narrowed from the
+first draft; each names the phase that retires it):
 
-- that the PVA gateway can be made to deliver **indexed, edge-triggered**
-  frames with a stable frame counter. The whole fly design rests on this
-  and it is the substance of #806
-- that `StandardDetector`'s acquire/data split can be satisfied by a GEECS
-  camera server without an areaDetector IOC
-- that a step scan with N shots per point composes cleanly as fly-per-step
-  in 0.19.3
-- that Tiled and the s-file exporter handle StreamResource/StreamDatum
-  from these detectors as well as they handle the current asset documents
+- that the PVA gateway plugin can count **distinct, fresh** frames
+  losslessly within a capture window, deduping on the stamp before the
+  latest-wins slot — the substance of #806 (phase 1)
+- that Tiled 0.2.9 reads the plugin's NDFileHDF5-layout files through its
+  stock HDF5 adapter with no adapter of ours (phase 1)
+- that OFF on the DG645 stops edges reaching the cameras within a known
+  latency, and that the CA gateway posts the device **timeout events**
+  (unchanged stamp) a liveness check would rely on (phase 0)
+- that per-device drain latency is constant across exposure settings, as
+  §11.4 states (phase 0 measures it across the amp4in set)
 
 ---
 
-## 8. Sequencing: the decision for Sam
+## 8. Sequencing: decided 2026-09-09
 
-**#806 comes first.** Every row of the table that hurts most lives in the
-detector contract, and a rebuild that starts before cameras are detectors
-will re-derive the same workarounds we are trying to delete. This is a
-reversal of the current ordering, in which #806 sits behind the plan work.
+**Option 1½ — a phase 0 on today's hardware, then #806 and the plan layer
+in parallel.** Sam chose this over the first draft's "#806 first".
 
-Three options, in the order I would recommend them:
+The reasoning that changed the recommendation: #806 replaces **one of the
+three detector logics**. The trigger logic (DG645 edge, LabVIEW free-runs)
+and the acquire logic survive #806 unchanged; only the data logic swaps
+from "LabVIEW native save" to `ADHDFDataLogic`. So making a GEECS camera a
+genuine `StandardDetector` *now*, with today's `NonScalarSaveSupport`
+relocated into a ~50-line `LvNativeFileDataLogic`, is not building twice —
+it is the same class with a throwaway third logic. It kills the
+preamble-configures-devices leak immediately, proves the fire between
+trigger and wait on hardware in days, and gives #806 a concrete target
+("replace this data logic") instead of four ASSUMED bullets. "#806 first"
+would have front-loaded every schedule risk (Windows NSSM + h5py
+re-bootstrap, HDF5 over SMB, emulating the areaDetector PV set in p4p) into
+the least-verified component while the scan path waited.
 
-1. **#806, then rebuild.** Cameras become `StandardDetector`s, the capture
-   daemon dies, then the flyer and the plan layer follow. Slowest to first
-   visible change, cleanest result, and it is the only order in which the
-   twelve duplication findings actually disappear rather than move.
-2. **Rebuild the plan layer first against today's devices**, accepting that
-   the fly design waits. Faster feedback for Sam, at the cost of building
-   the per-shot trigger machinery a second time and deleting it later.
-3. **Land #809 and continue incrementally.** Recommended against, and the
-   clean slate removes its only argument. Incrementalism buys backward
-   compatibility, which is worth nothing here, and it pays for it with a
-   reconciliation engine the target design deletes.
+### Phases (each a PR into `feature/native-bluesky-plans`)
 
-**On #809 itself:** do not merge it. Leave it open as the evidence, or
-close it with a pointer to this document. Its two open P1 defects need no
-fix if it is not shipping, and nothing from it is deployed. Parts worth
-salvaging by hand: the document-parity test, `GeecsNamespace.select`'s
-role assertions, `plan_session.py`, and the shared
-`fire_and_await_shot` if per-shot triggering survives at all.
+0. **One camera as `GeecsDetector`** with `LvNativeFileDataLogic` (PNG),
+   `ShotControl` as a device, the strict `per_step`; stock `bp.list_scan`
+   on `U_S1H` on hardware. Measures: OFF latency, whether the gateway
+   posts timeout events, drain offsets across amp4in, `exposure_timeout`
+   behaviour on a real trigger.
+1. **In parallel:** #806 (plugin + stock `ADHDFDataLogic`) ∥ the plan
+   layer (path provider + `claim_scan`, callbacks, client expansion +
+   registration table, deletions). Hardware acceptance each.
+2. Gated batch + the non-essential stream via `SupplementalData.flyers`;
+   free-run deleted.
+3. The calibration plan + the preflight validation.
 
-**What keeps working while this happens.** Answered: Sam's team is the
-only user, so the answer is "whatever they choose to keep working that
-week." The rebuild does **not** need to run beside the funnel, and the
-old doors do not need a deprecation path. Keep the lab scannable between
-sessions and nothing more. In particular, do not spend design effort on
-dual-door parity — the parity test in #809 exists only because two doors
-had to coexist, and in the target there is one.
+**On #809:** do not merge. Nothing from it is deployed; its two open P1s
+need no fix if it does not ship. Close it with a pointer here once this
+amendment lands, so a green PR does not tempt a later session. Salvage by
+hand: `fire_and_await_shot` (the strict refire, §4.B), the document-parity
+test, `GeecsNamespace.select`'s role assertions, `plan_session.py`.
+
+**What keeps working while this happens.** Sam's team is the only user.
+Master stays deployable; the feature branch rebuilds; the worker checkout
+flips per hardware-accepted milestone. Nothing runs beside the funnel and
+no dual-door parity is built — the parity test in #809 existed only because
+two doors had to coexist.
 
 **What the clean slate unlocks, and should be used for:**
 
@@ -298,9 +472,6 @@ had to coexist, and in the target there is one.
 - change the event schema, the s-file columns and the ScanRequest schema
   freely where the native shape is better; there is no reader to break
   that the team does not own
-- renumber, rename and restructure the package. A **total refactor of
-  GeecsBluesky**, or replacing it with a new package, is fully on the
-  table and is probably cheaper than incremental deletion
 - treat "we already built it" as carrying no weight. The only question is
   whether a thing is right
 
@@ -314,8 +485,7 @@ had to coexist, and in the target there is one.
 - Added lines must be justified. Never a second copy of a solved problem.
   Where a better copy replaces an old one, the old one goes in the same
   change.
-- **New, and the reason for this document:** do not hold on to anything
-  that does not slot in completely cleanly.
+- Do not hold on to anything that does not slot in completely cleanly.
 - **Clean slate.** Sam's team is the only user. No backward compatibility,
   no deprecation cycles, no migration paths. Deleting is cheaper than
   adapting, and "we already built it" is not an argument.
@@ -330,18 +500,137 @@ had to coexist, and in the target there is one.
   (`python -u -m pytest -v`). A backgrounded pytest writing to a file looks
   stalled for minutes because stdout is block-buffered; that cost an hour
   in the last session and produced a retracted claim.
+- Verify API details against the installed versions; never assert them
+  from memory. §7 is the ledger.
 
 ---
 
-## 10. Open questions for Sam
+## 10. Open questions
 
-1. Sequencing: option 1, 2 or 3 in §8. This is the only substantial one.
-2. Refactor GeecsBluesky in place, or start a new package and let the old
-   one die? The mapping is identical either way; the difference is whether
-   the package keeps its history. The clean slate makes the second viable.
-3. How much lab downtime is acceptable between working states? That now
-   sets the pace, in place of any compatibility constraint.
-4. Two small carry-overs from the last session, unrelated to this
-   direction: write `Amplitude.Ch AB: 0.5` explicitly in every state of
-   `HTU-NoGas` so "no gas" stops being order-dependent, and add a check
-   that all profiles in an experiment manage the same variable set.
+Answered 2026-09-09: Q1 sequencing → option 1½ (§8). Q2 refactor in place
+(§4.E). Q3 downtime → flip the worker per milestone, no coexistence (§8).
+
+Still open, for Sam:
+
+1. **Write-complete readback on LabVIEW-native devices.** Does the device
+   expose any signal that the file for shot k is *closed* (a variable, a
+   counter), or is the only signal that `acq_timestamp` advanced — which
+   says the capture succeeded, not that the write finished? Decides
+   whether `LvNativeFileDataLogic` can be streamable or stays a per-event
+   reading.
+2. **Which amp4in devices are non-essential by default** — a preset fact,
+   and the first real test of the two-list model.
+3. **What `pause` drives:** STANDBY (edges continue, GUIs stay live,
+   frames land on disk unreferenced) or OFF.
+4. **Where the baseline/monitor split is recorded** — the experiment
+   defaults in the configs repo is the proposal; the first list comes from
+   measuring one Tiled run.
+5. Two small carry-overs, unrelated to this direction: write
+   `Amplitude.Ch AB: 0.5` explicitly in every state of `HTU-NoGas` so "no
+   gas" stops being order-dependent, and add a check that all profiles in
+   an experiment manage the same variable set.
+
+---
+
+## 11. Facts from Sam (2026-09-09) that constrain the design
+
+Recorded verbatim in substance because a fresh session will not have them
+and every one of them changed a design choice.
+
+1. **Trigger states.** OFF = nothing leaves the DG645. STANDBY = the state
+   the machine idles in when not scanning — almost always external rising
+   edges, because the laser fires regardless and letting hardware trigger
+   keeps GUIs up to date. SCAN = the same edges at data-taking amplitude.
+   ARMED = strict only, source to single-shot. SINGLESHOT = the momentary
+   fire. The names are an abstraction so another trigger box can carry the
+   same five states with different writes. **Consequence:** OFF is the
+   only quiet state; STANDBY is not quiescent and was never meant to be.
+2. **Device timeouts.** A GEECS device emits a TCP event either on a
+   successful acquisition or, failing that, when its own timeout expires
+   (1.5 s for ~95 % of devices); the timeout event carries an *unchanged*
+   `acq_timestamp`. Nothing "stalls" on its own. **Consequence:** observing
+   quiescence costs at least the longest device timeout in the set, so it
+   belongs in a once-run calibration or a preflight, never in a scan.
+3. **`acq_timestamp` is a shot id in everything but name.** It advances
+   only on a successful capture, deterministically, on domain time
+   NTP-synced to ~5–10 ms. Cross-device values for one shot differ by a
+   per-device constant (point 4), so after subtracting that constant all
+   stamps land within NTP jitter and rounding to the nearest period has
+   ~490 ms of margin at 1 Hz. Naive rounding *without* the offset fails at
+   bucket boundaries as the laser's phase drifts. The re-pushed idle
+   frames and stale pre-scan frames the capture daemon filters are
+   **delivery** artefacts of the TCP push, not properties of the stamp.
+4. **What the stamp measures.** Exposure time and trigger delay are backed
+   out: `acq_timestamp` = trigger arrival + the latency of draining the
+   frame, a per-camera constant (~100 ms spread between a 4 MB and a 0.5 MB
+   camera). The TCP *message*, however, is sent only when the exposure
+   completes — a 700 ms exposure makes the message arrive most of a second
+   after the shot. **Consequence:** the stamp governs the join; the arrival
+   governs how long a plan waits (`exposure_timeout`); the two are
+   different quantities and the design keeps them apart.
+5. **Essential vs non-essential.** Sam wants per-device control over what
+   happens when camera A misses shot k: "we cannot miss shots from these
+   cameras, but missing shots from those is fine; throttle acquisition for
+   the first set, never for the second." A non-essential device dying
+   mid-scan must not force an abort. A 700 ms camera belongs on the
+   non-essential list precisely so nobody waits for it. **Consequence:**
+   the non-essential set is a separate stream joined by stamp, because its
+   frame for shot k may arrive during shot k+1; and deleting free-run must
+   keep this role, which free-run's "contributor" devices carried. Why the
+   fire is not stock: with edges free-running, `trigger()` baselines each
+   detector on its last seen stamp, and stamps for one edge arrive
+   50–100 ms apart across cameras; an edge inside that window while the
+   trigger messages go out leaves camera A waiting for k+1 while B records
+   k — roughly 5–10 % of steps misaligned at 1 Hz. Firing *after* every
+   baseline is set makes each row exact by construction.
+6. **Proprietary file formats.** Only the writer SDK is proprietary; the
+   file names and paths are ours to choose. **Consequence:** the
+   LabVIEW-native data logic can describe its resource the same way the
+   plugin does; the only remaining gap is the write-complete readback
+   (§10.1).
+7. **The sync ritual Sam built** — withhold the trigger, watch the stamps
+   stop advancing, fire one shot, watch every stamp step — measures each
+   device's drain offset for one known shot. The shortcut (OFF, stalled
+   stamps within ~200 ms ⇒ already synced) validates it. Sam does not want
+   it baked in as-is; a "sync" button that runs it and updates the
+   per-device offsets is the shape he imagines. **Consequence:** §4.F.
+8. **Scope notes.** GEECS-MCP was one-shotted and can be updated later —
+   not a constraint now. The Console follows the client-expansion change.
+   A service on the worker host that is a browser client of the qserver
+   ("the scanner through the browser") is the end point Sam has in mind;
+   GEECS-DataPortal is already a FastAPI service on that host speaking to
+   Tiled, so it is the natural landing — not now, but nothing here closes
+   it off.
+
+---
+
+## 12. What we lack, honestly
+
+Asked directly whether a Bluesky-native ecosystem can be delivered on
+these foundations: yes, and not cosmetically. Stock plans, documents,
+Tiled, the queueserver and the clients carry ~90 % of the leverage and do
+not care how frames are counted. Two writer paths is normal — every
+serious EPICS facility runs areaDetector file plugins beside detectors that
+write their own formats (Eiger/Odin, Pilatus CBF, PandA HDF5), and
+`DetectorDataLogic` exists precisely so the writer need not be an AD
+plugin. The gaps, after §11, are three, and none is in the scan path's
+logic:
+
+1. **Lossless frame delivery.** The re-push and stale-frame behaviours are
+   the TCP push's; the #806 plugin dedupes on the stamp before the
+   latest-wins slot, and that is the **only** place such logic may live.
+   (The gateway then has two consumers with opposite delivery contracts in
+   one process; its `DESIGN.md` should say so.)
+2. **A write-complete readback on the LabVIEW-native path** (§10.1).
+3. **A native home for the non-essential stream** when free-run goes —
+   `SupplementalData.flyers` (§4.B).
+
+Two hazards #806 already names that deserve more weight than the issue
+gives them: HDF5 written on Windows over SMB and read on Linux (disable
+file locking; never read during write — a rule, not best-effort), and the
+CA monitor as the shot signal (monitors can coalesce under load; fine at
+1 Hz, **verify the gateway's posting guarantee before any design above
+it**).
+
+Shot identity is **not** a gap (§11.3). The first draft of this document
+said it was, and was wrong.
