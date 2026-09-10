@@ -10,9 +10,11 @@ here.  They
 - union the named save sets into one effective SaveSet — the per-device
   union rule is documented on :func:`merge_save_sets`; everything downstream
   (devices config, telemetry exclusion, boundary warning) sees the merged set;
-- adapt schemas to engine shapes (:func:`save_set_to_devices_config`,
-  :func:`trigger_writes_from_profile`) — adapters live bluesky-side because
-  ``geecs_schemas`` must never import ``geecs_bluesky``;
+- adapt schemas to engine shapes (:func:`save_set_to_devices_config`; the
+  trigger-profile adapter is
+  :func:`geecs_bluesky.devices.shot_control.trigger_writes_from_profile`) —
+  adapters live bluesky-side because ``geecs_schemas`` must never import
+  ``geecs_bluesky``;
 - assemble and compile action slots in §4.4b nesting order
   (:func:`assemble_action_slots`), with fail-fast pre-claim name resolution
   and every plan signal prefetched (:func:`prefetch_action_signals`);
@@ -69,7 +71,7 @@ from geecs_bluesky.exceptions import (
     GeecsUnservedVariablesError,
 )
 from geecs_bluesky.forward_expr import CompiledForward, compile_forward
-from geecs_bluesky.models.shot_control import ShotControlWrites
+from geecs_bluesky.devices.shot_control import trigger_writes_from_profile
 from geecs_bluesky.plans.action_compiler import compile_action_plan
 from geecs_bluesky.preflight import run_unserved_variables_check
 from geecs_schemas import (
@@ -83,8 +85,6 @@ from geecs_schemas import (
     ScanRequestMode,
     ScanVariable,
     ScanVariableSpec,
-    TriggerProfile,
-    TriggerState,
 )
 from geecs_schemas.action_plan import CheckStep, RunPlanStep, SetStep
 
@@ -99,68 +99,6 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Schema → engine-shape adapters
 # ---------------------------------------------------------------------------
-
-
-def _state_write_triples(
-    profile: TriggerProfile, state: "TriggerState"
-) -> list[tuple[str | None, str, str]]:
-    """Normalize one state's writes to ``(device, variable, value)`` triples.
-
-    Handles both TriggerProfile generations (single-device dict shape and
-    multi-device ordered write lists); order is preserved exactly
-    (schema-documented: writes apply top to bottom).
-    """
-    writes = profile.writes_for(state)
-    if isinstance(writes, dict):
-        device = getattr(profile, "device", None)
-        return [(device, variable, value) for variable, value in writes.items()]
-    triples: list[tuple[str | None, str, str]] = []
-    for write in writes:
-        if isinstance(write, dict):
-            triples.append((write["device"], write["variable"], write["value"]))
-        else:
-            triples.append((write.device, write.variable, write.value))
-    return triples
-
-
-def trigger_writes_from_profile(profile: TriggerProfile) -> ShotControlWrites:
-    """Adapt a TriggerProfile into the engine's ShotControlWrites.
-
-    Each state becomes the profile's **ordered** write list (possibly
-    spanning several devices); ``ShotController.from_writes`` replays them
-    sequentially, each write completing before the next.
-
-    Parameters
-    ----------
-    profile :
-        The trigger profile to adapt.
-
-    Raises
-    ------
-    GeecsConfigurationError
-        The profile writes no device at all.
-    """
-    states: dict[str, list[tuple[str, str, str]]] = {}
-    any_device = False
-    for state in TriggerState:
-        triples: list[tuple[str, str, str]] = []
-        for device, variable, value in _state_write_triples(profile, state):
-            if device is None:
-                raise GeecsConfigurationError(
-                    f"trigger profile {profile.name!r} has a write to "
-                    f"{variable!r} with no device — it cannot be sent"
-                )
-            triples.append((device, variable, value))
-            any_device = True
-        if triples:
-            states[state.value] = triples
-    if not any_device:
-        raise GeecsConfigurationError(
-            f"trigger profile {profile.name!r} names no trigger device — "
-            "it cannot drive a scan's trigger"
-        )
-    name = getattr(profile, "name", "") or ""
-    return ShotControlWrites(name=name, states=states)
 
 
 def save_set_to_devices_config(

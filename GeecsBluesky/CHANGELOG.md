@@ -4,6 +4,61 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.78.0] - 2026-09-09
+
+### Added
+
+- **Phase 0 of the native-Bluesky rebuild (#807, plan of record
+  `Planning/native_bluesky/03_clean_room_rebuild.md`):** a GEECS acquirer as
+  a stock ophyd-async `StandardDetector`.
+  - `devices/detector.py` — `GeecsDetector` composed of the three 0.19
+    logics: `GeecsTriggerLogic` (external edges only; the calibrated drain
+    offset is its one config signal and `get_deadtime`), `GeecsAcquireLogic`
+    (a shot is `acq_timestamp` advancing; the baseline is taken
+    synchronously in `trigger()` so the plan's fire can never land in a
+    blind window), `ScalarsDataLogic` (the device's own scalars as event
+    columns) and `LvNativeFileDataLogic` (LabVIEW native saving driven from
+    a `PathProvider`: `save=on` at prepare, `save=off` at stage and
+    unstage; the device directory is created only inside an existing scan
+    folder — a missing parent raises, never a `mkdir`).  A plain
+    `bp.count([cam])` is refused at prepare — a GEECS camera cannot
+    self-trigger — unless `OPHYD_ASYNC_PRESERVE_DETECTOR_STATE=YES`, where
+    the implicit prepare takes the edge-triggered default and the shot
+    times out waiting for a fire nobody sends.
+  - `devices/shot_control.py` — `ShotControl`, the trigger box as a
+    `Movable` over the profile's named states (ordered writes via the
+    existing `ShotController.from_writes`), `Pausable` (a no-op in ARMED;
+    SCAN → OFF and back), with the standing state as a config signal.
+  - `plans/strict.py` — `geecs_take_reading`, `bps.trigger_and_read` with
+    the one GEECS difference (the `SINGLESHOT` fire between the triggers
+    and the wait) plus the bounded refire; `geecs_per_shot` /
+    `geecs_per_step` bind it into the stock `one_shot` / `one_nd_step`
+    hooks, so `bp.count` and every N-d scan plan run strict GEECS scans
+    unchanged.
+
+### Changed
+
+- `plans/single_shot.py` — the arm → fire → await → refire seam is
+  `fire_and_await_shot`, called by `geecs_single_shot` (the funnel) and by
+  `geecs_take_reading`: one implementation, two callers.
+- The refire is gated on the failed status's cause being a detector's
+  `GeecsTriggerTimeoutError` (a dropped frame); a failed **fire** (the
+  SINGLESHOT put refused) or any other failed status re-raises untouched,
+  so a refire can never issue an extra physical shot (Codex review of #811).
+- `devices/ca/triggerable.py` — `CaAcqTimestampReadable` / `CaTriggerable`
+  compose `GeecsAcquireLogic` for the stamp monitor, the synchronous
+  baseline and the shot wait instead of carrying their own copy (review of
+  #811); `_last_acq` / `_shot_queue` / `_monitoring` / `_trigger_timeout`
+  remain as views for the funnel-era callers.
+- `trigger_writes_from_profile` (TriggerProfile → `ShotControlWrites`) now
+  lives in `devices/shot_control.py` next to the device that consumes it;
+  `scan_request_runner` imports it from there.  `QUIESCE_FROM` (the
+  standing states a pause must quiesce from) has its one home in
+  `models/shot_control.py`; the device and `plans/pause_semantics.py` both
+  import it.
+- `ShotController._record_state` → `record_state` (public; the device
+  records through it so `last_state` is the one standing-state field).
+
 ## [0.77.0] - 2026-09-09
 
 ### Added

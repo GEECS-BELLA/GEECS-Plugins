@@ -82,6 +82,7 @@ from geecs_bluesky.scan_log import (
     log_claimed_scan_failure,
     scan_log,
 )
+from geecs_bluesky.devices.shot_control import trigger_writes_from_profile
 from geecs_bluesky.scan_request_runner import (
     PseudoMovableTarget,
     _build_request_detectors,
@@ -102,7 +103,6 @@ from geecs_bluesky.scan_request_runner import (
     resolve_movable_target,
     resolve_save_sets_and_rituals,
     save_set_to_devices_config,
-    trigger_writes_from_profile,
     validate_scan_request,
     warn_if_reserved_boundary_overrides,
 )

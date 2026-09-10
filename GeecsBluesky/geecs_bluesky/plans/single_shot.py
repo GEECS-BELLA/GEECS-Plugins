@@ -39,20 +39,6 @@ from geecs_bluesky.exceptions import (
 logger = logging.getLogger(__name__)
 
 
-def _no_frame_device(exc: BaseException) -> str:
-    """Name the device that produced no frame, from a wait failure.
-
-    The RunEngine wraps the status's own error in
-    :exc:`~bluesky.utils.FailedStatus` (``raise FailedStatus(ret) from exc``),
-    so the device-attributed :exc:`GeecsTriggerTimeoutError` rides on
-    ``__cause__``.
-    """
-    cause = exc.__cause__
-    if isinstance(cause, GeecsTriggerTimeoutError):
-        return cause.device_name
-    return "unknown device"
-
-
 def _confirm_device_down(devices: Sequence[Any], device_name: str):
     """Plan: ``True`` iff the named device's gateway ``CONNECTED`` PV says down.
 
@@ -95,21 +81,8 @@ def geecs_single_shot(
 ):
     """Fire one plan-owned shot and bundle all *devices* into one event.
 
-    If a triggered device produces no frame for a fire (the group wait fails
-    with :exc:`~bluesky.utils.FailedStatus`), the shot is re-fired up to
-    *max_refires* times before the failure propagates.  Strict semantics
-    survive refire: a failed attempt records nothing, and the next attempt's
-    ``trigger()`` re-baselines and drains any orphan frame
-    (:class:`~geecs_bluesky.devices.ca.triggerable.CaTriggerable`), so every
-    recorded row is one physical shot.  Refire — not a longer timeout — is
-    the recovery because a missed pulse never yields a frame (live-verified;
-    numbers in ``GeecsBluesky/CHANGELOG.md`` 0.20.0).
-
-    Refire is gated on gateway liveness: a frameless device whose
-    ``CONNECTED`` PV reads Disconnected went down mid-scan, so
-    :exc:`~geecs_bluesky.exceptions.GeecsDeviceDownError` is raised instead
-    of burning refires; a live or unreadable status (fail-open) keeps the
-    bounded-refire behavior.
+    The acquisition half is :func:`fire_and_await_shot`; this adds the event
+    bundling (``create`` / ``read`` / ``save``).
 
     Parameters
     ----------
@@ -125,6 +98,54 @@ def geecs_single_shot(
         Extra fire attempts after the first one fails (default 2, so at most
         three physical fires per recorded shot).  ``0`` restores the old
         hard-fail-on-first-miss behavior.
+
+    Yields
+    ------
+    Bluesky messages.
+    """
+    yield from fire_and_await_shot(devices, fire, max_refires=max_refires)
+    yield from bps.create(name)
+    for obj in devices:
+        yield from bps.read(obj)
+    yield from bps.save()
+
+
+def fire_and_await_shot(
+    devices: Sequence[Any],
+    fire: Callable,
+    *,
+    max_refires: int = 2,
+):
+    """Arm the waiters, fire one shot, and await the frames, with refire.
+
+    The strict acquisition seam, shared by :func:`geecs_single_shot` (the
+    funnel's shot) and :func:`~geecs_bluesky.plans.strict.geecs_take_reading`
+    (the stock plans' ``take_reading``) so the refire and the device-down
+    gating exist once.
+
+    If a triggered device produces no frame for a fire (the group wait fails
+    with :exc:`~bluesky.utils.FailedStatus`), the shot is re-fired up to
+    *max_refires* times before the failure propagates.  Strict semantics
+    survive refire: a failed attempt records nothing, and the next attempt's
+    ``trigger()`` re-baselines and drains any orphan frame, so every recorded
+    row is one physical shot.  Refire — not a longer timeout — is the
+    recovery because a missed pulse never yields a frame (live-verified;
+    numbers in ``GeecsBluesky/CHANGELOG.md`` 0.20.0).
+
+    Refire is gated on gateway liveness: a frameless device whose
+    ``CONNECTED`` PV reads Disconnected went down mid-scan, so
+    :exc:`~geecs_bluesky.exceptions.GeecsDeviceDownError` is raised instead
+    of burning refires; a live or unreadable status (fail-open) keeps the
+    bounded-refire behavior.
+
+    Parameters
+    ----------
+    devices:
+        The devices of the shot.  Triggerable ones are armed and awaited.
+    fire:
+        Plan-stub callable emitting exactly one trigger.
+    max_refires:
+        Extra fire attempts after the first fails.
 
     Yields
     ------
@@ -152,14 +173,20 @@ def geecs_single_shot(
                     len(triggerables),
                 )
         except FailedStatus as exc:
-            # No cancellation of abandoned statuses is needed: the RunEngine
-            # stashes a late FailedStatus and throws it into the plan at the
-            # next yield, but co-missing devices share the same ~3 s deadline
-            # so the stash is consumed right here at the wait; a straggler
-            # that lands inside the next attempt is caught by this same try
-            # (it wraps the whole attempt: trigger + fire + wait) and merely
-            # consumes one refire instead of aborting the scan.
-            device_name = _no_frame_device(exc)
+            # Only a detector's no-frame timeout is a dropped frame.  A failed
+            # *fire* (the SINGLESHOT put refused or ambiguous) or any other
+            # failed status is not, and re-firing on it could issue extra
+            # physical shots — re-raise those untouched (Codex review of
+            # #811).  No cancellation of abandoned statuses is needed: the
+            # RunEngine stashes a late FailedStatus and throws it into the
+            # plan at the next yield, but co-missing devices share the same
+            # deadline so the stash is consumed right here at the wait; a
+            # straggler that lands inside the next attempt is caught by this
+            # same try and merely consumes one refire.
+            cause = exc.__cause__
+            if not isinstance(cause, GeecsTriggerTimeoutError):
+                raise
+            device_name = cause.device_name
             down = yield from _confirm_device_down(devices, device_name)
             if down:
                 raise GeecsDeviceDownError(
@@ -178,11 +205,7 @@ def geecs_single_shot(
                 device_name,
             )
         else:
-            break
-    yield from bps.create(name)
-    for obj in devices:
-        yield from bps.read(obj)
-    yield from bps.save()
+            return
 
 
 def geecs_confirm_quiescent(

@@ -63,7 +63,7 @@ def test_stock_plans_over_the_namespace_on_hardware() -> None:
     from geecs_bluesky.namespace import GeecsNamespace
     from geecs_bluesky.plans.scan_request_plan import _await_in_plan
     from geecs_bluesky.preprocessors import install_connect_on_demand
-    from geecs_bluesky.scan_request_runner import trigger_writes_from_profile
+    from geecs_bluesky.devices.shot_control import trigger_writes_from_profile
     from geecs_bluesky.session import GeecsSession
     from geecs_bluesky.shot_controller import ShotController
     from geecs_core.pv_naming import pv_name, setpoint_pv

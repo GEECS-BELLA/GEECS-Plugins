@@ -26,6 +26,7 @@ from bluesky.utils import Msg
 from geecs_bluesky.exceptions import GeecsConfigurationError
 from geecs_bluesky.models.shot_control import ShotControlWrites
 from geecs_bluesky.plans.scan_request_plan import geecs_scan_request_plan
+from geecs_bluesky.devices.shot_control import trigger_writes_from_profile
 from geecs_bluesky.scan_request_runner import (
     ConfigResolver,
     ConfigsRepoResolver,
@@ -38,7 +39,6 @@ from geecs_bluesky.scan_request_runner import (
     resolve_save_sets_and_rituals,
     save_set_to_devices_config,
     snapshot_images_ignored,
-    trigger_writes_from_profile,
 )
 from geecs_schemas import (
     ActionPlan,

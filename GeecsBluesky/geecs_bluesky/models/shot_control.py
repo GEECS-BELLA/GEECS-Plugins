@@ -123,6 +123,15 @@ class ShotControlConfig(BaseModel):
         }
 
 
+#: Standing states in which external edges reach the devices, so a RunEngine
+#: pause must drive OFF (SCAN and STANDBY both pass edges — STANDBY is the
+#: machine's idle state, not a quiet one).  ARMED/OFF are quiescent by
+#: construction.  Consumed by the ShotControl device and the pause quiescer.
+QUIESCE_FROM: frozenset[str] = frozenset(
+    {ShotControlState.SCAN.value, ShotControlState.STANDBY.value}
+)
+
+
 class ShotControlWrites(BaseModel):
     """Generalized shot control: per-state **ordered** multi-device write lists.
 
@@ -137,7 +146,7 @@ class ShotControlWrites(BaseModel):
 
     This model stays pure data (no hardware, no schema imports) so the
     trigger-profile adapter lives bluesky-side
-    (:func:`~geecs_bluesky.scan_request_runner.trigger_writes_from_profile`)
+    (:func:`~geecs_bluesky.devices.shot_control.trigger_writes_from_profile`)
     and callers can store either generation in one slot.
 
     Parameters
