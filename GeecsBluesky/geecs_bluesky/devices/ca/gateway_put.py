@@ -4,7 +4,7 @@ Owns the ca://-vs-bare addressing rule (:func:`bare_pv` — a schemed name
 hangs raw aioca; issue #490), the wire-value conventions, the timeout policy,
 the ``AsyncStatus`` wrapping, and mock support.  Every setpoint pathway
 delegates here: ``CaSettable``/``CaMotor``'s Layer-1 signal put,
-``ShotControl``'s ``CaPutSetter``, and the action factory's wire settable.
+``ShotControl``'s :class:`CaPutSetter` (below), and the action factory's wire settable.
 
 Two transports, one policy owner:
 
@@ -173,3 +173,18 @@ class GatewaySetpointPut:
     def set(self, value: Any) -> AsyncStatus:
         """Movable: put *value*; the status completes with the GEECS set."""
         return AsyncStatus(self.put(value))
+
+
+class CaPutSetter(GatewaySetpointPut):
+    """One value to one gateway setpoint PV, as its wire string.
+
+    The gateway's ``:SP`` write forwards to the GEECS UDP set and completes
+    only when GEECS accepts (or rejects) it, so put-completion carries the
+    same semantics as the direct UDP ACK.  Values go as strings (labels for
+    enum PVs; numeric strings are coerced by the gateway's typed channel) —
+    the hardware-proven shot-control convention, 10 s default budget,
+    pinned byte-for-byte by ``tests/test_gateway_put.py``.
+    """
+
+    def __init__(self, setpoint_pv: str, timeout: float = 10.0) -> None:
+        super().__init__(setpoint_pv, coerce=str, timeout=timeout)

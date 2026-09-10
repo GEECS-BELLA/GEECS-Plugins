@@ -594,7 +594,8 @@ Still open, for Sam:
      and **`scan.log`** (the trace of what went wrong in a scan).
    - **Namespace rule:** `GeecsDetector` for every `looks_triggerable`
      device; `native_save=True` iff the DB lists `save` and
-     `localsavingpath` for the device (so the gateway serves their `:SP`);
+     `localsavingpath` as **settable** for the device (only settable
+     variables get a gateway `:SP`, PV_CONTRACT.md §1);
      drain offsets from the calibration file, 0.0 until measured.
    - **Telemetry in phase 1 = everything**: every subscribed scalar of the
      experiment rides in the run, per event, monitor-backed; pare back

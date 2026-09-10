@@ -85,7 +85,7 @@ class CaSettable(StandardReadable):
         self._column_headers = {f"{name}-{_readback_attr}": f"{device} {variable}"}
 
     async def disconnect(self) -> None:
-        """Per-scan teardown hook (the runner's ``session.disconnect`` cleanup).
+        """Teardown hook, uniform across every CA device type.
 
         This device holds no persistent monitor subscription, so there is
         nothing to unsubscribe — the method exists so scanner teardown is

@@ -77,7 +77,7 @@ jobs:
 
       - name: Run GeecsBluesky pure unit tests
         working-directory: GeecsBluesky
-        run: poetry run pytest tests -m "not integration and not fake_server" --tb=short -q --durations=10
+        run: poetry run pytest tests -m "not integration and not fake_server and not hardware" --tb=short -q --durations=10
 
       - name: Install GEECS-MCP dependencies
         working-directory: GEECS-MCP

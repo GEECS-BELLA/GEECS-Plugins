@@ -30,10 +30,9 @@ deadlock), callers must pre-connect every signal a compiled plan will touch
 before handing the plan to the RE — see
 the action compiler's callers (every signal built and connected before a plan runs).
 
-The factory rides the same per-scan cleanup path as devices: it exposes an
-``async disconnect()`` so ``session.disconnect(factory)`` treats it
-uniformly (the signals hold no persistent monitor subscriptions, so there is
-nothing to tear down beyond dropping the cache).
+The factory exposes an ``async disconnect()`` like every CA device (the
+signals hold no persistent monitor subscriptions, so there is nothing to
+tear down beyond dropping the cache).
 """
 
 from __future__ import annotations
@@ -150,7 +149,7 @@ class CaActionSignalFactory:
         return signal
 
     async def disconnect(self) -> None:
-        """Per-scan teardown hook (rides ``session.disconnect`` uniformly).
+        """Teardown hook, uniform with the CA devices.
 
         The factory's signals hold no persistent monitor subscriptions —
         aioca manages the underlying CA channels globally — so teardown is

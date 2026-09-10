@@ -91,9 +91,9 @@ api_key = <stable key>
   setup/per-step/closeout actions all flow
   through it (the legacy `GEECS-Scanner-GUI` path was deleted with G3) ✓
 - Scalar s-file exported from Tiled best-effort after each scan ✓
-- Hardware integration test: `tests/test_scan_request_hardware.py`
-  (replaces the deleted `test_bluesky_scanner.py`) runs a real
-  `ScanRequest` end to end against the live gateway — see its module
+- Hardware acceptance: `tests/test_phase0_hardware.py` (gated on
+  `GEECS_HW=1`) runs stock `bp.count` / `bp.list_scan` over a real camera
+  against the live gateway — see its module
   docstring for invocation; run it to verify, no standing pass is
   recorded here
 
@@ -138,5 +138,5 @@ df = run["primary"].read()
 
 # Run hardware integration test (requires lab network)
 cd GeecsBluesky
-poetry run pytest tests/test_scan_request_hardware.py -m integration -s
+GEECS_HW=1 poetry run python -u -m pytest tests/test_phase0_hardware.py -m hardware -s
 ```

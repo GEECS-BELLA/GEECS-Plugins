@@ -22,9 +22,8 @@ logger = logging.getLogger(__name__)
 def claim_scan(experiment: str = "") -> tuple[Any | None, str | None]:
     """Claim the next day-scoped scan via ``geecs_data_utils``; return (ScanTag, folder).
 
-    Scanner-side operation — this is the one place (outside the GUI's own
-    ``ScanDataManager``) allowed to bring a ``scans/ScanNNN/`` folder into
-    existence.  Returns ``(None, None)`` if ``geecs_data_utils`` is unavailable,
+    Scanner-side operation — the one place allowed to bring a
+    ``scans/ScanNNN/`` folder into existence.  Returns ``(None, None)`` if ``geecs_data_utils`` is unavailable,
     the NetApp is unreachable, or the claim fails.  The full ``ScanTag`` is
     returned for callers that need it (e.g. ScanAnalysis analyzers load files
     by tag); use :func:`claim_scan_number` when only the number matters.

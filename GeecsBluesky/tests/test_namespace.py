@@ -79,7 +79,7 @@ ROSTER = DeviceRoster(
         "U DG645 ShotControl": "DG645",
     },
     subscribed={
-        "UC_TestCam": ["MeanCounts", "MaxCounts"],
+        "UC_TestCam": ["MeanCounts", "MaxCounts", "exposure"],  # exposure: settable too
         "U_S1H": ["Current", "Voltage"],
     },
 )
@@ -167,11 +167,15 @@ async def test_read_returns_the_subscribed_list_plus_shot_stamp() -> None:
     await cam.connect(mock=True)
     await magnet.connect(mock=True)
     await cam.prepare(STRICT_TRIGGER_INFO)  # a StandardDetector reads once prepared
+    # exposure is subscribed AND settable → its Movable child's readback is a
+    # column of the detector (GeecsDetector.add_readables), like U_S1H.current
     assert set(await cam.read()) == {
         "uc_testcam-acq_timestamp",
         "uc_testcam-meancounts",
         "uc_testcam-maxcounts",
+        "uc_testcam-exposure-readback",
     }
+    assert set(await cam.describe()) == set(await cam.read())
     # Current is subscribed AND settable → its Movable child's readback is logged
     assert set(await magnet.read()) == {"u_s1h-current-position", "u_s1h-voltage"}
     assert hasattr(cam, "trigger") and not hasattr(magnet, "trigger")
@@ -209,6 +213,18 @@ def test_native_save_iff_the_db_lists_both_saving_controls() -> None:
     assert not isinstance(cam.localsavingpath, CaSettable)
     assert cam.save.name == "uc_testcam-save"
     assert not GeecsNamespace(ROSTER)["UC_TestCam"].native_save  # no `save` row
+    # get-only rows have no :SP (PV_CONTRACT.md §1): served, but not the
+    # saving controls — they stay plain readables and the camera connects
+    get_only = [row(n) for n in ("MeanCounts", "trigger", "save", "localsavingpath")]
+    roster = DeviceRoster(
+        experiment="TestExp",
+        variables={"UC_TestCam": get_only},
+        types=ROSTER.types,
+        subscribed={"UC_TestCam": ["MeanCounts", "save", "localsavingpath"]},
+    )
+    cam = GeecsNamespace(roster)["UC_TestCam"]
+    assert not cam.native_save
+    assert isinstance(cam.save, SignalR) and not hasattr(cam.save, "_setpoint")
 
 
 def test_roster_triggered_override_wins() -> None:

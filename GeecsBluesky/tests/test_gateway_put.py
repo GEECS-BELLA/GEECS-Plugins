@@ -15,11 +15,11 @@ pytest.importorskip("aioca")  # the raw transport needs the `ca` extra
 import aioca  # noqa: E402
 
 from geecs_bluesky.devices.ca.gateway_put import (  # noqa: E402
+    CaPutSetter,
     GatewaySetpointPut,
     bare_pv,
     wire_value,
 )
-from geecs_bluesky.devices.shot_control import CaPutSetter  # noqa: E402
 
 
 class _CaputRecorder:

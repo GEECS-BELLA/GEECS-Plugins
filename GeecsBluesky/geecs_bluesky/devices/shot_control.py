@@ -22,7 +22,7 @@ One device, the protocols Bluesky already has for it
   rewound — failures are logged loudly instead.
 
 The writes go through one cached gateway ``:SP`` put per distinct
-``(device, variable)`` target (:class:`CaPutSetter` — the hardware-proven
+``(device, variable)`` target (:class:`~geecs_bluesky.devices.ca.gateway_put.CaPutSetter` — the hardware-proven
 stringified-wire convention); each state's list replays in declared order,
 every put completing before the next (the TriggerProfile semantics: raise
 an amplitude before switching a source).  The ``state`` config signal
@@ -45,27 +45,12 @@ from ophyd_async.core import (
     soft_signal_r_and_setter,
 )
 
-from geecs_bluesky.devices.ca.gateway_put import GatewaySetpointPut
+from geecs_bluesky.devices.ca.gateway_put import CaPutSetter
 from geecs_bluesky.exceptions import GeecsConfigurationError
 from geecs_bluesky.models.shot_control import QUIESCE_FROM, ShotControlWrites
 from geecs_core.pv_naming import pv_name, setpoint_pv
 
 logger = logging.getLogger(__name__)
-
-
-class CaPutSetter(GatewaySetpointPut):
-    """One value to one gateway setpoint PV, as its wire string.
-
-    The gateway's ``:SP`` write forwards to the GEECS UDP set and completes
-    only when GEECS accepts (or rejects) it, so put-completion carries the
-    same semantics as the direct UDP ACK.  Values go as strings (labels for
-    enum PVs; numeric strings are coerced by the gateway's typed channel) —
-    the hardware-proven shot-control convention, 10 s default budget,
-    pinned byte-for-byte by ``tests/test_gateway_put.py``.
-    """
-
-    def __init__(self, setpoint_pv: str, timeout: float = 10.0) -> None:
-        super().__init__(setpoint_pv, coerce=str, timeout=timeout)
 
 
 def _state_write_triples(

@@ -39,8 +39,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   unserved-variables and snapshot-images questions went with the runner.
   The client's submit verbs still name the retired funnel plan, so
   `worker_ready` refuses against this worker — correctly; the client seam
-  is rewired with the plan layer (PR 2).  GEECS-Console and GEECS-MCP
-  import unchanged.
+  is rewired with the plan layer (PR 2).  The free-run staleness sample
+  now reads the **first non-snapshot save-set entry** (file order) rather
+  than the role-ordered reference device.  GEECS-Console and GEECS-MCP
+  import unchanged; the Console's save-set union preview degrades to a
+  hint (it imported the deleted runner) until the top-layer rewire.
+- `CaSnapshotReadable(save_control_only=...)` — the runner's snapshot-role
+  camera shape, callerless now; `GeecsDetector(native_save=True)` without
+  a path provider is the case it covered.
 
 ### Changed
 
@@ -61,9 +67,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   readiness check asserts; the plan layer (PR 2) rebinds the same names
   with the strict `take_reading`.  `user_group_permissions.yaml`'s operator
   group allows exactly those.
-- `ShotControl` absorbed `ShotController`'s write machinery (`CaPutSetter`,
-  one cached setter per target, ordered per-state replay, the standing
-  state) — one class, no composition.  `plans/strict.py` absorbed
+- `ShotControl` absorbed `ShotController`'s write machinery (one cached
+  setter per target, ordered per-state replay, the standing state) — one
+  class, no composition; `CaPutSetter` lives beside its base in
+  `devices/ca/gateway_put.py`.  `plans/strict.py` absorbed
   `fire_and_await_shot` and the CONNECTED refire gate;
   `plans/claim_scan.py` holds the scan-number claim alone.
 - The `models/shot_control.py` state names are the schema's
@@ -76,10 +83,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   socket makes the zmq context's teardown block for the *next* test's
   whole timeout.  The hermetic startup tests now run with
   `QS_DOC_PUBLISH_ADDR=OFF`.
-- `tests/test_phase0_hardware.py` is gated on `GEECS_HW=1`: the `hardware`
-  marker alone did not protect it — an explicit `-m` on the command line
-  (CI's, `scripts/check.sh`'s) overrides the `addopts` deselect, and on a
-  laptop on the lab VPN the ordinary suite run fired real shots.
+- `tests/test_phase0_hardware.py` is gated on `GEECS_HW=1`, and CI's and
+  `scripts/check.sh`'s `-m` expressions now say `not hardware`: the
+  `hardware` marker alone did not protect it — an explicit `-m` on the
+  command line overrides the `addopts` deselect, and on a laptop on the
+  lab VPN the ordinary suite run fired real shots.
+- The namespace's `native_save` rule requires the two saving controls to
+  be **settable** rows (only those get a gateway `:SP`); a get-only
+  `save` row stays a plain readable (review of #816).
 
 ## [0.78.1] - 2026-09-10
 

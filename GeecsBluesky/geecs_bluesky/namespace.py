@@ -96,10 +96,12 @@ _DTYPE_TO_PYTHON: dict[str, type] = {
 #: Variables the gateway synthesises for every device that are never children.
 _SYNTHESIZED: frozenset[str] = frozenset({"connected", ACQ_TIMESTAMP_VARIABLE})
 
-#: The two LabVIEW-native saving controls.  A triggerable device serving both
-#: gets ``native_save`` and the detector owns them (``localsavingpath`` /
-#: ``save`` children driven by its data logic) — they are never bound as
-#: scan-settable children, so no plan can write them behind the lifecycle.
+#: The two LabVIEW-native saving controls.  A triggerable device whose DB
+#: rows list both as **settable** (only settable variables get a gateway
+#: ``:SP``, PV_CONTRACT.md §1) gets ``native_save`` and the detector owns
+#: them (``localsavingpath`` / ``save`` children driven by its data logic) —
+#: they are never bound as scan-settable children, so no plan can write
+#: them behind the lifecycle.
 NATIVE_SAVE_VARIABLES: frozenset[str] = frozenset({"save", "localsavingpath"})
 
 _TRIGGER_VARIABLE = re.compile("trig", re.IGNORECASE)
@@ -326,7 +328,10 @@ class GeecsNamespace:
             return None
         ns_name = identifier_name(device)
         ophyd_name = safe_name(device)  # event keys per EVENT_SCHEMA.md
-        native_save = triggered and NATIVE_SAVE_VARIABLES <= {n.lower() for n in typed}
+        settable_names = {
+            n.lower() for n, (row, _) in typed.items() if row.get("settable")
+        }
+        native_save = triggered and NATIVE_SAVE_VARIABLES <= settable_names
         if native_save:
             # The detector owns the saving controls (§10.5 namespace rule).
             typed = {

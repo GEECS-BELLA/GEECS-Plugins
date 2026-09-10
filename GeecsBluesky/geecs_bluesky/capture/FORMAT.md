@@ -89,9 +89,9 @@ start doc carried an integer scan number.
   skipped loudly (cross-package invariant — analysis/services never
   create scan folders).
 - **Toggle-off actively commands `save="off"`** (GeecsBluesky 0.67.0):
-  captured cameras are built `save_control_only` — only the `save` control
-  child exists (no `localsavingpath`, no save-path column, no asset docs)
-  — and the run wrapper writes `off` eagerly at scan start, so a flag left
+  captured cameras carried only a `save` control (historical; the
+  `GeecsDetector` data logic clears a stale `save=on` at `stage` now)
+  and the scanner wrote `off` eagerly at scan start, so a flag left
   on out-of-band can never keep writing native files to a stale path.
 - **Capture ownership is synchronous-role only** (#702): an asynchronous
   (snapshot-role) camera of a capture devicetype is dropped from

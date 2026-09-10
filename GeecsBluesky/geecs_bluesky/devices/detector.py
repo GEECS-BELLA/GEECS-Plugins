@@ -472,13 +472,15 @@ class GeecsDetector(StandardDetector):
         """Latest stamp seen by the persistent monitor."""
         return self._acquire.last_acq_timestamp
 
-    def add_readables(self, signals: Sequence[SignalR]) -> None:
+    def add_readables(self, signals: Sequence[Any]) -> None:
         """Add event columns beyond the constructor's *variables*.
 
         The namespace binds each served settable as a Movable child and,
         when the DB also subscribes that variable, logs its readback here —
         the same rule ``StandardReadable.add_readables`` gives the
-        scalar-only devices.  Staged with the other scalars.
+        scalar-only devices.  Anything with ``read`` / ``describe`` /
+        ``stage`` / ``unstage`` qualifies (a signal or a child device);
+        staged with the other scalars.
         """
         self._scalars.extend(signals)
         self._scalars_logic.add(*signals)
