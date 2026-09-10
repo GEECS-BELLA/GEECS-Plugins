@@ -19,6 +19,7 @@ pytest.importorskip("aioca")  # session is CA-only
 
 from ophyd_async.core import callback_on_mock_put, set_mock_value  # noqa: E402
 
+from geecs_bluesky.devices.ca.motor import DEFAULT_TOLERANCE  # noqa: E402
 from geecs_bluesky.exceptions import GeecsConfigurationError  # noqa: E402
 from geecs_bluesky.session import GeecsSession, _json_safe, _positions  # noqa: E402
 from geecs_bluesky.shot_controller import CaPutSetter, ShotController  # noqa: E402
@@ -407,3 +408,191 @@ def test_scan_info_stamps_bluesky_scanner(tmp_path: Path) -> None:
     content = (tmp_path / f"ScanInfo{tmp_path.name}.ini").read_text()
     assert 'Scanner = "bluesky"' in content
     assert "[Scan Info]" in content  # legacy section intact
+
+
+# --------------------------------------------------------------------------
+# Per-variable move tolerance from the GEECS DB
+# --------------------------------------------------------------------------
+
+#: Shape of GeecsDb.get_device_variables() for a three-axis ESP stage.
+_ESP_ROWS = [
+    {"name": "Position.Axis 1", "tolerance": 0.015},
+    {"name": "Position.Axis 2", "tolerance": 0.001},
+    {"name": "Speed.Axis1", "tolerance": 0.0},  # the DB's "unset" spelling
+    {"name": "Home.Axis1", "tolerance": None},
+]
+
+
+def _db_session(monkeypatch: pytest.MonkeyPatch, rows: list, calls: list) -> object:
+    """A non-mock session whose DB lookup returns *rows*, recording each call."""
+
+    def _get(device_name: str) -> list:
+        calls.append(device_name)
+        return rows
+
+    monkeypatch.setattr(
+        "geecs_core.db.geecs_db.GeecsDb.get_device_variables", staticmethod(_get)
+    )
+    return GeecsSession("Undulator", tiled=False, mock=False)
+
+
+def test_move_tolerance_reads_the_db_value(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The per-axis DB tolerance wins over the hardcoded default."""
+    s = _db_session(monkeypatch, _ESP_ROWS, [])
+    assert s.move_tolerance("U_ModeImagerESP", "Position.Axis 1") == 0.015
+    # Tighter than the old hardcoded 0.005, not just looser — both directions.
+    assert s.move_tolerance("U_ModeImagerESP", "Position.Axis 2") == 0.001
+
+
+@pytest.mark.parametrize("variable", ["Speed.Axis1", "Home.Axis1", "Nonexistent"])
+def test_move_tolerance_falls_back_when_db_has_nothing_usable(
+    monkeypatch: pytest.MonkeyPatch, variable: str
+) -> None:
+    """Zero, NULL and missing all mean "unset" — never a 0.0 tolerance.
+
+    A 0.0 tolerance would demand bit-exact equality of a float readback and
+    never converge, turning every move into a move_timeout.
+    """
+    s = _db_session(monkeypatch, _ESP_ROWS, [])
+    assert s.move_tolerance("U_ModeImagerESP", variable) == DEFAULT_TOLERANCE
+
+
+def test_move_tolerance_survives_an_unreachable_db(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A DB outage degrades to the default rather than failing the scan."""
+
+    def _boom(device_name: str) -> list:
+        raise RuntimeError("2003: Can't connect to MySQL server")
+
+    monkeypatch.setattr(
+        "geecs_core.db.geecs_db.GeecsDb.get_device_variables", staticmethod(_boom)
+    )
+    s = GeecsSession("Undulator", tiled=False, mock=False)
+    assert s.move_tolerance("U_ModeImagerESP", "Position.Axis 1") == (DEFAULT_TOLERANCE)
+
+
+def test_move_tolerance_is_cached_per_device(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """One DB round trip per device, not one per variable."""
+    calls: list = []
+    s = _db_session(monkeypatch, _ESP_ROWS, calls)
+    s.move_tolerance("U_ModeImagerESP", "Position.Axis 1")
+    s.move_tolerance("U_ModeImagerESP", "Position.Axis 2")
+    assert calls == ["U_ModeImagerESP"]
+
+
+def test_mock_session_never_touches_the_db(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Hermetic tests must not need a database."""
+
+    def _boom(device_name: str) -> list:
+        raise AssertionError("mock session must not query the DB")
+
+    monkeypatch.setattr(
+        "geecs_core.db.geecs_db.GeecsDb.get_device_variables", staticmethod(_boom)
+    )
+    s = _session()
+    assert s.move_tolerance("U_ModeImagerESP", "Position.Axis 1") == (DEFAULT_TOLERANCE)
+
+
+def test_motor_receives_the_resolved_db_tolerance(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """motor() actually passes the DB value into the device.
+
+    Pins the headline behaviour change: without this, deleting the resolution
+    in motor() and restoring the old hardcoded 0.005 leaves the suite green.
+    """
+    s = _db_session(monkeypatch, _ESP_ROWS, [])
+    monkeypatch.setattr(GeecsSession, "_connect", lambda self, device: device)
+    assert s.motor("U_ModeImagerESP", "Position.Axis 1")._tolerance == 0.015
+    assert s.motor("U_ModeImagerESP", "Position.Axis 2")._tolerance == 0.001
+
+
+def test_motor_explicit_tolerance_still_overrides(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An explicit tolerance= wins over the DB."""
+    s = _db_session(monkeypatch, _ESP_ROWS, [])
+    monkeypatch.setattr(GeecsSession, "_connect", lambda self, device: device)
+    motor = s.motor("U_ModeImagerESP", "Position.Axis 1", tolerance=0.5)
+    assert motor._tolerance == 0.5
+
+
+def test_failed_db_lookup_is_cached_not_retried(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A DB outage costs one connect per device, not one per call.
+
+    Without negative caching an off-network worker pays a fresh 10 s connect
+    timeout on every motor() -- on the RunEngine loop -- and feeds MySQL's
+    max_connect_errors on the way.
+    """
+    calls: list = []
+
+    def _boom(device_name: str) -> list:
+        calls.append(device_name)
+        raise RuntimeError("2003: Can't connect to MySQL server")
+
+    monkeypatch.setattr(
+        "geecs_core.db.geecs_db.GeecsDb.get_device_variables", staticmethod(_boom)
+    )
+    s = GeecsSession("Undulator", tiled=False, mock=False)
+    for _ in range(3):
+        assert s.move_tolerance("U_ModeImagerESP", "Position.Axis 1") == (
+            DEFAULT_TOLERANCE
+        )
+    assert calls == ["U_ModeImagerESP"]
+
+
+def test_implausible_db_tolerance_warns(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A units-mismatched row is served but flagged, not silently trusted.
+
+    A tolerance that is a large fraction of the axis's own travel makes every
+    readback "arrive" on the first poll -- the silent false-arrival mode this
+    poll exists to catch.  1.0 on 25 mm of travel is 4%.
+    """
+    rows = [{"name": "Position.Axis 3", "min": 0.0, "max": 25.0, "tolerance": 1.0}]
+    s = _db_session(monkeypatch, rows, [])
+    with caplog.at_level(logging.WARNING):
+        assert s.move_tolerance("U_ModeImagerESP", "Position.Axis 3") == 1.0
+    assert "check its units" in caplog.text
+
+
+def test_real_aerotech_tolerance_does_not_warn(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The production U_CompAeroTech row must stay silent.
+
+    Its genuine 1.0 um tolerance on 115000 um of travel is 0.0009% of range --
+    correctly configured.  An absolute threshold flagged it on every move,
+    which is the unit-blindness the span comparison exists to avoid.
+    """
+    rows = [
+        {"name": "Position.Axis1", "min": -60000.0, "max": 55000.0, "tolerance": 1.0},
+        {"name": "DelayAfterMove", "min": 0.0, "max": 10000.0, "tolerance": 1.0},
+    ]
+    s = _db_session(monkeypatch, rows, [])
+    with caplog.at_level(logging.WARNING):
+        assert s.move_tolerance("U_CompAeroTech", "Position.Axis1") == 1.0
+    assert caplog.text == ""
+
+
+def test_tolerance_without_a_usable_span_is_not_judged(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Rows with no min/max (or a degenerate span) are served without comment."""
+    rows = [
+        {"name": "A", "tolerance": 5.0},
+        {"name": "B", "min": 1.0, "max": 1.0, "tolerance": 5.0},
+    ]
+    s = _db_session(monkeypatch, rows, [])
+    with caplog.at_level(logging.WARNING):
+        assert s.move_tolerance("U_Thing", "A") == 5.0
+        assert s.move_tolerance("U_Thing", "B") == 5.0
+    assert caplog.text == ""

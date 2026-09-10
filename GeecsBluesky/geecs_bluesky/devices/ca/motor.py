@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import sys
 
 from ophyd_async.core import AsyncStatus
 
@@ -30,6 +31,30 @@ from geecs_bluesky.exceptions import GeecsMotorTimeoutError
 logger = logging.getLogger(__name__)
 
 _DEFAULT_MOVE_TIMEOUT = 30.0  # seconds
+
+#: Fallback move-completion tolerance, used only when the GEECS DB records no
+#: usable ``tolerance`` for the variable.  :meth:`GeecsSession.move_tolerance`
+#: resolves the per-axis DB value; this is what it returns when it cannot.
+DEFAULT_TOLERANCE = 0.005
+
+#: A DB tolerance larger than this fraction of the variable's own travel span
+#: is logged as suspect.  Span-relative, not absolute: tolerances are in each
+#: variable's own units (µm on U_CompAeroTech, mm on the ESPs), so any fixed
+#: threshold flags correctly-configured axes purely for their unit choice —
+#: exactly the unit-blindness it is meant to detect.
+TOLERANCE_SPAN_FRACTION = 0.01
+
+# Binary floating point puts an exactly-on-tolerance arrival a few ULPs *over*
+# the limit: |-10.505 - -10.5| evaluates to 0.005000000000000782, not 0.005.
+# A stage that landed exactly on tolerance therefore polled for the full
+# move_timeout and paused the scan for an operator (U_ModeImagerESP, Scan034).
+#
+# The error in |current - value| scales with the *operands*, not the tolerance
+# (~ULP(|position|) = |x| * 2.2e-16), so the slack must too: a tolerance-relative
+# epsilon under-covers exactly the large-coordinate axes (U_CompAeroTech reads
+# ~4e4). Four ULPs of the larger operand covers the subtraction plus the
+# comparison with room to spare, and stays far below any real tolerance.
+ULP_SLACK = 4 * sys.float_info.epsilon
 
 
 class CaMotor(CaSettable):
@@ -47,7 +72,11 @@ class CaMotor(CaSettable):
         ophyd-async device name (namespaces the event keys).
     tolerance : float
         Move completion tolerance.  ``set()`` resolves when
-        ``|readback − setpoint| ≤ tolerance``.  Default ``0.005``.
+        ``|readback − setpoint| ≤ tolerance``, with a few ULPs of the larger
+        operand as slack so an arrival landing exactly on the tolerance is not
+        lost to binary floating-point representation.  Defaults to
+        :data:`DEFAULT_TOLERANCE`; :meth:`GeecsSession.motor` normally passes
+        the GEECS DB's per-variable value instead.
     settle_time : float
         Extra seconds to wait after arrival before completing the status.
     move_timeout : float
@@ -62,7 +91,7 @@ class CaMotor(CaSettable):
         *,
         experiment: str | None = None,
         name: str = "motor",
-        tolerance: float = 0.005,
+        tolerance: float = DEFAULT_TOLERANCE,
         settle_time: float = 0.0,
         move_timeout: float = _DEFAULT_MOVE_TIMEOUT,
     ) -> None:
@@ -109,7 +138,8 @@ class CaMotor(CaSettable):
         position = getattr(self, self._readback_attr_name)
         while True:
             current = float(await position.get_value())
-            if abs(current - value) <= self._tolerance:
+            slack = ULP_SLACK * max(abs(current), abs(value))
+            if abs(current - value) <= self._tolerance + slack:
                 logger.debug(
                     "%s: arrived at %.6g (target=%.6g, tol=%.4g)",
                     self.name,
