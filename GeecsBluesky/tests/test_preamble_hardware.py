@@ -4,7 +4,7 @@ Hardware-marked (skipped in CI; ``-m integration`` does NOT select it — it
 arms the machine trigger **and claims a real scan number**).  Run by hand on
 a host with CA reach to the gateway and the GEECS DB (the qserver box)::
 
-    GEECS_HW_SCAN_VARIABLE=U_S1H:Current GEECS_HW_SCAN_START=-1 \\
+    GEECS_HW_SCAN_VARIABLE=S1H GEECS_HW_SCAN_START=-1 \\
     GEECS_HW_SCAN_END=1 GEECS_HW_SCAN_STEP=0.5 \\
     poetry run pytest tests/test_preamble_hardware.py -m hardware -s
 
@@ -23,7 +23,8 @@ Environment
 ``GEECS_HW_SAVE_SET``         save set (default ``Amp4In``)
 ``GEECS_HW_TRIGGER_PROFILE``  trigger profile (default ``HTU-NoGas``)
 ``GEECS_HW_SHOTS``            shots (default 3)
-``GEECS_HW_SCAN_VARIABLE``    ``Device:Variable`` to sweep (unset → noscan only)
+``GEECS_HW_SCAN_VARIABLE``    catalog scan-variable name to sweep, e.g. ``S1H``
+                              (unset → noscan only)
 ``GEECS_HW_SCAN_START/END/STEP``  sweep bounds (mandatory with the variable)
 """
 
@@ -149,8 +150,14 @@ def test_stock_plans_run_as_geecs_scans_on_hardware() -> None:
         pytest.skip("GEECS_HW_SCAN_VARIABLE unset — noscan half only")
 
     # ---- 2. a stock list_scan as a step scan -------------------------------
-    device_name, _, variable = sweep_target.partition(":")
+    # The request names the CATALOG variable (e.g. "S1H"); the plan needs the
+    # movable. Resolving the catalog target here is also the identity check
+    # that matters: the object the plan moves is the object the preamble
+    # resolved the axis to.
+    target = resolver.resolve_scan_variable(sweep_target)
+    device_name, _, variable = str(target.target).partition(":")
     movable = namespace.variable(device_name, variable)
+    print(f"catalog {sweep_target} -> {target.target} -> {movable.name}")
     points = _sweep_points(
         float(os.environ["GEECS_HW_SCAN_START"]),
         float(os.environ["GEECS_HW_SCAN_END"]),
