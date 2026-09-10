@@ -415,11 +415,18 @@ first draft; each names the phase that retires it):
   latest-wins slot — the substance of #806 (phase 1)
 - that Tiled 0.2.9 reads the plugin's NDFileHDF5-layout files through its
   stock HDF5 adapter with no adapter of ours (phase 1)
-- that OFF on the DG645 stops edges reaching the cameras within a known
-  latency, and that the CA gateway posts the device **timeout events**
-  (unchanged stamp) a liveness check would rely on (phase 0)
+- ~~OFF latency / timeout-event posting~~ **Measured 2026-09-09
+  (`04_phase0_measurements.md` M1):** OFF stops edges within one period
+  (put 155 ms, one in-flight edge, then silence); the gateway posts **no**
+  timeout events — its change suppression (`gateway.py`, "don't re-post an
+  unchanged value") drops them — so liveness is the `CONNECTED` PV, never
+  monitor silence. Also learned: a single shot fires on the **next external
+  edge** (stamps ~1 s after the put), so 1 Hz strict needs < ~550 ms of
+  software between stamp arrival and the next fire put completing.
 - that per-device drain latency is constant across exposure settings, as
-  §11.4 states (phase 0 measures it across the amp4in set)
+  §11.4 states. **First measurement** (M1): offsets span 0–220 ms across 42
+  live devices — wider than the ~100 ms estimate but inside period/2.
+  Constancy across shots and settings still to be shown (phase 0).
 
 ---
 
@@ -565,6 +572,10 @@ and every one of them changed a design choice.
    `acq_timestamp`. Nothing "stalls" on its own. **Consequence:** observing
    quiescence costs at least the longest device timeout in the set, so it
    belongs in a once-run calibration or a preflight, never in a scan.
+   **Measured (M1):** the timeout events never reach the CA gateway's
+   `acq_timestamp` PV — its change suppression drops unchanged values, so
+   monitors go silent in OFF — and they cannot serve as a miss signal
+   either; liveness is the `CONNECTED` PV.
 3. **`acq_timestamp` is a shot id in everything but name.** It advances
    only on a successful capture, deterministically, on domain time
    NTP-synced to ~5–10 ms. Cross-device values for one shot differ by a
