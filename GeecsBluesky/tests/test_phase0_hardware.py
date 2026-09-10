@@ -221,9 +221,8 @@ def test_one_camera_as_a_standard_detector_on_hardware() -> None:
     cadence = [round(b - a, 3) for (_, a), (_, b) in zip(timeline, timeline[1:])]
     print(f"stamps: {stamps}\nstamp gaps (s): {gaps}\nevent cadence (s): {cadence}")
     print(f"columns: {sorted(events[0]['data'])}")
-    print(
-        f"configuration: {docs.docs['descriptor'][0]['configuration'][camera.name]['data']}"
-    )
+    configuration = docs.docs["descriptor"][0]["configuration"]
+    print(f"configuration: { {k: v['data'] for k, v in configuration.items()} }")
     print(f"wall: {time.monotonic() - t_start:.1f} s for {expected_events} shots")
     assert shot_control.standing_state == "STANDBY"
 
