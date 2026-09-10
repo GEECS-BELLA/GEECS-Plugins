@@ -21,8 +21,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
     a `PathProvider`: `save=on` at prepare, `save=off` at stage and
     unstage; the device directory is created only inside an existing scan
     folder — a missing parent raises, never a `mkdir`).  A plain
-    `bp.count([cam])` is refused at prepare: a GEECS camera cannot
-    self-trigger.
+    `bp.count([cam])` is refused at prepare — a GEECS camera cannot
+    self-trigger — unless `OPHYD_ASYNC_PRESERVE_DETECTOR_STATE=YES`, where
+    the implicit prepare takes the edge-triggered default and the shot
+    times out waiting for a fire nobody sends.
   - `devices/shot_control.py` — `ShotControl`, the trigger box as a
     `Movable` over the profile's named states (ordered writes via the
     existing `ShotController.from_writes`), `Pausable` (a no-op in ARMED;

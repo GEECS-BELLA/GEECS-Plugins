@@ -10,9 +10,11 @@ here.  They
 - union the named save sets into one effective SaveSet — the per-device
   union rule is documented on :func:`merge_save_sets`; everything downstream
   (devices config, telemetry exclusion, boundary warning) sees the merged set;
-- adapt schemas to engine shapes (:func:`save_set_to_devices_config`,
-  :func:`trigger_writes_from_profile`) — adapters live bluesky-side because
-  ``geecs_schemas`` must never import ``geecs_bluesky``;
+- adapt schemas to engine shapes (:func:`save_set_to_devices_config`; the
+  trigger-profile adapter is
+  :func:`geecs_bluesky.devices.shot_control.trigger_writes_from_profile`) —
+  adapters live bluesky-side because ``geecs_schemas`` must never import
+  ``geecs_bluesky``;
 - assemble and compile action slots in §4.4b nesting order
   (:func:`assemble_action_slots`), with fail-fast pre-claim name resolution
   and every plan signal prefetched (:func:`prefetch_action_signals`);
