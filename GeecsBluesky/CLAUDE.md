@@ -12,8 +12,12 @@ in `04_phase0_measurements.md`.
 
 **Where things stand (phase 1 PR 1, GeecsBluesky 0.79.0):** the `ScanRequest`
 funnel, free-run, `GeecsSession` and every funnel-only device are deleted;
-the scan path is the stock `bluesky.plans` verbs over the device namespace
-with the strict `take_reading`; the worker registers the stock plans.  Next
+the scan path is the stock `bluesky.plans` verbs over the device namespace,
+and the strict `take_reading` (`plans/strict.py`) exists and is tested —
+but the worker registers the **raw** stock plans: the strict binding is
+not in the worker's plan names until PR 2's registration table (a
+`GeecsDetector` under a bare stock plan is refused at prepare; scalar-only
+scans run).  Next
 (PR 2): the plan layer — the `claim_scan` preprocessor + `PathProvider`,
 the ScanInfo / s-file / `scan.log` callbacks, the registration table with
 the strict `take_reading` pre-bound, telemetry = everything.  Then (PR 3)
