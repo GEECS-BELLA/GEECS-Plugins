@@ -950,3 +950,17 @@ class TestSaveControlOnly:
         assert snap._save_control_only is True
         assert hasattr(snap, "save")
         assert not hasattr(snap, "localsavingpath")
+
+
+async def test_confirm_exactly_on_tolerance_counts_as_matched() -> None:
+    """The same on-boundary fix applies to the confirming poll.
+
+    build_movable dispatches to confirm_settable *before* motor when a scan
+    variable declares confirm, so for topology-C axes this is the arrival
+    check.  |1.20 - 1.15| is 0.050000000000000044, not 0.05.
+    """
+    device = _emq_confirm_device(tolerance=0.05)
+    await device.connect(mock=True)
+    set_mock_value(device._confirm_readback, 1.20)
+    assert abs(1.20 - 1.15) > 0.05  # the representation error is real
+    await asyncio.wait_for(device.set(1.15), timeout=2.0)

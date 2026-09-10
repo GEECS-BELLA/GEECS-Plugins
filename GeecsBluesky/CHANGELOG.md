@@ -19,17 +19,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Changed
 
 - **`GeecsSession.motor()` resolves the move tolerance from the GEECS DB**
-  (new `GeecsSession.variable_tolerance()`) instead of hardcoding `0.005` for
+  (new `GeecsSession.move_tolerance()`) instead of hardcoding `0.005` for
   every axis on every device. The DB's per-variable `tolerance` is the
   facility's own statement of what "arrived" means, and the hardcoded value
   was wrong in both directions: `U_ModeImagerESP/Position.Axis 1` is
   0.015 mm (where 0.005 failed converged moves) while axes 2 and 3 are
   0.001 mm (where 0.005 silently accepted a position 5x outside spec).
   Passing `tolerance=` still overrides. The lookup is best-effort and cached
-  per device — an unreachable DB, a missing row, or the DB's "unset"
-  spellings (NULL, `0.0`) fall back to `DEFAULT_TOLERANCE`, since a `0.0`
-  tolerance would demand bit-exact float equality and never converge. Mock
-  sessions never query the DB.
+  per device (failures too, so an off-network worker pays one connect timeout
+  per device rather than one per move) — an unreachable DB, a missing row, or
+  the DB's "unset" spellings (NULL, `0.0`) fall back to `DEFAULT_TOLERANCE`,
+  since a `0.0` tolerance would demand bit-exact float equality and never
+  converge. A DB tolerance more than 10x the default is served but logged as
+  suspect: that is the units-mismatch shape, and it would otherwise silently
+  confirm every move on the first poll. Mock sessions never query the DB.
+
+- **The same on-boundary fix applied to `CaConfirmSettable`'s confirming
+  poll** (`confirm.py`), which `build_movable` dispatches to *before*
+  `CaMotor` when a scan variable declares `confirm` — so for topology-C axes
+  it, not `CaMotor`, is the arrival check. `abs(1.20 - 1.15)` is
+  `0.050000000000000044`, so an EMQ set landing exactly on the 0.05 default
+  raised `GeecsConfirmTimeoutError` on a converged set.
 
 ## [0.76.3] - 2026-09-08
 

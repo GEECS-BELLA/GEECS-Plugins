@@ -436,18 +436,18 @@ def _db_session(monkeypatch: pytest.MonkeyPatch, rows: list, calls: list) -> obj
     return GeecsSession("Undulator", tiled=False, mock=False)
 
 
-def test_variable_tolerance_reads_the_db_value(
+def test_move_tolerance_reads_the_db_value(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The per-axis DB tolerance wins over the hardcoded default."""
     s = _db_session(monkeypatch, _ESP_ROWS, [])
-    assert s.variable_tolerance("U_ModeImagerESP", "Position.Axis 1") == 0.015
+    assert s.move_tolerance("U_ModeImagerESP", "Position.Axis 1") == 0.015
     # Tighter than the old hardcoded 0.005, not just looser — both directions.
-    assert s.variable_tolerance("U_ModeImagerESP", "Position.Axis 2") == 0.001
+    assert s.move_tolerance("U_ModeImagerESP", "Position.Axis 2") == 0.001
 
 
 @pytest.mark.parametrize("variable", ["Speed.Axis1", "Home.Axis1", "Nonexistent"])
-def test_variable_tolerance_falls_back_when_db_has_nothing_usable(
+def test_move_tolerance_falls_back_when_db_has_nothing_usable(
     monkeypatch: pytest.MonkeyPatch, variable: str
 ) -> None:
     """Zero, NULL and missing all mean "unset" — never a 0.0 tolerance.
@@ -456,10 +456,10 @@ def test_variable_tolerance_falls_back_when_db_has_nothing_usable(
     never converge, turning every move into a move_timeout.
     """
     s = _db_session(monkeypatch, _ESP_ROWS, [])
-    assert s.variable_tolerance("U_ModeImagerESP", variable) == DEFAULT_TOLERANCE
+    assert s.move_tolerance("U_ModeImagerESP", variable) == DEFAULT_TOLERANCE
 
 
-def test_variable_tolerance_survives_an_unreachable_db(
+def test_move_tolerance_survives_an_unreachable_db(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A DB outage degrades to the default rather than failing the scan."""
@@ -471,19 +471,17 @@ def test_variable_tolerance_survives_an_unreachable_db(
         "geecs_core.db.geecs_db.GeecsDb.get_device_variables", staticmethod(_boom)
     )
     s = GeecsSession("Undulator", tiled=False, mock=False)
-    assert s.variable_tolerance("U_ModeImagerESP", "Position.Axis 1") == (
-        DEFAULT_TOLERANCE
-    )
+    assert s.move_tolerance("U_ModeImagerESP", "Position.Axis 1") == (DEFAULT_TOLERANCE)
 
 
-def test_variable_tolerance_is_cached_per_device(
+def test_move_tolerance_is_cached_per_device(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """One DB round trip per device, not one per variable."""
     calls: list = []
     s = _db_session(monkeypatch, _ESP_ROWS, calls)
-    s.variable_tolerance("U_ModeImagerESP", "Position.Axis 1")
-    s.variable_tolerance("U_ModeImagerESP", "Position.Axis 2")
+    s.move_tolerance("U_ModeImagerESP", "Position.Axis 1")
+    s.move_tolerance("U_ModeImagerESP", "Position.Axis 2")
     assert calls == ["U_ModeImagerESP"]
 
 
@@ -497,6 +495,69 @@ def test_mock_session_never_touches_the_db(monkeypatch: pytest.MonkeyPatch) -> N
         "geecs_core.db.geecs_db.GeecsDb.get_device_variables", staticmethod(_boom)
     )
     s = _session()
-    assert s.variable_tolerance("U_ModeImagerESP", "Position.Axis 1") == (
-        DEFAULT_TOLERANCE
+    assert s.move_tolerance("U_ModeImagerESP", "Position.Axis 1") == (DEFAULT_TOLERANCE)
+
+
+def test_motor_receives_the_resolved_db_tolerance(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """motor() actually passes the DB value into the device.
+
+    Pins the headline behaviour change: without this, deleting the resolution
+    in motor() and restoring the old hardcoded 0.005 leaves the suite green.
+    """
+    s = _db_session(monkeypatch, _ESP_ROWS, [])
+    monkeypatch.setattr(GeecsSession, "_connect", lambda self, device: device)
+    assert s.motor("U_ModeImagerESP", "Position.Axis 1")._tolerance == 0.015
+    assert s.motor("U_ModeImagerESP", "Position.Axis 2")._tolerance == 0.001
+
+
+def test_motor_explicit_tolerance_still_overrides(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An explicit tolerance= wins over the DB."""
+    s = _db_session(monkeypatch, _ESP_ROWS, [])
+    monkeypatch.setattr(GeecsSession, "_connect", lambda self, device: device)
+    motor = s.motor("U_ModeImagerESP", "Position.Axis 1", tolerance=0.5)
+    assert motor._tolerance == 0.5
+
+
+def test_failed_db_lookup_is_cached_not_retried(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A DB outage costs one connect per device, not one per call.
+
+    Without negative caching an off-network worker pays a fresh 10 s connect
+    timeout on every motor() -- on the RunEngine loop -- and feeds MySQL's
+    max_connect_errors on the way.
+    """
+    calls: list = []
+
+    def _boom(device_name: str) -> list:
+        calls.append(device_name)
+        raise RuntimeError("2003: Can't connect to MySQL server")
+
+    monkeypatch.setattr(
+        "geecs_core.db.geecs_db.GeecsDb.get_device_variables", staticmethod(_boom)
     )
+    s = GeecsSession("Undulator", tiled=False, mock=False)
+    for _ in range(3):
+        assert s.move_tolerance("U_ModeImagerESP", "Position.Axis 1") == (
+            DEFAULT_TOLERANCE
+        )
+    assert calls == ["U_ModeImagerESP"]
+
+
+def test_implausible_db_tolerance_warns(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A units-mismatched row is served but flagged, not silently trusted.
+
+    A tolerance far above the default makes every readback "arrive" on the
+    first poll -- the silent false-arrival mode layer 2 exists to catch.
+    """
+    rows = [{"name": "Position.Axis 1", "tolerance": 1.0}]  # mm axis, um value
+    s = _db_session(monkeypatch, rows, [])
+    with caplog.at_level(logging.WARNING):
+        assert s.move_tolerance("U_ModeImagerESP", "Position.Axis 1") == 1.0
+    assert "check the variable's units" in caplog.text

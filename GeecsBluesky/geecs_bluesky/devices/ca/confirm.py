@@ -27,6 +27,7 @@ from ophyd_async.core import AsyncStatus
 from ophyd_async.epics.core import epics_signal_r
 
 from geecs_bluesky.devices.ca._pv import ca_pv
+from geecs_bluesky.devices.ca.motor import _ULP_SLACK
 from geecs_bluesky.devices.ca.settable import CaSettable
 from geecs_bluesky.exceptions import GeecsConfirmTimeoutError
 
@@ -193,4 +194,9 @@ def _matches(
     """
     if datatype is str:
         return current == target
-    return abs(float(current) - float(target)) <= tolerance
+    # Same ULP slack as CaMotor's arrival check, and for the same reason: an
+    # exactly-on-tolerance match otherwise loses to representation error
+    # (|1.20 - 1.15| == 0.050000000000000044 > 0.05). This path takes
+    # precedence over kind: motor for topology-C axes, so it needs the fix too.
+    slack = _ULP_SLACK * max(abs(float(current)), abs(float(target)))
+    return abs(float(current) - float(target)) <= tolerance + slack

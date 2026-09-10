@@ -51,7 +51,10 @@ from geecs_bluesky.devices.ca import (
     CaTelemetryReadable,
     CaTimestampedReadable,
 )
-from geecs_bluesky.devices.ca.motor import DEFAULT_TOLERANCE
+from geecs_bluesky.devices.ca.motor import (
+    DEFAULT_TOLERANCE,
+    _TOLERANCE_SANITY_FACTOR,
+)
 from geecs_bluesky.forward_expr import CompiledForward
 from geecs_bluesky.models.shot_control import ShotControlConfig, ShotControlWrites
 from geecs_bluesky.optimize import BinData, Suggester
@@ -230,7 +233,7 @@ class GeecsSession:
         # scan()/optimize()/run()/run_action() refuse while it is held, and
         # move_variable refuses while the RE is busy (review, PR #597).
         self._manual_move_lock = threading.Lock()
-        # device -> {variable: DB tolerance}; filled lazily by motor()
+        # device -> {variable: DB tolerance}; filled lazily by move_tolerance()
         self._tolerance_cache: dict[str, dict[str, float]] = {}
         # Silence upstream's RequestAbort traceback (operator aborts are
         # quiet, intentional outcomes — #563 follow-up).  RE.log is a
@@ -496,17 +499,12 @@ class GeecsSession:
     ) -> CaMotor:
         """Position-feedback motor (blocking :SP put + readback poll).
 
-        *tolerance* defaults to the GEECS DB's per-variable ``tolerance`` —
-        the facility's own statement of what "arrived" means for that axis —
-        resolved by :meth:`variable_tolerance`.  Passing a value overrides it.
-
-        The DB value matters in both directions: it is 0.015 mm on
-        ``U_ModeImagerESP/Position.Axis 1`` (where the old hardcoded 0.005
-        failed converged moves) and 0.001 mm on that device's axes 2 and 3
-        (where 0.005 silently accepted a position 5x outside spec).
+        *tolerance* defaults to :meth:`move_tolerance` — the GEECS DB's
+        per-variable convergence criterion with layer-2 headroom applied.
+        Passing a value overrides it.
         """
         if tolerance is None:
-            tolerance = self.variable_tolerance(device, variable)
+            tolerance = self.move_tolerance(device, variable)
         return self._connect(
             CaMotor(
                 device,
@@ -517,59 +515,99 @@ class GeecsSession:
             )
         )
 
-    def variable_tolerance(self, device: str, variable: str) -> float:
-        """Return the GEECS DB set-convergence tolerance for *variable*.
+    def move_tolerance(self, device: str, variable: str) -> float:
+        """Return ``CaMotor``'s layer-2 arrival tolerance for *variable*.
+
+        This is the GEECS DB's ``tolerance`` for the variable, used as-is.
+
+        That field is also GEECS's own *set-convergence* criterion
+        (``GeecsCAGateway/PV_CONTRACT.md`` § "The DB ``tolerance`` field is a
+        set-convergence criterion") — the number the blocking UDP set stops
+        on — so layer 2 checks the same threshold layer 1 did, against an
+        independently-timed readback sample.  That is deliberate: the DB
+        values are set per axis from operational experience, so they are the
+        facility's considered statement of what "arrived" means, and no
+        scaling here would be better informed than they are.  The cost is
+        that an axis parked at the very edge of its tolerance could fail
+        layer 2 on dither alone; measured convergence margins make that
+        unlikely (``U_CompAeroTech/Position.Axis1`` lands 4-11% into its
+        1.0 um tolerance, ``U_ModeImagerESP/Position.Axis 1`` 33% into its
+        0.015 mm).  Revisit here if a converged axis starts timing out.
 
         Falls back to :data:`~geecs_bluesky.devices.ca.motor.DEFAULT_TOLERANCE`
-        when the DB records nothing usable.  "Nothing usable" covers a missing
-        device or variable row, a NULL tolerance, and a non-positive one (the
-        DB's unset spelling — ``Speed.Axis1`` carries ``0.0``); a zero
-        tolerance would demand bit-exact equality and never converge.
+        (unscaled) when the DB records nothing usable: a missing device or
+        variable row, a NULL tolerance, or a non-positive one (the DB's unset
+        spelling — ``Speed.Axis1`` carries ``0.0``); a zero tolerance would
+        demand bit-exact equality and never converge.
 
-        Best-effort by design: this is metadata enrichment on the way to a
-        move, so an unreachable DB degrades to the default rather than failing
-        the scan.  Results are cached per device for the life of the session —
-        device metadata does not change mid-scan, and a gateway restart is
-        already required for DB edits to take effect.
+        Best-effort by design — this is metadata enrichment on the way to a
+        move, so an unreachable DB degrades to the default rather than
+        failing the scan.  Cached per device, successes and failures alike,
+        for the life of the session; a DB edit therefore needs the worker
+        session restarted (for the queueserver, closing and reopening its
+        environment) before it takes effect.
         """
         if self._mock:
             return DEFAULT_TOLERANCE
-        try:
-            rows = self._variable_tolerances(device)
-        except Exception:
-            logger.warning(
-                "%s: could not read DB tolerances; using default %g for %s",
-                device,
-                DEFAULT_TOLERANCE,
-                variable,
-                exc_info=True,
-            )
-            return DEFAULT_TOLERANCE
-        tolerance = rows.get(variable)
-        if tolerance is None:
+        db_tolerance = self._variable_tolerances(device).get(variable)
+        if db_tolerance is None:
             logger.info(
-                "%s/%s: no DB tolerance; using default %g",
+                "%s/%s: no usable DB tolerance; using default %g",
                 device,
                 variable,
                 DEFAULT_TOLERANCE,
             )
             return DEFAULT_TOLERANCE
-        return tolerance
+        if db_tolerance > _TOLERANCE_SANITY_FACTOR * DEFAULT_TOLERANCE:
+            # A units mismatch or an uncurated row (whole-row type inheritance
+            # can land a devicetype default on an instance in other units)
+            # would make every readback "arrive" on the first poll — silently
+            # reinstating the false-arrival mode layer 2 exists to catch.
+            logger.warning(
+                "%s/%s: DB tolerance %g is over %gx the %g default — check the "
+                "variable's units and DB row; moves will confirm on almost any "
+                "readback",
+                device,
+                variable,
+                db_tolerance,
+                _TOLERANCE_SANITY_FACTOR,
+                DEFAULT_TOLERANCE,
+            )
+        return db_tolerance
 
     def _variable_tolerances(self, device: str) -> dict[str, float]:
-        """Cached ``{variable: tolerance}`` for *device*, positive values only."""
+        """Cached ``{variable: DB tolerance}`` for *device*, positive values only.
+
+        Failures cache an empty map, matching ``db_runtime``'s providers
+        (``GeecsDbScalarPolicy`` caches ``{}``, ``GeecsDbServedSetProvider``
+        carries ``_attempted``).  Without it an off-network worker or a
+        host-blocked MySQL (error 1129) pays a fresh connect timeout per
+        ``motor()`` call — on the RunEngine's loop, since ``motor()`` runs
+        bound to the in-plan factory facade — and feeds ``max_connect_errors``
+        on the way.
+        """
         cached = self._tolerance_cache.get(device)
-        if cached is None:
+        if cached is not None:
+            return cached
+        tolerances: dict[str, float] = {}
+        try:
             from geecs_core.db.geecs_db import GeecsDb
 
-            cached = {}
             for row in GeecsDb.get_device_variables(device):
                 name = row.get("name")
                 tolerance = row.get("tolerance")
                 if name and isinstance(tolerance, (int, float)) and tolerance > 0:
-                    cached[name] = float(tolerance)
-            self._tolerance_cache[device] = cached
-        return cached
+                    tolerances[name] = float(tolerance)
+        except Exception:
+            logger.warning(
+                "%s: could not read DB tolerances; falling back to the default "
+                "%g for this device (cached, not retried this session)",
+                device,
+                DEFAULT_TOLERANCE,
+                exc_info=True,
+            )
+        self._tolerance_cache[device] = tolerances
+        return tolerances
 
     def settable(
         self,
