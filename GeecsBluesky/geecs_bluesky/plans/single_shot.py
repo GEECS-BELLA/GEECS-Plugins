@@ -39,18 +39,24 @@ from geecs_bluesky.exceptions import (
 logger = logging.getLogger(__name__)
 
 
-def _no_frame_device(exc: BaseException) -> str:
-    """Name the device that produced no frame, from a wait failure.
+def _no_frame_timeout(exc: BaseException) -> GeecsTriggerTimeoutError | None:
+    """The no-frame timeout behind a wait failure — or ``None`` if it is not one.
 
-    The RunEngine wraps the status's own error in
+    The RunEngine wraps the failing status's own error in
     :exc:`~bluesky.utils.FailedStatus` (``raise FailedStatus(ret) from exc``),
-    so the device-attributed :exc:`GeecsTriggerTimeoutError` rides on
+    so a device-attributed :exc:`GeecsTriggerTimeoutError` rides on
     ``__cause__``.
+
+    An attempt creates two kinds of status and only one of them is a frame
+    drop: the detectors' ``trigger()`` waits (which fail *only* as a named
+    :exc:`GeecsTriggerTimeoutError`) and ``fire()``'s own gateway ``:SP``
+    put (a rejected write surfaces as ``aioca.CANothing``, whose text
+    carries the PV and the CA message).  Returning ``None`` for the latter
+    is what keeps a failed *fire* from being reported — and retried — as a
+    camera frame drop.
     """
     cause = exc.__cause__
-    if isinstance(cause, GeecsTriggerTimeoutError):
-        return cause.device_name
-    return "unknown device"
+    return cause if isinstance(cause, GeecsTriggerTimeoutError) else None
 
 
 def _confirm_device_down(devices: Sequence[Any], device_name: str):
@@ -105,8 +111,16 @@ def geecs_single_shot(
     the recovery because a missed pulse never yields a frame (live-verified;
     numbers in ``GeecsBluesky/CHANGELOG.md`` 0.20.0).
 
-    Refire is gated on gateway liveness: a frameless device whose
-    ``CONNECTED`` PV reads Disconnected went down mid-scan, so
+    Refire is gated twice, because only one kind of failure is a frame drop.
+    First on **attribution**: the ``try`` spans the whole attempt (trigger +
+    ``fire()`` + wait), so a failed ``fire()`` — a rejected gateway ``:SP``
+    put — also arrives as ``FailedStatus``.  Only a
+    :exc:`~geecs_bluesky.exceptions.GeecsTriggerTimeoutError` cause is a
+    missing frame; anything else is logged with its real cause and
+    propagates on the first attempt rather than burning the budget against
+    a fault refire cannot fix (see :func:`_no_frame_timeout`).  Then on
+    **gateway liveness**: a frameless device whose ``CONNECTED`` PV reads
+    Disconnected went down mid-scan, so
     :exc:`~geecs_bluesky.exceptions.GeecsDeviceDownError` is raised instead
     of burning refires; a live or unreadable status (fail-open) keeps the
     bounded-refire behavior.
@@ -158,8 +172,28 @@ def geecs_single_shot(
             # so the stash is consumed right here at the wait; a straggler
             # that lands inside the next attempt is caught by this same try
             # (it wraps the whole attempt: trigger + fire + wait) and merely
-            # consumes one refire instead of aborting the scan.
-            device_name = _no_frame_device(exc)
+            # consumes one refire instead of aborting the scan.  That the try
+            # spans the whole attempt is also why the cause must be
+            # classified before anything is retried: a fire that never fired
+            # lands here too.
+            timeout = _no_frame_timeout(exc)
+            if timeout is None:
+                # Not a missing frame, so a refire cannot help and would only
+                # burn the budget against the real fault (live 2026-09-10,
+                # Scan033: a rejected SINGLESHOT put failed all three attempts
+                # in under a second and the scan died blaming the cameras).
+                # Name the actual cause - it is the only record of which PV
+                # failed and why.
+                logger.error(
+                    "single-shot attempt %d of %d failed, but not from a "
+                    "missing frame - re-firing cannot help, so the failure "
+                    "propagates: %r",
+                    attempt,
+                    attempts,
+                    exc.__cause__ or exc,
+                )
+                raise
+            device_name = timeout.device_name
             down = yield from _confirm_device_down(devices, device_name)
             if down:
                 raise GeecsDeviceDownError(

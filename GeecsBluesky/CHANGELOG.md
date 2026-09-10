@@ -4,6 +4,28 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.77.0] - 2026-09-10
+
+### Fixed
+
+- `geecs_single_shot` no longer reports every attempt failure as a camera
+  frame drop. Its `try` spans the whole attempt (trigger + `fire()` +
+  wait), so a `fire()` whose gateway `:SP` write was refused also arrives
+  as `FailedStatus` — and was logged as "no frame from unknown device
+  (known camera frame-drop intermittency)", retried twice more against a
+  write that never landed, and propagated with the cameras blamed.
+  Observed live 2026-09-10 (Undulator Scan033): three attempts in 838 ms
+  against a 3.0 s trigger timeout, no device named, and no
+  `Shot controller -> SINGLESHOT` line for any of them.
+
+  Only a `GeecsTriggerTimeoutError` cause is a missing frame now. Anything
+  else is logged at ERROR with its real cause — `aioca.CANothing` carries
+  the PV name and the CA message — and propagates on the first attempt
+  instead of burning the refire budget. Frame-drop refire, the
+  `CONNECTED` device-down gate, and the strict one-row-per-shot semantics
+  are unchanged.
+
+
 ## [0.76.3] - 2026-09-08
 
 ### Changed
