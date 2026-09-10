@@ -60,7 +60,7 @@ is right in five years, not the one that is reachable in small steps.
 
 | thing | state |
 |---|---|
-| `feature/native-bluesky-plans` | integration branch off master; **#808 merged** into it 2026-09-09 (device namespace, phase 1); **phase 0 hardware-accepted 2026-09-09** (`phase/00-one-camera-detector`, Scan 065 — `04_phase0_measurements.md` M2), PR pending |
+| `feature/native-bluesky-plans` | integration branch off master; **#808 merged** into it 2026-09-09 (device namespace, phase 1); **phase 0 hardware-accepted 2026-09-09** (`phase/00-one-camera-detector`, Scan 065 — `04_phase0_measurements.md` M2; re-accepted after review as M3), **PR #811** reviewed, dispositioned and CI-green — awaiting Sam's merge |
 | #809 `phase/02-preamble-preprocessor` | **OPEN, on hold, will not merge** (13 commits, GeecsBluesky 0.79.0, CI green). The evidence behind §3; close with a pointer here once this amendment lands (§8) |
 | #806 image writing | **OPEN, not started.** Phase 1, in parallel with the plan layer (§8). File plugin in GeecsPvaGateway + stock `ADHDFDataLogic`; capture daemon retired |
 | #807 | the decision log; its six-then-three phase plan is superseded by §8 here. Comments there point here |
