@@ -60,7 +60,7 @@ is right in five years, not the one that is reachable in small steps.
 
 | thing | state |
 |---|---|
-| `feature/native-bluesky-plans` | integration branch off master; **#808 merged** into it 2026-09-09 (device namespace, phase 1) |
+| `feature/native-bluesky-plans` | integration branch off master; **#808 merged** into it 2026-09-09 (device namespace, phase 1); **phase 0 hardware-accepted 2026-09-09** (`phase/00-one-camera-detector`, Scan 065 — `04_phase0_measurements.md` M2), PR pending |
 | #809 `phase/02-preamble-preprocessor` | **OPEN, on hold, will not merge** (13 commits, GeecsBluesky 0.79.0, CI green). The evidence behind §3; close with a pointer here once this amendment lands (§8) |
 | #806 image writing | **OPEN, not started.** Phase 1, in parallel with the plan layer (§8). File plugin in GeecsPvaGateway + stock `ADHDFDataLogic`; capture daemon retired |
 | #807 | the decision log; its six-then-three phase plan is superseded by §8 here. Comments there point here |
@@ -406,6 +406,18 @@ not the docs:
 - **Naming has moved**: the writer base is not `DetectorWriter` in this
   version, and the flyer's controller is `FlyerController`, not
   `TriggerLogic`. Older docs and blog posts will disagree.
+- **On hardware (M2, Scan 065):** the three-logic split fits a GEECS camera
+  with no areaDetector IOC — `GeecsDetector` = `GeecsTriggerLogic` +
+  `GeecsAcquireLogic` + `ScalarsDataLogic` + `LvNativeFileDataLogic` under
+  stock `bp.count` / `bp.list_scan` with the strict `take_reading`; the
+  only GEECS line in the scan path is the fire between trigger and wait.
+  Learned on the way: the shot wait lives in the acquire logic's
+  `wait_for_idle` (a per-event data provider has no count to wait on); the
+  baseline must be synchronous in `trigger()` (pinned by a mock race test);
+  `stage()` resets the prepare context, so it must be waited on
+  (`stage_all` does, a bare `bps.stage` does not). N shots per point is
+  `bp.count`'s `per_shot` inside the step — fly-per-step is not needed
+  for strict; fly stays for gated mode (phase 2).
 
 **ASSUMED, must be verified before designing on it** (narrowed from the
 first draft; each names the phase that retires it):
@@ -451,7 +463,7 @@ the least-verified component while the scan path waited.
 
 ### Phases (each a PR into `feature/native-bluesky-plans`)
 
-0. **One camera as `GeecsDetector`** with `LvNativeFileDataLogic` (PNG),
+0. **DONE 2026-09-09 (Scan 065, M2).** One camera as `GeecsDetector` with `LvNativeFileDataLogic` (PNG),
    `ShotControl` as a device, the strict `per_step`; stock `bp.list_scan`
    on `U_S1H` on hardware. Measures: OFF latency, whether the gateway
    posts timeout events, drain offsets across amp4in, `exposure_timeout`
