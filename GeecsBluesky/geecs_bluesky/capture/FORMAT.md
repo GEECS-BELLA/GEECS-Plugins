@@ -47,10 +47,10 @@ healthy subscription is absorbed, so a clean scan reads 0.
 
 Writers are created **lazily on the first accepted frame**: a device
 that accepts no frames produces **no file at all** — readers must treat
-an absent `<device>.h5` as "not captured", not as an error. (Since
-0.66.0, `geecs_run_wrapper` creates every capture-listed device dir
-**pre-start-doc**, dual-write and toggle-off alike; lazy creation is kept
-as defense in depth against a dir that still fails to appear.) `/frames`
+an absent `<device>.h5` as "not captured", not as an error. (The
+scanner side creates every capture-listed device dir **pre-start-doc**;
+lazy creation is kept as defense in depth against a dir that still fails
+to appear.) `/frames`
 is created with the first successful append — a file whose very first
 append failed carries `/acq_timestamp` but no `/frames`; readers must
 treat that as valid-but-empty. `scan_number` is stamped only when the
@@ -82,7 +82,7 @@ start doc carried an integer scan number.
   real first frames — visible as `stale_skipped` > the expected 0–1.
 - **Append-per-frame with flush** (trailing flush): a crash loses at most
   the un-flushed tail, never the scan.
-- The daemon **never creates directories**: `geecs_run_wrapper` creates
+- The daemon **never creates directories**: the scanner side creates
   every capture-listed `scans/ScanNNN/<device>/` dir pre-start-doc
   (dual-write and toggle-off alike; the save-enable plan covers the
   legacy non-capture path); a missing directory means the device is

@@ -13,8 +13,8 @@ The whitelist covers the full legacy ``composite_variables.yaml`` corpus
 (arithmetic, parentheses, ``sqrt``) with ordinary math headroom (trig,
 ``exp``/``log``, ``abs``, the constants ``pi``/``e``).  Compilation failures
 raise :class:`~geecs_bluesky.exceptions.GeecsConfigurationError` naming the
-offending construct — the runner compiles every formula fail-fast pre-claim,
-so a bad expression can never burn a scan number.
+offending construct — compile every formula fail-fast before a scan number
+is claimed, so a bad expression can never burn one.
 
 The compile-then-restricted-eval skeleton is the shared
 :mod:`geecs_schemas.restricted_expr` core (also behind the gateway's
