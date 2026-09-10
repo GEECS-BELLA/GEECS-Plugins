@@ -4,6 +4,42 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.78.0] - 2026-09-09
+
+### Added
+
+- **Phase 0 of the native-Bluesky rebuild (#807, plan of record
+  `Planning/native_bluesky/03_clean_room_rebuild.md`):** a GEECS acquirer as
+  a stock ophyd-async `StandardDetector`.
+  - `devices/detector.py` — `GeecsDetector` composed of the three 0.19
+    logics: `GeecsTriggerLogic` (external edges only; the calibrated drain
+    offset is its one config signal and `get_deadtime`), `GeecsAcquireLogic`
+    (a shot is `acq_timestamp` advancing; the baseline is taken
+    synchronously in `trigger()` so the plan's fire can never land in a
+    blind window), `ScalarsDataLogic` (the device's own scalars as event
+    columns) and `LvNativeFileDataLogic` (LabVIEW native saving driven from
+    a `PathProvider`: `save=on` at prepare, `save=off` at stage and
+    unstage; the device directory is created only inside an existing scan
+    folder — a missing parent raises, never a `mkdir`).  A plain
+    `bp.count([cam])` is refused at prepare: a GEECS camera cannot
+    self-trigger.
+  - `devices/shot_control.py` — `ShotControl`, the trigger box as a
+    `Movable` over the profile's named states (ordered writes via the
+    existing `ShotController.from_writes`), `Pausable` (a no-op in ARMED;
+    SCAN → OFF and back), with the standing state as a config signal.
+  - `plans/strict.py` — `geecs_take_reading`, `bps.trigger_and_read` with
+    the one GEECS difference (the `SINGLESHOT` fire between the triggers
+    and the wait) plus the bounded refire; `geecs_per_shot` /
+    `geecs_per_step` bind it into the stock `one_shot` / `one_nd_step`
+    hooks, so `bp.count` and every N-d scan plan run strict GEECS scans
+    unchanged.
+
+### Changed
+
+- `plans/single_shot.py` — the arm → fire → await → refire seam is
+  `fire_and_await_shot`, called by `geecs_single_shot` (the funnel) and by
+  `geecs_take_reading`: one implementation, two callers.
+
 ## [0.77.0] - 2026-09-09
 
 ### Added
