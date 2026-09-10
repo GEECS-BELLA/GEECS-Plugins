@@ -1,5 +1,10 @@
 # GeecsBluesky as a thin layer on stock Bluesky
 
+> **Superseded 2026-09-09.** The phase plan below was replaced by
+> `03_clean_room_rebuild.md` (the document of record; its §8 has the
+> phases, its §11–12 the hardware facts). Kept for the rule in the next
+> section and the history; do not plan against it.
+
 **Plan of record: GEECS-Plugins issue #807** (companion: #806, the image
 writer). This directory holds the per-phase design notes; the issue holds
 the decision log and the running status. Read the issue first.
