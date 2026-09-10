@@ -18,6 +18,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- **Hardware-accepted 2026-09-09** on the Undulator machine: a stock
+  `bp.count` ran as a noscan (scan 61 — 3 shots, the preprocessor firing
+  each one) and a stock `bp.list_scan` ran as a step scan (scan 62 — the
+  catalog axis `S1H` swept −1 → +1 A in 0.5 A steps, readbacks within
+  0.4 mA, setpoint restored). Both claimed real scan numbers, wrote their
+  `ScanInfo` ini, and recorded the full detector surface — `shot_id`,
+  `shot_offset`, `nonscalar_save_path`, the image asset — so the composed
+  namespace device keeps every capability the per-scan classes had. The
+  catalog axis resolved to `U_S1H:Current` and to the same object the plan
+  moved.
 - `geecs_preamble` is **strict-only**: a free-run request is refused before
   anything is claimed (free-run is retired, GEECS-Plugins#807), as is a
   strict request with no trigger profile.
