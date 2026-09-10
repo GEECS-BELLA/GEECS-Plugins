@@ -221,13 +221,20 @@ for each shot:
 
 About 25 lines of pure `bps`, one of which is the non-stock idea. On a
 `FailedStatus` from the wait: device confirmed down (the existing
-`CONNECTED` liveness read) → `bps.pause()`, the operator fixes it, `resume`
-rewinds to the checkpoint; otherwise re-trigger **all** essential detectors
-and fire again — the whole-event redo, so positional joins stay exact for
-every essential detector (the orphan frame stays on disk, unreferenced by
-any document, which is Bluesky's normal model). This is
-`fire_and_await_shot`'s behaviour in its native shape; that function is the
-salvage.
+`CONNECTED` liveness read) → `GeecsDeviceDownError`, the run aborts with
+the device named; otherwise re-trigger **all** essential detectors and fire
+again — the whole-event redo, so positional joins stay exact for every
+essential detector (the orphan frame stays on disk, unreferenced by any
+document, which is Bluesky's normal model). This is `fire_and_await_shot`
+(`plans/single_shot.py`), shared with the funnel's shot — built in phase 0
+as `plans/strict.py`. **Why not `bps.pause()` on a dead device** (the
+first draft said pause-fix-resume): a pause inside `take_reading` is
+rewound on resume, and the RunEngine replays the stashed messages since the
+last checkpoint — the step's trigger and fire included — before the plan
+continues, so a retry after the pause would double-fire. The native
+"fix it and continue" is the operator resuming a *checkpointed* step, which
+needs the fire to be replay-safe; that is a plan-layer design item, not a
+`take_reading` one.
 
 **Non-essential stream.** Those detectors are *not* in `detectors`. They
 are `SupplementalData.flyers` (or `fly_during_wrapper` per plan, §7):
