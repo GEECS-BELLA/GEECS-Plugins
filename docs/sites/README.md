@@ -30,7 +30,7 @@ and prose second.
 
 | Page | Linked from | What it is |
 |---|---|---|
-| `data_flow/` | Platform landing page, Fleet Map | The platform data-flow map: devices, gateways, scan engine, storage and people, with a clickable detail panel per block (what it does, how it works, status, next steps). The block text lives in the `INFO` object at the bottom of the file; the status dots are the maintainer's read and carry a date in the caption. |
+| `data_flow/` | Platform landing page, Fleet Map | The platform data-flow map: devices, gateways, scan engine, storage and people, with a clickable detail panel per block (what it does, how it works, status, next steps). The block text lives in the `INFO` object at the bottom of the file; the status dots are the maintainer's read and carry a date in the caption. Versions are deliberately not stated (they rot in days); each panel links to the package CHANGELOG. When an arc lands or a status changes, update the block's `INFO` entry in the same PR. |
 
 ## Publishing a page as a claude.ai artifact
 

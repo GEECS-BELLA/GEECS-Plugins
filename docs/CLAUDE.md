@@ -2,7 +2,9 @@
 
 This directory holds the **mkdocs-material** site published at the project's
 docs URL. Site config is `mkdocs.yml` at the repo root; everything served is
-authored as Markdown (`.md`) or Jupyter notebooks (`.ipynb`) under `docs/`.
+authored as Markdown (`.md`) or Jupyter notebooks (`.ipynb`) under `docs/`,
+with one exception: `docs/sites/` holds self-contained HTML pages (see
+"When to put what where" below).
 
 The site is organised into top-level tabs in `mkdocs.yml`'s `nav:`. The
 canonical ordering is:

@@ -89,7 +89,7 @@ code{font-family:"IBM Plex Mono",monospace;font-size:.9em;background:var(--band)
 /* status + interaction */
 .st{stroke:var(--paper);stroke-width:1.2}
 .st-infra{fill:var(--cfg)} .st-robust{fill:#2F9E63} .st-hardening{fill:#3B82C4} .st-developing{fill:#E0702B} .st-exploratory{fill:#C2479B}
-.n{cursor:pointer;outline:none}
+svg .n{cursor:pointer;outline:none}
 .n rect{transition:stroke .15s, stroke-width .15s}
 .n:hover rect,.n:focus-visible rect{stroke:var(--ink);stroke-width:1.8}
 .n.sel rect{stroke:var(--ink);stroke-width:2.2}
@@ -300,7 +300,7 @@ svg.has-sel .step:not(.on){opacity:.25}
     <text class="tag" x="1166" y="346" text-anchor="end">AI agent</text>
     <text class="t-title" x="934" y="352">OSPREY</text>
     <text class="t-sub" x="934" y="370">talks to GEECS only through MCP tools</text>
-    <text class="t-sub" x="934" y="386">reads PVs read-only · never writes a PV itself</text>
+    <text class="t-sub" x="934" y="386">raw :SP writes only via its own bounded EPICS tool</text>
     <circle class="st st-exploratory" cx="1170" cy="400" r="4"/>
   </g>
 
@@ -366,15 +366,15 @@ svg.has-sel .step:not(.on){opacity:.25}
   <text class="t-sub" x="728" y="680">configuration</text>
   <rect class="node-agent" x="830" y="669" width="24" height="14" rx="3"/>
   <text class="t-sub" x="862" y="680">AI agent</text>
-  <g class="step"><circle cx="900" cy="720" r="8"/><text x="900" y="635.5">1</text></g>
+  <g class="step"><circle cx="960" cy="676" r="8"/><text x="960" y="679.5">1</text></g>
   <text class="t-sub" x="974" y="680">… 6 follow one scan, end to end (below)</text>
 
   <text class="t-sub" x="30" y="704">Status dot</text>
-  <circle class="st st-infra" cx="106" cy="744" r="4"/><text class="t-sub" x="114" y="704">existing GEECS infrastructure</text>
-  <circle class="st st-robust" cx="290" cy="744" r="4"/><text class="t-sub" x="298" y="704">robust, in daily use</text>
-  <circle class="st st-hardening" cx="430" cy="744" r="4"/><text class="t-sub" x="438" y="704">working, hardening</text>
-  <circle class="st st-developing" cx="570" cy="744" r="4"/><text class="t-sub" x="578" y="704">in development</text>
-  <circle class="st st-exploratory" cx="690" cy="744" r="4"/><text class="t-sub" x="698" y="704">exploratory</text>
+  <circle class="st st-infra" cx="106" cy="700" r="4"/><text class="t-sub" x="114" y="704">existing GEECS infrastructure</text>
+  <circle class="st st-robust" cx="290" cy="700" r="4"/><text class="t-sub" x="298" y="704">robust, in daily use</text>
+  <circle class="st st-hardening" cx="430" cy="700" r="4"/><text class="t-sub" x="438" y="704">working, hardening</text>
+  <circle class="st st-developing" cx="570" cy="700" r="4"/><text class="t-sub" x="578" y="704">in development</text>
+  <circle class="st st-exploratory" cx="690" cy="700" r="4"/><text class="t-sub" x="698" y="704">exploratory</text>
   <text class="t-sub" x="900" y="704">Click any block for what it does, how it works, status and next steps.</text>
 </svg>
 <figcaption><span class="l-amber" style="color:var(--amber);font-weight:600">*</span> Cameras are the first non-scalar device type on the image path. The PVA gateway and capture daemon will expand to cover every GEECS device type that saves non-scalar data. One scan reads left to right: the request enters the queueserver, setpoints and readbacks cross the CA gateway, and everything the scan produces drops into Tiled and the NAS scan folder, where people and agents read it back. Two ways in, one engine, one folder layout. Status dots are the maintainer's read as of 2026-09-08; click a block for the detail behind it. Ports and hosts are the current interim deployment: the CA gateway, Tiled, the GEECS DB and all worker-side services share one central server until the dedicated services box arrives.</figcaption>
@@ -399,7 +399,7 @@ svg.has-sel .step:not(.on){opacity:.25}
     <li><b>One door.</b> OSPREY reaches GEECS only through GEECS-MCP, which runs next to the queueserver and validates every request against the same config truth the worker uses.</li>
     <li><b>Read freely, write through verbs.</b> Read tools cover scan status, history, results and config listings. Control is limited to submit, stop on scans it owns, and clear queue, each with a request cap and an acknowledge loop.</li>
     <li><b>Same standing as the console.</b> MCP is a peer client of the queueserver, never an engine internal. Anything an agent does shows up in the queue like an operator's scan.</li>
-    <li><b>PVs stay read-only for agents.</b> Live values can be read through the gateway, but no agent writes a PV directly. The engine is the only writer.</li>
+    <li><b>Two write paths, one rule.</b> Anything with GEECS semantics, a scan or a stop, goes through MCP verbs. A single setpoint can still be written to an `:SP` PV by OSPREY's own EPICS write tool, bounded by a limits database extracted from GEECS device limits, the same way any EPICS client would.</li>
   </ul>
   <h2 style="margin-top:22px">Why EPICS in the middle</h2>
   <ul class="plain">
@@ -411,6 +411,7 @@ svg.has-sel .step:not(.on){opacity:.25}
 
 <section style="margin-top:28px">
   <h2>What runs where today</h2>
+  <p class="sub" style="margin:0 0 12px">A sketch. The <a href="../../platform/fleet_map/">Fleet Map</a> is the authoritative table of hosts, ports, health checks and runbooks, and the place drift is reconciled.</p>
   <div class="hosts">
     <div class="host"><div class="h">Central lab server</div><div class="ip">192.168.6.14 · Ubuntu · systemd</div><p>CA gateway, Tiled, GEECS DB. Interim home of the worker-side services too: queueserver, capture daemon, GEECS-MCP HTTP, Data Portal.</p></div>
     <div class="host"><div class="h">Camera servers</div><div class="ip">Windows · NSSM service</div><p>One PVA image gateway per host, beside the LabVIEW camera devices. Images never transit the central gateway.</p></div>
@@ -421,7 +422,7 @@ svg.has-sel .step:not(.on){opacity:.25}
 </section>
 
 <div id="scrim"></div>
-<aside id="panel" aria-hidden="true" aria-labelledby="p-title">
+<aside id="panel" aria-hidden="true" aria-labelledby="p-title" inert>
   <div class="ph">
     <h3 id="p-title"></h3>
     <button class="close" type="button" aria-label="Close details">×</button>
@@ -501,7 +502,7 @@ const INFO = {
    "A TCP subscription per device feeds the readback PVs; a `caput` on a `:SP` becomes a blocking UDP set to the device.",
    "Per-device supervisors reconnect with backoff and mark readbacks INVALID while a device is down. A client-writable `cagateway:restart` PV makes systemd relaunch it and re-sync from the DB."
   ],
-  "now": "Version 0.20.2, in daily use on 192.168.6.14 serving about 99 devices. The half-open-socket blind spot that froze readbacks was closed in 0.20.0 (2026-08-24) with TCP keepalive plus supervised reconnect.",
+  "now": "In daily use on the central server, serving about 99 devices. The half-open-socket blind spot that froze readbacks was closed in 0.20.0 (2026-08-24) with TCP keepalive plus supervised reconnect.",
   "next": [
    "Sharding across several processes under systemd for fault isolation when the served set grows.",
    "Archive deadbands (MDEL/ADEL split) when the Archiver Appliance lands.",
@@ -509,7 +510,7 @@ const INFO = {
   ],
   "vision": "One flat CA plus PVA namespace in which GEECS is simply an EPICS facility. Scalars central and cheap, images kept off CA and served at the edge.",
   "meta": [
-   "v0.20.2",
+   "[CHANGELOG](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsCAGateway/CHANGELOG.md)",
    "[PV contract](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsCAGateway/PV_CONTRACT.md)",
    "[Design](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsCAGateway/DESIGN.md)",
    "[Deployment](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsCAGateway/DEPLOYMENT.md)"
@@ -544,7 +545,7 @@ const INFO = {
    "Subscriptions are gated per camera, so LabVIEW pays nothing for an unwatched device. Frames are latest-wins with decode off the event loop.",
    "Runs as an NSSM Windows service that pulls the shared Active Version clone on restart. Version, heartbeat and restart PVs make every instance probeable."
   ],
-  "now": "Version 0.6.0 on 9 of 11 Undulator camera servers. 0.6.0 (2026-09-05) added the fleet liveness probe that the fleet-status tooling uses.",
+  "now": "Running on 9 of the 11 camera servers on the Undulator roster. The fleet-status tooling probes every instance through its version and heartbeat PVs (2026-09-05); deployed instances can trail the repo by a release, and the Fleet Map records what was observed.",
   "next": [
    "Deploy the 2 missing roster hosts.",
    "Harden the fleet pin: today it is the checked-out commit of one shared clone on the data share.",
@@ -552,7 +553,7 @@ const INFO = {
   ],
   "vision": "Distributed by design because one central process relaying about 100 cameras is a bandwidth wall. End state: all non-scalar device data served at the edge this way.",
   "meta": [
-   "v0.6.0",
+   "[CHANGELOG](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsPvaGateway/CHANGELOG.md)",
    "[Deployment](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsPvaGateway/DEPLOYMENT.md)",
    "[CLAUDE.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsPvaGateway/CLAUDE.md)"
   ]
@@ -567,7 +568,7 @@ const INFO = {
    "Two acquisition modes: free-run time sync, where the first sync device paces and every other device fills its row with a derived shot id; and strict shot control (arm, confirm quiescent, fire, await all). Both emit the same versioned event schema.",
    "Devices are ophyd-async objects over the CA gateway. Redis holds the queue; a doc-stream proxy on port 5568 republishes documents to the capture daemon and any panel."
   ],
-  "now": "Version 0.76.1. The DAQ since the legacy scanner was retired on 2026-08-20. Runs as `geecs-qserver` under systemd on the interim host with a readiness oneshot that asserts the plan list after every start.",
+  "now": "The DAQ since the legacy scanner was retired on 2026-08-20. Runs as `geecs-qserver` under systemd on the interim host with a readiness oneshot that asserts the plan list after every start.",
   "next": [
    "Named operator-shaped plans (noscan, 1D, optimize) as schemas that UIs can render, all still executing the one shared prologue.",
    "Requested rep-rate throttling: strict shots slower than the external rate, free-run every-Nth subsampling.",
@@ -576,7 +577,7 @@ const INFO = {
   ],
   "vision": "One engine for everything that acquires: operator scans, agent scans and optimization loops, with `shot_id` the universal join key so later event-builder or flyer designs are a mechanical migration.",
   "meta": [
-   "v0.76.1",
+   "[CHANGELOG](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsBluesky/CHANGELOG.md)",
    "[CLAUDE.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsBluesky/CLAUDE.md)",
    "[Event schema](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsBluesky/EVENT_SCHEMA.md)",
    "[Deployment](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsBluesky/qserver/deploy/DEPLOYMENT.md)"
@@ -614,7 +615,7 @@ const INFO = {
    "Frames are deduplicated on acquisition timestamp, pre-scan and stale frames dropped, and one `<device>.h5` per camera is written by a single writer thread into the engine-created folder. It never creates a scan folder.",
    "A counter identity is stamped into each file at finalize, so completeness is auditable. A heartbeat file lets the engine refuse toggle-off scans while the daemon is down."
   ],
-  "now": "Shipped inside GeecsBluesky 0.76.1 and running under systemd beside the worker. Phases 0 to 3 of the capture arc are built, including the per-device native-save toggle (2026-08-27). Cameras run dual-write today.",
+  "now": "Ships inside GeecsBluesky and runs under systemd beside the worker. Phases 0 to 3 of the capture arc are built, including the per-device native-save toggle (2026-08-27). Cameras run dual-write today.",
   "next": [
    "Phase 4: the read side for frame stacks in analysis and the portal.",
    "Phase 5: capture inside the strict shot-control contract.",
@@ -638,7 +639,7 @@ const INFO = {
    "Start runs a pre-submit pipeline on background workers: preflight checks, one modal per question, a submission record, then the queue submit.",
    "Health chips poll the gateway, Tiled and the DB. Live device panels read PVs over Channel Access. The scan browser reads Tiled through the same catalog layer as the Data Portal."
   ],
-  "now": "Version 0.30.0 and the daily DAQ since 2026-08-20. Recent: save-time device and variable validation in the config editors, a queue panel, and an Ops menu that can restart the gateway through its restart PV.",
+  "now": "The daily DAQ front end since 2026-08-20. Recent: save-time device and variable validation in the config editors, a queue panel, and an Ops menu that can restart the gateway through its restart PV.",
   "next": [
    "A config bootstrap and repair dialog for when the configs repo is missing or broken (today the console degrades to empty listings).",
    "Fix the startup import race that kills the document stream on launch (#778).",
@@ -647,7 +648,7 @@ const INFO = {
   ],
   "vision": "The operator's deep tool, while casual data access moves to the browser-based Data Portal.",
   "meta": [
-   "v0.30.0",
+   "[CHANGELOG](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GEECS-Console/CHANGELOG.md)",
    "[CLAUDE.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GEECS-Console/CLAUDE.md)",
    "[Feature inventory](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/Planning/cutover_strategy/01_gui_feature_inventory.md)"
   ]
@@ -662,7 +663,7 @@ const INFO = {
    "Runs as a systemd HTTP service on port 8100 next to the queueserver, installed non-editably from the worker's own clone so its config validation matches worker truth exactly. A stdio mode exists for single-machine use.",
    "Control verbs carry etiquette: a submission cap, an acknowledge loop for pre-submit warnings, and stop limited to scans the caller owns. Every queue item is stamped with the client identity."
   ],
-  "now": "Version 0.8.6, deployed on the interim host. Scans are the first domain. The 2026-09-04 release aligned the acknowledgeable checks with the engine's newest pre-submit warning.",
+  "now": "Deployed on the interim host. Scans are the first domain. A 2026-09-04 release aligned the acknowledgeable checks with the engine's newest pre-submit warning.",
   "next": [
    "Live checks against the deployed queueserver from an agent session.",
    "Domains added as they earn their keep: health, DB, logs (the triage report as a tool), deeper analysis over Tiled, archiver when that project reactivates.",
@@ -670,7 +671,7 @@ const INFO = {
   ],
   "vision": "Flexible language in front, a fixed and reviewable machine surface behind. Backend-neutral verbs, so analysis over Tiled can slot in behind the same tools.",
   "meta": [
-   "v0.8.6",
+   "[CHANGELOG](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GEECS-MCP/CHANGELOG.md)",
    "[CLAUDE.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GEECS-MCP/CLAUDE.md)",
    "[Deployment](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GEECS-MCP/deploy/DEPLOYMENT.md)",
    "[OSPREY page](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/docs/geecs_mcp/osprey.md)"
@@ -680,7 +681,7 @@ const INFO = {
   "name": "OSPREY",
   "role": "The ALS-built agent framework, configured to use GEECS through MCP.",
   "status": "exploratory",
-  "does": "An AI assistant for the control room that can answer questions about scans, propose and submit scan requests, and read live values, within limits the facility sets.",
+  "does": "An AI assistant for the control room that can answer questions about scans, propose and submit scan requests, read live values and, within a limits database, set individual setpoints.",
   "how": [
    "OSPREY registers GEECS-MCP as a custom MCP server in its build profile, over HTTP to port 8100 (then the OSPREY machine needs no GEECS install) or over stdio for a dev loop.",
    "Permission lists mirror the tool names: the read verbs are allowed, the queue and stop verbs ask first. Headless runs gate writes in a hook config that deliberately omits the stop family so a halt is never blocked.",
@@ -708,14 +709,14 @@ const INFO = {
    "GEECS-Data-Utils is the shared vocabulary for the tree: scan identity, path navigation, scalar loading, binning, frame-stack readers.",
    "Mounted over SMB; on Windows typically `Z:/data`."
   ],
-  "now": "Robust and unchanged from the legacy scanner, which is why every existing analysis notebook still works. GEECS-Data-Utils is at 0.26.1.",
+  "now": "Robust and unchanged from the legacy scanner, which is why every existing analysis notebook still works.",
   "next": [
    "Watch the file-count pathology on the NAS as per-shot files accumulate; one HDF5 per device per scan is the answer the capture arc is building.",
    "Longer term the archive interface becomes Tiled, with the share as the store behind it."
   ],
   "vision": "Fewer, larger, self-describing files per scan, still in the same tree, still readable by anything that reads the tree today.",
   "meta": [
-   "geecs-data-utils v0.26.1",
+   "[Data-Utils CHANGELOG](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GEECS-Data-Utils/CHANGELOG.md)",
    "[Folder convention](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/CLAUDE.md)",
    "[Data-Utils CLAUDE.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GEECS-Data-Utils/CLAUDE.md)"
   ]
@@ -724,13 +725,13 @@ const INFO = {
   "name": "Data Portal",
   "role": "Zero-install scan browsing in any browser on the lab network.",
   "status": "hardening",
-  "does": "Day, then scan, then metadata, scalar plots and images, with an Analysis tab that can run a configured ScanAnalyzer on demand. Read-only otherwise.",
+  "does": "Day, then scan, then metadata, scalar plots and images, with an Analysis tab that can run a configured ScanAnalyzer on demand and, when enabled, the analysis config editor mounted at /configs. Read-only otherwise.",
   "how": [
    "FastAPI with server-rendered templates, no build chain, on port 8200 on the worker host.",
    "Reads through the same `ScanCatalog` seam as the console's scan browser and reads images from the share. A JSON API mirrors every page so scripts and agents can read what a browser shows.",
-   "Its one write verb runs a single analyzer on a worker thread and deliberately does not join the file-based analysis queue."
+   "Its two write paths are explicit opt-ins: an analysis run executes one analyzer on a worker thread without joining the file-based analysis queue, and the config editor edits the configs repo checkout the worker reads."
   ],
-  "now": "Version 0.20.2, deployed and verified 2026-09-03. The browsing API landed in 0.20.0.",
+  "now": "Deployed and verified 2026-09-03. The browsing JSON API landed 2026-09-02 and the config editor drawer on 2026-09-06.",
   "next": [
    "A portal-side cache for full-day listings at a full day's scan count.",
    "Absorb the LabVIEW GEECSplotter features (keep, adapt or drop rulings still pending).",
@@ -738,7 +739,7 @@ const INFO = {
   ],
   "vision": "Casual data access for everyone with no install, the console staying the operator's deep tool.",
   "meta": [
-   "v0.20.2",
+   "[CHANGELOG](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GEECS-DataPortal/CHANGELOG.md)",
    "[CLAUDE.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GEECS-DataPortal/CLAUDE.md)",
    "[Scope](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/Planning/data_portal/01_data_portal_scope.md)"
   ]
@@ -753,7 +754,7 @@ const INFO = {
    "ImageAnalysis for per-image processing pipelines and typed analyzers returning a standard result.",
    "GEECS-Core's `GeecsDevice` for synchronous get, set and subscribe on a device, the successor to the deleted GEECS-PythonAPI."
   ],
-  "now": "The mature layer. GEECS-Data-Utils 0.26.1, ImageAnalysis 1.14.1, GEECS-Core 0.4.0. Example notebooks live in the docs site.",
+  "now": "The mature layer. ImageAnalysis reached 2.x on 2026-09-08 with the schema-typed analysis configs; GEECS-Core stays deliberately small. Example notebooks live in the docs site.",
   "next": [
    "Nothing structural owed. GEECS-Core stays small on purpose: code belongs there only if every consumer of GEECS devices needs it."
   ],
@@ -775,7 +776,7 @@ const INFO = {
   "The amber arrows carry instances of these models: a ScanRequest leaves the console or an MCP tool, is validated at the boundary, and is what the funnel plan receives.",
   "A doc generator renders every field description to the reference page and CI fails if a field lacks one, so the documentation cannot drift from the code."
  ],
- "now": "Version 0.18.0 on master (0.20.0 arrives with the analysis config editor PR). Scan variables are authored new-schema only as of 2026-09-04; the legacy dialect and its converter were deleted once both experiments' catalogs were regenerated.",
+ "now": "The analysis configs joined the package on 2026-09-08 (the v2 analysis document with kind-discriminated analyzer specs). Scan variables are authored new-schema only as of 2026-09-04; the legacy dialect and its converter were deleted once both experiments' catalogs were regenerated.",
  "next": [
   "Give the remaining config kinds the same treatment as scan variables: regenerate in new-schema form, then delete the converters (save elements, trigger profiles, action libraries, presets, optimizer configs).",
   "Named operator-shaped plan schemas (noscan, 1D, optimize) so agent UIs can render a plan's parameters.",
@@ -783,7 +784,7 @@ const INFO = {
  ],
  "vision": "This package is the schema layer of the target architecture. Every config kind ends up authored new-schema only, and every client, human or agent, speaks the same typed language to the one engine.",
  "meta": [
-  "v0.18.0",
+  "[CHANGELOG](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GEECS-Schemas/CHANGELOG.md)",
   "[README (the spec)](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GEECS-Schemas/README.md)",
   "[Schema reference](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/docs/geecs_schemas/schema_reference.md)",
   "[Running a scan](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/docs/geecs_schemas/running_a_scan.md)"
@@ -799,16 +800,16 @@ const INFO = {
    "LiveWatch (a PyQt5 GUI) sees the new s-file and drives a file-based task queue: per-scan status files with claim, heartbeat and staleness rules, so several machines can share the work with no central coordinator.",
    "LogMaker4GoogleDocs wraps the Docs and Drive APIs. It is optional everywhere; when absent, uploads are skipped silently."
   ],
-  "now": "In production daily. ScanAnalysis 1.18.1, LogMaker 0.1.1. The analysis core is being refactored in place behind the same factory, with LiveWatch and the queue kept.",
+  "now": "In production daily. The v2 analysis configs and their web config editor landed 2026-09-08; the analysis core is being refactored in place behind the same factory, with LiveWatch and the queue kept.",
   "next": [
-   "Finish the analysis-core refactor and the v2 config editor (PR ready to merge as of 2026-09-08).",
+   "Finish the analysis-core refactor; move the remaining notebooks and mirror pairs onto the v2 constructors.",
    "A generalized 2D scan analyzer so defining an image analyzer is enough.",
    "Decide whether ScanAnalysis reads Tiled or keeps reading exported s-files.",
    "The LogMaker refactor, which also gives the per-experiment Google Doc IDs a proper config home."
   ],
   "vision": "ImageAnalysis is where a single image is analyzed; ScanAnalysis is where anything more complex lives. Configs are the whole definition of an analysis.",
   "meta": [
-   "scananalysis v1.18.1",
+   "[CHANGELOG](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/ScanAnalysis/CHANGELOG.md)",
    "[ScanAnalysis](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/ScanAnalysis/CLAUDE.md)",
    "[Analysis docs](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/docs/scan_analysis)"
   ]
@@ -820,7 +821,7 @@ const panel = document.getElementById('panel'), scrim = document.getElementById(
 const nodes = [...svg.querySelectorAll('.n')];
 const edges = [...svg.querySelectorAll('[data-n]')];
 const steps = [...svg.querySelectorAll('.step')];
-let current = null;
+let current = null, opener = null;
 
 function esc(t){return t.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
 function inline(t){ // *code* -> <code>, [text](url) -> link
@@ -841,7 +842,8 @@ function open(id, push=true){
     section('What it does', d.does) + section('How it works', d.how) + section('Where it stands', d.now) +
     section('Next steps', d.next) + section('Bigger picture', d.vision) +
     (d.meta ? '<div class="meta">'+d.meta.map(m=>inline(m)).join('')+'</div>' : '');
-  panel.classList.add('open'); scrim.classList.add('open'); document.body.classList.add('panel-open'); panel.setAttribute('aria-hidden','false');
+  opener = svg.querySelector('.n[data-id="'+id+'"]');
+  panel.classList.add('open'); scrim.classList.add('open'); document.body.classList.add('panel-open'); panel.setAttribute('aria-hidden','false'); panel.removeAttribute('inert');
   svg.classList.add('has-sel');
   const near = new Set([id]);
   edges.forEach(e=>{ const ns=e.dataset.n.split(' '); const on=ns.includes(id); e.classList.toggle('on',on); if(on) ns.forEach(n=>near.add(n)); });
@@ -849,10 +851,12 @@ function open(id, push=true){
   steps.forEach(s=>s.classList.toggle('on', (s.dataset.n||'').split(' ').includes(id)));
   if(push) history.replaceState(null,'','#'+id);
   document.getElementById('p-body').scrollTop = 0;
+  if(push) panel.querySelector('.close').focus();
 }
 function close(){
   current = null;
-  panel.classList.remove('open'); scrim.classList.remove('open'); document.body.classList.remove('panel-open'); panel.setAttribute('aria-hidden','true');
+  panel.classList.remove('open'); scrim.classList.remove('open'); document.body.classList.remove('panel-open'); panel.setAttribute('aria-hidden','true'); panel.setAttribute('inert','');
+  if(opener){ opener.focus(); opener = null; }
   svg.classList.remove('has-sel');
   nodes.forEach(n=>n.classList.remove('sel','near'));
   if(location.hash) history.replaceState(null,'',location.pathname+location.search);
