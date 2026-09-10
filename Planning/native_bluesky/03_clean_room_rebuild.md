@@ -17,6 +17,20 @@ And the constraint on that:
 > holding on to the requisite GEECS things, like DB as source of truth,
 > s-files etc.
 
+**The governing fact, and the reason this is worth doing now** (Sam,
+2026-09-09):
+
+> me and my team are the only users of all of this code. My goal is to make
+> it 'great' before trying to deploy at other facilities so that I don't
+> have to deal with these issues of backward compatibility. We are in a
+> unique 'clean slate' phase of development.
+
+There is no external user, no deprecation cycle and no migration burden.
+Backward compatibility is **not** a design input. Anything in this
+repository may be deleted outright rather than adapted, and the cost of a
+wrong turn is a rewrite, not a broken facility. Design for the shape that
+is right in five years, not the one that is reachable in small steps.
+
 ---
 
 ## 1. How to use this document
@@ -256,9 +270,10 @@ Three options, in the order I would recommend them:
 2. **Rebuild the plan layer first against today's devices**, accepting that
    the fly design waits. Faster feedback for Sam, at the cost of building
    the per-shot trigger machinery a second time and deleting it later.
-3. **Land #809 and continue incrementally.** Not recommended. It adds a
-   reconciliation engine to the feature branch that the target design
-   deletes.
+3. **Land #809 and continue incrementally.** Recommended against, and the
+   clean slate removes its only argument. Incrementalism buys backward
+   compatibility, which is worth nothing here, and it pays for it with a
+   reconciliation engine the target design deletes.
 
 **On #809 itself:** do not merge it. Leave it open as the evidence, or
 close it with a pointer to this document. Its two open P1 defects need no
@@ -267,9 +282,27 @@ salvaging by hand: the document-parity test, `GeecsNamespace.select`'s
 role assertions, `plan_session.py`, and the shared
 `fire_and_await_shot` if per-shot triggering survives at all.
 
-**What keeps working while this happens** must be answered explicitly
-before any deletion lands. Operators scan daily through the funnel and the
-Console. The rebuild has to run beside it, not replace it in place.
+**What keeps working while this happens.** Answered: Sam's team is the
+only user, so the answer is "whatever they choose to keep working that
+week." The rebuild does **not** need to run beside the funnel, and the
+old doors do not need a deprecation path. Keep the lab scannable between
+sessions and nothing more. In particular, do not spend design effort on
+dual-door parity — the parity test in #809 exists only because two doors
+had to coexist, and in the target there is one.
+
+**What the clean slate unlocks, and should be used for:**
+
+- delete free-run, the funnel, the named plans and the capture daemon
+  **eagerly**, as soon as each has a replacement, rather than in a phased
+  retirement
+- change the event schema, the s-file columns and the ScanRequest schema
+  freely where the native shape is better; there is no reader to break
+  that the team does not own
+- renumber, rename and restructure the package. A **total refactor of
+  GeecsBluesky**, or replacing it with a new package, is fully on the
+  table and is probably cheaper than incremental deletion
+- treat "we already built it" as carrying no weight. The only question is
+  whether a thing is right
 
 ---
 
@@ -283,6 +316,9 @@ Console. The rebuild has to run beside it, not replace it in place.
   change.
 - **New, and the reason for this document:** do not hold on to anything
   that does not slot in completely cleanly.
+- **Clean slate.** Sam's team is the only user. No backward compatibility,
+  no deprecation cycles, no migration paths. Deleting is cheaper than
+  adapting, and "we already built it" is not an argument.
 - Phase PRs land into `feature/native-bluesky-plans`. Each gets an
   adversarial review pass using the `/land` three-lens brief, with every
   finding dispositioned, before Sam reviews. Master merges are
@@ -299,13 +335,12 @@ Console. The rebuild has to run beside it, not replace it in place.
 
 ## 10. Open questions for Sam
 
-1. Sequencing: option 1, 2 or 3 in §8.
-2. Is a **total refactor of GeecsBluesky** on the table, or is the target
-   reached by deletion inside the existing package? The mapping is the same
-   either way; the difference is whether the package keeps its history.
-3. Does anything internal still depend on free-run, given it is already
-   slated for deletion? Same question for the named plans and the funnel,
-   whose retirement this accelerates.
+1. Sequencing: option 1, 2 or 3 in §8. This is the only substantial one.
+2. Refactor GeecsBluesky in place, or start a new package and let the old
+   one die? The mapping is identical either way; the difference is whether
+   the package keeps its history. The clean slate makes the second viable.
+3. How much lab downtime is acceptable between working states? That now
+   sets the pace, in place of any compatibility constraint.
 4. Two small carry-overs from the last session, unrelated to this
    direction: write `Amplitude.Ch AB: 0.5` explicitly in every state of
    `HTU-NoGas` so "no gas" stops being order-dependent, and add a check
