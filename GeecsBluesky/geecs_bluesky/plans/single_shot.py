@@ -122,9 +122,8 @@ def geecs_single_shot(
     line is deliberately the record: the ``FailedStatus`` propagates
     unwrapped (the run's stop-document reason is the status repr), so the
     scan log is where the failing PV and its CA message are written down.
-    Then on
-    **gateway liveness**: a frameless device whose ``CONNECTED`` PV reads
-    Disconnected went down mid-scan, so
+    Then on **gateway liveness**: a frameless device whose ``CONNECTED`` PV
+    reads Disconnected went down mid-scan, so
     :exc:`~geecs_bluesky.exceptions.GeecsDeviceDownError` is raised instead
     of burning refires; a live or unreadable status (fail-open) keeps the
     bounded-refire behavior.

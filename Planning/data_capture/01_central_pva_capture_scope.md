@@ -372,8 +372,9 @@ own share; any design must handle h5py's non-thread-safety).
 
 ### Phase 5 — capture in the strict contract (small-medium)
 
-- Per-shot check between `bps.wait` and `create`
-  (`plans/single_shot.py:160-216`) reading the daemon's frames-captured
+- Per-shot check in `plans/single_shot.py`, between `bps.wait(group=grp)`
+  and `bps.create(name)` (named rather than numbered — the range went stale
+  twice in one PR), reading the daemon's frames-captured
   counter; must distinguish "no frame, refire helps" from "writer stalled,
   refire won't" (pattern: `_no_frame_timeout` `:42` — classify the cause
   before retrying — plus `_confirm_device_down` `:62` +
