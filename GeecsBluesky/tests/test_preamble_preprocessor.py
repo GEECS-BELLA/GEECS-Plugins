@@ -37,8 +37,31 @@ from geecs_schemas import ScanRequest  # noqa: E402
 from tests.test_scan_request_runner import (  # noqa: E402
     LEGACY_EXP_SCAN_VARIABLES,
     LEGACY_SAVE_ELEMENT,
-    LEGACY_SHOT_CONTROL,
 )
+
+#: Strict shot control needs a non-empty ARMED state (the plan fires every
+#: shot), which the shared free-run-era corpus profile does not define.
+STRICT_SHOT_CONTROL = """\
+device: U_DG645_ShotControl
+variables:
+  Trigger.Source:
+    "OFF": "Single shot external rising edges"
+    ARMED: "Single shot external rising edges"
+    SCAN: "External rising edges"
+    STANDBY: "External rising edges"
+    SINGLESHOT: ""
+  Trigger.ExecuteSingleShot:
+    "OFF": ""
+    ARMED: ""
+    SCAN: ""
+    STANDBY: ""
+    SINGLESHOT: "on"
+  Amplitude.Ch AB:
+    "OFF": "0.5"
+    ARMED: "4.0"
+    SCAN: "4.0"
+    STANDBY: "0.5"
+"""
 
 
 def row(name, *, settable=False, choices="numeric", tolerance=None):
@@ -81,7 +104,7 @@ def configs_root(tmp_path):
     (exp / "save_devices" / "UC_Test.yaml").write_text(LEGACY_SAVE_ELEMENT)
     (exp / "shot_control_configurations").mkdir()
     (exp / "shot_control_configurations" / "HTU-Normal.yaml").write_text(
-        LEGACY_SHOT_CONTROL
+        STRICT_SHOT_CONTROL
     )
     (exp / "scan_devices").mkdir()
     (exp / "scan_devices" / "scan_variables.yaml").write_text(LEGACY_EXP_SCAN_VARIABLES)
@@ -138,32 +161,76 @@ def _request(**overrides) -> dict:
     base = dict(
         mode="noscan",
         shots_per_step=2,
-        acquisition="free_run",
+        acquisition="strict",
         save_sets=["UC_Test"],
+        trigger_profile="HTU-Normal",
         description="stats",
     )
     base.update(overrides)
     return ScanRequest.model_validate(base).model_dump(mode="json")
 
 
-def _pace(RE, namespace):
-    """The fake trigger: advance every triggered device's acq_timestamp."""
+class _RecordingSetter:
+    """A shot-control setter that records writes instead of doing a caput.
+
+    ``ShotController.from_writes`` already takes a ``setter_factory`` seam,
+    so nothing in the engine is stubbed: the real controller replays the
+    real profile, and the test sees the exact ordered state writes.
+    """
+
+    def __init__(self, device: str, variable: str, log: list, on_write) -> None:
+        self._device, self._variable, self._log, self._on_write = (
+            device,
+            variable,
+            log,
+            on_write,
+        )
+
+    def set(self, value):
+        from ophyd_async.core import AsyncStatus
+
+        self._log.append((self._device, self._variable, value))
+        self._on_write(self._variable, value)
+
+        async def _done() -> None:
+            return None
+
+        return AsyncStatus(_done())
+
+
+def _machine(RE, namespace, monkeypatch):
+    """Stand in for the machine: a shot happens only when the plan fires.
+
+    Returns the ordered ``(device, variable, value)`` write log, which is
+    what pins the Gate-2 bracket: ARMED (free run halted) → saving on →
+    SINGLESHOT per shot → saving off → STANDBY.
+    """
+    from geecs_bluesky.shot_controller import ShotController
+
     cams = [namespace["U_Cam"], namespace["U_Cam2"]]
     for cam in cams:
         cam._trigger_timeout = 2.0
+    writes: list = []
+    shots = {"n": 0}
 
-    async def pace() -> None:
-        # Pace whichever cameras this plan actually connected — a plan need
-        # not stage them all.
-        ticks = 0
-        while True:
-            ticks += 1
+    def on_write(variable: str, value) -> None:
+        # The profile fires by writing Trigger.ExecuteSingleShot='on'.
+        if variable.endswith("ExecuteSingleShot") and value == "on":
+            shots["n"] += 1
             for cam in cams:
                 if cam._monitoring:
-                    set_mock_value(cam.acq_timestamp, 1000.0 + ticks)
-            await asyncio.sleep(0.02)
+                    set_mock_value(cam.acq_timestamp, 1000.0 + shots["n"])
 
-    return asyncio.run_coroutine_threadsafe(pace(), RE._loop)
+    original = ShotController.from_writes.__func__
+
+    def from_writes(cls, w, **kwargs):
+        kwargs["setter_factory"] = lambda device, variable: _RecordingSetter(
+            device, variable, writes, on_write
+        )
+        return original(cls, w, **kwargs)
+
+    monkeypatch.setattr(ShotController, "from_writes", classmethod(from_writes))
+    return writes
 
 
 def _install(session, resolver, namespace, folder, monkeypatch):
@@ -193,9 +260,21 @@ def test_a_plan_without_the_geecs_key_is_untouched(session, namespace) -> None:
     install_geecs_preamble(session.RE, session=session, namespace=namespace)
     install_connect_on_demand(session.RE, mock=True)
     docs = Docs()
-    pacer = _pace(session.RE, namespace)
+    # no request → no controller → nothing fires, so pace the trigger freely
+    cam = namespace["U_Cam"]
+    cam._trigger_timeout = 2.0
+
+    async def free_run() -> None:
+        ticks = 0
+        while True:
+            ticks += 1
+            if cam._monitoring:
+                set_mock_value(cam.acq_timestamp, 5000.0 + ticks)
+            await asyncio.sleep(0.02)
+
+    pacer = asyncio.run_coroutine_threadsafe(free_run(), session.RE._loop)
     try:
-        session.RE(bp.count([namespace["U_Cam"]], num=1), docs)
+        session.RE(bp.count([cam], num=1), docs)
     finally:
         pacer.cancel()
     assert "scan_number" not in docs.start and "scan_folder" not in docs.start
@@ -210,19 +289,16 @@ def test_stock_count_gets_the_full_preamble(
     folder = tmp_path / "Scan007"
     folder.mkdir(parents=True, exist_ok=True)
     _install(session, resolver, namespace, folder, monkeypatch)
+    writes = _machine(session.RE, namespace, monkeypatch)
     docs = Docs()
-    pacer = _pace(session.RE, namespace)
-    try:
-        session.RE(
-            bp.count(
-                [namespace["U_Cam"], namespace["U_Cam2"], namespace["U_Slow"]],
-                num=2,
-                md={"geecs": _request()},
-            ),
-            docs,
-        )
-    finally:
-        pacer.cancel()
+    session.RE(
+        bp.count(
+            [namespace["U_Cam"], namespace["U_Cam2"], namespace["U_Slow"]],
+            num=2,
+            md={"geecs": _request()},
+        ),
+        docs,
+    )
 
     start = docs.start
     # the claim reached the start document
@@ -244,8 +320,10 @@ def test_stock_count_gets_the_full_preamble(
     parser = configparser.ConfigParser()
     parser.read_string(ini.read_text())
     assert parser["Scan Info"]["scanmode"] == '"noscan"'
-    # and the run actually recorded shots
+    # and the run actually recorded shots — one fire each
     assert len(docs.primary_events()) == 2
+    fires = [w for w in writes if w[1].endswith("ExecuteSingleShot") and w[2] == "on"]
+    assert len(fires) == 2, writes
     assert docs.docs["stop"][0]["exit_status"] == "success"
 
 
@@ -257,11 +335,8 @@ def test_the_preamble_disarms_and_stops_saving_on_the_way_out(
     folder.mkdir(parents=True, exist_ok=True)
     _install(session, resolver, namespace, folder, monkeypatch)
     cam = namespace["U_Cam"]
-    pacer = _pace(session.RE, namespace)
-    try:
-        session.RE(bp.count([cam], num=1, md={"geecs": _request()}), Docs())
-    finally:
-        pacer.cancel()
+    writes = _machine(session.RE, namespace, monkeypatch)
+    session.RE(bp.count([cam], num=1, md={"geecs": _request()}), Docs())
     # mock backends do not echo a put onto the readback, so read the setpoint
     saved = asyncio.run_coroutine_threadsafe(
         cam.save._setpoint.get_value(), session.RE._loop
@@ -271,6 +346,31 @@ def test_the_preamble_disarms_and_stops_saving_on_the_way_out(
         cam.localsavingpath._setpoint.get_value(), session.RE._loop
     ).result(timeout=5)
     assert path_written.endswith("U_Cam")  # save-on wrote the per-device dir
+
+    # Gate-2 save windowing, the ordering this bracket exists for: the free
+    # run is HALTED (ARMED) before saving is enabled, and saving is disabled
+    # again before the trigger is released (STANDBY) — otherwise the camera
+    # writes orphan frames with no event row.
+    sources = [w[2] for w in writes if w[1] == "Trigger.Source"]
+    assert sources[0] == "Single shot external rising edges"  # ARMED, halted
+    assert sources[-1] == "External rising edges"  # STANDBY, released last
+
+
+def test_free_run_is_refused_before_the_claim(
+    session, resolver, namespace, tmp_path, monkeypatch
+) -> None:
+    """Stock plans are strict-only; free-run is retired (#807)."""
+    folder = tmp_path / "Scan007"
+    _install(session, resolver, namespace, folder, monkeypatch)
+    with pytest.raises(GeecsConfigurationError, match="strict shot control only"):
+        session.RE(
+            bp.count(
+                [namespace["U_Cam"]],
+                num=1,
+                md={"geecs": _request(acquisition="free_run")},
+            )
+        )
+    assert not (folder / "ScanInfoScan007.ini").exists()
 
 
 def test_a_failure_before_the_claim_burns_no_scan_number(

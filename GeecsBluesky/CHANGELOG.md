@@ -4,6 +4,29 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.78.1] - 2026-09-09
+
+### Fixed
+
+- **Save windowing in `geecs_preamble`** (Gate-2): it armed the controller
+  and *then* enabled saving, so saving switched on while external edges were
+  already passing and every shot until the first recorded one wrote an orphan
+  frame. The order is now `arm_single_shot` (ARMED — single-shot source, free
+  run halted, quiescence confirmed) → save-on, with save-off still the
+  innermost finalize so saving stops before disarm releases edges. Pinned by
+  asserting the ordered shot-control writes.
+
+### Changed
+
+- `geecs_preamble` is **strict-only**: a free-run request is refused before
+  anything is claimed (free-run is retired, GEECS-Plugins#807), as is a
+  strict request with no trigger profile.
+- **The shot is fired by the preprocessor**, between the detectors' `trigger`
+  messages and the `wait` on their group — the gap `bps.trigger_and_read`
+  cannot express and the reason `plans/single_shot.py` exists. A **stock**
+  plan therefore needs no `per_shot` hook: `RE(bp.count([cam], num=5,
+  md={"geecs": request}))` fires every shot itself.
+
 ## [0.78.0] - 2026-09-09
 
 ### Added

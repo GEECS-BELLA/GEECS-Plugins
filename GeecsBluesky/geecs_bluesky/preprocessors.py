@@ -227,6 +227,7 @@ def geecs_preamble(
     created: list = []
     state: dict[str, Any] = {}
     forwarded: set[int] = set()
+    armed_groups: set[Any] = set()
 
     def _cleanup() -> Generator[Msg, Any, Any]:
         """The funnel's finalize chain, innermost first, for whatever ran."""
@@ -241,7 +242,42 @@ def geecs_preamble(
         if created:
             yield from _disconnect_plan(created)
 
+    def _fire_before_wait(msg: Msg) -> tuple[Any, Any]:
+        """Insert the shot between arming the waiters and waiting on them.
+
+        ``trigger_and_read`` issues ``trigger`` for every detector under one
+        group and then waits on that group.  Strict shot control needs the
+        fire to land in exactly that gap — the detectors have baselined their
+        ``acq_timestamp`` and are waiting, so a shot fired now cannot be
+        missed — which is why ``bps.trigger_and_read`` alone cannot express
+        it (see ``plans/single_shot.py``).  Doing it here means a **stock**
+        plan needs no ``per_shot`` hook at all.
+        """
+        fire = state.get("fire")
+        if fire is None:
+            return None, None
+        if msg.command == "trigger" and id(msg.obj) in state["detectors"]:
+            group = msg.kwargs.get("group")
+            if group is not None:
+                armed_groups.add(group)
+            return None, None
+        if msg.command != "wait":
+            return None, None
+        group = msg.kwargs.get("group")
+        if group not in armed_groups:
+            return None, None
+        armed_groups.discard(group)
+
+        def _fire_then_wait() -> Generator[Msg, Any, Any]:
+            yield from fire()
+            return (yield msg)
+
+        return _fire_then_wait(), None
+
     def _prepare(msg: Msg) -> tuple[Any, Any]:
+        fired = _fire_before_wait(msg)
+        if fired != (None, None):
+            return fired
         if msg.command != "open_run" or id(msg) in forwarded:
             return None, None
         request = msg.kwargs.get(md_key)
@@ -260,6 +296,17 @@ def geecs_preamble(
 
         def _run_preamble() -> Generator[Msg, Any, Any]:
             resolved = resolve_request(sess, res, request)
+            if not resolved.strict:
+                raise GeecsConfigurationError(
+                    "stock plans run strict shot control only: free-run is "
+                    "retired (GEECS-Plugins#807). Set acquisition='strict'."
+                )
+            if resolved.controller is None:
+                raise GeecsConfigurationError(
+                    "strict shot control requires a trigger_profile — the plan "
+                    "fires every shot, so there must be a shot-control device"
+                )
+            resolved.controller.require_strict_single_shot()
             prepared = yield from prepare_step_scan(
                 sess, res, resolved, created, namespace=namespace
             )
@@ -293,10 +340,19 @@ def geecs_preamble(
             )
             if prepared.setup is not None:
                 yield from prepared.setup()
-            if prepared.controller is not None:
-                yield from prepared.controller.arm()
+
+            # Order is load-bearing (Gate-2 save windowing).  arm_single_shot
+            # drives the box to ARMED — single-shot source, so the free run
+            # is HALTED — and waits for quiescence.  Only then is it safe to
+            # turn saving on: a camera writes one file per shot it sees, so
+            # enabling saving while edges are still passing writes orphan
+            # frames with no event row.  Save-off is the innermost finalize
+            # for the mirror reason: it runs before disarm lets edges back.
+            yield from prepared.controller.arm_single_shot(prepared.detectors)
             if saving:
                 yield from save_enable_plan(saving)
+            state["fire"] = prepared.controller.fire_shot
+            state["detectors"] = {id(d) for d in prepared.detectors}
 
             # Injected md wins over the plan's own, as inject_md_wrapper does.
             new = msg._replace(kwargs=ChainMap(md, msg.kwargs))
