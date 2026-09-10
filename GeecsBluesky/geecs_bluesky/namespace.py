@@ -10,9 +10,13 @@ device-layer audit beside it.
 The namespace owns **no device behaviour**.  It composes the existing
 device layer (``Planning/native_bluesky/01a_device_layer_audit.md``):
 
-* a device that acquires per shot is a
-  :class:`~geecs_bluesky.devices.ca.generic_detector.CaGenericDetector`
-  (shot monitor, ``trigger()``, shot-ID columns, save controls, asset docs);
+* a device that acquires per shot (:func:`looks_triggerable`) is a
+  :class:`~geecs_bluesky.devices.detector.GeecsDetector` — a stock
+  ``StandardDetector`` whose ``trigger()`` waits for its ``acq_timestamp``
+  to advance; ``native_save`` iff the DB lists both ``save`` and
+  ``localsavingpath`` for it (so the gateway serves their ``:SP``), in
+  which case the detector owns those two controls and a ``PathProvider``
+  given at build points its files at the run (§4.A of the plan of record);
 * any other device is a
   :class:`~geecs_bluesky.devices.ca.snapshot.CaSnapshotReadable`;
 * each served **settable** variable is attached to that object as a child
@@ -47,7 +51,7 @@ from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
-from ophyd_async.core import Device
+from ophyd_async.core import Device, PathProvider
 
 from geecs_core.db.variable_types import (
     VARTYPE_TO_DTYPE,
@@ -60,10 +64,10 @@ from geecs_bluesky.db_runtime import (
     GeecsDbScalarPolicy,
     GeecsDbServedSetProvider,
 )
-from geecs_bluesky.devices.ca.generic_detector import CaGenericDetector
 from geecs_bluesky.devices.ca.motor import CaMotor
 from geecs_bluesky.devices.ca.settable import CaSettable
 from geecs_bluesky.devices.ca.snapshot import CaSnapshotReadable
+from geecs_bluesky.devices.detector import GeecsDetector
 from geecs_bluesky.exceptions import GeecsConfigurationError
 from geecs_bluesky.utils import safe_name
 
@@ -91,6 +95,14 @@ _DTYPE_TO_PYTHON: dict[str, type] = {
 
 #: Variables the gateway synthesises for every device that are never children.
 _SYNTHESIZED: frozenset[str] = frozenset({"connected", ACQ_TIMESTAMP_VARIABLE})
+
+#: The two LabVIEW-native saving controls.  A triggerable device whose DB
+#: rows list both as **settable** (only settable variables get a gateway
+#: ``:SP``, PV_CONTRACT.md §1) gets ``native_save`` and the detector owns
+#: them (``localsavingpath`` / ``save`` children driven by its data logic) —
+#: they are never bound as scan-settable children, so no plan can write
+#: them behind the lifecycle.
+NATIVE_SAVE_VARIABLES: frozenset[str] = frozenset({"save", "localsavingpath"})
 
 _TRIGGER_VARIABLE = re.compile("trig", re.IGNORECASE)
 
@@ -237,9 +249,12 @@ class _RosterDb:
 class GeecsNamespace:
     """The experiment's devices as ophyd-async objects, addressable by name."""
 
-    def __init__(self, roster: DeviceRoster) -> None:
+    def __init__(
+        self, roster: DeviceRoster, *, path_provider: PathProvider | None = None
+    ) -> None:
         self.experiment = roster.experiment
         self.roster = roster
+        self._path_provider = path_provider
         self._devices: dict[str, Any] = {}
         self._by_geecs_name: dict[str, Any] = {}
         self._attrs: dict[str, dict[str, str]] = {}  # ns name → {lower var → attr}
@@ -258,17 +273,16 @@ class GeecsNamespace:
                 )
             self._devices[ns_name] = dev
             self._by_geecs_name[device.lower()] = dev
-        triggered = sorted(
-            d._geecs_device_name
-            for d in self._devices.values()
-            if isinstance(d, CaGenericDetector)
-        )
+        detectors = [d for d in self._devices.values() if isinstance(d, GeecsDetector)]
+        saving = sorted(d._geecs_device_name for d in detectors if d.native_save)
         logger.info(
-            "device namespace: %d device(s) registered for %s (%d triggerable: %s)",
+            "device namespace: %d device(s) registered for %s (%d detectors, "
+            "%d with native saving: %s)",
             len(self._devices),
             roster.experiment,
-            len(triggered),
-            ", ".join(triggered) or "none",
+            len(detectors),
+            len(saving),
+            ", ".join(saving) or "none",
         )
         if skipped:
             logger.info(
@@ -279,10 +293,17 @@ class GeecsNamespace:
 
     @classmethod
     def from_experiment(
-        cls, experiment: str, *, geecs_db: Any | None = None
+        cls,
+        experiment: str,
+        *,
+        geecs_db: Any | None = None,
+        path_provider: PathProvider | None = None,
     ) -> GeecsNamespace:
         """Build from the GEECS DB (loud on failure)."""
-        return cls(DeviceRoster.from_geecs_db(experiment, geecs_db=geecs_db))
+        return cls(
+            DeviceRoster.from_geecs_db(experiment, geecs_db=geecs_db),
+            path_provider=path_provider,
+        )
 
     # ------------------------------------------------------------------ build
     def _build(
@@ -307,6 +328,15 @@ class GeecsNamespace:
             return None
         ns_name = identifier_name(device)
         ophyd_name = safe_name(device)  # event keys per EVENT_SCHEMA.md
+        settable_names = {
+            n.lower() for n, (row, _) in typed.items() if row.get("settable")
+        }
+        native_save = triggered and NATIVE_SAVE_VARIABLES <= settable_names
+        if native_save:
+            # The detector owns the saving controls (§10.5 namespace rule).
+            typed = {
+                n: v for n, v in typed.items() if n.lower() not in NATIVE_SAVE_VARIABLES
+            }
         settables = {
             n: (row, py) for n, (row, py) in typed.items() if row.get("settable")
         }
@@ -336,14 +366,25 @@ class GeecsNamespace:
             if v.lower() in by_lower and by_lower[v.lower()] not in settables
         ]
         datatypes = {n: py for n, (_, py) in typed.items()}
-        cls = CaGenericDetector if triggered else CaSnapshotReadable
-        dev = cls(
-            device,
-            readables,
-            experiment=roster.experiment,
-            name=ophyd_name,
-            datatypes=datatypes,
-        )
+        dev: Any
+        if triggered:
+            dev = GeecsDetector(
+                device,
+                readables,
+                experiment=roster.experiment,
+                name=ophyd_name,
+                datatypes=datatypes,
+                path_provider=self._path_provider if native_save else None,
+                native_save=native_save,
+            )
+        else:
+            dev = CaSnapshotReadable(
+                device,
+                readables,
+                experiment=roster.experiment,
+                name=ophyd_name,
+                datatypes=datatypes,
+            )
         dev._geecs_namespace_member = True  # connect_on_demand's marker
         attrs: dict[str, str] = {safe_name(v).lower(): safe_name(v) for v in readables}
         for var, (row, py) in settables.items():
@@ -356,8 +397,8 @@ class GeecsNamespace:
             child = self._movable(device, var, row, py, roster.experiment)
             setattr(dev, attr, child)  # ophyd-async registers + names the child
             # The s-file exporter reads `_column_headers` off the top-level
-            # detectors only (run_wrapper), so the parent aggregates its
-            # children's "Device Variable" headers.
+            # devices only, so the parent aggregates its children's
+            # "Device Variable" headers.
             child._column_headers = {
                 getattr(child, child._readback_attr_name).name: f"{device} {var}"
             }
@@ -383,7 +424,7 @@ class GeecsNamespace:
         a real collision and raises rather than being renamed (review N1).
         """
         attr = safe_name(variable)  # lowercase: event keys follow EVENT_SCHEMA.md
-        if attr.startswith("_") or hasattr(CaGenericDetector, attr):
+        if attr.startswith("_") or hasattr(GeecsDetector, attr):
             return attr.lstrip("_") + "_"
         existing = getattr(dev, attr, None)
         if isinstance(existing, Device):

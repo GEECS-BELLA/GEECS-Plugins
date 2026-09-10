@@ -1,10 +1,14 @@
 """Phase-0 hardware acceptance: one camera as a StandardDetector (#807).
 
-Hardware-marked (skipped in CI; ``-m integration`` does NOT select it — it
-arms the machine trigger and fires shots).  Run by hand on a host with CA
-reach to the GEECS gateway and the GEECS DB (the qserver box)::
+Hardware-marked **and** gated on ``GEECS_HW=1``: it arms the machine
+trigger and fires shots, and a marker alone does not protect it — an
+explicit ``-m`` on the command line (CI's, ``scripts/check.sh``'s)
+overrides the ``addopts`` deselect, and on a laptop on the lab VPN that
+fired real shots during an ordinary suite run (2026-09-10).  Run by hand on
+a host with CA reach to the GEECS gateway and the GEECS DB (the qserver
+box)::
 
-    GEECS_HW_SCAN_VARIABLE=U_S1H:Current GEECS_HW_SCAN_START=-1 \\
+    GEECS_HW=1 GEECS_HW_SCAN_VARIABLE=U_S1H:Current GEECS_HW_SCAN_START=-1 \\
     GEECS_HW_SCAN_END=1 GEECS_HW_SCAN_STEP=0.5 GEECS_HW_SAVE=1 \\
     poetry run python -u -m pytest tests/test_phase0_hardware.py -m hardware -s
 
@@ -48,6 +52,11 @@ from tests.ca_mock_helpers import DocCollector
 
 pytestmark = pytest.mark.hardware
 pytest.importorskip("aioca")
+if os.environ.get("GEECS_HW") != "1":
+    pytest.skip(
+        "fires real shots: set GEECS_HW=1 to run on the lab network",
+        allow_module_level=True,
+    )
 
 
 def _sweep_points(start: float, end: float, step: float) -> list[float]:
@@ -89,10 +98,9 @@ def test_one_camera_as_a_standard_detector_on_hardware() -> None:
     from geecs_bluesky.devices.detector import GeecsDetector
     from geecs_bluesky.devices.shot_control import ShotControl
     from geecs_bluesky.namespace import DeviceRoster, GeecsNamespace, python_type
-    from geecs_bluesky.plans.run_wrapper import claim_scan_number
+    from geecs_bluesky.plans.claim_scan import claim_scan_number
     from geecs_bluesky.plans.strict import geecs_per_shot, geecs_per_step
-    from geecs_bluesky.preprocessors import install_connect_on_demand
-    from geecs_bluesky.session import GeecsSession
+    from geecs_bluesky.run_engine import make_run_engine
 
     experiment = os.environ.get("GEECS_HW_EXPERIMENT", "Undulator")
     camera_name = os.environ.get("GEECS_HW_CAMERA_DEVICE", "UC_Amp4_IR_input")
@@ -142,9 +150,7 @@ def test_one_camera_as_a_standard_detector_on_hardware() -> None:
     )
     assert shot_control.defines("ARMED") and shot_control.defines("SINGLESHOT")
 
-    session = GeecsSession(experiment, tiled=False)
-    RE = session.RE
-    install_connect_on_demand(RE)
+    RE = make_run_engine()
     for device in (camera, shot_control):
         asyncio.run_coroutine_threadsafe(device.connect(timeout=20.0), RE._loop).result(
             30

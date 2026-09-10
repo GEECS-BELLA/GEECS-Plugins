@@ -14,12 +14,12 @@ import pytest
 pytest.importorskip(
     "aioca"
 )  # CA backend needs the `ca` extra (CI's pure-unit job lacks it)
-from ophyd_async.core import SignalR
+from ophyd_async.core import SignalR, StandardDetector
 
-from geecs_bluesky.devices.ca.generic_detector import CaGenericDetector
 from geecs_bluesky.devices.ca.motor import CaMotor
 from geecs_bluesky.devices.ca.settable import CaSettable
 from geecs_bluesky.devices.ca.snapshot import CaSnapshotReadable
+from geecs_bluesky.devices.detector import STRICT_TRIGGER_INFO, GeecsDetector
 from geecs_bluesky.exceptions import GeecsConfigurationError
 from geecs_bluesky.namespace import (
     DeviceRoster,
@@ -79,7 +79,7 @@ ROSTER = DeviceRoster(
         "U DG645 ShotControl": "DG645",
     },
     subscribed={
-        "UC_TestCam": ["MeanCounts", "MaxCounts"],
+        "UC_TestCam": ["MeanCounts", "MaxCounts", "exposure"],  # exposure: settable too
         "U_S1H": ["Current", "Voltage"],
     },
 )
@@ -118,7 +118,7 @@ def test_namespace_composes_the_existing_device_classes() -> None:
     ns = GeecsNamespace(ROSTER)
     assert set(ns.devices) == {"UC_TestCam", "U_S1H", "u_dg645_shotcontrol"}
     cam, magnet, box = ns["UC_TestCam"], ns["U_S1H"], ns["U DG645 ShotControl"]
-    assert isinstance(cam, CaGenericDetector)  # trigger-named variable → acquirer
+    assert isinstance(cam, GeecsDetector)  # trigger-named variable → acquirer
     assert isinstance(magnet, CaSnapshotReadable)
     assert isinstance(box, CaSnapshotReadable)  # DG645 is a trigger *source*
     assert cam.name == "uc_testcam" and cam._geecs_device_name == "UC_TestCam"
@@ -147,7 +147,7 @@ def test_settables_attach_as_movable_children_with_db_types() -> None:
     assert isinstance(cam.exposure, CaSettable) and not isinstance(
         cam.exposure, CaMotor
     )
-    assert isinstance(cam.localsavingpath, CaSettable)
+    assert isinstance(cam.localsavingpath, CaSettable)  # no `save` row: not native_save
     # the settable's readback column header is the GEECS "Device Variable" form,
     # and the parent aggregates it (the s-file exporter reads top-level devices)
     assert magnet.current._column_headers == {"u_s1h-current-position": "U_S1H Current"}
@@ -157,7 +157,7 @@ def test_settables_attach_as_movable_children_with_db_types() -> None:
 
 def test_protocol_named_settable_binds_with_a_trailing_underscore() -> None:
     cam = GeecsNamespace(ROSTER)["UC_TestCam"]
-    assert callable(cam.trigger) and cam.trigger.__func__ is CaGenericDetector.trigger
+    assert callable(cam.trigger) and cam.trigger.__func__ is GeecsDetector.trigger
     assert isinstance(cam.trigger_, CaSettable)
 
 
@@ -166,11 +166,16 @@ async def test_read_returns_the_subscribed_list_plus_shot_stamp() -> None:
     cam, magnet = ns["UC_TestCam"], ns["U_S1H"]
     await cam.connect(mock=True)
     await magnet.connect(mock=True)
+    await cam.prepare(STRICT_TRIGGER_INFO)  # a StandardDetector reads once prepared
+    # exposure is subscribed AND settable → its Movable child's readback is a
+    # column of the detector (GeecsDetector.add_readables), like U_S1H.current
     assert set(await cam.read()) == {
         "uc_testcam-acq_timestamp",
         "uc_testcam-meancounts",
         "uc_testcam-maxcounts",
+        "uc_testcam-exposure-readback",
     }
+    assert set(await cam.describe()) == set(await cam.read())
     # Current is subscribed AND settable → its Movable child's readback is logged
     assert set(await magnet.read()) == {"u_s1h-current-position", "u_s1h-voltage"}
     assert hasattr(cam, "trigger") and not hasattr(magnet, "trigger")
@@ -190,6 +195,38 @@ def test_variable_and_resolve_accept_either_spelling() -> None:
         ns["nope"]
 
 
+def test_native_save_iff_the_db_lists_both_saving_controls() -> None:
+    """§10.5: `save` + `localsavingpath` served → the detector owns them."""
+    rows = list(ROSTER.variables["UC_TestCam"]) + [
+        row("save", settable=True, choices="on,off")
+    ]
+    roster = DeviceRoster(
+        experiment="TestExp",
+        variables={"UC_TestCam": rows},
+        types=ROSTER.types,
+        subscribed=ROSTER.subscribed,
+    )
+    cam = GeecsNamespace(roster)["UC_TestCam"]
+    assert isinstance(cam, StandardDetector) and cam.native_save
+    # the data logic's own rw signals, not scan-settable children
+    assert not isinstance(cam.save, CaSettable)
+    assert not isinstance(cam.localsavingpath, CaSettable)
+    assert cam.save.name == "uc_testcam-save"
+    assert not GeecsNamespace(ROSTER)["UC_TestCam"].native_save  # no `save` row
+    # get-only rows have no :SP (PV_CONTRACT.md §1): served, but not the
+    # saving controls — they stay plain readables and the camera connects
+    get_only = [row(n) for n in ("MeanCounts", "trigger", "save", "localsavingpath")]
+    roster = DeviceRoster(
+        experiment="TestExp",
+        variables={"UC_TestCam": get_only},
+        types=ROSTER.types,
+        subscribed={"UC_TestCam": ["MeanCounts", "save", "localsavingpath"]},
+    )
+    cam = GeecsNamespace(roster)["UC_TestCam"]
+    assert not cam.native_save
+    assert isinstance(cam.save, SignalR) and not hasattr(cam.save, "_setpoint")
+
+
 def test_roster_triggered_override_wins() -> None:
     roster = DeviceRoster(
         experiment="TestExp",
@@ -199,7 +236,7 @@ def test_roster_triggered_override_wins() -> None:
         triggered={"U_S1H": True, "UC_TestCam": False},
     )
     ns = GeecsNamespace(roster)
-    assert isinstance(ns["U_S1H"], CaGenericDetector)
+    assert isinstance(ns["U_S1H"], GeecsDetector)
     assert isinstance(ns["UC_TestCam"], CaSnapshotReadable)
 
 
@@ -237,7 +274,7 @@ def test_settable_colliding_with_a_device_child_is_refused() -> None:
             "UC_X": [row("MeanCounts"), row("connected_status", settable=True)],
         },
         subscribed={"UC_X": ["MeanCounts"]},
-        triggered={"UC_X": True},  # a CaGenericDetector: it creates connected_status
+        triggered={"UC_X": True},  # a GeecsDetector: it creates connected_status
     )
     with pytest.raises(GeecsConfigurationError, match="collides with the child"):
         GeecsNamespace(roster)

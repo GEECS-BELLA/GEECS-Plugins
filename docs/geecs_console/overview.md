@@ -93,8 +93,8 @@ variables ride along as extra columns for free (see
 
 Because the submission object is a plain document, everything the console
 does is also scriptable — the same request can be submitted from Python
-(`GeecsSession.run`) with identical results. The console is a front-end,
-not a gatekeeper.
+through the queue client (`geecs_bluesky.qs_client`) with identical
+results. The console is a front-end, not a gatekeeper.
 
 ## Where to go next
 

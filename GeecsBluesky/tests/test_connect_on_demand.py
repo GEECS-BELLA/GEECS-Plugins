@@ -2,9 +2,12 @@
 
 The phase-1 acceptance on a mock RunEngine: ``bp.count`` and ``bp.scan``
 from ``bluesky.plans`` run against :class:`GeecsNamespace` devices — a
-:class:`CaGenericDetector` camera and a :class:`CaMotor` child — with **no
+:class:`GeecsDetector` camera and a :class:`CaMotor` child — with **no
 GEECS preamble**, connected lazily by the preprocessor, shots paced by
-``set_mock_value`` on ``acq_timestamp`` (the fake trigger).
+``set_mock_value`` on ``acq_timestamp`` (the fake trigger).  The camera is
+prepared for external edges by the plan (``STRICT_TRIGGER_INFO``) and its
+``trigger()`` waits for the pacer's next stamp — the strict fire itself is
+``tests/test_strict_plans.py``'s subject.
 """
 
 from __future__ import annotations
@@ -17,10 +20,15 @@ import pytest
 pytest.importorskip(
     "aioca"
 )  # CA backend needs the `ca` extra (CI's pure-unit job lacks it)
+from functools import partial
+
+import bluesky.plan_stubs as bps
+from bluesky import RunEngine
 from bluesky.preprocessors import SupplementalData
 from bluesky.utils import Msg
-from ophyd_async.core import set_mock_value
+from ophyd_async.core import StandardDetector, set_mock_value
 
+from geecs_bluesky.devices.detector import STRICT_TRIGGER_INFO
 from geecs_bluesky.namespace import DeviceRoster, GeecsNamespace
 from geecs_bluesky.preprocessors import (
     connect_on_demand,
@@ -28,7 +36,7 @@ from geecs_bluesky.preprocessors import (
     is_connected,
     is_namespace_object,
 )
-from geecs_bluesky.session import GeecsSession
+from geecs_bluesky.run_engine import make_run_engine
 from tests.ca_mock_helpers import DocCollector
 
 
@@ -61,8 +69,8 @@ ROSTER = DeviceRoster(
 
 
 @pytest.fixture
-def session() -> GeecsSession:
-    return GeecsSession("TestExp", tiled=False, mock=True)
+def RE() -> RunEngine:
+    return make_run_engine(mock=True)
 
 
 @pytest.fixture
@@ -74,7 +82,7 @@ def _pacer(RE, cam, magnet=None, *, t0: float):
     """The fake trigger (+ a GEECS convergence stand-in for a staged motor)."""
 
     async def pace() -> None:
-        while not cam._monitoring:  # set by the connect the preprocessor inserts
+        while not cam._acquire.monitoring:  # the connect the preprocessor inserts
             await asyncio.sleep(0.01)
         ticks = 0
         while True:
@@ -146,9 +154,7 @@ def test_connect_is_inserted_once_per_namespace_object_only(
     assert not is_namespace_object(foreign)
 
 
-def test_install_puts_connect_on_demand_outermost(session, namespace) -> None:
-    RE = session.RE
-    install_connect_on_demand(RE, mock=True)
+def test_install_puts_connect_on_demand_outermost(RE, namespace) -> None:
     RE.preprocessors.append(SupplementalData(baseline=[namespace["U_S1H"]]))
     install_connect_on_demand(RE, mock=True)  # re-install after other preprocessors
     funcs = [getattr(p, "func", p) for p in RE.preprocessors]
@@ -156,16 +162,32 @@ def test_install_puts_connect_on_demand_outermost(session, namespace) -> None:
 
 
 # -------------------------------------------------------------- stock plans
-def test_stock_count_runs_over_a_namespace_camera(session, namespace) -> None:
-    RE = session.RE
-    install_connect_on_demand(RE, mock=True)
+def _edge_take_reading(devices):
+    """``trigger_and_read`` over detectors prepared for external edges.
+
+    A GEECS camera cannot self-trigger, so the implicit INTERNAL prepare
+    inside ``trigger()`` is refused; the strict ``take_reading`` prepares
+    per shot (``stage`` resets the prepare context, so it cannot be done
+    before the plan), and here the pacer plays the trigger box.
+    """
+    for det in devices:
+        if isinstance(det, StandardDetector):
+            yield from bps.prepare(det, STRICT_TRIGGER_INFO, wait=True)
+    return (yield from bps.trigger_and_read(devices))
+
+
+_PER_SHOT = partial(bps.one_shot, take_reading=_edge_take_reading)
+_PER_STEP = partial(bps.one_nd_step, take_reading=_edge_take_reading)
+
+
+def test_stock_count_runs_over_a_namespace_camera(RE, namespace) -> None:
     cam = namespace["UC_TestCam"]
-    cam._trigger_timeout = 2.0
+    cam._acquire.shot_timeout = 2.0
     assert not is_connected(cam)
     pacer = _pacer(RE, cam, t0=1000.0)
     docs = DocCollector()
     try:
-        RE(bp.count([cam], num=3), docs)
+        RE(bp.count([cam], num=3, per_shot=_PER_SHOT), docs)
     finally:
         pacer.cancel()
     assert is_connected(cam)
@@ -182,16 +204,14 @@ def test_stock_count_runs_over_a_namespace_camera(session, namespace) -> None:
     assert docs.docs["stop"][0]["exit_status"] == "success"
 
 
-def test_stock_scan_moves_a_namespace_motor_child(session, namespace) -> None:
-    RE = session.RE
-    install_connect_on_demand(RE, mock=True)
+def test_stock_scan_moves_a_namespace_motor_child(RE, namespace) -> None:
     cam, magnet = namespace["UC_TestCam"], namespace["U_S1H"]
-    cam._trigger_timeout = 2.0
+    cam._acquire.shot_timeout = 2.0
     assert not is_connected(magnet.current)
     pacer = _pacer(RE, cam, magnet, t0=2000.0)
     docs = DocCollector()
     try:
-        RE(bp.scan([cam], magnet.current, -1.0, 1.0, 5), docs)
+        RE(bp.scan([cam], magnet.current, -1.0, 1.0, 5, per_step=_PER_STEP), docs)
     finally:
         pacer.cancel()
     # bluesky's stage_wrapper stages the ROOT ancestor of a motor, so the whole
@@ -207,18 +227,17 @@ def test_stock_scan_moves_a_namespace_motor_child(session, namespace) -> None:
 
 
 def test_baseline_of_an_unconnected_device_connects_when_installed_last(
-    session, namespace
+    RE, namespace
 ) -> None:
     """The P1 from review: SupplementalData appended after us must still see connects."""
-    RE = session.RE
     cam, magnet = namespace["UC_TestCam"], namespace["U_S1H"]
-    cam._trigger_timeout = 2.0
+    cam._acquire.shot_timeout = 2.0
     RE.preprocessors.append(SupplementalData(baseline=[magnet]))
     install_connect_on_demand(RE, mock=True)  # outermost → sees the baseline reads
     pacer = _pacer(RE, cam, t0=3000.0)
     docs = DocCollector()
     try:
-        RE(bp.count([cam], num=1), docs)
+        RE(bp.count([cam], num=1, per_shot=_PER_SHOT), docs)
     finally:
         pacer.cancel()
     baseline = [d for d in docs.docs["descriptor"] if d["name"] == "baseline"]

@@ -2,7 +2,7 @@
 
 Pins the centralized addressing rule (``ca://`` stripped for raw CA, other
 schemes rejected — issue #490), each consumer's wire-value convention (the
-ShotController always-string pin must stay byte-identical — hardware-proven),
+ShotControl always-string pin must stay byte-identical — hardware-proven),
 the timeout policy, ``AsyncStatus`` wrapping, and mock behavior.
 """
 
@@ -15,11 +15,11 @@ pytest.importorskip("aioca")  # the raw transport needs the `ca` extra
 import aioca  # noqa: E402
 
 from geecs_bluesky.devices.ca.gateway_put import (  # noqa: E402
+    CaPutSetter,
     GatewaySetpointPut,
     bare_pv,
     wire_value,
 )
-from geecs_bluesky.shot_controller import CaPutSetter  # noqa: E402
 
 
 class _CaputRecorder:
@@ -103,7 +103,7 @@ def test_raw_transport_requires_a_timeout() -> None:
 
 async def test_shot_control_convention_is_byte_identical(caput) -> None:
     """CaPutSetter: every value goes as its wire string, 10 s default budget
-    (the hardware-proven ShotController behavior — do not drift this)."""
+    (the hardware-proven shot-control behavior — do not drift this)."""
     setter = CaPutSetter("Undulator:U_DG645_ShotControl:Amplitude_Ch_AB:SP")
     await setter.set(4.0)
     assert caput.calls == [

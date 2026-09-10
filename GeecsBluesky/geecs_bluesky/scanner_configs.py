@@ -13,10 +13,6 @@ import configparser
 import os
 from pathlib import Path
 
-import yaml
-
-from geecs_bluesky.models.shot_control import ShotControlConfig
-
 SHOT_CONTROL_FOLDER = "shot_control_configurations"
 
 
@@ -42,32 +38,3 @@ def scanner_configs_base() -> Path:
         "Cannot resolve the scanner configs base. Set GEECS_SCANNER_CONFIG_DIR, or "
         "config.ini [Paths] scanner_config_root_path pointing at GEECS-Plugins-Configs."
     )
-
-
-def load_shot_control_config(name: str, experiment: str) -> ShotControlConfig:
-    """Load and validate one shot-control YAML from the configs repository.
-
-    Parameters
-    ----------
-    name : str
-        Config file name with or without ``.yaml`` (e.g. ``"HTU-LaserOFF"``).
-    experiment : str
-        Experiment folder under ``scanner_configs/experiments``.
-
-    Returns
-    -------
-    ShotControlConfig
-        Validated config — an unparseable or empty file fails loudly here
-        rather than mid-scan against live hardware.
-    """
-    if not name.endswith((".yaml", ".yml")):
-        name = f"{name}.yaml"
-    path = scanner_configs_base() / experiment / SHOT_CONTROL_FOLDER / name
-    if not path.exists():
-        raise RuntimeError(f"Shot-control config not found: {path}")
-    with open(path) as handle:
-        info = yaml.safe_load(handle)
-    config = ShotControlConfig.from_information(info)
-    if config is None:
-        raise RuntimeError(f"{path} is empty / not a valid shot-control config.")
-    return config

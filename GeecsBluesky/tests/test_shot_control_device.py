@@ -219,9 +219,9 @@ def test_unknown_state_name_is_a_configuration_error(
 def test_standing_state_has_one_source(
     RE: RunEngine, shot_control: ShotControl
 ) -> None:
-    """The composed controller's last_state is the field; the config signal mirrors it."""
+    """The standing state is one field; the config signal mirrors it."""
     RE(mv(shot_control, "SCAN"))
-    assert shot_control._controller.last_state == "SCAN"
+    assert shot_control.standing_state == "SCAN"
     assert _run(RE, lambda: shot_control.state.get_value()) == "SCAN"
     RE(mv(shot_control, "SINGLESHOT"))
-    assert shot_control._controller.last_state == "SCAN"
+    assert shot_control.standing_state == "SCAN"

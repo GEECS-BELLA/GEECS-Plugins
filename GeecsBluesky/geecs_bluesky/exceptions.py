@@ -26,14 +26,10 @@ __all__ = [
     "GeecsCommandFailedError",
     "GeecsDeviceNotFoundError",
     "GeecsTriggerTimeoutError",
-    "GeecsQuiescenceTimeoutError",
     "GeecsMotorTimeoutError",
     "GeecsConfirmTimeoutError",
-    "GeecsT0SyncError",
     "GeecsConfigurationError",
     "GeecsDeviceDownError",
-    "GeecsStaleDevicesError",
-    "GeecsUnservedVariablesError",
     "ActionCheckFailedError",
     "ActionPlanNotFoundError",
     "ActionPlanCycleError",
@@ -48,8 +44,8 @@ __all__ = [
 class GeecsTriggerTimeoutError(GeecsError):
     """``acq_timestamp`` did not advance within the trigger timeout.
 
-    Raised by :class:`~geecs_bluesky.devices.ca.triggerable.CaTriggerable`
-    when no new shot arrives within ``_trigger_timeout`` seconds.  Typical
+    Raised by :class:`~geecs_bluesky.devices.detector.GeecsAcquireLogic`
+    when no new shot arrives within ``shot_timeout`` seconds.  Typical
     causes: DG645 not firing, camera not acquiring, or trigger cable fault.
     """
 
@@ -57,25 +53,6 @@ class GeecsTriggerTimeoutError(GeecsError):
         self.device_name = device_name
         self.timeout = timeout
         super().__init__(message or f"{device_name}: no shot within {timeout:.1f}s")
-
-
-class GeecsQuiescenceTimeoutError(GeecsError):
-    """Free-running trigger did not stop within the timeout.
-
-    Raised by :func:`~geecs_bluesky.plans.single_shot.geecs_confirm_quiescent`
-    when device ``acq_timestamp`` values keep advancing after the shot
-    controller was put in single-shot (``ARMED``) mode — so plan-owned
-    single-shot firing cannot safely begin (a residual free-running shot would
-    be mistaken for the plan's fired shot).  Typical cause: the ``ARMED`` state
-    did not actually switch the trigger source to single-shot mode.
-    """
-
-    def __init__(self, timeout: float, message: str = "") -> None:
-        self.timeout = timeout
-        super().__init__(
-            message
-            or f"trigger still firing after {timeout:.1f}s; single-shot arm failed"
-        )
 
 
 class GeecsMotorTimeoutError(GeecsError):
@@ -139,27 +116,6 @@ class GeecsConfirmTimeoutError(GeecsError):
         )
 
 
-class GeecsT0SyncError(GeecsError):
-    """Coordinated t0 capture could not establish a common physical shot.
-
-    Raised by :func:`~geecs_bluesky.plans.t0_sync.geecs_t0_sync` when device
-    ``acq_timestamp`` values are spread wider than the acceptance window (the
-    cached frames do not all come from the same physical trigger) or when a
-    device has no cached ``acq_timestamp`` at all.  Never proceed unseeded —
-    shot IDs from unsynchronized t0s are not comparable across devices.
-    """
-
-    def __init__(
-        self,
-        message: str,
-        timestamps: dict[str, float | None] | None = None,
-        window_s: float | None = None,
-    ) -> None:
-        self.timestamps = timestamps or {}
-        self.window_s = window_s
-        super().__init__(message)
-
-
 # ---------------------------------------------------------------------------
 # Configuration / setup errors
 # ---------------------------------------------------------------------------
@@ -174,51 +130,14 @@ class GeecsDeviceDownError(GeecsError):
 
     ``CONNECTED`` is the authoritative liveness signal — CA-connect success
     never implies device liveness (PV_CONTRACT.md §1/§5; rationale in
-    ``GeecsBluesky/CLAUDE.md``).  Raised, or carried inside the pre-claim
-    operator dialog, by the pre-flight liveness check and by
-    :func:`~geecs_bluesky.plans.single_shot.geecs_single_shot` when a
+    ``GeecsBluesky/CLAUDE.md``).  Raised by
+    :func:`~geecs_bluesky.plans.strict.fire_and_await_shot` when a
     no-frame device turns out to be disconnected mid-scan.  The message is
     operator-facing.
     """
 
     def __init__(self, message: str, device_name: str | None = None) -> None:
         self.device_name = device_name
-        super().__init__(message)
-
-
-class GeecsStaleDevicesError(GeecsError):
-    """Free-run sync device(s) are CONNECTED but have no fresh frames.
-
-    Carried inside the pre-claim operator dialog raised by the free-run
-    staleness check: all-stale means the trigger is probably off / not
-    free-running; a stale subset is a per-device acquisition problem.
-    Genuinely *dead* devices are :class:`GeecsDeviceDownError` territory.
-    The message is operator-facing.
-    """
-
-
-class GeecsUnservedVariablesError(GeecsError):
-    """Save-set variable(s) the gateway does not serve as PVs.
-
-    The gateway serves each enabled device's ``get='yes'`` variables plus its
-    settable control surface (``GeecsCAGateway/DEPLOYMENT.md``); a save-set
-    variable outside that set has no PV, so its detector signal can never
-    connect (a 20 s ophyd ``NotConnectedError``, observed live 2026-07-15).
-    Carried inside the pre-claim operator dialog raised by the
-    unserved-variables pre-flight check.  The message is operator-facing.
-
-    Parameters
-    ----------
-    message :
-        The operator-facing dialog body.
-    unserved :
-        ``{device: [variables]}`` — the unserved variables, by device.
-    """
-
-    def __init__(
-        self, message: str, unserved: dict[str, list[str]] | None = None
-    ) -> None:
-        self.unserved = dict(unserved or {})
         super().__init__(message)
 
 

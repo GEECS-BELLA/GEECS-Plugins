@@ -28,12 +28,10 @@ session's RE-loop connector at creation time.  Because plan generators
 execute *inside* the RunEngine's event loop (where a blocking connect would
 deadlock), callers must pre-connect every signal a compiled plan will touch
 before handing the plan to the RE — see
-:func:`~geecs_bluesky.scan_request_runner.prefetch_action_signals`.
+the action compiler's callers (every signal built and connected before a plan runs).
 
-The factory rides the same per-scan cleanup path as devices: it exposes an
-``async disconnect()`` so ``session.disconnect(factory)`` treats it
-uniformly (the signals hold no persistent monitor subscriptions, so there is
-nothing to tear down beyond dropping the cache).
+The signals hold no persistent monitor subscriptions — aioca manages the
+underlying CA channels globally — so the factory has no teardown.
 """
 
 from __future__ import annotations
@@ -148,14 +146,3 @@ class CaActionSignalFactory:
             self._readables[key] = signal
             logger.debug("action readable created: %s -> %s", key, pv)
         return signal
-
-    async def disconnect(self) -> None:
-        """Per-scan teardown hook (rides ``session.disconnect`` uniformly).
-
-        The factory's signals hold no persistent monitor subscriptions —
-        aioca manages the underlying CA channels globally — so teardown is
-        just dropping the cache.
-        """
-        self._settables.clear()
-        self._readables.clear()
-        self._probes.clear()

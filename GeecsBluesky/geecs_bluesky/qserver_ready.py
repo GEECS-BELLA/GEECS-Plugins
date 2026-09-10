@@ -12,7 +12,8 @@ This entry point is the readiness assertion the ``geecs-qserver-ready``
 oneshot unit runs after the manager (``qserver/deploy/``): wait for the
 manager to answer, open the environment if it is closed, wait for the
 worker environment to finish initializing, then **assert the manager lists
-every plan this code implements** (:data:`~geecs_bluesky.plan_names.GEECS_PLAN_NAMES`).
+every plan the startup profile registers** (:data:`~geecs_bluesky.plan_names.GEECS_PLAN_NAMES`
+— the stock ``bluesky.plans`` verbs over the device namespace).
 The plan-list assertion is the point: an open that succeeded onto a partial
 import, or a permissions file that excludes a plan, is still broken, and
 only that check catches it.  The plan list is read through the same
@@ -71,10 +72,10 @@ def default_control_addr() -> str:
 
 
 #: The permissions group the plan list is asked for — the CLI's default;
-#: ``user_group_permissions.yaml`` allows every ``geecs_*`` plan to it.
+#: ``user_group_permissions.yaml`` allows every plan to it.
 DEFAULT_USER_GROUP = "primary"
-#: Overall budget: the environment open imports the startup profile (and
-#: warms the optimize stack — torch/botorch), which takes minutes cold.
+#: Overall budget: the environment open imports the startup profile and
+#: builds the device namespace from the GEECS DB.
 DEFAULT_TIMEOUT_S = 600.0
 #: Poll interval while waiting on the manager.
 POLL_S = 2.0

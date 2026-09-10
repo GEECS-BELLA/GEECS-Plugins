@@ -47,10 +47,10 @@ healthy subscription is absorbed, so a clean scan reads 0.
 
 Writers are created **lazily on the first accepted frame**: a device
 that accepts no frames produces **no file at all** — readers must treat
-an absent `<device>.h5` as "not captured", not as an error. (Since
-0.66.0, `geecs_run_wrapper` creates every capture-listed device dir
-**pre-start-doc**, dual-write and toggle-off alike; lazy creation is kept
-as defense in depth against a dir that still fails to appear.) `/frames`
+an absent `<device>.h5` as "not captured", not as an error. (The
+scanner side creates every capture-listed device dir **pre-start-doc**;
+lazy creation is kept as defense in depth against a dir that still fails
+to appear.) `/frames`
 is created with the first successful append — a file whose very first
 append failed carries `/acq_timestamp` but no `/frames`; readers must
 treat that as valid-but-empty. `scan_number` is stamped only when the
@@ -82,16 +82,16 @@ start doc carried an integer scan number.
   real first frames — visible as `stale_skipped` > the expected 0–1.
 - **Append-per-frame with flush** (trailing flush): a crash loses at most
   the un-flushed tail, never the scan.
-- The daemon **never creates directories**: `geecs_run_wrapper` creates
+- The daemon **never creates directories**: the scanner side creates
   every capture-listed `scans/ScanNNN/<device>/` dir pre-start-doc
   (dual-write and toggle-off alike; the save-enable plan covers the
   legacy non-capture path); a missing directory means the device is
   skipped loudly (cross-package invariant — analysis/services never
   create scan folders).
 - **Toggle-off actively commands `save="off"`** (GeecsBluesky 0.67.0):
-  captured cameras are built `save_control_only` — only the `save` control
-  child exists (no `localsavingpath`, no save-path column, no asset docs)
-  — and the run wrapper writes `off` eagerly at scan start, so a flag left
+  captured cameras carried only a `save` control (historical; the
+  `GeecsDetector` data logic clears a stale `save=on` at `stage` now)
+  and the scanner wrote `off` eagerly at scan start, so a flag left
   on out-of-band can never keep writing native files to a stale path.
 - **Capture ownership is synchronous-role only** (#702): an asynchronous
   (snapshot-role) camera of a capture devicetype is dropped from

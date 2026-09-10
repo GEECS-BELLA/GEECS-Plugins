@@ -1,9 +1,8 @@
 """Hermetic tests for the client-side pre-submit preflight (#648 decision 3).
 
-The engine seams (`validate_scan_request`, the resolver, the served-set
-provider) are monkeypatched at their `geecs_bluesky` homes — the lazy
-imports inside `submit_preflight` resolve at call time, so patching the
-source modules is enough.  CA reads are patched at `_read_pv`; the
+The resolver is monkeypatched at its `geecs_bluesky` home — the lazy
+import inside `submit_preflight` resolves at call time, so patching the
+source module is enough.  CA reads are patched at `_read_pv`; the
 manager client the ``worker_ready`` check builds is patched at
 `_make_default_client` (a ready fake by default — never the real
 ``[qserver]`` config of the machine running the tests).
@@ -13,7 +12,7 @@ from __future__ import annotations
 
 import pytest
 
-from geecs_bluesky.plan_names import GEECS_PLAN_NAMES, SCAN_REQUEST_PLAN
+from geecs_bluesky.plan_names import RUN_ACTION_PLAN, SCAN_REQUEST_PLAN
 from geecs_bluesky.qs_client import submit_preflight
 from geecs_bluesky.qs_client.client import QueueStatus, StubQueueClient
 from geecs_bluesky.qs_client.submit_preflight import (
@@ -31,7 +30,11 @@ class _FakeQueueClient:
         self._status = status or QueueStatus(
             connected=True, re_state="idle", manager_state="idle", worker_exists=True
         )
-        self._plans = list(GEECS_PLAN_NAMES) if plans is None else list(plans)
+        # A worker that serves what this client submits (the retired funnel
+        # names, until the plan layer rewires the client seam).
+        self._plans = (
+            [SCAN_REQUEST_PLAN, RUN_ACTION_PLAN] if plans is None else list(plans)
+        )
         self._plans_error = plans_error
         self.closed = 0
         self.status_calls = 0
@@ -74,21 +77,16 @@ def engine(monkeypatch):
         def __init__(self, experiment):
             self.experiment = experiment
 
+        def resolve_save_set(self, name):
+            return name  # canned: the devices config below stands in
+
     monkeypatch.setattr("geecs_bluesky.config_resolver.ConfigsRepoResolver", _Resolver)
-    monkeypatch.setattr(
-        "geecs_bluesky.scan_request_runner.validate_scan_request",
-        lambda request, resolver: (request, {}),
-    )
     monkeypatch.setattr(
         submit_preflight,
         "_resolve_devices_config",
-        lambda request, resolver: dict(_DEVICES_CONFIG),
+        lambda save_sets: dict(_DEVICES_CONFIG),
     )
-    # Default: everything served, everything connected, trigger alive.
-    monkeypatch.setattr(
-        "geecs_bluesky.db_runtime.GeecsDbServedSetProvider",
-        _make_provider({"UC_Cam1": {"MeanCounts"}, "UC_Cam2": {"Exposure"}}),
-    )
+    # Default: everything connected, trigger alive.
     reads = {"CONNECTED": "Connected", "acq_timestamp": [100.0, 101.5]}
 
     # The liveness check delegates to the shared probe (its own DBR_ENUM
@@ -112,17 +110,6 @@ def engine(monkeypatch):
     return reads
 
 
-def _make_provider(served):
-    class _Provider:
-        def __init__(self, experiment):
-            self.experiment = experiment
-
-        def served_by_device(self):
-            return served
-
-    return _Provider
-
-
 def _make_pv_reader(reads):
     state = {"ts_calls": 0}
 
@@ -140,74 +127,25 @@ def _make_pv_reader(reads):
 
 
 class TestRunSubmitPreflight:
-    def test_all_green_records_three_passes(self, engine):
+    def test_all_green_records_every_pass(self, engine):
         report = run_submit_preflight(_request(), "Undulator")
         assert report.refusal is None
         assert report.questions == []
         assert ("validate", "passed", "") in report.outcomes
-        assert ("snapshot_images", "passed", "") in report.outcomes
         assert ("gateway_liveness", "passed", "") in report.outcomes
         assert ("free_run_staleness", "passed", "") in report.outcomes
-        assert ("unserved_variables", "passed", "") in report.outcomes
         assert ("worker_ready", "passed", "") in report.outcomes
 
     def test_validation_failure_is_a_refusal(self, engine, monkeypatch):
         def _boom(request, resolver):
             raise ValueError("save set 'Nope' is unknown")
 
-        monkeypatch.setattr(
-            "geecs_bluesky.scan_request_runner.validate_scan_request", _boom
-        )
+        monkeypatch.setattr(submit_preflight, "_resolve_save_sets", _boom)
         report = run_submit_preflight(_request(), "Undulator")
         assert report.refusal is not None
         assert "Nope" in report.refusal
         # A refusal short-circuits — no other checks ran.
         assert report.questions == []
-
-    def test_snapshot_images_raises_a_question_not_a_refusal(self, engine, monkeypatch):
-        """#754: images: true on a snapshot-role entry surfaces pre-submit as a warning."""
-        devices = dict(_DEVICES_CONFIG)
-        devices["UC_Slow"] = {
-            "variable_list": ["p"],
-            "synchronous": False,
-            "save_nonscalar_data": True,
-        }
-        monkeypatch.setattr(
-            submit_preflight,
-            "_resolve_devices_config",
-            lambda request, resolver: devices,
-        )
-        report = run_submit_preflight(_request(), "Undulator")
-        assert report.refusal is None
-        questions = [q for q in report.questions if q.check == "snapshot_images"]
-        assert len(questions) == 1
-        assert "UC_Slow" in questions[0].message
-        assert "UC_Cam1" not in questions[0].message
-        assert "#754" in questions[0].message
-        assert not any(check == "snapshot_images" for check, _, _ in report.outcomes)
-
-    def test_unserved_variable_raises_a_question(self, engine, monkeypatch):
-        monkeypatch.setattr(
-            "geecs_bluesky.db_runtime.GeecsDbServedSetProvider",
-            _make_provider({"UC_Cam1": {"MeanCounts"}, "UC_Cam2": set()}),
-        )
-        report = run_submit_preflight(_request(), "Undulator")
-        questions = [q for q in report.questions if q.check == "unserved_variables"]
-        assert len(questions) == 1
-        assert "Exposure" in questions[0].message
-
-    def test_unknown_served_set_is_skipped_not_blocking(self, engine, monkeypatch):
-        monkeypatch.setattr(
-            "geecs_bluesky.db_runtime.GeecsDbServedSetProvider",
-            _make_provider(None),
-        )
-        report = run_submit_preflight(_request(), "Undulator")
-        assert report.refusal is None
-        assert not [q for q in report.questions if q.check == "unserved_variables"]
-        assert any(
-            check == "unserved_variables" and result == "skipped"
-            for check, result, _ in report.outcomes
-        )
 
     def test_disconnected_device_raises_a_question(self, engine):
         engine["CONNECTED"] = "Disconnected"
@@ -235,9 +173,7 @@ class TestRunSubmitPreflight:
 
     def test_saveset_less_request_skips_device_checks(self, engine, monkeypatch):
         monkeypatch.setattr(
-            submit_preflight,
-            "_resolve_devices_config",
-            lambda request, resolver: {},
+            submit_preflight, "_resolve_devices_config", lambda save_sets: {}
         )
         report = run_submit_preflight(_request(), "Undulator")
         assert report.refusal is None
@@ -371,7 +307,8 @@ class TestWorkerReady:
         self, engine, monkeypatch
     ):
         monkeypatch.setattr(
-            "geecs_bluesky.scan_request_runner.validate_scan_request",
+            submit_preflight,
+            "_resolve_save_sets",
             lambda request, resolver: (_ for _ in ()).throw(ValueError("bad request")),
         )
         monkeypatch.setattr(

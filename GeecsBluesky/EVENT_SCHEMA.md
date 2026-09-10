@@ -1,185 +1,63 @@
-# GEECS Bluesky Event Schema — v1
+# GEECS Bluesky documents — what a run carries
 
-The contract every GEECS Bluesky run obeys, regardless of acquisition mode or
-whether it was launched from the GUI, `BlueskyScanner`, or a custom notebook
-plan.  This document **is** the canonical contract.
+The native shape (phase 1 of the rebuild, GEECS-Plugins#807; plan of
+record `Planning/native_bluesky/03_clean_room_rebuild.md` §4): a run is
+whatever the stock `bluesky.plans` verb emits over the namespace's
+devices, and every GEECS fact rides in the places Bluesky already has for
+it.  There is no GEECS schema version any more — consumers read the
+documents as Bluesky documents.  This file lists the GEECS-specific keys
+those documents carry.
 
-Consumers branch on **`geecs_event_schema`**, never on `acquisition_mode`, to
-read data.  Mode is provenance, not shape.
+The v1 schema (funnel-era: `geecs_event_schema`, `acquisition_mode`,
+`shot_id` / `shot_offset` / `valid` companion columns, `bin_number`) was
+deleted with the funnel in phase 1 PR 1; scans before that carry it and
+`geecs_data_utils.tiled_schema` still reads them.
 
-## Start-document metadata
+## Start document
 
-Always present:
-
-| Key | Meaning |
-|---|---|
-| `geecs_event_schema` | Integer schema version. This document describes `1`. |
-| `acquisition_mode` | `"strict_shot_control"` or `"free_run_time_sync"` |
-| `plan_name` | `geecs_step_scan` or `geecs_free_run_step_scan` |
-| `motor` | Scan-device ophyd name, or `null` for statistics collection (no scan variable) |
-| `detectors` | Device ophyd names recorded in the run |
-| `positions` | Scan positions (`[null]` for statistics collection) |
-| `shots_per_step`, `num_points` | Loop dimensions |
-
-Added by the run wrapper (`geecs_run_wrapper`) when a scan number is claimed:
+The stock keys (`plan_name`, `detectors`, `motors`, `num_points`,
+`plan_args`, `hints`, …) come from the plan.  GEECS adds, from the plan
+layer (phase 1 PR 2, the `claim_scan` preprocessor and the ScanInfo
+callback — **not yet emitted** on this branch):
 
 | Key | Meaning |
 |---|---|
 | `experiment` | GEECS experiment name |
-| `scan_number` | Day-scoped GEECS scan number |
-| `scan_id` | Same value as `scan_number` (Bluesky-native display field; see note) |
+| `scan_number` / `scan_id` | Day-scoped GEECS scan number (`scan_id` is the Bluesky display field) |
 | `scan_folder` | Absolute path of the claimed `scans/ScanNNN/` folder |
-| `nonscalar_save_paths` | device → save dir map (when non-scalar saving is active) |
-| `capture_devices` | capture-eligible camera names for the PVA capture daemon (present when the scan has any; the daemon prefers this over inferring from `nonscalar_save_paths`, composing paths as `scan_folder/<device>`). Synchronous roles only: an asynchronous (snapshot-role) camera is never capture-owned, whatever its devicetype — the engine drops it with a warning (#702; see the `geecs_scalar_headers` note) |
-| `native_image_save` | the effective toggle: whether capture-eligible cameras also wrote native per-shot files, or the daemon's frame stacks are their only image record. Present alongside `capture_devices` — and additionally recorded as `false` alone when off was requested but nothing was eligible (DB blip / no registry cameras), so an inert request stays visible in provenance |
-| `geecs_scalar_headers` | event data-key → legacy `Device Variable` header map (see note) |
-| `bluesky_backend` | `true` |
+| `geecs` | Provenance only: the client's request (preset name, plan call) — never a worker instruction |
 
-**`geecs_scalar_headers` note:** maps each scalar event-stream data key
-(`<ophyd>-<safe_var>`, e.g. `uc_wavemeter-wavelength_nm`) to its original GEECS
-`Device Variable` header (`UC_Wavemeter Wavelength (nm)`). `safe_name()` mangling
-is irreversible, so this map is the only way to recover legacy headers; it backs
-the Tiled→s-file exporter (`geecs_data_utils.tiled_export`). Only true device
-signals appear — derived companion columns (`-shot_id`, …) are excluded by
-construction, with one deliberate exception: a **file-producing device**
-(native saving on, or a capture-owned camera under the `native_image_save`
-toggle) surfaces its `-acq_timestamp` column so its files — per-shot
-natives or capture-stack frames — join back to scan rows by it (the
-ScanAnalysis `device_hdf5` join key; legacy parity for native savers).
-The exception covers the SYNC roles — which are the only roles that can be
-capture-owned: an asynchronous (snapshot-role) camera has no acq_timestamp
-machinery to row-join a stack by (and a scalar-less async entry builds no
-device at all), so `select_capture_devices` drops it from `capture_devices`
-with a loud warning — `images: true` on a snapshot-role entry is ignored,
-the device's own save flag neither commanded nor suppressed (#702; capture
-cameras are synchronous in production). A **pseudo scan variable's** motor column is the one
-exception to the `Device Variable` header shape: its recorded value is the
-demanded pseudo number (no physical readback of its own), so its header is the
-catalog friendly name verbatim (e.g. `ALine_e_beam_angle_offset_x`), and the
-per-target formulas live in `pseudo_variables` (below).
+## Descriptor: configuration
 
-Strict mode adds:
+Every `GeecsDetector` records its drain offset
+(`<det>-drain_offset`, seconds — the calibrated edge-to-stamp latency, `0.0`
+until measured, §4.F); the `ShotControl` device records the standing
+trigger state (`shot_control-state`) when it is read.
 
-| Key | Meaning |
-|---|---|
-| `fires_own_shots` | `true` when the strict plan fires each shot (single-shot / `ARMED`) |
-
-Free-run mode adds:
-
-| Key | Meaning |
-|---|---|
-| `reference_device` | Pacemaker device name |
-| `device_t0s` | device → t0 `acq_timestamp` captured by the t0-sync stage |
-| `t0_sync_window_s` | Acceptance window used by the t0-sync stage |
-
-ScanRequest runs (`GeecsSession.run`) may also add, for provenance:
-
-| Key | Meaning |
-|---|---|
-| `applied_defaults` | Experiment-defaults fields that filled a silent request |
-| `action_plans` | Assembled per-slot action execution order |
-| `background_telemetry` | `{device: [variables]}` recorded as Tier-2 telemetry (M3c get-side; present only when telemetry ran) |
-| `pseudo_variables` | `{name: {mode, targets: [{target, forward}]}}` for every pseudo scan axis/movable — the mode and per-target formula sources the move used (0.47.0) |
-| `save_sets` | The named save sets unioned for this scan |
-| `skipped_action_plans` | Actions skipped on an optimize-mode request (no action hooks yet) |
-| `provisioned_device_requirements` | What the optimizer's `device_requirements` added to the effective device set (0.38.0) |
-| `dropped_unserved_variables` / `dropped_unserved_devices` | What the unserved-variables pre-flight removed (0.36.0) |
-
-**`scan_id` note:** `scan_id` has no uniqueness contract in Bluesky — the
-day-scoped number resets to 1 each day, which is fine (`uid` is the real key).
-Never look a run up by `scan_id` alone; qualify with the day, or use
-`scan_number` + the start-doc `time`.
-
-## Event-stream columns
-
-Column-name components come from `safe_name()` (`geecs_bluesky/utils.py`),
-which delegates to the shared naming contract
-(`geecs_core.pv_naming.normalize_component`): runs of non-alphanumeric
-characters collapse to one underscore, lowercase. A GEECS name therefore
-mangles identically into an event column and a gateway PV component.
-(Before GeecsBluesky 0.46.0, `safe_name` replaced specials per-character, so
-`Wavelength (nm)` produced `wavelength__nm` — a double underscore; it now
-produces `wavelength_nm`. A column-name convention change, not a field or
-semantics change, so the schema version stays 1 — runs are self-describing
-and pre-0.46.0 runs keep their old column names, recoverable as ever via
-`geecs_scalar_headers`. One caveat: asset readback
-(`assets/tiled_readback.py`) recomputes `safe_name(device)` at read time
-rather than consulting stored headers, so a pre-0.46.0 run whose *device
-name* contains adjacent special characters would not resolve its asset
-columns under the new policy — no real GEECS device name does, they are
-identifier-clean `U_*` strings, but if one ever did, route the lookup
-through the run's own column names.)
-
-Row identity (every mode, every row — set by the plan via `ScanContext`):
-
-- `bin_number` — 1-based step index (always `1` for statistics collection)
-- `shot_index_in_bin` — 1-based shot index within the step
-- `scan_event_index` — 1-based global row index
-
-Scan device (when a motor is moved): its readback column(s).
-
-**Per synchronous device** (triggered; has `acq_timestamp`) — every row:
+## Event stream `primary`
 
 | Column | Meaning |
 |---|---|
-| `<dev>-<variable>` | Data variables. Real values when `valid`; NaN when not. |
-| `<dev>-acq_timestamp` | Raw device acquisition timestamp (back-dated to acquisition start). **The file-join key.** |
-| `<dev>-t0_acq_timestamp` | The device's t0 (physical shot 1) timestamp, or NaN. |
-| `<dev>-shot_id` | Derived physical trigger-opportunity number (dtype `number`, NaN when underivable). |
-| `<dev>-shot_offset` | `device shot_id − row shot_id`. `0` = this cell belongs to this row's physical shot. |
-| `<dev>-valid` | `shot_offset == 0` (boolean). Strict mode: constitutively `true`. |
-| `<dev>-nonscalar_save_path` | Scanner-owned save directory (when non-scalar saving is active). |
+| `<det>-<variable>` | The detector's DB-subscribed scalars, one column each (`safe_name`-mangled: `uc_amp4_ir_input-meancounts`) |
+| `<det>-acq_timestamp` | The shot stamp: the join key for that detector's files and for cross-device alignment after the drain offset (§11.3) |
+| `<det>-nonscalar_save_path` | The directory the detector's native files landed in this run — present only when the detector saved natively (`geecs_data_utils.tiled_schema.COMPANION_SUFFIXES` names the suffix) |
+| `<device>-<variable>` | A scalar-only device's subscribed readbacks (`CaSnapshotReadable`) |
+| `<device>-<settable>-position` / `-readback` | A settable child's readback when the DB subscribes it (`CaMotor` / `CaSettable`), and the scan motor's column |
 
-In **strict** mode every device read follows its own awaited trigger, so
-`shot_offset` is `0` by construction.  In **free-run** mode the row's shot ID
-is the reference device's; contributors are labeled relative to it (a
-late/long-exposure device lands at a negative offset carrying real,
-truthfully-labeled data for realignment downstream by `shot_id`).
+Native files are named with the row's stamp
+(`<Device>_<acq_timestamp>.png`, `geecs_data_utils.native_files`) and join
+to rows by that stamp — never by position.
 
-**Per snapshot device** (asynchronous, no `acq_timestamp`) — every row: its
-data variables, sampled at row emission. No companion columns.
+## Telemetry (phase 1 PR 2)
 
-**Background-telemetry columns** (Tier 2, best-effort) — every live experiment
-device with a `get='yes'` variable *not* in the save set is recorded as soft
-snapshot columns read from the gateway monitor cache. They are distinguished
-from Tier-1 save-set data by a **device-name prefix**: the ophyd device is
-`telemetry_<device>`, so every column it contributes is keyed
-`telemetry_<device>-<safe_var>`. Telemetry is **dtype-tolerant**: each column's
-type is inferred from its PV — numeric variables stay numeric (float) so
-downstream telemetry analysis keeps working, while enum/string/path variables
-(e.g. `U_VisaPlungers` `DigitalOutput.Channel N`) are recorded as their
-string/label value. A telemetry column set may therefore mix float and string
-columns; do not assume every telemetry column is float. Typing is
-**per-variable** — one non-numeric variable is captured as a string and never
-drops the device's other (numeric) columns. Telemetry is read-only, sampled
-once per row, **never waited on** — a value that cannot be read (a device that
-went dead mid-scan) degrades to a dtype-appropriate null cell (NaN for a
-numeric column, `""` for a string column), and a device unreachable at scan
-start is dropped with a log line, never a dialog or abort. No telemetry
-variable — and no telemetry device — is dropped for a *type* reason; only a
-genuinely unreachable device degrades to a dropped device. Telemetry columns
-are **not** added to
-`geecs_scalar_headers` (they are Tier 2, not legacy s-file scalars). The
-start-doc `background_telemetry` key (present only when telemetry ran) records
-the `{device: [variables]}` actually selected. This is an additive
-device-name convention, not a new schema field — it does not bump the version.
+Every subscribed scalar of the experiment rides in the run through
+`SupplementalData` (`baseline` at open/close, `monitors` for the changing
+few) — an experiment-config fact, derived from measurement (§10.4).
 
-**Free-run tail flush:** after the last shot, free-run runs emit one final
-event on a separate `flush` stream (one extra read of all devices) so a
-contributor lagging at `shot_offset = -1` still records its final shot.
+## Legacy `Device Variable` headers
 
-## Rules
-
-1. **Stable keys.** A device configured into a run contributes its full column
-   set to every event; missing data is NaN / `false`, never an omitted key
-   (descriptors require a stable shape).
-2. **`shot_id` is not a file-join key.** Join files to events by device
-   `acq_timestamp`.  `shot_id` is matching machinery and diagnostics; jumps > 1
-   across dead time are expected (it counts trigger opportunities, not rows).
-3. **Additive changes don't bump the version** — readers ignore unknown
-   columns/keys.  Only breaking changes (rename/remove/semantics) bump it.
-   This binds live subscribers on the worker's document stream as much as
-   Tiled readers — see `qserver/deploy/DEPLOYMENT.md` § "External
-   subscribers" for the subscription contract.
-4. **Version bumps never require a new Tiled catalog.** Runs are
-   self-describing (own descriptors + metadata); versions coexist.
+Every device carries `_column_headers` — event data-key → the GEECS
+`Device Variable` header (`UC_Wavemeter Wavelength (nm)`) — for the s-file
+exporter (`sfile_callback.py`, from Tiled at the stop document).  The
+start-document map the exporter reads (`geecs_scalar_headers`) is emitted
+by the plan layer (PR 2).

@@ -21,7 +21,7 @@ def _stop_run_engine_loops_left_by_the_test(request: pytest.FixtureRequest):
 
     Every ``RunEngine()`` starts a daemon thread running its own asyncio loop
     forever; nothing in bluesky stops it, so a suite with ~60 inline
-    constructions (plus one per ``GeecsSession``) accumulates 100+ live loops
+    constructions accumulates 100+ live loops
     and the whole process crawls (#812: a 1.4 s test taking the full 180 s
     timeout at the midpoint of the run, on macOS).  bluesky records
     loop → thread in ``_ensure_event_loop_running.loop_to_thread``; this

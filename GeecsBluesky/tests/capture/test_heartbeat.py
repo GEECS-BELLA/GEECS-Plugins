@@ -1,4 +1,4 @@
-"""Heartbeat module + the engine's fail-closed toggle-off liveness preflight."""
+"""Heartbeat module (the capture daemon's liveness file)."""
 
 from __future__ import annotations
 
@@ -15,8 +15,6 @@ from geecs_bluesky.capture.heartbeat import (
     read_heartbeat,
     write_heartbeat,
 )
-from geecs_bluesky.exceptions import GeecsConfigurationError
-from geecs_bluesky.scan_request_runner import preflight_capture_liveness
 
 
 def test_write_and_read_roundtrip(tmp_path) -> None:
@@ -59,50 +57,6 @@ def _point_preflight_at(monkeypatch, payload: dict | None) -> None:
     import geecs_bluesky.capture.heartbeat as hb_mod
 
     monkeypatch.setattr(hb_mod, "read_heartbeat", lambda **kw: payload)
-
-
-def test_preflight_refuses_toggle_off_without_daemon(monkeypatch) -> None:
-    """Toggle-off + no heartbeat = refusal naming the orphaned devices."""
-    _point_preflight_at(monkeypatch, None)
-    with pytest.raises(GeecsConfigurationError, match="UC_Cam.*NOWHERE"):
-        preflight_capture_liveness(["UC_Cam"], native_image_save=False)
-
-
-def test_preflight_refuses_stale_heartbeat(monkeypatch) -> None:
-    _point_preflight_at(monkeypatch, {"time": time.time() - STALE_AFTER_S - 10})
-    with pytest.raises(GeecsConfigurationError, match="looks absent"):
-        preflight_capture_liveness(["UC_Cam"], native_image_save=False)
-
-
-def test_preflight_refuses_uncovered_device(monkeypatch) -> None:
-    """A fresh daemon whose roster predates a camera refuses for that camera."""
-    _point_preflight_at(monkeypatch, {"time": time.time(), "targets": ["UC_CamA"]})
-    with pytest.raises(GeecsConfigurationError, match="not monitoring UC_CamB"):
-        preflight_capture_liveness(["UC_CamA", "UC_CamB"], native_image_save=False)
-
-
-def test_preflight_passes_with_live_daemon(monkeypatch) -> None:
-    """Fresh heartbeat covering the devices: toggle-off proceeds."""
-    _point_preflight_at(monkeypatch, {"time": time.time(), "targets": ["UC_Cam"]})
-    preflight_capture_liveness(["UC_Cam"], native_image_save=False)
-
-
-def test_preflight_refuses_rosterless_payload(monkeypatch) -> None:
-    """A fresh payload without a target roster is corrupt state — fail closed.
-
-    The daemon always writes a device-name roster (codex gate P2): with no
-    roster, coverage cannot be verified, so tolerating it could disable
-    native saving for devices nothing is monitoring.
-    """
-    _point_preflight_at(monkeypatch, {"time": time.time()})
-    with pytest.raises(GeecsConfigurationError, match="no device roster"):
-        preflight_capture_liveness(["UC_Cam"], native_image_save=False)
-
-
-def test_preflight_inert_on_default_path() -> None:
-    """Toggle on (or no capture devices): never consulted, never refuses."""
-    preflight_capture_liveness(["UC_Cam"], native_image_save=True)
-    preflight_capture_liveness([], native_image_save=False)
 
 
 def test_sigterm_runs_finally_cleanup(tmp_path) -> None:

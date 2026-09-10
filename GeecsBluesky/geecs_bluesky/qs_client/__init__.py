@@ -30,7 +30,7 @@ client that only submits scans never pays for aioca/ophyd-async.
 # console-output stream (the console pill, the MCP's scan_progress).
 # Its definition lives in the import-light log_markers module precisely
 # so this eager re-export cannot violate the pinned light-import
-# contract (the engine home, plans.pause_semantics, pulls bluesky).
+# contract (the historical engine home pulled bluesky).
 from geecs_bluesky.log_markers import FAILED_MOVE_LOG_PREFIX
 from geecs_bluesky.qs_client.client import (
     QserverConfig,

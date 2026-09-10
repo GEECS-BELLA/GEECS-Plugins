@@ -13,8 +13,8 @@ Design constraints this module enforces (scope doc,
 ``Planning/data_capture/01_central_pva_capture_scope.md``):
 
 - The daemon NEVER creates scan folders or device directories.
-  ``geecs_run_wrapper`` creates every capture-listed device dir
-  pre-start-doc (0.66.0), but writers are still constructed **lazily on
+  The scanner side creates every capture-listed device dir pre-start-doc
+  (the detector's data logic today), but writers are still constructed **lazily on
   the first accepted frame**, on the writer thread — defense in depth
   from the era when the save-enable plan created dirs post-start-doc; a
   still-missing directory drops that device's frames with a counted

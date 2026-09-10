@@ -4,6 +4,99 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.79.0] - 2026-09-10
+
+### Removed
+
+- **Phase 1 PR 1 of the native-Bluesky rebuild (#807, plan of record
+  `Planning/native_bluesky/03_clean_room_rebuild.md` §8, §10.5) — the
+  deletions.** The `ScanRequest` funnel and everything that existed only to
+  serve it: `plans/scan_request_plan.py`, `step_scan.py`,
+  `free_run_step_scan.py`, `named_plans.py`, `pause_semantics.py`,
+  `t0_sync.py`, `orchestration.py`, `plans/liveness.py`, `session.py`
+  (`GeecsSession`), `scan_request_runner.py`, `preflight.py`,
+  `shot_controller.py`, `optimize.py`, `plans/optimize.py`, the
+  funnel-only devices (`CaGenericDetector`, `CaTriggerable`,
+  `CaAcqTimestampReadable`, `CaTelemetryReadable`, `CaTimestampedReadable`,
+  the `ShotIdSupport` / `FreeRunContributorSupport` / `NonScalarSaveSupport`
+  mixins, `ScanContext`), `ShotControlConfig` / `ShotControlState` and the
+  legacy shot-control YAML loader, the exceptions only they raised
+  (`GeecsQuiescenceTimeoutError`, `GeecsT0SyncError`,
+  `GeecsStaleDevicesError`, `GeecsUnservedVariablesError`), the
+  `function_execute` verbs (`geecs_move_variable`, `geecs_describe_action`;
+  a manual move is a stock `mv` queue item now), the two funnel-era scripts
+  and ~12.6k lines of their tests.  Scans before this carry the v1 event
+  schema (`EVENT_SCHEMA.md` describes the native shape now).
+- **Optimization glue (option B, Sam 2026-09-10):** `optimization/session_bridge.py`,
+  `optimization/worker_loader.py` and the startup profile's loader hook go
+  with the session.  The Xopt core (`evaluators`, `generators`,
+  `base_optimizer`, `config_models`, `inspection`) stays importable with
+  its tests; optimization is **not runnable** until it is re-glued to the
+  native scan path in its own phase.
+- The `qs_client` pre-submit preflight keeps only the checks that need no
+  engine: every save set resolves (`validate`), the manager is ready
+  (`worker_ready`), gateway liveness, free-run staleness.  The
+  unserved-variables and snapshot-images questions went with the runner.
+  The client's submit verbs still name the retired funnel plan, so
+  `worker_ready` refuses against this worker — correctly; the client seam
+  is rewired with the plan layer (PR 2).  The free-run staleness sample
+  now reads the **first non-snapshot save-set entry** (file order) rather
+  than the role-ordered reference device.  GEECS-Console and GEECS-MCP
+  import unchanged; the Console's save-set union preview degrades to a
+  hint (it imported the deleted runner) until the top-layer rewire.
+- The devices' `async disconnect()` teardown hook — the runner's per-scan
+  `session.disconnect` contract.  Nothing calls it, and on `GeecsDetector`
+  it detached the stamp monitor without clearing ophyd-async's connect
+  cache, so `connect_on_demand` would never re-attach it (Codex review of
+  #816).  Namespace devices live as long as the RunEngine.
+- `CaSnapshotReadable(save_control_only=...)` — the runner's snapshot-role
+  camera shape, callerless now; `GeecsDetector(native_save=True)` without
+  a path provider is the case it covered.
+
+### Changed
+
+- **The namespace builds `GeecsDetector` for every triggerable device**
+  (`looks_triggerable`), `native_save` iff the DB lists both `save` and
+  `localsavingpath` for it (§10.5) — the detector then owns those two
+  controls (never scan-settable children) and a `PathProvider` given at
+  build points its files at the run.  A subscribed settable's readback
+  joins the detector's columns through the new
+  `GeecsDetector.add_readables`.
+- `run_engine.make_run_engine` replaces `GeecsSession` as the one way to
+  build the RunEngine: `connect_on_demand` outermost, Tiled and the s-file
+  export as opt-in callbacks, no scan API of its own.
+- The startup profile registers the **stock** `bluesky.plans` verbs
+  (`count`, `scan`, `rel_scan`, `list_scan`, `rel_list_scan`, `grid_scan`,
+  `rel_grid_scan`, `list_grid_scan`, `rel_list_grid_scan`) and `mv` over
+  the namespace devices — `plan_names.GEECS_PLAN_NAMES`, which the
+  readiness check asserts; the plan layer (PR 2) rebinds the same names
+  with the strict `take_reading`.  `user_group_permissions.yaml`'s operator
+  group allows exactly those.
+- `ShotControl` absorbed `ShotController`'s write machinery (one cached
+  setter per target, ordered per-state replay, the standing state) — one
+  class, no composition; `CaPutSetter` lives beside its base in
+  `devices/ca/gateway_put.py`.  `plans/strict.py` absorbed
+  `fire_and_await_shot` and the CONNECTED refire gate;
+  `plans/claim_scan.py` holds the scan-number claim alone.
+- The `models/shot_control.py` state names are the schema's
+  `geecs_schemas.trigger_profile.TriggerState`.
+
+### Fixed
+
+- **#812 (the residual one-test stall):** the in-process startup-profile
+  test built the 0MQ document `Publisher`; a connected-but-peerless PUB
+  socket makes the zmq context's teardown block for the *next* test's
+  whole timeout.  The hermetic startup tests now run with
+  `QS_DOC_PUBLISH_ADDR=OFF`.
+- `tests/test_phase0_hardware.py` is gated on `GEECS_HW=1`, and CI's and
+  `scripts/check.sh`'s `-m` expressions now say `not hardware`: the
+  `hardware` marker alone did not protect it — an explicit `-m` on the
+  command line overrides the `addopts` deselect, and on a laptop on the
+  lab VPN the ordinary suite run fired real shots.
+- The namespace's `native_save` rule requires the two saving controls to
+  be **settable** rows (only those get a gateway `:SP`); a get-only
+  `save` row stays a plain readable (review of #816).
+
 ## [0.78.1] - 2026-09-10
 
 ### Fixed

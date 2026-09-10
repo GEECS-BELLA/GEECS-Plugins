@@ -3,7 +3,7 @@
 ## What Is This
 
 Tiled is the persistent scalar/metadata store for all GEECS Bluesky scans.
-Every scan (queue-submitted or headless `GeecsSession`) writes start/stop/event documents
+Every scan (queue-submitted or headless, on `make_run_engine(tiled=True)`) writes start/stop/event documents
 to a Tiled catalog on the DB server (`192.168.6.14`).  Data is then queryable
 from any Python session on the network without touching the raw data files.
 
@@ -66,7 +66,7 @@ is the GEECS scan browser's job (GEECS-Console).
 
 ### Client machines
 
-`GeecsSession` (the worker startup profile's session included) auto-reads Tiled URI + API key from
+`make_run_engine(tiled=True)` (the worker startup profile included) auto-reads Tiled URI + API key from
 `~/.config/geecs_python_api/config.ini` under `[tiled]`:
 
 ```ini
@@ -91,9 +91,9 @@ api_key = <stable key>
   setup/per-step/closeout actions all flow
   through it (the legacy `GEECS-Scanner-GUI` path was deleted with G3) ✓
 - Scalar s-file exported from Tiled best-effort after each scan ✓
-- Hardware integration test: `tests/test_scan_request_hardware.py`
-  (replaces the deleted `test_bluesky_scanner.py`) runs a real
-  `ScanRequest` end to end against the live gateway — see its module
+- Hardware acceptance: `tests/test_phase0_hardware.py` (gated on
+  `GEECS_HW=1`) runs stock `bp.count` / `bp.list_scan` over a real camera
+  against the live gateway — see its module
   docstring for invocation; run it to verify, no standing pass is
   recorded here
 
@@ -138,5 +138,5 @@ df = run["primary"].read()
 
 # Run hardware integration test (requires lab network)
 cd GeecsBluesky
-poetry run pytest tests/test_scan_request_hardware.py -m integration -s
+GEECS_HW=1 poetry run python -u -m pytest tests/test_phase0_hardware.py -m hardware -s
 ```

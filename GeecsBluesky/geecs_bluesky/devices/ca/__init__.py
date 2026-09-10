@@ -2,35 +2,26 @@
 
 These are the *stock*-EPICS presentation of GEECS devices — they consume the
 :mod:`geecs_ca_gateway` PVs with plain ``epics_signal_r`` / ``epics_signal_rw``
-and add only the GEECS-specific shot semantics (``acq_timestamp``-gated
-trigger).  They are the CA counterpart of the direct UDP/TCP devices one level
-up in ``geecs_bluesky/devices/``; the two are selected by backend, not by
-divergent domain logic (shot-id / save-path / schema stay shared).
+for the scalar-only devices and the settable children (motor, settable,
+confirm, pseudo, snapshot) plus the gateway put primitive and the one-shot
+reader.  Acquirers are :class:`~geecs_bluesky.devices.detector.GeecsDetector`
+one level up.
 
 Requires the ``ca`` extra (``aioca``): ``poetry install --extras ca``.
 """
 
 from geecs_bluesky.devices.ca.action_signals import CaActionSignalFactory
 from geecs_bluesky.devices.ca.confirm import CaConfirmSettable
-from geecs_bluesky.devices.ca.generic_detector import CaGenericDetector
 from geecs_bluesky.devices.ca.motor import CaMotor
 from geecs_bluesky.devices.ca.pseudo import CaPseudoMovable
 from geecs_bluesky.devices.ca.settable import CaSettable
 from geecs_bluesky.devices.ca.snapshot import CaSnapshotReadable
-from geecs_bluesky.devices.ca.telemetry import CaTelemetryReadable
-from geecs_bluesky.devices.ca.timestamped_readable import CaTimestampedReadable
-from geecs_bluesky.devices.ca.triggerable import CaAcqTimestampReadable, CaTriggerable
 
 __all__ = [
-    "CaAcqTimestampReadable",
     "CaActionSignalFactory",
     "CaConfirmSettable",
-    "CaGenericDetector",
     "CaMotor",
     "CaPseudoMovable",
     "CaSettable",
     "CaSnapshotReadable",
-    "CaTelemetryReadable",
-    "CaTimestampedReadable",
-    "CaTriggerable",
 ]

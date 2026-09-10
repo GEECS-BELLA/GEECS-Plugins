@@ -178,9 +178,6 @@ class CaConfirmSettable(CaSettable):
         if self._settle_time > 0:
             await asyncio.sleep(self._settle_time)
 
-    async def disconnect(self) -> None:
-        """Per-scan teardown hook — no persistent subscription to release."""
-
 
 def _matches(
     current: ConfirmValue, target: ConfirmValue, tolerance: float, datatype: type

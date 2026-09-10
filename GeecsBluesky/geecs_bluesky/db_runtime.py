@@ -9,7 +9,7 @@ schema describes (the ``SaveSetEntry`` runtime contract in
    :func:`resolve_entry_scalars`.
 2. **Background telemetry selection** (Tier 2) —
    :func:`select_telemetry_variables`; the soft read lives in
-   :class:`~geecs_bluesky.devices.ca.telemetry.CaTelemetryReadable`.
+   the run's telemetry (``SupplementalData``, phase 1 PR 2).
 
 3. **Served-set resolution** for the unserved-variables pre-flight check —
    :class:`GeecsDbServedSetProvider` (the gateway serves ``get='yes'`` union

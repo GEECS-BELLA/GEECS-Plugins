@@ -95,7 +95,7 @@ def test_closed_environment_is_opened_then_plans_asserted() -> None:
     assert ("plans_allowed", {"user_group": "primary"}) in manager.calls
     assert allowed == sorted(GEECS_PLAN_NAMES)
     assert any("opening it" in line for line in log)
-    assert log[-1].startswith("ready: 5 allowed plans")
+    assert log[-1].startswith(f"ready: {len(GEECS_PLAN_NAMES)} allowed plans")
 
 
 def test_already_open_skips_the_open() -> None:
@@ -105,13 +105,13 @@ def test_already_open_skips_the_open() -> None:
 
 
 def test_missing_plan_is_not_ready_and_names_it() -> None:
-    manager = _Manager([_status(exists=True)], plans=["geecs_run_action_plan"])
+    manager = _Manager([_status(exists=True)], plans=["mv"])
     with pytest.raises(NotReady) as excinfo:
         ensure_ready(manager, timeout_s=30, log=lambda s: None)
     message = str(excinfo.value)
-    assert "geecs_scan_request_plan" in message
-    assert "geecs_noscan_plan" in message
-    assert "geecs_run_action_plan" not in message.split("(listed")[0]
+    assert "count" in message
+    assert "rel_list_grid_scan" in message
+    assert "mv" not in message.split("(listed")[0]
     assert "permissions file" in message
     assert "user_group='primary'" in message
 
@@ -142,14 +142,14 @@ def test_plan_list_landing_after_the_open_is_ready() -> None:
     """
     manager = _Manager(
         [_status(exists=False), _status(exists=True)],
-        plans_sequence=[[], ["geecs_run_action_plan"], GEECS_PLAN_NAMES],
+        plans_sequence=[[], ["mv"], GEECS_PLAN_NAMES],
     )
     log = []
     allowed = ensure_ready(manager, timeout_s=30, log=log.append)
     assert allowed == sorted(GEECS_PLAN_NAMES)
     assert [m for m, _ in manager.calls].count("plans_allowed") == 3
     assert any("re-reading" in line for line in log)
-    assert log[-1].startswith("ready: 5 allowed plans")
+    assert log[-1].startswith(f"ready: {len(GEECS_PLAN_NAMES)} allowed plans")
 
 
 def test_no_settle_window_without_our_open() -> None:
@@ -183,12 +183,12 @@ def test_verdict_is_the_shared_one() -> None:
     """ensure_ready's sentence IS qs_client.readiness_verdict's — one definition."""
     from geecs_bluesky.qs_client.client import QueueStatus, readiness_verdict
 
-    manager = _Manager([_status(exists=True)], plans=["geecs_run_action_plan"])
+    manager = _Manager([_status(exists=True)], plans=["mv"])
     with pytest.raises(NotReady) as excinfo:
         ensure_ready(manager, timeout_s=30, log=lambda s: None)
     expected = readiness_verdict(
         QueueStatus(connected=True, worker_exists=True),
-        {"geecs_run_action_plan": {}},
+        {"mv": {}},
         list(GEECS_PLAN_NAMES),
     ).detail
     assert str(excinfo.value).startswith(expected)

@@ -10,7 +10,7 @@ exception: ``scan_devices/scan_variables.yaml`` is new-schema only (the
 legacy pair and its converter were retired 2026-09, GEECS-Plugins#779).
 
 Execution of a resolved request lives in
-:mod:`geecs_bluesky.scan_request_runner`.
+the client-side request expansion (phase 1 PR 2).
 """
 
 from __future__ import annotations
@@ -72,7 +72,7 @@ class ConfigResolver(Protocol):
         Defaults apply where the request is silent (default trigger
         profile; default setup/closeout plans prepended); what was applied
         is recorded for provenance (see
-        :func:`geecs_bluesky.scan_request_runner.apply_experiment_defaults`).
+        the client-side request expansion, phase 1 PR 2).
         Resolvers without this method are tolerated (no defaults).
         """
         ...

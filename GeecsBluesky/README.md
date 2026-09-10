@@ -6,44 +6,48 @@ orchestration ecosystem via [ophyd-async](https://ophyd-async.readthedocs.io/).
 Devices are **CA-backed**: they consume the PVs served by
 [`GeecsCAGateway`](../GeecsCAGateway) (the GEECS access layer) as a standard
 EPICS IOC — stock `epics_signal_r/rw` under the hood, no bespoke transport.
-This package owns the *scan* side:
+This package is being rebuilt as a **native Bluesky application**
+(GEECS-Plugins#807; plan of record
+`Planning/native_bluesky/03_clean_room_rebuild.md`): the scan path is the
+stock `bluesky.plans` verbs over ophyd-async devices, and the only GEECS
+line in it is the fire between trigger and wait.  It owns:
 
-- `GeecsSession` — headless scans with the full GEECS run discipline
-  (scan numbering, ScanInfo, save paths, event schema v1, Tiled, s-file export)
+- `namespace.py` — `GeecsNamespace`: every device of the experiment as a
+  long-lived noun built from the GEECS DB; an acquirer is a `GeecsDetector`
+  (`devices/detector.py`, a stock `StandardDetector` whose shot is its
+  `acq_timestamp` advancing; LabVIEW-native saving as its data logic), a
+  scalar-only device a `CaSnapshotReadable`, every settable a Movable child
+  (`U_S1H.current`)
+- `devices/shot_control.py` — `ShotControl`, the trigger box as a `Movable`
+  over the trigger profile's states and `Pausable`
+- `plans/strict.py` — `geecs_take_reading`: `bps.trigger_and_read` with the
+  `SINGLESHOT` fire between the triggers and the wait, plus the bounded
+  refire; `geecs_per_shot` / `geecs_per_step` bind it into `bp.count` and
+  every N-d scan plan
+- `plans/claim_scan.py` — the day-scoped scan-number claim (the one place
+  a `scans/ScanNNN/` folder comes into existence)
+- `run_engine.py` — `make_run_engine`: one RunEngine with
+  `connect_on_demand` (`preprocessors.py`) installed outermost and the
+  Tiled / s-file callbacks subscribed
 - `qserver/` — the **queueserver worker**: a bluesky-queueserver RE Manager
-  whose startup profile serves `geecs_scan_request_plan` (every ScanRequest —
-  step/noscan/optimize — runs through it as a queue item); GEECS-Console and
-  every other client talk to the manager's queue/status API
-- `devices/ca/` — `CaGenericDetector`, `CaTimestampedReadable`,
-  `CaSnapshotReadable`, `CaMotor`, `CaSettable` + the shared shot-id /
-  contributor / native-saving mixins
-- `ShotController` — arm/disarm/quiesce/single-shot plan stubs driving the
-  shot-control device through the gateway `:SP` PVs
-- plans: reference-paced free-run and strict plan-owned single-shot, one
-  shared orchestration recipe (`plans/orchestration.py`)
+  whose startup profile exports the namespace's devices and the stock plans
+  (`plan_names.GEECS_PLAN_NAMES`); `qs_client/` — the manager client every
+  GEECS client uses
+- `optimization/` — the Xopt/evaluator core (importable, its tests green;
+  re-glued to the native scan path in a later phase)
 
-## Current status
+## Where the rebuild stands
 
-Both acquisition modes (declared by `ScanRequest.capture.acquisition`) are
-hardware-verified over the gateway, including native image saving, external
-asset documents, Tiled persistence, and DG645 shot control:
-
-- **`free_run_time_sync`** — external trigger free-runs; a reference device
-  paces event rows and other devices contribute timestamp-matched data
-  (tolerant of late/missing devices).
-- **`strict_shot_control`** — every device required per shot; true plan-owned
-  single-shot. Requires a reachable shot-control device and a non-empty
-  `ARMED` state.
-
-Both modes write the same versioned event schema (see `EVENT_SCHEMA.md`).
-For `save_images` devices, each event records the detector `acq_timestamp`
-and the save directory; file names remain hardware-native and are joined by
-`acq_timestamp`.
-
-Still open (features, not architecture): legacy TDMS output (scalar
-s-files are exported from Tiled best-effort instead).  Setup/closeout
-actions, optimization scans, and background mode (a noscan with
-`ScanRequest.background` set) are built and live.
+Phase 0 (one camera as a `GeecsDetector`, strict shots under stock
+`bp.count` / `bp.list_scan`) is hardware-accepted
+(`Planning/native_bluesky/04_phase0_measurements.md`).  Phase 1 PR 1
+deleted the `ScanRequest` funnel, the free-run mode, `GeecsSession` and
+the funnel-only devices; the worker registers the stock plans over the
+namespace.  Next: the plan layer (the `claim_scan` preprocessor +
+`PathProvider`, the ScanInfo / s-file / `scan.log` callbacks, the
+registration table with the strict `take_reading` pre-bound), then
+headless hardware acceptance and the worker flip.  Until then the deployed
+worker stays on `master`.
 
 ## Requirements
 
@@ -68,53 +72,50 @@ itself is consumed only as a service (its PVs). DB credentials resolve
 through the standard `~/.config/geecs_python_api/config.ini` →
 `Configurations.INI` chain.
 
-## Quick start (headless session)
+## Quick start (headless)
 
 ```python
-from geecs_bluesky.session import GeecsSession
+import bluesky.plan_stubs as bps
+import bluesky.plans as bp
 
-s = GeecsSession("Undulator")                       # RE + Tiled subscription
-cam = s.detector("UC_Amp2_IR_input", ["centroidx"], save_images=True)
-top = s.contributor("UC_TopView", ["centroidx"])
-jet = s.motor("U_ESP_JetXYZ", "Position.Axis 1")
-s.shot_control("HTU-LaserOFF")                      # from the configs repo
+from geecs_bluesky.config_resolver import ConfigsRepoResolver
+from geecs_bluesky.devices.shot_control import ShotControl
+from geecs_bluesky.namespace import GeecsNamespace
+from geecs_bluesky.plans.strict import geecs_per_step
+from geecs_bluesky.run_engine import make_run_engine
 
-s.scan(detectors=[cam, top], motor=jet, start=4.0, end=5.0, step=0.5,
-       shots_per_step=3)                            # free-run step scan
-s.noscan(detectors=[cam], shots=10, mode="strict")  # plan-owned single-shot
-
-# Or hand it a ScanRequest document (the console/queue vocabulary): this runs
-# the same geecs_scan_request_plan the queueserver worker runs, on s.RE.
-s.run({"mode": "noscan", "capture": {"shots_per_step": 10, "save_sets": ["Amp4In"]}})
+RE = make_run_engine(tiled=True)                      # RE + connect_on_demand + Tiled
+ns = GeecsNamespace.from_experiment("Undulator")      # every DB device, lazily connected
+box = ShotControl.from_profile(
+    ConfigsRepoResolver("Undulator").resolve_trigger_profile("HTU-NoGas"),
+    experiment="Undulator", name="shot_control",
+)
+RE(bps.mv(box, "ARMED"))
+RE(bp.list_scan([ns["UC_Amp4_IR_input"]], ns["U_S1H"].current,
+                [-1, -0.5, 0, 0.5, 1], per_step=geecs_per_step(box)))
+RE(bps.mv(box, "STANDBY"))
 ```
 
-Every session scan claims a real scan number, writes `ScanInfoScanNNN.ini`,
-drives native image saving through the gateway, persists documents to Tiled,
-and exports the legacy `ScanDataScanNNN.txt` / `sNN.txt` files — identical to
-a GUI scan.
-
-Ad-hoc acquisition without touching the data tree: `save_data=False`.
+`tests/test_phase0_hardware.py` is the runnable version of this, with the
+scan-number claim and native saving into the claimed folder.
 
 ## Reading data back
 
-Scalars round-trip from Tiled; native files (images, traces) load through the
-asset contract by date/scan/device — see `geecs_bluesky.assets`
-(`load_asset_from_tiled`) and the `tiled_external_asset_readback` notebook.
+Scalars round-trip from Tiled (`TILED_SETUP.md`); native files (images,
+traces) are named with the row's `acq_timestamp` and join by it.
 
 ## Running the tests
 
 ```bash
-poetry run pytest            # hermetic suite (ophyd-async mock backends)
+poetry run python -u -m pytest tests   # hermetic suite (ophyd-async mock backends)
 ```
 
 Plain `pytest` needs no lab network and no gateway: shots are simulated with
-`set_mock_value` and an RE-loop pacer (`tests/ca_mock_helpers.py`). The
-hardware test is explicit (integration-marked, real scans against lab
-devices):
+`set_mock_value` on `acq_timestamp` (`tests/ca_mock_helpers.py`).  The
+hardware acceptance is explicit (hardware-marked, arms the machine trigger):
 
 ```bash
-poetry run pytest tests/test_scan_request_hardware.py -m integration -s
+GEECS_HW_SCAN_VARIABLE=U_S1H:Current GEECS_HW_SCAN_START=-1 GEECS_HW_SCAN_END=1 \
+GEECS_HW_SCAN_STEP=0.5 GEECS_HW_SAVE=1 \
+poetry run python -u -m pytest tests/test_phase0_hardware.py -m hardware -s
 ```
-
-Save set, trigger profile, and every other name are parameterizable via
-`GEECS_HW_*` env vars — see the module docstring.
