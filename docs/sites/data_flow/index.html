@@ -399,7 +399,7 @@ svg.has-sel .step:not(.on){opacity:.25}
     <li><b>One door.</b> OSPREY reaches GEECS only through GEECS-MCP, which runs next to the queueserver and validates every request against the same config truth the worker uses.</li>
     <li><b>Read freely, write through verbs.</b> Read tools cover scan status, history, results and config listings. Control is limited to submit, stop on scans it owns, and clear queue, each with a request cap and an acknowledge loop.</li>
     <li><b>Same standing as the console.</b> MCP is a peer client of the queueserver, never an engine internal. Anything an agent does shows up in the queue like an operator's scan.</li>
-    <li><b>Two write paths, one rule.</b> Anything with GEECS semantics, a scan or a stop, goes through MCP verbs. A single setpoint can still be written to an `:SP` PV by OSPREY's own EPICS write tool, bounded by a limits database extracted from GEECS device limits, the same way any EPICS client would.</li>
+    <li><b>Two write paths, one rule.</b> Anything with GEECS semantics, a scan or a stop, goes through MCP verbs. A single setpoint can still be written to an <code>:SP</code> PV by OSPREY's own EPICS write tool, bounded by a limits database extracted from GEECS device limits, the same way any EPICS client would.</li>
   </ul>
   <h2 style="margin-top:22px">Why EPICS in the middle</h2>
   <ul class="plain">
@@ -684,7 +684,7 @@ const INFO = {
   "does": "An AI assistant for the control room that can answer questions about scans, propose and submit scan requests, read live values and, within a limits database, set individual setpoints.",
   "how": [
    "OSPREY registers GEECS-MCP as a custom MCP server in its build profile, over HTTP to port 8100 (then the OSPREY machine needs no GEECS install) or over stdio for a dev loop.",
-   "Permission lists mirror the tool names: the read verbs are allowed, the queue and stop verbs ask first. Headless runs gate writes in a hook config that deliberately omits the stop family so a halt is never blocked.",
+   "Permission lists mirror the tool names: the read verbs are allowed, the queue and stop verbs ask first. Headless runs are gated by the profile's write_tools list, which names every queueing verb and deliberately omits the stop family so a halt is never blocked.",
    "Raw `:SP` writes stay OSPREY's own EPICS tool bounded by a limits database. Anything with GEECS semantics goes through MCP verbs. Neither side imports the other; the whole integration is configuration."
   ],
   "now": "Exploratory. The HTU assistant profile exists and the MCP side is deployed. End-to-end live checks are still owed, and one OSPREY-side bug (draft staging resolves plans from the local registry only) is diagnosed and scoped but not fixed.",
@@ -754,7 +754,7 @@ const INFO = {
    "ImageAnalysis for per-image processing pipelines and typed analyzers returning a standard result.",
    "GEECS-Core's `GeecsDevice` for synchronous get, set and subscribe on a device, the successor to the deleted GEECS-PythonAPI."
   ],
-  "now": "The mature layer. ImageAnalysis reached 2.x on 2026-09-08 with the schema-typed analysis configs; GEECS-Core stays deliberately small. Example notebooks live in the docs site.",
+  "now": "The mature layer. ImageAnalysis moved to its 2.x line on 2026-09-05 with the schema-typed analysis configs; GEECS-Core stays deliberately small. Example notebooks live in the docs site.",
   "next": [
    "Nothing structural owed. GEECS-Core stays small on purpose: code belongs there only if every consumer of GEECS devices needs it."
   ],
