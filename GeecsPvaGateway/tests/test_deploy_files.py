@@ -69,7 +69,7 @@ def test_launcher_reinstalls_every_intra_repo_package_and_the_fleet_pins() -> No
     )
     for package in REINSTALLED:
         assert f'"%GEECS_PVA_SOURCE%\\{package}"' in reinstall, package
-    wheels = text.index("--no-index --find-links")
+    wheels = text.index("--no-index --no-deps --find-links")
     assert wheels < text.index("--no-deps --no-build-isolation")
     assert "requirements-fleet.txt" in text
     # The cache path is resolved OUTSIDE the parenthesized block (cmd expands
@@ -79,7 +79,6 @@ def test_launcher_reinstalls_every_intra_repo_package_and_the_fleet_pins() -> No
         'if not "%GEECS_PVA_SOURCE%"=="" ('
     )
     # The pin file is the closure: no dependency resolution on either side.
-    assert "--no-index --no-deps --find-links" in text
     assert "--no-deps" in (DEPLOY / "stage_wheels.sh").read_text()
 
 
