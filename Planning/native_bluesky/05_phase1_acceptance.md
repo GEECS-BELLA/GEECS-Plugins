@@ -90,6 +90,10 @@ after.
 **Cadence.** Scan106: `[2.0, 3.0, 2.0, 3.0, 2.0, 3.0, 2.0, 3.0, 2.0]` —
 through the manager the repeat shot lost an edge too (see M6).
 
+Re-run after the #822 review (the restore path now waits for the
+manager to go idle and retries): Scan001 of 26_0911, `1 passed in 35 s`,
+restore queued and ran, setpoint 0.0.
+
 **Two lessons from the first run.** (1) A status poll right after
 `queue_start` still reads idle — "done" is the item reaching the
 manager's history (`_wait_for_item`). (2) The restore `mv` submitted
