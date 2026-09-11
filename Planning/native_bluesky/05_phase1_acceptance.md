@@ -153,6 +153,35 @@ counts), not a faster fire.  Overlapping the magnet move with the
 previous shot's wait would recover the moved step (2 s → still not 1 s)
 — a plan-layer option, not taken here.
 
+## M7 — the same runs at a 1 ms exposure (Scans 002 and 003 of 26_0911)
+
+**Purpose.** Test M6's reading: if the ~0.8 s edge-to-message latency is
+the camera's 0.70 s exposure, a short exposure should restore the margin
+and both cadence losses should go.  Sam set `UC_Amp4_IR_input`'s
+exposure to 1 ms (readback 0.001016 s).
+
+**Result.**
+
+| | 0.70 s exposure (M4–M6) | 1 ms exposure (M7) |
+|---|---|---|
+| stamp → RE event (edge-to-message minus the drain) | 0.75 s | **0.05 s** |
+| in-process `count`, stamp gaps | `[2.0, 1.0, 1.0, 1.0, 1.0]` | `[1.0, 1.0, 1.0, 1.0, 1.0]` — 1 Hz from the first shot |
+| per-shot phases (fire put / frame wait) | 108 / 886 ms | 140–228 / 766–781 ms |
+| preset through the manager, `scan` 5 × 2 | `[2.0, 3.0, 2.0, 3.0, …]` | `[1.0, 2.0, 1.0, 2.0, 1.0, 2.0, 1.0, 2.0, 1.0]` |
+| moved step | third edge (3 s) | **second edge (2 s)**; step period 3 s |
+
+The plan layer did not change between the two.  The repeat shot through
+the manager's worker process is back at 1 Hz (the ~650 ms of margin now
+covers its per-message overhead), and a moved step lands on the second
+edge, as the 1.3 s move alone dictates.  The fire put itself read
+140–230 ms this time (108 ms in M6) — the gateway put's own variance,
+inside the margin either way.  Files, ScanInfo, s-file bins and the
+restore all as in M5 (`1 passed in 31 s`).
+
+**So (§11):** the per-shot budget at 1 Hz is the camera's exposure +
+readout + push, the fire put, and whatever runs per event; the plan
+layer's own ~7 ms is noise.  A long exposure eats the period directly.
+
 ## The worker flip (2026-09-10, prepared; restart pending)
 
 What the flip is: `~/qs-checkout` (the deployed worker's clone, shared

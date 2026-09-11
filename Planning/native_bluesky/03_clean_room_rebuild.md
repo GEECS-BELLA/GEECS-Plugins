@@ -699,8 +699,10 @@ Still open, for Sam:
    phase-locked to the edges.  On `UC_Amp4_IR_input` (0.70 s exposure)
    edge → message ≈ 0.8 s and the fire put ≈ 108 ms, so the strict path
    has ~100 ms of per-shot margin beyond its own ~7 ms — it holds in
-   process and not in the manager's worker process (2 s repeats); a
-   shorter exposure buys margin, the plan layer cannot.  A 0.5 A `U_S1H` move is a
+   process and not in the manager's worker process (2 s repeats).  At a
+   1 ms exposure (M7) both losses go: 1 Hz repeats through the manager,
+   a moved step on the second edge — the exposure sets the margin, the
+   plan layer cannot.  A 0.5 A `U_S1H` move is a
    1.3 s blocking set, so a moved step lands on the third edge (M2's
    second was a faster move that day).  Strict single-shot is therefore
    not the 1 Hz mode; phase 2's gated batch is.  Recorded here so the
