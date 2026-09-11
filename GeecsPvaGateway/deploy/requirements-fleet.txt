@@ -1,0 +1,12 @@
+# External (PyPI) dependencies the camera-server fleet installs on every
+# restart, from the wheel cache beside the share clone (DEPLOYMENT.md,
+# "Rollout"): pull-on-restart reinstalls the intra-repo packages with
+# --no-deps, so a dependency added to pyproject.toml AFTER a box was
+# bootstrapped reaches it only through this file.  Pin exact versions; stage
+# the wheels with deploy/stage_wheels.sh; every name here must also be a
+# dependency in pyproject.toml and satisfy its specifier (pinned by
+# tests/test_deploy_files.py).  This file is the CLOSURE: both the staging
+# download and the launcher install run --no-deps, so a pin whose wheel
+# needs something not already in the venv must pin that too (a numpy or
+# p4p bump stays a re-bootstrap).
+h5py==3.16.0

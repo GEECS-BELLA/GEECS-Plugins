@@ -67,10 +67,11 @@ logger = logging.getLogger(__name__)
 def available() -> bool:
     """Whether the writer's container library is installed on this host.
 
-    ``h5py`` is a bootstrap-time dependency (``DEPLOYMENT.md``: PyPI deps are
-    frozen at bootstrap), so a box not yet re-bootstrapped serves no plugin
-    PVs at all — the worker's host list keeps such cameras on LabVIEW-native
-    saving — rather than PVs whose ``Capture`` can only fail.
+    ``h5py`` reaches a camera server as a fleet pin installed on restart
+    (``deploy/requirements-fleet.txt`` from the share's wheel cache), so a
+    box whose restart could not reach the cache serves no plugin PVs at all
+    — the worker's host list keeps such cameras on LabVIEW-native saving —
+    rather than PVs whose ``Capture`` can only fail.
     """
     try:
         import h5py  # noqa: F401
