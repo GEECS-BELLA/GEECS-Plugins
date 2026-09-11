@@ -72,9 +72,9 @@ class ScalarsView(Device):
         object the view covers.
         """
         owner = self._owner
-        scalars = getattr(owner, "_scalars", None)  # a GeecsDetector's columns
-        if scalars is not None:
-            return any(obj is s for s in scalars)
+        signals = getattr(owner, "_scalar_signals", None)  # a GeecsDetector's columns
+        if signals is not None:
+            return any(obj is s for s in signals())
         read = getattr(obj, "read", None)  # a StandardReadable's registered readers
         return read is not None and read in getattr(owner, "_read_funcs", ())
 

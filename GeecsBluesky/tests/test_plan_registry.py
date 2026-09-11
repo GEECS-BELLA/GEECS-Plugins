@@ -300,3 +300,4 @@ def test_scalars_view_yields_to_the_owners_scanned_child(RE, box, profiles):
     connect_mock(RE, other)
     follow_setpoint(other)
     assert not magnet.scalars.covers(other) and magnet.scalars.covers(magnet.current)
+    assert cam.scalars.covers(cam.acq_timestamp) and cam.scalars.covers(cam.meancounts)
