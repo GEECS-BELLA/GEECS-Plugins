@@ -56,6 +56,8 @@ ROSTER = DeviceRoster(
             ),  # enum; collides with trigger()
             row("localsavingpath", settable=True, choices="path"),
             row("image", choices="image"),  # non-scalar
+            row("bakground image", choices="image"),  # pushed only on demand
+            row("processed image", choices="image"),
         ],
         "U_S1H": [
             row(
@@ -392,6 +394,9 @@ def test_camera_on_a_plugin_host_is_plugin_backed() -> None:
     cam = ns.devices["UC_TestCam"]
     assert cam.plugin_backed
     assert cam.hdf.capture.source == "pva://testexp:uc_testcam:image:hdf1:Capture_RBV"
+    # Only the primary image variable is captured: the DB's other image
+    # variables are pushed only when an operation produces them.
+    assert not hasattr(cam, "hdf_bakground_image") and len(cam._hdf_ios) == 1
     # The plugin's IO is never a telemetry object (only the detector's scalars are).
     assert cam.hdf not in ns.telemetry()
     assert all(not hasattr(obj, "num_captured") for obj in ns.telemetry())

@@ -109,6 +109,29 @@ NATIVE_SAVE_VARIABLES: frozenset[str] = frozenset({"save", "localsavingpath"})
 
 _TRIGGER_VARIABLE = re.compile("trig", re.IGNORECASE)
 
+#: The image variable a camera's frames are: what LabVIEW saves natively.
+PRIMARY_IMAGE_VARIABLE = "image"
+
+
+def primary_image_variable(rows: Sequence[Mapping[str, Any]]) -> list[str]:
+    """The one image variable the file plugin captures for a camera.
+
+    A camera's DB rows can list several image-typed variables
+    (``UC_Amp4_IR_input``: ``image``, ``bakground image``, ``processed
+    image``, found live 2026-09-11), but only the primary one is pushed on
+    every acquisition — the others exist when an operation produces them,
+    so a plugin armed on one waits forever.  ``image`` when the DB lists
+    it, else the first image variable; a second capture stream is a
+    deliberate later choice, not a default.
+    """
+    names = image_variables(rows)
+    if not names:
+        return []
+    for name in names:
+        if name.lower() == PRIMARY_IMAGE_VARIABLE:
+            return [name]
+    return names[:1]
+
 
 # --------------------------------------------------------------------- rules
 def looks_triggerable(rows: Sequence[Mapping[str, Any]], devicetype: str = "") -> bool:
@@ -416,7 +439,7 @@ class GeecsNamespace:
             # LabVIEW-native path stays on beside it — PNG dual-write until
             # PNG retirement (#738), the parity evidence of the rollout.
             plugin_vars = (
-                image_variables(rows)
+                primary_image_variable(rows)
                 if self._path_provider is not None
                 and roster.endpoints.get(device) in self._file_plugin_hosts
                 else []

@@ -188,9 +188,13 @@ contract mints the lowercase GEECS part; the suffixes are the
 areaDetector names verbatim (mixed case), because they are the stock
 `NDFileHDF5IO` contract and renaming them would mean an IO subclass of
 our own.  Example: `undulator:uc_amp4_ir_input:image:hdf1:Capture_RBV`.
-Per image variable, not per camera (a camera with two image variables gets
-two plugins and two data logics, the second with `datakey_suffix =
-"-<variable>"`), answering #806's Q3.
+Per image variable on the gateway side (every image variable gets its
+PVs), answering #806's Q3 — but the **worker captures the primary one
+only** (`image`, else the first): found on hardware 2026-09-11 that
+`UC_Amp4_IR_input` lists `bakground image` and `processed image` too, and
+those are pushed only when an operation produces them, so a plugin armed
+on one never sees a frame and `prepare` fails.  A second capture stream
+(`datakey_suffix = "-<variable>"`) is a deliberate later choice.
 
 The set is exactly what `NDFileHDF5IO`'s inheritance chain connects (the
 connector connects every annotated signal, so every one must exist):

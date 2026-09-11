@@ -519,11 +519,13 @@ class GeecsDetector(StandardDetector):
         ``stage`` (see :class:`LvNativeFileDataLogic`).  Without either the
         detector records scalars only.
     hdf_plugins :
-        ``(image variable, path provider)`` per file plugin the camera's
-        gateway serves (#806): each becomes a :class:`GeecsHdfIO` child
-        (``hdf``, then ``hdf_<variable>``) driven by the stock
-        ``ADHDFDataLogic``; the first writes the ``<name>`` stream key, the
-        others ``<name>-<variable>``.  With a *path_provider* as well the
+        ``(image variable, path provider)`` per file plugin to capture
+        (#806): each becomes a :class:`GeecsHdfIO` child (``hdf``, then
+        ``hdf_<variable>``) driven by the stock ``ADHDFDataLogic``; the
+        first writes the ``<name>`` stream key, the others
+        ``<name>-<variable>``.  The namespace passes the camera's primary
+        image variable only (a secondary one is pushed only when an
+        operation produces it, so its plugin would never arm).  With a *path_provider* as well the
         camera also writes its native files (dual-write, until PNG
         retirement #738); without one a stale ``save=on`` is still cleared.
     shot_timeout :
