@@ -115,6 +115,45 @@ Do **not** store entries as structured fields keyed by template headings.
 That is the trap: it makes a template edit retroactively change or hide
 historical content, and turns every "can we add a field" into a migration.
 
+## Deferred decisions — do not re-litigate, do not lose
+
+Reviewed and deferred deliberately during phase 01 (owner ruling,
+2026-09-11). Each is recorded here so a later phase does not re-open it by
+accident, and so the ones with a due date actually get done.
+
+### `scan_reader` stays in this package
+
+An adversarial review argued it is pure logic that belongs in
+`geecs_data_utils`, next to `ScanPaths`, `scans_database/` and
+`scan_log_loader`. The argument is good and the owner agreed with its
+*direction* — but not its conclusion, for a specific reason:
+
+> the data-utils package in this context is quite weak — fairly convoluted
+> and confusing. A simple 'scan info' reader that doesn't care about paths
+> seems like the right thing.
+
+So the shape this package wants is a *pure* reader with no path-object
+ceremony, and moving it under `ScanPaths` would bind it to the very design
+that needs fixing. The parse itself **is** shared
+(`read_scan_info_file`, `first_log_timestamp`) — that was the half worth
+doing now. A little duplication in the day-walking and the summary model is
+accepted in exchange.
+
+**OWED, at the arc's merge to `master`:** file an issue to review
+`ScanPaths` / `ScanData` and extract their pure parts into path-free
+utilities. This package's `scan_reader` is a sketch of what that looks
+like. Do not let the arc land without filing it — the whole point of
+accepting duplication now is that someone later removes it.
+
+### Also deferred, no due date
+
+| Item | Why |
+|---|---|
+| `ScanSummary` vs `scans_database.entries.ScanMetadata` overlap | Same reasoning: consolidating means adopting the model layer under review. Revisit with the ScanPaths issue above. |
+| Two day views — the portal's `/day/` (Tiled runs) and `/log/day/` (scan folders) — can disagree | A scan Tiled never received appears in one; a folder predating the catalog appears in the other. Needs an owner ruling on which is canonical, not an implementation choice. |
+| Package name vs `geecs_data_utils.scan_log_loader` and `GEECS-LogTriage`, which read `scan.log` | This package is about the *logbook*, not `scan.log`, and `scan_reader` now imports `scan_log_loader`. Renaming costs one commit today and more later. |
+| Separating "running" from "aborted" from churn, for folders with no ScanInfo | Open, not impossible — `scan.log` is in every such folder. Add a `running` status when it is done. |
+
 ## Deployment
 
 No service, port, or unit of its own. GEECS-DataPortal mounts it:

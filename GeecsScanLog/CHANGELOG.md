@@ -73,6 +73,9 @@ project adheres to semantic versioning.
 - Day navigation: a date picker, previous/next-day steps, a "back to today"
   link, and quick links centred on the shown date so stepping forward is as
   easy as stepping back.
+- `CLAUDE.md` records the deferred decisions from phase 01's review,
+  including the owed issue to review `ScanPaths`/`ScanData` and extract
+  their pure parts — the price of the duplication accepted here.
 - `geecs_scan_log.router.create_log_router` — an `APIRouter` the Data
   Portal mounts at `/log`, serving `/log/day/{date}` and a JSON peer at
   `/log/api/day/{date}`.
