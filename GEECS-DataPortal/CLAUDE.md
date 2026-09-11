@@ -11,8 +11,15 @@ this package; the architecture rules below are its distillation.
 - **Read-only, except explicit analysis runs and the config editor**
   (charter amendments: owner rulings 2026-09-01 —
   `Planning/data_portal/04_analysis_run_design.md` — and 2026-09-06).
-  The portal itself has no write verbs: no annotations.  Two exceptions,
-  both explicit opt-ins.  **The config editor** (`--config-editor`,
+  The portal itself has no write verbs: no annotations.  Three
+  exceptions, all explicit opt-ins.  **The scan logbook**
+  (`--scan-log`, 0.22.0) mounts `geecs_scan_log`'s router at `/log`
+  behind the `log` extra: a day-document view over scan *folders*,
+  read-only in this phase — it renders `ScanInfoScanNNN.ini` and stores
+  nothing (pinned in `tests/test_scan_log_mount.py`).  It needs
+  `--experiment`, and warn-and-skips without one: the logbook reads one
+  experiment's share and carries no facility default.  **The config
+  editor** (`--config-editor`,
   0.21.0) mounts ScanAnalysis' `config_editor` router at `/configs` over
   the `--processing-configs` tree: it writes analysis-config YAML into
   **that tree only** (the share copy of the configs repo, uncommitted —
@@ -142,14 +149,17 @@ geecs_portal/
   static/        # the vendored Plotly bundle (the ONE committed JS asset)
   __main__.py    # CLI (geecs-data-portal): real TiledScanCatalog + uvicorn;
                  #   --config-editor mounts scan_analysis.config_editor at /configs
+                 #   --scan-log     mounts geecs_scan_log at /log (needs --experiment)
   templates/     # base.html / day.html / run.html (Jinja2, dark palette)
 tests/
   test_app.py        # TestClient over FakeCatalog/StubCatalog (+ /api)
   test_resources.py  # tmp scan trees: gallery routes + tier ladder + union
   test_analysis_runs.py  # the run ladder over an injected fake analyzer
+  test_scan_log_mount.py # /log is opt-in, and gated on --experiment
 ```
 
 Routes: `/` (redirect to today) · `/day/{iso}` (run list; `?experiment=`)
+· `/log/day/{iso}` + `/log/api/day/{iso}` (the scan logbook, `--scan-log`)
 · `/run/{uid}` (the scan page: rail + Overview/Plot/Images/Analysis tabs
 — Analysis only when runs are possible, see below;
 `?tab=&y=&x=&view=&filters=&bincfg=&display=` is the Plot-tab state,

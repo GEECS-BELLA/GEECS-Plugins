@@ -1003,8 +1003,29 @@ type = "directory"
 url = "../GEECS-Data-Utils"
 
 [[package]]
+name = "geecs-scan-log"
+version = "0.1.0"
+description = "Scan logbook: a day-document view over scan folders, with human commentary stored beside the data"
+optional = true
+python-versions = ">=3.11,<3.12"
+groups = ["main"]
+markers = "extra == \"log\""
+files = []
+develop = true
+
+[package.dependencies]
+fastapi = ">=0.110"
+geecs-data-utils = {path = "../GEECS-Data-Utils", develop = true}
+jinja2 = ">=3.1"
+pydantic = ">=2.7"
+
+[package.source]
+type = "directory"
+url = "../GeecsScanLog"
+
+[[package]]
 name = "geecs-schemas"
-version = "0.19.0"
+version = "0.20.0"
 description = "Versioned Pydantic schemas for GEECS scanner configs (scan requests, save sets, scan variables, trigger profiles, action plans) plus legacy-YAML converters."
 optional = true
 python-versions = ">=3.11,<3.12"
@@ -1341,7 +1362,7 @@ all = ["coverage (>=7.10.0)", "hypothesis (>=6.141.1)", "mypy (>=1.11.2)", "pyte
 
 [[package]]
 name = "imageanalysis"
-version = "2.0.0"
+version = "2.2.0"
 description = "Central sub-repository for online and offline analysis of BELLA exeriments' images."
 optional = true
 python-versions = ">=3.11,<3.12"
@@ -3825,7 +3846,7 @@ files = [
 
 [[package]]
 name = "scananalysis"
-version = "1.19.0"
+version = "1.21.0"
 description = "Modules for performing analyses routines on full scans"
 optional = true
 python-versions = ">=3.11,<3.12"
@@ -4834,8 +4855,9 @@ cffi = ["cffi (>=1.17,<2.0) ; platform_python_implementation != \"PyPy\" and pyt
 
 [extras]
 analysis = ["imageanalysis", "scananalysis"]
+log = ["geecs-scan-log"]
 
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.11,<3.12"
-content-hash = "de0895afbca960f5cc7d542c1d405afecd0688560b29ab9c44ad284e9ad88a15"
+content-hash = "4ecf236b166e5773000580f62a09a443ecaa2f6a3ce9573e8f9007a48b5cd801"

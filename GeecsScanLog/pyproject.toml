@@ -1,0 +1,22 @@
+[tool.poetry]
+name = "geecs-scan-log"
+version = "0.1.0"
+description = "Scan logbook: a day-document view over scan folders, with human commentary stored beside the data"
+authors = ["GEECS-BELLA"]
+readme = "README.md"
+packages = [{ include = "geecs_scan_log" }]
+
+[tool.poetry.dependencies]
+python = ">=3.11,<3.12"
+fastapi = ">=0.110"
+jinja2 = ">=3.1"
+pydantic = ">=2.7"
+geecs-data-utils = { path = "../GEECS-Data-Utils", develop = true }
+
+[tool.poetry.group.dev.dependencies]
+pytest = ">=8.0"
+httpx = ">=0.27"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

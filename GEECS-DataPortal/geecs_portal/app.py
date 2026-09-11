@@ -349,6 +349,7 @@ def create_app(
     processing_config_dir: Optional[Path] = None,
     analysis_factory: Optional[analysis_runs.AnalyzerFactory] = None,
     config_editor: bool = False,
+    scan_log: bool = False,
 ) -> FastAPI:
     """Build the portal application over an injected catalog.
 
@@ -379,6 +380,11 @@ def create_app(
     -------
     FastAPI
         The configured application.
+    scan_log : bool, default False
+        Mount the scan logbook (``geecs_scan_log``) at ``/log``. Requires
+        ``default_experiment``, since the logbook reads one experiment's
+        share and this package carries no facility default. ``False``
+        leaves ``/log`` unserved.
     config_editor : bool, default False
         Mount the analysis config editor (``scan_analysis.config_editor``)
         at ``/configs`` over the same ``processing_config_dir`` tree, with a
@@ -1879,5 +1885,19 @@ def create_app(
                 prefix="/configs",
             )
             config_editor_enabled = True
+
+    if scan_log:
+        if not default_experiment:
+            logger.warning(
+                "scan log requested but no default experiment; not mounting /log"
+            )
+        else:
+            try:
+                from geecs_scan_log import create_log_router
+            except ImportError as exc:  # the log extra is not installed
+                logger.warning("scan log requested but not installed: %s", exc)
+            else:
+                app.include_router(create_log_router(default_experiment), prefix="/log")
+                logger.info("scan log mounted at /log for %s", default_experiment)
 
     return app
