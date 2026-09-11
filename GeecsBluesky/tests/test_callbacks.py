@@ -296,7 +296,11 @@ def _feed_stack_run(
     import numpy as np
 
     from geecs_bluesky.callbacks import StackCheckCallback
-    from geecs_data_utils.io.scan_stack import FRAMES_DATASET, TIMESTAMPS_DATASET
+    from geecs_data_utils.io.scan_stack import (
+        FRAMES_DATASET,
+        LABVIEW_EPOCH_OFFSET,
+        TIMESTAMPS_DATASET,
+    )
 
     scan_dir = tmp_path / "Scan009"
     device_dir = scan_dir / "UC_Cam"
@@ -330,7 +334,7 @@ def _feed_stack_run(
             {
                 "descriptor": "d1",
                 "seq_num": seq,
-                "data": {"uc_cam-acq_timestamp": stamp},
+                "data": {"uc_cam-acq_timestamp": stamp + LABVIEW_EPOCH_OFFSET},
             },
         )
         if owns_frame:
