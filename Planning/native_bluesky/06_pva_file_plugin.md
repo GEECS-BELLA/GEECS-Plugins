@@ -373,6 +373,12 @@ Tiled descriptor patch stay until PNG retirement (#738).
 
 ## 8. Rollout and acceptance (hardware, after the PR merges into the feature branch)
 
+**Done 2026-09-11 on 192.168.6.100 / `UC_Amp4_IR_input` (steps 1–4, from
+the PR branch before the merge): `07_806_acceptance.md` — Scan007, 5
+frames == 5 rows == 5 PNGs, pixel-identical, 1 Hz held, the service writes
+the share over UNC.  Owed: the Tiled server's `readable_storage` +
+file-locking env, the fleet roll (step 5).**
+
 1. **Share clone → feature branch.**  The fleet pin is the share clone's
    commit; the plugin ships inert (no PVs unless `h5py` imports, no
    detector uses it unless the host is listed).
