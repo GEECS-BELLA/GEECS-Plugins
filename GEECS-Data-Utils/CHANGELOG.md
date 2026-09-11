@@ -4,17 +4,28 @@ All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
-## [0.27.1] - 2026-09-11
+## [0.28.0] - 2026-09-11
 
 ### Changed
 
 - `io.scan_stack` reads the areaDetector NDFileHDF5 layout the PVA
   gateway's file plugin writes (#806): `FRAMES_DATASET =
-  "/entry/data/data"`, `TIMESTAMPS_DATASET =
-  "/entry/instrument/NDAttributes/acq_timestamp"`; `is_stack_file`
-  dispatches on those datasets instead of the retired `geecs-capture/*`
-  schema attribute.  Callers (`ShotRef`, `read_shot`,
-  `read_shot_for_acq_timestamp`, `find_stack_file`) are unchanged.
+  "/entry/data/data"`, `ATTRIBUTES_GROUP`, `TIMESTAMPS_DATASET =
+  "/entry/instrument/NDAttributes/acq_timestamp"` — the one home for the
+  layout (the plugin and the worker's stack check import them);
+  `is_stack_file` dispatches on those datasets.  Every reader opens
+  through `open_stack` with HDF5 file locking **off** (the stacks are
+  written on Windows and read over SMB).  Callers (`ShotRef`,
+  `read_shot`, `read_shot_for_acq_timestamp`, `find_stack_file`) are
+  unchanged.
+
+### Removed
+
+- The `geecs-capture/1` layout (`/frames` + `/acq_timestamp`, `schema`
+  root attribute) written by the retired capture daemon (GeecsBluesky
+  ≤ 0.80): stacks in that layout on the share (scans since late August
+  2026) now read as "not captured" — the PNGs beside them remain the
+  record.  No converter, by the clean-slate rule.
 
 ## [0.27.0] - 2026-09-10
 

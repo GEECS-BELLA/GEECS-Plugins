@@ -45,8 +45,22 @@ LABVIEW_EPOCH_OFFSET = 2_082_844_800
 
 #: The frame stack, ``(N, H, W)`` — areaDetector's NDFileHDF5 dataset path.
 FRAMES_DATASET = "/entry/data/data"
+#: The per-frame attribute datasets' group (NDFileHDF5's ``NDAttributes``).
+ATTRIBUTES_GROUP = "/entry/instrument/NDAttributes"
 #: The per-frame ``acq_timestamp`` attribute dataset, ``(N,)`` float64 Unix s.
-TIMESTAMPS_DATASET = "/entry/instrument/NDAttributes/acq_timestamp"
+TIMESTAMPS_DATASET = f"{ATTRIBUTES_GROUP}/acq_timestamp"
+
+
+def open_stack(path: "str | Path", mode: str = "r") -> "h5py.File":
+    """Open a stack for reading with HDF5 file locking **off**.
+
+    The stacks live on an SMB share written from Windows; the HDF5 lock is
+    the known failure mode across it (``06_pva_file_plugin.md`` §5), so
+    every reader in this module opens through here.  Read only after the
+    scan closed (the plugin's ``finalized`` root attribute).
+    """
+    return h5py.File(path, mode, locking=False)
+
 
 _PathBase = type(Path())
 
@@ -106,7 +120,7 @@ def is_stack_file(path: Path) -> bool:
     if not path.is_file():
         return False
     try:
-        with h5py.File(path, "r") as f:
+        with open_stack(path) as f:
             return FRAMES_DATASET in f and TIMESTAMPS_DATASET in f
     except OSError:
         return False
@@ -137,7 +151,7 @@ def read_stack_timestamps(path: Path, *, labview_epoch: bool = False) -> np.ndar
         When true, convert from the stored Unix seconds to LabVIEW-epoch
         seconds (the convention of s-file columns and native filenames).
     """
-    with h5py.File(path, "r") as f:
+    with open_stack(path) as f:
         ts = np.asarray(f[TIMESTAMPS_DATASET][:], dtype=float)
     return ts + LABVIEW_EPOCH_OFFSET if labview_epoch else ts
 
@@ -154,7 +168,7 @@ def read_shot(ref: "ShotRef | Path", shot_index: int | None = None) -> np.ndarra
         shot_index = getattr(ref, "shot_index", None)
         if shot_index is None:
             raise TypeError("read_shot needs a ShotRef or an explicit shot_index")
-    with h5py.File(ref, "r") as f:
+    with open_stack(ref) as f:
         frames = f[FRAMES_DATASET]
         if not 0 <= shot_index < frames.shape[0]:
             raise IndexError(
@@ -259,7 +273,7 @@ def read_shot_for_acq_timestamp(
         ``(frame_index, frame)``, or ``None`` when the shot has no frame
         (the caller must refuse — never serve a neighbour).
     """
-    with h5py.File(path, "r") as f:
+    with open_stack(path) as f:
         stamps = np.asarray(f[TIMESTAMPS_DATASET][:], dtype=float)
         if labview_epoch:
             stamps = stamps + LABVIEW_EPOCH_OFFSET

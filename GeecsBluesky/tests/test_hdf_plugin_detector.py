@@ -221,15 +221,43 @@ def test_discard_uncollected_rewinds_to_the_last_referenced_frame(
 
 
 def test_mask_missed_shot_blanks_by_type() -> None:
+    """Every kind of stale value is blanked: floats, ints, bools, numpy scalars, arrays."""
+    import numpy as np
+
+    def reading(value):
+        return {"value": value, "timestamp": 1.0, "alarm_severity": 0}
+
     masked = mask_missed_shot(
         {
-            "a": {"value": 3.5, "timestamp": 1.0, "alarm_severity": 0},
-            "b": {"value": 7, "timestamp": 1.0, "alarm_severity": 0},
-            "c": {"value": "on", "timestamp": 1.0, "alarm_severity": 0},
+            "a": reading(3.5),
+            "b": reading(7),
+            "c": reading("on"),
+            "d": reading(True),
+            "e": reading(np.int64(4)),
+            "f": reading(np.arange(3.0)),
         }
     )
-    assert math.isnan(masked["a"]["value"]) and math.isnan(masked["b"]["value"])
+    for key in ("a", "b", "d", "e"):
+        assert math.isnan(masked[key]["value"]), key
     assert masked["c"]["value"] == ""
+    assert masked["f"]["value"].shape == (3,) and np.isnan(masked["f"]["value"]).all()
+
+
+def test_prepare_failure_carries_the_plugins_reason(
+    RE: RunEngine, tmp_path: Path
+) -> None:
+    """The plugin's WriteMessage rides the prepare exception as a note."""
+    cam = _camera(RE, tmp_path)
+    set_mock_value(cam.hdf.file_path_exists, False)  # the stock logic refuses
+    set_mock_value(
+        cam.hdf.write_message, "FilePath does not exist (the plugin never creates it)"
+    )
+    _run(RE, lambda: cam.stage())
+    with pytest.raises(FileNotFoundError) as info:
+        _run(RE, lambda: cam.prepare(STRICT_TRIGGER_INFO))
+    assert any(
+        "never creates it" in note for note in getattr(info.value, "__notes__", [])
+    )
 
 
 def test_plugin_path_provider_hands_out_both_paths(tmp_path: Path) -> None:
@@ -251,8 +279,10 @@ def test_plugin_path_provider_hands_out_both_paths(tmp_path: Path) -> None:
 
 def test_file_plugin_hosts_reads_the_config_keys(tmp_path: Path) -> None:
     ini = tmp_path / "config.ini"
+    # The PVA fleet's addr_list is NOT the plugin list (a box in it may not
+    # be re-bootstrapped): absent key → no host.
     ini.write_text("[pva]\naddr_list = 192.168.6.100 192.168.6.101\n")
-    assert file_plugin_hosts(ini) == {"192.168.6.100", "192.168.6.101"}
+    assert file_plugin_hosts(ini) is None
     ini.write_text(
         "[pva]\naddr_list = 192.168.6.100 192.168.6.101\n"
         "file_plugin_addr_list = 192.168.6.101\n"

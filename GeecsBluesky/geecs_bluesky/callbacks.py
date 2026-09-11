@@ -33,7 +33,9 @@ write **into** the claimed folder only — never creating it.
 from __future__ import annotations
 
 import logging
+import threading
 from collections.abc import Mapping
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -62,6 +64,8 @@ class _RunCallback:
                 self.on_event(doc)
             elif name == "stream_resource":
                 self.on_stream_resource(doc)
+            elif name == "stream_datum":
+                self.on_stream_datum(doc)
             elif name == "stop":
                 start = self._starts.pop(str(doc.get("run_start")), None)
                 if start is not None:
@@ -82,6 +86,9 @@ class _RunCallback:
 
     def on_stream_resource(self, doc: Document) -> None:
         """Hook: an external data resource was declared."""
+
+    def on_stream_datum(self, doc: Document) -> None:
+        """Hook: a slice of an external resource was referenced."""
 
     def on_stop(self, start: dict[str, Any], stop: Document) -> None:
         """Hook: the run closed."""
@@ -306,8 +313,6 @@ class ScanLogCallback(_RunCallback):
 
 
 # ------------------------------------------------------------- stack check
-#: The frames dataset of the file plugin's stacks (areaDetector NDFileHDF5).
-_FRAMES_DATASET = "/entry/data/data"
 #: Stamps closer than this are the same shot (ms rounding of a double).
 _STAMP_TOLERANCE_S = 1e-3
 
@@ -316,24 +321,45 @@ class StackCheckCallback(_RunCallback):
     """Assert, per image stack, that the frames on disk are the rows' shots.
 
     A plugin-backed camera's stream resource names its stack
-    (``application/x-hdf5``, dataset ``/entry/data/data``) and its data key
-    ``<name>``; the primary rows carry ``<name>-acq_timestamp`` (``NaN`` for
-    an empty shot).  At the stop document the stack's own stamps are read
-    (``geecs_data_utils.io.scan_stack``) and compared with the rows': the
-    counts must agree and every row's stamp must be its frame's.  The
-    verdict goes to ``scan.log`` (subscribed before the log closes).
+    (``application/x-hdf5``, dataset ``FRAMES_DATASET``) and its data key
+    ``<name>``; its stream datums say which rows own a frame
+    (``seq_nums``, assigned by the RunEngine bundler) — a partial row owns
+    none even when the camera delivered (its frame was rewound), so the
+    rows are taken from the datums, never from the stamp column alone.
+    The stack's own stamps are read and compared with those rows'
+    ``<name>-acq_timestamp``: the frame count must be the datums' total
+    width and every referenced row's stamp its frame's.
+
+    The stop document precedes ``unstage`` (``Capture=0``, when the plugin
+    finalizes and closes the file), and a run callback must not block the
+    RunEngine — so the check runs on a small thread that waits, bounded,
+    for the ``finalized`` root attribute before reading (lock-free, via
+    ``geecs_data_utils.io.scan_stack.open_stack``; design §5).  By then
+    ``scan.log`` is closed, so the verdict is appended to it directly as
+    well as logged.
+
+    Parameters
+    ----------
+    finalize_timeout :
+        Seconds to wait for the plugin to finalize the file.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, finalize_timeout: float = 15.0) -> None:
         super().__init__()
+        self._finalize_timeout = finalize_timeout
         self._primary: dict[str, str] = {}  # descriptor uid → run uid
-        self._rows: dict[str, list[dict[str, Any]]] = {}  # run uid → rows
+        self._rows: dict[str, dict[int, dict[str, Any]]] = {}  # run uid → seq → data
         self._stacks: dict[str, dict[str, str]] = {}  # run uid → data key → uri
+        self._resources: dict[str, tuple[str, str]] = {}  # resource uid → (run, key)
+        self._owned: dict[str, dict[str, list[range]]] = {}  # run → key → seq ranges
+        self._threads: list[threading.Thread] = []
 
     def on_start(self, start: dict[str, Any]) -> None:
         """Open the buffers for the run."""
-        self._rows[str(start["uid"])] = []
-        self._stacks[str(start["uid"])] = {}
+        uid = str(start["uid"])
+        self._rows[uid] = {}
+        self._stacks[uid] = {}
+        self._owned[uid] = {}
 
     def on_descriptor(self, doc: Document) -> None:
         """Remember which descriptors are the primary stream's."""
@@ -341,67 +367,110 @@ class StackCheckCallback(_RunCallback):
             self._primary[str(doc["uid"])] = str(doc["run_start"])
 
     def on_event(self, doc: Document) -> None:
-        """Buffer a primary row."""
+        """Buffer a primary row by its sequence number."""
         run_uid = self._primary.get(str(doc.get("descriptor")))
         if run_uid is not None and run_uid in self._rows:
-            self._rows[run_uid].append(dict(doc.get("data") or {}))
+            self._rows[run_uid][int(doc["seq_num"])] = dict(doc.get("data") or {})
 
     def on_stream_resource(self, doc: Document) -> None:
         """Remember each image stack the run references."""
+        from geecs_data_utils.io.scan_stack import FRAMES_DATASET
+
         run_uid = str(doc.get("run_start"))
         parameters = doc.get("parameters") or {}
         if (
             run_uid in self._stacks
             and doc.get("mimetype") == "application/x-hdf5"
-            and parameters.get("dataset") == _FRAMES_DATASET
+            and parameters.get("dataset") == FRAMES_DATASET
         ):
-            self._stacks[run_uid][str(doc["data_key"])] = str(doc["uri"])
+            key = str(doc["data_key"])
+            self._stacks[run_uid][key] = str(doc["uri"])
+            self._resources[str(doc["uid"])] = (run_uid, key)
+
+    def on_stream_datum(self, doc: Document) -> None:
+        """Record which rows a stack's datum covers."""
+        owner = self._resources.get(str(doc.get("stream_resource")))
+        if owner is None:
+            return
+        run_uid, key = owner
+        seq = doc.get("seq_nums") or {}
+        self._owned.setdefault(run_uid, {}).setdefault(key, []).append(
+            range(int(seq.get("start", 0)), int(seq.get("stop", 0)))
+        )
 
     def on_stop(self, start: dict[str, Any], stop: Document) -> None:
-        """Check every stack against the rows; log the verdicts."""
+        """Check every stack against its rows, off the RunEngine's thread."""
         run_uid = str(start["uid"])
-        rows = self._rows.pop(run_uid, [])
+        rows = self._rows.pop(run_uid, {})
         stacks = self._stacks.pop(run_uid, {})
+        owned = self._owned.pop(run_uid, {})
         self._primary = {k: v for k, v in self._primary.items() if v != run_uid}
+        self._resources = {k: v for k, v in self._resources.items() if v[0] != run_uid}
         for data_key, uri in stacks.items():
-            self._check(start, data_key, uri, rows)
+            column = f"{data_key}-acq_timestamp"
+            seqs = sorted({n for r in owned.get(data_key, []) for n in r})
+            expected = [
+                float(rows[n][column]) for n in seqs if n in rows and column in rows[n]
+            ]
+            thread = threading.Thread(
+                target=self._check,
+                args=(dict(start), data_key, uri, expected, self._finalize_timeout),
+                name=f"stack-check[{data_key}]",
+                daemon=True,
+            )
+            thread.start()
+            self._threads.append(thread)
+
+    def join(self, timeout: float | None = None) -> None:
+        """Wait for the pending checks (tests, orderly shutdown)."""
+        for thread in list(self._threads):
+            thread.join(timeout)
+        self._threads = [t for t in self._threads if t.is_alive()]
 
     @staticmethod
     def _check(
-        start: Mapping[str, Any], data_key: str, uri: str, rows: list[dict[str, Any]]
+        start: Mapping[str, Any],
+        data_key: str,
+        uri: str,
+        expected: list[float],
+        finalize_timeout: float,
     ) -> None:
-        import math
+        import time
         from urllib.parse import unquote, urlparse
 
-        from geecs_data_utils.io.scan_stack import read_stack_timestamps
+        from geecs_data_utils.io.scan_stack import open_stack, read_stack_timestamps
 
-        scan = start.get("scan_number")
         path = Path(unquote(urlparse(uri).path))
-        column = f"{data_key}-acq_timestamp"
-        expected = [
-            float(row[column])
-            for row in rows
-            if column in row and not math.isnan(float(row[column]))
-        ]
+        deadline = time.monotonic() + finalize_timeout
+        finalized = False
+        while time.monotonic() < deadline:
+            try:
+                with open_stack(path) as f:
+                    finalized = bool(f.attrs.get("finalized", False))
+            except OSError:
+                finalized = False
+            if finalized:
+                break
+            time.sleep(0.2)
         if not path.is_file():
-            if expected:
-                logger.warning(
-                    "scan %s: %s: stack %s missing but %d row(s) carry a stamp",
-                    scan,
-                    data_key,
-                    path,
-                    len(expected),
-                )
+            verdict = f"{data_key}: stack {path} missing" + (
+                f" but {len(expected)} row(s) own a frame" if expected else ""
+            )
+            _stack_verdict(start, verdict, warning=bool(expected))
+            return
+        if not finalized:
+            _stack_verdict(
+                start,
+                f"{data_key}: {path.name} not finalized within {finalize_timeout:.0f} s; not checked",
+                warning=True,
+            )
             return
         stamps = read_stack_timestamps(path)
         if len(stamps) != len(expected):
-            logger.warning(
-                "scan %s: %s: %d frame(s) in %s but %d row(s) with a stamp",
-                scan,
-                data_key,
-                len(stamps),
-                path.name,
-                len(expected),
+            _stack_verdict(
+                start,
+                f"{data_key}: {len(stamps)} frame(s) in {path.name} but {len(expected)} row(s) own a frame",
+                warning=True,
             )
             return
         mismatched = [
@@ -410,24 +479,39 @@ class StackCheckCallback(_RunCallback):
             if abs(float(a) - b) > _STAMP_TOLERANCE_S
         ]
         if mismatched:
-            logger.warning(
-                "scan %s: %s: %d of %d frame(s) in %s do not carry their row's "
-                "stamp (first at index %d)",
-                scan,
-                data_key,
-                len(mismatched),
-                len(stamps),
-                path.name,
-                mismatched[0],
+            _stack_verdict(
+                start,
+                f"{data_key}: {len(mismatched)} of {len(stamps)} frame(s) in {path.name} "
+                f"do not carry their row's stamp (first at index {mismatched[0]})",
+                warning=True,
             )
         else:
-            logger.info(
-                "scan %s: %s: %d frame(s) in %s match the rows' stamps",
-                scan,
-                data_key,
-                len(stamps),
-                path.name,
+            _stack_verdict(
+                start,
+                f"{data_key}: {len(stamps)} frame(s) in {path.name} match the rows' stamps",
+                warning=False,
             )
+
+
+def _stack_verdict(start: Mapping[str, Any], message: str, *, warning: bool) -> None:
+    """Log the verdict and append it to the run's ``scan.log`` (already closed)."""
+    scan = start.get("scan_number")
+    line = f"scan {scan}: {message}"
+    logger.log(logging.WARNING if warning else logging.INFO, "%s", line)
+    folder = start.get("scan_folder")
+    if not folder:
+        return
+    log_path = Path(str(folder)) / "scan.log"
+    try:
+        if log_path.parent.is_dir():
+            with log_path.open("a", encoding="utf-8") as fh:
+                stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                level = "WARNING" if warning else "INFO"
+                fh.write(f"{stamp} {level} stack check: {message}\n")
+    except OSError:
+        logger.debug(
+            "could not append the stack verdict to %s", log_path, exc_info=True
+        )
 
 
 def subscribe_scan_outputs(run_engine: Any) -> tuple[int, int, int, int]:

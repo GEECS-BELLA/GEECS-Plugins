@@ -49,6 +49,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   its timeout is translated into `GeecsTriggerTimeoutError`, so a dropped
   frame surfaces in 3 s, not 13.
 - `subscribe_scan_outputs` returns four tokens (the stack check first).
+- Review of #823: `[pva] file_plugin_addr_list` has **no** fallback to the
+  PVA fleet's `addr_list` (a listed box not yet re-bootstrapped would have
+  failed every scan at connect); the stack check takes the rows a stack
+  owns from the run's `stream_datum` documents (a partial row where the
+  camera delivered has a stamp but no frame) and runs on a thread that
+  waits for the plugin's `finalized` attribute — the stop document
+  precedes `unstage`/`Capture=0` — reading lock-free and appending its
+  verdict to `scan.log`; `mask_missed_shot` blanks booleans, numpy scalars
+  and arrays too; a failed `prepare` on a plugin-backed camera carries the
+  plugin's `WriteMessage` as an exception note; `data_paths.read_config_entry`
+  and `_translate_to` are the one config reader / path translator;
+  the camera test is `geecs_core.db.variable_types.image_variables`.
 
 ### Removed
 

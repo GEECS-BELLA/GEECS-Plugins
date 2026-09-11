@@ -13,7 +13,7 @@ import socket
 
 from pydantic import BaseModel, Field
 
-from geecs_core.db.variable_types import effective_vartype
+from geecs_core.db.variable_types import image_variables  # noqa: F401 - the camera test, re-exported
 from geecs_core.pv_naming import normalize_component, pv_name
 from geecs_core.transport.udp_client import detect_local_ip
 
@@ -44,19 +44,6 @@ def instance_pv_prefix(experiment: str, host: str) -> str:
     what an instance actually serves.
     """
     return pv_name(experiment, "pvagateway", normalize_component(host))
-
-
-def image_variables(metadata: list[dict]) -> list[str]:
-    """Names of the image-typed variables among one device's DB metadata rows.
-
-    The camera test everywhere in this package (a device with none is not a
-    camera); shared with :mod:`geecs_pva_gateway.fleet`.
-    """
-    return sorted(
-        meta["name"]
-        for meta in metadata
-        if effective_vartype(meta.get("variabletype"), meta.get("choices")) == "image"
-    )
 
 
 class CameraSpec(BaseModel):

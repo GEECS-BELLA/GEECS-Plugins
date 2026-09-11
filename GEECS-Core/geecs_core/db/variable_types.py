@@ -90,3 +90,17 @@ def effective_vartype(variabletype: str | None, choices: str | None) -> str:
 def is_scalar_vartype(effective: str) -> bool:
     """Whether an effective type is scalar CA data (not an image / array)."""
     return effective not in SKIP_VARTYPES
+
+
+def image_variables(rows) -> list[str]:
+    """Names of the image-typed variables among one device's DB metadata rows.
+
+    The camera test shared by the PVA gateway (which serves them) and the
+    worker's namespace (which makes such a device plugin-backed, #806):
+    ``effective_vartype(variabletype, choices) == "image"``, sorted.
+    """
+    return sorted(
+        str(row["name"])
+        for row in rows
+        if effective_vartype(row.get("variabletype"), row.get("choices")) == "image"
+    )

@@ -108,8 +108,13 @@ stock property (Sam: "not a unique issue we encounter at BELLA").
 **Synchronicity is asserted, not assumed.**  Every frame carries
 `acq_timestamp` in the file and every row carries it in the event, so at
 the run's stop a callback checks, per plugin-backed camera, that the
-frames written equal the rows with a stamp for it and that each stamp
-matches its row, and writes a mismatch to `scan.log`.
+frames written equal the rows its stream datums reference and that each
+such row's stamp is its frame's, and writes the verdict to `scan.log`.
+Two details from the review of #823: the rows come from the datums (a
+partial row where the camera delivered has a stamp but no frame), and
+the check runs on a thread that waits for the plugin's `finalized`
+attribute — the stop document precedes `unstage`/`Capture=0` — so it
+never reads a file being written (§5 rule 2) and reads lock-free.
 
 ### 2.2 The count wait now precedes the stamp wait, with its own timeout
 
@@ -307,8 +312,10 @@ per-scan state between sessions; the worker tells it where to write.
 - **Namespace rule.** A `looks_triggerable` device is plugin-backed iff
   the DB lists an image-typed variable for it (`effective_vartype ==
   "image"`, the gateway's own camera test) **and** its endpoint host is
-  in `config.ini [pva] file_plugin_addr_list` (absent → `[pva] addr_list`,
-  the deployed gateways).  The list exists because the rollout is per box
+  in `config.ini [pva] file_plugin_addr_list` (absent → no host; **not**
+  `addr_list`, which is the deployed PVA fleet — a box in it that is not
+  yet re-bootstrapped serves no plugin, so the fallback would make every
+  scan fail at connect the moment the branch is pulled: review of #823).  The list exists because the rollout is per box
   (h5py is a re-bootstrap, `DEPLOYMENT.md` "External deps are frozen at
   bootstrap"); a camera on a box not yet rolled keeps `LvNativeFileDataLogic`.
   `DeviceRoster` gains `endpoints` (device → ip, from the same

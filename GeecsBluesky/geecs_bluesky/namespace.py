@@ -56,6 +56,7 @@ from ophyd_async.core import Device, PathProvider
 from geecs_core.db.variable_types import (
     VARTYPE_TO_DTYPE,
     effective_vartype,
+    image_variables,
     is_scalar_vartype,
 )
 
@@ -107,15 +108,6 @@ _SYNTHESIZED: frozenset[str] = frozenset({"connected", ACQ_TIMESTAMP_VARIABLE})
 NATIVE_SAVE_VARIABLES: frozenset[str] = frozenset({"save", "localsavingpath"})
 
 _TRIGGER_VARIABLE = re.compile("trig", re.IGNORECASE)
-
-
-def image_variables(rows: Sequence[Mapping[str, Any]]) -> list[str]:
-    """The image-typed variables among a device's DB rows — the PVA gateway's camera test."""
-    return sorted(
-        str(r["name"])
-        for r in rows
-        if effective_vartype(r.get("variabletype"), r.get("choices")) == "image"
-    )
 
 
 # --------------------------------------------------------------------- rules
@@ -277,8 +269,8 @@ class GeecsNamespace:
         triggerable device with an image-typed variable on one of them is
         plugin-backed (stock ``ADHDFDataLogic`` over the plugin's PVs); the
         same device elsewhere keeps LabVIEW-native saving.  Defaults to
-        ``config.ini [pva] file_plugin_addr_list`` (else ``addr_list``);
-        ``None`` means no host.
+        ``config.ini [pva] file_plugin_addr_list``; absent or ``None``
+        means no host (the rollout is opt-in per box).
     """
 
     def __init__(

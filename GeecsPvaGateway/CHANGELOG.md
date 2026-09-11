@@ -38,6 +38,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - `_CameraWorker.provider_entries` includes the plugin PVs; `stop()`
   closes an open session.
+- `config.image_variables` is `geecs_core.db.variable_types.image_variables`
+  (re-exported); the stack layout constants come from
+  `geecs_data_utils.io.scan_stack`, the contract's one home.
+
+### Fixed
+
+- A second `Capture=1` arriving while the first is still arming is
+  acknowledged and ignored instead of opening a nested session (review
+  of #823).
 
 ## [0.6.1] - 2026-09-09
 

@@ -17,15 +17,15 @@ Three small things, everything else is stock ophyd-async:
   so the stock template ``%s%s.h5`` yields ``<device>/<device>.h5`` — the
   file the read side (``geecs_data_utils.io.scan_stack``) looks for.
 - :func:`file_plugin_hosts` — which camera servers serve the plugin
-  (``config.ini [pva] file_plugin_addr_list``, falling back to
-  ``[pva] addr_list``).  h5py is a bootstrap-time dependency on the camera
-  servers, so the rollout is per box, and a camera on a box not yet rolled
-  keeps LabVIEW-native saving.  The key goes when the fleet is rolled.
+  (``config.ini [pva] file_plugin_addr_list``; **absent means none**, so a
+  worker whose config carries only the PVA fleet's ``addr_list`` touches no
+  plugin PV).  h5py is a bootstrap-time dependency on the camera servers,
+  so the rollout is per box, and a camera on a box not yet rolled keeps
+  LabVIEW-native saving.  The key goes when the fleet is rolled.
 """
 
 from __future__ import annotations
 
-import configparser
 from collections.abc import Callable
 from pathlib import Path, PureWindowsPath
 from typing import Annotated as A
@@ -35,7 +35,7 @@ from ophyd_async.core._path_providers import generate_directory_uri
 from ophyd_async.epics.adcore import NDFileHDF5IO
 from ophyd_async.epics.core import PvSuffix
 
-from geecs_bluesky.data_paths import plugin_save_path
+from geecs_bluesky.data_paths import plugin_save_path, read_config_entry
 
 
 class GeecsHdfIO(NDFileHDF5IO):
@@ -85,17 +85,12 @@ class PluginPathProvider(PathProvider):
 def file_plugin_hosts(config_path: Path | None = None) -> set[str] | None:
     """Camera-server IPs whose gateway serves the file plugin.
 
-    ``[pva] file_plugin_addr_list`` when present, else ``[pva] addr_list``
-    (the deployed gateways); ``None`` when neither key exists — the caller
-    then treats no host as plugin-backed.
+    ``config.ini [pva] file_plugin_addr_list`` (space- or comma-separated);
+    ``None`` when absent — the caller then treats no host as plugin-backed.
+    Deliberately **not** ``[pva] addr_list``: that key is the deployed PVA
+    fleet, and a box in it that is not yet re-bootstrapped serves no plugin.
     """
-    path = config_path or Path.home() / ".config" / "geecs_python_api" / "config.ini"
-    if not path.exists():
+    raw = read_config_entry("pva", "file_plugin_addr_list", config_path)
+    if raw is None:
         return None
-    cfg = configparser.ConfigParser()
-    cfg.read(path)
-    for key in ("file_plugin_addr_list", "addr_list"):
-        raw = cfg.get("pva", key, fallback=None)
-        if raw is not None:
-            return {token for token in raw.replace(",", " ").split() if token}
-    return None
+    return {token for token in raw.replace(",", " ").split() if token}

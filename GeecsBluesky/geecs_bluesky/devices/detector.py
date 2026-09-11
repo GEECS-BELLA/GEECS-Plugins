@@ -45,11 +45,13 @@ from __future__ import annotations
 import asyncio
 import logging
 import math
+import numbers
 import time
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 from bluesky.protocols import Reading
 from event_model import DataKey
 from ophyd_async.core import (
@@ -268,23 +270,26 @@ class GeecsAcquireLogic(DetectorAcquireLogic):
 
 
 def mask_missed_shot(readings: dict[str, Reading]) -> dict[str, Reading]:
-    """The empty shot: every numeric column ``NaN``, every other column blank.
+    """The empty shot: every column blank (numbers and arrays ``NaN``, text ``""``).
 
     The CA monitor cache holds the *previous* shot's values when no frame
     arrived (LabVIEW's timeout event carries unchanged values and the
     gateway drops it), so reading it through would silently record the
-    wrong shot.  The stamp becomes ``NaN`` too — no frame joins to this row.
+    wrong shot.  The stamp becomes ``NaN`` too — no frame joins to this
+    row.  Booleans and numpy scalars are numbers here (``numbers.Real``),
+    arrays are filled with ``NaN``; anything else is left as is.
     """
     now = time.time()
     masked: dict[str, Reading] = {}
     for key, reading in readings.items():
         value = reading["value"]
-        if isinstance(value, bool):
-            blank: Any = value
-        elif isinstance(value, (int, float)):
-            blank = math.nan
-        elif isinstance(value, str):
+        blank: Any
+        if isinstance(value, str):
             blank = ""
+        elif isinstance(value, numbers.Real):
+            blank = math.nan
+        elif isinstance(value, np.ndarray):
+            blank = np.full(value.shape, np.nan)
         else:
             blank = value
         masked[key] = Reading(value=blank, timestamp=now, alarm_severity=0)
@@ -686,6 +691,28 @@ class GeecsDetector(StandardDetector):
         await asyncio.gather(
             *(sig.unstage() for sig in (*self._scalars, self.acq_timestamp))
         )
+
+    @AsyncStatus.wrap
+    async def prepare(self, value: TriggerInfo) -> None:
+        """The stock prepare; a failure on a plugin-backed camera carries the plugin's reason.
+
+        The stock logic completes ``Capture=1`` on ``Capture_RBV`` alone and
+        never awaits the put, so the plugin's ``op.done(error=…)`` (no
+        frame while arming, a missing directory) is lost and the failure
+        reads as a bare timeout on the PV.  ``WriteMessage`` holds the
+        reason; it is attached to the exception as a note.
+        """
+        try:
+            await super().prepare(value)
+        except Exception as exc:
+            for io in self._hdf_ios:
+                try:
+                    message = await asyncio.wait_for(io.write_message.get_value(), 2.0)
+                except Exception:  # noqa: BLE001 - the note is best effort
+                    continue
+                if message:
+                    exc.add_note(f"file plugin {io.name}: {message}")
+            raise
 
     def trigger(self) -> AsyncStatus:
         """Baseline the stamp **now**, then wait for it to advance.

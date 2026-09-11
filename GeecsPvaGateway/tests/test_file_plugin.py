@@ -327,6 +327,22 @@ async def test_session_semantics_over_raw_pva(tmp_path):
             assert f.attrs["frames_written"] == 4
             assert f.attrs["finalized"]
 
+        # Two Capture=1 puts racing during arming: one session, one
+        # subscription, released once at Capture=0.
+        again = tmp_path / "Scan004" / "UC_TestCam"
+        again.mkdir(parents=True)
+        await put("FilePath", str(again) + os.sep)
+        first = loop.run_in_executor(None, lambda: ctx.put(PREFIX + "Capture", True))
+        second = loop.run_in_executor(None, lambda: ctx.put(PREFIX + "Capture", True))
+        await asyncio.sleep(0.3)
+        cam.push(IMG, time.time() - 5.0)  # the arming frame
+        await asyncio.gather(first, second)
+        assert bool(await get("Capture_RBV")) is True
+        assert cam.connections == 1
+        await put("Capture", False)
+        await asyncio.wait_for(cam.disconnected.wait(), 10)
+        assert cam.connections == 0
+
         # A session that accepts nothing leaves no file.
         empty = tmp_path / "Scan003" / "UC_TestCam"
         empty.mkdir(parents=True)

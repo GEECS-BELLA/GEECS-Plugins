@@ -57,6 +57,7 @@ from p4p.server.thread import SharedPV
 
 from geecs_core.pv_naming import HDF_PLUGIN_SUFFIX, hdf_plugin_prefix
 from geecs_data_utils.io import decode_imaq_image_string
+from geecs_data_utils.io.scan_stack import ATTRIBUTES_GROUP, FRAMES_DATASET
 
 from geecs_pva_gateway import __version__
 
@@ -81,10 +82,9 @@ def available() -> bool:
 #: PV suffix under the image variable's PV name (the areaDetector ``HDF1:``),
 #: owned by the naming contract so the worker's ``GeecsHdfIO`` cannot drift.
 PLUGIN_SUFFIX = HDF_PLUGIN_SUFFIX
-#: Dataset paths — the NDFileHDF5 layout ophyd-async's ``ADHDFDataLogic``
-#: describes and Tiled's HDF5 adapter reads.
-FRAMES_DATASET = "/entry/data/data"
-ATTRIBUTES_GROUP = "/entry/instrument/NDAttributes"
+#: The dataset paths (``FRAMES_DATASET``, ``ATTRIBUTES_GROUP``) are the read
+#: side's (``geecs_data_utils.io.scan_stack``): the NDFileHDF5 layout
+#: ophyd-async's ``ADHDFDataLogic`` describes and Tiled's HDF5 adapter reads.
 #: Per-frame attribute datasets (declared to the worker via ``NDAttributesFile``).
 ATTRIBUTES = ("acq_timestamp", "recv_timestamp")
 #: The chunk shape ophyd-async assumes for attribute datasets.
@@ -523,7 +523,10 @@ class HdfFilePlugin:
                 self._queue.put(item)
                 op.done(error="gateway stopping")
                 return
-            if item[0] == "command" and item[1] == "Capture" and not item[2]:
+            if item[0] == "command" and item[1] == "Capture":
+                if item[2]:  # a repeated Capture=1 while arming: one session
+                    item[3].done()
+                    continue
                 self._release(self.variable)
                 self._post("Capture_RBV", False)
                 item[3].done()

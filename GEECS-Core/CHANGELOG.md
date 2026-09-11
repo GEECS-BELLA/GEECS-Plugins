@@ -12,6 +12,9 @@ All notable changes to `geecs-core` are documented here, following
   `HDF_PLUGIN_SUFFIX` (`:hdf1:`): the file plugin's PV prefix (#806),
   minted here so the PVA gateway and the worker's `GeecsHdfIO` cannot
   drift.
+- `db.variable_types.image_variables(rows)`: the camera test (image-typed
+  DB variables), the one home for the PVA gateway's served set and the
+  worker's plugin-backed rule.
 
 ## [0.5.0] - 2026-09-09
 
