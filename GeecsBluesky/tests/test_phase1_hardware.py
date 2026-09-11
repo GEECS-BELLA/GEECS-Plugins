@@ -344,8 +344,19 @@ def test_preset_through_the_manager_on_hardware() -> None:
         assert restore.ok, (
             f"RESTORE NOT QUEUED — set {SWEEP} back to {initial} by hand: {restore.message}"
         )
-        _wait_for_item(client, restore.item_uid, timeout=120.0)
+        restored = _wait_for_item(client, restore.item_uid, timeout=120.0)
         client.close()
+        assert restored.get("result", {}).get("exit_status") == "completed", (
+            f"RESTORE DID NOT COMPLETE — set {SWEEP} back to {initial} by hand: "
+            f"{restored.get('result')}"
+        )
+        readback = float(
+            try_caget_once(
+                setpoint_pv(pv_name(EXPERIMENT, device_name, variable)), timeout=5.0
+            )
+        )
+        assert readback == pytest.approx(initial, abs=1e-6), (readback, initial)
+        print(f"restored {SWEEP}: setpoint reads {readback}")
     new = sorted({p.name for p in scans_dir.glob("Scan*")} - before)
     assert len(new) == 1, new
     folder = scans_dir / new[0]

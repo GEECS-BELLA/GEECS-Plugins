@@ -352,3 +352,15 @@ def test_db_failure_at_build_is_loud_not_empty() -> None:
         GeecsConfigurationError, match="could not load the 'TestExp' device roster"
     ):
         GeecsNamespace.from_experiment("TestExp", geecs_db=_FakeDb(fail=True))
+
+
+def test_reserved_device_attributes_pin_the_detector_class() -> None:
+    """The client seam's frozen collision set is exactly the detector's public names."""
+    from geecs_bluesky.devices.detector import GeecsDetector
+    from geecs_bluesky.utils import RESERVED_DEVICE_ATTRIBUTES, settable_attribute
+
+    public = {n for n in dir(GeecsDetector) if not n.startswith("_")}
+    assert RESERVED_DEVICE_ATTRIBUTES == public
+    assert settable_attribute("trigger") == "trigger_"
+    assert settable_attribute("Current") == "current"
+    assert settable_attribute("Position.Axis 1") == "position_axis_1"

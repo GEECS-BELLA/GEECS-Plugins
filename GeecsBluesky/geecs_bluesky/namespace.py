@@ -69,7 +69,7 @@ from geecs_bluesky.devices.ca.settable import CaSettable
 from geecs_bluesky.devices.ca.snapshot import CaSnapshotReadable
 from geecs_bluesky.devices.detector import GeecsDetector
 from geecs_bluesky.exceptions import GeecsConfigurationError
-from geecs_bluesky.utils import identifier_name, safe_name
+from geecs_bluesky.utils import identifier_name, safe_name, settable_attribute
 
 logger = logging.getLogger(__name__)
 
@@ -401,14 +401,13 @@ class GeecsNamespace:
 
         The Amp4 camera has a settable enum called ``trigger`` (external
         trigger on/off) — bound verbatim it would overwrite ``trigger()``.
-        Checked against the detector class so the name is stable on every
-        device, triggered or not.  A name already bound to a *child* of this
+        :func:`~geecs_bluesky.utils.settable_attribute` is the rule (a frozen
+        set of the detector class's names, pinned by a test, so the client
+        seam spells the same attribute).  A name already bound to a *child* of this
         device (a readable signal, ``acq_timestamp``, ``connected_status``) is
         a real collision and raises rather than being renamed (review N1).
         """
-        attr = safe_name(variable)  # lowercase: event keys follow EVENT_SCHEMA.md
-        if attr.startswith("_") or hasattr(GeecsDetector, attr):
-            return attr.lstrip("_") + "_"
+        attr = settable_attribute(variable)  # the shared rule (utils)
         existing = getattr(dev, attr, None)
         if isinstance(existing, Device):
             raise GeecsConfigurationError(

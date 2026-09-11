@@ -6,6 +6,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [0.80.1] - 2026-09-10
 
+### Fixed
+
+- `utils.settable_attribute` is the **one** rule for the attribute a
+  settable binds to (a frozen `RESERVED_DEVICE_ATTRIBUTES`, pinned to
+  `dir(GeecsDetector)` by a test): the namespace and the client seam now
+  agree, so `"UC_Amp4_IR_input:trigger"` in a preset spells
+  `UC_Amp4_IR_input.trigger_` instead of a reference the preflight refuses
+  (Codex review of #821).
+- The hardware acceptance test asserts its restore move *completed* and
+  reads the setpoint back, not merely that it queued (Codex review of
+  #822).
+
 ### Added
 
 - **Phase 1 PR 3 (#807) — headless hardware acceptance of the plan
