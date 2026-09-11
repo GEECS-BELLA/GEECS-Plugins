@@ -439,6 +439,14 @@ class QueueClient(Protocol):
         """
         ...
 
+    def allowed_device_names(self) -> list[str]:
+        """Return every device reference the manager resolves (``U_S1H``, ``U_S1H.current``).
+
+        The worker namespace's device tree flattened to dotted names; empty
+        while the environment is closed; raises on failure.
+        """
+        ...
+
     def close(self) -> None:
         """Release the manager connection (idempotent; no-op when unopened)."""
         ...
@@ -520,6 +528,10 @@ class StubQueueClient:
         return False, _STUB_MESSAGE
 
     def allowed_plan_names(self) -> list[str]:
+        """Refuse with the missing-config message."""
+        raise RuntimeError(_STUB_MESSAGE)
+
+    def allowed_device_names(self) -> list[str]:
         """Refuse with the missing-config message."""
         raise RuntimeError(_STUB_MESSAGE)
 
@@ -801,6 +813,17 @@ class ZmqQueueClient:
         response = api.plans_allowed()
         return sorted((response.get("plans_allowed") or {}).keys())
 
+    def allowed_device_names(self) -> list[str]:
+        """The manager's ``devices_allowed`` tree as sorted dotted names.
+
+        The manager does not refuse an unknown device string in a queue
+        item (it reaches the plan as a string), so the pre-submit preflight
+        checks every reference here.
+        """
+        api = self._manager()
+        response = api.devices_allowed()
+        return sorted(flatten_device_tree(response.get("devices_allowed") or {}))
+
     def readiness(
         self, expected_plans: str | Sequence[str] | None = None
     ) -> ReadinessVerdict:
@@ -818,6 +841,17 @@ class ZmqQueueClient:
                 api.close()
             except Exception as exc:  # best-effort release
                 logger.debug("REManagerAPI close failed: %s", exc)
+
+
+def flatten_device_tree(tree: Mapping[str, Any], prefix: str = "") -> list[str]:
+    """``{name: {"components": {...}}}`` → every dotted reference in the tree."""
+    names: list[str] = []
+    for name, info in tree.items():
+        full = f"{prefix}{name}"
+        names.append(full)
+        components = (info or {}).get("components") or {}
+        names.extend(flatten_device_tree(components, prefix=full + "."))
+    return names
 
 
 def make_queue_client(

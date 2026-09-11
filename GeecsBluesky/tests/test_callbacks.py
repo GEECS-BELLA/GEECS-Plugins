@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from configparser import ConfigParser
 from functools import partial
@@ -26,7 +27,10 @@ from geecs_bluesky.callbacks import (  # noqa: E402
     shots_per_step,
     subscribe_scan_outputs,
 )
-from geecs_bluesky.plans.claim_scan import claim_scan_preprocessor  # noqa: E402
+from geecs_bluesky.plans.claim_scan import (  # noqa: E402
+    GeecsScanPathProvider,
+    claim_scan_preprocessor,
+)
 from geecs_bluesky.plans.registry import TriggerProfiles, bind_strict_plans  # noqa: E402
 from geecs_bluesky.preprocessors import scalar_headers  # noqa: E402
 from geecs_bluesky.devices.shot_control import ShotControl  # noqa: E402
@@ -151,20 +155,28 @@ def box() -> FakeBox:
 def worker(RE, box, tmp_path):
     """A RunEngine wired like the worker: claim + headers + the three outputs."""
     claim = FakeClaim(tmp_path)
+    provider = GeecsScanPathProvider()
     RE.preprocessors.append(
-        partial(claim_scan_preprocessor, experiment="TestExp", claim=claim)
+        partial(
+            claim_scan_preprocessor,
+            experiment="TestExp",
+            claim=claim,
+            path_provider=provider,
+        )
     )
     RE.preprocessors.append(scalar_headers)
     subscribe_scan_outputs(RE)
     sc = ShotControl(WRITES, experiment="TestExp", name="htu", setter_factory=box)
     connect_mock(RE, sc)
     profiles = TriggerProfiles({"HTU-Test": sc}, default="HTU-Test")
-    return bind_strict_plans(profiles), claim
+    return bind_strict_plans(profiles), claim, provider
 
 
 def test_a_strict_scan_leaves_every_legacy_file(RE, box, worker, tmp_path):
-    plans, claim = worker
-    cam = _camera(RE, box, "UC_Cam")
+    plans, claim, provider = worker
+    # A native-saving camera on the RUN provider: its files go to the
+    # claimed folder's device directory, through the detector's lifecycle.
+    cam = _camera(RE, box, "UC_Cam", provider=provider)
     magnet = Magnet()
     connect_mock(RE, magnet)
     follow_setpoint(magnet.current)
@@ -180,11 +192,19 @@ def test_a_strict_scan_leaves_every_legacy_file(RE, box, worker, tmp_path):
         )
     )
     folder = tmp_path / "scans" / "Scan001"
+    assert (folder / "UC_Cam").is_dir()
+    assert provider.folder is None
+    save = asyncio.run_coroutine_threadsafe(cam.save.get_value(), RE._loop).result(5)
+    assert save == "off"
+    saved_to = asyncio.run_coroutine_threadsafe(
+        cam.localsavingpath.get_value(), RE._loop
+    ).result(5)
+    assert saved_to.endswith(str(Path("Scan001") / "UC_Cam"))
     info = _ini(folder / "ScanInfoScan001.ini")
     assert info["Scan Parameter"] == "U_S1H Current"
     assert (info["Start"], info["End"], info["Step size"]) == ("-1.0", "1.0", "1.0")
     assert info["Shots per step"] == "2" and info["ScanEndInfo"] == "success"
-    assert info["ScanStartInfo"] == "s1h" and info["Trigger profile"] == "test"
+    assert info["ScanStartInfo"] == "s1h" and info["Trigger profile"] == "HTU-Test"
 
     sfile = pd.read_csv(tmp_path / "analysis" / "s1.txt", sep="\t")
     scan_txt = pd.read_csv(folder / "ScanDataScan001.txt", sep="\t")
@@ -207,7 +227,7 @@ def test_a_strict_scan_leaves_every_legacy_file(RE, box, worker, tmp_path):
 
 
 def test_an_aborted_scan_still_gets_its_rows(RE, box, worker, tmp_path):
-    plans, _ = worker
+    plans, _, _ = worker
     cam = _camera(RE, box, "UC_Cam")
     magnet = Magnet()
     connect_mock(RE, magnet)
@@ -231,7 +251,7 @@ def test_an_aborted_scan_still_gets_its_rows(RE, box, worker, tmp_path):
 
 
 def test_callbacks_never_raise_into_the_run(RE, box, worker, tmp_path, caplog):
-    plans, _ = worker
+    plans, _, _ = worker
     cam = _camera(RE, box, "UC_Cam")
     with caplog.at_level(logging.WARNING):
         RE(plans["count"]([cam], 2, md={"scan_folder": str(tmp_path / "nope")}))

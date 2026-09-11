@@ -18,12 +18,24 @@ from geecs_schemas import Preset
 class _FakeQueueClient:
     """A manager client the worker_ready check reads (status + plan list)."""
 
-    def __init__(self, status=None, plans=None, plans_error=None):
+    def __init__(self, status=None, plans=None, plans_error=None, devices=None):
         self._status = status or QueueStatus(
             connected=True, re_state="idle", manager_state="idle", worker_exists=True
         )
         self._plans = list(GEECS_PLAN_NAMES) if plans is None else list(plans)
         self._plans_error = plans_error
+        self._devices = (
+            [
+                "UC_Cam1",
+                "UC_Cam1.scalars",
+                "UC_Cam2",
+                "UC_Cam2.scalars",
+                "U_S1H",
+                "U_S1H.current",
+            ]
+            if devices is None
+            else list(devices)
+        )
         self.closed = 0
         self.status_calls = 0
 
@@ -35,6 +47,9 @@ class _FakeQueueClient:
         if self._plans_error is not None:
             raise self._plans_error
         return list(self._plans)
+
+    def allowed_device_names(self):
+        return list(self._devices)
 
     def close(self):
         self.closed += 1
@@ -148,6 +163,22 @@ class TestWorkerReady:
         report = run_submit_preflight(preset, "Undulator")
         assert report.refusal is None
         assert ("worker_ready", "passed", "") in report.outcomes
+
+    def test_unknown_device_reference_is_a_refusal(self, engine, monkeypatch):
+        fake = _FakeQueueClient(devices=["UC_Cam1", "UC_Cam1.scalars"])
+        monkeypatch.setattr(submit_preflight, "_make_default_client", lambda e: fake)
+        preset = _preset(
+            devices=[
+                {"device": "UC_Cam1"},
+                {"device": "UC_Typo", "save_images": False},
+            ],
+            plan={"name": "scan", "args": ["U_S1H:Current", 0, 1, 2]},
+            trigger_profile="HTU-Normal",
+        )
+        report = run_submit_preflight(preset, "Undulator")
+        assert report.refusal is not None
+        assert "UC_Typo.scalars" in report.refusal and "U_S1H.current" in report.refusal
+        assert "HTU-Normal" not in report.refusal
 
     def test_unreachable_manager_is_skipped_not_refused(self, engine, monkeypatch):
         fake = _FakeQueueClient(status=QueueStatus(connected=False, detail="timeout"))

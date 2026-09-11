@@ -7,7 +7,9 @@ submission is a translation of names, nothing more (plan of record §4.D):
 
 - each device of the group becomes its namespace binding —
   ``UC_Amp4_IR_input``, or ``UC_Amp4_IR_input.scalars`` when
-  ``save_images`` is off (the detector's scalars-only view);
+  ``save_images`` is off (the scalars-only view every namespace device
+  carries: on a detector the shot wait without the files, on a
+  scalar-only device what the device reads);
 - each scan-variable string in ``plan.args`` / ``plan.kwargs`` — a
   ``Device:Variable`` pair or a scan-variable catalog name — becomes the
   namespace's Movable child, ``U_S1H.current``;
@@ -16,13 +18,18 @@ submission is a translation of names, nothing more (plan of record §4.D):
   record ride in ``md["geecs"]`` as provenance.
 
 The manager resolves the names against the worker namespace at submission
-and refuses an unknown one with the device tree in hand — the typo fails
-at submit, not at queue-front.  Pseudo scan variables (``kind: pseudo``)
-have no namespace noun yet (phase 3): expanding one is refused here.
+but does **not** refuse an unknown one (bluesky-queueserver 0.0.25 passes
+an unresolved string through to the plan), so the pre-submit preflight
+checks every reference against the manager's device tree
+(:func:`~geecs_bluesky.qs_client.submit_preflight.run_submit_preflight`) —
+the typo fails at preflight, not at queue-front.  Pseudo scan variables
+(``kind: pseudo``) have no namespace noun yet (phase 3): expanding one is
+refused here.
 """
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
@@ -123,6 +130,28 @@ def expand_preset(
     return QueueItem(name=plan.name, args=[detectors, *args], kwargs=kwargs)
 
 
+def device_references(item: QueueItem) -> list[str]:
+    """Every device reference the item names, in order: the detectors, then string arguments.
+
+    A string argument counts when it is spelled like a namespace reference
+    (an identifier, optionally dotted); anything else is a plain value.
+    The GEECS keyword arguments (``trigger_profile``, ``md``) never name a
+    device.
+    """
+    refs: list[str] = []
+    detectors = item.args[0] if item.args and isinstance(item.args[0], list) else []
+    kwargs = [v for k, v in item.kwargs.items() if k not in ("trigger_profile", "md")]
+    for value in [*detectors, *item.args[1:], *kwargs]:
+        if isinstance(value, str) and _REFERENCE.match(value):
+            refs.append(value)
+    return refs
+
+
+_REFERENCE = re.compile(
+    r"^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)+$|^[A-Za-z_][A-Za-z0-9_]*$"
+)
+
+
 def _resolve(value: Any, catalog: Mapping[str, Any] | None) -> Any:
     """Turn a scan-variable string into its namespace reference; pass the rest through."""
     if isinstance(value, str) and (":" in value or (catalog and value in catalog)):
@@ -130,4 +159,4 @@ def _resolve(value: Any, catalog: Mapping[str, Any] | None) -> Any:
     return value
 
 
-__all__ = ["QueueItem", "expand_preset", "scan_variable_reference"]
+__all__ = ["QueueItem", "device_references", "expand_preset", "scan_variable_reference"]

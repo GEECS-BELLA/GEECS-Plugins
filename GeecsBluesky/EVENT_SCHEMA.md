@@ -52,9 +52,10 @@ trigger state (`shot_control-state`) when it is read.
 | `<device>-<settable>-position` / `-readback` | A settable child's readback when the DB subscribes it (`CaMotor` / `CaSettable`), and the scan motor's column |
 | `bin_number` | The scan step the row belongs to, from 1 (the GEECS `per_step`; every row of a `count` is bin 1) — the s-file's `Bin #` |
 
-A detector listed as `X.scalars` (the scalars-only view, `save_images:
-false` in a preset) contributes the same `<det>-<variable>` and
-`<det>-acq_timestamp` columns and no `-nonscalar_save_path`.
+A device listed as `X.scalars` (the scalars-only view every namespace
+device carries; `save_images: false` in a preset) contributes the same
+columns as `X` — for a detector `<det>-<variable>` and
+`<det>-acq_timestamp` with no `-nonscalar_save_path`.
 
 Native files are named with the row's stamp
 (`<Device>_<acq_timestamp>.png`, `geecs_data_utils.native_files`) and join

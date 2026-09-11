@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -96,8 +97,14 @@ def shot_control(RE: RunEngine, box: FakeBox) -> ShotControl:
     return sc
 
 
-def _camera(RE: RunEngine, box: FakeBox, name: str, tmp_path: Path | None = None, **kw):
-    provider = None
+def _camera(
+    RE: RunEngine,
+    box: FakeBox,
+    name: str,
+    tmp_path: Path | None = None,
+    provider: Any = None,
+    **kw,
+):
     if tmp_path is not None:
         provider = StaticPathProvider(
             StaticFilenameProvider("f"), tmp_path / "Scan001" / name

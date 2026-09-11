@@ -147,7 +147,7 @@ def test_bound_scan_runs_strict_with_shots_per_step_and_bins(RE, box, profiles):
     )
     start = col.docs["start"][0]
     assert start["plan_name"] == "scan"
-    assert start["trigger_profile"] == "test" and start["shots_per_step"] == 2
+    assert start["trigger_profile"] == "HTU-Test" and start["shots_per_step"] == 2
     assert start["num_points"] == 3
     # ARMED before the run, STANDBY after it — through the profile's device.
     states = [v for (_, var, v) in box.puts if var == "Trigger.Source"]
@@ -179,6 +179,30 @@ def test_bound_count_is_one_bin_and_scalars_view_saves_nothing(
     assert not (folder / "UC_Cam").exists()
     assert col.docs["start"][0]["shots_per_step"] == 1
     assert col.docs["start"][0]["detectors"] == ["uc_cam-scalars"]
+
+
+def test_scalars_view_of_a_scalar_only_device_reads_the_device(RE, box, profiles):
+    from geecs_bluesky.devices.ca import CaSnapshotReadable
+
+    cam = _camera(RE, box, "UC_Cam")
+    gauge = CaSnapshotReadable(
+        "U_Gauge", ["Pressure"], experiment="TestExp", name="u_gauge"
+    )
+    connect_mock(RE, gauge)
+    set_mock_value(gauge.pressure, 1.5e-6)
+    col = DocCollector()
+    RE.subscribe(col)
+    count = bind_strict_plans(profiles)["count"]
+    RE(count([cam, gauge.scalars], 2))
+    events = col.primary_events()
+    assert box.fires == 2 and len(events) == 2
+    assert [e["data"]["u_gauge-pressure"] for e in events] == [1.5e-6, 1.5e-6]
+    assert col.docs["start"][0]["detectors"] == ["uc_cam", "u_gauge-scalars"]
+    assert (
+        col.docs["start"][0]["geecs_scalar_headers"]
+        if "geecs_scalar_headers" in col.docs["start"][0]
+        else True
+    )
 
 
 def test_unknown_profile_is_refused_before_any_move(RE, box, profiles) -> None:

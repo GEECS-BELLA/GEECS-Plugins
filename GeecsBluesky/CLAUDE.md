@@ -168,8 +168,11 @@ legacy `[Scan Info]` keys downstream parses, `ScanEndInfo` filled at the
 stop), `SFileCallback` (`ScanDataScanNNN.txt` + `analysis/sNNN.txt` from
 the run's own primary events, for any exit status with rows — no Tiled
 round trip), `ScanLogCallback`.  A detector's native files go to
-`ScanNNN/<GEECS device>/`; `X.scalars` in the detector list records the
-same columns without files (`save_images: false`).
+`ScanNNN/<GEECS device>/`; `X.scalars` (a view every namespace device
+carries) in the detector list records the same columns without files
+(`save_images: false`).  The telemetry set is connected once at build and
+an unconnectable member is dropped with a warning — never a per-run
+failure after the claim.
 
 ## The worker (`qserver/`)
 

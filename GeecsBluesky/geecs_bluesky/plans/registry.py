@@ -209,12 +209,17 @@ def strict_plan(
         trigger_profile = kwargs.pop("trigger_profile", None)
         shots_per_step = int(kwargs.pop("shots_per_step", 1))
         shot_control = profiles.resolve(trigger_profile)
+        profile_key = (
+            trigger_profile if trigger_profile is not None else profiles.default
+        )
         if hook == "per_step":
             kwargs[hook] = geecs_per_step(shot_control, shots_per_step=shots_per_step)
         else:
             kwargs[hook] = geecs_per_shot(shot_control)
         md = dict(kwargs.pop("md", None) or {})
-        md["trigger_profile"] = shot_control.profile_name
+        # The key the plan resolved (the configs-repo file stem), not the
+        # profile's own name field — so the start document replays.
+        md["trigger_profile"] = profile_key
         md["shots_per_step"] = shots_per_step
         yield from bps.mv(shot_control, TriggerState.ARMED.value)
 

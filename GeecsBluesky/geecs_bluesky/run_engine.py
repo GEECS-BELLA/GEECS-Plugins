@@ -18,7 +18,10 @@ and three callbacks, each with one job:
 - :func:`~geecs_bluesky.preprocessors.scalar_headers` — the legacy
   ``Device Variable`` header map into the start document;
 - :class:`~bluesky.preprocessors.SupplementalData` with *telemetry* as the
-  baseline (read at open and close of every run, §4.B);
+  baseline (read at open and close of every run, §4.B) — **connected once,
+  here**, and any member that cannot connect dropped with a warning, so a
+  device the gateway does not serve fails loudly at build time instead of
+  failing every run after its scan number was claimed;
 - the ScanInfo ini, the s-file and ``scan.log`` callbacks
   (:mod:`geecs_bluesky.callbacks`).
 
@@ -55,6 +58,7 @@ def make_run_engine(
     claim: bool = False,
     path_provider: GeecsScanPathProvider | None = None,
     telemetry: Sequence[Any] = (),
+    connect_timeout: float = 20.0,
 ) -> RunEngine:
     """Build the RunEngine every GEECS plan runs on.
 
@@ -82,7 +86,10 @@ def make_run_engine(
         by the caller, shared with the namespace).
     telemetry :
         Devices/signals read as the ``baseline`` stream at the open and
-        close of every run (``GeecsNamespace.telemetry()``).
+        close of every run (``GeecsNamespace.telemetry()``); connected now
+        (:func:`install_telemetry`), the unconnectable ones dropped.
+    connect_timeout :
+        Budget for connecting the telemetry set, seconds.
 
     Returns
     -------
@@ -111,9 +118,60 @@ def make_run_engine(
         RE.preprocessors.append(scalar_headers)
         subscribe_scan_outputs(RE)
     if telemetry:
-        RE.preprocessors.append(SupplementalData(baseline=list(telemetry)))
+        install_telemetry(RE, telemetry, mock=mock, timeout=connect_timeout)
     # Installed LAST on purpose: connect_on_demand must be the OUTERMOST
     # preprocessor so it also sees messages later preprocessors inject
     # (SupplementalData baselines).  Re-run after appending anything else.
     install_connect_on_demand(RE, mock=mock)
     return RE
+
+
+def install_telemetry(
+    run_engine: RunEngine,
+    objects: Sequence[Any],
+    *,
+    mock: bool = False,
+    timeout: float = 20.0,
+) -> list[Any]:
+    """Connect *objects* on the RunEngine's loop; install the connectable ones as the baseline.
+
+    A baseline read happens inside every run, after the scan number is
+    claimed, and ``ensure_connected`` over the whole set raises on the
+    first member that cannot connect — one device the gateway does not
+    serve (added to the DB after the gateway started, say) would then fail
+    every scan and leave a numbered folder behind each time.  So the set
+    is connected **once, here**, concurrently within one *timeout*, and
+    every member that fails is dropped with a warning naming it; the
+    baseline only ever holds objects known to connect.
+
+    Returns the installed list.
+    """
+    import asyncio
+
+    async def _connect_all() -> list[BaseException | None]:
+        return await asyncio.gather(
+            *(obj.connect(mock=mock, timeout=timeout) for obj in objects),
+            return_exceptions=True,
+        )
+
+    results = asyncio.run_coroutine_threadsafe(_connect_all(), run_engine._loop).result(
+        timeout + 10.0
+    )
+    baseline: list[Any] = []
+    for obj, result in zip(objects, results):
+        if isinstance(result, BaseException):
+            logger.warning(
+                "telemetry: %s not connected (%s: %s) — left out of the baseline",
+                getattr(obj, "name", obj),
+                type(result).__name__,
+                result,
+            )
+        else:
+            baseline.append(obj)
+    logger.info(
+        "telemetry: %d of %d objects in the baseline stream",
+        len(baseline),
+        len(objects),
+    )
+    run_engine.preprocessors.append(SupplementalData(baseline=baseline))
+    return baseline

@@ -20,8 +20,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
     plus two keyword-only GEECS parameters: `trigger_profile` (the
     experiment default when omitted) and `shots_per_step` (scan verbs).
     Each bound plan brackets its run ARMED → STANDBY through the profile's
-    `ShotControl`; `TriggerProfiles` loads one device per profile in the
-    configs repo.  `plan_names.GEECS_PLAN_NAMES` pins the table
+    `ShotControl` and records the profile **key** it resolved (the
+    configs-repo stem) in the start document; `TriggerProfiles` loads one
+    device per profile in the configs repo.  `plan_names.GEECS_PLAN_NAMES` pins the table
     (`tests/test_plan_registry.py` asserts the derivation).
   - `plans/claim_scan.py` — `claim_scan_preprocessor` (every run claims a
     day-scoped scan number on `open_run`; `scan_number` / `scan_id` /
@@ -45,14 +46,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
     primary events at the stop document — no Tiled round trip; written
     for any exit status that produced rows), `ScanLogCallback`
     (`scan.log` from start to stop).
-  - `GeecsDetector.scalars` (`GeecsDetectorScalars`) — the scalars-only
-    view: `X.scalars` in a plan's detector list waits for the shot like
-    the detector but writes no files; the preset's `save_images: false`.
+  - `X.scalars` on **every** namespace device (`devices/ca/_view.py`
+    `ScalarsView`; `GeecsDetectorScalars` on a detector): the scalars-only
+    view a preset's `save_images: false` expands to — on a detector the
+    shot wait without the files, on a scalar-only device what the device
+    reads (review of #821: the regenerated corpus flags scalar-only
+    devices too).
   - `GeecsNamespace.telemetry()` — the `SupplementalData` baseline list
     (every scalar-only device and every detector's scalar signals),
-    installed by `make_run_engine(telemetry=...)`: every subscribed
-    scalar of the experiment rides in the `baseline` stream at open and
-    close.
+    installed by `make_run_engine(telemetry=...)` → `install_telemetry`,
+    which **connects the set once at build** and drops every member that
+    cannot connect with a warning (review of #821: a baseline read runs
+    after the claim, so one unservable device would otherwise fail every
+    run and leave a numbered folder each time): every subscribed scalar
+    of the experiment rides in the `baseline` stream at open and close.
   - `qs_client.presets.expand_preset` — a `geecs_schemas.Preset` into the
     stock plan queue item (device bindings, `Device:Variable` / catalog
     names into the namespace's Movable children, `trigger_profile` and
@@ -60,7 +67,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
     variables refused until phase 3.  `QueueClient.submit_plan(name,
     args, kwargs)` and `submit_preset(preset)` replace the funnel verbs;
     `run_submit_preflight` checks the preset expands, the worker lists
-    the plan, and the preset devices' `CONNECTED` PVs.
+    the plan **and every device reference in the item**
+    (`QueueClient.allowed_device_names`, the manager's device tree —
+    bluesky-queueserver 0.0.25 passes an unknown device string through to
+    the plan, so the typo is caught here, before the trigger box is
+    armed; review of #821), and the preset devices' `CONNECTED` PVs.
 - `make_run_engine(experiment, claim=True, path_provider, telemetry)`
   installs the whole GEECS scan (claim + headers + baseline + the three
   callbacks); the startup profile builds the path provider, the

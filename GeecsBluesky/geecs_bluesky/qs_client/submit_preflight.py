@@ -22,8 +22,11 @@ Checks, in order (names are the ``PreflightOutcome.check`` vocabulary):
   call, the plan is one the worker registers, no pseudo scan variable).
   A failure is a hard refusal, never a question.
 - ``worker_ready`` — is the execution surface actually ready (#793): the
-  manager answers, its worker environment is open, and the plan this
-  submission will queue is in its allowed-plans list.  A closed
+  manager answers, its worker environment is open, the plan this
+  submission will queue is in its allowed-plans list, and every device
+  reference the item names is in its device tree (the manager itself
+  passes an unknown name through to the plan as a string, which would
+  fail only after the trigger box was armed).  A closed
   environment or a missing plan is a hard refusal naming the recovery
   gesture — the manager's own answer would be the misleading "Plan ... is
   not in the list of allowed plans"; so is an environment still being
@@ -131,7 +134,7 @@ def run_submit_preflight(
 
     # -- worker ready (hard gate; fail-open when the manager is unreachable)
     try:
-        _check_worker_ready(report, client, experiment, item.name)
+        _check_worker_ready(report, client, experiment, item)
     except Exception as exc:
         logger.warning("worker-ready preflight failed: %s", exc)
         report.outcomes.append(("worker_ready", "skipped", str(exc)))
@@ -173,7 +176,7 @@ _FAIL_OPEN_READINESS_STATES = frozenset({"unreachable", "plans_unknown"})
 
 
 def _check_worker_ready(
-    report: PreflightReport, client: Any | None, experiment: str, plan_name: str
+    report: PreflightReport, client: Any | None, experiment: str, item: Any
 ) -> None:
     """Refuse when the manager cannot run the plan about to be queued (#793).
 
@@ -181,8 +184,9 @@ def _check_worker_ready(
     :func:`~geecs_bluesky.qs_client.client.readiness_from_reads` — the
     same assembly the ``geecs-qserver-ready`` service-start assertion
     runs — over ``status()`` and ``allowed_plan_names()``: environment
-    exists, plan list answered and non-empty, *plan_name* (the plan this
-    submission queues) present.  Every
+    exists, plan list answered and non-empty, the item's plan present —
+    then every device reference the item names is in the manager's
+    device tree (a refusal listing the unknown ones).  Every
     not-ready state is a refusal carrying the verdict's sentence, except
     the two fail-open ones recorded ``skipped`` with the sentence as the
     note: an unreachable manager (the submit reports it itself) and an
@@ -199,10 +203,11 @@ def _check_worker_ready(
         The caller's client, or ``None`` to build (and close) one.
     experiment :
         Passed to the client factory.
-    plan_name :
-        The stock plan the queue item names.
+    item :
+        The expanded queue item (its plan name and device references).
     """
     from geecs_bluesky.qs_client.client import StubQueueClient, readiness_from_reads
+    from geecs_bluesky.qs_client.presets import device_references
 
     owned = client is None
     if owned:
@@ -216,9 +221,19 @@ def _check_worker_ready(
         # The ONE assembly of ready (status → plans if the env exists →
         # verdict); any client with status() + allowed_plan_names() qualifies.
         verdict = readiness_from_reads(
-            client.status(), client.allowed_plan_names, plan_name
+            client.status(), client.allowed_plan_names, item.name
         )
         if verdict.ready:
+            known = set(client.allowed_device_names())
+            unknown = [r for r in device_references(item) if r not in known]
+            if unknown:
+                report.refusal = (
+                    "the worker does not know these devices: "
+                    f"{', '.join(unknown)} — check the spelling (GEECS "
+                    "device name, variable as its safe name: U_S1H.current) "
+                    "and that the DB lists them for the experiment"
+                )
+                return
             report.outcomes.append(("worker_ready", "passed", ""))
         elif verdict.state in _FAIL_OPEN_READINESS_STATES:
             report.outcomes.append(("worker_ready", "skipped", verdict.detail))

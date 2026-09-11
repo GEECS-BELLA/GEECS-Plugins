@@ -158,6 +158,16 @@ class _FakeManagerAPI:
             "plans_allowed": {"scan": {"name": "scan"}, "count": {"name": "count"}},
         }
 
+    def devices_allowed(self, *, reload=False, user_group=None) -> dict:
+        self.calls.append(("devices_allowed",))
+        return {
+            "success": True,
+            "devices_allowed": {
+                "U_S1H": {"components": {"current": {}, "scalars": {}}},
+                "UC_Cam": {"components": {"scalars": {}}},
+            },
+        }
+
     def close(self) -> None:
         self.calls.append(("close",))
 
@@ -367,6 +377,19 @@ class TestPlanListAndClose:
         fake = _FakeManagerAPI()
         assert _client(fake).allowed_plan_names() == ["count", "scan"]
         assert ("plans_allowed",) in fake.calls
+
+    def test_allowed_device_names_flatten_the_tree(self):
+        fake = _FakeManagerAPI()
+        assert _client(fake).allowed_device_names() == [
+            "UC_Cam",
+            "UC_Cam.scalars",
+            "U_S1H",
+            "U_S1H.current",
+            "U_S1H.scalars",
+        ]
+        stub = StubQueueClient()
+        with pytest.raises(RuntimeError, match="no queueserver configured"):
+            stub.allowed_device_names()
 
     def test_closed_environment_reads_as_no_plans(self):
         fake = _FakeManagerAPI()

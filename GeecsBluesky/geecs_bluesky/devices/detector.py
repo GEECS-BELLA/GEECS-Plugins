@@ -42,12 +42,10 @@ from event_model import DataKey
 from ophyd_async.core import (
     DEFAULT_TIMEOUT,
     AsyncStatus,
-    Device,
     DetectorAcquireLogic,
     DetectorDataLogic,
     DetectorTrigger,
     DetectorTriggerLogic,
-    DeviceMock,
     PathProvider,
     ReadableDataProvider,
     SignalDict,
@@ -62,6 +60,7 @@ from ophyd_async.epics.core import epics_signal_r, epics_signal_rw
 
 from geecs_bluesky.data_paths import device_server_save_path
 from geecs_bluesky.devices.ca._pv import ca_pv, setpoint_pv
+from geecs_bluesky.devices.ca._view import ScalarsView
 from geecs_bluesky.exceptions import GeecsTriggerTimeoutError
 from geecs_bluesky.utils import safe_name
 
@@ -376,7 +375,7 @@ class LvNativeFileDataLogic(DetectorDataLogic):
         self.directory = None
 
 
-class GeecsDetectorScalars(Device):
+class GeecsDetectorScalars(ScalarsView):
     """A detector's scalars-only view: the same shot wait, no file writing.
 
     ``UC_Amp4_IR_input.scalars`` in a plan's detector list records the
@@ -385,76 +384,32 @@ class GeecsDetectorScalars(Device):
     shot's frame, not whatever the monitor cache held — but never turns
     native saving on: the parent's data logics are not prepared.  This is
     how a preset says *scalars only* for a camera (``save_images: false``)
-    with a stock plan signature: readables are individually addressable, so
-    the client names ``X.scalars`` instead of ``X`` (plan of record §4.D).
-
-    A child ``Device`` with no children of its own: the RE Manager
-    discovers it as the sub-device ``X.scalars`` (``profile_ops`` walks
-    ``children()``), ``stage_wrapper`` stages the **root** (the parent, so
-    a stale ``save=on`` is still cleared and the signals read from their
-    monitor caches), and the readings keep the parent's column names.
+    with a stock plan signature (:class:`~geecs_bluesky.devices.ca._view.ScalarsView`).
     """
 
-    def __init__(self, detector: GeecsDetector) -> None:
-        # A plain attribute, not a child: Device.__setattr__ would register
-        # the parent as this view's child and the naming walk would cycle.
-        object.__setattr__(self, "_detector", detector)
-        super().__init__()
-
-    @property
-    def _geecs_device_name(self) -> str:
-        return self._detector._geecs_device_name
+    _owner: GeecsDetector
 
     @property
     def connected_status(self) -> SignalR[str]:
         """The parent's gateway liveness PV (the refire gate reads it)."""
-        return self._detector.connected_status
-
-    @property
-    def _column_headers(self) -> dict[str, str]:
-        return self._detector._column_headers
-
-    async def connect(
-        self,
-        mock: Any = False,
-        timeout: float = DEFAULT_TIMEOUT,
-        force_reconnect: bool = False,
-    ) -> None:
-        """Connect this (childless) view, then the parent whose signals it reads.
-
-        Touched on its own (``connect_on_demand`` before a ``trigger`` /
-        ``read`` of ``X.scalars``) it connects the parent; called *by* the
-        parent's connect — a ``DeviceMock`` handed down in mock mode, a
-        running connect task in real mode — it must not call back up.
-        """
-        await super().connect(
-            mock=mock, timeout=timeout, force_reconnect=force_reconnect
-        )
-        if isinstance(mock, DeviceMock):
-            return
-        task = getattr(self._detector, "_connect_task", None)
-        if task is not None and not task.done():
-            return
-        await self._detector.connect(
-            mock=mock, timeout=timeout, force_reconnect=force_reconnect
-        )
+        return self._owner.connected_status
 
     def trigger(self) -> AsyncStatus:
         """Baseline the parent's stamp now, then wait for it to advance."""
-        acquire = self._detector._acquire
+        acquire = self._owner._acquire
         acquire.baseline()
         return AsyncStatus(acquire.wait_for_idle())
 
     async def read(self) -> dict[str, Reading]:
         """The parent's scalar columns (and stamp) — same keys as the parent."""
         return await merge_gathered_dicts(
-            sig.read() for sig in self._detector._scalar_signals()
+            sig.read() for sig in self._owner._scalar_signals()
         )
 
     async def describe(self) -> dict[str, DataKey]:
         """Data keys of the parent's scalar columns."""
         return await merge_gathered_dicts(
-            sig.describe() for sig in self._detector._scalar_signals()
+            sig.describe() for sig in self._owner._scalar_signals()
         )
 
 
