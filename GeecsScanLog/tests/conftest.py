@@ -46,6 +46,22 @@ Trigger profile = "HTU-NoGas"
 
 
 @pytest.fixture
+def make_run(tmp_path: Path):
+    """Return a builder for a day of N identical successful scans."""
+
+    def build(count: int, day_folder: str = "26_0911") -> Path:
+        scans = tmp_path / "Undulator" / "Y2026" / "09-Sep" / day_folder / "scans"
+        scans.mkdir(parents=True, exist_ok=True)
+        for n in range(1, count + 1):
+            folder = scans / f"Scan{n:03d}"
+            folder.mkdir()
+            (folder / f"ScanInfoScan{n:03d}.ini").write_text(SUCCESS_INI.format(n=n))
+        return tmp_path
+
+    return build
+
+
+@pytest.fixture
 def share(tmp_path: Path) -> Path:
     """Build a share with one successful, one failed and one bare scan."""
     scans = tmp_path / "Undulator" / "Y2026" / "09-Sep" / "26_0911" / "scans"

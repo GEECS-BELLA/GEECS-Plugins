@@ -163,3 +163,28 @@ details.scan[open] > .scanhead .twisty{transform:rotate(45deg)}
 .empty code{font-family:var(--ff-mono);font-size:12.5px}
 .foot{color:var(--muted);font-size:12.5px;margin:4px 0 0}
 details.scan[hidden]{display:none}
+
+/* ---- campaigns: consecutive scans sharing a parameter and purpose ---- */
+.campaign{background:var(--surface);border:1px solid var(--rule);
+  border-radius:var(--r);box-shadow:var(--shadow);overflow:hidden}
+.camphead{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:13px 16px;
+  cursor:pointer;list-style:none;user-select:none;background:var(--surface-2)}
+.camphead::-webkit-details-marker{display:none}
+.camphead:hover{background:var(--accent-soft)}
+.camphead:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+details.campaign[open] > .camphead{border-bottom:1px solid var(--rule)}
+details.campaign[open] > .camphead .twisty{transform:rotate(45deg)}
+.campspan{font-family:var(--ff-mono);font-size:13.5px;font-weight:600;
+  font-variant-numeric:tabular-nums;white-space:nowrap}
+.campcount{font-family:var(--ff-mono);font-size:10.5px;letter-spacing:.05em;
+  text-transform:uppercase;color:var(--muted);white-space:nowrap}
+.campparam{font-family:var(--ff-mono);font-size:12px;color:var(--accent);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.camppurpose{font-size:13px;color:var(--slate);flex:1 1 180px;min-width:0;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.campbody{display:flex;flex-direction:column;padding:10px 12px 12px;gap:8px;
+  background:var(--paper)}
+.campbody .card{box-shadow:none}
+details.campaign[hidden]{display:none}
+.scanrow .count{font-family:var(--ff-mono);font-size:10.5px;color:var(--muted);
+  font-variant-numeric:tabular-nums}

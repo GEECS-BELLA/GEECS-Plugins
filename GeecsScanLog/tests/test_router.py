@@ -80,3 +80,35 @@ class TestDayPage:
         html = client.get("/log/day/2026-09-11").text
         assert html.count('<details class="card scan"') == 3
         assert "Collapse all" in html
+
+
+class TestBusyDay:
+    """A day over the grouping threshold renders campaigns, not a flat list."""
+
+    @pytest.fixture
+    def busy(self, make_run) -> TestClient:
+        """Build a day of 25 identical scans — one campaign."""
+        root = make_run(25)
+        app = FastAPI()
+        app.include_router(
+            create_log_router("Undulator", base_directory=root), prefix="/log"
+        )
+        return TestClient(app)
+
+    def test_groups_into_campaigns(self, busy: TestClient) -> None:
+        """Twenty-five scans render inside one campaign block."""
+        html = busy.get("/log/day/2026-09-11").text
+        assert html.count('<details class="campaign"') == 1
+        assert html.count('<details class="card scan"') == 25
+
+    def test_rail_lists_campaigns_not_scans(self, busy: TestClient) -> None:
+        """The rail shows one row per campaign so it stays scannable."""
+        html = busy.get("/log/day/2026-09-11").text
+        assert html.count('class="scanrow"') == 1
+        assert "Campaigns" in html
+
+    def test_busy_day_starts_collapsed(self, busy: TestClient) -> None:
+        """Nothing is expanded on arrival; the button offers Expand all."""
+        html = busy.get("/log/day/2026-09-11").text
+        assert " open>" not in html
+        assert "Expand all" in html

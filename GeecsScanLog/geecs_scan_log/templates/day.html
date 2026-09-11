@@ -23,6 +23,49 @@
   <dd{% if value is none %} class="none"{% endif %}>{{ value if value is not none else '—' }}</dd></div>
 {%- endmacro %}
 
+{% macro scan_block(s, expanded) %}
+  <details class="card scan" id="{{ s.label }}"
+           data-hay="{{ (s.label ~ ' ' ~ (s.parameter or '') ~ ' ' ~ (s.purpose or '') ~ ' ' ~ s.devices|join(' ')) | lower }}"
+           {% if expanded %}open{% endif %}>
+    <summary class="scanhead">
+      <span class="twisty" aria-hidden="true"></span>
+      <span class="scanid">{{ s.label }}</span>
+      <span class="scantime">{{ s.started.strftime('%H:%M:%S') if s.started else '—' }}</span>
+      <span class="scanpurpose{% if not s.purpose %} none{% endif %}">
+        {{ s.purpose or 'No purpose recorded at submission' }}</span>
+      <span class="chip chip-{{ s.status }}">
+        {{ {'success':'success','failed':'failed','incomplete':'no scan info','unknown':'check'}[s.status] }}
+      </span>
+    </summary>
+
+    {% if s.failure_reason %}
+    <div class="failstrip">
+      <div class="flabel">Scan ended with an error — from ScanEndInfo</div>
+      <div class="fmsg">{{ s.failure_reason }}</div>
+    </div>
+    {% endif %}
+
+    <div class="derived">
+      <div class="derived-label">
+        <span>Derived — not stored here</span>
+        <span>{{ s.label }}/ScanInfo{{ s.label }}.ini</span>
+      </div>
+      <dl class="facts">
+        {{ fact('Scan variable', s.parameter) }}
+        {% if s.start is not none and s.end is not none %}
+          {{ fact('Range', '%g → %g' % (s.start, s.end)) }}
+        {% else %}{{ fact('Range', none) }}{% endif %}
+        {{ fact('Step size', '%g' % s.step_size if s.step_size is not none else none) }}
+        {{ fact('Shots per step', s.shots_per_step) }}
+        {{ fact('Plan', s.plan) }}
+        {{ fact('Mode', s.mode) }}
+        {{ fact('Trigger profile', s.trigger_profile) }}
+        {{ fact('Devices', s.devices | join(', ') if s.devices else none) }}
+      </dl>
+    </div>
+  </details>
+{% endmacro %}
+
 {% set many = summary.scans | length > 20 %}
 
 <div class="topbar">
@@ -61,15 +104,27 @@
 
     {% if summary.scans %}
     <section>
-      <h4>Scans · {{ summary.scans | length }}</h4>
+      <h4>{{ 'Campaigns' if many else 'Scans' }} ·
+        {{ summary.campaigns | length if many else summary.scans | length }}</h4>
       <div class="scanlist">
-        {% for s in summary.scans %}
-        <a class="scanrow" href="#{{ s.label }}">
-          <span class="dot dot-{{ s.status }}"></span>
-          <span class="id">{{ '%03d' % s.number }}</span>
-          <span class="lbl">{{ s.parameter or '—' }}</span>
-        </a>
-        {% endfor %}
+        {% if many %}
+          {% for c in summary.campaigns %}
+          <a class="scanrow" href="#{{ c.scans[0].label }}">
+            <span class="dot dot-{{ 'failed' if c.failed else c.scans[0].status }}"></span>
+            <span class="id">{{ '%03d' % c.scans[0].number }}</span>
+            <span class="lbl">{{ c.parameter or '—' }}</span>
+            <span class="count">{{ c.scans | length }}</span>
+          </a>
+          {% endfor %}
+        {% else %}
+          {% for s in summary.scans %}
+          <a class="scanrow" href="#{{ s.label }}">
+            <span class="dot dot-{{ s.status }}"></span>
+            <span class="id">{{ '%03d' % s.number }}</span>
+            <span class="lbl">{{ s.parameter or '—' }}</span>
+          </a>
+          {% endfor %}
+        {% endif %}
       </div>
     </section>
     {% endif %}
@@ -95,48 +150,26 @@
       <p class="empty">The day folder exists but holds no scans yet.</p>
     {% endif %}
 
-    {% for s in summary.scans %}
-    <details class="card scan" id="{{ s.label }}"
-             data-hay="{{ (s.label ~ ' ' ~ (s.parameter or '') ~ ' ' ~ (s.purpose or '') ~ ' ' ~ s.devices|join(' ')) | lower }}"
-             {% if not many %}open{% endif %}>
-      <summary class="scanhead">
-        <span class="twisty" aria-hidden="true"></span>
-        <span class="scanid">{{ s.label }}</span>
-        <span class="scantime">{{ s.started.strftime('%H:%M:%S') if s.started else '—' }}</span>
-        <span class="scanpurpose{% if not s.purpose %} none{% endif %}">
-          {{ s.purpose or 'No purpose recorded at submission' }}</span>
-        <span class="chip chip-{{ s.status }}">
-          {{ {'success':'success','failed':'failed','incomplete':'no scan info','unknown':'check'}[s.status] }}
-        </span>
-      </summary>
-
-      {% if s.failure_reason %}
-      <div class="failstrip">
-        <div class="flabel">Scan ended with an error — from ScanEndInfo</div>
-        <div class="fmsg">{{ s.failure_reason }}</div>
-      </div>
-      {% endif %}
-
-      <div class="derived">
-        <div class="derived-label">
-          <span>Derived — not stored here</span>
-          <span>{{ s.label }}/ScanInfo{{ s.label }}.ini</span>
+    {% if many %}
+      {% for c in summary.campaigns %}
+      <details class="campaign" {% if c.scans | length == 1 %}open{% endif %}>
+        <summary class="camphead">
+          <span class="twisty" aria-hidden="true"></span>
+          <span class="campspan">{{ c.span }}</span>
+          <span class="campcount">{{ c.scans | length }}
+            scan{{ '' if c.scans | length == 1 else 's' }}</span>
+          <span class="campparam">{{ c.parameter or '—' }}</span>
+          <span class="camppurpose">{{ c.purpose or 'No purpose recorded' }}</span>
+          {% if c.failed %}<span class="chip chip-failed">{{ c.failed }} failed</span>{% endif %}
+        </summary>
+        <div class="campbody">
+          {% for s in c.scans %}{{ scan_block(s, false) }}{% endfor %}
         </div>
-        <dl class="facts">
-          {{ fact('Scan variable', s.parameter) }}
-          {% if s.start is not none and s.end is not none %}
-            {{ fact('Range', '%g → %g' % (s.start, s.end)) }}
-          {% else %}{{ fact('Range', none) }}{% endif %}
-          {{ fact('Step size', '%g' % s.step_size if s.step_size is not none else none) }}
-          {{ fact('Shots per step', s.shots_per_step) }}
-          {{ fact('Plan', s.plan) }}
-          {{ fact('Mode', s.mode) }}
-          {{ fact('Trigger profile', s.trigger_profile) }}
-          {{ fact('Devices', s.devices | join(', ') if s.devices else none) }}
-        </dl>
-      </div>
-    </details>
-    {% endfor %}
+      </details>
+      {% endfor %}
+    {% else %}
+      {% for s in summary.scans %}{{ scan_block(s, true) }}{% endfor %}
+    {% endif %}
 
     <p class="foot">Notes and figures land here in the next change. This view is
     read-only: it renders the scan folders and stores nothing.</p>
@@ -149,7 +182,9 @@
    home for it — it never needs to reach another viewer or the server. */
 const KEY = "scanlog.expandAll";
 const btn = document.getElementById("toggle-all");
-const cards = () => [...document.querySelectorAll("details.scan")];
+const GROUPED = document.querySelector("details.campaign") !== null;
+const cards = () => [...document.querySelectorAll(
+  GROUPED ? "details.campaign" : "details.scan")];
 
 function applyAll(expand){
   cards().forEach(c => { if (!c.hidden) c.open = expand; });
@@ -169,13 +204,25 @@ btn.addEventListener("click", () => applyAll(btn.dataset.expanded !== "true"));
    the box puts the page back exactly as it was. */
 document.getElementById("q").addEventListener("input", ev => {
   const f = ev.target.value.trim().toLowerCase();
-  cards().forEach(c => { c.hidden = !!f && !c.dataset.hay.includes(f); });
+  const blocks = [...document.querySelectorAll("details.scan")];
+  blocks.forEach(c => { c.hidden = !!f && !c.dataset.hay.includes(f); });
+  /* A campaign disappears only when every scan in it is filtered out, and
+     opens automatically so matches inside it are actually visible. */
+  document.querySelectorAll("details.campaign").forEach(camp => {
+    const kids = [...camp.querySelectorAll("details.scan")];
+    const any = kids.some(k => !k.hidden);
+    camp.hidden = !any;
+    if (f && any) camp.open = true;
+  });
 });
 
 /* Jumping from the rail should reveal what you jumped to. */
 document.querySelectorAll(".scanrow").forEach(a => a.addEventListener("click", () => {
   const el = document.querySelector(a.getAttribute("href"));
-  if (el) el.open = true;
+  if (!el) return;
+  el.open = true;
+  const camp = el.closest("details.campaign");
+  if (camp) camp.open = true;
 }));
 </script>
 </body>

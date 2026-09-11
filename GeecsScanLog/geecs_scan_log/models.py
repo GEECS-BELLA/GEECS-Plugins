@@ -84,6 +84,43 @@ class ScanSummary(BaseModel):
         return f"Scan{self.number:03d}"
 
 
+class Campaign(BaseModel):
+    """A run of consecutive scans sharing a parameter and a purpose.
+
+    A busy day is a handful of campaigns, not a hundred unrelated scans:
+    an operator sweeps one variable for twenty scans, changes something,
+    sweeps another. Grouping is *derived* from what the scanner already
+    wrote — nobody declares a campaign — so it costs no new input and
+    cannot be forgotten.
+
+    Attributes
+    ----------
+    parameter : str or None
+        The shared ``Scan Parameter``.
+    purpose : str or None
+        The shared ``ScanStartInfo``.
+    scans : list of ScanSummary
+        The run, in scan order.
+    """
+
+    parameter: Optional[str] = None
+    purpose: Optional[str] = None
+    scans: list["ScanSummary"] = Field(default_factory=list)
+
+    @property
+    def span(self) -> str:
+        """Return the scan range, e.g. ``"Scan012–Scan033"``."""
+        first, last = self.scans[0], self.scans[-1]
+        if first.number == last.number:
+            return first.label
+        return f"{first.label}\u2013{last.label}"
+
+    @property
+    def failed(self) -> int:
+        """Return how many scans in this campaign failed."""
+        return sum(1 for s in self.scans if s.status == "failed")
+
+
 class DaySummary(BaseModel):
     """Every scan folder present for one date.
 
@@ -113,3 +150,27 @@ class DaySummary(BaseModel):
     def failed(self) -> int:
         """Return how many scans on this day ended in a failure."""
         return sum(1 for s in self.scans if s.status == "failed")
+
+    @property
+    def campaigns(self) -> list[Campaign]:
+        """Group consecutive scans sharing a parameter and purpose.
+
+        Returns
+        -------
+        list of Campaign
+            One entry per run, in scan order. A day of unrelated scans
+            yields one single-scan campaign each, which is why the view
+            only groups above a threshold — see ``day.html``.
+        """
+        runs: list[Campaign] = []
+        for scan in self.scans:
+            key = (scan.parameter, scan.purpose)
+            if runs and (runs[-1].parameter, runs[-1].purpose) == key:
+                runs[-1].scans.append(scan)
+            else:
+                runs.append(
+                    Campaign(
+                        parameter=scan.parameter, purpose=scan.purpose, scans=[scan]
+                    )
+                )
+        return runs

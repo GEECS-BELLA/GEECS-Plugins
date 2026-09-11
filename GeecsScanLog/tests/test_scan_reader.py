@@ -109,3 +109,34 @@ class TestScanFolderCreationInvariant:
 
         monkeypatch.setattr(Path, "mkdir", explode)
         read_day(date(2026, 9, 12), "Undulator", base_directory=tmp_path)
+
+
+class TestCampaigns:
+    """Consecutive scans sharing a parameter and purpose group into a run.
+
+    A busy day is a handful of campaigns rather than a hundred unrelated
+    scans, and the grouping is derived from what the scanner already wrote
+    — nobody declares a campaign, so nobody can forget to.
+    """
+
+    def test_groups_consecutive_matching_scans(self, share: Path) -> None:
+        """Each distinct (parameter, purpose) run becomes one campaign."""
+        day = read_day(DAY, "Undulator", base_directory=share)
+        spans = [(c.span, len(c.scans)) for c in day.campaigns]
+        # Scan001 (U_S1H), Scan006 (Shotnumber), Scan031 (no scan info)
+        assert spans == [("Scan001", 1), ("Scan006", 1), ("Scan031", 1)]
+
+    def test_a_run_collapses_to_one_campaign(self, make_run) -> None:
+        """Twenty identical scans are one campaign, not twenty."""
+        root = make_run(20)
+        campaigns = read_day(DAY, "Undulator", base_directory=root).campaigns
+        assert len(campaigns) == 1
+        assert campaigns[0].span == "Scan001–Scan020"
+        assert len(campaigns[0].scans) == 20
+
+    def test_campaign_reports_failures_inside_it(self, share: Path) -> None:
+        """A failure inside a campaign is visible on the campaign itself."""
+        day = read_day(DAY, "Undulator", base_directory=share)
+        failing = [c for c in day.campaigns if c.failed]
+        assert len(failing) == 1
+        assert failing[0].scans[0].number == 6
