@@ -17,7 +17,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   restart — no per-box visit.  `tests/test_deploy_files.py` pins the
   launcher's package list and the requirements' consistency with
   `pyproject.toml` (the 0.4.4 fleet's launcher predated GEECS-Core and
-  would have crash-looped on the 0.7.0 restart).
+  would have crash-looped on the 0.7.0 restart).  Review of #824: the pin
+  file is the closure (`--no-deps` on both sides, so one unstaged
+  transitive wheel cannot block every pin); a launcher copy happens with
+  the service **stopped** — cmd reads a batch file by byte offset, so a
+  copy over a running service followed by `:restart` resumes the new file
+  mid-way (`DEPLOYMENT.md`).
 
 ## [0.7.0] - 2026-09-11
 

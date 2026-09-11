@@ -30,11 +30,13 @@ if not "%GEECS_PVA_SOURCE%"=="" (
     if exist "%GEECS_PVA_SOURCE%\GeecsPvaGateway\pyproject.toml" (
         rem External deps added after bootstrap (deploy/requirements-fleet.txt)
         rem install offline from the wheel cache beside the clone, staged by
-        rem deploy/stage_wheels.sh.  Best effort: a missing cache or wheel
-        rem leaves the installed versions, exactly like the reinstall below.
+        rem deploy/stage_wheels.sh.  --no-deps on both sides: the pin file IS
+        rem the closure (transitive deps are pinned explicitly or were frozen
+        rem at bootstrap).  Best effort: a missing cache or wheel leaves the
+        rem installed versions, exactly like the reinstall below.
         if exist "%GEECS_PVA_WHEELS%" (
             echo pull-on-restart: fleet requirements from "%GEECS_PVA_WHEELS%"
-            "%GEECS_PVA_ROOT%\venv\Scripts\python" -m pip install --quiet --no-index --find-links "%GEECS_PVA_WHEELS%" -r "%GEECS_PVA_SOURCE%\GeecsPvaGateway\deploy\requirements-fleet.txt"
+            "%GEECS_PVA_ROOT%\venv\Scripts\python" -m pip install --quiet --no-index --no-deps --find-links "%GEECS_PVA_WHEELS%" -r "%GEECS_PVA_SOURCE%\GeecsPvaGateway\deploy\requirements-fleet.txt"
         )
         echo pull-on-restart: reinstalling from "%GEECS_PVA_SOURCE%"
         "%GEECS_PVA_ROOT%\venv\Scripts\python" -m pip install --quiet --upgrade --no-deps --no-build-isolation "%GEECS_PVA_SOURCE%\GEECS-Schemas" "%GEECS_PVA_SOURCE%\GEECS-Core" "%GEECS_PVA_SOURCE%\GEECS-Data-Utils" "%GEECS_PVA_SOURCE%\GeecsCAGateway" "%GEECS_PVA_SOURCE%\GeecsPvaGateway"

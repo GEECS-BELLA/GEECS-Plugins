@@ -67,11 +67,9 @@ PVA firewall ports (TCP 5075 / UDP 5076), fetches `nssm.exe`, and registers
 the `GeecsPvaGateway` service (auto-start, restart on any exit, online-rotating
 logs). If you omitted `-ConfigSource`, place `Configurations.INI` in the
 profile (rule 1); then `nssm start GeecsPvaGateway`. Note `launch.bat` is
-copied at bootstrap time — launcher changes need a re-bootstrap, package
-updates don't.
-A **re**-bootstrap removes the existing service first (so pip never upgrades
-in-use files): if a later step fails, the box has no service until the
-bootstrap is re-run to completion — the failure is loud, fix and re-run.
+copied at bootstrap time — launcher changes need the stop/copy/start step
+under **Rollout** (or a re-bootstrap); package additions do not, since
+`deploy/requirements-fleet.txt` is read from the share on every restart.
 
 ## Rollout (fleet upgrade without touching boxes)
 
@@ -94,16 +92,27 @@ that cache (`--no-index`) before the reinstall, best effort like the
 reinstall itself. The first use was h5py (the file plugin, 0.7.0): the
 eight boxes rolled after 6.100 got it through this path.
 
-**Launcher changes still need a per-box step**: `launch.bat` is copied
-locally at bootstrap, so a change to the launcher itself (its package
-list gained GEECS-Core at 0.4.5 and the wheel step at 0.7.1) does NOT
-reach a box via `:restart` alone — copy `deploy/launch.bat` to
-`C:\geecs\pva-gateway\launch.bat` over ssh (`user@DOMAIN@host` for a domain
-account) or re-run the bootstrap console paste. Restarting a box whose
-launcher predates the current package list can crash-loop it (a 0.4.4
-launcher never reinstalls GEECS-Core, which every gateway ≥ 0.5 imports —
-found on the 2026-09-11 roll). `tests/test_deploy_files.py` pins what the
-launcher names.
+**Launcher changes still need a per-box step, with the service stopped**:
+`launch.bat` is copied locally at bootstrap, so a change to the launcher
+itself (its package list gained GEECS-Core at 0.4.5 and the wheel step at
+0.7.1) does NOT reach a box via `:restart` alone. From an elevated console
+on the box (a console session can read the share; an ssh token cannot):
+
+```powershell
+nssm stop GeecsPvaGateway
+Copy-Item "\\<nas>\<share>\...\Active Version\GEECS-Plugins\GeecsPvaGateway\deploy\launch.bat" C:\geecs\pva-gateway\launch.bat -Force
+nssm start GeecsPvaGateway
+```
+
+**Never copy over a running service and then `:restart`**: cmd reads a
+batch file by byte offset and resumes the *new* file at the *old* file's
+offset after the exe exits, so the first restart runs from the middle of
+the new launcher (skipping its wheel step, or worse) and only the next
+one runs it from the top. `bootstrap.ps1` stops the service around its
+copy for the same reason. Restarting a box whose launcher predates the
+current package list can crash-loop it (a 0.4.4 launcher never reinstalls
+GEECS-Core, which every gateway ≥ 0.5 imports — found on the 2026-09-11
+roll). `tests/test_deploy_files.py` pins what the launcher names.
 
 Then restart instances **via the `:restart` PV**, one host at a time
 (restarting one box first and watching it come back clean before the rest is
@@ -113,9 +122,10 @@ cheap insurance):
 pvput undulator:pvagateway:<ip_token>:restart 1   # e.g. 192_168_6_100
 ```
 
-The server exits with code 86, NSSM relaunches `launch.bat`, which reinstalls
-the four intra-repo packages (`GEECS-Schemas`, `GEECS-Data-Utils`,
-`GeecsCAGateway`, `GeecsPvaGateway`) from the share clone and re-resolves the DB config. Watch the instance's
+The server exits with code 86, NSSM relaunches `launch.bat`, which installs
+the fleet pins from the wheel cache, reinstalls the five intra-repo packages
+(`GEECS-Schemas`, `GEECS-Core`, `GEECS-Data-Utils`, `GeecsCAGateway`,
+`GeecsPvaGateway`) from the share clone and re-resolves the DB config. Watch the instance's
 `version` PV flip on the fleet screen (`deploy/fleet_status_<experiment>.bob`
 — one row per camera server: version, heartbeat, and a confirm-dialog restart
 button for each deployed host; HTU's `fleet_status_undulator.bob` is committed);

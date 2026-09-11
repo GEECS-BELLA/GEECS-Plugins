@@ -42,14 +42,22 @@ def test_fleet_requirements_are_exact_pins_of_declared_dependencies() -> None:
     """Every fleet pin is a dependency the package declares (and vice versa for new ones)."""
     pins = _pins()
     assert pins, "requirements-fleet.txt lists nothing"
+    from packaging.specifiers import SpecifierSet
+
     declared = {
-        name.lower()
-        for name in tomllib.loads(PYPROJECT.read_text())["tool"]["poetry"][
+        name.lower(): spec
+        for name, spec in tomllib.loads(PYPROJECT.read_text())["tool"]["poetry"][
             "dependencies"
-        ]
+        ].items()
     }
-    undeclared = set(pins) - declared
+    undeclared = set(pins) - set(declared)
     assert not undeclared, f"fleet pins not in pyproject dependencies: {undeclared}"
+    for name, version in pins.items():
+        spec = declared[name]
+        spec = spec["version"] if isinstance(spec, dict) else spec
+        assert version in SpecifierSet(
+            spec.replace("^", "~=") if spec.startswith("^") else spec
+        ), f"{name}=={version} violates pyproject's {spec!r}"
     assert "h5py" in pins  # the file plugin's container (0.7.0)
 
 
@@ -65,10 +73,14 @@ def test_launcher_reinstalls_every_intra_repo_package_and_the_fleet_pins() -> No
     assert wheels < text.index("--no-deps --no-build-isolation")
     assert "requirements-fleet.txt" in text
     # The cache path is resolved OUTSIDE the parenthesized block (cmd expands
-    # %VAR% inside a block when the block is parsed, not when the line runs).
-    assert text.index('set "GEECS_PVA_WHEELS=') < text.index(
+    # %VAR% inside a block when the block is parsed, not when the line runs):
+    # the assignment from the for-loop, not merely the clearing `set`.
+    assert text.index('set "GEECS_PVA_WHEELS=%%~fI') < text.index(
         'if not "%GEECS_PVA_SOURCE%"=="" ('
     )
+    # The pin file is the closure: no dependency resolution on either side.
+    assert "--no-index --no-deps --find-links" in text
+    assert "--no-deps" in (DEPLOY / "stage_wheels.sh").read_text()
 
 
 def test_stage_script_reads_the_same_requirements() -> None:

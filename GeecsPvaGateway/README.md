@@ -30,7 +30,7 @@ geecs-pva-gateway --experiment Undulator --list   # show what would be served
   a lossless second consumer of the same frame that writes one
   `<device>.h5` stack per scan into the run folder, driven by the worker's
   stock ophyd-async `ADHDFDataLogic` (#806). Served only where `h5py` is
-  installed (a re-bootstrap per box). `geecs-pva-gateway diff <scan
+  installed (a fleet pin the launcher installs from the share on restart). `geecs-pva-gateway diff <scan
   folder>` compares a scan's stacks against its native PNGs.
 
 See `CLAUDE.md` for architecture and `DEPLOYMENT.md` for the Windows camera

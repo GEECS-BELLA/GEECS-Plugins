@@ -47,8 +47,13 @@ deploy/
   bootstrap.ps1   # one-time per-box setup (venv, firewall, NSSM service with
                   #   USERPROFILE override -> service-owned profile; installs
                   #   Python 3.11 itself when `py -3.11` is missing)
-  launch.bat      # pull-on-restart launcher (reinstall from the shared
+  launch.bat      # pull-on-restart launcher (fleet pins offline from the
+                  #   share's wheel cache, then reinstall from the shared
                   #   GEECS-Plugins clone; its checked-out commit = fleet pin)
+  requirements-fleet.txt # exact pins of external deps added after bootstrap
+                  #   (the closure: --no-deps on both sides); h5py first
+  stage_wheels.sh # downloads the pins' win_amd64/cp311 wheels into
+                  #   <Active Version>/pva-wheels beside the share clone
   gen_fleet_status.py # --experiment X -> fleet_status_<x>.bob from
                   #   fleet.py's roster (DB + [pva] addr_list); rerun + commit
                   #   when the fleet changes, never hand-edit
@@ -68,6 +73,8 @@ tests/
                   #   session semantics (arming, dedupe, stale, rewind,
                   #   counters, no directory creation, no empty file)
   test_diff.py    # the parity tool
+  test_deploy_files.py # the launcher's package list + wheel step, the pins'
+                  #   consistency with pyproject (name and specifier)
 ```
 
 ## Architecture (one asyncio loop)

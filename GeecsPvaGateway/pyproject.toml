@@ -13,8 +13,9 @@ geecs-pva-gateway = "geecs_pva_gateway.__main__:main"
 python = ">=3.11,<3.12"
 p4p = ">=4.2"
 numpy = ">=2.0,<3.0"
-# The file plugin's container (#806): a bootstrap-time dependency on the
-# camera servers (DEPLOYMENT.md — PyPI deps are frozen at bootstrap).
+# The file plugin's container (#806).  On the camera servers it arrives as a
+# fleet pin (deploy/requirements-fleet.txt, installed offline from the
+# share's wheel cache on every restart — DEPLOYMENT.md "Rollout").
 h5py = ">=3.8"
 # The PVA peer of GeecsCAGateway: same access-layer doctrine, same DB-driven
 # config, same naming contract — different protocol. Runs distributed on the
