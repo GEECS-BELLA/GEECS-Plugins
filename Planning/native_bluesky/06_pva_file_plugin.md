@@ -24,50 +24,72 @@ older text is amended in the same PR (the staleness rule, §1 of 03).
 
 ## 2. What this design changes, and why
 
-### 2.1 The orphan frame after a refire is *not* "unreferenced" — the plugin must drop it
+### 2.1 A missed frame keeps the row, adds a row, and rewinds only the late frame
 
 03 §4.B says a refired shot's late frame "stays on disk, unreferenced by
-any document, which is Bluesky's normal model".  With a file plugin that is
-false, and the ecosystem enforces it in three places:
+any document, which is Bluesky's normal model", and that the recovery is
+the whole-event redo.  With a file plugin the first is false, and the
+second throws away a shot that is 99 % complete.  The ecosystem's
+contract, read in three places:
 
 - `StreamResourceDataProvider.make_stream_docs` emits one datum covering
   **every** frame written since the last datum (`last_emitted` →
   `NumCaptured_RBV`), and carries the TODO "fail if we get dropped frames".
 - The RunEngine bundler raises on a per-event datum wider than one index
-  (`bundlers.py:611`: "stream_datum should have indices {start: n, stop:
-  n+1} in a read()/save()").
-- `TiledWriter` concatenates datums and raises if they are not consecutive
-  (`tiled_writer.py:100`), and the consolidator's array is positional: a
-  gap in the file's index space shifts every later frame.
+  (`bundlers.py:611`); a zero-width datum (no frame for this event) is
+  accepted and the next datum gets the next event number.
+- The consolidator keeps a `seq_nums → indices` map with `has_skips`
+  (`consolidators.py:224`): a device with no frame for event *k* is a
+  documented shape.  `TiledWriter` batches only consecutive datums and
+  writes non-consecutive ones separately (`tiled_writer.py:719-727`).
 
-So after a refire, camera A (which delivered on the failed attempt) has
-two frames in its file for one event; the stock provider would emit a
-two-index datum and the run aborts — loudly, but on a ~1 % per-shot
-intermittency that is most 300-shot scans.  The stock ecosystem has no
-refire: an areaDetector camera that misses an edge fails the trigger on
-`exposure_timeout` and the run fails.  Our refire is a GEECS addition, so
-its consequence in the file is ours to handle, and the only party that
-can keep the file exact is the writer.
+**Decision (Sam, 2026-09-11).**  A missed frame on device B does not
+void the row.  The row is saved with every other device's data and B's
+columns marked (an *empty shot*: no datum for B, `NaN` in its scalar
+columns and its stamp), and the plan takes **one more shot** for the
+step, bounded by the existing refire count.  Strict therefore means
+"every step gets its full quota of complete rows, and partial rows are
+kept and marked", not "every row complete".  A device confirmed
+`DISCONNECTED` still aborts the run (retaking cannot help).
 
-**Decision.** The plugin gets one non-areaDetector verb, `Rewind` (int):
-truncate the datasets to *N* frames, set `NumCaptured_RBV = N`, and treat
-any frame stamped before now as stale.  `fire_and_await_shot`'s refire
-branch calls `GeecsDetector.discard_uncollected()` on every plugin-backed
-detector before the next attempt; the method reads each streamable
-provider's `last_emitted` (public) and sets `Rewind` to it, then waits
-for `NumCaptured_RBV` to read it back.  Everything else stays stock —
-`ADHDFDataLogic`, the provider, the bundler, TiledWriter, Tiled.  A
-frame from the abandoned fire that arrives *after* the rewind is dropped
-by the stale rule (its stamp precedes the rewind instant by ≥ the 3 s
-shot timeout), so the file holds exactly the accepted frames in event
-order.
+What the detector and plan do to make the partial row honest:
 
-The zero-width datum (a device with no frame for event *k* while the
-event still records) is representable — the bundler assigns `seq_nums`
-from the datum width and the consolidator keeps a `seq_nums → indices`
-map with `has_skips` — and is the native shape for the **non-essential
-stream** (phase 2), not for strict.  Recorded here so phase 2 does not
-re-derive it.
+- **The scalars of a missed shot are stale** (the CA monitor cache holds
+  the previous shot; LabVIEW's own timeout event carries unchanged values
+  and the gateway's change suppression drops it, M1).  The acquire logic
+  remembers a missed shot until the next `baseline()`, and the scalars
+  provider reads `NaN` for every column of that device in that row, the
+  stamp included.  The detector knows, because the timeout was raised
+  by its own trigger status.
+- **Per-device trigger groups** in `fire_and_await_shot`, so every
+  device's outcome is known, not just the first failure; the statuses run
+  concurrently under one 3 s deadline, so the wall time is unchanged.
+
+**The late frame, and why `Rewind` stays.**  A frame from B's missed
+shot that arrives after row *k* closed is written as frame *c*; the
+retake's frame becomes *c+1*; row *k+1*'s datum for B spans two frames
+and the bundler aborts the run — at every arrival time except after the
+run's last collect.  So the plugin gets one non-areaDetector verb,
+`Rewind` (int): truncate the datasets to *N*, post `NumCaptured_RBV = N`,
+and drop any later frame whose stamp is older than now (the late frame's
+stamp is its edge time, ≥ 3 s in the past; the retake's is newer).
+Before the retake fires, the plan calls `GeecsDetector.discard_uncollected()`
+**on the devices that missed only**, through the stock `bps.wait_for`
+stub; the method sets `Rewind` to each streamable provider's
+`last_emitted` (public) and waits for the readback.  It never touches a
+device that delivered, and it cannot reach a frame any row references,
+because the retake fires only after it.  What is lost is one half-orphan
+frame per late arrival: a frame whose scalars never reached its row
+either.  The alternative — keep the frame and skip its index — needs a
+provider of our own and leaves Tiled's positional view of that camera
+unreliable for the run, while the stamps stay correct; rejected for the
+stock property (Sam: "not a unique issue we encounter at BELLA").
+
+**Synchronicity is asserted, not assumed.**  Every frame carries
+`acq_timestamp` in the file and every row carries it in the event, so at
+the run's stop a callback checks, per plugin-backed camera, that the
+frames written equal the rows with a stamp for it and that each stamp
+matches its row, and writes a mismatch to `scan.log`.
 
 ### 2.2 The count wait now precedes the stamp wait, with its own timeout
 
