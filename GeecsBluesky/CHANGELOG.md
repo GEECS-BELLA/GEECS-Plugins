@@ -4,6 +4,73 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+
+## [0.81.0] - 2026-09-11
+
+### Added
+
+- **Plugin-backed cameras** (#806, `Planning/native_bluesky/06_pva_file_plugin.md`):
+  `devices/hdf_plugin.py` — `GeecsHdfIO` (`NDFileHDF5IO` + `Rewind`,
+  `WriteStatus`, `WriteMessage`), `PluginPathProvider` (the Windows
+  directory the plugin's `FilePath` receives and the worker's `file://`
+  URI the stream resource carries, for one run folder; filename = the
+  GEECS device name, so the stock template yields `<device>/<device>.h5`)
+  and `file_plugin_hosts` (`config.ini [pva] file_plugin_addr_list`, else
+  `addr_list`).  `GeecsDetector(hdf_plugins=[(variable, provider)])` adds
+  one `GeecsHdfIO` child per image variable driven by the **stock**
+  `ADHDFDataLogic`; the namespace makes a `looks_triggerable` device with
+  a DB image variable plugin-backed when its endpoint host is in the list
+  (`DeviceRoster.endpoints`, from `get_experiment_devices`), else it keeps
+  LabVIEW-native saving.  `config.ini [Paths] geecs_pva_plugin_data_base_path`
+  is the UNC data root the plugin's service can write
+  (`data_paths.plugin_save_path`).  `p4p` rides the `ca` extra.
+- `GeecsDetector.discard_uncollected()` — rewinds every plugin to the last
+  frame a document referenced (the refire guard); `plugin_backed` and
+  `missed_shot` properties; `callbacks.StackCheckCallback` asserts at the
+  stop document, per stack, that the frames on disk are the rows' shots
+  (count and stamps) and writes the verdict to `scan.log`.
+
+### Changed
+
+- **Strict shot semantics** (Sam, 2026-09-11): a missed frame no longer
+  voids the row.  `fire_and_await_shot` awaits every device in its own
+  group and returns the ones that missed (the devices' `missed_shot`
+  flags are the census, not the exceptions the RunEngine throws); the
+  row is saved with every scalar the shot produced, the frameless
+  device's columns `NaN` (`mask_missed_shot`; the monitor cache would
+  otherwise carry the previous shot), and **no frames** (the bundler
+  wants one same-width datum per external key per event, or none — every
+  plugin is rewound before the row is read); then one more shot is taken
+  for the step, bounded by `max_refires`; the quota exhausted raises
+  `GeecsTriggerTimeoutError` naming the devices and keeps the partial
+  rows.  A `DISCONNECTED` device still aborts.
+- `STRICT_TRIGGER_INFO.exposure_timeout = DEFAULT_SHOT_TIMEOUT` (3 s): on
+  a plugin-backed camera the frame-count wait precedes the stamp wait and
+  its timeout is translated into `GeecsTriggerTimeoutError`, so a dropped
+  frame surfaces in 3 s, not 13.
+- `subscribe_scan_outputs` returns four tokens (the stack check first).
+- Review of #823: `[pva] file_plugin_addr_list` has **no** fallback to the
+  PVA fleet's `addr_list` (a listed box not yet re-bootstrapped would have
+  failed every scan at connect); the stack check takes the rows a stack
+  owns from the run's `stream_datum` documents (a partial row where the
+  camera delivered has a stamp but no frame) and runs on a thread that
+  waits for the plugin's `finalized` attribute — the stop document
+  precedes `unstage`/`Capture=0` — reading lock-free and appending its
+  verdict to `scan.log`; `mask_missed_shot` blanks booleans, numpy scalars
+  and arrays too; a failed `prepare` on a plugin-backed camera carries the
+  plugin's `WriteMessage` as an exception note; `data_paths.read_config_entry`
+  and `_translate_to` are the one config reader / path translator;
+  the camera test is `geecs_core.db.variable_types.image_variables`.
+
+### Removed
+
+- The capture daemon — `geecs_bluesky/capture/` (daemon, heartbeat,
+  discovery, subscriber, writer, `FORMAT.md`), `tests/capture/`, the
+  `capture` extra, `pyzmq`, the `geecs-capture-*` scripts — superseded by
+  the file plugin; `capture/diff.py` lives on as
+  `geecs_pva_gateway.diff`.  `Planning/data_capture/01_central_pva_capture_scope.md`
+  is marked superseded.
+
 ## [0.80.1] - 2026-09-10
 
 ### Fixed

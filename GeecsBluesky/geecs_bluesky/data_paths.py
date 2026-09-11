@@ -17,15 +17,25 @@ from pathlib import Path, PureWindowsPath
 logger = logging.getLogger(__name__)
 
 
-def _read_paths_entry(key: str) -> str | None:
-    config_path = Path.home() / ".config" / "geecs_python_api" / "config.ini"
-    if not config_path.exists():
+CONFIG_PATH = Path.home() / ".config" / "geecs_python_api" / "config.ini"
+
+
+def read_config_entry(
+    section: str, key: str, config_path: Path | None = None
+) -> str | None:
+    """One ``config.ini`` value (``None`` when the file, section or key is absent)."""
+    path = config_path or CONFIG_PATH
+    if not path.exists():
         return None
     cfg = configparser.ConfigParser()
-    cfg.read(config_path)
-    if "Paths" not in cfg:
+    cfg.read(path)
+    if section not in cfg:
         return None
-    return cfg["Paths"].get(key) or None
+    return cfg[section].get(key) or None
+
+
+def _read_paths_entry(key: str) -> str | None:
+    return read_config_entry("Paths", key)
 
 
 def read_device_server_data_base_path() -> str | None:
@@ -59,31 +69,35 @@ def translate_save_path_for_device_server(
     return str(PureWindowsPath(device_server_base_path, *relative_path.parts))
 
 
-def device_server_save_path(save_path: str) -> str:
-    """Return the path to send to device ``localsavingpath`` controls."""
-    device_server_base_path = read_device_server_data_base_path()
-    if not device_server_base_path:
+def _translate_to(remote_base_path: str | None, save_path: str, who: str) -> str:
+    """Translate a local scan path onto *remote_base_path* (the local path if unknown)."""
+    if not remote_base_path:
         return save_path
     try:
         from geecs_data_utils import ScanPaths
     except Exception:
         logger.warning(
-            "Could not import geecs_data_utils; using local save path for device"
+            "Could not import geecs_data_utils; using local path for %s", who
         )
         return save_path
-
-    paths_config = getattr(ScanPaths, "paths_config", None)
-    local_base_path = getattr(paths_config, "base_path", None)
+    local_base_path = getattr(
+        getattr(ScanPaths, "paths_config", None), "base_path", None
+    )
     if local_base_path is None:
         logger.warning(
-            "ScanPaths.paths_config is not loaded; using local save path for device"
+            "ScanPaths.paths_config is not loaded; using local path for %s", who
         )
         return save_path
     return translate_save_path_for_device_server(
         save_path,
         local_base_path=local_base_path,
-        device_server_base_path=device_server_base_path,
+        device_server_base_path=remote_base_path,
     )
+
+
+def device_server_save_path(save_path: str) -> str:
+    """Return the path to send to device ``localsavingpath`` controls."""
+    return _translate_to(read_device_server_data_base_path(), save_path, "the device")
 
 
 def asset_resource_root_paths() -> tuple[str | None, str | None]:
@@ -112,3 +126,24 @@ def asset_resource_root_paths() -> tuple[str | None, str | None]:
         )
         return None, None
     return canonical_root, str(base_path)
+
+
+def read_plugin_data_base_path() -> str | None:
+    """The data root as the camera servers' **file plugin** sees it.
+
+    The plugin runs as a Windows service (GeecsPvaGateway ``DEPLOYMENT.md``,
+    session-0 rule 1): it cannot see the per-user mapped drive LabVIEW writes
+    through, so it needs the UNC form of the same root
+    (``[Paths] geecs_pva_plugin_data_base_path``).  Absent, the device-server
+    path is used — right where the service can see that drive.
+    """
+    return _read_paths_entry("geecs_pva_plugin_data_base_path")
+
+
+def plugin_save_path(save_path: str) -> str:
+    """Return the path to send to a file plugin's ``FilePath`` control."""
+    return _translate_to(
+        read_plugin_data_base_path() or read_device_server_data_base_path(),
+        save_path,
+        "the file plugin",
+    )

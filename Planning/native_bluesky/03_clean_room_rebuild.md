@@ -227,10 +227,12 @@ for each shot:
 About 25 lines of pure `bps`, one of which is the non-stock idea. On a
 `FailedStatus` from the wait: device confirmed down (the existing
 `CONNECTED` liveness read) → `GeecsDeviceDownError`, the run aborts with
-the device named; otherwise re-trigger **all** essential detectors and fire
-again — the whole-event redo, so positional joins stay exact for every
-essential detector (the orphan frame stays on disk, unreferenced by any
-document, which is Bluesky's normal model). This is `fire_and_await_shot`
+the device named; otherwise **keep the row** (every scalar the shot produced, the
+frameless device's columns `NaN`, no frames) and fire once more for the
+step — the partial-row semantics decided 2026-09-11 (`06_pva_file_plugin.md`
+§2.1: with a file plugin an orphan frame is *not* unreferenced, the
+bundler references every written frame, so the plugin is rewound to the
+last referenced frame before the retake). This is `fire_and_await_shot`
 (`plans/single_shot.py`), shared with the funnel's shot — built in phase 0
 as `plans/strict.py`. **Why not `bps.pause()` on a dead device** (the
 first draft said pause-fix-resume): a pause inside `take_reading` is
@@ -454,11 +456,15 @@ not the docs:
 **ASSUMED, must be verified before designing on it** (narrowed from the
 first draft; each names the phase that retires it):
 
-- that the PVA gateway plugin can count **distinct, fresh** frames
-  losslessly within a capture window, deduping on the stamp before the
-  latest-wins slot — the substance of #806 (phase 1)
-- that Tiled 0.2.9 reads the plugin's NDFileHDF5-layout files through its
-  stock HDF5 adapter with no adapter of ours (phase 1)
+- ~~that the PVA gateway plugin can count distinct, fresh frames
+  losslessly~~ **Built and pinned offline 2026-09-11** (`06_pva_file_plugin.md`;
+  the stock `ADHDFDataLogic` drives the real plugin over `pva://` in
+  `GeecsPvaGateway/tests/test_file_plugin.py`); on hardware with the
+  rollout (§8 of 06)
+- ~~that Tiled 0.2.9 reads the plugin's NDFileHDF5-layout files~~ the
+  adapter path is read (`consolidators.py`, `tiled/adapters/hdf5.py`:
+  `swmr=True, libver="latest"` on the closed file, verified locally with
+  h5py 3.16); a Tiled read of a real run is the rollout's step 3
 - ~~OFF latency / timeout-event posting~~ **Measured 2026-09-09
   (`04_phase0_measurements.md` M1):** OFF stops edges within one period
   (put 155 ms, one in-flight edge, then silence); the gateway posts **no**
@@ -804,9 +810,9 @@ logic:
 
 1. **Lossless frame delivery.** The re-push and stale-frame behaviours are
    the TCP push's; the #806 plugin dedupes on the stamp before the
-   latest-wins slot, and that is the **only** place such logic may live.
-   (The gateway then has two consumers with opposite delivery contracts in
-   one process; its `DESIGN.md` should say so.)
+   latest-wins slot, and that is the **only** place such logic may live
+   (built 2026-09-11: `GeecsPvaGateway/geecs_pva_gateway/file_plugin.py`;
+   the gateway's `CLAUDE.md` names the two opposite delivery contracts).
 2. **No write-complete readback on the LabVIEW-native path** (§10.1) —
    replaced by our own end-of-run file check; contained to the non-image
    proprietary devices once #806 lands.

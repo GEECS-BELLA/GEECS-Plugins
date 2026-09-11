@@ -25,8 +25,9 @@ from geecs_pva_gateway.config import instance_pv_prefix
 from geecs_core.transport.tcp_subscriber import GeecsTcpSubscriber
 from geecs_data_utils.io import decode_imaq_image_string
 
-from geecs_pva_gateway import __version__
+from geecs_pva_gateway import __version__, file_plugin
 from geecs_pva_gateway.config import CameraSpec, PvaGatewayConfig
+from geecs_pva_gateway.file_plugin import HdfFilePlugin
 
 logger = logging.getLogger(__name__)
 
@@ -105,6 +106,23 @@ class _CameraWorker:
             for var in spec.image_variables
         }
         self._clients: dict[str, int] = dict.fromkeys(spec.image_variables, 0)
+        # The file plugin (#806): one per image variable, a second consumer
+        # of the push frame that holds the subscription like a client does.
+        # Served only where its writer library is installed (file_plugin.available).
+        self._plugins: dict[str, HdfFilePlugin] = (
+            {
+                var: HdfFilePlugin(
+                    device=spec.device,
+                    variable=var,
+                    experiment=spec.experiment,
+                    retain=self.retain,
+                    release=self.release,
+                )
+                for var in spec.image_variables
+            }
+            if file_plugin.available()
+            else {}
+        )
         self._supervisors: dict[str, asyncio.Task] = {}
         self._latest: dict[str, tuple[str, float]] = {}
         self._publishing: set[str] = set()
@@ -122,7 +140,17 @@ class _CameraWorker:
         same PV name must both surface so the collision guard can see them
         rather than one silently shadowing the other.
         """
-        return [(self._spec.pv_name_for(var), var, pv) for var, pv in self._pvs.items()]
+        entries = [
+            (self._spec.pv_name_for(var), var, pv) for var, pv in self._pvs.items()
+        ]
+        for plugin in self._plugins.values():
+            entries.extend(plugin.provider_entries())
+        return entries
+
+    @property
+    def plugins(self) -> dict[str, HdfFilePlugin]:
+        """The file plugins by image variable (empty where h5py is not installed)."""
+        return self._plugins
 
     async def stop(self) -> None:
         """Cancel all supervisors (gateway shutdown)."""
@@ -139,6 +167,8 @@ class _CameraWorker:
                 await task
             except asyncio.CancelledError:
                 pass
+        for plugin in self._plugins.values():
+            await self._loop.run_in_executor(None, plugin.stop)
 
     # -- gating; retain/release arrive on p4p worker threads ---------------
 
@@ -212,8 +242,14 @@ class _CameraWorker:
         blob = update.get(var)
         if not blob or not isinstance(blob, str):
             return
+        stamp = _frame_timestamp(update)
+        # The file plugin's lossless intake branches off first (#806): its
+        # delivery contract is the opposite of the stream's below.
+        plugin = self._plugins.get(var)
+        if plugin is not None:
+            plugin.offer(blob, stamp, time.time())
         # Latest-wins slot: an unconsumed frame is replaced, never queued.
-        self._latest[var] = (blob, _frame_timestamp(update))
+        self._latest[var] = (blob, stamp)
         if var not in self._publishing:
             self._publishing.add(var)
             self._loop.create_task(self._publish(var))

@@ -11,7 +11,7 @@ np = pytest.importorskip("numpy")
 
 from geecs_data_utils.io.scan_stack import LABVIEW_EPOCH_OFFSET  # noqa: E402
 
-from geecs_bluesky.capture.diff import diff_device_dir, main  # noqa: E402
+from geecs_pva_gateway.diff import diff_device_dir, main  # noqa: E402
 
 TS = [3866137959.524, 3866137960.525, 3866137961.526]
 
@@ -23,10 +23,9 @@ def _write_stack(device_dir, lv_timestamps, frames=None):
         frames = [np.full((3, 3), i, dtype=np.uint16) for i in range(n)]
     path = device_dir / f"{device_dir.name}.h5"
     with h5py.File(path, "w") as f:
-        f.attrs["schema"] = "geecs-capture/1"
-        f.create_dataset("frames", data=np.stack(frames), chunks=(1, 3, 3))
+        f.create_dataset("/entry/data/data", data=np.stack(frames), chunks=(1, 3, 3))
         f.create_dataset(
-            "acq_timestamp",
+            "/entry/instrument/NDAttributes/acq_timestamp",
             data=np.asarray(lv_timestamps, dtype=float) - LABVIEW_EPOCH_OFFSET,
         )
     return path
@@ -143,7 +142,7 @@ def test_cli_exit_code_and_log(tmp_path, monkeypatch):
     _write_stack(device_dir, TS[:1], frames)
     _touch_pngs(device_dir, TS[:1])
 
-    import geecs_bluesky.capture.diff as diff_mod
+    import geecs_pva_gateway.diff as diff_mod
 
     monkeypatch.setattr(
         diff_mod, "_default_png_reader", lambda p: np.full((3, 3), 1, np.uint16)
@@ -168,7 +167,7 @@ def test_cli_operational_error_exits_2_and_continues(tmp_path, monkeypatch):
     _write_stack(device_dir, TS[:1], frames)
     _touch_pngs(device_dir, TS[:1])
 
-    import geecs_bluesky.capture.diff as diff_mod
+    import geecs_pva_gateway.diff as diff_mod
 
     monkeypatch.setattr(
         diff_mod, "_default_png_reader", lambda p: np.full((3, 3), 1, np.uint16)

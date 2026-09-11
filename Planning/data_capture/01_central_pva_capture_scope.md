@@ -1,3 +1,8 @@
+> **Superseded (2026-09-11).**  The capture daemon this document scoped was
+> replaced by the PVA gateway's areaDetector-shaped file plugin (#806,
+> `Planning/native_bluesky/06_pva_file_plugin.md`); the daemon's code and
+> unit are deleted.  Kept for the intake, dedupe and diff findings it records.
+
 # Central PVA image capture — audit & scope
 
 *Drafted 2026-08-27 from a four-surface codebase audit (PVA gateway, GeecsBluesky

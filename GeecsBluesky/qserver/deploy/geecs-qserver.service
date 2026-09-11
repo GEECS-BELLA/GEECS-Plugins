@@ -6,10 +6,9 @@
 # time (paths + identity); ${VARIABLE} values come from site.env at start via
 # EnvironmentFile= (valid only in command arguments).
 #
-# The queueserver and the capture daemon share qs-checkout by design
-# (co-location and co-versioning are a requirement of the capture design);
-# the MCP server bakes its venv from the same clone. See the fleet map's
-# "one clone per service" section for why that is the only sharing allowed.
+# The MCP server bakes its venv from this clone (qs-checkout). See the
+# fleet map's "one clone per service" section for why that is the only
+# sharing allowed.
 
 [Unit]
 Description=GEECS Bluesky Queueserver RE Manager

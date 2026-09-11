@@ -56,6 +56,8 @@ ROSTER = DeviceRoster(
             ),  # enum; collides with trigger()
             row("localsavingpath", settable=True, choices="path"),
             row("image", choices="image"),  # non-scalar
+            row("bakground image", choices="image"),  # pushed only on demand
+            row("processed image", choices="image"),
         ],
         "U_S1H": [
             row(
@@ -324,6 +326,12 @@ class _FakeDb:
     def get_subscribed_variables(self, experiment, *, enabled_only=True):
         return self._q("subscribed", ROSTER.subscribed)
 
+    def get_experiment_devices(self, experiment, *, enabled_only=True):
+        return self._q(
+            "endpoints",
+            {device: ("192.168.6.100", 5000) for device in ROSTER.variables},
+        )
+
 
 def test_from_experiment_reuses_the_db_runtime_providers() -> None:
     db = _FakeDb()
@@ -364,3 +372,63 @@ def test_reserved_device_attributes_pin_the_detector_class() -> None:
     assert settable_attribute("trigger") == "trigger_"
     assert settable_attribute("Current") == "current"
     assert settable_attribute("Position.Axis 1") == "position_axis_1"
+
+
+# --------------------------------------------------------------- #806 rule
+def _roster_on(host: str | None) -> DeviceRoster:
+    import dataclasses
+
+    endpoints = {} if host is None else {"UC_TestCam": host, "U_ImagesOnly": host}
+    return dataclasses.replace(ROSTER, endpoints=endpoints)
+
+
+def test_camera_on_a_plugin_host_is_plugin_backed() -> None:
+    """DB image variable + endpoint in the file-plugin host list → stock ADHDFDataLogic."""
+    from geecs_bluesky.plans.claim_scan import GeecsScanPathProvider
+
+    ns = GeecsNamespace(
+        _roster_on("192.168.6.100"),
+        path_provider=GeecsScanPathProvider(),
+        file_plugin_hosts={"192.168.6.100"},
+    )
+    cam = ns.devices["UC_TestCam"]
+    assert cam.plugin_backed
+    assert cam.hdf.capture.source == "pva://testexp:uc_testcam:image:hdf1:Capture_RBV"
+    # Only the primary image variable is captured: the DB's other image
+    # variables are pushed only when an operation produces them.
+    assert not hasattr(cam, "hdf_bakground_image") and len(cam._hdf_ios) == 1
+    # The plugin's IO is never a telemetry object (only the detector's scalars are).
+    assert cam.hdf not in ns.telemetry()
+    assert all(not hasattr(obj, "num_captured") for obj in ns.telemetry())
+
+
+def test_camera_elsewhere_keeps_labview_native_saving() -> None:
+    """Not on a plugin host (or no host list, or no path provider): no plugin child."""
+    from geecs_bluesky.plans.claim_scan import GeecsScanPathProvider
+
+    for kwargs in (
+        {
+            "path_provider": GeecsScanPathProvider(),
+            "file_plugin_hosts": {"192.168.6.7"},
+        },
+        {"path_provider": GeecsScanPathProvider(), "file_plugin_hosts": None},
+        {"path_provider": None, "file_plugin_hosts": {"192.168.6.100"}},
+    ):
+        ns = GeecsNamespace(_roster_on("192.168.6.100"), **kwargs)
+        assert not ns.devices["UC_TestCam"].plugin_backed
+        assert not hasattr(ns.devices["UC_TestCam"], "hdf")
+
+
+def test_file_plugin_hosts_default_reads_the_config(monkeypatch) -> None:
+    """The default host list is config.ini's; the test asserts the seam, not the lab."""
+    import geecs_bluesky.namespace as namespace_module
+
+    monkeypatch.setattr(
+        namespace_module, "_hosts_from_config", lambda: {"192.168.6.100"}
+    )
+    from geecs_bluesky.plans.claim_scan import GeecsScanPathProvider
+
+    ns = GeecsNamespace(
+        _roster_on("192.168.6.100"), path_provider=GeecsScanPathProvider()
+    )
+    assert ns.devices["UC_TestCam"].plugin_backed

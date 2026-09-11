@@ -1,24 +1,25 @@
-"""The dual-write diff: capture stacks vs native PNGs, per scan.
+"""The dual-write diff: file-plugin stacks vs native PNGs, per scan.
 
-The Phase-6 evidence engine. For every device folder in a scan that holds
-a capture stack, join the
+The rollout's parity tool (``Planning/native_bluesky/06_pva_file_plugin.md``
+§8, step 4; ``geecs-pva-gateway diff``).  For every device folder in a scan
+that holds a stack written by the file plugin, join the
 stack's per-frame ``acq_timestamp``s against the native per-shot files'
 filename timestamps — the analysis join's exact contract: canonical
 millisecond keys plus its \u00b11 ms candidate tolerance — and pixel-compare every matched pair (IMAQ-decoded PNG vs stack
 frame — proven bit-identical on healthy dual-writes). One verdict line per
 device, optionally appended to a JSONL evidence log; a non-zero exit on
 any mismatch. Weeks of clean log entries are the PNG-deprecation gate
-(``Planning/data_capture/01_central_pva_capture_scope.md`` Phase 6).
+(the superseded ``Planning/data_capture/01_central_pva_capture_scope.md`` called this Phase 6).
 
 Vocabulary (per device):
 
 - ``matched`` — timestamps present on both sides; each is pixel-compared.
-- ``stack_only`` — frames only the daemon captured (pre-save-window extras,
+- ``stack_only`` — frames only the plugin captured (pre-save-window extras,
   or every frame on a toggle-off scan) — attributable, never a failure.
 - ``png_only`` — **the bad bucket**: a frame LV saved that capture missed.
 - verdicts: ``pass`` (no png_only, all matched pixel-identical),
   ``capture_only`` (no PNGs at all — toggle-off scan, nothing to diff),
-  ``no_stack`` (PNGs but no stack — not captured; informational),
+  ``no_stack`` (PNGs but no stack — not plugin-backed; informational),
   ``mismatch`` otherwise.
 """
 

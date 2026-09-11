@@ -59,7 +59,7 @@ geecs_bluesky/
   plans/action_compiler.py  # ActionPlan → plan stubs
   run_engine.py             # make_run_engine: RE + claim + headers + baseline + callbacks
   preprocessors.py          # connect_on_demand (installed outermost), scalar_headers
-  callbacks.py              # ScanInfo ini, the s-file, scan.log — per run, best-effort
+  callbacks.py              # ScanInfo ini, the s-file, scan.log, the stack check — per run, best-effort
   scan_log.py               # ScanLogFile: the root-logger handler one run holds
   plan_names.py             # GEECS_PLAN_NAMES — what the profile exports; import-light
   qserver_ready.py          # geecs-qserver-ensure-ready (#793)
@@ -70,7 +70,9 @@ geecs_bluesky/
   tiled_integration.py      # subscribe_tiled (+ the geecs:// descriptor patch, goes with #806)
   data_paths.py, forward_expr.py, scanner_configs.py, epics_env.py, exceptions.py
   models/shot_control.py    # ShotControlWrites + QUIESCE_FROM (TriggerState names)
-  assets/, capture/         # the capture daemon and the asset registry — go with #806
+  devices/hdf_plugin.py     # the file plugin's worker side (#806): GeecsHdfIO (+Rewind),
+                            #   PluginPathProvider (two paths per folder), file_plugin_hosts
+  assets/                   # the geecs:// PNG asset registry — goes with PNG retirement (#738)
   optimization/             # the Xopt core; not runnable until re-glued (option B)
 qserver/                    # the worker: launcher, startup profile, permissions, deploy/
 ```
@@ -220,17 +222,31 @@ and wait.  Transport, DB and PV naming live in GEECS-Core — this package
 touches devices **only** through the gateway's CA PVs and never imports the
 gateway (circular).
 
-**Images:** per-shot scan data is on the file path (the LabVIEW device
-writes, named with the stamp); live frames are NTNDArray PVs from
-`GeecsPvaGateway`.  `capture/` (the PVA frame-stack daemon) and `assets/`
-are not required for production and go with #806 (the file plugin + stock
-`ADHDFDataLogic`), which also retires the `geecs://` descriptor patch in
-`tiled_integration.py`.
+**Images:** a camera whose host serves the PVA gateway's file plugin
+(#806, `Planning/native_bluesky/06_pva_file_plugin.md`) writes one HDF5
+stack per scan through the **stock** `ADHDFDataLogic` over
+`devices/hdf_plugin.GeecsHdfIO`; the run's stream documents reference it
+and Tiled reads it with its stock adapter.  The rule is the namespace's:
+DB image variable + endpoint in `config.ini [pva] file_plugin_addr_list`
+(absent = no host; never the PVA fleet's `addr_list`).  A plugin-backed camera keeps writing its native
+PNGs beside the stack (dual-write, the rollout's parity evidence) until
+PNG retirement (#738); elsewhere per-shot data stays on the
+LabVIEW-native file path (`LvNativeFileDataLogic`, named with the stamp)
+— the non-image proprietary devices keep it for good.  Live frames are the
+NTNDArray PVs.  A missed shot keeps its row (scalars, the missing
+device's columns `NaN`, no frames) and the plan takes one more shot,
+rewinding every plugin to its last referenced frame first
+(`GeecsDetector.discard_uncollected`).  `assets/` (the `geecs://` PNG
+asset docs) and the descriptor patch in `tiled_integration.py` go with
+PNG retirement (#738).
 
 ## Configuration
 
 `~/.config/geecs_python_api/config.ini`: `[epics] ca_addr_list`,
-`[tiled] uri / api_key`, `[Paths]` (data root and the configs repo),
+`[tiled] uri / api_key`, `[Paths]` (data root and the configs repo;
+`geecs_pva_plugin_data_base_path` = the data root as the camera servers'
+file-plugin *service* sees it, UNC), `[pva] file_plugin_addr_list` (the
+camera servers whose gateway serves the file plugin; the rollout knob),
 `[Database]`, `[Experiment] expt`.  Facility values have one home
 (root `CLAUDE.md`); the worker's are in the host's `site.env`, rendered
 into the units.

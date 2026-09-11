@@ -1,8 +1,10 @@
 """CLI: ``geecs-pva-gateway --experiment NAME`` — DB-scoped serve, then run.
 
 ``geecs-pva-gateway fleet ...`` is the read-only fleet probe
-(:func:`geecs_pva_gateway.fleet.fleet_main`); the serve form stays flat
-because ``deploy/launch.bat`` on every camera server invokes it that way.
+(:func:`geecs_pva_gateway.fleet.fleet_main`) and ``geecs-pva-gateway diff
+...`` the file plugin's parity check against the native PNGs
+(:func:`geecs_pva_gateway.diff.main`); the serve form stays flat because
+``deploy/launch.bat`` on every camera server invokes it that way.
 """
 
 from __future__ import annotations
@@ -23,9 +25,17 @@ def main(argv: list[str] | None = None) -> int:
         from geecs_pva_gateway.fleet import fleet_main
 
         return fleet_main(args_in[1:])
+    if args_in[:1] == ["diff"]:
+        from geecs_pva_gateway.diff import main as diff_main
+
+        return diff_main(args_in[1:])
     parser = argparse.ArgumentParser(
         description="Serve this host's GEECS camera images as NTNDArray PVs.",
-        epilog="`geecs-pva-gateway fleet --experiment NAME` probes the deployed fleet instead (read-only).",
+        epilog=(
+            "`geecs-pva-gateway fleet --experiment NAME` probes the deployed fleet "
+            "(read-only); `geecs-pva-gateway diff <scan folder>` compares a scan's "
+            "plugin stacks against its native PNGs."
+        ),
     )
     parser.add_argument("--experiment", required=True, help="GEECS experiment name")
     parser.add_argument(

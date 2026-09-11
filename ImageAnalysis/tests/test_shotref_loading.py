@@ -5,20 +5,19 @@ from __future__ import annotations
 import h5py
 import numpy as np
 
-from geecs_data_utils.io.scan_stack import ShotRef
+from geecs_data_utils.io.scan_stack import FRAMES_DATASET, TIMESTAMPS_DATASET, ShotRef
 from image_analysis.base import ImageAnalyzer
 
 
 def _write_stack(tmp_path, n=3):
     path = tmp_path / "UC_Cam.h5"
     with h5py.File(path, "w") as f:
-        f.attrs["schema"] = "geecs-capture/1"
         f.create_dataset(
-            "frames",
+            FRAMES_DATASET,
             data=np.stack([np.full((4, 5), i, dtype=np.uint16) for i in range(n)]),
             chunks=(1, 4, 5),
         )
-        f.create_dataset("acq_timestamp", data=np.arange(n) + 1000.0)
+        f.create_dataset(TIMESTAMPS_DATASET, data=np.arange(n) + 1000.0)
     return path
 
 

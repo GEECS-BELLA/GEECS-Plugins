@@ -181,17 +181,19 @@ class ShotDataCache:
             if entry is not None and "frames" in entry:
                 self._entries.move_to_end(key)
                 return entry["index_map"], entry["frames"]
-        import h5py
-
         from geecs_data_utils.io.scan_stack import (
+            FRAMES_DATASET,
             LABVIEW_EPOCH_OFFSET,
+            TIMESTAMPS_DATASET,
+            open_stack,
             stack_frame_index_map,
         )
 
-        with h5py.File(stack_path, "r") as f:
+        # Lock-free: the stack was written on Windows and is read over SMB.
+        with open_stack(stack_path) as f:
             if not bool(f.attrs.get("finalized", False)):
                 return None
-            dataset = f["frames"]
+            dataset = f[FRAMES_DATASET]
             size = int(np.prod(dataset.shape)) * dataset.dtype.itemsize
             if size > self._entry_cap:
                 logger.info(
@@ -201,7 +203,7 @@ class ShotDataCache:
                     size,
                 )
                 return None
-            stamps = np.asarray(f["acq_timestamp"][:], dtype=float)
+            stamps = np.asarray(f[TIMESTAMPS_DATASET][:], dtype=float)
             stamps = stamps + LABVIEW_EPOCH_OFFSET
             frames = np.asarray(dataset[:])
         index_map = stack_frame_index_map(stamps)

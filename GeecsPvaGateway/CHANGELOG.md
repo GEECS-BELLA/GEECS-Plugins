@@ -3,6 +3,57 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+
+## [0.7.0] - 2026-09-11
+
+### Added
+
+- **The areaDetector-shaped HDF5 file plugin** (#806;
+  `Planning/native_bluesky/06_pva_file_plugin.md`): `file_plugin.HdfFilePlugin`,
+  one per served image variable, serves the full ophyd-async
+  `NDFileHDF5IO` PV set under `<image PV>:hdf1:` (the prefix minted by
+  `geecs_core.pv_naming.hdf_plugin_prefix`) plus `Rewind`, `WriteStatus`
+  and `WriteMessage`, and writes one `<device>.h5` per device per scan in
+  the NDFileHDF5 layout (`/entry/data/data`, chunked one frame per chunk;
+  `/entry/instrument/NDAttributes/acq_timestamp` + `recv_timestamp`,
+  declared through `NDAttributesFile`).  A lossless second consumer of the
+  push frame, branching off in `_on_frame` before the latest-wins slot,
+  with one writer thread: `Capture=1` retains the GEECS subscription like a
+  client and completes once a frame has been decoded (the geometry the
+  worker describes the stream with), frames dedupe on `acq_timestamp` and
+  stale-filter against a watermark, `NumCaptured_RBV` posts per frame on
+  disk, `Rewind` truncates to a count and moves the watermark (the refire
+  guard), `Capture=0` stamps the reconciliation counters.  Never creates a
+  directory; never HDF5 SWMR across SMB (`SWMRMode` accepted and ignored,
+  flush per frame, file locking off).  Pinned by a test that drives the
+  real plugin with the stock `ADHDFDataLogic` over `pva://`.
+- `geecs-pva-gateway diff <scan folder>` — the parity check of plugin
+  stacks against native PNGs (`diff.py`, moved from GeecsBluesky's
+  retired capture daemon).
+- `h5py` is a dependency: a **re-bootstrap per camera server** (PyPI deps
+  are frozen at bootstrap); a box without it serves no plugin PVs
+  (`file_plugin.available`).
+
+### Changed
+
+- `_CameraWorker.provider_entries` includes the plugin PVs; `stop()`
+  closes an open session.
+- `config.image_variables` is `geecs_core.db.variable_types.image_variables`
+  (re-exported); the stack layout constants come from
+  `geecs_data_utils.io.scan_stack`, the contract's one home.
+
+### Fixed
+
+- A second `Capture=1` arriving while the first is still arming is
+  acknowledged and ignored instead of opening a nested session (review
+  of #823).
+- A stack that cannot be opened (share refused the create, permissions)
+  is counted (`open_failures`) and reported through `WriteStatus` /
+  `WriteMessage` instead of escaping the writer thread; when it happens
+  on a fresh arming frame the `Capture=1` put fails with that reason and
+  the session and subscription are torn down — nothing leaks (Codex
+  review of #823).
+
 ## [0.6.1] - 2026-09-09
 
 ### Changed
