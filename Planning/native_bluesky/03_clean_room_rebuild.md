@@ -693,11 +693,14 @@ Still open, for Sam:
    - **Corpus regeneration is on a configs-repo branch** (`presets-v1`),
      not main: the deployed master worker still reads `save_devices/`;
      the branch merges with the worker flip (PR 3).
-8. **PR 3 facts (2026-09-10, `05_phase1_acceptance.md` M6):** at 1 Hz the
-   camera's frame *message* arrives ~115 ms before the next edge and the
-   fire put takes ~108 ms, so the strict path has ~100 ms of per-shot
-   margin beyond its own ~7 ms — it holds in process and not in the
-   manager's worker process (2 s repeats).  A 0.5 A `U_S1H` move is a
+8. **PR 3 facts (2026-09-10/11, `05_phase1_acceptance.md` M6):** the fire
+   request is asynchronous to the laser, so a cold shot's request-to-frame
+   delay is uniform over one period; after the first shot the loop is
+   phase-locked to the edges.  On `UC_Amp4_IR_input` (0.70 s exposure)
+   edge → message ≈ 0.8 s and the fire put ≈ 108 ms, so the strict path
+   has ~100 ms of per-shot margin beyond its own ~7 ms — it holds in
+   process and not in the manager's worker process (2 s repeats); a
+   shorter exposure buys margin, the plan layer cannot.  A 0.5 A `U_S1H` move is a
    1.3 s blocking set, so a moved step lands on the third edge (M2's
    second was a faster move that day).  Strict single-shot is therefore
    not the 1 Hz mode; phase 2's gated batch is.  Recorded here so the

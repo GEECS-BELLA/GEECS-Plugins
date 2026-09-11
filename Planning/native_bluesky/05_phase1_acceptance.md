@@ -112,25 +112,46 @@ mv U_S1H → -0.5: 1.28 s;  mv → 0.0: 1.26 s   (bare 0.5 A moves)
 prepare (localsavingpath + save puts): ~2 ms   (values unchanged)
 ```
 
-So at 1 Hz on this camera: the fire put takes ~108 ms and the frame
-**message** arrives ~886 ms after it — i.e. ~115 ms before the next edge.
-The plan layer's own work between frame arrival and the next fire
-completing is ~7 ms; the margin for *anything else* per shot (a document
-callback's HTTP round trip, the manager's per-message overhead) is
-~100 ms.  In process that holds (1 Hz); in the manager's worker process
-it did not (2 s repeats, M5).  A moved step adds the 1.3 s blocking GEECS
-set of the magnet: previous frame (+0.9 s) → move done (+2.2 s) → fire
-(+2.3 s) → the edge at +2 s is gone, the shot lands at +3 s.  M2's 2 s per
-step (2026-09-09) means the same move was under ~1 s then — device-side
-variation, not the plan.
+**Reading these numbers correctly (Sam's point, 2026-09-11).** The fire
+request is not synchronized to the laser: in *single shot external rising
+edges* the DG645 fires on the **next** edge after the put, so for a shot
+whose request lands at a random phase the request-to-frame delay is
+uniform over one period.  That is the first shot of each run here (frame
+waits of 1289 and 1685 ms).  Every shot after it is **phase-locked**: the
+fire is issued a fixed time after the previous frame arrived, so it lands
+at a fixed phase before the edge, and the "886 ms frame wait" is simply
+1000 ms minus the ~115 ms of fire put + plan work — it says the loop is
+locked at 1 Hz, not what the camera's latency is.
+
+The camera's latency is in the documents: event arrival time minus the
+row's stamp (converted from the LabVIEW epoch) is **0.75 s** on every
+locked shot (0.87–0.88 s on the first shot of a run, which includes the
+first `prepare`), and the stamp precedes the edge-to-message path by the
+~65 ms drain (M1), so edge → message ≈ **0.8 s** — the camera's 0.70 s
+exposure (`UC_Amp4_IR_input exposure` in the s-file) plus readout and the
+TCP push.  The stamps' fractional part is constant (.553 s) — the laser
+edges are phase-stable at 1 Hz.  So the budget per period is:
+edge → message ≈ 800 ms, fire put ≈ 108 ms, plan work ≈ 7 ms, leaving
+**≈ 85–100 ms** for anything else per shot (a document callback's HTTP
+round trip, the manager's per-message overhead).  In process that holds
+(1 Hz); in the manager's worker process it did not (2 s repeats, M5).
+A shorter exposure buys margin directly; nothing in the plan layer does.
+
+A moved step adds the 1.3 s blocking GEECS set of the magnet, which
+starts phase-locked (after the previous frame) and therefore ends
+phase-locked: previous frame (+0.8 s) → move done (+2.1 s) → fire
+(+2.2 s) → the edge at +2 s is gone, the shot lands at +3 s, every time
+(the 3.001 s gaps).  M2's 2 s per step (2026-09-09) means the same move
+was under ~1 s that day — device-side variation, not the plan.
 
 **Consequence (§11).** The stamp governs the join, the *message arrival*
-governs the wait (§11.4) — and at 1 Hz that arrival leaves ~100 ms to fire
-the next shot.  Strict single-shot cannot sustain 1 Hz with any per-shot
-cost beyond the fire; the native answer is phase 2's gated batch (the
-edges flow, the detector counts), not a faster fire.  Overlapping the
-magnet move with the previous shot's wait would recover the moved step
-(2 s → still not 1 s) — a plan-layer option, not taken here.
+governs the wait (§11.4) — and on this camera the arrival leaves ~100 ms
+of the period.  Strict single-shot cannot sustain 1 Hz with any per-shot
+cost beyond the fire unless the exposure is shortened; the native answer
+for rep-rate is phase 2's gated batch (the edges flow, the detector
+counts), not a faster fire.  Overlapping the magnet move with the
+previous shot's wait would recover the moved step (2 s → still not 1 s)
+— a plan-layer option, not taken here.
 
 ## The worker flip (2026-09-10, prepared; restart pending)
 
