@@ -17,11 +17,15 @@ the s-file, `scan.log`, the baseline telemetry stream.  The worker
 registers the stock `bluesky.plans` verbs under their own names with the
 strict `take_reading` pre-bound (`plans/registry.py`); a client submits a
 stock plan item or a saved preset (`qs_client.submit_plan` /
-`submit_preset`).  Next (PR 3): headless hardware acceptance on HTU
-(`U_S1H:Current` −1 → +1 A, amp4in) and the worker flip.  **The deployed
-worker stays on `master` until then**; the Console and GEECS-MCP are
-rewired once, when the foundation is stable — not per step (their submit
-paths call the removed funnel verbs meanwhile).
+`submit_preset`).  Hardware-accepted 2026-09-10 (PR 3,
+`tests/test_phase1_hardware.py`, `Planning/native_bluesky/05_phase1_acceptance.md`):
+in process and through a second RE Manager, Scans 104–108 of 26_0910.  The
+deployed worker's checkout is on the feature branch; the restart that
+flips it is the maintainer's.  The Console and GEECS-MCP are rewired
+once, when the foundation is stable — not per step (their submit paths
+call the removed funnel verbs meanwhile).  Per-shot budget: ~7 ms of
+plan-layer work, ~100 ms of margin at 1 Hz on this camera — strict
+single-shot is not the 1 Hz mode, phase 2's gated batch is.
 
 ## The two rules
 

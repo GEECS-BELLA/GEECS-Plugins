@@ -45,9 +45,9 @@ deleted the `ScanRequest` funnel, the free-run mode, `GeecsSession` and
 the funnel-only devices; PR 2 added the plan layer — the stock plans
 registered strict under their own names, every run claiming a scan
 number, the ScanInfo / s-file / `scan.log` callbacks, the baseline
-telemetry stream, presets as the saved queue item.  Next: headless
-hardware acceptance and the worker flip.  Until then the deployed worker
-stays on `master`.
+telemetry stream, presets as the saved queue item.  PR 3 accepted it on
+HTU (Scans 104–108 of 26_0910, in process and through a second RE
+Manager); the worker flip is the maintainer's restart.
 
 ## Requirements
 
