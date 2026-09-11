@@ -1,0 +1,182 @@
+{#
+  The day document.
+
+  A day reads top to bottom, one block per scan folder. Every value shown
+  is derived from the share at request time — the logbook stores none of
+  it. Scans collapse individually (native <details>, so keyboard and
+  no-JS both work) and a day with many scans opens collapsed.
+#}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Scan Log — {{ summary.day.strftime('%d %b %Y') }}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=swap">
+<link rel="stylesheet" href="{{ url_for('log-static', path='/scanlog.css') }}">
+</head>
+<body>
+
+{% macro fact(label, value) %}
+<div class="fact"><dt>{{ label }}</dt>
+  <dd{% if value is none %} class="none"{% endif %}>{{ value if value is not none else '—' }}</dd></div>
+{%- endmacro %}
+
+{% set many = summary.scans | length > 20 %}
+
+<div class="topbar">
+  <div class="wrap">
+    <div class="brand">
+      <strong>Scan Log</strong>
+      <span class="facility">{{ experiment }}</span>
+    </div>
+    <label class="searchbox">
+      <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor"
+           stroke-width="1.7" aria-hidden="true"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5 14 14"/></svg>
+      <input id="q" type="search" placeholder="Filter scans…" autocomplete="off">
+    </label>
+    <button class="btn" type="button" id="toggle-all"
+            data-expanded="{{ 'false' if many else 'true' }}">
+      {{ 'Expand all' if many else 'Collapse all' }}
+    </button>
+  </div>
+</div>
+
+<div class="wrap shell">
+
+  <aside class="rail">
+    <section>
+      <h4>Run days</h4>
+      <div class="daylist">
+        {% for d in rail_days %}
+        <a class="day{% if d == summary.day %} is-active{% endif %}"
+           href="{{ url_for('_day_page', day=d.isoformat()) }}">
+          <span>{{ d.strftime('%a %d %b') }}</span>
+          {% if d == today %}<span class="n">today</span>{% endif %}
+        </a>
+        {% endfor %}
+      </div>
+    </section>
+
+    {% if summary.scans %}
+    <section>
+      <h4>Scans · {{ summary.scans | length }}</h4>
+      <div class="scanlist">
+        {% for s in summary.scans %}
+        <a class="scanrow" href="#{{ s.label }}">
+          <span class="dot dot-{{ s.status }}"></span>
+          <span class="id">{{ '%03d' % s.number }}</span>
+          <span class="lbl">{{ s.parameter or '—' }}</span>
+        </a>
+        {% endfor %}
+      </div>
+    </section>
+    {% endif %}
+  </aside>
+
+  <main class="doc">
+
+    <div class="dayhead">
+      <div>
+        <h1>{{ summary.day.strftime('%A, %-d %B %Y') }}</h1>
+        <div class="sub">{{ summary.folder }}</div>
+      </div>
+      <div class="daystats">
+        <div>Scans<b>{{ summary.scans | length }}</b></div>
+        {% if summary.failed %}<div>Failed<b>{{ summary.failed }}</b></div>{% endif %}
+      </div>
+    </div>
+
+    {% if not summary.exists %}
+      <p class="empty">No <code>scans/</code> directory for this date. Nothing ran,
+      or the share is not mounted where this service expects it.</p>
+    {% elif not summary.scans %}
+      <p class="empty">The day folder exists but holds no scans yet.</p>
+    {% endif %}
+
+    {% for s in summary.scans %}
+    <details class="card scan" id="{{ s.label }}"
+             data-hay="{{ (s.label ~ ' ' ~ (s.parameter or '') ~ ' ' ~ (s.purpose or '') ~ ' ' ~ s.devices|join(' ')) | lower }}"
+             {% if not many %}open{% endif %}>
+      <summary class="scanhead">
+        <span class="twisty" aria-hidden="true"></span>
+        <span class="scanid">{{ s.label }}</span>
+        <span class="scantime">{{ s.started.strftime('%H:%M:%S') if s.started else '—' }}</span>
+        <span class="scanpurpose{% if not s.purpose %} none{% endif %}">
+          {{ s.purpose or 'No purpose recorded at submission' }}</span>
+        <span class="chip chip-{{ s.status }}">
+          {{ {'success':'success','failed':'failed','incomplete':'no scan info','unknown':'check'}[s.status] }}
+        </span>
+      </summary>
+
+      {% if s.failure_reason %}
+      <div class="failstrip">
+        <div class="flabel">Scan ended with an error — from ScanEndInfo</div>
+        <div class="fmsg">{{ s.failure_reason }}</div>
+      </div>
+      {% endif %}
+
+      <div class="derived">
+        <div class="derived-label">
+          <span>Derived — not stored here</span>
+          <span>{{ s.label }}/ScanInfo{{ s.label }}.ini</span>
+        </div>
+        <dl class="facts">
+          {{ fact('Scan variable', s.parameter) }}
+          {% if s.start is not none and s.end is not none %}
+            {{ fact('Range', '%g → %g' % (s.start, s.end)) }}
+          {% else %}{{ fact('Range', none) }}{% endif %}
+          {{ fact('Step size', '%g' % s.step_size if s.step_size is not none else none) }}
+          {{ fact('Shots per step', s.shots_per_step) }}
+          {{ fact('Plan', s.plan) }}
+          {{ fact('Mode', s.mode) }}
+          {{ fact('Trigger profile', s.trigger_profile) }}
+          {{ fact('Devices', s.devices | join(', ') if s.devices else none) }}
+        </dl>
+      </div>
+    </details>
+    {% endfor %}
+
+    <p class="foot">Notes and figures land here in the next change. This view is
+    read-only: it renders the scan folders and stores nothing.</p>
+  </main>
+</div>
+
+<script>
+"use strict";
+/* Collapse state is a per-viewer convenience, so localStorage is the right
+   home for it — it never needs to reach another viewer or the server. */
+const KEY = "scanlog.expandAll";
+const btn = document.getElementById("toggle-all");
+const cards = () => [...document.querySelectorAll("details.scan")];
+
+function applyAll(expand){
+  cards().forEach(c => { if (!c.hidden) c.open = expand; });
+  btn.dataset.expanded = String(expand);
+  btn.textContent = expand ? "Collapse all" : "Expand all";
+  try { localStorage.setItem(KEY, String(expand)); } catch (e) {}
+}
+
+try {
+  const saved = localStorage.getItem(KEY);
+  if (saved !== null) applyAll(saved === "true");
+} catch (e) {}
+
+btn.addEventListener("click", () => applyAll(btn.dataset.expanded !== "true"));
+
+/* Filter hides whole cards; it never changes their open state, so clearing
+   the box puts the page back exactly as it was. */
+document.getElementById("q").addEventListener("input", ev => {
+  const f = ev.target.value.trim().toLowerCase();
+  cards().forEach(c => { c.hidden = !!f && !c.dataset.hay.includes(f); });
+});
+
+/* Jumping from the rail should reveal what you jumped to. */
+document.querySelectorAll(".scanrow").forEach(a => a.addEventListener("click", () => {
+  const el = document.querySelector(a.getAttribute("href"));
+  if (el) el.open = true;
+}));
+</script>
+</body>
+</html>

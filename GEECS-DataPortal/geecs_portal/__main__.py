@@ -60,6 +60,13 @@ def main() -> None:
             "overrides this per request"
         ),
     )
+    parser.add_argument(
+        "--scan-log",
+        action="store_true",
+        help=(
+            "mount the scan logbook at /log (requires the `log` extra and --experiment)"
+        ),
+    )
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -84,6 +91,7 @@ def main() -> None:
             Path(args.processing_configs) if args.processing_configs else None
         ),
         config_editor=args.config_editor,
+        scan_log=args.scan_log,
     )
     uvicorn.run(
         app,

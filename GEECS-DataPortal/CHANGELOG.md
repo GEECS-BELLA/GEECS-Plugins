@@ -3,6 +3,15 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.22.0] - 2026-09-11
+
+### Added
+
+- `--scan-log` mounts the scan logbook (`geecs_scan_log`) at `/log`, behind
+  the new `log` extra. Off by default, and skipped with a warning when no
+  `--experiment` is given: the logbook reads one experiment's share and
+  carries no facility default.
+
 ## [0.21.2] - 2026-09-08
 
 ### Changed

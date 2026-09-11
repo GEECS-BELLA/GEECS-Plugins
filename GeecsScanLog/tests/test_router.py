@@ -1,0 +1,82 @@
+"""The mounted logbook router: routes, status codes and rendering."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
+from geecs_scan_log.router import create_log_router
+
+
+@pytest.fixture
+def client(share: Path) -> TestClient:
+    """Mount the router the way the Data Portal does."""
+    app = FastAPI()
+    app.include_router(
+        create_log_router("Undulator", base_directory=share), prefix="/log"
+    )
+    return TestClient(app)
+
+
+class TestDayJson:
+    """The JSON peer of the day page."""
+
+    def test_returns_the_days_scans(self, client: TestClient) -> None:
+        """Every scan folder present appears, in number order."""
+        body = client.get("/log/api/day/2026-09-11").json()
+        assert [s["number"] for s in body["scans"]] == [1, 6, 31]
+        assert body["exists"] is True
+
+    def test_carries_status_and_failure_reason(self, client: TestClient) -> None:
+        """A failed scan exposes why it failed."""
+        scans = client.get("/log/api/day/2026-09-11").json()["scans"]
+        failed = next(s for s in scans if s["number"] == 6)
+        assert failed["status"] == "failed"
+        assert "uc_amp4_ir_input-hdf-capture" in failed["failure_reason"]
+
+    def test_empty_day_is_not_an_error(self, client: TestClient) -> None:
+        """A date with no scans returns 200 and an empty day."""
+        res = client.get("/log/api/day/2019-01-01")
+        assert res.status_code == 200
+        assert res.json()["exists"] is False
+
+    def test_malformed_date_is_a_400(self, client: TestClient) -> None:
+        """A path segment that is not YYYY-MM-DD is the caller's error."""
+        assert client.get("/log/api/day/yesterday").status_code == 400
+
+
+class TestDayPage:
+    """The rendered day document."""
+
+    def test_renders_each_scan(self, client: TestClient) -> None:
+        """Every scan gets a collapsible block anchored by its label."""
+        html = client.get("/log/day/2026-09-11").text
+        assert 'id="Scan001"' in html
+        assert 'id="Scan006"' in html
+        assert 'id="Scan031"' in html
+
+    def test_shows_the_purpose_from_scan_start_info(self, client: TestClient) -> None:
+        """ScanStartInfo is displayed rather than asked for again."""
+        html = client.get("/log/day/2026-09-11").text
+        assert "807 phase 1 acceptance" in html
+
+    def test_shows_the_failure_reason(self, client: TestClient) -> None:
+        """The failure strip carries the ScanEndInfo text."""
+        html = client.get("/log/day/2026-09-11").text
+        assert "Scan ended with an error" in html
+        assert "uc_amp4_ir_input-hdf-capture" in html
+
+    def test_serves_its_stylesheet(self, client: TestClient) -> None:
+        """The mounted static files resolve under the router prefix."""
+        res = client.get("/log/static/scanlog.css")
+        assert res.status_code == 200
+        assert "--accent" in res.text
+
+    def test_small_day_opens_expanded(self, client: TestClient) -> None:
+        """Under the threshold every scan block starts open."""
+        html = client.get("/log/day/2026-09-11").text
+        assert html.count('<details class="card scan"') == 3
+        assert "Collapse all" in html
