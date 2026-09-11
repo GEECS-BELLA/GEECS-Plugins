@@ -181,16 +181,16 @@ class ShotDataCache:
             if entry is not None and "frames" in entry:
                 self._entries.move_to_end(key)
                 return entry["index_map"], entry["frames"]
-        import h5py
-
         from geecs_data_utils.io.scan_stack import (
             FRAMES_DATASET,
             LABVIEW_EPOCH_OFFSET,
             TIMESTAMPS_DATASET,
+            open_stack,
             stack_frame_index_map,
         )
 
-        with h5py.File(stack_path, "r") as f:
+        # Lock-free: the stack was written on Windows and is read over SMB.
+        with open_stack(stack_path) as f:
             if not bool(f.attrs.get("finalized", False)):
                 return None
             dataset = f[FRAMES_DATASET]

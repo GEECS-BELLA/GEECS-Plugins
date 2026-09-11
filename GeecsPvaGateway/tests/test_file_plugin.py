@@ -327,6 +327,27 @@ async def test_session_semantics_over_raw_pva(tmp_path):
             assert f.attrs["frames_written"] == 4
             assert f.attrs["finalized"]
 
+        # A fresh arming frame whose stack cannot be opened: the put fails
+        # with the reason, the session is gone and the subscription released.
+        broken = tmp_path / "Scan005" / "UC_TestCam"
+        broken.mkdir(parents=True)
+        await put("FilePath", str(broken) + os.sep)
+        real_open = plugin._open_file
+
+        def refuse(session, frame):
+            raise OSError("share refused the create")
+
+        plugin._open_file = refuse
+        cam.push(IMG, time.time())  # fresh: would be written
+        with pytest.raises(Exception, match="share refused"):
+            await put("Capture", True)
+        plugin._open_file = real_open
+        assert bool(await get("Capture_RBV")) is False
+        assert not plugin.capturing
+        await asyncio.wait_for(cam.disconnected.wait(), 10)
+        assert cam.connections == 0
+        assert list(broken.iterdir()) == []
+
         # Two Capture=1 puts racing during arming: one session, one
         # subscription, released once at Capture=0.
         again = tmp_path / "Scan004" / "UC_TestCam"

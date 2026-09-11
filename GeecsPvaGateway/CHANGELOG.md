@@ -47,6 +47,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - A second `Capture=1` arriving while the first is still arming is
   acknowledged and ignored instead of opening a nested session (review
   of #823).
+- A stack that cannot be opened (share refused the create, permissions)
+  is counted (`open_failures`) and reported through `WriteStatus` /
+  `WriteMessage` instead of escaping the writer thread; when it happens
+  on a fresh arming frame the `Capture=1` put fails with that reason and
+  the session and subscription are torn down — nothing leaks (Codex
+  review of #823).
 
 ## [0.6.1] - 2026-09-09
 

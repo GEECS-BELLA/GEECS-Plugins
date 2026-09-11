@@ -9,7 +9,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Changed
 
 - The in-memory stack cache reads the areaDetector NDFileHDF5 layout
-  through `geecs_data_utils.io.scan_stack`'s dataset constants (#806).
+  through `geecs_data_utils.io.scan_stack`'s dataset constants and its
+  lock-free `open_stack` (the stacks are written on Windows and read over
+  SMB; Codex review of #823).
 
 ## [0.21.2] - 2026-09-08
 

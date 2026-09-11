@@ -246,7 +246,8 @@ class _Counters:
     """Per-session reconciliation: every received frame lands in one bucket.
 
     ``frames_received == frames_written + duplicates_dropped + stale_skipped
-    + shape_errors + decode_errors + append_failures + callbacks_disabled``;
+    + shape_errors + decode_errors + open_failures + append_failures
+    + callbacks_disabled``;
     ``queue_drops`` are frames that never reached the writer and ``rewound``
     frames were written and then discarded by ``Rewind``.
     """
@@ -260,6 +261,7 @@ class _Counters:
     queue_drops: int = 0
     rewound: int = 0
     append_failures: int = 0
+    open_failures: int = 0
     callbacks_disabled: int = 0
 
     def as_dict(self) -> dict[str, int]:
@@ -519,7 +521,22 @@ class HdfFilePlugin:
                     continue
                 self._post_geometry(frame)
                 self._session = session
-                self._on_frame(*item[1:])
+                try:
+                    self._on_frame(*item[1:])
+                    failed = self.value("WriteStatus") == "Write Error"
+                except Exception as exc:  # noqa: BLE001 - the put must complete
+                    self._error(f"arming frame: {exc}")
+                    failed = True
+                if failed:
+                    # A fresh arming frame that could not be written (the
+                    # stack could not be opened): this run cannot record,
+                    # so the put fails with the reason and nothing leaks.
+                    self._session = None
+                    self._release(self.variable)
+                    self._post("Capture", False)
+                    self._post("Capture_RBV", False)
+                    op.done(error=self.value("WriteMessage"))
+                    return
                 break
             if item[0] == "stop":
                 self._release(self.variable)
@@ -584,7 +601,12 @@ class HdfFilePlugin:
             self._error(f"frame of shape {frame.shape}: only 2-D (Mono) frames")
             return
         if session.file is None:
-            self._open_file(session, frame)
+            try:
+                self._open_file(session, frame)
+            except Exception as exc:  # noqa: BLE001 - counted; the count never advances
+                counters.open_failures += 1
+                self._error(f"could not open the stack in {session.directory}: {exc}")
+                return
         elif frame.shape != session.shape:
             counters.shape_errors += 1
             self._error(f"frame shape {frame.shape} != stack shape {session.shape}")
