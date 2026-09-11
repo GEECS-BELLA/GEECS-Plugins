@@ -4,6 +4,21 @@ All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
+## [0.7.1] - 2026-09-11
+
+### Added
+
+- **Fleet requirements**: `deploy/requirements-fleet.txt` (exact pins of
+  external dependencies added after a box was bootstrapped — h5py first),
+  `deploy/stage_wheels.sh` (downloads their Windows/CPython-3.11 wheels
+  into `<Active Version>/pva-wheels` beside the share clone), and a
+  `launch.bat` step that installs the pins offline from that cache before
+  the reinstall.  A new dependency is a pin, a staged wheel and a
+  restart — no per-box visit.  `tests/test_deploy_files.py` pins the
+  launcher's package list and the requirements' consistency with
+  `pyproject.toml` (the 0.4.4 fleet's launcher predated GEECS-Core and
+  would have crash-looped on the 0.7.0 restart).
+
 ## [0.7.0] - 2026-09-11
 
 ### Added
