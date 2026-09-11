@@ -1,19 +1,16 @@
-"""DB-integration runtime (M3c): the get-side two-tier recording model, wired.
+"""DB-integration runtime: what the GEECS experiment DB says a device records.
 
 Turns the GEECS experiment DB's per-experiment variable policy
-(``expt_device_variable``) into the two **get-side** runtime capabilities the
-schema describes (the ``SaveSetEntry`` runtime contract in
-:mod:`geecs_schemas.save_set`):
+(``expt_device_variable``) into the providers the device namespace builds
+from (``geecs_bluesky.namespace``):
 
-1. **db_scalars resolution** (Tier 1 recorded scalars) —
-   :func:`resolve_entry_scalars`.
-2. **Background telemetry selection** (Tier 2) —
-   :func:`select_telemetry_variables`; the soft read lives in
-   the run's telemetry (``SupplementalData``, phase 1 PR 2).
-
-3. **Served-set resolution** for the unserved-variables pre-flight check —
-   :class:`GeecsDbServedSetProvider` (the gateway serves ``get='yes'`` union
-   settable variables of enabled devices; anything else has no PV).
+1. **Subscribed scalars** (``get='yes'``) — :class:`GeecsDbScalarPolicy`:
+   what every device reads into its rows and what the run's baseline
+   telemetry carries (``SupplementalData``, phase 1 PR 2).
+2. **Served-set resolution** — :class:`GeecsDbServedSetProvider` (the
+   gateway serves ``get='yes'`` union settable variables of enabled
+   devices; anything else has no PV).
+3. **Device types** — :class:`GeecsDbDeviceTypes`.
 
 The **set-side** (DB scan start/end writes) is intentionally disabled: the
 boundary writes would race the shot controller / TriggerProfile on the DG645,
@@ -30,7 +27,6 @@ import logging
 from dataclasses import dataclass, field
 from typing import Optional, Protocol, runtime_checkable
 
-from geecs_schemas import SaveSet
 
 logger = logging.getLogger(__name__)
 
@@ -233,97 +229,6 @@ class GeecsDbServedSetProvider:
                     served.setdefault(device, set()).update(settable)
             self._served = served
         return self._served
-
-
-def resolve_entry_scalars(
-    device: str,
-    explicit: list[str],
-    *,
-    db_scalars: bool,
-    all_scalars: bool,
-    provider: ScalarPolicyProvider | None,
-) -> list[str]:
-    """Resolve the recorded scalar list for one save-set entry.
-
-    ``db_scalars=False`` → only the explicit list; ``db_scalars=True`` → the
-    DB ``get='yes'`` variables ∪ the explicit list (``all_scalars=True``
-    widens the DB side to every DB variable).  Order is stable: DB variables
-    first, then any explicit variable not already present.  With no
-    *provider* (no DB access) only the explicit list is recorded — the DB
-    tier is strictly additive.
-
-    Parameters
-    ----------
-    device : str
-        GEECS device name (for the DB lookup).
-    explicit : list of str
-        The entry's explicit ``scalars`` list.
-    db_scalars : bool
-        The entry's ``db_scalars`` flag.
-    all_scalars : bool
-        The entry's ``all_scalars`` flag.
-    provider : ScalarPolicyProvider or None
-        Where DB variables come from; ``None`` means no DB contribution.
-
-    Returns
-    -------
-    list of str
-        The resolved recorded scalar list, in stable order.
-    """
-    if not db_scalars:
-        return list(explicit)
-    db_vars: list[str] = []
-    if provider is not None:
-        db_vars = (
-            provider.all_variables(device)
-            if all_scalars
-            else provider.get_variables(device)
-        )
-    ordered: list[str] = []
-    seen: set[str] = set()
-    for var in list(db_vars) + list(explicit):
-        if var not in seen:
-            seen.add(var)
-            ordered.append(var)
-    return ordered
-
-
-def select_telemetry_variables(
-    save_set: SaveSet | None,
-    subscribed_by_device: dict[str, list[str]],
-) -> dict[str, list[str]]:
-    """Select the Tier-2 background-telemetry ``{device: [variables]}``.
-
-    Every experiment device with a ``get='yes'`` variable that is **not** in
-    the save set becomes telemetry.  A device already in the save set is
-    excluded wholesale (its data is Tier-1, with guarantees) — telemetry never
-    duplicates a required device's columns.
-
-    Parameters
-    ----------
-    save_set : SaveSet or None
-        The scan's save set (its entry devices are the Tier-1 set); ``None``
-        means no required devices, so every subscribed device is telemetry.
-    subscribed_by_device : dict
-        ``{device: [get='yes' variables]}`` for the whole experiment.
-
-    Returns
-    -------
-    dict
-        ``{device: [variables]}`` for telemetry, save-set devices removed,
-        empty-variable devices dropped.
-    """
-    required = set()
-    if save_set is not None:
-        required = {entry.device for entry in save_set.entries}
-    selected: dict[str, list[str]] = {}
-    for device, variables in subscribed_by_device.items():
-        if device in required:
-            continue
-        variables = [v for v in variables if v]
-        if variables:
-            selected[device] = list(variables)
-    return selected
 
 
 @dataclass

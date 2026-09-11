@@ -21,7 +21,6 @@ from geecs_console.services.action_library_store import (
     ActionLibraryStoreError,
 )
 from geecs_console.services.presets import PresetStore, PresetStoreError
-from geecs_console.services.save_set_store import SaveSetStore, SaveSetStoreError
 from geecs_console.services.scan_variable_store import (
     ScanVariableStore,
     ScanVariableStoreError,
@@ -33,8 +32,6 @@ from geecs_console.services.trigger_profile_store import (
 )
 from geecs_schemas import (
     ActionPlan,
-    SaveSet,
-    SaveSetEntry,
     ScanRequest,
     ScanRequestMode,
     TriggerProfile,
@@ -70,10 +67,6 @@ def minimal_request() -> ScanRequest:
     return ScanRequest(mode=ScanRequestMode.NOSCAN)
 
 
-def minimal_save_set() -> SaveSet:
-    return SaveSet(name="diag", entries=[SaveSetEntry(device="Dev1", images=True)])
-
-
 @pytest.mark.parametrize("bad", TRAVERSAL_NAMES)
 class TestTraversalNamesRaiseAndCreateNothing:
     """Each store: every op raises its own error; the tmp tree stays empty."""
@@ -87,19 +80,6 @@ class TestTraversalNamesRaiseAndCreateNothing:
             lambda: store.delete("align"),
         ):
             with pytest.raises(PresetStoreError, match=GUARD_MESSAGE):
-                operation()
-        assert tree(tmp_path) == []
-
-    def test_save_set_store(self, tmp_path, bad):
-        store = SaveSetStore(bad, experiments_root=tmp_path)
-        for operation in (
-            store.list_names,
-            lambda: store.load("diag"),
-            lambda: store.save("diag", minimal_save_set()),
-            lambda: store.delete("diag"),
-            lambda: store.rename("diag", "diag2"),
-        ):
-            with pytest.raises(SaveSetStoreError, match=GUARD_MESSAGE):
                 operation()
         assert tree(tmp_path) == []
 
@@ -147,7 +127,6 @@ class TestEmptyExperimentStillMeansUnselected:
 
     def test_listing_degrades_to_empty(self, tmp_path):
         assert PresetStore("", experiments_root=tmp_path).list_names() == []
-        assert SaveSetStore("", experiments_root=tmp_path).list_names() == []
         assert TriggerProfileStore("", experiments_root=tmp_path).list_names() == []
         assert ActionLibraryStore("", experiments_root=tmp_path).list_names() == []
         catalog = ScanVariableStore("", experiments_root=tmp_path).load()
@@ -157,8 +136,6 @@ class TestEmptyExperimentStillMeansUnselected:
     def test_saving_raises_no_experiment_selected(self, tmp_path):
         with pytest.raises(PresetStoreError, match="No experiment selected"):
             PresetStore("", experiments_root=tmp_path).save("align", minimal_request())
-        with pytest.raises(SaveSetStoreError, match="No experiment selected"):
-            SaveSetStore("", experiments_root=tmp_path).save("diag", minimal_save_set())
         with pytest.raises(TriggerProfileStoreError, match="No experiment selected"):
             TriggerProfileStore("", experiments_root=tmp_path).save(
                 "normal", TriggerProfile(name="normal")

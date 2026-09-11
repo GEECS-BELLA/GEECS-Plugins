@@ -7,11 +7,13 @@ Troubleshooting section for the silent-bounce failure mode without it),
 exports every device of the experiment as a noun
 (:class:`~geecs_bluesky.namespace.GeecsNamespace`) and registers the stock
 ``bluesky.plans`` verbs (:data:`~geecs_bluesky.plan_names.GEECS_PLAN_NAMES`)
-over them — ``count([UC_Amp4_IR_input])``, ``scan([...], U_S1H.current,
--1, 1, 5)``, ``mv(U_S1H.current, 0)``.  Phase 1 of the native-Bluesky
-rebuild (``Planning/native_bluesky/03_clean_room_rebuild.md`` §8, §10.5):
-the plan layer (PR 2) rebinds these names with the strict ``take_reading``
-so a detector's shot is fired by the trigger box.
+over them with the strict ``take_reading`` pre-bound
+(:mod:`geecs_bluesky.plans.registry`) — ``count([UC_Amp4_IR_input], 10)``,
+``scan([UC_Amp4_IR_input], U_S1H.current, -1, 1, 5, shots_per_step=10)``,
+``mv(U_S1H.current, 0)``.  Every run claims a GEECS scan number and leaves
+ScanInfo, the s-file, ``scan.log`` and the detectors' native files in its
+folder; every subscribed scalar of the experiment rides in the run as the
+baseline stream (``make_run_engine``).
 
 Import order is load-bearing
 -----------------------------
@@ -35,6 +37,10 @@ one worker process per experiment); otherwise falls back to
 default every other headless entry point in this repo uses).  Neither
 present is a startup-time configuration error, not a runtime one: fail
 loud here rather than have every submitted plan fail identically later.
+
+``QS_DEVICE_NAMESPACE=off`` is the hermetic switch (tests, a box without DB
+or data-share reach): no namespace, no trigger profiles, no scan claim —
+the plans are registered but refuse to run.
 """
 
 from __future__ import annotations
@@ -46,24 +52,11 @@ import os
 # the module docstring above.
 import geecs_bluesky  # noqa: F401
 
-# The stock plans the manager discovers (every generator function in this
-# namespace is a plan to it — profile_ops.plans_from_nspace); the names are
-# pinned by geecs_bluesky.plan_names, which the readiness check asserts.
-from bluesky.plan_stubs import mv  # noqa: F401
-from bluesky.plans import (  # noqa: F401
-    count,
-    grid_scan,
-    list_grid_scan,
-    list_scan,
-    rel_grid_scan,
-    rel_list_grid_scan,
-    rel_list_scan,
-    rel_scan,
-    scan,
-)
-
+from geecs_bluesky.config_resolver import ConfigsRepoResolver
 from geecs_bluesky.namespace import GeecsNamespace
 from geecs_bluesky.plan_names import GEECS_PLAN_NAMES
+from geecs_bluesky.plans.claim_scan import GeecsScanPathProvider
+from geecs_bluesky.plans.registry import TriggerProfiles, bind_strict_plans
 from geecs_bluesky.run_engine import make_run_engine
 
 logger = logging.getLogger(__name__)
@@ -95,13 +88,51 @@ def _resolve_experiment() -> str:
 
 
 _experiment = _resolve_experiment()
+_hermetic = os.environ.get("QS_DEVICE_NAMESPACE", "db").strip().lower() == "off"
+
+# ── Device namespace (GEECS-Plugins#807) ──────────────────────────────────
+# Every enabled device of the experiment as a long-lived ophyd-async noun —
+# built from the GEECS DB (loud on failure), connected on first use by the
+# connect_on_demand preprocessor make_run_engine installs outermost.  The
+# native-saving detectors share one path provider the claim preprocessor
+# points at each run's folder.
+_path_provider = GeecsScanPathProvider()
+_DEVICE_NAMES: list[str] = []
+_telemetry: list = []
+if _hermetic:
+    _profiles = TriggerProfiles({})
+else:
+    namespace = GeecsNamespace.from_experiment(
+        _experiment, path_provider=_path_provider
+    )
+    _DEVICE_NAMES = namespace.export_into(globals())
+    _telemetry = namespace.telemetry()
+    # The trigger profiles (one ShotControl each) a plan's trigger_profile
+    # argument resolves against; the experiment default from
+    # experiment_defaults.yaml.
+    _profiles = TriggerProfiles.from_resolver(
+        ConfigsRepoResolver(_experiment), experiment=_experiment
+    )
 
 # The manager's --keep-re contract needs a top-level `RE` in this module's
 # namespace.  tiled=True: the [tiled] config mechanism
 # (geecs_bluesky.tiled_integration.subscribe_tiled) subscribes a TiledWriter
-# — best-effort, skip-with-log if the catalog is unreachable; the legacy
-# s-file export (#635) runs at every stop document from that catalog.
-RE = make_run_engine(tiled=True, sfile=True)
+# — best-effort, skip-with-log if the catalog is unreachable.  claim=True:
+# every run is a GEECS scan (number, folder, ScanInfo, s-file, scan.log).
+RE = make_run_engine(
+    experiment=_experiment,
+    tiled=True,
+    claim=not _hermetic,
+    path_provider=_path_provider,
+    telemetry=_telemetry,
+)
+
+# The plans the manager discovers (every generator function in this
+# namespace is a plan to it — profile_ops.plans_from_nspace): the stock
+# verbs bound strict, under their own names, pinned by
+# geecs_bluesky.plan_names (the readiness check asserts them).  Never import
+# a stray generator into this module.
+globals().update(bind_strict_plans(_profiles))
 
 # ZMQ document publisher — the GUI progress stream (#648). bluesky documents
 # go to a bluesky-0MQ-proxy (started by launch_re_manager.sh alongside
@@ -143,15 +174,5 @@ if _doc_publish_addr.upper() != "OFF":
             _doc_publish_addr,
             exc_info=True,
         )
-
-# ── Device namespace (GEECS-Plugins#807) ──────────────────────────────────
-# Every enabled device of the experiment as a long-lived ophyd-async noun —
-# built from the GEECS DB (loud on failure), connected on first use by the
-# connect_on_demand preprocessor make_run_engine installed outermost.
-# QS_DEVICE_NAMESPACE=off skips it (hermetic tests, a box without DB reach).
-_DEVICE_NAMES: list[str] = []
-if os.environ.get("QS_DEVICE_NAMESPACE", "db").strip().lower() != "off":
-    namespace = GeecsNamespace.from_experiment(_experiment)
-    _DEVICE_NAMES = namespace.export_into(globals())
 
 __all__ = ["RE", *GEECS_PLAN_NAMES, *_DEVICE_NAMES]

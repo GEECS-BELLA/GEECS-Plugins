@@ -63,7 +63,8 @@ is right in five years, not the one that is reachable in small steps.
 | thing | state |
 |---|---|
 | `feature/native-bluesky-plans` | integration branch off master; **#808 merged** 2026-09-09 (device namespace); **#811 merged** 2026-09-10 (phase 0, hardware-accepted — `04_phase0_measurements.md` M2/M3); **#813 merged** 2026-09-10 (test speed, #812) |
-| `phase/01-foundation` (phase 1 PR 1) | **the deletions**: the `ScanRequest` funnel and named plans, free-run, `GeecsSession`, `scan_request_runner`, `preflight`, `pause_semantics`, `t0_sync`, the funnel-only devices (`CaGenericDetector`, `CaTriggerable`, `CaTelemetryReadable`, `CaTimestampedReadable`, the shot-id / contributor / nonscalar-save mixins), `ShotController` (its write machinery folded into `ShotControl`), the optimization glue (`plans/optimize`, `optimize.py`, `session_bridge`, `worker_loader`) and every test of theirs; the namespace builds `GeecsDetector` for every triggerable device (`native_save` iff the DB lists `save` + `localsavingpath`); `run_engine.make_run_engine` replaces the session; the startup profile exports the stock `bluesky.plans` verbs (`plan_names.GEECS_PLAN_NAMES`) over the namespace; `qs_client` keeps its surface (readiness + liveness preflight only) so the Console and MCP stay importable |
+| `phase/02-plan-layer` (phase 1 PR 2) | **the plan layer** (GeecsBluesky 0.80.0, GEECS-Schemas 0.21.0): the registration table (`plans/registry.py` — 18 stock verbs bound strict under their own names, `trigger_profile` + `shots_per_step` keyword-only, ARMED → STANDBY bracket), the `claim_scan` preprocessor + `GeecsScanPathProvider` (every run claims), the `scalar_headers` preprocessor, the ScanInfo / s-file (from the documents) / `scan.log` callbacks, `SupplementalData` baseline telemetry, `GeecsDetector.scalars`, `Preset` v1 (save sets deleted; corpus regenerated on the configs branch `presets-v1`), `qs_client.submit_plan` / `submit_preset`.  Decisions in §10.7 |
+| `phase/01-foundation` (phase 1 PR 1) | **MERGED 2026-09-10 (#816)** — the deletions: the `ScanRequest` funnel and named plans, free-run, `GeecsSession`, `scan_request_runner`, `preflight`, `pause_semantics`, `t0_sync`, the funnel-only devices (`CaGenericDetector`, `CaTriggerable`, `CaTelemetryReadable`, `CaTimestampedReadable`, the shot-id / contributor / nonscalar-save mixins), `ShotController` (its write machinery folded into `ShotControl`), the optimization glue (`plans/optimize`, `optimize.py`, `session_bridge`, `worker_loader`) and every test of theirs; the namespace builds `GeecsDetector` for every triggerable device (`native_save` iff the DB lists `save` + `localsavingpath`); `run_engine.make_run_engine` replaces the session; the startup profile exports the stock `bluesky.plans` verbs (`plan_names.GEECS_PLAN_NAMES`) over the namespace; `qs_client` keeps its surface (readiness + liveness preflight only) so the Console and MCP stay importable |
 | #809 `phase/02-preamble-preprocessor` | **OPEN, on hold, will not merge** (13 commits, GeecsBluesky 0.79.0, CI green). The evidence behind §3; close with a pointer here once this amendment lands (§8) |
 | #806 image writing | **OPEN, not started.** Phase 1, in parallel with the plan layer (§8). File plugin in GeecsPvaGateway + stock `ADHDFDataLogic`; capture daemon retired |
 | #807 | the decision log; its six-then-three phase plan is superseded by §8 here. Comments there point here |
@@ -254,12 +255,16 @@ OFF, `kickoff` all → SCAN, `collect_while_completing`. Exact because the
 ordering is built into `prepare → kickoff`. Only for detectors that count
 (plugin-backed); replaces free-run's rep-rate role once #806 lands.
 
-**Telemetry.** `SupplementalData.baseline` for the scalars that do not
-change within a run (read at open and close), `monitors` for the changing
-few. Installed once on the RE from experiment defaults. Which variable goes
-where is an **experiment config fact**, not a DB fact (§10.4): derive it
-once by measurement over a Tiled run, then own the list; unknowns default
-to per-event. Removes the unstaged-read regression path entirely.
+**Telemetry.** `SupplementalData.baseline` for every subscribed scalar of
+the experiment (read at open and close): each scalar-only device whole
+and each detector's scalar *signals* — never a detector itself, which is
+Triggerable and would wait in ARMED for a shot that never comes
+(`GeecsNamespace.telemetry()`, PR 2).  `monitors` for the changing few,
+promoted from measurement over a Tiled run (§10.4) — an **experiment
+config fact**, not a DB fact.  This resolves §10.5's "per event,
+monitor-backed everything" against the native mechanism: per-event
+telemetry for every device is the funnel's unstaged-read regression path
+again; the baseline stream carries the same values at a cost of two rows.
 
 ### C. Run bookkeeping — a path provider and callbacks
 
@@ -270,24 +275,40 @@ to per-event. Removes the unstaged-read regression path entirely.
   number, injects it into `md`, and points the provider at the run;
   releases on `close_run`. It does exactly one thing — it is **not** the
   #809 preamble, and must never grow a second job.
-- **Callbacks:** ScanInfo ini on the start document (new, small); the
-  s-file export from Tiled at stop (exists, `sfile_callback.py`); the Tiled
+- **Callbacks:** ScanInfo ini on the start document (rewritten at the
+  stop with `ScanEndInfo`); the s-file **from the run's own primary
+  events** at the stop document (`callbacks.SFileCallback` — PR 2 moved it
+  off Tiled: the files exist whether or not the catalog does, and an
+  aborted run's rows are written like the legacy scanner's; the Tiled-fed
+  export stays in `geecs_data_utils` as the offline re-export); the Tiled
   writer (exists — drop the `geecs://` descriptor patch in
   `tiled_integration.py` once stream documents replace those assets);
-  `scan.log` as a callback.
+  `scan.log` as a callback.  All three read the claim's keys from the
+  start document and write into the folder, never creating it.
 
 ### D. Clients
 
-The Console expands a `ScanRequest` into a stock plan item — `count`,
-`scan`, `list_scan`, `grid_scan`, `list_grid_scan`, `rel_*`, `fly` —
-registered once each with the GEECS `per_step` pre-bound and the **stock
-signature preserved** (#807's registration table). The save set becomes a
-client-side preset expanding to three lists: essential detectors,
-non-essential flyers, and scalar-only children (`cam.centroid_x` rather
-than `cam` when the preset says "scalars only" for a camera — readables are
-individually addressable). The request rides in `md["geecs"]` as
-provenance only. Blast radius: `GEECS-Console/geecs_console/app/main_window.py`
-+ the request builder. GEECS-MCP follows later (§11.7).
+A client expands a **preset** into a stock plan item — every
+`bluesky.plans` verb with a `per_step` / `per_shot` hook that a queue item
+can express (`plan_names.GEECS_PLAN_NAMES`: `count`, `scan`, `list_scan`,
+`grid_scan`, `log_scan`, the spirals, `x2x_scan`, their `rel_*` twins; not
+`scan_nd`, not the deprecated aliases) registered once each with the
+GEECS hook pre-bound and the **stock parameters preserved minus the
+hook**, plus two keyword-only GEECS parameters that are facts of the scan
+and belong in its one description: `trigger_profile` (the experiment
+default when omitted; the bound plan brackets the run ARMED → STANDBY
+through that profile's `ShotControl`) and `shots_per_step` (rows per
+position, each a strict shot; the GEECS `per_step` also records
+`bin_number`).  The preset (`geecs_schemas.Preset`, PR 2) is the device
+group plus the plan call: each device becomes its namespace binding, or
+`X.scalars` — the detector's scalars-only view, Triggerable like the
+detector, writing no files — when `save_images` is off; scan variables
+are `Device:Variable` or catalog-name strings the client resolves to the
+Movable child (`U_S1H.current`); pseudo variables wait for phase 3.
+Essential/non-essential (the flyers list) is phase 2.  The preset name
+and the submission record ride in `md["geecs"]` as provenance only.
+`qs_client.submit_plan` / `submit_preset` are the verbs; the Console and
+GEECS-MCP are rewired onto them once (§10.5, §11.7).
 
 ### E. Deletions (whole modules, in the same PR as their replacement)
 
@@ -483,10 +504,10 @@ the least-verified component while the scan path waited.
    (done on `phase/01-foundation`: funnel, free-run, session, runner,
    funnel-only devices, optimization glue; `GeecsDetector` for every
    triggerable device; stock plans exported by the profile); **PR 2 —
-   the plan layer** (the `claim_scan` preprocessor + `PathProvider`,
-   the ScanInfo / s-file / `scan.log` callbacks, the registration table
-   with the strict `take_reading` pre-bound, telemetry = everything);
-   **PR 3 — headless hardware acceptance** (HTU-NoGas, `U_S1H:Current`
+   the plan layer** (built on `phase/02-plan-layer`: the registration
+   table, the `claim_scan` preprocessor + `PathProvider`, the ScanInfo /
+   s-file / `scan.log` callbacks, the baseline telemetry, `Preset` v1
+   and the client seam — §10.7); **PR 3 — headless hardware acceptance** (HTU-NoGas, `U_S1H:Current`
    −1 → +1 A in 0.5 A steps, amp4in, setpoint restored), then the worker
    flips. Hardware acceptance for #806 separately.
 2. Gated batch + the non-essential stream via `SupplementalData.flyers`;
@@ -636,7 +657,42 @@ Still open, for Sam:
      preview is client-side resolver work. **Deployment** (site.env,
      `render_units.sh`, the units) is touched once, at the end of the
      feature branch when things freeze — not per PR.
-6. Two small carry-overs, unrelated to this direction: write
+7. **PR 2 decisions (2026-09-10, the four open questions, taken as the
+   recommended defaults — Sam's brief left the answers unfilled):**
+   - **Telemetry shape:** `SupplementalData` baseline at open and close
+     over every scalar-only device and every detector's scalar signals
+     (§4.B); monitors empty until measured.  Not per-event everything
+     (§10.5's wording): triggering a detector in the baseline would wait
+     for a shot ARMED never delivers, and per-event reads of every device
+     are the funnel's unstaged-read regression path.
+   - **When to claim:** every run the worker's RunEngine opens.  No md
+     opt-out (md is provenance) and no "only with a detector" rule — a
+     scalar-only magnet scan still wants its number and s-file.  The
+     hermetic switch is `make_run_engine(claim=False)`.
+   - **Preset v1 fields:** `name`, `description`, `trigger_profile`,
+     `background`, `devices[{device, save_images}]`,
+     `plan{name, args, kwargs}` — `plan` optional so the 46 Undulator
+     save elements regenerate as device groups without an invented plan
+     call; `essential` is phase 2.  The two GEECS keyword arguments on
+     the bound plans (`trigger_profile`, `shots_per_step`) are the one
+     deliberate deviation from "stock signature preserved" — both are
+     facts of the scan and must be in its description, not a side
+     channel.
+   - **Cadence:** deferred to PR 3's measurement (the every-other-edge
+     motor-scan cadence, M2).
+   - **Settled from the code:** the s-file headers ride in the **start
+     document** (`geecs_scalar_headers`, read by `geecs_data_utils`'s
+     exporter and the browser's display names); the ScanInfo keys
+     downstream parses are `Scan Parameter` (ScanAnalysis), `Start` /
+     `End` / `Step size` / `Shots per step` / `ScanMode` /
+     `ScanStartInfo` (the scans database), `Background`
+     (`ScanPaths.is_background_scan`).
+   - **The s-file comes from the documents, not Tiled** (§4.C), and is
+     written for any exit status with rows.
+   - **Corpus regeneration is on a configs-repo branch** (`presets-v1`),
+     not main: the deployed master worker still reads `save_devices/`;
+     the branch merges with the worker flip (PR 3).
+8. Two small carry-overs, unrelated to this direction: write
    `Amplitude.Ch AB: 0.5` explicitly in every state of `HTU-NoGas` so "no
    gas" stops being order-dependent, and add a check that all profiles in
    an experiment manage the same variable set.

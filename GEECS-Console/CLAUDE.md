@@ -15,7 +15,10 @@ are prefixed by region (`r3_radio_1d`, `r5_start_button`, …).
 - **R1 session bar** — experiment combo, rep-rate field, trigger-profile
   combo, gateway/tiled/db health chips.
 - **R2 save sets** — available/selected lists, Add/Remove, union preview
-  line ("union: N devices"), role-conflict/reference hint line.
+  line.  **Reads empty since 0.31.0**: GEECS-Schemas 0.21.0 replaced
+  save sets with presets (device group + plan call, GEECS-Plugins#807
+  PR 2); this region and the submit path are rewired onto presets once
+  the native-Bluesky foundation is stable.
 - **R3 scan form** — mode radios (No-scan / 1D / Grid / Optimization /
   Background), variable picker + start/stop/step (two axis rows; row 2 is
   Grid-only), an optimizer-config combo (visible in Optimization mode only —
@@ -356,9 +359,9 @@ are prefixed by region (`r3_radio_1d`, `r5_start_button`, …).
   `parents=True` is deliberate — a user config dir, not a scan folder.
   `configure_logging` caps the `httpx` logger at WARNING — the Tiled
   health probe otherwise logs one INFO line per 5 s poll, forever.
-- **The four config editors (Editors menu)** — all implemented (built on
-  their own branches, #504–#507; wired in 0.6.0):
-  `editors/save_set_editor.py::open_save_set_editor`,
+- **The three config editors (Editors menu)** — implemented on their own
+  branches (#504–#507; wired in 0.6.0; the save-set editor went with the
+  schema in 0.31.0):
   `editors/scan_variable_editor.py::open_scan_variable_editor`,
   `editors/shot_control_editor.py::open_shot_control_editor` (trigger
   profiles), `editors/action_library_editor.py::open_action_library_editor`.

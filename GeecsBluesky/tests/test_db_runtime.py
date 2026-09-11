@@ -17,12 +17,7 @@ from __future__ import annotations
 
 import logging
 
-from geecs_bluesky.db_runtime import (
-    GeecsDbScalarPolicy,
-    resolve_entry_scalars,
-    select_telemetry_variables,
-)
-from geecs_schemas import SaveSet, SaveSetEntry
+from geecs_bluesky.db_runtime import GeecsDbScalarPolicy
 
 
 class _FakePolicy:
@@ -47,77 +42,7 @@ class _FakePolicy:
 
 
 # ---------------------------------------------------------------------------
-# db_scalars resolution
-# ---------------------------------------------------------------------------
-
-
-def test_db_scalars_true_unions_get_yes_with_explicit() -> None:
-    policy = _FakePolicy(subscribed={"U_Cam": ["MaxCounts", "centroidx"]})
-    out = resolve_entry_scalars(
-        "U_Cam", ["Extra"], db_scalars=True, all_scalars=False, provider=policy
-    )
-    # DB get='yes' first (DB order), then explicit extras not already present.
-    assert out == ["MaxCounts", "centroidx", "Extra"]
-
-
-def test_db_scalars_true_dedupes_overlap() -> None:
-    policy = _FakePolicy(subscribed={"U_Cam": ["MaxCounts", "centroidx"]})
-    out = resolve_entry_scalars(
-        "U_Cam", ["centroidx"], db_scalars=True, all_scalars=False, provider=policy
-    )
-    assert out == ["MaxCounts", "centroidx"]
-
-
-def test_all_scalars_unions_every_db_variable() -> None:
-    policy = _FakePolicy(
-        subscribed={"U_Cam": ["MaxCounts"]},
-        all_vars={"U_Cam": ["MaxCounts", "centroidx", "Exposure"]},
-    )
-    out = resolve_entry_scalars(
-        "U_Cam", [], db_scalars=True, all_scalars=True, provider=policy
-    )
-    assert out == ["MaxCounts", "centroidx", "Exposure"]
-
-
-def test_db_scalars_false_is_explicit_only() -> None:
-    policy = _FakePolicy(subscribed={"U_Cam": ["MaxCounts", "centroidx"]})
-    out = resolve_entry_scalars(
-        "U_Cam", ["Val"], db_scalars=False, all_scalars=False, provider=policy
-    )
-    # The legacy-converter pin: only the explicit list, DB ignored entirely.
-    assert out == ["Val"]
-
-
-def test_no_provider_is_explicit_only_even_with_db_scalars_true() -> None:
-    out = resolve_entry_scalars(
-        "U_Cam", ["Val"], db_scalars=True, all_scalars=False, provider=None
-    )
-    assert out == ["Val"]
-
-
-# ---------------------------------------------------------------------------
-# telemetry selection
-# ---------------------------------------------------------------------------
-
-
-def test_telemetry_selects_get_yes_not_in_save_set() -> None:
-    save_set = SaveSet(name="s", entries=[SaveSetEntry(device="U_Cam", scalars=["x"])])
-    subscribed = {
-        "U_Cam": ["MaxCounts"],  # in save set → excluded wholesale
-        "U_Press": ["Pressure"],  # not in save set → telemetry
-        "U_Empty": [],  # no get-vars → dropped
-    }
-    selected = select_telemetry_variables(save_set, subscribed)
-    assert selected == {"U_Press": ["Pressure"]}
-
-
-def test_telemetry_no_save_set_selects_everything() -> None:
-    subscribed = {"U_A": ["v1"], "U_B": ["v2"]}
-    assert select_telemetry_variables(None, subscribed) == subscribed
-
-
-# ---------------------------------------------------------------------------
-# GeecsDbScalarPolicy tolerance (no real DB)
+# DB-backed policy
 # ---------------------------------------------------------------------------
 
 

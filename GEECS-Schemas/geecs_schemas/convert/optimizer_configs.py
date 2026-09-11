@@ -21,22 +21,22 @@ Mapping:
   objectives, observables, constraints).
 - ``xopt_config_overrides[generator.name]`` becomes ``generator.options``;
   overrides keyed by any *other* name cannot be mapped and raise.
-- ``device_requirements`` is really a save-device list in disguise: it is
-  converted to a :class:`SaveSet` (via the save-element rules) so nothing is
-  lost, and returned alongside the spec.  In the target architecture it is
+- ``device_requirements`` is really a save-device list in disguise: its
+  devices become a preset device group (:class:`PresetDevice` per device,
+  ``save_images`` from ``save_nonscalar_data``) so nothing is lost, and are
+  returned alongside the spec.  In the target architecture it is
   auto-derived from the evaluator's analyzers, so a converted config may
   simply discard it.
 - ``name`` / ``description`` are returned for the enclosing
   :class:`ScanRequest` to use.
-- ``save_devices`` / ``save_devices_file`` (inline or external save-element
-  attachments) also convert through the save-element rules; a file path
-  cannot be resolved by a pure converter and raises.
+- ``save_devices`` (an inline save-element attachment) converts the same
+  way; ``save_devices_file`` cannot be resolved by a pure converter and
+  raises.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Optional
 
 from geecs_schemas.convert._common import (
     LegacyDocument,
@@ -45,8 +45,7 @@ from geecs_schemas.convert._common import (
     require_known_keys,
     source_name,
 )
-from geecs_schemas.convert.save_elements import convert_save_element
-from geecs_schemas.save_set import SaveSet
+from geecs_schemas.preset import PresetDevice
 from geecs_schemas.scan_request import OptimizationSpec
 
 _KNOWN_KEYS = [
@@ -72,7 +71,7 @@ class OptimizerConversion:
     ----------
     optimization : OptimizationSpec
         The optimization block for a ``mode: optimize`` ScanRequest.
-    save_set : SaveSet or None
+    devices : list of PresetDevice
         Converted ``device_requirements`` / ``save_devices`` (when present) —
         derivable from the analyzers in the target architecture, preserved
         here so nothing is dropped silently.
@@ -85,7 +84,7 @@ class OptimizerConversion:
     """
 
     optimization: OptimizationSpec
-    save_set: Optional[SaveSet] = None
+    devices: list[PresetDevice] = field(default_factory=list)
     name: str = ""
     description: str = ""
     notes: list[str] = field(default_factory=list)
@@ -160,12 +159,12 @@ def convert_optimizer_config(
         }
     )
 
-    save_set: Optional[SaveSet] = None
+    devices: list[PresetDevice] = []
     if document.get("save_devices_file"):
         raise SchemaConversionError(
             f"{context}: 'save_devices_file' points outside the document "
-            f"({document['save_devices_file']!r}) — convert that file with "
-            "convert_save_element and attach it yourself."
+            f"({document['save_devices_file']!r}) — inline its devices into "
+            "the config, or build the preset by hand."
         )
     device_requirements = document.get("device_requirements")
     save_devices = document.get("save_devices")
@@ -176,24 +175,29 @@ def convert_optimizer_config(
         )
     legacy_saves = device_requirements or save_devices
     if legacy_saves and legacy_saves.get("Devices"):
-        conversion = convert_save_element(legacy_saves, name=f"{config_name}_saves")
-        save_set = conversion.save_set
-        notes.extend(conversion.notes)
-        if conversion.actions:
+        if legacy_saves.get("setup_action") or legacy_saves.get("closeout_action"):
             raise SchemaConversionError(
                 f"{context}: embedded setup/closeout actions in "
-                "device_requirements/save_devices are not expected — convert "
-                "the element separately."
+                "device_requirements/save_devices are not expected — an "
+                "action plan is its own queue item."
+            )
+        for device_name, settings in legacy_saves["Devices"].items():
+            settings = settings or {}
+            devices.append(
+                PresetDevice(
+                    device=str(device_name),
+                    save_images=bool(settings.get("save_nonscalar_data", False)),
+                )
             )
         notes.append(
-            f"{context}: 'device_requirements' preserved as save set "
-            f"{save_set.name!r}; the target architecture derives it from the "
+            f"{context}: 'device_requirements' preserved as a device group of "
+            f"{len(devices)}; the target architecture derives it from the "
             "evaluator's analyzers instead."
         )
 
     return OptimizerConversion(
         optimization=spec,
-        save_set=save_set,
+        devices=devices,
         name=config_name,
         description=document.get("description") or "",
         notes=notes,

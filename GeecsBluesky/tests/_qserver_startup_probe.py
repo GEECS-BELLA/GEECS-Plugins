@@ -22,6 +22,7 @@ subprocess traceback dump.
 
 from __future__ import annotations
 
+import inspect
 import os
 import runpy
 import sys
@@ -93,17 +94,29 @@ def main() -> None:
     if not isinstance(ns.get("RE"), RunEngine):
         _fail(f"ns['RE'] is not a RunEngine: {ns.get('RE')!r}")
         return
-    # The stock plans are bound by their own names — the manager discovers
-    # every generator function in the namespace, so the discovered set must
-    # be exactly the pinned list (a stray generator would become a plan).
+    # The stock plans are registered under their own names, bound strict —
+    # the manager discovers every generator function in the namespace, so
+    # the discovered set must be exactly the pinned list (a stray generator
+    # would become a plan).
     discovered = sorted(plans_from_nspace(ns))
     if discovered != sorted(GEECS_PLAN_NAMES):
         _fail(f"discovered plans {discovered!r} != GEECS_PLAN_NAMES")
         return
     for name in GEECS_PLAN_NAMES:
-        real = getattr(bps if name == "mv" else bp, name)
-        if ns[name] is not real:
-            _fail(f"ns[{name!r}] is not bluesky's {name}")
+        plan = ns[name]
+        if name == "mv":
+            if plan is not bps.mv:
+                _fail("ns['mv'] is not bluesky's mv")
+                return
+            continue
+        if plan is getattr(bp, name) or plan.__name__ != name:
+            _fail(f"ns[{name!r}] is not the strict-bound {name}")
+            return
+        if (
+            "per_step" in inspect.signature(plan).parameters
+            or "per_shot" in inspect.signature(plan).parameters
+        ):
+            _fail(f"ns[{name!r}] still exposes the strict hook")
             return
     funcs = [getattr(p, "func", p) for p in ns["RE"].preprocessors]
     if funcs[-1:] != [connect_on_demand] or funcs.count(connect_on_demand) != 1:

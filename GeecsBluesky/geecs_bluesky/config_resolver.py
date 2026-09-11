@@ -1,16 +1,17 @@
-"""Resolve the names a ScanRequest carries into validated schema models.
+"""Resolve the configs-repo names a client uses into validated schema models.
 
 :class:`ConfigResolver` is the protocol; :class:`ConfigsRepoResolver` is the
 production implementation over the real configs-repo layout
 (``scanner_configs/experiments/<Experiment>/``).  A YAML file carrying a
-``schema_version`` key loads as the new schema directly; save sets, trigger
-profiles, and action libraries without one are converted from their legacy
-dialect via :mod:`geecs_schemas.convert`.  Scan-variable catalogs are the
-exception: ``scan_devices/scan_variables.yaml`` is new-schema only (the
-legacy pair and its converter were retired 2026-09, GEECS-Plugins#779).
+``schema_version`` key loads as the new schema directly; trigger profiles
+and action libraries without one are converted from their legacy dialect
+via :mod:`geecs_schemas.convert`.  Presets and scan-variable catalogs are
+new-schema only (the legacy save elements / scan presets were regenerated
+once as ``Preset`` documents, GEECS-Plugins#807; the scan-device pair and
+its converter were retired 2026-09, #779).
 
-Execution of a resolved request lives in
-the client-side request expansion (phase 1 PR 2).
+The client seam expands a preset into a stock plan queue item
+(:mod:`geecs_bluesky.qs_client.presets`).
 """
 
 from __future__ import annotations
@@ -27,14 +28,13 @@ from geecs_schemas import (
     ActionPlan,
     ActionPlanLibrary,
     ExperimentDefaults,
-    SaveSet,
+    Preset,
     ScanVariables,
     ScanVariableSpec,
     TriggerProfile,
 )
 from geecs_schemas.convert import (
     convert_action_library,
-    convert_save_element,
     convert_shot_control,
 )
 
@@ -48,10 +48,10 @@ logger = logging.getLogger(__name__)
 
 @runtime_checkable
 class ConfigResolver(Protocol):
-    """Resolves the names a ScanRequest carries into schema models."""
+    """Resolves the configs-repo names a client uses into schema models."""
 
-    def resolve_save_set(self, name: str) -> SaveSet:
-        """Return the save set called *name*."""
+    def resolve_preset(self, name: str) -> Preset:
+        """Return the preset called *name*."""
         ...
 
     def resolve_trigger_profile(self, name: str) -> TriggerProfile:
@@ -84,23 +84,23 @@ class ConfigsRepoResolver:
     Reads ``scanner_configs/experiments/<experiment>/`` (the same resolution
     roots as :func:`geecs_bluesky.scanner_configs.scanner_configs_base`):
 
-    - ``save_devices/<name>.yaml`` — save sets (legacy save elements)
+    - ``presets/<name>.yaml`` — presets (``geecs_schemas.Preset``: the
+      device group + the plan call; new schema only)
     - ``shot_control_configurations/<name>.yaml`` — trigger profiles
     - ``scan_devices/scan_variables.yaml`` — the scan-variable catalog
       (new schema only; the legacy ``scan_devices.yaml`` +
       ``composite_variables.yaml`` pair and its converter were retired
       2026-09, GEECS-Plugins#779)
     - ``action_library/actions.yaml`` — the action-plan library
-    - ``presets/<name>.yaml`` and ``optimizer_configs/<name>.yaml`` —
-      listed (for clients) but not resolved here: presets are
-      ``ScanRequest`` documents and optimizer configs are
-      ``OptimizationSpec`` documents, both validated by their consumers.
+    - ``optimizer_configs/<name>.yaml`` — listed (for clients) but not
+      resolved here: ``OptimizationSpec`` documents validated by their
+      consumers.
 
-    A file whose top level carries ``schema_version`` is loaded as the new
-    schema; anything else goes through the matching legacy converter — so
-    the existing corpus works unchanged and files can migrate one at a time.
-    Named configs resolve from either the ``.yaml`` or ``.yml`` spelling
-    (console parity), so every listed name round-trips through resolution.
+    A trigger profile or action library whose top level carries
+    ``schema_version`` is loaded as the new schema; anything else goes
+    through the matching legacy converter.  Named configs resolve from
+    either the ``.yaml`` or ``.yml`` spelling (console parity), so every
+    listed name round-trips through resolution.
 
     Parameters
     ----------
@@ -112,7 +112,6 @@ class ConfigsRepoResolver:
         config.ini), resolved lazily on first use.
     """
 
-    SAVE_SET_FOLDER = "save_devices"
     TRIGGER_FOLDER = SHOT_CONTROL_FOLDER
     SCAN_VARIABLES_FOLDER = "scan_devices"
     ACTION_FOLDER = "action_library"
@@ -128,12 +127,6 @@ class ConfigsRepoResolver:
         )
         self._scan_variables_cache: ScanVariables | None = None
         self._action_library_cache: ActionPlanLibrary | None = None
-        # Plans extracted by the save-element converter (legacy
-        # setup_action / closeout_action / scan_setup become named plans
-        # referenced from the entries) — they live beside the element, not
-        # in the experiment's action library, so name resolution falls back
-        # to them after the library.
-        self._extracted_element_actions: dict[str, ActionPlan] = {}
 
     @property
     def _root(self) -> Path:
@@ -192,8 +185,7 @@ class ConfigsRepoResolver:
         visibility blip on a mounted configs share, a permissions problem)
         all read as an empty listing: clients render "nothing available",
         they do not crash.  A listed name is a *file*, not a promise:
-        resolution/validation can still refuse it (e.g. an action-only
-        legacy save element).
+        resolution/validation can still refuse it.
         """
         try:
             path = self._root / folder
@@ -210,70 +202,36 @@ class ConfigsRepoResolver:
             )
             return []
 
-    def list_save_sets(self) -> list[str]:
-        """Names accepted by :meth:`resolve_save_set` (sorted; ``[]`` if none)."""
-        return self._list_folder(self.SAVE_SET_FOLDER)
-
     def list_trigger_profiles(self) -> list[str]:
         """Names accepted by :meth:`resolve_trigger_profile` (sorted; ``[]`` if none)."""
         return self._list_folder(self.TRIGGER_FOLDER)
 
     def list_presets(self) -> list[str]:
-        """Saved preset names (each file is a ``ScanRequest``; sorted; ``[]`` if none)."""
+        """Names accepted by :meth:`resolve_preset` (sorted; ``[]`` if none)."""
         return self._list_folder(self.PRESET_FOLDER)
 
-    def resolve_preset(self, name: str):
-        """Load preset *name* as a validated ``ScanRequest``.
+    def resolve_preset(self, name: str) -> Preset:
+        """Load preset *name* as a validated :class:`~geecs_schemas.Preset`.
 
-        A preset IS a saved ``ScanRequest`` (one YAML per name under
-        ``presets/`` — the console's PresetStore writes them; the scan
-        MCP's ``submit_scan(preset=...)`` reads them here so the folder
-        layout keeps one owner).
+        One YAML per name under ``presets/`` — the console's PresetStore
+        writes them; the queue client's ``submit_preset`` reads them here
+        so the folder layout keeps one owner.
 
         Raises
         ------
         GeecsConfigurationError
             Missing file or a document that is not a mapping.
         pydantic.ValidationError
-            A document that is not a valid ``ScanRequest``.
+            A document that is not a valid ``Preset``.
         """
-        from geecs_schemas import ScanRequest
-
         stem = self._strip_yaml_suffix(name)
         path = self._named_yaml_path(self.PRESET_FOLDER, stem)
         document = self._load_yaml(path, "preset", name)
-        return ScanRequest.model_validate(document)
+        return Preset.model_validate(document)
 
     def list_optimizer_configs(self) -> list[str]:
         """Optimizer-config names (``OptimizationSpec`` documents; sorted; ``[]`` if none)."""
         return self._list_folder(self.OPTIMIZER_FOLDER)
-
-    def resolve_save_set(self, name: str) -> SaveSet:
-        """Load the save set *name* (new schema, else converted save element).
-
-        Raises
-        ------
-        GeecsConfigurationError
-            Missing file, or an action-only legacy element (nothing to record).
-        """
-        stem = self._strip_yaml_suffix(name)
-        path = self._named_yaml_path(self.SAVE_SET_FOLDER, stem)
-        document = self._load_yaml(path, "save set", name)
-        if "schema_version" in document:
-            return SaveSet.model_validate(document)
-        result = convert_save_element(document, name=stem)
-        for note in result.notes:
-            logger.info("save set %s (converted from legacy): %s", stem, note)
-        # The converter extracts element-level setup/closeout (and per-device
-        # scan_setup) into named plans referenced from the entries; remember
-        # them so resolve_action_plan can validate those references.
-        self._extracted_element_actions.update(result.actions)
-        if result.save_set is None:
-            raise GeecsConfigurationError(
-                f"save set {name!r} ({path}) is an action-only legacy element "
-                "— it lists no devices to record"
-            )
-        return result.save_set
 
     def resolve_trigger_profile(self, name: str) -> TriggerProfile:
         """Load the trigger profile *name* (new schema, else converted).
@@ -366,13 +324,6 @@ class ConfigsRepoResolver:
         GeecsConfigurationError
             Unknown name (the error lists the known plans).
         """
-        # Plans the save-element converter extracted resolve first: they
-        # live beside their element (their `<element>_setup` names cannot
-        # collide with library names in practice), and an experiment may
-        # have converted elements without having an action library at all.
-        plan = self._extracted_element_actions.get(name)
-        if plan is not None:
-            return plan
         library = self._action_library()
         try:
             return library.plans[name]
@@ -383,18 +334,11 @@ class ConfigsRepoResolver:
             ) from None
 
     def action_plan_registry(self) -> dict[str, ActionPlan]:
-        """Return every named plan visible to nested ``run`` steps.
-
-        The action library plus converter-extracted element plans (extracted
-        plans win on collision, matching :meth:`resolve_action_plan`).
-        """
-        plans: dict[str, ActionPlan] = {}
+        """Return every named plan visible to nested ``run`` steps (the library)."""
         try:
-            plans.update(self._action_library().plans)
+            return dict(self._action_library().plans)
         except GeecsConfigurationError:
-            pass  # no actions.yaml — extracted element plans may still exist
-        plans.update(self._extracted_element_actions)
-        return plans
+            return {}  # no actions.yaml
 
     DEFAULTS_FILE = "experiment_defaults.yaml"
 

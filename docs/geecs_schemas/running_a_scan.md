@@ -1,5 +1,13 @@
 # Running a scan the new way
 
+!!! warning "Status (2026-09-10)"
+    This page describes the scan-request funnel.  On the native-Bluesky
+    feature branch (GEECS-Plugins#807, phase 1 PR 2) a scan is a stock
+    bluesky plan item — a **preset** (device group + plan call) expanded by
+    the client — and save sets no longer exist; the Console and the MCP
+    are rewired onto presets once that foundation is stable, and this
+    page is rewritten with them.
+
 This page explains, in plain language, how a scan is described and what happens
 to its data when it runs on the new engine. If you want the map of the five
 config kinds first, read [Scanner Configs, Explained](schemas_overview.md); for

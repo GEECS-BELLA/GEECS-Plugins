@@ -20,8 +20,6 @@ from geecs_console.services.schema_tooltips import (
 from geecs_schemas import (
     ActionPlan,
     PseudoScanVariable,
-    SaveSet,
-    SaveSetEntry,
     ScanVariable,
     TriggerProfile,
 )
@@ -185,31 +183,6 @@ class TestShowTooltipsToggle:
         """Parenting bounds the filter's lifetime: Qt auto-removes a
         destroyed filter, so the window can never leak a suppressor."""
         assert window._tooltip_suppressor.parent() is window
-
-
-class TestSaveSetEditorTooltips:
-    def test_entry_fields_match_schema_descriptions(self, qtbot, tmp_path):
-        from geecs_console.editors.save_set_editor import SaveSetEditor
-        from geecs_console.services.save_set_store import SaveSetStore
-
-        editor = SaveSetEditor(
-            experiment="HTU", store=SaveSetStore("HTU", experiments_root=tmp_path)
-        )
-        qtbot.addWidget(editor)
-        fields = SaveSetEntry.model_fields
-        assert editor.images_check.toolTip() == fields["images"].description
-        assert editor.db_scalars_check.toolTip() == fields["db_scalars"].description
-        assert editor.all_scalars_check.toolTip() == fields["all_scalars"].description
-        assert editor.role_combo.toolTip() == fields["role"].description
-        assert editor.device_edit.toolTip() == fields["device"].description
-        assert editor.scalar_list.toolTip() == fields["scalars"].description
-        assert editor.scalar_edit.toolTip() == fields["scalars"].description
-        assert editor.setup_edit.toolTip() == fields["setup"].description
-        assert editor.closeout_edit.toolTip() == fields["closeout"].description
-        assert (
-            editor.description_edit.toolTip()
-            == SaveSet.model_fields["description"].description
-        )
 
 
 class TestScanVariableEditorTooltips:

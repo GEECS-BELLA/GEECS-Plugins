@@ -4,6 +4,20 @@ All notable changes to GEECS-Console are documented here.  Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is
 semantic.
 
+## [0.31.0] - 2026-09-10
+
+### Removed
+
+- The save-set editor and store (`editors/save_set_editor.py`,
+  `services/save_set_store.py`, the `.ui`) and the Editors-menu entry:
+  GEECS-Schemas 0.21.0 deleted `SaveSet` for `Preset` (GEECS-Plugins#807,
+  phase 1 PR 2).  The R2 save-set list reads empty and the union preview
+  says so; the console is rewired onto presets once the foundation is
+  stable (plan of record §10.5), not per step.  Its submit path still
+  calls the client's removed funnel verb (`submit_scan`) and refuses at
+  runtime against the new worker — the deployed worker stays on `master`
+  until PR 3.
+
 ## [0.30.0] - 2026-09-04
 
 ### Added

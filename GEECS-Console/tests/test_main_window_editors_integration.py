@@ -60,7 +60,6 @@ class FakeCompletions:
 
 class TestEditorsMenu:
     EXPECTED = [
-        "Save Elements…",
         "Scan Variables…",
         "Shot Control…",
         "Action Library…",
@@ -72,7 +71,7 @@ class TestEditorsMenu:
                 return menu
         raise AssertionError("Editors menu not found")
 
-    def test_menu_lists_the_four_editors(self, qtbot):
+    def test_menu_lists_the_three_editors(self, qtbot):
         window = make_window(qtbot)
         menu = self.find_editors_menu(window)
         texts = [action.text() for action in menu.actions()]
@@ -81,10 +80,9 @@ class TestEditorsMenu:
     @pytest.mark.parametrize(
         ("index", "entry_point"),
         [
-            (0, "open_save_set_editor"),
-            (1, "open_scan_variable_editor"),
-            (2, "open_shot_control_editor"),
-            (3, "open_action_library_editor"),
+            (0, "open_scan_variable_editor"),
+            (1, "open_shot_control_editor"),
+            (2, "open_action_library_editor"),
         ],
     )
     def test_action_opens_editor_for_current_experiment(
@@ -116,7 +114,7 @@ class TestEditorsMenu:
             opened.append(dialog)
             return dialog
 
-        monkeypatch.setattr(mw_mod, "open_save_set_editor", fake_open)
+        monkeypatch.setattr(mw_mod, "open_scan_variable_editor", fake_open)
         window._editor_actions[0].trigger()
         window._editor_actions[0].trigger()
         assert len(window._open_editors) == 2
@@ -142,9 +140,9 @@ class TestEditorsMenu:
         )
         opened = []
         monkeypatch.setattr(
-            mw_mod, "open_save_set_editor", lambda *a, **k: opened.append(1)
+            mw_mod, "open_scan_variable_editor", lambda *a, **k: opened.append(1)
         )
-        window._on_edit_save_sets()
+        window._on_edit_scan_variables()
         assert not opened
         assert "experiment" in window.statusBar().currentMessage().lower()
 

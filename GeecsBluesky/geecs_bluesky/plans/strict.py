@@ -240,15 +240,83 @@ def geecs_take_reading(
     return take_reading
 
 
+class BinCounter:
+    """The ``bin_number`` column: which step of the scan a row belongs to.
+
+    GEECS analysis groups an s-file's rows by ``Bin #`` — one bin per scan
+    step, every shot of that step in it — and the Tiled → s-file exporter
+    reads it from a ``bin_number`` event column
+    (``geecs_data_utils.tiled_export``).  The stock plans have no such
+    notion (one row per step), so the GEECS ``per_step`` counts steps and
+    reads this tiny ``Readable`` into every row.  Nothing ophyd about it: a
+    plain Bluesky ``Readable`` — ``name``, ``parent``, ``read``,
+    ``describe`` — with no connection to make.
+    """
+
+    name = "bin_number"
+    parent = None
+
+    def __init__(self) -> None:
+        self.value = 0
+
+    def read(self) -> dict[str, Any]:
+        """The current bin number as a Bluesky reading."""
+        return {self.name: {"value": self.value, "timestamp": time.time()}}
+
+    def describe(self) -> dict[str, Any]:
+        """The data key: a scalar integer sourced from the plan."""
+        return {
+            self.name: {"source": "plan:bin_number", "dtype": "integer", "shape": []}
+        }
+
+
 def geecs_per_shot(shot_control: Any, **kwargs: Any) -> Callable[..., Any]:
-    """``bp.count(..., per_shot=geecs_per_shot(shot_control))``."""
-    return partial(
-        bps.one_shot, take_reading=geecs_take_reading(shot_control, **kwargs)
-    )
+    """``bp.count(..., per_shot=geecs_per_shot(shot_control))``.
+
+    A count is one bin: every row carries ``bin_number = 1``.
+    """
+    take_reading = geecs_take_reading(shot_control, **kwargs)
+    bins = BinCounter()
+    bins.value = 1
+
+    def per_shot(detectors: Sequence[Any], take_reading_: Any = None):
+        return (yield from take_reading([*detectors, bins]))
+
+    per_shot.__name__ = per_shot.__qualname__ = "geecs_per_shot"
+    return per_shot
 
 
-def geecs_per_step(shot_control: Any, **kwargs: Any) -> Callable[..., Any]:
-    """``bp.scan(..., per_step=geecs_per_step(shot_control))`` (any N-d scan plan)."""
-    return partial(
-        bps.one_nd_step, take_reading=geecs_take_reading(shot_control, **kwargs)
-    )
+def geecs_per_step(
+    shot_control: Any, *, shots_per_step: int = 1, **kwargs: Any
+) -> Callable[..., Any]:
+    """``bp.scan(..., per_step=geecs_per_step(shot_control))`` (any N-d scan plan).
+
+    ``bps.one_nd_step`` with two GEECS additions: *shots_per_step* shots at
+    every position (the legacy "Shots per step", each a strict single shot
+    with its own row) and the ``bin_number`` column counting the steps.
+    Each row reads the detectors, the step's motors and the bin counter,
+    exactly as the stock step reads detectors and motors.
+
+    Parameters
+    ----------
+    shot_control :
+        The trigger box device (see :func:`geecs_take_reading`).
+    shots_per_step :
+        Rows per position; at least 1.
+    """
+    if shots_per_step < 1:
+        raise ValueError(f"shots_per_step must be >= 1, got {shots_per_step}")
+    take_reading = geecs_take_reading(shot_control, **kwargs)
+    bins = BinCounter()
+
+    def per_step(
+        detectors: Sequence[Any], step: Any, pos_cache: Any, take_reading_: Any = None
+    ):
+        motors = list(step.keys())
+        yield from bps.move_per_step(step, pos_cache)
+        bins.value += 1
+        for _ in range(shots_per_step):
+            yield from take_reading([*detectors, *motors, bins])
+
+    per_step.__name__ = per_step.__qualname__ = "geecs_per_step"
+    return per_step

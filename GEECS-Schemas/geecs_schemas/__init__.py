@@ -1,11 +1,12 @@
 """geecs_schemas — versioned Pydantic models for every GEECS scanner config.
 
 Configs are schemas; YAML is just serialization.  This package is the single
-home of the models (vision doc §4): scan requests, save sets, scan variables,
-trigger profiles, action plans, and gateway derived channels — plus converters
-from the legacy YAML dialects still in use (``geecs_schemas.convert``; scan
-variables have none, GEECS-Plugins#779) and a Markdown reference generator
-(``geecs_schemas.docgen``).
+home of the models (vision doc §4): presets (the saved scan: device group +
+plan call), scan requests, scan variables, trigger profiles, action plans,
+and gateway derived channels — plus converters from the legacy YAML
+dialects still in use (``geecs_schemas.convert``; scan variables and
+presets have none, GEECS-Plugins#779 / #807) and a Markdown reference
+generator (``geecs_schemas.docgen``).
 
 It depends on Pydantic only, so anything — engine, GUI, scripts, docs
 tooling — can import it without dragging in hardware or analysis stacks.
@@ -37,7 +38,7 @@ from geecs_schemas.derived_channels import (
     DerivedInput,
 )
 from geecs_schemas.experiment_defaults import DefaultActions, ExperimentDefaults
-from geecs_schemas.save_set import SaveRole, SaveSet, SaveSetEntry
+from geecs_schemas.preset import PlanCall, Preset, PresetDevice
 from geecs_schemas.scan_request import (
     AcquisitionMode,
     ActionBindings,
@@ -92,10 +93,10 @@ __all__ = [
     "DerivedChannels",
     "DerivedChannel",
     "DerivedInput",
-    # save_set
-    "SaveSet",
-    "SaveSetEntry",
-    "SaveRole",
+    # preset
+    "Preset",
+    "PresetDevice",
+    "PlanCall",
     # scan_variables
     "ScanVariables",
     "ScanVariable",
@@ -133,8 +134,8 @@ __all__ = [
 # kind → top-level document model, for generic tooling (loaders, editors,
 # docgen). Keys are the canonical config-kind identifiers.
 SCHEMA_REGISTRY: dict[str, type[VersionedSchemaModel]] = {
+    "preset": Preset,
     "scan_request": ScanRequest,
-    "save_set": SaveSet,
     "scan_variables": ScanVariables,
     "trigger_profile": TriggerProfile,
     "action_plan": ActionPlan,

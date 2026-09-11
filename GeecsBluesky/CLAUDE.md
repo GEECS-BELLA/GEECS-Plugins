@@ -10,20 +10,18 @@ facts) before proposing a change here; it carries a staleness rule (a PR
 that changes direction edits it in the same PR).  Phase-0 measurements are
 in `04_phase0_measurements.md`.
 
-**Where things stand (phase 1 PR 1, GeecsBluesky 0.79.0):** the `ScanRequest`
-funnel, free-run, `GeecsSession` and every funnel-only device are deleted;
-the scan path is the stock `bluesky.plans` verbs over the device namespace,
-and the strict `take_reading` (`plans/strict.py`) exists and is tested —
-but the worker registers the **raw** stock plans: the strict binding is
-not in the worker's plan names until PR 2's registration table (a
-`GeecsDetector` under a bare stock plan is refused at prepare; scalar-only
-scans run).  Next
-(PR 2): the plan layer — the `claim_scan` preprocessor + `PathProvider`,
-the ScanInfo / s-file / `scan.log` callbacks, the registration table with
-the strict `take_reading` pre-bound, telemetry = everything.  Then (PR 3)
-headless hardware acceptance and the worker flip.  **The deployed worker
-stays on `master` until then**; the Console and GEECS-MCP are rewired once,
-when the foundation is stable — not per step.
+**Where things stand (phase 1 PR 2, GeecsBluesky 0.80.0):** a queue item
+naming a stock plan and namespace devices runs a complete strict GEECS
+scan — claimed scan number, native files in `ScanNNN/<device>/`, ScanInfo,
+the s-file, `scan.log`, the baseline telemetry stream.  The worker
+registers the stock `bluesky.plans` verbs under their own names with the
+strict `take_reading` pre-bound (`plans/registry.py`); a client submits a
+stock plan item or a saved preset (`qs_client.submit_plan` /
+`submit_preset`).  Next (PR 3): headless hardware acceptance on HTU
+(`U_S1H:Current` −1 → +1 A, amp4in) and the worker flip.  **The deployed
+worker stays on `master` until then**; the Console and GEECS-MCP are
+rewired once, when the foundation is stable — not per step (their submit
+paths call the removed funnel verbs meanwhile).
 
 ## The two rules
 
@@ -49,19 +47,24 @@ geecs_bluesky/
   devices/ca/               # scalar devices + settable children: CaSnapshotReadable,
                             #   CaSettable, CaMotor, CaConfirmSettable, CaPseudoMovable,
                             #   CaActionSignalFactory, gateway_put, oneshot, liveness
-  plans/strict.py           # geecs_take_reading: the fire between trigger and wait
-  plans/claim_scan.py       # the day-scoped scan-number claim (the ONE folder creator)
+  plans/strict.py           # geecs_take_reading (the fire between trigger and wait),
+                            #   geecs_per_step (shots_per_step + bin_number), geecs_per_shot
+  plans/registry.py         # the registration table: stock plan names bound strict,
+                            #   TriggerProfiles (one ShotControl per configs-repo profile)
+  plans/claim_scan.py       # the day-scoped claim (the ONE folder creator), the
+                            #   claim_scan preprocessor, GeecsScanPathProvider
   plans/action_compiler.py  # ActionPlan → plan stubs
-  run_engine.py             # make_run_engine: RE + connect_on_demand + callbacks
-  preprocessors.py          # connect_on_demand (installed outermost)
+  run_engine.py             # make_run_engine: RE + claim + headers + baseline + callbacks
+  preprocessors.py          # connect_on_demand (installed outermost), scalar_headers
+  callbacks.py              # ScanInfo ini, the s-file, scan.log — per run, best-effort
+  scan_log.py               # ScanLogFile: the root-logger handler one run holds
   plan_names.py             # GEECS_PLAN_NAMES — what the profile exports; import-light
   qserver_ready.py          # geecs-qserver-ensure-ready (#793)
   qs_client/                # the RE Manager client every GEECS client uses
-  config_resolver.py        # ConfigsRepoResolver: the configs-repo documents
+                            #   (+ presets.expand_preset: a Preset → the queue item)
+  config_resolver.py        # ConfigsRepoResolver: presets, trigger profiles, catalogs, actions
   db_runtime.py             # the DB providers (served set, scalar policy, device types)
   tiled_integration.py      # subscribe_tiled (+ the geecs:// descriptor patch, goes with #806)
-  sfile_callback.py         # the legacy s-file export from Tiled at stop
-  scan_log.py               # per-scan scan.log (a callback in PR 2)
   data_paths.py, forward_expr.py, scanner_configs.py, epics_env.py, exceptions.py
   models/shot_control.py    # ShotControlWrites + QUIESCE_FROM (TriggerState names)
   assets/, capture/         # the capture daemon and the asset registry — go with #806
@@ -118,8 +121,13 @@ qserver/                    # the worker: launcher, startup profile, permissions
 
 ## The scan path (§4.B)
 
-Strict is the default and the only mode built: stock plans with the GEECS
-`per_step` / `per_shot` (`plans/strict.py`) —
+Strict is the default and the only mode built: the stock plans with the
+GEECS `per_step` / `per_shot` (`plans/strict.py`), registered under the
+stock names by `plans/registry.py` — the stock parameters minus the hook,
+plus `trigger_profile` and `shots_per_step` (keyword-only; both ride in
+the start document), each run bracketed ARMED → STANDBY through the
+profile's `ShotControl`.  Every shot is one row; `shots_per_step` rows per
+position carry the same `bin_number` —
 
 ```
 prepare(detectors, STRICT_TRIGGER_INFO)     # edge-triggered, one event; per shot,
@@ -143,6 +151,26 @@ job as gated batch (`bp.fly`-shaped, plugin-backed detectors that count)
 and the contributor job as the non-essential stream
 (`SupplementalData.flyers`, joined by offset-corrected stamp, §11.5).
 
+## The GEECS scan (§4.C): one claim, three files, one telemetry stream
+
+`make_run_engine(experiment, claim=True, path_provider=…, telemetry=…)`
+installs, in this order: the `claim_scan` preprocessor (**every run
+claims** a scan number on `open_run` — `scan_number`, `scan_folder`,
+`experiment`, `scan_tag` into the start document, the shared
+`GeecsScanPathProvider` pointed at `ScanNNN/`; a failed claim refuses the
+run), `scalar_headers` (the staged devices' `Device Variable` headers
+into `geecs_scalar_headers`), `SupplementalData(baseline=…)` (every
+scalar-only device and every detector's scalar signals, read at open and
+close — a detector itself is Triggerable and would wait for a shot ARMED
+never delivers), and last `connect_on_demand`.  Three callbacks write
+**into** the claimed folder, never creating it: `ScanInfoCallback` (the
+legacy `[Scan Info]` keys downstream parses, `ScanEndInfo` filled at the
+stop), `SFileCallback` (`ScanDataScanNNN.txt` + `analysis/sNNN.txt` from
+the run's own primary events, for any exit status with rows — no Tiled
+round trip), `ScanLogCallback`.  A detector's native files go to
+`ScanNNN/<GEECS device>/`; `X.scalars` in the detector list records the
+same columns without files (`save_images: false`).
+
 ## The worker (`qserver/`)
 
 `launch_re_manager.sh` (Redis + the bluesky-0MQ-proxy document stream +
@@ -164,10 +192,13 @@ failed-items-requeue-at-front, CLI parses Python literals not JSON).
 `qs_client/` is the client seam every GEECS client uses (`QueueClient`,
 `ZmqQueueClient`/`StubQueueClient`, the `[qserver]` config reader,
 `readiness_verdict` — the ONE definition of ready, `run_submit_preflight`
-+ `build_submission_record`).  Its submit verbs still name the retired
-funnel plan, so `worker_ready` refuses against this worker — correct, and
-rewired with the plan layer.  The package import stays light (PEP 562-lazy
-device re-exports; `bluesky-queueserver-api` behind the `qs-client` extra).
++ `build_submission_record`).  A client submits a **stock plan item**
+(`submit_plan("scan", args=[["UC_Amp4_IR_input"], "U_S1H.current", -1, 1,
+5], kwargs={"shots_per_step": 10})`) or a saved preset
+(`submit_preset(preset)` → `presets.expand_preset`: device bindings,
+`Device:Variable` / catalog names into `U_S1H.current`, the provenance
+`md`).  The package import stays light (PEP 562-lazy device re-exports;
+`bluesky-queueserver-api` behind the `qs-client` extra).
 One-shot blocking CA reads go through `devices/ca/oneshot.py` (one
 persistent reader loop, never a per-call `asyncio.run`).
 
