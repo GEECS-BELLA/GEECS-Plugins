@@ -104,7 +104,7 @@ def test_count_preset_and_pair_spelled_variables() -> None:
 def test_expand_refuses_no_plan_unknown_plan_and_pseudo() -> None:
     with pytest.raises(GeecsConfigurationError, match="no plan call"):
         expand_preset(_preset(plan=None))
-    with pytest.raises(GeecsConfigurationError, match="registers"):
+    with pytest.raises(GeecsConfigurationError, match="scan verb"):
         expand_preset(_preset(plan={"name": "tune_centroid"}))
     with pytest.raises(GeecsConfigurationError, match="pseudo"):
         expand_preset(
@@ -113,23 +113,26 @@ def test_expand_refuses_no_plan_unknown_plan_and_pseudo() -> None:
         )
 
 
-def test_device_references_walk_nested_values_and_skip_the_geecs_kwargs() -> None:
-    from geecs_bluesky.qs_client.presets import QueueItem, device_references
-
-    item = QueueItem(
-        "list_scan",
-        [["UC_Cam", "U_S1H.scalars"], "U_S1H.current", [0.0, "U_Typo.current", 1.0]],
-        {
-            "shots_per_step": 2,
-            "trigger_profile": "HTU_Normal",
-            "md": {"x": "Y_Dev"},
-            "delay": ["U_S1H.2nd"],
-        },
+def test_expansion_records_its_references_and_leaves_literal_strings_alone() -> None:
+    preset = _preset(
+        plan={"name": "list_scan", "args": ["U_S1H:Enable_Output", ["on", "off"]]},
     )
-    assert device_references(item) == [
-        "UC_Cam",
-        "U_S1H.scalars",
-        "U_S1H.current",
-        "U_Typo.current",
-        "U_S1H.2nd",
+    item = expand_preset(preset)
+    assert item.args == [
+        ["UC_ALineEBeam3", "UC_VisaEBeam1.scalars", "U_BCaveICT.scalars"],
+        "U_S1H.enable_output",
+        ["on", "off"],
     ]
+    assert item.references == [
+        "UC_ALineEBeam3",
+        "UC_VisaEBeam1.scalars",
+        "U_BCaveICT.scalars",
+        "U_S1H.enable_output",
+    ]
+    catalog_item = expand_preset(_preset(), catalog=CATALOG)
+    assert catalog_item.references[-1] == "U_EMQTripletBipolar.current_limit_ch1"
+
+
+def test_a_preset_cannot_name_mv() -> None:
+    with pytest.raises(GeecsConfigurationError, match="submit_plan\\('mv'"):
+        expand_preset(_preset(plan={"name": "mv", "args": ["U_S1H:Current", 0.0]}))

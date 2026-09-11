@@ -74,7 +74,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
     (`QueueClient.allowed_device_names`, the manager's device tree —
     bluesky-queueserver 0.0.25 passes an unknown device string through to
     the plan, so the typo is caught here, before the trigger box is
-    armed; review of #821), and the preset devices' `CONNECTED` PVs.
+    armed; review of #821), and the preset devices' `CONNECTED` PVs.  The
+    references checked are the ones the expansion created
+    (`QueueItem.references`: detectors + resolved scan variables) — a
+    literal string argument such as an enum value in a `list_scan` point
+    list is never one; and a preset cannot name `mv` (`PRESET_PLAN_NAMES`
+    = the scan verbs; the manual move stays `submit_plan("mv", …)`)
+    (Codex review of #821).
 - `make_run_engine(experiment, claim=True, path_provider, telemetry)`
   installs the whole GEECS scan (claim + headers + baseline + the three
   callbacks); the startup profile builds the path provider, the

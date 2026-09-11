@@ -24,9 +24,10 @@ Checks, in order (names are the ``PreflightOutcome.check`` vocabulary):
 - ``worker_ready`` — is the execution surface actually ready (#793): the
   manager answers, its worker environment is open, the plan this
   submission will queue is in its allowed-plans list, and every device
-  reference the item names is in its device tree (the manager itself
-  passes an unknown name through to the plan as a string, which would
-  fail only after the trigger box was armed).  A closed
+  reference the expansion created (``QueueItem.references``: the
+  detectors and the resolved scan variables) is in its device tree (the
+  manager itself passes an unknown name through to the plan as a string,
+  which would fail only after the trigger box was armed).  A closed
   environment or a missing plan is a hard refusal naming the recovery
   gesture — the manager's own answer would be the misleading "Plan ... is
   not in the list of allowed plans"; so is an environment still being
@@ -185,7 +186,7 @@ def _check_worker_ready(
     same assembly the ``geecs-qserver-ready`` service-start assertion
     runs — over ``status()`` and ``allowed_plan_names()``: environment
     exists, plan list answered and non-empty, the item's plan present —
-    then every device reference the item names is in the manager's
+    then every device reference the expansion created is in the manager's
     device tree (a refusal listing the unknown ones).  Every
     not-ready state is a refusal carrying the verdict's sentence, except
     the two fail-open ones recorded ``skipped`` with the sentence as the
@@ -207,7 +208,6 @@ def _check_worker_ready(
         The expanded queue item (its plan name and device references).
     """
     from geecs_bluesky.qs_client.client import StubQueueClient, readiness_from_reads
-    from geecs_bluesky.qs_client.presets import device_references
 
     owned = client is None
     if owned:
@@ -225,7 +225,7 @@ def _check_worker_ready(
         )
         if verdict.ready:
             known = set(client.allowed_device_names())
-            unknown = [r for r in device_references(item) if r not in known]
+            unknown = [r for r in item.references if r not in known]
             if unknown:
                 report.refusal = (
                     "the worker does not know these devices: "

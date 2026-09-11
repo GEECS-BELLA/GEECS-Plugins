@@ -19,17 +19,20 @@ submission is a translation of names, nothing more (plan of record §4.D):
 
 The manager resolves the names against the worker namespace at submission
 but does **not** refuse an unknown one (bluesky-queueserver 0.0.25 passes
-an unresolved string through to the plan), so the pre-submit preflight
-checks every reference against the manager's device tree
+an unresolved string through to the plan), so the expansion records every
+reference it created (:attr:`QueueItem.references`: the detectors and the
+resolved scan variables — never a literal string argument such as an enum
+value) and the pre-submit preflight checks exactly those against the
+manager's device tree
 (:func:`~geecs_bluesky.qs_client.submit_preflight.run_submit_preflight`) —
 the typo fails at preflight, not at queue-front.  Pseudo scan variables
 (``kind: pseudo``) have no namespace noun yet (phase 3): expanding one is
-refused here.
+refused here, and so is a preset whose plan is not a scan verb (``mv`` is
+the manual move — ``submit_plan("mv", …)``, never a preset).
 """
 
 from __future__ import annotations
 
-import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
@@ -39,13 +42,26 @@ from geecs_bluesky.plan_names import GEECS_PLAN_NAMES
 from geecs_bluesky.utils import device_reference
 
 
+#: The plans a preset may name: the scan verbs.  ``mv`` is a queue item of
+#: its own (``submit_plan("mv", ["U_S1H.current", 0.0])``), never a preset —
+#: it takes no detector list.
+PRESET_PLAN_NAMES: tuple[str, ...] = tuple(n for n in GEECS_PLAN_NAMES if n != "mv")
+
+
 @dataclass(frozen=True)
 class QueueItem:
-    """A stock plan call ready for ``QueueClient.submit_plan``."""
+    """A stock plan call ready for ``QueueClient.submit_plan``.
+
+    ``references`` are the device references the expansion created (the
+    detector bindings and the resolved scan variables) — what the preflight
+    checks against the manager's device tree.  A literal string argument
+    (an enum value in a ``list_scan`` point list, say) is never one.
+    """
 
     name: str
     args: list[Any] = field(default_factory=list)
     kwargs: dict[str, Any] = field(default_factory=dict)
+    references: list[str] = field(default_factory=list)
 
 
 def scan_variable_reference(
@@ -95,8 +111,8 @@ def expand_preset(
     Raises
     ------
     GeecsConfigurationError
-        No plan call, a plan name the worker does not register, or a
-        pseudo scan variable.
+        No plan call, a plan that is not a scan verb the worker registers,
+        or a pseudo scan variable.
     """
     plan = preset.plan
     if plan is None:
@@ -104,10 +120,11 @@ def expand_preset(
             f"preset {preset.name!r} is a device group with no plan call — add a "
             "plan (name/args/kwargs) before submitting it"
         )
-    if plan.name not in GEECS_PLAN_NAMES:
+    if plan.name not in PRESET_PLAN_NAMES:
         raise GeecsConfigurationError(
-            f"preset {preset.name!r} names plan {plan.name!r}; the worker "
-            f"registers: {', '.join(GEECS_PLAN_NAMES)}"
+            f"preset {preset.name!r} names plan {plan.name!r}; a preset runs a "
+            f"scan verb: {', '.join(PRESET_PLAN_NAMES)}"
+            + (" (a manual move is submit_plan('mv', …))" if plan.name == "mv" else "")
         )
     detectors = [
         device_reference(d.device)
@@ -115,8 +132,9 @@ def expand_preset(
         else device_reference(d.device) + ".scalars"
         for d in preset.devices
     ]
-    args = [_resolve(a, catalog) for a in plan.args]
-    kwargs = {k: _resolve(v, catalog) for k, v in plan.kwargs.items()}
+    references: list[str] = list(detectors)
+    args = [_resolve(a, catalog, references) for a in plan.args]
+    kwargs = {k: _resolve(v, catalog, references) for k, v in plan.kwargs.items()}
     if preset.trigger_profile is not None:
         kwargs.setdefault("trigger_profile", preset.trigger_profile)
     run_md: dict[str, Any] = dict(kwargs.pop("md", None) or {})
@@ -127,44 +145,31 @@ def expand_preset(
     geecs.setdefault("preset", preset.name)
     run_md["geecs"] = geecs
     kwargs["md"] = run_md
-    return QueueItem(name=plan.name, args=[detectors, *args], kwargs=kwargs)
+    return QueueItem(
+        name=plan.name, args=[detectors, *args], kwargs=kwargs, references=references
+    )
 
 
-def device_references(item: QueueItem) -> list[str]:
-    """Every device reference the item names, in order: the detectors, then the arguments.
+def _resolve(
+    value: Any, catalog: Mapping[str, Any] | None, references: list[str]
+) -> Any:
+    """Turn a scan-variable string into its namespace reference; pass the rest through.
 
-    A string counts when it is spelled like a namespace reference (an
-    identifier, optionally dotted — a child segment may start with a digit,
-    as ``safe_name`` allows); anything else is a plain value.  Lists and
-    dicts are walked the way the manager walks them.  The GEECS keyword
-    arguments (``trigger_profile``, ``md``) never name a device.
+    A string is a scan variable when it is a ``Device:Variable`` pair or a
+    catalog name; the reference it becomes is recorded in *references*.
+    Anything else — a number, a point list, a literal such as ``"on"`` — is
+    the plan's own value.
     """
-    refs: list[str] = []
-
-    def _walk(value: Any) -> None:
-        if isinstance(value, str):
-            if _REFERENCE.match(value):
-                refs.append(value)
-        elif isinstance(value, dict):
-            for v in value.values():
-                _walk(v)
-        elif isinstance(value, (list, tuple)):
-            for v in value:
-                _walk(v)
-
-    _walk(list(item.args))
-    _walk({k: v for k, v in item.kwargs.items() if k not in ("trigger_profile", "md")})
-    return refs
-
-
-_REFERENCE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z0-9_]+)*$")
-
-
-def _resolve(value: Any, catalog: Mapping[str, Any] | None) -> Any:
-    """Turn a scan-variable string into its namespace reference; pass the rest through."""
     if isinstance(value, str) and (":" in value or (catalog and value in catalog)):
-        return scan_variable_reference(value, catalog)
+        reference = scan_variable_reference(value, catalog)
+        references.append(reference)
+        return reference
     return value
 
 
-__all__ = ["QueueItem", "device_references", "expand_preset", "scan_variable_reference"]
+__all__ = [
+    "PRESET_PLAN_NAMES",
+    "QueueItem",
+    "expand_preset",
+    "scan_variable_reference",
+]
