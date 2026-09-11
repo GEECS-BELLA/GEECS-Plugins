@@ -27,7 +27,7 @@ class TestDayJson:
     def test_returns_the_days_scans(self, client: TestClient) -> None:
         """Every scan folder present appears, in number order."""
         body = client.get("/log/api/day/2026-09-11").json()
-        assert [s["number"] for s in body["scans"]] == [1, 6, 31]
+        assert [s["number"] for s in body["scans"]] == [1, 6, 31, 40]
         assert body["exists"] is True
 
     def test_carries_status_and_failure_reason(self, client: TestClient) -> None:
@@ -78,7 +78,7 @@ class TestDayPage:
     def test_small_day_opens_expanded(self, client: TestClient) -> None:
         """Under the threshold every scan block starts open."""
         html = client.get("/log/day/2026-09-11").text
-        assert html.count('<details class="card scan"') == 3
+        assert html.count('<details class="card scan"') == 4
         assert "Collapse all" in html
 
 

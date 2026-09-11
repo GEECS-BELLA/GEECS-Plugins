@@ -120,6 +120,20 @@ class Campaign(BaseModel):
         """Return how many scans in this campaign failed."""
         return sum(1 for s in self.scans if s.status == "failed")
 
+    @property
+    def is_empty_run(self) -> bool:
+        """Whether this run is folders with no scan metadata at all.
+
+        A real day carries these: folders claimed by a scan that never
+        wrote ``ScanInfo`` — an aborted run, or development churn. They
+        group together because they share ``(None, None)``, which is the
+        right outcome (one row, not sixty-five) but needs saying plainly
+        rather than rendering as an em dash and "No purpose recorded".
+        """
+        return self.parameter is None and all(
+            s.status == "incomplete" and not s.has_scan_info for s in self.scans
+        )
+
 
 class DaySummary(BaseModel):
     """Every scan folder present for one date.

@@ -14,7 +14,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=swap">
-<link rel="stylesheet" href="{{ url_for('log-static', path='/scanlog.css') }}">
+<link rel="stylesheet" href="{{ url_for('_static', name='scanlog.css') }}">
 </head>
 <body>
 
@@ -170,8 +170,12 @@
           <span class="campspan">{{ c.span }}</span>
           <span class="campcount">{{ c.scans | length }}
             scan{{ '' if c.scans | length == 1 else 's' }}</span>
+          {% if c.is_empty_run %}
+          <span class="camppurpose none">No scan metadata &mdash; folders only</span>
+          {% else %}
           <span class="campparam">{{ c.parameter or '—' }}</span>
           <span class="camppurpose">{{ c.purpose or 'No purpose recorded' }}</span>
+          {% endif %}
           {% if c.failed %}<span class="chip chip-failed">{{ c.failed }} failed</span>{% endif %}
         </summary>
         <div class="campbody">
@@ -194,9 +198,10 @@
    home for it — it never needs to reach another viewer or the server. */
 const KEY = "scanlog.expandAll";
 const btn = document.getElementById("toggle-all");
-const GROUPED = document.querySelector("details.campaign") !== null;
+/* Expand/collapse reaches BOTH levels: opening only the campaigns left
+   every scan inside them shut, so the button appeared not to work. */
 const cards = () => [...document.querySelectorAll(
-  GROUPED ? "details.campaign" : "details.scan")];
+  "details.campaign, details.scan")];
 
 function applyAll(expand){
   cards().forEach(c => { if (!c.hidden) c.open = expand; });

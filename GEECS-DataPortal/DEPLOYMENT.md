@@ -66,7 +66,7 @@ checks pass.
 ```bash
 cd <root>/portal-checkout/GEECS-DataPortal
 poetry env use python3.11
-poetry install --extras analysis
+poetry install --extras analysis --extras log
 ```
 
 The `analysis` extra installs ImageAnalysis for the Images tab's
@@ -153,7 +153,7 @@ degraded catalog, not a dead portal).
 
 ```bash
 cd <root>/portal-checkout && git pull      # the portal's clone only — never another service's
-cd GEECS-DataPortal && poetry install --extras analysis
+cd GEECS-DataPortal && poetry install --extras analysis --extras log
 sudo systemctl restart geecs-data-portal
 ```
 
@@ -173,6 +173,34 @@ without the processing selector.)
 The fleet-map page (`docs/platform/fleet_map.md`) carries the
 service's row — host, port, health check — and must be updated in the
 same PR when this deployment moves or changes.
+
+## The scan logbook (`--scan-log`)
+
+Off by default. `--scan-log` mounts `geecs_scan_log` at `/log`: a
+day-document view over scan **folders** — `/log/day/2026-09-11` lists
+whatever `ScanNNN` directories exist for that date, reading each
+`ScanInfoScanNNN.ini` at request time. There is no daily job and nothing
+to create; a scan appears because its folder does.
+
+Read-only in this phase: it renders scan folders and stores nothing, and
+like every consumer of the scans tree it never creates a folder (pinned in
+`GeecsScanLog/tests/test_scan_reader.py::TestScanFolderCreationInvariant`).
+
+Two requirements, or it warn-and-skips rather than serving a broken page:
+
+- the **`log` extra** — `poetry install --extras analysis --extras log`.
+  Without it the import fails and the mount is skipped with a warning.
+- **`--experiment`** — the logbook reads one experiment's share and carries
+  no facility default, so `create_log_router` takes it explicitly.
+
+Set it on the host through `GEECS_PORTAL_EXTRA_ARGS` in `site.env`
+alongside `--config-editor`; `deploy/bootstrap_host.sh` already installs
+the extra for the portal service.
+
+Reading a day of ~100 scans off a VPN-mounted share takes a few seconds
+cold and milliseconds thereafter — per-scan summaries are cached on the
+ScanInfo file's own mtime and size, so a scan finalised in place is still
+picked up. A slow first load on a cold share is expected, not a fault.
 
 ## The config editor (`--config-editor`)
 

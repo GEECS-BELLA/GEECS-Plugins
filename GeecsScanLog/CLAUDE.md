@@ -42,6 +42,23 @@ This package is analysis-side code under the repository invariant (root
 - never call `Path.mkdir` — not even `exist_ok=True`, in this phase
 - a missing day or scan folder is *reported as absent*, never repaired
 
+## Borrow the parsing, own the view
+
+The primitives live one layer down, in `geecs_data_utils`, which already
+owns scan folders — one surface to fix when a format changes:
+
+| Need | Use | Never |
+|---|---|---|
+| Parse `ScanInfoScanNNN.ini` | `scan_paths.read_scan_info_file(path)` | a local `ConfigParser` |
+| When a scan ran | `scan_log_loader.first_log_timestamp(path)` | the folder's `st_mtime` |
+
+The folder's mtime is **not** a start time: any later pass that writes into
+the folder (the analysis task queue's `analysis_status/`, for one) moves it,
+and it has been measured over an hour off the real start.
+
+What this package owns is the *logbook's* reading of those facts: the status
+classification, campaign shaping, and the day document.
+
 Pinned by `tests/test_scan_reader.py::TestScanFolderCreationInvariant`, which
 monkeypatches `Path.mkdir` to explode.
 
@@ -58,13 +75,23 @@ traverses `scans/ScanNNN/` at all.
 |---|---|
 | `success` | `ScanEndInfo = "success"` |
 | `failed` | `ScanEndInfo` starts with `fail` — the reason is surfaced verbatim |
-| `incomplete` | no `ScanInfo` file at all |
-| `unknown` | a `ScanEndInfo` we do not recognise |
+| `incomplete` | no `ScanInfo`, **or** `ScanEndInfo` still empty |
+| `unknown` | a non-empty `ScanEndInfo` we do not recognise |
 
-`incomplete` deliberately covers a scan still running, one aborted early, and
-development churn alike — those are **not separable from the folder**, and
-guessing between them would be a lie the UI tells confidently. Show what is
-there; do not infer intent.
+The empty case is the one to get right. The scanner writes
+`ScanEndInfo = ""` when it claims the folder and fills it in at the stop
+document, so empty means *not finalised* — not *unrecognised*. It is the
+most common state on the real share (37 of 49 ScanInfo files across four
+sampled days), and classifying it as `unknown` painted most of a day amber.
+
+`incomplete` therefore covers a scan still running, one that died before its
+stop document, and development churn alike. An earlier version of this file
+claimed those are "not separable from the folder". **That was wrong**:
+`scan.log` is present in every such folder and this repo already parses it
+(`geecs_data_utils.scan_log_loader`, `GEECS-LogTriage`). Separating them is
+open, not impossible — it is simply not done yet, and the status vocabulary
+should grow a `running` member when it is. Until then, report what the files
+say and do not guess.
 
 Surfacing `failure_reason` matters: it is the single most useful auto-filled
 fact on a card, and it is the thing nobody remembers three weeks later.

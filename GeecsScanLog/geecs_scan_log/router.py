@@ -22,8 +22,7 @@ from pathlib import Path
 from typing import Optional, Union
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from geecs_scan_log.models import DaySummary
@@ -71,7 +70,23 @@ def create_log_router(
     """
     router = APIRouter()
     templates = Jinja2Templates(directory=str(_TEMPLATES))
-    router.mount("/static", StaticFiles(directory=str(_STATIC)), name="log-static")
+
+    @router.get("/static/{name}")
+    def _static(name: str) -> FileResponse:
+        """Serve the page's own assets.
+
+        A plain route rather than ``router.mount(StaticFiles(...))``:
+        ``Mount`` is a ``BaseRoute``, not a ``Route``, and
+        ``APIRouter.include_router`` drops it silently on the FastAPI
+        versions this package's floor allows — the stylesheet would 404
+        and ``url_for`` would raise, with CI green because the lock pins a
+        newer release. ``scan_analysis.config_editor`` solved it this way
+        first; this follows it.
+        """
+        target = (_STATIC / name).resolve()
+        if target.parent != _STATIC.resolve() or not target.is_file():
+            raise HTTPException(status_code=404, detail=f"no such asset: {name}")
+        return FileResponse(target)
 
     def _load(day: date) -> DaySummary:
         """Read one day, turning share trouble into an honest 503."""

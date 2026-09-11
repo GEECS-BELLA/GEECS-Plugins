@@ -17,7 +17,7 @@ class TestReadDay:
         """Only ScanNNN directories count, ordered by number."""
         day = read_day(DAY, "Undulator", base_directory=share)
         assert day.exists is True
-        assert [s.number for s in day.scans] == [1, 6, 31]
+        assert [s.number for s in day.scans] == [1, 6, 31, 40]
 
     def test_parses_scan_info(self, share: Path) -> None:
         """ScanInfo fields land on the summary, quotes stripped."""
@@ -85,6 +85,17 @@ class TestScanStatus:
         """An end string we do not recognise is reported as unknown."""
         assert scan_status("aborted by operator", True) == "unknown"
 
+    def test_empty_end_info_is_incomplete_not_unknown(self) -> None:
+        """ScanEndInfo = "" means not finalised, not unrecognised.
+
+        The scanner writes it empty when the folder is claimed and fills
+        it at the stop document. It is the most common state on the real
+        share, so calling it "unknown" painted most of a day amber.
+        """
+        assert scan_status("", True) == "incomplete"
+        assert scan_status("   ", True) == "incomplete"
+        assert scan_status(None, True) == "incomplete"
+
 
 class TestScanFolderCreationInvariant:
     """The logbook is a consumer of scan folders, never a producer.
@@ -123,8 +134,14 @@ class TestCampaigns:
         """Each distinct (parameter, purpose) run becomes one campaign."""
         day = read_day(DAY, "Undulator", base_directory=share)
         spans = [(c.span, len(c.scans)) for c in day.campaigns]
-        # Scan001 (U_S1H), Scan006 (Shotnumber), Scan031 (no scan info)
-        assert spans == [("Scan001", 1), ("Scan006", 1), ("Scan031", 1)]
+        # Scan001/Scan040 share (U_S1H, same purpose) but are not adjacent;
+        # Scan031 has no ScanInfo at all.
+        assert spans == [
+            ("Scan001", 1),
+            ("Scan006", 1),
+            ("Scan031", 1),
+            ("Scan040", 1),
+        ]
 
     def test_a_run_collapses_to_one_campaign(self, make_run) -> None:
         """Twenty identical scans are one campaign, not twenty."""
@@ -157,7 +174,46 @@ class TestCaching:
         read_day(DAY, "Undulator", base_directory=share)
         assert _read_scan_cached.cache_info().hits == 0
         read_day(DAY, "Undulator", base_directory=share)
-        assert _read_scan_cached.cache_info().hits == 3
+        assert _read_scan_cached.cache_info().hits == 4
+
+    def test_in_place_finalisation_busts_the_cache(self, share: Path) -> None:
+        """A scan that fails AFTER being cached must stop reading as running.
+
+        The scanner finalises an outcome by rewriting ScanInfo in place
+        (``ScanInfoCallback.on_stop`` -> ``path.open("w")``). Truncating an
+        existing inode changes no directory entry, so the *folder's* mtime
+        does not move. A cache keyed on the folder therefore served the
+        pre-stop empty ``ScanEndInfo`` forever — losing the failure reason
+        this view exists to surface, and worst for failed scans, which
+        write no s-file that might otherwise have disturbed the folder.
+        """
+        import os
+        from geecs_scan_log.scan_reader import _read_scan_cached
+
+        _read_scan_cached.cache_clear()
+        scans = share / "Undulator" / "Y2026" / "09-Sep" / "26_0911" / "scans"
+        running = scans / "Scan040"
+        folder_mtime_before = running.stat().st_mtime
+
+        first = read_day(DAY, "Undulator", base_directory=share)
+        assert first.scans[3].status == "incomplete"
+
+        # Finalise exactly as the scanner does: rewrite the same file.
+        ini = running / "ScanInfoScan040.ini"
+        body = ini.read_text().replace(
+            'ScanEndInfo = ""', "ScanEndInfo = \"fail: TimeoutError('no shot')\""
+        )
+        with ini.open("w") as handle:
+            handle.write(body)
+        os.utime(running, (folder_mtime_before, folder_mtime_before))
+
+        assert running.stat().st_mtime == folder_mtime_before, (
+            "folder mtime moved; this test would pass for the wrong reason"
+        )
+
+        again = read_day(DAY, "Undulator", base_directory=share)
+        assert again.scans[3].status == "failed"
+        assert "TimeoutError" in again.scans[3].failure_reason
 
     def test_a_changed_folder_misses_the_cache(self, share: Path) -> None:
         """A scan still being written is never served stale."""
@@ -189,26 +245,54 @@ class TestLeanReads:
     on cold days (403 -> 218 ms per scan).
     """
 
-    def test_returns_scan_info_and_devices_together(self, share: Path) -> None:
-        """A populated scan yields both its ini path and its devices."""
+    def test_one_listing_answers_every_question(self, share: Path) -> None:
+        """A populated scan yields ini, its stat, the log and the devices."""
         from geecs_scan_log.scan_reader import scan_contents
 
         folder = share / "Undulator" / "Y2026" / "09-Sep" / "26_0911" / "scans"
-        ini, devices = scan_contents(folder / "Scan001")
-        assert ini is not None and ini.endswith("ScanInfoScan001.ini")
-        assert devices == ["UC_Amp4_IR_input"]
+        got = scan_contents(folder / "Scan001")
+        assert got.ini_path is not None
+        assert got.ini_path.endswith("ScanInfoScan001.ini")
+        assert got.ini_mtime is not None and got.ini_size
+        assert got.log_path is not None and got.log_path.endswith("scan.log")
+        assert got.devices == ("UC_Amp4_IR_input",)
 
-    def test_bare_folder_yields_nothing(self, share: Path) -> None:
-        """A folder with only a log has no ini and no devices."""
+    def test_bare_folder_yields_only_its_log(self, share: Path) -> None:
+        """A folder with no ScanInfo still reports the log it does have."""
         from geecs_scan_log.scan_reader import scan_contents
 
         folder = share / "Undulator" / "Y2026" / "09-Sep" / "26_0911" / "scans"
-        ini, devices = scan_contents(folder / "Scan031")
-        assert ini is None
-        assert devices == []
+        got = scan_contents(folder / "Scan031")
+        assert got.ini_path is None and got.ini_mtime is None
+        assert got.log_path is not None
+        assert got.devices == ()
 
     def test_missing_folder_is_reported_not_raised(self, tmp_path: Path) -> None:
         """An absent folder returns empties rather than exploding a day."""
         from geecs_scan_log.scan_reader import scan_contents
 
-        assert scan_contents(tmp_path / "nope") == (None, [])
+        assert scan_contents(tmp_path / "nope") == (None, None, None, None, ())
+
+
+class TestEmptyRuns:
+    """Folders with no ScanInfo group together and say so."""
+
+    def test_metadata_free_run_is_labelled(self, make_run, tmp_path) -> None:
+        """A run of bare folders reports itself as metadata-free."""
+        scans = tmp_path / "Undulator" / "Y2026" / "09-Sep" / "26_0911" / "scans"
+        scans.mkdir(parents=True)
+        for n in range(1, 6):
+            folder = scans / f"Scan{n:03d}"
+            folder.mkdir()
+            (folder / "scan.log").write_text("")
+
+        campaigns = read_day(DAY, "Undulator", base_directory=tmp_path).campaigns
+        assert len(campaigns) == 1
+        assert campaigns[0].is_empty_run is True
+        assert len(campaigns[0].scans) == 5
+
+    def test_a_real_run_is_not(self, share) -> None:
+        """A run with a scan parameter is never labelled metadata-free."""
+        campaigns = read_day(DAY, "Undulator", base_directory=share).campaigns
+        real = [c for c in campaigns if c.parameter]
+        assert real and all(c.is_empty_run is False for c in real)

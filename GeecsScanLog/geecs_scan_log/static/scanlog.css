@@ -201,3 +201,4 @@ details.campaign[hidden]{display:none}
 .stepday:hover{border-color:var(--accent);color:var(--accent)}
 .todaylink{display:inline-block;font-size:11.5px;margin-bottom:9px}
 .day.future{opacity:.45}
+.camppurpose.none{color:var(--muted);font-style:italic}

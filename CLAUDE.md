@@ -395,13 +395,19 @@ revisit. Speculative cleanup is not.
   its contents as reference implementations, and don't prune it
   opportunistically: what's still load-bearing needs the owner's judgment.
 
-- **`LogMaker4GoogleDocs` needs a refactor.** It works in production
-  (Google Doc log uploads) and is optional everywhere, but don't extend it
-  or use it as a style reference until that refactor happens. The
-  per-experiment Google Doc index IDs (`EXPERIMENT_FILE_IDS` in
-  `geecs_data_utils.doc_id_lookup`, LiveWatch's facility dropdown) get
-  their config home in that refactor; the candidates are the configs
-  repo's per-experiment tree or the share INI LogMaker already reads.
+- **`LogMaker4GoogleDocs` is being replaced, not refactored.** It works in
+  production (Google Doc log uploads) and is optional everywhere, but don't
+  extend it or use it as a style reference. Its successor is
+  `GeecsScanLog/`, being built in phases; LogMaker stays in place and
+  untouched until that arc can carry the Google Doc export, at which point
+  it is deleted rather than tidied.
+  The per-experiment Google Doc index IDs (`EXPERIMENT_FILE_IDS` in
+  `geecs_data_utils.doc_id_lookup`, LiveWatch's facility dropdown) were
+  going to get their config home in the refactor that is no longer
+  happening. **They are now unowned**: whichever lands first — the
+  logbook's export phase or a LiveWatch change that needs them — gives them
+  one, in the configs repo's per-experiment tree or the share INI LogMaker
+  already reads. `ScanAnalysis` still hard-depends on LogMaker until then.
 
 If you find yourself adding to this list, consider whether you're capturing
 real institutional knowledge or accumulating procrastination. Both are

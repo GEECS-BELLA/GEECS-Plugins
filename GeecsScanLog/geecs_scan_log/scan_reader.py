@@ -5,6 +5,17 @@ exist under the date's ``scans/`` directory at the moment it is called.
 Nothing has to be created first, and a scan that finished seconds ago is
 simply there on the next call.
 
+What this module owns, and what it borrows
+------------------------------------------
+It owns the *logbook's* view of a scan: the status classification and the
+day/campaign shaping. The parsing primitives live one layer down in
+``geecs_data_utils``, which already owns scan folders, so there is one
+surface to fix when the formats change:
+
+- ``read_scan_info_file`` — the ``[Scan Info]`` parse, shared with
+  ``ScanPaths.load_scan_info``.
+- ``first_log_timestamp`` — when the scan actually ran, from ``scan.log``.
+
 Read-only by construction
 -------------------------
 This module is analysis-side code under the repository's scan-folder
@@ -24,26 +35,27 @@ import logging
 import os
 import re
 from concurrent.futures import ThreadPoolExecutor
-from configparser import ConfigParser, Error as ConfigParserError
-from datetime import date, datetime
+from datetime import date
 from functools import lru_cache
 from pathlib import Path
-from typing import Optional, Union
+from typing import NamedTuple, Optional, Union
 
 from geecs_data_utils import ScanPaths
+from geecs_data_utils.scan_log_loader import first_log_timestamp
+from geecs_data_utils.scan_paths import read_scan_info_file
 
 from geecs_scan_log.models import DaySummary, ScanStatus, ScanSummary
 
 logger = logging.getLogger(__name__)
 
-#: ``ScanNNN`` directories, the only thing treated as a scan.
-_SCAN_DIR = re.compile(r"^Scan(\d{3,})$")
+#: ``ScanNNN`` directories. Zero padding is conventional but not
+#: guaranteed — ``geecs_log_triage.harvester`` resolves unpadded folders
+#: too, and a view whose premise is "whatever scan folders exist" must not
+#: make one invisible.
+_SCAN_DIR = re.compile(r"^Scan(\d+)$")
 
-#: Files that live in a scan folder but are not per-device subdirectories.
-_NON_DEVICE_SUFFIXES = {".ini", ".txt", ".tdms", ".tdms_index", ".log"}
-
-#: Subdirectories that are not devices.
-_NON_DEVICE_DIRS = {"analysis_status"}
+#: Subdirectories inside a scan folder that are not devices.
+_NON_DEVICE_DIRS = {"analysis_status", "analysis"}
 
 #: Concurrent folder reads, layered on top of the per-scan savings in
 #: :func:`scan_contents`. The work is latency-bound, not CPU-bound: every
@@ -60,14 +72,36 @@ _READ_WORKERS = 16
 _CACHE_SIZE = 4096
 
 
+class ScanContents(NamedTuple):
+    """What one directory listing of a scan folder tells us.
+
+    Attributes
+    ----------
+    ini_path : str or None
+        The ``ScanInfoScanNNN.ini`` file, when present.
+    ini_mtime : float or None
+        Its modification time — part of the cache key, because the scanner
+        finalises the outcome by rewriting this file *in place* and that
+        does not move the folder's own timestamp.
+    ini_size : int or None
+        Its size, for the same reason.
+    log_path : str or None
+        The ``scan.log`` file, when present.
+    devices : tuple of str
+        Per-device subdirectory names.
+    """
+
+    ini_path: Optional[str]
+    ini_mtime: Optional[float]
+    ini_size: Optional[int]
+    log_path: Optional[str]
+    devices: tuple[str, ...]
+
+
 def scan_status(end_info: Optional[str], has_scan_info: bool) -> ScanStatus:
     """Classify a scan from its ``ScanEndInfo``.
 
-    The classification is deliberately shallow: it reports what the file
-    says rather than inferring intent. A folder without ``ScanInfo`` is
-    ``"incomplete"`` — which covers a scan still running, one aborted
-    early, and development churn alike, because those are not separable
-    from the folder alone.
+    Reports what the files say rather than inferring intent.
 
     Parameters
     ----------
@@ -80,11 +114,21 @@ def scan_status(end_info: Optional[str], has_scan_info: bool) -> ScanStatus:
     -------
     ScanStatus
         ``"success"``, ``"failed"``, ``"incomplete"`` or ``"unknown"``.
+
+    Notes
+    -----
+    An **empty** ``ScanEndInfo`` is ``incomplete``, not ``unknown``. The
+    scanner writes ``ScanEndInfo = ""`` when the folder is claimed and
+    fills it in at the stop document, so an empty value means *not
+    finalised* — a scan still running, or one that died before its stop
+    document. It is the most common state on the real share (37 of 49
+    ScanInfo files across four sampled days), so classifying it as
+    "unrecognised" painted most of a day amber.
     """
     if not has_scan_info:
         return "incomplete"
-    if not end_info:
-        return "unknown"
+    if end_info is None or not end_info.strip():
+        return "incomplete"
     text = end_info.strip()
     if text.lower() == "success":
         return "success"
@@ -101,13 +145,16 @@ def _failure_reason(end_info: Optional[str], status: ScanStatus) -> Optional[str
 
 
 def _as_float(raw: Optional[str]) -> Optional[float]:
-    """Parse a float from a ScanInfo value, returning None when unusable."""
+    """Parse a finite float from a ScanInfo value, else ``None``."""
     if raw is None:
         return None
     try:
-        return float(raw)
+        value = float(raw)
     except (TypeError, ValueError):
         return None
+    # inf/nan are unusable downstream and would escape int() as OverflowError
+    # or ValueError; a whole day must not 503 over one malformed field.
+    return value if -1e308 < value < 1e308 else None
 
 
 def _as_int(raw: Optional[str]) -> Optional[int]:
@@ -128,15 +175,14 @@ def _as_bool(raw: Optional[str]) -> Optional[bool]:
     return None
 
 
-def scan_contents(scan_folder: Path) -> tuple[Optional[str], list[str]]:
-    """Return the ScanInfo path and device names from ONE directory listing.
+def scan_contents(scan_folder: Path) -> ScanContents:
+    """Describe a scan folder from ONE directory listing.
 
-    The obvious implementation — ``glob("ScanInfo*.ini")`` to find the file,
-    then ``iterdir()`` to list devices — costs two directory listings per
-    scan. On a VPN-mounted SMB share each of those is a round trip, and a
-    day view does it once per scan. One ``os.scandir`` answers both
-    questions, which measured 1.85x faster on cold days (403 -> 218 ms per
-    scan across untouched August dates).
+    The obvious implementation — ``glob("ScanInfo*.ini")`` to find the
+    file, ``iterdir()`` to list devices, ``stat()`` for freshness — costs
+    several round trips per scan. On a VPN-mounted SMB share each is ~50 ms
+    and a day view pays it once per scan. One ``os.scandir`` answers all of
+    it, which measured 1.85x faster on cold days (403 -> 218 ms per scan).
 
     Parameters
     ----------
@@ -145,11 +191,11 @@ def scan_contents(scan_folder: Path) -> tuple[Optional[str], list[str]]:
 
     Returns
     -------
-    tuple of (str or None, list of str)
-        The ScanInfo file path if present, and the sorted per-device
-        subdirectory names.
+    ScanContents
+        Empty fields when the folder cannot be listed — reported, never
+        raised, so one unreadable scan does not take down a day.
     """
-    ini: Optional[str] = None
+    ini_path = ini_mtime = ini_size = log_path = None
     devices: list[str] = []
     try:
         with os.scandir(scan_folder) as entries:
@@ -159,39 +205,18 @@ def scan_contents(scan_folder: Path) -> tuple[Optional[str], list[str]]:
                     if name not in _NON_DEVICE_DIRS:
                         devices.append(name)
                 elif name.startswith("ScanInfo") and name.endswith(".ini"):
-                    ini = entry.path
+                    ini_path = entry.path
+                    try:
+                        info = entry.stat()
+                        ini_mtime, ini_size = info.st_mtime, info.st_size
+                    except OSError:
+                        pass
+                elif name == "scan.log":
+                    log_path = entry.path
     except OSError as exc:
         logger.warning("cannot list %s: %s", scan_folder, exc)
-        return None, []
-    return ini, sorted(devices)
-
-
-def parse_scan_info(ini_path: Optional[str]) -> dict[str, str]:
-    """Parse a ``ScanInfoScanNNN.ini`` file.
-
-    Parameters
-    ----------
-    ini_path : str or None
-        The file to read, as found by :func:`scan_contents`.
-
-    Returns
-    -------
-    dict of str to str
-        The ``Scan Info`` section with surrounding quotes stripped, or an
-        empty dict when the file is absent or unparsable. A malformed file
-        is logged and treated as absent rather than raised: one bad scan
-        must not take down a whole day's view.
-    """
-    if not ini_path:
-        return {}
-    parser = ConfigParser()
-    parser.optionxform = str
-    try:
-        parser.read(ini_path)
-        return {k: v.strip("'\"") for k, v in parser.items("Scan Info")}
-    except (ConfigParserError, OSError, UnicodeDecodeError) as exc:
-        logger.warning("unreadable ScanInfo at %s: %s", ini_path, exc)
-        return {}
+        return ScanContents(None, None, None, None, ())
+    return ScanContents(ini_path, ini_mtime, ini_size, log_path, tuple(sorted(devices)))
 
 
 def read_scan(scan_folder: Path, number: int) -> ScanSummary:
@@ -210,72 +235,50 @@ def read_scan(scan_folder: Path, number: int) -> ScanSummary:
         The derived view. A folder with no ``ScanInfo`` yields a summary
         with ``has_scan_info=False`` and status ``"incomplete"`` rather
         than an error.
-
-    Notes
-    -----
-    Memoised on the folder's modification time — see
-    :func:`_read_scan_cached`. A folder that cannot be stat-ed is read
-    directly rather than cached.
     """
-    try:
-        mtime = scan_folder.stat().st_mtime
-    except OSError:
-        return _read_scan_uncached(scan_folder, number, None)
-    return _read_scan_cached(str(scan_folder), number, mtime)
+    contents = scan_contents(scan_folder)
+    return _read_scan_cached(
+        str(scan_folder),
+        number,
+        contents.ini_path,
+        contents.ini_mtime,
+        contents.ini_size,
+        contents.log_path,
+        contents.devices,
+    )
 
 
 @lru_cache(maxsize=_CACHE_SIZE)
-def _read_scan_cached(folder: str, number: int, mtime: float) -> ScanSummary:
-    """Read one scan, memoised on the folder's modification time.
-
-    A finished scan folder never changes, so re-reading it on every day
-    view is pure cost — and over a VPN-mounted share that cost dominates
-    the page. Keying on ``mtime`` keeps the cache honest: a scan still
-    being written bumps its folder time and misses the cache, so a running
-    scan is never served stale.
-
-    Parameters
-    ----------
-    folder : str
-        The scan folder as a string, so the cache key is hashable.
-    number : int
-        The scan number.
-    mtime : float
-        The folder's modification time. Part of the key; not read as data.
-
-    Returns
-    -------
-    ScanSummary
-        The derived view.
-    """
-    return _read_scan_uncached(Path(folder), number, mtime)
-
-
-def _read_scan_uncached(
-    scan_folder: Path, number: int, mtime: Optional[float]
+def _read_scan_cached(
+    folder: str,
+    number: int,
+    ini_path: Optional[str],
+    ini_mtime: Optional[float],
+    ini_size: Optional[int],
+    log_path: Optional[str],
+    devices: tuple[str, ...],
 ) -> ScanSummary:
-    """Build a :class:`ScanSummary` from disk, bypassing the cache.
+    """Parse a scan's files, memoised on the ScanInfo file's identity.
 
-    Takes ``mtime`` from the caller when it already has it — ``read_day``
-    gets it free from the parent's ``scandir`` — so a scan costs one
-    directory listing and one file read, with no extra ``stat``.
+    Only the file reads are cached; the caller has already paid for the
+    directory listing that produced these arguments, and that listing is
+    what makes the key honest.
+
+    The key is the ScanInfo file's own ``(mtime, size)``, never the
+    folder's. The scanner finalises a scan by rewriting that file **in
+    place** (``path.open("w")``), which changes no directory entry and so
+    leaves the folder's timestamp untouched. Keying on the folder served a
+    running scan's empty ``ScanEndInfo`` forever — losing exactly the
+    failure reason this view exists to surface.
     """
-    ini_path, devices = scan_contents(scan_folder)
-    info = parse_scan_info(ini_path)
+    info = read_scan_info_file(ini_path) if ini_path else {}
     has_info = bool(info)
     end_info = info.get("ScanEndInfo")
     status = scan_status(end_info, has_info)
 
-    if mtime is None:
-        try:
-            mtime = scan_folder.stat().st_mtime
-        except OSError:
-            mtime = None
-    started = datetime.fromtimestamp(mtime) if mtime is not None else None
-
     return ScanSummary(
         number=number,
-        started=started,
+        started=first_log_timestamp(log_path) if log_path else None,
         parameter=info.get("Scan Parameter") or None,
         start=_as_float(info.get("Start")),
         end=_as_float(info.get("End")),
@@ -289,7 +292,7 @@ def _read_scan_uncached(
         purpose=info.get("ScanStartInfo") or None,
         status=status,
         failure_reason=_failure_reason(end_info, status),
-        devices=devices,
+        devices=list(devices),
         has_scan_info=has_info,
     )
 
@@ -334,20 +337,13 @@ def read_day(
         logger.info("no scans directory for %s: %s", when.isoformat(), folder)
         return summary
 
-    # One scandir of the day folder yields the scan names AND their mtimes,
-    # so no per-scan stat is needed downstream.
-    targets: list[tuple[Path, int, Optional[float]]] = []
+    targets: list[tuple[Path, int]] = []
     try:
         with os.scandir(folder) as entries:
             for entry in entries:
                 match = _SCAN_DIR.match(entry.name)
-                if not match or not entry.is_dir():
-                    continue
-                try:
-                    mtime = entry.stat().st_mtime
-                except OSError:
-                    mtime = None
-                targets.append((Path(entry.path), int(match.group(1)), mtime))
+                if match and entry.is_dir():
+                    targets.append((Path(entry.path), int(match.group(1))))
     except OSError as exc:
         logger.warning("cannot list %s: %s", folder, exc)
         return summary
@@ -355,16 +351,10 @@ def read_day(
     if not targets:
         return summary
 
-    def _one(item: tuple[Path, int, Optional[float]]) -> ScanSummary:
-        path, number, mtime = item
-        if mtime is None:
-            return _read_scan_uncached(path, number, None)
-        return _read_scan_cached(str(path), number, mtime)
-
     # Concurrency on top of the leaner per-scan read: see _READ_WORKERS.
     workers = min(_READ_WORKERS, len(targets))
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        scans = list(pool.map(_one, targets))
+        scans = list(pool.map(lambda item: read_scan(*item), targets))
 
     summary.scans = sorted(scans, key=lambda s: s.number)
     return summary

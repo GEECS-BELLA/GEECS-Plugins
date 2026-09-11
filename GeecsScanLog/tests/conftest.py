@@ -26,6 +26,15 @@ Plan = "scan"
 Trigger profile = "HTU-NoGas"
 """
 
+#: The dominant real state: claimed and written, never finalised.
+UNFINALISED_INI = SUCCESS_INI.replace('ScanEndInfo = "success"', 'ScanEndInfo = ""')
+
+#: A scan.log as the scanner writes it — the honest start time.
+SCAN_LOG = (
+    "2026-09-11 08:10:35.100 INFO geecs_bluesky.run [MainThread] "
+    "scan Scan{n:03d}: starting\n"
+)
+
 #: A real failure, transcribed from Scan006 on 2026-09-11.
 FAILED_INI = """[Scan Info]
 Scan No = {n}
@@ -71,17 +80,23 @@ def share(tmp_path: Path) -> Path:
     (ok / "UC_Amp4_IR_input").mkdir(parents=True)
     (ok / "ScanInfoScan001.ini").write_text(SUCCESS_INI.format(n=1))
     (ok / "ScanDataScan001.txt").write_text("shotnumber\n1\n")
-    (ok / "scan.log").write_text("")
+    (ok / "scan.log").write_text(SCAN_LOG.format(n=1))
 
     bad = scans / "Scan006"
     (bad / "UC_Amp4_IR_input").mkdir(parents=True)
     (bad / "ScanInfoScan006.ini").write_text(FAILED_INI.format(n=6))
-    (bad / "scan.log").write_text("")
+    (bad / "scan.log").write_text(SCAN_LOG.format(n=6))
 
     # Development churn: a folder with only a log, no ScanInfo at all.
     bare = scans / "Scan031"
     bare.mkdir()
-    (bare / "scan.log").write_text("")
+    (bare / "scan.log").write_text(SCAN_LOG.format(n=31))
+
+    # Claimed and written but never finalised — the most common real state.
+    running = scans / "Scan040"
+    running.mkdir()
+    (running / "ScanInfoScan040.ini").write_text(UNFINALISED_INI.format(n=40))
+    (running / "scan.log").write_text(SCAN_LOG.format(n=40))
 
     # Not a scan; must be ignored.
     (scans / "notes.txt").write_text("ignore me")

@@ -12,13 +12,12 @@ from __future__ import annotations
 
 import os
 import re
-import inspect
 import logging
 import calendar as cal
 
 from pathlib import Path
 from datetime import datetime, date
-from configparser import ConfigParser, NoSectionError
+from configparser import ConfigParser, Error as ConfigParserError, NoSectionError
 from typing import Optional, Union, Sequence
 import pandas as pd
 
@@ -49,6 +48,41 @@ _ACCEPTABLE_EXTS = {"png", "tif", "tiff", "h5", "dat", "tdms"} | set(VENDOR_ONLY
 # module‐level logger
 logger = logging.getLogger(__name__)
 logger.addHandler(logging.NullHandler())
+
+
+def read_scan_info_file(ini_path: Union[Path, str]) -> dict[str, str]:
+    """Parse a ``ScanInfoScanNNN.ini`` file into its ``[Scan Info]`` mapping.
+
+    The one implementation of this parse. :meth:`ScanPaths.load_scan_info`
+    calls it, and so does any consumer that has the path already and does
+    not want to build a :class:`ScanPaths` — the scan logbook reads a whole
+    day this way, where a per-scan object would add an ``exists()`` round
+    trip on a network share and raise on a folder that breaks the naming
+    convention.
+
+    Parameters
+    ----------
+    ini_path : Path or str
+        The ScanInfo file. Need not exist.
+
+    Returns
+    -------
+    dict of str to str
+        The ``[Scan Info]`` section with surrounding quotes stripped, or an
+        empty dict when the file is missing, sectionless, or unreadable.
+        Never raises: one unparsable scan must not take down a caller
+        iterating a whole day.
+    """
+    parser = ConfigParser()
+    parser.optionxform = str
+    try:
+        parser.read(ini_path)
+        return {key: value.strip("'\"") for key, value in parser.items("Scan Info")}
+    except NoSectionError:
+        logging.warning('ScanInfo file %s has no "Scan Info" section', ini_path)
+    except (ConfigParserError, OSError, UnicodeDecodeError) as exc:
+        logging.warning("unreadable ScanInfo file %s: %s", ini_path, exc)
+    return {}
 
 
 class ScanPaths:
@@ -584,23 +618,11 @@ class ScanPaths:
 
     def load_scan_info(self):
         """Load scan configuration information from the scan info file."""
-        config_parser = ConfigParser()
-        config_parser.optionxform = str
-
-        try:
-            config_parser.read(self._folder / f"ScanInfoScan{self._tag.number:03d}.ini")
-            self.scan_info.update(
-                {
-                    key: value.strip("'\"")
-                    for key, value in config_parser.items("Scan Info")
-                }
+        self.scan_info.update(
+            read_scan_info_file(
+                self._folder / f"ScanInfoScan{self._tag.number:03d}.ini"
             )
-        except NoSectionError:
-            temp_scan_data = inspect.stack()[0][3]
-            logging.warning(
-                f'ScanInfo file does not have a "Scan Info" section (in {temp_scan_data})'
-            )
-
+        )
         return self.scan_info
 
     def get_ecs_dump_file(self) -> Optional[Path]:

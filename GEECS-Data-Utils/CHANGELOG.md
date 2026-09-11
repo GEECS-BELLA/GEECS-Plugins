@@ -3,6 +3,23 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.27.0] - 2026-09-11
+
+### Added
+
+- `scan_paths.read_scan_info_file(path)` — the one implementation of the
+  `[Scan Info]` parse, for callers that already hold the path and do not
+  want to build a `ScanPaths` (a per-scan object costs an `exists()` round
+  trip on a network share and raises on a folder that breaks the naming
+  convention). `ScanPaths.load_scan_info` now delegates to it, so there is
+  a single surface to fix when the format moves. Never raises: a missing,
+  sectionless or unreadable file reads as `{}`.
+- `scan_log_loader.first_log_timestamp(path)` — the timestamp of a scan
+  log's first record, reading only until the first parsable header rather
+  than the whole file. This is the honest answer to "when did this scan
+  run"; a scan folder's mtime is not, since any later pass that writes into
+  the folder moves it (measured over an hour off the real start).
+
 ## [0.26.1] - 2026-09-04
 
 ### Fixed
