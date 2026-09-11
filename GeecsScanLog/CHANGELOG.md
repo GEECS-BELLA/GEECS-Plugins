@@ -23,6 +23,18 @@ project adheres to semantic versioning.
   campaign and nobody can forget to. A day above 20 scans renders campaigns
   (one rail row each, collapsed) instead of a flat list; a failure inside a
   collapsed campaign still surfaces on its header.
+- Fewer round trips per scan: one `os.scandir` of a scan folder yields both
+  the ScanInfo path and the device list, replacing a `glob` plus an
+  `iterdir`, and the day folder's own listing supplies each scan's mtime so
+  no per-scan `stat` is needed. Four round trips became two — measured
+  1.85x faster on cold days (403 -> 218 ms per scan, A/B across untouched
+  August dates).
+- Fewer round trips per scan: one `os.scandir` of a scan folder yields both
+  the ScanInfo path and the device list, replacing a `glob` plus an
+  `iterdir`, and the day folder's own listing supplies each scan's mtime so
+  no per-scan `stat` is needed. Four round trips became two — measured
+  1.85x faster on cold days (403 -> 218 ms per scan, A/B across untouched
+  August dates).
 - Concurrent folder reads (16 workers) and an mtime-keyed cache of scan
   summaries. A 108-scan day over VPN went from 27.3 s to 5.6 s on a cold
   share and 3 ms once cached; a folder still being written bumps its mtime
