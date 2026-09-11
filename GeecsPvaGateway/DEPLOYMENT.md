@@ -70,6 +70,9 @@ profile (rule 1); then `nssm start GeecsPvaGateway`. Note `launch.bat` is
 copied at bootstrap time — launcher changes need the stop/copy/start step
 under **Rollout** (or a re-bootstrap); package additions do not, since
 `deploy/requirements-fleet.txt` is read from the share on every restart.
+A **re**-bootstrap removes the existing service first (so pip never upgrades
+in-use files): if a later step fails, the box has no service until the
+bootstrap is re-run to completion — the failure is loud, fix and re-run.
 
 ## Rollout (fleet upgrade without touching boxes)
 
