@@ -17,7 +17,7 @@ Routes
 from __future__ import annotations
 
 import logging
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Optional, Union
 
@@ -35,8 +35,8 @@ _HERE = Path(__file__).parent
 _TEMPLATES = _HERE / "templates"
 _STATIC = _HERE / "static"
 
-#: How many days either side of the shown date appear in the rail.
-_RAIL_SPAN = 14
+#: How many dates the rail offers as quick links, centred on the shown day.
+_RAIL_SPAN = 15
 
 
 def _parse_day(raw: str) -> date:
@@ -108,6 +108,8 @@ def create_log_router(
                 "experiment": experiment,
                 "rail_days": _rail_days(when),
                 "today": date.today(),
+                "prev_day": when - timedelta(days=1),
+                "next_day": when + timedelta(days=1),
             },
         )
 
@@ -115,7 +117,11 @@ def create_log_router(
 
 
 def _rail_days(centre: date) -> list[date]:
-    """Return the dates offered in the navigation rail, newest first."""
-    from datetime import timedelta
+    """Return the dates offered as quick links in the rail, newest first.
 
-    return [centre - timedelta(days=offset) for offset in range(_RAIL_SPAN)]
+    Centred on the shown date rather than trailing it, so stepping forward
+    is as easy as stepping back; the date picker covers anything outside
+    this window.
+    """
+    half = _RAIL_SPAN // 2
+    return [centre + timedelta(days=half - offset) for offset in range(_RAIL_SPAN)]

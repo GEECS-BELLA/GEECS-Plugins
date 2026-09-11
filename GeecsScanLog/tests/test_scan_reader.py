@@ -140,3 +140,42 @@ class TestCampaigns:
         failing = [c for c in day.campaigns if c.failed]
         assert len(failing) == 1
         assert failing[0].scans[0].number == 6
+
+
+class TestCaching:
+    """Scan folders are memoised on their modification time.
+
+    Over a VPN-mounted share each ScanInfo open is a round trip, so
+    re-reading a finished day on every request dominated the page.
+    """
+
+    def test_second_read_uses_the_cache(self, share: Path) -> None:
+        """Re-reading a day hits the cache rather than the share."""
+        from geecs_scan_log.scan_reader import _read_scan_cached
+
+        _read_scan_cached.cache_clear()
+        read_day(DAY, "Undulator", base_directory=share)
+        assert _read_scan_cached.cache_info().hits == 0
+        read_day(DAY, "Undulator", base_directory=share)
+        assert _read_scan_cached.cache_info().hits == 3
+
+    def test_a_changed_folder_misses_the_cache(self, share: Path) -> None:
+        """A scan still being written is never served stale."""
+        import os
+        from geecs_scan_log.scan_reader import _read_scan_cached
+
+        _read_scan_cached.cache_clear()
+        first = read_day(DAY, "Undulator", base_directory=share)
+        assert first.scans[2].status == "incomplete"
+
+        # Scan031 finishes: ScanInfo appears and the folder mtime moves.
+        bare = (
+            share / "Undulator" / "Y2026" / "09-Sep" / "26_0911" / "scans" / "Scan031"
+        )
+        (bare / "ScanInfoScan031.ini").write_text(
+            '[Scan Info]\nScan No = 31\nScanEndInfo = "success"\n'
+        )
+        os.utime(bare, (0, 0))  # force a distinct mtime
+
+        again = read_day(DAY, "Undulator", base_directory=share)
+        assert again.scans[2].status == "success"

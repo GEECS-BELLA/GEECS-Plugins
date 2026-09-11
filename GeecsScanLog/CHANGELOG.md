@@ -23,6 +23,13 @@ project adheres to semantic versioning.
   campaign and nobody can forget to. A day above 20 scans renders campaigns
   (one rail row each, collapsed) instead of a flat list; a failure inside a
   collapsed campaign still surfaces on its header.
+- Concurrent folder reads (16 workers) and an mtime-keyed cache of scan
+  summaries. A 108-scan day over VPN went from 27.3 s to 5.6 s on a cold
+  share and 3 ms once cached; a folder still being written bumps its mtime
+  and misses the cache, so a running scan is never served stale.
+- Day navigation: a date picker, previous/next-day steps, a "back to today"
+  link, and quick links centred on the shown date so stepping forward is as
+  easy as stepping back.
 - `geecs_scan_log.router.create_log_router` — an `APIRouter` the Data
   Portal mounts at `/log`, serving `/log/day/{date}` and a JSON peer at
   `/log/api/day/{date}`.
