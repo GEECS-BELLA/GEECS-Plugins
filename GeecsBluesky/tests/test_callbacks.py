@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from configparser import ConfigParser
 from functools import partial
 from pathlib import Path
 
@@ -34,17 +33,14 @@ from geecs_bluesky.plans.claim_scan import (  # noqa: E402
 from geecs_bluesky.plans.registry import TriggerProfiles, bind_strict_plans  # noqa: E402
 from geecs_bluesky.preprocessors import scalar_headers  # noqa: E402
 from geecs_bluesky.devices.shot_control import ShotControl  # noqa: E402
-from tests.ca_mock_helpers import connect_mock, follow_setpoint  # noqa: E402
+from tests.ca_mock_helpers import (  # noqa: E402
+    connect_mock,
+    follow_setpoint,
+    read_scan_info,
+)
 from tests.test_claim_scan import FakeClaim  # noqa: E402
 from tests.test_plan_registry import Magnet  # noqa: E402
 from tests.test_strict_plans import WRITES, FakeBox, _camera  # noqa: E402
-
-
-def _ini(path: Path) -> dict[str, str]:
-    parser = ConfigParser()
-    parser.optionxform = str  # type: ignore[assignment]
-    parser.read(path)
-    return {k: v.strip('"') for k, v in parser.items("Scan Info")}
 
 
 # ---------------------------------------------------------- pure derivations
@@ -116,7 +112,7 @@ def test_scan_info_lines_carry_the_legacy_keys(tmp_path) -> None:
     )
     path = tmp_path / "ScanInfoScan012.ini"
     path.write_text("".join(lines))
-    info = _ini(path)
+    info = read_scan_info(path)
     assert info["Scan No"] == "12"
     assert info["ScanStartInfo"] == "jet z"
     assert info["Scan Parameter"] == "U_Jet Z"
@@ -137,7 +133,7 @@ def test_scan_info_lines_carry_the_legacy_keys(tmp_path) -> None:
 def _ini_from(lines, tmp_path) -> dict[str, str]:
     path = tmp_path / "x.ini"
     path.write_text("".join(lines))
-    return _ini(path)
+    return read_scan_info(path)
 
 
 # -------------------------------------------------------------- end to end
@@ -200,7 +196,7 @@ def test_a_strict_scan_leaves_every_legacy_file(RE, box, worker, tmp_path):
         cam.localsavingpath.get_value(), RE._loop
     ).result(5)
     assert saved_to.endswith(str(Path("Scan001") / "UC_Cam"))
-    info = _ini(folder / "ScanInfoScan001.ini")
+    info = read_scan_info(folder / "ScanInfoScan001.ini")
     assert info["Scan Parameter"] == "U_S1H Current"
     assert (info["Start"], info["End"], info["Step size"]) == ("-1.0", "1.0", "1.0")
     assert info["Shots per step"] == "2" and info["ScanEndInfo"] == "success"
@@ -243,7 +239,7 @@ def test_an_aborted_scan_still_gets_its_rows(RE, box, worker, tmp_path):
     with pytest.raises(FailedStatus):
         RE(plans["scan"]([cam], magnet.current, -1.0, 1.0, 4))
     folder = tmp_path / "scans" / "Scan001"
-    info = _ini(folder / "ScanInfoScan001.ini")
+    info = read_scan_info(folder / "ScanInfoScan001.ini")
     assert info["ScanEndInfo"].startswith("fail")
     sfile = pd.read_csv(tmp_path / "analysis" / "s1.txt", sep="\t")
     assert len(sfile) == 2

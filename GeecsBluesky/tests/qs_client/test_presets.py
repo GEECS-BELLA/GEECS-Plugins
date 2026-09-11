@@ -60,6 +60,8 @@ def test_device_reference_spellings() -> None:
 def test_scan_variable_reference_from_pair_and_catalog() -> None:
     assert scan_variable_reference("U_S1H:Current") == "U_S1H.current"
     assert scan_variable_reference("U_S1H") == "U_S1H"
+    # the namespace's collision rule: a protocol-named variable binds with "_"
+    assert scan_variable_reference("UC_Cam:trigger") == "UC_Cam.trigger_"
     assert (
         scan_variable_reference("EMQ1 Current", CATALOG)
         == "U_EMQTripletBipolar.current_limit_ch1"

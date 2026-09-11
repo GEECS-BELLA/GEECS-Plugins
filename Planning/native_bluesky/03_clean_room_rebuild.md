@@ -63,7 +63,8 @@ is right in five years, not the one that is reachable in small steps.
 | thing | state |
 |---|---|
 | `feature/native-bluesky-plans` | integration branch off master; **#808 merged** 2026-09-09 (device namespace); **#811 merged** 2026-09-10 (phase 0, hardware-accepted — `04_phase0_measurements.md` M2/M3); **#813 merged** 2026-09-10 (test speed, #812) |
-| `phase/02-plan-layer` (phase 1 PR 2) | **the plan layer** (GeecsBluesky 0.80.0, GEECS-Schemas 0.21.0): the registration table (`plans/registry.py` — 18 stock verbs bound strict under their own names, `trigger_profile` + `shots_per_step` keyword-only, ARMED → STANDBY bracket), the `claim_scan` preprocessor + `GeecsScanPathProvider` (every run claims), the `scalar_headers` preprocessor, the ScanInfo / s-file (from the documents) / `scan.log` callbacks, `SupplementalData` baseline telemetry, `GeecsDetector.scalars`, `Preset` v1 (save sets deleted; corpus regenerated on the configs branch `presets-v1`), `qs_client.submit_plan` / `submit_preset`.  Decisions in §10.7 |
+| `phase/03-hardware-acceptance` (phase 1 PR 3) | **hardware-accepted 2026-09-10** — `tests/test_phase1_hardware.py`: the worker's wiring in process (Scans 104/105) and a `Preset` through a second RE Manager (Scans 106/108), every file asserted from disk; per-shot budget measured (`05_phase1_acceptance.md` M4–M6). The worker checkout is on the feature branch with its env installed; the `systemctl restart` that completes the flip is the maintainer's |
+| `phase/02-plan-layer` (phase 1 PR 2) | **MERGED 2026-09-10 (#821)** — the plan layer (GeecsBluesky 0.80.0, GEECS-Schemas 0.21.0): the registration table (`plans/registry.py` — 18 stock verbs bound strict under their own names, `trigger_profile` + `shots_per_step` keyword-only, ARMED → STANDBY bracket), the `claim_scan` preprocessor + `GeecsScanPathProvider` (every run claims), the `scalar_headers` preprocessor, the ScanInfo / s-file (from the documents) / `scan.log` callbacks, `SupplementalData` baseline telemetry, `GeecsDetector.scalars`, `Preset` v1 (save sets deleted; corpus regenerated on the configs branch `presets-v1`), `qs_client.submit_plan` / `submit_preset`.  Decisions in §10.7 |
 | `phase/01-foundation` (phase 1 PR 1) | **MERGED 2026-09-10 (#816)** — the deletions: the `ScanRequest` funnel and named plans, free-run, `GeecsSession`, `scan_request_runner`, `preflight`, `pause_semantics`, `t0_sync`, the funnel-only devices (`CaGenericDetector`, `CaTriggerable`, `CaTelemetryReadable`, `CaTimestampedReadable`, the shot-id / contributor / nonscalar-save mixins), `ShotController` (its write machinery folded into `ShotControl`), the optimization glue (`plans/optimize`, `optimize.py`, `session_bridge`, `worker_loader`) and every test of theirs; the namespace builds `GeecsDetector` for every triggerable device (`native_save` iff the DB lists `save` + `localsavingpath`); `run_engine.make_run_engine` replaces the session; the startup profile exports the stock `bluesky.plans` verbs (`plan_names.GEECS_PLAN_NAMES`) over the namespace; `qs_client` keeps its surface (readiness + liveness preflight only) so the Console and MCP stay importable |
 | #809 `phase/02-preamble-preprocessor` | **OPEN, on hold, will not merge** (13 commits, GeecsBluesky 0.79.0, CI green). The evidence behind §3; close with a pointer here once this amendment lands (§8) |
 | #806 image writing | **OPEN, not started.** Phase 1, in parallel with the plan layer (§8). File plugin in GeecsPvaGateway + stock `ADHDFDataLogic`; capture daemon retired |
@@ -507,7 +508,7 @@ the least-verified component while the scan path waited.
    the plan layer** (built on `phase/02-plan-layer`: the registration
    table, the `claim_scan` preprocessor + `PathProvider`, the ScanInfo /
    s-file / `scan.log` callbacks, the baseline telemetry, `Preset` v1
-   and the client seam — §10.7); **PR 3 — headless hardware acceptance** (HTU-NoGas, `U_S1H:Current`
+   and the client seam — §10.7); **PR 3 — headless hardware acceptance (done 2026-09-10, `05_phase1_acceptance.md`)** (HTU-NoGas, `U_S1H:Current`
    −1 → +1 A in 0.5 A steps, amp4in, setpoint restored), then the worker
    flips. Hardware acceptance for #806 separately.
 2. Gated batch + the non-essential stream via `SupplementalData.flyers`;
@@ -692,7 +693,21 @@ Still open, for Sam:
    - **Corpus regeneration is on a configs-repo branch** (`presets-v1`),
      not main: the deployed master worker still reads `save_devices/`;
      the branch merges with the worker flip (PR 3).
-8. Two small carry-overs, unrelated to this direction: write
+8. **PR 3 facts (2026-09-10/11, `05_phase1_acceptance.md` M6):** the fire
+   request is asynchronous to the laser, so a cold shot's request-to-frame
+   delay is uniform over one period; after the first shot the loop is
+   phase-locked to the edges.  On `UC_Amp4_IR_input` (0.70 s exposure)
+   edge → message ≈ 0.8 s and the fire put ≈ 108 ms, so the strict path
+   has ~100 ms of per-shot margin beyond its own ~7 ms — it holds in
+   process and not in the manager's worker process (2 s repeats).  At a
+   1 ms exposure (M7) both losses go: 1 Hz repeats through the manager,
+   a moved step on the second edge — the exposure sets the margin, the
+   plan layer cannot.  A 0.5 A `U_S1H` move is a
+   1.3 s blocking set, so a moved step lands on the third edge (M2's
+   second was a faster move that day).  Strict single-shot is therefore
+   not the 1 Hz mode; phase 2's gated batch is.  Recorded here so the
+   cadence fix is scoped as "gated batch", not "a faster fire".
+9. Two small carry-overs, unrelated to this direction: write
    `Amplitude.Ch AB: 0.5` explicitly in every state of `HTU-NoGas` so "no
    gas" stops being order-dependent, and add a check that all profiles in
    an experiment manage the same variable set.

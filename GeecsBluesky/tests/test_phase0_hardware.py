@@ -48,7 +48,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.ca_mock_helpers import DocCollector
+from tests.ca_mock_helpers import DocCollector, wait_for_native_files
 
 pytestmark = pytest.mark.hardware
 pytest.importorskip("aioca")
@@ -63,25 +63,6 @@ def _sweep_points(start: float, end: float, step: float) -> list[float]:
     n = int(round(abs(end - start) / abs(step))) + 1
     sign = 1.0 if end >= start else -1.0
     return [round(start + sign * i * abs(step), 6) for i in range(n)]
-
-
-def _wait_for_files(
-    directory: Path, expected: int, timeout: float = 10.0
-) -> list[Path]:
-    """The end-of-run file check: every expected native file exists and stopped growing."""
-    deadline = time.monotonic() + timeout
-    while True:
-        files = sorted(directory.glob("*.png"))
-        sizes = [f.stat().st_size for f in files]
-        if len(files) >= expected and all(sizes):
-            time.sleep(0.5)
-            if [f.stat().st_size for f in files] == sizes:
-                return files
-        if time.monotonic() > deadline:
-            raise AssertionError(
-                f"{directory}: {len(files)} files after {timeout:.0f} s, expected {expected}"
-            )
-        time.sleep(0.5)
 
 
 @pytest.mark.hardware
@@ -248,7 +229,7 @@ def test_one_camera_as_a_standard_detector_on_hardware() -> None:
         assert [e["data"][f"{camera.name}-nonscalar_save_path"] for e in events] == [
             str(directory)
         ] * len(events)
-        files = _wait_for_files(directory, expected_events)
+        files = wait_for_native_files(directory, expected_events)
         print(f"native files: {len(files)} in {directory}: {[f.name for f in files]}")
         save_state = asyncio.run_coroutine_threadsafe(
             camera.save.get_value(), RE._loop

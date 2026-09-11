@@ -4,6 +4,36 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.80.1] - 2026-09-10
+
+### Fixed
+
+- `utils.settable_attribute` is the **one** rule for the attribute a
+  settable binds to (a frozen `RESERVED_DEVICE_ATTRIBUTES`, pinned to
+  `dir(GeecsDetector)` by a test): the namespace and the client seam now
+  agree, so `"UC_Amp4_IR_input:trigger"` in a preset spells
+  `UC_Amp4_IR_input.trigger_` instead of a reference the preflight refuses
+  (Codex review of #821).
+- The hardware acceptance test asserts its restore move *completed* and
+  reads the setpoint back, not merely that it queued (Codex review of
+  #822).
+
+### Added
+
+- **Phase 1 PR 3 (#807) — headless hardware acceptance of the plan
+  layer.** `tests/test_phase1_hardware.py` (`GEECS_HW=1`; fires shots): the
+  worker's own wiring drives a strict `count` and a strict `scan` of
+  `U_S1H:Current` on HTU and every GEECS output is asserted from disk
+  (claimed folder, native files named by the rows' stamps, ScanInfo keys,
+  s-file bins, scan.log, the baseline stream, ARMED → STANDBY); and a
+  `Preset` goes through a second RE Manager (`run_submit_preflight` →
+  `submit_preset` → the history item) with the same assertions.  Accepted
+  2026-09-10 (Scans 104–108 of 26_0910; `Planning/native_bluesky/05_phase1_acceptance.md`
+  M4–M6, with the runbook for the second manager and the per-shot budget:
+  ~7 ms of plan-layer work per shot, ~100 ms of margin at 1 Hz on this
+  camera, a moved step on the third edge because a 0.5 A magnet move is a
+  1.3 s blocking set).
+
 ## [0.80.0] - 2026-09-10
 
 ### Added
