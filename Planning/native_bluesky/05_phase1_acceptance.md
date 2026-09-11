@@ -64,7 +64,7 @@ from the configs repo, the bound `count` and `scan`.
 | s-file (`analysis/sNNN.txt` = `ScanDataScanNNN.txt`) | 3 rows, `Bin # = 1,1,1`, headers `UC_Amp4_IR_input MeanCounts` … `acq_timestamp` | 10 rows, `Bin # = 1,1,2,2,…,5,5`, `U_S1H Current` = −0.99984 … 0.99989 |
 | `scan.log` | one `finished (success)` | one `finished (success)`, the five `moving Current →` lines |
 | `baseline` stream | 419 columns, 2 rows | 2 rows |
-| trigger box | ARMED before, STANDBY after (`standing_state`) | same; `save` reads `off` after the run |
+| trigger box | driven back to STANDBY after the run (`ShotControl.standing_state`, the last state *written* — a bookkeeping check; ARMED is observed by the shots landing, not read back) | same; `save` reads `off` after the run |
 | build | 26 s (108 devices, 375 telemetry objects connected; two unservable devices dropped loudly) | |
 
 **Cadence (from the rows' stamps).** Scan104: `[2.0, 1.0]` — 1 Hz after

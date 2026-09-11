@@ -74,3 +74,41 @@ class DocCollector:
     def primary_events(self) -> list[dict]:
         uids = {d["uid"] for d in self.docs["descriptor"] if d["name"] == "primary"}
         return [e for e in self.docs["event"] if e["descriptor"] in uids]
+
+
+def read_scan_info(path: Any) -> dict[str, str]:
+    """The ``[Scan Info]`` section of a ScanInfo ini, values unquoted."""
+    from configparser import ConfigParser
+
+    parser = ConfigParser()
+    parser.optionxform = str  # type: ignore[assignment]
+    parser.read(path)
+    return {k: v.strip('"') for k, v in parser.items("Scan Info")}
+
+
+def wait_for_native_files(directory: Any, expected: int, timeout: float = 15.0) -> list:
+    """Every expected native file exists and has stopped growing (two agreeing stats).
+
+    Any regular file counts — the device's own format, not a fixed suffix.
+    """
+    import time
+    from pathlib import Path
+
+    directory = Path(directory)
+    deadline = time.monotonic() + timeout
+    while True:
+        files = (
+            sorted(f for f in directory.iterdir() if f.is_file())
+            if directory.is_dir()
+            else []
+        )
+        sizes = [f.stat().st_size for f in files]
+        if len(files) >= expected and all(sizes):
+            time.sleep(0.5)
+            if [f.stat().st_size for f in files] == sizes:
+                return files
+        if time.monotonic() > deadline:
+            raise AssertionError(
+                f"{directory}: {len(files)} files after {timeout:.0f} s, expected {expected}"
+            )
+        time.sleep(0.5)

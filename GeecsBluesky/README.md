@@ -47,7 +47,7 @@ registered strict under their own names, every run claiming a scan
 number, the ScanInfo / s-file / `scan.log` callbacks, the baseline
 telemetry stream, presets as the saved queue item.  PR 3 accepted it on
 HTU (Scans 104–108 of 26_0910, in process and through a second RE
-Manager); the worker flip is the maintainer's restart.
+Manager — `Planning/native_bluesky/05_phase1_acceptance.md`).
 
 ## Requirements
 

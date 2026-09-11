@@ -18,8 +18,9 @@ Two tests, the second only with ``GEECS_HW_QSERVER`` set:
    ``ScanNNN/`` folder, the camera's native files named by the rows'
    stamps in ``ScanNNN/<device>/``, ``ScanInfoScanNNN.ini`` with the keys
    downstream parses, the s-file with ``Bin #`` per step, ``scan.log``,
-   the ``baseline`` stream, ARMED → STANDBY around each run; and records
-   the per-shot cadence (M2's every-other-edge on a motor scan is the
+   the ``baseline`` stream, the box driven back to STANDBY after each
+   run (the profile device's standing state; ARMED is observed by the
+   shots landing); and records the per-shot cadence (M2's every-other-edge on a motor scan is the
    number PR 3 measures).
 2. **Through the RE Manager** — a second manager on this host
    (``GEECS_HW_QSERVER=tcp://localhost:60635``, see the runbook in
@@ -49,12 +50,11 @@ import asyncio
 import json
 import os
 import time
-from configparser import ConfigParser
 from pathlib import Path
 
 import pytest
 
-from tests.ca_mock_helpers import DocCollector
+from tests.ca_mock_helpers import DocCollector, read_scan_info, wait_for_native_files
 
 pytestmark = pytest.mark.hardware
 pytest.importorskip("aioca")
@@ -75,32 +75,6 @@ SHOTS = int(os.environ.get("GEECS_HW_SHOTS", "3"))
 SHOTS_PER_STEP = int(os.environ.get("GEECS_HW_SHOTS_PER_STEP", "2"))
 
 
-def _ini(path: Path) -> dict[str, str]:
-    parser = ConfigParser()
-    parser.optionxform = str  # type: ignore[assignment]
-    parser.read(path)
-    return {k: v.strip('"') for k, v in parser.items("Scan Info")}
-
-
-def _wait_for_files(
-    directory: Path, expected: int, timeout: float = 15.0
-) -> list[Path]:
-    """Every expected native file exists and has stopped growing (two agreeing stats)."""
-    deadline = time.monotonic() + timeout
-    while True:
-        files = sorted(directory.glob("*.png"))
-        sizes = [f.stat().st_size for f in files]
-        if len(files) >= expected and all(sizes):
-            time.sleep(0.5)
-            if [f.stat().st_size for f in files] == sizes:
-                return files
-        if time.monotonic() > deadline:
-            raise AssertionError(
-                f"{directory}: {len(files)} files after {timeout:.0f} s, expected {expected}"
-            )
-        time.sleep(0.5)
-
-
 def _assert_scan_outputs(
     folder: Path,
     *,
@@ -115,7 +89,7 @@ def _assert_scan_outputs(
     import pandas as pd
 
     number = int("".join(ch for ch in folder.name if ch.isdigit()))
-    info = _ini(folder / f"ScanInfo{folder.name}.ini")
+    info = read_scan_info(folder / f"ScanInfo{folder.name}.ini")
     assert info["Scan No"] == str(number)
     assert info["Scan Parameter"] == scan_parameter, info
     assert info["Shots per step"] == str(shots_per_step), info
@@ -127,7 +101,7 @@ def _assert_scan_outputs(
     assert list(sfile["Bin #"]) == expected_bins
     assert f"{camera_name} acq_timestamp" in sfile.columns
     assert (folder / "scan.log").read_text().count("finished (success)") == 1
-    files = _wait_for_files(folder / camera_name, expected_rows)
+    files = wait_for_native_files(folder / camera_name, expected_rows)
     stamps = sfile[f"{camera_name} acq_timestamp"].tolist()
     names = {f.name for f in files}
     for stamp in stamps:
@@ -273,7 +247,7 @@ def test_plan_layer_in_process_on_hardware() -> None:
         shots_per_step=SHOTS_PER_STEP,
         plan_name="scan",
     )
-    info = _ini(
+    info = read_scan_info(
         Path(starts[1]["scan_folder"])
         / f"ScanInfo{Path(starts[1]['scan_folder']).name}.ini"
     )
@@ -303,6 +277,7 @@ def test_preset_through_the_manager_on_hardware() -> None:
         ZmqQueueClient,
         run_submit_preflight,
     )
+    from geecs_bluesky.qs_client.presets import scan_variable_reference
 
     host, _, port = control.rpartition(":")
     client = ZmqQueueClient(
@@ -335,6 +310,9 @@ def test_preset_through_the_manager_on_hardware() -> None:
     print(
         f"\npreflight: {report.outcomes}, questions {[q.check for q in report.questions]}"
     )
+    assert all(result == "passed" for _, result, _ in report.outcomes), report.outcomes
+    assert not report.questions, report.questions
+    motor_reference = scan_variable_reference(SWEEP, catalog)
 
     scans_dir = _scans_dir()
     before = {p.name for p in scans_dir.glob("Scan*")}
@@ -346,35 +324,54 @@ def test_preset_through_the_manager_on_hardware() -> None:
             "result"
         )
     finally:
-        # The scan item is in the history by now (or the wait raised), so the
-        # queue is empty and the restore is accepted; clear_pending covers a
-        # scan that is still queued after a failed wait — the restore must
-        # not be refused for the #648 front-of-queue guard.
-        restore = client.submit_plan(
-            "mv",
-            args=[f"{device_name}.{variable.lower()}", initial],
-            clear_pending=True,
-        )
+        # The manager writes the history entry before it goes idle, and a
+        # plan still running at the wait's timeout keeps it busy: a restore
+        # queued while the manager is not idle is refused ("busy").  So:
+        # wait for idle (bounded), then submit with retries, clear_pending
+        # covering an item still queued; a restore that never took is
+        # shouted with the value to put back by hand.
+        _wait_for_manager_idle(client, timeout=600.0)
+        restore = None
+        for attempt in range(5):
+            restore = client.submit_plan(
+                "mv", args=[motor_reference, initial], clear_pending=True
+            )
+            if restore.ok:
+                break
+            print(f"restore attempt {attempt + 1} refused: {restore.message}")
+            time.sleep(3.0)
         print(f"restore {SWEEP} to {initial}: {restore.message}")
-        assert restore.ok, restore.message
+        assert restore.ok, (
+            f"RESTORE NOT QUEUED — set {SWEEP} back to {initial} by hand: {restore.message}"
+        )
         _wait_for_item(client, restore.item_uid, timeout=120.0)
         client.close()
     new = sorted({p.name for p in scans_dir.glob("Scan*")} - before)
     assert len(new) == 1, new
     folder = scans_dir / new[0]
-    catalog_entry = catalog.get(SWEEP)
     _assert_scan_outputs(
         folder,
         camera_name=CAMERA,
         expected_rows=NUM * SHOTS_PER_STEP,
         expected_bins=[b for b in range(1, NUM + 1) for _ in range(SHOTS_PER_STEP)],
-        scan_parameter=f"{device_name} {variable}" if catalog_entry is None else SWEEP,
+        scan_parameter=f"{device_name} {variable}",
         shots_per_step=SHOTS_PER_STEP,
         plan_name="scan",
     )
-    info = _ini(folder / f"ScanInfo{folder.name}.ini")
+    info = read_scan_info(folder / f"ScanInfo{folder.name}.ini")
     assert info["ScanStartInfo"] == preset.description
     assert info["Trigger profile"] == PROFILE
+
+
+def _wait_for_manager_idle(client, *, timeout: float) -> None:
+    """Block until ``manager_state`` reads idle (a queued restore is refused otherwise)."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        status = client.status()
+        if status.connected and status.manager_state == "idle":
+            return
+        time.sleep(1.0)
+    print(f"WARNING: the manager did not go idle within {timeout:.0f} s")
 
 
 def _wait_for_item(client, item_uid: str, *, timeout: float) -> dict:
