@@ -69,6 +69,7 @@ from geecs_bluesky.devices.ca.settable import CaSettable
 from geecs_bluesky.devices.ca.snapshot import CaSnapshotReadable
 from geecs_bluesky.devices.detector import GeecsDetector
 from geecs_bluesky.devices.hdf_plugin import PluginPathProvider
+from geecs_bluesky.devices.hdf_plugin import file_plugin_hosts as _hosts_from_config
 from geecs_bluesky.exceptions import GeecsConfigurationError
 from geecs_bluesky.utils import identifier_name, safe_name, settable_attribute
 
@@ -291,7 +292,7 @@ class GeecsNamespace:
         self.roster = roster
         self._path_provider = path_provider
         hosts = (
-            globals()["file_plugin_hosts"]()
+            _hosts_from_config()
             if file_plugin_hosts is _HOSTS_FROM_CONFIG
             else file_plugin_hosts
         )

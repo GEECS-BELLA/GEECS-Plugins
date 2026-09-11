@@ -419,7 +419,7 @@ def test_file_plugin_hosts_default_reads_the_config(monkeypatch) -> None:
     import geecs_bluesky.namespace as namespace_module
 
     monkeypatch.setattr(
-        namespace_module, "file_plugin_hosts", lambda: {"192.168.6.100"}
+        namespace_module, "_hosts_from_config", lambda: {"192.168.6.100"}
     )
     from geecs_bluesky.plans.claim_scan import GeecsScanPathProvider
 
