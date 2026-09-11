@@ -5,6 +5,31 @@ All notable changes to GEECS-Schemas are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.21.0] - 2026-09-10
+
+### Added
+
+- `geecs_schemas.preset` — **`Preset`**, the saved scan: the device group
+  (`PresetDevice`: `device`, `save_images`) plus the plan call (`PlanCall`:
+  a stock bluesky plan `name`, `args`, `kwargs` with scan variables as
+  `Device:Variable` or catalog-name strings), `trigger_profile`,
+  `background`, `description`.  A preset is a queue item in waiting; one
+  without a `plan` is a device group.  Registry kind `preset`
+  (GEECS-Plugins#807, phase 1 PR 2).
+
+### Removed
+
+- `geecs_schemas.save_set` (`SaveSet`, `SaveSetEntry`, `SaveRole`), the
+  save-element converter (`convert.save_elements`) and the scan-preset
+  converter (`convert.presets`: `convert_scan_preset`,
+  `compose_save_sets`), their fixtures and golden files.  The configs
+  corpus was regenerated once as `Preset` documents (the
+  GEECS-Plugins-Configs branch `presets-v1`); per-scalar selection,
+  setup/closeout rituals and the `SaveRole` enum are gone by design
+  (plan of record §10.5).
+- `convert_optimizer_config` returns the legacy `device_requirements` as
+  a `devices: list[PresetDevice]` group instead of a `SaveSet`.
+
 ## [0.20.0] - 2026-09-08
 
 ### Added

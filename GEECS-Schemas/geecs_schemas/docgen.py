@@ -74,29 +74,20 @@ description: "jet z scan with probe"
 # v1 documents (the capture fields flat at the top level) still validate —
 # they are lifted into this shape automatically.
 """,
-    "save_set": """\
+    "preset": """\
 schema_version: 1
-name: undulator_baseline
-# the REQUIRED devices — everything else is still logged in the background
-entries:
-  - device: UC_Amp4_IR_input
-    images: true                     # images are always required-tier
-    scalars: [MaxCounts, centroidx]  # extras beyond the DB's standard telemetry
-  - device: U_HP_Daq
-    db_scalars: false                # record ONLY the listed scalars, not the DB set
-    scalars: [AnalogOutput.Channel 1]
-    at_scan_start: {Analysis: "on"}  # replace the DB's scan-start value
-    at_scan_end: {Analysis: null}    # suppress the DB's scan-end write
-  - device: U_BCaveHallProbe
-    scalars: [Field, Rawfield]
-    role: snapshot
-  - device: UC_UndulatorRad2
-    images: true
-    scalars: [MeanCounts]
-    # this device's ritual travels with it: these named plans run once
-    # before/after any scan whose save set includes this entry
-    setup: [visa1_spectrometer_setup]
-    closeout: [visa1_spectrometer_closeout]
+name: emq1_scan
+description: emq1 scan after bax alignment
+trigger_profile: HTU-Normal          # omit to use the experiment default
+devices:
+  - device: UC_ALineEBeam3           # frames saved (the default)
+  - device: UC_VisaEBeam1
+    save_images: false               # scalars only, no frames on disk
+  - device: U_BCaveICT
+plan:
+  name: scan                         # a stock bluesky plan the worker registers
+  args: ["EMQ1 Current", 1.2, 1.7, 6]  # motor (catalog name or Device:Variable), start, stop, points
+  kwargs: {shots_per_step: 20}       # rows recorded at every position
 """,
     "scan_variables": """\
 schema_version: 1

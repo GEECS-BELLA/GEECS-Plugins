@@ -49,7 +49,6 @@ from geecs_console.app.now_panel import NowPanelController
 from geecs_console.app.queue_panel import QueuePanelController
 from geecs_console.app.scan_monitor import ScanMonitorController
 from geecs_console.editors.action_library_editor import open_action_library_editor
-from geecs_console.editors.save_set_editor import open_save_set_editor
 from geecs_console.editors.scan_variable_editor import open_scan_variable_editor
 from geecs_console.editors.shot_control_editor import open_shot_control_editor
 from geecs_console.services import ops_paths
@@ -560,7 +559,6 @@ class MainWindow(QMainWindow):
         self._menus.append(editors)
         self._editor_actions = []
         for text, handler in (
-            ("Save Elements…", self._on_edit_save_sets),
             ("Scan Variables…", self._on_edit_scan_variables),
             ("Shot Control…", self._on_edit_shot_control),
             ("Action Library…", self._on_edit_action_library),
@@ -1649,10 +1647,6 @@ class MainWindow(QMainWindow):
         dialog = opener(self, experiment=experiment)
         self._open_editors = [d for d in self._open_editors if d.isVisible()]
         self._open_editors.append(dialog)
-
-    def _on_edit_save_sets(self) -> None:
-        """Editors: open the save-set editor for the current experiment."""
-        self._open_editor(open_save_set_editor)
 
     def _on_edit_scan_variables(self) -> None:
         """Editors: open the scan-variable editor for the current experiment."""

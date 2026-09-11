@@ -4,6 +4,117 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.80.0] - 2026-09-10
+
+### Added
+
+- **Phase 1 PR 2 of the native-Bluesky rebuild (#807, plan of record
+  `Planning/native_bluesky/03_clean_room_rebuild.md` §4.B–§4.D, §10.7) —
+  the plan layer.** A queue item naming a stock plan and namespace
+  devices now runs a complete strict GEECS scan.
+  - `plans/registry.py` — the registration table: every stock
+    `bluesky.plans` verb with a `per_step` / `per_shot` hook that a queue
+    item can express (18 of them; `scan_nd` and the deprecated aliases
+    excluded) registered under its own name with the strict
+    `take_reading` pre-bound, the stock parameters kept minus the hook,
+    plus two keyword-only GEECS parameters: `trigger_profile` (the
+    experiment default when omitted) and `shots_per_step` (scan verbs).
+    Each bound plan brackets its run ARMED → STANDBY through the profile's
+    `ShotControl` and records the profile **key** it resolved (the
+    configs-repo stem) in the start document; `TriggerProfiles` loads one
+    device per profile in the configs repo.  `plan_names.GEECS_PLAN_NAMES` pins the table
+    (`tests/test_plan_registry.py` asserts the derivation).
+  - `plans/claim_scan.py` — `claim_scan_preprocessor` (every run claims a
+    day-scoped scan number on `open_run`; `scan_number` / `scan_id` /
+    `scan_folder` / `experiment` / `scan_tag` into the start document; a
+    failed claim refuses the run) and `GeecsScanPathProvider`, the one
+    `PathProvider` the namespace's native-saving detectors share
+    (`ScanNNN/<GEECS device>/` for the claimed run, refusing outside one).
+  - `preprocessors.scalar_headers` — the staged devices' `_column_headers`
+    (walking descendants) into the start document's
+    `geecs_scalar_headers`.
+  - `plans/strict.py` — `geecs_per_step(shot_control, shots_per_step=N)`
+    records N strict shots per position and a `bin_number` column
+    (`BinCounter`, a plain Bluesky `Readable`) — the s-file's `Bin #`;
+    `geecs_per_shot` records bin 1.
+  - `callbacks.py` — the GEECS outputs as best-effort RunEngine callbacks:
+    `ScanInfoCallback` (`ScanInfoScanNNN.ini` at start, `ScanEndInfo`
+    filled at stop; the legacy `[Scan Info]` keys derived from the stock
+    metadata — `Scan Parameter` from the first motor's header, `Start` /
+    `End` / `Step size` from `plan_pattern_args`), `SFileCallback`
+    (`ScanDataScanNNN.txt` + `analysis/sNNN.txt` from the run's own
+    primary events at the stop document — no Tiled round trip; written
+    for any exit status that produced rows), `ScanLogCallback`
+    (`scan.log` from start to stop).
+  - `X.scalars` on **every** namespace device (`devices/ca/_view.py`
+    `ScalarsView`; `GeecsDetectorScalars` on a detector): the scalars-only
+    view a preset's `save_images: false` expands to — on a detector the
+    shot wait without the files, on a scalar-only device what the device
+    reads (review of #821: the regenerated corpus flags scalar-only
+    devices too).  A view listed beside its owner's own scanned child
+    (`scan([U_S1H.scalars], U_S1H.current, …)`) yields the child's column
+    to the child — the strict `take_reading` drops what a listed view
+    already covers (`ScalarsView.covers`; verifier of the review).
+  - `GeecsNamespace.telemetry()` — the `SupplementalData` baseline list
+    (every scalar-only device and every detector's scalar signals),
+    installed by `make_run_engine(telemetry=...)` → `install_telemetry`,
+    which **connects the set once at build** and drops every member that
+    cannot connect with a warning (review of #821: a baseline read runs
+    after the claim, so one unservable device would otherwise fail every
+    run and leave a numbered folder each time): every subscribed scalar
+    of the experiment rides in the `baseline` stream at open and close.
+  - `qs_client.presets.expand_preset` — a `geecs_schemas.Preset` into the
+    stock plan queue item (device bindings, `Device:Variable` / catalog
+    names into the namespace's Movable children, `trigger_profile` and
+    `background` / `description` / `geecs` provenance); pseudo scan
+    variables refused until phase 3.  `QueueClient.submit_plan(name,
+    args, kwargs)` and `submit_preset(preset)` replace the funnel verbs;
+    `run_submit_preflight` checks the preset expands, the worker lists
+    the plan **and every device reference in the item**
+    (`QueueClient.allowed_device_names`, the manager's device tree —
+    bluesky-queueserver 0.0.25 passes an unknown device string through to
+    the plan, so the typo is caught here, before the trigger box is
+    armed; review of #821), and the preset devices' `CONNECTED` PVs.  The
+    references checked are the ones the expansion created
+    (`QueueItem.references`: detectors + resolved scan variables) — a
+    literal string argument such as an enum value in a `list_scan` point
+    list is never one; and a preset cannot name `mv` (`PRESET_PLAN_NAMES`
+    = the scan verbs; the manual move stays `submit_plan("mv", …)`)
+    (Codex review of #821).
+- `make_run_engine(experiment, claim=True, path_provider, telemetry)`
+  installs the whole GEECS scan (claim + headers + baseline + the three
+  callbacks); the startup profile builds the path provider, the
+  namespace, the trigger profiles and the bound plans
+  (`QS_DEVICE_NAMESPACE=off` stays the hermetic switch).
+- `utils.identifier_name` / `utils.device_reference` — the queue-item
+  spelling of a device or settable, shared by the namespace and the
+  client seam.
+
+### Changed
+
+- `CaSettable._column_headers` is computed from the readback signal's
+  current name (a namespace child is renamed after construction).
+- `LvNativeFileDataLogic` names the run sub-directory after the GEECS
+  device (`Scan065/UC_Amp4_IR_input/`), never the ophyd name.
+- `qserver/user_group_permissions.yaml` operator group allows exactly
+  `GEECS_PLAN_NAMES`.
+
+### Removed
+
+- `sfile_callback.py` (the Tiled-fed export; `callbacks.SFileCallback`
+  writes from the documents), the pre-scan log buffer and
+  `log_claimed_scan_failure` in `scan_log.py` (no callers since the
+  session went; `ScanLogFile` is the open/close pair the callback uses),
+  `plan_names.SCAN_REQUEST_PLAN` / `RUN_ACTION_PLAN`, the client's
+  `submit_scan` / `submit_action` / `run_action` / `move_variable` /
+  `describe_action` (the funnel verbs; a manual move is
+  `submit_plan("mv", ...)`), `config_resolver.resolve_save_set` /
+  `list_save_sets` (presets carry the device group;
+  `resolve_preset` returns a `Preset`), `db_runtime.resolve_entry_scalars`
+  / `select_telemetry_variables`, the free-run staleness preflight.
+  GEECS-Console and GEECS-MCP import unchanged; their submit paths call
+  the removed verbs and are rewired once the foundation is stable.
+
 ## [0.79.0] - 2026-09-10
 
 ### Removed

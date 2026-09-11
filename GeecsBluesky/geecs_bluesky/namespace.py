@@ -69,7 +69,7 @@ from geecs_bluesky.devices.ca.settable import CaSettable
 from geecs_bluesky.devices.ca.snapshot import CaSnapshotReadable
 from geecs_bluesky.devices.detector import GeecsDetector
 from geecs_bluesky.exceptions import GeecsConfigurationError
-from geecs_bluesky.utils import safe_name
+from geecs_bluesky.utils import identifier_name, safe_name
 
 logger = logging.getLogger(__name__)
 
@@ -108,19 +108,6 @@ _TRIGGER_VARIABLE = re.compile("trig", re.IGNORECASE)
 
 
 # --------------------------------------------------------------------- rules
-def identifier_name(geecs_name: str) -> str:
-    """The **namespace binding** for a GEECS device name.
-
-    The GEECS spelling is kept when it is a Python identifier (``U_S1H``) —
-    what operators see in GEECS and will type into a plan argument; anything
-    else goes through :func:`~geecs_bluesky.utils.safe_name`.  Only the
-    binding keeps GEECS case: ophyd device names, child attributes and hence
-    event-column keys are ``safe_name`` (lowercase), as ``EVENT_SCHEMA.md``
-    requires (``u_s1h-current-position``, ``uc_amp4_ir_input-meancounts``).
-    """
-    return geecs_name if geecs_name.isidentifier() else safe_name(geecs_name)
-
-
 def looks_triggerable(rows: Sequence[Mapping[str, Any]], devicetype: str = "") -> bool:
     """Whether a device acquires per shot (so it gets a Bluesky ``trigger()``).
 
@@ -396,12 +383,8 @@ class GeecsNamespace:
                 )
             child = self._movable(device, var, row, py, roster.experiment)
             setattr(dev, attr, child)  # ophyd-async registers + names the child
-            # The s-file exporter reads `_column_headers` off the top-level
-            # devices only, so the parent aggregates its children's
-            # "Device Variable" headers.
-            child._column_headers = {
-                getattr(child, child._readback_attr_name).name: f"{device} {var}"
-            }
+            # The parent carries every child's "Device Variable" header too
+            # (the scalar_headers preprocessor walks descendants anyway).
             dev._column_headers.update(child._column_headers)
             if var.lower() in {v.lower() for v in roster.subscribed.get(device, ())}:
                 dev.add_readables([child])  # subscribed settable: log its readback
@@ -499,6 +482,22 @@ class GeecsNamespace:
         """The object for ``"Device"`` or ``"Device:Variable"`` (either spelling)."""
         device, sep, variable = target.partition(":")
         return self.variable(device, variable) if sep else self[device]
+
+    def telemetry(self) -> list[Any]:
+        """Every subscribed scalar of the experiment, readable without a trigger.
+
+        The ``SupplementalData`` baseline list (plan of record §4.B): each
+        scalar-only device whole, and each detector's scalar **signals**
+        individually — a detector itself is ``Triggerable`` and a baseline
+        read would wait for a shot that ARMED never delivers.
+        """
+        objects: list[Any] = []
+        for dev in self._devices.values():
+            if isinstance(dev, GeecsDetector):
+                objects.extend(dev._scalar_signals())
+            else:
+                objects.append(dev)
+        return objects
 
     # ----------------------------------------------------------------- export
     def export_into(self, namespace: dict[str, Any]) -> list[str]:

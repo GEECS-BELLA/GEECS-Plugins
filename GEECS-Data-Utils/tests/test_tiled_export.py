@@ -87,3 +87,28 @@ def test_export_uses_the_canonical_config_reader() -> None:
     from geecs_data_utils import tiled_catalog, tiled_export
 
     assert tiled_export.read_tiled_config is tiled_catalog.read_tiled_config
+
+
+def test_write_scalar_files_from_documents(tmp_path) -> None:
+    """The worker's s-file callback path: start doc + primary DataFrame → both files."""
+    from geecs_data_utils import write_scalar_files
+
+    folder = tmp_path / "scans" / "Scan012"
+    folder.mkdir(parents=True)
+    start = {**_start_doc(), "scan_folder": str(folder)}
+    result = write_scalar_files(start, _primary_df())
+    assert result is not None
+    scan_txt, sfile = result
+    assert scan_txt == folder / "ScanDataScan012.txt"
+    assert sfile == tmp_path / "analysis" / "s12.txt"
+    reloaded = pd.read_csv(sfile, delimiter="\t")
+    assert list(reloaded["Bin #"]) == [1, 1, 2, 2]
+    assert list(reloaded.columns)[:2] == ["Bin #", "scan"]
+
+
+def test_write_scalar_files_never_creates_the_scan_folder(tmp_path) -> None:
+    from geecs_data_utils import write_scalar_files
+
+    start = {**_start_doc(), "scan_folder": str(tmp_path / "scans" / "Scan099")}
+    assert write_scalar_files(start, _primary_df()) is None
+    assert not (tmp_path / "scans").exists()

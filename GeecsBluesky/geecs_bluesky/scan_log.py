@@ -1,44 +1,22 @@
-"""Per-scan ``scan.log`` file handling, shared by the bridge and the session.
+"""Per-scan ``scan.log``: a root-logger file handler for the duration of one run.
 
 Every legacy scan folder carries a ``scan.log``; the Bluesky stack matches
-that with a scoped ``logging.FileHandler`` attached for the duration of one
-scan.  Extracted verbatim from the legacy GUI bridge's handler (Gate-2 finding:
-headless scans had no scan.log because the helper was
-bridge-internal) so both front doors share one implementation — the session
-must not import the bridge.
-
-The handler attaches to the **root logger**, so ``scan.log`` records the
-same story the process's terminal shows — ``bluesky`` RunEngine state
+that with a scoped ``logging.FileHandler`` attached to the **root logger**
+from a run's start document to its stop document
+(:class:`geecs_bluesky.callbacks.ScanLogCallback`), so ``scan.log`` records
+the same story the worker's journal shows — ``bluesky`` RunEngine state
 changes, ``ophyd_async`` connect failures, ``geecs_data_utils`` folder and
-export lines — not just this package's namespaces.  The per-scan file must
-stay the complete record: once the engine runs inside a queueserver worker
-there is no operator-attached terminal, only a machine-global journal.
-
-Two mechanisms cover the window before the scan folder exists (the file
-cannot be created earlier, and the most diagnostic lines — submission,
-device connects, telemetry drops — happen there):
-
-- :func:`begin_pre_scan_capture` starts buffering root-logger records at
-  submission time (the bridge's ``reinitialize`` calls it; headless callers
-  may call it themselves).
-- :func:`scan_log` flushes that buffer into the file the moment it attaches,
-  and discards it on the no-claim paths (nothing was saved, so the buffered
-  lines have no per-scan home — they remain on the terminal/journal).
+export lines — not just this package's namespaces.  Once the engine runs
+inside a queueserver worker there is no operator-attached terminal, only a
+machine-global journal, so the per-scan file must stay the complete record.
 """
 
 from __future__ import annotations
 
 import logging
-from collections import deque
-from contextlib import contextmanager
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
-
-#: Maximum buffered pre-claim records (older records drop first).  Sized far
-#: above a real submission window (tens of lines); the cap only bounds a
-#: pathological reinitialize-then-never-start session.
-PRE_SCAN_BUFFER_CAPACITY = 2000
 
 #: Third-party transport chatter kept out of scan.log below WARNING (live
 #: finding, 2026-08-20 Scan001: Tiled's per-request httpx lines and MySQL
@@ -73,99 +51,6 @@ class _QuietNoisyLoggers(logging.Filter):
         )
 
 
-class PreScanLogBuffer(logging.Handler):
-    """Buffer root-logger records emitted before the scan folder exists.
-
-    A plain bounded buffer: :meth:`emit` appends, and :meth:`flush_into`
-    replays every held record through a target handler (whose own filters —
-    the scan-id stamp — apply on replay).  Never auto-flushes.
-
-    Captures at INFO+ (``level=logging.INFO``), matching the scan.log file
-    handler's own INFO threshold — under a ``--log-level DEBUG`` root the
-    per-scan file is an INFO+ record on both sides of the claim, by design
-    (DEBUG-heavy startups would also evict the bounded buffer's story).
-    """
-
-    def __init__(self, capacity: int = PRE_SCAN_BUFFER_CAPACITY) -> None:
-        super().__init__(level=logging.INFO)
-        self.addFilter(_QuietNoisyLoggers())
-        self._records: deque[logging.LogRecord] = deque(maxlen=capacity)
-        #: Root-logger level before the capture lowered it (restored by
-        #: discard/take — record *creation* is gated by the root level, so
-        #: the capture window must run the root at INFO to see the story).
-        self.original_root_level: int = logging.NOTSET
-
-    def emit(self, record: logging.LogRecord) -> None:
-        """Hold *record* for a later :meth:`flush_into`.
-
-        Parameters
-        ----------
-        record : logging.LogRecord
-            The record to buffer.
-        """
-        self._records.append(record)
-
-    def __len__(self) -> int:
-        """Number of buffered records."""
-        return len(self._records)
-
-    def flush_into(self, handler: logging.Handler) -> None:
-        """Replay every buffered record through *handler*, then clear.
-
-        Parameters
-        ----------
-        handler : logging.Handler
-            The destination handler (the scan.log file handler).
-        """
-        for record in self._records:
-            handler.handle(record)
-        self._records.clear()
-
-
-#: The at-most-one pending pre-scan buffer (one scan at a time per process).
-_pending_buffer: PreScanLogBuffer | None = None
-
-
-def begin_pre_scan_capture() -> None:
-    """Start buffering root-logger records for the next scan's ``scan.log``.
-
-    Called at submission time (bridge ``reinitialize`` / headless callers).
-    Any previous pending buffer is discarded first — a superseded submission
-    must not leak its lines into the next scan's file.
-    """
-    global _pending_buffer
-    discard_pre_scan_capture()
-    root = logging.getLogger()
-    buffer = PreScanLogBuffer()
-    buffer.original_root_level = root.level
-    if root.level == logging.NOTSET or root.level > logging.INFO:
-        root.setLevel(logging.INFO)
-    _pending_buffer = buffer
-    root.addHandler(buffer)
-
-
-def discard_pre_scan_capture() -> None:
-    """Drop any pending pre-scan buffer without writing it anywhere."""
-    _detach_pending_buffer()
-
-
-def _take_pending_buffer() -> PreScanLogBuffer | None:
-    """Detach and return the pending buffer (None when nothing is pending)."""
-    return _detach_pending_buffer()
-
-
-def _detach_pending_buffer() -> PreScanLogBuffer | None:
-    """Remove the pending buffer from the root logger, restoring its level."""
-    global _pending_buffer
-    buffer = _pending_buffer
-    if buffer is not None:
-        root = logging.getLogger()
-        root.removeHandler(buffer)
-        root.setLevel(buffer.original_root_level)
-        _pending_buffer = None
-    return buffer
-
-
 class ScanLogContextFilter(logging.Filter):
     """Add scan id context to records written to one scan log."""
 
@@ -190,140 +75,72 @@ class ScanLogContextFilter(logging.Filter):
         return True
 
 
-def log_claimed_scan_failure(
-    scan_number: int | None,
-    scan_folder: str | None,
-    *,
-    label: str = "Scan",
-    aborted: bool = False,
-) -> None:
-    """Log that a claimed scan folder was left behind by a failure or abort.
+class ScanLogFile:
+    """One scan's ``scan.log``: :meth:`open` at the start document, :meth:`close` at the stop.
 
-    The folder is never deleted (scan-folder lifecycle invariant: once a
-    ``scans/ScanNNN/`` folder exists it must not be removed or recreated),
-    so the claimed-but-not-completed state is surfaced instead of being
-    silent.  A genuine failure is an ERROR; an operator-requested abort
-    (``aborted=True``) is an intentional outcome and gets one calm WARNING
-    instead.  A no-op when nothing was claimed.
-
-    Parameters
-    ----------
-    scan_number : int or None
-        The claimed day-scoped scan number.
-    scan_folder : str or None
-        The claimed ``scans/ScanNNN`` folder path.
-    label : str
-        Message prefix naming the scan kind (e.g. ``"Optimization scan"``).
-    aborted : bool
-        ``True`` when the scan ended because the operator requested an
-        abort (WARNING, calm wording) rather than failing (ERROR).
+    Attaches to the root logger and lowers its level to INFO for the run
+    (restored on close) so records from NOTSET-level loggers reach the
+    handler; loggers with an explicit higher level keep it — terminal
+    parity, not extra verbosity.  A missing folder means no file (a
+    warning), never a created one: the scan folder is the claim's.
     """
-    if scan_number is None and scan_folder is None:
-        return
-    if aborted:
-        logger.warning(
-            "%s %s aborted by operator; folder %s kept (never deleted) — "
-            "partial data may be present",
-            label,
-            scan_number,
-            scan_folder,
-        )
-        return
-    logger.error(
-        "%s %s failed or aborted after its folder was claimed at %s; "
-        "the folder is left in place (never deleted) and may be missing "
-        "ScanInfo or data",
-        label,
-        scan_number,
-        scan_folder,
-    )
 
+    def __init__(self) -> None:
+        self._handler: logging.Handler | None = None
+        self._old_root_level: int = logging.NOTSET
+        self.path: Path | None = None
 
-@contextmanager
-def scan_log(scan_number: int | None, scan_folder: str | None):
-    """Attach a per-scan ``scan.log`` file handler for the enclosed block.
+    @property
+    def is_open(self) -> bool:
+        """Whether a handler is attached."""
+        return self._handler is not None
 
-    A no-op when the scan number/folder are unknown (nothing was claimed —
-    e.g. ``save_data=False`` or the NetApp is unreachable) or the folder
-    does not exist; any pending pre-scan buffer is discarded on those paths.
-    On attach, buffered pre-claim records flush into the file first.  On
-    exit the handler is removed and closed and the root logger's level is
-    restored, even on abort.
+    def open(self, scan_number: int, scan_folder: str | Path) -> Path | None:
+        """Attach the file handler for ``Scan{scan_number:03d}`` inside *scan_folder*.
 
-    Parameters
-    ----------
-    scan_number : int or None
-        The claimed day-scoped scan number.
-    scan_folder : str or None
-        The claimed ``scans/ScanNNN`` folder path.
-
-    Yields
-    ------
-    None
-        Run the scan inside the ``with`` block.
-    """
-    if scan_number is None or scan_folder is None:
-        discard_pre_scan_capture()
-        yield
-        return
-
-    folder = Path(scan_folder)
-    if not folder.is_dir():
-        discard_pre_scan_capture()
-        logger.warning("Scan folder %s does not exist; skipping scan.log", folder)
-        yield
-        return
-
-    scan_id = f"Scan{scan_number:03d}"
-    handler = logging.FileHandler(folder / "scan.log", encoding="utf-8")
-    handler.setLevel(logging.INFO)
-    handler.setFormatter(
-        logging.Formatter(
-            "%(asctime)s.%(msecs)03d %(levelname)s %(name)s "
-            "[%(threadName)s] scan=%(scan_id)s - %(message)s",
-            datefmt="%Y-%m-%d %H:%M:%S",
-        )
-    )
-    handler.addFilter(ScanLogContextFilter(scan_id))
-    handler.addFilter(_QuietNoisyLoggers())
-
-    # Take the pending buffer FIRST — it restores the pre-capture root level,
-    # so the save/restore below brackets the true original.
-    buffer = _take_pending_buffer()
-
-    # Root-logger attach: scan.log records what the terminal shows.  The
-    # root level is lowered to INFO for the scan (and restored) so records
-    # from NOTSET-level loggers reach the handler; loggers with an explicit
-    # higher level keep it — terminal parity, not extra verbosity.
-    root = logging.getLogger()
-    old_root_level = root.level
-    if root.level == logging.NOTSET or root.level > logging.INFO:
-        root.setLevel(logging.INFO)
-
-    # Pre-claim records (submission, connects, telemetry drops) replay into
-    # the file first — they are chronologically earlier than everything the
-    # live handler will see, and the handler's filter stamps them.
-    flushed = 0
-    if buffer is not None:
-        flushed = len(buffer)
-        buffer.flush_into(handler)
-
-    root.addHandler(handler)
-    try:
-        if flushed:
-            # The flush announces itself: the buffer is an unowned
-            # module-level slot (one scan at a time per process), so if a
-            # foreign scan ever consumes a submission's buffer, this line
-            # makes the theft visible.
-            logger.info(
-                "scan %s: opened with %d buffered pre-claim records",
-                scan_id,
-                flushed,
+        Returns the file path, or ``None`` when the folder does not exist.
+        A second ``open`` while one is attached closes the first.
+        """
+        if self.is_open:
+            self.close()
+        folder = Path(scan_folder)
+        if not folder.is_dir():
+            logger.warning("Scan folder %s does not exist; skipping scan.log", folder)
+            return None
+        scan_id = f"Scan{scan_number:03d}"
+        handler = logging.FileHandler(folder / "scan.log", encoding="utf-8")
+        handler.setLevel(logging.INFO)
+        handler.setFormatter(
+            logging.Formatter(
+                "%(asctime)s.%(msecs)03d %(levelname)s %(name)s "
+                "[%(threadName)s] scan=%(scan_id)s - %(message)s",
+                datefmt="%Y-%m-%d %H:%M:%S",
             )
-        logger.info("scan %s: starting (dir=%s)", scan_id, scan_folder)
-        yield
-        logger.info("scan %s: finished", scan_id)
-    finally:
+        )
+        handler.addFilter(ScanLogContextFilter(scan_id))
+        handler.addFilter(_QuietNoisyLoggers())
+        root = logging.getLogger()
+        self._old_root_level = root.level
+        if root.level == logging.NOTSET or root.level > logging.INFO:
+            root.setLevel(logging.INFO)
+        root.addHandler(handler)
+        self._handler = handler
+        self.path = folder / "scan.log"
+        logger.info("scan %s: starting (dir=%s)", scan_id, folder)
+        return self.path
+
+    def close(self, note: str = "finished") -> None:
+        """Detach and close the handler, restoring the root logger's level."""
+        handler = self._handler
+        if handler is None:
+            return
+        logger.info("scan log: %s", note)
+        root = logging.getLogger()
         root.removeHandler(handler)
-        root.setLevel(old_root_level)
+        root.setLevel(self._old_root_level)
         handler.close()
+        self._handler = None
+        self.path = None
+
+
+__all__ = ["QUIET_LOGGER_PREFIXES", "ScanLogContextFilter", "ScanLogFile"]

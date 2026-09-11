@@ -16,16 +16,23 @@ deleted with the funnel in phase 1 PR 1; scans before that carry it and
 ## Start document
 
 The stock keys (`plan_name`, `detectors`, `motors`, `num_points`,
-`plan_args`, `hints`, …) come from the plan.  GEECS adds, from the plan
-layer (phase 1 PR 2, the `claim_scan` preprocessor and the ScanInfo
-callback — **not yet emitted** on this branch):
+`plan_args`, `plan_pattern_args`, `hints`, …) come from the plan.  GEECS
+adds (phase 1 PR 2):
 
-| Key | Meaning |
-|---|---|
-| `experiment` | GEECS experiment name |
-| `scan_number` / `scan_id` | Day-scoped GEECS scan number (`scan_id` is the Bluesky display field) |
-| `scan_folder` | Absolute path of the claimed `scans/ScanNNN/` folder |
-| `geecs` | Provenance only: the client's request (preset name, plan call) — never a worker instruction |
+| Key | Emitted by | Meaning |
+|---|---|---|
+| `experiment` | `claim_scan` preprocessor | GEECS experiment name |
+| `scan_number` / `scan_id` | `claim_scan` preprocessor | Day-scoped GEECS scan number (`scan_id` is the Bluesky display field) |
+| `scan_folder` | `claim_scan` preprocessor | Absolute path of the claimed `scans/ScanNNN/` folder |
+| `scan_tag` | `claim_scan` preprocessor | `{year, month, day, number, experiment}` — the `geecs_data_utils.ScanTag` |
+| `geecs_scalar_headers` | `scalar_headers` preprocessor | Event key → legacy `Device Variable` header for every staged device (the s-file and the browser's display names) |
+| `trigger_profile` | the bound plan | The trigger profile that drove the shots |
+| `shots_per_step` | the bound plan | Rows per position (`1` for `count`, whose `num` is the shot count) |
+| `description`, `background` | the client (`md`) | The preset's description (ScanInfo's `ScanStartInfo`) and background flag |
+| `geecs` | the client (`md`) | Provenance only: `{preset, submission}` — never a worker instruction |
+
+Every run the worker opens claims a scan number; a run without one is not a
+GEECS scan.
 
 ## Descriptor: configuration
 
@@ -43,21 +50,31 @@ trigger state (`shot_control-state`) when it is read.
 | `<det>-nonscalar_save_path` | The directory the detector's native files landed in this run — present only when the detector saved natively (`geecs_data_utils.tiled_schema.COMPANION_SUFFIXES` names the suffix) |
 | `<device>-<variable>` | A scalar-only device's subscribed readbacks (`CaSnapshotReadable`) |
 | `<device>-<settable>-position` / `-readback` | A settable child's readback when the DB subscribes it (`CaMotor` / `CaSettable`), and the scan motor's column |
+| `bin_number` | The scan step the row belongs to, from 1 (the GEECS `per_step`; every row of a `count` is bin 1) — the s-file's `Bin #` |
+
+A device listed as `X.scalars` (the scalars-only view every namespace
+device carries; `save_images: false` in a preset) contributes the same
+columns as `X` — for a detector `<det>-<variable>` and
+`<det>-acq_timestamp` with no `-nonscalar_save_path`.
 
 Native files are named with the row's stamp
 (`<Device>_<acq_timestamp>.png`, `geecs_data_utils.native_files`) and join
 to rows by that stamp — never by position.
 
-## Telemetry (phase 1 PR 2)
+## Event stream `baseline`
 
-Every subscribed scalar of the experiment rides in the run through
-`SupplementalData` (`baseline` at open/close, `monitors` for the changing
-few) — an experiment-config fact, derived from measurement (§10.4).
+Every subscribed scalar of the experiment, read at the open and the close
+of every run (`SupplementalData(baseline=namespace.telemetry())`): each
+scalar-only device's columns and each detector's scalar signals, under the
+same keys as in `primary`.  Two rows per run.  Which of them should be
+per-event monitors instead is decided from measurement (§10.4), not up
+front.
 
 ## Legacy `Device Variable` headers
 
 Every device carries `_column_headers` — event data-key → the GEECS
-`Device Variable` header (`UC_Wavemeter Wavelength (nm)`) — for the s-file
-exporter (`sfile_callback.py`, from Tiled at the stop document).  The
-start-document map the exporter reads (`geecs_scalar_headers`) is emitted
-by the plan layer (PR 2).
+`Device Variable` header (`UC_Wavemeter Wavelength (nm)`); the
+`scalar_headers` preprocessor merges the staged devices' maps into the
+start document's `geecs_scalar_headers`, which the s-file callback
+(`callbacks.py`, from the run's own events at the stop document) and the
+offline re-export (`geecs_data_utils.write_scalar_files_from_tiled`) read.

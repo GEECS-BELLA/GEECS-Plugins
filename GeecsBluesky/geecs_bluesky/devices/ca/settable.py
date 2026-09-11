@@ -80,9 +80,16 @@ class CaSettable(StandardReadable):
         self._geecs_device_name = device
         self._variable = variable
         self._settle_time = settle_time
-        # Map the readback event key to its legacy "Device Variable" header for
-        # the Tiled→s-file exporter (the scan-device column in a step scan).
-        self._column_headers = {f"{name}-{_readback_attr}": f"{device} {variable}"}
+
+    @property
+    def _column_headers(self) -> dict[str, str]:
+        """Readback event key → its legacy ``Device Variable`` header (the s-file).
+
+        Computed from the readback signal's *current* name: a namespace
+        child is renamed by its parent after construction.
+        """
+        readback = getattr(self, self._readback_attr_name)
+        return {readback.name: f"{self._geecs_device_name} {self._variable}"}
 
     def set(self, value: float) -> AsyncStatus:
         """Put *value* to the setpoint PV; status resolves after ``settle_time``.

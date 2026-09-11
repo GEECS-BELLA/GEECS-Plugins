@@ -1,18 +1,20 @@
-"""Export legacy GEECS scalar files from a Bluesky run recorded in Tiled.
+"""Export legacy GEECS scalar files from a Bluesky run.
 
-A Bluesky scan persists its per-shot data to a Tiled catalog only.  Downstream
-GEECS analysis (ScanAnalysis, optimization, log tooling) still consumes the
-legacy on-disk scalar files written by the original scanner:
+Downstream GEECS analysis (ScanAnalysis, optimization, log tooling) consumes
+the legacy on-disk scalar files the original scanner wrote:
 
 - ``scans/ScanNNN/ScanDataScanNNN.txt`` — tab-separated scalar summary.
 - ``analysis/sNNN.txt`` — a copy of the same table; the *mutable* one analysis
   code appends to.
 
-:func:`write_scalar_files_from_tiled` reads a run back from Tiled by ``uid`` and
-writes both files in the legacy format.  The Bluesky event stream names scalar
-columns ``<ophyd>-<safe_var>`` (e.g. ``uc_wavemeter-wavelength_nm``), which is an
-irreversible mangling of the original GEECS ``Device Variable``; the run's
-start-document carries a ``geecs_scalar_headers`` map (event key →
+:func:`write_scalar_files` writes both from a run's start document and its
+``primary`` event stream as a DataFrame — the worker's s-file callback feeds
+it straight from the live documents at the stop document;
+:func:`write_scalar_files_from_tiled` reads a recorded run back from Tiled
+by ``uid`` first (an offline re-export).  The Bluesky event stream names
+scalar columns ``<ophyd>-<safe_var>`` (e.g. ``uc_wavemeter-wavelength_nm``),
+an irreversible mangling of the original GEECS ``Device Variable``; the
+run's start document carries a ``geecs_scalar_headers`` map (event key →
 ``Device Variable``) recorded at scan time so the original headers can be
 recovered.  See ``GeecsBluesky/EVENT_SCHEMA.md``.
 
@@ -150,6 +152,45 @@ def _fetch_run(uid: str, tiled_uri: str, tiled_api_key: Optional[str]):
     return start_doc, primary_df
 
 
+def write_scalar_files(
+    start_doc: dict[str, Any], primary_df: pd.DataFrame
+) -> Optional[tuple[Path, Path]]:
+    """Write the legacy scalar files for one run from its documents.
+
+    Parameters
+    ----------
+    start_doc:
+        The run's start document (``scan_folder``, ``scan_number``,
+        ``geecs_scalar_headers``).
+    primary_df:
+        The ``primary`` event stream as a DataFrame (one row per event,
+        Bluesky ophyd-named columns).
+
+    Returns
+    -------
+    tuple[Path, Path] or None
+        ``(scan_data_txt_path, sfile_txt_path)`` on success, or ``None`` when
+        the scan folder is absent (see :func:`_resolve_output_paths`) or the
+        run has no scalar rows.
+    """
+    paths = _resolve_output_paths(start_doc)
+    if paths is None:
+        return None
+    scan_txt, sfile_txt = paths
+
+    df = build_legacy_scalar_dataframe(start_doc, primary_df)
+    if df.empty:
+        logger.warning(
+            "Run %s produced no scalar rows; nothing written", start_doc.get("uid")
+        )
+        return None
+
+    df.to_csv(scan_txt, sep="\t", index=False)
+    df.to_csv(sfile_txt, sep="\t", index=False)
+    logger.info("Wrote legacy scalar files: %s and %s", scan_txt, sfile_txt)
+    return scan_txt, sfile_txt
+
+
 def write_scalar_files_from_tiled(
     uid: str,
     *,
@@ -186,17 +227,4 @@ def write_scalar_files_from_tiled(
         )
 
     start_doc, primary_df = _fetch_run(uid, tiled_uri, tiled_api_key)
-    paths = _resolve_output_paths(start_doc)
-    if paths is None:
-        return None
-    scan_txt, sfile_txt = paths
-
-    df = build_legacy_scalar_dataframe(start_doc, primary_df)
-    if df.empty:
-        logger.warning("Run %s produced no scalar rows; nothing written", uid)
-        return None
-
-    df.to_csv(scan_txt, sep="\t", index=False)
-    df.to_csv(sfile_txt, sep="\t", index=False)
-    logger.info("Wrote legacy scalar files: %s and %s", scan_txt, sfile_txt)
-    return scan_txt, sfile_txt
+    return write_scalar_files(start_doc, primary_df)

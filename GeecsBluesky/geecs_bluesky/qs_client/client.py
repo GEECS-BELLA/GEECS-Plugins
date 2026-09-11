@@ -17,17 +17,24 @@ as queue items.  This module is the one place that speaks
 - :func:`make_queue_client` — the factory (stub when unconfigured).
 
 Threading contract: every method here **blocks** — 0MQ request/reply with
-a short timeout, or a polled ``function_execute`` task.
-:meth:`QueueClient.status` is cheap and bounded (one request,
-``timeout_recv``) and safe to poll from a background thread; dispatch the
-submit/stop/manual-verb calls off any GUI thread.  Nothing here touches Qt.
+a short timeout.  :meth:`QueueClient.status` is cheap and bounded (one
+request, ``timeout_recv``) and safe to poll from a background thread;
+dispatch the submit/stop calls off any GUI thread.  Nothing here touches Qt.
+
+What a client submits (phase 1 PR 2 of the native-Bluesky rebuild, #807):
+a **stock plan item** — a name from
+:data:`~geecs_bluesky.plan_names.GEECS_PLAN_NAMES` with namespace devices
+by name (:meth:`QueueClient.submit_plan`), or a saved preset expanded into
+one (:meth:`QueueClient.submit_preset`,
+:mod:`geecs_bluesky.qs_client.presets`).  A manual move is
+``submit_plan("mv", args=["U_S1H.current", 0.0])``.
 
 Queue semantics this client owns (#648 item 3): on plan failure the manager
 returns the failed item to the **front** of the queue (``ignore_failures``
 default false), so a client that blindly add-and-starts re-runs the failed
-item.  :meth:`ZmqQueueClient.submit_scan` therefore surfaces the queue's
-front items to the caller (``pending_items``) and only clears them when
-told to (``clear_pending=True``).
+item.  The submit verbs therefore surface the queue's front items to the
+caller (``pending_items``) and only clear them when told to
+(``clear_pending=True``).
 """
 
 from __future__ import annotations
@@ -40,7 +47,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional, Protocol, runtime_checkable
 
-from geecs_bluesky.plan_names import RUN_ACTION_PLAN, SCAN_REQUEST_PLAN
+from geecs_bluesky.plan_names import GEECS_PLAN_NAMES
 
 logger = logging.getLogger(__name__)
 
@@ -58,11 +65,6 @@ _DOC_PORT = 5568
 #: 2 s default recv timeout so a wedged manager degrades to "disconnected"
 #: instead of stacking retries.
 _RECV_TIMEOUT_S = 2.0
-
-#: How long a foreground ``function_execute`` task may run before the client
-#: reports a timeout. Manual moves ride GEECS blocking sets — a slow magnet
-#: legitimately takes tens of seconds.
-_TASK_TIMEOUT_S = 120.0
 
 #: How long a stop-while-running may wait for the deferred pause to land
 #: before giving up. The pause waits out an in-flight blocking move (the
@@ -359,32 +361,34 @@ class QueueClient(Protocol):
         """Return the manager snapshot. Never raises."""
         ...
 
-    def submit_scan(
+    def submit_plan(
         self,
-        request: dict,
+        name: str,
         *,
-        submission: Optional[dict] = None,
+        args: Sequence[Any] = (),
+        kwargs: Optional[Mapping[str, Any]] = None,
         clear_pending: bool = False,
     ) -> SubmitResult:
-        """Queue ``geecs_scan_request_plan(request)`` and start the queue.
+        """Queue the stock plan *name* with *args* / *kwargs* and start the queue.
 
-        *submission* is the optional client-stamped ``SubmissionRecord``
-        JSON dict traveling beside the request (geecs-schemas 0.14.0
-        split it out of the document); it becomes the plan's
-        ``submission`` kwarg. Requires a worker serving the parameter
-        (GeecsBluesky ≥ 0.70.0) — omit it against an older worker.
+        Devices are named (``"UC_Amp4_IR_input"``, ``"U_S1H.current"``):
+        the manager resolves them against the worker namespace.  *name*
+        must be one of :data:`~geecs_bluesky.plan_names.GEECS_PLAN_NAMES`.
         """
         ...
 
-    def submit_action(self, name: str) -> SubmitResult:
-        """Queue ``geecs_run_action_plan(name)`` and start the queue."""
-        ...
+    def submit_preset(
+        self,
+        preset: Any,
+        *,
+        catalog: Optional[Mapping[str, Any]] = None,
+        md: Optional[Mapping[str, Any]] = None,
+        clear_pending: bool = False,
+    ) -> SubmitResult:
+        """Expand a :class:`geecs_schemas.Preset` and queue it (:func:`~.presets.expand_preset`).
 
-    def run_action(self, name: str) -> None:
-        """:meth:`submit_action`, raising ``RuntimeError`` on refusal.
-
-        Completion/failure of the action itself is observed through the
-        manager status, not this call.
+        *md* is extra run metadata — the client-stamped ``SubmissionRecord``
+        JSON under ``{"geecs": {"submission": ...}}``.
         """
         ...
 
@@ -427,19 +431,19 @@ class QueueClient(Protocol):
         """
         ...
 
-    def move_variable(self, name: str, value: float) -> dict:
-        """Run ``geecs_move_variable`` on the worker; raises on refusal/failure."""
-        ...
-
-    def describe_action(self, name: str) -> list[dict]:
-        """Run ``geecs_describe_action`` on the worker; raises on failure."""
-        ...
-
     def allowed_plan_names(self) -> list[str]:
         """Return the plan names the manager will accept from this client.
 
         Empty while the worker environment is closed (the manager knows
         no plans until it opens — #793); raises on failure.
+        """
+        ...
+
+    def allowed_device_names(self) -> list[str]:
+        """Return every device reference the manager resolves (``U_S1H``, ``U_S1H.current``).
+
+        The worker namespace's device tree flattened to dotted names; empty
+        while the environment is closed; raises on failure.
         """
         ...
 
@@ -473,23 +477,27 @@ class StubQueueClient:
         """Return a disconnected snapshot naming the missing config."""
         return QueueStatus(connected=False, detail=_STUB_MESSAGE)
 
-    def submit_scan(
+    def submit_plan(
         self,
-        request: dict,
+        name: str,
         *,
-        submission: Optional[dict] = None,
+        args: Sequence[Any] = (),
+        kwargs: Optional[Mapping[str, Any]] = None,
         clear_pending: bool = False,
     ) -> SubmitResult:
         """Refuse with the missing-config message."""
         return SubmitResult(ok=False, message=_STUB_MESSAGE)
 
-    def submit_action(self, name: str) -> SubmitResult:
+    def submit_preset(
+        self,
+        preset: Any,
+        *,
+        catalog: Optional[Mapping[str, Any]] = None,
+        md: Optional[Mapping[str, Any]] = None,
+        clear_pending: bool = False,
+    ) -> SubmitResult:
         """Refuse with the missing-config message."""
         return SubmitResult(ok=False, message=_STUB_MESSAGE)
-
-    def run_action(self, name: str) -> None:
-        """Refuse with the missing-config message."""
-        raise RuntimeError(_STUB_MESSAGE)
 
     def request_pause(self) -> tuple[bool, str]:
         """Refuse with the missing-config message."""
@@ -519,15 +527,11 @@ class StubQueueClient:
         """Refuse with the missing-config message."""
         return False, _STUB_MESSAGE
 
-    def move_variable(self, name: str, value: float) -> dict:
-        """Refuse with the missing-config message."""
-        raise RuntimeError(_STUB_MESSAGE)
-
-    def describe_action(self, name: str) -> list[dict]:
-        """Refuse with the missing-config message."""
-        raise RuntimeError(_STUB_MESSAGE)
-
     def allowed_plan_names(self) -> list[str]:
+        """Refuse with the missing-config message."""
+        raise RuntimeError(_STUB_MESSAGE)
+
+    def allowed_device_names(self) -> list[str]:
         """Refuse with the missing-config message."""
         raise RuntimeError(_STUB_MESSAGE)
 
@@ -592,32 +596,6 @@ class ZmqQueueClient:
                     timeout_recv=_RECV_TIMEOUT_S,
                 )
             return self._api
-
-    def _wait_for_task(self, task_uid: str, *, timeout_s: float) -> dict:
-        """Poll ``task_result`` until the task completes; return its payload.
-
-        Raises
-        ------
-        RuntimeError
-            Task failure (with the worker's message) or timeout.
-        """
-        api = self._manager()
-        deadline = time.monotonic() + timeout_s
-        while time.monotonic() < deadline:
-            result = api.task_result(task_uid)
-            status = result.get("status")
-            if status == "completed":
-                task = result.get("result") or {}
-                if not task.get("success", False):
-                    raise RuntimeError(task.get("msg") or "worker task failed")
-                return task.get("return_value")
-            if status not in (None, "running", "accepted", "pending"):
-                raise RuntimeError(f"worker task ended with status {status!r}")
-            time.sleep(0.2)
-        # "did not finish within" is a parsed seam: GEECS-MCP's
-        # _task_error_kind matches it to report task_timeout instead of
-        # worker_refused — reword both together.
-        raise RuntimeError(f"worker task did not finish within {timeout_s:.0f} s")
 
     # -- protocol -----------------------------------------------------------
 
@@ -698,40 +676,46 @@ class ZmqQueueClient:
             )
         return SubmitResult(ok=True, message="queued", item_uid=item_uid)
 
-    def submit_scan(
+    def submit_plan(
         self,
-        request: dict,
+        name: str,
         *,
-        submission: Optional[dict] = None,
+        args: Sequence[Any] = (),
+        kwargs: Optional[Mapping[str, Any]] = None,
         clear_pending: bool = False,
     ) -> SubmitResult:
-        """Queue the one scan plan; the submission record rides as a kwarg.
-
-        ``submission`` is only added to the queue item when given — an
-        older worker (plan without the parameter) keeps accepting
-        record-less submissions from this client.
-        """
+        """Queue one stock plan item; refuse a name the worker does not register."""
+        if name not in GEECS_PLAN_NAMES:
+            return SubmitResult(
+                ok=False,
+                message=(
+                    f"{name!r} is not a plan the worker registers "
+                    f"({', '.join(GEECS_PLAN_NAMES)})"
+                ),
+            )
         return self._submit_item(
-            SCAN_REQUEST_PLAN,
-            [request],
-            kwargs={"submission": submission} if submission is not None else None,
-            clear_pending=clear_pending,
+            name, list(args), kwargs=dict(kwargs or {}), clear_pending=clear_pending
         )
 
-    def submit_action(self, name: str) -> SubmitResult:
-        """Queue the on-demand action plan (actions are queue items, decision 2)."""
-        return self._submit_item(RUN_ACTION_PLAN, [name], clear_pending=False)
+    def submit_preset(
+        self,
+        preset: Any,
+        *,
+        catalog: Optional[Mapping[str, Any]] = None,
+        md: Optional[Mapping[str, Any]] = None,
+        clear_pending: bool = False,
+    ) -> SubmitResult:
+        """Expand the preset and queue it; an expansion refusal is the message."""
+        from geecs_bluesky.exceptions import GeecsConfigurationError
+        from geecs_bluesky.qs_client.presets import expand_preset
 
-    def run_action(self, name: str) -> None:
-        """Queue the action item; raise the refusal message on failure."""
-        result = self.submit_action(name)
-        if not result.ok:
-            if result.pending_items:
-                raise RuntimeError(
-                    f"queue not empty ({len(result.pending_items)} item(s) "
-                    "pending) — clear the queue before running an action"
-                )
-            raise RuntimeError(result.message or "action submission refused")
+        try:
+            item = expand_preset(preset, catalog=catalog, md=md)
+        except GeecsConfigurationError as exc:
+            return SubmitResult(ok=False, message=str(exc))
+        return self.submit_plan(
+            item.name, args=item.args, kwargs=item.kwargs, clear_pending=clear_pending
+        )
 
     def request_pause(self) -> tuple[bool, str]:
         """Deferred pause (the stock verb; hard pause replays — never default it)."""
@@ -816,26 +800,6 @@ class ZmqQueueClient:
         except Exception as exc:
             return False, str(exc)
 
-    def move_variable(self, name: str, value: float) -> dict:
-        """Run the worker's manual move; idle-only (the manager enforces it)."""
-        from bluesky_queueserver_api import BFunc
-
-        api = self._manager()
-        response = api.function_execute(
-            BFunc("geecs_move_variable", name, value), user=self._user
-        )
-        return self._wait_for_task(response["task_uid"], timeout_s=_TASK_TIMEOUT_S)
-
-    def describe_action(self, name: str) -> list[dict]:
-        """Dry-run a named action against the worker's configs; idle-only."""
-        from bluesky_queueserver_api import BFunc
-
-        api = self._manager()
-        response = api.function_execute(
-            BFunc("geecs_describe_action", name), user=self._user
-        )
-        return self._wait_for_task(response["task_uid"], timeout_s=30.0)
-
     def allowed_plan_names(self) -> list[str]:
         """The manager's ``plans_allowed`` for this client's user group.
 
@@ -848,6 +812,17 @@ class ZmqQueueClient:
         api = self._manager()
         response = api.plans_allowed()
         return sorted((response.get("plans_allowed") or {}).keys())
+
+    def allowed_device_names(self) -> list[str]:
+        """The manager's ``devices_allowed`` tree as sorted dotted names.
+
+        The manager does not refuse an unknown device string in a queue
+        item (it reaches the plan as a string), so the pre-submit preflight
+        checks every reference here.
+        """
+        api = self._manager()
+        response = api.devices_allowed()
+        return sorted(flatten_device_tree(response.get("devices_allowed") or {}))
 
     def readiness(
         self, expected_plans: str | Sequence[str] | None = None
@@ -866,6 +841,17 @@ class ZmqQueueClient:
                 api.close()
             except Exception as exc:  # best-effort release
                 logger.debug("REManagerAPI close failed: %s", exc)
+
+
+def flatten_device_tree(tree: Mapping[str, Any], prefix: str = "") -> list[str]:
+    """``{name: {"components": {...}}}`` → every dotted reference in the tree."""
+    names: list[str] = []
+    for name, info in tree.items():
+        full = f"{prefix}{name}"
+        names.append(full)
+        components = (info or {}).get("components") or {}
+        names.extend(flatten_device_tree(components, prefix=full + "."))
+    return names
 
 
 def make_queue_client(

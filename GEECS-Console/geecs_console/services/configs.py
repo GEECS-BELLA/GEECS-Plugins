@@ -157,7 +157,10 @@ class ConsoleConfigs:
             )
         return ConfigListing(
             experiments=experiments,
-            save_sets=resolver.list_save_sets(),
+            # Save sets are retired (GEECS-Plugins#807 phase 1 PR 2: presets
+            # carry the device group); the list stays empty until the console
+            # is rewired onto presets with the stable foundation.
+            save_sets=[],
             trigger_profiles=resolver.list_trigger_profiles(),
             scan_variables=self._scan_variable_names(),
             optimization_configs=resolver.list_optimizer_configs(),
@@ -227,25 +230,9 @@ class ConsoleConfigs:
         """
         if not save_set_names:
             return UnionPreview(device_count=0)
-        resolver = self._get_resolver()
-        if resolver is None:
-            return UnionPreview(hint="configs unavailable")
-        try:
-            from geecs_bluesky.scan_request_runner import merge_save_sets
-
-            resolved = [resolver.resolve_save_set(name) for name in save_set_names]
-            merged = merge_save_sets(resolved)
-        except ValueError as exc:  # conflicting explicit roles across sets
-            return UnionPreview(hint=f"role conflict: {exc}")
-        except Exception as exc:
-            return UnionPreview(hint=str(exc))
-        references = [
-            entry.device
-            for entry in merged.entries
-            if getattr(entry.role, "value", None) == "reference"
-        ]
-        hint = f"reference: {', '.join(references)}" if references else ""
-        return UnionPreview(device_count=len(merged.entries), hint=hint)
+        # Save sets are retired (GEECS-Plugins#807 phase 1 PR 2): the union
+        # preview returns with the rewire onto presets.
+        return UnionPreview(hint="save sets retired — presets carry the device group")
 
     def optimization_spec(self, name: str) -> Any:
         """Load optimizer config *name* as a validated ``OptimizationSpec``.

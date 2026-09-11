@@ -3,6 +3,19 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.27.0] - 2026-09-10
+
+### Added
+
+- `tiled_export.write_scalar_files(start_doc, primary_df)` — the legacy
+  scalar files (`ScanDataScanNNN.txt` + `analysis/sNNN.txt`) from a run's
+  start document and its `primary` events as a DataFrame, so the worker's
+  s-file callback writes them from the live documents at the stop
+  document (GeecsBluesky 0.80.0) with no Tiled round trip.
+  `write_scalar_files_from_tiled` is now the fetch plus that call (the
+  offline re-export).  Still a consumer of scan folders — never creates
+  one.
+
 ## [0.26.1] - 2026-09-04
 
 ### Fixed

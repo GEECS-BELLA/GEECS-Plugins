@@ -6,6 +6,59 @@
 
 # GEECS config schema reference
 
+## `preset`
+
+### Preset
+
+A saved scan: the device group plus the plan call.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `schema_version` | `int` | no | 1 | Format version of this config file. Leave at 1 — tools update this automatically when the file format changes. |
+| `name` | `str` | yes | — | The name clients use to pick this preset. |
+| `description` | `str` | no | '' | What this scan is for — becomes the run's description (ScanStartInfo in the legacy ScanInfo file). |
+| `trigger_profile` | `str (optional)` | no | None | Name of the trigger profile driving the shots. Leave unset to use the experiment default (experiment_defaults.yaml). |
+| `background` | `bool` | no | False | Flag this scan as a background measurement (metadata only: ScanMode 'background' in ScanInfo, 'background' in the run). |
+| `devices` | `list[PresetDevice]` | no | empty | The devices recording this scan, one entry per device. Every subscribed scalar of each is a column of every row; each entry chooses whether its images are saved. An empty list scans with the motors' readbacks only. |
+| `plan` | `PlanCall (optional)` | no | None | The stock plan call this preset submits. Unset means a device group with no scan attached yet. |
+
+Example:
+
+```yaml
+schema_version: 1
+name: emq1_scan
+description: emq1 scan after bax alignment
+trigger_profile: HTU-Normal          # omit to use the experiment default
+devices:
+  - device: UC_ALineEBeam3           # frames saved (the default)
+  - device: UC_VisaEBeam1
+    save_images: false               # scalars only, no frames on disk
+  - device: U_BCaveICT
+plan:
+  name: scan                         # a stock bluesky plan the worker registers
+  args: ["EMQ1 Current", 1.2, 1.7, 6]  # motor (catalog name or Device:Variable), start, stop, points
+  kwargs: {shots_per_step: 20}       # rows recorded at every position
+```
+
+### PresetDevice
+
+One device of the group: it records every shot of the scan.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `device` | `str` | yes | — | GEECS device name exactly as it appears in the GEECS experiment database (MySQL), e.g. 'UC_ALineEbeam1'. |
+| `save_images` | `bool` | no | True | Save the device's images / non-scalar files (camera frames, traces) beside the scalar data. Off records the device's scalars only — its per-shot readings still land in every row; the frames stay off the disk. Meaningless for a scalar-only device (nothing to save either way). |
+
+### PlanCall
+
+The stock plan the preset runs, with its arguments.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `name` | `str` | yes | — | The stock bluesky plan to run, e.g. 'count', 'scan', 'list_scan', 'grid_scan' — one of the names the worker registers. |
+| `args` | `list[JsonValue]` | no | empty | Positional arguments after the detectors, in the plan's own order — e.g. ['EMQ1 Current', 1.2, 1.7, 6] for scan (motor, start, stop, number of points). A scan variable is a string: 'Device:Variable' or a scan-variable catalog name. |
+| `kwargs` | `dict[str, JsonValue]` | no | empty | Keyword arguments — e.g. {num: 100} for count, {shots_per_step: 10} for the scan verbs (rows recorded at every position). |
+
 ## `scan_request`
 
 ### ScanRequest
@@ -133,63 +186,6 @@ Which optimization algorithm proposes the next settings.
 |---|---|---|---|---|
 | `name` | `str` | yes | — | Name of the optimization algorithm, e.g. 'bayes_default', 'random', or 'multipoint_bax_alignment_l2'. |
 | `options` | `dict` | no | empty | Algorithm-specific tuning options. Free-form: each generator documents its own options (legacy 'xopt_config_overrides'). |
-
-## `save_set`
-
-### SaveSet
-
-The devices a scan *requires* — its participation list, not a logging list.
-
-| Field | Type | Required | Default | What it does |
-|---|---|---|---|---|
-| `schema_version` | `int` | no | 1 | Format version of this config file. Leave at 1 — tools update this automatically when the file format changes. |
-| `name` | `str` | yes | — | The name scans use to refer to this save set. |
-| `entries` | `list[SaveSetEntry]` | yes | — | The devices to record, one entry per device. |
-| `description` | `str` | no | '' | Optional note about what this save set is for. |
-
-Example:
-
-```yaml
-schema_version: 1
-name: undulator_baseline
-# the REQUIRED devices — everything else is still logged in the background
-entries:
-  - device: UC_Amp4_IR_input
-    images: true                     # images are always required-tier
-    scalars: [MaxCounts, centroidx]  # extras beyond the DB's standard telemetry
-  - device: U_HP_Daq
-    db_scalars: false                # record ONLY the listed scalars, not the DB set
-    scalars: [AnalogOutput.Channel 1]
-    at_scan_start: {Analysis: "on"}  # replace the DB's scan-start value
-    at_scan_end: {Analysis: null}    # suppress the DB's scan-end write
-  - device: U_BCaveHallProbe
-    scalars: [Field, Rawfield]
-    role: snapshot
-  - device: UC_UndulatorRad2
-    images: true
-    scalars: [MeanCounts]
-    # this device's ritual travels with it: these named plans run once
-    # before/after any scan whose save set includes this entry
-    setup: [visa1_spectrometer_setup]
-    closeout: [visa1_spectrometer_closeout]
-```
-
-### SaveSetEntry
-
-One *required* device of a scan and the guarantees it gets.
-
-| Field | Type | Required | Default | What it does |
-|---|---|---|---|---|
-| `device` | `str` | yes | — | GEECS device name exactly as it appears in the GEECS experiment database (MySQL), e.g. 'UC_ALineEbeam1'. Spelling (including case) is checked against the database when the config is loaded. |
-| `scalars` | `list[str]` | no | empty | EXTRA scalar readings to record beyond the device's standard telemetry — the variables the GEECS experiment database marks for scan logging (MySQL table expt_device_variable, get='yes'), which 'db_scalars' records by default. E.g. ['MaxCounts', 'centroidx']. Usually empty — list variables here only when you need something the database doesn't mark. |
-| `all_scalars` | `bool` | no | False | Record every scalar variable the device publishes instead of naming them one by one. If 'scalars' is also given, the explicit list wins. |
-| `images` | `bool` | no | False | Save the device's images / non-scalar files (camera frames, traces) alongside the scalar data. Ignored for an entry with role 'snapshot' (legacy synchronous: false): the snapshot role records scalars only — the scanner neither commands nor suppresses the device's own save flag. |
-| `role` | `SaveRole (optional)` | no | None | Override for how this device is synchronized with shots. Leave unset to let the scanner decide; set 'snapshot' for slow readbacks that don't produce one value per shot (scalars only — 'images' is ignored for a snapshot entry). |
-| `setup` | `list[str]` | no | empty | Names of action plans that must run before any scan that records this device — its setup ritual (turn analysis on, insert a stage, ...). The plans named by all entries of a save set are collected together, de-duplicated by name, and each runs once before the scan. |
-| `closeout` | `list[str]` | no | empty | Names of action plans that run after any scan that records this device — its cleanup ritual. Collected and de-duplicated the same way as 'setup', and run once after the scan (even on abort). |
-| `db_scalars` | `bool` | no | True | Record every variable the GEECS experiment database marks for scan logging for this device (MySQL table expt_device_variable, column get='yes') — the MC-style 'standard telemetry', and the default scalar source for a required device. The 'scalars' list adds extras on top. Turn off to record only what 'scalars' lists explicitly (converted legacy elements do this, preserving their exact old behavior). |
-| `at_scan_start` | `dict[str, str (optional)]` | no | empty | RESERVED AND NOT APPLIED in this version. The DB set-side scan start/end writes are intentionally disabled: the engine sets up triggering via the trigger profile / shot controller and camera saving via its own save-windowing, so writing the database's set='yes' start values here would race the shot controller. Kept for a possible future re-enable — a config that sets it is not an error but has no effect today (the engine logs a warning). When honored again, it would tweak the database's scan-start writes per variable (unmentioned = database value, a value = replace, null = suppress). |
-| `at_scan_end` | `dict[str, str (optional)]` | no | empty | RESERVED AND NOT APPLIED in this version — the scan-end counterpart of 'at_scan_start'. The DB set-side scan start/end writes are intentionally disabled (triggering is owned by the trigger profile / shot controller, camera saving by the scanner's save-windowing), so this has no effect today; it is kept for a possible future re-enable. When honored again, it would tweak the database's scan-end writes per variable (same three cases as 'at_scan_start'). |
 
 ## `scan_variables`
 

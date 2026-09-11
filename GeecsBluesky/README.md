@@ -42,12 +42,12 @@ Phase 0 (one camera as a `GeecsDetector`, strict shots under stock
 `bp.count` / `bp.list_scan`) is hardware-accepted
 (`Planning/native_bluesky/04_phase0_measurements.md`).  Phase 1 PR 1
 deleted the `ScanRequest` funnel, the free-run mode, `GeecsSession` and
-the funnel-only devices; the worker registers the stock plans over the
-namespace.  Next: the plan layer (the `claim_scan` preprocessor +
-`PathProvider`, the ScanInfo / s-file / `scan.log` callbacks, the
-registration table with the strict `take_reading` pre-bound), then
-headless hardware acceptance and the worker flip.  Until then the deployed
-worker stays on `master`.
+the funnel-only devices; PR 2 added the plan layer — the stock plans
+registered strict under their own names, every run claiming a scan
+number, the ScanInfo / s-file / `scan.log` callbacks, the baseline
+telemetry stream, presets as the saved queue item.  Next: headless
+hardware acceptance and the worker flip.  Until then the deployed worker
+stays on `master`.
 
 ## Requirements
 

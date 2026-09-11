@@ -4,8 +4,11 @@ Each function here has the ``bluesky.preprocessors`` shape (``plan → plan``)
 so it can be installed once on the RunEngine (``RE.preprocessors.append``)
 and applies to **every** plan, stock or not, with no per-plan code.
 
-Phase 1: :func:`connect_on_demand`.  Later phases add the ``md["geecs"]``
-preamble/finalize preprocessor (``Planning/native_bluesky/00_overview.md``).
+Two live here — :func:`connect_on_demand` (connect a namespace device the
+first time a plan touches it) and :func:`scalar_headers` (the legacy
+``Device Variable`` header map into the start document).  The scan-number
+claim is beside the claim itself,
+:func:`geecs_bluesky.plans.claim_scan.claim_scan_preprocessor`.
 """
 
 from __future__ import annotations
@@ -15,7 +18,7 @@ from collections.abc import Generator
 from functools import partial
 from typing import Any
 
-from bluesky.preprocessors import plan_mutator
+from bluesky.preprocessors import msg_mutator, plan_mutator
 from bluesky.utils import Msg
 from ophyd_async.plan_stubs import ensure_connected
 
@@ -129,6 +132,54 @@ def connect_on_demand(
         return _connect_then_forward(), None
 
     return (yield from plan_mutator(plan, _insert_connect))
+
+
+def scalar_headers(plan: Generator[Msg, Any, Any]) -> Generator[Msg, Any, Any]:
+    """Put ``geecs_scalar_headers`` into every start document.
+
+    The s-file needs the legacy ``Device Variable`` header of every event
+    column (``geecs_data_utils.tiled_export``, and the scan browser's
+    display names): ``safe_name`` mangling is irreversible, so each device
+    carries ``_column_headers`` (event key → header) and this
+    :func:`~bluesky.preprocessors.msg_mutator` merges them into the run's
+    metadata.  Which devices: the ones the plan **staged** before
+    ``open_run`` — the stock plans stage every detector and motor of the
+    primary stream (their root ancestors — so the walk covers every
+    descendant: a settable child's header, a detector's ``scalars`` view).
+    A header map the plan already carries is kept.
+    """
+    staged: list[Any] = []
+
+    def _walk(obj: Any):
+        yield obj
+        children = getattr(obj, "children", None)
+        if callable(children):
+            for _, child in children():
+                yield from _walk(child)
+
+    def _mutate(msg: Msg) -> Msg:
+        if msg.command == "stage":
+            staged.append(msg.obj)
+            return msg
+        if msg.command != "open_run":
+            return msg
+        headers: dict[str, str] = {}
+        for root in staged:
+            for obj in _walk(root):
+                headers.update(getattr(obj, "_column_headers", None) or {})
+        staged.clear()
+        if "geecs_scalar_headers" in msg.kwargs:
+            return msg
+        return Msg(
+            "open_run",
+            msg.obj,
+            *msg.args,
+            run=msg.run,
+            **msg.kwargs,
+            geecs_scalar_headers=headers,
+        )
+
+    return (yield from msg_mutator(plan, _mutate))
 
 
 def install_connect_on_demand(

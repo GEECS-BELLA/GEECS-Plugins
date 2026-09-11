@@ -17,6 +17,7 @@ from ophyd_async.core import StandardReadable
 from ophyd_async.epics.core import epics_signal_r
 
 from geecs_bluesky.devices.ca._pv import ca_pv
+from geecs_bluesky.devices.ca._view import ScalarsView
 from geecs_bluesky.utils import safe_name
 
 logger = logging.getLogger(__name__)
@@ -67,6 +68,10 @@ class CaSnapshotReadable(StandardReadable):
                         ca_pv(experiment, device, var),
                     ),
                 )
+        # The scalars-only view every namespace device carries (``X.scalars``
+        # in a plan's detector list, a preset's ``save_images: false``): for a
+        # scalar-only device it reads exactly what the device reads.
+        self.scalars = ScalarsView(self)
         super().__init__(name=name)
         self._column_headers = {
             f"{name}-{safe_name(var)}": f"{device} {var}" for var in variable_list

@@ -60,6 +60,7 @@ from ophyd_async.epics.core import epics_signal_r, epics_signal_rw
 
 from geecs_bluesky.data_paths import device_server_save_path
 from geecs_bluesky.devices.ca._pv import ca_pv, setpoint_pv
+from geecs_bluesky.devices.ca._view import ScalarsView
 from geecs_bluesky.exceptions import GeecsTriggerTimeoutError
 from geecs_bluesky.utils import safe_name
 
@@ -312,7 +313,13 @@ class LvNativeFileDataLogic(DetectorDataLogic):
     localsavingpath, save :
         The device's two save controls (gateway readback + ``:SP``).
     path_provider :
-        Where this run's files go; called with the datakey name.
+        Where this run's files go.  Called with *directory_name*, not the
+        datakey: the device directory inside ``ScanNNN/`` is the GEECS
+        device name (``Scan065/UC_Amp4_IR_input/``), the path every
+        analysis reader builds (``ScanPaths.build_device_file_map``) —
+        never the lowercase ophyd name.
+    directory_name :
+        The GEECS device name the run folder's sub-directory is called.
     device_path :
         Worker path → the path the device server understands (the Windows
         share path); defaults to the config.ini mapping.
@@ -329,11 +336,13 @@ class LvNativeFileDataLogic(DetectorDataLogic):
         save: SignalRW[str],
         path_provider: PathProvider | None,
         *,
+        directory_name: str,
         device_path: Callable[[str], str] = device_server_save_path,
     ) -> None:
         self._localsavingpath = localsavingpath
         self._save = save
         self._path_provider = path_provider
+        self._directory_name = directory_name
         self._device_path = device_path
         self.directory: Path | None = None
 
@@ -346,7 +355,7 @@ class LvNativeFileDataLogic(DetectorDataLogic):
         """
         if self._path_provider is None:
             return _NoProvider()
-        info = self._path_provider(datakey_name)
+        info = self._path_provider(self._directory_name)
         directory = Path(info.directory_path)
         if not directory.parent.is_dir():
             raise FileNotFoundError(
@@ -366,8 +375,50 @@ class LvNativeFileDataLogic(DetectorDataLogic):
         self.directory = None
 
 
+class GeecsDetectorScalars(ScalarsView):
+    """A detector's scalars-only view: the same shot wait, no file writing.
+
+    ``UC_Amp4_IR_input.scalars`` in a plan's detector list records the
+    camera's per-shot scalars (and its stamp) **exactly** — it is
+    ``Triggerable`` through the parent's acquire logic, so its row is the
+    shot's frame, not whatever the monitor cache held — but never turns
+    native saving on: the parent's data logics are not prepared.  This is
+    how a preset says *scalars only* for a camera (``save_images: false``)
+    with a stock plan signature (:class:`~geecs_bluesky.devices.ca._view.ScalarsView`).
+    """
+
+    _owner: GeecsDetector
+
+    @property
+    def connected_status(self) -> SignalR[str]:
+        """The parent's gateway liveness PV (the refire gate reads it)."""
+        return self._owner.connected_status
+
+    def trigger(self) -> AsyncStatus:
+        """Baseline the parent's stamp now, then wait for it to advance."""
+        acquire = self._owner._acquire
+        acquire.baseline()
+        return AsyncStatus(acquire.wait_for_idle())
+
+    async def read(self) -> dict[str, Reading]:
+        """The parent's scalar columns (and stamp) — same keys as the parent."""
+        return await merge_gathered_dicts(
+            sig.read() for sig in self._owner._scalar_signals()
+        )
+
+    async def describe(self) -> dict[str, DataKey]:
+        """Data keys of the parent's scalar columns."""
+        return await merge_gathered_dicts(
+            sig.describe() for sig in self._owner._scalar_signals()
+        )
+
+
 class GeecsDetector(StandardDetector):
     """One GEECS acquirer (camera, spectrometer, scope) as a StandardDetector.
+
+    ``scalars`` (:class:`GeecsDetectorScalars`) is the scalars-only view a
+    plan lists instead of the detector itself when the frames are not
+    wanted this run.
 
     Parameters
     ----------
@@ -445,9 +496,16 @@ class GeecsDetector(StandardDetector):
             self.localsavingpath = epics_signal_rw(str, path_pv, setpoint_pv(path_pv))
             self.save = epics_signal_rw(str, save_pv, setpoint_pv(save_pv))
             logics.append(
-                LvNativeFileDataLogic(self.localsavingpath, self.save, path_provider)
+                LvNativeFileDataLogic(
+                    self.localsavingpath,
+                    self.save,
+                    path_provider,
+                    directory_name=device,
+                )
             )
         self.add_detector_logics(*logics)
+        # The scalars-only view (``X.scalars`` in a plan's detector list).
+        self.scalars = GeecsDetectorScalars(self)
         super().__init__(name=name)
         # Legacy "Device Variable" headers for the Tiled → s-file exporter.
         self._column_headers = {
@@ -463,6 +521,10 @@ class GeecsDetector(StandardDetector):
     def last_acq_timestamp(self) -> float | None:
         """Latest stamp seen by the persistent monitor."""
         return self._acquire.last_acq_timestamp
+
+    def _scalar_signals(self) -> tuple[Any, ...]:
+        """Every scalar column plus the stamp — what ``scalars`` reads."""
+        return (*self._scalars, self.acq_timestamp)
 
     def add_readables(self, signals: Sequence[Any]) -> None:
         """Add event columns beyond the constructor's *variables*.

@@ -53,6 +53,7 @@ from geecs_data_utils.scan_log_loader import (
 )
 from geecs_data_utils.tiled_export import (
     build_legacy_scalar_dataframe,
+    write_scalar_files,
     write_scalar_files_from_tiled,
 )
 from geecs_data_utils.scan_paths import daily_scan_folder
@@ -103,6 +104,7 @@ __all__ = [
     "parse_scan_log",
     # tiled export
     "build_legacy_scalar_dataframe",
+    "write_scalar_files",
     "write_scalar_files_from_tiled",
     # tiled catalog (scan-shaped navigation of Bluesky runs)
     "CatalogStatus",
