@@ -398,7 +398,10 @@ class HdfFilePlugin:
             return
         self._store(param, value)
         if param.suffix == "FilePath":
+            # A new run starts with its path: the status reflects this run.
             self._post("FilePathExists_RBV", bool(value) and os.path.isdir(value))
+            self._post("WriteStatus", "Write OK")
+            self._post("WriteMessage", "")
         op.done()
 
     # -------------------------------------------------------------- intake

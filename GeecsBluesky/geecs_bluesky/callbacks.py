@@ -517,8 +517,8 @@ def _stack_verdict(start: Mapping[str, Any], message: str, *, warning: bool) -> 
 def subscribe_scan_outputs(run_engine: Any) -> tuple[int, int, int, int]:
     """Subscribe the output callbacks; return their tokens.
 
-    The stack check goes first so its verdict lands in ``scan.log`` before
-    the log callback closes the file at the same stop document.
+    Order is not load-bearing: the stack check appends its verdict to
+    ``scan.log`` itself, after the log callback has closed the file.
     """
     return (
         run_engine.subscribe(StackCheckCallback()),
