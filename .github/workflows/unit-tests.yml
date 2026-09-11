@@ -35,12 +35,22 @@ jobs:
           poetry run pytest GEECS-Data-Utils/tests -m "not integration and not gui" --tb=short -q
           poetry run pytest GEECS-Schemas/tests -m "not integration and not gui" --tb=short -q
 
+      - name: Install GeecsScanLog dependencies
+        working-directory: GeecsScanLog
+        run: poetry install --with dev
+
+      - name: Run GeecsScanLog tests
+        working-directory: GeecsScanLog
+        run: poetry run pytest tests --tb=short -q
+
       - name: Install GEECS-DataPortal dependencies
         working-directory: GEECS-DataPortal
         # --extras analysis: the Images tab's processing-selector tests
         # (TestProcessingSelector) importorskip image_analysis and would
         # silently skip without it (the #737 CI-red lesson, 2026-09-01).
-        run: poetry install --with dev --extras analysis
+        # --extras log: test_scan_log_mount importorskips geecs_scan_log and
+        # would silently skip without it (same lesson as #737).
+        run: poetry install --with dev --extras analysis --extras log
 
       - name: Run GEECS-DataPortal tests
         working-directory: GEECS-DataPortal
