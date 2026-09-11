@@ -326,7 +326,8 @@ class StackCheckCallback(_RunCallback):
     (``seq_nums``, assigned by the RunEngine bundler) — a partial row owns
     none even when the camera delivered (its frame was rewound), so the
     rows are taken from the datums, never from the stamp column alone.
-    The stack's own stamps are read and compared with those rows'
+    The stack's own stamps are read (LabVIEW epoch, the rows' epoch —
+    the plugin stores Unix seconds) and compared with those rows'
     ``<name>-acq_timestamp``: the frame count must be the datums' total
     width and every referenced row's stamp its frame's.
 
@@ -465,7 +466,7 @@ class StackCheckCallback(_RunCallback):
                 warning=True,
             )
             return
-        stamps = read_stack_timestamps(path)
+        stamps = read_stack_timestamps(path, labview_epoch=True)
         if len(stamps) != len(expected):
             _stack_verdict(
                 start,

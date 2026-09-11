@@ -228,9 +228,11 @@ stack per scan through the **stock** `ADHDFDataLogic` over
 `devices/hdf_plugin.GeecsHdfIO`; the run's stream documents reference it
 and Tiled reads it with its stock adapter.  The rule is the namespace's:
 DB image variable + endpoint in `config.ini [pva] file_plugin_addr_list`
-(absent = no host; never the PVA fleet's `addr_list`).  Elsewhere per-shot data stays on the LabVIEW-native
-file path (`LvNativeFileDataLogic`, named with the stamp) — the
-non-image proprietary devices keep it for good.  Live frames are the
+(absent = no host; never the PVA fleet's `addr_list`).  A plugin-backed camera keeps writing its native
+PNGs beside the stack (dual-write, the rollout's parity evidence) until
+PNG retirement (#738); elsewhere per-shot data stays on the
+LabVIEW-native file path (`LvNativeFileDataLogic`, named with the stamp)
+— the non-image proprietary devices keep it for good.  Live frames are the
 NTNDArray PVs.  A missed shot keeps its row (scalars, the missing
 device's columns `NaN`, no frames) and the plan takes one more shot,
 rewinding every plugin to its last referenced frame first

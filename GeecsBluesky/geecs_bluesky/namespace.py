@@ -412,8 +412,9 @@ class GeecsNamespace:
         dev: Any
         if triggered:
             # Plugin-backed iff the DB lists an image variable and the
-            # device's camera server serves the file plugin (#806); the
-            # LabVIEW-native path then only clears a stale save flag.
+            # device's camera server serves the file plugin (#806).  The
+            # LabVIEW-native path stays on beside it — PNG dual-write until
+            # PNG retirement (#738), the parity evidence of the rollout.
             plugin_vars = (
                 image_variables(rows)
                 if self._path_provider is not None
@@ -426,9 +427,7 @@ class GeecsNamespace:
                 experiment=roster.experiment,
                 name=ophyd_name,
                 datatypes=datatypes,
-                path_provider=(
-                    self._path_provider if native_save and not plugin_vars else None
-                ),
+                path_provider=self._path_provider if native_save else None,
                 native_save=native_save,
                 hdf_plugins=[
                     (var, PluginPathProvider(self._path_provider, device))

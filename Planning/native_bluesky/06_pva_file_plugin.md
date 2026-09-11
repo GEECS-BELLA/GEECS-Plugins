@@ -327,10 +327,11 @@ per-scan state between sessions; the worker tells it where to write.
   path_provider=PluginPathProvider(...), driver=io, writer=io)` — the
   writer IO is also the "driver" the logic reads geometry and the
   attribute XML from, since `NDFileHDF5IO` inherits every signal
-  `NDArrayDescription` needs.  `native_save` stays for the LabVIEW-native
-  devices and for the not-yet-rolled cameras; **a plugin-backed camera
-  still clears a stale `save=on` at stage** (the crash case found live
-  26_0828) but never turns it on.
+  `NDArrayDescription` needs.  `native_save` stays: a plugin-backed
+  camera **also writes its native PNGs** (dual-write, #806's "PNG
+  dual-write stays on" — the parity evidence of the rollout, checked by
+  `geecs-pva-gateway diff` and inline by the acceptance test) until PNG
+  retirement (#738) turns the LabVIEW path off for cameras.
 - **`discard_uncollected()`** and the refire hook (§2.1); the count
   timeout translation and `exposure_timeout` (§2.2).  The plan calls the
   method through the stock `bps.wait_for` stub — no custom message.

@@ -523,9 +523,9 @@ class GeecsDetector(StandardDetector):
         gateway serves (#806): each becomes a :class:`GeecsHdfIO` child
         (``hdf``, then ``hdf_<variable>``) driven by the stock
         ``ADHDFDataLogic``; the first writes the ``<name>`` stream key, the
-        others ``<name>-<variable>``.  A plugin-backed camera never turns
-        LabVIEW-native saving on (pass *native_save* without a
-        *path_provider* so a stale flag is still cleared).
+        others ``<name>-<variable>``.  With a *path_provider* as well the
+        camera also writes its native files (dual-write, until PNG
+        retirement #738); without one a stale ``save=on`` is still cleared.
     shot_timeout :
         Seconds to wait for the stamp after a fire.
     """
