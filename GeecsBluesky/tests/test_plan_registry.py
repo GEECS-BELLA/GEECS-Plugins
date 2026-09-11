@@ -259,3 +259,44 @@ def test_profiles_from_resolver_skip_unloadable_and_mark_namespace() -> None:
     assert profiles.names == ["Good"] and profiles.default == "Good"
     sc = profiles.resolve(None)
     assert sc._geecs_namespace_member and sc.name == "good"
+
+
+def test_scalars_view_yields_to_the_owners_scanned_child(RE, box, profiles):
+    """``scan([X.scalars], X.current, …)``: the view already reads the child's readback."""
+    from geecs_bluesky.devices.ca import CaMotor, CaSnapshotReadable
+
+    magnet = CaSnapshotReadable(
+        "U_S1H", ["Voltage"], experiment="TestExp", name="u_s1h"
+    )
+    magnet.current = CaMotor("U_S1H", "Current", experiment="TestExp", tolerance=0.01)
+    magnet.add_readables(
+        [magnet.current]
+    )  # the DB subscribes Current: the namespace's rule
+    cam = _camera(RE, box, "UC_Cam")
+    cam.exposure = CaMotor("UC_Cam", "Exposure", experiment="TestExp", tolerance=0.01)
+    cam.add_readables([cam.exposure])
+    connect_mock(RE, magnet, cam.exposure)
+    follow_setpoint(magnet.current)
+    follow_setpoint(cam.exposure)
+    col = DocCollector()
+    RE.subscribe(col)
+    scan = bind_strict_plans(profiles)["scan"]
+    RE(scan([magnet.scalars], magnet.current, -1.0, 1.0, 3))
+    RE(scan([cam.scalars], cam.exposure, 1.0, 3.0, 3))
+    events = col.primary_events()
+    assert len(events) == 6 and box.fires == 6
+    assert [e["data"]["u_s1h-current-position"] for e in events[:3]] == pytest.approx(
+        [-1.0, 0.0, 1.0]
+    )
+    assert "u_s1h-voltage" in events[0]["data"]
+    assert [e["data"]["uc_cam-exposure-position"] for e in events[3:]] == pytest.approx(
+        [1.0, 2.0, 3.0]
+    )
+    assert "uc_cam-acq_timestamp" in events[3]["data"]
+    assert not any("nonscalar_save_path" in k for k in events[3]["data"])
+    # a child the view does not read stays in the row
+    other = CaMotor("U_S1H", "Other", experiment="TestExp", tolerance=0.01)
+    magnet.other = other
+    connect_mock(RE, other)
+    follow_setpoint(other)
+    assert not magnet.scalars.covers(other) and magnet.scalars.covers(magnet.current)

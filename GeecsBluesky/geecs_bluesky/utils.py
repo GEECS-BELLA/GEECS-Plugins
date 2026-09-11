@@ -42,8 +42,9 @@ def device_reference(device: str, variable: str | None = None) -> str:
     worker namespace at submission (``profile_ops._get_nspace_object``).
     The child attribute is the variable's :func:`safe_name`; the namespace
     appends a trailing underscore only when that collides with a detector
-    method (``trigger`` → ``trigger_``), a case the manager then refuses at
-    submission with the device tree in hand.
+    method (``trigger`` → ``trigger_``), a case the pre-submit preflight
+    then refuses against the manager's device tree (the manager itself
+    passes an unknown name through to the plan).
     """
     base = identifier_name(device)
     return base if variable is None else f"{base}.{safe_name(variable)}"

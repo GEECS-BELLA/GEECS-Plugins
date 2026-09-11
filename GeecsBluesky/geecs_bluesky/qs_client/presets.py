@@ -131,25 +131,33 @@ def expand_preset(
 
 
 def device_references(item: QueueItem) -> list[str]:
-    """Every device reference the item names, in order: the detectors, then string arguments.
+    """Every device reference the item names, in order: the detectors, then the arguments.
 
-    A string argument counts when it is spelled like a namespace reference
-    (an identifier, optionally dotted); anything else is a plain value.
-    The GEECS keyword arguments (``trigger_profile``, ``md``) never name a
-    device.
+    A string counts when it is spelled like a namespace reference (an
+    identifier, optionally dotted — a child segment may start with a digit,
+    as ``safe_name`` allows); anything else is a plain value.  Lists and
+    dicts are walked the way the manager walks them.  The GEECS keyword
+    arguments (``trigger_profile``, ``md``) never name a device.
     """
     refs: list[str] = []
-    detectors = item.args[0] if item.args and isinstance(item.args[0], list) else []
-    kwargs = [v for k, v in item.kwargs.items() if k not in ("trigger_profile", "md")]
-    for value in [*detectors, *item.args[1:], *kwargs]:
-        if isinstance(value, str) and _REFERENCE.match(value):
-            refs.append(value)
+
+    def _walk(value: Any) -> None:
+        if isinstance(value, str):
+            if _REFERENCE.match(value):
+                refs.append(value)
+        elif isinstance(value, dict):
+            for v in value.values():
+                _walk(v)
+        elif isinstance(value, (list, tuple)):
+            for v in value:
+                _walk(v)
+
+    _walk(list(item.args))
+    _walk({k: v for k, v in item.kwargs.items() if k not in ("trigger_profile", "md")})
     return refs
 
 
-_REFERENCE = re.compile(
-    r"^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)+$|^[A-Za-z_][A-Za-z0-9_]*$"
-)
+_REFERENCE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z0-9_]+)*$")
 
 
 def _resolve(value: Any, catalog: Mapping[str, Any] | None) -> Any:

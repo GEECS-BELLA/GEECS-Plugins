@@ -111,3 +111,25 @@ def test_expand_refuses_no_plan_unknown_plan_and_pseudo() -> None:
             _preset(plan={"name": "scan", "args": ["JetZ_with_probe", 1, 2, 3]}),
             catalog=CATALOG,
         )
+
+
+def test_device_references_walk_nested_values_and_skip_the_geecs_kwargs() -> None:
+    from geecs_bluesky.qs_client.presets import QueueItem, device_references
+
+    item = QueueItem(
+        "list_scan",
+        [["UC_Cam", "U_S1H.scalars"], "U_S1H.current", [0.0, "U_Typo.current", 1.0]],
+        {
+            "shots_per_step": 2,
+            "trigger_profile": "HTU_Normal",
+            "md": {"x": "Y_Dev"},
+            "delay": ["U_S1H.2nd"],
+        },
+    )
+    assert device_references(item) == [
+        "UC_Cam",
+        "U_S1H.scalars",
+        "U_S1H.current",
+        "U_Typo.current",
+        "U_S1H.2nd",
+    ]

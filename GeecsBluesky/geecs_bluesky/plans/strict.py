@@ -30,6 +30,7 @@ from geecs_schemas.trigger_profile import TriggerState
 from ophyd_async.core import StandardDetector
 
 from geecs_bluesky.devices.ca._pv import GATEWAY_DISCONNECTED
+from geecs_bluesky.devices.ca._view import ScalarsView
 from geecs_bluesky.devices.detector import STRICT_TRIGGER_INFO
 from geecs_bluesky.exceptions import GeecsDeviceDownError, GeecsTriggerTimeoutError
 
@@ -195,6 +196,11 @@ def geecs_take_reading(
 
     def take_reading(devices: Sequence[Any]):
         devices = separate_devices(devices)
+        # A scalars view (``X.scalars``) beside the owner's own scanned child
+        # (``X.current``): siblings to separate_devices, but the view already
+        # reads the child's readback — keep one copy of the column.
+        views = [d for d in devices if isinstance(d, ScalarsView)]
+        devices = [d for d in devices if not any(v.covers(d) for v in views)]
         rewindable = all_safe_rewind(devices)
 
         def inner():

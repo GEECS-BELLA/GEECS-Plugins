@@ -61,6 +61,23 @@ class ScalarsView(Device):
             mock=mock, timeout=timeout, force_reconnect=force_reconnect
         )
 
+    def covers(self, obj: Any) -> bool:
+        """Whether this view already reads *obj* (a child of the owner the owner logs).
+
+        A view and the owner's Movable child are *siblings*, so
+        ``separate_devices`` keeps both in a scan's read list; if the child
+        is one of the owner's logged readables its readback would land twice
+        in one event (the RunEngine refuses colliding data keys after the
+        trigger box is armed).  The strict ``take_reading`` drops a listed
+        object the view covers.
+        """
+        owner = self._owner
+        scalars = getattr(owner, "_scalars", None)  # a GeecsDetector's columns
+        if scalars is not None:
+            return any(obj is s for s in scalars)
+        read = getattr(obj, "read", None)  # a StandardReadable's registered readers
+        return read is not None and read in getattr(owner, "_read_funcs", ())
+
     async def read(self) -> dict[str, Reading]:
         """The owner's scalar columns — same keys as the owner."""
         return await self._owner.read()

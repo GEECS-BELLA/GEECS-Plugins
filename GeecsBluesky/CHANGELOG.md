@@ -51,7 +51,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
     view a preset's `save_images: false` expands to — on a detector the
     shot wait without the files, on a scalar-only device what the device
     reads (review of #821: the regenerated corpus flags scalar-only
-    devices too).
+    devices too).  A view listed beside its owner's own scanned child
+    (`scan([U_S1H.scalars], U_S1H.current, …)`) yields the child's column
+    to the child — the strict `take_reading` drops what a listed view
+    already covers (`ScalarsView.covers`; verifier of the review).
   - `GeecsNamespace.telemetry()` — the `SupplementalData` baseline list
     (every scalar-only device and every detector's scalar signals),
     installed by `make_run_engine(telemetry=...)` → `install_telemetry`,
