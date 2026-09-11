@@ -3,6 +3,14 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+
+## [0.21.3] - 2026-09-11
+
+### Changed
+
+- The in-memory stack cache reads the areaDetector NDFileHDF5 layout
+  through `geecs_data_utils.io.scan_stack`'s dataset constants (#806).
+
 ## [0.21.2] - 2026-09-08
 
 ### Changed

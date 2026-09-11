@@ -3,6 +3,16 @@
 All notable changes to `geecs-core` are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and semantic versioning.
 
+
+## [0.5.1] - 2026-09-11
+
+### Added
+
+- `pv_naming.hdf_plugin_prefix(experiment, device, variable)` and
+  `HDF_PLUGIN_SUFFIX` (`:hdf1:`): the file plugin's PV prefix (#806),
+  minted here so the PVA gateway and the worker's `GeecsHdfIO` cannot
+  drift.
+
 ## [0.5.0] - 2026-09-09
 
 ### Added

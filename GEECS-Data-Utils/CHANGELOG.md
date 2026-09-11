@@ -3,6 +3,19 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+
+## [0.27.1] - 2026-09-11
+
+### Changed
+
+- `io.scan_stack` reads the areaDetector NDFileHDF5 layout the PVA
+  gateway's file plugin writes (#806): `FRAMES_DATASET =
+  "/entry/data/data"`, `TIMESTAMPS_DATASET =
+  "/entry/instrument/NDAttributes/acq_timestamp"`; `is_stack_file`
+  dispatches on those datasets instead of the retired `geecs-capture/*`
+  schema attribute.  Callers (`ShotRef`, `read_shot`,
+  `read_shot_for_acq_timestamp`, `find_stack_file`) are unchanged.
+
 ## [0.27.0] - 2026-09-10
 
 ### Added

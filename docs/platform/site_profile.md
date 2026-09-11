@@ -88,7 +88,7 @@ delivers them.
 |---|---|---|
 | `gateway-checkout` | CA gateway | control-room-critical, moves rarely |
 | `portal-checkout` | Data Portal | iterates in days |
-| `qs-checkout` | queueserver worker **and** capture daemon; also the MCP server's install source | co-location and co-versioning are a requirement of the capture design; the MCP bakes a non-editable venv (`<root>/geecs-mcp-venv`) from it so a pull never mutates code under the running server |
+| `qs-checkout` | queueserver worker; also the MCP server's install source | the MCP bakes a non-editable venv (`<root>/geecs-mcp-venv`) from it so a pull never mutates code under the running server |
 
 The root is the site's choice (`GEECS_CHECKOUT_ROOT`): the service
 account's home costs no sudo; `/opt/geecs` is the same layout with one

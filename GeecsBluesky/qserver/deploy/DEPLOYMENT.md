@@ -231,10 +231,8 @@ means:
   firewall allow rule as 60615/60625; leave 5567 closed. The in-repo
   subscribers are the reference practice: the console's
   `geecs_console/app/scan_monitor.py` (`DocumentStreamWorker`),
-  GEECS-MCP's `geecs_mcp/scans/progress_stream.py` (`ProgressCache`),
-  and the capture daemon (`geecs_bluesky/capture/__main__.py`, the
-  production subscriber that keys image capture on `start`/`stop`) —
-  each a `bluesky.callbacks.zmq.RemoteDispatcher` on the `doc_addr`
+  and GEECS-MCP's `geecs_mcp/scans/progress_stream.py` (`ProgressCache`)
+  — each a `bluesky.callbacks.zmq.RemoteDispatcher` on the `doc_addr`
   that `geecs_bluesky.qs_client` reads from the `[qserver]` section of
   `config.ini` (default `<host>:5568`). The `RemoteDispatcher` snippet
   lives in `../README.md`, "Document stream".

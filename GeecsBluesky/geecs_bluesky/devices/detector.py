@@ -15,8 +15,20 @@ ophyd-async 0.19 composes a detector from three logics
 - data logics — :class:`ScalarsDataLogic` reads the device's own scalar
   variables into the event row; :class:`LvNativeFileDataLogic` drives
   LabVIEW's native file saving (``localsavingpath`` / ``save``) from a
-  ``PathProvider``.  #806 swaps the second for the stock
-  ``ADHDFDataLogic`` over the PVA-gateway plugin; the other two survive it.
+  ``PathProvider``; and, for a camera whose host serves the PVA gateway's
+  file plugin (#806, ``Planning/native_bluesky/06_pva_file_plugin.md``),
+  the **stock** ``ADHDFDataLogic`` over :class:`~geecs_bluesky.devices.hdf_plugin.GeecsHdfIO`
+  — one per image variable, nothing of ours in the data path.
+
+A missed shot (no frame within the timeout, the device still live) does not
+void the row: the acquire logic remembers it until the next baseline and
+the scalar columns of that device read ``NaN`` for that row — the partial
+row the strict plan records (scalars only, no frames) before taking one
+more shot for the step (design §2.1).  On a plugin-backed camera the count wait precedes the
+stamp wait, so a dropped frame surfaces as the count timeout;
+:meth:`GeecsDetector.trigger` translates it into the GEECS timeout the
+plan's refire gate understands, and :meth:`GeecsDetector.discard_uncollected`
+is the late-frame guard the plan calls before the retake.
 
 Every per-run fact about the device is set through its own lifecycle —
 ``stage → prepare → trigger → unstage`` — never from outside it (§3, the
@@ -32,6 +44,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import time
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
@@ -55,12 +68,17 @@ from ophyd_async.core import (
     TriggerInfo,
     merge_gathered_dicts,
     soft_signal_rw,
+    wait_for_value,
 )
+from ophyd_async.epics.adcore import ADHDFDataLogic, NDArrayDescription
 from ophyd_async.epics.core import epics_signal_r, epics_signal_rw
+
+from geecs_core.pv_naming import hdf_plugin_prefix
 
 from geecs_bluesky.data_paths import device_server_save_path
 from geecs_bluesky.devices.ca._pv import ca_pv, setpoint_pv
 from geecs_bluesky.devices.ca._view import ScalarsView
+from geecs_bluesky.devices.hdf_plugin import GeecsHdfIO
 from geecs_bluesky.exceptions import GeecsTriggerTimeoutError
 from geecs_bluesky.utils import safe_name
 
@@ -69,10 +87,20 @@ logger = logging.getLogger(__name__)
 #: The GEECS shot stamp variable (generated inside LabVIEW, not a DB row yet).
 ACQ_TIMESTAMP = "acq_timestamp"
 
+#: Seconds a shot may take to arrive after the fire: one trigger period (the
+#: single shot fires on the *next* edge) plus the device's exposure and
+#: drain (§7, M1).  One constant for every device until the calibration
+#: phase makes it a per-device budget.
+DEFAULT_SHOT_TIMEOUT = 3.0
+
 #: How a strict shot prepares a GeecsDetector: one externally edge-triggered
-#: event.  The plan fires the box; the detector waits for its stamp.
+#: event.  The plan fires the box; the detector waits for its stamp — and,
+#: on a plugin-backed camera, for the plugin's frame count first, bounded by
+#: the same budget (``exposure_timeout``; the stock default would be 13 s).
 STRICT_TRIGGER_INFO = TriggerInfo(
-    trigger=DetectorTrigger.EXTERNAL_EDGE, number_of_events=1
+    trigger=DetectorTrigger.EXTERNAL_EDGE,
+    number_of_events=1,
+    exposure_timeout=DEFAULT_SHOT_TIMEOUT,
 )
 
 
@@ -145,12 +173,14 @@ class GeecsAcquireLogic(DetectorAcquireLogic):
         acq_timestamp: SignalR[float],
         device_name: str,
         *,
-        shot_timeout: float = 3.0,
+        shot_timeout: float = DEFAULT_SHOT_TIMEOUT,
         queue_maxsize: int | None = None,
     ) -> None:
         self._signal = acq_timestamp
         self._device = device_name
         self.shot_timeout = shot_timeout
+        #: The last awaited shot never arrived (cleared by the next baseline).
+        self.missed = False
         self._last: float | None = None
         self._t0: float | None = None
         self._queue: asyncio.Queue[float] = asyncio.Queue(
@@ -197,7 +227,12 @@ class GeecsAcquireLogic(DetectorAcquireLogic):
     def baseline(self) -> None:
         """Record the current stamp and drop stale updates — synchronously."""
         self._t0 = self._last
+        self.missed = False
         self._drain()
+
+    def mark_missed(self) -> None:
+        """The awaited shot never arrived: this device's row reads empty."""
+        self.missed = True
 
     async def start_acquiring(self) -> None:
         """Nothing to start: LabVIEW is always acquiring; the plan fires the box."""
@@ -215,10 +250,12 @@ class GeecsAcquireLogic(DetectorAcquireLogic):
         while True:
             remaining = deadline - loop.time()
             if remaining <= 0:
+                self.missed = True
                 raise GeecsTriggerTimeoutError(self._device, self.shot_timeout)
             try:
                 value = await asyncio.wait_for(self._queue.get(), timeout=remaining)
             except asyncio.TimeoutError:
+                self.missed = True
                 raise GeecsTriggerTimeoutError(
                     self._device, self.shot_timeout
                 ) from None
@@ -230,24 +267,51 @@ class GeecsAcquireLogic(DetectorAcquireLogic):
         """Nothing to stop: acquisition is LabVIEW's, saving is the data logic's."""
 
 
-class _SignalsProvider(ReadableDataProvider):
-    """Read a fixed set of signals into the event row."""
+def mask_missed_shot(readings: dict[str, Reading]) -> dict[str, Reading]:
+    """The empty shot: every numeric column ``NaN``, every other column blank.
 
-    def __init__(self, signals: Sequence[SignalR]) -> None:
+    The CA monitor cache holds the *previous* shot's values when no frame
+    arrived (LabVIEW's timeout event carries unchanged values and the
+    gateway drops it), so reading it through would silently record the
+    wrong shot.  The stamp becomes ``NaN`` too — no frame joins to this row.
+    """
+    now = time.time()
+    masked: dict[str, Reading] = {}
+    for key, reading in readings.items():
+        value = reading["value"]
+        if isinstance(value, bool):
+            blank: Any = value
+        elif isinstance(value, (int, float)):
+            blank = math.nan
+        elif isinstance(value, str):
+            blank = ""
+        else:
+            blank = value
+        masked[key] = Reading(value=blank, timestamp=now, alarm_severity=0)
+    return masked
+
+
+class _SignalsProvider(ReadableDataProvider):
+    """Read a fixed set of signals into the event row (masked after a missed shot)."""
+
+    def __init__(self, signals: Sequence[SignalR], acquire: GeecsAcquireLogic) -> None:
         self._signals = tuple(signals)
+        self._acquire = acquire
 
     async def make_datakeys(self) -> dict[str, DataKey]:
         return await merge_gathered_dicts(sig.describe() for sig in self._signals)
 
     async def make_readings(self) -> dict[str, Reading]:
-        return await merge_gathered_dicts(sig.read() for sig in self._signals)
+        readings = await merge_gathered_dicts(sig.read() for sig in self._signals)
+        return mask_missed_shot(readings) if self._acquire.missed else readings
 
 
 class ScalarsDataLogic(DetectorDataLogic):
     """The device's own scalar variables (and its stamp) as event columns."""
 
-    def __init__(self, signals: Sequence[SignalR]) -> None:
+    def __init__(self, signals: Sequence[SignalR], acquire: GeecsAcquireLogic) -> None:
         self._signals: list[SignalR] = list(signals)
+        self._acquire = acquire
 
     def add(self, *signals: SignalR) -> None:
         """Add columns (a subscribed settable child's readback, at namespace build)."""
@@ -255,7 +319,7 @@ class ScalarsDataLogic(DetectorDataLogic):
 
     async def prepare_single(self, datakey_name: str) -> ReadableDataProvider:
         """One reading per event: the signals' current values."""
-        return _SignalsProvider(self._signals)
+        return _SignalsProvider(self._signals, self._acquire)
 
 
 class _ConstantProvider(ReadableDataProvider):
@@ -394,6 +458,11 @@ class GeecsDetectorScalars(ScalarsView):
         """The parent's gateway liveness PV (the refire gate reads it)."""
         return self._owner.connected_status
 
+    @property
+    def missed_shot(self) -> bool:
+        """Whether the parent's last awaited shot never arrived."""
+        return self._owner._acquire.missed
+
     def trigger(self) -> AsyncStatus:
         """Baseline the parent's stamp now, then wait for it to advance."""
         acquire = self._owner._acquire
@@ -402,9 +471,10 @@ class GeecsDetectorScalars(ScalarsView):
 
     async def read(self) -> dict[str, Reading]:
         """The parent's scalar columns (and stamp) — same keys as the parent."""
-        return await merge_gathered_dicts(
+        readings = await merge_gathered_dicts(
             sig.read() for sig in self._owner._scalar_signals()
         )
+        return mask_missed_shot(readings) if self._owner._acquire.missed else readings
 
     async def describe(self) -> dict[str, DataKey]:
         """Data keys of the parent's scalar columns."""
@@ -443,6 +513,14 @@ class GeecsDetector(StandardDetector):
         not wanted this run, so a stale ``save=on`` is still cleared at
         ``stage`` (see :class:`LvNativeFileDataLogic`).  Without either the
         detector records scalars only.
+    hdf_plugins :
+        ``(image variable, path provider)`` per file plugin the camera's
+        gateway serves (#806): each becomes a :class:`GeecsHdfIO` child
+        (``hdf``, then ``hdf_<variable>``) driven by the stock
+        ``ADHDFDataLogic``; the first writes the ``<name>`` stream key, the
+        others ``<name>-<variable>``.  A plugin-backed camera never turns
+        LabVIEW-native saving on (pass *native_save* without a
+        *path_provider* so a stale flag is still cleared).
     shot_timeout :
         Seconds to wait for the stamp after a fire.
     """
@@ -457,7 +535,8 @@ class GeecsDetector(StandardDetector):
         datatypes: Mapping[str, type | None] | None = None,
         path_provider: PathProvider | None = None,
         native_save: bool = False,
-        shot_timeout: float = 3.0,
+        hdf_plugins: Sequence[tuple[str, PathProvider]] = (),
+        shot_timeout: float = DEFAULT_SHOT_TIMEOUT,
     ) -> None:
         self._geecs_device_name = device
         per_variable = {k.lower(): v for k, v in (datatypes or {}).items()}
@@ -483,7 +562,9 @@ class GeecsDetector(StandardDetector):
         self._acquire = GeecsAcquireLogic(
             self.acq_timestamp, device, shot_timeout=shot_timeout
         )
-        self._scalars_logic = ScalarsDataLogic((*scalars, self.acq_timestamp))
+        self._scalars_logic = ScalarsDataLogic(
+            (*scalars, self.acq_timestamp), self._acquire
+        )
         logics: list[Any] = [
             GeecsTriggerLogic(self.drain_offset),
             self._acquire,
@@ -501,6 +582,30 @@ class GeecsDetector(StandardDetector):
                     self.save,
                     path_provider,
                     directory_name=device,
+                )
+            )
+        self._hdf_ios: list[GeecsHdfIO] = []
+        for index, (variable, provider) in enumerate(hdf_plugins):
+            io = GeecsHdfIO(
+                f"pva://{hdf_plugin_prefix(experiment or '', device, variable)}"
+            )
+            setattr(self, "hdf" if index == 0 else f"hdf_{safe_name(variable)}", io)
+            self._hdf_ios.append(io)
+            logics.append(
+                ADHDFDataLogic(
+                    array_description=NDArrayDescription(
+                        shape_signals=[
+                            io.array_size_z,
+                            io.array_size_y,
+                            io.array_size_x,
+                        ],
+                        data_type_signal=io.data_type,
+                        color_mode_signal=io.color_mode,
+                    ),
+                    path_provider=provider,
+                    driver=io,
+                    writer=io,
+                    datakey_suffix="" if index == 0 else f"-{safe_name(variable)}",
                 )
             )
         self.add_detector_logics(*logics)
@@ -521,6 +626,16 @@ class GeecsDetector(StandardDetector):
     def last_acq_timestamp(self) -> float | None:
         """Latest stamp seen by the persistent monitor."""
         return self._acquire.last_acq_timestamp
+
+    @property
+    def plugin_backed(self) -> bool:
+        """Whether the camera's frames are written by the gateway's file plugin."""
+        return bool(self._hdf_ios)
+
+    @property
+    def missed_shot(self) -> bool:
+        """Whether the last awaited shot never arrived (the row reads empty)."""
+        return self._acquire.missed
 
     def _scalar_signals(self) -> tuple[Any, ...]:
         """Every scalar column plus the stamp — what ``scalars`` reads."""
@@ -578,7 +693,54 @@ class GeecsDetector(StandardDetector):
         The baseline must happen before this returns: the plan's very next
         message is the fire, and a stamp that lands before an asynchronous
         baseline would be counted as the pre-shot value and the real shot
-        missed.
+        missed.  On a plugin-backed camera the stock trigger waits for the
+        plugin's count first (``exposure_timeout``); that timeout is
+        translated into the GEECS one so the plan's refire gate sees one
+        kind of miss.
         """
         self._acquire.baseline()
-        return super().trigger()
+        status = super().trigger()
+        if not self._hdf_ios:
+            return status
+        return AsyncStatus(self._translate_count_timeout(status))
+
+    async def _translate_count_timeout(self, status: AsyncStatus) -> None:
+        try:
+            await status
+        except TimeoutError as exc:  # observe_signals_value's exposure_timeout
+            self._acquire.mark_missed()
+            raise GeecsTriggerTimeoutError(
+                self._geecs_device_name,
+                self._acquire.shot_timeout,
+                f"{self._geecs_device_name}: no frame counted by the file plugin "
+                f"within {self._acquire.shot_timeout:.1f}s",
+            ) from exc
+
+    async def discard_uncollected(self) -> None:
+        """Rewind every plugin to the last frame a document referenced.
+
+        The late-frame guard (design §2.1): called by the plan on every
+        plugin-backed device of a partial shot, before the retake fires.  A
+        delivered frame no row referenced and a late frame of the missed shot
+        are truncated alike, and one that arrives later is stale to the
+        plugin.  Nothing a row references is reachable, because the retake
+        has not fired yet.  A no-op without a plugin or outside ``prepare``.
+        """
+        ctx = self._prepare_ctx
+        if ctx is None or not self._hdf_ios:
+            return
+        for provider in ctx.streamable_data_providers:
+            io = next(
+                (
+                    io
+                    for io in self._hdf_ios
+                    if provider.collections_written_signal is io.num_captured
+                ),
+                None,
+            )
+            if io is None:
+                continue
+            keep = int(getattr(provider, "last_emitted", 0))
+            await io.rewind.set(keep)
+            await wait_for_value(io.num_captured, keep, timeout=DEFAULT_TIMEOUT)
+            logger.info("%s: rewound to %d frame(s)", self._geecs_device_name, keep)

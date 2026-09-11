@@ -68,6 +68,7 @@ from geecs_bluesky.devices.ca.motor import CaMotor
 from geecs_bluesky.devices.ca.settable import CaSettable
 from geecs_bluesky.devices.ca.snapshot import CaSnapshotReadable
 from geecs_bluesky.devices.detector import GeecsDetector
+from geecs_bluesky.devices.hdf_plugin import PluginPathProvider
 from geecs_bluesky.exceptions import GeecsConfigurationError
 from geecs_bluesky.utils import identifier_name, safe_name, settable_attribute
 
@@ -105,6 +106,15 @@ _SYNTHESIZED: frozenset[str] = frozenset({"connected", ACQ_TIMESTAMP_VARIABLE})
 NATIVE_SAVE_VARIABLES: frozenset[str] = frozenset({"save", "localsavingpath"})
 
 _TRIGGER_VARIABLE = re.compile("trig", re.IGNORECASE)
+
+
+def image_variables(rows: Sequence[Mapping[str, Any]]) -> list[str]:
+    """The image-typed variables among a device's DB rows — the PVA gateway's camera test."""
+    return sorted(
+        str(r["name"])
+        for r in rows
+        if effective_vartype(r.get("variabletype"), r.get("choices")) == "image"
+    )
 
 
 # --------------------------------------------------------------------- rules
@@ -150,7 +160,8 @@ class DeviceRoster:
     ``read()`` returns).  ``served``: device → the gateway's served set;
     ``None`` means "compute it from the rows" (subscribed ∪ settable, the
     provider's rule).  ``triggered``: explicit per-device overrides of
-    :func:`looks_triggerable`.
+    :func:`looks_triggerable`.  ``endpoints``: device → the GEECS endpoint
+    IP (the camera server that would serve its file plugin, #806).
     """
 
     experiment: str
@@ -159,6 +170,7 @@ class DeviceRoster:
     subscribed: Mapping[str, list[str]] = field(default_factory=dict)
     served: Mapping[str, set[str]] | None = None
     triggered: Mapping[str, bool] = field(default_factory=dict)
+    endpoints: Mapping[str, str] = field(default_factory=dict)
 
     @classmethod
     def from_geecs_db(
@@ -192,6 +204,18 @@ class DeviceRoster:
                 f"device namespace: the gateway served set for {experiment!r} could "
                 "not be read from the GEECS DB (see the warning above)"
             )
+        try:
+            endpoints = {
+                device: ip
+                for device, (ip, _port) in geecs_db.get_experiment_devices(
+                    experiment
+                ).items()
+            }
+        except Exception as exc:
+            raise GeecsConfigurationError(
+                f"device namespace: could not load the {experiment!r} device "
+                f"endpoints from the GEECS DB ({type(exc).__name__}: {exc})"
+            ) from exc
         return cls(
             experiment=experiment,
             variables=variables,
@@ -200,6 +224,7 @@ class DeviceRoster:
                 experiment, db=geecs_db
             ).subscribed_by_device(),
             served=served,
+            endpoints=endpoints,
         )
 
     def served_for(self, device: str) -> set[str]:
@@ -233,15 +258,44 @@ class _RosterDb:
 
 
 # ----------------------------------------------------------------- namespace
+_HOSTS_FROM_CONFIG = object()
+
+
 class GeecsNamespace:
-    """The experiment's devices as ophyd-async objects, addressable by name."""
+    """The experiment's devices as ophyd-async objects, addressable by name.
+
+    Parameters
+    ----------
+    roster :
+        What the DB says.
+    path_provider :
+        The run-scoped provider every file-writing detector shares (the
+        claim preprocessor points it at each run's folder).
+    file_plugin_hosts :
+        Camera-server IPs whose gateway serves the file plugin (#806): a
+        triggerable device with an image-typed variable on one of them is
+        plugin-backed (stock ``ADHDFDataLogic`` over the plugin's PVs); the
+        same device elsewhere keeps LabVIEW-native saving.  Defaults to
+        ``config.ini [pva] file_plugin_addr_list`` (else ``addr_list``);
+        ``None`` means no host.
+    """
 
     def __init__(
-        self, roster: DeviceRoster, *, path_provider: PathProvider | None = None
+        self,
+        roster: DeviceRoster,
+        *,
+        path_provider: PathProvider | None = None,
+        file_plugin_hosts: set[str] | None | object = _HOSTS_FROM_CONFIG,
     ) -> None:
         self.experiment = roster.experiment
         self.roster = roster
         self._path_provider = path_provider
+        hosts = (
+            globals()["file_plugin_hosts"]()
+            if file_plugin_hosts is _HOSTS_FROM_CONFIG
+            else file_plugin_hosts
+        )
+        self._file_plugin_hosts: set[str] = set(hosts or ())
         self._devices: dict[str, Any] = {}
         self._by_geecs_name: dict[str, Any] = {}
         self._attrs: dict[str, dict[str, str]] = {}  # ns name → {lower var → attr}
@@ -261,13 +315,20 @@ class GeecsNamespace:
             self._devices[ns_name] = dev
             self._by_geecs_name[device.lower()] = dev
         detectors = [d for d in self._devices.values() if isinstance(d, GeecsDetector)]
-        saving = sorted(d._geecs_device_name for d in detectors if d.native_save)
+        plugin = sorted(d._geecs_device_name for d in detectors if d.plugin_backed)
+        saving = sorted(
+            d._geecs_device_name
+            for d in detectors
+            if d.native_save and not d.plugin_backed
+        )
         logger.info(
             "device namespace: %d device(s) registered for %s (%d detectors, "
-            "%d with native saving: %s)",
+            "%d on the file plugin: %s; %d with native saving: %s)",
             len(self._devices),
             roster.experiment,
             len(detectors),
+            len(plugin),
+            ", ".join(plugin) or "none",
             len(saving),
             ", ".join(saving) or "none",
         )
@@ -285,11 +346,13 @@ class GeecsNamespace:
         *,
         geecs_db: Any | None = None,
         path_provider: PathProvider | None = None,
+        file_plugin_hosts: set[str] | None | object = _HOSTS_FROM_CONFIG,
     ) -> GeecsNamespace:
         """Build from the GEECS DB (loud on failure)."""
         return cls(
             DeviceRoster.from_geecs_db(experiment, geecs_db=geecs_db),
             path_provider=path_provider,
+            file_plugin_hosts=file_plugin_hosts,
         )
 
     # ------------------------------------------------------------------ build
@@ -355,14 +418,29 @@ class GeecsNamespace:
         datatypes = {n: py for n, (_, py) in typed.items()}
         dev: Any
         if triggered:
+            # Plugin-backed iff the DB lists an image variable and the
+            # device's camera server serves the file plugin (#806); the
+            # LabVIEW-native path then only clears a stale save flag.
+            plugin_vars = (
+                image_variables(rows)
+                if self._path_provider is not None
+                and roster.endpoints.get(device) in self._file_plugin_hosts
+                else []
+            )
             dev = GeecsDetector(
                 device,
                 readables,
                 experiment=roster.experiment,
                 name=ophyd_name,
                 datatypes=datatypes,
-                path_provider=self._path_provider if native_save else None,
+                path_provider=(
+                    self._path_provider if native_save and not plugin_vars else None
+                ),
                 native_save=native_save,
+                hdf_plugins=[
+                    (var, PluginPathProvider(self._path_provider, device))
+                    for var in plugin_vars
+                ],
             )
         else:
             dev = CaSnapshotReadable(

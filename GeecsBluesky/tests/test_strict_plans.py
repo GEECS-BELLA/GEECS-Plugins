@@ -11,6 +11,7 @@ SINGLESHOT put, the worst case for the baseline.
 from __future__ import annotations
 
 import asyncio
+import math
 from pathlib import Path
 from typing import Any
 
@@ -31,7 +32,10 @@ from ophyd_async.core import (  # noqa: E402
 from geecs_bluesky.devices.ca import CaMotor  # noqa: E402
 from geecs_bluesky.devices.detector import GeecsDetector  # noqa: E402
 from geecs_bluesky.devices.shot_control import ShotControl  # noqa: E402
-from geecs_bluesky.exceptions import GeecsDeviceDownError  # noqa: E402
+from geecs_bluesky.exceptions import (  # noqa: E402
+    GeecsDeviceDownError,
+    GeecsTriggerTimeoutError,
+)
 from geecs_bluesky.models.shot_control import ShotControlWrites  # noqa: E402
 from geecs_bluesky.plans.strict import geecs_per_shot, geecs_per_step  # noqa: E402
 from tests.ca_mock_helpers import DocCollector, connect_mock, follow_setpoint  # noqa: E402
@@ -59,6 +63,7 @@ class FakeBox:
         self.fires = 0
         self.puts: list[tuple[str, str, str]] = []
         self.drop: set[tuple[str, int]] = set()
+        self.counts: dict[str, int] = {}  # plugin-backed cameras' frame counts
 
     def __call__(self, device: str, variable: str):
         box = self
@@ -67,11 +72,19 @@ class FakeBox:
             async def put(self, value: str) -> None:
                 box.puts.append((device, variable, value))
                 if variable == "Trigger.ExecuteSingleShot":
+                    # The real put takes ~100 ms and the frame lands ≥ 1 s
+                    # later; the trigger coroutine's count baseline (a PVA
+                    # get) is long done by then.  Give it the loop once.
+                    await asyncio.sleep(0.02)
                     box.fires += 1
                     box.stamp += 1.0
                     for cam in box.cameras:
                         if (cam.name, box.fires) in box.drop:
                             continue
+                        hdf = getattr(cam, "hdf", None)
+                        if hdf is not None:  # a plugin-backed camera counts first
+                            box.counts[cam.name] = box.counts.get(cam.name, 0) + 1
+                            set_mock_value(hdf.num_captured, box.counts[cam.name])
                         set_mock_value(cam.acq_timestamp, box.stamp)
 
         return Setter()
@@ -183,34 +196,48 @@ def test_two_cameras_share_one_fire(
         )
 
 
-def test_dropped_frame_is_refired_and_rows_stay_one_shot(
+def test_missed_frame_keeps_the_row_and_adds_a_shot(
     RE: RunEngine, box: FakeBox, shot_control: ShotControl
 ) -> None:
-    """Camera A misses fire 2: the shot is re-fired for everyone; B's orphan is not a row."""
+    """Camera A misses fire 2: the row is kept with A empty, and one more shot is taken.
+
+    Design §2.1 (Sam, 2026-09-11): B's frame from shot 2 is data, not an
+    orphan; A's columns for that row read NaN (its monitor cache would
+    otherwise carry shot 1's values); the step then gets its complete row.
+    """
     a = _camera(RE, box, "UC_A", shot_timeout=0.3)
     b = _camera(RE, box, "UC_B", shot_timeout=0.3)
+    set_mock_value(a.meancounts, 7.0)
     box.drop = {("uc_a", 2)}
     col = DocCollector()
     RE.subscribe(col)
     RE(bp.count([a, b], num=3, per_shot=geecs_per_shot(shot_control)))
     events = col.primary_events()
-    assert len(events) == 3
-    assert box.fires == 4  # three shots, one refire
+    assert len(events) == 4  # three complete rows and the partial one
+    assert box.fires == 4
     stamps = [
         (e["data"]["uc_a-acq_timestamp"], e["data"]["uc_b-acq_timestamp"])
         for e in events
     ]
-    assert stamps == [(1001.0, 1001.0), (1003.0, 1003.0), (1004.0, 1004.0)]
+    assert stamps[0] == (1001.0, 1001.0)
+    assert math.isnan(stamps[1][0]) and stamps[1][1] == 1002.0
+    assert stamps[2:] == [(1003.0, 1003.0), (1004.0, 1004.0)]
+    counts = [e["data"]["uc_a-meancounts"] for e in events]
+    assert counts[0] == 7.0 and math.isnan(counts[1]) and counts[2] == 7.0
 
 
-def test_refires_are_bounded(
+def test_extra_shots_are_bounded(
     RE: RunEngine, box: FakeBox, shot_control: ShotControl
 ) -> None:
+    """A device that never delivers: the partial rows stay, the step fails loudly."""
     cam = _camera(RE, box, "UC_A", shot_timeout=0.2)
     box.drop = {("uc_a", n) for n in range(1, 10)}
-    with pytest.raises(FailedStatus):
+    col = DocCollector()
+    RE.subscribe(col)
+    with pytest.raises(GeecsTriggerTimeoutError, match="no complete row after 2"):
         RE(bp.count([cam], num=1, per_shot=geecs_per_shot(shot_control, max_refires=1)))
     assert box.fires == 2
+    assert len(col.primary_events()) == 2  # both partial rows are data
 
 
 def test_a_dead_device_is_not_refired(
@@ -290,3 +317,69 @@ def test_a_failed_fire_is_not_a_dropped_frame(
         RE(bp.count([cam], num=1, per_shot=geecs_per_shot(sc, max_refires=2)))
     assert isinstance(info.value.__cause__, RuntimeError)
     assert refusing.fires == 1  # no refire on a failed fire
+
+
+def _plugin_camera(RE: RunEngine, box: FakeBox, name: str, tmp_path: Path, **kw):
+    """A plugin-backed camera on mocks; the box advances its count on every fire."""
+    from ophyd_async.core import callback_on_mock_put
+
+    provider = StaticPathProvider(
+        StaticFilenameProvider(name), tmp_path / "Scan001" / name
+    )
+    cam = GeecsDetector(
+        name,
+        ["MeanCounts"],
+        experiment="TestExp",
+        name=name.lower(),
+        hdf_plugins=[("image", provider)],
+        **kw,
+    )
+    connect_mock(RE, cam)
+    set_mock_value(cam.acq_timestamp, box.stamp)
+    set_mock_value(cam.hdf.file_path_exists, True)
+    set_mock_value(cam.hdf.data_type, "UInt16")
+    set_mock_value(cam.hdf.color_mode, "Mono")
+    rewinds: list[int] = []
+
+    def plugin_rewinds(value, **_) -> None:
+        rewinds.append(value)
+        box.counts[cam.name] = value
+        set_mock_value(cam.hdf.num_captured, value)
+
+    callback_on_mock_put(cam.hdf.rewind, plugin_rewinds)
+    box.cameras.append(cam)
+    return cam, rewinds
+
+
+def test_missed_frame_on_plugin_cameras_rewinds_the_partial_row(
+    RE: RunEngine, box: FakeBox, shot_control: ShotControl, tmp_path: Path
+) -> None:
+    """A partial row keeps its scalars and no frames: every plugin camera rewinds to its last datum.
+
+    The bundler wants one same-width datum per external key per event, so
+    B's frame from the shot A missed cannot be referenced by that row; the
+    rewind (the late-frame guard for A) drops B's uncollected frame too.
+    """
+    a, a_rewinds = _plugin_camera(RE, box, "UC_A", tmp_path, shot_timeout=0.3)
+    b, b_rewinds = _plugin_camera(RE, box, "UC_B", tmp_path, shot_timeout=0.3)
+    box.drop = {("uc_a", 2)}
+    col = DocCollector()
+    RE.subscribe(col)
+    RE(bp.count([a, b], num=3, per_shot=geecs_per_shot(shot_control)))
+    events = col.primary_events()
+    assert len(events) == 4 and box.fires == 4
+    # Both rewind to 1 (the frame row 1 referenced) before the retake.
+    assert a_rewinds == [1] and b_rewinds == [1]
+    datums = [d for d in col.docs["stream_datum"]]
+    by_key: dict[str, list[dict]] = {}
+    resources = {r["uid"]: r["data_key"] for r in col.docs["stream_resource"]}
+    for d in datums:
+        by_key.setdefault(resources[d["stream_resource"]], []).append(d["indices"])
+    assert by_key["uc_a"] == [
+        {"start": 0, "stop": 1},
+        {"start": 1, "stop": 2},
+        {"start": 2, "stop": 3},
+    ]
+    assert by_key["uc_b"] == by_key["uc_a"]
+    assert math.isnan(events[1]["data"]["uc_a-acq_timestamp"])
+    assert events[1]["data"]["uc_b-acq_timestamp"] == 1002.0

@@ -23,7 +23,15 @@ geecs-pva-gateway --experiment Undulator --list   # show what would be served
   unwatched variables (and whole unwatched cameras) cost the LabVIEW device
   nothing.
 - Frames are **latest-wins**: a slow consumer drops stale frames, never
-  backlogs. The archival record is the GEECS file path, not this stream.
+  backlogs. The archival record is the **file plugin's** (below) or the
+  GEECS native file path, not this stream.
+- Each image variable also gets an **areaDetector-shaped HDF5 file plugin**
+  (`undulator:uc_amp2_ir_input:image:hdf1:` + the `NDFileHDF5` PV names):
+  a lossless second consumer of the same frame that writes one
+  `<device>.h5` stack per scan into the run folder, driven by the worker's
+  stock ophyd-async `ADHDFDataLogic` (#806). Served only where `h5py` is
+  installed (a re-bootstrap per box). `geecs-pva-gateway diff <scan
+  folder>` compares a scan's stacks against its native PNGs.
 
 See `CLAUDE.md` for architecture and `DEPLOYMENT.md` for the Windows camera
 server runbook (install, firewall, NSSM service).

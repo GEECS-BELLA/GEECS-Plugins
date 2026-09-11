@@ -18,8 +18,14 @@ raised back into the RunEngine, the scan itself is the priority:
   data, exactly as the legacy scanner left them.
 - :class:`ScanLogCallback` — ``scan.log`` attached from the start document
   to the stop document (:class:`geecs_bluesky.scan_log.ScanLogFile`).
+- :class:`StackCheckCallback` — at the stop document, for every image
+  stack the run's stream resources reference (the PVA gateway's file
+  plugin, #806), asserts that the frames on disk are the rows' shots:
+  same count, same ``acq_timestamp`` per row.  Synchronicity is checked
+  per scan, never assumed (``06_pva_file_plugin.md`` §2.1); a mismatch is
+  a warning in ``scan.log``.
 
-All three read the GEECS keys the claim preprocessor put in the start
+All four read the GEECS keys the claim preprocessor put in the start
 document (``scan_number``, ``scan_folder``, ``geecs_scalar_headers``) and
 write **into** the claimed folder only — never creating it.
 """
@@ -54,6 +60,8 @@ class _RunCallback:
                 self.on_descriptor(doc)
             elif name == "event":
                 self.on_event(doc)
+            elif name == "stream_resource":
+                self.on_stream_resource(doc)
             elif name == "stop":
                 start = self._starts.pop(str(doc.get("run_start")), None)
                 if start is not None:
@@ -71,6 +79,9 @@ class _RunCallback:
 
     def on_event(self, doc: Document) -> None:
         """Hook: one event."""
+
+    def on_stream_resource(self, doc: Document) -> None:
+        """Hook: an external data resource was declared."""
 
     def on_stop(self, start: dict[str, Any], stop: Document) -> None:
         """Hook: the run closed."""
@@ -294,9 +305,139 @@ class ScanLogCallback(_RunCallback):
         self._log.close(note=f"finished ({stop.get('exit_status', '?')})")
 
 
-def subscribe_scan_outputs(run_engine: Any) -> tuple[int, int, int]:
-    """Subscribe the three output callbacks; return their tokens."""
+# ------------------------------------------------------------- stack check
+#: The frames dataset of the file plugin's stacks (areaDetector NDFileHDF5).
+_FRAMES_DATASET = "/entry/data/data"
+#: Stamps closer than this are the same shot (ms rounding of a double).
+_STAMP_TOLERANCE_S = 1e-3
+
+
+class StackCheckCallback(_RunCallback):
+    """Assert, per image stack, that the frames on disk are the rows' shots.
+
+    A plugin-backed camera's stream resource names its stack
+    (``application/x-hdf5``, dataset ``/entry/data/data``) and its data key
+    ``<name>``; the primary rows carry ``<name>-acq_timestamp`` (``NaN`` for
+    an empty shot).  At the stop document the stack's own stamps are read
+    (``geecs_data_utils.io.scan_stack``) and compared with the rows': the
+    counts must agree and every row's stamp must be its frame's.  The
+    verdict goes to ``scan.log`` (subscribed before the log closes).
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._primary: dict[str, str] = {}  # descriptor uid → run uid
+        self._rows: dict[str, list[dict[str, Any]]] = {}  # run uid → rows
+        self._stacks: dict[str, dict[str, str]] = {}  # run uid → data key → uri
+
+    def on_start(self, start: dict[str, Any]) -> None:
+        """Open the buffers for the run."""
+        self._rows[str(start["uid"])] = []
+        self._stacks[str(start["uid"])] = {}
+
+    def on_descriptor(self, doc: Document) -> None:
+        """Remember which descriptors are the primary stream's."""
+        if doc.get("name") == "primary":
+            self._primary[str(doc["uid"])] = str(doc["run_start"])
+
+    def on_event(self, doc: Document) -> None:
+        """Buffer a primary row."""
+        run_uid = self._primary.get(str(doc.get("descriptor")))
+        if run_uid is not None and run_uid in self._rows:
+            self._rows[run_uid].append(dict(doc.get("data") or {}))
+
+    def on_stream_resource(self, doc: Document) -> None:
+        """Remember each image stack the run references."""
+        run_uid = str(doc.get("run_start"))
+        parameters = doc.get("parameters") or {}
+        if (
+            run_uid in self._stacks
+            and doc.get("mimetype") == "application/x-hdf5"
+            and parameters.get("dataset") == _FRAMES_DATASET
+        ):
+            self._stacks[run_uid][str(doc["data_key"])] = str(doc["uri"])
+
+    def on_stop(self, start: dict[str, Any], stop: Document) -> None:
+        """Check every stack against the rows; log the verdicts."""
+        run_uid = str(start["uid"])
+        rows = self._rows.pop(run_uid, [])
+        stacks = self._stacks.pop(run_uid, {})
+        self._primary = {k: v for k, v in self._primary.items() if v != run_uid}
+        for data_key, uri in stacks.items():
+            self._check(start, data_key, uri, rows)
+
+    @staticmethod
+    def _check(
+        start: Mapping[str, Any], data_key: str, uri: str, rows: list[dict[str, Any]]
+    ) -> None:
+        import math
+        from urllib.parse import unquote, urlparse
+
+        from geecs_data_utils.io.scan_stack import read_stack_timestamps
+
+        scan = start.get("scan_number")
+        path = Path(unquote(urlparse(uri).path))
+        column = f"{data_key}-acq_timestamp"
+        expected = [
+            float(row[column])
+            for row in rows
+            if column in row and not math.isnan(float(row[column]))
+        ]
+        if not path.is_file():
+            if expected:
+                logger.warning(
+                    "scan %s: %s: stack %s missing but %d row(s) carry a stamp",
+                    scan,
+                    data_key,
+                    path,
+                    len(expected),
+                )
+            return
+        stamps = read_stack_timestamps(path)
+        if len(stamps) != len(expected):
+            logger.warning(
+                "scan %s: %s: %d frame(s) in %s but %d row(s) with a stamp",
+                scan,
+                data_key,
+                len(stamps),
+                path.name,
+                len(expected),
+            )
+            return
+        mismatched = [
+            i
+            for i, (a, b) in enumerate(zip(stamps, expected, strict=True))
+            if abs(float(a) - b) > _STAMP_TOLERANCE_S
+        ]
+        if mismatched:
+            logger.warning(
+                "scan %s: %s: %d of %d frame(s) in %s do not carry their row's "
+                "stamp (first at index %d)",
+                scan,
+                data_key,
+                len(mismatched),
+                len(stamps),
+                path.name,
+                mismatched[0],
+            )
+        else:
+            logger.info(
+                "scan %s: %s: %d frame(s) in %s match the rows' stamps",
+                scan,
+                data_key,
+                len(stamps),
+                path.name,
+            )
+
+
+def subscribe_scan_outputs(run_engine: Any) -> tuple[int, int, int, int]:
+    """Subscribe the output callbacks; return their tokens.
+
+    The stack check goes first so its verdict lands in ``scan.log`` before
+    the log callback closes the file at the same stop document.
+    """
     return (
+        run_engine.subscribe(StackCheckCallback()),
         run_engine.subscribe(ScanLogCallback()),
         run_engine.subscribe(ScanInfoCallback()),
         run_engine.subscribe(SFileCallback()),
@@ -307,6 +448,7 @@ __all__ = [
     "SFileCallback",
     "ScanInfoCallback",
     "ScanLogCallback",
+    "StackCheckCallback",
     "first_axis",
     "scan_info_lines",
     "scan_parameter",

@@ -37,6 +37,12 @@ geecs_pva_gateway/
   server.py     # GeecsPvaGateway + per-camera worker: gated + supervised
                 #   subscription, decode off-loop, latest-wins posting,
                 #   version/heartbeat/restart instance PVs (restart -> exit 86)
+  file_plugin.py # HdfFilePlugin (#806): one per image variable, the
+                #   areaDetector NDFileHDF5 PV set (+ Rewind, WriteStatus,
+                #   WriteMessage) over a single writer thread; lossless
+                #   intake before the latest-wins slot; NDFileHDF5 layout
+  diff.py       # `geecs-pva-gateway diff`: plugin stacks vs native PNGs
+                #   per scan (the rollout's parity check)
 deploy/
   bootstrap.ps1   # one-time per-box setup (venv, firewall, NSSM service with
                   #   USERPROFILE override -> service-owned profile; installs
@@ -57,6 +63,11 @@ tests/
   test_server.py  # end-to-end over a binary wire-format fake camera +
                   #   isolate=True PVA server
   test_entrypoint.py # CLI exit codes (incl. the restart code 86 contract)
+  test_file_plugin.py # the PV contract pinned by the stock ophyd-async
+                  #   ADHDFDataLogic over a real NDFileHDF5IO on pva://;
+                  #   session semantics (arming, dedupe, stale, rewind,
+                  #   counters, no directory creation, no empty file)
+  test_diff.py    # the parity tool
 ```
 
 ## Architecture (one asyncio loop)
@@ -80,6 +91,24 @@ tests/
   the event loop → `pv.post(image, timestamp=...)`. A stalled consumer drops
   stale frames; nothing ever backlogs. Completeness lives in the GEECS file
   path, not this stream.
+- **File plugin** (`file_plugin.py`, #806, design in
+  `Planning/native_bluesky/06_pva_file_plugin.md`): a second consumer of
+  the push frame with the *opposite* delivery contract — lossless within
+  a capture session — branching off in `_on_frame` **before** the
+  latest-wins slot. Per image variable: the `NDFileHDF5IO` PV set under
+  `<image PV>:hdf1:` (prefix minted by `geecs_core.pv_naming.hdf_plugin_prefix`),
+  one writer thread owning all session state and the file handle (puts
+  and frames only enqueue). `Capture=1` retains the variable's
+  subscription like a client and completes only once a frame has been
+  decoded (that is where the geometry the worker describes the stream
+  with comes from); frames are deduped on `acq_timestamp` and
+  stale-filtered against a watermark set at `Capture=1` and moved by
+  `Rewind` (the refire guard: truncate to N, drop older-stamped
+  arrivals); `NumCaptured_RBV` posts after each frame is on disk;
+  `Capture=0` stamps the reconciliation counters and closes. Never
+  creates a directory (`CreateDirectory` is ignored); never HDF5 SWMR
+  across SMB (`SWMRMode` accepted and ignored; flush per frame, file
+  locking off). Served only where `h5py` imports (`file_plugin.available`).
 - **Identity/control PVs**: `{experiment}:pvagateway:{host_token}:version|
   heartbeat|restart` per instance — the fleet screen reads the first two
   (version skew, liveness); writing `:restart` exits 86 for the service
@@ -91,7 +120,8 @@ tests/
 - **Transport**: only `geecs_core.transport`. Never GEECS-PythonAPI
   (deprecated, slated for deletion).
 - **Images stay off the CA gateway; scalars stay off this one.** This package
-  serves image-typed variables only. If PVA scalars ever happen, that is a
+  serves image-typed variables only (the file plugin's control PVs are
+  areaDetector's, per image variable — not GEECS scalars). If PVA scalars ever happen, that is a
   deliberate design step (per-device-class PVA adoption, DESIGN.md), not a
   drive-by addition here.
 - **Text variables**: image variables must always be subscribed as

@@ -280,3 +280,70 @@ def test_scan_log_callback_without_a_claim_warns(caplog):
         cb("start", {"uid": "u"})
         cb("stop", {"run_start": "u"})
     assert "no scan.log" in caplog.text
+
+
+# ------------------------------------------------------------- stack check
+def _feed_stack_run(tmp_path, stack_stamps, row_stamps, caplog, *, write_file=True):
+    """Drive StackCheckCallback with documents for one run and one stack."""
+    import h5py
+    import numpy as np
+
+    from geecs_bluesky.callbacks import StackCheckCallback
+
+    device_dir = tmp_path / "Scan009" / "UC_Cam"
+    device_dir.mkdir(parents=True)
+    path = device_dir / "UC_Cam.h5"
+    if write_file:
+        with h5py.File(path, "w", libver="latest") as f:
+            f.create_dataset(
+                "/entry/data/data", data=np.zeros((len(stack_stamps), 2, 2))
+            )
+            f.create_dataset(
+                "/entry/instrument/NDAttributes/acq_timestamp",
+                data=np.array(stack_stamps),
+            )
+    cb = StackCheckCallback()
+    caplog.set_level(logging.INFO, logger="geecs_bluesky.callbacks")
+    cb("start", {"uid": "run1", "scan_number": 9})
+    cb("descriptor", {"uid": "d1", "run_start": "run1", "name": "primary"})
+    cb(
+        "stream_resource",
+        {
+            "uid": "sr1",
+            "run_start": "run1",
+            "data_key": "uc_cam",
+            "mimetype": "application/x-hdf5",
+            "uri": path.as_uri().replace("file:///", "file://localhost/"),
+            "parameters": {"dataset": "/entry/data/data", "chunk_shape": (1, 2, 2)},
+        },
+    )
+    for stamp in row_stamps:
+        cb("event", {"descriptor": "d1", "data": {"uc_cam-acq_timestamp": stamp}})
+    cb("stop", {"run_start": "run1", "exit_status": "success"})
+    return [r.getMessage() for r in caplog.records if "uc_cam" in r.getMessage()]
+
+
+def test_stack_check_passes_when_frames_are_the_rows(tmp_path, caplog):
+    """Frames == rows with a stamp (NaN rows are the partial shots) and each stamp matches."""
+    messages = _feed_stack_run(
+        tmp_path, [100.0, 102.0], [100.0, float("nan"), 102.0], caplog
+    )
+    assert messages == [
+        "scan 9: uc_cam: 2 frame(s) in UC_Cam.h5 match the rows' stamps"
+    ]
+
+
+def test_stack_check_flags_count_and_stamp_mismatches(tmp_path, caplog):
+    count = _feed_stack_run(tmp_path, [100.0, 101.0, 102.0], [100.0, 102.0], caplog)
+    assert count == [
+        "scan 9: uc_cam: 3 frame(s) in UC_Cam.h5 but 2 row(s) with a stamp"
+    ]
+    caplog.clear()
+    stamps = _feed_stack_run(tmp_path / "b", [100.0, 101.5], [100.0, 102.0], caplog)
+    assert stamps == [
+        "scan 9: uc_cam: 1 of 2 frame(s) in UC_Cam.h5 do not carry their row's "
+        "stamp (first at index 1)"
+    ]
+    caplog.clear()
+    missing = _feed_stack_run(tmp_path / "c", [], [100.0], caplog, write_file=False)
+    assert missing and "missing but 1 row(s) carry a stamp" in missing[0]

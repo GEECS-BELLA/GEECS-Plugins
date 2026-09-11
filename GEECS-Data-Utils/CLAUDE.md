@@ -22,11 +22,12 @@ geecs_data_utils/
   utils.py                     # month_to_int, SysPath, ConfigurationError
   io/                          # generic path->ndarray readers (images, 1D,
                                #   IMAQ decode) + scan_stack.py: reader for
-                               #   per-device capture frame stacks
-                               #   (geecs-capture/*, contract in GeecsBluesky/
-                               #   geecs_bluesky/capture/FORMAT.md) incl.
-                               #   ShotRef — a Path carrying a frame index
-                               #   for per-shot pipelines (pickle-safe)
+                               #   per-device image stacks in the areaDetector
+                               #   NDFileHDF5 layout (/entry/data/data +
+                               #   /entry/instrument/NDAttributes/acq_timestamp;
+                               #   written by GeecsPvaGateway's file plugin,
+                               #   #806) incl. ShotRef — a Path carrying a
+                               #   frame index for per-shot pipelines
   plotting_utils.py            # Simple matplotlib helpers for binned data
   scans_database/
     database.py                # ScanDatabase: filter + load Parquet dataset

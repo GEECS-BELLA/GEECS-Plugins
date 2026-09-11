@@ -12,41 +12,44 @@ from geecs_data_utils.io.scan_stack import (
     LABVIEW_EPOCH_OFFSET,
     ShotRef,
     find_stack_file,
+    FRAMES_DATASET,
+    TIMESTAMPS_DATASET,
     is_stack_file,
     read_shot,
     read_stack_timestamps,
 )
 
 
-def _write_stack(device_dir, n=3, schema="geecs-capture/1"):
-    """Write a minimal contract-conformant stack, as the daemon would."""
+def _write_stack(device_dir, n=3, frames_dataset=FRAMES_DATASET):
+    """Write a minimal contract-conformant stack, as the file plugin would."""
     device_dir.mkdir(parents=True, exist_ok=True)
     path = device_dir / f"{device_dir.name}.h5"
     with h5py.File(path, "w", libver="latest") as f:
-        f.attrs["schema"] = schema
         f.attrs["device"] = device_dir.name
         f.create_dataset(
-            "frames",
+            frames_dataset,
             data=np.stack([np.full((4, 5), i, dtype=np.uint16) for i in range(n)]),
             chunks=(1, 4, 5),
         )
-        f.create_dataset("acq_timestamp", data=np.arange(n) + 1000.0)
-        f.create_dataset("recv_timestamp", data=np.arange(n) + 2000.0)
+        f.create_dataset(TIMESTAMPS_DATASET, data=np.arange(n) + 1000.0)
+        f.create_dataset(
+            "/entry/instrument/NDAttributes/recv_timestamp", data=np.arange(n) + 2000.0
+        )
     return path
 
 
 def test_find_and_validate_stack(tmp_path) -> None:
-    """find_stack_file locates <device>/<device>.h5 and validates the schema."""
+    """find_stack_file locates <device>/<device>.h5 and validates the layout."""
     device_dir = tmp_path / "UC_Cam"
     path = _write_stack(device_dir)
     assert find_stack_file(device_dir) == path
     assert is_stack_file(path)
 
 
-def test_wrong_schema_is_not_a_stack(tmp_path) -> None:
-    """Dispatch is on the schema attribute, never the extension."""
+def test_wrong_layout_is_not_a_stack(tmp_path) -> None:
+    """Dispatch is on the layout's datasets, never the extension."""
     device_dir = tmp_path / "UC_Cam"
-    _write_stack(device_dir, schema="something-else/9")
+    _write_stack(device_dir, frames_dataset="/frames")
     assert find_stack_file(device_dir) is None
 
 

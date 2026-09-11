@@ -117,7 +117,11 @@ Constraints, all by design:
 - **External (PyPI) deps are frozen at bootstrap** — the reinstall is
   `--no-deps` (monorepo path-dep metadata never resolves outside a checkout)
   with `--no-build-isolation` (builds use the venv's poetry-core, so restarts
-  need no internet). A numpy/p4p bump is a re-bootstrap, not a rollout.
+  need no internet). A numpy/p4p bump is a re-bootstrap, not a rollout —
+  and so was **h5py** (0.7.0, the file plugin): a box whose venv predates it
+  serves no `:hdf1:` PVs (`file_plugin.available` is false there) and its
+  cameras stay on LabVIEW-native saving until it is re-bootstrapped and
+  added to the worker's `[pva] file_plugin_addr_list`.
 - **The share clone must be readable by the boxes' *machine accounts*** —
   LocalSystem authenticates to shares as the computer account, not a user.
   **Validated in production**: the whole fleet reinstalls from the share as
@@ -233,6 +237,37 @@ and a `[WARN]` when versions are mixed (a rollout is incomplete). The last
 line is a tab-separated `role=PVA image gateways` record — the contract
 `scripts/fleet_status.sh` consumes for its table. Exit 0 when any host
 answered.
+
+## The file plugin (#806)
+
+Every served image variable also gets the areaDetector `NDFileHDF5` PV set
+under `<image PV>:hdf1:` (e.g. `undulator:uc_amp2_ir_input:image:hdf1:Capture`),
+plus `Rewind`, `WriteStatus`, `WriteMessage`. The worker drives it with the
+stock ophyd-async `ADHDFDataLogic`; nothing is configured on the box. Two
+deployment facts:
+
+- **The service writes as LocalSystem** (session-0 rule 1): the run folder
+  arrives in `FilePath` as a UNC path (the worker's `config.ini`
+  `[Paths] geecs_pva_plugin_data_base_path`, e.g. `\\<nas>\<share>\data`),
+  never a drive letter, and `FilePathExists_RBV` answers for it. The box's
+  **machine account** must be able to write there (it is known to read the
+  share the fleet clone lives on); if it cannot, run the service as the
+  lab's shared domain account (the `nssm set ... ObjectName` fallback
+  above) — the `USERPROFILE` override stays either way.
+- **The plugin never creates the run folder** — the worker claims it and
+  creates the device directory; a missing directory fails `Capture=1`
+  loudly (`WriteStatus` / `WriteMessage` carry the reason).
+
+Smoke test from the worker host after a re-bootstrap:
+
+```bash
+pvget undulator:uc_amp2_ir_input:image:hdf1:Capture_RBV   # exists → plugin served
+pvput undulator:uc_amp2_ir_input:image:hdf1:FilePath '\\<nas>\<share>\data\...\ScanNNN\UC_Amp2_IR_input\'
+pvget undulator:uc_amp2_ir_input:image:hdf1:FilePathExists_RBV   # true → the service can see it
+```
+
+Parity against the native PNGs, per scan, while dual-write lasts:
+`geecs-pva-gateway diff <scan folder>` (exit 1 on any mismatch).
 
 ## Instance PVs
 

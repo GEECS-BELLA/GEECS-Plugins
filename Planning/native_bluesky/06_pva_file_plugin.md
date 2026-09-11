@@ -43,14 +43,27 @@ contract, read in three places:
   documented shape.  `TiledWriter` batches only consecutive datums and
   writes non-consecutive ones separately (`tiled_writer.py:719-727`).
 
-**Decision (Sam, 2026-09-11).**  A missed frame on device B does not
-void the row.  The row is saved with every other device's data and B's
-columns marked (an *empty shot*: no datum for B, `NaN` in its scalar
-columns and its stamp), and the plan takes **one more shot** for the
-step, bounded by the existing refire count.  Strict therefore means
-"every step gets its full quota of complete rows, and partial rows are
-kept and marked", not "every row complete".  A device confirmed
-`DISCONNECTED` still aborts the run (retaking cannot help).
+**Decision (Sam, 2026-09-11), as built.**  A missed frame on device B
+does not void the row.  The row is saved with **every scalar** the shot
+produced, B's columns marked (`NaN` in its scalar columns and its
+stamp), and the plan takes **one more shot** for the step, bounded by
+the existing refire count.  Strict therefore means "every step gets its
+full quota of complete rows, and partial rows are kept and marked", not
+"every row complete".  A device confirmed `DISCONNECTED` still aborts
+the run (retaking cannot help).
+
+**The partial row carries no frames** — found when the plan was built,
+not in the reading above: the RunEngine bundler also requires, within
+one event, a datum for **every** external key of the descriptor, all of
+one width, or none at all (`bundlers.py:938-943`, `:841-851`).  So a
+row where A has no frame cannot reference B's frame either.  Before the
+partial row is read, the plan rewinds **every** plugin-backed device of
+the shot to the last frame a document referenced (§ below): B's
+uncollected frame goes with A's late one.  What is lost per partial row
+is the delivered devices' frames of that shot; their scalars stay.
+(The zero-width datum the consolidator's `has_skips` map describes is
+therefore a *fly-stream* shape — no per-event bundling — and stays
+phase 2's, for the non-essential stream.)
 
 What the detector and plan do to make the partial row honest:
 
@@ -64,6 +77,15 @@ What the detector and plan do to make the partial row honest:
 - **Per-device trigger groups** in `fire_and_await_shot`, so every
   device's outcome is known, not just the first failure; the statuses run
   concurrently under one 3 s deadline, so the wall time is unchanged.
+  The RunEngine *throws* a failed status into the plan at the next
+  message and a second failure replaces the first, so the exceptions
+  seen are not a census of the misses; the devices' own `missed_shot`
+  flags are, and each group is re-waited until consumed so no stashed
+  failure escapes to a later message.
+- **The count baseline is asynchronous** (a PVA get inside the trigger
+  coroutine), unlike the synchronous stamp baseline; it is covered by
+  the fire put's own ~100 ms plus the next-edge wait, two orders of
+  magnitude of margin.
 
 **The late frame, and why `Rewind` stays.**  A frame from B's missed
 shot that arrives after row *k* closed is written as frame *c*; the
@@ -73,14 +95,12 @@ run's last collect.  So the plugin gets one non-areaDetector verb,
 `Rewind` (int): truncate the datasets to *N*, post `NumCaptured_RBV = N`,
 and drop any later frame whose stamp is older than now (the late frame's
 stamp is its edge time, ≥ 3 s in the past; the retake's is newer).
-Before the retake fires, the plan calls `GeecsDetector.discard_uncollected()`
-**on the devices that missed only**, through the stock `bps.wait_for`
-stub; the method sets `Rewind` to each streamable provider's
-`last_emitted` (public) and waits for the readback.  It never touches a
-device that delivered, and it cannot reach a frame any row references,
-because the retake fires only after it.  What is lost is one half-orphan
-frame per late arrival: a frame whose scalars never reached its row
-either.  The alternative — keep the frame and skip its index — needs a
+Before the partial row is read, the plan calls
+`GeecsDetector.discard_uncollected()` on every plugin-backed device of
+the shot, through the stock `bps.wait_for` stub; the method sets `Rewind`
+to each streamable provider's `last_emitted` (public) and waits for the
+readback.  It cannot reach a frame any row references, because the
+retake fires only after it.  The alternative — keep the frame and skip its index — needs a
 provider of our own and leaves Tiled's positional view of that camera
 unreliable for the run, while the stamps stay correct; rejected for the
 stock property (Sam: "not a unique issue we encounter at BELLA").

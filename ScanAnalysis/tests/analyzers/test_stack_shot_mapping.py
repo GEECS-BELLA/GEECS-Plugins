@@ -17,7 +17,12 @@ import h5py
 import numpy as np
 import pandas as pd
 
-from geecs_data_utils.io.scan_stack import LABVIEW_EPOCH_OFFSET, ShotRef
+from geecs_data_utils.io.scan_stack import (
+    FRAMES_DATASET,
+    LABVIEW_EPOCH_OFFSET,
+    TIMESTAMPS_DATASET,
+    ShotRef,
+)
 from scan_analysis.analyzers.common.single_device_scan_analyzer import (
     SingleDeviceScanAnalyzer,
 )
@@ -42,20 +47,21 @@ def _make_analyzer(
     return sa
 
 
-def _write_stack(device_dir: Path, lv_timestamps, schema="geecs-capture/1") -> Path:
+def _write_stack(
+    device_dir: Path, lv_timestamps, frames_dataset=FRAMES_DATASET
+) -> Path:
     """Write a contract-shaped stack whose frames' values equal their index."""
     device_dir.mkdir(parents=True, exist_ok=True)
     path = device_dir / f"{device_dir.name}.h5"
     n = len(lv_timestamps)
     with h5py.File(path, "w", libver="latest") as f:
-        f.attrs["schema"] = schema
         f.create_dataset(
-            "frames",
+            frames_dataset,
             data=np.stack([np.full((3, 3), i, dtype=np.uint16) for i in range(n)]),
             chunks=(1, 3, 3),
         )
         f.create_dataset(
-            "acq_timestamp",
+            TIMESTAMPS_DATASET,
             data=np.asarray(lv_timestamps, dtype=float) - LABVIEW_EPOCH_OFFSET,
         )
     return path
@@ -104,10 +110,10 @@ class TestStackJoin:
         sa._build_data_file_map()
         assert sa._data_file_map == {1: png}
 
-    def test_wrong_schema_falls_back(self, tmp_path):
+    def test_wrong_layout_falls_back(self, tmp_path):
         ts = [3866137959.524]
         device_dir = tmp_path / DEVICE
-        _write_stack(device_dir, ts, schema="not-a-capture-stack/0")
+        _write_stack(device_dir, ts, frames_dataset="/frames")
         png = device_dir / f"{DEVICE}_3866137959.524.png"
         png.write_bytes(b"")
         sa = _make_analyzer(device_dir, _aux(ts))
@@ -137,15 +143,14 @@ class TestStackJoin:
         assert sa._data_file_map == {1: png}
 
     def test_corrupt_stack_missing_timestamps_falls_back(self, tmp_path):
-        # Valid schema + frames but no /acq_timestamp dataset: the read
+        # Frames but no acq_timestamp dataset: the read
         # raises inside the strategy, which must fall back — never fail
         # the task (review finding 1).
         ts = [3866137959.524]
         device_dir = tmp_path / DEVICE
         device_dir.mkdir(parents=True)
         with h5py.File(device_dir / f"{DEVICE}.h5", "w") as f:
-            f.attrs["schema"] = "geecs-capture/1"
-            f.create_dataset("frames", data=np.zeros((1, 3, 3), dtype=np.uint16))
+            f.create_dataset(FRAMES_DATASET, data=np.zeros((1, 3, 3), dtype=np.uint16))
         png = device_dir / f"{DEVICE}_3866137959.524.png"
         png.write_bytes(b"")
         sa = _make_analyzer(device_dir, _aux(ts))

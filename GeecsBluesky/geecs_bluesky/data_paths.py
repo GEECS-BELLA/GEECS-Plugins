@@ -112,3 +112,42 @@ def asset_resource_root_paths() -> tuple[str | None, str | None]:
         )
         return None, None
     return canonical_root, str(base_path)
+
+
+def read_plugin_data_base_path() -> str | None:
+    """The data root as the camera servers' **file plugin** sees it.
+
+    The plugin runs as a Windows service (GeecsPvaGateway ``DEPLOYMENT.md``,
+    session-0 rule 1): it cannot see the per-user mapped drive LabVIEW writes
+    through, so it needs the UNC form of the same root
+    (``[Paths] geecs_pva_plugin_data_base_path``).  Absent, the device-server
+    path is used — right where the service can see that drive.
+    """
+    return _read_paths_entry("geecs_pva_plugin_data_base_path")
+
+
+def plugin_save_path(save_path: str) -> str:
+    """Return the path to send to a file plugin's ``FilePath`` control."""
+    plugin_base_path = read_plugin_data_base_path()
+    if not plugin_base_path:
+        return device_server_save_path(save_path)
+    try:
+        from geecs_data_utils import ScanPaths
+    except Exception:
+        logger.warning(
+            "Could not import geecs_data_utils; using local path for the plugin"
+        )
+        return save_path
+    local_base_path = getattr(
+        getattr(ScanPaths, "paths_config", None), "base_path", None
+    )
+    if local_base_path is None:
+        logger.warning(
+            "ScanPaths.paths_config is not loaded; using local path for the plugin"
+        )
+        return save_path
+    return translate_save_path_for_device_server(
+        save_path,
+        local_base_path=local_base_path,
+        device_server_base_path=plugin_base_path,
+    )

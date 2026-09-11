@@ -47,6 +47,7 @@ trigger state (`shot_control-state`) when it is read.
 |---|---|
 | `<det>-<variable>` | The detector's DB-subscribed scalars, one column each (`safe_name`-mangled: `uc_amp4_ir_input-meancounts`) |
 | `<det>-acq_timestamp` | The shot stamp: the join key for that detector's files and for cross-device alignment after the drain offset (§11.3) |
+| `<det>` | A plugin-backed camera's frames (#806): an external `STREAM:` key — the row's frame is the stream datum's index into `ScanNNN/<device>/<device>.h5` (`/entry/data/data`); `<det>-<variable>` for a second image variable. Absent from a partial row (see below) |
 | `<det>-nonscalar_save_path` | The directory the detector's native files landed in this run — present only when the detector saved natively (`geecs_data_utils.tiled_schema.COMPANION_SUFFIXES` names the suffix) |
 | `<device>-<variable>` | A scalar-only device's subscribed readbacks (`CaSnapshotReadable`) |
 | `<device>-<settable>-position` / `-readback` | A settable child's readback when the DB subscribes it (`CaMotor` / `CaSettable`), and the scan motor's column |
@@ -56,6 +57,15 @@ A device listed as `X.scalars` (the scalars-only view every namespace
 device carries; `save_images: false` in a preset) contributes the same
 columns as `X` — for a detector `<det>-<variable>` and
 `<det>-acq_timestamp` with no `-nonscalar_save_path`.
+
+**Partial rows.** A shot on which a detector produced no frame within the
+timeout is still a row: every other device's columns are real, the
+frameless detector's `<det>-<variable>` and `<det>-acq_timestamp` read
+`NaN` (its monitor cache would otherwise carry the previous shot), and
+the row references **no** frames for any plugin-backed camera (one datum
+per external key per event, or none). The plan then takes one more shot
+for the step, so every step has its full quota of complete rows; the
+s-file carries the `NaN` holes.
 
 Native files are named with the row's stamp
 (`<Device>_<acq_timestamp>.png`, `geecs_data_utils.native_files`) and join
