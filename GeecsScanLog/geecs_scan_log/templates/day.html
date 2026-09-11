@@ -14,7 +14,9 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=swap">
-<link rel="stylesheet" href="{{ url_for('_static', name='scanlog.css') }}">
+{# .path, not the absolute URL url_for returns: behind TLS termination or a
+   host-rewriting proxy an absolute http:// URL is a mixed-content block. #}
+<link rel="stylesheet" href="{{ url_for('_static', name='scanlog.css').path }}">
 </head>
 <body>
 
@@ -30,17 +32,29 @@
     <summary class="scanhead">
       <span class="twisty" aria-hidden="true"></span>
       <span class="scanid">{{ s.label }}</span>
-      <span class="scantime">{{ s.started.strftime('%H:%M:%S') if s.started else '—' }}</span>
+      <span class="scantime{% if s.started_approximate %} approx{% endif %}"
+            {%- if s.started_approximate %} title="Approximate: no scan.log, so this is when ScanInfo was last written"{% endif %}>
+        {%- if s.started -%}
+          {{ '~' if s.started_approximate }}{{ s.started.strftime('%H:%M:%S') }}
+        {%- else -%}&mdash;{%- endif -%}
+      </span>
       <span class="scanpurpose{% if not s.purpose %} none{% endif %}">
         {{ s.purpose or 'No purpose recorded at submission' }}</span>
       <span class="chip chip-{{ s.status }}">
-        {{ {'success':'success','failed':'failed','incomplete':'no scan info','unknown':'check'}[s.status] }}
+        {%- if s.status == 'incomplete' -%}
+          {{ 'not finalised' if s.has_scan_info else 'no scan info' }}
+        {%- else -%}
+          {{ {'success':'success','failed':'failed',
+              'aborted':'aborted','unknown':'check'}[s.status] }}
+        {%- endif -%}
       </span>
     </summary>
 
     {% if s.failure_reason %}
     <div class="failstrip">
-      <div class="flabel">Scan ended with an error — from ScanEndInfo</div>
+      <div class="flabel">
+        Scan {{ 'was aborted' if s.status == 'aborted' else 'ended with an error' }}
+        &mdash; from ScanEndInfo</div>
       <div class="fmsg">{{ s.failure_reason }}</div>
     </div>
     {% endif %}

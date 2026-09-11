@@ -35,7 +35,7 @@ import logging
 import os
 import re
 from concurrent.futures import ThreadPoolExecutor
-from datetime import date
+from datetime import date, datetime
 from functools import lru_cache
 from pathlib import Path
 from typing import NamedTuple, Optional, Union
@@ -54,7 +54,12 @@ logger = logging.getLogger(__name__)
 #: make one invisible.
 _SCAN_DIR = re.compile(r"^Scan(\d+)$")
 
-#: Subdirectories inside a scan folder that are not devices.
+#: Subdirectories inside a scan folder that are not devices. ``analysis/``
+#: appears here as well as beside ``scans/`` — ScanAnalysis writes one
+#: inside the scan folder too (GEECS-Data-Utils' folder convention shows
+#: both). The overlap costs us a device literally named ``analysis``; no
+#: such device exists, and the alternative is listing an output directory
+#: as a device on every analysed scan.
 _NON_DEVICE_DIRS = {"analysis_status", "analysis"}
 
 #: Concurrent folder reads, layered on top of the per-scan savings in
@@ -130,18 +135,27 @@ def scan_status(end_info: Optional[str], has_scan_info: bool) -> ScanStatus:
     if end_info is None or not end_info.strip():
         return "incomplete"
     text = end_info.strip()
-    if text.lower() == "success":
+    lowered = text.lower()
+    if lowered == "success":
         return "success"
-    if text.lower().startswith("fail"):
+    if lowered.startswith("fail"):
         return "failed"
+    if lowered.startswith("abort"):
+        # `RE.abort()`, Ctrl-C, and the queueserver stop the console and
+        # GEECS-MCP both expose all reach on_stop as exit_status="abort".
+        # Its reason is as worth surfacing as a failure's.
+        return "aborted"
     return "unknown"
 
 
 def _failure_reason(end_info: Optional[str], status: ScanStatus) -> Optional[str]:
-    """Return the failure text without its ``fail:`` prefix, if failed."""
-    if status != "failed" or not end_info:
+    """Return the outcome text without its verdict prefix, when not clean."""
+    if status not in {"failed", "aborted"} or not end_info:
         return None
-    return re.sub(r"^fail:\s*", "", end_info.strip(), flags=re.IGNORECASE) or None
+    return (
+        re.sub(r"^(fail|abort)[a-z]*:\s*", "", end_info.strip(), flags=re.IGNORECASE)
+        or None
+    )
 
 
 def _as_float(raw: Optional[str]) -> Optional[float]:
@@ -237,7 +251,7 @@ def read_scan(scan_folder: Path, number: int) -> ScanSummary:
         than an error.
     """
     contents = scan_contents(scan_folder)
-    return _read_scan_cached(
+    args = (
         str(scan_folder),
         number,
         contents.ini_path,
@@ -246,6 +260,12 @@ def read_scan(scan_folder: Path, number: int) -> ScanSummary:
         contents.log_path,
         contents.devices,
     )
+    if contents.ini_path and contents.ini_mtime is None:
+        # The listing found the file but could not stat it — a flaky share.
+        # Caching on the path alone would pin this scan's state for the life
+        # of the process, so read it uncached instead.
+        return _summarize(*args)
+    return _read_scan_cached(*args)
 
 
 @lru_cache(maxsize=_CACHE_SIZE)
@@ -258,7 +278,7 @@ def _read_scan_cached(
     log_path: Optional[str],
     devices: tuple[str, ...],
 ) -> ScanSummary:
-    """Parse a scan's files, memoised on the ScanInfo file's identity.
+    """Memoise :func:`_summarize` on the ScanInfo file's identity.
 
     Only the file reads are cached; the caller has already paid for the
     directory listing that produced these arguments, and that listing is
@@ -271,14 +291,38 @@ def _read_scan_cached(
     running scan's empty ``ScanEndInfo`` forever — losing exactly the
     failure reason this view exists to surface.
     """
+    return _summarize(folder, number, ini_path, ini_mtime, ini_size, log_path, devices)
+
+
+def _summarize(
+    folder: str,
+    number: int,
+    ini_path: Optional[str],
+    ini_mtime: Optional[float],
+    ini_size: Optional[int],
+    log_path: Optional[str],
+    devices: tuple[str, ...],
+) -> ScanSummary:
+    """Build a summary from an already-listed scan folder, uncached."""
     info = read_scan_info_file(ini_path) if ini_path else {}
     has_info = bool(info)
     end_info = info.get("ScanEndInfo")
     status = scan_status(end_info, has_info)
 
+    # scan.log is the honest start. Archive scans predate it, so fall back
+    # to the ScanInfo file's own mtime — the scan's *end*, minutes out
+    # rather than the folder's hours — and flag it rather than implying a
+    # precision it does not have. Never the folder's mtime.
+    started = first_log_timestamp(log_path) if log_path else None
+    approximate = False
+    if started is None and ini_mtime is not None:
+        started = datetime.fromtimestamp(ini_mtime)
+        approximate = True
+
     return ScanSummary(
         number=number,
-        started=first_log_timestamp(log_path) if log_path else None,
+        started=started,
+        started_approximate=approximate,
         parameter=info.get("Scan Parameter") or None,
         start=_as_float(info.get("Start")),
         end=_as_float(info.get("End")),

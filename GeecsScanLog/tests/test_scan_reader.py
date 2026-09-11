@@ -83,7 +83,17 @@ class TestScanStatus:
 
     def test_unrecognised_end_info(self) -> None:
         """An end string we do not recognise is reported as unknown."""
-        assert scan_status("aborted by operator", True) == "unknown"
+        assert scan_status("cancelled by the interlock", True) == "unknown"
+
+    def test_abort_is_its_own_outcome(self) -> None:
+        """RE.abort(), Ctrl-C and the queueserver stop all land here.
+
+        The scanner writes ``exit_status`` verbatim, so an aborted run
+        reads ``abort: <reason>``. Reporting that as "unknown" hid the
+        reason and kept it out of the day's tally.
+        """
+        assert scan_status("abort", True) == "aborted"
+        assert scan_status("abort: RunEngine stopped by user", True) == "aborted"
 
     def test_empty_end_info_is_incomplete_not_unknown(self) -> None:
         """ScanEndInfo = "" means not finalised, not unrecognised.
@@ -296,3 +306,36 @@ class TestEmptyRuns:
         campaigns = read_day(DAY, "Undulator", base_directory=share).campaigns
         real = [c for c in campaigns if c.parameter]
         assert real and all(c.is_empty_run is False for c in real)
+
+
+class TestStartTime:
+    """When a scan ran, and how honest the view is about knowing."""
+
+    def test_prefers_the_scan_log(self, share: Path) -> None:
+        """A scan with a log reports the log's own first timestamp."""
+        scan = read_day(DAY, "Undulator", base_directory=share).scans[0]
+        assert scan.started is not None
+        assert scan.started.strftime("%H:%M:%S") == "08:10:35"
+        assert scan.started_approximate is False
+
+    def test_falls_back_to_scaninfo_mtime(self, make_run) -> None:
+        """An archive scan with no scan.log still shows a time, flagged.
+
+        Much of the archive predates scan.log. Dropping the fallback
+        entirely traded a wrong answer for no answer at all — a whole 2025
+        day rendered every time as an em dash.
+        """
+        root = make_run(1)
+        # make_run writes ScanInfo but no scan.log — the archive shape.
+        scan = read_day(DAY, "Undulator", base_directory=root).scans[0]
+        assert scan.started is not None
+        assert scan.started_approximate is True
+
+    def test_no_sources_means_no_claim(self, tmp_path: Path) -> None:
+        """With neither log nor ScanInfo, the time is absent, not invented."""
+        scans = tmp_path / "Undulator" / "Y2026" / "09-Sep" / "26_0911" / "scans"
+        (scans / "Scan001").mkdir(parents=True)
+
+        scan = read_day(DAY, "Undulator", base_directory=tmp_path).scans[0]
+        assert scan.started is None
+        assert scan.started_approximate is False

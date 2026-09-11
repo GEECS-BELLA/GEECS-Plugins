@@ -29,10 +29,13 @@ Trigger profile = "HTU-NoGas"
 #: The dominant real state: claimed and written, never finalised.
 UNFINALISED_INI = SUCCESS_INI.replace('ScanEndInfo = "success"', 'ScanEndInfo = ""')
 
-#: A scan.log as the scanner writes it — the honest start time.
+#: A scan.log line exactly as the scanner writes it — transcribed from
+#: 26_0911/scans/Scan001/scan.log so the fixture exercises the real
+#: HEADER_RE, not an invented shape that would silently never match.
 SCAN_LOG = (
-    "2026-09-11 08:10:35.100 INFO geecs_bluesky.run [MainThread] "
-    "scan Scan{n:03d}: starting\n"
+    "2026-09-11 08:10:35.100 INFO geecs_bluesky.scan_log "
+    "[bluesky-run-engine] scan=Scan{n:03d} - scan Scan{n:03d}: starting "
+    "(dir=/data/Undulator/Y2026/09-Sep/26_0911/scans/Scan{n:03d})\n"
 )
 
 #: A real failure, transcribed from Scan006 on 2026-09-11.

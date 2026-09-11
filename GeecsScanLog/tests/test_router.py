@@ -112,3 +112,23 @@ class TestBusyDay:
         html = busy.get("/log/day/2026-09-11").text
         assert " open>" not in html
         assert "Expand all" in html
+
+
+class TestHonestChips:
+    """The status chip must not contradict the card under it."""
+
+    def test_unfinalised_scan_does_not_claim_to_lack_scan_info(
+        self, client: TestClient
+    ) -> None:
+        """Scan040 has a full ScanInfo, just no ScanEndInfo yet.
+
+        Both it and a folder with no ScanInfo at all are `incomplete`, but
+        rendering "no scan info" over a card listing the scan variable and
+        shot count parsed *from* ScanInfo is a plain contradiction — and it
+        hit the most common state on the real share.
+        """
+        html = client.get("/log/day/2026-09-11").text
+        assert "not finalised" in html
+        assert "no scan info" in html  # Scan031, which really has none
+        assert html.count("not finalised") == 1
+        assert html.count("no scan info") == 1

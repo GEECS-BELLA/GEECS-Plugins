@@ -23,11 +23,15 @@ project adheres to semantic versioning.
   campaign and nobody can forget to. A day above 20 scans renders campaigns
   (one rail row each, collapsed) instead of a flat list; a failure inside a
   collapsed campaign still surfaces on its header.
-- Fewer round trips per scan: one `os.scandir` of a scan folder yields both
-  the ScanInfo path and the device list, replacing a `glob` plus an
-  `iterdir`, and it carries the ScanInfo file's own stat for the cache key. Four round trips became two — measured
-  1.85x faster on cold days (403 -> 218 ms per scan, A/B across untouched
-  August dates).
+- Fewer round trips per scan: one `os.scandir` of a scan folder yields the
+  ScanInfo path, that file's own stat (the cache key), the `scan.log` path
+  and the device list — replacing a `glob`, an `iterdir` and a `stat`.
+  Measured against the original reader at 1.85x on cold days (403 -> 218 ms
+  per scan, A/B across untouched August dates). That figure predates the
+  `scan.log` read added for start times, which costs one more open per
+  uncached scan; and the listing itself is not cached, so a warm 108-scan
+  day is ~300 ms rather than the single-digit milliseconds an earlier draft
+  of this entry claimed.
 - Concurrent folder reads (16 workers) and a cache of the per-scan file
   reads, keyed on the **ScanInfo file's** own mtime and size. A 108-scan day
   over VPN went from 27.3 s to 5.6 s on a cold share and milliseconds once
@@ -39,6 +43,16 @@ project adheres to semantic versioning.
   `geecs_data_utils.scan_paths.read_scan_info_file` (shared with
   `ScanPaths.load_scan_info`) and the scan's start time through
   `scan_log_loader.first_log_timestamp`. One surface to fix per format.
+- `abort` is its own outcome with its reason surfaced, rather than falling
+  through to `unknown`: `RE.abort()`, Ctrl-C and the queueserver stop the
+  console and GEECS-MCP both expose all reach the scanner as
+  `exit_status="abort"`.
+- The `incomplete` chip reads **"not finalised"** when ScanInfo parsed and
+  **"no scan info"** only when there is none — it no longer claims a card
+  full of parsed ScanInfo facts has no ScanInfo.
+- Scan start falls back to the ScanInfo file's mtime, marked approximate,
+  for archive scans with no `scan.log`; dropping the fallback entirely made
+  a whole 2025 day render every time as an em dash.
 - `ScanEndInfo = ""` classifies as `incomplete`, not `unknown`. The scanner
   writes it empty at claim time and fills it at the stop document, so empty
   means *not finalised*; it is the most common state on the real share (37

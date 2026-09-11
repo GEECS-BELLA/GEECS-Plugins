@@ -79,9 +79,9 @@ def read_scan_info_file(ini_path: Union[Path, str]) -> dict[str, str]:
         parser.read(ini_path)
         return {key: value.strip("'\"") for key, value in parser.items("Scan Info")}
     except NoSectionError:
-        logging.warning('ScanInfo file %s has no "Scan Info" section', ini_path)
+        logger.warning('ScanInfo file %s has no "Scan Info" section', ini_path)
     except (ConfigParserError, OSError, UnicodeDecodeError) as exc:
-        logging.warning("unreadable ScanInfo file %s: %s", ini_path, exc)
+        logger.warning("unreadable ScanInfo file %s: %s", ini_path, exc)
     return {}
 
 

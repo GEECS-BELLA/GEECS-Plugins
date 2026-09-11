@@ -15,7 +15,7 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
-ScanStatus = Literal["success", "failed", "incomplete", "unknown"]
+ScanStatus = Literal["success", "failed", "aborted", "incomplete", "unknown"]
 
 
 class ScanSummary(BaseModel):
@@ -26,8 +26,16 @@ class ScanSummary(BaseModel):
     number : int
         The scan number, i.e. ``NNN`` in ``ScanNNN``.
     started : datetime or None
-        Folder modification time, the best available proxy for when the
-        scan ran. ``None`` when the folder could not be stat-ed.
+        When the scan ran, from the first record in its ``scan.log``.
+        Falls back to the ``ScanInfo`` file's own modification time for
+        archive scans that predate ``scan.log`` — approximate, and flagged
+        as such by ``started_approximate``. ``None`` when neither exists.
+        Never the scan *folder's* mtime: any later pass that writes into
+        the folder moves it, measured over an hour off the real start.
+    started_approximate : bool
+        Whether ``started`` is the fallback rather than the log's own
+        timestamp, so the view can mark it rather than implying precision
+        it does not have.
     parameter : str or None
         ``Scan Parameter`` — the scanned variable, or ``"Shotnumber"`` for
         a no-scan acquisition.
@@ -62,6 +70,7 @@ class ScanSummary(BaseModel):
 
     number: int
     started: Optional[datetime] = None
+    started_approximate: bool = False
     parameter: Optional[str] = None
     start: Optional[float] = None
     end: Optional[float] = None

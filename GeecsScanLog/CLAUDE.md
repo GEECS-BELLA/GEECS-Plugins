@@ -74,9 +74,17 @@ traverses `scans/ScanNNN/` at all.
 | Status | Meaning |
 |---|---|
 | `success` | `ScanEndInfo = "success"` |
-| `failed` | `ScanEndInfo` starts with `fail` — the reason is surfaced verbatim |
+| `failed` | starts with `fail` — the reason is surfaced verbatim |
+| `aborted` | starts with `abort` — `RE.abort()`, Ctrl-C, or the queueserver stop the console and GEECS-MCP expose; reason surfaced the same way |
 | `incomplete` | no `ScanInfo`, **or** `ScanEndInfo` still empty |
 | `unknown` | a non-empty `ScanEndInfo` we do not recognise |
+
+The chip must not contradict the card. `incomplete` covers two different
+things, so the view splits them on `has_scan_info`: **"no scan info"** for a
+bare folder, **"not finalised"** for one whose ScanInfo parsed fine and
+whose facts are on screen. Rendering "no scan info" above a provenance line
+naming the file it just read is the kind of small lie that costs trust in
+everything else on the page.
 
 The empty case is the one to get right. The scanner writes
 `ScanEndInfo = ""` when it claims the folder and fills it in at the stop
