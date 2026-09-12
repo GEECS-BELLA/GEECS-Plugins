@@ -1,7 +1,10 @@
 # GeecsLogbook — Developer Context for Claude
 
-The scan logbook. Successor to `LogMaker4GoogleDocs`, which this package
-will eventually replace outright.
+The logbook: two books in one store. The **scans** book is the curated
+campaign record — a day document over scan folders, the successor to
+`LogMaker4GoogleDocs`, which this package will eventually replace
+outright. The **ops** book is routine operations, read by month. They
+share every mechanism below and differ only in which page you write from.
 
 ## The one idea
 
@@ -39,7 +42,8 @@ This package is analysis-side code under the repository invariant (root
 `CLAUDE.md`). It is a **consumer** of scan folders, never a producer:
 
 - never construct `ScanPaths(read_mode=False)`
-- never call `Path.mkdir` — not even `exist_ok=True`, in this phase
+- the reader never calls `Path.mkdir`; the mirror calls it only inside the
+  logbook's own tree (below), and refuses any path with `scans` in it
 - a missing day or scan folder is *reported as absent*, never repaired
 
 ## Borrow the parsing, own the view
@@ -62,29 +66,60 @@ classification, campaign shaping, and the day document.
 Pinned by `tests/test_scan_reader.py::TestScanFolderCreationInvariant`, which
 monkeypatches `Path.mkdir` to explode.
 
-Commentary goes to **`logbook/`, a sibling of `scans/` and `analysis/`** —
-never inside a scan folder. That keeps the raw data tree pristine, gives
-day-level entries a home, and means the writer never traverses
-`scans/ScanNNN/` at all. `mirror.write_entry` guards on the *day* folder
-existing before its one `mkdir(parents=True)`, so the deepest thing it can
-create is `logbook/ScanNNN/`.
+Commentary is mirrored into **a tree the logbook owns**,
+`{experiment}/logbook/Y2026/09-Sep/26_0911/…` — the data tree's date
+shape, outside the data tree. It is always writable (a note on a day with
+no scans has a home), backs up and syncs as one folder, and never enters
+`scans/` at all: `mirror._assert_own_tree` refuses a day root whose own
+four segments are not `logbook/Y/M/D` (the site's share root above them
+is not inspected — `/mnt/scans/data` is a valid site), and a test
+monkeypatches `Path.mkdir` across both the markdown and the attachment
+copy to assert every directory made is under `logbook/`. One sentinel
+stands before any `mkdir`: the **experiment directory** must exist,
+because its absence means the share is not mounted, and a tree built on
+the bare mount point would be hidden when the share came back. The first cut put `logbook/`
+inside each day folder and could not create the day; that stranded the
+ops book, which is why it moved (owner ruling 2026-09-11).
 
 ## The commentary store
 
 `store.NotesStore` (SQLite, WAL) is authoritative; `mirror` writes each
-entry as a front-matter markdown file beside the data, second. The store
-is written first so that a save never fails because the share is slow or
-unmounted — `mirrored_at` stays null and `mirror.sync` (throttled, on day
-views) pays the debt later. Files-as-truth was considered and rejected for
-exactly that reason: it puts an SMB write in the save path.
+entry as a front-matter markdown file into the logbook tree, second. The
+store is written first so that a save never fails because the share is
+slow or unmounted — `mirrored_at` stays null and `mirror.sync` (throttled,
+on day views) pays the debt later. Files-as-truth was considered and
+rejected for exactly that reason: it puts an SMB write in the save path.
+Git-as-truth was considered too (history and sync for free) and rejected
+because the attachment load — figures published from the portal — is a
+filesystem's job, not a content store's.
+
+**Bytes follow the same rule.** `attachments.AttachmentStore` keeps
+uploads under `attachments/` beside the database file; the page serves
+them from there and the mirror copies them beside the markdown. So
+everything irreplaceable is one directory — the service's state directory
+— and that is the whole backup story.
 
 The entry's shape is `geecs_schemas.log_entry.LogEntry`, defined there so
 GEECS-MCP and a mirror reader can agree on it without importing this
 package. Rules the store enforces, each pinned in `tests/test_store.py`:
 
+- **Two books.** `book` is `scans` or `ops`, chosen by the page the
+  author writes from — never inferred from the timestamp. An ops entry is
+  day-level only; the scans book takes the anchors below.
 - **Three anchors.** `scan=`, `after=` (interscan), or neither — a
-  day-level entry, which is what a general logbook is mostly made of. Both
-  is refused. There is no `scan=0`; scans start at 1.
+  day-level entry. Both is refused. There is no `scan=0`; scans start at 1.
+- **Tags come out of the body.** `#laser` in the text is the tag;
+  `tags.parse_tags` reads them at every save into an indexed column. A
+  type button inserts a template whose prefill carries its tag, so a
+  button press and a typed tag are the same thing. Nobody sets `tags`
+  directly, and there is no category column to drift from the text.
+- **History.** Every edit, keep/un-keep, upload and delete first snapshots
+  the entry as it was into `entry_history`, in the same transaction.
+  `GET /api/entries/{id}/history` serves it; undo is a new edit with an
+  old body. Nothing rewrites history.
+- **One query.** `NotesStore.query(day range, book, tag, kind, status,
+  author, include_scan_anchored)` is the month page, its filter chips, a
+  search, and a synchroniser's "everything since" — one method, not four.
 - **An agent's entry is born a draft.** `kind` other than `note` with
   `status="kept"` is refused at creation. A person keeps it via the status
   route; an agent has no route to promote itself. A *promoted* agent entry
@@ -194,9 +229,10 @@ accepting duplication now is that someone later removes it.
 | Two day views — the portal's `/day/` (Tiled runs) and `/log/day/` (scan folders) — can disagree | A scan Tiled never received appears in one; a folder predating the catalog appears in the other. Needs an owner ruling on which is canonical, not an implementation choice. |
 | Package name vs `geecs_data_utils.scan_log_loader` and `GEECS-LogTriage`, which read `scan.log` | This package is about the *logbook*, not `scan.log`, and `scan_reader` now imports `scan_log_loader`. Renaming costs one commit today and more later. |
 | Separating "running" from "aborted" from churn, for folders with no ScanInfo | Open, not impossible — `scan.log` is in every such folder. Add a `running` status when it is done. |
-| A day-level entry on a day with **no scans** never mirrors | The mirror refuses to create the day folder (the scanner makes days), so such an entry stays owed forever — rotated past by `mirror_attempted_at`, never written. The general logbook makes this common. Needs a ruling: a month-level `logbook/` home for dayless entries, or permission to create `YY_MMDD/logbook/` (not `scans/`). Decide with the month view. |
+| Off-site reading | The mirror tree is one folder, so a text-only `git push` of it to a private repository is cheap whenever wanted; the Google Doc exporter (blocked on credential rotation) is the route that carries images. Neither is needed for a functional logbook. |
+| The scan index | A month-partitioned redevelopment of `geecs_data_utils.scans_database` with an `update(day)` entry point, the portal as its writer. Parked by the owner (2026-09-11) until the two books are live. |
 | `EntryCreate` (the write shape) lives in the router, `LogEntry` (the stored shape) in `geecs_schemas` | An agent posts the create shape, so it belongs beside `LogEntry` for GEECS-MCP to validate. Moves with the agent-verbs phase, which is its first second consumer. |
-| A third private atomic-write helper (`mirror._replace_with`; `scan_analysis.config_store` and `task_queue` have their own) and `logbook_root` re-deriving the daily folder | Fold into the `ScanPaths`/`ScanData` review owed at master-merge — same home, same issue. |
+| A third private atomic-write helper (`_fs.replace_with`; `scan_analysis.config_store` and `task_queue` have their own) and `logbook_root` re-deriving the daily folder | Fold into the `ScanPaths`/`ScanData` review owed at master-merge — same home, same issue. |
 
 ## Deployment
 
@@ -208,8 +244,11 @@ app.include_router(create_log_router(experiment), prefix="/log")
 
 behind the portal's `log` extra and its `--scan-log` flag. It rides the
 portal's existing checkout and systemd unit. `--notes-db` names the SQLite
-file (the portal defaults it to systemd's `StateDirectory`); without one
-the router has no write routes at all.
+file (the portal defaults it to systemd's `StateDirectory`); uploads go
+to `attachments/` beside it. Without a store the router has no write
+routes at all. The routes live in `routes/` — `day`, `entries`,
+`attachments`, one module per concern — and `router.create_log_router`
+only assembles them.
 
 `create_log_router` takes the experiment explicitly — this package carries no
 facility default, per the "facility values have one home" invariant.

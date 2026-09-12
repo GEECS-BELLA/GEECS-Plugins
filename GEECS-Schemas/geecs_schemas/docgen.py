@@ -234,13 +234,15 @@ analyzers:
 schema_version: 1
 entry_id: 7f3a9c2b1d04
 day: "2026-09-11"
+book: scans                      # or ops: the operations log, day-level only
 scan: 12                         # omit both scan and after for a day-level entry
 author: S. Barber
+tags: [jet]                      # parsed from the body's #jet at save
 kind: note                       # agent_analysis / agent_draft are born as drafts
 status: kept
 template: scan_note
 body_md: |
-  Charge rolloff onset moved to 4.1 mm after the jet realignment.
+  Charge rolloff onset moved to 4.1 mm after the #jet realignment.
   ![top view](attachments/7f3a9c2b1d04/topview.png)
 payload:
   kind: analysis                 # optional machine-readable half

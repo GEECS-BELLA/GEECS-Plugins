@@ -336,3 +336,153 @@ class TestMirrorBookkeeping:
         got = store.get(e.entry_id)
         assert got is not None and [a.id for a in got.attachments] == ["f1", "f2"]
         assert got.version == 3
+
+
+class TestBooks:
+    """Two books, one store."""
+
+    def test_default_book_is_scans(self, store: NotesStore) -> None:
+        """Existing callers get the campaign record."""
+        assert store.create(day=DAY, scan=1, author="a", body_md="x").book == "scans"
+
+    def test_ops_is_day_level_only(self, store: NotesStore) -> None:
+        """An ops entry cannot be anchored to a scan or a gap."""
+        for anchor in ({"scan": 1}, {"after": 0}):
+            with pytest.raises(ValueError, match="ops"):
+                store.create(day=DAY, author="a", body_md="x", book="ops", **anchor)
+        e = store.create(day=DAY, author="a", body_md="x", book="ops")
+        assert e.book == "ops" and e.is_day_level
+
+    def test_for_day_filters_by_book(self, store: NotesStore) -> None:
+        """Each page asks for its own book; the API can ask for both."""
+        store.create(day=DAY, scan=1, author="a", body_md="s")
+        store.create(day=DAY, author="a", body_md="o", book="ops")
+        assert [e.body_md for e in store.for_day(DAY, book="scans")] == ["s"]
+        assert [e.body_md for e in store.for_day(DAY, book="ops")] == ["o"]
+        assert len(store.for_day(DAY)) == 2
+
+
+class TestTags:
+    """Tags are read out of the body, never set."""
+
+    def test_parsed_at_create_and_reparsed_on_edit(self, store: NotesStore) -> None:
+        """The body is the truth; the column follows it."""
+        e = store.create(day=DAY, scan=1, author="a", body_md="#Laser drift, #jet ok")
+        assert e.tags == ["laser", "jet"]
+        e2 = store.update(e.entry_id, body_md="no tags", editor="a", expected_version=1)
+        assert e2.tags == []
+
+
+class TestQuery:
+    """One question, many parameters."""
+
+    def _seed(self, store: NotesStore) -> None:
+        store.create(day="2026-09-01", scan=1, author="a", body_md="scan #laser")
+        store.create(day="2026-09-02", author="b", body_md="ops #laser", book="ops")
+        store.create(day="2026-09-03", author="a", body_md="ops #jet", book="ops")
+        store.create(day="2026-10-01", author="a", body_md="next month", book="ops")
+        gone = store.create(day="2026-09-04", author="a", body_md="deleted", book="ops")
+        store.delete(gone.entry_id)
+
+    def test_range_book_tag_and_author(self, store: NotesStore) -> None:
+        """Filters compose; deleted rows never appear; order is by day."""
+        self._seed(store)
+        sep = store.query(day_from="2026-09-01", day_to="2026-09-30")
+        assert [e.day for e in sep] == ["2026-09-01", "2026-09-02", "2026-09-03"]
+        ops = store.query(day_from="2026-09-01", day_to="2026-09-30", book="ops")
+        assert [e.body_md for e in ops] == ["ops #laser", "ops #jet"]
+        laser = store.query(day_from="2026-09-01", day_to="2026-09-30", tag="LASER")
+        assert [e.body_md for e in laser] == ["scan #laser", "ops #laser"]
+        by_b = store.query(day_from="2026-09-01", day_to="2026-09-30", author="b")
+        assert [e.body_md for e in by_b] == ["ops #laser"]
+
+    def test_limit_is_always_bounded(self, store: NotesStore) -> None:
+        """A non-positive limit is refused; an absurd one cannot lift the cap."""
+        self._seed(store)
+        for bad in (0, -1):
+            with pytest.raises(ValueError):
+                store.query(day_from="2026-01-01", day_to="2026-12-31", limit=bad)
+        assert (
+            len(store.query(day_from="2026-01-01", day_to="2026-12-31", limit=10**9))
+            == 4
+        )
+
+    def test_scan_anchored_can_be_hidden(self, store: NotesStore) -> None:
+        """The month page's default: the campaign record stays out of the way."""
+        self._seed(store)
+        day_level = store.query(
+            day_from="2026-09-01", day_to="2026-09-30", include_scan_anchored=False
+        )
+        assert all(e.is_day_level for e in day_level) and len(day_level) == 2
+
+
+class TestHistory:
+    """Every change keeps the state it replaced."""
+
+    def test_snapshots_before_each_change(self, store: NotesStore) -> None:
+        """edit, status, attach, delete — in order, with the pre-change entry."""
+        e = store.create(
+            day=DAY,
+            scan=1,
+            author="a",
+            body_md="v1",
+            kind="agent_draft",
+            status="draft",
+        )
+        assert store.history(e.entry_id) == []
+        store.update(e.entry_id, body_md="v2", editor="a", expected_version=1)
+        store.set_status(e.entry_id, "kept")
+        store.add_attachment(
+            e.entry_id,
+            Attachment(
+                id="f",
+                filename="a.png",
+                content_type="image/png",
+                size_bytes=1,
+                uploaded_at=e.created_at,
+            ),
+        )
+        store.delete(e.entry_id)
+        hist = store.history(e.entry_id)
+        assert [(h.reason, h.version) for h in hist] == [
+            ("edit", 1),
+            ("status", 2),
+            ("attach", 3),
+            ("delete", 4),
+        ]
+        assert hist[0].entry.body_md == "v1" and hist[1].entry.status == "draft"
+        assert hist[3].entry.attachments[0].filename == "a.png"
+        assert all(h.recorded_at.tzinfo is not None for h in hist)
+
+    def test_deleting_a_tombstone_leaves_no_history(self, store: NotesStore) -> None:
+        """A second delete replaces nothing, so it records nothing."""
+        e = store.create(day=DAY, scan=1, author="a", body_md="x")
+        assert store.delete(e.entry_id) is True
+        assert store.delete(e.entry_id) is False
+        assert store.delete("nope") is False
+        assert [h.reason for h in store.history(e.entry_id)] == ["delete"]
+
+    def test_edit_after_a_concurrent_delete_is_missing_not_conflict(
+        self, store: NotesStore, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Deleted between the read and the write: 404, not a stale 409."""
+        e = store.create(day=DAY, scan=1, author="a", body_md="x")
+        real_get = store.get
+
+        def get_then_delete(entry_id: str, **kw: object):
+            monkeypatch.setattr(store, "get", real_get)
+            result = real_get(entry_id, **kw)
+            store.delete(entry_id)
+            return result
+
+        monkeypatch.setattr(store, "get", get_then_delete)
+        with pytest.raises(KeyError):
+            store.update(e.entry_id, body_md="y", editor="a", expected_version=1)
+        assert [h.reason for h in store.history(e.entry_id)] == ["delete"]
+
+    def test_a_refused_edit_leaves_no_history(self, store: NotesStore) -> None:
+        """A conflict rolls the snapshot back with the update."""
+        e = store.create(day=DAY, scan=1, author="a", body_md="v1")
+        with pytest.raises(ConflictError):
+            store.update(e.entry_id, body_md="x", editor="a", expected_version=9)
+        assert store.history(e.entry_id) == []

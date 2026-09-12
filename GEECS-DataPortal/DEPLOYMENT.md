@@ -185,15 +185,17 @@ to create; a scan appears because its folder does.
 The scan *record* is rendered from the folders and stored nowhere. What
 people **write** — notes on a scan, between scans, or about the day;
 agent drafts; pasted screenshots — goes to the SQLite file named by
-`--notes-db`, and each entry is mirrored as a markdown file into that
-day's `logbook/` folder on the share, a sibling of `scans/` and
-`analysis/`: never inside a scan folder, and like every consumer of the
-scans tree the logbook never creates one (pinned in
-`GeecsLogbook/tests/test_scan_reader.py::TestScanFolderCreationInvariant`).
-The database is written first, so a save never fails because the share is
-slow or unmounted; the file follows when it can (a sync runs on day views,
-at most once a minute). Deleting an entry leaves a tombstone row and
-removes the file.
+`--notes-db` and an `attachments/` directory beside it, and each entry is
+mirrored as a markdown file (plus its attachments) into
+`{experiment}/logbook/Y2026/09-Sep/26_0911/…` on the share — a tree the
+logbook owns, with the data tree's date shape but outside it. It never
+enters `scans/` and never creates a scan folder (pinned in
+`GeecsLogbook/tests/test_mirror.py` and
+`tests/test_scan_reader.py::TestScanFolderCreationInvariant`). The
+database is written first, so a save never fails because the share is
+slow or unmounted; the files follow when they can (a sync runs on day
+views, at most once a minute). Deleting an entry leaves a tombstone row,
+keeps its history, and removes the mirrored file.
 
 The store uses SQLite's JSON functions (`json_insert`), present in the
 interpreter's bundled SQLite from 3.31 on — any Python 3.11 build, and the
@@ -202,13 +204,15 @@ system library on Ubuntu 22.04 or later.
 Without `--notes-db` the logbook is the read-only day view and no entry
 route exists. The unit template sets `StateDirectory=geecs-data-portal`,
 so systemd creates `/var/lib/geecs-data-portal` and the portal defaults
-`--notes-db` to `logbook.db` there — no path in `site.env`. Note what
+`--notes-db` to `logbook.db` there — no path in `site.env`. **That
+directory is everything irreplaceable** — the database, its history, and
+every uploaded file; back it up as one unit (a nightly `sqlite3
+logbook.db ".backup …"` plus an rsync of `attachments/`). Note what
 that means on upgrade: **a host already running `--scan-log` becomes
 writable at its next restart** with the re-rendered unit, with no
 `site.env` change; a site that wants the read-only view keeps the old
-rendered unit or renders without `StateDirectory`. **Back that
-file up**: it and the markdown mirror are the only two copies of what
-people wrote. Running the portal by hand (no systemd) gives a read-only
+rendered unit or renders without `StateDirectory`. The markdown mirror on the share is the second copy of what people
+wrote, legible without any of this running. Running the portal by hand (no systemd) gives a read-only
 logbook unless you pass `--notes-db` explicitly; its directory must
 already exist.
 

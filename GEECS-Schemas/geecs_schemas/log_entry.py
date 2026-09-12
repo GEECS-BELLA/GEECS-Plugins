@@ -15,9 +15,11 @@ other. This package depends on pydantic alone, so all three can.
 
 The body is opaque
 ------------------
-``body_md`` is one markdown string and nothing in this repository parses
-it. Templates supply its *initial text* and stop there; the first save is
-copy-on-write and the text is then entirely the author's.
+``body_md`` is one markdown string. Nothing in this repository parses it
+for *structure*: the only reads are the renderer (to draw it) and the tag
+scan (``#laser`` → ``tags``, at save). Templates supply its *initial
+text* and stop there; the first save is copy-on-write and the text is
+then entirely the author's.
 
 That is a deliberate rejection of the obvious alternative — storing an
 entry as structured fields named by a template's headings. Under that
@@ -49,7 +51,8 @@ LOG_ENTRY_SCHEMA_VERSION = 1
 class Attachment(SchemaModel):
     """One file uploaded with an entry — a pasted screenshot, a PDF.
 
-    The bytes live on disk beside the entry's markdown, never in the
+    The bytes live on disk — in the logbook's attachment store beside its
+    database, and copied beside the mirrored markdown — never in the
     database. This is the manifest: what was uploaded, so that "stored but
     no longer referenced by any body" is computable and orphans can be
     found. The body stays authoritative for *display*; this is
@@ -130,6 +133,13 @@ EntryPayload = Annotated[
 #: read its own unreviewed output back as fact will cite its own guesses.
 EntryKind = Literal["note", "agent_analysis", "agent_draft"]
 
+#: Which book an entry belongs to. The **scans** book is the curated
+#: campaign record — the day document, anchored to scans; the **ops** book
+#: is routine operations — laser notes, maintenance, shift handovers — read
+#: by month. Same store, same shape; the author chooses the book by which
+#: page they write from, never the timestamp.
+Book = Literal["scans", "ops"]
+
 #: ``draft`` renders with a "nobody has reviewed this" banner. Only a human
 #: promotes a draft to ``kept``; an agent cannot promote its own. The store
 #: enforces the birth half of that rule — an ``agent_*`` entry cannot be
@@ -149,6 +159,9 @@ class LogEntry(VersionedSchemaModel):
         Stable identifier, also the attachment directory segment.
     day : str
         The run day this entry belongs to, as ``YYYY-MM-DD``.
+    book : Book
+        ``scans`` (the campaign record, may be anchored to a scan) or
+        ``ops`` (operations; day-level only).
     scan : int or None
         The scan it annotates, when the entry is about one. Mutually
         exclusive with ``after``; an entry with neither is a **day-level**
@@ -163,17 +176,23 @@ class LogEntry(VersionedSchemaModel):
         Human note, agent analysis, or agent draft.
     status : EntryStatus
         ``draft`` until a human keeps it.
+    tags : list of str
+        Words the author marked with ``#`` in the body (``#laser``),
+        parsed at save and kept here so a month can be filtered without
+        reading every body. The body stays the truth: editing the tag out
+        drops it from here on the next save. Templates seed the common
+        ones, so a type button and a typed tag are the same thing.
     template : str
         Which seed template it started from. Metadata about provenance,
         never structure: the body may have diverged completely, and the
         entry keeps its template name because that is what the author
         reached for.
     body_md : str
-        The entry itself. Opaque markdown; nothing parses it.
+        The entry itself. Opaque markdown; only rendered and tag-scanned.
     payload : EntryPayload or None
         Optional machine-authored structure. Never human prose.
     attachments : list of Attachment
-        Files stored beside this entry's markdown.
+        Files uploaded with this entry.
     created_at : datetime
         When it was first saved.
     edited_at : datetime or None
@@ -207,6 +226,7 @@ class LogEntry(VersionedSchemaModel):
     day: str = Field(
         pattern=r"^\d{4}-\d{2}-\d{2}$", description="Run day, as YYYY-MM-DD."
     )
+    book: Book = Field("scans", description="Campaign record or operations.")
     scan: Optional[int] = Field(
         None, ge=1, description="Scan annotated; none for a day-level entry."
     )
@@ -217,6 +237,9 @@ class LogEntry(VersionedSchemaModel):
     author: str = Field(min_length=1, description="Who wrote it.")
     kind: EntryKind = Field("note", description="Human note, or which agent output.")
     status: EntryStatus = Field("kept", description="Drafts await a human.")
+    tags: list[str] = Field(
+        default_factory=list, description="#tags parsed from the body at save."
+    )
     template: str = Field("blank", description="Seed template it started from.")
 
     body_md: str = Field("", description="The entry. Opaque markdown.")
@@ -224,7 +247,7 @@ class LogEntry(VersionedSchemaModel):
         None, description="Machine-authored structure, never human prose."
     )
     attachments: list[Attachment] = Field(
-        default_factory=list, description="Files stored beside the markdown."
+        default_factory=list, description="Files uploaded with the entry."
     )
 
     created_at: datetime = Field(description="First saved.")
@@ -238,6 +261,8 @@ class LogEntry(VersionedSchemaModel):
     def _one_anchor_at_most(self) -> "LogEntry":
         if self.scan is not None and self.after is not None:
             raise ValueError("an entry is anchored to a scan or after one, not both")
+        if self.book == "ops" and (self.scan is not None or self.after is not None):
+            raise ValueError("an ops entry is about the day, not a scan")
         return self
 
     @property

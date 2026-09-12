@@ -63,6 +63,7 @@ svg{display:block;max-width:100%}
 .chip-ok{background:var(--ok-soft);color:var(--ok)}
 .chip-warn{background:var(--warn-soft);color:var(--warn)}
 .chip-quiet{background:var(--surface-2);color:var(--muted)}
+.chip-tag{background:var(--accent-soft);color:var(--accent)}
 .chip-fail{background:var(--crit-soft);color:var(--crit)}
 .failstrip{background:var(--crit-soft);border-bottom:1px solid var(--rule-soft);padding:10px 16px}
 .failstrip .flabel{font-family:var(--ff-mono);font-size:10px;letter-spacing:.09em;

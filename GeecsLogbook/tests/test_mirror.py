@@ -1,4 +1,4 @@
-"""The markdown mirror: durable, relative-linked, and never a scans/ writer."""
+"""The markdown mirror: durable, relative-linked, in a tree of its own, never a scans/ writer."""
 
 from __future__ import annotations
 
@@ -7,7 +7,8 @@ from pathlib import Path
 import pytest
 
 from geecs_logbook import mirror
-from geecs_logbook.mirror import MirrorUnavailable
+from geecs_logbook._fs import UMASK
+from geecs_logbook.attachments import AttachmentStore
 from geecs_logbook.store import NotesStore
 
 DAY = "2026-09-11"
@@ -16,7 +17,11 @@ EXP = "Undulator"
 
 @pytest.fixture
 def share(tmp_path: Path) -> Path:
-    """A share with the day folder and its scans/ present, as the scanner leaves it."""
+    """A share with the day folder and its scans/ present, as the scanner leaves it.
+
+    The experiment directory is what the mirror checks for; the day and
+    its scans are there so the reader half of the tests has something.
+    """
     scans = tmp_path / EXP / "Y2026" / "09-Sep" / "26_0911" / "scans"
     (scans / "Scan005").mkdir(parents=True)
     (scans / "Scan005" / "scan.log").write_text("")
@@ -29,19 +34,46 @@ def store(tmp_path: Path) -> NotesStore:
     return NotesStore(tmp_path / "notes.db")
 
 
+@pytest.fixture
+def blobs(tmp_path: Path) -> AttachmentStore:
+    """The host-side attachment store, beside the database."""
+    return AttachmentStore(tmp_path / "attachments")
+
+
 def _snapshot(root: Path) -> set[Path]:
     return set(root.rglob("*"))
 
 
 class TestPaths:
-    """Where things go. Nothing here touches the disk."""
+    """Where things go. Only the experiment directory is ever stat-ed."""
 
-    def test_logbook_is_a_sibling_of_scans(self, share: Path) -> None:
-        """logbook/ sits beside scans/ and analysis/, never inside."""
+    def test_logbook_owns_its_own_tree(self, share: Path) -> None:
+        """{experiment}/logbook/Y/M/D — the data tree's date shape, outside it."""
         root = mirror.logbook_root(DAY, EXP, base_directory=share)
-        assert root.name == "logbook"
-        assert (root.parent / "scans").is_dir()
+        assert root == share / EXP / "logbook" / "Y2026" / "09-Sep" / "26_0911"
         assert "scans" not in root.parts
+
+    def test_a_share_root_containing_scans_is_fine(self, tmp_path: Path) -> None:
+        """Only the mirror's own segments are inspected; /mnt/scans/data is a valid site."""
+        base = tmp_path / "scans" / "data"
+        (base / EXP).mkdir(parents=True)
+        root = mirror.logbook_root(DAY, EXP, base_directory=base)
+        assert root == base / EXP / "logbook" / "Y2026" / "09-Sep" / "26_0911"
+
+    def test_missing_experiment_directory_means_unmounted(self, tmp_path: Path) -> None:
+        """With no experiment directory the share is not there; nothing is built."""
+        with pytest.raises(mirror.MirrorUnavailable, match="not mounted"):
+            mirror.logbook_root(DAY, EXP, base_directory=tmp_path)
+        assert list(tmp_path.iterdir()) == []
+
+    def test_a_path_into_the_data_tree_is_refused(self, share: Path) -> None:
+        """The invariant is pinned in code, not only by construction."""
+        with pytest.raises(mirror.MirrorUnavailable):
+            mirror._assert_own_tree(
+                share / EXP / "Y2026" / "09-Sep" / "26_0911" / "scans"
+            )
+        with pytest.raises(mirror.MirrorUnavailable):
+            mirror._assert_own_tree(share / EXP / "logbook" / "x" / "scans")
 
     def test_three_anchors_three_places(self, store: NotesStore, share: Path) -> None:
         """Day-level at the root, scan entries under ScanNNN/, interscan under after-ScanNNN/."""
@@ -144,54 +176,63 @@ class TestRender:
 class TestWrite:
     """Landing on the share, and what it must never do."""
 
-    def test_writes_under_an_existing_day(self, store: NotesStore, share: Path) -> None:
-        """With the day present, the file lands and scans/ is untouched."""
+    def test_writes_into_the_logbook_tree(self, store: NotesStore, share: Path) -> None:
+        """The file lands under logbook/ and the data tree is untouched."""
         root = mirror.logbook_root(DAY, EXP, base_directory=share)
-        scans_before = _snapshot(root.parent / "scans")
+        data_tree = share / EXP / "Y2026"
+        before = _snapshot(data_tree)
         e = store.create(day=DAY, scan=5, author="a", body_md="hello")
         path = mirror.write_entry(e, root)
         assert path.is_file() and path.read_text().endswith("hello\n")
         assert not path.with_name(path.name + ".tmp").exists()  # atomic, no debris
-        assert _snapshot(root.parent / "scans") == scans_before
+        assert _snapshot(data_tree) == before
 
-    def test_refuses_to_create_the_day(self, store: NotesStore, tmp_path: Path) -> None:
-        """The scanner makes days. With none present, nothing is created at all.
-
-        This is the one creation the scan-folder invariant forbids that a
-        `mkdir(parents=True)` on logbook/ScanNNN/ could otherwise commit.
-        """
-        root = mirror.logbook_root("2026-09-12", EXP, base_directory=tmp_path)
-        e = store.create(day="2026-09-12", scan=1, author="a", body_md="early")
-        before = _snapshot(tmp_path)
-        with pytest.raises(MirrorUnavailable):
-            mirror.write_entry(e, root)
-        with pytest.raises(MirrorUnavailable):
-            mirror.write_attachment(e, "x.png", b"\x89PNG", root)
-        assert _snapshot(tmp_path) == before
-
-    def test_never_calls_mkdir_when_day_absent(
-        self, store: NotesStore, tmp_path: Path, monkeypatch
+    def test_writes_a_day_the_scanner_never_made(
+        self, store: NotesStore, tmp_path: Path
     ) -> None:
-        """Belt and braces: the guard fires before any mkdir is reachable."""
+        """A note on a day with no scans has a home: the tree is the logbook's."""
+        (tmp_path / EXP).mkdir()  # the share is mounted; the year has no days yet
         root = mirror.logbook_root("2026-09-12", EXP, base_directory=tmp_path)
-        e = store.create(day="2026-09-12", scan=1, author="a", body_md="x")
+        e = store.create(day="2026-09-12", author="a", body_md="quiet day", book="ops")
+        path = mirror.write_entry(e, root)
+        assert path.is_file()
+        assert not (tmp_path / EXP / "Y2026").exists()  # no day folder was made
 
-        def explode(*_a, **_k):
-            raise AssertionError("mkdir reached with no day folder present")
-
-        monkeypatch.setattr(Path, "mkdir", explode)
-        with pytest.raises(MirrorUnavailable):
-            mirror.write_entry(e, root)
-
-    def test_attachment_lands_beside_the_entry(
-        self, store: NotesStore, share: Path
+    def test_never_creates_anything_in_the_data_tree(
+        self,
+        store: NotesStore,
+        share: Path,
+        blobs: AttachmentStore,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """Bytes go to attachments/<id>/; the returned link points at them."""
+        """Every mkdir the mirror issues — markdown and attachments — is under logbook/."""
+        real_mkdir = Path.mkdir
+        made: list[Path] = []
+
+        def guarded(self: Path, *a: object, **k: object) -> None:
+            assert "logbook" in self.parts and "scans" not in self.parts, self
+            made.append(self)
+            return real_mkdir(self, *a, **k)
+
         root = mirror.logbook_root(DAY, EXP, base_directory=share)
         e = store.create(day=DAY, scan=5, author="a", body_md="x")
-        link = mirror.write_attachment(e, "trace.png", b"\x89PNGdata", root)
-        target = mirror.entry_dir(e, root) / link
+        blobs.save(e.entry_id, "a.png", b"x")
+        monkeypatch.setattr(Path, "mkdir", guarded)
+        mirror.write_entry(e, root)
+        mirror.mirror_attachments(e, root, blobs)
+        assert len(made) >= 2
+
+    def test_attachments_are_copied_beside_the_entry(
+        self, store: NotesStore, share: Path, blobs: AttachmentStore
+    ) -> None:
+        """Bytes stored on the host land in attachments/<id>/; a second pass copies nothing."""
+        root = mirror.logbook_root(DAY, EXP, base_directory=share)
+        e = store.create(day=DAY, scan=5, author="a", body_md="x")
+        blobs.save(e.entry_id, "trace.png", b"\x89PNGdata")
+        assert mirror.mirror_attachments(e, root, blobs) == 1
+        target = mirror.entry_dir(e, root) / mirror.attachment_link(e, "trace.png")
         assert target.read_bytes() == b"\x89PNGdata"
+        assert mirror.mirror_attachments(e, root, blobs) == 0
 
     def test_remove_reports_and_tolerates_absence(
         self, store: NotesStore, share: Path
@@ -220,17 +261,43 @@ class TestSync:
         assert mirror.entry_path(a, root).is_file()
         assert mirror.entry_path(b, root).is_file()
 
-    def test_defers_a_day_that_does_not_exist_yet(
-        self, store: NotesStore, share: Path
+    def test_a_dayless_day_lands_too(self, store: NotesStore, share: Path) -> None:
+        """A note on a day the scanner never made is mirrored like any other."""
+        store.create(day=DAY, scan=5, author="a", body_md="now")
+        store.create(day="2026-09-12", author="a", body_md="tomorrow", book="ops")
+        assert mirror.sync(store, EXP, base_directory=share) == (2, 0)
+        assert store.unmirrored() == []
+
+    def test_sync_carries_attachments(
+        self, store: NotesStore, share: Path, blobs: AttachmentStore
     ) -> None:
-        """A note written before the day's first scan waits; the others land."""
-        today = store.create(day=DAY, scan=5, author="a", body_md="now")
-        early = store.create(day="2026-09-12", author="a", body_md="tomorrow")
-        written, deferred = mirror.sync(store, EXP, base_directory=share)
-        assert (written, deferred) == (1, 1)
-        owed = [e.entry_id for e in store.unmirrored()]
-        assert owed == [early.entry_id]
-        assert store.get(today.entry_id) is not None  # the words are safe either way
+        """The sync copies stored bytes as well as the markdown."""
+        e = store.create(day=DAY, scan=5, author="a", body_md="x")
+        blobs.save(e.entry_id, "a.png", b"\x89PNG")
+        assert mirror.sync(store, EXP, base_directory=share, attachments=blobs) == (
+            1,
+            0,
+        )
+        root = mirror.logbook_root(DAY, EXP, base_directory=share)
+        assert (
+            mirror.entry_dir(e, root) / "attachments" / e.entry_id / "a.png"
+        ).is_file()
+
+    def test_share_down_defers_and_keeps_the_words(
+        self, store: NotesStore, share: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An unresolvable share defers; nothing is lost; the queue rotates."""
+        e = store.create(day=DAY, scan=5, author="a", body_md="safe")
+
+        def down(*a: object, **k: object) -> Path:
+            raise mirror.MirrorUnavailable("unmounted")
+
+        monkeypatch.setattr(mirror, "logbook_root", down)
+        assert mirror.sync(store, EXP, base_directory=share) == (0, 1)
+        owed = store.unmirrored()
+        assert [x.entry_id for x in owed] == [e.entry_id] and store.get(
+            e.entry_id
+        ) is not None
 
     def test_removes_the_file_of_a_deleted_entry(
         self, store: NotesStore, share: Path
@@ -279,50 +346,9 @@ class TestSync:
         e = store.create(day=DAY, scan=5, author="a", body_md="x")
         root = mirror.logbook_root(DAY, EXP, base_directory=share)
         md = mirror.write_entry(e, root)
-        link = mirror.write_attachment(e, "t.png", b"\x89PNG", root)
-        expected = 0o666 & ~mirror._UMASK
-        for p in (md, mirror.entry_dir(e, root) / link):
+        blobs = AttachmentStore(share / "blobs")
+        blobs.save(e.entry_id, "t.png", b"\x89PNG")
+        mirror.mirror_attachments(e, root, blobs)
+        expected = 0o666 & ~UMASK
+        for p in (md, mirror.entry_dir(e, root) / mirror.attachment_link(e, "t.png")):
             assert stat.S_IMODE(p.stat().st_mode) == expected, p
-
-    def test_parallel_same_name_uploads_all_get_their_own_file(
-        self, store: NotesStore, share: Path
-    ) -> None:
-        """Four pastes of image.png in flight at once: four files, four names."""
-        from concurrent.futures import ThreadPoolExecutor
-
-        e = store.create(day=DAY, scan=5, author="a", body_md="x")
-        root = mirror.logbook_root(DAY, EXP, base_directory=share)
-        with ThreadPoolExecutor(4) as pool:
-            links = list(
-                pool.map(
-                    lambda i: mirror.write_attachment(
-                        e, "image.png", bytes([i]) * 8, root
-                    ),
-                    range(4),
-                )
-            )
-        names = sorted(link.rsplit("/", 1)[-1] for link in links)
-        assert names == ["image-2.png", "image-3.png", "image-4.png", "image.png"]
-        folder = mirror.entry_dir(e, root) / mirror.ATTACHMENTS_DIR / e.entry_id
-        assert sorted(p.name for p in folder.iterdir()) == names
-
-    def test_failed_attachment_write_leaves_no_placeholder(
-        self, store: NotesStore, share: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """A claimed name whose bytes never land is released, not served empty."""
-        e = store.create(day=DAY, scan=5, author="a", body_md="x")
-        root = mirror.logbook_root(DAY, EXP, base_directory=share)
-
-        def hiccup(path: Path, data: bytes) -> None:
-            raise OSError("share hiccup")
-
-        monkeypatch.setattr(mirror, "_replace_with", hiccup)
-        with pytest.raises(mirror.MirrorUnavailable):
-            mirror.write_attachment(e, "hic.png", b"\x89PNG", root)
-        folder = mirror.entry_dir(e, root) / mirror.ATTACHMENTS_DIR / e.entry_id
-        assert not (folder / "hic.png").exists()
-        monkeypatch.undo()
-        # The retry gets the original name, not hic-2.png.
-        assert mirror.write_attachment(e, "hic.png", b"\x89PNG", root).endswith(
-            "/hic.png"
-        )

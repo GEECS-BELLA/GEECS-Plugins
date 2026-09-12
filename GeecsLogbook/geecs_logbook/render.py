@@ -69,9 +69,9 @@ def render_markdown(body_md: str, *, attachment_base: str | None = None) -> str:
     body_md : str
         The stored body, verbatim.
     attachment_base : str, optional
-        Serving prefix for this entry's attachments, e.g.
-        ``/log/attachments/2026-09-11/Scan005``. When given, relative
-        ``attachments/…`` references are rewritten onto it. When absent
+        The attachment serving route, e.g. ``/log/attachments``; a
+        relative ``attachments/<entry_id>/<file>`` reference becomes
+        ``/log/attachments/<entry_id>/<file>``. When absent
         they are left relative, which is what an offline export wants.
 
     Returns

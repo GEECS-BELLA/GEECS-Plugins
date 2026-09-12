@@ -1085,15 +1085,17 @@ One entry in the scan logbook.
 | `schema_version` | `int` | no | 1 | Entry format revision. |
 | `entry_id` | `str` | yes | — | Stable id; also the attachment directory. |
 | `day` | `str` | yes | — | Run day, as YYYY-MM-DD. |
+| `book` | `'scans' \| 'ops'` | no | 'scans' | Campaign record or operations. |
 | `scan` | `int (optional)` | no | None | Scan annotated; none for a day-level entry. |
 | `after` | `int (optional)` | no | None | For an interscan entry, the scan it follows. |
 | `author` | `str` | yes | — | Who wrote it. |
 | `kind` | `'note' \| 'agent_analysis' \| 'agent_draft'` | no | 'note' | Human note, or which agent output. |
 | `status` | `'kept' \| 'draft'` | no | 'kept' | Drafts await a human. |
+| `tags` | `list[str]` | no | empty | #tags parsed from the body at save. |
 | `template` | `str` | no | 'blank' | Seed template it started from. |
 | `body_md` | `str` | no | '' | The entry. Opaque markdown. |
 | `payload` | `AnalysisPayload \| ProblemPayload (optional)` | no | None | Machine-authored structure, never human prose. |
-| `attachments` | `list[Attachment]` | no | empty | Files stored beside the markdown. |
+| `attachments` | `list[Attachment]` | no | empty | Files uploaded with the entry. |
 | `created_at` | `datetime` | yes | — | First saved. |
 | `edited_at` | `datetime (optional)` | no | None | Text last changed. |
 | `edited_by` | `str (optional)` | no | None | Who last changed the text. |
@@ -1107,13 +1109,15 @@ Example:
 schema_version: 1
 entry_id: 7f3a9c2b1d04
 day: "2026-09-11"
+book: scans                      # or ops: the operations log, day-level only
 scan: 12                         # omit both scan and after for a day-level entry
 author: S. Barber
+tags: [jet]                      # parsed from the body's #jet at save
 kind: note                       # agent_analysis / agent_draft are born as drafts
 status: kept
 template: scan_note
 body_md: |
-  Charge rolloff onset moved to 4.1 mm after the jet realignment.
+  Charge rolloff onset moved to 4.1 mm after the #jet realignment.
   ![top view](attachments/7f3a9c2b1d04/topview.png)
 payload:
   kind: analysis                 # optional machine-readable half

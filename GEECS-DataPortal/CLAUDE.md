@@ -17,11 +17,11 @@ this package; the architecture rules below are its distillation.
   behind the `log` extra: a day-document view over scan *folders* — it
   renders `ScanInfoScanNNN.ini` and stores none of that.  With
   `--notes-db` (0.24.0) it is a **write verb** for commentary only: rows
-  in that SQLite file (systemd's `StateDirectory` by default) and a
-  markdown mirror of each entry in the day's `logbook/` folder on the
-  share — a sibling of `scans/`, never inside it, never creating a scan
-  folder (pinned in `tests/test_scan_log_mount.py` and the logbook's own
-  invariant test).  Without `--notes-db` the entry routes do not exist.
+  and uploaded files under that SQLite file's directory (systemd's
+  `StateDirectory` by default) and a markdown mirror of each entry in
+  `{experiment}/logbook/` on the share — a tree of the logbook's own,
+  never inside the data tree, never creating a scan folder (pinned in
+  `tests/test_scan_log_mount.py` and the logbook's own invariant test).  Without `--notes-db` the entry routes do not exist.
   It needs `--experiment`, and warn-and-skips without one: the logbook
   reads one experiment's share and carries no facility default.  **The config
   editor** (`--config-editor`,

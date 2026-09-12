@@ -46,6 +46,7 @@
           {% if r.entry.template not in ('blank', 'scan_note', 'day_intro') %}
             <span class="chip chip-quiet">{{ r.entry.template }}</span>
           {% endif %}
+          {% for t in r.entry.tags %}<span class="chip chip-tag">#{{ t }}</span>{% endfor %}
           <span class="stamp" title="{{ r.entry.created_at.isoformat() }}">{{ r.entry.created_at.astimezone().strftime('%H:%M') }}{% if r.entry.edited_at %} · edited{% if r.entry.edited_by and r.entry.edited_by != r.entry.author %} by {{ r.entry.edited_by }}{% endif %}{% endif %}</span>
           {% if writable %}
           <span class="entry-tools">
@@ -402,7 +403,7 @@ document.addEventListener("submit", async ev => {
   const ta = form.querySelector(".ta"), name = form.querySelector(".who").value.trim();
   if (!ta.value.trim() || !name) return;
   try { localStorage.setItem(AUTHOR_KEY, name); } catch (e) {}
-  const body = { day: {{ summary.day.isoformat() | tojson }}, author: name, body_md: ta.value };
+  const body = { day: {{ summary.day.isoformat() | tojson }}, book: "scans", author: name, body_md: ta.value };
   if (form.dataset.after !== "") body.after = Number(form.dataset.after);
   else if (form.dataset.scan !== "") body.scan = Number(form.dataset.scan);
   // neither: a day-level entry

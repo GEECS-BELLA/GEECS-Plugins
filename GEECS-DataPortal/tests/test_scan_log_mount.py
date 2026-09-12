@@ -87,15 +87,11 @@ class TestNotesDb:
         assert db.is_file()
         listed = client.get("/log/api/day/2026-09-11/entries").json()
         assert [e["body_md"] for e in listed] == ["hello"]
-        # Nothing was written anywhere but the database, and the mirror is owed.
-        assert (
-            sorted(
-                p.name
-                for p in tmp_path.iterdir()
-                if not p.name.startswith("logbook.db")
-            )
-            == []
-        )
+        # Nothing was written anywhere but the database (and its attachment
+        # directory beside it), and the mirror is owed.
+        assert sorted(
+            p.name for p in tmp_path.iterdir() if not p.name.startswith("logbook.db")
+        ) == ["attachments"]
         from geecs_logbook.store import NotesStore
 
         assert [e.body_md for e in NotesStore(db).unmirrored()] == ["hello"]
