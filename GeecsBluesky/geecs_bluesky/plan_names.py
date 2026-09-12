@@ -50,4 +50,9 @@ GEECS_PLAN_NAMES: tuple[str, ...] = (
     *NON_SCAN_PLAN_NAMES,
 )
 
-__all__ = ["GEECS_PLAN_NAMES", "NON_SCAN_PLAN_NAMES"]
+#: The acquisition modes every bound scan verb accepts (``acquisition=``,
+#: ``08_gated_batch.md`` §4.1): strict single-shot, or the gated batch.
+#: Shared by the registry (the plan) and the client seam (the preset).
+ACQUISITION_MODES: tuple[str, ...] = ("strict", "gated")
+
+__all__ = ["ACQUISITION_MODES", "GEECS_PLAN_NAMES", "NON_SCAN_PLAN_NAMES"]

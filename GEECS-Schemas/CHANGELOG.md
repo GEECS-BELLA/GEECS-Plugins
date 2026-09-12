@@ -5,6 +5,20 @@ All notable changes to GEECS-Schemas are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.22.1] - 2026-09-12
+
+### Added
+
+- `PresetDevice.essential` (default `True`): an essential device is waited
+  on every shot; a non-essential one streams its frames for the run's
+  duration and never holds a shot (phase 2 of the native-Bluesky rebuild,
+  GEECS-Plugins#807, `Planning/native_bluesky/08_gated_batch.md` §4.6).
+  The client expands `essential: false` into the bound plan's
+  `non_essential` list (it needs `save_images` on).  The corpus needs no
+  regeneration: the default keeps every preset all-essential.  The
+  acquisition mode is a plan keyword (`acquisition: gated` in
+  `plan.kwargs`), not a preset field.
+
 ## [0.22.0] - 2026-09-12
 
 ### Removed

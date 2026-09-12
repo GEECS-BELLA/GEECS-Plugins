@@ -5,6 +5,122 @@ All notable changes to `geecs-bluesky` are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
+## [0.83.0] - 2026-09-12
+
+Phase 2b of the native-Bluesky rebuild (GEECS-Plugins#807,
+`Planning/native_bluesky/08_gated_batch.md` §5 item 2, as amended by #841):
+the gated batch and the non-essential stream on the worker.  Code-complete;
+the hardware acceptance (§5) is owed.
+
+### Added
+
+- `acquisition="gated"` on every bound scan verb: the box free-runs in SCAN
+  while the plugin-backed essential cameras count a batch of
+  `shots_per_step` (`count`: `num`) frames each; the plan drives it OFF
+  when every one has its quota, waits one period plus the largest drain
+  offset for the in-flight frame, trims every stack to the quota
+  (`GeecsDetector.truncate_to_quota`) and collects one datum per camera
+  per step into `primary` (`plans/gated.py`).  The run is bracketed
+  OFF → STANDBY.
+- The **per-shot sampler** (`devices/sampler.py`, `ShotSampler`): a
+  Flyable + EventCollectable over every non-plugin device of a gated step
+  — scalar-only devices, triggered scalar devices without a plugin, a
+  camera's `.scalars` view, the scanned motors' readbacks, `bin_number` —
+  clocked by an essential triggered device's `acq_timestamp` (the first
+  plugin camera, else the first triggered device; `shot_clock` in the start
+  document); one event per shot into the `shots` stream, the tick's stamp
+  as the clock column.  A gated step with no plugin camera is gated by the
+  sampler alone; a run with no triggered device is refused ("nothing counts
+  shots; use strict").
+- The **repeat-the-step resume** (Sam 2026-09-12): the gated step body is
+  not rewindable; an immediate pause drives the box OFF
+  (`ShotControl.pause`, now counting pauses), and on resume the plan sees
+  the counter advanced, settles the batch's pending statuses
+  (`GeecsDetector.abandon_step`, `ShotSampler.cancel_step`), rewinds every
+  plugin to the step's baseline (`rewind_to_step_baseline`) and retakes the
+  step from its first shot.  A deferred pause lands between steps.
+- `non_essential=[…]` on every bound scan verb (strict or gated): the
+  detectors are staged, prepared unbounded, kicked off right after
+  `open_run` and each collected alone into its own `<name>_stream` before
+  `close_run` (`non_essential_wrapper`); nothing waits on them — a
+  complete, collect or unstage that fails from the close on (a gateway
+  that went away mid-run) is logged and skipped, never the item's failure.
+- `shot_period` on every bound scan verb (GEECS-Plugins#840): the strict
+  rep-rate throttle — the plan sleeps for the remainder of the period
+  **before the detectors are triggered** (a sleep between the triggers and the
+  fire longer than the shot budget would time the shot out before it is
+  fired, 2b acceptance A8); refused with `gated`, as is a nonzero `count`
+  `delay` (the stock repeat loop would idle `(num-1)×delay` after the batch).
+- `GeecsDetector` fly mode: `kickoff` sets it (the plugin's count is the
+  completion, `wait_for_idle` a no-op), `trigger` clears it; a fly prepare
+  — a `FlyTriggerInfo` (`gated_trigger_info`, `UNBOUNDED_TRIGGER_INFO`),
+  the type says it, not the event count, so a batch of one is one too —
+  takes the streamable logic only — no per-event scalars (the sampler's
+  job) and no LabVIEW-native saving — and is refused on a camera without
+  a plugin; `complete` carries the GEECS timeout; `mark_abandoned` /
+  `abandon_step` settle a pending `complete` (the mark is synchronous, the
+  moment the plan's interrupted wait returns).  A LabVIEW-native camera
+  listed as an essential detector of a gated step is refused by the step
+  (the preflight's sentence); a device listed both as a detector and as
+  non-essential is refused by the bound plan.  `plan_names.ACQUISITION_MODES`
+  is the one spelling of the modes.
+- `qs_client.presets.expand_preset`: `PresetDevice.essential: false`
+  (GEECS-Schemas 0.22.0) expands into the plan's `non_essential` list
+  (refused with `save_images: false`); `acquisition` is validated.
+  `submit_preflight.acquisition_refusal` (in `worker_ready`): every
+  non-essential device and every essential camera of a gated run must be
+  plugin-backed (an `hdf` child in the device tree; a native camera has
+  `save` but no `hdf`), and a gated run needs an essential triggered
+  device (an `acq_timestamp` child).
+
+### Fixed
+
+- `CaSettable` / `CaMotor` implement `locate()` (bluesky's `Locatable`), so
+  the `rel_*` plans (`rel_scan`, `rel_grid_scan`, …) and
+  `reset_positions_wrapper` work: bluesky used to fall back to
+  `obj.position`, which is the readback *signal* on a `CaMotor`, and every
+  relative plan failed at its first move with `unsupported operand type(s)
+  for +: 'SignalR' and 'float'` (found on hardware, 2b broader set
+  2026-09-12, Scan017).  The readback stands in for the setpoint: the
+  gateway's `:SP` is the last put through the gateway, not where the device
+  is.  Scope: the CA settables and motors; a `CaPseudoMovable` has no
+  `locate` yet (an absolute pseudo reads NaN before its first set, so a
+  relative plan over one is still undefined — a follow-up).
+- A gated run's first arm **zeroes the plugin's count** before the batch
+  baselines: the file plugin posts `NumCaptured_RBV` only when it writes a
+  frame, never a zero at `Capture=1`, so after a session closed at *N* the
+  next arm still read *N* and the first batch counted from there (2b
+  acceptance A2: the first step trimmed to 5 + 3 frames).  The step now
+  arms, rewinds every plugin to zero inside the fresh session
+  (`GeecsDetector.zero_count`, which posts the 0) and prepares again on it.
+  The non-essential stream's arm does the same (A4: a stale baseline above
+  the run's count left the close's count wait hanging), and its complete
+  and collect are separate contingencies so a failed complete never costs
+  the datums.  The strict path does the same at its first arm of a plugin camera
+  (2b acceptance A8: the first strict shot after a closed session waited
+  for N+1 while its frame posted 1); the strict guard is keyed to the
+  plugin session (`GeecsDetector.count_zeroed`, cleared by stage/unstage),
+  so a reused plan hook zeroes again on its next run.  The plugin-side fix
+  (post 0 at arm) is GEECS-Plugins#853.
+- The gated refusal of a LabVIEW-native saving essential names it as a
+  "native-saving device", not a camera (2b acceptance A3: `U_HP_Daq`, an
+  analog device with a LabVIEW file writer, was refused as a "camera").
+- `PluginPathProvider` creates the device directory inside the claimed scan
+  folder (`mkdir(exist_ok=True)`, a missing scan folder is an error): the
+  plugin refuses to arm on a missing `FilePath`, and in a fly prepare the
+  LabVIEW-native saving logic that used to create it as a side effect of
+  the dual-write is not part of the context — found on hardware (2b
+  acceptance A1, Scan001 of 26_0912).
+
+### Changed
+
+- `StackCheckCallback` checks a datum-only stream (a gated `primary`, a
+  non-essential `<name>_stream`) by count — frames in the stack equal the
+  datums' total width — and keeps the per-row stamp check for streams with
+  events; rows and datums are tracked per stream.
+- The bound plans' docstrings and start-document metadata carry
+  `acquisition`, `non_essential`, `shot_period` and `shot_clock`.
+
 ## [0.82.5] - 2026-09-12
 
 ### Changed

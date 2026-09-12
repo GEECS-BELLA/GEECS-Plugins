@@ -445,6 +445,36 @@ def test_bare_attribute_names_collide_on_the_second_camera(
         RE(bp.count([a, b], 2, per_shot=geecs_per_shot(sc)))
 
 
+def test_first_strict_shot_zeroes_a_plugins_stale_count(
+    RE: RunEngine, box: FakeBox, shot_control: ShotControl, tmp_path: Path
+) -> None:
+    """GEECS-Plugins#853, found on hardware (2b A8): the plugin's NumCaptured still
+    reads the previous session's total at the next arm; the first shot must
+    not wait for N+1 while its frame posts 1."""
+    cam, rewinds = _plugin_camera(RE, box, "UC_A", tmp_path, shot_timeout=0.5)
+    box.counts["uc_a"] = 5
+    set_mock_value(cam.hdf.num_captured, 5)  # stale, from a closed session
+    col = DocCollector()
+    RE.subscribe(col)
+    RE(bp.count([cam], num=3, per_shot=geecs_per_shot(shot_control)))
+    assert box.fires == 3  # no refire: the first shot counted from 0
+    assert rewinds[0] == 0  # zeroed at the first arm
+    resources = {r["uid"]: r["data_key"] for r in col.docs["stream_resource"]}
+    datums = [
+        d["indices"]
+        for d in col.docs["stream_datum"]
+        if resources[d["stream_resource"]] == "uc_a"
+    ]
+    assert datums == [
+        {"start": 0, "stop": 1},
+        {"start": 1, "stop": 2},
+        {"start": 2, "stop": 3},
+    ]
+    assert (
+        cam.count_zeroed is False
+    )  # cleared by the unstage: the next run zeroes again
+
+
 def test_missed_frame_on_plugin_cameras_rewinds_the_partial_row(
     RE: RunEngine, box: FakeBox, shot_control: ShotControl, tmp_path: Path
 ) -> None:
@@ -462,8 +492,9 @@ def test_missed_frame_on_plugin_cameras_rewinds_the_partial_row(
     RE(bp.count([a, b], num=3, per_shot=geecs_per_shot(shot_control)))
     events = col.primary_events()
     assert len(events) == 4 and box.fires == 4
-    # Both rewind to 1 (the frame row 1 referenced) before the retake.
-    assert a_rewinds == [1] and b_rewinds == [1]
+    # Zeroed at the run's first arm (#853); then both rewind to 1 (the frame
+    # row 1 referenced) before the retake.
+    assert a_rewinds == [0, 1] and b_rewinds == [0, 1]
     datums = [d for d in col.docs["stream_datum"]]
     by_key: dict[str, list[dict]] = {}
     resources = {r["uid"]: r["data_key"] for r in col.docs["stream_resource"]}

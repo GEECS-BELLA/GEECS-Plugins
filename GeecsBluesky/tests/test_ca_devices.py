@@ -318,3 +318,32 @@ async def test_snapshot_reads_latest_values() -> None:
     assert reading["s1h-current"]["value"] == 0.5
     assert set(reading) == {"s1h-current", "s1h-voltage"}
     assert snap.current.source.endswith("undulator:u_s1h:current")
+
+
+def test_ca_motor_locates_by_its_readback_so_relative_plans_work() -> None:
+    """``rel_scan`` stashes ``locate()`` (the streamed readback), moves about it, restores it.
+
+    Found on hardware (2b broader set, Scan017): without ``locate`` bluesky
+    fell back to ``obj.position`` — the readback signal — and every
+    ``rel_*`` plan failed at its first move.
+    """
+    import bluesky.plans as bp
+    from bluesky import RunEngine
+
+    from tests.ca_mock_helpers import connect_mock, follow_setpoint
+
+    RE = RunEngine()
+    motor = CaMotor("U_Stage", "Position.Axis1", experiment="TestExp", name="u_stage")
+    connect_mock(RE, motor)
+    set_mock_value(motor.position, 41342.0)  # where the device is
+    set_mock_value(motor._setpoint, 0.0)  # the gateway's :SP: never put through it
+    follow_setpoint(motor)
+
+    async def locate():
+        return await motor.locate()
+
+    loc = asyncio.run_coroutine_threadsafe(locate(), RE._loop).result(timeout=5)
+    assert loc == {"setpoint": 41342.0, "readback": 41342.0}
+    RE(bp.rel_scan([], motor, -20, 20, 5))
+    puts = [c.args[0] for c in get_mock_put(motor._setpoint).call_args_list]
+    assert puts == [41322.0, 41332.0, 41342.0, 41352.0, 41362.0, 41342.0]

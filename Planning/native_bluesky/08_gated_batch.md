@@ -1,9 +1,19 @@
 # Phase 2 — gated batch and the non-essential stream
 
-**Status (2026-09-12): design, argued before code; Sam's answers to §6
-recorded 2026-09-12 (`03` §10.9) and folded in — the per-shot sampler
-(§4.7) replaces the per-step `steps` stream, an immediate pause repeats
-the step, orphan non-essential frames stay out of the s-file.**
+**Status (2026-09-12): PR 2a merged (#843, gateway 0.9.0 ×9 deployed);
+PR 2b code-complete on mocks (GeecsBluesky 0.83.0, GEECS-Schemas 0.22.0 —
+`plans/gated.py`, `devices/sampler.py`, the detector's fly mode, the
+preflight rules, `essential` on `PresetDevice`), its hardware acceptance
+(§5 item 2) OWED; 2c not started.  Two things the build found that the
+design did not say: a fly `prepare` on a `GeecsDetector` must leave the
+per-event data logics out (the stock context refuses "multiple
+collections" for a readable provider and would switch LabVIEW-native
+saving on), and the `bp.count` batch takes the quota from `num` on the
+hook's first call (the stock plan repeats the hook `num` times).  Sam's
+answers to §6 recorded 2026-09-12 (`03` §10.9) and folded in — the
+per-shot sampler (§4.7) replaces the per-step `steps` stream, an
+immediate pause repeats the step, orphan non-essential frames stay out of
+the s-file.**
 Phase 1 is complete and deployed (`03_clean_room_rebuild.md` §2). This document is the
 argument for phase 2 as `03` §8 lists it — the gated batch (the 1 Hz mode
 `05_phase1_acceptance.md` M6/M7 say strict single-shot is not) and the
@@ -614,7 +624,16 @@ the stock `kickoff`/`complete`/`collect` verbs.
    `indices` and the stamps from the stack (today it expects primary
    *events* and would warn on every gated or non-essential stack).  The
    s-file writer already skips a run with no primary events with a log
-   line; 2b leaves that.
+   line; 2b leaves that.  **Built 2026-09-12 (GeecsBluesky 0.83.0), with
+   #840's `shot_period` riding along; hardware OWED — the runbook is on
+   the PR.**  The immediate-pause mechanics as built: the step body is
+   `rewindable_wrapper(…, False)` so the RunEngine replays nothing on
+   resume (verified on the installed 1.15.0: with the flag off the
+   interrupted `wait` simply finishes or raises its status's failure);
+   the plan reads `ShotControl.pause_count` after the batch, settles the
+   pending statuses (`GeecsDetector.abandon_step` — a `complete` timing
+   out after the box went OFF would otherwise be thrown into the plan at
+   a later message — and `ShotSampler.cancel_step`), rewinds and retakes.
    Hardware (a runbook like `05`'s, through the staging manager): a
    gated `count` and a gated `scan` on `U_S1H` with two plugin-backed
    cameras, frames == quota per step per camera, stamps one period apart,

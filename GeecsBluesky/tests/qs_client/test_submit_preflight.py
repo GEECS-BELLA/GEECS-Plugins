@@ -266,3 +266,85 @@ class TestReportShape:
         report = PreflightReport()
         assert report.refusal is None
         assert report.outcomes == [] and report.questions == []
+
+
+class TestAcquisitionRules:
+    """The phase-2 device rules over the manager's device tree (``08`` §4.3, §4.7)."""
+
+    TREE = [
+        "UC_Plugin",
+        "UC_Plugin.scalars",
+        "UC_Plugin.hdf",
+        "UC_Plugin.acq_timestamp",
+        "UC_Native",
+        "UC_Native.scalars",
+        "UC_Native.save",
+        "UC_Native.acq_timestamp",
+        "U_ICT",
+        "U_ICT.scalars",
+        "U_ICT.acq_timestamp",
+        "U_Gauge",
+        "U_Gauge.scalars",
+    ]
+
+    def _refusal(self, preset: Preset, engine) -> str | None:
+        from geecs_bluesky.qs_client.presets import expand_preset
+        from geecs_bluesky.qs_client.submit_preflight import acquisition_refusal
+
+        return acquisition_refusal(expand_preset(preset), set(self.TREE))
+
+    def test_non_essential_needs_the_plugin(self, engine):
+        preset = _preset(
+            devices=[
+                {"device": "UC_Plugin"},
+                {"device": "UC_Native", "essential": False},
+            ]
+        )
+        refusal = self._refusal(preset, engine)
+        assert refusal and "non-essential" in refusal and "UC_Native" in refusal
+        preset = _preset(
+            devices=[
+                {"device": "UC_Native"},
+                {"device": "UC_Plugin", "essential": False},
+            ]
+        )
+        assert self._refusal(preset, engine) is None  # strict + a plugin stream
+
+    def test_gated_essential_camera_needs_the_plugin(self, engine):
+        preset = _preset(
+            devices=[{"device": "UC_Native"}, {"device": "UC_Plugin"}],
+            plan={"name": "count", "kwargs": {"num": 3, "acquisition": "gated"}},
+        )
+        refusal = self._refusal(preset, engine)
+        assert refusal and "gated" in refusal and "UC_Native" in refusal
+        # its scalars only: legal (it rides in the sampler)
+        preset = _preset(
+            devices=[
+                {"device": "UC_Native", "save_images": False},
+                {"device": "UC_Plugin"},
+            ],
+            plan={"name": "count", "kwargs": {"num": 3, "acquisition": "gated"}},
+        )
+        assert self._refusal(preset, engine) is None
+
+    def test_gated_needs_a_shot_clock(self, engine):
+        preset = _preset(
+            devices=[{"device": "U_Gauge"}],
+            plan={"name": "count", "kwargs": {"num": 3, "acquisition": "gated"}},
+        )
+        refusal = self._refusal(preset, engine)
+        assert refusal and "nothing counts shots" in refusal
+        preset = _preset(
+            devices=[{"device": "U_Gauge"}, {"device": "U_ICT", "save_images": False}],
+            plan={"name": "count", "kwargs": {"num": 3, "acquisition": "gated"}},
+        )
+        assert self._refusal(preset, engine) is None  # an ICT clocks it
+
+    def test_worker_ready_refuses_through_the_rules(self, engine, monkeypatch):
+        client = _FakeQueueClient(devices=self.TREE)
+        preset = _preset(
+            devices=[{"device": "U_Gauge"}],
+            plan={"name": "count", "kwargs": {"num": 3, "acquisition": "gated"}},
+        )
+        report = run_submit_preflight(preset, "TestExp", client=client)
+        assert report.refusal and "nothing counts shots" in report.refusal

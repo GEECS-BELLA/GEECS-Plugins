@@ -18,6 +18,7 @@ from __future__ import annotations
 import asyncio
 import logging
 
+from bluesky.protocols import Location
 from ophyd_async.core import AsyncStatus, StandardReadable
 from ophyd_async.epics.core import epics_signal_r, epics_signal_rw
 
@@ -98,6 +99,24 @@ class CaSettable(StandardReadable):
         """
         logger.info("%s: setting %s → %s", self.name, self._variable, value)
         return AsyncStatus(self._set_and_wait(value))
+
+    async def locate(self) -> Location:
+        """Where the device is: the streamed readback, as both fields.
+
+        Implements :class:`bluesky.protocols.Locatable` — what the ``rel_*``
+        plans and ``reset_positions_wrapper`` stash before the first move
+        and restore afterwards.  Without it bluesky falls back to
+        ``obj.position``, which on a :class:`CaMotor` is the readback
+        *signal*, not a number (2b acceptance, 2026-09-12: every ``rel_*``
+        plan failed with ``unsupported operand type(s) for +: 'SignalR' and
+        'float'``).  The readback stands in for the setpoint on purpose: the
+        gateway's ``:SP`` PV is the last put *through the gateway*, not
+        where the device is — a stage driven from LabVIEW since would make
+        a relative scan run about the wrong point.
+        """
+        readback = getattr(self, self._readback_attr_name)
+        value = await readback.get_value()
+        return Location(setpoint=value, readback=value)
 
     async def _set_and_wait(self, value: float) -> None:
         """Write the setpoint and wait ``settle_time`` (subclasses may poll)."""

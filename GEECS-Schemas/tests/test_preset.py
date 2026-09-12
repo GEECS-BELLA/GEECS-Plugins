@@ -15,6 +15,7 @@ def test_minimal_preset_is_a_device_group():
     preset = Preset(name="group", devices=[PresetDevice(device="UC_Cam")])
     assert preset.plan is None
     assert preset.devices[0].save_images is True
+    assert preset.devices[0].essential is True  # phase 2: waited on every shot
     assert preset.trigger_profile is None and preset.background is False
 
 
@@ -26,20 +27,24 @@ def test_full_preset_round_trips():
         "trigger_profile": "HTU-Normal",
         "background": False,
         "devices": [
-            {"device": "UC_ALineEBeam3", "save_images": True},
-            {"device": "U_BCaveICT", "save_images": False},
+            {"device": "UC_ALineEBeam3", "save_images": True, "essential": True},
+            {"device": "U_BCaveICT", "save_images": False, "essential": True},
+            {"device": "UC_SlowCam", "save_images": True, "essential": False},
         ],
         "plan": {
             "name": "scan",
             "args": ["EMQ1 Current", 1.2, 1.7, 6],
-            "kwargs": {"shots_per_step": 20},
+            "kwargs": {"shots_per_step": 20, "acquisition": "gated"},
         },
     }
     preset = Preset.model_validate(document)
     assert preset.plan == PlanCall(
-        name="scan", args=["EMQ1 Current", 1.2, 1.7, 6], kwargs={"shots_per_step": 20}
+        name="scan",
+        args=["EMQ1 Current", 1.2, 1.7, 6],
+        kwargs={"shots_per_step": 20, "acquisition": "gated"},
     )
     assert preset.model_dump(mode="json") == document
+    assert [d.essential for d in preset.devices] == [True, True, False]
 
 
 def test_duplicate_devices_are_refused():

@@ -261,7 +261,12 @@ def test_prepare_failure_carries_the_plugins_reason(
 
 
 def test_plugin_path_provider_hands_out_both_paths(tmp_path: Path) -> None:
-    """Windows path for the plugin's FilePath, the worker's file URI for Tiled."""
+    """Windows path for the plugin's FilePath, the worker's file URI for Tiled.
+
+    The device directory is created inside the claimed scan folder (the
+    plugin refuses a missing FilePath and a fly prepare has no native-saving
+    logic to make it); a missing scan folder is an error, never a mkdir.
+    """
     shared = GeecsScanPathProvider()
     shared.point_at(tmp_path / "Scan007")
     provider = PluginPathProvider(
@@ -269,7 +274,13 @@ def test_plugin_path_provider_hands_out_both_paths(tmp_path: Path) -> None:
         "UC_TestCam",
         plugin_path=lambda local: local.replace(str(tmp_path), r"\\nas\hdna2\data"),
     )
+    with pytest.raises(FileNotFoundError, match="claimed by the scanner"):
+        provider("uc_testcam")
+    assert not (tmp_path / "Scan007").exists()  # the invariant: no scan folder created
+    (tmp_path / "Scan007").mkdir()
     info = provider("uc_testcam")  # the ophyd datakey is ignored
+    assert (tmp_path / "Scan007" / "UC_TestCam").is_dir()
+    provider("uc_testcam")  # idempotent
     assert isinstance(info.directory_path, PureWindowsPath)
     assert str(info.directory_path) == r"\\nas\hdna2\data\Scan007\UC_TestCam"
     assert info.filename == "UC_TestCam"
@@ -291,3 +302,183 @@ def test_file_plugin_hosts_reads_the_config_keys(tmp_path: Path) -> None:
     ini.write_text("[Paths]\ngeecs_data = x\n")
     assert file_plugin_hosts(ini) is None
     assert file_plugin_hosts(tmp_path / "missing.ini") is None
+
+
+# ------------------------------------------------------------- phase 2b
+def _batch_camera(
+    RE: RunEngine, tmp_path: Path, **kwargs
+) -> tuple[GeecsDetector, list[int]]:
+    cam = _camera(RE, tmp_path, **kwargs)
+    rewinds: list[int] = []
+
+    def plugin_rewinds(value, **_) -> None:
+        rewinds.append(value)
+        set_mock_value(cam.hdf.num_captured, value)
+
+    callback_on_mock_put(cam.hdf.rewind, plugin_rewinds)
+    return cam, rewinds
+
+
+def test_fly_mode_counts_and_skips_the_stamp_wait(
+    RE: RunEngine, tmp_path: Path
+) -> None:
+    """kickoff → fly; complete is done on the count alone; trigger leaves fly mode."""
+    from geecs_bluesky.devices.detector import gated_trigger_info
+
+    cam, rewinds = _batch_camera(RE, tmp_path)
+    _run(RE, lambda: cam.stage())
+    _run(RE, lambda: cam.prepare(gated_trigger_info(3)))
+    assert cam.step_baseline == 0
+    # a batch prepare describes the stream only: no per-event scalars
+    described = _run(RE, lambda: cam.describe())
+    assert "uc_testcam" in described and "uc_testcam-meancounts" not in described
+
+    async def batch():
+        assert not cam._acquire.fly
+        await cam.kickoff()
+        assert cam._acquire.fly
+        status = cam.complete()
+        for n in (1, 2):
+            await asyncio.sleep(0.02)
+            set_mock_value(cam.hdf.num_captured, n)
+        await asyncio.sleep(0.05)
+        assert not status.done
+        set_mock_value(cam.hdf.num_captured, 3)
+        await status  # no stamp advanced: the count is the completion
+        set_mock_value(cam.hdf.num_captured, 4)  # the in-flight frame
+        await cam.truncate_to_quota()
+        docs = [doc async for doc in cam.collect_asset_docs()]
+        return docs
+
+    docs = _run(RE, lambda: batch())
+    assert rewinds == [3]
+    datum = next(d for n, d in docs if n == "stream_datum")
+    assert datum["indices"] == {"start": 0, "stop": 3}
+    # a strict prepare after the batch: the context is rebuilt with the
+    # readables, and trigger leaves fly mode
+    _run(RE, lambda: cam.prepare(STRICT_TRIGGER_INFO))
+    assert "uc_testcam-meancounts" in _run(RE, lambda: cam.describe())
+
+    async def strict_shot():
+        status = cam.trigger()
+        assert not cam._acquire.fly
+        await asyncio.sleep(0.05)
+        set_mock_value(cam.hdf.num_captured, 4)
+        set_mock_value(cam.acq_timestamp, 1001.0)
+        await status
+
+    _run(RE, lambda: strict_shot())
+    _run(RE, lambda: cam.unstage())
+
+
+def test_rewind_to_step_baseline_and_abandon_step(
+    RE: RunEngine, tmp_path: Path
+) -> None:
+    """A retaken step: the partial frames leave the stack; a pending complete settles."""
+    from geecs_bluesky.devices.detector import gated_trigger_info
+
+    cam, rewinds = _batch_camera(RE, tmp_path)
+    _run(RE, lambda: cam.stage())
+    _run(RE, lambda: cam.prepare(gated_trigger_info(4, exposure_timeout=0.3)))
+
+    async def scenario():
+        await cam.kickoff()
+        status = cam.complete()
+        await asyncio.sleep(0.02)
+        set_mock_value(cam.hdf.num_captured, 2)  # two of four, then the pause
+        await asyncio.sleep(0.02)
+        await cam.abandon_step()  # settles the pending complete (no frames come)
+        assert status.done and status.success
+        await cam.rewind_to_step_baseline()
+        assert await cam.hdf.num_captured.get_value() == 0
+        # the retake: baseline is still 0, quota 4
+        await cam.prepare(gated_trigger_info(4, exposure_timeout=0.3))
+        assert cam.step_baseline == 0
+        await cam.kickoff()
+        status = cam.complete()
+        await asyncio.sleep(0.02)
+        set_mock_value(cam.hdf.num_captured, 4)
+        await status
+        return [doc async for doc in cam.collect_asset_docs()]
+
+    docs = _run(RE, lambda: scenario())
+    assert rewinds == [0]
+    datum = next(d for n, d in docs if n == "stream_datum")
+    assert datum["indices"] == {"start": 0, "stop": 4}
+    _run(RE, lambda: cam.unstage())
+
+
+def test_batch_count_timeout_is_the_geecs_error(RE: RunEngine, tmp_path: Path) -> None:
+    from geecs_bluesky.devices.detector import gated_trigger_info
+
+    cam, _ = _batch_camera(RE, tmp_path)
+    _run(RE, lambda: cam.stage())
+    _run(RE, lambda: cam.prepare(gated_trigger_info(2, exposure_timeout=0.2)))
+
+    async def scenario():
+        await cam.kickoff()
+        with pytest.raises(
+            GeecsTriggerTimeoutError, match="UC_TestCam.*counted no frame"
+        ):
+            await cam.complete()
+
+    _run(RE, lambda: scenario())
+    _run(RE, lambda: cam.unstage())
+
+
+def test_fly_prepare_refused_without_a_plugin_and_skips_native_saving(
+    RE: RunEngine, tmp_path: Path
+) -> None:
+    """A LabVIEW-native camera cannot count a batch; a plugin camera's native saving stays off."""
+    from geecs_bluesky.devices.detector import (
+        UNBOUNDED_TRIGGER_INFO,
+        gated_trigger_info,
+    )
+    from geecs_bluesky.exceptions import GeecsConfigurationError
+
+    native = GeecsDetector(
+        "UC_Native", ["MeanCounts"], name="uc_native", native_save=True
+    )
+    connect_mock(RE, native)
+    _run(RE, lambda: native.stage())
+    with pytest.raises(GeecsConfigurationError, match="no file plugin"):
+        _run(RE, lambda: native.prepare(gated_trigger_info(2)))
+    with pytest.raises(GeecsConfigurationError, match="no file plugin"):
+        _run(RE, lambda: native.prepare(UNBOUNDED_TRIGGER_INFO))
+    _run(RE, lambda: native.unstage())
+
+    provider = StaticPathProvider(
+        StaticFilenameProvider("UC_Both"), tmp_path / "Scan001" / "UC_Both"
+    )
+    (tmp_path / "Scan001").mkdir()
+    both = GeecsDetector(
+        "UC_Both",
+        ["MeanCounts"],
+        experiment="TestExp",
+        name="uc_both",
+        path_provider=provider,
+        hdf_plugins=[("image", provider)],
+    )
+    connect_mock(RE, both)
+    set_mock_value(both.hdf.file_path_exists, True)
+    set_mock_value(both.hdf.data_type, "UInt16")
+    set_mock_value(both.hdf.color_mode, "Mono")
+    _run(RE, lambda: both.stage())
+    _run(RE, lambda: both.prepare(UNBOUNDED_TRIGGER_INFO))
+    assert _run(RE, lambda: both.hdf.capture.get_value()) is True
+    assert (
+        _run(RE, lambda: both.save.get_value()) == "off"
+    )  # native saving not switched on
+    _run(RE, lambda: both.unstage())
+    # a batch of ONE (shots_per_step=1, the default) is a fly prepare too:
+    # the type says so, not the event count
+    _run(RE, lambda: both.stage())
+    _run(RE, lambda: both.prepare(gated_trigger_info(1)))
+    assert _run(RE, lambda: both.save.get_value()) == "off"
+    assert "uc_both-meancounts" not in _run(RE, lambda: both.describe())
+    _run(RE, lambda: both.unstage())
+    # a strict shot on the same camera switches native saving on
+    _run(RE, lambda: both.stage())
+    _run(RE, lambda: both.prepare(STRICT_TRIGGER_INFO))
+    assert _run(RE, lambda: both.save.get_value()) == "on"
+    _run(RE, lambda: both.unstage())

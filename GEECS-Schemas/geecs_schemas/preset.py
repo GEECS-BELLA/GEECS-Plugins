@@ -14,10 +14,13 @@ Successor of the save set (the device grouping) and the scan request (the
 plan parameters): both concepts survive, folded into one document.  What
 did **not** survive, deliberately: per-scalar selection (every subscribed
 scalar of every device in the run is recorded, and the s-file carries all
-of them), setup/closeout rituals and the ``SaveRole`` enum (an explicit
-action plan is its own queue item; essential/non-essential is a phase-2
-device role), and the per-scan ``acquisition`` mode (strict is the scan
-path; the gated batch is a different plan).
+of them), and setup/closeout rituals and the ``SaveRole`` enum (an
+explicit action plan is its own queue item).  What phase 2 added
+(GEECS-Plugins#807, ``08_gated_batch.md`` §4.6): ``essential`` on each
+device — an essential device is waited on every shot, a non-essential
+one streams its frames for the run and never holds a shot — and the
+acquisition mode as a plan keyword (``acquisition: gated`` in
+``plan.kwargs``, beside ``shots_per_step``), not a preset field.
 
 Device references
 -----------------
@@ -40,7 +43,15 @@ from geecs_schemas._base import SchemaModel, VersionedSchemaModel
 
 
 class PresetDevice(SchemaModel):
-    """One device of the group: it records every shot of the scan."""
+    """One device of the group: it records every shot of the scan.
+
+    ``essential`` (default on) means the scan waits for this device on
+    every shot — a shot is not complete without its reading.  Off means
+    the device streams what it produces for the run's duration (its
+    frames, through the camera server's file plugin) and never holds a
+    shot or aborts a run: the choice for a slow or unreliable camera whose
+    frames are welcome but not required (phase 2, GEECS-Plugins#807).
+    """
 
     device: str = Field(
         min_length=1,
@@ -57,6 +68,17 @@ class PresetDevice(SchemaModel):
             "scalars only — its per-shot readings still land in every row; "
             "the frames stay off the disk. Meaningless for a scalar-only "
             "device (nothing to save either way)."
+        ),
+    )
+    essential: bool = Field(
+        True,
+        description=(
+            "Wait for this device on every shot (on, the default) — a shot is "
+            "not complete without its reading. Off streams the device's "
+            "frames for the run's duration instead: it never holds a shot or "
+            "aborts the scan, so use it for a slow or unreliable camera whose "
+            "frames are welcome but not required. Off needs the images saved "
+            "(a scalars-only device cannot stream)."
         ),
     )
 

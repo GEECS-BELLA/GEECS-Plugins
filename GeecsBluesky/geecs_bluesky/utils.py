@@ -44,6 +44,7 @@ def identifier_name(geecs_name: str) -> str:
 #: ``dir(GeecsDetector)``.
 RESERVED_DEVICE_ATTRIBUTES: frozenset[str] = frozenset(
     {
+        "abandon_step",
         "add_config_signals",
         "add_detector_logics",
         "add_readables",
@@ -51,6 +52,7 @@ RESERVED_DEVICE_ATTRIBUTES: frozenset[str] = frozenset(
         "collect_asset_docs",
         "complete",
         "connect",
+        "count_zeroed",
         "describe",
         "describe_collect",
         "describe_configuration",
@@ -62,6 +64,7 @@ RESERVED_DEVICE_ATTRIBUTES: frozenset[str] = frozenset(
         "kickoff",
         "last_acq_timestamp",
         "log",
+        "mark_abandoned",
         "missed_shot",
         "name",
         "parent",
@@ -69,10 +72,14 @@ RESERVED_DEVICE_ATTRIBUTES: frozenset[str] = frozenset(
         "prepare",
         "read",
         "read_configuration",
+        "rewind_to_step_baseline",
         "set_name",
         "stage",
+        "step_baseline",
         "trigger",
+        "truncate_to_quota",
         "unstage",
+        "zero_count",
     }
 )
 

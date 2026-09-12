@@ -20,7 +20,6 @@ from __future__ import annotations
 import logging
 import time
 from collections.abc import Sequence
-from functools import partial
 from typing import Any, Callable
 
 import bluesky.plan_stubs as bps
@@ -171,6 +170,7 @@ def geecs_take_reading(
     *,
     max_refires: int = 2,
     name: str = "primary",
+    shot_period: float | None = None,
 ) -> Callable[[Sequence[Any]], Any]:
     """Return a ``take_reading`` that fires the trigger box between trigger and wait.
 
@@ -199,6 +199,12 @@ def geecs_take_reading(
         Extra shots after an incomplete one (see :func:`fire_and_await_shot`).
     name :
         Event stream name.
+    shot_period :
+        The deliberate rep-rate throttle (GEECS-Plugins#840): seconds between
+        fires — before each fire the plan sleeps for the remainder of the
+        period since the previous fire of this plan (the first shot is not
+        delayed).  ``None`` fires as fast as the shot allows (the laser's
+        rate at short exposures).  Strict only.
 
     Returns
     -------
@@ -206,7 +212,27 @@ def geecs_take_reading(
         ``take_reading(devices)`` — a plan yielding one complete event row
         (and any partial rows before it).
     """
-    fire = partial(bps.mv, shot_control, TriggerState.SINGLESHOT.value)
+    if shot_period is not None and shot_period <= 0:
+        raise ValueError(f"shot_period must be positive seconds, got {shot_period}")
+    last_fire: dict[str, float | None] = {"at": None}
+
+    def throttle():
+        """Sleep the remainder of the shot period — BEFORE the detectors are triggered.
+
+        The sleep must precede ``trigger``: an armed detector's count /
+        stamp wait runs on its own budget (``exposure_timeout``), and a
+        sleep between the triggers and the fire longer than that budget
+        times the shot out before it is fired (found on hardware, 2b
+        acceptance A8: a 4 s period against the 3 s count wait).
+        """
+        if shot_period is not None and last_fire["at"] is not None:
+            remaining = shot_period - (time.monotonic() - last_fire["at"])
+            if remaining > 0:
+                yield from bps.sleep(remaining)
+
+    def fire():
+        last_fire["at"] = time.monotonic()
+        yield from bps.mv(shot_control, TriggerState.SINGLESHOT.value)
 
     def take_reading(devices: Sequence[Any]):
         devices = separate_devices(devices)
@@ -255,8 +281,31 @@ def geecs_take_reading(
                 )
             if detectors:
                 yield from bps.wait(group=group)
+            # The run's first arm of a plugin camera: the plugin's count PV
+            # still reads the previous session's total until a frame lands
+            # (GEECS-Plugins#853), so a shot that baselined on it would wait
+            # for N+1 while the frame posts 1 — zero it inside the fresh
+            # session and prepare again on 0 (found on hardware, 2b A8).
+            # Keyed to the plugin session (``count_zeroed`` is cleared by
+            # stage/unstage), not to this closure: a reused hook zeroes again
+            # on its next run (reviewer of #850, post-acceptance).
+            fresh = [
+                d
+                for d in detectors
+                if getattr(d, "plugin_backed", False)
+                and not getattr(d, "count_zeroed", True)
+            ]
+            if fresh:
+                yield from bps.wait_for([d.zero_count for d in fresh])
+                group = short_uid("prepare-zeroed")
+                for det in fresh:
+                    yield from bps.prepare(
+                        det, STRICT_TRIGGER_INFO, group=group, wait=False
+                    )
+                yield from bps.wait(group=group)
             attempts = max_refires + 1
             for attempt in range(1, attempts + 1):
+                yield from throttle()
                 missed = yield from fire_and_await_shot(devices, fire)
                 if missed:
                     # The partial row carries no frames (one same-width datum
