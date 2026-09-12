@@ -3,6 +3,17 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.26.0] - 2026-09-12
+
+### Added
+
+- The run page links to its scan's card in the scan logbook
+  (`/log/day/YYYY-MM-DD#ScanNNN`, in the rail beside the day steppers)
+  when the logbook is mounted, and `GET /api/run/{uid}` carries the same
+  URL as `logbook` (null when there is nothing to link). Built from the
+  mount prefix and the resolved day folder; the portal still never
+  imports the logbook.
+
 ## [0.25.0] - 2026-09-11
 
 ### Added

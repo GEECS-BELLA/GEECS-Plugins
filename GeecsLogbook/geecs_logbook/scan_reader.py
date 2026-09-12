@@ -341,6 +341,69 @@ def _summarize(
     )
 
 
+#: ``YY_MMDD`` day folders inside a month folder.
+_DAY_DIR = re.compile(r"^(\d{2})_(\d{2})(\d{2})$")
+
+
+def month_folder(
+    first: date, experiment: str, base_directory: Optional[Union[Path, str]] = None
+) -> Path:
+    """Return the month directory holding a month's day folders.
+
+    ``{base}/{experiment}/Y2026/09-Sep`` — derived from the same builder
+    the day reader uses, so the two cannot disagree about the layout.
+    """
+    tag = ScanPaths.get_scan_tag(
+        first.year, first.month, 1, number=0, experiment=experiment
+    )
+    return ScanPaths.get_daily_scan_folder(
+        tag=tag, base_directory=base_directory
+    ).parent.parent
+
+
+def days_with_folders(
+    first: date,
+    experiment: str,
+    base_directory: Optional[Union[Path, str]] = None,
+) -> Optional[set[date]]:
+    """Return the dates in ``first``'s month that have a day folder.
+
+    **One** directory listing of the month folder — never a walk of
+    thirty day folders. A day folder exists because something wrote into
+    it (a scan, an analysis pass), which is what a calendar wants to mark.
+
+    Returns ``None`` when the experiment directory itself is missing: the
+    share is not mounted where this service expects it, which is a
+    different fact from "nothing happened this month" and the caller
+    should say so. A month folder that does not exist is an empty set.
+    """
+    folder = month_folder(first, experiment, base_directory)
+    if not folder.parent.parent.is_dir():  # {base}/{experiment}
+        logger.warning("experiment directory missing: %s", folder.parent.parent)
+        return None
+    found: set[date] = set()
+    try:
+        with os.scandir(folder) as entries:
+            for entry in entries:
+                match = _DAY_DIR.match(entry.name)
+                if not match or not entry.is_dir():
+                    continue
+                yy, mm, dd = (int(g) for g in match.groups())
+                # Only this month's shape; a stray folder is not a day.
+                if 2000 + yy != first.year or mm != first.month:
+                    continue
+                try:
+                    found.add(date(first.year, mm, dd))
+                except ValueError:
+                    continue
+    except FileNotFoundError:
+        return found
+    except OSError as exc:
+        logger.warning("cannot list %s: %s", folder, exc)
+        return None
+    return found
+
+
 def read_day(
     when: date,
     experiment: str,

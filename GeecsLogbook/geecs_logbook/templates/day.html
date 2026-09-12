@@ -157,9 +157,10 @@
            title="Next day" aria-label="Next day">&rsaquo;</a>
       </div>
       {% if summary.day != today %}
-      <a class="todaylink" href="{{ url_for('_day_page', day=today.isoformat()) }}">
+      <a class="todaylink" href="{{ url_for('_day_page', day=today.isoformat()).path }}">
         Back to today</a>
       {% endif %}
+      {{ shared.calendar('day') }}
       <div class="daylist">
         {% for d in rail_days %}
         <a class="day{% if d == summary.day %} is-active{% endif %}{% if d > today %} future{% endif %}"
@@ -199,7 +200,10 @@
     {% endif %}
   </aside>
 
-  <main id="logbook" data-api="{{ api_base }}" data-day="{{ summary.day.isoformat() }}" data-book="scans" data-accept="{{ accept }}">
+  <main id="logbook" data-api="{{ api_base }}" data-day="{{ summary.day.isoformat() }}" data-book="scans" data-accept="{{ accept }}"
+        data-prev="{{ url_for('_day_page', day=prev_day.isoformat()).path }}"
+        data-next="{{ url_for('_day_page', day=next_day.isoformat()).path }}"
+        data-today="{{ url_for('_day_page', day=today.isoformat()).path }}">
 
     <div class="dayhead">
       <div>
@@ -340,6 +344,7 @@ document.querySelectorAll(".scanrow").forEach(a => a.addEventListener("click", (
 </script>
 {{ shared.seeds_json(seeds) }}
 <script src="{{ url_for('_static', name='editor.js') }}" defer></script>
+<script src="{{ url_for('_static', name='nav.js').path }}" defer></script>
 <script src="{{ root }}/theme/theme.js" defer></script>
 </body>
 </html>

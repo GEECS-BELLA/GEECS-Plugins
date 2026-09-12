@@ -43,6 +43,7 @@ _SURFACES = [
     "GeecsLogbook/geecs_logbook/templates/month.html",
     "GeecsLogbook/geecs_logbook/templates/_entries.html",
     "GeecsLogbook/geecs_logbook/static/editor.js",
+    "GeecsLogbook/geecs_logbook/static/nav.js",
     "ScanAnalysis/scan_analysis/config_editor/static/editor.css",
     "ScanAnalysis/scan_analysis/config_editor/templates/editor.html",
 ]

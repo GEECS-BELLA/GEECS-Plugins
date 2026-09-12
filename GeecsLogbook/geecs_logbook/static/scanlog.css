@@ -324,3 +324,36 @@ details.campaign[hidden]{display:none}
 .when{font:inherit;font-size:12px;font-family:var(--ff-mono);border:1px solid var(--rule);border-radius:4px;
   background:var(--surface);color:var(--ink);padding:4px 6px}
 article.entry[hidden],section.daygroup[hidden]{display:none}
+
+/* ---- the rail calendar (nav.js draws it) ---- */
+.cal{margin:2px 0 9px}
+.cal>summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:6px;
+  font-size:12px;color:var(--slate);padding:3px 0;user-select:none}
+.cal>summary::-webkit-details-marker{display:none}
+.cal>summary::before{content:"\25B8";font-size:10px;color:var(--muted)}
+.cal[open]>summary::before{content:"\25BE"}
+.cal>summary:hover{color:var(--accent)}
+.cal>summary kbd{margin-left:auto}
+.calhead{display:flex;align-items:center;justify-content:space-between;margin:6px 0 4px}
+.calhead b{font-size:12.5px;font-weight:600}
+.calhead .stepday{cursor:pointer;font:inherit;font-size:15px;line-height:1;padding:0}
+.calgrid{display:grid;grid-template-columns:repeat(7,1fr);gap:2px}
+.calgrid .wd{font-family:var(--ff-mono);font-size:9.5px;color:var(--muted);text-align:center;text-transform:uppercase}
+.cell{position:relative;display:flex;align-items:center;justify-content:center;height:26px;border-radius:4px;
+  font-size:12px;color:var(--slate);text-decoration:none;font-variant-numeric:tabular-nums}
+.cell:hover{background:var(--surface-2)}
+.cell.blank{visibility:hidden}
+.cell.future{opacity:.4}
+.cell.has-notes{background:var(--accent-soft);color:var(--accent);font-weight:600}
+.cell.has-folder::after{content:"";position:absolute;bottom:2px;left:50%;transform:translateX(-50%);
+  width:4px;height:4px;border-radius:50%;background:var(--ok)}
+.cell.is-today{outline:1px solid var(--accent);outline-offset:-1px}
+.cell.is-active{background:var(--accent);color:var(--on-accent);font-weight:600}
+.cell.is-active.has-folder::after{background:var(--on-accent)}
+.callegend{display:flex;gap:12px;margin-top:6px;font-family:var(--ff-mono);font-size:10.5px;color:var(--muted)}
+.callegend .k{display:inline-block;width:5px;height:5px;border-radius:50%;background:var(--ok);margin-right:5px;vertical-align:middle}
+.callegend .kn{display:inline-block;width:8px;height:8px;border-radius:2px;background:var(--accent-soft);margin-right:5px;vertical-align:middle}
+.calnote{font-size:11px;color:var(--warn);margin-top:4px}
+.kbdhint{margin-top:8px;font-family:var(--ff-mono);font-size:10.5px;color:var(--muted);display:flex;gap:10px;flex-wrap:wrap}
+kbd{font:inherit;font-family:var(--ff-mono);font-size:10px;border:1px solid var(--rule);border-radius:3px;
+  padding:0 4px;background:var(--surface);color:var(--slate)}

@@ -1,7 +1,11 @@
 """The ops book: a month of day-level entries, read from the store alone.
 
+``GET /log/month/today``                     redirect to this month, at today
 ``GET /log/month/{YYYY-MM}``                 the month page (``?tag=`` filters)
 ``GET /log/api/month/{YYYY-MM}/entries``     the month's entries as JSON
+``GET /log/api/month/{YYYY-MM}/days``        calendar marks: which days have
+                                             notes (the store) and a day
+                                             folder (one listing of the share)
 
 The scans book is a day document over scan folders; the ops book is what
 happened around them — laser notes, maintenance, a shift handover — and
@@ -17,8 +21,9 @@ from datetime import date
 from typing import Optional
 
 from fastapi import APIRouter, Query, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from geecs_schemas.log_entry import Book, LogEntry
+from pydantic import BaseModel, Field
 
 from geecs_logbook.routes.attachments import ATTACHMENT_TYPES
 from geecs_logbook.routes._common import (
@@ -27,11 +32,34 @@ from geecs_logbook.routes._common import (
     api_base,
     month_last_day,
     month_step,
+    month_url,
     parse_month,
 )
+from geecs_logbook.scan_reader import days_with_folders
 
 #: The book the month page shows. The scans book has its own page.
 BOOK = "ops"
+
+
+class DayMarks(BaseModel):
+    """What a calendar shows for one day."""
+
+    folder: bool = Field(description="A day folder exists on the share.")
+    notes: int = Field(0, description="Live entries in the scans book.")
+    ops: int = Field(0, description="Live entries in the ops book.")
+
+
+class MonthMarks(BaseModel):
+    """Calendar marks for a month — the lazy fetch behind the rail's calendar."""
+
+    month: str = Field(description="``YYYY-MM``.")
+    share: bool = Field(
+        description="Whether the share answered; when false, ``folder`` is"
+        " unknown for every day and only the store's marks are real."
+    )
+    days: dict[str, DayMarks] = Field(
+        description="Days with anything to mark, keyed ``YYYY-MM-DD``."
+    )
 
 
 def register(router: APIRouter, ctx: Context) -> None:
@@ -42,6 +70,14 @@ def register(router: APIRouter, ctx: Context) -> None:
             return []
         return ctx.store.query(
             day_from=first.isoformat(), day_to=last.isoformat(), book=BOOK
+        )
+
+    @router.get("/month/today", response_class=RedirectResponse)
+    def _this_month() -> RedirectResponse:
+        """Redirect to this month's page, at today's day group."""
+        today = date.today()
+        return RedirectResponse(
+            url=f"{today.strftime('%Y-%m')}#day-{today.isoformat()}"
         )
 
     @router.get("/month/{month}", response_class=HTMLResponse)
@@ -94,6 +130,7 @@ def register(router: APIRouter, ctx: Context) -> None:
                 "tags": sorted(tag_counts.items(), key=lambda kv: (-kv[1], kv[0])),
                 "active_tag": active,
                 "compose_day": compose_day,
+                "today_url": month_url(request, today, anchor=True),
                 "writable": ctx.writable,
                 "api_base": api_base(request),
                 "accept": ",".join(sorted(ATTACHMENT_TYPES)),
@@ -120,4 +157,41 @@ def register(router: APIRouter, ctx: Context) -> None:
             day_to=month_last_day(first).isoformat(),
             book=book,
             tag=tag,
+        )
+
+    @router.get("/api/month/{month}/days")
+    def _month_days(month: str) -> MonthMarks:
+        """Return the calendar's marks for one month.
+
+        Two cheap questions: the store's per-day counts (one grouped
+        query) and which day folders exist (one listing of the month
+        folder — never a walk of the days). The month **page** never calls
+        this on its own path; the calendar fetches it when opened, so a
+        slow share delays a popup, not a page.
+        """
+        first = parse_month(month)
+        last = month_last_day(first)
+        counts = (
+            ctx.store.count_by_day(first.isoformat(), last.isoformat())
+            if ctx.store is not None
+            else {}
+        )
+        folders = days_with_folders(first, ctx.experiment, ctx.base_directory)
+        days: dict[str, DayMarks] = {}
+        for day, by_book in counts.items():
+            days[day] = DayMarks(
+                folder=False,
+                notes=by_book.get("scans", 0),
+                ops=by_book.get("ops", 0),
+            )
+        for day in folders or ():
+            key = day.isoformat()
+            if key in days:
+                days[key].folder = True
+            else:
+                days[key] = DayMarks(folder=True)
+        return MonthMarks(
+            month=first.strftime("%Y-%m"),
+            share=folders is not None,
+            days=dict(sorted(days.items())),
         )

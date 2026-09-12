@@ -101,3 +101,19 @@
 {% macro seeds_json(seeds) -%}
 <script type="application/json" id="logbook-seeds">{{ seeds.prefill | tojson }}</script>
 {%- endmacro %}
+
+{#
+  The rail's calendar: a disclosure nav.js fills with a month grid when
+  opened. `unit` is what the arrow keys step ("day" or "month"), for the
+  hint line. It carries no data of its own — the marks are fetched.
+#}
+{% macro calendar(unit) %}
+  <details class="cal">
+    <summary>Calendar <kbd>c</kbd></summary>
+    <div class="calbody"></div>
+  </details>
+  <div class="kbdhint">
+    <span><kbd>&larr;</kbd> <kbd>&rarr;</kbd> {{ unit }}</span>
+    <span><kbd>t</kbd> today</span>
+  </div>
+{% endmacro %}

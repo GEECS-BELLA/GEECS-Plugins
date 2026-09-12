@@ -134,3 +134,32 @@ class TestSeedTemplates:
         html = client.get("/log/month/2026-09").text
         assert client.get("/log/month/2026-09").status_code == 200
         assert "typebtn" not in html
+
+
+class TestRunPageLink:
+    """The run page points at its scan's card in the logbook — when there is one."""
+
+    _UID = "uid-002"  # TEST_DAY, Scan 002 in the fake catalog
+
+    def test_present_when_the_logbook_is_mounted(self) -> None:
+        client = TestClient(
+            create_app(FakeCatalog(), default_experiment="Undulator", scan_log=True)
+        )
+        html = client.get(f"/run/{self._UID}").text
+        assert 'href="/log/day/2026-07-12#Scan002"' in html
+        payload = client.get(f"/api/run/{self._UID}").json()
+        assert payload["logbook"] == "/log/day/2026-07-12#Scan002"
+
+    def test_carries_the_proxy_prefix(self) -> None:
+        client = TestClient(
+            create_app(FakeCatalog(), default_experiment="Undulator", scan_log=True)
+        )
+        prefix = {"X-Forwarded-Prefix": "/portal"}
+        html = client.get(f"/run/{self._UID}", headers=prefix).text
+        assert 'href="/portal/log/day/2026-07-12#Scan002"' in html
+
+    def test_absent_when_not_mounted(self) -> None:
+        client = TestClient(create_app(FakeCatalog(), default_experiment="Undulator"))
+        html = client.get(f"/run/{self._UID}").text
+        assert "/log/day/" not in html
+        assert client.get(f"/api/run/{self._UID}").json()["logbook"] is None

@@ -1,6 +1,7 @@
 """The scans book: the day document and its JSON peers.
 
 ``GET /log/``                         redirect to today
+``GET /log/today``                    the same, as a bookmarkable name
 ``GET /log/static/{name}``            the page's own assets
 ``GET /log/day/{day}``                the day document
 ``GET /log/api/day/{day}``            the derived half (scan folders) as JSON
@@ -45,6 +46,11 @@ def register(router: APIRouter, ctx: Context) -> None:
     @router.get("/", response_class=RedirectResponse)
     def _today() -> RedirectResponse:
         """Redirect to today's log."""
+        return RedirectResponse(url=f"day/{date.today().isoformat()}")
+
+    @router.get("/today", response_class=RedirectResponse)
+    def _today_named() -> RedirectResponse:
+        """Redirect to today's log — a name a bookmark or a link can use."""
         return RedirectResponse(url=f"day/{date.today().isoformat()}")
 
     @router.get("/static/{name}")

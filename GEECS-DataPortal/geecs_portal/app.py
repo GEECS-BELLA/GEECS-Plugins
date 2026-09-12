@@ -442,6 +442,21 @@ def create_app(
     # 2026-08-29 — lazy stays the rule ACROSS scans only).
     data_cache = ShotDataCache()
     config_editor_enabled = False  # set when the editor router mounts (below)
+    scan_log_enabled = False  # set when the logbook router mounts (below)
+
+    def _logbook_url(
+        request: Request, run_day: Optional[date], scan_number: int
+    ) -> str:
+        """The run's entry in the scan logbook, or "" when there is none to link.
+
+        The logbook's day page anchors each scan card by its folder name
+        (``#Scan012``); the portal knows the mount prefix and the day, so
+        the link is built here without importing the logbook — a
+        peer view layer, reached by URL like any other page.
+        """
+        if not (scan_log_enabled and run_day and scan_number):
+            return ""
+        return f"{_root(request)}/log/day/{run_day.isoformat()}#Scan{scan_number:03d}"
 
     def _load_run(uid: str):
         """Load one run, mapping failures to honest HTTP status codes.
@@ -1376,6 +1391,8 @@ def create_app(
             "processing_options": _processing_names(),
             "analysis_enabled": _analysis_enabled_for(folder),
             "config_editor": config_editor_enabled,
+            "logbook": _logbook_url(request, run_day, detail.summary.scan_number or 0)
+            or None,
             "page": f"{_root(request)}/run/{uid}",
             "portal_version": _portal_version(),
         }
@@ -1598,6 +1615,9 @@ def create_app(
                 "next_uid": next_uid,
                 "day_runs": day_runs,
                 "scan_number": detail.summary.scan_number or 0,
+                "logbook_url": _logbook_url(
+                    request, run_day, detail.summary.scan_number or 0
+                ),
                 "prev_day": (
                     (run_day - timedelta(days=1)).isoformat() if run_day else ""
                 ),
@@ -1938,6 +1958,7 @@ def create_app(
                     ),
                     prefix="/log",
                 )
+                scan_log_enabled = True
                 logger.info(
                     "scan log mounted at /log for %s (%s; templates %s)",
                     default_experiment,
