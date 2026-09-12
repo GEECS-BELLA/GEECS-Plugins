@@ -1,9 +1,11 @@
 # Clean-room rebuild: GeecsBluesky as a native Bluesky application
 
-**Status (2026-09-10): direction agreed with Sam — option 1½ in §8; phase 0
-hardware-accepted and merged (#811); #812 (test speed) merged (#813); phase
-1 decisions recorded in §10; phase 1 PR 1 (the deletions, this branch)
-lands next.** Written at the end of the session that built #809 as a handoff,
+**Status (2026-09-11): phase 1 complete and deployed — the deletions
+(#816), the plan layer (#821), the headless hardware acceptance (#822), the
+PVA file plugin (#823, `06_pva_file_plugin.md`, `07_806_acceptance.md`) and
+the fleet-requirements mechanism (#824) are merged into the feature branch;
+the worker runs the feature head and nine camera-server gateways serve the
+plugin.  Phase 2 (§8) is next.** Written at the end of the session that built #809 as a handoff,
 then amended by the next session after the discussion recorded in §11 and
 §12. Read this before `00_overview.md`, because it supersedes that
 document's phase plan.
@@ -63,13 +65,14 @@ is right in five years, not the one that is reachable in small steps.
 | thing | state |
 |---|---|
 | `feature/native-bluesky-plans` | integration branch off master; **#808 merged** 2026-09-09 (device namespace); **#811 merged** 2026-09-10 (phase 0, hardware-accepted — `04_phase0_measurements.md` M2/M3); **#813 merged** 2026-09-10 (test speed, #812) |
-| `phase/03-hardware-acceptance` (phase 1 PR 3) | **hardware-accepted 2026-09-10** — `tests/test_phase1_hardware.py`: the worker's wiring in process (Scans 104/105) and a `Preset` through a second RE Manager (Scans 106/108), every file asserted from disk; per-shot budget measured (`05_phase1_acceptance.md` M4–M6). The worker checkout is on the feature branch with its env installed; the `systemctl restart` that completes the flip is the maintainer's |
+| the worker (`geecs-gw`) | **on the feature branch since 2026-09-11** (`~/qs-checkout`, restarted 15:00 on 0fd767fa with the nine-host plugin list): 19 plans registered, every camera on a rolled box plugin-backed; a production preset scan (Scan005 of 26_0911) passed through the manager. Rollback = `git checkout master` there, reinstall, restart. The master Console and MCP cannot submit scans meanwhile (by design, §10.5) |
+| `deploy/pva-fleet-requirements` (#824) | **MERGED 2026-09-11** — GeecsPvaGateway 0.7.1: `deploy/requirements-fleet.txt` (the pinned closure, `--no-deps` both sides), `deploy/stage_wheels.sh`, the launcher's offline wheel step; the nine gateways rolled the same afternoon (`07_806_acceptance.md`, with the launcher byte-offset lesson) |
+| `phase/04-pva-file-plugin` (#806) | **MERGED 2026-09-11 (#823)** — the file plugin in GeecsPvaGateway 0.7.0 (`file_plugin.py`, the areaDetector PV set + `Rewind`), `GeecsHdfIO` + `PluginPathProvider` on the worker (GeecsBluesky 0.81.0) under the **stock** `ADHDFDataLogic`, the capture daemon deleted; hardware-accepted on Scan007 of 26_0911 (frames == rows == PNGs, pixel-identical, 1 Hz held), Tiled read verified. Design `06_pva_file_plugin.md`, record `07_806_acceptance.md` |
+| `phase/03-hardware-acceptance` (phase 1 PR 3) | **MERGED 2026-09-11 (#822)** — `tests/test_phase1_hardware.py`: the worker's wiring in process (Scans 104/105) and a `Preset` through a second RE Manager (Scans 106/108), every file asserted from disk; per-shot budget measured (`05_phase1_acceptance.md` M4–M7: strict single-shot is not the 1 Hz mode, the exposure sets the margin) |
 | `phase/02-plan-layer` (phase 1 PR 2) | **MERGED 2026-09-10 (#821)** — the plan layer (GeecsBluesky 0.80.0, GEECS-Schemas 0.21.0): the registration table (`plans/registry.py` — 18 stock verbs bound strict under their own names, `trigger_profile` + `shots_per_step` keyword-only, ARMED → STANDBY bracket), the `claim_scan` preprocessor + `GeecsScanPathProvider` (every run claims), the `scalar_headers` preprocessor, the ScanInfo / s-file (from the documents) / `scan.log` callbacks, `SupplementalData` baseline telemetry, `GeecsDetector.scalars`, `Preset` v1 (save sets deleted; corpus regenerated on the configs branch `presets-v1`), `qs_client.submit_plan` / `submit_preset`.  Decisions in §10.7 |
 | `phase/01-foundation` (phase 1 PR 1) | **MERGED 2026-09-10 (#816)** — the deletions: the `ScanRequest` funnel and named plans, free-run, `GeecsSession`, `scan_request_runner`, `preflight`, `pause_semantics`, `t0_sync`, the funnel-only devices (`CaGenericDetector`, `CaTriggerable`, `CaTelemetryReadable`, `CaTimestampedReadable`, the shot-id / contributor / nonscalar-save mixins), `ShotController` (its write machinery folded into `ShotControl`), the optimization glue (`plans/optimize`, `optimize.py`, `session_bridge`, `worker_loader`) and every test of theirs; the namespace builds `GeecsDetector` for every triggerable device (`native_save` iff the DB lists `save` + `localsavingpath`); `run_engine.make_run_engine` replaces the session; the startup profile exports the stock `bluesky.plans` verbs (`plan_names.GEECS_PLAN_NAMES`) over the namespace; `qs_client` keeps its surface (readiness + liveness preflight only) so the Console and MCP stay importable |
-| #809 `phase/02-preamble-preprocessor` | **OPEN, on hold, will not merge** (13 commits, GeecsBluesky 0.79.0, CI green). The evidence behind §3; close with a pointer here once this amendment lands (§8) |
-| #806 image writing | **OPEN, not started.** Phase 1, in parallel with the plan layer (§8). File plugin in GeecsPvaGateway + stock `ADHDFDataLogic`; capture daemon retired |
+| #809 `phase/02-preamble-preprocessor` | **CLOSED 2026-09-11** with a pointer here, never merged. The evidence behind §3 |
 | #807 | the decision log; its six-then-three phase plan is superseded by §8 here. Comments there point here |
-| the worker (`geecs-gw`) | on **master**. Nothing from #809 is deployed, so none of its open defects is a live hazard |
 | hardware acceptance | scans **63 and 64** on 26_0909 via #809's preprocessor: stock `bp.count` as a noscan, stock `bp.list_scan` sweeping `U_S1H:Current` −1→+1 A at 0.5 A. Both in the Tiled catalog with s-files. Scans 56–62 are disposable artifacts of a `tiled=False` run |
 
 **What survives from the work so far, unconditionally:** the device
@@ -508,15 +511,20 @@ the least-verified component while the scan path waited.
    behaviour on a real trigger.
 1. **In parallel:** #806 (plugin + stock `ADHDFDataLogic`) ∥ the plan
    layer, as a deletion-led PR series (§10.5): **PR 1 — the deletions**
-   (done on `phase/01-foundation`: funnel, free-run, session, runner,
+   (#816: funnel, free-run, session, runner,
    funnel-only devices, optimization glue; `GeecsDetector` for every
    triggerable device; stock plans exported by the profile); **PR 2 —
-   the plan layer** (built on `phase/02-plan-layer`: the registration
+   the plan layer** (#821: the registration
    table, the `claim_scan` preprocessor + `PathProvider`, the ScanInfo /
    s-file / `scan.log` callbacks, the baseline telemetry, `Preset` v1
-   and the client seam — §10.7); **PR 3 — headless hardware acceptance (done 2026-09-10, `05_phase1_acceptance.md`)** (HTU-NoGas, `U_S1H:Current`
+   and the client seam — §10.7); **PR 3 — headless hardware acceptance**
+   (#822, `05_phase1_acceptance.md`: HTU-NoGas, `U_S1H:Current`
    −1 → +1 A in 0.5 A steps, amp4in, setpoint restored), then the worker
-   flips. Hardware acceptance for #806 separately.
+   flipped (2026-09-11). #806 landed as #823 with its own acceptance
+   (`07_806_acceptance.md`) and #824 rolled the fleet. **Phase 1 is
+   complete.** Small debts carried into phase 2's warm-ups: `run_action`
+   as a queue plan, the presets corpus on the configs repo's main (done
+   2026-09-11), the watch period before `Compression=zlib`.
 2. Gated batch + the non-essential stream via `SupplementalData.flyers`;
    free-run deleted.
 3. The calibration plan + the preflight validation.
