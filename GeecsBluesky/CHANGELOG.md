@@ -80,7 +80,10 @@ the hardware acceptance (§5) is owed.
   acceptance A2: the first step trimmed to 5 + 3 frames).  The step now
   arms, rewinds every plugin to zero inside the fresh session
   (`GeecsDetector.zero_count`, which posts the 0) and prepares again on it.
-  The plugin-side fix (post 0 at arm) is its own GeecsPvaGateway issue.
+  The strict path does the same at its first arm of a plugin camera
+  (2b acceptance A8: the first strict shot after a closed session waited
+  for N+1 while its frame posted 1).  The plugin-side fix (post 0 at arm)
+  is GEECS-Plugins#853.
 - `PluginPathProvider` creates the device directory inside the claimed scan
   folder (`mkdir(exist_ok=True)`, a missing scan folder is an error): the
   plugin refuses to arm on a missing `FilePath`, and in a fly prepare the

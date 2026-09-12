@@ -215,6 +215,7 @@ def geecs_take_reading(
     if shot_period is not None and shot_period <= 0:
         raise ValueError(f"shot_period must be positive seconds, got {shot_period}")
     last_fire: dict[str, float | None] = {"at": None}
+    armed: set[int] = set()  # plugin cameras whose first arm of this run is done
 
     def fire():
         if shot_period is not None and last_fire["at"] is not None:
@@ -271,6 +272,25 @@ def geecs_take_reading(
                 )
             if detectors:
                 yield from bps.wait(group=group)
+            # The run's first arm of a plugin camera: the plugin's count PV
+            # still reads the previous session's total until a frame lands
+            # (GEECS-Plugins#853), so a shot that baselined on it would wait
+            # for N+1 while the frame posts 1 — zero it inside the fresh
+            # session and prepare again on 0 (found on hardware, 2b A8).
+            fresh = [
+                d
+                for d in detectors
+                if getattr(d, "plugin_backed", False) and id(d) not in armed
+            ]
+            if fresh:
+                yield from bps.wait_for([d.zero_count for d in fresh])
+                group = short_uid("prepare-zeroed")
+                for det in fresh:
+                    yield from bps.prepare(
+                        det, STRICT_TRIGGER_INFO, group=group, wait=False
+                    )
+                yield from bps.wait(group=group)
+                armed.update(id(d) for d in fresh)
             attempts = max_refires + 1
             for attempt in range(1, attempts + 1):
                 missed = yield from fire_and_await_shot(devices, fire)
