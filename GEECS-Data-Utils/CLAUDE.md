@@ -276,9 +276,12 @@ this package and must never depend on GeecsBluesky or a GUI package).
   `TiledScanCatalog`.  `tiled` is imported lazily inside methods behind
   the existing `tiled` extra (the `tiled_export` pattern).  Day listing is
   one metadata-only search on the `start.time` epoch range (+
-  `start.experiment` when set), newest first; the event table read is the
-  repo-blessed `run["primary"].read().to_dataframe().reset_index()`
-  (see `GeecsBluesky/TILED_SETUP.md`).  Connection details are
+  `start.experiment` when set), newest first; the event table is the
+  primary stream's **scalar table only** (`read_primary_scalars`: the
+  composite node's table part through `primary.base`, never
+  `run["primary"].read()`, which downloads every camera stack and
+  per-frame attribute array and outer-joins their dimensions — #834; see
+  `GeecsBluesky/TILED_SETUP.md`).  Connection details are
   constructor args; `from_config()` reads `[tiled]` from
   `~/.config/geecs_python_api/config.ini` with `configparser` — **never
   import `geecs_bluesky` here** (it depends on us).  Catalog methods may

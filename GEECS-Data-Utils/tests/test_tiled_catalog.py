@@ -158,42 +158,71 @@ class TestSummaryFromMetadata:
 # ----------------------------------------------------------------------
 
 
+class _ArrayPart:
+    """An external array node of the primary stream: reading it is the bug."""
+
+    def __init__(self, name):
+        self.name = name
+
+    def read(self):
+        raise AssertionError(f"array part {self.name!r} must never be read")
+
+
+class _TablePart:
+    def __init__(self, frame):
+        self._frame = frame
+
+    def read(self, columns=None):
+        return self._frame if columns is None else self._frame[list(columns)]
+
+
+class _FakePrimary:
+    """A Tiled composite node: ``get_contents`` + ``base[part]`` + ``read``."""
+
+    def __init__(self, frame, arrays=()):
+        self._parts = {}
+        self._contents = {}
+        if frame is not None:
+            self._parts["internal"] = _TablePart(frame)
+            self._contents["internal"] = {"attributes": {"structure_family": "table"}}
+        for name in arrays:
+            self._parts[name] = _ArrayPart(name)
+            self._contents[name] = {"attributes": {"structure_family": "array"}}
+
+    def get_contents(self):
+        return dict(self._contents)
+
+    @property
+    def base(self):
+        return self._parts
+
+    def read(self, variables=None, dim0=None):
+        raise AssertionError(
+            "primary.read() downloads every array part — never call it"
+        )
+
+
 class _FakeRun:
     """Metadata + optional primary stream, quacking like a Tiled BlueskyRun.
 
     ``dimensionless=True`` mimics an aborted/legacy run whose primary
-    dataset has no event rows: ``sizes`` is empty and ``to_dataframe``
-    raises the real xarray error for a 0-d dataset.
+    stream has no table part (no event rows); ``arrays`` names external
+    array parts (camera stacks, per-frame attributes) that must never be
+    downloaded by the catalog.
     """
 
-    def __init__(self, start_doc, stop_doc=None, frame=None, dimensionless=False):
+    def __init__(
+        self, start_doc, stop_doc=None, frame=None, dimensionless=False, arrays=()
+    ):
         self.metadata = {"start": start_doc, "stop": stop_doc or {}}
         self._frame = frame
         self._dimensionless = dimensionless
+        self._arrays = tuple(arrays)
 
     def __getitem__(self, key):
         if key != "primary" or (self._frame is None and not self._dimensionless):
             raise KeyError(key)
-        frame = self._frame
-        dimensionless = self._dimensionless
-
-        class _Readable:
-            def read(self):
-                class _DataSet:
-                    @property
-                    def sizes(self):
-                        return {} if dimensionless else {"dim0": len(frame)}
-
-                    def to_dataframe(self):
-                        if dimensionless:
-                            raise ValueError(
-                                "no valid index for a 0-dimensional object"
-                            )
-                        return frame
-
-                return _DataSet()
-
-        return _Readable()
+        return _FakePrimary(None if self._dimensionless else self._frame, self._arrays)
 
 
 class _FakeClient:
@@ -564,3 +593,34 @@ class TestResolveScanFolderFallbackInvariant:
         before = _tree_snapshot(tmp_path)
         assert resolve_scan_folder(_detail(), TEST_DAY) is None
         assert _tree_snapshot(tmp_path) == before  # tree untouched
+
+
+def test_load_run_reads_the_scalar_table_and_never_the_array_parts() -> None:
+    """A two-camera plugin run: scalars only, no stack or attribute array downloaded."""
+    import pandas as pd
+
+    pytest.importorskip("tiled")
+    frame = pd.DataFrame(
+        {
+            "seq_num": [1, 2],
+            "uc_a-acq_timestamp": [1.0, 2.0],
+            "uc_b-acq_timestamp": [1.0, 2.0],
+            "bin_number": [1, 1],
+        }
+    )
+    run = _FakeRun(
+        _start_doc(8, hour=21),
+        frame=frame,
+        arrays=(
+            "uc_a",
+            "uc_a-hdf-image-frame_acq_timestamp",
+            "uc_b",
+            "uc_b-hdf-image-frame_acq_timestamp",
+        ),
+    )
+    detail = _fake_catalog({"uid-008": run}).load_run("uid-008")
+    assert list(detail.data.columns) == list(frame.columns)
+    assert len(detail.data) == 2
+    # An empty table (no event rows) is "no data", as before.
+    empty = _FakeRun(_start_doc(9, hour=22), frame=frame.iloc[0:0], arrays=("uc_a",))
+    assert _fake_catalog({"uid-009": empty}).load_run("uid-009").data is None
