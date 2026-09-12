@@ -147,9 +147,11 @@ CI (`.github/workflows/unit-tests.yml`, one Ubuntu job) runs: root
 from the **root env**, and GEECS-DataPortal, GEECS-Core, GeecsCAGateway,
 GeecsBluesky (pure unit tests, `qs-client` extra included), GEECS-MCP and
 GeecsPvaGateway each from its **own env**. Not in CI — run locally via
-`scripts/check.sh` when touching them: GEECS-Console (its Windows job was
-retired 2026-09-12; the console is not being changed and is slated for
-retirement) and GEECS-LogTriage. Everything is hermetic — no lab network, no hardware.
+`scripts/check.sh` when touching them: GEECS-Console (its Windows job
+`console-windows` is off by default since 2026-09-12 — the console is not
+being changed and is slated for retirement; the repository Actions
+variable `CI_CONSOLE_WINDOWS=true` turns it on without a commit) and
+GEECS-LogTriage. Everything is hermetic — no lab network, no hardware.
 `integration`-marked tests need the lab and are deselected by default;
 never run the top-level hardware scripts without lab access and operator
 coordination.

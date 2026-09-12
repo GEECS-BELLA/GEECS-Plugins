@@ -688,8 +688,10 @@ cyclic GC would delete the C++ window at an arbitrary allocation — including
 inside `processEvents` while Qt is dispatching to it (a polish walk, a
 queued poll result), a segfault at a random test in isolated
 `test_main_window.py` runs (#767).  A test that drops a window *mid*-body
-and then pumps events (`qtbot.waitUntil`) must `gc.collect()` itself first.  CI ran this suite on `windows-latest`
-(the `console-windows` job in `.github/workflows/unit-tests.yml`) until
-2026-09-12, when the job was retired — the console is not being changed and
-the leg cost ~5 minutes per check. That was the suite's only CI leg: it is
-now local-only (`scripts/check.sh`); the job is in git history if wanted.
+and then pumps events (`qtbot.waitUntil`) must `gc.collect()` itself first.  CI runs this suite on `windows-latest`
+(the `console-windows` job in `.github/workflows/unit-tests.yml`) only when
+the repository Actions variable `CI_CONSOLE_WINDOWS` is `true` — off since
+2026-09-12, because the console is not being changed and the leg cost ~5
+minutes per check. It is the suite's only CI leg, so while it is off the
+suite is local-only (`scripts/check.sh`); flip the variable in Settings to
+turn it back on, no commit needed.

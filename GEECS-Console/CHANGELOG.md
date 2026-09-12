@@ -6,15 +6,16 @@ semantic.
 
 ## [0.30.1] - 2026-09-12
 
-### Removed
+### Changed
 
 - The `console-windows` CI job (the console suite and the qs_client tests
-  on `windows-latest`). The console is not being changed and is slated
-  for retirement; the job added ~5 minutes to every check. It was the
-  console suite's **only** CI leg, so the suite is now local-only —
+  on `windows-latest`) is **off by default**, gated on the repository
+  Actions variable `CI_CONSOLE_WINDOWS` (`true` turns it on from
+  Settings, no commit). The console is not being changed and is slated
+  for retirement; the job added ~5 minutes to every check. It is the
+  console suite's **only** CI leg, so while off the suite is local-only —
   `scripts/check.sh` still runs it when console files change. The
-  qs_client suite keeps its Ubuntu leg. Restore from git history if
-  wanted.
+  qs_client suite keeps its Ubuntu leg.
 
 ## [0.30.0] - 2026-09-04
 
