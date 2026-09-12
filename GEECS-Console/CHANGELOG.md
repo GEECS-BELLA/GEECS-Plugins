@@ -4,6 +4,16 @@ All notable changes to GEECS-Console are documented here.  Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is
 semantic.
 
+## [0.30.1] - 2026-09-12
+
+### Removed
+
+- The `console-windows` CI job (the console suite and the qs_client tests
+  on `windows-latest`). The console is not being changed and is slated
+  for retirement; the job added ~5 minutes to every check. The Ubuntu job
+  still runs both suites. Restore from git history if a Windows leg is
+  wanted again.
+
 ## [0.30.0] - 2026-09-04
 
 ### Added
