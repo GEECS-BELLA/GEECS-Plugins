@@ -51,6 +51,7 @@ from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
+from bluesky.protocols import Movable, Readable
 from ophyd_async.core import Device, PathProvider
 
 from geecs_core.db.variable_types import (
@@ -574,6 +575,29 @@ class GeecsNamespace:
         """The object for ``"Device"`` or ``"Device:Variable"`` (either spelling)."""
         device, sep, variable = target.partition(":")
         return self.variable(device, variable) if sep else self[device]
+
+    # The action compiler's SettableFactory (plans/action_compiler.py): an
+    # action plan's (device, variable) is the child the namespace already
+    # built — the Movable for a settable, the readback signal otherwise.
+    def get_settable(self, device: str, variable: str) -> Movable:
+        """The Movable child for a ``set`` step; loud when the variable is read-only."""
+        child = self._child_for_step(device, variable)
+        if not isinstance(child, Movable):
+            raise GeecsConfigurationError(
+                f"device namespace: {device}:{variable} is not settable (the "
+                "gateway serves it read-only) — an action plan cannot set it"
+            )
+        return child
+
+    def get_readable(self, device: str, variable: str) -> Readable:
+        """The readable for a ``check`` step: a settable's child, else its signal."""
+        return self._child_for_step(device, variable)
+
+    def _child_for_step(self, device: str, variable: str) -> Any:
+        try:
+            return self.variable(device, variable)
+        except KeyError as exc:
+            raise GeecsConfigurationError(str(exc.args[0])) from None
 
     def telemetry(self) -> list[Any]:
         """Every subscribed scalar of the experiment, readable without a trigger.

@@ -27,8 +27,9 @@ manager's device tree
 (:func:`~geecs_bluesky.qs_client.submit_preflight.run_submit_preflight`) —
 the typo fails at preflight, not at queue-front.  Pseudo scan variables
 (``kind: pseudo``) have no namespace noun yet (phase 3): expanding one is
-refused here, and so is a preset whose plan is not a scan verb (``mv`` is
-the manual move — ``submit_plan("mv", …)``, never a preset).
+refused here, and so is a preset whose plan is not a scan verb (``mv``
+and ``run_action`` are queue items of their own — ``submit_plan("mv", …)``,
+``submit_plan("run_action", ["name"])`` — never a preset).
 """
 
 from __future__ import annotations
@@ -38,14 +39,17 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from geecs_bluesky.exceptions import GeecsConfigurationError
-from geecs_bluesky.plan_names import GEECS_PLAN_NAMES
+from geecs_bluesky.plan_names import GEECS_PLAN_NAMES, NON_SCAN_PLAN_NAMES
 from geecs_bluesky.utils import device_reference
 
 
-#: The plans a preset may name: the scan verbs.  ``mv`` is a queue item of
-#: its own (``submit_plan("mv", ["U_S1H.current", 0.0])``), never a preset —
-#: it takes no detector list.
-PRESET_PLAN_NAMES: tuple[str, ...] = tuple(n for n in GEECS_PLAN_NAMES if n != "mv")
+#: The plans a preset may name: the scan verbs.  ``mv`` and ``run_action``
+#: are queue items of their own (``submit_plan("mv", ["U_S1H.current",
+#: 0.0])``, ``submit_plan("run_action", ["Amp4_DUMP_HP"])``), never a
+#: preset — neither takes a detector list.
+PRESET_PLAN_NAMES: tuple[str, ...] = tuple(
+    n for n in GEECS_PLAN_NAMES if n not in NON_SCAN_PLAN_NAMES
+)
 
 
 @dataclass(frozen=True)
@@ -124,7 +128,12 @@ def expand_preset(
         raise GeecsConfigurationError(
             f"preset {preset.name!r} names plan {plan.name!r}; a preset runs a "
             f"scan verb: {', '.join(PRESET_PLAN_NAMES)}"
-            + (" (a manual move is submit_plan('mv', …))" if plan.name == "mv" else "")
+            + (
+                f" ({plan.name!r} is a queue item of its own: "
+                f"submit_plan({plan.name!r}, …))"
+                if plan.name in NON_SCAN_PLAN_NAMES
+                else ""
+            )
         )
     detectors = [
         device_reference(d.device)

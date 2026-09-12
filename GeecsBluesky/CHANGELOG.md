@@ -5,6 +5,33 @@ All notable changes to `geecs-bluesky` are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
+## [0.82.0] - 2026-09-11
+
+### Added
+
+- **`run_action` as a queue plan** (#807 phase-2 warm-up; the gap the
+  phase-1 ledger carried): the worker registers `run_action(name)` beside
+  the scan verbs (`plan_names.GEECS_PLAN_NAMES`, `NON_SCAN_PLAN_NAMES =
+  ("mv", "run_action")`).  It resolves *name* in the experiment's action
+  library and runs the compiled steps (`plans.action_compiler`) over the
+  device namespace, which is now the compiler's `SettableFactory`
+  (`GeecsNamespace.get_settable` / `get_readable`: the Movable child for
+  a settable, the served signal otherwise; a read-only variable in a
+  `set` step and an unknown device or variable raise
+  `GeecsConfigurationError`).  No run is opened, so nothing is claimed and
+  nothing is written.  `registry.bind_plans(profiles, resolver=,
+  settables=)` replaces `bind_strict_plans` and returns every registered
+  name; the hermetic worker registers a `run_action` that refuses, so the
+  manager's plan list is the same in every mode.  `submit_plan("run_action",
+  ["Amp4_DUMP_HP"])` works unchanged; a preset cannot name it
+  (`PRESET_PLAN_NAMES`).
+
+### Removed
+
+- `devices/ca/action_signals.py` (`CaActionSignalFactory`) and its test:
+  the session-era CA factory nothing used since #816 — the namespace's
+  children are the signals an action plan touches.
+
 ## [0.81.0] - 2026-09-11
 
 ### Added
