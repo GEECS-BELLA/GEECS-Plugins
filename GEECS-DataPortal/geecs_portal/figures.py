@@ -150,37 +150,27 @@ def _bare_figure() -> go.Figure:
 
 
 def base_layout(palette: Palette) -> dict:
-    """The shared base layout in one palette (from run.html's PLOT_LAYOUT)."""
+    """The shared base layout in one palette (from run.html's PLOT_LAYOUT).
+
+    Every figure starts here. The legend sits horizontally above the plot
+    and the x axis reserves room for its title — both were silently lost
+    once when this was rebuilt by hand, so ``tests/test_figures.py`` pins
+    what :func:`shots_figure` actually serves, not a constant.
+    """
     return {
         "paper_bgcolor": palette.paper,
         "plot_bgcolor": palette.plot,
         "font": {"color": palette.font, "size": 12},
         "margin": {"t": 24, "r": 56, "b": 44, "l": 56},
+        "legend": {"orientation": "h", "y": 1.08},
+        "showlegend": True,
         "xaxis": {
             "gridcolor": palette.grid_soft,
             "zerolinecolor": palette.grid,
+            "automargin": True,
             **_ticks(palette),
         },
     }
-
-
-#: The notebook-palette base layout, kept for callers that read it.
-BASE_LAYOUT: dict = {
-    "paper_bgcolor": "#1a2026",
-    "plot_bgcolor": "#12161a",
-    "font": {"color": "#dde4ea", "size": 12},
-    "margin": {"t": 24, "r": 56, "b": 44, "l": 56},
-    "xaxis": {
-        "gridcolor": "#232a31",
-        "zerolinecolor": "#2c353d",
-        "automargin": True,
-        "ticks": "outside",
-        "ticklen": 4,
-        "tickcolor": "#2c353d",
-    },
-    "showlegend": True,
-    "legend": {"orientation": "h", "y": 1.08},
-}
 
 
 def trace_color(

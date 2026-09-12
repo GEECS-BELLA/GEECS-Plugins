@@ -253,7 +253,15 @@ class TestPalette:
         # The template injects this tuple so rail chips match traces;
         # changing it is a deliberate cosmetic release, not drift.
         assert TRACE_COLORS == ("#4cc2b4", "#d6a860", "#6f9fd8", "#c47ab8")
-        assert figures.BASE_LAYOUT["legend"] == {"orientation": "h", "y": 1.08}
+        # Pin what a figure actually SERVES, not a constant: a hand-rebuilt
+        # base layout once dropped the legend placement and x-axis
+        # automargin while a constant-based pin stayed green.
+        served = figures.shots_figure(
+            {"a": [1, 2], "b": [2, 3]}, ["a", "b"]
+        ).to_plotly_json()["layout"]
+        assert served["legend"] == {"orientation": "h", "y": 1.08}
+        assert served["showlegend"] is True
+        assert served["xaxis"]["automargin"] is True
 
 
 class TestPalettes:

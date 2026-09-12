@@ -103,7 +103,9 @@ def _split_style_blocks(text: str) -> list[tuple[str, bool]]:
 #: JavaScript that assigns ``.style.cssText`` / ``.style.x``. Everything
 #: else outside a style element (script logic, a ``#765`` PR reference in
 #: a comment) is blanked.
-_INLINE_STYLE = re.compile(r'style\s*=\s*"([^"]*)"|style\.\w+\s*=\s*"([^"]*)"')
+_INLINE_STYLE = re.compile(
+    r"""style\s*=\s*"([^"]*)"|style\s*=\s*'([^']*)'|style\.\w+\s*=\s*"([^"]*)"|style\.\w+\s*=\s*'([^']*)'|setAttribute\(\s*[\"']style[\"']\s*,\s*"([^"]*)"|setAttribute\(\s*[\"']style[\"']\s*,\s*'([^']*)'|\.setProperty\(\s*[\"'][\w-]+[\"']\s*,\s*"([^"]*)"|\.setProperty\(\s*[\"'][\w-]+[\"']\s*,\s*'([^']*)'|\b(?:fill|stroke)\s*=\s*"([^"]*)"|\b(?:fill|stroke)\s*=\s*'([^']*)'"""
+)
 
 
 def _css_lines(path: Path) -> list[tuple[int, str, bool]]:
@@ -129,7 +131,9 @@ def _css_lines(path: Path) -> list[tuple[int, str, bool]]:
                 continue
             kept = re.sub(r"\S", " ", chunk)
             for m in _INLINE_STYLE.finditer(chunk):
-                g = 1 if m.group(1) is not None else 2
+                g = next(
+                    i for i in range(1, len(m.groups()) + 1) if m.group(i) is not None
+                )
                 kept = kept[: m.start(g)] + m.group(g) + kept[m.end(g) :]
             pieces.append(kept)
         text = "".join(pieces)
@@ -139,7 +143,13 @@ def _css_lines(path: Path) -> list[tuple[int, str, bool]]:
     out = []
     depth = 0  # brace depth inside a :root block; 0 = outside
     for n, ln in enumerate(text.splitlines(), 1):
-        opens_root = bool(re.match(r"\s*:root\b[^{]*\{", ln))
+        # only :root itself (attribute selectors allowed), never a descendant
+        opens_root = bool(
+            re.match(
+                r"\s*:root\s*(?:\[[^\]]*\])*\s*(?:,\s*:root\s*(?:\[[^\]]*\])*\s*)*\{",
+                ln,
+            )
+        )
         in_root = opens_root or depth > 0
         if opens_root or depth > 0:
             depth = max(depth + ln.count("{") - ln.count("}"), 0)
@@ -204,8 +214,10 @@ def test_surface_uses_only_tokens(relative: str) -> None:
             "a{background:url(\"data:image/svg+xml,%3Csvg fill='%23ff00ff'/%3E\")}\n",
             True,
         ),
+        (":root .foo {\n  --x: #ff00ff;\n}\n", True),
         ("a{box-shadow:0 1px 2px rgba(0,0,0,.4)}\n", False),
         (":root{\n  --x: #123456;\n}\n", False),
+        (':root[data-theme="laser"][data-mode="dark"]{\n  --x: #123456;\n}\n', False),
         ("a{color:var(--accent)}\n", False),
     ],
 )
@@ -230,6 +242,19 @@ def test_inline_style_outside_style_element_is_judged(tmp_path: Path) -> None:
     assert _offences(probe), "a cssText assignment slipped through"
     probe.write_text("<script>// see #765 for the dead-button finding</script>\n")
     assert not _offences(probe), "a PR reference in a comment was flagged"
+    for body in (
+        "<div style='color:#ff00ff'></div>\n",
+        "<script>el.style.cssText = 'color:#ff00ff';</script>\n",
+        "<script>el.style.color = 'orange';</script>\n",
+        "<script>el.setAttribute('style', 'color:#ff00ff');</script>\n",
+        "<script>el.style.setProperty('color', '#ff00ff');</script>\n",
+        '<svg><path fill="#ff00ff"/></svg>\n',
+        "<svg><circle stroke='#ff00ff'/></svg>\n",
+    ):
+        probe.write_text(body)
+        assert _offences(probe), body
+    probe.write_text('<svg><path fill="currentColor" stroke="var(--rule)"/></svg>\n')
+    assert not _offences(probe), "token/currentColor SVG was flagged"
 
 
 def _blocks(css: str) -> dict[str, set[str]]:
