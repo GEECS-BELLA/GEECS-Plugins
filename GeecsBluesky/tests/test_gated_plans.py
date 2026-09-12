@@ -667,12 +667,27 @@ def test_non_essential_that_fails_at_the_close_does_not_fail_the_run(
         return AsyncStatus(boom())
 
     b.complete = failing_complete
+    original_unstage = b.unstage
+
+    def failing_unstage():
+        from ophyd_async.core import AsyncStatus
+
+        async def boom():
+            raise ConnectionError("hdf1 PVs unreachable (Capture put)")
+
+        return AsyncStatus(boom())
+
+    b.unstage = failing_unstage  # review of #850 R5: the dead flyer's unstage too
     col = DocCollector()
     RE.subscribe(col)
     caplog.set_level(logging.WARNING, logger="geecs_bluesky.plans.gated")
     count = bind_plans(profiles)["count"]
-    RE(count([a], 2, non_essential=[b]))
+    RE(count([a], 2, non_essential=[b]))  # returns: the item does not fail
     assert col.docs["stop"][-1]["exit_status"] == "success"
     assert len(_stream_events(col, "primary")) == 2
-    assert any("non-essential uc_b" in r.getMessage() for r in caplog.records)
+    messages = [r.getMessage() for r in caplog.records]
+    assert any("non-essential uc_b: complete/collect failed" in m for m in messages)
+    assert any("non-essential uc_b: unstage failed" in m for m in messages)
+    assert box.states[-1] == "edges"  # STANDBY still driven on the way out
     b.complete = original
+    b.unstage = original_unstage

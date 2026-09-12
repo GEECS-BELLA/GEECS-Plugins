@@ -43,8 +43,8 @@ the hardware acceptance (§5) is owed.
   detectors are staged, prepared unbounded, kicked off right after
   `open_run` and each collected alone into its own `<name>_stream` before
   `close_run` (`non_essential_wrapper`); nothing waits on them — a
-  complete or collect that fails at the close (a gateway that went away
-  mid-run) is logged and skipped, never the run's failure.
+  complete, collect or unstage that fails from the close on (a gateway
+  that went away mid-run) is logged and skipped, never the item's failure.
 - `shot_period` on every bound scan verb (GEECS-Plugins#840): the strict
   rep-rate throttle — the plan sleeps for the remainder of the period
   before each fire; refused with `gated`.

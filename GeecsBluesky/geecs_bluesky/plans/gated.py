@@ -69,7 +69,6 @@ from bluesky.preprocessors import (
     finalize_wrapper,
     plan_mutator,
     rewindable_wrapper,
-    stage_wrapper,
 )
 from bluesky.utils import (
     FailedStatus,
@@ -374,12 +373,17 @@ def non_essential_wrapper(plan: Any, flyers: Sequence[Any]) -> Any:
 
     The stock ``fly_during_wrapper`` inserts ``kickoff`` after ``open_run``
     and ``complete`` + ``collect`` before ``close_run`` but neither stages
-    nor prepares; this one does both — stage (the stock ``stage_wrapper``,
-    unstage in its finalize), then, right after ``open_run``, an unbounded
-    prepare and the stream declaration that routes the collect, then the
-    kickoff while the box is still quiet.  Each flyer is collected alone
-    (one object: no index, the datum covers everything it wrote), in its
-    own stream — a joint stream would cut every camera at the slowest one.
+    nor prepares; this one does both — stage (a flyer dead at stage time
+    fails loudly, as it should), then, right after ``open_run``, an
+    unbounded prepare and the stream declaration that routes the collect,
+    then the kickoff while the box is still quiet.  Each flyer is collected
+    alone (one object: no index, the datum covers everything it wrote), in
+    its own stream — a joint stream would cut every camera at the slowest
+    one.  From the run's close on, nothing of a non-essential device may
+    fail the item: its ``complete`` + ``collect`` and its ``unstage`` are
+    each a contingency, logged and skipped (a gateway that went away
+    mid-run; the RunEngine's own teardown retries the unstage and swallows
+    it too, so no device state leaks).
 
     Parameters
     ----------
@@ -445,7 +449,32 @@ def non_essential_wrapper(plan: Any, flyers: Sequence[Any]) -> Any:
         return None, None
 
     inner = plan_mutator(plan_mutator(plan, insert_after_open), insert_before_close)
-    return (yield from stage_wrapper(inner, flyers))
+
+    def unstage_all_tolerant():
+        for flyer in flyers:
+
+            def one(flyer=flyer):
+                # Wait inside the contingency: a failure of the unstage
+                # status must land here, not at the next message outside.
+                yield from bps.unstage(flyer, group=short_uid("ne-unstage"), wait=True)
+
+            def skip(exc, flyer=flyer):
+                logger.warning(
+                    "non-essential %s: unstage failed (%s: %s) — skipped; the "
+                    "RunEngine's teardown retries it",
+                    flyer.name,
+                    type(exc).__name__,
+                    exc,
+                )
+                yield from bps.null()
+
+            yield from contingency_wrapper(one(), except_plan=skip, auto_raise=False)
+
+    def staged():
+        yield from bps.stage_all(*flyers)
+        return (yield from inner)
+
+    return (yield from finalize_wrapper(staged(), unstage_all_tolerant()))
 
 
 def run_bracket(plan: Any, shot_control: Any, opening: TriggerState) -> Any:
