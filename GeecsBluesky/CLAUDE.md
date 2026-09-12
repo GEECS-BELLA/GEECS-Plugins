@@ -10,21 +10,25 @@ facts) before proposing a change here; it carries a staleness rule (a PR
 that changes direction edits it in the same PR).  Phase-0 measurements are
 in `04_phase0_measurements.md`.
 
-**Where things stand (phase 1 PR 2, GeecsBluesky 0.80.0):** a queue item
-naming a stock plan and namespace devices runs a complete strict GEECS
-scan — claimed scan number, native files in `ScanNNN/<device>/`, ScanInfo,
-the s-file, `scan.log`, the baseline telemetry stream.  The worker
-registers the stock `bluesky.plans` verbs under their own names with the
-strict `take_reading` pre-bound (`plans/registry.py`); a client submits a
-stock plan item or a saved preset (`qs_client.submit_plan` /
-`submit_preset`).  Hardware-accepted 2026-09-10 (PR 3,
-`tests/test_phase1_hardware.py`, `Planning/native_bluesky/05_phase1_acceptance.md`):
-in process and through a second RE Manager, Scans 104–108 of 26_0910 (the
-worker flip is recorded there).  The Console and GEECS-MCP are rewired
+**Where things stand (phase 1 complete and deployed, 2026-09-11):** a
+queue item naming a stock plan and namespace devices runs a complete
+strict GEECS scan — claimed scan number, the detectors' files in
+`ScanNNN/<device>/` (an HDF5 stack from the PVA gateway's file plugin on
+the rolled camera servers, LabVIEW-native files elsewhere), ScanInfo, the
+s-file, `scan.log`, the baseline telemetry stream.  The worker registers
+the stock `bluesky.plans` verbs under their own names with the strict
+`take_reading` pre-bound (`plans/registry.py`); a client submits a stock
+plan item or a saved preset (`qs_client.submit_plan` / `submit_preset`).
+Hardware-accepted (`tests/test_phase1_hardware.py`,
+`Planning/native_bluesky/05_phase1_acceptance.md` M4–M7; the file plugin
+in `07_806_acceptance.md`); the worker runs the feature branch at the
+#823 merge and nine camera-server gateways serve the plugin
+(`03_clean_room_rebuild.md` §2).  The Console and GEECS-MCP are rewired
 once, when the foundation is stable — not per step (their submit paths
 call the removed funnel verbs meanwhile).  Per-shot budget: ~7 ms of
-plan-layer work, ~100 ms of margin at 1 Hz on this camera — strict
-single-shot is not the 1 Hz mode, phase 2's gated batch is.
+plan-layer work; the camera exposure sets the margin at 1 Hz — strict
+single-shot is not the 1 Hz mode, phase 2's gated batch is
+(`08_gated_batch.md`, designed 2026-09-11).
 
 ## The two rules
 
@@ -104,7 +108,9 @@ qserver/                    # the worker: launcher, startup profile, permissions
   value as its wire string, 10 s budget — hardware-proven, pinned by
   `tests/test_gateway_put.py`); `Pausable` keyed on the standing state
   (§10.3: ARMED → nothing; SCAN/STANDBY → OFF and back).  Neither
-  notification ever raises.  A `FlyerController` for gated mode is phase 2.
+  notification ever raises.  Not a flyer: the box has no counter, so in
+  gated mode (phase 2, `08_gated_batch.md`) the plan drives it SCAN after
+  the detectors' `kickoff` and OFF after their `complete`.
 - **`GeecsNamespace`** — every enabled device of the experiment, built from
   the DB roster (loud on failure) and connected on first use by
   `connect_on_demand`.  Triggerable (`looks_triggerable`) → `GeecsDetector`
@@ -154,7 +160,10 @@ and the next edge (M1/M2) — the plan layer recovers it, not `take_reading`.
 Free-run is gone.  Its two jobs return natively in phase 2: the rep-rate
 job as gated batch (`bp.fly`-shaped, plugin-backed detectors that count)
 and the contributor job as the non-essential stream
-(`SupplementalData.flyers`, joined by offset-corrected stamp, §11.5).
+(a per-plan `non_essential=[…]` argument — `fly_during_wrapper` per plan
+with the stage and unbounded prepare it lacks, never RunEngine-level
+`SupplementalData.flyers` — joined by offset-corrected stamp, §11.5;
+`08_gated_batch.md`).
 
 ## The GEECS scan (§4.C): one claim, three files, one telemetry stream
 

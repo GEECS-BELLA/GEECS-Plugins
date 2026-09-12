@@ -178,7 +178,7 @@ cmd /c "set USERPROFILE=C:\geecs\pva-gateway\profile&& C:\geecs\pva-gateway\venv
 ```
 
 prints the host's served PV names (DB-scoped: this box's cameras only). After
-`nssm.exe start`, the `version`/`heartbeat` PVs answering is the end-to-end check.
+`Start-Service GeecsPvaGateway`, the `version`/`heartbeat` PVs answering is the end-to-end check.
 From any machine with p4p (over VPN, set the address list per **Client
 access** below so name search unicasts):
 
