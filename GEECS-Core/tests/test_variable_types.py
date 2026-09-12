@@ -98,3 +98,8 @@ def test_scalar_attribute_variables_numeric_subscribed_minus_ladder(caplog) -> N
     assert out == ["MaxCounts", "exposure", "Mean Counts"]
     assert "mean_counts" in caplog.text and "normalizes to" in caplog.text
     assert scalar_attribute_variables([], subscribed) == []
+    # Case: the DB spells the subscribed name differently from the metadata
+    # row (the namespace lower-matches too); the metadata spelling is kept.
+    assert scalar_attribute_variables(
+        rows, ["maxcounts", "EXPOSURE", "Acq_Timestamp"], normalize=str.lower
+    ) == ["MaxCounts", "exposure"]

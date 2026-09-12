@@ -139,24 +139,37 @@ def scalar_attribute_variables(
     strict row carry the same numeric columns for that device
     (``Planning/native_bluesky/08_gated_batch.md`` §4.4) — restricted to
     :data:`SCALAR_ATTRIBUTE_VARTYPES` and minus :data:`TIMESTAMP_LADDER`
-    (already the frame's stamp attributes).  A subscribed name with no
-    metadata row has no type and is skipped.  With *normalize* (the PV
-    naming contract's ``normalize_component``, which the plugin names its
-    datasets with), a second variable normalizing to an earlier one's name
-    is dropped with a warning rather than colliding in the file.
+    (already the frame's stamp attributes).  Names match the metadata
+    rows **case-insensitively** — the GEECS DB spells the same variable
+    differently across tables, and the worker's namespace lower-matches
+    the subscribed list too (a strict row has the column either way) —
+    and the **metadata row's spelling** is what is returned, subscribed
+    and written.  A subscribed name with no metadata row has no type and
+    is skipped.  With *normalize* (the PV naming contract's
+    ``normalize_component``, which the plugin names its datasets with), a
+    second variable normalizing to an earlier one's name is dropped with
+    a warning rather than colliding in the file.
 
     The one home for this rule, beside :func:`image_variables`: the
     gateway builds its roster from it and the worker (phase 2c's s-file
     writer) recovers the row's columns through it.
     """
-    types = {
-        str(row["name"]): effective_vartype(row.get("variabletype"), row.get("choices"))
-        for row in rows
-    }
+    by_lower: dict[str, tuple[str, str]] = {}
+    for row in rows:
+        name = str(row["name"])
+        by_lower.setdefault(
+            name.lower(),
+            (name, effective_vartype(row.get("variabletype"), row.get("choices"))),
+        )
+    ladder = {v.lower() for v in TIMESTAMP_LADDER}
     out: list[str] = []
     seen: set[str] = set()
-    for name in subscribed:
-        if name in TIMESTAMP_LADDER or types.get(name) not in SCALAR_ATTRIBUTE_VARTYPES:
+    for subscribed_name in subscribed:
+        found = by_lower.get(subscribed_name.lower())
+        if found is None or subscribed_name.lower() in ladder:
+            continue
+        name, vartype = found
+        if vartype not in SCALAR_ATTRIBUTE_VARTYPES:
             continue
         key = normalize(name) if normalize is not None else name
         if key in seen:

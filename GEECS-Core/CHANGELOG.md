@@ -20,8 +20,10 @@ All notable changes to `geecs-core` are documented here, following
 - `db.variable_types.scalar_attribute_variables(rows, subscribed,
   normalize=…)` and `TIMESTAMP_LADDER`: the per-frame scalar filter beside
   `image_variables` — the subscribed **numeric** variables of a device in
-  DB order, minus the timestamp ladder, a second name normalizing onto an
-  earlier one's dataset dropped with a warning.  Enums are excluded on
+  DB order, minus the timestamp ladder, matched to the metadata rows
+  case-insensitively (the namespace's rule; the row's spelling is kept),
+  a second name normalizing onto an earlier one's dataset dropped with a
+  warning.  Enums are excluded on
   purpose: their wire value is the text label on both gateways.  The PVA
   gateway builds its roster from it; the worker recovers a stack's columns
   through it.
