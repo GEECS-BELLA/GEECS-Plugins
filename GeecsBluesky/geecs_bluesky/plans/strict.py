@@ -217,11 +217,21 @@ def geecs_take_reading(
     last_fire: dict[str, float | None] = {"at": None}
     armed: set[int] = set()  # plugin cameras whose first arm of this run is done
 
-    def fire():
+    def throttle():
+        """Sleep the remainder of the shot period — BEFORE the detectors are armed.
+
+        The sleep must precede ``trigger``: an armed detector's count /
+        stamp wait runs on its own budget (``exposure_timeout``), and a
+        sleep between the triggers and the fire longer than that budget
+        times the shot out before it is fired (found on hardware, 2b
+        acceptance A8: a 4 s period against the 3 s count wait).
+        """
         if shot_period is not None and last_fire["at"] is not None:
             remaining = shot_period - (time.monotonic() - last_fire["at"])
             if remaining > 0:
                 yield from bps.sleep(remaining)
+
+    def fire():
         last_fire["at"] = time.monotonic()
         yield from bps.mv(shot_control, TriggerState.SINGLESHOT.value)
 
@@ -293,6 +303,7 @@ def geecs_take_reading(
                 armed.update(id(d) for d in fresh)
             attempts = max_refires + 1
             for attempt in range(1, attempts + 1):
+                yield from throttle()
                 missed = yield from fire_and_await_shot(devices, fire)
                 if missed:
                     # The partial row carries no frames (one same-width datum

@@ -47,8 +47,10 @@ the hardware acceptance (§5) is owed.
   that went away mid-run) is logged and skipped, never the item's failure.
 - `shot_period` on every bound scan verb (GEECS-Plugins#840): the strict
   rep-rate throttle — the plan sleeps for the remainder of the period
-  before each fire; refused with `gated`, as is a nonzero `count` `delay`
-  (the stock repeat loop would idle `(num-1)×delay` after the batch).
+  **before the detectors are armed** (a sleep between the triggers and the
+  fire longer than the shot budget would time the shot out before it is
+  fired, 2b acceptance A8); refused with `gated`, as is a nonzero `count`
+  `delay` (the stock repeat loop would idle `(num-1)×delay` after the batch).
 - `GeecsDetector` fly mode: `kickoff` sets it (the plugin's count is the
   completion, `wait_for_idle` a no-op), `trigger` clears it; a fly prepare
   — a `FlyTriggerInfo` (`gated_trigger_info`, `UNBOUNDED_TRIGGER_INFO`),

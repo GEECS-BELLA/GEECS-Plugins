@@ -546,16 +546,21 @@ def test_bound_plan_refuses_bad_mode_and_a_throttled_gated_run(
 
 
 def test_shot_period_throttles_strict_fires(
-    RE: RunEngine, box: GatedBox, profiles: TriggerProfiles
+    RE: RunEngine, box: GatedBox, profiles: TriggerProfiles, tmp_path: Path
 ) -> None:
-    """#840: one shot per period — the second and third fires wait."""
-    cam = _camera(RE, box, "UC_Cam")
+    """#840: one shot per period — the second and third fires wait.
+
+    The period exceeds the camera's shot budget on purpose: the wait must
+    happen before the detectors are armed, or the armed count/stamp wait
+    times the shot out during the pause (found on hardware, A8).
+    """
+    cam, _ = _plugin_camera(RE, box, "UC_Cam", tmp_path, shot_timeout=0.2)
     count = bind_plans(profiles)["count"]
     t0 = time.monotonic()
-    RE(count([cam], 3, shot_period=0.25))
+    RE(count([cam], 3, shot_period=0.5))
     elapsed = time.monotonic() - t0
     assert box.fires == 3
-    assert elapsed >= 0.5
+    assert elapsed >= 1.0
     col = DocCollector()
     RE.subscribe(col)
     RE(count([cam], 1, shot_period=0.25))
