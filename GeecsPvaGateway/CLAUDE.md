@@ -115,8 +115,9 @@ tests/
   `Capture=0` stamps the reconciliation counters and closes. Beside the
   two frame stamps the plugin writes the device's **subscribed scalars**
   per frame (`CameraSpec.scalar_variables`, from
-  `geecs_core.db.scalar_policy.GeecsDbScalarPolicy` — the same rule the
-  worker builds a device's row from; numeric/enum types only, the
+  `geecs_core.db.scalar_policy.GeecsDbScalarPolicy` filtered by
+  `geecs_core.db.variable_types.scalar_attribute_variables` — the same
+  rule the worker builds a device's row from; numeric types only, the
   timestamp ladder excluded) as `<device>-hdf-<variable>-<scalar>`
   `DOUBLE` attributes, declared in `NDAttributesFile` so the stock data
   logic describes them as stream columns; their values come from the

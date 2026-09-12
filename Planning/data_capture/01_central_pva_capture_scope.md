@@ -165,7 +165,7 @@ plumbing, both trivial:
   pattern at `GEECS-Core/tests/test_geecs_db.py:98-129` already uses the
   Point Grey fixture value).
 - A failure-tolerant provider in `geecs_bluesky/db_runtime.py` (mirror
-  `GeecsDbScalarPolicy` `:64` — DB blip degrades, never aborts).
+  `geecs_core.db.scalar_policy.GeecsDbScalarPolicy` — DB blip degrades, never aborts).
 
 Capture-box discovery: no manifest PV exists; the daemon re-derives
 device→PV mappings from the same DB queries the gateway uses

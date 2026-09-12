@@ -14,9 +14,10 @@ This module is the read side of that contract, deliberately small:
 - :func:`find_stack_file` — locate + validate a device's stack in a scan
   device folder (dispatch on the datasets, never the extension).
 - :func:`read_stack_timestamps` — the join key array, one read.
-- :func:`read_stack_attributes` / :func:`parse_attribute_name` — every
-  per-frame attribute (the stamps and, since GeecsPvaGateway 0.9, the
-  device's subscribed scalars), keyed by dataset name.
+- :func:`read_stack_attributes` / :func:`parse_attribute_name` /
+  :func:`stack_scalar_variables` — every per-frame attribute (the stamps
+  and, since GeecsPvaGateway 0.9, the device's subscribed numeric
+  scalars), keyed by dataset name, and the raw names behind them.
 - :func:`read_shot` — one frame by index (a single chunk read).
 - :class:`ShotRef` — a :class:`pathlib.Path` subclass carrying a frame
   index, so per-shot analysis pipelines can pass "this shot inside that
@@ -100,12 +101,14 @@ def parse_attribute_name(name: str) -> "tuple[str, str, str] | None":
 
 
 def read_stack_attributes(path: "str | Path") -> "dict[str, np.ndarray]":
-    """Every per-frame attribute dataset of the stack, keyed by dataset name.
+    """Every numeric per-frame attribute dataset of the stack, keyed by name.
 
     The stamps and the device's subscribed scalars alike, each ``(N,)``
     float64 aligned with the frames (``NaN`` where the device did not
-    send that variable with the frame).  One file open; use
-    :func:`parse_attribute_name` to split a key.
+    send that variable with the frame).  Non-numeric members of the group
+    (a string attribute from another writer) are skipped, never raised
+    on.  One file open; use :func:`parse_attribute_name` to split a key
+    and :func:`stack_scalar_variables` for the raw GEECS names.
     """
     with open_stack(path) as f:
         group = f.get(ATTRIBUTES_GROUP)
@@ -115,7 +118,22 @@ def read_stack_attributes(path: "str | Path") -> "dict[str, np.ndarray]":
             key: np.asarray(group[key][:], dtype=float)
             for key in group
             if isinstance(group[key], h5py.Dataset)
+            and np.issubdtype(group[key].dtype, np.number)
         }
+
+
+def stack_scalar_variables(path: "str | Path") -> "dict[str, str]":
+    """``{attribute dataset name: raw GEECS variable name}`` for the scalars.
+
+    The manifest GeecsPvaGateway >= 0.9 writes as the root attributes
+    ``scalar_attributes`` / ``scalar_variables`` (normalization is
+    one-way, so the file carries the names back).  Empty for a stack
+    without it (0.8 stacks: stamps only).
+    """
+    with open_stack(path) as f:
+        names = [str(n) for n in f.attrs.get("scalar_attributes", [])]
+        variables = [str(v) for v in f.attrs.get("scalar_variables", [])]
+    return dict(zip(names, variables, strict=True))
 
 
 def open_stack(path: "str | Path", mode: str = "r") -> "h5py.File":

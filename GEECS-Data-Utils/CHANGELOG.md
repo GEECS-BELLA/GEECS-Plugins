@@ -8,13 +8,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
-- `io.scan_stack.read_stack_attributes(path)` and `parse_attribute_name(name)`:
-  the read side of the plugin's per-frame scalar attributes (GeecsPvaGateway
-  0.9.0 writes a camera's subscribed scalars beside the frames as
-  `<device>-hdf-<variable>-<scalar>`, `Planning/native_bluesky/08_gated_batch.md`
-  §4.4).  Every attribute dataset in one open, keyed by name; the parser
-  splits a name into device, variable and scalar.  Phase 2c's s-file
-  writer and the hardware acceptance read through these.
+- `io.scan_stack.read_stack_attributes(path)`, `parse_attribute_name(name)`
+  and `stack_scalar_variables(path)` (all exported from `geecs_data_utils.io`
+  like their siblings): the read side of the plugin's per-frame scalar
+  attributes (GeecsPvaGateway 0.9.0 writes a camera's subscribed numeric
+  scalars beside the frames as `<device>-hdf-<variable>-<scalar>`,
+  `Planning/native_bluesky/08_gated_batch.md` §4.4).  Every numeric
+  attribute dataset in one open, keyed by name (non-numeric members
+  skipped); the parser splits a name into device, variable and scalar;
+  the manifest reader returns the raw GEECS names the file records behind
+  the normalized datasets.  Phase 2c's s-file writer and the hardware
+  acceptance read through these.
 
 ## [0.29.1] - 2026-09-11
 

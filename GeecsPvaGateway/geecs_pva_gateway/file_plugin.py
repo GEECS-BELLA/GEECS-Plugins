@@ -740,6 +740,11 @@ class HdfFilePlugin:
         h5.attrs["source_pv"] = self.prefix
         h5.attrs["writer"] = f"geecs-pva-gateway {__version__}"
         h5.attrs["created"] = time.time()
+        # The raw GEECS names behind the normalized attribute datasets, in
+        # dataset order: normalization is one-way, and an offline reader
+        # (no DB) needs the row's column names back.
+        h5.attrs["scalar_variables"] = list(self.scalar_variables)
+        h5.attrs["scalar_attributes"] = list(self.attributes[len(ATTRIBUTE_SUFFIXES) :])
         filters: dict[str, Any] = {}
         if session.compression == "zlib":
             filters = {"compression": "gzip", "compression_opts": 1, "shuffle": True}

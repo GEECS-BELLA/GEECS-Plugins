@@ -16,6 +16,8 @@ SUBSCRIBED = {
         "localsavingpath",
         "image",
         "ghost",
+        "Mean Counts",
+        "mean_counts",
     ],
     "UC_CamB": ["image"],
 }
@@ -36,6 +38,8 @@ VAR_MAP = {
         {"name": "trigger", "variabletype": "", "choices": "on,off"},
         {"name": "localsavingpath", "variabletype": "string", "choices": None},
         {"name": "acq_timestamp", "variabletype": "numeric", "choices": None},
+        {"name": "Mean Counts", "variabletype": "numeric", "choices": None},
+        {"name": "mean_counts", "variabletype": "numeric", "choices": None},
     ],
     "UC_CamB": [
         # image typed via the choice-descriptor quirk (#512)
@@ -69,7 +73,7 @@ def fake_db(monkeypatch):
     )
 
 
-def test_host_scoping_selects_image_devices_only(fake_db):
+def test_host_scoping_selects_image_devices_only(fake_db, caplog):
     """Host filter keeps that host's cameras; non-cameras drop out."""
     cfg = PvaGatewayConfig.from_geecs_experiment("Undulator", host="192.168.6.100")
     assert [c.device for c in cfg.cameras] == ["UC_CamA", "UC_CamB"]
@@ -78,9 +82,16 @@ def test_host_scoping_selects_image_devices_only(fake_db):
     assert by_dev["UC_CamB"].image_variables == ["image"]  # choice-descriptor
     assert by_dev["UC_CamA"].port == 65186
     # The per-frame scalar attributes: the subscribed list in DB order,
-    # numbers and enums only, minus the timestamp ladder the stamps carry;
-    # strings, images and names without a metadata row drop out.
-    assert by_dev["UC_CamA"].scalar_variables == ["MaxCounts", "exposure", "trigger"]
+    # numbers only (an enum's wire value is its text label), minus the
+    # timestamp ladder the stamps carry; strings, images and names without
+    # a metadata row drop out, and a second name normalizing to an earlier
+    # one's dataset name is dropped with a warning, never a startup crash.
+    assert by_dev["UC_CamA"].scalar_variables == [
+        "MaxCounts",
+        "exposure",
+        "Mean Counts",
+    ]
+    assert "mean_counts" in caplog.text and "normalizes to" in caplog.text
     assert by_dev["UC_CamB"].scalar_variables == []
 
 

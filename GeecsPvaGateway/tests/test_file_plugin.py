@@ -278,6 +278,12 @@ async def test_stock_adhdf_data_logic_drives_the_plugin(tmp_path, monkeypatch):
         )
         means = f[f"{ATTRIBUTES_GROUP}/uc_testcam-hdf-image-mean_counts"][:]
         assert means[0] == 12.5 and np.isnan(means[1])
+        # The manifest: raw GEECS names behind the normalized datasets.
+        assert list(f.attrs["scalar_variables"]) == ["MaxCounts", "Mean Counts"]
+        assert list(f.attrs["scalar_attributes"]) == [
+            "uc_testcam-hdf-image-maxcounts",
+            "uc_testcam-hdf-image-mean_counts",
+        ]
         assert f.attrs["finalized"]
         assert f.attrs["frames_written"] == 2
         assert f.attrs["duplicates_dropped"] == 1

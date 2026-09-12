@@ -22,6 +22,7 @@ from p4p.server import Server
 from p4p.server.thread import SharedPV
 
 from geecs_pva_gateway.config import instance_pv_prefix
+from geecs_core.db.variable_types import TIMESTAMP_LADDER
 from geecs_core.transport.tcp_subscriber import GeecsTcpSubscriber
 from geecs_data_utils.io import decode_imaq_image_string
 
@@ -33,7 +34,7 @@ logger = logging.getLogger(__name__)
 
 # LabVIEW epoch (1904) -> Unix epoch (1970), same ladder as the CA gateway.
 _LABVIEW_EPOCH_OFFSET = 2_082_844_800
-_TIMESTAMP_VARS = ("acq_timestamp", "systimestamp")
+_TIMESTAMP_VARS = TIMESTAMP_LADDER  # the one ladder (geecs_core.db.variable_types)
 _RECONNECT_MIN_S = 0.5
 _RECONNECT_MAX_S = 30.0
 _HEARTBEAT_PERIOD_S = 5.0
