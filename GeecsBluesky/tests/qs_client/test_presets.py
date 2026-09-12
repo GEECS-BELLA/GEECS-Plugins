@@ -143,3 +143,40 @@ def test_a_preset_cannot_name_mv() -> None:
 def test_a_preset_cannot_name_run_action() -> None:
     with pytest.raises(GeecsConfigurationError, match="submit_plan\\('run_action'"):
         expand_preset(_preset(plan={"name": "run_action", "args": ["Amp4_DUMP_HP"]}))
+
+
+# ------------------------------------------------------------- phase 2b
+def test_non_essential_devices_ride_as_the_plans_keyword() -> None:
+    preset = _preset(
+        devices=[
+            {"device": "UC_ALineEBeam3"},
+            {"device": "UC_SlowCam", "essential": False},
+            {"device": "U_BCaveICT", "save_images": False},
+        ],
+        plan={"name": "count", "kwargs": {"num": 10, "acquisition": "gated"}},
+    )
+    item = expand_preset(preset)
+    assert item.args == [["UC_ALineEBeam3", "U_BCaveICT.scalars"]]
+    assert item.kwargs["non_essential"] == ["UC_SlowCam"]
+    assert item.kwargs["acquisition"] == "gated"
+    assert item.references == ["UC_ALineEBeam3", "U_BCaveICT.scalars", "UC_SlowCam"]
+
+
+def test_all_essential_preset_carries_no_non_essential_keyword() -> None:
+    item = expand_preset(_preset())
+    assert "non_essential" not in item.kwargs and "acquisition" not in item.kwargs
+
+
+def test_non_essential_scalars_only_and_bad_acquisition_are_refused() -> None:
+    with pytest.raises(
+        GeecsConfigurationError, match="non-essential with save_images off"
+    ):
+        expand_preset(
+            _preset(
+                devices=[{"device": "UC_Cam", "essential": False, "save_images": False}]
+            )
+        )
+    with pytest.raises(GeecsConfigurationError, match="acquisition='sloppy'"):
+        expand_preset(
+            _preset(plan={"name": "count", "kwargs": {"acquisition": "sloppy"}})
+        )

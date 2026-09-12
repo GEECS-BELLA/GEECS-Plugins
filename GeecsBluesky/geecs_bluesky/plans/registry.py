@@ -1,29 +1,40 @@
-"""The registration table: stock plan names with the strict ``take_reading`` pre-bound.
+"""The registration table: stock plan names with the GEECS ``take_reading`` pre-bound.
 
 The worker registers the stock ``bluesky.plans`` verbs under their own
 names (``count``, ``scan``, ``list_scan`` …, :data:`~geecs_bluesky.plan_names.GEECS_PLAN_NAMES`)
-with the one GEECS difference bound in: the strict ``per_step`` /
-``per_shot`` that fires the trigger box between trigger and wait
-(:mod:`geecs_bluesky.plans.strict`).  A queue item naming ``scan`` with
-namespace devices therefore runs a complete strict GEECS scan; the plan's
+with the one GEECS difference bound in: the ``per_step`` / ``per_shot``
+hook — strict (:mod:`geecs_bluesky.plans.strict`: the trigger box fired
+between trigger and wait, one row per shot) or gated
+(:mod:`geecs_bluesky.plans.gated`: the box free-runs while the
+plugin-backed cameras count a batch; one datum per camera per step and
+one ``shots`` event per shot).  A queue item naming ``scan`` with
+namespace devices therefore runs a complete GEECS scan; the plan's
 arguments are the scan's one description (plan of record §4.D, §10.5).
 
 What a bound plan keeps and what it adds
 ----------------------------------------
 The stock parameters are kept verbatim — positions, ``num``,
 ``snake_axes``, ``md`` — minus the ``per_step`` / ``per_shot`` hook (a
-callable no queue item can carry).  Two keyword-only GEECS parameters are
-appended, because both are facts of *this* scan and belong in its
+callable no queue item can carry).  Keyword-only GEECS parameters are
+appended, because each is a fact of *this* scan and belongs in its
 description rather than in a side channel:
 
 - ``trigger_profile`` — which trigger profile drives the box (the
   experiment's default when omitted).  The bound plan brackets the run
-  ``ARMED → … → STANDBY`` through that profile's :class:`ShotControl`.
+  through that profile's :class:`ShotControl`: ``ARMED → … → STANDBY``
+  strict, ``OFF → … → STANDBY`` gated.
 - ``shots_per_step`` (scan verbs only) — rows per position; ``count``'s
   ``num`` already is the shot count.
+- ``acquisition`` — ``"strict"`` (default) or ``"gated"``: which
+  ``take_reading`` the hook binds (``08_gated_batch.md`` §4.1).
+- ``non_essential`` — detectors streamed for the run's duration in their
+  own streams, never waited on (§4.3); names resolve like ``detectors``.
+- ``shot_period`` — the strict rep-rate throttle, seconds between fires
+  (GEECS-Plugins#840); refused with ``gated`` (the box free-runs there).
 
-Both ride in the start document (``trigger_profile``,
-``shots_per_step``) beside the stock ``plan_args``.
+All ride in the start document beside the stock ``plan_args``
+(``non_essential`` as the devices' names, plus ``shot_clock`` — the
+device whose stamp counted a gated run's shots).
 
 Which stock plans
 -----------------
@@ -62,6 +73,13 @@ from geecs_bluesky.devices.shot_control import ShotControl
 from geecs_bluesky.exceptions import GeecsConfigurationError
 from geecs_bluesky.plan_names import GEECS_PLAN_NAMES, NON_SCAN_PLAN_NAMES
 from geecs_bluesky.plans.action_compiler import SettableFactory, run_action_plan
+from geecs_bluesky.plans.gated import (
+    gated_per_shot,
+    gated_per_step,
+    gated_run_bracket,
+    non_essential_wrapper,
+    shot_clock,
+)
 from geecs_bluesky.plans.strict import geecs_per_shot, geecs_per_step
 from geecs_bluesky.utils import safe_name
 
@@ -86,6 +104,9 @@ EXCLUDED_STOCK_PLANS: frozenset[str] = frozenset(
 )
 
 _HOOKS = ("per_step", "per_shot")
+
+#: The acquisition modes a bound plan accepts (``08_gated_batch.md`` §4.1).
+ACQUISITION_MODES: tuple[str, ...] = ("strict", "gated")
 
 
 def stock_plans_with_hook() -> dict[str, str]:
@@ -220,27 +241,67 @@ def strict_plan(
     def plan(*args: Any, **kwargs: Any):
         trigger_profile = kwargs.pop("trigger_profile", None)
         shots_per_step = int(kwargs.pop("shots_per_step", 1))
+        acquisition = str(kwargs.pop("acquisition", "strict") or "strict")
+        non_essential = list(kwargs.pop("non_essential", None) or ())
+        shot_period = kwargs.pop("shot_period", None)
+        if acquisition not in ACQUISITION_MODES:
+            raise GeecsConfigurationError(
+                f"acquisition={acquisition!r} is not one of {ACQUISITION_MODES}"
+            )
+        if shot_period is not None:
+            shot_period = float(shot_period)
+            if shot_period <= 0:
+                raise GeecsConfigurationError(
+                    f"shot_period must be positive seconds, got {shot_period}"
+                )
+            if acquisition == "gated":
+                raise GeecsConfigurationError(
+                    "shot_period is a strict-mode throttle: a gated batch runs "
+                    "at the box's rate (drop shot_period or use acquisition='strict')"
+                )
         shot_control = profiles.resolve(trigger_profile)
         profile_key = (
             trigger_profile if trigger_profile is not None else profiles.default
         )
-        if hook == "per_step":
-            kwargs[hook] = geecs_per_step(shot_control, shots_per_step=shots_per_step)
-        else:
-            kwargs[hook] = geecs_per_shot(shot_control)
         md = dict(kwargs.pop("md", None) or {})
         # The key the plan resolved (the configs-repo file stem), not the
         # profile's own name field — so the start document replays.
         md["trigger_profile"] = profile_key
         md["shots_per_step"] = shots_per_step
+        md["acquisition"] = acquisition
+        md["non_essential"] = [getattr(d, "name", str(d)) for d in non_essential]
+        if shot_period is not None:
+            md["shot_period"] = shot_period
+        if acquisition == "gated":
+            bound_args = signature.bind_partial(*args, **kwargs).arguments
+            detectors = list(bound_args.get("detectors") or ())
+            md["shot_clock"] = shot_clock(detectors)[1]
+            if hook == "per_step":
+                kwargs[hook] = gated_per_step(
+                    shot_control, shots_per_step=shots_per_step
+                )
+            else:
+                num = bound_args.get("num", 1)
+                if num is None:
+                    raise GeecsConfigurationError(
+                        "a gated count needs a finite num (the batch size)"
+                    )
+                kwargs[hook] = gated_per_shot(shot_control, quota=int(num))
+        elif hook == "per_step":
+            kwargs[hook] = geecs_per_step(
+                shot_control, shots_per_step=shots_per_step, shot_period=shot_period
+            )
+        else:
+            kwargs[hook] = geecs_per_shot(shot_control, shot_period=shot_period)
+        inner = non_essential_wrapper(stock(*args, md=md, **kwargs), non_essential)
+        if acquisition == "gated":
+            return (yield from gated_run_bracket(inner, shot_control))
         yield from bps.mv(shot_control, TriggerState.ARMED.value)
 
         def standby():
             yield from bps.mv(shot_control, TriggerState.STANDBY.value)
 
-        return (
-            yield from bpp.finalize_wrapper(stock(*args, md=md, **kwargs), standby())
-        )
+        return (yield from bpp.finalize_wrapper(inner, standby()))
 
     # The stock ``*args`` annotations are informational (``list_scan`` even
     # annotates each element as a ``(motor, points)`` tuple while taking
@@ -267,6 +328,21 @@ def strict_plan(
                 "shots_per_step", Parameter.KEYWORD_ONLY, default=1, annotation=int
             )
         )
+    parameters.append(
+        Parameter(
+            "acquisition", Parameter.KEYWORD_ONLY, default="strict", annotation=str
+        )
+    )
+    # Devices, like ``detectors``: the manager resolves names in any argument.
+    parameters.append(Parameter("non_essential", Parameter.KEYWORD_ONLY, default=None))
+    parameters.append(
+        Parameter(
+            "shot_period",
+            Parameter.KEYWORD_ONLY,
+            default=None,
+            annotation=float | None,
+        )
+    )
     plan.__signature__ = signature.replace(parameters=parameters)  # type: ignore[attr-defined]
     plan.__name__ = plan.__qualname__ = stock.__name__
     plan.__doc__ = _geecs_doc(stock, hook)
@@ -282,11 +358,26 @@ def _geecs_doc(stock: Callable[..., Any], hook: str) -> str:
     if hook == "per_step":
         extra += (
             "    shots_per_step : int, optional\n"
-            "        Strict single shots recorded at every position (default 1).\n"
+            "        Shots recorded at every position (default 1): strict single\n"
+            "        shots, or one gated batch of that size.\n"
         )
+    extra += (
+        "    acquisition : {'strict', 'gated'}, optional\n"
+        "        'strict' (default) fires the box once per row; 'gated' lets it\n"
+        "        free-run while the plugin-backed cameras count a batch — the\n"
+        "        run is bracketed OFF → STANDBY, frames go to 'primary' as datums\n"
+        "        and one 'shots' event per shot carries everything else.\n"
+        "    non_essential : list of devices, optional\n"
+        "        Plugin-backed detectors streamed for the run's duration, each in\n"
+        "        its own '<name>_stream'; never waited on.\n"
+        "    shot_period : float, optional\n"
+        "        Strict only: seconds between fires (a deliberate rep-rate\n"
+        "        throttle); None fires as fast as the shot allows.\n"
+    )
     return (
-        f"GEECS strict {stock.__name__}: the stock plan with the trigger box "
-        f"fired between trigger and wait on every shot.\n\n"
+        f"GEECS {stock.__name__}: the stock plan with the trigger box driven "
+        f"by the worker — fired between trigger and wait on every shot "
+        f"(strict), or free-running through a counted batch (gated).\n\n"
         f"{inspect.getdoc(stock) or ''}\n\n"
         f"    Other Parameters\n    ----------------\n{extra}"
     )
@@ -318,6 +409,7 @@ def bind_plans(
 
 
 __all__ = [
+    "ACQUISITION_MODES",
     "EXCLUDED_STOCK_PLANS",
     "TriggerProfiles",
     "bind_plans",

@@ -165,6 +165,10 @@ class ShotControl(StandardReadable):
             # Mirrors the standing state; "" until the first move.
             self.state, self._set_state = soft_signal_r_and_setter(str, "")
         self._resume_to: str | None = None
+        #: How many RunEngine pauses this box has seen — a gated step reads it
+        #: before and after its batch to learn it was interrupted (§4.2:
+        #: an immediate pause mid-batch means the step is retaken).
+        self.pause_count = 0
         super().__init__(name=name)
 
     @classmethod
@@ -222,6 +226,7 @@ class ShotControl(StandardReadable):
 
     async def pause(self) -> None:
         """Stop edges on a RunEngine pause if the standing state lets them flow."""
+        self.pause_count += 1
         try:
             standing = self.standing_state
             if standing not in QUIESCE_FROM:

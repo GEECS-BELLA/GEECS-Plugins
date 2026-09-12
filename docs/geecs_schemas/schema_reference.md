@@ -48,6 +48,7 @@ One device of the group: it records every shot of the scan.
 |---|---|---|---|---|
 | `device` | `str` | yes | — | GEECS device name exactly as it appears in the GEECS experiment database (MySQL), e.g. 'UC_ALineEbeam1'. |
 | `save_images` | `bool` | no | True | Save the device's images / non-scalar files (camera frames, traces) beside the scalar data. Off records the device's scalars only — its per-shot readings still land in every row; the frames stay off the disk. Meaningless for a scalar-only device (nothing to save either way). |
+| `essential` | `bool` | no | True | Wait for this device on every shot (on, the default) — a shot is not complete without its reading. Off streams the device's frames for the run's duration instead: it never holds a shot or aborts the scan, so use it for a slow or unreliable camera whose frames are welcome but not required. Off needs the images saved (a scalars-only device cannot stream). |
 
 ### PlanCall
 

@@ -38,6 +38,13 @@ Checks, in order (names are the ``PreflightOutcome.check`` vocabulary):
   list were truly empty); a client without a ``[qserver]`` config is
   skipped too.  Reads the caller's :class:`~.client.QueueClient` when
   given (``client=``), else builds and closes one from the shared config.
+  Two phase-2 rules read off the same device tree
+  (``08_gated_batch.md`` §4.3, §4.7): every ``non_essential`` device, and
+  every essential *camera* of a ``gated`` run, must be plugin-backed (the
+  tree lists the ``hdf`` child of a plugin-backed detector — a
+  LabVIEW-native camera has ``save`` but no ``hdf``); and a gated run
+  needs at least one essential *triggered* device (an ``acq_timestamp``
+  child), camera or scalar — "nothing counts shots; use strict" otherwise.
 - ``gateway_liveness`` — one CA read of each preset device's ``CONNECTED``
   PV; only the exact ``"Disconnected"`` reading counts as down
   (fail-open).
@@ -234,6 +241,10 @@ def _check_worker_ready(
                     "and that the DB lists them for the experiment"
                 )
                 return
+            refusal = acquisition_refusal(item, known)
+            if refusal is not None:
+                report.refusal = refusal
+                return
             report.outcomes.append(("worker_ready", "passed", ""))
         elif verdict.state in _FAIL_OPEN_READINESS_STATES:
             report.outcomes.append(("worker_ready", "skipped", verdict.detail))
@@ -244,6 +255,65 @@ def _check_worker_ready(
             close = getattr(client, "close", None)
             if callable(close):
                 close()
+
+
+def acquisition_refusal(item: Any, known: set[str]) -> Optional[str]:
+    """The phase-2 device rules over the manager's device tree, or ``None``.
+
+    *known* is the tree flattened to dotted names.  A plugin-backed
+    detector has an ``hdf`` child; a LabVIEW-native camera has ``save``
+    (and ``localsavingpath``) but no ``hdf``; a triggered device has an
+    ``acq_timestamp`` child; a scalar-only device has neither.
+
+    Parameters
+    ----------
+    item :
+        The expanded queue item (``args[0]`` the detectors, ``kwargs``
+        with ``acquisition`` / ``non_essential``).
+    known :
+        The device names the manager resolves.
+
+    Returns
+    -------
+    str or None
+        The refusal sentence, or ``None`` when every rule passes.
+    """
+    gated = item.kwargs.get("acquisition", "strict") == "gated"
+    non_essential = list(item.kwargs.get("non_essential") or ())
+    detectors = list(item.args[0]) if item.args else []
+    no_plugin = [r for r in non_essential if f"{r}.hdf" not in known]
+    if no_plugin:
+        return (
+            f"non-essential device(s) without a file plugin: {', '.join(no_plugin)} "
+            "— a non-essential device streams its frames through the PVA "
+            "gateway's file plugin; the worker sees none for these (a "
+            "LabVIEW-native camera, or a scalar-only device). Make them "
+            "essential or leave them out."
+        )
+    if not gated:
+        return None
+    native = [
+        r
+        for r in detectors
+        if not r.endswith(".scalars")
+        and f"{r}.save" in known
+        and f"{r}.hdf" not in known
+    ]
+    if native:
+        return (
+            f"gated acquisition: essential camera(s) without a file plugin: "
+            f"{', '.join(native)} — a gated batch counts frames the plugin "
+            "writes; a LabVIEW-native camera cannot. Use acquisition='strict' "
+            "or record its scalars only (save_images: false)."
+        )
+    owners = [r[: -len(".scalars")] if r.endswith(".scalars") else r for r in detectors]
+    if not any(f"{r}.acq_timestamp" in known for r in owners):
+        return (
+            "gated acquisition: no essential triggered device — nothing counts "
+            "shots. Add a camera or a triggered scalar device (one with an "
+            "acq_timestamp), or use acquisition='strict'."
+        )
+    return None
 
 
 def _check_liveness(

@@ -388,9 +388,71 @@ def test_stack_check_flags_count_and_stamp_mismatches(tmp_path, caplog):
     missing, _ = _feed_stack_run(
         tmp_path / "c", [], [(100.0, True)], caplog, write_file=False
     )
-    assert missing and "missing but 1 row(s) own a frame" in missing[0]
+    assert missing and "missing but 1 frame(s) are referenced" in missing[0]
     caplog.clear()
     stale, _ = _feed_stack_run(
         tmp_path / "d", [100.0], [(100.0, True)], caplog, finalized=False
     )
     assert stale and "not finalized within" in stale[0]
+
+
+def test_stack_check_counts_a_datum_only_stream(tmp_path, caplog):
+    """A gated primary / a non-essential stream: no rows, the datums' width is the contract."""
+    import h5py
+    import numpy as np
+
+    from geecs_bluesky.callbacks import StackCheckCallback
+    from geecs_data_utils.io.scan_stack import FRAMES_DATASET, TIMESTAMPS_DATASET
+
+    def feed(stamps, widths, stream="primary"):
+        scan_dir = tmp_path / stream / "Scan009"
+        device_dir = scan_dir / "UC_Cam"
+        device_dir.mkdir(parents=True)
+        path = device_dir / "UC_Cam.h5"
+        with h5py.File(path, "w", libver="latest") as f:
+            f.create_dataset(FRAMES_DATASET, data=np.zeros((len(stamps), 2, 2)))
+            f.create_dataset(TIMESTAMPS_DATASET, data=np.array(stamps))
+            f.attrs["finalized"] = True
+        cb = StackCheckCallback(finalize_timeout=1.0)
+        caplog.set_level(logging.INFO, logger="geecs_bluesky.callbacks")
+        cb("start", {"uid": "run1", "scan_number": 9, "scan_folder": str(scan_dir)})
+        cb("descriptor", {"uid": "d1", "run_start": "run1", "name": stream})
+        cb(
+            "stream_resource",
+            {
+                "uid": "sr1",
+                "run_start": "run1",
+                "data_key": "uc_cam",
+                "mimetype": "application/x-hdf5",
+                "uri": path.as_uri().replace("file:///", "file://localhost/"),
+                "parameters": {"dataset": FRAMES_DATASET, "chunk_shape": (1, 2, 2)},
+            },
+        )
+        index = seq = 0
+        for width in widths:
+            cb(
+                "stream_datum",
+                {
+                    "stream_resource": "sr1",
+                    "descriptor": "d1",
+                    "indices": {"start": index, "stop": index + width},
+                    "seq_nums": {"start": seq, "stop": seq + width},
+                },
+            )
+            index += width
+            seq += width
+        cb("stop", {"run_start": "run1", "exit_status": "success"})
+        cb.join(5.0)
+        return [r.getMessage() for r in caplog.records if "uc_cam" in r.getMessage()]
+
+    # two gated steps of three: six frames referenced, six in the stack
+    ok = feed([1.0, 2.0, 3.0, 4.0, 5.0, 6.0], [3, 3])
+    assert ok == [
+        "scan 9: uc_cam: 6 frame(s) in UC_Cam.h5, 6 referenced by the stream's datums"
+    ]
+    caplog.clear()
+    short = feed([1.0, 2.0, 3.0, 4.0, 5.0], [3, 3], stream="uc_cam_stream")
+    assert short == [
+        "scan 9: uc_cam: 5 frame(s) in UC_Cam.h5, 6 referenced by the stream's datums — MISMATCH"
+    ]
+    assert any(r.levelno == logging.WARNING for r in caplog.records)

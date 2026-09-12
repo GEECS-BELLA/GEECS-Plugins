@@ -44,6 +44,7 @@ def identifier_name(geecs_name: str) -> str:
 #: ``dir(GeecsDetector)``.
 RESERVED_DEVICE_ATTRIBUTES: frozenset[str] = frozenset(
     {
+        "abandon_step",
         "add_config_signals",
         "add_detector_logics",
         "add_readables",
@@ -69,9 +70,12 @@ RESERVED_DEVICE_ATTRIBUTES: frozenset[str] = frozenset(
         "prepare",
         "read",
         "read_configuration",
+        "rewind_to_step_baseline",
         "set_name",
         "stage",
+        "step_baseline",
         "trigger",
+        "truncate_to_quota",
         "unstage",
     }
 )

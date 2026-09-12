@@ -79,6 +79,13 @@ def test_bound_plans_keep_the_stock_signature_minus_the_hook(profiles) -> None:
         assert params["trigger_profile"].kind is inspect.Parameter.KEYWORD_ONLY
         assert ("shots_per_step" in params) == (name != "count")
         assert "trigger_profile" in plan.__doc__
+        # phase 2: the acquisition mode, the non-essential list, the throttle
+        for extra in ("acquisition", "non_essential", "shot_period"):
+            assert params[extra].kind is inspect.Parameter.KEYWORD_ONLY
+            assert extra in plan.__doc__
+        assert params["acquisition"].default == "strict"
+        assert params["non_essential"].default is None
+        assert params["shot_period"].default is None
 
 
 def test_strict_plan_refuses_a_plan_without_the_hook(profiles) -> None:
@@ -98,9 +105,38 @@ def test_queue_items_validate_against_the_bound_plans(RE, box, profiles) -> None
 
     cam = _camera(RE, box, "UC_Cam")
     ns = {"UC_Cam": cam, "U_S1H": Magnet(), **bind_plans(profiles)}
-    plans, devices, *_ = existing_plans_and_devices_from_nspace(nspace=ns)
+    plans, devices, plans_in_nspace, devices_in_nspace = (
+        existing_plans_and_devices_from_nspace(nspace=ns)
+    )
     assert set(plans) == set(GEECS_PLAN_NAMES)
     assert "scalars" in devices["UC_Cam"]["components"]
+    assert (
+        "acq_timestamp" in devices["UC_Cam"]["components"]
+    )  # the preflight's trigger rule
+    gated_item = {
+        "name": "count",
+        "args": [["UC_Cam"]],
+        "kwargs": {"num": 3, "acquisition": "gated", "non_essential": ["UC_Cam"]},
+        "item_type": "plan",
+        "user_group": "admin",
+    }
+    ok, message = validate_plan(
+        gated_item, allowed_plans=plans, allowed_devices=devices
+    )
+    assert ok, message
+    from bluesky_queueserver.manager.profile_ops import prepare_plan
+
+    # the manager resolves the non_essential names like the detectors'
+    resolved = prepare_plan(
+        gated_item,
+        plans_in_nspace=plans_in_nspace,
+        devices_in_nspace=devices_in_nspace,
+        allowed_plans={"admin": plans},
+        allowed_devices={"admin": devices},
+        nspace=ns,
+    )
+    assert resolved["kwargs"]["non_essential"] == [cam]
+    assert resolved["kwargs"]["acquisition"] == "gated"
     items = [
         ("count", [["UC_Cam"], 3], {"trigger_profile": "HTU-Test"}),
         ("count", [["UC_Cam.scalars"]], {"num": 2}),

@@ -112,7 +112,15 @@ qserver/                    # the worker: launcher, startup profile, permissions
   (§10.3: ARMED → nothing; SCAN/STANDBY → OFF and back).  Neither
   notification ever raises.  Not a flyer: the box has no counter, so in
   gated mode (phase 2, `08_gated_batch.md`) the plan drives it SCAN after
-  the detectors' `kickoff` and OFF after their `complete`.
+  the detectors' `kickoff` and OFF after their `complete`; `pause_count`
+  is how a gated step learns a pause interrupted its batch.
+- **`ShotSampler`** (`devices/sampler.py`) — the gated run's record of
+  every device without a plugin (phase 2b, `08` §4.7): Flyable +
+  EventCollectable, clocked by an essential triggered device's
+  `acq_timestamp`, one `shots` event per tick with the latest cached
+  reading of every member (scalar-only devices, triggered scalars, `.scalars`
+  views, the motors, `bin_number`) and the tick's stamp as the clock column;
+  `complete` is done after the quota, fails when the clock stops.
 - **`GeecsNamespace`** — every enabled device of the experiment, built from
   the DB roster (loud on failure) and connected on first use by
   `connect_on_demand`.  Triggerable (`looks_triggerable`) → `GeecsDetector`
@@ -134,13 +142,15 @@ qserver/                    # the worker: launcher, startup profile, permissions
 
 ## The scan path (§4.B)
 
-Strict is the default and the only mode built: the stock plans with the
-GEECS `per_step` / `per_shot` (`plans/strict.py`), registered under the
-stock names by `plans/registry.py` — the stock parameters minus the hook,
-plus `trigger_profile` and `shots_per_step` (keyword-only; both ride in
-the start document), each run bracketed ARMED → STANDBY through the
-profile's `ShotControl`.  Every shot is one row; `shots_per_step` rows per
-position carry the same `bin_number` —
+Two modes, one keyword (`acquisition`, default `strict`), both the stock
+plans with a GEECS `per_step` / `per_shot`, registered under the stock
+names by `plans/registry.py` — the stock parameters minus the hook, plus
+`trigger_profile`, `shots_per_step`, `acquisition`, `non_essential` and
+`shot_period` (keyword-only; all ride in the start document).
+
+**Strict** (`plans/strict.py`): each run bracketed ARMED → STANDBY through
+the profile's `ShotControl`.  Every shot is one row; `shots_per_step` rows
+per position carry the same `bin_number` —
 
 ```
 prepare(detectors, STRICT_TRIGGER_INFO)     # edge-triggered, one event; per shot,
@@ -159,13 +169,40 @@ count; every other edge on a scan with a motor move, because the fire put
 (~200 ms) plus the move overruns the ~550 ms budget between stamp arrival
 and the next edge (M1/M2) — the plan layer recovers it, not `take_reading`.
 
-Free-run is gone.  Its two jobs return natively in phase 2: the rep-rate
-job as gated batch (`bp.fly`-shaped, plugin-backed detectors that count)
-and the contributor job as the non-essential stream
-(a per-plan `non_essential=[…]` argument — `fly_during_wrapper` per plan
-with the stage and unbounded prepare it lacks, never RunEngine-level
-`SupplementalData.flyers` — joined by offset-corrected stamp, §11.5;
-`08_gated_batch.md`).
+**Gated** (`plans/gated.py`, phase 2b, `08_gated_batch.md` §4.2 / §4.7):
+each run bracketed OFF → STANDBY; per step the box free-runs in SCAN while
+the plugin-backed essential cameras count `shots_per_step` frames each —
+
+```
+mv(box, OFF); [repeat: drain wait, rewind_to_step_baseline]
+prepare(cameras, gated_trigger_info(N)); prepare(sampler, N)
+declare_stream(*cameras, "primary"); declare_stream(sampler, "shots")   # once
+kickoff(*cameras, sampler); mv(box, SCAN)
+complete(*cameras, sampler); mv(box, OFF); drain wait
+truncate_to_quota; collect(*cameras, "primary"); collect(sampler, "shots")
+```
+
+`primary` is a datum stream (one datum per camera per step, the frames and
+their per-frame scalars in the stack); `shots` carries one event per shot
+from the `ShotSampler` (the clock stamp, the motors, `bin_number`, every
+non-plugin scalar).  The step body is not rewindable: a deferred pause
+lands between steps, an immediate pause drives OFF and the resume
+**retakes the step** (the plan reads `ShotControl.pause_count`, settles
+the batch's statuses through `abandon_step` / `cancel_step`, rewinds to the
+step's baseline).  A stalled camera fails `complete` with the GEECS
+timeout and the box goes OFF.  A gated step needs an essential triggered
+device (the clock); a native camera cannot be essential there.
+
+**Non-essential stream** (`non_essential=[…]`, strict or gated): the
+listed plugin-backed detectors are staged, prepared unbounded, kicked off
+right after `open_run` and each collected alone into `<name>_stream`
+before `close_run` — `fly_during_wrapper`'s shape with the stage and
+prepare it lacks, per plan, never RunEngine-level
+`SupplementalData.flyers`; nothing waits on them.  `shot_period` is the
+strict rep-rate throttle (#840).  The s-file for a run with stream data is
+phase 2c (`08` §4.5): today `SFileCallback` skips a run with no primary
+events with a log line, and `StackCheckCallback` checks a datum-only
+stream by count.
 
 ## The GEECS scan (§4.C): one claim, three files, one telemetry stream
 

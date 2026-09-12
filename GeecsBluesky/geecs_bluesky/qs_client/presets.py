@@ -9,7 +9,12 @@ submission is a translation of names, nothing more (plan of record §4.D):
   ``UC_Amp4_IR_input``, or ``UC_Amp4_IR_input.scalars`` when
   ``save_images`` is off (the scalars-only view every namespace device
   carries: on a detector the shot wait without the files, on a
-  scalar-only device what the device reads);
+  scalar-only device what the device reads); an ``essential: false``
+  device goes to the bound plan's ``non_essential`` list instead (phase
+  2, ``08_gated_batch.md`` §4.6 — streamed for the run, never waited on;
+  it needs its frames, so ``save_images: false`` there is refused);
+- ``acquisition`` (``strict`` / ``gated``) and ``shot_period`` ride in
+  ``plan.kwargs`` like ``shots_per_step`` does;
 - each scan-variable string in ``plan.args`` / ``plan.kwargs`` — a
   ``Device:Variable`` pair or a scan-variable catalog name — becomes the
   namespace's Movable child, ``U_S1H.current``;
@@ -42,6 +47,11 @@ from geecs_bluesky.exceptions import GeecsConfigurationError
 from geecs_bluesky.plan_names import GEECS_PLAN_NAMES, NON_SCAN_PLAN_NAMES
 from geecs_bluesky.utils import device_reference
 
+
+#: The acquisition modes a preset's plan call may name (the bound plans'
+#: ``acquisition`` keyword, ``plans.registry.ACQUISITION_MODES`` — spelled
+#: here too so this module stays import-light).
+ACQUISITION_MODES: tuple[str, ...] = ("strict", "gated")
 
 #: The plans a preset may name: the scan verbs.  ``mv`` and ``run_action``
 #: are queue items of their own (``submit_plan("mv", ["U_S1H.current",
@@ -135,15 +145,36 @@ def expand_preset(
                 else ""
             )
         )
-    detectors = [
-        device_reference(d.device)
-        if d.save_images
-        else device_reference(d.device) + ".scalars"
-        for d in preset.devices
-    ]
-    references: list[str] = list(detectors)
+    detectors: list[str] = []
+    non_essential: list[str] = []
+    for d in preset.devices:
+        essential = getattr(d, "essential", True)
+        if essential:
+            detectors.append(
+                device_reference(d.device)
+                if d.save_images
+                else device_reference(d.device) + ".scalars"
+            )
+        elif not d.save_images:
+            raise GeecsConfigurationError(
+                f"preset {preset.name!r}: {d.device!r} is non-essential with "
+                "save_images off — a non-essential device is its frame stream "
+                "(a scalars-only device cannot fly); make it essential or save "
+                "its images"
+            )
+        else:
+            non_essential.append(device_reference(d.device))
+    references: list[str] = [*detectors, *non_essential]
     args = [_resolve(a, catalog, references) for a in plan.args]
     kwargs = {k: _resolve(v, catalog, references) for k, v in plan.kwargs.items()}
+    acquisition = kwargs.get("acquisition", "strict")
+    if acquisition not in ACQUISITION_MODES:
+        raise GeecsConfigurationError(
+            f"preset {preset.name!r}: acquisition={acquisition!r} is not one of "
+            f"{ACQUISITION_MODES}"
+        )
+    if non_essential:
+        kwargs["non_essential"] = non_essential
     if preset.trigger_profile is not None:
         kwargs.setdefault("trigger_profile", preset.trigger_profile)
     run_md: dict[str, Any] = dict(kwargs.pop("md", None) or {})
@@ -177,6 +208,7 @@ def _resolve(
 
 
 __all__ = [
+    "ACQUISITION_MODES",
     "PRESET_PLAN_NAMES",
     "QueueItem",
     "expand_preset",

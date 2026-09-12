@@ -67,6 +67,7 @@ is right in five years, not the one that is reachable in small steps.
 | thing | state |
 |---|---|
 | `feature/native-bluesky-plans` | integration branch off master; **#808 merged** 2026-09-09 (device namespace); **#811 merged** 2026-09-10 (phase 0, hardware-accepted — `04_phase0_measurements.md` M2/M3); **#813 merged** 2026-09-10 (test speed, #812) |
+| phase 2 (`08_gated_batch.md`) | **2a MERGED 2026-09-12 (#843**, GeecsPvaGateway 0.9.0 per-frame scalar attributes, hardware-accepted on Scan009/010 of 26_0911, fleet 0.9.0 ×9); **2b built 2026-09-12** on `phase/06-gated-batch` (GeecsBluesky 0.83.0, GEECS-Schemas 0.22.0: `plans/gated.py`, `devices/sampler.py`, the detector's fly mode, `essential` on `PresetDevice`, the preflight rules, #840's `shot_period`) — code-complete on mocks, **hardware acceptance OWED** (§5 item 2's runbook, on the PR); 2c (the s-file from streams) next |
 | the worker host | **on the feature branch since 2026-09-11.** Flipped in the morning at the #822 state (`~/qs-checkout`; 19 plans registered; Scan005 of 26_0911, a production preset scan through the manager with LabVIEW-native saving). Restarted at 15:00 on 0fd767fa (#823) with the nine-host plugin list: every camera on a rolled box is plugin-backed by the namespace rule, **not yet exercised through the manager** — the watch period's first camera scan is that check (`07_806_acceptance.md`; the acceptance scan ran in process from the staging clone). Rollback = `git checkout master` there, reinstall, restart. The master Console and MCP cannot submit scans meanwhile (by design, §10.5) |
 | `deploy/pva-fleet-requirements` (#824) | **MERGED 2026-09-11** — GeecsPvaGateway 0.7.1: `deploy/requirements-fleet.txt` (the pinned closure, `--no-deps` both sides), `deploy/stage_wheels.sh`, the launcher's offline wheel step; the nine gateways rolled the same afternoon (`07_806_acceptance.md`, with the launcher byte-offset lesson) |
 | `phase/04-pva-file-plugin` (#806) | **MERGED 2026-09-11 (#823)** — the file plugin in GeecsPvaGateway 0.7.0 (`file_plugin.py`, the areaDetector PV set + `Rewind`), `GeecsHdfIO` + `PluginPathProvider` on the worker (GeecsBluesky 0.81.0) under the **stock** `ADHDFDataLogic`, the capture daemon's runtime deleted (its unit, bootstrap entry and `site.env.example` lines wait for the end-of-branch deployment touch, §10.5); hardware-accepted on Scan007 of 26_0911 (frames == rows == PNGs, pixel-identical, 1 Hz held), Tiled read verified. Design `06_pva_file_plugin.md`, record `07_806_acceptance.md` |
@@ -763,7 +764,9 @@ Still open, for Sam:
    cadence fix is scoped as "gated batch", not "a faster fire".
 9. ~~Phase-2 design awaiting Sam's answers to `08_gated_batch.md` §6~~
    **Answered 2026-09-12 (Sam); `08` amended to match (its §1, §3, §4.2,
-   §4.3, §4.5, §4.6, §4.7, §5, §6).**  Two amendments already taken as read before:
+   §4.3, §4.5, §4.6, §4.7, §5, §6).  PR 2a merged (#843); PR 2b built
+   2026-09-12 (GeecsBluesky 0.83.0 — `plans/gated.py`, `devices/sampler.py`),
+   hardware acceptance owed; 2c next.**  Two amendments already taken as read before:
    the box is not a flyer (§4.A) and the non-essential list is per plan
    (§4.B).  The answers:
    - **Q1 — non-plugin devices in a gated run: a per-shot sampler, not

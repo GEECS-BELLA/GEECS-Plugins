@@ -20,10 +20,13 @@ raised back into the RunEngine, the scan itself is the priority:
   to the stop document (:class:`geecs_bluesky.scan_log.ScanLogFile`).
 - :class:`StackCheckCallback` — at the stop document, for every image
   stack the run's stream resources reference (the PVA gateway's file
-  plugin, #806), asserts that the frames on disk are the rows' shots:
-  same count, same ``acq_timestamp`` per row.  Synchronicity is checked
-  per scan, never assumed (``06_pva_file_plugin.md`` §2.1); a mismatch is
-  a warning in ``scan.log``.
+  plugin, #806), asserts that the frames on disk are what the documents
+  reference: for a stream with event rows (strict ``primary``) the same
+  count and the same ``acq_timestamp`` per row; for a datum-only stream (a
+  gated run's ``primary``, a non-essential ``<name>_stream``) the frame
+  count equals the datums' total width.  Synchronicity is checked per
+  scan, never assumed (``06_pva_file_plugin.md`` §2.1); a mismatch is a
+  warning in ``scan.log``.
 
 All four read the GEECS keys the claim preprocessor put in the start
 document (``scan_number``, ``scan_folder``, ``geecs_scalar_headers``) and
@@ -318,7 +321,7 @@ _STAMP_TOLERANCE_S = 1e-3
 
 
 class StackCheckCallback(_RunCallback):
-    """Assert, per image stack, that the frames on disk are the rows' shots.
+    """Assert, per image stack, that the frames on disk are what the documents reference.
 
     A plugin-backed camera's stream resource names its stack
     (``application/x-hdf5``, dataset ``FRAMES_DATASET``) and its data key
@@ -326,10 +329,14 @@ class StackCheckCallback(_RunCallback):
     (``seq_nums``, assigned by the RunEngine bundler) — a partial row owns
     none even when the camera delivered (its frame was rewound), so the
     rows are taken from the datums, never from the stamp column alone.
-    The stack's own stamps are read (LabVIEW epoch, the rows' epoch —
-    the plugin stores Unix seconds) and compared with those rows'
-    ``<name>-acq_timestamp``: the frame count must be the datums' total
-    width and every referenced row's stamp its frame's.
+    For a stream **with event rows** (strict ``primary``) the stack's own
+    stamps are read (LabVIEW epoch, the rows' epoch — the plugin stores
+    Unix seconds) and compared with those rows' ``<name>-acq_timestamp``:
+    the frame count must be the datums' total width and every referenced
+    row's stamp its frame's.  For a **datum-only** stream (a gated run's
+    ``primary``, a non-essential ``<name>_stream``, phase 2) there is no
+    row to compare a stamp with: the check is the count — frames in the
+    stack equal the datums' total width (``indices``).
 
     The stop document precedes ``unstage`` (``Capture=0``, when the plugin
     finalizes and closes the file), and a run callback must not block the
@@ -348,11 +355,13 @@ class StackCheckCallback(_RunCallback):
     def __init__(self, finalize_timeout: float = 15.0) -> None:
         super().__init__()
         self._finalize_timeout = finalize_timeout
-        self._primary: dict[str, str] = {}  # descriptor uid → run uid
-        self._rows: dict[str, dict[int, dict[str, Any]]] = {}  # run uid → seq → data
+        self._streams: dict[str, tuple[str, str]] = {}  # descriptor uid → (run, stream)
+        # run uid → stream name → seq → data (event rows, per stream)
+        self._rows: dict[str, dict[str, dict[int, dict[str, Any]]]] = {}
         self._stacks: dict[str, dict[str, str]] = {}  # run uid → data key → uri
         self._resources: dict[str, tuple[str, str]] = {}  # resource uid → (run, key)
-        self._owned: dict[str, dict[str, list[range]]] = {}  # run → key → seq ranges
+        # run → key → (stream, seq ranges, total datum width)
+        self._owned: dict[str, dict[str, tuple[str, list[range], int]]] = {}
         self._threads: list[threading.Thread] = []
 
     def on_start(self, start: dict[str, Any]) -> None:
@@ -363,15 +372,20 @@ class StackCheckCallback(_RunCallback):
         self._owned[uid] = {}
 
     def on_descriptor(self, doc: Document) -> None:
-        """Remember which descriptors are the primary stream's."""
-        if doc.get("name") == "primary":
-            self._primary[str(doc["uid"])] = str(doc["run_start"])
+        """Remember every descriptor's stream (rows and datums are keyed by it)."""
+        run_uid = str(doc["run_start"])
+        if run_uid in self._rows:
+            self._streams[str(doc["uid"])] = (run_uid, str(doc.get("name")))
 
     def on_event(self, doc: Document) -> None:
-        """Buffer a primary row by its sequence number."""
-        run_uid = self._primary.get(str(doc.get("descriptor")))
-        if run_uid is not None and run_uid in self._rows:
-            self._rows[run_uid][int(doc["seq_num"])] = dict(doc.get("data") or {})
+        """Buffer an event row by its stream and sequence number."""
+        owner = self._streams.get(str(doc.get("descriptor")))
+        if owner is None:
+            return
+        run_uid, stream = owner
+        self._rows[run_uid].setdefault(stream, {})[int(doc["seq_num"])] = dict(
+            doc.get("data") or {}
+        )
 
     def on_stream_resource(self, doc: Document) -> None:
         """Remember each image stack the run references."""
@@ -389,33 +403,53 @@ class StackCheckCallback(_RunCallback):
             self._resources[str(doc["uid"])] = (run_uid, key)
 
     def on_stream_datum(self, doc: Document) -> None:
-        """Record which rows a stack's datum covers."""
+        """Record which rows (and how many frames) a stack's datum covers."""
         owner = self._resources.get(str(doc.get("stream_resource")))
         if owner is None:
             return
         run_uid, key = owner
+        stream = self._streams.get(str(doc.get("descriptor")), (run_uid, "primary"))[1]
         seq = doc.get("seq_nums") or {}
-        self._owned.setdefault(run_uid, {}).setdefault(key, []).append(
-            range(int(seq.get("start", 0)), int(seq.get("stop", 0)))
+        indices = doc.get("indices") or {}
+        width = int(indices.get("stop", 0)) - int(indices.get("start", 0))
+        _stream, ranges, total = self._owned.setdefault(run_uid, {}).get(
+            key, (stream, [], 0)
         )
+        ranges.append(range(int(seq.get("start", 0)), int(seq.get("stop", 0))))
+        self._owned[run_uid][key] = (stream, ranges, total + width)
 
     def on_stop(self, start: dict[str, Any], stop: Document) -> None:
-        """Check every stack against its rows, off the RunEngine's thread."""
+        """Check every stack against its documents, off the RunEngine's thread."""
         run_uid = str(start["uid"])
         rows = self._rows.pop(run_uid, {})
         stacks = self._stacks.pop(run_uid, {})
         owned = self._owned.pop(run_uid, {})
-        self._primary = {k: v for k, v in self._primary.items() if v != run_uid}
+        self._streams = {k: v for k, v in self._streams.items() if v[0] != run_uid}
         self._resources = {k: v for k, v in self._resources.items() if v[0] != run_uid}
         for data_key, uri in stacks.items():
+            stream, ranges, width = owned.get(data_key, ("primary", [], 0))
+            stream_rows = rows.get(stream, {})
             column = f"{data_key}-acq_timestamp"
-            seqs = sorted({n for r in owned.get(data_key, []) for n in r})
-            expected = [
-                float(rows[n][column]) for n in seqs if n in rows and column in rows[n]
-            ]
+            expected: list[float] | None
+            if stream_rows:
+                seqs = sorted({n for r in ranges for n in r})
+                expected = [
+                    float(stream_rows[n][column])
+                    for n in seqs
+                    if n in stream_rows and column in stream_rows[n]
+                ]
+            else:
+                expected = None  # a datum-only stream: the count is the check
             thread = threading.Thread(
                 target=self._check,
-                args=(dict(start), data_key, uri, expected, self._finalize_timeout),
+                args=(
+                    dict(start),
+                    data_key,
+                    uri,
+                    expected,
+                    width,
+                    self._finalize_timeout,
+                ),
                 name=f"stack-check[{data_key}]",
                 daemon=True,
             )
@@ -433,7 +467,8 @@ class StackCheckCallback(_RunCallback):
         start: Mapping[str, Any],
         data_key: str,
         uri: str,
-        expected: list[float],
+        expected: list[float] | None,
+        width: int,
         finalize_timeout: float,
     ) -> None:
         import time
@@ -453,11 +488,12 @@ class StackCheckCallback(_RunCallback):
             if finalized:
                 break
             time.sleep(0.2)
+        referenced = width if expected is None else len(expected)
         if not path.is_file():
             verdict = f"{data_key}: stack {path} missing" + (
-                f" but {len(expected)} row(s) own a frame" if expected else ""
+                f" but {referenced} frame(s) are referenced" if referenced else ""
             )
-            _stack_verdict(start, verdict, warning=bool(expected))
+            _stack_verdict(start, verdict, warning=bool(referenced))
             return
         if not finalized:
             _stack_verdict(
@@ -467,6 +503,18 @@ class StackCheckCallback(_RunCallback):
             )
             return
         stamps = read_stack_timestamps(path, labview_epoch=True)
+        if expected is None:
+            # A datum-only stream (gated primary, a non-essential stream):
+            # no row carries a stamp to compare; the datums' width is the
+            # contract.
+            _stack_verdict(
+                start,
+                f"{data_key}: {len(stamps)} frame(s) in {path.name}, "
+                f"{width} referenced by the stream's datums"
+                + ("" if len(stamps) == width else " — MISMATCH"),
+                warning=len(stamps) != width,
+            )
+            return
         if len(stamps) != len(expected):
             _stack_verdict(
                 start,
