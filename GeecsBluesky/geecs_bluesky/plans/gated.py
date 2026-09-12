@@ -382,8 +382,10 @@ def non_essential_wrapper(plan: Any, flyers: Sequence[Any]) -> Any:
     one.  From the run's close on, nothing of a non-essential device may
     fail the item: its ``complete`` + ``collect`` and its ``unstage`` are
     each a contingency, logged and skipped (a gateway that went away
-    mid-run; the RunEngine's own teardown retries the unstage and swallows
-    it too, so no device state leaks).
+    mid-run).  A skipped unstage is not retried by the RunEngine (the object
+    leaves its staged set before the status resolves): a stale ``Capture``
+    is cleared by the camera's next ``stage()``, and its signal caches by
+    its next unstage — nothing functional leaks.
 
     Parameters
     ----------
@@ -460,8 +462,8 @@ def non_essential_wrapper(plan: Any, flyers: Sequence[Any]) -> Any:
 
             def skip(exc, flyer=flyer):
                 logger.warning(
-                    "non-essential %s: unstage failed (%s: %s) — skipped; the "
-                    "RunEngine's teardown retries it",
+                    "non-essential %s: unstage failed (%s: %s) — skipped; a stale "
+                    "Capture is cleared by its next stage()",
                     flyer.name,
                     type(exc).__name__,
                     exc,
