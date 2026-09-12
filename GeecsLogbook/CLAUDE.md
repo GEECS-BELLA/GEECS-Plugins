@@ -14,7 +14,7 @@ share a store:
   stores *none* of it, so it can never drift from the data and an upstream
   change needs no migration here.
 - **The commentary** — what people wrote. Irreplaceable, free-form, and the
-  only thing that genuinely needs storage. Arrives in phase 02.
+  only thing that genuinely needs storage. See "The commentary store".
 
 Conflating them is what made LogMaker4GoogleDocs unmaintainable: machine
 content was injected into a human document by string-matching headings.
@@ -62,10 +62,51 @@ classification, campaign shaping, and the day document.
 Pinned by `tests/test_scan_reader.py::TestScanFolderCreationInvariant`, which
 monkeypatches `Path.mkdir` to explode.
 
-When phase 02 adds writes, commentary goes to **`logbook/`, a sibling of
-`scans/` and `analysis/`** — never inside a scan folder. That keeps the raw
-data tree pristine, gives the day intro a home, and means the writer never
-traverses `scans/ScanNNN/` at all.
+Commentary goes to **`logbook/`, a sibling of `scans/` and `analysis/`** —
+never inside a scan folder. That keeps the raw data tree pristine, gives
+day-level entries a home, and means the writer never traverses
+`scans/ScanNNN/` at all. `mirror.write_entry` guards on the *day* folder
+existing before its one `mkdir(parents=True)`, so the deepest thing it can
+create is `logbook/ScanNNN/`.
+
+## The commentary store
+
+`store.NotesStore` (SQLite, WAL) is authoritative; `mirror` writes each
+entry as a front-matter markdown file beside the data, second. The store
+is written first so that a save never fails because the share is slow or
+unmounted — `mirrored_at` stays null and `mirror.sync` (throttled, on day
+views) pays the debt later. Files-as-truth was considered and rejected for
+exactly that reason: it puts an SMB write in the save path.
+
+The entry's shape is `geecs_schemas.log_entry.LogEntry`, defined there so
+GEECS-MCP and a mirror reader can agree on it without importing this
+package. Rules the store enforces, each pinned in `tests/test_store.py`:
+
+- **Three anchors.** `scan=`, `after=` (interscan), or neither — a
+  day-level entry, which is what a general logbook is mostly made of. Both
+  is refused. There is no `scan=0`; scans start at 1.
+- **An agent's entry is born a draft.** `kind` other than `note` with
+  `status="kept"` is refused at creation. A person keeps it via the status
+  route; an agent has no route to promote itself. A *promoted* agent entry
+  is a valid stored state, which is why the schema does not carry this
+  rule.
+- **`updated_at` moves on every change; `edited_at` only when the text
+  does.** The reader is told about edits; a synchroniser asks for
+  `updated_at` — a promotion or an upload would otherwise be invisible to
+  "everything since".
+- **Delete is a tombstone.** `deleted_at` is set, listings hide the row,
+  writes to it fail as if it were missing, and the mirror sync removes the
+  file. The row stays so a downstream copy can learn it went and an
+  accidental delete is a field to clear.
+- **Optimistic locking.** Every edit carries the `version` it read; a
+  mismatch is a 409 with the current entry, never a silently eaten
+  paragraph.
+- **Migration is additive columns only** (`_ADDED_COLUMNS`): the table
+  ships `CREATE TABLE IF NOT EXISTS`, and a column added later arrives via
+  `ALTER TABLE` with a fill expression. Nothing else, deliberately.
+
+`body_md` is opaque: `render.render_markdown` (markdown-it + nh3) is the
+only thing that reads it, and only to draw it.
 
 ## Status is reported, not inferred
 
@@ -163,7 +204,9 @@ app.include_router(create_log_router(experiment), prefix="/log")
 ```
 
 behind the portal's `log` extra and its `--scan-log` flag. It rides the
-portal's existing checkout and systemd unit.
+portal's existing checkout and systemd unit. `--notes-db` names the SQLite
+file (the portal defaults it to systemd's `StateDirectory`); without one
+the router has no write routes at all.
 
 `create_log_router` takes the experiment explicitly — this package carries no
 facility default, per the "facility values have one home" invariant.

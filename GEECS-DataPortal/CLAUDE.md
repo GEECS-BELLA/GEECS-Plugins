@@ -14,11 +14,16 @@ this package; the architecture rules below are its distillation.
   The portal itself has no write verbs: no annotations.  Three
   exceptions, all explicit opt-ins.  **The scan logbook**
   (`--scan-log`, 0.22.0) mounts `geecs_logbook`'s router at `/log`
-  behind the `log` extra: a day-document view over scan *folders*,
-  read-only in this phase — it renders `ScanInfoScanNNN.ini` and stores
-  nothing (pinned in `tests/test_scan_log_mount.py`).  It needs
-  `--experiment`, and warn-and-skips without one: the logbook reads one
-  experiment's share and carries no facility default.  **The config
+  behind the `log` extra: a day-document view over scan *folders* — it
+  renders `ScanInfoScanNNN.ini` and stores none of that.  With
+  `--notes-db` (0.24.0) it is a **write verb** for commentary only: rows
+  in that SQLite file (systemd's `StateDirectory` by default) and a
+  markdown mirror of each entry in the day's `logbook/` folder on the
+  share — a sibling of `scans/`, never inside it, never creating a scan
+  folder (pinned in `tests/test_scan_log_mount.py` and the logbook's own
+  invariant test).  Without `--notes-db` the entry routes do not exist.
+  It needs `--experiment`, and warn-and-skips without one: the logbook
+  reads one experiment's share and carries no facility default.  **The config
   editor** (`--config-editor`,
   0.21.0) mounts ScanAnalysis' `config_editor` router at `/configs` over
   the `--processing-configs` tree: it writes analysis-config YAML into
@@ -150,16 +155,19 @@ geecs_portal/
   __main__.py    # CLI (geecs-data-portal): real TiledScanCatalog + uvicorn;
                  #   --config-editor mounts scan_analysis.config_editor at /configs
                  #   --scan-log     mounts geecs_logbook at /log (needs --experiment)
+                 #   --notes-db     the logbook's SQLite file; makes /log writable
+                 #                  (default: $STATE_DIRECTORY/logbook.db under systemd)
   templates/     # base.html / day.html / run.html (Jinja2; every colour a GeecsWebTheme token)
 tests/
   test_app.py        # TestClient over FakeCatalog/StubCatalog (+ /api)
   test_resources.py  # tmp scan trees: gallery routes + tier ladder + union
   test_analysis_runs.py  # the run ladder over an injected fake analyzer
-  test_scan_log_mount.py # /log is opt-in, and gated on --experiment
+  test_scan_log_mount.py # /log is opt-in, gated on --experiment; writes need --notes-db
 ```
 
 Routes: `/` (redirect to today) · `/day/{iso}` (run list; `?experiment=`)
 · `/log/day/{iso}` + `/log/api/day/{iso}` (the scan logbook, `--scan-log`)
+· `/log/api/entries…` (the logbook's entry writes, only with `--notes-db`)
 · `/run/{uid}` (the scan page: rail + Overview/Plot/Images/Analysis tabs
 — Analysis only when runs are possible, see below;
 `?tab=&y=&x=&view=&filters=&bincfg=&display=` is the Plot-tab state,

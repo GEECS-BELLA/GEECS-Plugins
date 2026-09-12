@@ -63,14 +63,31 @@ CREATE TABLE IF NOT EXISTS entries (
     attachments  TEXT NOT NULL DEFAULT '[]',
     created_at   TEXT NOT NULL,
     edited_at    TEXT,
+    updated_at   TEXT NOT NULL,
+    deleted_at   TEXT,
     version      INTEGER NOT NULL DEFAULT 1,
     schema_version INTEGER NOT NULL DEFAULT 1,
     mirrored_at  TEXT
 );
+"""
+
+#: Indexes are created after the column migration below, since one of them
+#: is on a column an older file will not have yet.
+_INDEXES = """
 CREATE INDEX IF NOT EXISTS entries_by_day ON entries (day);
+CREATE INDEX IF NOT EXISTS entries_by_updated ON entries (updated_at);
 CREATE INDEX IF NOT EXISTS entries_unmirrored ON entries (mirrored_at)
     WHERE mirrored_at IS NULL;
 """
+
+#: Columns added after the table first shipped, with the expression that
+#: fills them for rows that predate them. ``CREATE TABLE IF NOT EXISTS`` is
+#: a no-op on an existing file, so additive columns arrive through here —
+#: the whole migration story this store needs, and deliberately no more.
+_ADDED_COLUMNS: tuple[tuple[str, str, str], ...] = (
+    ("updated_at", "TEXT", "COALESCE(edited_at, created_at)"),
+    ("deleted_at", "TEXT", "NULL"),
+)
 
 
 class ConflictError(RuntimeError):
@@ -116,6 +133,14 @@ class NotesStore:
             )
         with self._connect() as conn:
             conn.executescript(_SCHEMA)
+            present = {r["name"] for r in conn.execute("PRAGMA table_info(entries)")}
+            for name, sql_type, fill in _ADDED_COLUMNS:
+                if name in present:
+                    continue
+                conn.execute(f"ALTER TABLE entries ADD COLUMN {name} {sql_type}")
+                conn.execute(f"UPDATE entries SET {name} = {fill}")
+                logger.info("notes store: added column %s", name)
+            conn.executescript(_INDEXES)
 
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:
@@ -133,32 +158,48 @@ class NotesStore:
 
     # ---------------------------------------------------------------- read
 
-    def get(self, entry_id: str) -> Optional[LogEntry]:
-        """Return one entry, or ``None`` when it does not exist."""
+    def get(
+        self, entry_id: str, *, include_deleted: bool = False
+    ) -> Optional[LogEntry]:
+        """Return one entry, or ``None`` when it does not exist.
+
+        A tombstoned entry counts as not existing unless ``include_deleted``
+        is set — the default is what every write path wants, so that
+        editing a deleted entry fails the same way as editing a missing one.
+        """
         with self._connect() as conn:
             row = conn.execute(
                 "SELECT * FROM entries WHERE entry_id = ?", (entry_id,)
             ).fetchone()
-        return _from_row(row) if row else None
+        if row is None:
+            return None
+        entry = _from_row(row)
+        if entry.is_deleted and not include_deleted:
+            return None
+        return entry
 
     def for_day(self, day: str) -> list[LogEntry]:
-        """Return every entry for one ``YYYY-MM-DD``, oldest first.
+        """Return every live entry for one ``YYYY-MM-DD``, oldest first.
 
         Ordered by creation so a scan's notes read in the order they were
-        written, which is how a conversation reads.
+        written, which is how a conversation reads. Deleted entries are
+        not listed.
         """
         with self._connect() as conn:
             rows = conn.execute(
-                "SELECT * FROM entries WHERE day = ? ORDER BY created_at, rowid",
+                "SELECT * FROM entries WHERE day = ? AND deleted_at IS NULL"
+                " ORDER BY created_at, rowid",
                 (day,),
             ).fetchall()
         return [_from_row(row) for row in rows]
 
     def unmirrored(self, limit: int = 100) -> list[LogEntry]:
-        """Return entries whose markdown has not reached the share yet.
+        """Return entries whose markdown does not match the share yet.
 
         The reconciliation half of writing here first: a save never fails
         because the share is down, but something has to notice and retry.
+        Deleted entries are included — their owed operation is removing the
+        file, and :func:`geecs_logbook.mirror.sync` knows which is which.
         """
         with self._connect() as conn:
             rows = conn.execute(
@@ -188,13 +229,20 @@ class NotesStore:
         Raises
         ------
         ValueError
-            If neither or both of ``scan`` and ``after`` are given — an
-            entry is anchored to a scan or to the gap after one, never both
-            and never neither.
+            If both ``scan`` and ``after`` are given — an entry is anchored
+            to a scan, to the gap after one, or (neither) to the day. Also
+            if an agent's entry arrives already ``kept``: only a human keeps
+            an agent's draft, and that has to hold at the API, not in the
+            documentation.
         """
-        if (scan is None) == (after is None):
-            raise ValueError("an entry needs exactly one of scan= or after=")
+        if scan is not None and after is not None:
+            raise ValueError("an entry is anchored to a scan or after one, not both")
+        if kind != "note" and status == "kept":
+            raise ValueError(
+                f"a {kind} entry is created as a draft; a person keeps it afterwards"
+            )
 
+        now = _now()
         entry = LogEntry(
             entry_id=uuid.uuid4().hex[:12],
             day=day,
@@ -206,14 +254,16 @@ class NotesStore:
             template=template,
             body_md=body_md,
             payload=payload,
-            created_at=_now(),
+            created_at=now,
+            updated_at=now,
         )
         with self._connect() as conn:
             conn.execute(
                 "INSERT INTO entries (entry_id, day, scan, after_scan, author, kind,"
                 " status, template, body_md, payload, attachments, created_at,"
-                " edited_at, version, schema_version, mirrored_at)"
-                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL)",
+                " edited_at, updated_at, deleted_at, version, schema_version,"
+                " mirrored_at)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL)",
                 _to_params(entry),
             )
         logger.info("entry %s created for %s by %s", entry.entry_id, day, author)
@@ -242,11 +292,12 @@ class NotesStore:
             # The WHERE clause repeats the version check: between the read
             # above and this write another process may have saved, and the
             # comparison has to happen where the write happens.
+            now = _now().isoformat()
             cursor = conn.execute(
                 "UPDATE entries SET body_md = ?, author = ?, edited_at = ?,"
-                " version = version + 1, mirrored_at = NULL"
-                " WHERE entry_id = ? AND version = ?",
-                (body_md, author, _now().isoformat(), entry_id, expected_version),
+                " updated_at = ?, version = version + 1, mirrored_at = NULL"
+                " WHERE entry_id = ? AND version = ? AND deleted_at IS NULL",
+                (body_md, author, now, now, entry_id, expected_version),
             )
             if cursor.rowcount == 0:
                 raise ConflictError(self.get(entry_id) or current)
@@ -261,9 +312,9 @@ class NotesStore:
         """
         with self._connect() as conn:
             cursor = conn.execute(
-                "UPDATE entries SET status = ?, version = version + 1,"
-                " mirrored_at = NULL WHERE entry_id = ?",
-                (status, entry_id),
+                "UPDATE entries SET status = ?, updated_at = ?, version = version + 1,"
+                " mirrored_at = NULL WHERE entry_id = ? AND deleted_at IS NULL",
+                (status, _now().isoformat(), entry_id),
             )
             if cursor.rowcount == 0:
                 raise KeyError(entry_id)
@@ -277,9 +328,13 @@ class NotesStore:
         manifest = [*current.attachments, attachment]
         with self._connect() as conn:
             conn.execute(
-                "UPDATE entries SET attachments = ?, version = version + 1,"
-                " mirrored_at = NULL WHERE entry_id = ?",
-                (json.dumps([a.model_dump(mode="json") for a in manifest]), entry_id),
+                "UPDATE entries SET attachments = ?, updated_at = ?,"
+                " version = version + 1, mirrored_at = NULL WHERE entry_id = ?",
+                (
+                    json.dumps([a.model_dump(mode="json") for a in manifest]),
+                    _now().isoformat(),
+                    entry_id,
+                ),
             )
         return self.get(entry_id)  # type: ignore[return-value]
 
@@ -292,14 +347,24 @@ class NotesStore:
             )
 
     def delete(self, entry_id: str) -> bool:
-        """Delete an entry. Returns whether one was removed.
+        """Tombstone an entry. Returns whether a live one was found.
 
-        The markdown file is the caller's to clean up: this module never
-        touches the share, so that a database operation can never be the
-        thing that loses a file.
+        The row stays, with ``deleted_at`` set: every listing hides it, but
+        a mirror or a downstream copy can still learn that it went, and an
+        accidental delete is recoverable. The markdown file is the
+        caller's to clean up — this module never touches the share, so
+        that a database operation can never be the thing that loses a
+        file — and ``mirrored_at`` is cleared so :func:`sync` owes the
+        removal until that happens.
         """
         with self._connect() as conn:
-            cursor = conn.execute("DELETE FROM entries WHERE entry_id = ?", (entry_id,))
+            now = _now().isoformat()
+            cursor = conn.execute(
+                "UPDATE entries SET deleted_at = ?, updated_at = ?,"
+                " version = version + 1, mirrored_at = NULL"
+                " WHERE entry_id = ? AND deleted_at IS NULL",
+                (now, now, entry_id),
+            )
         return cursor.rowcount > 0
 
 
@@ -319,6 +384,8 @@ def _to_params(entry: LogEntry) -> tuple:
         json.dumps([a.model_dump(mode="json") for a in entry.attachments]),
         entry.created_at.isoformat(),
         entry.edited_at.isoformat() if entry.edited_at else None,
+        entry.updated_at.isoformat(),
+        entry.deleted_at.isoformat() if entry.deleted_at else None,
         entry.version,
         entry.schema_version,
     )
@@ -342,6 +409,8 @@ def _from_row(row: sqlite3.Row) -> LogEntry:
             "attachments": json.loads(row["attachments"] or "[]"),
             "created_at": row["created_at"],
             "edited_at": row["edited_at"],
+            "updated_at": row["updated_at"],
+            "deleted_at": row["deleted_at"],
             "version": row["version"],
         }
     )

@@ -259,13 +259,13 @@
       <p class="empty">The day folder exists but holds no scans yet.</p>
     {% endif %}
 
-    {% if entries.get('intro') or writable %}
+    {% if entries.get('day') or writable %}
     <section class="card intro">
       <header class="scanhead" style="cursor:default">
         <span class="scanid">Day intro</span>
         <span class="scanpurpose">What today is for, and the machine state going in</span>
       </header>
-      {{ entries_block('intro', 0, none, entries, writable) }}
+      {{ entries_block('day', none, none, entries, writable) }}
     </section>
     {% endif %}
 
@@ -400,7 +400,8 @@ document.addEventListener("submit", async ev => {
   try { localStorage.setItem(AUTHOR_KEY, name); } catch (e) {}
   const body = { day: {{ summary.day.isoformat() | tojson }}, author: name, body_md: ta.value };
   if (form.dataset.after !== "") body.after = Number(form.dataset.after);
-  else body.scan = Number(form.dataset.scan);
+  else if (form.dataset.scan !== "") body.scan = Number(form.dataset.scan);
+  // neither: a day-level entry
   try { await api("POST", "/entries", body); location.reload(); }
   catch (err) { fail(form, err); }
 });

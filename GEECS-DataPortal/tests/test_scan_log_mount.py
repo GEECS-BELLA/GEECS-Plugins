@@ -1,6 +1,12 @@
-"""The scan logbook mounted in the portal: opt-in, at /log, experiment-gated."""
+"""The scan logbook mounted in the portal: opt-in, at /log, experiment-gated.
+
+Writes are a second opt-in (``notes_db``): without it the mount is the
+read-only day view and the entry routes do not exist.
+"""
 
 from __future__ import annotations
+
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -33,3 +39,50 @@ class TestScanLogMount:
         """The logbook reads one experiment's share; it carries no default."""
         client = TestClient(create_app(FakeCatalog(), scan_log=True))
         assert client.get("/log/api/day/2026-09-11").status_code == 404
+
+
+class TestNotesDb:
+    """Writing is its own opt-in, and writes only where the charter allows."""
+
+    _ENTRY = {"day": "2026-09-11", "author": "S. Barber", "body_md": "hello"}
+
+    def test_read_only_without_a_notes_db(self) -> None:
+        """--scan-log alone serves no entry routes."""
+        client = TestClient(
+            create_app(FakeCatalog(), default_experiment="Undulator", scan_log=True)
+        )
+        assert client.post("/log/api/entries", json=self._ENTRY).status_code in (
+            404,
+            405,
+        )
+
+    def test_writable_with_a_notes_db(self, tmp_path: Path) -> None:
+        """With --notes-db an entry is accepted and the words are in the file.
+
+        No share is configured in the test environment: the row lands, the
+        markdown mirror is deferred, and the client sees 201 either way —
+        a save never fails because the share is unreachable.
+        """
+        db = tmp_path / "logbook.db"
+        client = TestClient(
+            create_app(
+                FakeCatalog(),
+                default_experiment="Undulator",
+                scan_log=True,
+                notes_db=db,
+            )
+        )
+        res = client.post("/log/api/entries", json=self._ENTRY)
+        assert res.status_code == 201, res.text
+        assert db.is_file()
+        listed = client.get("/log/api/day/2026-09-11/entries").json()
+        assert [e["body_md"] for e in listed] == ["hello"]
+        # Nothing was written anywhere but the database (no share here).
+        assert (
+            sorted(
+                p.name
+                for p in tmp_path.iterdir()
+                if not p.name.startswith("logbook.db")
+            )
+            == []
+        )

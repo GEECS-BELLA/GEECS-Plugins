@@ -44,12 +44,15 @@ class TestPaths:
         assert "scans" not in root.parts
 
     def test_three_anchors_three_places(self, store: NotesStore, share: Path) -> None:
-        """Intro at the root, scan entries under ScanNNN/, interscan under after-ScanNNN/."""
+        """Day-level at the root, scan entries under ScanNNN/, interscan under after-ScanNNN/."""
         root = mirror.logbook_root(DAY, EXP, base_directory=share)
-        intro = store.create(day=DAY, scan=0, author="A. Gonsalves", body_md="x")
+        day = store.create(day=DAY, author="A. Gonsalves", body_md="x")
         on = store.create(day=DAY, scan=5, author="S. Barber", body_md="x")
         between = store.create(day=DAY, after=3, author="osprey", body_md="x")
-        assert mirror.entry_path(intro, root) == root / "day.md"
+        assert mirror.entry_path(day, root).parent == root
+        assert mirror.entry_path(day, root).name.endswith(
+            f"-agonsalves-{day.entry_id[:6]}.md"
+        )
         assert mirror.entry_path(on, root).parent == root / "Scan005"
         assert mirror.entry_path(between, root).parent == root / "after-Scan003"
 
@@ -217,11 +220,33 @@ class TestSync:
     def test_defers_a_day_that_does_not_exist_yet(
         self, store: NotesStore, share: Path
     ) -> None:
-        """An intro written before the first scan waits; the others land."""
+        """A note written before the day's first scan waits; the others land."""
         today = store.create(day=DAY, scan=5, author="a", body_md="now")
-        early = store.create(day="2026-09-12", scan=0, author="a", body_md="tomorrow")
+        early = store.create(day="2026-09-12", author="a", body_md="tomorrow")
         written, deferred = mirror.sync(store, EXP, base_directory=share)
         assert (written, deferred) == (1, 1)
         owed = [e.entry_id for e in store.unmirrored()]
         assert owed == [early.entry_id]
         assert store.get(today.entry_id) is not None  # the words are safe either way
+
+    def test_removes_the_file_of_a_deleted_entry(
+        self, store: NotesStore, share: Path
+    ) -> None:
+        """A tombstone's owed operation is the removal; it is paid and marked."""
+        e = store.create(day=DAY, scan=5, author="a", body_md="x")
+        assert mirror.sync(store, EXP, base_directory=share) == (1, 0)
+        path = mirror.entry_path(e, mirror.logbook_root(DAY, EXP, base_directory=share))
+        assert path.is_file()
+        store.delete(e.entry_id)
+        assert mirror.sync(store, EXP, base_directory=share) == (1, 0)
+        assert not path.exists()
+        assert store.unmirrored() == []
+
+    def test_a_deleted_entry_never_mirrored_is_settled_without_a_file(
+        self, store: NotesStore, share: Path
+    ) -> None:
+        """Delete before the mirror ever ran: nothing to remove, nothing owed."""
+        e = store.create(day=DAY, scan=5, author="a", body_md="x")
+        store.delete(e.entry_id)
+        assert mirror.sync(store, EXP, base_directory=share) == (1, 0)
+        assert store.unmirrored() == []

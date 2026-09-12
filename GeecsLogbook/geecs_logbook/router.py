@@ -82,7 +82,7 @@ class EntryCreate(BaseModel):
 
     day: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
     scan: Optional[int] = Field(
-        None, ge=0, description="Scan number; 0 = the day intro."
+        None, ge=1, description="Scan number; omit both for a day-level entry."
     )
     after: Optional[int] = Field(
         None, ge=0, description="Interscan: the scan it follows."
@@ -155,7 +155,7 @@ def _scope(entry: LogEntry) -> str:
     """The URL segment naming an entry's directory under ``logbook/``."""
     if entry.after is not None:
         return f"after-Scan{entry.after:03d}"
-    if entry.scan == 0 or entry.scan is None:
+    if entry.scan is None:
         return "day"
     return f"Scan{entry.scan:03d}"
 
@@ -391,7 +391,11 @@ def create_log_router(
 
     @router.delete("/api/entries/{entry_id}", status_code=204)
     def _delete(entry_id: str) -> Response:
-        """Remove an entry and its markdown. Attachments are left for a human."""
+        """Tombstone an entry and remove its markdown.
+
+        Attachments are left for a human. If the share refuses the removal
+        the tombstone stays owed and :func:`mirror.sync` retries it.
+        """
         entry = store.get(entry_id)
         if entry is None:
             raise HTTPException(status_code=404, detail="no such entry")
@@ -402,6 +406,8 @@ def create_log_router(
             )
         except mirror.MirrorUnavailable as exc:
             logger.warning("could not remove mirror of %s: %s", entry_id, exc)
+        else:
+            store.mark_mirrored(entry_id, datetime.now(timezone.utc))
         return Response(status_code=204)
 
     @router.post("/api/entries/{entry_id}/attachments", status_code=201)

@@ -36,7 +36,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Annotated, Literal, Optional, Union
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from geecs_schemas._base import SchemaModel, VersionedSchemaModel
 
@@ -86,8 +86,10 @@ class AnalysisPayload(SchemaModel):
     reads back.
     """
 
-    kind: Literal["analysis"] = "analysis"
-    analyzer: str = Field(description="Which analyzer produced this, e.g. Array1DScanAnalyzer.")
+    kind: Literal["analysis"] = Field("analysis", description="Payload type tag.")
+    analyzer: str = Field(
+        description="Which analyzer produced this, e.g. Array1DScanAnalyzer."
+    )
     metrics: dict[str, float] = Field(
         default_factory=dict,
         description="Named scalar results. Free-form by design: an analyzer names its own.",
@@ -101,7 +103,7 @@ class AnalysisPayload(SchemaModel):
 class ProblemPayload(SchemaModel):
     """A problem worth finding again later."""
 
-    kind: Literal["problem"] = "problem"
+    kind: Literal["problem"] = Field("problem", description="Payload type tag.")
     severity: Literal["note", "degraded", "blocked"] = Field(
         "note", description="How much it stopped the run."
     )
@@ -128,7 +130,10 @@ EntryPayload = Annotated[
 EntryKind = Literal["note", "agent_analysis", "agent_draft"]
 
 #: ``draft`` renders with a "nobody has reviewed this" banner. Only a human
-#: promotes a draft to ``kept``; an agent cannot promote its own.
+#: promotes a draft to ``kept``; an agent cannot promote its own. The store
+#: enforces the birth half of that rule — an ``agent_*`` entry cannot be
+#: *created* as ``kept`` — rather than this model, because a promoted agent
+#: entry is a valid stored state and must read back.
 EntryStatus = Literal["kept", "draft"]
 
 
@@ -144,11 +149,13 @@ class LogEntry(VersionedSchemaModel):
     day : str
         The run day this entry belongs to, as ``YYYY-MM-DD``.
     scan : int or None
-        The scan it annotates. ``0`` is the day intro. ``None`` for an
-        entry anchored *between* scans — see ``after``.
+        The scan it annotates, when the entry is about one. Mutually
+        exclusive with ``after``; an entry with neither is a **day-level**
+        entry — a note about the day rather than a scan, which is what a
+        general logbook is mostly made of.
     after : int or None
         For an interscan entry, the scan number it follows. ``0`` means
-        before the first scan of the day. Mutually exclusive with ``scan``.
+        before the first scan of the day.
     author : str
         Who wrote it. ``"osprey"`` for the agent.
     kind : EntryKind
@@ -169,20 +176,33 @@ class LogEntry(VersionedSchemaModel):
     created_at : datetime
         When it was first saved.
     edited_at : datetime or None
-        When it was last changed, if ever.
+        When its *text* was last changed, if ever. What a reader is shown.
+    updated_at : datetime
+        When *anything* about it last changed — text, status, attachments,
+        deletion. What a synchroniser asks for: "everything since" is a
+        query on this, and a promotion or an upload that left ``edited_at``
+        alone would otherwise be invisible to it.
+    deleted_at : datetime or None
+        Set instead of removing the row. A deleted entry is hidden from
+        every listing, but the fact that it existed and was deleted is
+        kept: a mirror or a downstream copy can only learn about a
+        deletion it is able to see, and an accidental delete is then a
+        field to clear rather than a loss.
     version : int
         Optimistic-lock counter, incremented on every save. A writer sends
         the version it read; a mismatch means someone else saved first.
     """
 
-    schema_version: int = LOG_ENTRY_SCHEMA_VERSION
+    schema_version: int = Field(
+        LOG_ENTRY_SCHEMA_VERSION, description="Entry format revision."
+    )
 
     entry_id: str = Field(description="Stable id; also the attachment directory.")
     day: str = Field(
         pattern=r"^\d{4}-\d{2}-\d{2}$", description="Run day, as YYYY-MM-DD."
     )
     scan: Optional[int] = Field(
-        None, ge=0, description="Scan annotated; 0 is the day intro."
+        None, ge=1, description="Scan annotated; none for a day-level entry."
     )
     after: Optional[int] = Field(
         None, ge=0, description="For an interscan entry, the scan it follows."
@@ -202,8 +222,16 @@ class LogEntry(VersionedSchemaModel):
     )
 
     created_at: datetime = Field(description="First saved.")
-    edited_at: Optional[datetime] = Field(None, description="Last changed.")
+    edited_at: Optional[datetime] = Field(None, description="Text last changed.")
+    updated_at: datetime = Field(description="Anything last changed.")
+    deleted_at: Optional[datetime] = Field(None, description="Tombstone.")
     version: int = Field(1, ge=1, description="Optimistic-lock counter.")
+
+    @model_validator(mode="after")
+    def _one_anchor_at_most(self) -> "LogEntry":
+        if self.scan is not None and self.after is not None:
+            raise ValueError("an entry is anchored to a scan or after one, not both")
+        return self
 
     @property
     def is_interscan(self) -> bool:
@@ -211,14 +239,25 @@ class LogEntry(VersionedSchemaModel):
         return self.after is not None
 
     @property
+    def is_day_level(self) -> bool:
+        """Whether this entry is about the day rather than any scan."""
+        return self.scan is None and self.after is None
+
+    @property
+    def is_deleted(self) -> bool:
+        """Whether this entry has been tombstoned."""
+        return self.deleted_at is not None
+
+    @property
     def anchor(self) -> str:
         """Return a stable, sortable key for where this entry belongs.
 
         Used to group entries onto the day document without the view
-        needing to know the ``scan``/``after`` encoding.
+        needing to know the ``scan``/``after`` encoding: ``day`` for a
+        day-level entry, ``scan-NNNN`` and ``after-NNNN`` otherwise.
         """
         if self.after is not None:
             return f"after-{self.after:04d}"
-        if self.scan == 0:
-            return "intro"
-        return f"scan-{(self.scan or 0):04d}"
+        if self.scan is None:
+            return "day"
+        return f"scan-{self.scan:04d}"

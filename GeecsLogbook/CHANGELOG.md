@@ -4,6 +4,47 @@ All notable changes to `geecs-logbook` are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 project adheres to semantic versioning.
 
+## [0.2.0] - 2026-09-11
+
+### Added
+
+- **Commentary.** `geecs_logbook.store.NotesStore` — SQLite (WAL) with
+  optimistic locking (`version`, `ConflictError` carrying the current
+  entry) — and `geecs_logbook.mirror`, which writes each entry as
+  front-matter markdown into the day's `logbook/` folder on the share
+  (a sibling of `scans/`; never inside a scan folder, never creating the
+  day). The store is written first; `mirror.sync` pays the debt when the
+  share is back.
+- Entry routes on the router when `notes_db` is given: create, edit
+  (409 on a stale version), keep/un-keep, delete, attachment upload
+  (20 MiB; png/jpeg/gif/webp/pdf), plus `GET /api/day/{day}/entries`.
+  The day page grows a composer per scan, per gap and for the day.
+- `geecs_logbook.render.render_markdown` — markdown-it (commonmark +
+  tables + strikethrough + task lists) sanitised by nh3, with `> [!NOTE]`
+  callouts and attachment links rewritten to the serving route.
+- Day-level entries: neither `scan` nor `after` — a note about the day.
+- `updated_at` on every entry (moves on any change; `edited_at` only on
+  text) and `deleted_at` tombstones instead of row removal.
+- An agent's entry (`kind` other than `note`) cannot be created `kept`;
+  the store refuses it and the route answers 422.
+- Additive column migration for an existing database file.
+
+### Changed
+
+- **Renamed from `GeecsScanLog` / `geecs_scan_log`.** The scan logger is
+  the archetype for a general logbook, so the package is named for what it
+  is becoming. Distribution name `geecs-logbook`; the portal's `log` extra
+  follows.
+- The day intro (`scan=0`) is gone; `scan` starts at 1 and the intro card
+  holds the day-level entries. Their mirror files sit at `logbook/` root
+  under the same stamped name as every other entry (no `day.md`).
+- `mirror.logbook_root` raises `MirrorUnavailable` when the share cannot
+  be resolved at all (no configuration, unmounted), so a save on such a
+  host still returns 201 with the file owed rather than a 500 after the
+  row was written.
+- The page takes its colours from `geecs_web_theme`; no palette of its
+  own.
+
 ## [0.1.0] - 2026-09-11
 
 ### Added

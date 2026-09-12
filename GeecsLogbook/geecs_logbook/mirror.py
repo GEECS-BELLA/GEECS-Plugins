@@ -100,19 +100,26 @@ def logbook_root(
     tag = ScanPaths.get_scan_tag(
         when.year, when.month, when.day, number=0, experiment=experiment
     )
-    scans = ScanPaths.get_daily_scan_folder(tag=tag, base_directory=base_directory)
+    try:
+        scans = ScanPaths.get_daily_scan_folder(tag=tag, base_directory=base_directory)
+    except Exception as exc:  # noqa: BLE001 — no share config, unmounted drive …
+        # A host with no data-share configuration is the same situation as
+        # a share that is down: the words are safe in the store, the file
+        # is owed. Surfacing it as a 500 after the row was written would
+        # tell the writer their entry failed when it did not.
+        raise MirrorUnavailable(f"cannot resolve the data share: {exc}") from exc
     return scans.parent / LOGBOOK_DIR
 
 
 def entry_dir(entry: LogEntry, root: Path) -> Path:
     """Return the directory an entry's file and attachments live in.
 
-    The day intro sits at the root; a scan's entries in ``ScanNNN/``; an
-    interscan entry in ``after-ScanNNN/``. Nothing here is created.
+    A day-level entry sits at the root; a scan's entries in ``ScanNNN/``;
+    an interscan entry in ``after-ScanNNN/``. Nothing here is created.
     """
     if entry.after is not None:
         return root / f"after-Scan{entry.after:03d}"
-    if entry.scan == 0 or entry.scan is None:
+    if entry.scan is None:
         return root
     return root / f"Scan{entry.scan:03d}"
 
@@ -122,11 +129,8 @@ def entry_path(entry: LogEntry, root: Path) -> Path:
 
     The name is stable across edits — it carries the *creation* time, the
     author and the id, none of which change — so an edit overwrites the
-    same file rather than leaving a trail. The intro is ``day.md``, one per
-    day by construction.
+    same file rather than leaving a trail.
     """
-    if entry.scan == 0 and entry.after is None:
-        return entry_dir(entry, root) / "day.md"
     stamp = entry.created_at.astimezone(timezone.utc).strftime("%H%M")
     author = "".join(c for c in entry.author.lower() if c.isalnum()) or "anon"
     return entry_dir(entry, root) / f"{stamp}-{author}-{entry.entry_id[:6]}.md"
@@ -157,8 +161,8 @@ def render(entry: LogEntry) -> str:
     lines.append(f"day: {entry.day}")
     if entry.after is not None:
         lines.append(f"after: {entry.after}")
-    else:
-        lines.append(f"scan: {entry.scan if entry.scan is not None else 0}")
+    elif entry.scan is not None:
+        lines.append(f"scan: {entry.scan}")
     lines.append(f"author: {entry.author}")
     lines.append(f"kind: {entry.kind}")
     lines.append(f"status: {entry.status}")
@@ -283,12 +287,17 @@ def sync(
     The reconciliation half of writing the store first. Each entry is tried
     on its own; one day's absent folder or one refused write defers that
     entry and moves on, so a single bad share path never blocks the rest.
+    A tombstoned entry's owed operation is the removal of its file, and it
+    counts as written once the file is gone.
     """
     written = deferred = 0
     for entry in store.unmirrored(limit=limit):
         root = logbook_root(entry.day, experiment, base_directory)
         try:
-            write_entry(entry, root)
+            if entry.is_deleted:
+                remove_entry(entry, root)
+            else:
+                write_entry(entry, root)
         except MirrorUnavailable as exc:
             logger.info("deferring %s: %s", entry.entry_id, exc)
             deferred += 1

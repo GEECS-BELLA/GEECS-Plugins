@@ -230,6 +230,29 @@ analyzers:
   - {ref: U_FROG, enabled: false}
   - {ref: U_BCaveICT, priority: 1}
 """,
+    "log_entry": """\
+schema_version: 1
+entry_id: 7f3a9c2b1d04
+day: "2026-09-11"
+scan: 12                         # omit both scan and after for a day-level entry
+author: S. Barber
+kind: note                       # agent_analysis / agent_draft are born as drafts
+status: kept
+template: scan_note
+body_md: |
+  Charge rolloff onset moved to 4.1 mm after the jet realignment.
+  ![top view](attachments/7f3a9c2b1d04/topview.png)
+payload:
+  kind: analysis                 # optional machine-readable half
+  analyzer: Array1DScanAnalyzer
+  metrics: {onset_mm: 4.1}
+attachments:
+  - {id: 7f3a9c2b1d04, filename: topview.png, content_type: image/png,
+     size_bytes: 48213, uploaded_at: "2026-09-11T17:42:10+00:00"}
+created_at: "2026-09-11T17:40:02+00:00"
+updated_at: "2026-09-11T17:42:10+00:00"   # moves on every change; edited_at only on text
+version: 2
+""",
 }
 
 

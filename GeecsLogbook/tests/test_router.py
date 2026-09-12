@@ -132,3 +132,121 @@ class TestHonestChips:
         assert "no scan info" in html  # Scan031, which really has none
         assert html.count("not finalised") == 1
         assert html.count("no scan info") == 1
+
+
+@pytest.fixture
+def writable(share: Path, tmp_path: Path) -> TestClient:
+    """The router with a notes store, as the portal mounts it with --notes-db."""
+    app = FastAPI()
+    app.include_router(
+        create_log_router(
+            "Undulator", base_directory=share, notes_db=tmp_path / "notes.db"
+        ),
+        prefix="/log",
+    )
+    return TestClient(app)
+
+
+def _post(client: TestClient, **body: object) -> dict:
+    payload = {"day": "2026-09-11", "author": "S. Barber", "body_md": "hello"}
+    payload.update(body)
+    r = client.post("/log/api/entries", json=payload)
+    assert r.status_code == 201, r.text
+    return r.json()
+
+
+class TestWriteApi:
+    """The entry endpoints, as the composer and an agent use them."""
+
+    def test_read_only_mount_has_no_write_routes(self, client: TestClient) -> None:
+        """Without a store the write routes do not exist at all."""
+        r = client.post(
+            "/log/api/entries",
+            json={"day": "2026-09-11", "author": "a", "body_md": "x", "scan": 1},
+        )
+        assert r.status_code in (404, 405)
+
+    def test_day_level_entry_needs_no_scan(self, writable: TestClient) -> None:
+        """Neither scan nor after: the entry is about the day, and lands at the root."""
+        e = _post(writable)
+        assert e["scan"] is None and e["after"] is None
+        assert e["updated_at"] == e["created_at"]
+        listed = writable.get("/log/api/day/2026-09-11/entries").json()
+        assert [x["entry_id"] for x in listed] == [e["entry_id"]]
+        page = writable.get("/log/day/2026-09-11").text
+        assert "hello" in page
+
+    def test_scan_zero_is_not_an_anchor(self, writable: TestClient) -> None:
+        """Scans start at 1; 0 is refused rather than silently meaning the day."""
+        r = writable.post(
+            "/log/api/entries",
+            json={"day": "2026-09-11", "author": "a", "body_md": "x", "scan": 0},
+        )
+        assert r.status_code == 422
+
+    def test_both_anchors_is_a_422(self, writable: TestClient) -> None:
+        """On a scan and after one at once is refused."""
+        r = writable.post(
+            "/log/api/entries",
+            json={
+                "day": "2026-09-11",
+                "author": "a",
+                "body_md": "x",
+                "scan": 1,
+                "after": 1,
+            },
+        )
+        assert r.status_code == 422
+
+    def test_an_agent_cannot_be_born_kept(self, writable: TestClient) -> None:
+        """The draft rule holds at the API, not only in the docs."""
+        r = writable.post(
+            "/log/api/entries",
+            json={
+                "day": "2026-09-11",
+                "author": "osprey",
+                "body_md": "x",
+                "scan": 1,
+                "kind": "agent_analysis",
+                "status": "kept",
+            },
+        )
+        assert r.status_code == 422 and "draft" in r.text
+        e = _post(
+            writable, author="osprey", scan=1, kind="agent_analysis", status="draft"
+        )
+        assert e["status"] == "draft"
+        kept = writable.post(
+            f"/log/api/entries/{e['entry_id']}/status", json={"status": "kept"}
+        ).json()
+        assert kept["status"] == "kept" and kept["updated_at"] > e["updated_at"]
+
+    def test_edit_conflict_carries_the_current_entry(
+        self, writable: TestClient
+    ) -> None:
+        """A stale version is a 409 with what is there now."""
+        e = _post(writable, scan=1)
+        first = writable.patch(
+            f"/log/api/entries/{e['entry_id']}",
+            json={"body_md": "one", "author": "a", "expected_version": 1},
+        )
+        assert first.status_code == 200 and first.json()["version"] == 2
+        stale = writable.patch(
+            f"/log/api/entries/{e['entry_id']}",
+            json={"body_md": "two", "author": "b", "expected_version": 1},
+        )
+        assert stale.status_code == 409
+        assert stale.json()["detail"]["current"]["body_md"] == "one"
+
+    def test_delete_hides_the_entry_everywhere(self, writable: TestClient) -> None:
+        """After a delete: 204, then gone from the listing and from every route."""
+        e = _post(writable, scan=1)
+        assert writable.delete(f"/log/api/entries/{e['entry_id']}").status_code == 204
+        assert writable.get("/log/api/day/2026-09-11/entries").json() == []
+        assert writable.delete(f"/log/api/entries/{e['entry_id']}").status_code == 404
+        again = writable.patch(
+            f"/log/api/entries/{e['entry_id']}",
+            json={"body_md": "x", "author": "a", "expected_version": 2},
+        )
+        assert again.status_code == 404
+        assert "hello" not in writable.get("/log/day/2026-09-11").text
