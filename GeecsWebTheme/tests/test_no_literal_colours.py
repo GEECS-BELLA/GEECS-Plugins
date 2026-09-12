@@ -40,6 +40,7 @@ _SURFACES = [
     "GEECS-DataPortal/geecs_portal/templates/run.html",
     "GeecsLogbook/geecs_logbook/static/scanlog.css",
     "GeecsLogbook/geecs_logbook/templates/day.html",
+    "GeecsLogbook/geecs_logbook/static/editor.js",
     "ScanAnalysis/scan_analysis/config_editor/static/editor.css",
     "ScanAnalysis/scan_analysis/config_editor/templates/editor.html",
 ]

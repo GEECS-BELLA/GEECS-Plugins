@@ -60,6 +60,13 @@ _CALLOUT = re.compile(
 #: Attachment references as the store writes them.
 _ATTACHMENT_REF = re.compile(r'(src|href)="attachments/')
 
+#: Two or more images in a row, each its own paragraph — what a run of
+#: pasted screenshots or published figures renders as. They become one
+#: grid, the plot-table LogMaker's ``gdoc_slot`` numbering used to fake:
+#: no slot assignment, no ceiling at four, no collisions.
+_IMAGE_RUN = re.compile(r"(?:<p>\s*<img\b[^>]*>\s*</p>\s*){2,}")
+_IMAGE = re.compile(r"<img\b[^>]*>")
+
 
 def render_markdown(body_md: str, *, attachment_base: str | None = None) -> str:
     """Render an entry body to safe HTML.
@@ -84,10 +91,23 @@ def render_markdown(body_md: str, *, attachment_base: str | None = None) -> str:
         rendered, tags=_TAGS, attributes=_ATTRIBUTES, link_rel="noopener noreferrer"
     )
     clean = _callouts(clean)
+    clean = _image_grids(clean)
     if attachment_base:
         base = attachment_base.rstrip("/")
         clean = _ATTACHMENT_REF.sub(rf'\1="{html.escape(base)}/', clean)
     return clean
+
+
+def _image_grids(fragment: str) -> str:
+    """Gather consecutive image paragraphs into a ``figgrid``."""
+
+    def swap(match: re.Match[str]) -> str:
+        imgs = "".join(
+            f"<figure>{img}</figure>" for img in _IMAGE.findall(match.group(0))
+        )
+        return f'<div class="figgrid">{imgs}</div>'
+
+    return _IMAGE_RUN.sub(swap, fragment)
 
 
 def _callouts(fragment: str) -> str:

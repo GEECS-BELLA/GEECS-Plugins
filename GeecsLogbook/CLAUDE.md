@@ -141,7 +141,27 @@ package. Rules the store enforces, each pinned in `tests/test_store.py`:
   `ALTER TABLE` with a fill expression. Nothing else, deliberately.
 
 `body_md` is opaque: `render.render_markdown` (markdown-it + nh3) is the
-only thing that reads it, and only to draw it.
+only thing that reads it, and only to draw it — plus the tag scan.
+
+## The editor
+
+`static/editor.js` is the whole write path in the browser, one
+implementation for every composer (per scan, per gap, the day, in-place
+edits, and the month page next). It is deliberately **not** a WYSIWYG
+editor: the toolbar writes markdown around the selection and the body
+stays the plain text the mirror holds. The two things people actually
+need — paste a screenshot, paste a spreadsheet — are events on the
+textarea: a pasted or dropped file goes to the upload endpoint and its
+relative link lands at the cursor; a tab-separated or HTML-table paste
+becomes a markdown table (a text-only paste must have a consistent
+column count and a non-empty first header cell — tab-indented prose is
+not a table, and a cross-tab with a blank corner from a text-only source
+is pasted as text; spreadsheet apps supply the HTML form, which has no
+such rule). A brand-new entry has no id until saved, so
+the first attachment saves it first ("autosaved", with Discard); Save is
+then an edit. The page hands the script its facts through
+`<main id="logbook" data-api data-day data-book>`; nothing is templated
+into the script. It sets no colours (the theme guard's rule).
 
 ## Status is reported, not inferred
 

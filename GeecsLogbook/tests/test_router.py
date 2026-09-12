@@ -448,3 +448,40 @@ class TestBooksTagsHistory:
         ]
         assert hist[2]["entry"]["status"] == "draft"
         assert writable.get("/log/api/entries/nope/history").status_code == 404
+
+
+class TestEditorHooks:
+    """What the page hands the editor script, and the preview it calls."""
+
+    def test_page_carries_the_editors_facts_and_the_script(
+        self, writable: TestClient
+    ) -> None:
+        """The editor reads api/day/book off <main id=logbook>; the script is served."""
+        page = writable.get("/log/day/2026-09-11").text
+        assert 'id="logbook"' in page and 'data-api="/log/api"' in page
+        assert 'data-day="2026-09-11"' in page and 'data-book="scans"' in page
+        assert (
+            'data-accept="application/pdf,image/gif,image/jpeg,image/png,image/webp"'
+            in page
+        )
+        assert "editor.js" in page
+        js = writable.get("/log/static/editor.js")
+        assert js.status_code == 200 and "uploadFiles" in js.text
+
+    def test_preview_renders_like_the_page(self, writable: TestClient) -> None:
+        """Preview is the same renderer with the same attachment base."""
+        r = writable.post(
+            "/log/api/preview",
+            json={"body_md": "> [!TIP]\n> ok\n\n![p](attachments/e/a.png)"},
+        )
+        assert r.status_code == 200
+        html = r.json()["html"]
+        assert 'class="callout callout-tip"' in html
+        assert 'src="/log/attachments/e/a.png"' in html
+
+    def test_preview_needs_a_store(self, client: TestClient) -> None:
+        """A read-only logbook has no composer, so no preview."""
+        assert client.post("/log/api/preview", json={"body_md": "x"}).status_code in (
+            404,
+            405,
+        )
