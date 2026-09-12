@@ -4,6 +4,43 @@ All notable changes to `geecs-logbook` are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 project adheres to semantic versioning.
 
+## [0.5.0] - 2026-09-11
+
+The ops book: the second book gets its page, and entries get types.
+
+### Added
+
+- `GET /log/month/{YYYY-MM}` — the ops book: every `ops` entry in the
+  month grouped by day, newest day first, one composer with a date
+  picker, prev/next month and a month picker, and tag chips that filter
+  through the URL (`?tag=laser`; chips count the whole month while the
+  list shows the filtered part). Reads only the notes store — never the
+  share — so it stays fast when the share is slow (pinned).
+  `GET /log/api/month/{YYYY-MM}/entries?book=&tag=` is its JSON peer.
+- **Seed templates as type buttons** (`seed_templates.py`): `*.md` files
+  in a directory the host names (`create_log_router(templates_dir=)`;
+  the portal points it at `logbook_templates/` in the configs checkout).
+  Front-matter `label` / `colour` / `book` / `order`, body = the prefill
+  with its `#tag`. A button press inserts the prefill and the entry
+  records the template's name as provenance; a stored entry shows its
+  template as a chip in the file's tone. `colour` is a theme token name
+  from a closed vocabulary (`TONES`, pinned against the stylesheet), never
+  a literal. Read once at start, refreshed in the background when stale;
+  a failed refresh keeps the last set. `examples/logbook_templates/` is
+  the documented starter set.
+- Cross-links between the books: the day page's "N ops notes today →"
+  strip (into the month page's day heading) and an "Ops book" link in its
+  topbar; each day on the month page links to its day document.
+
+### Changed
+
+- The entry and composer markup moved into shared macros
+  (`templates/_entries.html`) so both pages draw them identically.
+- `editor.js` takes the day per form (a `.when` date input or `data-day`,
+  falling back to the page's), reads the prefills from one JSON block,
+  and sends `template` with a create.
+- `CLAUDE.md`: the owed ScanPaths review is filed as #839.
+
 ## [0.4.0] - 2026-09-11
 
 The editor: what makes people use it.

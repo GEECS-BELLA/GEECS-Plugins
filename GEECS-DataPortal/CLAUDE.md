@@ -154,7 +154,9 @@ geecs_portal/
   static/        # the vendored Plotly bundle (the ONE committed JS asset)
   __main__.py    # CLI (geecs-data-portal): real TiledScanCatalog + uvicorn;
                  #   --config-editor mounts scan_analysis.config_editor at /configs
-                 #   --scan-log     mounts geecs_logbook at /log (needs --experiment)
+                 #   --scan-log     mounts geecs_logbook at /log (needs --experiment;
+                 #                  type buttons from <configs>/logbook_templates/,
+                 #                  the parent of --processing-configs)
                  #   --notes-db     the logbook's SQLite file; makes /log writable
                  #                  (default: $STATE_DIRECTORY/logbook.db under systemd)
   templates/     # base.html / day.html / run.html (Jinja2; every colour a GeecsWebTheme token)
@@ -166,7 +168,9 @@ tests/
 ```
 
 Routes: `/` (redirect to today) · `/day/{iso}` (run list; `?experiment=`)
-· `/log/day/{iso}` + `/log/api/day/{iso}` (the scan logbook, `--scan-log`)
+· `/log/day/{iso}` + `/log/api/day/{iso}` (the scans book, `--scan-log`)
+· `/log/month/{YYYY-MM}` + `/log/api/month/{YYYY-MM}/entries` (the ops book,
+same flag; store-only, never the share)
 · `/log/api/entries…` (the logbook's entry writes, only with `--notes-db`)
 · `/run/{uid}` (the scan page: rail + Overview/Plot/Images/Analysis tabs
 — Analysis only when runs are possible, see below;

@@ -106,8 +106,21 @@ host's `site.env` with `deploy/render_units.sh` (or let
 `deploy/bootstrap_host.sh` do the whole host), then install the rendered
 unit and `enable --now` it — see the
 [Site Profile](../docs/platform/site_profile.md). The account, checkout
-root, poetry path, experiment, and timezone all come from `site.env`;
-nothing site-specific is typed into the unit by hand.
+root, poetry path, experiment, timezone, and the memory ceiling all come
+from `site.env`; nothing site-specific is typed into the unit by hand.
+
+**Memory ceiling.** The rendered unit carries `MemoryHigh=` and
+`MemoryMax=` from `GEECS_PORTAL_MEMORY_HIGH` / `GEECS_PORTAL_MEMORY_MAX`
+(both required; 3G / 4G in the example for a 16 GB host shared with
+Tiled, MySQL and the queueserver). Above HIGH systemd throttles and
+reclaims the portal; at MAX it kills it and `Restart=on-failure` brings
+it back — so a runaway portal evicts itself before the kernel picks a
+victim, and the victim is the portal rather than Tiled (#834). To change
+the numbers: edit `site.env`, re-render, `daemon-reload`, restart. For a
+quick change without a re-render, `sudo systemctl set-property
+geecs-data-portal MemoryMax=6G` writes a persistent drop-in;
+`systemctl revert geecs-data-portal` removes it. `systemctl status`
+shows the current `Memory:` line against the cap.
 
 Verify:
 
@@ -226,6 +239,19 @@ Two requirements, or it warn-and-skips rather than serving a broken page:
 Set it on the host through `GEECS_PORTAL_EXTRA_ARGS` in `site.env`
 alongside `--config-editor`; `deploy/bootstrap_host.sh` already installs
 the extra for the portal service.
+
+**Two books.** `/log/day/…` is the scans book; `/log/month/2026-09` is
+the ops book — day-level notes read by month, from the database alone
+(it never touches the share, so it stays fast when the share is slow).
+
+**Type buttons** on every composer are seed templates: `*.md` files in
+`logbook_templates/` at the top of the configs checkout — the parent of
+the `--processing-configs` tree, so the same `GEECS_CONFIGS_ROOT` serves
+both. Copy `GeecsLogbook/examples/logbook_templates/` there to start
+(commit it to the configs repo); each file's header names its label,
+colour (a theme token name), book and order, and its body is the
+prefill. Adding a file adds a button within a minute, no restart. Without
+the directory the composers are plain.
 
 Reading a day of ~100 scans off a VPN-mounted share takes a few seconds
 cold and milliseconds thereafter — per-scan summaries are cached on the

@@ -18,14 +18,13 @@ from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from geecs_schemas.log_entry import Book, LogEntry
 
 from geecs_logbook.models import DaySummary
-from geecs_logbook.render import render_markdown
 from geecs_logbook.routes.attachments import ATTACHMENT_TYPES
 from geecs_logbook.routes._common import (
     STATIC_DIR,
     Context,
     RenderedEntry,
     api_base,
-    attachment_base,
+    month_url,
     parse_day,
     rail_days,
 )
@@ -38,11 +37,9 @@ def register(router: APIRouter, ctx: Context) -> None:
         """The scans book's entries for a day, rendered and keyed by anchor."""
         if ctx.store is None:
             return {}
-        base = attachment_base(request)
         out: dict[str, list[RenderedEntry]] = {}
-        for entry in ctx.store.for_day(day, book="scans"):
-            html = render_markdown(entry.body_md, attachment_base=base)
-            out.setdefault(entry.anchor, []).append(RenderedEntry(entry, html))
+        for r in ctx.rendered(request, ctx.store.for_day(day, book="scans")):
+            out.setdefault(r.entry.anchor, []).append(r)
         return out
 
     @router.get("/", response_class=RedirectResponse)
@@ -74,6 +71,8 @@ def register(router: APIRouter, ctx: Context) -> None:
         summary = ctx.load_day(when)
         ctx.maybe_sync()
         entries = grouped(request, day)
+        # The other book's count is the cross-link: "3 ops notes today →".
+        ops_count = len(ctx.store.for_day(day, book="ops")) if ctx.store else 0
         return ctx.templates.TemplateResponse(
             request=request,
             name="day.html",
@@ -86,9 +85,13 @@ def register(router: APIRouter, ctx: Context) -> None:
                 "next_day": when + timedelta(days=1),
                 "entries": entries,
                 "entry_count": sum(len(v) for v in entries.values()),
+                "ops_count": ops_count,
+                "month_url": month_url(request, when),
+                "ops_url": month_url(request, when, anchor=True),
                 "writable": ctx.writable,
                 "api_base": api_base(request),
                 "accept": ",".join(sorted(ATTACHMENT_TYPES)),
+                "seeds": ctx.page_seeds("scans"),
             },
         )
 

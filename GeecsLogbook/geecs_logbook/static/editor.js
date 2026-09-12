@@ -1,9 +1,12 @@
 /* GeecsLogbook editor — everything a composer does, for every composer.
  *
  * One implementation serves the day page's per-scan, per-gap and day
- * composers, the in-place edit form, and (next) the month page. The page
- * hands it two facts through <main id="logbook" data-api data-day
- * data-book>; nothing else is templated into this file.
+ * composers, the in-place edit form, and the month page's composer. The
+ * page hands it its facts through <main id="logbook" data-api data-day
+ * data-book data-accept> and the type prefills through one JSON block
+ * (#logbook-seeds); nothing else is templated into this file. A form
+ * with no page-wide day (the month page) carries its own: a .when date
+ * input, or data-day.
  *
  * What it adds over a bare textarea:
  *   - a toolbar that writes markdown around the selection (no WYSIWYG —
@@ -16,6 +19,8 @@
  *   - paste a spreadsheet range (tab-separated, or an HTML table): it
  *     becomes a markdown table;
  *   - Preview, rendered by the server exactly as the page will show it;
+ *   - type buttons: a template's prefill lands in the textarea and the
+ *     entry records which template it started from;
  *   - ⌘/Ctrl+Enter saves.
  *
  * Styling is entirely through the page's tokens; this file sets no colours.
@@ -30,10 +35,20 @@
   const BOOK = host.dataset.book || "scans";
   const ACCEPT = (host.dataset.accept || "image/png,image/jpeg,image/gif,image/webp,application/pdf").split(",");
   const AUTHOR_KEY = "geecs.author";
+  const SEEDS = (() => {
+    const el = document.getElementById("logbook-seeds");
+    try { return el ? JSON.parse(el.textContent) : {}; } catch (e) { return {}; }
+  })();
 
   // ------------------------------------------------------------ plumbing
 
   const who = () => { try { return localStorage.getItem(AUTHOR_KEY) || ""; } catch (e) { return ""; } };
+
+  /** The day a form writes to: its own date field, its data-day, or the page's. */
+  function dayOf(form) {
+    const when = form.querySelector(".when");
+    return (when && when.value) || form.dataset.day || DAY || "";
+  }
   const remember = (name) => { try { localStorage.setItem(AUTHOR_KEY, name); } catch (e) { /* private window */ } };
 
   async function api(method, path, body) {
@@ -165,8 +180,15 @@
     if (form._creating) return form._creating;
     const name = authorName(form);
     if (!name) return Promise.reject(Object.assign(new Error("Enter your name first."), { silent: true }));
+    const day = dayOf(form);
+    if (!day) {
+      const when = form.querySelector(".when"); if (when) when.focus();
+      fail(form, { message: "Pick a day first." });
+      return Promise.reject(Object.assign(new Error("Pick a day first."), { silent: true }));
+    }
     const ta = form.querySelector(".ta");
-    const body = { day: DAY, book: BOOK, author: name, body_md: ta.value || "" };
+    const body = { day, book: BOOK, author: name, body_md: ta.value || "",
+      template: form.dataset.template || "blank" };
     if (form.dataset.after !== undefined && form.dataset.after !== "") body.after = Number(form.dataset.after);
     else if (form.dataset.scan !== undefined && form.dataset.scan !== "") body.scan = Number(form.dataset.scan);
     form._creating = api("POST", "/entries", body).then((entry) => {
@@ -244,6 +266,21 @@
       pane.innerHTML = data.html;
       pane.hidden = false; ta.hidden = true; btn.classList.add("is-on");
     } catch (err) { fail(form, err); }
+  }
+
+  // ---------------------------------------------------- type buttons
+
+  /** A template's prefill: replaces an empty textarea, else lands as a block. */
+  function applyType(form, name) {
+    const ta = form.querySelector(".ta");
+    const body = SEEDS[name];
+    if (body === undefined) return;
+    if (!ta.value.trim()) { ta.value = ""; ta.setSelectionRange(0, 0); }
+    insertBlock(ta, body.replace(/\n$/, ""), false);
+    // Provenance: which template the entry started from. The last one
+    // pressed wins; the body is the author's either way.
+    form.dataset.template = name;
+    form.querySelectorAll(".typebtn").forEach((b) => b.classList.toggle("is-on", b.dataset.type === name));
   }
 
   // --------------------------------------------------------- toolbar
@@ -392,6 +429,7 @@
     form.addEventListener("dragleave", () => form.classList.remove("dragover"));
     form.addEventListener("drop", (ev) => onDrop(form, ev));
     form.addEventListener("submit", (ev) => { ev.preventDefault(); save(form); });
+    form.querySelectorAll(".typebtn").forEach((b) => b.addEventListener("click", () => applyType(form, b.dataset.type)));
     ta.addEventListener("keydown", (ev) => {
       if ((ev.metaKey || ev.ctrlKey) && ev.key === "Enter") {
         ev.preventDefault();

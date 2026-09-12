@@ -44,7 +44,7 @@ SITE_ENV="$(cd "$(dirname "$SITE_ENV")" && pwd)/$(basename "$SITE_ENV")"   # abs
 load_site_env "$SITE_ENV"
 check_site_env_consistency
 require_site_keys GEECS_SERVICE_USER GEECS_SERVICE_HOME GEECS_CHECKOUT_ROOT GEECS_POETRY GEECS_REPO_URL \
-    GEECS_TILED_URI GEECS_QSERVER_HOST GEECS_DATA_ROOT
+    GEECS_TILED_URI GEECS_QSERVER_HOST GEECS_DATA_ROOT GEECS_PORTAL_MEMORY_HIGH GEECS_PORTAL_MEMORY_MAX
 require_runtime_keys
 # Read AFTER site.env is loaded (it may set the knob) — the same one
 # render_units.sh honours, so the rendered EnvironmentFile= path and the

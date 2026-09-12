@@ -342,6 +342,11 @@ class _DiagInfo:
         )
 
 
+#: The logbook's seed templates, a directory beside the analysis tree in
+#: the configs checkout (``<configs>/logbook_templates/*.md``).
+LOGBOOK_TEMPLATES_DIR = "logbook_templates"
+
+
 def create_app(
     catalog: ScanCatalog,
     *,
@@ -392,6 +397,10 @@ def create_app(
         each entry as markdown into the day's ``logbook/`` folder on the
         share (a sibling of ``scans/``; never inside it). Without it the
         logbook is the read-only day view. Ignored unless ``scan_log``.
+        The logbook's seed templates — its type buttons — are read from
+        ``logbook_templates/`` beside the ``processing_config_dir`` tree
+        (the configs checkout this portal already reads); none when that
+        tree is not configured.
     config_editor : bool, default False
         Mount the analysis config editor (``scan_analysis.config_editor``)
         at ``/configs`` over the same ``processing_config_dir`` tree, with a
@@ -1919,14 +1928,26 @@ def create_app(
             except ImportError as exc:  # the log extra is not installed
                 logger.warning("scan log requested but not installed: %s", exc)
             else:
+                # Type buttons are markdown files in the configs checkout,
+                # a sibling of the analysis tree: one checkout, one flag.
+                templates_dir = (
+                    Path(processing_config_dir).parent / LOGBOOK_TEMPLATES_DIR
+                    if processing_config_dir
+                    else None
+                )
                 app.include_router(
-                    create_log_router(default_experiment, notes_db=notes_db),
+                    create_log_router(
+                        default_experiment,
+                        notes_db=notes_db,
+                        templates_dir=templates_dir,
+                    ),
                     prefix="/log",
                 )
                 logger.info(
-                    "scan log mounted at /log for %s (%s)",
+                    "scan log mounted at /log for %s (%s; templates %s)",
                     default_experiment,
                     f"entries in {notes_db}" if notes_db else "read-only",
+                    templates_dir or "none",
                 )
 
     return app

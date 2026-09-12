@@ -1,10 +1,11 @@
 """What every route module shares: the mounted context and small helpers.
 
-The router is assembled from modules (day, entries, attachments — month
-next) that each take a :class:`Context` and register their routes on an
+The router is assembled from modules (day, month, entries, attachments)
+that each take a :class:`Context` and register their routes on an
 ``APIRouter``. The context carries the things ``create_log_router`` was
-given, the stores it built from them, and the two operations more than
-one module needs: reading a day off the share and mirroring an entry.
+given, the stores it built from them, and the operations more than one
+module needs: reading a day off the share, rendering a list of entries,
+and mirroring an entry.
 """
 
 from __future__ import annotations
@@ -12,9 +13,11 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass, field
+import calendar
+import re
 from datetime import date, datetime, timedelta
 from pathlib import Path
-from typing import Optional, Union
+from typing import Iterable, Optional, Union
 
 from fastapi import HTTPException, Request
 from fastapi.templating import Jinja2Templates
@@ -23,7 +26,9 @@ from geecs_schemas.log_entry import LogEntry
 from geecs_logbook import mirror
 from geecs_logbook.attachments import AttachmentStore
 from geecs_logbook.models import DaySummary
+from geecs_logbook.render import render_markdown
 from geecs_logbook.scan_reader import read_day
+from geecs_logbook.seed_templates import SeedTemplates
 from geecs_logbook.store import NotesStore
 
 logger = logging.getLogger(__name__)
@@ -66,6 +71,9 @@ class Context:
         Uploaded bytes, beside the database. Present exactly when ``store`` is.
     templates : Jinja2Templates
         The page templates, with the logbook's filters installed.
+    seeds : SeedTemplates
+        The type buttons — seed templates read from the configs checkout.
+        Empty when no directory was given.
     """
 
     experiment: str
@@ -73,6 +81,7 @@ class Context:
     store: Optional[NotesStore]
     attachments: Optional[AttachmentStore]
     templates: Jinja2Templates
+    seeds: SeedTemplates
     _last_sync: dict = field(default_factory=lambda: {"at": 0.0})
 
     @property
@@ -109,6 +118,32 @@ class Context:
         except Exception:  # noqa: BLE001 — a sync must never take down a view
             logger.exception("mirror sync failed")
 
+    def rendered(
+        self, request: Request, entries: Iterable[LogEntry]
+    ) -> list[RenderedEntry]:
+        """Render entries' bodies for a page, attachment links pointed at us."""
+        if self.store is None:
+            return []
+        base = attachment_base(request)
+        return [
+            RenderedEntry(e, render_markdown(e.body_md, attachment_base=base))
+            for e in entries
+        ]
+
+    def page_seeds(self, book: str) -> dict:
+        """What a page needs to draw type buttons and label stored entries.
+
+        ``buttons`` is the row for this book's composers; ``labels`` maps
+        every loaded template's name to its label and tone, so an entry
+        that started from a template offered in the *other* book (or one
+        since re-scoped) still shows its chip.
+        """
+        return {
+            "buttons": self.seeds.for_book(book),
+            "labels": self.seeds.by_name(),
+            "prefill": {t.name: t.body for t in self.seeds.current()},
+        }
+
     def mirror(self, entry_id: str) -> None:
         """Try to land one entry on the share; defer quietly if it cannot."""
         assert self.store is not None
@@ -139,6 +174,29 @@ def parse_day(raw: str) -> date:
         raise HTTPException(
             status_code=400, detail=f"day must be YYYY-MM-DD, got {raw!r}"
         ) from exc
+
+
+def parse_month(raw: str) -> date:
+    """Parse a ``YYYY-MM`` path segment into its first day, or 400."""
+    try:
+        if not re.fullmatch(r"\d{4}-\d{2}", raw):  # strptime takes "2026-9"
+            raise ValueError(raw)
+        return datetime.strptime(raw, "%Y-%m").date()
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400, detail=f"month must be YYYY-MM, got {raw!r}"
+        ) from exc
+
+
+def month_last_day(first: date) -> date:
+    """Return the last date of the month ``first`` starts."""
+    return first.replace(day=calendar.monthrange(first.year, first.month)[1])
+
+
+def month_step(first: date, months: int) -> date:
+    """Return the first day of the month ``months`` away from ``first``."""
+    index = first.year * 12 + (first.month - 1) + months
+    return date(index // 12, index % 12 + 1, 1)
 
 
 def rail_days(centre: date) -> list[date]:
@@ -177,3 +235,9 @@ def api_base(request: Request) -> str:
     """``/log/api`` under whatever prefix the host mounted us at."""
     probe = request.url_for("_entries_json", day="0000-00-00").path
     return probe[: -len("/day/0000-00-00/entries")]
+
+
+def month_url(request: Request, day: date, *, anchor: bool = False) -> str:
+    """The month page holding ``day``; with ``anchor``, its day heading."""
+    path = request.url_for("_month_page", month=day.strftime("%Y-%m")).path
+    return f"{path}#day-{day.isoformat()}" if anchor else path
