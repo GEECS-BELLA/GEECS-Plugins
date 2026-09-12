@@ -351,6 +351,44 @@ def _plugin_camera(RE: RunEngine, box: FakeBox, name: str, tmp_path: Path, **kw)
     return cam, rewinds
 
 
+def test_two_plugin_cameras_in_one_run_keep_distinct_attribute_keys(
+    RE: RunEngine, box: FakeBox, tmp_path: Path
+) -> None:
+    """The plugin's attribute keys carry the device, so two cameras coexist (#829).
+
+    The XML here is the shape ``geecs_pva_gateway.file_plugin.attributes_xml``
+    serves: ``<ophyd name>-<suffix>`` under the shared naming contract.
+    """
+    a, _ = _plugin_camera(RE, box, "UC_A", tmp_path)
+    b, _ = _plugin_camera(RE, box, "UC_B", tmp_path)
+    for cam in (a, b):
+        set_mock_value(
+            cam.hdf.nd_attributes_file,
+            "<Attributes>"
+            f'<Attribute name="{cam.name}-acq_timestamp" type="PARAM" '
+            f'source="{cam.name}-acq_timestamp" datatype="DOUBLE" description="s"/>'
+            f'<Attribute name="{cam.name}-recv_timestamp" type="PARAM" '
+            f'source="{cam.name}-recv_timestamp" datatype="DOUBLE" description="r"/>'
+            "</Attributes>",
+        )
+    sc = ShotControl(WRITES, experiment="TestExp", name="htu", setter_factory=box)
+    connect_mock(RE, sc)
+    docs = DocCollector()
+    RE.subscribe(docs)
+    RE(bp.count([a, b], 2, per_shot=geecs_per_shot(sc)))
+    assert docs.docs["stop"][-1]["exit_status"] == "success"
+    keys = set(docs.docs["descriptor"][0]["data_keys"])
+    assert {"uc_a-acq_timestamp", "uc_b-acq_timestamp", "uc_a", "uc_b"} <= keys
+    assert sorted(d["data_key"] for d in docs.docs["stream_resource"]) == [
+        "uc_a",
+        "uc_a-acq_timestamp",
+        "uc_a-recv_timestamp",
+        "uc_b",
+        "uc_b-acq_timestamp",
+        "uc_b-recv_timestamp",
+    ]
+
+
 def test_missed_frame_on_plugin_cameras_rewinds_the_partial_row(
     RE: RunEngine, box: FakeBox, shot_control: ShotControl, tmp_path: Path
 ) -> None:

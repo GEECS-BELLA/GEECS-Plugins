@@ -29,6 +29,8 @@ from geecs_pva_gateway.file_plugin import (
     PLUGIN_SUFFIX,
     PV_TABLE,
     HdfFilePlugin,
+    attribute_names,
+    attributes_xml,
 )
 from geecs_pva_gateway.server import GeecsPvaGateway
 from tests.test_server import DEVICE, IMG, _imaq_blob
@@ -221,7 +223,10 @@ async def test_stock_adhdf_data_logic_drives_the_plugin(tmp_path, monkeypatch):
         assert keys["cam"]["shape"] == [1, *IMG.shape]
         assert keys["cam"]["dtype_numpy"] == "<u2"
         assert keys["cam"]["external"] == "STREAM:"
-        assert {"acq_timestamp", "recv_timestamp"} <= set(keys)
+        # The attribute keys carry the device (unique across cameras, #829)
+        # and spell the worker's event column for the stamp.
+        assert {"uc_testcam-acq_timestamp", "uc_testcam-recv_timestamp"} <= set(keys)
+        assert "acq_timestamp" not in keys
         assert provider.uri.endswith("UC_TestCam/UC_TestCam.h5")
         assert await provider.collections_written_signal.get_value() == 0
         # Two shots, then a re-push of the second (dedupe), then a stale one.
@@ -247,8 +252,9 @@ async def test_stock_adhdf_data_logic_drives_the_plugin(tmp_path, monkeypatch):
         assert frames.shape == (2, *IMG.shape)
         assert frames.chunks == (1, *IMG.shape)
         np.testing.assert_array_equal(frames[1], IMG + 1)
-        stamps = f[f"{ATTRIBUTES_GROUP}/acq_timestamp"][:]
+        stamps = f[f"{ATTRIBUTES_GROUP}/uc_testcam-acq_timestamp"][:]
         assert stamps[1] == pytest.approx(t + 1.0, abs=0.002)
+        assert "acq_timestamp" not in f[ATTRIBUTES_GROUP]
         assert f.attrs["finalized"]
         assert f.attrs["frames_written"] == 2
         assert f.attrs["duplicates_dropped"] == 1
@@ -436,3 +442,28 @@ def test_pathinfo_windows_and_uri_are_independent():
     )
     assert info.directory_uri == "file://localhost/mnt/hdna2/data/Scan001/Cam/"
     assert Path(str(info.directory_path)).name == "Cam"
+
+
+# ------------------------------------------------------------ attribute names
+def test_attribute_names_carry_the_normalized_device() -> None:
+    """``<device>-<suffix>`` under the shared naming contract (the worker's ophyd name)."""
+    assert attribute_names("UC Test.Cam") == (
+        "uc_test_cam-acq_timestamp",
+        "uc_test_cam-recv_timestamp",
+    )
+    xml = attributes_xml("UC_TestCam")
+    assert 'name="uc_testcam-acq_timestamp"' in xml
+    assert 'name="uc_testcam-recv_timestamp"' in xml
+    assert 'name="acq_timestamp"' not in xml
+    plugin = HdfFilePlugin(
+        device="UC_TestCam",
+        variable="image",
+        experiment="TestExp",
+        retain=lambda _v: None,
+        release=lambda _v: None,
+    )
+    try:
+        assert plugin.value("NDAttributesFile") == xml
+        assert plugin.attributes == attribute_names("UC_TestCam")
+    finally:
+        plugin.stop()

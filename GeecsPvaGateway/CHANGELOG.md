@@ -4,6 +4,24 @@ All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
+## [0.8.0] - 2026-09-11
+
+### Changed
+
+- **File plugin: attribute names carry the device** (GEECS-Plugins#829).
+  The per-frame attribute datasets and the `NDAttributesFile` XML now
+  name `<normalized device>-acq_timestamp` / `-recv_timestamp`
+  (`file_plugin.attribute_names` / `attributes_xml`,
+  `geecs_core.pv_naming.normalize_component` — the worker's ophyd-name
+  rule) instead of the bare `acq_timestamp` / `recv_timestamp`.  The stock
+  `ADHDFDataLogic` turns attribute names into stream data keys verbatim,
+  so two plugin-backed cameras in one run collided on the bare names and
+  the run failed at its descriptor after claiming a scan number.  On-disk
+  layout change: stacks written by 0.7.x keep the bare name;
+  `geecs_data_utils.io.scan_stack.timestamps_dataset` resolves either.
+  Deploy = pull the share clone and `:restart` each box (no launcher
+  change).
+
 ## [0.7.1] - 2026-09-11
 
 ### Added

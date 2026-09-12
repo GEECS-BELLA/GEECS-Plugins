@@ -47,8 +47,30 @@ LABVIEW_EPOCH_OFFSET = 2_082_844_800
 FRAMES_DATASET = "/entry/data/data"
 #: The per-frame attribute datasets' group (NDFileHDF5's ``NDAttributes``).
 ATTRIBUTES_GROUP = "/entry/instrument/NDAttributes"
-#: The per-frame ``acq_timestamp`` attribute dataset, ``(N,)`` float64 Unix s.
-TIMESTAMPS_DATASET = f"{ATTRIBUTES_GROUP}/acq_timestamp"
+#: The suffix of the per-frame ``acq_timestamp`` attribute dataset,
+#: ``(N,)`` float64 Unix s.  The plugin names it ``<device>-acq_timestamp``
+#: (unique across the cameras of one run, GEECS-Plugins#829); stacks
+#: written before that carry the bare name — :func:`timestamps_dataset`
+#: resolves either.
+TIMESTAMP_SUFFIX = "acq_timestamp"
+#: The bare-name spelling (stacks written by GeecsPvaGateway < 0.8).
+TIMESTAMPS_DATASET = f"{ATTRIBUTES_GROUP}/{TIMESTAMP_SUFFIX}"
+
+
+def timestamps_dataset(f: "h5py.File") -> str | None:
+    """The path of the open stack's ``acq_timestamp`` dataset, or ``None``.
+
+    ``<device>-acq_timestamp`` (the current layout) or the bare
+    ``acq_timestamp`` (the layout before GeecsPvaGateway 0.8); the first
+    match in the attributes group.
+    """
+    group = f.get(ATTRIBUTES_GROUP)
+    if group is None:
+        return None
+    for key in group:
+        if key == TIMESTAMP_SUFFIX or key.endswith(f"-{TIMESTAMP_SUFFIX}"):
+            return f"{ATTRIBUTES_GROUP}/{key}"
+    return None
 
 
 def open_stack(path: "str | Path", mode: str = "r") -> "h5py.File":
@@ -110,6 +132,15 @@ class ShotRef(_PathBase):
         return f"ShotRef({str(self)!r}, shot_index={self.shot_index})"
 
 
+def _timestamps(f: "h5py.File") -> str:
+    dataset = timestamps_dataset(f)
+    if dataset is None:
+        raise KeyError(
+            f"{f.filename}: no acq_timestamp dataset under {ATTRIBUTES_GROUP}"
+        )
+    return dataset
+
+
 def is_stack_file(path: Path) -> bool:
     """Return whether *path* is a readable frame stack.
 
@@ -121,7 +152,7 @@ def is_stack_file(path: Path) -> bool:
         return False
     try:
         with open_stack(path) as f:
-            return FRAMES_DATASET in f and TIMESTAMPS_DATASET in f
+            return FRAMES_DATASET in f and timestamps_dataset(f) is not None
     except OSError:
         return False
 
@@ -152,7 +183,7 @@ def read_stack_timestamps(path: Path, *, labview_epoch: bool = False) -> np.ndar
         seconds (the convention of s-file columns and native filenames).
     """
     with open_stack(path) as f:
-        ts = np.asarray(f[TIMESTAMPS_DATASET][:], dtype=float)
+        ts = np.asarray(f[_timestamps(f)][:], dtype=float)
     return ts + LABVIEW_EPOCH_OFFSET if labview_epoch else ts
 
 
@@ -274,7 +305,7 @@ def read_shot_for_acq_timestamp(
         (the caller must refuse — never serve a neighbour).
     """
     with open_stack(path) as f:
-        stamps = np.asarray(f[TIMESTAMPS_DATASET][:], dtype=float)
+        stamps = np.asarray(f[_timestamps(f)][:], dtype=float)
         if labview_epoch:
             stamps = stamps + LABVIEW_EPOCH_OFFSET
         index = frame_index_for_timestamp(stack_frame_index_map(stamps), acq_timestamp)
