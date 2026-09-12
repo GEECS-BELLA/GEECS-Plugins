@@ -14,7 +14,7 @@
 {# theme-boot.js stamps the stored palette before first paint (validated,
    system mode resolved); loaded in <head> and NOT deferred for that reason.
    URLs go through {{ root }} so a reverse-proxy prefix still resolves. #}
-<script src="{{ root }}/theme/theme-boot.js"></script>
+<script src="{{ root }}/theme/theme-boot.js?v={{ portal_version | default('') | urlencode }}"></script>
 <link rel="stylesheet" href="{{ root }}/theme/theme.css?v={{ portal_version | default('') | urlencode }}">
 {# No CDN assets: control-room machines may lack internet (portal CLAUDE.md).
    The token font stacks carry full local fallbacks. #}

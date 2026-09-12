@@ -11,8 +11,13 @@ This module is pure: no FastAPI, no catalog — mappings of column name →
 values in, :class:`plotly.graph_objects.Figure` out.  A pandas DataFrame
 is a valid ``series`` mapping, so the "show the code" snippets call the
 same functions on the reproduced ``frame``/``result`` and get the
-*identical figure* the page renders — the reproducibility doctrine,
-extended from the numbers to the plot.
+*identical figure* the page renders, up to palette — the reproducibility
+doctrine, extended from the numbers to the plot.  "Up to palette" is
+precise: the page asks for :data:`THEMED_PALETTE`, whose colours are
+``$tok:--name`` sentinels the browser resolves against the live theme
+tokens in one walk before ``Plotly.react``; a notebook takes the default
+:data:`NOTEBOOK_PALETTE` and gets real hex.  Shapes, traces, axes and
+every other property are the same object either way.
 
 The ``display`` mapping is the URL-carried plot-cosmetics JSON
 (:func:`geecs_portal.analysis.parse_display` type-checks it at the
@@ -26,6 +31,7 @@ is carried but never applied here (client-side passthrough, above).
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Mapping, Optional, Sequence
 
 if TYPE_CHECKING:  # pandas is runtime-optional here (local imports)
@@ -34,16 +40,100 @@ if TYPE_CHECKING:  # pandas is runtime-optional here (local imports)
 import plotly.graph_objects as go
 import plotly.io as pio
 
-#: Trace palette — the template injects this into the page so the rail's
-#: column chips stay color-matched to the server-authored traces.
+#: The notebook trace palette — still injected into the page as the
+#: server's list (a pinned contract) and the JS-off / notebook fallback.
+#: On the page the chips and traces both come from the theme's
+#: ``--trace-1..4`` instead, so they cannot drift apart.
 TRACE_COLORS: tuple[str, ...] = ("#4cc2b4", "#d6a860", "#6f9fd8", "#c47ab8")
 
-_GRID = "#2c353d"
-#: Gridlines one step subtler than the axis furniture — the Vega-Lite
-#: look the owner liked in the renderer bake-off (2026-08-31 ruling).
-_GRID_SOFT = "#232a31"
-#: Outside tick marks, ditto.
-_TICKS = {"ticks": "outside", "ticklen": 4, "tickcolor": _GRID}
+
+@dataclass(frozen=True)
+class Palette:
+    """Every colour a figure needs, in one place.
+
+    Two instances exist. :data:`NOTEBOOK_PALETTE` is real hex, for
+    ``fig.show()`` outside the page. :data:`THEMED_PALETTE` is sentinel
+    strings of the form ``$tok:--name`` that the page resolves against the
+    live theme tokens — one client-side walk covers traces, tick fonts,
+    grids, axis titles and the legend alike, so no per-property list here
+    or in the template can fall out of step.
+    """
+
+    trace: tuple[str, ...]
+    grid: str
+    grid_soft: str
+    font: str
+    paper: str
+    plot: str
+
+
+NOTEBOOK_PALETTE = Palette(
+    trace=TRACE_COLORS,
+    grid="#2c353d",
+    # Gridlines one step subtler than the axis furniture — the Vega-Lite
+    # look the owner liked in the renderer bake-off (2026-08-31 ruling).
+    grid_soft="#232a31",
+    font="#dde4ea",
+    paper="#1a2026",
+    plot="#12161a",
+)
+
+#: What the page asks for. plotly.py validates every colour property at
+#: figure-build time and rejects a ``$tok:`` string outright, so this
+#: palette is *placeholder hex* — nine near-black values no theme uses —
+#: and :func:`page_figure` swaps them for ``$tok:--name`` sentinels in
+#: the serialized JSON. The browser resolves those against the live
+#: tokens. A user display colour that happened to equal a placeholder
+#: would be re-themed; ``#010101``–``#010109`` are not colours anyone
+#: picks.
+THEMED_PALETTE = Palette(
+    trace=("#010101", "#010102", "#010103", "#010104"),
+    grid="#010105",
+    grid_soft="#010106",
+    font="#010107",
+    paper="#010108",
+    plot="#010109",
+)
+
+#: Placeholder → sentinel, the substitution :func:`page_figure` applies.
+SENTINELS: dict[str, str] = {
+    "#010101": "$tok:--trace-1",
+    "#010102": "$tok:--trace-2",
+    "#010103": "$tok:--trace-3",
+    "#010104": "$tok:--trace-4",
+    "#010105": "$tok:--rule",
+    "#010106": "$tok:--rule-soft",
+    "#010107": "$tok:--ink",
+    "#010108": "$tok:--surface",
+    "#010109": "$tok:--paper",
+}
+
+
+def page_figure(fig: go.Figure) -> dict:
+    """Serialize a figure built with :data:`THEMED_PALETTE` for the page.
+
+    ``to_plotly_json()`` then one recursive walk replacing each placeholder
+    hex with its ``$tok:`` sentinel — traces, tick fonts, grids, titles and
+    the legend alike, so no per-property list here or in the template can
+    fall out of step. The browser resolves the sentinels against the live
+    theme tokens before ``Plotly.react``.
+    """
+
+    def walk(value: Any) -> Any:
+        if isinstance(value, str):
+            return SENTINELS.get(value, value)
+        if isinstance(value, list):
+            return [walk(v) for v in value]
+        if isinstance(value, dict):
+            return {k: walk(v) for k, v in value.items()}
+        return value
+
+    return walk(fig.to_plotly_json())
+
+
+def _ticks(palette: Palette) -> dict:
+    """Outside tick marks in the palette's axis colour."""
+    return {"ticks": "outside", "ticklen": 4, "tickcolor": palette.grid}
 
 
 def _bare_figure() -> go.Figure:
@@ -59,24 +149,43 @@ def _bare_figure() -> go.Figure:
     return go.Figure(layout={"template": pio.templates["none"]})
 
 
-#: The shared base layout (ported verbatim from run.html's PLOT_LAYOUT).
+def base_layout(palette: Palette) -> dict:
+    """The shared base layout in one palette (from run.html's PLOT_LAYOUT)."""
+    return {
+        "paper_bgcolor": palette.paper,
+        "plot_bgcolor": palette.plot,
+        "font": {"color": palette.font, "size": 12},
+        "margin": {"t": 24, "r": 56, "b": 44, "l": 56},
+        "xaxis": {
+            "gridcolor": palette.grid_soft,
+            "zerolinecolor": palette.grid,
+            **_ticks(palette),
+        },
+    }
+
+
+#: The notebook-palette base layout, kept for callers that read it.
 BASE_LAYOUT: dict = {
     "paper_bgcolor": "#1a2026",
     "plot_bgcolor": "#12161a",
     "font": {"color": "#dde4ea", "size": 12},
     "margin": {"t": 24, "r": 56, "b": 44, "l": 56},
     "xaxis": {
-        "gridcolor": _GRID_SOFT,
-        "zerolinecolor": _GRID,
+        "gridcolor": "#232a31",
+        "zerolinecolor": "#2c353d",
         "automargin": True,
-        **_TICKS,
+        "ticks": "outside",
+        "ticklen": 4,
+        "tickcolor": "#2c353d",
     },
     "showlegend": True,
     "legend": {"orientation": "h", "y": 1.08},
 }
 
 
-def trace_color(display: Optional[Mapping], i: int) -> str:
+def trace_color(
+    display: Optional[Mapping], i: int, palette: Palette = NOTEBOOK_PALETTE
+) -> str:
     """The i-th trace color: a valid custom hex wins, else the palette.
 
     Only a ``#rgb``-style hex may come through — the display JSON rides
@@ -88,7 +197,7 @@ def trace_color(display: Optional[Mapping], i: int) -> str:
         candidate = colors[i]
         if isinstance(candidate, str) and _is_hex_color(candidate):
             return candidate
-    return TRACE_COLORS[i % len(TRACE_COLORS)]
+    return palette.trace[i % len(palette.trace)]
 
 
 def _is_hex_color(value: str) -> bool:
@@ -139,6 +248,7 @@ def _multi_y_layout(
     y: Sequence[str],
     pretty: Optional[Mapping],
     display: Optional[Mapping],
+    palette: Palette = NOTEBOOK_PALETTE,
 ) -> dict:
     """Build the stacked-axis ladder for up to four y columns.
 
@@ -149,15 +259,15 @@ def _multi_y_layout(
     """
     layout: dict = {
         "yaxis": {
-            "gridcolor": _GRID_SOFT,
-            "zerolinecolor": _GRID,
-            "tickfont": {"color": trace_color(display, 0)},
+            "gridcolor": palette.grid_soft,
+            "zerolinecolor": palette.grid,
+            "tickfont": {"color": trace_color(display, 0, palette)},
             "title": {
                 "text": _pretty(pretty, y[0]),
-                "font": {"color": trace_color(display, 0)},
+                "font": {"color": trace_color(display, 0, palette)},
             },
             "automargin": True,
-            **_TICKS,
+            **_ticks(palette),
         },
         # One trace: the axis title says it all.
         "showlegend": len(y) > 1,
@@ -168,9 +278,9 @@ def _multi_y_layout(
             "side": "right" if i % 2 else "left",
             "automargin": True,
             "gridcolor": "rgba(0,0,0,0)",
-            "zerolinecolor": _GRID,
-            "tickfont": {"color": trace_color(display, i)},
-            **_TICKS,
+            "zerolinecolor": palette.grid,
+            "tickfont": {"color": trace_color(display, i, palette)},
+            **_ticks(palette),
         }
         if i >= 2:
             axis["anchor"] = "free"
@@ -178,7 +288,7 @@ def _multi_y_layout(
         else:
             axis["title"] = {
                 "text": _pretty(pretty, y[i]),
-                "font": {"color": trace_color(display, i)},
+                "font": {"color": trace_color(display, i, palette)},
             }
         layout[f"yaxis{i + 1}"] = axis
     return layout
@@ -270,6 +380,7 @@ def shots_figure(
     kinds: Optional[Mapping[str, str]] = None,
     pretty: Optional[Mapping[str, str]] = None,
     display: Optional[Mapping] = None,
+    palette: Palette = NOTEBOOK_PALETTE,
 ) -> go.Figure:
     """The per-shot scatter figure — one markers trace per ``y`` column.
 
@@ -311,14 +422,17 @@ def shots_figure(
             y=list(series[name]),
             mode="markers",
             name=_pretty(pretty, name),
-            marker={"color": trace_color(display, i), "size": _marker_size(display)},
+            marker={
+                "color": trace_color(display, i, palette),
+                "size": _marker_size(display),
+            },
             yaxis="y" if i == 0 else f"y{i + 1}",
         )
-    layout = {**BASE_LAYOUT, "xaxis": dict(BASE_LAYOUT["xaxis"])}
+    layout = base_layout(palette)
     layout["xaxis"]["title"] = {"text": _pretty(pretty, x) if x else "shot #"}
     if x_is_date:
         layout["xaxis"]["type"] = "date"  # ISO strings from the API
-    layout.update(_multi_y_layout(y, pretty, display))
+    layout.update(_multi_y_layout(y, pretty, display, palette))
     _apply_display(layout, display, x_is_date=x_is_date, y_is_date=y_is_date)
     fig.update_layout(layout)
     return fig
@@ -334,6 +448,7 @@ def binned_figure(
     x_label: Optional[str] = None,
     pretty: Optional[Mapping[str, str]] = None,
     display: Optional[Mapping] = None,
+    palette: Palette = NOTEBOOK_PALETTE,
 ) -> go.Figure:
     """The binned figure — centers, lines, and asymmetric error bars.
 
@@ -373,23 +488,23 @@ def binned_figure(
             mode="markers+lines",
             name=_pretty(pretty, name),
             marker={
-                "color": trace_color(display, i),
+                "color": trace_color(display, i, palette),
                 "size": _marker_size(display) + 1,
             },
-            line={"color": trace_color(display, i), "width": 1},
+            line={"color": trace_color(display, i, palette), "width": 1},
             error_y={
                 "type": "data",
                 "symmetric": False,
                 "array": list(s["err_high"]),
                 "arrayminus": list(s["err_low"]),
-                "color": trace_color(display, i),
+                "color": trace_color(display, i, palette),
                 "thickness": 1,
             },
             yaxis="y" if i == 0 else f"y{i + 1}",
         )
-    layout = {**BASE_LAYOUT, "xaxis": dict(BASE_LAYOUT["xaxis"])}
+    layout = base_layout(palette)
     layout["xaxis"]["title"] = {"text": x_title}
-    layout.update(_multi_y_layout(y, pretty, display))
+    layout.update(_multi_y_layout(y, pretty, display, palette))
     # Binned serves raw numbers — no date axes on either side.
     _apply_display(layout, display, x_is_date=False, y_is_date=False)
     fig.update_layout(layout)

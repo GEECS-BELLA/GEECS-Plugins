@@ -47,11 +47,18 @@ _SURFACES = [
 #: Hex, rgb()/rgba(), hsl()/hsla(), and the named colours people actually
 #: reach for as values. (The full CSS named-colour list would flag words
 #: like "tan" in prose; these are the ones that show up in practice.)
+_NAMED = (
+    "white|black|red|green|blue|gray|grey|orange|yellow|purple|pink|cyan|"
+    "magenta|navy|teal|olive|maroon|silver|lime|aqua|fuchsia|tomato|"
+    "lightgray|lightgrey|darkgray|darkgrey|whitesmoke|gold|crimson"
+)
 _LITERAL = re.compile(
     r"#[0-9a-fA-F]{3,8}\b"
+    r"|%23[0-9a-fA-F]{3,8}\b"
     r"|\brgba?\([^)]*\)"
     r"|\bhsla?\([^)]*\)"
-    r"|(?<=:)\s*(?:white|black|red|green|blue|gray|grey)\b"
+    r"|(?<=[:\s])(?:" + _NAMED + r")\b(?=\s*[;}\"'!])",
+    re.IGNORECASE,
 )
 
 #: A token definition: the one place a literal is the whole point.
@@ -92,35 +99,67 @@ def _split_style_blocks(text: str) -> list[tuple[str, bool]]:
     return pieces
 
 
-def _css_lines(path: Path) -> list[tuple[int, str]]:
-    """Return the CSS lines of a file with their 1-based numbers.
+#: Outside ``<style>``, CSS still hides in ``style="…"`` attributes and in
+#: JavaScript that assigns ``.style.cssText`` / ``.style.x``. Everything
+#: else outside a style element (script logic, a ``#765`` PR reference in
+#: a comment) is blanked.
+_INLINE_STYLE = re.compile(r'style\s*=\s*"([^"]*)"|style\.\w+\s*=\s*"([^"]*)"')
 
-    For an HTML file that means the contents of its ``<style>`` blocks and
-    nothing else — ``#765`` in a JavaScript comment referencing a pull
-    request is a valid three-digit hex to a regex, and a guardrail that
-    cries wolf gets switched off. Comments are blanked for the same
-    reason, character-for-character so line numbers still point somewhere.
+
+def _css_lines(path: Path) -> list[tuple[int, str, bool]]:
+    """Return the CSS lines of a file as ``(number, text, in_root_block)``.
+
+    For an HTML file that means the contents of its ``<style>`` blocks plus
+    the values of ``style="…"`` attributes and ``.style…="…"`` assignments
+    — nothing else, because ``#765`` in a JavaScript comment referencing a
+    pull request is a valid three-digit hex to a regex, and a guardrail
+    that cries wolf gets switched off. Comments are blanked
+    character-for-character so line numbers still point somewhere.
+
+    ``in_root_block`` is whether the line sits inside a ``:root … {}``
+    block — the only place a token *definition* is legitimately a literal.
+    A ``--local: #ff00ff`` inside a component rule is a hidden literal.
     """
     text = path.read_text()
     if path.suffix in {".html", ".htm"}:
-        text = "\n".join(
-            chunk if inside else re.sub(r"\S", " ", chunk)
-            for chunk, inside in _split_style_blocks(text)
-        )
+        pieces = []
+        for chunk, inside in _split_style_blocks(text):
+            if inside:
+                pieces.append(chunk)
+                continue
+            kept = re.sub(r"\S", " ", chunk)
+            for m in _INLINE_STYLE.finditer(chunk):
+                g = 1 if m.group(1) is not None else 2
+                kept = kept[: m.start(g)] + m.group(g) + kept[m.end(g) :]
+            pieces.append(kept)
+        text = "".join(pieces)
     text = re.sub(
         r"/\*.*?\*/", lambda m: re.sub(r"\S", " ", m.group()), text, flags=re.S
     )
-    return [(n, ln) for n, ln in enumerate(text.splitlines(), 1) if ln.strip()]
+    out = []
+    depth = 0  # brace depth inside a :root block; 0 = outside
+    for n, ln in enumerate(text.splitlines(), 1):
+        opens_root = bool(re.match(r"\s*:root\b[^{]*\{", ln))
+        in_root = opens_root or depth > 0
+        if opens_root or depth > 0:
+            depth = max(depth + ln.count("{") - ln.count("}"), 0)
+        if ln.strip():
+            out.append((n, ln, in_root))
+    return out
 
 
 def _offences(path: Path) -> list[str]:
     """Return the offending lines in one file."""
     found = []
-    for number, line in _css_lines(path):
-        if _DEFINITION.match(line):
-            continue
-        # A token USE is not a literal: strip it, then judge what is left.
-        judged = re.sub(r"var\(\s*--[\w-]+\s*(?:,[^)]*)?\)", "var()", line)
+    for number, line, in_root in _css_lines(path):
+        judged = line
+        if in_root and _DEFINITION.match(line):
+            # A definition inside :root is the point; anything after it on
+            # the same line is still judged.
+            judged = re.sub(r"^\s*--[\w-]+\s*:[^;]*;?", "", line)
+        # A token USE is not a literal. A var() fallback argument IS.
+        judged = re.sub(r"var\(\s*--[\w-]+\s*\)", "var()", judged)
+        judged = re.sub(r"var\(\s*--[\w-]+\s*,", "(", judged)
         judged = _GROUND_FREE.sub("shadow()", judged)
         if not _LITERAL.search(judged):
             continue
@@ -151,15 +190,46 @@ def test_surface_uses_only_tokens(relative: str) -> None:
     )
 
 
-def test_a_literal_beside_a_token_is_still_caught(tmp_path: Path) -> None:
-    """The hole the first version had: a token on the line excused a literal."""
+@pytest.mark.parametrize(
+    "body,expected",
+    [
+        ("a{color:var(--accent);background:#ff00ff}\n", True),
+        ("a{color:var(--accent);box-shadow:0 0 0 2px #00ff00}\n", True),
+        (".foo {\n  --local: #ff00ff;\n  color: var(--local); }\n", True),
+        (":root{\n  --x: #123456; color: #ff00ff;\n}\n", True),
+        ("a{color:var(--accent,#ff00ff)}\n", True),
+        ("a{color:White}\n", True),
+        ("a{color:orange}\n", True),
+        (
+            "a{background:url(\"data:image/svg+xml,%3Csvg fill='%23ff00ff'/%3E\")}\n",
+            True,
+        ),
+        ("a{box-shadow:0 1px 2px rgba(0,0,0,.4)}\n", False),
+        (":root{\n  --x: #123456;\n}\n", False),
+        ("a{color:var(--accent)}\n", False),
+    ],
+)
+def test_probe_literals(tmp_path: Path, body: str, expected: bool) -> None:
+    """Each hole a review found, pinned: a literal beside a token, a local
+    definition inside a component rule, a literal after a root definition,
+    a var() fallback, cased and extended named colours, a hex in a data:
+    URL — and the legitimate cases stay clean."""
     probe = tmp_path / "probe.css"
-    probe.write_text("a{color:var(--accent);background:#ff00ff}\n")
-    assert _offences(probe), "a literal next to var(--accent) slipped through"
-    probe.write_text("a{color:var(--accent);box-shadow:0 0 0 2px #00ff00}\n")
-    assert _offences(probe), "a coloured glow slipped through as a shadow"
-    probe.write_text("a{box-shadow:0 1px 2px rgba(0,0,0,.4)}\n  --x: #123456;\n")
-    assert not _offences(probe), "a black shadow or a definition was wrongly flagged"
+    probe.write_text(body)
+    assert bool(_offences(probe)) is expected, body
+
+
+def test_inline_style_outside_style_element_is_judged(tmp_path: Path) -> None:
+    """``style="…"`` and ``.style.cssText = "…"`` carry CSS too."""
+    probe = tmp_path / "probe.html"
+    probe.write_text(
+        '<div style="color:#ff00ff"></div>\n<style>a{color:var(--ink)}</style>\n'
+    )
+    assert _offences(probe), "an inline style attribute slipped through"
+    probe.write_text('<script>el.style.cssText = "color:#ff00ff";</script>\n')
+    assert _offences(probe), "a cssText assignment slipped through"
+    probe.write_text("<script>// see #765 for the dead-button finding</script>\n")
+    assert not _offences(probe), "a PR reference in a comment was flagged"
 
 
 def _blocks(css: str) -> dict[str, set[str]]:
@@ -196,12 +266,22 @@ def test_every_referenced_token_is_defined() -> None:
     defined: set[str] = set()
     for tokens in _blocks(_THEME_CSS.read_text()).values():
         defined |= tokens
-    local_ok = {"--err"}  # a surface may alias a token for its own use
     problems = []
-    for relative in _SURFACES:
+    # var(--x) in CSS, getPropertyValue("--x") in JS, and the "$tok:--x"
+    # sentinels the server emits for the page to resolve.
+    ref = re.compile(
+        r"var\(\s*(--[\w-]+)|getPropertyValue\(\s*[\"'`](--[\w-]+)|\$tok:(--[\w-]+)"
+    )
+    for relative in _SURFACES + ["GEECS-DataPortal/geecs_portal/figures.py"]:
         text = (_REPO / relative).read_text()
-        for name in sorted(set(re.findall(r"var\(\s*(--[\w-]+)", text))):
-            if name not in defined and name not in local_ok:
+        names = {g for m in ref.finditer(text) for g in m.groups() if g}
+        # --trace-${i} is built from a prefix at runtime; "--name" is the
+        # documentation placeholder in comments explaining the sentinel form.
+        names = {n for n in names if not n.endswith("-") and n != "--name"}
+        if "--trace-" in text:
+            names |= {"--trace-1", "--trace-4"}
+        for name in sorted(names):
+            if name not in defined:
                 problems.append(f"{Path(relative).name}: {name}")
     assert not problems, "referenced but never defined:\n  " + "\n  ".join(problems)
 

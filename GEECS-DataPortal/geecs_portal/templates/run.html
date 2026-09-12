@@ -453,8 +453,9 @@ const TRACE_COLORS = {{ trace_colors | tojson }};
 // at call time so a theme switch is honoured; the server's TRACE_COLORS is
 // the JS-off fallback and stays the injected contract.
 function defaultTraceColor(i) {
-  const c = getComputedStyle(document.documentElement).getPropertyValue(`--trace-${i + 1}`).trim();
-  return c || TRACE_COLORS[i];
+  const n = TRACE_COLORS.length;                      // server cycles i % 4; match it
+  const c = getComputedStyle(document.documentElement).getPropertyValue(`--trace-${(i % n) + 1}`).trim();
+  return c || TRACE_COLORS[i % n];
 }
 const MSIZE_DEFAULT = {{ msize_default | tojson }};
 // Everything Plotly gives for free, switched ON: wheel zoom, in-place
@@ -1128,22 +1129,22 @@ function deepMerge(target, patch) {
   }
 }
 
-// The palette the figure paints with comes from the live theme tokens,
-// read at draw time — the server's figures.py colours are the JS-off
-// fallback only.  A theme change re-draws the last figure in place.
+// The server authors the figure with "$tok:--name" sentinels wherever a
+// colour goes (figures.THEMED_PALETTE).  One walk here resolves them
+// against the live theme tokens — traces, tick fonts, grids, titles and
+// the legend alike, with no per-property list to fall out of step.  A
+// theme change re-draws the last figure in place.
 function tokenColour(name) {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 }
-function themedLayout() {
-  const grid = tokenColour("--rule-soft"), axis = tokenColour("--rule");
-  return {
-    paper_bgcolor: tokenColour("--surface"),
-    plot_bgcolor: tokenColour("--paper"),
-    font: { color: tokenColour("--ink") },
-    xaxis: { gridcolor: grid, zerolinecolor: axis, linecolor: axis, tickcolor: axis },
-    yaxis: { gridcolor: grid, zerolinecolor: axis, linecolor: axis, tickcolor: axis },
-    legend: { bgcolor: tokenColour("--surface") },
-  };
+function resolveThemeTokens(value) {
+  if (typeof value === "string")
+    return value.startsWith("$tok:") ? (tokenColour(value.slice(5)) || value) : value;
+  if (Array.isArray(value)) return value.map(resolveThemeTokens);
+  if (value && typeof value === "object") {
+    for (const k of Object.keys(value)) value[k] = resolveThemeTokens(value[k]);
+  }
+  return value;
 }
 let LAST_FIGURE = null;
 
@@ -1155,8 +1156,7 @@ function drawFigure(data) {
   // stays reachable without new portal code — and the URL-carried
   // patch stays in the browser with its prototype-pollution guard.
   LAST_FIGURE = data;
-  const fig = JSON.parse(JSON.stringify(data.figure || { data: [], layout: {} }));
-  deepMerge(fig.layout, themedLayout());
+  const fig = resolveThemeTokens(JSON.parse(JSON.stringify(data.figure || { data: [], layout: {} })));
   const d = dispCfg();
   if (d.layout && typeof d.layout === "object") deepMerge(fig.layout, d.layout);
   Plotly.react(plotHost(), fig.data, fig.layout, PLOT_CONFIG);

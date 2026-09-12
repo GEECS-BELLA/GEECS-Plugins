@@ -110,7 +110,7 @@ def create_editor_router(
             {
                 "preview": preview is not None,
                 "read_only": read_only,
-                "theme_url": theme_url,
+                "theme_url": theme_url.rstrip("/"),
             },
         )
 

@@ -197,10 +197,9 @@ ScanAnalysis         →  GEECS-Data-Utils, ImageAnalysis, GEECS-Schemas,
                         LogMaker4GoogleDocs (+ fastapi/jinja2/uvicorn via
                         the `editor` extra — scan_analysis.config_editor,
                         the web config editor the portal mounts at /configs
-                        and `scan-config-editor` serves standalone; it
-                        takes a `theme_url` from its host rather than
-                        importing GeecsWebTheme, so the dependency stays
-                        one-way)
+                        and `scan-config-editor` serves standalone;
+                        + GeecsWebTheme via that same extra — the theme
+                        has no dependencies, so the edge is one-way)
 GEECS-MCP            →  GeecsBluesky (qs-client + ca extras — the queue
                         client, preflight, config resolver/listings),
                         GEECS-Data-Utils (tiled extra — results lookup),

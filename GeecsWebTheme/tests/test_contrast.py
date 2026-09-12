@@ -62,8 +62,15 @@ _PAIRS = [
     ("--muted", "--paper"),
     ("--muted", "--surface"),
     ("--muted", "--surface-2"),
+    ("--slate", "--surface-2"),  # code boxes
     ("--accent", "--paper"),
+    ("--accent", "--surface-2"),  # selected rows on the raised ground
+    ("--accent", "--accent-soft"),  # accent chips
     ("--on-accent", "--accent"),
+    ("--ok", "--ok-soft"),  # semantic chips: text on their own wash
+    ("--warn", "--warn-soft"),
+    ("--crit", "--crit-soft"),
+    ("--agent", "--agent-soft"),
     ("--ink", "--paper"),
 ]
 

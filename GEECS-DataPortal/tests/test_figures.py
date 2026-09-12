@@ -6,6 +6,7 @@ shot-axis fallbacks, and the DataFrame entry point the "show the code"
 snippets rely on.
 """
 
+import re
 import pandas as pd
 
 from geecs_portal import figures
@@ -253,3 +254,51 @@ class TestPalette:
         # changing it is a deliberate cosmetic release, not drift.
         assert TRACE_COLORS == ("#4cc2b4", "#d6a860", "#6f9fd8", "#c47ab8")
         assert figures.BASE_LAYOUT["legend"] == {"orientation": "h", "y": 1.08}
+
+
+class TestPalettes:
+    """The page gets sentinels to resolve; a notebook gets real colours."""
+
+    @staticmethod
+    def _colours(fig) -> list[str]:
+        import json
+        import re
+
+        return re.findall(
+            r'"(#[0-9a-fA-F]{6}|\$tok:--[\w-]+)"', json.dumps(fig.to_plotly_json())
+        )
+
+    def test_themed_palette_has_no_hex_anywhere(self) -> None:
+        """Every colour on the page's figure is a token sentinel.
+
+        This is what keeps the rail's chips and the plotted traces the
+        same colour: both come from --trace-N, neither from a Python hex.
+        """
+        from geecs_portal import figures
+
+        import json
+
+        page = figures.page_figure(
+            figures.binned_figure(
+                [1, 2],
+                {
+                    "a": {"center": [1, 2], "err_low": [0, 0], "err_high": [0, 0]},
+                    "b": {"center": [2, 3], "err_low": [0, 0], "err_high": [0, 0]},
+                },
+                ["a", "b"],
+                palette=figures.THEMED_PALETTE,
+            )
+        )
+        blob = json.dumps(page)
+        found = re.findall(r'"(#[0-9a-fA-F]{6}|\$tok:--[\w-]+)"', blob)
+        assert found and all(c.startswith("$tok:") for c in found), found
+        # and no placeholder survives the swap
+        assert not any(p in blob for p in figures.SENTINELS), blob[:300]
+
+    def test_notebook_palette_has_no_sentinels(self) -> None:
+        """fig.show() in a notebook must never see a "$tok:" string."""
+        from geecs_portal import figures
+
+        fig = figures.shots_figure({"a": [1, 2, 3]}, ["a"])
+        found = self._colours(fig)
+        assert found and not any(c.startswith("$tok:") for c in found), found
