@@ -1,6 +1,9 @@
 # Phase 2 — gated batch and the non-essential stream
 
-**Status (2026-09-11): design, argued before code.** Phase 1 is complete
+**Status (2026-09-12): design, argued before code; Sam's answers to §6
+recorded 2026-09-12 (`03` §10.9) and folded in — the per-shot sampler
+(§4.7) replaces the per-step `steps` stream, an immediate pause repeats
+the step, orphan non-essential frames stay out of the s-file.** Phase 1 is complete
 and deployed (`03_clean_room_rebuild.md` §2). This document is the
 argument for phase 2 as `03` §8 lists it — the gated batch (the 1 Hz mode
 `05_phase1_acceptance.md` M6/M7 say strict single-shot is not) and the
@@ -39,6 +42,10 @@ Two things, one mechanism each, and a preset field:
    never aborts a run.
 3. **`essential`** on `PresetDevice` (default `True`), which the client
    expands into the two lists.
+4. **The per-shot sampler** (§4.7) — the gated run's record of every
+   device that has no plugin: one event per shot, clocked by an essential
+   triggered device's stamp, carrying the latest value of every non-plugin
+   subscribed signal plus the scanned motors' readbacks and `bin_number`.
 
 Nothing is deleted: free-run went in #816.  The gateway grows one thing
 (§4.4, per-frame scalar attributes), which is what makes a fly stream
@@ -213,9 +220,10 @@ Line numbers are from the installed files (`GeecsBluesky/.venv/…`).
    plan's wrapper does both before kickoff (§4.3).
 3. **Where the scalars of a gated run come from** was never said.  A
    fly-shaped run has no per-shot `create/read/save`; the only per-shot
-   record is what the plugin writes.  §4.4 answers it natively — per-frame
-   NDAttributes, the areaDetector pattern the stock data logic already
-   describes — and §6 asks Sam about the devices that have no plugin.
+   record is what the plugin writes.  §4.4 answers it for the cameras —
+   per-frame NDAttributes, the areaDetector pattern the stock data logic
+   already describes — and §4.7 (Sam's answer to §6 Q1) for every other
+   device: the per-shot sampler.
 
 ---
 
@@ -251,29 +259,34 @@ plugin-backed — a detector without a streamable provider fails at
 ```
 prepare(D, TriggerInfo(EXTERNAL_EDGE, number_of_events=shots_per_step,
                        exposure_timeout=per-frame budget))     # capture on, count baselined
+prepare(S, quota=shots_per_step)                               # the sampler (§4.7): clock + columns
 declare_stream(*D, name="primary")        # first step only (needs describe_collect)
-declare_stream(*motors, bins, name="steps")                    # first step only
+declare_stream(S, name="shots")                                # first step only
 kickoff(D, wait=True)                                          # quota = shots_per_step
+kickoff(S, wait=True)                                          # sampler armed on the clock
 mv(B, SCAN)                                                    # edges flow
-complete(D, wait=True)                                         # every D counted its quota
+complete(D, S, wait=True)                                      # every D (and S) counted its quota
 mv(B, OFF)                                                     # edges stop
 sleep(period + max drain offset + margin)                      # the in-flight frame lands
 wait_for(D.truncate_to_quota)                                  # Rewind to baseline + quota
 collect(*D, name="primary")                                    # one datum per D: the step's frames
-trigger_and_read([*motors, bins], name="steps")                # the step's row: positions + bin
+collect(S, name="shots")                                       # one event per shot: everything else
 ```
 
 **Two streams per gated run.**  The datum stream `primary` carries the
-frames and their per-frame attributes; a second event stream `steps`
-carries what a strict row reads *per step* — the scanned motors'
-readbacks and `bin_number` — one event per step, after the collect.
+frames and their per-frame attributes (the plugin-backed cameras); the
+event stream `shots` carries **one event per shot** from the sampler
+(§4.7): the clock stamp, the scanned motors' readbacks, `bin_number`
+(its `BinCounter` reading), and the latest value of every non-plugin
+subscribed signal — which is what a strict row reads for those devices.
 They cannot share a stream: an event in a declared stream must read
 exactly the declared objects (§2), and the datum stream's declared
-objects are the detectors.  Event *k* of `steps` belongs to datum *k* of
-every detector in `primary` (both are one per step, emitted in order);
-the s-file writer joins them by that ordinal (§4.5), and `ScanInfo`'s
-axis has its column again.  `bin_number` therefore keeps its
-`BinCounter` reading.
+objects are the detectors.  The s-file writer joins the two by
+offset-corrected stamp (§4.5), and `ScanInfo`'s axis has its column
+again.  (The first draft had a per-step `steps` stream for the motors
+and the bin; the sampler's per-shot row carries them, so it went —
+`03` §10.9.)  When no plugin-backed camera is essential, *D* is empty
+and the sampler alone gates the step (§4.7).
 
 - **Why prepare per step, not once.**  `prepare` baselines
   `collections_written`; a per-step prepare makes every step's quota
@@ -331,9 +344,9 @@ axis has its column again.  `bin_number` therefore keeps its
   completion.
 - **The row.**  A frame plus that device's per-frame attributes (§4.4)
   — the same columns a strict row carries for that device, the stamp
-  included — plus, from the `steps` event of the same ordinal, the
-  motors' readbacks and `bin_number`.  `shots_per_step` keeps its
-  meaning (rows per position).
+  included — plus, from the `shots` event with the matching stamp, the
+  motors' readbacks, `bin_number` and every non-plugin scalar.
+  `shots_per_step` keeps its meaning (rows per position).
 - **Timeouts.**  `exposure_timeout` is per frame (§2): one period plus
   the device's exposure and drain, the same budget strict uses
   (`DEFAULT_SHOT_TIMEOUT`).  A camera that stops producing frames for
@@ -342,16 +355,21 @@ axis has its column again.  `bin_number` therefore keeps its
   drives OFF in a `finalize_wrapper` and the step fails loudly.  The
   refire idea has no analogue here — the box is already delivering
   edges; a stalled essential camera is a fault, not a drop.
-- **Pause.**  The step body is wrapped `rewindable_wrapper(…, False)`
-  and contains no `checkpoint`, so a *deferred* pause lands between
-  steps (after OFF, before the next move) — the stock stepped-scan
-  behaviour.  An *immediate* pause mid-step triggers
-  `ShotControl.pause()` → OFF (already built); `complete` then times out
-  per frame and the step fails on resume rather than resuming a batch
-  whose count baseline is stale.  Documented, not papered over: gated
-  steps are short (`shots_per_step` × period), and a resume-mid-batch
-  would need the plugin's count and the box's state re-baselined
-  together — a phase-3 item if anyone ever needs it.
+- **Pause (Sam, 2026-09-12).**  The step body is wrapped
+  `rewindable_wrapper(…, False)` and contains no `checkpoint`, so a
+  *deferred* pause — the console's button and the queue's stop sequence
+  both issue it — lands between steps (after OFF, before the next move):
+  the stock stepped-scan behaviour, a real pause in both modes, resume
+  continues with the next step.  An *immediate* pause mid-step triggers
+  `ShotControl.pause()` → OFF (already built), and on resume the plan
+  **repeats the interrupted step**: the plugins are rewound to the
+  step's baseline count, the sampler is re-armed, the detectors are
+  re-prepared and the step is retaken from its first shot — the partial
+  frames leave the essential stacks, so no frame there is ever without
+  a row.  (A resume that *continues* the partial batch would need the
+  plugin's count and the box's state re-baselined together; repeating
+  the step is the same guarantee for `shots_per_step` × period of cost.)
+  Strict's immediate pause mid-shot is not resumable mid-shot either.
 
 ### 4.3 The non-essential stream — per-plan `fly_during` with a prepare
 
@@ -449,21 +467,24 @@ path changes.
 ### 4.5 The s-file for a run with stream data
 
 `SFileCallback` writes rows from the run's primary *events*.  A gated
-run has none (its primary stream is datum-only), and a strict run with
-a non-essential list has events plus streams.  The rule stays "the
+run has none (its primary stream is datum-only; its per-shot events are
+the sampler's `shots` stream, §4.7), and a strict run with a
+non-essential list has events plus streams.  The rule stays "the
 s-file represents every scalar in the run documents"; the writer gains
 a second source: at the stop document, after the plugins finalize (the
 `StackCheckCallback` thread already waits for that), the attribute
-datasets of every referenced stream resource are read and joined —
-per essential stream by frame index within each datum (datum *k* ↔ the
-`steps` event *k*, which supplies the motors' readbacks and the bin),
-across streams and with the non-essential streams by **offset-corrected
-stamp rounded to the period** (`03` §11.3; the drain offsets are the
-detectors' config signals, in the descriptors).  A non-essential frame
-with no essential row within half a period gets its own row, blank
-elsewhere — data is never dropped from the file.  The Tiled export in
-`geecs_data_utils` follows the same rule offline.  This is the largest
-single piece of phase 2 and is its own PR (§5).
+datasets of every referenced stream resource are read and joined with
+the `shots` events and across streams by **offset-corrected stamp
+rounded to the period** (`03` §11.3; the drain offsets are the
+detectors' config signals, in the descriptors; a triggered scalar's own
+stamp in the sampler row is used where it has one).  **One row per
+essential shot** (Sam, 2026-09-12, §6 Q4): a non-essential frame with
+no essential shot within half a period — the extra edge at a step end,
+a frame taken during an interrupted step — is **kept in the stack (and
+Tiled) and left out of the s-file**; essential stacks never hold such a
+frame (§4.2 trims to the quota, a repeated step is rewound first).  The
+Tiled export in `geecs_data_utils` follows the same rule offline.  This
+is the largest single piece of phase 2 and is its own PR (§5).
 
 ### 4.6 Presets
 
@@ -474,6 +495,57 @@ devices → `detectors`; `essential: false` → `non_essential=[…]`
 regeneration (defaults keep every preset strict and all-essential).
 The client preflight adds the `hdf`-child rule for non-essential
 references and, when `acquisition` is `gated`, for the essential ones.
+
+### 4.7 The per-shot sampler — every device that has no plugin
+
+Sam's answer to §6 Q1 (2026-09-12, `03` §10.9).  Most devices are not
+triggered: magnets, gauges, stages and temperatures publish on their own
+cadence (~5 Hz) and their `acq_timestamp` means nothing; the triggered
+scalar devices (ICTs, energy meters, spectrometer scalars) have a real
+stamp but no plugin counting their shots.  Baseline (open/close only)
+would lose every per-shot scalar of a gated run; monitors would record
+the 5 Hz devices' every update and flood the documents.  The rule is
+the strict row's — *the latest value of every subscribed non-plugin
+signal, recorded into a row the trigger generated* — and the mechanism
+is a small software device on the worker that composes with the stock
+verbs (the protocols are Flyable + EventCollectable; every claim below
+is verified against the installed source in 2b, like §2's):
+
+- **Columns.**  Every non-plugin subscribed (`get='yes'`) signal of the
+  run's devices — the scalar-only devices whole, the triggered scalar
+  devices whole, and each plugin-backed camera's *non-image* signals
+  are **not** repeated here (they ride in its stack, §4.4) — plus the
+  scanned motors' readbacks and `BinCounter.bin_number`.  The sampler
+  keeps, per signal, the latest CA value **and its CA timestamp** from
+  the monitor cache the ophyd-async signals already hold.
+- **Clock.**  An essential *triggered* device's `acq_timestamp` — the
+  signal strict waits on.  On each advance the sampler snapshots one
+  row; triggered scalars carry their own stamp in the row, so the join
+  (§4.5) stays exact when the clock camera's exposure is long.  For
+  non-triggered devices "latest at the shot" is the strict semantics,
+  within one publish period.
+- **Quota.**  `prepare(quota=shots_per_step)`; `complete` returns after
+  `quota` ticks, so the sampler can gate a step on its own: **a gated
+  run needs at least one essential triggered device, camera or scalar**
+  (a U_S1H scan with an ICT and no camera is gated too).  A run with no
+  triggered device is refused at preflight — "nothing counts shots; use
+  strict" (strict holds 1 Hz for scalar devices; the exposure sets its
+  margin, `05` M7).  Ticks after `complete` (the one in-flight edge
+  after OFF) are ignored.
+- **Stream.**  `collect` yields one event per shot into `shots`; at 1 Hz
+  that is one event per second — no flood.  `describe_collect` from the
+  signals' descriptions.
+- **Deadbands** are not a Bluesky notion and are not built; the CA
+  gateway's change suppression is a zero-width one already.
+- **Later, not v1:** a *timer* clock (sample every T seconds — the
+  closest thing to the stock fly scan; right for non-triggered devices,
+  fuzzy for triggered ones, whose stacks would hold several frames per
+  row), and #840's strict-mode rep-rate throttle.
+
+Honest status: not a stock ophyd-async class.  The stock answers are
+monitors (per update) or `trigger_and_read` per shot (strict); the
+sampler is ~100 lines that implement two protocols and are driven by
+the stock `kickoff`/`complete`/`collect` verbs.
 
 ---
 
@@ -496,21 +568,27 @@ references and, when `acquisition` is `gated`, for the essential ones.
    strict scan on `UC_Amp4_IR_input` shows the columns in the stack
    equal to the s-file's for that device.
 2. **2b — the worker**: `acquisition` + `non_essential` on the bound
-   plans, `gated_take_reading` with the `steps` stream, the declared
-   streams, `truncate_to_quota`, the explicit fly mode (`kickoff` sets,
-   `trigger` clears) and the mode-aware `wait_for_idle`, the OFF bracket,
-   the preflight rule for both lists, `essential` on `PresetDevice`
-   (GEECS-Schemas minor) and its expansion, and `StackCheckCallback`
-   taking the referenced counts from the datums' `indices` and the stamps
-   from the stack (today it expects primary *events* and would warn on
-   every gated or non-essential stack).  The s-file writer already skips
-   a run with no primary events with a log line; 2b leaves that.
+   plans, `gated_take_reading` with the per-shot sampler and its `shots`
+   stream (§4.7), the declared streams, `truncate_to_quota`, the explicit
+   fly mode (`kickoff` sets, `trigger` clears) and the mode-aware
+   `wait_for_idle`, the OFF bracket, the repeat-the-step resume (§4.2
+   Pause), the preflight rules (the `hdf`-child rule for both lists; at
+   least one essential triggered device for a gated run), `essential` on
+   `PresetDevice` (GEECS-Schemas minor) and its expansion, and
+   `StackCheckCallback` taking the referenced counts from the datums'
+   `indices` and the stamps from the stack (today it expects primary
+   *events* and would warn on every gated or non-essential stack).  The
+   s-file writer already skips a run with no primary events with a log
+   line; 2b leaves that.
    Hardware (a runbook like `05`'s, through the staging manager): a
    gated `count` and a gated `scan` on `U_S1H` with two plugin-backed
    cameras, frames == quota per step per camera, stamps one period apart,
-   the box OFF between steps and STANDBY at the end; a strict scan with
+   the `shots` rows == frames with U_S1H's readback and the bin, the box
+   OFF between steps and STANDBY at the end; a gated scan with a
+   triggered scalar device as the clock and no camera; a strict scan with
    one camera non-essential, its stream's frame count ≈ the run's edges;
-   a non-essential camera disconnected mid-run, the run completing.
+   a non-essential camera disconnected mid-run, the run completing; an
+   immediate pause mid-step, the step repeated on resume.
    With the laser off: `HTU-LaserOFF` (SCAN = internal), which exercises
    everything but the laser's phase.
 3. **2c — the s-file from streams** (GeecsBluesky minor; Data-Utils
@@ -522,29 +600,23 @@ re-glue and the web scanner v1 stay after phase 2 as listed.
 
 ---
 
-## 6. Open questions for Sam
+## 6. Open questions for Sam — answered 2026-09-12
 
-1. **Scalars of non-plugin devices in a gated run.**  A scalar-only
-   device (a magnet, a gauge) or a LabVIEW-native acquirer has no
-   stream.  v1 as designed records them in the **baseline** only (open
-   and close).  The native per-shot alternative is `monitors`
-   (`monitor_during_wrapper` over their subscribed signals — one event
-   per update per signal, joined by CA timestamp in the s-file writer).
-   Recommendation: baseline-only in 2b, monitors as a 2c option once the
-   join code exists — a gated run is for the cameras.
-2. **"N frames each, not the same N edges"** (§4.2) — acceptable as the
-   meaning of essential in gated mode?  The alternative (same edges)
-   is strict.
-3. **Which scalars ride in the stack** (§4.4): the subscribed list
-   (recommended — the row is the same in both modes) or every scalar in
-   the push.
-4. **The s-file join rule** (§4.5): a non-essential frame with no
-   essential row within half a period gets a row of its own
-   (recommended) or is dropped from the s-file (kept in the stack).
-5. **Mode as a keyword** (`acquisition="gated"`, recommended) versus
-   separate plan names.
-6. **Pause mid-batch fails the step on resume** (§4.2) — acceptable for
-   v1?
+Recorded in `03` §10.9; the sections above are amended to match.
 
-Answers go into `03` §10 as items, per its rule; this document is
-amended to match.
+1. **Scalars of non-plugin devices in a gated run** — neither baseline
+   nor monitors: the **per-shot sampler** (§4.7).  Most devices are not
+   triggered and publish at ~5 Hz (monitors would flood); baseline would
+   lose every per-shot scalar.  Strict's rule, "the latest value into a
+   row the trigger generated", one event per shot; the sampler also
+   counts, so a gated run needs one essential *triggered* device
+   (camera or scalar) and no camera in particular.  Deadbands tossed.
+2. **"N frames each"** — accepted as the gated meaning of essential.
+3. **The subscribed list** rides in the stack (§4.4, PR 2a).
+4. **Orphan non-essential frames are dropped from the s-file**, kept in
+   the stack (§4.5): one row per essential shot.
+5. **Mode as a keyword**, `acquisition="gated"`.
+6. **Pause:** the deferred pause is a real pause between steps; an
+   immediate pause mid-batch **repeats the step on resume** (§4.2).
+
+Raised alongside: a deliberate strict-mode rep-rate throttle, #840.
