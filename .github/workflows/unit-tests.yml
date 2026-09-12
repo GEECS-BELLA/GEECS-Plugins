@@ -97,49 +97,7 @@ jobs:
         working-directory: GeecsPvaGateway
         run: poetry run pytest tests --tb=short -q
 
-  console-windows:
-    # GEECS-Console is the operator-facing PySide6 GUI and control-room
-    # machines run Windows — this job pins that the console suite passes
-    # on windows-latest.  Console only; the rest of the monorepo is
-    # covered by the ubuntu job above.
-    runs-on: windows-latest
-
-    defaults:
-      run:
-        working-directory: GEECS-Console
-
-    steps:
-      - uses: actions/checkout@v5
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Install Poetry
-        run: pip install poetry
-
-      - name: Cache Poetry package cache
-        uses: actions/cache@v4
-        with:
-          path: ~\AppData\Local\pypoetry\Cache
-          key: poetry-console-windows-py311-${{ hashFiles('GEECS-Console/poetry.lock') }}
-          restore-keys: poetry-console-windows-py311-
-
-      - name: Install GEECS-Console dependencies
-        # Path deps (geecs-core, and geecs-bluesky -> geecs-core/
-        # geecs-schemas/geecs-data-utils) resolve relative to GEECS-Console/
-        # inside the checkout, same as on the ubuntu job.
-        run: poetry install --with dev
-
-      - name: Run GEECS-Console tests
-        env:
-          QT_QPA_PLATFORM: offscreen
-        run: poetry run pytest -q --tb=short
-
-      - name: Run qs_client tests on Windows
-        # The RE Manager client (geecs_bluesky.qs_client) moved out of the
-        # console but the console still runs it on Windows control-room
-        # machines — keep its Windows leg (tilde-expanding config reader
-        # included).  geecs-bluesky is installed in this env as a path dep
-        # with the qs-client extra, so the suite collects here directly.
-        run: poetry run pytest ../GeecsBluesky/tests/qs_client -q --tb=short -p no:cacheprovider
+  # The console-windows job (the GEECS-Console suite + the qs_client tests on
+  # windows-latest) was retired 2026-09-12: the console is not being changed
+  # and is slated for retirement, and the job added ~5 minutes to every
+  # check. Restore it from git history if a Windows leg is wanted again.
