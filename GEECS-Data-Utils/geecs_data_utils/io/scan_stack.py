@@ -47,20 +47,20 @@ LABVIEW_EPOCH_OFFSET = 2_082_844_800
 FRAMES_DATASET = "/entry/data/data"
 #: The per-frame attribute datasets' group (NDFileHDF5's ``NDAttributes``).
 ATTRIBUTES_GROUP = "/entry/instrument/NDAttributes"
-#: The suffix of the per-frame ``acq_timestamp`` attribute dataset,
-#: ``(N,)`` float64 Unix s.  The plugin names it ``<device>-acq_timestamp``
-#: (unique across the cameras of one run, GEECS-Plugins#829); stacks
-#: written before that carry the bare name — :func:`timestamps_dataset`
-#: resolves either.
-TIMESTAMP_SUFFIX = "acq_timestamp"
+#: The suffix of the per-frame stamp attribute dataset, ``(N,)`` float64
+#: Unix s.  The plugin names it ``<device>-hdf-<variable>-frame_acq_timestamp``
+#: (GeecsPvaGateway >= 0.8, GEECS-Plugins#829: unique across the cameras of a
+#: run and never an event column's name); stacks written before that carry
+#: the bare ``acq_timestamp`` — :func:`timestamps_dataset` resolves either.
+TIMESTAMP_SUFFIX = "frame_acq_timestamp"
 #: The bare-name spelling (stacks written by GeecsPvaGateway < 0.8).
-TIMESTAMPS_DATASET = f"{ATTRIBUTES_GROUP}/{TIMESTAMP_SUFFIX}"
+TIMESTAMPS_DATASET = f"{ATTRIBUTES_GROUP}/acq_timestamp"
 
 
 def timestamps_dataset(f: "h5py.File") -> str | None:
-    """The path of the open stack's ``acq_timestamp`` dataset, or ``None``.
+    """The path of the open stack's per-frame stamp dataset, or ``None``.
 
-    ``<device>-acq_timestamp`` (the current layout) or the bare
+    ``…-frame_acq_timestamp`` (the current layout) or the bare
     ``acq_timestamp`` (the layout before GeecsPvaGateway 0.8); the first
     match in the attributes group.
     """
@@ -68,7 +68,7 @@ def timestamps_dataset(f: "h5py.File") -> str | None:
     if group is None:
         return None
     for key in group:
-        if key == TIMESTAMP_SUFFIX or key.endswith(f"-{TIMESTAMP_SUFFIX}"):
+        if key == "acq_timestamp" or key.endswith(f"-{TIMESTAMP_SUFFIX}"):
             return f"{ATTRIBUTES_GROUP}/{key}"
     return None
 

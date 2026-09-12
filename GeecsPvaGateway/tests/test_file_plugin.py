@@ -225,8 +225,11 @@ async def test_stock_adhdf_data_logic_drives_the_plugin(tmp_path, monkeypatch):
         assert keys["cam"]["external"] == "STREAM:"
         # The attribute keys carry the device (unique across cameras, #829)
         # and spell the worker's event column for the stamp.
-        assert {"uc_testcam-acq_timestamp", "uc_testcam-recv_timestamp"} <= set(keys)
-        assert "acq_timestamp" not in keys
+        assert {
+            "uc_testcam-hdf-image-frame_acq_timestamp",
+            "uc_testcam-hdf-image-frame_recv_timestamp",
+        } <= set(keys)
+        assert not {"acq_timestamp", "uc_testcam-acq_timestamp"} & set(keys)
         assert provider.uri.endswith("UC_TestCam/UC_TestCam.h5")
         assert await provider.collections_written_signal.get_value() == 0
         # Two shots, then a re-push of the second (dedupe), then a stale one.
@@ -252,7 +255,7 @@ async def test_stock_adhdf_data_logic_drives_the_plugin(tmp_path, monkeypatch):
         assert frames.shape == (2, *IMG.shape)
         assert frames.chunks == (1, *IMG.shape)
         np.testing.assert_array_equal(frames[1], IMG + 1)
-        stamps = f[f"{ATTRIBUTES_GROUP}/uc_testcam-acq_timestamp"][:]
+        stamps = f[f"{ATTRIBUTES_GROUP}/uc_testcam-hdf-image-frame_acq_timestamp"][:]
         assert stamps[1] == pytest.approx(t + 1.0, abs=0.002)
         assert "acq_timestamp" not in f[ATTRIBUTES_GROUP]
         assert f.attrs["finalized"]
@@ -447,14 +450,16 @@ def test_pathinfo_windows_and_uri_are_independent():
 # ------------------------------------------------------------ attribute names
 def test_attribute_names_carry_the_normalized_device() -> None:
     """``<device>-<suffix>`` under the shared naming contract (the worker's ophyd name)."""
-    assert attribute_names("UC Test.Cam") == (
-        "uc_test_cam-acq_timestamp",
-        "uc_test_cam-recv_timestamp",
+    assert attribute_names("UC Test.Cam", "bakground image") == (
+        "uc_test_cam-hdf-bakground_image-frame_acq_timestamp",
+        "uc_test_cam-hdf-bakground_image-frame_recv_timestamp",
     )
-    xml = attributes_xml("UC_TestCam")
-    assert 'name="uc_testcam-acq_timestamp"' in xml
-    assert 'name="uc_testcam-recv_timestamp"' in xml
-    assert 'name="acq_timestamp"' not in xml
+    xml = attributes_xml("UC_TestCam", "image")
+    assert 'name="uc_testcam-hdf-image-frame_acq_timestamp"' in xml
+    assert 'name="uc_testcam-hdf-image-frame_recv_timestamp"' in xml
+    # Never an event column's name (the camera's own stamp column is
+    # uc_testcam-acq_timestamp) and never the bare name (#829).
+    assert "uc_testcam-acq_timestamp" not in xml and 'name="acq_timestamp"' not in xml
     plugin = HdfFilePlugin(
         device="UC_TestCam",
         variable="image",
@@ -464,6 +469,6 @@ def test_attribute_names_carry_the_normalized_device() -> None:
     )
     try:
         assert plugin.value("NDAttributesFile") == xml
-        assert plugin.attributes == attribute_names("UC_TestCam")
+        assert plugin.attributes == attribute_names("UC_TestCam", "image")
     finally:
         plugin.stop()

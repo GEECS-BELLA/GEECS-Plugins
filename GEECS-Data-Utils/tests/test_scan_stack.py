@@ -41,14 +41,14 @@ def _write_stack(
 
 
 def test_device_prefixed_timestamps_are_the_current_layout(tmp_path) -> None:
-    """``<device>-acq_timestamp`` (GeecsPvaGateway >= 0.8) reads like the bare name did."""
+    """``<device>-hdf-<var>-frame_acq_timestamp`` (GeecsPvaGateway >= 0.8) reads like the bare name did."""
     from geecs_data_utils.io.scan_stack import (
         read_shot_for_acq_timestamp,
         timestamps_dataset,
     )
 
     device_dir = tmp_path / "UC_Cam"
-    current = "/entry/instrument/NDAttributes/uc_cam-acq_timestamp"
+    current = "/entry/instrument/NDAttributes/uc_cam-hdf-image-frame_acq_timestamp"
     path = _write_stack(device_dir, timestamps=current)
     assert is_stack_file(path) and find_stack_file(device_dir) == path
     with h5py.File(path, "r") as f:

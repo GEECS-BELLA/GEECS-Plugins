@@ -9,12 +9,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Changed
 
 - `io.scan_stack`: the stamp dataset is resolved, not fixed —
-  `timestamps_dataset(f)` finds `<device>-acq_timestamp` (the file
-  plugin's layout from GeecsPvaGateway 0.8, GEECS-Plugins#829) or the bare
-  `acq_timestamp` of earlier stacks; `is_stack_file`,
+  `timestamps_dataset(f)` finds `<device>-hdf-<variable>-frame_acq_timestamp`
+  (the file plugin's layout from GeecsPvaGateway 0.8, GEECS-Plugins#829)
+  or the bare `acq_timestamp` of earlier stacks; `is_stack_file`,
   `read_stack_timestamps` and `read_shot_for_acq_timestamp` go through it.
   `TIMESTAMPS_DATASET` stays as the bare-name spelling for the readers of
-  older files; `TIMESTAMP_SUFFIX` is the suffix both spellings share.
+  older files; `TIMESTAMP_SUFFIX` is the current suffix (deliberately not
+  `-acq_timestamp`, which `tiled_schema.is_acq_timestamp_column` reserves
+  for a device's event column).
 
 ## [0.28.0] - 2026-09-11
 

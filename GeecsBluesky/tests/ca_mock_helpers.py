@@ -67,9 +67,11 @@ class DocCollector:
         from collections import defaultdict
 
         self.docs: dict[str, list[dict]] = defaultdict(list)
+        self.ordered: list[tuple[str, dict]] = []  # every document, in order
 
     def __call__(self, name: str, doc: dict) -> None:
         self.docs[name].append(doc)
+        self.ordered.append((name, doc))
 
     def primary_events(self) -> list[dict]:
         uids = {d["uid"] for d in self.docs["descriptor"] if d["name"] == "primary"}

@@ -90,34 +90,40 @@ PLUGIN_SUFFIX = HDF_PLUGIN_SUFFIX
 #: The dataset paths (``FRAMES_DATASET``, ``ATTRIBUTES_GROUP``) are the read
 #: side's (``geecs_data_utils.io.scan_stack``): the NDFileHDF5 layout
 #: ophyd-async's ``ADHDFDataLogic`` describes and Tiled's HDF5 adapter reads.
-#: The per-frame attribute datasets, by suffix; each plugin's names are
-#: ``<normalized device>-<suffix>`` (:func:`attribute_names`) — the worker's
-#: event-column convention (``<ophyd name>-<variable>``, the same
-#: ``normalize_component`` rule), so the stream data keys the stock
-#: ``ADHDFDataLogic`` derives from the XML are unique across the cameras
-#: of one run (bare names collided, GEECS-Plugins#829) and identical to the
-#: strict row's columns for that device.
-ATTRIBUTE_SUFFIXES = ("acq_timestamp", "recv_timestamp")
+#: The per-frame attribute datasets, by suffix.  Each plugin names them
+#: ``<device>-hdf-<variable>-<suffix>`` (:func:`attribute_names`, both
+#: parts through ``normalize_component``, the worker's ophyd-name rule).
+#: The stock ``ADHDFDataLogic`` turns attribute names into stream data
+#: keys verbatim, so the names must be **unique across the cameras of one
+#: run** (bare ``acq_timestamp`` collided on the second camera,
+#: GEECS-Plugins#829) and **disjoint from every event column** of the
+#: detector (``<name>-acq_timestamp`` is the camera's own CA stamp column;
+#: a stream key of the same name overwrote its description and broke
+#: Tiled's ingestion).  ``-hdf-`` names the plugin child, and the
+#: ``frame_`` suffixes never spell an event column.
+ATTRIBUTE_SUFFIXES = ("frame_acq_timestamp", "frame_recv_timestamp")
 _ATTRIBUTE_DESCRIPTIONS = {
-    "acq_timestamp": "GEECS acquisition stamp, Unix s (the shot join key)",
-    "recv_timestamp": "gateway receive time, Unix s (delivery diagnostics)",
+    "frame_acq_timestamp": "GEECS acquisition stamp of the frame, Unix s (the shot join key)",
+    "frame_recv_timestamp": "gateway receive time of the frame, Unix s (delivery diagnostics)",
 }
 
 
-def attribute_names(device: str) -> tuple[str, ...]:
-    """The attribute dataset (and stream data key) names for *device*."""
-    prefix = normalize_component(device)
+def attribute_names(device: str, variable: str) -> tuple[str, ...]:
+    """The attribute dataset (and stream data key) names for one image variable."""
+    prefix = f"{normalize_component(device)}-hdf-{normalize_component(variable)}"
     return tuple(f"{prefix}-{suffix}" for suffix in ATTRIBUTE_SUFFIXES)
 
 
-def attributes_xml(device: str) -> str:
-    """The ``NDAttributesFile`` document declaring *device*'s attribute datasets."""
+def attributes_xml(device: str, variable: str) -> str:
+    """The ``NDAttributesFile`` document declaring the plugin's attribute datasets."""
     return (
         "<Attributes>"
         + "".join(
             f'<Attribute name="{name}" type="PARAM" source="{name}" '
             f'datatype="DOUBLE" description="{_ATTRIBUTE_DESCRIPTIONS[suffix]}"/>'
-            for name, suffix in zip(attribute_names(device), ATTRIBUTE_SUFFIXES)
+            for name, suffix in zip(
+                attribute_names(device, variable), ATTRIBUTE_SUFFIXES
+            )
         )
         + "</Attributes>"
     )
@@ -181,7 +187,9 @@ PV_TABLE: tuple[_Param, ...] = (
     # NDArrayBaseIO
     _Param("PortName_RBV", "s", "HDF1"),
     _Param("UniqueId_RBV", "i", 0),
-    _Param("NDAttributesFile", "s", ""),  # per instance: attributes_xml(device)
+    _Param(
+        "NDAttributesFile", "s", ""
+    ),  # per instance: attributes_xml(device, variable)
     _Param("ArraySizeX_RBV", "i", 0),
     _Param("ArraySizeY_RBV", "i", 0),
     _Param("ArraySizeZ_RBV", "i", 0),
@@ -349,7 +357,7 @@ class HdfFilePlugin:
         self.variable = variable
         self.experiment = experiment
         self.prefix = hdf_plugin_prefix(experiment, device, variable)
-        self.attributes = attribute_names(device)
+        self.attributes = attribute_names(device, variable)
         self._retain = retain
         self._release = release
         self._lock = threading.Lock()
@@ -361,7 +369,7 @@ class HdfFilePlugin:
             if param.suffix == "NDArrayPort":
                 initial = variable
             elif param.suffix == "NDAttributesFile":
-                initial = attributes_xml(device)
+                initial = attributes_xml(device, variable)
             self._params[param.suffix] = param
             self._values[param.suffix] = initial
             wrapped = _wrap(param.kind, initial, param.choices)

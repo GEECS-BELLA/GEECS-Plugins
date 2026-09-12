@@ -271,22 +271,25 @@ camera.  Nothing ever backlogs silently.
 
 **File** (`h5py`, `libver="latest"`, `locking=False`):
 `/entry/data/data` `(N, H, W)` chunks `(1, H, W)`, maxshape unbounded,
-compression per the PV; `/entry/instrument/NDAttributes/<device>-acq_timestamp`
-and `.../<device>-recv_timestamp` `(N,)` float64, chunks `(16384,)` — the
+compression per the PV;
+`/entry/instrument/NDAttributes/<device>-hdf-<variable>-frame_acq_timestamp`
+and `…-frame_recv_timestamp` `(N,)` float64, chunks `(16384,)` — the
 chunk shape ophyd-async declares for attribute datasets, so the
 consolidator's structure matches the file without its "fixing chunk shape
-mismatch" warning.  `<device>` is `normalize_component(device)`, the
-worker's ophyd name, so the stream data keys the stock logic derives from
-the attribute names are unique across the cameras of one run and spell
-the strict row's stamp column (`uc_amp4_ir_input-acq_timestamp`); the
-bare names shipped first and collided on the second camera
-(GEECS-Plugins#829), and `scan_stack.timestamps_dataset` reads either
-spelling.  Root attributes: `device`, `experiment`, `source_pv`,
-`created`, the counters, `finalized`.  `NDAttributesFile` serves
-`<Attributes><Attribute name="<device>-acq_timestamp" type="PARAM"
-datatype="DOUBLE" .../>…</Attributes>` (`file_plugin.attributes_xml`),
-which `get_ndattribute_dtype_source` parses into the two attribute stream
-resources (`<f8`, chunk `(16384,)`).
+mismatch" warning.  The names (`file_plugin.attribute_names`, both parts
+through `normalize_component`) are what the stock logic turns into stream
+data keys verbatim, so they must be unique across the cameras of one run
+**and** disjoint from every event column: the bare `acq_timestamp` shipped
+first and collided on the second camera; `<device>-acq_timestamp` is the
+camera's own CA stamp column and a stream key of that name overwrote it
+and broke Tiled's ingestion (GEECS-Plugins#829, both found the same day).
+`scan_stack.timestamps_dataset` reads the current name or the bare one.
+Root attributes: `device`, `experiment`, `source_pv`, `created`, the
+counters, `finalized`.  `NDAttributesFile` serves
+`<Attributes><Attribute name="<device>-hdf-<variable>-frame_acq_timestamp"
+type="PARAM" datatype="DOUBLE" .../>…</Attributes>`
+(`file_plugin.attributes_xml`), which `get_ndattribute_dtype_source`
+parses into the two attribute stream resources (`<f8`, chunk `(16384,)`).
 
 **Provenance across restarts:** none needed.  The plugin holds no
 per-scan state between sessions; the worker tells it where to write.
