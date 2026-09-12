@@ -345,3 +345,47 @@ async def test_restart_pv_shuts_down_cleanly():
         if not task.done():
             await _shutdown(task)
         await cam.stop()
+
+
+def test_subscription_carries_the_scalars_only_with_a_plugin(monkeypatch) -> None:
+    """One TCP subscription: frame + stamps, plus the subscribed scalars when the
+    file plugin serves the variable (08 §4.4) — never without it."""
+    from geecs_pva_gateway import file_plugin
+    from geecs_pva_gateway.server import _CameraWorker
+
+    spec = CameraSpec(
+        device="UC_TestCam",
+        host="127.0.0.1",
+        port=1,
+        experiment="testexp",
+        scalar_variables=["MaxCounts", "acq_timestamp", "exposure"],
+    )
+    loop = asyncio.new_event_loop()
+    try:
+        worker = _CameraWorker(spec, loop)
+        try:
+            assert worker.plugins  # h5py is installed here
+            assert worker.subscription_variables("image") == [
+                "image",
+                "acq_timestamp",
+                "systimestamp",
+                "MaxCounts",
+                "exposure",
+            ]
+            assert worker.plugins["image"].scalar_variables == (
+                "MaxCounts",
+                "acq_timestamp",
+                "exposure",
+            )
+        finally:
+            for plugin in worker.plugins.values():
+                plugin.stop()
+        monkeypatch.setattr(file_plugin, "available", lambda: False)
+        bare = _CameraWorker(spec, loop)
+        assert bare.subscription_variables("image") == [
+            "image",
+            "acq_timestamp",
+            "systimestamp",
+        ]
+    finally:
+        loop.close()

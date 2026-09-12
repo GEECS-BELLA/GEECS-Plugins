@@ -4,6 +4,37 @@ All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
+## [0.9.0] - 2026-09-12
+
+### Added
+
+- **File plugin: the device's subscribed scalars ride in the stack as
+  per-frame attributes** (`Planning/native_bluesky/08_gated_batch.md` §4.4,
+  phase 2 PR 2a).  Beside the two frame stamps, the plugin writes one
+  `DOUBLE` dataset per subscribed (`get='yes'`) scalar of the camera under
+  `/entry/instrument/NDAttributes/<device>-hdf-<variable>-<scalar>` and
+  declares it in `NDAttributesFile`, so the stock `ADHDFDataLogic`
+  describes each as a stream column with nothing new on the worker.  The
+  list is `CameraSpec.scalar_variables`, built at startup by
+  `geecs_core.db.variable_types.scalar_attribute_variables` (GEECS-Core
+  0.6.0, beside `image_variables`) over the subscribed list from
+  `geecs_core.db.scalar_policy.GeecsDbScalarPolicy` (moved there from
+  GeecsBluesky so the two sides cannot drift): the **numeric** subscribed
+  variables, minus the timestamp ladder the stamps already carry (an
+  enum's wire value is its text label, so enum and text columns stay
+  strict-row-only); a second variable normalizing onto an earlier one's
+  dataset name is dropped with a warning at startup, never a crash.  The
+  file's root attributes `scalar_variables` / `scalar_attributes` carry the
+  raw GEECS names behind the normalized datasets (normalization is
+  one-way; an offline reader has no DB).  The values come
+  from the same TCP push as the frame: the image variable's one
+  subscription is widened by the scalar list (`_CameraWorker.
+  subscription_variables`; still one subscription per variable, and only
+  where the plugin serves it), so an attribute row is positionally exact.
+  A variable the device did not send with a frame, or a text enum value,
+  is written `NaN`; the plugin never invents a value.  Stacks written by
+  0.8 (stamps only) read unchanged.
+
 ## [0.8.0] - 2026-09-11
 
 ### Changed

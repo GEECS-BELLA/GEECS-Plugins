@@ -36,7 +36,7 @@ restated:
   root device connects every child, so an unserved child would make it
   unconnectable (found on hardware).
 - **Which variables `read()` returns** — the DB subscribed list, from
-  `db_runtime.GeecsDbScalarPolicy` (what a `db_scalars` save-set entry
+  `geecs_core.db.scalar_policy.GeecsDbScalarPolicy` (what a `db_scalars` save-set entry
   logs). A subscribed settable's Movable child is registered as a readable
   (`add_readables`), so its column is `U_S1H-Current-position`.
 - **Every variable's CA type** — `geecs_core.db.variable_types.effective_vartype`

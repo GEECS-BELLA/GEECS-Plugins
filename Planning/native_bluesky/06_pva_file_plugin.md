@@ -276,7 +276,14 @@ compression per the PV;
 and `…-frame_recv_timestamp` `(N,)` float64, chunks `(16384,)` — the
 chunk shape ophyd-async declares for attribute datasets, so the
 consolidator's structure matches the file without its "fixing chunk shape
-mismatch" warning.  The names (`file_plugin.attribute_names`, both parts
+mismatch" warning — and, since 0.9.0 (`08_gated_batch.md` §4.4), one
+`…-<scalar>` dataset of the same shape per subscribed scalar of the
+device (`CameraSpec.scalar_variables`: the DB `get='yes'` list through
+`geecs_core.db.scalar_policy`, numeric types only — an enum's wire value
+is its text label — minus the timestamp ladder, filtered by
+`geecs_core.db.variable_types.scalar_attribute_variables`), holding the
+value pushed with that frame or `NaN`; the root attributes
+`scalar_variables` / `scalar_attributes` record the raw names.  The names (`file_plugin.attribute_names`, both parts
 through `normalize_component`) are what the stock logic turns into stream
 data keys verbatim, so they must be unique across the cameras of one run
 **and** disjoint from every event column: the bare `acq_timestamp` shipped

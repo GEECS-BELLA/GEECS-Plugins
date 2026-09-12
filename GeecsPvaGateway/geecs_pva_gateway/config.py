@@ -13,7 +13,11 @@ import socket
 
 from pydantic import BaseModel, Field
 
-from geecs_core.db.variable_types import image_variables  # noqa: F401 - the camera test, re-exported
+from geecs_core.db.scalar_policy import GeecsDbScalarPolicy
+from geecs_core.db.variable_types import (  # noqa: F401 - image_variables re-exported
+    image_variables,
+    scalar_attribute_variables,
+)
 from geecs_core.pv_naming import normalize_component, pv_name
 from geecs_core.transport.udp_client import detect_local_ip
 
@@ -54,6 +58,11 @@ class CameraSpec(BaseModel):
     port: int
     experiment: str
     image_variables: list[str] = Field(default_factory=lambda: ["image"])
+    #: The subscribed numeric scalars the file plugin writes beside every
+    #: frame (:func:`geecs_core.db.variable_types.scalar_attribute_variables`,
+    #: the one home for the rule); they join the image variable's one TCP
+    #: subscription.  Empty = frames and stamps only.
+    scalar_variables: list[str] = Field(default_factory=list)
 
     def pv_name_for(self, variable: str) -> str:
         """Full PV name for one image variable, minted by the shared contract."""
@@ -96,6 +105,12 @@ class PvaGatewayConfig(BaseModel):
         var_map = GeecsDb.get_experiment_device_variables(
             experiment, enabled_only=enabled_only
         )
+        # The per-frame scalar attributes: the same rule the worker builds a
+        # device's row from, from its one home.  Degrades to empty with a
+        # warning on a DB blip (the roster queries above already succeeded).
+        subscribed = GeecsDbScalarPolicy(
+            experiment, enabled_only=enabled_only, db=GeecsDb
+        ).subscribed_by_device()
         if host:
             hosts = {host}
         else:
@@ -120,6 +135,11 @@ class PvaGatewayConfig(BaseModel):
                     port=port,
                     experiment=experiment,
                     image_variables=image_vars,
+                    scalar_variables=scalar_attribute_variables(
+                        var_map.get(device, []),
+                        subscribed.get(device, []),
+                        normalize=normalize_component,
+                    ),
                 )
             )
         if devices:

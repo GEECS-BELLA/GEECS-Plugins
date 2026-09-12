@@ -170,3 +170,59 @@ class TestSharedJoinHelpers:
         assert index == 1
         assert frame[0, 0] == 1
         assert read_shot_for_acq_timestamp(path, 999.0 + LABVIEW_EPOCH_OFFSET) is None
+
+
+def test_stack_attributes_read_and_parse(tmp_path) -> None:
+    """The per-frame scalars (GeecsPvaGateway >= 0.9) read beside the stamps."""
+    from geecs_data_utils.io.scan_stack import (
+        parse_attribute_name,
+        read_stack_attributes,
+    )
+
+    device_dir = tmp_path / "UC_Cam"
+    stamps = "/entry/instrument/NDAttributes/uc_cam-hdf-image-frame_acq_timestamp"
+    path = _write_stack(device_dir, timestamps=stamps)
+    with h5py.File(path, "a") as f:
+        f.create_dataset(
+            "/entry/instrument/NDAttributes/uc_cam-hdf-image-maxcounts",
+            data=[4095.0, np.nan, 4000.0],
+        )
+        # A non-numeric member (another writer's STRING attribute) is skipped.
+        f.create_dataset(
+            "/entry/instrument/NDAttributes/label", data=np.array([b"a", b"b", b"c"])
+        )
+        f.attrs["scalar_attributes"] = ["uc_cam-hdf-image-maxcounts"]
+        f.attrs["scalar_variables"] = ["MaxCounts"]
+    from geecs_data_utils.io import stack_scalar_variables  # exported like its siblings
+
+    assert stack_scalar_variables(path) == {"uc_cam-hdf-image-maxcounts": "MaxCounts"}
+    attrs = read_stack_attributes(path)
+    assert set(attrs) == {
+        "uc_cam-hdf-image-frame_acq_timestamp",
+        "recv_timestamp",
+        "uc_cam-hdf-image-maxcounts",
+    }
+    np.testing.assert_array_equal(
+        attrs["uc_cam-hdf-image-maxcounts"][[0, 2]], [4095.0, 4000.0]
+    )
+    assert np.isnan(attrs["uc_cam-hdf-image-maxcounts"][1])
+    assert parse_attribute_name("uc_cam-hdf-image-maxcounts") == (
+        "uc_cam",
+        "image",
+        "maxcounts",
+    )
+    assert parse_attribute_name("uc_cam-hdf-image-frame_acq_timestamp") == (
+        "uc_cam",
+        "image",
+        "frame_acq_timestamp",
+    )
+    assert parse_attribute_name("recv_timestamp") is None
+    assert parse_attribute_name("uc_cam-hdf-image") is None
+    # A pre-0.9 stack: stamps only, no manifest.
+    older = _write_stack(tmp_path / "UC_Old")
+    assert stack_scalar_variables(older) == {}
+    # Half a manifest is no manifest.
+    with h5py.File(older, "a") as f:
+        f.attrs["scalar_attributes"] = ["uc_old-hdf-image-x"]
+    assert stack_scalar_variables(older) == {}
+    assert set(read_stack_attributes(older)) == {"acq_timestamp", "recv_timestamp"}

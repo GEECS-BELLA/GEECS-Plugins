@@ -5,6 +5,17 @@ All notable changes to `geecs-bluesky` are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
+## [0.82.3] - 2026-09-12
+
+### Changed
+
+- `GeecsDbScalarPolicy` / `ScalarPolicyProvider` moved to
+  `geecs_core.db.scalar_policy` (GEECS-Core 0.6.0); `db_runtime` keeps the
+  served-set and device-type providers.  The namespace imports the policy
+  from its new home — no behaviour change.  The PVA gateway's file plugin
+  now writes the same subscribed list as per-frame attributes
+  (GeecsPvaGateway 0.9.0), which is why the rule has one home.
+
 ## [0.82.2] - 2026-09-11
 
 ### Fixed

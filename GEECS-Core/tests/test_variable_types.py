@@ -45,3 +45,61 @@ def test_tables_are_consistent() -> None:
     assert set(VARTYPE_TO_DTYPE) == {"numeric", "string", "path", "choice"}
     assert not (set(VARTYPE_TO_DTYPE) & SKIP_VARTYPES)
     assert is_scalar_vartype("numeric") and not is_scalar_vartype("image")
+
+
+def test_scalar_attribute_variables_numeric_subscribed_minus_ladder(caplog) -> None:
+    """The PVA plugin's per-frame scalar filter (GEECS-Core 0.6.0)."""
+    import logging
+
+    from geecs_core.db.variable_types import (
+        TIMESTAMP_LADDER,
+        scalar_attribute_variables,
+    )
+
+    rows = [
+        {"name": "MaxCounts", "variabletype": "numeric", "choices": None},
+        {"name": "exposure", "variabletype": None, "choices": "numeric"},
+        {
+            "name": "trigger",
+            "variabletype": "",
+            "choices": "on,off",
+        },  # enum: text label
+        {"name": "localsavingpath", "variabletype": "string", "choices": None},
+        {"name": "image", "variabletype": "image", "choices": None},
+        {"name": "acq_timestamp", "variabletype": "numeric", "choices": None},
+        {"name": "Mean Counts", "variabletype": "numeric", "choices": None},
+        {"name": "mean_counts", "variabletype": "numeric", "choices": None},
+    ]
+    subscribed = [
+        "acq_timestamp",
+        "MaxCounts",
+        "trigger",
+        "localsavingpath",
+        "image",
+        "ghost",
+        "exposure",
+        "Mean Counts",
+        "mean_counts",
+        "MaxCounts",
+    ]
+    assert TIMESTAMP_LADDER == ("acq_timestamp", "systimestamp")
+    # Without a normalizer: numeric, subscribed, not the ladder, DB order, deduped.
+    assert scalar_attribute_variables(rows, subscribed) == [
+        "MaxCounts",
+        "exposure",
+        "Mean Counts",
+        "mean_counts",
+    ]
+    # With the naming contract: the second name onto one dataset is dropped, warned.
+    with caplog.at_level(logging.WARNING):
+        out = scalar_attribute_variables(
+            rows, subscribed, normalize=lambda s: s.lower().replace(" ", "_")
+        )
+    assert out == ["MaxCounts", "exposure", "Mean Counts"]
+    assert "mean_counts" in caplog.text and "normalizes to" in caplog.text
+    assert scalar_attribute_variables([], subscribed) == []
+    # Case: the DB spells the subscribed name differently from the metadata
+    # row (the namespace lower-matches too); the metadata spelling is kept.
+    assert scalar_attribute_variables(
+        rows, ["maxcounts", "EXPOSURE", "Acq_Timestamp"], normalize=str.lower
+    ) == ["MaxCounts", "exposure"]

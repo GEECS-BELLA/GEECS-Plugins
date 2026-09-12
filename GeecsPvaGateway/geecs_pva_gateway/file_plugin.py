@@ -5,7 +5,9 @@ The second consumer of the frame the gateway already receives
 push callback **before** the latest-wins slot, so intake is lossless within
 a capture session, and writes one ``<device>.h5`` per device per scan in
 the NDFileHDF5 layout (``/entry/data/data`` and
-``/entry/instrument/NDAttributes/<name>``).  The PV contract is the
+``/entry/instrument/NDAttributes/<name>``: the frame's stamps and, since
+0.9.0, the device's subscribed scalars as pushed with the frame —
+``Planning/native_bluesky/08_gated_batch.md`` §4.4).  The PV contract is the
 ``NDFileHDF5IO`` set ophyd-async 0.19.3 connects (every annotated suffix
 must exist, served under ``<experiment>:<device>:<variable>:hdf1:``) plus
 three GEECS PVs: ``Rewind`` (drop the frames past a count and any later
@@ -43,13 +45,15 @@ flushes per frame with file locking off, and readers open the closed
 from __future__ import annotations
 
 import logging
+import math
 import os
 import queue
 import threading
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
+from xml.sax.saxutils import quoteattr
 
 import numpy as np
 from p4p.nt import NTEnum, NTScalar
@@ -90,17 +94,22 @@ PLUGIN_SUFFIX = HDF_PLUGIN_SUFFIX
 #: The dataset paths (``FRAMES_DATASET``, ``ATTRIBUTES_GROUP``) are the read
 #: side's (``geecs_data_utils.io.scan_stack``): the NDFileHDF5 layout
 #: ophyd-async's ``ADHDFDataLogic`` describes and Tiled's HDF5 adapter reads.
-#: The per-frame attribute datasets, by suffix.  Each plugin names them
-#: ``<device>-hdf-<variable>-<suffix>`` (:func:`attribute_names`, both
-#: parts through ``normalize_component``, the worker's ophyd-name rule).
+#: The per-frame attribute datasets.  Each plugin names them
+#: ``<device>-hdf-<variable>-<suffix>`` (:func:`attribute_names`, every
+#: part through ``normalize_component``, the worker's ophyd-name rule):
+#: the two frame stamps (:data:`ATTRIBUTE_SUFFIXES`) and then one per
+#: subscribed scalar of the device (``CameraSpec.scalar_variables``, the
+#: DB ``get='yes'`` list — the same columns a strict row carries for that
+#: device, so a gated row is the same row; ``08_gated_batch.md`` §4.4).
 #: The stock ``ADHDFDataLogic`` turns attribute names into stream data
 #: keys verbatim, so the names must be **unique across the cameras of one
 #: run** (bare ``acq_timestamp`` collided on the second camera,
 #: GEECS-Plugins#829) and **disjoint from every event column** of the
 #: detector (``<name>-acq_timestamp`` is the camera's own CA stamp column;
 #: a stream key of the same name overwrote its description and broke
-#: Tiled's ingestion).  ``-hdf-`` names the plugin child, and the
-#: ``frame_`` suffixes never spell an event column.
+#: Tiled's ingestion).  ``-hdf-<variable>-`` names the plugin child, so
+#: ``<name>-hdf-image-maxcounts`` never spells the event column
+#: ``<name>-maxcounts``; the ``frame_`` suffixes never spell a variable.
 ATTRIBUTE_SUFFIXES = ("frame_acq_timestamp", "frame_recv_timestamp")
 _ATTRIBUTE_DESCRIPTIONS = {
     "frame_acq_timestamp": "GEECS acquisition stamp of the frame, Unix s (the shot join key)",
@@ -108,25 +117,59 @@ _ATTRIBUTE_DESCRIPTIONS = {
 }
 
 
-def attribute_names(device: str, variable: str) -> tuple[str, ...]:
-    """The attribute dataset (and stream data key) names for one image variable."""
-    prefix = f"{normalize_component(device)}-hdf-{normalize_component(variable)}"
-    return tuple(f"{prefix}-{suffix}" for suffix in ATTRIBUTE_SUFFIXES)
+def attribute_prefix(device: str, variable: str) -> str:
+    """``<device>-hdf-<variable>``: the attribute-name prefix of one image variable."""
+    return f"{normalize_component(device)}-hdf-{normalize_component(variable)}"
 
 
-def attributes_xml(device: str, variable: str) -> str:
+def attribute_names(
+    device: str, variable: str, scalars: Sequence[str] = ()
+) -> tuple[str, ...]:
+    """The attribute dataset (and stream data key) names for one image variable.
+
+    The two frame stamps first, then one per scalar in *scalars* (the
+    device's subscribed scalar variables, in their DB order).
+    """
+    prefix = attribute_prefix(device, variable)
+    return tuple(
+        f"{prefix}-{suffix}"
+        for suffix in (*ATTRIBUTE_SUFFIXES, *(normalize_component(s) for s in scalars))
+    )
+
+
+def attributes_xml(device: str, variable: str, scalars: Sequence[str] = ()) -> str:
     """The ``NDAttributesFile`` document declaring the plugin's attribute datasets."""
+    descriptions = [
+        *(_ATTRIBUTE_DESCRIPTIONS[suffix] for suffix in ATTRIBUTE_SUFFIXES),
+        *(
+            f"GEECS {device} {scalar} as pushed with the frame (NaN if absent)"
+            for scalar in scalars
+        ),
+    ]
     return (
         "<Attributes>"
         + "".join(
             f'<Attribute name="{name}" type="PARAM" source="{name}" '
-            f'datatype="DOUBLE" description="{_ATTRIBUTE_DESCRIPTIONS[suffix]}"/>'
-            for name, suffix in zip(
-                attribute_names(device, variable), ATTRIBUTE_SUFFIXES
+            f'datatype="DOUBLE" description={quoteattr(description)}/>'
+            for name, description in zip(
+                attribute_names(device, variable, scalars), descriptions, strict=True
             )
         )
         + "</Attributes>"
     )
+
+
+def scalar_value(value: object) -> float:
+    """The ``DOUBLE`` a pushed scalar is written as: the number, else ``NaN``.
+
+    The subscriber already coerces a non-text variable's value to ``int`` /
+    ``float`` when it parses as one; anything else (a text enum value, a
+    variable the device did not send this shot) is ``NaN`` — the plugin
+    never invents a value and never changes an attribute's dtype.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return math.nan
+    return float(value)
 
 
 #: The chunk shape ophyd-async assumes for attribute datasets.
@@ -342,6 +385,9 @@ class HdfFilePlugin:
     retain, release :
         The worker's per-variable subscription refcount (thread-safe): the
         plugin holds the GEECS subscription for the length of a session.
+    scalar_variables :
+        The device's subscribed scalars, written per frame as ``DOUBLE``
+        attributes after the two stamps (``CameraSpec.scalar_variables``).
     """
 
     def __init__(
@@ -352,12 +398,21 @@ class HdfFilePlugin:
         experiment: str,
         retain: Callable[[str], None],
         release: Callable[[str], None],
+        scalar_variables: Sequence[str] = (),
     ) -> None:
         self.device = device
         self.variable = variable
         self.experiment = experiment
         self.prefix = hdf_plugin_prefix(experiment, device, variable)
-        self.attributes = attribute_names(device, variable)
+        self.scalar_variables = tuple(scalar_variables)
+        self.attributes = attribute_names(device, variable, self.scalar_variables)
+        if len(set(self.attributes)) != len(self.attributes):
+            # Two scalars normalizing to one name would write one dataset
+            # twice and describe one stream key twice — refuse at build.
+            raise ValueError(
+                f"{device} {variable}: attribute names collide after "
+                f"normalization: {self.attributes}"
+            )
         self._retain = retain
         self._release = release
         self._lock = threading.Lock()
@@ -369,7 +424,7 @@ class HdfFilePlugin:
             if param.suffix == "NDArrayPort":
                 initial = variable
             elif param.suffix == "NDAttributesFile":
-                initial = attributes_xml(device, variable)
+                initial = attributes_xml(device, variable, self.scalar_variables)
             self._params[param.suffix] = param
             self._values[param.suffix] = initial
             wrapped = _wrap(param.kind, initial, param.choices)
@@ -441,10 +496,21 @@ class HdfFilePlugin:
         op.done()
 
     # -------------------------------------------------------------- intake
-    def offer(self, blob: str, stamp: float, recv_time: float) -> None:
-        """Hand a raw push frame to the writer (event loop; never blocks)."""
+    def offer(
+        self,
+        blob: str,
+        stamp: float,
+        recv_time: float,
+        scalars: Mapping[str, object] | None = None,
+    ) -> None:
+        """Hand a raw push frame to the writer (event loop; never blocks).
+
+        *scalars* is the push's ``{variable: value}`` for the plugin's
+        ``scalar_variables`` — the same TCP message the frame came in, so
+        the attribute row is positionally exact; a missing key is ``NaN``.
+        """
         try:
-            self._queue.put_nowait(("frame", blob, stamp, recv_time))
+            self._queue.put_nowait(("frame", blob, stamp, recv_time, scalars))
         except queue.Full:
             session = self._session
             if session is not None:
@@ -608,7 +674,13 @@ class HdfFilePlugin:
         if ad_type is not None:
             self._post("DataType_RBV", ad_type)
 
-    def _on_frame(self, blob: str, stamp: float, recv_time: float) -> None:
+    def _on_frame(
+        self,
+        blob: str,
+        stamp: float,
+        recv_time: float,
+        scalars: Mapping[str, object] | None = None,
+    ) -> None:
         session = self._session
         if session is None:
             return  # a PVA client holds the subscription; nothing to write
@@ -647,7 +719,7 @@ class HdfFilePlugin:
             return
         session.seen.add(stamp)
         try:
-            self._append(session, frame, stamp, recv_time)
+            self._append(session, frame, stamp, recv_time, scalars or {})
         except Exception as exc:  # noqa: BLE001 - counted; the stack tail stays valid
             counters.append_failures += 1
             self._error(f"append failed: {exc}")
@@ -668,6 +740,11 @@ class HdfFilePlugin:
         h5.attrs["source_pv"] = self.prefix
         h5.attrs["writer"] = f"geecs-pva-gateway {__version__}"
         h5.attrs["created"] = time.time()
+        # The raw GEECS names behind the normalized attribute datasets, in
+        # dataset order: normalization is one-way, and an offline reader
+        # (no DB) needs the row's column names back.
+        h5.attrs["scalar_variables"] = list(self.scalar_variables)
+        h5.attrs["scalar_attributes"] = list(self.attributes[len(ATTRIBUTE_SUFFIXES) :])
         filters: dict[str, Any] = {}
         if session.compression == "zlib":
             filters = {"compression": "gzip", "compression_opts": 1, "shuffle": True}
@@ -693,14 +770,24 @@ class HdfFilePlugin:
         logger.info("%s %s: opened %s", self.device, self.variable, session.path)
 
     def _append(
-        self, session: _Session, frame: np.ndarray, stamp: float, recv: float
+        self,
+        session: _Session,
+        frame: np.ndarray,
+        stamp: float,
+        recv: float,
+        scalars: Mapping[str, object],
     ) -> None:
         n = session.count
         h5 = session.file
         frames = h5[FRAMES_DATASET]
         frames.resize(n + 1, axis=0)
         frames[n] = frame
-        for name, value in zip(self.attributes, (stamp, recv), strict=True):
+        values = (
+            stamp,
+            recv,
+            *(scalar_value(scalars.get(var)) for var in self.scalar_variables),
+        )
+        for name, value in zip(self.attributes, values, strict=True):
             ds = h5[f"{ATTRIBUTES_GROUP}/{name}"]
             ds.resize(n + 1, axis=0)
             ds[n] = value

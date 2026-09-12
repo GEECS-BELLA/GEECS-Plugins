@@ -14,6 +14,10 @@ This module is the read side of that contract, deliberately small:
 - :func:`find_stack_file` — locate + validate a device's stack in a scan
   device folder (dispatch on the datasets, never the extension).
 - :func:`read_stack_timestamps` — the join key array, one read.
+- :func:`read_stack_attributes` / :func:`parse_attribute_name` /
+  :func:`stack_scalar_variables` — every per-frame attribute (the stamps
+  and, since GeecsPvaGateway 0.9, the device's subscribed numeric
+  scalars), keyed by dataset name, and the raw names behind them.
 - :func:`read_shot` — one frame by index (a single chunk read).
 - :class:`ShotRef` — a :class:`pathlib.Path` subclass carrying a frame
   index, so per-shot analysis pipelines can pass "this shot inside that
@@ -71,6 +75,70 @@ def timestamps_dataset(f: "h5py.File") -> str | None:
         if key == "acq_timestamp" or key.endswith(f"-{TIMESTAMP_SUFFIX}"):
             return f"{ATTRIBUTES_GROUP}/{key}"
     return None
+
+
+#: The plugin-child token in an attribute name: ``<device>-hdf-<variable>-<suffix>``.
+ATTRIBUTE_PLUGIN_TOKEN = "-hdf-"
+
+
+def parse_attribute_name(name: str) -> "tuple[str, str, str] | None":
+    """Split ``<device>-hdf-<variable>-<suffix>`` into its three parts.
+
+    The suffix is ``frame_acq_timestamp`` / ``frame_recv_timestamp`` for
+    the stamps and the normalized variable name for a subscribed scalar
+    (``uc_cam-hdf-image-maxcounts`` → ``("uc_cam", "image", "maxcounts")``).
+    Every part went through ``normalize_component`` on the writing side,
+    so neither the device nor the variable contains ``-``.  ``None`` for a
+    name of another shape (the bare ``acq_timestamp`` of pre-0.8 stacks).
+    """
+    device, token, rest = name.partition(ATTRIBUTE_PLUGIN_TOKEN)
+    if not token or not device:
+        return None
+    variable, dash, suffix = rest.partition("-")
+    if not dash or not variable or not suffix:
+        return None
+    return device, variable, suffix
+
+
+def read_stack_attributes(path: "str | Path") -> "dict[str, np.ndarray]":
+    """Every numeric per-frame attribute dataset of the stack, keyed by name.
+
+    The stamps and the device's subscribed scalars alike, each ``(N,)``
+    float64 aligned with the frames (``NaN`` where the device did not
+    send that variable with the frame).  Non-numeric members of the group
+    (a string attribute from another writer) are skipped, never raised
+    on.  One file open; use :func:`parse_attribute_name` to split a key
+    and :func:`stack_scalar_variables` for the raw GEECS names.
+    """
+    with open_stack(path) as f:
+        group = f.get(ATTRIBUTES_GROUP)
+        if group is None:
+            return {}
+        return {
+            key: np.asarray(group[key][:], dtype=float)
+            for key in group
+            if isinstance(group[key], h5py.Dataset)
+            and np.issubdtype(group[key].dtype, np.number)
+        }
+
+
+def stack_scalar_variables(path: "str | Path") -> "dict[str, str]":
+    """``{attribute dataset name: raw GEECS variable name}`` for the scalars.
+
+    The manifest GeecsPvaGateway >= 0.9 writes as the root attributes
+    ``scalar_attributes`` / ``scalar_variables`` (normalization is
+    one-way, so the file carries the names back).  Empty for a stack
+    without it (0.8 stacks: stamps only).
+    """
+    with open_stack(path) as f:
+        names = [str(n) for n in f.attrs.get("scalar_attributes", [])]
+        variables = [str(v) for v in f.attrs.get("scalar_variables", [])]
+    if len(names) != len(variables):
+        # Half a manifest (a third-party or damaged file): no names, like
+        # read_stack_attributes skips rather than raises on foreign members.
+        logger.warning("%s: scalar manifest attributes disagree in length", path)
+        return {}
+    return dict(zip(names, variables, strict=True))
 
 
 def open_stack(path: "str | Path", mode: str = "r") -> "h5py.File":

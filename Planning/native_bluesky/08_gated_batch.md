@@ -474,13 +474,17 @@ PR 2a:
   of the rest of 2a as its own PR (#830, issue #829)**, because two
   plugin-backed cameras in one run collided on the bare names.
 - **The gateway subscribes the scalars**: the device's subscribed list
-  joins `[var, "acq_timestamp", "systimestamp"]` in the one TCP
-  subscription (§2), so `update` carries them at `_on_frame`.
-- **The subscribed-scalars rule moves down**: it is
+  joins `[var, *TIMESTAMP_LADDER]` (`geecs_core.db.variable_types`, the
+  one ladder) in the one TCP subscription (§2), so `update` carries them
+  at `_on_frame`.
+- **The subscribed-scalars rule moved down (PR 2a, #843)**: it was
   `GeecsDbScalarPolicy.subscribed_by_device()` in
   `geecs_bluesky.db_runtime`, and GeecsPvaGateway depends on GEECS-Core
-  only.  The policy moves to `geecs_core.db` beside `variable_types`
-  (the rule both gateways and GeecsBluesky already share there); the
+  only.  The policy now lives in `geecs_core.db.scalar_policy` beside
+  `variable_types`, and the column filter is
+  `variable_types.scalar_attribute_variables` (numeric subscribed
+  variables minus the timestamp ladder — an enum's wire value is its
+  text label, so enum and text columns ride only in the strict row); the
   namespace imports it from its new home.  A second copy in the gateway
   is exactly the drift the "same columns" promise cannot survive.  The
   XML is then generated per device from the same DB rows the gateway
