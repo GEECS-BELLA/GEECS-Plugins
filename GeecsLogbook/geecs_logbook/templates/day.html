@@ -76,7 +76,7 @@
         <div class="editor-bar">
           <input class="who" placeholder="Your name" required aria-label="Your name">
           <button class="btn btn-sm btn-primary" type="submit">Save</button>
-          <span class="editor-hint">&#8984;&#8629; saves</span>
+          <span class="editor-hint">&#8984;&#8629; saves &middot; paste or drop a screenshot</span>
         </div>
       </div>
     </form>
@@ -241,7 +241,7 @@
     {% endif %}
   </aside>
 
-  <main class="doc">
+  <main id="logbook" data-api="{{ api_base }}" data-day="{{ summary.day.isoformat() }}" data-book="scans">
 
     <div class="dayhead">
       <div>
@@ -372,97 +372,8 @@ document.querySelectorAll(".scanrow").forEach(a => a.addEventListener("click", (
   const camp = el.closest("details.campaign");
   if (camp) camp.open = true;
 }));
-
-/* ---- notes: the minimal write path. A real editor replaces this. ---- */
-const API = {{ api_base | tojson }};
-const AUTHOR_KEY = "geecs.author";
-const who = () => { try { return localStorage.getItem(AUTHOR_KEY) || ""; } catch (e) { return ""; } };
-document.querySelectorAll(".composer .who").forEach(i => { i.value = who(); });
-
-async function api(method, path, body){
-  const res = await fetch(API + path, {
-    method, headers: body ? {"Content-Type": "application/json"} : {},
-    body: body ? JSON.stringify(body) : undefined });
-  if (res.status === 204) return null;
-  const data = await res.json().catch(() => ({}));
-  const d = data.detail;
-  const text = Array.isArray(d) ? d.map(x => x.msg || JSON.stringify(x)).join("; ") : (d?.message || d || res.statusText);
-  if (!res.ok) throw Object.assign(new Error(text), {status: res.status, data});
-  return data;
-}
-function fail(el, err){
-  const msg = el.querySelector(".errmsg") || el.appendChild(Object.assign(document.createElement("div"), {className: "errmsg"}));
-  msg.textContent = err.status === 409
-    ? "Someone else saved this first. Reload to see their version, then re-apply your change."
-    : (err.message || "Could not save.");
-}
-
-document.addEventListener("submit", async ev => {
-  const form = ev.target.closest("form.composer"); if (!form) return;
-  ev.preventDefault();
-  const ta = form.querySelector(".ta"), name = form.querySelector(".who").value.trim();
-  if (!ta.value.trim() || !name) return;
-  try { localStorage.setItem(AUTHOR_KEY, name); } catch (e) {}
-  const body = { day: {{ summary.day.isoformat() | tojson }}, book: "scans", author: name, body_md: ta.value };
-  if (form.dataset.after !== "") body.after = Number(form.dataset.after);
-  else if (form.dataset.scan !== "") body.scan = Number(form.dataset.scan);
-  // neither: a day-level entry
-  try { await api("POST", "/entries", body); location.reload(); }
-  catch (err) { fail(form, err); }
-});
-
-document.addEventListener("keydown", ev => {
-  if ((ev.metaKey || ev.ctrlKey) && ev.key === "Enter" && ev.target.matches(".ta")){
-    ev.preventDefault(); ev.target.closest("form")?.requestSubmit();
-  }
-});
-
-document.addEventListener("click", async ev => {
-  const b = ev.target.closest("button"); if (!b) return;
-  if (b.closest("[data-insert]")){
-    const after = b.closest("[data-insert]").dataset.insert;
-    const host = document.querySelector(`[data-between-host="${after}"]`);
-    if (host){ host.hidden = false; b.closest("[data-insert]").hidden = true; host.querySelector(".ta")?.focus(); }
-    return;
-  }
-  if (b.dataset.keep){
-    try { await api("POST", `/entries/${b.dataset.keep}/status`, {status: "kept"}); location.reload(); }
-    catch (err) { fail(b.closest(".entry-main"), err); }
-    return;
-  }
-  if (b.dataset.del){
-    if (b.dataset.armed !== "1"){ b.dataset.armed = "1"; b.textContent = "Really delete"; return; }
-    try { await api("DELETE", `/entries/${b.dataset.del}`); location.reload(); }
-    catch (err) { fail(b.closest(".entry-main"), err); }
-    return;
-  }
-  if (b.dataset.edit){
-    const art = document.getElementById("entry-" + b.dataset.edit);
-    const main = art.querySelector(".entry-main"), raw = JSON.parse(art.querySelector(".raw").textContent);
-    const bodyEl = main.querySelector(".entry-body");
-    if (main.querySelector("form.editing")) return;
-    const form = document.createElement("form"); form.className = "composer editing";
-    form.innerHTML = `<div class="entry-main"><textarea class="ta" rows="6"></textarea>
-      <div class="editor-bar"><input class="who" placeholder="Your name" required aria-label="Your name">
-      <button class="btn btn-sm btn-primary" type="submit">Save</button>
-      <button class="btn btn-sm" type="button" data-cancel="1">Cancel</button></div></div>`;
-    form.querySelector(".ta").value = raw; form.querySelector(".who").value = who();
-    bodyEl.hidden = true; bodyEl.after(form); form.querySelector(".ta").focus();
-    form.addEventListener("submit", async e => {
-      e.preventDefault();
-      const name = form.querySelector(".who").value.trim(); if (!name) return;
-      try { localStorage.setItem(AUTHOR_KEY, name); } catch (x) {}
-      try {
-        await api("PATCH", `/entries/${art.dataset.entry}`, {
-          body_md: form.querySelector(".ta").value, editor: name,
-          expected_version: Number(art.dataset.version) });
-        location.reload();
-      } catch (err) { fail(form, err); }
-    });
-    form.querySelector("[data-cancel]").addEventListener("click", () => { form.remove(); bodyEl.hidden = false; });
-  }
-});
 </script>
+<script src="{{ url_for('_static', name='editor.js') }}" defer></script>
 <script src="{{ root }}/theme/theme.js" defer></script>
 </body>
 </html>

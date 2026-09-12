@@ -19,7 +19,10 @@ from fastapi import APIRouter, HTTPException, Response
 from geecs_schemas.log_entry import Book, EntryKind, EntryStatus, LogEntry
 from pydantic import BaseModel, Field
 
-from geecs_logbook.routes._common import Context
+from fastapi import Request
+
+from geecs_logbook.render import render_markdown
+from geecs_logbook.routes._common import Context, attachment_base
 from geecs_logbook.store import ConflictError
 
 
@@ -63,6 +66,16 @@ class StatusUpdate(BaseModel):
     status: EntryStatus
 
 
+class PreviewRequest(BaseModel):
+    """A body to render as the page would, before it is saved."""
+
+    body_md: str = Field(max_length=200_000)
+    entry_id: Optional[str] = Field(
+        None,
+        description="Unused for now; attachment links resolve the same way for every entry.",
+    )
+
+
 class HistoryItem(BaseModel):
     """One earlier state, as served."""
 
@@ -76,6 +89,15 @@ def register(router: APIRouter, ctx: Context) -> None:
     """Add the entry routes to ``router``. Requires a store."""
     store = ctx.store
     assert store is not None
+
+    @router.post("/api/preview")
+    def _preview(request: Request, body: PreviewRequest) -> dict:
+        """Render a body as the page will, for the composer's preview."""
+        return {
+            "html": render_markdown(
+                body.body_md, attachment_base=attachment_base(request)
+            )
+        }
 
     @router.post("/api/entries", status_code=201)
     def _create(body: EntryCreate) -> LogEntry:

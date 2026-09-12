@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "geecs-logbook"
-version = "0.3.0"
+version = "0.4.0"
 description = "Scan logbook: a day-document view over scan folders, with human commentary stored beside the data"
 authors = ["GEECS-BELLA"]
 readme = "README.md"

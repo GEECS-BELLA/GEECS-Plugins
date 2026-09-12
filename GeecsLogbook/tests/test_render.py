@@ -88,3 +88,36 @@ class TestMarkdownFeatures:
     def test_empty_body_is_empty(self) -> None:
         """No text, no markup."""
         assert render_markdown("") == ""
+
+
+class TestImageGrid:
+    """Consecutive images become one grid; a lone image does not."""
+
+    def test_two_or_more_images_in_a_row_grid(self) -> None:
+        """Pasted screenshots one after another render side by side."""
+        out = render_markdown(
+            "![a](attachments/x/a.png)\n\n![b](attachments/x/b.png)\n\n![c](attachments/x/c.png)\n"
+        )
+        assert out.count('<div class="figgrid">') == 1
+        assert out.count("<figure><img") == 3
+        assert "<p><img" not in out
+
+    def test_a_single_image_stays_a_paragraph(self) -> None:
+        """One figure is a figure, not a grid of one."""
+        out = render_markdown("text\n\n![a](attachments/x/a.png)\n\nmore")
+        assert "figgrid" not in out and "<p><img" in out
+
+    def test_a_paragraph_breaks_the_run(self) -> None:
+        """Images separated by prose are two runs, not one."""
+        out = render_markdown(
+            "![a](x/a.png)\n\n![b](x/b.png)\n\ncaption\n\n![c](x/c.png)\n\n![d](x/d.png)"
+        )
+        assert out.count('<div class="figgrid">') == 2
+
+    def test_grid_survives_the_link_rewrite(self) -> None:
+        """The serving base is applied inside the grid too."""
+        out = render_markdown(
+            "![a](attachments/x/a.png)\n\n![b](attachments/x/b.png)",
+            attachment_base="/log/attachments",
+        )
+        assert out.count('src="/log/attachments/x/') == 2 and "figgrid" in out

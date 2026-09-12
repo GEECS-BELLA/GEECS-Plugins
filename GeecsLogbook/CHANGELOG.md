@@ -4,6 +4,32 @@ All notable changes to `geecs-logbook` are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 project adheres to semantic versioning.
 
+## [0.4.0] - 2026-09-11
+
+The editor: what makes people use it.
+
+### Added
+
+- `static/editor.js`, one implementation for every composer on the page
+  (per scan, per gap, the day, and in-place edits): a toolbar that writes
+  markdown around the selection (bold, italic, code, list, task list,
+  link, table, callout, image, preview); **paste or drop a screenshot**
+  into the composer — the file goes to the upload endpoint and a relative
+  image link lands at the cursor; a brand-new entry is saved first so the
+  upload has somewhere to go ("autosaved"), with Discard to delete the
+  stub; **paste a spreadsheet range** (tab-separated or an HTML table) as a
+  markdown table; a server-rendered Preview; ⌘/Ctrl+Enter saves.
+- `POST /api/preview` — the page's renderer, for the composer.
+- Two or more consecutive images render as one grid (`figgrid`): the
+  plot table, replacing LogMaker's `gdoc_slot` numbering — no slot
+  assignment, no ceiling at four.
+
+### Changed
+
+- The day page's inline write-path script is gone; the page hands the
+  editor its facts through `<main id="logbook" data-api data-day
+  data-book>` and loads `editor.js`.
+
 ## [0.3.0] - 2026-09-11
 
 The foundation for the operations book. Owner rulings 2026-09-11.
