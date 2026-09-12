@@ -24,9 +24,12 @@ geecs_data_utils/
                                #   IMAQ decode) + scan_stack.py: reader for
                                #   per-device image stacks in the areaDetector
                                #   NDFileHDF5 layout (/entry/data/data +
-                               #   /entry/instrument/NDAttributes/acq_timestamp;
-                               #   written by GeecsPvaGateway's file plugin,
-                               #   #806) incl. ShotRef — a Path carrying a
+                               #   /entry/instrument/NDAttributes/<device>-hdf-
+                               #   <variable>-frame_acq_timestamp, resolved by
+                               #   timestamps_dataset — the bare acq_timestamp of
+                               #   older stacks reads too; written by
+                               #   GeecsPvaGateway's file plugin, #806/#829)
+                               #   incl. ShotRef — a Path carrying a
                                #   frame index for per-shot pipelines
   plotting_utils.py            # Simple matplotlib helpers for binned data
   scans_database/

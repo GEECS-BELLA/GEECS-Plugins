@@ -20,7 +20,9 @@ from geecs_data_utils.io.scan_stack import (
 )
 
 
-def _write_stack(device_dir, n=3, frames_dataset=FRAMES_DATASET):
+def _write_stack(
+    device_dir, n=3, frames_dataset=FRAMES_DATASET, timestamps=TIMESTAMPS_DATASET
+):
     """Write a minimal contract-conformant stack, as the file plugin would."""
     device_dir.mkdir(parents=True, exist_ok=True)
     path = device_dir / f"{device_dir.name}.h5"
@@ -31,11 +33,33 @@ def _write_stack(device_dir, n=3, frames_dataset=FRAMES_DATASET):
             data=np.stack([np.full((4, 5), i, dtype=np.uint16) for i in range(n)]),
             chunks=(1, 4, 5),
         )
-        f.create_dataset(TIMESTAMPS_DATASET, data=np.arange(n) + 1000.0)
+        f.create_dataset(timestamps, data=np.arange(n) + 1000.0)
         f.create_dataset(
             "/entry/instrument/NDAttributes/recv_timestamp", data=np.arange(n) + 2000.0
         )
     return path
+
+
+def test_device_prefixed_timestamps_are_the_current_layout(tmp_path) -> None:
+    """``<device>-hdf-<var>-frame_acq_timestamp`` (GeecsPvaGateway >= 0.8) reads like the bare name did."""
+    from geecs_data_utils.io.scan_stack import (
+        read_shot_for_acq_timestamp,
+        timestamps_dataset,
+    )
+
+    device_dir = tmp_path / "UC_Cam"
+    current = "/entry/instrument/NDAttributes/uc_cam-hdf-image-frame_acq_timestamp"
+    path = _write_stack(device_dir, timestamps=current)
+    assert is_stack_file(path) and find_stack_file(device_dir) == path
+    with h5py.File(path, "r") as f:
+        assert timestamps_dataset(f) == current
+    np.testing.assert_array_equal(read_stack_timestamps(path), [1000.0, 1001.0, 1002.0])
+    index, frame = read_shot_for_acq_timestamp(path, 1001.0, labview_epoch=False)
+    assert index == 1 and frame[0, 0] == 1
+    # A stack with neither spelling is not a stack.
+    with h5py.File(path, "a") as f:
+        del f[current]
+    assert not is_stack_file(path)
 
 
 def test_find_and_validate_stack(tmp_path) -> None:
