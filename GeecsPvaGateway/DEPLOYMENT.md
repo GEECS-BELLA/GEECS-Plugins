@@ -66,7 +66,7 @@ resolve inside a checkout — a console session can use the share clone as
 PVA firewall ports (TCP 5075 / UDP 5076), fetches `nssm.exe`, and registers
 the `GeecsPvaGateway` service (auto-start, restart on any exit, online-rotating
 logs). If you omitted `-ConfigSource`, place `Configurations.INI` in the
-profile (rule 1); then `nssm start GeecsPvaGateway`. Note `launch.bat` is
+profile (rule 1); then `C:\geecs\pva-gateway\nssm.exe start GeecsPvaGateway` (`nssm` is not on `PATH`). Note `launch.bat` is
 copied at bootstrap time — launcher changes need the stop/copy/start step
 under **Rollout** (or a re-bootstrap); package additions do not, since
 `deploy/requirements-fleet.txt` is read from the share on every restart.
@@ -178,7 +178,7 @@ cmd /c "set USERPROFILE=C:\geecs\pva-gateway\profile&& C:\geecs\pva-gateway\venv
 ```
 
 prints the host's served PV names (DB-scoped: this box's cameras only). After
-`nssm start`, the `version`/`heartbeat` PVs answering is the end-to-end check.
+`nssm.exe start`, the `version`/`heartbeat` PVs answering is the end-to-end check.
 From any machine with p4p (over VPN, set the address list per **Client
 access** below so name search unicasts):
 

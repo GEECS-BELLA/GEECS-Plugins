@@ -4,8 +4,9 @@
 (#816), the plan layer (#821), the headless hardware acceptance (#822), the
 PVA file plugin (#823, `06_pva_file_plugin.md`, `07_806_acceptance.md`) and
 the fleet-requirements mechanism (#824) are merged into the feature branch;
-the worker runs the #823 merge (#824 touched only the gateway's deploy
-tree) and nine camera-server gateways serve the plugin.  Phase 2 (§8) is
+the worker runs the #823 merge (#824 touched only GeecsPvaGateway, which
+the worker does not install) and nine camera-server gateways serve the
+plugin.  Phase 2 (§8) is
 next.** Written at the end of the session that built #809 as a handoff,
 then amended by the next session after the discussion recorded in §11 and
 §12. Read this before `00_overview.md`, because it supersedes that

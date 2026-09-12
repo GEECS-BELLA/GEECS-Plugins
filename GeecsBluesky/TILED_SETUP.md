@@ -37,12 +37,25 @@ facts, both found by failure on the first run (Scan007 of 26_0911):
 1. **`readable_storage` must include the data share** as mounted on the
    Tiled host.  Without it the array read answers 500, `Refusing to serve
    file://…/ScanNNN/<device>/<device>.h5 because it is outside the
-   readable storage area for this server`.  In `~/tiled/config.yml`, at
-   the top level beside `trees:` (the HTU mount is the example):
+   readable storage area for this server`.  `readable_storage` is an
+   argument of the catalog tree (Tiled's `CatalogConfig`; a top-level key
+   is refused by the config schema), so in `~/tiled/config.yml` it sits
+   under the tree's `args:` beside `uri:` / `writable_storage:` — the HTU
+   server's form, with its data mount as the example:
 
    ```yaml
-   readable_storage:
-     - /mnt/hdna2/data
+   trees:
+     - path: /
+       tree: catalog
+       args:
+         uri: "sqlite:////home/<user>/tiled/catalog.db"
+         writable_storage:
+           - "/home/<user>/tiled/storage"
+           - "sqlite:////home/<user>/tiled/tabular.db"
+         readable_storage:
+           - "/home/<user>/tiled/storage"
+           - "/mnt/hdna2/data"
+         init_if_not_exists: true
    ```
 
 2. **`HDF5_USE_FILE_LOCKING=FALSE` in the service's environment.**  The
