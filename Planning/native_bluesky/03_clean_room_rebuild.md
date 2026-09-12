@@ -356,17 +356,17 @@ because it costs at least the longest device timeout per check (§11.2).
 | GEECS today | Native replacement |
 |---|---|
 | save set, as a device list | the plan's `detectors` argument; a client-side preset |
-| save set `synchronous` flag | essential (`detectors`) vs non-essential (`SupplementalData.flyers`) |
+| save set `synchronous` flag | essential (`detectors`) vs non-essential (the bound plan's `non_essential` list, streamed per plan — `08_gated_batch.md` §4.3) |
 | `save_nonscalar_data`, `localsavingpath`, `save` | the detector's data logic, opened and closed per run |
 | save set explicit scalar list | the device's own readables, individually addressable |
 | save-set rituals, setup/closeout | plan stubs and `finalize_wrapper` (#647) |
 | `background_telemetry` | `SupplementalData.baseline` + `monitors` |
 | scan variable alias | the namespace attribute (`U_S1H.current`) |
 | `kind: motor`, `confirm:`, pseudo | the device class, chosen once at namespace build |
-| trigger profile states | `ShotControl`: `Movable` over the states, `Pausable`, `FlyerController` for gated mode |
+| trigger profile states | `ShotControl`: `Movable` over the states, `Pausable`; in gated mode the plan drives it SCAN/OFF around the detectors' `kickoff`/`complete` (not a flyer — `08` §3) |
 | strict single shot | stock `per_step` with the fire between trigger and wait |
 | free run — the rep-rate job | gated batch: fly, detectors count |
-| free run — the contributor job | the non-essential stream: `SupplementalData.flyers` |
+| free run — the contributor job | the non-essential stream: `non_essential=[…]` on the bound plan (`fly_during_wrapper` per plan) |
 | Gate-2 save windowing | the detector's own capture window (open at prepare, close at unstage) |
 | `acq_timestamp` as the shot join key | **kept** — offset-corrected, it *is* the shot id (§11.3); positional for essential detectors, by stamp for the non-essential stream |
 | `shot_id`, `shot_offset`, `bin_number` | `seq_num`, the stamp, and the per-device drain offset as a config signal |
@@ -848,7 +848,8 @@ logic:
    replaced by our own end-of-run file check; contained to the non-image
    proprietary devices once #806 lands.
 3. **A native home for the non-essential stream** when free-run goes —
-   `SupplementalData.flyers` (§4.B).
+   `fly_during_wrapper` per plan behind the bound plans' `non_essential`
+   argument (§4.B; `08_gated_batch.md` §4.3).
 
 Two hazards #806 already names that deserve more weight than the issue
 gives them: HDF5 written on Windows over SMB and read on Linux (disable

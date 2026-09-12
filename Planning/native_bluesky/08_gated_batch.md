@@ -140,10 +140,38 @@ Line numbers are from the installed files (`GeecsBluesky/.venv/…`).
   declaring `acq_timestamp` and `recv_timestamp` (`ATTRIBUTES`,
   `NDATTRIBUTES_XML`), written per frame by `_append`.
 - `server.py:_on_frame(var, update)`: the TCP push hands the plugin the
-  blob and the stamp; `update` is the **whole message** — every variable
-  of the device in that acquisition — so the plugin can write the
-  device's per-shot scalars beside the frame without a second
-  subscription.
+  blob and the stamp.  `update` holds only the variables the gateway
+  **subscribed** — `[var, "acq_timestamp", "systimestamp"]`
+  (`server.py:207-211`; `tcp_subscriber._parse_subscription` extracts the
+  subscribed names from the push, `:370-415`) — so per-shot scalars beside
+  the frame need the device's subscribed scalar list added to that one
+  `subscribe([...])` call (still one subscription, no second stream).
+- **Attribute data keys are bare.**  The stock data logic names each
+  NDAttribute key from the XML `name` with no detector prefix
+  (`_data_logic.py:217`; `datakey_suffix` touches the frame dataset only,
+  `detector.py:614`), and the bundler merges objects' keys with
+  `data_keys.update` / a collision check.  Reproduced on mocks with the
+  plugin's real XML on two cameras: `ValueError: Data keys (field names)
+  … collide … {'acq_timestamp', 'recv_timestamp'}` — **a run with two
+  plugin-backed cameras fails today**, after its scan number is claimed.
+  Fixed ahead of phase 2 as its own PR (attribute names carry the ophyd
+  device name, §4.4).
+- The stream's attribute columns are therefore not the strict row's
+  columns by default: strict columns are `<ophyd name>-<variable>`
+  (`detector.py:623-630`); an unprefixed attribute would be `<variable>`.
+- Two rows-vs-datums facts the plan must honour: `collect(*D,
+  name="primary")` asserts a prior `declare_stream(*D, name="primary")`
+  (`bundlers.py:1101-1107`), which needs `describe_collect` and so comes
+  after the first `prepare` (`_detector.py:735`, "Prepare not run"); and
+  an *event* in a declared stream must read exactly the declared objects
+  (`bundlers.py:606-607`, "Mismatched objects read"), so a scanned motor's
+  readback cannot share the datum stream.  A bare `Msg("collect", obj)`
+  with no declared stream lands in **`primary`** (`bundlers.py:732`).
+- `StackCheckCallback` builds its expected stamps from primary *event*
+  rows (`callbacks.py:412-418`); a stream with no events warns "N frame(s)
+  … but 0 row(s) own a frame" (`:470-475`).  `SFileCallback.on_stop`
+  already skips a run with no primary events with a log line
+  (`callbacks.py:274-280`).
 - `GeecsBluesky/geecs_bluesky/devices/detector.py`:
   `GeecsAcquireLogic.wait_for_idle` waits for a stamp update ≠ the
   baseline and raises `GeecsTriggerTimeoutError` after `shot_timeout`;
@@ -217,13 +245,29 @@ plugin-backed — a detector without a streamable provider fails at
 ```
 prepare(D, TriggerInfo(EXTERNAL_EDGE, number_of_events=shots_per_step,
                        exposure_timeout=per-frame budget))     # capture on, count baselined
+declare_stream(*D, name="primary")        # first step only (needs describe_collect)
+declare_stream(*motors, bins, name="steps")                    # first step only
 kickoff(D, wait=True)                                          # quota = shots_per_step
 mv(B, SCAN)                                                    # edges flow
 complete(D, wait=True)                                         # every D counted its quota
-mv(B, OFF)                                                     # edges stop (≤ 1 in flight, M1)
+mv(B, OFF)                                                     # edges stop
+sleep(period + max drain offset + margin)                      # the in-flight frame lands
 wait_for(D.truncate_to_quota)                                  # Rewind to baseline + quota
 collect(*D, name="primary")                                    # one datum per D: the step's frames
+trigger_and_read([*motors, bins], name="steps")                # the step's row: positions + bin
 ```
+
+**Two streams per gated run.**  The datum stream `primary` carries the
+frames and their per-frame attributes; a second event stream `steps`
+carries what a strict row reads *per step* — the scanned motors'
+readbacks and `bin_number` — one event per step, after the collect.
+They cannot share a stream: an event in a declared stream must read
+exactly the declared objects (§2), and the datum stream's declared
+objects are the detectors.  Event *k* of `steps` belongs to datum *k* of
+every detector in `primary` (both are one per step, emitted in order);
+the s-file writer joins them by that ordinal (§4.5), and `ScanInfo`'s
+axis has its column again.  `bin_number` therefore keeps its
+`BinCounter` reading.
 
 - **Why prepare per step, not once.**  `prepare` baselines
   `collections_written`; a per-step prepare makes every step's quota
@@ -240,11 +284,24 @@ collect(*D, name="primary")                                    # one datum per D
 - **Exactness.**  `complete` returns when the *slowest* essential
   detector has its quota, so the faster ones hold quota + (edges that
   passed meanwhile); after OFF, at most one more edge is in flight (M1).
+  That frame's stamp is its edge time plus the camera's drain (0–220 ms,
+  M1), and `Rewind` drops a *later* arrival only if its stamp is older
+  than the watermark minus `STALE_MARGIN_S` — so a frame from an edge
+  that slipped in just before OFF took effect, on a high-drain camera,
+  can be *newer* than a watermark set immediately and would be appended
+  after the rewind (and then either trip the next step's `kickoff` guard
+  or ride as frame 1 of the next datum).  The plan therefore waits, after
+  the OFF put completes, **one trigger period plus the largest drain
+  offset of the set plus a margin** (the drain offsets are the
+  detectors' config signals) before rewinding: by then no frame is in
+  flight and the rewind is deterministic.  Cost: about a second per
+  step, nothing per `count`.  (The alternative — a `Rewind` that takes
+  the watermark as an argument — is a plugin change, kept in reserve.)
   `GeecsDetector.truncate_to_quota()` — `discard_uncollected`'s sibling —
-  rewinds each plugin to `ctx.collections_written + quota`; `Rewind`
-  moves the stale watermark, so the in-flight frame is dropped when it
-  arrives.  Every stack gains exactly `shots_per_step` frames per step;
-  `collect(*D)` then sees equal indices and the datum covers the step.
+  then rewinds each plugin to `ctx.collections_written + quota`.  Every
+  stack gains exactly `shots_per_step` frames per step; `collect(*D)`
+  then sees equal indices and the datum covers the step.  2b's acceptance
+  includes the highest-drain camera of the set.
   **The rewind is preferred to honouring `NumCapture`** in the plugin:
   it uses the verb #823 already built for the same purpose, keeps the
   plugin's session semantics untouched (strict re-prepares per shot in
@@ -256,18 +313,20 @@ collect(*D, name="primary")                                    # one datum per D
   than its neighbours and its N stamps are shifted by one edge at the
   drop; the join by stamp (§4.5) shows exactly that.  Same-edge rows are
   strict's promise, and strict is one keyword away.
-- **`wait_for_idle` is mode-aware.**  `complete` calls it on the last
-  kickoff (§2); the stamp wait is a strict-mode concept (the shot the
-  plan fired).  `GeecsDetector.prepare` records the mode from
-  `number_of_events` (`1` → strict, else fly) and the acquire logic's
-  `wait_for_idle` returns immediately in fly mode — the count *is* the
-  completion.  No new method: the stock `prepare` already visits our
-  override.
+- **`wait_for_idle` is mode-aware, and the mode is explicit.**
+  `complete` calls it on the last kickoff (§2); the stamp wait is a
+  strict-mode concept (the shot the plan fired).  The mode cannot be read
+  off `number_of_events` — a gated step with the default
+  `shots_per_step=1` prepares with `number_of_events=1`, the strict
+  signature — so `GeecsDetector.kickoff` (an override calling the stock
+  one) sets the acquire logic's fly flag and `trigger` clears it; in fly
+  mode `wait_for_idle` returns immediately — the count *is* the
+  completion.
 - **The row.**  A frame plus that device's per-frame attributes (§4.4)
   — the same columns a strict row carries for that device, the stamp
-  included.  `bin_number` is the datum's ordinal (one collect per step);
-  no `BinCounter` reading is needed, the s-file writer derives it
-  (§4.5).  `shots_per_step` keeps its meaning (rows per position).
+  included — plus, from the `steps` event of the same ordinal, the
+  motors' readbacks and `bin_number`.  `shots_per_step` keeps its
+  meaning (rows per position).
 - **Timeouts.**  `exposure_timeout` is per frame (§2): one period plus
   the device's exposure and drain, the same budget strict uses
   (`DEFAULT_SHOT_TIMEOUT`).  A camera that stops producing frames for
@@ -301,10 +360,13 @@ unstage(NE)
 ```
 
 - `fly_during_wrapper` is the stock insertion; the bound plan's
-  `finalize`/`stage` bracket supplies the stage and the prepare it
-  lacks.  Each NE is collected **alone** (one object → no index, the
-  datum covers everything it wrote), in a stream named after the device:
-  a joint stream would cut every camera at the slowest one's count.
+  `finalize`/`stage` bracket supplies the stage, the prepare and the
+  `declare_stream(ne, name="<device>_stream")` it lacks — the declare
+  comes after the prepare and before the kickoff, and it is what routes
+  the wrapper's bare `collect` into that stream instead of `primary`
+  (§2).  Each NE is collected **alone** (one object → no index, the
+  datum covers everything it wrote), in its own stream: a joint stream
+  would cut every camera at the slowest one's count.
 - `complete` on an unbounded prepare: count wait returns at once
   (`requested = 0`), then `wait_for_idle` — a no-op in fly mode (§4.2).
   Nothing waits on a non-essential camera, ever.
@@ -312,13 +374,15 @@ unstage(NE)
   nothing aborts; `collect` references whatever it wrote.  The stack
   check callback reports frames vs referenced per stream as it does
   for primary.
-- **Non-essential requires a plugin** (a streamable provider).  A
-  LabVIEW-native camera on a box without the plugin has no count and
-  cannot be a flyer; the client preflight refuses it before submission
-  (the manager's device tree lists the `hdf` child of every plugin-backed
-  detector — the existing reference check extended by one rule).  The
-  `.scalars` view cannot fly either; `essential: false` with
-  `save_images: false` is refused at expansion.
+- **Non-essential requires a plugin** (a streamable provider), and so
+  does every essential detector of a *gated* run.  A LabVIEW-native
+  camera on a box without the plugin has no count and cannot fly; the
+  client preflight refuses either before submission (the manager's
+  device tree lists the `hdf` child of every plugin-backed detector — the
+  existing reference walk in `submit_preflight.py` extended by one
+  membership rule, applied to both lists).  The `.scalars` view cannot
+  fly either; `essential: false` with `save_images: false` is refused at
+  expansion.
 - Strict runs with a non-essential list: `discard_uncollected` in the
   partial-row path rewinds only the devices *of the shot*; the streams
   are untouched (they were never referenced per event).
@@ -330,17 +394,41 @@ The stock data logic describes every NDAttribute the driver's XML lists
 **the device's subscribed scalar variables** (the DB `get='yes'` list —
 the same rule the namespace uses for a detector's event columns, so a
 gated row and a strict row carry the same columns for that device),
-taken from the `update` dict the gateway already holds at `_on_frame`,
 written as `DOUBLE` datasets under `/entry/instrument/NDAttributes/`
 (strings and enums as their numeric wire value where one exists,
-otherwise skipped — the XML is generated per device from the DB rows the
-gateway reads for the served set, so the worker knows the columns at
-`prepare`).  Missing keys in a push (a variable the device did not send
-that shot) are written `NaN`.
+otherwise skipped).  Missing keys in a push (a variable the device did
+not send that shot) are written `NaN`.  Three things this needs, all in
+PR 2a:
+
+- **Attribute names carry the device**: `<ophyd name>-<variable>`
+  (`normalize_component(device)`, the naming contract both sides share
+  — the worker's `safe_name` is the same function), so the keys are
+  unique across cameras and identical to the strict row's columns.  The
+  two existing attributes are renamed the same way
+  (`<ophyd name>-acq_timestamp`, `-recv_timestamp`) — an on-disk layout
+  change of a just-shipped format: `scan_stack.TIMESTAMPS_DATASET`
+  becomes a lookup that accepts either spelling, the stack check reads
+  through it, and the files written between #823 and the fix stay
+  readable.  **This rename ships ahead of the rest of 2a as its own PR**,
+  because two plugin-backed cameras in one run collide on the bare names
+  today (§2).
+- **The gateway subscribes the scalars**: the device's subscribed list
+  joins `[var, "acq_timestamp", "systimestamp"]` in the one TCP
+  subscription (§2), so `update` carries them at `_on_frame`.
+- **The subscribed-scalars rule moves down**: it is
+  `GeecsDbScalarPolicy.subscribed_by_device()` in
+  `geecs_bluesky.db_runtime`, and GeecsPvaGateway depends on GEECS-Core
+  only.  The policy moves to `geecs_core.db` beside `variable_types`
+  (the rule both gateways and GeecsBluesky already share there); the
+  namespace imports it from its new home.  A second copy in the gateway
+  is exactly the drift the "same columns" promise cannot survive.  The
+  XML is then generated per device from the same DB rows the gateway
+  reads for the served set, so the worker knows the columns at `prepare`.
 
 What this buys: one file per camera per run holds frames + stamp + that
 camera's scalars, positionally exact because they arrived in one TCP
-message; Tiled reads them as columns; nothing on the worker changes.
+message; Tiled reads them as columns; nothing on the worker's describe
+path changes.
 
 ### 4.5 The s-file for a run with stream data
 
@@ -351,9 +439,10 @@ s-file represents every scalar in the run documents"; the writer gains
 a second source: at the stop document, after the plugins finalize (the
 `StackCheckCallback` thread already waits for that), the attribute
 datasets of every referenced stream resource are read and joined —
-per essential stream by frame index within each datum (the bin), across
-streams and with the non-essential streams by **offset-corrected stamp
-rounded to the period** (`03` §11.3; the drain offsets are the
+per essential stream by frame index within each datum (datum *k* ↔ the
+`steps` event *k*, which supplies the motors' readbacks and the bin),
+across streams and with the non-essential streams by **offset-corrected
+stamp rounded to the period** (`03` §11.3; the drain offsets are the
 detectors' config signals, in the descriptors).  A non-essential frame
 with no essential row within half a period gets its own row, blank
 elsewhere — data is never dropped from the file.  The Tiled export in
@@ -374,17 +463,31 @@ references.
 
 ## 5. Sequencing — three PRs, each with its own acceptance
 
+0. **The key-collision fix, first and alone** (GeecsPvaGateway minor for
+   the layout change; Data-Utils minor for the reader): attribute names
+   prefixed with the ophyd device name, the reader accepting both
+   spellings, a worker test with two plugin-backed cameras and the real
+   XML shape.  Deploy = merge, pull the share clone, `:restart` on the
+   nine boxes (no launcher change).  Hardware: a strict `count` on two
+   plugin-backed cameras.
 1. **2a — the gateway's attributes** (GeecsPvaGateway minor; Data-Utils
-   patch): subscribed scalars as NDAttributes, XML per device from the
-   DB rows, `NaN` for a missing key; `scan_stack` reads the attribute
-   group; the offline test drives the real plugin over `pva://` as
-   #823's does.  Hardware: one strict scan on `UC_Amp4_IR_input` shows
-   the columns in the stack equal to the s-file's for that device.
+   minor; GEECS-Core minor for the scalar-policy move; GeecsBluesky
+   patch for the import): subscribed scalars as NDAttributes, the
+   subscription widened, XML per device from the DB rows, `NaN` for a
+   missing key; `scan_stack` reads the attribute group; the offline test
+   drives the real plugin over `pva://` as #823's does.  Hardware: one
+   strict scan on `UC_Amp4_IR_input` shows the columns in the stack
+   equal to the s-file's for that device.
 2. **2b — the worker**: `acquisition` + `non_essential` on the bound
-   plans, `gated_take_reading`, `truncate_to_quota`, the mode-aware
-   `wait_for_idle`, the OFF bracket, the preflight rule, `essential` on
-   `PresetDevice` (GEECS-Schemas minor) and its expansion; the s-file
-   writer *skips* stream-only runs with a `scan.log` line until 2c.
+   plans, `gated_take_reading` with the `steps` stream, the declared
+   streams, `truncate_to_quota`, the explicit fly mode (`kickoff` sets,
+   `trigger` clears) and the mode-aware `wait_for_idle`, the OFF bracket,
+   the preflight rule for both lists, `essential` on `PresetDevice`
+   (GEECS-Schemas minor) and its expansion, and `StackCheckCallback`
+   taking the referenced counts from the datums' `indices` and the stamps
+   from the stack (today it expects primary *events* and would warn on
+   every gated or non-essential stack).  The s-file writer already skips
+   a run with no primary events with a log line; 2b leaves that.
    Hardware (a runbook like `05`'s, through the staging manager): a
    gated `count` and a gated `scan` on `U_S1H` with two plugin-backed
    cameras, frames == quota per step per camera, stamps one period apart,
