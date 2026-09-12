@@ -4,6 +4,17 @@ All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
+## [0.21.5] - 2026-09-12
+
+### Changed
+
+- `poetry.lock` relocked against the feature head: it recorded
+  `geecs-data-utils` 0.26.1, `geecs-schemas` 0.19.0, `imageanalysis` 2.0.0
+  and `scananalysis` 1.19.0 while the checkout carries 0.30.0 / 0.21.0 /
+  2.2.0 / 1.21.0 (the path dependencies install from the checkout either
+  way; the lock now says what a host install gets).  No dependency added
+  or removed.
+
 ## [0.21.4] - 2026-09-11
 
 ### Changed
