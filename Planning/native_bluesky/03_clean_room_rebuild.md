@@ -207,8 +207,10 @@ Every DB device is one long-lived noun (#808, kept). Two classes:
   abstraction, §11.1), `Pausable` (state-dependent, §10.3: in strict mode
   the RE pausing simply stops the plan firing and the box stays ARMED —
   `pause()` does nothing; in gated mode edges flow on their own, so
-  `pause() → OFF` and `resume()` restores SCAN, and after an *immediate*
-  pause the plan repeats the interrupted step, §10.9;
+  `pause() → OFF` and `resume()` restores the standing state, SCAN —
+  which the RE does *before* the plan continues, so after an *immediate*
+  pause the plan's repeated step opens by driving OFF itself before it
+  rewinds and re-prepares (`08` §4.2), §10.9;
   the RE calls these on every Pausable it has seen in a message, §7).
   **Not a flyer** (amended 2026-09-11, `08_gated_batch.md` §3): the box
   has no counter, so a `complete` of its own could not know when N shots

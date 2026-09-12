@@ -259,21 +259,38 @@ sampler (§4.7), which carries every essential device that is not
 plugin-backed and every non-plugin device of the run, and the box *B*:
 
 ```
-prepare(D, TriggerInfo(EXTERNAL_EDGE, number_of_events=shots_per_step,
-                       exposure_timeout=per-frame budget))     # capture on, count baselined
+mv(B, OFF)                                    # the step opens quiet — also after a resume, which
+                                              #   restored SCAN before the plan ran (03 §4.A)
+if repeating a step (resume after an immediate pause):
+    sleep(period + max drain offset + margin)                  # the in-flight frame lands
+    wait_for(D.rewind_to_step_baseline)                        # the partial frames leave the stacks
+if D:
+    prepare(D, TriggerInfo(EXTERNAL_EDGE, number_of_events=shots_per_step,
+                           exposure_timeout=per-frame budget)) # capture on, count baselined
+    declare_stream(*D, name="primary", collect=True)           # first step only (describe_collect)
 prepare(S, SamplerInfo(quota=shots_per_step))                  # the sampler (§4.7): clock + columns
-declare_stream(*D, name="primary", collect=True)  # first step only (describe_collect); D non-empty
 declare_stream(S, name="shots", collect=True)                  # first step only
-kickoff(D, wait=True)                                          # quota = shots_per_step
+if D:
+    kickoff(D, wait=True)                                      # quota = shots_per_step
 kickoff(S, wait=True)                                          # sampler armed on the clock
 mv(B, SCAN)                                                    # edges flow
-complete(D, S, wait=True)                                      # every D (and S) counted its quota
+complete(*D, S, wait=True)                                     # every D (and S) counted its quota
 mv(B, OFF)                                                     # edges stop
-sleep(period + max drain offset + margin)                      # the in-flight frame lands
-wait_for(D.truncate_to_quota)                                  # Rewind to baseline + quota
-collect(*D, name="primary")                                    # one datum per D: the step's frames (D non-empty)
+if D:
+    sleep(period + max drain offset + margin)                  # the in-flight frame lands
+    wait_for(D.truncate_to_quota)                              # Rewind to baseline + quota
+    collect(*D, name="primary")                                # one datum per D: the step's frames
 collect(S, name="shots")                                       # one event per shot: everything else
 ```
+
+With no plugin-backed essential camera *D* is empty: nothing is
+declared or collected as `primary`, and the sampler alone gates the
+step (§4.7).  The step **opens by driving OFF** whether or not the box
+is already there: `ShotControl.resume()` restores the standing state
+(SCAN) *before* the RunEngine hands control back to the plan, so a
+repeated step would otherwise see edges before its baseline; the
+explicit OFF (idempotent in the normal path) closes that window, and the
+repeat path drains and rewinds only after it.
 
 **Two streams per gated run.**  The datum stream `primary` carries the
 frames and their per-frame attributes (the plugin-backed cameras); the
@@ -364,11 +381,15 @@ and the sampler alone gates the step (§4.7).
   the stock stepped-scan behaviour, a real pause in both modes, resume
   continues with the next step.  An *immediate* pause mid-step triggers
   `ShotControl.pause()` → OFF (already built), and on resume the plan
-  **repeats the interrupted step**: the plugins are rewound to the
-  step's baseline count, the sampler is re-armed, the detectors are
-  re-prepared and the step is retaken from its first shot — the partial
-  frames leave the essential stacks, so no frame there is ever without
-  a row.  (A resume that *continues* the partial batch would need the
+  **repeats the interrupted step**.  Order matters: the RE calls
+  `ShotControl.resume()` — which restores SCAN — *before* the plan runs
+  again, so the repeated step's first message is `mv(B, OFF)` (the step
+  always opens quiet, pseudo-code above); only then the drain wait, the
+  rewind of every plugin to the step's baseline count, the re-prepare
+  and the re-arm of the sampler, and the step is retaken from its first
+  shot — the partial frames (and any edge that slipped in between the
+  resume and the OFF) leave the essential stacks, so no frame there is
+  ever without a row.  (A resume that *continues* the partial batch would need the
   plugin's count and the box's state re-baselined together; repeating
   the step is the same guarantee for `shots_per_step` × period of cost.)
   Strict's immediate pause mid-shot is not resumable mid-shot either.
