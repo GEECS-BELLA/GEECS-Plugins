@@ -283,9 +283,16 @@ def write_attachment(entry: LogEntry, filename: str, data: bytes, root: Path) ->
     try:
         folder.mkdir(parents=True, exist_ok=True)
         target = _claim_name(folder, filename)
-        _replace_with(target, data)
     except OSError as exc:
         raise MirrorUnavailable(f"cannot write {folder / filename}: {exc}") from exc
+    try:
+        _replace_with(target, data)
+    except OSError as exc:
+        # The claimed name is an empty file until the bytes land; a failed
+        # write must not leave it to be served as a 0-byte attachment.
+        with contextlib.suppress(OSError):
+            target.unlink()
+        raise MirrorUnavailable(f"cannot write {target}: {exc}") from exc
     return attachment_link(entry, target.name)
 
 

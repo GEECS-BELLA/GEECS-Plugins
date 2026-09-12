@@ -305,3 +305,24 @@ class TestSync:
         assert names == ["image-2.png", "image-3.png", "image-4.png", "image.png"]
         folder = mirror.entry_dir(e, root) / mirror.ATTACHMENTS_DIR / e.entry_id
         assert sorted(p.name for p in folder.iterdir()) == names
+
+    def test_failed_attachment_write_leaves_no_placeholder(
+        self, store: NotesStore, share: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A claimed name whose bytes never land is released, not served empty."""
+        e = store.create(day=DAY, scan=5, author="a", body_md="x")
+        root = mirror.logbook_root(DAY, EXP, base_directory=share)
+
+        def hiccup(path: Path, data: bytes) -> None:
+            raise OSError("share hiccup")
+
+        monkeypatch.setattr(mirror, "_replace_with", hiccup)
+        with pytest.raises(mirror.MirrorUnavailable):
+            mirror.write_attachment(e, "hic.png", b"\x89PNG", root)
+        folder = mirror.entry_dir(e, root) / mirror.ATTACHMENTS_DIR / e.entry_id
+        assert not (folder / "hic.png").exists()
+        monkeypatch.undo()
+        # The retry gets the original name, not hic-2.png.
+        assert mirror.write_attachment(e, "hic.png", b"\x89PNG", root).endswith(
+            "/hic.png"
+        )
