@@ -32,6 +32,7 @@ class TestParse:
         )
         assert (t.label, t.colour, t.book, t.order) == ("Laser", "ok", "ops", 10)
         assert t.body == "### Laser\n#laser\n"
+        assert t.tags == ["laser"]
         assert t.offered_in("ops") and not t.offered_in("scans")
 
     def test_defaults_without_a_header(self) -> None:

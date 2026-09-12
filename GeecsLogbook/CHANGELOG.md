@@ -58,6 +58,9 @@ The ops book: the second book gets its page, and entries get types.
   day page filters scans and was carrying a third copy of every body.
 - `TEMPLATES_DIRNAME` lives in `seed_templates` and the portal imports it;
   `PageSeeds` is a model rather than a dict.
+- An entry no longer shows a tag chip for a tag its type's prefill
+  carries ("Laser" beside "#laser" said one thing twice — owner's
+  hand-test). Tags the author added, or typed with no type, keep theirs.
 
 ## [0.4.0] - 2026-09-11
 

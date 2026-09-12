@@ -59,6 +59,8 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
+from geecs_logbook.tags import parse_tags
+
 logger = logging.getLogger(__name__)
 
 #: The colour vocabulary a template may name. Each is a GeecsWebTheme token
@@ -107,6 +109,10 @@ class SeedTemplate(BaseModel):
     book: TemplateBook = Field("both", description="Which book's composers offer it.")
     order: int = Field(100, description="Button row sort key.")
     body: str = Field("", description="The prefill, with its #tag.")
+    tags: list[str] = Field(
+        default_factory=list,
+        description="The tags the prefill carries — what the type chip already says.",
+    )
 
     def offered_in(self, book: str) -> bool:
         """Whether this template belongs on ``book``'s composers."""
@@ -160,13 +166,15 @@ def parse_template(name: str, text: str) -> SeedTemplate:
         )
         order = 100
     label = header.get("label") or name.replace("_", " ").replace("-", " ").title()
+    body = body.lstrip("\n").rstrip() + ("\n" if body.strip() else "")
     return SeedTemplate(
         name=name,
         label=label,
         colour=colour,
         book=book,  # type: ignore[arg-type]
         order=order,
-        body=body.lstrip("\n").rstrip() + ("\n" if body.strip() else ""),
+        body=body,
+        tags=parse_tags(body),
     )
 
 

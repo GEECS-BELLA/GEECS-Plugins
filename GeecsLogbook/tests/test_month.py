@@ -221,7 +221,16 @@ class TestTypeButtons:
         html = app.get("/log/month/2026-09").text
         assert '<span class="chip chip-type tone-ok">Laser</span>' in html
         assert '<span class="chip chip-quiet">retired_type</span>' in html
-        assert '<span class="chip chip-tag">#laser</span>' in html
+        # The type chip already says #laser; the tag chip would say it twice.
+        assert '<span class="chip chip-tag">#laser</span>' not in html
+
+    def test_tags_the_type_did_not_bring_still_show(self, app: TestClient) -> None:
+        """A tag the author added keeps its chip; so does a typed tag with no type."""
+        _ops(app, "2026-09-11", "#laser and also #jet", template="laser")
+        _ops(app, "2026-09-11", "hand-typed #laser")
+        html = app.get("/log/month/2026-09").text
+        assert html.count('<span class="chip chip-tag">#jet</span>') == 1
+        assert html.count('<span class="chip chip-tag">#laser</span>') == 1
 
     def test_haystack_only_where_it_is_filtered(self, app: TestClient) -> None:
         """The month page filters entries; the day page filters scans, so no third copy there."""

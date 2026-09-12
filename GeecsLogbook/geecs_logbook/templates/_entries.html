@@ -8,6 +8,11 @@
   `seeds` is Context.page_seeds(book), a seed_templates.PageSeeds.
 #}
 
+{#
+  The type chip, then the tag chips — minus the tags the type's own
+  prefill carries: "Laser" next to "#laser" said one thing twice (owner,
+  2026-09-11). A tag the author added, or typed with no type, still shows.
+#}
 {% macro template_chip(entry, seeds) -%}
   {% set t = seeds.labels.get(entry.template) %}
   {% if t %}
@@ -15,6 +20,8 @@
   {% elif entry.template not in seeds.quiet %}
     <span class="chip chip-quiet">{{ entry.template }}</span>
   {% endif %}
+  {% set said = t.tags if t else [] %}
+  {% for tag in entry.tags if tag not in said %}<span class="chip chip-tag">#{{ tag }}</span>{% endfor %}
 {%- endmacro %}
 
 {# `hay` adds the filter haystack — only the month page filters entries,
@@ -32,7 +39,6 @@
             <span class="chip chip-agent">{{ 'agent · draft' if r.entry.status == 'draft' else 'agent' }}</span>
           {% endif %}
           {{ template_chip(r.entry, seeds) }}
-          {% for t in r.entry.tags %}<span class="chip chip-tag">#{{ t }}</span>{% endfor %}
           <span class="stamp" title="{{ r.entry.created_at.isoformat() }}">{{ r.entry.created_at.astimezone().strftime('%H:%M') }}{% if r.entry.edited_at %} · edited{% if r.entry.edited_by and r.entry.edited_by != r.entry.author %} by {{ r.entry.edited_by }}{% endif %}{% endif %}</span>
           {% if writable %}
           <span class="entry-tools">
