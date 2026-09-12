@@ -45,7 +45,7 @@ def _snapshot(root: Path) -> set[Path]:
 
 
 class TestPaths:
-    """Where things go. Nothing here touches the disk."""
+    """Where things go. Only the experiment directory is ever stat-ed."""
 
     def test_logbook_owns_its_own_tree(self, share: Path) -> None:
         """{experiment}/logbook/Y/M/D — the data tree's date shape, outside it."""

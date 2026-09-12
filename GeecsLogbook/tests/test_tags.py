@@ -21,6 +21,7 @@ from geecs_logbook.tags import parse_tags
         ("#日本 is not ascii; #eé neither", []),
         ("`#include` and ```\n#define X\n``` but #real", ["real"]),
         ("word#glued is not a tag", []),
+        ("é#glued is not a tag either", []),
         ("(#laser) and #jet.", ["laser", "jet"]),
         ("", []),
     ],

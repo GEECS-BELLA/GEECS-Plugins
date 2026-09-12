@@ -272,8 +272,10 @@ class NotesStore:
             params.append(tag.lower())
         if not include_scan_anchored:
             sql += " AND scan IS NULL AND after_scan IS NULL"
+        if limit < 1:
+            raise ValueError("limit must be at least 1")
         sql += " ORDER BY day, created_at, rowid LIMIT ?"
-        params.append(max(1, min(limit, _QUERY_CAP)))
+        params.append(min(limit, _QUERY_CAP))
         with self._connect() as conn:
             rows = conn.execute(sql, params).fetchall()
         return [_from_row(row) for row in rows]
