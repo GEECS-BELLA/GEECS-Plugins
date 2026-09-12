@@ -41,6 +41,24 @@ The ops book: the second book gets its page, and entries get types.
   and sends `template` with a create.
 - `CLAUDE.md`: the owed ScanPaths review is filed as #839.
 
+### Fixed (review of #842)
+
+- The month page no longer runs the mirror sync on its request thread —
+  that put a share write on the one page whose promise is that the share
+  is never on its path; the day page pays the mirror debt (pinned).
+- An attachment autosave on the month composer pins the entry's day, so
+  the date picker locks once the entry exists instead of a later change
+  being silently ignored on Save; "+ note" respects the lock.
+- A template file named `blank`, `scan_note` or `day_intro` is refused
+  (`RESERVED_NAMES`): it would have put a chip on every hand-typed entry.
+  The names the pages render quietly come from the same constant.
+- `/log/month/9999-12` and `0001-01` are 400s, not 500s (their neighbour
+  month cannot exist).
+- The filter haystack (`data-hay`) is emitted only on the month page; the
+  day page filters scans and was carrying a third copy of every body.
+- `TEMPLATES_DIRNAME` lives in `seed_templates` and the portal imports it;
+  `PageSeeds` is a model rather than a dict.
+
 ## [0.4.0] - 2026-09-11
 
 The editor: what makes people use it.

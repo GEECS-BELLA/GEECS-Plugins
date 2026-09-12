@@ -97,6 +97,10 @@ class TestMonthPage:
 
         monkeypatch.setattr(scan_reader, "read_day", no_share)
         monkeypatch.setattr(_common, "read_day", no_share)
+        # The mirror sync writes to the share on the request thread; the
+        # day page pays that debt, this page must not (review of #842).
+        monkeypatch.setattr(_common.mirror, "sync", no_share)
+        monkeypatch.setattr(_common, "SYNC_INTERVAL_S", 0.0)
         _ops(app, "2026-09-11", "still here")
         assert "still here" in app.get("/log/month/2026-09").text
 
@@ -129,6 +133,10 @@ class TestMonthPage:
         assert app.get("/log/month/2026-9").status_code == 400
         assert app.get("/log/month/september").status_code == 400
         assert app.get("/log/api/month/2026-13/entries").status_code == 400
+        # A month whose neighbour cannot exist is refused, not a 500.
+        assert app.get("/log/month/9999-12").status_code == 400
+        assert app.get("/log/month/0001-01").status_code == 400
+        assert app.get("/log/month/0002-01").status_code == 200
 
     def test_composer_defaults_to_today_when_in_the_month(
         self, app: TestClient
@@ -212,6 +220,25 @@ class TestTypeButtons:
         assert '<span class="chip chip-type tone-ok">Laser</span>' in html
         assert '<span class="chip chip-quiet">retired_type</span>' in html
         assert '<span class="chip chip-tag">#laser</span>' in html
+
+    def test_haystack_only_where_it_is_filtered(self, app: TestClient) -> None:
+        """The month page filters entries; the day page filters scans, so no third copy there."""
+        _ops(app, "2026-09-11", "needle in the ops book")
+        app.post(
+            "/log/api/entries",
+            json={
+                "day": "2026-09-11",
+                "author": "a",
+                "body_md": "needle on a scan",
+                "scan": 1,
+            },
+        )
+        assert (
+            'data-hay="s. barber needle in the ops book'
+            in app.get("/log/month/2026-09").text
+        )
+        day = app.get("/log/day/2026-09-11").text
+        assert "needle on a scan" in day and 'data-hay="a needle' not in day
 
     def test_without_a_directory_composers_are_plain(
         self, share: Path, tmp_path: Path

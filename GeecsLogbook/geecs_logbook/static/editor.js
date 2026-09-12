@@ -195,6 +195,10 @@
       form.dataset.entry = entry.entry_id;
       form.dataset.version = String(entry.version);
       form.classList.add("autosaved");
+      // The entry now has its day; an edit cannot move it. Lock the
+      // picker so a later change is not silently ignored (Discard frees it).
+      const when = form.querySelector(".when");
+      if (when) { when.disabled = true; when.title = "Saved on this day — Discard to pick another"; }
       const discard = form.querySelector("[data-discard]");
       if (discard) discard.hidden = false;
       return entry.entry_id;

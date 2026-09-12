@@ -140,7 +140,7 @@
         </span>
       </header>
       <div class="entries">
-        {% for r in rs %}{{ shared.entry_article(r, writable, seeds) }}{% endfor %}
+        {% for r in rs %}{{ shared.entry_article(r, writable, seeds, hay=true) }}{% endfor %}
       </div>
     </section>
     {% endfor %}
@@ -170,7 +170,9 @@ document.querySelectorAll("[data-compose-day]").forEach(b => b.addEventListener(
   const form = document.querySelector("form.composer");
   if (!form) return;
   const when = form.querySelector(".when");
-  if (when) when.value = b.dataset.composeDay;
+  // An autosaved entry already has its day (the editor disables the
+  // picker); leave it and let the author see the date it is on.
+  if (when && !when.disabled) when.value = b.dataset.composeDay;
   form.scrollIntoView({ block: "start", behavior: "smooth" });
   form.querySelector(".ta").focus();
 }));

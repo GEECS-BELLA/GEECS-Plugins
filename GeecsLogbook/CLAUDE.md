@@ -293,6 +293,7 @@ is where that is tracked.
 | `EntryCreate` (the write shape) lives in the router, `LogEntry` (the stored shape) in `geecs_schemas` | An agent posts the create shape, so it belongs beside `LogEntry` for GEECS-MCP to validate. Moves with the agent-verbs phase, which is its first second consumer. |
 | A third private atomic-write helper (`_fs.replace_with`; `scan_analysis.config_store` and `task_queue` have their own) and `logbook_root` re-deriving the daily folder | Fold into the `ScanPaths`/`ScanData` review, #839 — same home, same issue. |
 | Which template "started" an entry when several buttons were pressed | The last one pressed is recorded. Provenance only; nothing reads it back but the chip. |
+| `seed_templates.parse_template` is the package's first front-matter reader, while `mirror.render` is its writer | One reader, one writer, different shapes today (the template header has no lists). When the mirror *reader* lands (off-site/rebuild, deferred above), extract one `parse_front_matter` beside `mirror` and point both at it — not before there is a second caller. Waived in the review of #842. |
 
 ## Deployment
 

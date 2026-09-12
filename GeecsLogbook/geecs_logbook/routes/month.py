@@ -37,14 +37,11 @@ BOOK = "ops"
 def register(router: APIRouter, ctx: Context) -> None:
     """Add the month routes to ``router``."""
 
-    def month_entries(first: date, last: date, **filters: object) -> list[LogEntry]:
+    def month_entries(first: date, last: date) -> list[LogEntry]:
         if ctx.store is None:
             return []
         return ctx.store.query(
-            day_from=first.isoformat(),
-            day_to=last.isoformat(),
-            book=BOOK,
-            **filters,  # type: ignore[arg-type]
+            day_from=first.isoformat(), day_to=last.isoformat(), book=BOOK
         )
 
     @router.get("/month/{month}", response_class=HTMLResponse)
@@ -55,7 +52,9 @@ def register(router: APIRouter, ctx: Context) -> None:
         first = parse_month(month)
         last = month_last_day(first)
         today = date.today()
-        ctx.maybe_sync()
+        # No ctx.maybe_sync() here, deliberately: the sync writes to the
+        # share on the request thread, and this page's promise is that the
+        # share is never on its path. The day page pays the mirror debt.
 
         # One query for the month; the tag chips count the whole month
         # while the list shows the filtered part, so a chip never reads

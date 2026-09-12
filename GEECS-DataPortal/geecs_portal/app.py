@@ -342,11 +342,6 @@ class _DiagInfo:
         )
 
 
-#: The logbook's seed templates, a directory beside the analysis tree in
-#: the configs checkout (``<configs>/logbook_templates/*.md``).
-LOGBOOK_TEMPLATES_DIR = "logbook_templates"
-
-
 def create_app(
     catalog: ScanCatalog,
     *,
@@ -373,7 +368,10 @@ def create_app(
         config resolution (the 03 design doc's finding 7: two
         competing resolution paths exist, so the portal names its
         tree explicitly). The selector also hides itself when
-        ImageAnalysis (the ``analysis`` extra) is not installed.
+        ImageAnalysis (the ``analysis`` extra) is not installed. With
+        ``scan_log``, the logbook's seed templates (its type buttons) are
+        read from ``logbook_templates/`` beside this tree — the configs
+        checkout the portal already reads; none when it is not configured.
     analysis_factory : callable, optional
         ``(analyzer_id, config_dir) -> ScanAnalyzer`` for the analysis
         runs (``/api/run/{uid}/analysis``, the 04 design). ``None``
@@ -397,10 +395,6 @@ def create_app(
         each entry as markdown into the day's ``logbook/`` folder on the
         share (a sibling of ``scans/``; never inside it). Without it the
         logbook is the read-only day view. Ignored unless ``scan_log``.
-        The logbook's seed templates — its type buttons — are read from
-        ``logbook_templates/`` beside the ``processing_config_dir`` tree
-        (the configs checkout this portal already reads); none when that
-        tree is not configured.
     config_editor : bool, default False
         Mount the analysis config editor (``scan_analysis.config_editor``)
         at ``/configs`` over the same ``processing_config_dir`` tree, with a
@@ -1925,13 +1919,14 @@ def create_app(
         else:
             try:
                 from geecs_logbook import create_log_router
+                from geecs_logbook.seed_templates import TEMPLATES_DIRNAME
             except ImportError as exc:  # the log extra is not installed
                 logger.warning("scan log requested but not installed: %s", exc)
             else:
                 # Type buttons are markdown files in the configs checkout,
                 # a sibling of the analysis tree: one checkout, one flag.
                 templates_dir = (
-                    Path(processing_config_dir).parent / LOGBOOK_TEMPLATES_DIR
+                    Path(processing_config_dir).parent / TEMPLATES_DIRNAME
                     if processing_config_dir
                     else None
                 )

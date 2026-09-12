@@ -28,7 +28,7 @@ from geecs_logbook.attachments import AttachmentStore
 from geecs_logbook.models import DaySummary
 from geecs_logbook.render import render_markdown
 from geecs_logbook.scan_reader import read_day
-from geecs_logbook.seed_templates import SeedTemplates
+from geecs_logbook.seed_templates import PageSeeds, SeedTemplates
 from geecs_logbook.store import NotesStore
 
 logger = logging.getLogger(__name__)
@@ -130,19 +130,9 @@ class Context:
             for e in entries
         ]
 
-    def page_seeds(self, book: str) -> dict:
-        """What a page needs to draw type buttons and label stored entries.
-
-        ``buttons`` is the row for this book's composers; ``labels`` maps
-        every loaded template's name to its label and tone, so an entry
-        that started from a template offered in the *other* book (or one
-        since re-scoped) still shows its chip.
-        """
-        return {
-            "buttons": self.seeds.for_book(book),
-            "labels": self.seeds.by_name(),
-            "prefill": {t.name: t.body for t in self.seeds.current()},
-        }
+    def page_seeds(self, book: str) -> PageSeeds:
+        """What a page needs to draw type buttons and label stored entries."""
+        return self.seeds.for_page(book)
 
     def mirror(self, entry_id: str) -> None:
         """Try to land one entry on the share; defer quietly if it cannot."""
@@ -181,7 +171,10 @@ def parse_month(raw: str) -> date:
     try:
         if not re.fullmatch(r"\d{4}-\d{2}", raw):  # strptime takes "2026-9"
             raise ValueError(raw)
-        return datetime.strptime(raw, "%Y-%m").date()
+        first = datetime.strptime(raw, "%Y-%m").date()
+        if not 1 < first.year < 9999:  # prev/next month must exist too
+            raise ValueError(raw)
+        return first
     except ValueError as exc:
         raise HTTPException(
             status_code=400, detail=f"month must be YYYY-MM, got {raw!r}"

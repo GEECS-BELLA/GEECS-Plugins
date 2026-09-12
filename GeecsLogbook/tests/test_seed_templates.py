@@ -85,6 +85,13 @@ class TestLoad:
         """No directory, no buttons, no error."""
         assert load_templates(tmp_path / "nope") == []
 
+    def test_reserved_stems_are_refused(self, tmp_path: Path, caplog) -> None:
+        """blank.md would put a chip on every hand-typed entry; it is skipped."""
+        for name in ("blank", "scan_note", "day_intro", "laser"):
+            (tmp_path / f"{name}.md").write_text(f"#{name}\n")
+        assert [t.name for t in load_templates(tmp_path)] == ["laser"]
+        assert caplog.text.count("is reserved") == 3
+
     def test_unusable_stems_are_skipped(self, tmp_path: Path, caplog) -> None:
         """A stem that cannot be a template name is skipped with a warning."""
         (tmp_path / "ok.md").write_text("fine\n")
@@ -146,6 +153,14 @@ class TestSeedTemplates:
         while seeds._refreshing and time.monotonic() < deadline:
             time.sleep(0.02)
         assert [t.name for t in seeds.current()] == ["laser"]
+
+
+def test_page_seeds_carry_the_reserved_names() -> None:
+    """The macro hides the chip for exactly the names the loader refuses."""
+    from geecs_logbook.seed_templates import RESERVED_NAMES
+
+    page = SeedTemplates(None).for_page("ops")
+    assert page.quiet == RESERVED_NAMES and page.buttons == [] and page.prefill == {}
 
 
 def test_every_tone_has_a_css_rule() -> None:

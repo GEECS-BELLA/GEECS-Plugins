@@ -78,6 +78,16 @@ TONES: tuple[str, ...] = (
     "trace-4",
 )
 
+#: Where the files live: this directory at the top of the configs checkout
+#: (the portal derives it from its analysis tree's parent).
+TEMPLATES_DIRNAME = "logbook_templates"
+
+#: Template names an entry carries without a button: what the composer
+#: sends when none was pressed, and two the pages render quietly. A file
+#: with one of these stems is refused, or every hand-typed entry would
+#: wear its chip.
+RESERVED_NAMES: tuple[str, ...] = ("blank", "scan_note", "day_intro")
+
 #: A template's name is its file stem, and it is stored on every entry that
 #: started from it — so it is bounded like ``LogEntry.template``.
 _NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
@@ -174,6 +184,13 @@ def load_templates(directory: Path) -> list[SeedTemplate]:
     for path in sorted(directory.glob("*.md")):
         if path.stem.upper() == "README":  # a browsed directory has one
             continue
+        if path.stem in RESERVED_NAMES:
+            logger.warning(
+                "logbook template %s: %r is reserved for entries with no template; skipped",
+                path.name,
+                path.stem,
+            )
+            continue
         if not _NAME.match(path.stem):
             logger.warning(
                 "logbook template %s: name is not usable; skipped", path.name
@@ -187,6 +204,22 @@ def load_templates(directory: Path) -> list[SeedTemplate]:
             )
     found.sort(key=lambda t: (t.order, t.label.lower(), t.name))
     return found
+
+
+class PageSeeds(BaseModel):
+    """What a page needs to draw type buttons and label stored entries.
+
+    ``buttons`` is the row for one book's composers; ``labels`` maps every
+    loaded template's name to itself, so an entry that started from a
+    template offered in the *other* book (or one since re-scoped) still
+    shows its chip; ``prefill`` is the one JSON block the editor reads;
+    ``quiet`` are the names rendered without a chip.
+    """
+
+    buttons: list[SeedTemplate] = Field(default_factory=list)
+    labels: dict[str, SeedTemplate] = Field(default_factory=dict)
+    prefill: dict[str, str] = Field(default_factory=dict)
+    quiet: tuple[str, ...] = RESERVED_NAMES
 
 
 class SeedTemplates:
@@ -250,3 +283,12 @@ class SeedTemplates:
     def by_name(self) -> dict[str, SeedTemplate]:
         """Return the loaded set keyed by name, for labelling stored entries."""
         return {t.name: t for t in self.current()}
+
+    def for_page(self, book: str) -> PageSeeds:
+        """Return what a page for ``book`` needs, from one read of the set."""
+        current = self.current()
+        return PageSeeds(
+            buttons=[t for t in current if t.offered_in(book)],
+            labels={t.name: t for t in current},
+            prefill={t.name: t.body for t in current},
+        )

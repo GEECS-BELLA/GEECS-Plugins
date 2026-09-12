@@ -5,23 +5,25 @@
   same way and editor.js meets one shape of form. Every macro takes what
   it needs explicitly; nothing reads the page context.
 
-  `seeds` is Context.page_seeds(book): {buttons, labels, prefill}.
+  `seeds` is Context.page_seeds(book), a seed_templates.PageSeeds.
 #}
 
 {% macro template_chip(entry, seeds) -%}
   {% set t = seeds.labels.get(entry.template) %}
   {% if t %}
     <span class="chip chip-type tone-{{ t.colour }}">{{ t.label }}</span>
-  {% elif entry.template not in ('blank', 'scan_note', 'day_intro') %}
+  {% elif entry.template not in seeds.quiet %}
     <span class="chip chip-quiet">{{ entry.template }}</span>
   {% endif %}
 {%- endmacro %}
 
-{% macro entry_article(r, writable, seeds) %}
+{# `hay` adds the filter haystack — only the month page filters entries,
+   so the day page does not carry a third copy of every body. #}
+{% macro entry_article(r, writable, seeds, hay=false) %}
     <article class="entry{% if r.entry.kind.startswith('agent') %} entry-agent{% endif %}"
              id="entry-{{ r.entry.entry_id }}"
              data-entry="{{ r.entry.entry_id }}" data-version="{{ r.entry.version }}"
-             data-hay="{{ (r.entry.author ~ ' ' ~ r.entry.body_md ~ ' ' ~ r.entry.tags | join(' ')) | lower }}">
+             {%- if hay %} data-hay="{{ (r.entry.author ~ ' ' ~ r.entry.body_md ~ ' ' ~ r.entry.tags | join(' ')) | lower }}"{% endif %}>
       <div class="avatar{% if r.entry.kind.startswith('agent') %} avatar-agent{% endif %}">{{ r.entry.author | initials }}</div>
       <div class="entry-main">
         <div class="entry-head">
