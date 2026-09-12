@@ -397,11 +397,11 @@ class TestQuery:
         assert [e.body_md for e in by_b] == ["ops #laser"]
 
     def test_limit_is_always_bounded(self, store: NotesStore) -> None:
-        """A negative or absurd limit cannot lift the cap."""
+        """A non-positive limit is refused; an absurd one cannot lift the cap."""
         self._seed(store)
-        assert (
-            len(store.query(day_from="2026-01-01", day_to="2026-12-31", limit=-1)) == 1
-        )
+        for bad in (0, -1):
+            with pytest.raises(ValueError):
+                store.query(day_from="2026-01-01", day_to="2026-12-31", limit=bad)
         assert (
             len(store.query(day_from="2026-01-01", day_to="2026-12-31", limit=10**9))
             == 4
