@@ -4,6 +4,67 @@ All notable changes to `geecs-logbook` are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 project adheres to semantic versioning.
 
+## [0.5.0] - 2026-09-11
+
+The ops book: the second book gets its page, and entries get types.
+
+### Added
+
+- `GET /log/month/{YYYY-MM}` — the ops book: every `ops` entry in the
+  month grouped by day, newest day first, one composer with a date
+  picker, prev/next month and a month picker, and tag chips that filter
+  through the URL (`?tag=laser`; chips count the whole month while the
+  list shows the filtered part). Reads only the notes store — never the
+  share — so it stays fast when the share is slow (pinned).
+  `GET /log/api/month/{YYYY-MM}/entries?book=&tag=` is its JSON peer.
+- **Seed templates as type buttons** (`seed_templates.py`): `*.md` files
+  in a directory the host names (`create_log_router(templates_dir=)`;
+  the portal points it at `logbook_templates/` in the configs checkout).
+  Front-matter `label` / `colour` / `book` / `order`, body = the prefill
+  with its `#tag`. A button press inserts the prefill and the entry
+  records the template's name as provenance; a stored entry shows its
+  template as a chip in the file's tone. `colour` is a theme token name
+  from a closed vocabulary (`TONES`, pinned against the stylesheet), never
+  a literal. Read once at start, refreshed in the background when stale;
+  a failed refresh keeps the last set. `examples/logbook_templates/` is
+  the documented starter set.
+- Cross-links between the books: the day page's "N ops notes today →"
+  strip (into the month page's day heading) and an "Ops book" link in its
+  topbar; each day on the month page links to its day document.
+
+### Changed
+
+- The entry and composer markup moved into shared macros
+  (`templates/_entries.html`) so both pages draw them identically.
+- `editor.js` takes the day per form (a `.when` date input or `data-day`,
+  falling back to the page's), reads the prefills from one JSON block,
+  and sends `template` with a create.
+- `CLAUDE.md`: the owed ScanPaths review is filed as #839.
+
+### Fixed (review of #842)
+
+- The month page no longer runs the mirror sync on its request thread —
+  that put a share write on the one page whose promise is that the share
+  is never on its path; the day page pays the mirror debt (pinned).
+- An attachment autosave on the month composer pins the entry's day, so
+  the date picker locks once the entry exists instead of a later change
+  being silently ignored on Save; "+ note" respects the lock.
+- A template file named `blank`, `scan_note` or `day_intro` is refused
+  (`RESERVED_NAMES`): it would have put a chip on every hand-typed entry.
+  The names the pages render quietly come from the same constant.
+- `/log/month/9999-12` and `0001-01` are 400s, not 500s (their neighbour
+  month cannot exist).
+- The filter haystack (`data-hay`) is emitted only on the month page; the
+  day page filters scans and was carrying a third copy of every body.
+- `TEMPLATES_DIRNAME` lives in `seed_templates` and the portal imports it;
+  `PageSeeds` is a model rather than a dict.
+- After an attachment autosave the type buttons lock along with the date
+  picker: an edit carries no `template`, so a type pressed after the
+  entry existed would show on screen and not in the store (Codex review).
+- An entry no longer shows a tag chip for a tag its type's prefill
+  carries ("Laser" beside "#laser" said one thing twice — owner's
+  hand-test). Tags the author added, or typed with no type, keep theirs.
+
 ## [0.4.0] - 2026-09-11
 
 The editor: what makes people use it.

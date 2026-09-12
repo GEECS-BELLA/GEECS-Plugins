@@ -28,59 +28,14 @@
   <dd{% if value is none %} class="none"{% endif %}>{{ value if value is not none else '—' }}</dd></div>
 {%- endmacro %}
 
+{% import "_entries.html" as shared %}
+
 {% macro entries_block(anchor, scan, after, entries, writable) %}
   {% set es = entries.get(anchor, []) %}
   {% if es or writable %}
   <div class="entries">
-    {% for r in es %}
-    <article class="entry{% if r.entry.kind.startswith('agent') %} entry-agent{% endif %}"
-             id="entry-{{ r.entry.entry_id }}"
-             data-entry="{{ r.entry.entry_id }}" data-version="{{ r.entry.version }}">
-      <div class="avatar{% if r.entry.kind.startswith('agent') %} avatar-agent{% endif %}">{{ r.entry.author | initials }}</div>
-      <div class="entry-main">
-        <div class="entry-head">
-          <span class="author">{{ r.entry.author }}</span>
-          {% if r.entry.kind.startswith('agent') %}
-            <span class="chip chip-agent">{{ 'agent · draft' if r.entry.status == 'draft' else 'agent' }}</span>
-          {% endif %}
-          {% if r.entry.template not in ('blank', 'scan_note', 'day_intro') %}
-            <span class="chip chip-quiet">{{ r.entry.template }}</span>
-          {% endif %}
-          {% for t in r.entry.tags %}<span class="chip chip-tag">#{{ t }}</span>{% endfor %}
-          <span class="stamp" title="{{ r.entry.created_at.isoformat() }}">{{ r.entry.created_at.astimezone().strftime('%H:%M') }}{% if r.entry.edited_at %} · edited{% if r.entry.edited_by and r.entry.edited_by != r.entry.author %} by {{ r.entry.edited_by }}{% endif %}{% endif %}</span>
-          {% if writable %}
-          <span class="entry-tools">
-            <button class="linkbtn" type="button" data-edit="{{ r.entry.entry_id }}">Edit</button>
-            <button class="linkbtn" type="button" data-del="{{ r.entry.entry_id }}">Delete</button>
-          </span>
-          {% endif %}
-        </div>
-        {% if r.entry.status == 'draft' %}
-        <div class="draftnote">Draft &mdash; nobody has reviewed this.
-          {% if writable %}<button class="linkbtn" type="button" data-keep="{{ r.entry.entry_id }}">Keep in log</button>{% endif %}
-        </div>
-        {% endif %}
-        <div class="entry-body">{{ r.html | safe }}</div>
-        {# JSON, not text: a <script> body is raw text, so HTML-escaped
-           entities would come back literally into the editor. #}
-        <script type="application/json" class="raw">{{ r.entry.body_md | tojson }}</script>
-      </div>
-    </article>
-    {% endfor %}
-    {% if writable %}
-    <form class="composer" data-scan="{{ scan if scan is not none else '' }}"
-          data-after="{{ after if after is not none else '' }}">
-      <div class="avatar avatar-you">&hellip;</div>
-      <div class="entry-main">
-        <textarea class="ta" rows="3" placeholder="Add a note&hellip; Markdown works."></textarea>
-        <div class="editor-bar">
-          <input class="who" placeholder="Your name" required aria-label="Your name">
-          <button class="btn btn-sm btn-primary" type="submit">Save</button>
-          <span class="editor-hint">&#8984;&#8629; saves &middot; paste or drop a screenshot</span>
-        </div>
-      </div>
-    </form>
-    {% endif %}
+    {% for r in es %}{{ shared.entry_article(r, writable, seeds) }}{% endfor %}
+    {% if writable %}{{ shared.composer(seeds, scan=scan, after=after) }}{% endif %}
   </div>
   {% endif %}
 {% endmacro %}
@@ -180,6 +135,7 @@
       <input id="q" type="search" placeholder="Filter scans…" autocomplete="off">
     </label>
     <div data-theme-picker></div>
+    <a class="btn booklink" href="{{ month_url }}">Ops book &rarr;</a>
     <button class="btn" type="button" id="toggle-all"
             data-expanded="{{ 'false' if many else 'true' }}">
       {{ 'Expand all' if many else 'Collapse all' }}
@@ -256,6 +212,13 @@
         {% if summary.failed %}<div>Failed<b>{{ summary.failed }}</b></div>{% endif %}
       </div>
     </div>
+
+    {% if ops_count %}
+    <a class="opsstrip" href="{{ ops_url }}">
+      <span class="tlabel">Ops book</span>
+      {{ ops_count }} ops note{{ '' if ops_count == 1 else 's' }} today &rarr;
+    </a>
+    {% endif %}
 
     {% if not summary.exists %}
       <p class="empty">No <code>scans/</code> directory for this date. Nothing ran,
@@ -375,6 +338,7 @@ document.querySelectorAll(".scanrow").forEach(a => a.addEventListener("click", (
   if (camp) camp.open = true;
 }));
 </script>
+{{ shared.seeds_json(seeds) }}
 <script src="{{ url_for('_static', name='editor.js') }}" defer></script>
 <script src="{{ root }}/theme/theme.js" defer></script>
 </body>

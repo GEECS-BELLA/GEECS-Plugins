@@ -3,6 +3,26 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.25.0] - 2026-09-11
+
+### Added
+
+- The logbook's seed templates (its type buttons) are read from
+  `logbook_templates/` beside the `--processing-configs` tree — the
+  configs checkout the portal already has; no new flag. Without that
+  tree the composers are plain.
+- Unit template: `MemoryHigh=` / `MemoryMax=` on the portal service,
+  rendered from two new **required** site.env keys
+  `GEECS_PORTAL_MEMORY_HIGH` / `GEECS_PORTAL_MEMORY_MAX` (3G / 4G in the
+  example, sized per host), so a runaway portal is throttled and then
+  restarted by systemd instead of being the kernel's first OOM pick on
+  the shared box (#834). Existing hosts add the two keys and re-render.
+
+### Changed
+
+- `/log/month/{YYYY-MM}` (the ops book) is now served under `--scan-log`
+  alongside the day pages (GeecsLogbook 0.5.0).
+
 ## [0.24.1] - 2026-09-11
 
 ### Changed

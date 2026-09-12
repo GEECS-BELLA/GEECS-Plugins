@@ -368,7 +368,10 @@ def create_app(
         config resolution (the 03 design doc's finding 7: two
         competing resolution paths exist, so the portal names its
         tree explicitly). The selector also hides itself when
-        ImageAnalysis (the ``analysis`` extra) is not installed.
+        ImageAnalysis (the ``analysis`` extra) is not installed. With
+        ``scan_log``, the logbook's seed templates (its type buttons) are
+        read from ``logbook_templates/`` beside this tree — the configs
+        checkout the portal already reads; none when it is not configured.
     analysis_factory : callable, optional
         ``(analyzer_id, config_dir) -> ScanAnalyzer`` for the analysis
         runs (``/api/run/{uid}/analysis``, the 04 design). ``None``
@@ -1916,17 +1919,30 @@ def create_app(
         else:
             try:
                 from geecs_logbook import create_log_router
+                from geecs_logbook.seed_templates import TEMPLATES_DIRNAME
             except ImportError as exc:  # the log extra is not installed
                 logger.warning("scan log requested but not installed: %s", exc)
             else:
+                # Type buttons are markdown files in the configs checkout,
+                # a sibling of the analysis tree: one checkout, one flag.
+                templates_dir = (
+                    Path(processing_config_dir).parent / TEMPLATES_DIRNAME
+                    if processing_config_dir
+                    else None
+                )
                 app.include_router(
-                    create_log_router(default_experiment, notes_db=notes_db),
+                    create_log_router(
+                        default_experiment,
+                        notes_db=notes_db,
+                        templates_dir=templates_dir,
+                    ),
                     prefix="/log",
                 )
                 logger.info(
-                    "scan log mounted at /log for %s (%s)",
+                    "scan log mounted at /log for %s (%s; templates %s)",
                     default_experiment,
                     f"entries in {notes_db}" if notes_db else "read-only",
+                    templates_dir or "none",
                 )
 
     return app

@@ -95,3 +95,42 @@ class TestNotesDb:
         from geecs_logbook.store import NotesStore
 
         assert [e.body_md for e in NotesStore(db).unmirrored()] == ["hello"]
+
+
+class TestSeedTemplates:
+    """The logbook's type buttons come from the configs checkout the portal reads."""
+
+    def test_templates_dir_is_beside_the_analysis_tree(self, tmp_path: Path) -> None:
+        """``<configs>/logbook_templates/`` — a sibling of --processing-configs."""
+        configs = tmp_path / "configs"
+        analysis = configs / "scan_analysis_configs"
+        analysis.mkdir(parents=True)
+        (configs / "logbook_templates").mkdir()
+        (configs / "logbook_templates" / "laser.md").write_text(
+            "---\nlabel: Laser\ncolour: ok\nbook: ops\n---\n#laser\n"
+        )
+        client = TestClient(
+            create_app(
+                FakeCatalog(),
+                default_experiment="Undulator",
+                processing_config_dir=analysis,
+                scan_log=True,
+                notes_db=tmp_path / "logbook.db",
+            )
+        )
+        html = client.get("/log/month/2026-09").text
+        assert 'data-type="laser"' in html and "tone-ok" in html
+
+    def test_no_configs_tree_means_plain_composers(self, tmp_path: Path) -> None:
+        """Without --processing-configs there is no checkout to read templates from."""
+        client = TestClient(
+            create_app(
+                FakeCatalog(),
+                default_experiment="Undulator",
+                scan_log=True,
+                notes_db=tmp_path / "logbook.db",
+            )
+        )
+        html = client.get("/log/month/2026-09").text
+        assert client.get("/log/month/2026-09").status_code == 200
+        assert "typebtn" not in html

@@ -1,0 +1,194 @@
+{#
+  The ops book: one month of day-level entries, newest day first.
+
+  Everything on this page comes from the notes store — nothing is read
+  off the share — so it stays fast when the share is slow. Each day
+  links to its scan-log day page; the tag chips filter through the URL.
+#}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ops Book — {{ first.strftime('%B %Y') }}</title>
+{% set root = request.scope.get('root_path', '').rstrip('/') %}
+<script src="{{ root }}/theme/theme-boot.js"></script>
+<link rel="stylesheet" href="{{ root }}/theme/theme.css">
+<link rel="stylesheet" href="{{ url_for('_static', name='scanlog.css').path }}">
+</head>
+<body>
+{% import "_entries.html" as shared %}
+{% set month_path = url_for('_month_page', month=first.strftime('%Y-%m')).path %}
+
+<div class="topbar">
+  <div class="wrap">
+    <div class="brand">
+      <strong>Ops Book</strong>
+      <span class="facility">{{ experiment }}</span>
+    </div>
+    <label class="searchbox">
+      <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor"
+           stroke-width="1.7" aria-hidden="true"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5 14 14"/></svg>
+      <input id="q" type="search" placeholder="Filter notes…" autocomplete="off">
+    </label>
+    <div data-theme-picker></div>
+    <a class="btn booklink" href="{{ url_for('_day_page', day=today.isoformat()).path }}">Scan log &rarr;</a>
+  </div>
+</div>
+
+<div class="wrap shell">
+
+  <aside class="rail">
+    <section>
+      <h4>Go to a month</h4>
+      <div class="daypick">
+        <a class="stepday" href="{{ url_for('_month_page', month=prev_month.strftime('%Y-%m')).path }}"
+           title="Previous month" aria-label="Previous month">&lsaquo;</a>
+        <input type="month" id="monthpicker" value="{{ first.strftime('%Y-%m') }}"
+               aria-label="Jump to a month">
+        <a class="stepday" href="{{ url_for('_month_page', month=next_month.strftime('%Y-%m')).path }}"
+           title="Next month" aria-label="Next month">&rsaquo;</a>
+      </div>
+      {% if not (first <= today <= last) %}
+      <a class="todaylink" href="{{ url_for('_month_page', month=today.strftime('%Y-%m')).path }}">
+        Back to this month</a>
+      {% endif %}
+    </section>
+
+    {% if tags %}
+    <section>
+      <h4>Tags</h4>
+      <div class="tagcloud">
+        {% if active_tag %}
+        <a class="tagchip clear" href="{{ month_path }}">&times; clear filter</a>
+        {% endif %}
+        {% for name, n in tags %}
+        <a class="tagchip{% if name == active_tag %} is-active{% endif %}"
+           href="{{ month_path }}?tag={{ name }}">#{{ name }}<span class="n">{{ n }}</span></a>
+        {% endfor %}
+      </div>
+    </section>
+    {% endif %}
+
+    {% if days %}
+    <section>
+      <h4>Days · {{ days | length }}</h4>
+      <div class="daylist">
+        {% for d, rs in days %}
+        <a class="day" href="#day-{{ d.isoformat() }}">
+          <span>{{ d.strftime('%a %d %b') }}</span>
+          <span class="n">{{ rs | length }}</span>
+        </a>
+        {% endfor %}
+      </div>
+    </section>
+    {% endif %}
+  </aside>
+
+  <main id="logbook" data-api="{{ api_base }}" data-book="ops" data-accept="{{ accept }}">
+
+    <div class="dayhead">
+      <div>
+        <h1>{{ first.strftime('%B %Y') }}</h1>
+        <div class="sub">operations &middot; day-level notes, newest day first</div>
+      </div>
+      <div class="daystats">
+        <div>Notes<b>{{ entry_count }}{% if active_tag %} / {{ month_count }}{% endif %}</b></div>
+        <div>Days<b>{{ days | length }}</b></div>
+      </div>
+    </div>
+
+    {% if active_tag %}
+    <p class="filternote">Showing notes tagged <span class="chip chip-tag">#{{ active_tag }}</span>
+      &middot; <a href="{{ month_path }}">show all</a></p>
+    {% endif %}
+
+    {% if writable %}
+    <section class="card compose">
+      <header class="scanhead">
+        <span class="scanid">New note</span>
+        <span class="scanpurpose">Something about the day &mdash; not a scan. Pick a type or just write.</span>
+      </header>
+      <div class="entries">
+        {% call shared.composer(seeds, day=compose_day.isoformat(), rows=4,
+                                placeholder='What happened? Markdown works; #tags are read from the text.') %}
+          <input type="date" class="when" value="{{ compose_day.isoformat() }}" required
+                 aria-label="Which day this note is about">
+        {% endcall %}
+      </div>
+    </section>
+    {% endif %}
+
+    {% if not days %}
+      <p class="empty">
+        {% if active_tag %}No notes tagged <code>#{{ active_tag }}</code> in {{ first.strftime('%B %Y') }}.
+        {% elif month_count == 0 %}No operations notes in {{ first.strftime('%B %Y') }}{% if writable %} yet{% endif %}.
+        {% endif %}
+      </p>
+    {% endif %}
+
+    {% for d, rs in days %}
+    <section class="card daygroup" id="day-{{ d.isoformat() }}">
+      <header class="scanhead">
+        <span class="scanid">{{ d.strftime('%a %-d %b') }}</span>
+        {% if d == today %}<span class="chip chip-quiet">today</span>{% endif %}
+        <span class="scanpurpose">{{ rs | length }} note{{ '' if rs | length == 1 else 's' }}</span>
+        <span class="hdr-actions">
+          {% if writable %}
+          <button class="linkbtn" type="button" data-compose-day="{{ d.isoformat() }}">+ note</button>
+          {% endif %}
+          <a class="linkbtn daylink" href="{{ url_for('_day_page', day=d.isoformat()).path }}">scan log &rarr;</a>
+        </span>
+      </header>
+      <div class="entries">
+        {% for r in rs %}{{ shared.entry_article(r, writable, seeds, hay=true) }}{% endfor %}
+      </div>
+    </section>
+    {% endfor %}
+
+    {% if not writable %}
+    <p class="foot">Read-only: no notes store is configured, so there is nothing to
+    write here and nothing stored.</p>
+    {% endif %}
+  </main>
+</div>
+
+{{ shared.seeds_json(seeds) }}
+<script>
+"use strict";
+/* The picker navigates straight to any month. */
+document.getElementById("monthpicker").addEventListener("change", ev => {
+  if (ev.target.value) {
+    const url = new URL(window.location.href);
+    url.pathname = url.pathname.replace(/[^/]+$/, ev.target.value);
+    url.hash = "";
+    window.location.href = url.toString();
+  }
+});
+
+/* "+ note" on a day points the one composer at that day. */
+document.querySelectorAll("[data-compose-day]").forEach(b => b.addEventListener("click", () => {
+  const form = document.querySelector("form.composer");
+  if (!form) return;
+  const when = form.querySelector(".when");
+  // An autosaved entry already has its day (the editor disables the
+  // picker); leave it and let the author see the date it is on.
+  if (when && !when.disabled) when.value = b.dataset.composeDay;
+  form.scrollIntoView({ block: "start", behavior: "smooth" });
+  form.querySelector(".ta").focus();
+}));
+
+/* Filter hides entries, and a day whose entries are all hidden. */
+document.getElementById("q").addEventListener("input", ev => {
+  const f = ev.target.value.trim().toLowerCase();
+  document.querySelectorAll("article.entry").forEach(e => {
+    e.hidden = !!f && !e.dataset.hay.includes(f);
+  });
+  document.querySelectorAll("section.daygroup").forEach(g => {
+    g.hidden = !!f && ![...g.querySelectorAll("article.entry")].some(e => !e.hidden);
+  });
+});
+</script>
+<script src="{{ url_for('_static', name='editor.js') }}" defer></script>
+<script src="{{ root }}/theme/theme.js" defer></script>
+</body>
+</html>

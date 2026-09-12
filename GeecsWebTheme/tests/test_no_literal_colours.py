@@ -40,6 +40,8 @@ _SURFACES = [
     "GEECS-DataPortal/geecs_portal/templates/run.html",
     "GeecsLogbook/geecs_logbook/static/scanlog.css",
     "GeecsLogbook/geecs_logbook/templates/day.html",
+    "GeecsLogbook/geecs_logbook/templates/month.html",
+    "GeecsLogbook/geecs_logbook/templates/_entries.html",
     "GeecsLogbook/geecs_logbook/static/editor.js",
     "ScanAnalysis/scan_analysis/config_editor/static/editor.css",
     "ScanAnalysis/scan_analysis/config_editor/templates/editor.html",
@@ -298,9 +300,15 @@ def test_every_referenced_token_is_defined() -> None:
     ref = re.compile(
         r"var\(\s*(--[\w-]+)|getPropertyValue\(\s*[\"'`](--[\w-]+)|\$tok:(--[\w-]+)"
     )
+    # A surface may define an indirection of its own — ``.tone-ok{--tone:
+    # var(--ok)}`` — so one rule can read ``var(--tone)`` for any of ten
+    # tones. It counts as defined only when its value is itself a token;
+    # a local property holding a literal is caught by the literal guard.
+    local = re.compile(r"(--[\w-]+)\s*:\s*var\(\s*--[\w-]+\s*\)")
     for relative in _SURFACES + ["GEECS-DataPortal/geecs_portal/figures.py"]:
         text = (_REPO / relative).read_text()
         names = {g for m in ref.finditer(text) for g in m.groups() if g}
+        names -= set(local.findall(text))
         # --trace-${i} is built from a prefix at runtime; "--name" is the
         # documentation placeholder in comments explaining the sentinel form.
         names = {n for n in names if not n.endswith("-") and n != "--name"}

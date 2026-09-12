@@ -15,7 +15,9 @@
 # EnvironmentFile= ONLY in command arguments — never in WorkingDirectory=,
 # User=, Environment= lines, or the executable path. So paths and identity
 # are filled here at install time (@CHECKOUT_ROOT@, @SERVICE_USER@,
-# @SERVICE_HOME@, @POETRY@, @SITE_ENV@) and runtime values (experiment,
+# @SERVICE_HOME@, @POETRY@, @SITE_ENV@, the portal's @PORTAL_MEMORY_HIGH@
+# / @PORTAL_MEMORY_MAX@ — resource directives take no variables either)
+# and runtime values (experiment,
 # EPICS addressing, TZ) reach the process through EnvironmentFile= at
 # start. See docs/platform/site_profile.md.
 #
@@ -41,7 +43,8 @@ check_site_env_consistency
 # Every key a template consumes: an unset ${VAR} in an ExecStart argument
 # expands to an EMPTY argument (not to nothing), so a missing key must fail
 # here, not on the host at 03:00.
-require_site_keys GEECS_SERVICE_USER GEECS_SERVICE_HOME GEECS_CHECKOUT_ROOT GEECS_POETRY
+require_site_keys GEECS_SERVICE_USER GEECS_SERVICE_HOME GEECS_CHECKOUT_ROOT GEECS_POETRY \
+    GEECS_PORTAL_MEMORY_HIGH GEECS_PORTAL_MEMORY_MAX
 require_runtime_keys
 
 # The templates: one per service family. Default = this clone's copies;
@@ -78,6 +81,8 @@ for t in "${TEMPLATES[@]}"; do
         -e "s|@CHECKOUT_ROOT@|$GEECS_CHECKOUT_ROOT|g" \
         -e "s|@POETRY@|$GEECS_POETRY|g" \
         -e "s|@SITE_ENV@|$SITE_ENV_INSTALLED|g" \
+        -e "s|@PORTAL_MEMORY_HIGH@|$GEECS_PORTAL_MEMORY_HIGH|g" \
+        -e "s|@PORTAL_MEMORY_MAX@|$GEECS_PORTAL_MEMORY_MAX|g" \
         "$src" > "$dst"
     # Comments may mention @PLACEHOLDER@ by name; only directive lines count.
     if unit_directives "$dst" | grep -q '@[A-Z_]*@'; then

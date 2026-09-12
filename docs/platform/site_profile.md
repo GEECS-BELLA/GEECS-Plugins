@@ -54,7 +54,10 @@ Two kinds of keys, documented line by line in the example file:
   address, never the client `config.ini`.
 - **Install-time values** — the service account and its home, the
   checkout root, the absolute poetry path, the repo URL, the Tiled URI,
-  the queueserver host, the data-share mount, the configs-repo path.
+  the queueserver host, the data-share mount, the configs-repo path, and
+  the portal's memory ceiling (`GEECS_PORTAL_MEMORY_HIGH` /
+  `GEECS_PORTAL_MEMORY_MAX`, rendered into the unit's `MemoryHigh=` /
+  `MemoryMax=` — resource directives take no variables either).
   These fill the unit templates' placeholders and the rendered
   `config.ini`; they are harmless in the process environment.
 
@@ -72,7 +75,7 @@ arguments**. It does not expand in `WorkingDirectory=`, `User=`,
 
 | Hole | Filled | Examples |
 |---|---|---|
-| `@PLACEHOLDER@` | at render time, by `deploy/render_units.sh` (one `sed`) | `@SERVICE_USER@`, `@SERVICE_HOME@`, `@CHECKOUT_ROOT@`, `@POETRY@`, `@SITE_ENV@` |
+| `@PLACEHOLDER@` | at render time, by `deploy/render_units.sh` (one `sed`) | `@SERVICE_USER@`, `@SERVICE_HOME@`, `@CHECKOUT_ROOT@`, `@POETRY@`, `@SITE_ENV@`, `@PORTAL_MEMORY_HIGH@`, `@PORTAL_MEMORY_MAX@` |
 | `${VARIABLE}` | at start, by systemd from `site.env` | `--experiment ${GEECS_EXPERIMENT}`, `--doc-addr ${GEECS_QS_DOC_ADDR}`, `--processing-configs "${GEECS_CONFIGS_ROOT}/scan_analysis_configs"` (quoted: substituted as one argument, spaces survive) |
 | `$VARIABLE` (unbraced) | at start, by systemd from `site.env` | `$GEECS_PORTAL_EXTRA_ARGS` — split on whitespace into several arguments; unset adds nothing. For optional flag lists only (the portal's `--config-editor`) |
 

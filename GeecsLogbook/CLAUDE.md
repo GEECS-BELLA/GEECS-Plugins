@@ -143,11 +143,25 @@ package. Rules the store enforces, each pinned in `tests/test_store.py`:
 `body_md` is opaque: `render.render_markdown` (markdown-it + nh3) is the
 only thing that reads it, and only to draw it — plus the tag scan.
 
+## The ops book reads by month, from the store alone
+
+`/log/month/2026-09` is the other book: every `ops` entry in the month,
+grouped by day, newest day first, with the tag chips as URL filters
+(`?tag=laser`) and one composer that takes a date. It reads **only the
+database** — `NotesStore.query`, one call — and never the share, which is
+the point: on a day the share is slow, this page is not (pinned in
+`tests/test_month.py`, which makes the share reader explode). The two
+books point at each other: the day page carries "N ops notes today →"
+into the month's day heading, and every day group on the month page
+links to its day document. The pages share one set of Jinja macros
+(`templates/_entries.html`): an entry and a composer look the same in
+either book, and the editor script meets one shape of form.
+
 ## The editor
 
 `static/editor.js` is the whole write path in the browser, one
 implementation for every composer (per scan, per gap, the day, in-place
-edits, and the month page next). It is deliberately **not** a WYSIWYG
+edits, and the month page). It is deliberately **not** a WYSIWYG
 editor: the toolbar writes markdown around the selection and the body
 stays the plain text the mirror holds. The two things people actually
 need — paste a screenshot, paste a spreadsheet — are events on the
@@ -160,8 +174,10 @@ is pasted as text; spreadsheet apps supply the HTML form, which has no
 such rule). A brand-new entry has no id until saved, so
 the first attachment saves it first ("autosaved", with Discard); Save is
 then an edit. The page hands the script its facts through
-`<main id="logbook" data-api data-day data-book>`; nothing is templated
-into the script. It sets no colours (the theme guard's rule).
+`<main id="logbook" data-api data-day data-book>` and the type prefills
+through one JSON block; nothing is templated into the script. A form on
+a page with no single day (the month page) carries its own `.when` date
+input. It sets no colours (the theme guard's rule).
 
 ## Status is reported, not inferred
 
@@ -202,14 +218,37 @@ fact on a card, and it is the thing nobody remembers three weeks later.
 
 ## Templates seed, they never enforce
 
-(Phase 03.) A template supplies the *initial text* of an entry body. The body
-is one opaque markdown string; first save is copy-on-write and the text is
-then entirely the author's. Changing a template never alters an existing
-entry.
+A template supplies the *initial text* of an entry body. The body is one
+opaque markdown string; first save is copy-on-write and the text is then
+entirely the author's. Changing a template never alters an existing
+entry — the entry keeps only the template's *name* (`template`), as
+provenance.
 
 Do **not** store entries as structured fields keyed by template headings.
 That is the trap: it makes a template edit retroactively change or hide
 historical content, and turns every "can we add a field" into a migration.
+
+**Templates are data, not code** (`seed_templates.py`): `*.md` files in
+`logbook_templates/` at the top of the configs checkout the portal
+already reads — the parent of its `--processing-configs` tree. Each file
+is a `key: value` header between `---` lines (`label`, `colour`, `book`,
+`order`, all optional) and a body that is the prefill, carrying the
+type's `#tag` so the button and a typed tag are the same thing. Adding a
+file adds a button on the composers of the book(s) it names; no code
+change, no restart (the set is re-read in the background when stale, and
+a failed re-read keeps the last set — the share is never on a page's
+critical path). `examples/logbook_templates/` is the documented set to
+copy into the configs repo.
+
+`colour` is a **theme token name** from the closed vocabulary
+`seed_templates.TONES` (`accent`, `ok`, `warn`, `crit`, `agent`,
+`muted`, `trace-1`…`trace-4`), never a literal: the page turns it into a
+`.tone-<name>` class whose value is `var(--<name>)`, so a type follows
+whichever palette the viewer picked and GeecsWebTheme's literal-colour
+guard stays true for a value it cannot see. `tests/test_seed_templates.py`
+pins the vocabulary against the stylesheet in both directions; an unknown
+name falls back to `accent` with a warning rather than dropping the
+button.
 
 ## Deferred decisions — do not re-litigate, do not lose
 
@@ -235,11 +274,11 @@ that needs fixing. The parse itself **is** shared
 doing now. A little duplication in the day-walking and the summary model is
 accepted in exchange.
 
-**OWED, at the arc's merge to `master`:** file an issue to review
-`ScanPaths` / `ScanData` and extract their pure parts into path-free
-utilities. This package's `scan_reader` is a sketch of what that looks
-like. Do not let the arc land without filing it — the whole point of
-accepting duplication now is that someone later removes it.
+**Filed as #839** (2026-09-11): review `ScanPaths` / `ScanData` and
+extract their pure parts into path-free utilities. This package's
+`scan_reader` is a sketch of what that looks like. The whole point of
+accepting duplication now is that someone later removes it — the issue
+is where that is tracked.
 
 ### Also deferred, no due date
 
@@ -252,7 +291,9 @@ accepting duplication now is that someone later removes it.
 | Off-site reading | The mirror tree is one folder, so a text-only `git push` of it to a private repository is cheap whenever wanted; the Google Doc exporter (blocked on credential rotation) is the route that carries images. Neither is needed for a functional logbook. |
 | The scan index | A month-partitioned redevelopment of `geecs_data_utils.scans_database` with an `update(day)` entry point, the portal as its writer. Parked by the owner (2026-09-11) until the two books are live. |
 | `EntryCreate` (the write shape) lives in the router, `LogEntry` (the stored shape) in `geecs_schemas` | An agent posts the create shape, so it belongs beside `LogEntry` for GEECS-MCP to validate. Moves with the agent-verbs phase, which is its first second consumer. |
-| A third private atomic-write helper (`_fs.replace_with`; `scan_analysis.config_store` and `task_queue` have their own) and `logbook_root` re-deriving the daily folder | Fold into the `ScanPaths`/`ScanData` review owed at master-merge — same home, same issue. |
+| A third private atomic-write helper (`_fs.replace_with`; `scan_analysis.config_store` and `task_queue` have their own) and `logbook_root` re-deriving the daily folder | Fold into the `ScanPaths`/`ScanData` review, #839 — same home, same issue. |
+| Which template "started" an entry when several buttons were pressed | The last one pressed is recorded. Provenance only; nothing reads it back but the chip. |
+| `seed_templates.parse_template` is the package's first front-matter reader, while `mirror.render` is its writer | One reader, one writer, different shapes today (the template header has no lists). When the mirror *reader* lands (off-site/rebuild, deferred above), extract one `parse_front_matter` beside `mirror` and point both at it — not before there is a second caller. Waived in the review of #842. |
 
 ## Deployment
 
@@ -266,9 +307,10 @@ behind the portal's `log` extra and its `--scan-log` flag. It rides the
 portal's existing checkout and systemd unit. `--notes-db` names the SQLite
 file (the portal defaults it to systemd's `StateDirectory`); uploads go
 to `attachments/` beside it. Without a store the router has no write
-routes at all. The routes live in `routes/` — `day`, `entries`,
-`attachments`, one module per concern — and `router.create_log_router`
-only assembles them.
+routes at all. `templates_dir` names the seed-template directory (the
+portal derives it from its configs tree). The routes live in `routes/`
+— `day`, `month`, `entries`, `attachments`, one module per concern — and
+`router.create_log_router` only assembles them.
 
 `create_log_router` takes the experiment explicitly — this package carries no
 facility default, per the "facility values have one home" invariant.

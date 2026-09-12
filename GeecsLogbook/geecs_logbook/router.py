@@ -8,6 +8,8 @@ The routes live in :mod:`geecs_logbook.routes`, one module per concern:
 
 - ``routes.day`` — the scans book: the day document and its JSON peers.
   Always registered.
+- ``routes.month`` — the ops book: a month of day-level entries, read
+  from the store alone. Always registered (empty without a store).
 - ``routes.entries`` — the write verbs, the reason the logbook is a
   charter exception in the portal. Only with a store.
 - ``routes.attachments`` — uploads, stored on the host and served from
@@ -29,8 +31,9 @@ from fastapi.templating import Jinja2Templates
 
 from geecs_logbook.attachments import AttachmentStore
 from geecs_logbook.mirror import ATTACHMENTS_DIR
-from geecs_logbook.routes import attachments, day, entries
+from geecs_logbook.routes import attachments, day, entries, month
 from geecs_logbook.routes._common import TEMPLATES_DIR, Context, initials
+from geecs_logbook.seed_templates import SeedTemplates
 from geecs_logbook.store import NotesStore
 
 
@@ -38,6 +41,7 @@ def create_log_router(
     experiment: str,
     base_directory: Optional[Union[Path, str]] = None,
     notes_db: Optional[Union[Path, str]] = None,
+    templates_dir: Optional[Union[Path, str]] = None,
 ) -> APIRouter:
     """Build the logbook router.
 
@@ -53,6 +57,11 @@ def create_log_router(
         The SQLite file for commentary. Uploaded bytes go to an
         ``attachments/`` directory beside it. Without it the logbook is
         the read-only day view — no entries, no write routes.
+    templates_dir : Path or str, optional
+        A directory of ``*.md`` seed templates — the type buttons on every
+        composer (:mod:`geecs_logbook.seed_templates`). The portal points
+        this at ``logbook_templates/`` in the configs checkout it already
+        reads. Without it composers are plain.
 
     Returns
     -------
@@ -76,9 +85,11 @@ def create_log_router(
         store=store,
         attachments=blobs,
         templates=templates,
+        seeds=SeedTemplates(Path(templates_dir) if templates_dir else None),
     )
     router = APIRouter()
     day.register(router, ctx)
+    month.register(router, ctx)
     if store is not None:
         entries.register(router, ctx)
         attachments.register(router, ctx)
