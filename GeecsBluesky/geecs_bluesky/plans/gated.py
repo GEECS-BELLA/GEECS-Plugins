@@ -174,13 +174,15 @@ def gated_take_reading(
             d for d in devices if isinstance(d, GeecsDetector) and d.plugin_backed
         ]
         members = [d for d in devices if d not in plugin]
-        for member in members:
-            if isinstance(member, GeecsDetector) and member.native_save:
-                logger.warning(
-                    "%s has no file plugin: in a gated batch its scalars ride in "
-                    "the shots stream and its frames are not saved",
-                    member._geecs_device_name,
-                )
+        native = [m for m in members if isinstance(m, GeecsDetector) and m.native_save]
+        if native:
+            names = ", ".join(m._geecs_device_name for m in native)
+            raise GeecsConfigurationError(
+                f"gated acquisition: essential camera(s) without a file plugin: "
+                f"{names} — a gated batch counts frames the plugin writes; a "
+                "LabVIEW-native camera cannot. Use acquisition='strict' or "
+                "record its scalars only (save_images: false)."
+            )
         sampler = state["sampler"]
         if sampler is None:
             clock, clock_name = shot_clock(devices)
@@ -229,16 +231,35 @@ def gated_take_reading(
                 yield from bps.complete_all(*plugin, sampler, wait=True)
             except FailedStatus as exc:
                 failure = exc
-            yield from bps.mv(shot_control, TriggerState.OFF.value)
-            if failure is None:
-                # The in-flight edge lands; a pause landing here counts too
-                # (its resume restored SCAN and more edges came).
-                yield from bps.sleep(drain)
             interrupted = getattr(shot_control, "pause_count", 0) != mark
             if interrupted or failure is not None:
-                # Settle the batch's pending statuses before anything else:
-                # a status failing later would be thrown into the plan at
-                # whatever message it is at by then.
+                # The batch is over: say so NOW, before yielding another
+                # message — a pending complete timing out in the next loop
+                # iteration is then pardoned instead of thrown into the plan.
+                for d in plugin:
+                    d.mark_abandoned()
+                sampler.mark_cancelled()
+            try:
+                yield from bps.mv(shot_control, TriggerState.OFF.value)
+                if failure is None and not interrupted:
+                    # The in-flight edge lands; a pause landing here counts
+                    # too (its resume restored SCAN and more edges came).
+                    yield from bps.sleep(drain)
+                    interrupted = getattr(shot_control, "pause_count", 0) != mark
+                    if interrupted:
+                        for d in plugin:
+                            d.mark_abandoned()
+                        sampler.mark_cancelled()
+            except FailedStatus as exc:
+                # A status of this batch failed between the wait's return and
+                # the mark (one loop iteration): the same abandon path.
+                failure = failure or exc
+                for d in plugin:
+                    d.mark_abandoned()
+                sampler.mark_cancelled()
+                yield from bps.mv(shot_control, TriggerState.OFF.value)
+            if interrupted or failure is not None:
+                # Settle the batch's pending statuses before anything else.
                 yield from bps.wait_for(
                     [d.abandon_step for d in plugin] + [sampler.cancel_step]
                 )
@@ -389,15 +410,15 @@ def non_essential_wrapper(plan: Any, flyers: Sequence[Any]) -> Any:
     return (yield from stage_wrapper(inner, flyers))
 
 
-def gated_run_bracket(plan: Any, shot_control: Any) -> Any:
-    """Bracket a gated run OFF → … → STANDBY through *shot_control*.
+def run_bracket(plan: Any, shot_control: Any, opening: TriggerState) -> Any:
+    """Bracket a run *opening* → … → STANDBY through *shot_control*.
 
-    The strict bracket is ARMED → STANDBY; a gated run opens quiet (OFF —
+    Strict opens ARMED (the single-shot source); gated opens OFF (quiet —
     the first step also waits one drain period before it arms, for the
-    frame an edge under STANDBY may have in flight) and closes in the
-    machine's idle state.
+    frame an edge under STANDBY may have in flight).  Both close in the
+    machine's idle state, whatever the plan did.
     """
-    yield from bps.mv(shot_control, TriggerState.OFF.value)
+    yield from bps.mv(shot_control, opening.value)
 
     def standby():
         yield from bps.mv(shot_control, TriggerState.STANDBY.value)
@@ -411,8 +432,9 @@ __all__ = [
     "TRIGGER_PERIOD_S",
     "gated_per_shot",
     "gated_per_step",
-    "gated_run_bracket",
+    "run_bracket",
     "gated_take_reading",
     "non_essential_wrapper",
+    "run_bracket",
     "shot_clock",
 ]

@@ -66,18 +66,21 @@ from typing import Any
 
 import bluesky.plan_stubs as bps
 import bluesky.plans as bp
-import bluesky.preprocessors as bpp
 from geecs_schemas.trigger_profile import TriggerState
 
 from geecs_bluesky.devices.shot_control import ShotControl
 from geecs_bluesky.exceptions import GeecsConfigurationError
-from geecs_bluesky.plan_names import GEECS_PLAN_NAMES, NON_SCAN_PLAN_NAMES
+from geecs_bluesky.plan_names import (
+    ACQUISITION_MODES,
+    GEECS_PLAN_NAMES,
+    NON_SCAN_PLAN_NAMES,
+)
 from geecs_bluesky.plans.action_compiler import SettableFactory, run_action_plan
 from geecs_bluesky.plans.gated import (
     gated_per_shot,
     gated_per_step,
-    gated_run_bracket,
     non_essential_wrapper,
+    run_bracket,
     shot_clock,
 )
 from geecs_bluesky.plans.strict import geecs_per_shot, geecs_per_step
@@ -104,9 +107,6 @@ EXCLUDED_STOCK_PLANS: frozenset[str] = frozenset(
 )
 
 _HOOKS = ("per_step", "per_shot")
-
-#: The acquisition modes a bound plan accepts (``08_gated_batch.md`` §4.1).
-ACQUISITION_MODES: tuple[str, ...] = ("strict", "gated")
 
 
 def stock_plans_with_hook() -> dict[str, str]:
@@ -263,6 +263,15 @@ def strict_plan(
         profile_key = (
             trigger_profile if trigger_profile is not None else profiles.default
         )
+        bound_args = signature.bind_partial(*args, **kwargs).arguments
+        detectors = list(bound_args.get("detectors") or ())
+        both = [d for d in non_essential if d in detectors]
+        if both:
+            names = ", ".join(getattr(d, "name", str(d)) for d in both)
+            raise GeecsConfigurationError(
+                f"{names}: listed both as a detector and as non-essential — a "
+                "device is waited on every shot or streamed for the run, not both"
+            )
         md = dict(kwargs.pop("md", None) or {})
         # The key the plan resolved (the configs-repo file stem), not the
         # profile's own name field — so the start document replays.
@@ -273,8 +282,6 @@ def strict_plan(
         if shot_period is not None:
             md["shot_period"] = shot_period
         if acquisition == "gated":
-            bound_args = signature.bind_partial(*args, **kwargs).arguments
-            detectors = list(bound_args.get("detectors") or ())
             md["shot_clock"] = shot_clock(detectors)[1]
             if hook == "per_step":
                 kwargs[hook] = gated_per_step(
@@ -294,14 +301,8 @@ def strict_plan(
         else:
             kwargs[hook] = geecs_per_shot(shot_control, shot_period=shot_period)
         inner = non_essential_wrapper(stock(*args, md=md, **kwargs), non_essential)
-        if acquisition == "gated":
-            return (yield from gated_run_bracket(inner, shot_control))
-        yield from bps.mv(shot_control, TriggerState.ARMED.value)
-
-        def standby():
-            yield from bps.mv(shot_control, TriggerState.STANDBY.value)
-
-        return (yield from bpp.finalize_wrapper(inner, standby()))
+        opening = TriggerState.OFF if acquisition == "gated" else TriggerState.ARMED
+        return (yield from run_bracket(inner, shot_control, opening))
 
     # The stock ``*args`` annotations are informational (``list_scan`` even
     # annotates each element as a ``(motor, points)`` tuple while taking

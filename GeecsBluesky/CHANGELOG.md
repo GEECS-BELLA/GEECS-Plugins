@@ -48,10 +48,17 @@ the hardware acceptance (§5) is owed.
   before each fire; refused with `gated`.
 - `GeecsDetector` fly mode: `kickoff` sets it (the plugin's count is the
   completion, `wait_for_idle` a no-op), `trigger` clears it; a fly prepare
-  (a batch or an unbounded stream) takes the streamable logic only — no
-  per-event scalars (the sampler's job) and no LabVIEW-native saving — and
-  is refused on a camera without a plugin; `complete` carries the GEECS
-  timeout.
+  — a `FlyTriggerInfo` (`gated_trigger_info`, `UNBOUNDED_TRIGGER_INFO`),
+  the type says it, not the event count, so a batch of one is one too —
+  takes the streamable logic only — no per-event scalars (the sampler's
+  job) and no LabVIEW-native saving — and is refused on a camera without
+  a plugin; `complete` carries the GEECS timeout; `mark_abandoned` /
+  `abandon_step` settle a pending `complete` (the mark is synchronous, the
+  moment the plan's interrupted wait returns).  A LabVIEW-native camera
+  listed as an essential detector of a gated step is refused by the step
+  (the preflight's sentence); a device listed both as a detector and as
+  non-essential is refused by the bound plan.  `plan_names.ACQUISITION_MODES`
+  is the one spelling of the modes.
 - `qs_client.presets.expand_preset`: `PresetDevice.essential: false`
   (GEECS-Schemas 0.22.0) expands into the plan's `non_essential` list
   (refused with `save_images: false`); `acquisition` is validated.

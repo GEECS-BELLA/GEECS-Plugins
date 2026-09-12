@@ -204,9 +204,13 @@ class ShotSampler:
         for row in rows:
             yield row
 
+    def mark_cancelled(self) -> None:
+        """Synchronously: the step is over; the sampling task ends quietly."""
+        self._cancelled.set()
+
     async def cancel_step(self) -> None:
         """Abandon the step: stop sampling, drop the rows, settle the task."""
-        self._cancelled.set()
+        self.mark_cancelled()
         await self._stop_task()
         self._rows = []
 

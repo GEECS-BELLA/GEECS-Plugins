@@ -44,14 +44,13 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from geecs_bluesky.exceptions import GeecsConfigurationError
-from geecs_bluesky.plan_names import GEECS_PLAN_NAMES, NON_SCAN_PLAN_NAMES
+from geecs_bluesky.plan_names import (
+    ACQUISITION_MODES,
+    GEECS_PLAN_NAMES,
+    NON_SCAN_PLAN_NAMES,
+)
 from geecs_bluesky.utils import device_reference
 
-
-#: The acquisition modes a preset's plan call may name (the bound plans'
-#: ``acquisition`` keyword, ``plans.registry.ACQUISITION_MODES`` — spelled
-#: here too so this module stays import-light).
-ACQUISITION_MODES: tuple[str, ...] = ("strict", "gated")
 
 #: The plans a preset may name: the scan verbs.  ``mv`` and ``run_action``
 #: are queue items of their own (``submit_plan("mv", ["U_S1H.current",

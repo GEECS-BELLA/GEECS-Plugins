@@ -63,6 +63,7 @@ RESERVED_DEVICE_ATTRIBUTES: frozenset[str] = frozenset(
         "kickoff",
         "last_acq_timestamp",
         "log",
+        "mark_abandoned",
         "missed_shot",
         "name",
         "parent",

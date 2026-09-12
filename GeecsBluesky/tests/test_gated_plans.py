@@ -27,6 +27,7 @@ from ophyd_async.core import set_mock_value  # noqa: E402
 
 from geecs_bluesky.devices.ca import CaMotor  # noqa: E402
 from geecs_bluesky.devices.ca.snapshot import CaSnapshotReadable  # noqa: E402
+from geecs_bluesky.devices.detector import GeecsDetector  # noqa: E402
 from geecs_bluesky.devices.shot_control import ShotControl  # noqa: E402
 from geecs_bluesky.exceptions import (  # noqa: E402
     GeecsConfigurationError,
@@ -59,9 +60,12 @@ class GatedBox(FakeBox):
     receive a frame (a camera that stopped acquiring).
     """
 
-    def __init__(self, interval: float = 0.05) -> None:
+    def __init__(self, interval: float = 0.05, *, late_edge: bool = True) -> None:
         super().__init__()
         self.interval = interval
+        self.late_edge = (
+            late_edge  # an edge in flight when OFF lands (the ~10% case at 1 Hz)
+        )
         self.states: list[str] = []
         self.edges = 0
         self.stall: set[str] = set()
@@ -120,8 +124,9 @@ class GatedBox(FakeBox):
     def _stop(self) -> None:
         if self._pacer is not None and not self._pacer.done():
             self._pacer.cancel()
-            loop = asyncio.get_running_loop()
-            self._late = loop.call_later(self.interval / 2, self.edge)
+            if self.late_edge:
+                loop = asyncio.get_running_loop()
+                self._late = loop.call_later(self.interval / 2, self.edge)
         self._pacer = None
 
     @property
@@ -376,6 +381,117 @@ def test_immediate_pause_mid_batch_retakes_the_step(
     assert shot_control.standing_state == "OFF"
 
 
+def test_pause_resumed_inside_the_count_timeout_window_still_retakes(
+    RE: RunEngine, tmp_path: Path
+) -> None:
+    """Review of #850 finding 1: no edge in flight at OFF, resume 0.3 s later.
+
+    The camera's ``complete`` (0.4 s per-frame budget) times out *after*
+    the resume but *before* the plan's settle: the abandonment is marked
+    synchronously the moment the interrupted wait returns, so the late
+    failure is pardoned instead of thrown into the plan at ``mv(OFF)`` or
+    the drain sleep — and the step is retaken.
+    """
+    box = GatedBox(late_edge=False)
+    sc = ShotControl(GATED_WRITES, experiment="TestExp", name="sc", setter_factory=box)
+    connect_mock(RE, sc)
+    cam, rewinds = _plugin_camera(RE, box, "UC_A", tmp_path, shot_timeout=0.4)
+    col = DocCollector()
+    RE.subscribe(col)
+
+    def pause_soon() -> None:
+        while box.edges < 2:
+            time.sleep(0.01)
+        RE.request_pause()
+
+    threading.Thread(target=pause_soon, daemon=True).start()
+    with pytest.raises(RunEngineInterrupted):
+        RE(bp.count([cam], 6, per_shot=gated_per_shot(sc, quota=6, shot_timeout=0.4)))
+    time.sleep(0.3)  # inside the 0.4 s window measured from the last frame
+    RE.resume()
+    assert col.docs["stop"][-1]["exit_status"] == "success"
+    assert _datums_by_key(col)["uc_a"] == [{"start": 0, "stop": 6}]
+    assert len(_events_from_pages(col, "shots")) == 6
+    assert rewinds[0] == 0  # the partial frames left the stack before the retake
+
+
+def test_a_native_camera_cannot_be_essential_in_a_gated_step(
+    RE: RunEngine, box: GatedBox, shot_control: ShotControl, tmp_path: Path
+) -> None:
+    """Review of #850 finding 3: the worker refuses it, as the preflight does."""
+    plugin, _ = _plugin_camera(RE, box, "UC_A", tmp_path)
+    native = _camera(RE, box, "UC_Native", native_save=True)
+    with pytest.raises(GeecsConfigurationError, match="file plugin: UC_Native"):
+        RE(
+            bp.count(
+                [plugin, native], 2, per_shot=gated_per_shot(shot_control, quota=2)
+            )
+        )
+    assert box.scan_runs == 0
+    # its scalars-only view is fine: it rides in the sampler
+    col = DocCollector()
+    RE.subscribe(col)
+    RE(
+        bp.count(
+            [plugin, native.scalars], 2, per_shot=gated_per_shot(shot_control, quota=2)
+        )
+    )
+    assert col.docs["stop"][-1]["exit_status"] == "success"
+    assert "uc_native-meancounts" in _events_from_pages(col, "shots")[0]["data"]
+
+
+def test_gated_quota_one_is_a_fly_prepare_without_native_saving(
+    RE: RunEngine, box: GatedBox, shot_control: ShotControl, tmp_path: Path
+) -> None:
+    """Review of #850 finding 2: shots_per_step=1 (the default) must not switch save=on."""
+    from ophyd_async.core import StaticFilenameProvider, StaticPathProvider
+
+    (tmp_path / "Scan001").mkdir()
+    provider = StaticPathProvider(
+        StaticFilenameProvider("UC_Both"), tmp_path / "Scan001" / "UC_Both"
+    )
+    cam = GeecsDetector(
+        "UC_Both",
+        ["MeanCounts"],
+        experiment="TestExp",
+        name="uc_both",
+        path_provider=provider,
+        hdf_plugins=[("image", provider)],
+    )
+    connect_mock(RE, cam)
+    set_mock_value(cam.acq_timestamp, box.stamp)
+    set_mock_value(cam.hdf.file_path_exists, True)
+    set_mock_value(cam.hdf.data_type, "UInt16")
+    set_mock_value(cam.hdf.color_mode, "Mono")
+    from ophyd_async.core import callback_on_mock_put
+
+    callback_on_mock_put(
+        cam.hdf.rewind, lambda value, **_: set_mock_value(cam.hdf.num_captured, value)
+    )
+    box.cameras.append(cam)
+    saves: list[str] = []
+    callback_on_mock_put(cam.save, lambda value, **_: saves.append(value))
+    magnet = _magnet(RE)
+    col = DocCollector()
+    RE.subscribe(col)
+    RE(
+        bp.scan(
+            [cam],
+            magnet,
+            -1.0,
+            1.0,
+            2,
+            per_step=gated_per_step(shot_control, shots_per_step=1),
+        )
+    )
+    assert col.docs["stop"][-1]["exit_status"] == "success"
+    assert "on" not in saves  # stage/unstage clear a stale flag; nothing switches it on
+    assert _datums_by_key(col)["uc_both"] == [
+        {"start": 0, "stop": 1},
+        {"start": 1, "stop": 2},
+    ]
+
+
 # --------------------------------------------------------- bound plans / md
 def test_bound_gated_count_records_its_description(
     RE: RunEngine, box: GatedBox, profiles: TriggerProfiles, tmp_path: Path
@@ -399,6 +515,10 @@ def test_bound_plan_refuses_bad_mode_and_a_throttled_gated_run(
 ) -> None:
     a, _ = _plugin_camera(RE, box, "UC_A", tmp_path)
     count = bind_plans(profiles)["count"]
+    with pytest.raises(
+        GeecsConfigurationError, match="both as a detector and as non-essential"
+    ):
+        RE(count([a], 1, non_essential=[a]))
     with pytest.raises(GeecsConfigurationError, match="acquisition='sloppy'"):
         RE(count([a], 1, acquisition="sloppy"))
     with pytest.raises(GeecsConfigurationError, match="strict-mode throttle"):

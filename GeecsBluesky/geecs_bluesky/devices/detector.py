@@ -119,10 +119,23 @@ STRICT_TRIGGER_INFO = TriggerInfo(
     exposure_timeout=DEFAULT_SHOT_TIMEOUT,
 )
 
+
+class FlyTriggerInfo(TriggerInfo):
+    """A ``TriggerInfo`` that says *fly* explicitly: a batch or an unbounded stream.
+
+    The mode cannot be read off the event count — a gated step of one shot
+    (``shots_per_step=1``, the default) prepares with ``number_of_events=1``,
+    the strict signature — so the plan says it with the type: a
+    :class:`FlyTriggerInfo` prepare takes the streamable logic only (no
+    per-event scalars, no LabVIEW-native saving) and is refused on a camera
+    without a plugin; a plain :class:`TriggerInfo` is a strict shot.
+    """
+
+
 #: How a non-essential stream prepares a plugin-backed camera: external
 #: edges, an unbounded number of events (``0`` — the plugin counts what it
 #: gets for the run's duration; nothing waits on it).
-UNBOUNDED_TRIGGER_INFO = TriggerInfo(
+UNBOUNDED_TRIGGER_INFO = FlyTriggerInfo(
     trigger=DetectorTrigger.EXTERNAL_EDGE,
     number_of_events=0,
     exposure_timeout=DEFAULT_SHOT_TIMEOUT,
@@ -131,7 +144,7 @@ UNBOUNDED_TRIGGER_INFO = TriggerInfo(
 
 def gated_trigger_info(
     quota: int, *, exposure_timeout: float = DEFAULT_SHOT_TIMEOUT
-) -> TriggerInfo:
+) -> FlyTriggerInfo:
     """How a gated step prepares a plugin-backed camera: *quota* edge-triggered events.
 
     ``exposure_timeout`` is **per frame** (ophyd-async passes it to
@@ -140,7 +153,7 @@ def gated_trigger_info(
     """
     if quota < 1:
         raise ValueError(f"a gated step needs at least one shot, got {quota}")
-    return TriggerInfo(
+    return FlyTriggerInfo(
         trigger=DetectorTrigger.EXTERNAL_EDGE,
         number_of_events=quota,
         exposure_timeout=exposure_timeout,
@@ -748,15 +761,16 @@ class GeecsDetector(StandardDetector):
 
     @staticmethod
     def _is_fly_prepare(value: TriggerInfo) -> bool:
-        """A batch (several events) or an unbounded stream — never a strict shot."""
-        return value.number_of_events != 1
+        """A :class:`FlyTriggerInfo` (a batch, an unbounded stream) — never a strict shot."""
+        return isinstance(value, FlyTriggerInfo)
 
     async def _update_prepare_context(self, trigger_info: TriggerInfo) -> None:
         """The stock context; in a fly prepare only the streamable logics take part.
 
-        A batch (``number_of_events > 1``, the gated step) or an unbounded
-        stream (``0``, a non-essential detector) produces data through the
-        plugin's stream only: the per-event readables — the scalar columns
+        A :class:`FlyTriggerInfo` prepare — a batch (the gated step, any
+        quota, one included) or an unbounded stream (a non-essential
+        detector) — produces data through the plugin's stream only: the
+        per-event readables — the scalar columns
         (a gated run's rows come from the sampler, ``08`` §4.7) and
         LabVIEW-native saving (the plugin counts the frames; native saving
         would write every edge's frame unbounded) — are left out, where the
@@ -882,14 +896,24 @@ class GeecsDetector(StandardDetector):
                 f"for {self._acquire.shot_timeout:.1f}s while the box ran",
             ) from exc
 
+    def mark_abandoned(self) -> None:
+        """Synchronously: the step is over; a pending ``complete`` settles quietly.
+
+        The plan calls this the moment its interrupted wait returns — before
+        it yields another message — so a count timeout landing in the next
+        loop iteration is already pardoned (the RunEngine throws any failed
+        status into the plan at its next message).
+        """
+        self._acquire.abandoned = True
+
     async def abandon_step(self) -> None:
-        """Tell a pending gated ``complete`` the step is over, and wait for it to settle.
+        """Wait for a pending gated ``complete`` to settle (after :meth:`mark_abandoned`).
 
         Called by the plan after it drove the box OFF on an interrupted or
         failed step, before it rewinds and retakes (or fails) the step —
         so no status of the abandoned step fails into a later message.
         """
-        self._acquire.abandoned = True
+        self.mark_abandoned()
         status = getattr(self, "_step_status", None)
         if status is None or status.done:
             return
@@ -948,7 +972,8 @@ class GeecsDetector(StandardDetector):
             return
         await self._rewind_plugins(int(ctx.collections_written), "step baseline")
 
-    async def _rewind_plugins(self, keep: int, what: str) -> None:
+    async def _rewind_plugins(self, keep: int | None, what: str) -> None:
+        """Rewind every plugin to *keep* frames (``None``: each provider's ``last_emitted``)."""
         ctx = self._prepare_ctx
         assert ctx is not None
         for provider in ctx.streamable_data_providers:
@@ -962,23 +987,25 @@ class GeecsDetector(StandardDetector):
             )
             if io is None:
                 continue
+            target = int(getattr(provider, "last_emitted", 0)) if keep is None else keep
             written = int(await io.num_captured.get_value())
-            if written < keep:
+            if written < target:
                 raise GeecsTriggerTimeoutError(
                     self._geecs_device_name,
                     self._acquire.shot_timeout,
                     f"{self._geecs_device_name}: {written} frame(s) in the stack "
-                    f"but the {what} is {keep} — frames vanished after complete",
+                    f"but the {what} is {target} — frames vanished after complete",
                 )
-            if written == keep:
-                continue
-            await io.rewind.set(keep)
-            await wait_for_value(io.num_captured, keep, timeout=DEFAULT_TIMEOUT)
+            # Always put, even at the target: the plugin's Rewind also sets its
+            # stale watermark, so a frame arriving later (the missed shot's,
+            # the in-flight edge's) is dropped rather than appended.
+            await io.rewind.set(target)
+            await wait_for_value(io.num_captured, target, timeout=DEFAULT_TIMEOUT)
             logger.info(
                 "%s: rewound %d → %d frame(s) (%s)",
                 self._geecs_device_name,
                 written,
-                keep,
+                target,
                 what,
             )
 
@@ -995,18 +1022,4 @@ class GeecsDetector(StandardDetector):
         ctx = self._prepare_ctx
         if ctx is None or not self._hdf_ios:
             return
-        for provider in ctx.streamable_data_providers:
-            io = next(
-                (
-                    io
-                    for io in self._hdf_ios
-                    if provider.collections_written_signal is io.num_captured
-                ),
-                None,
-            )
-            if io is None:
-                continue
-            keep = int(getattr(provider, "last_emitted", 0))
-            await io.rewind.set(keep)
-            await wait_for_value(io.num_captured, keep, timeout=DEFAULT_TIMEOUT)
-            logger.info("%s: rewound to %d frame(s)", self._geecs_device_name, keep)
+        await self._rewind_plugins(None, "last datum")

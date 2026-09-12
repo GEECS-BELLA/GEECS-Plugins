@@ -459,3 +459,15 @@ def test_fly_prepare_refused_without_a_plugin_and_skips_native_saving(
         _run(RE, lambda: both.save.get_value()) == "off"
     )  # native saving not switched on
     _run(RE, lambda: both.unstage())
+    # a batch of ONE (shots_per_step=1, the default) is a fly prepare too:
+    # the type says so, not the event count
+    _run(RE, lambda: both.stage())
+    _run(RE, lambda: both.prepare(gated_trigger_info(1)))
+    assert _run(RE, lambda: both.save.get_value()) == "off"
+    assert "uc_both-meancounts" not in _run(RE, lambda: both.describe())
+    _run(RE, lambda: both.unstage())
+    # a strict shot on the same camera switches native saving on
+    _run(RE, lambda: both.stage())
+    _run(RE, lambda: both.prepare(STRICT_TRIGGER_INFO))
+    assert _run(RE, lambda: both.save.get_value()) == "on"
+    _run(RE, lambda: both.unstage())
