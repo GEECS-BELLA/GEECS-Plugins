@@ -62,10 +62,19 @@ project adheres to semantic versioning.
   loop on a share write; an unresolvable share is a 503 on upload and on
   attachment serving, not a 500.
 - Task-list checkboxes survive sanitising.
-- A mirror mark is pinned to the version that was written, so a
-  concurrent edit stays owed instead of being marked done under a stale
-  file; temp files carry unique names so two writers cannot clobber each
-  other's.
+- Mirroring is serialised per process (`mirror.WRITE_LOCK`) and reads
+  the entry afresh under the lock, so the periodic sync can never write
+  an older body over a file a request just mirrored; the mark is pinned
+  to the version written. Temp files carry unique names and the mode a
+  plain write would have had (mkstemp's 0600 is not for a mirror people
+  read).
+- An edit no longer changes the entry's `author` (which is part of the
+  mirror file's stable name — the old behaviour left a stale file behind
+  and re-attributed the entry to whoever fixed a typo). The editor is
+  recorded as `edited_by` and shown as "edited by …". `PATCH` takes
+  `editor`, not `author`.
+- Same-name uploads are numbered by claiming the name on disk
+  (`O_EXCL`), so pastes in flight at once cannot collide.
 - New tests for the renderer (sanitiser, callouts, link rewrite, task
   lists) and the attachment routes (upload, serve, size and type limits,
   traversal, unresolvable share).

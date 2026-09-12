@@ -62,10 +62,13 @@ class TestPaths:
         e = store.create(day=DAY, scan=5, author="S. Barber", body_md="v1")
         before = mirror.entry_path(e, root)
         e2 = store.update(
-            e.entry_id, body_md="v2", author="S. Barber", expected_version=1
+            e.entry_id, body_md="v2", editor="T. Operator", expected_version=1
         )
+        # A colleague's edit neither takes the entry over nor renames its file.
+        assert e2.author == "S. Barber" and e2.edited_by == "T. Operator"
         assert mirror.entry_path(e2, root) == before
         assert before.name.endswith(f"-sbarber-{e.entry_id[:6]}.md")
+        assert "edited_by: T. Operator" in mirror.render(e2)
 
     def test_attachment_link_is_relative(self, store: NotesStore) -> None:
         """A body's image link resolves from the file on disk, no server needed."""
@@ -250,3 +253,55 @@ class TestSync:
         store.delete(e.entry_id)
         assert mirror.sync(store, EXP, base_directory=share) == (1, 0)
         assert store.unmirrored() == []
+
+    def test_sync_never_covers_a_newer_file_with_an_older_one(
+        self, store: NotesStore, share: Path
+    ) -> None:
+        """What is written is what was read under the lock, never a stale copy."""
+        e = store.create(day=DAY, scan=5, author="a", body_md="v1")
+        stale = store.unmirrored()  # a sync that read v1 …
+        e2 = store.update(e.entry_id, body_md="v2", editor="a", expected_version=1)
+        assert stale[0].version == 1 and e2.version == 2
+        # … then gets around to mirroring: it re-reads, and v2 is what lands.
+        mirror.mirror_one(store, e.entry_id, EXP, base_directory=share)
+        path = mirror.entry_path(
+            e2, mirror.logbook_root(DAY, EXP, base_directory=share)
+        )
+        assert path.read_text().rstrip().endswith("v2")
+        assert store.unmirrored() == []
+
+    def test_mirror_files_are_readable_by_others(
+        self, store: NotesStore, share: Path
+    ) -> None:
+        """A mirror is for people: it gets the mode a plain write would."""
+        import stat
+
+        e = store.create(day=DAY, scan=5, author="a", body_md="x")
+        root = mirror.logbook_root(DAY, EXP, base_directory=share)
+        md = mirror.write_entry(e, root)
+        link = mirror.write_attachment(e, "t.png", b"\x89PNG", root)
+        expected = 0o666 & ~mirror._UMASK
+        for p in (md, mirror.entry_dir(e, root) / link):
+            assert stat.S_IMODE(p.stat().st_mode) == expected, p
+
+    def test_parallel_same_name_uploads_all_get_their_own_file(
+        self, store: NotesStore, share: Path
+    ) -> None:
+        """Four pastes of image.png in flight at once: four files, four names."""
+        from concurrent.futures import ThreadPoolExecutor
+
+        e = store.create(day=DAY, scan=5, author="a", body_md="x")
+        root = mirror.logbook_root(DAY, EXP, base_directory=share)
+        with ThreadPoolExecutor(4) as pool:
+            links = list(
+                pool.map(
+                    lambda i: mirror.write_attachment(
+                        e, "image.png", bytes([i]) * 8, root
+                    ),
+                    range(4),
+                )
+            )
+        names = sorted(link.rsplit("/", 1)[-1] for link in links)
+        assert names == ["image-2.png", "image-3.png", "image-4.png", "image.png"]
+        folder = mirror.entry_dir(e, root) / mirror.ATTACHMENTS_DIR / e.entry_id
+        assert sorted(p.name for p in folder.iterdir()) == names

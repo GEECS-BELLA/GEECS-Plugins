@@ -63,6 +63,7 @@ CREATE TABLE IF NOT EXISTS entries (
     attachments  TEXT NOT NULL DEFAULT '[]',
     created_at   TEXT NOT NULL,
     edited_at    TEXT,
+    edited_by    TEXT,
     updated_at   TEXT NOT NULL,
     deleted_at   TEXT,
     version      INTEGER NOT NULL DEFAULT 1,
@@ -89,6 +90,7 @@ _ADDED_COLUMNS: tuple[tuple[str, str, str], ...] = (
     ("updated_at", "TEXT", "COALESCE(edited_at, created_at)"),
     ("deleted_at", "TEXT", "NULL"),
     ("mirror_attempted_at", "TEXT", "NULL"),
+    ("edited_by", "TEXT", "NULL"),
 )
 
 
@@ -270,18 +272,22 @@ class NotesStore:
             conn.execute(
                 "INSERT INTO entries (entry_id, day, scan, after_scan, author, kind,"
                 " status, template, body_md, payload, attachments, created_at,"
-                " edited_at, updated_at, deleted_at, version, schema_version,"
-                " mirrored_at)"
-                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL)",
+                " edited_at, edited_by, updated_at, deleted_at, version,"
+                " schema_version, mirrored_at)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL)",
                 _to_params(entry),
             )
         logger.info("entry %s created for %s by %s", entry.entry_id, day, author)
         return entry
 
     def update(
-        self, entry_id: str, *, body_md: str, author: str, expected_version: int
+        self, entry_id: str, *, body_md: str, editor: str, expected_version: int
     ) -> LogEntry:
         """Replace an entry's body, if nobody else has saved since.
+
+        ``author`` is never touched: it is who wrote the entry and part of
+        the mirror file's stable name. The editor is recorded as
+        ``edited_by``.
 
         Raises
         ------
@@ -303,10 +309,10 @@ class NotesStore:
             # comparison has to happen where the write happens.
             now = _now().isoformat()
             cursor = conn.execute(
-                "UPDATE entries SET body_md = ?, author = ?, edited_at = ?,"
+                "UPDATE entries SET body_md = ?, edited_by = ?, edited_at = ?,"
                 " updated_at = ?, version = version + 1, mirrored_at = NULL"
                 " WHERE entry_id = ? AND version = ? AND deleted_at IS NULL",
-                (body_md, author, now, now, entry_id, expected_version),
+                (body_md, editor, now, now, entry_id, expected_version),
             )
             if cursor.rowcount == 0:
                 raise ConflictError(self.get(entry_id) or current)
@@ -425,6 +431,7 @@ def _to_params(entry: LogEntry) -> tuple:
         json.dumps([a.model_dump(mode="json") for a in entry.attachments]),
         entry.created_at.isoformat(),
         entry.edited_at.isoformat() if entry.edited_at else None,
+        entry.edited_by,
         entry.updated_at.isoformat(),
         entry.deleted_at.isoformat() if entry.deleted_at else None,
         entry.version,
@@ -450,6 +457,7 @@ def _from_row(row: sqlite3.Row) -> LogEntry:
             "attachments": json.loads(row["attachments"] or "[]"),
             "created_at": row["created_at"],
             "edited_at": row["edited_at"],
+            "edited_by": row["edited_by"],
             "updated_at": row["updated_at"],
             "deleted_at": row["deleted_at"],
             "version": row["version"],

@@ -16,7 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `ProblemPayload`), an `Attachment` manifest, `scan`/`after` anchors
   (neither = a day-level entry; both refused by a validator), `kind`
   (`note`/`agent_analysis`/`agent_draft`), `status` (`kept`/`draft`),
-  `created_at`/`edited_at`/`updated_at`/`deleted_at`, and an
+  `created_at`/`edited_at`/`edited_by`/`updated_at`/`deleted_at`, and an
   optimistic-lock `version`. Registered as `log_entry` with a reference
   example.
 

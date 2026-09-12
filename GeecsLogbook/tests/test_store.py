@@ -112,7 +112,7 @@ class TestUpdate:
         e = store.create(day=DAY, scan=5, author="a", body_md="v1")
         store.mark_mirrored(e.entry_id)
         assert store.unmirrored() == []
-        got = store.update(e.entry_id, body_md="v2", author="b", expected_version=1)
+        got = store.update(e.entry_id, body_md="v2", editor="b", expected_version=1)
         assert got.body_md == "v2" and got.version == 2
         assert got.edited_at is not None
         assert [x.entry_id for x in store.unmirrored()] == [e.entry_id]
@@ -126,9 +126,9 @@ class TestUpdate:
         the loser lost to rather than only that it lost.
         """
         e = store.create(day=DAY, scan=5, author="a", body_md="v1")
-        store.update(e.entry_id, body_md="v2", author="b", expected_version=1)
+        store.update(e.entry_id, body_md="v2", editor="b", expected_version=1)
         with pytest.raises(ConflictError) as exc:
-            store.update(e.entry_id, body_md="v3", author="c", expected_version=1)
+            store.update(e.entry_id, body_md="v3", editor="c", expected_version=1)
         assert exc.value.current.body_md == "v2"
         assert exc.value.current.version == 2
         assert store.get(e.entry_id).body_md == "v2"  # untouched
@@ -136,7 +136,7 @@ class TestUpdate:
     def test_missing_entry_is_key_error(self, store: NotesStore) -> None:
         """Editing nothing is the caller's error."""
         with pytest.raises(KeyError):
-            store.update("nope", body_md="x", author="a", expected_version=1)
+            store.update("nope", body_md="x", editor="a", expected_version=1)
 
 
 class TestStatusAndAttachments:
@@ -208,7 +208,7 @@ class TestUpdatedAt:
     def test_edit_moves_both(self, store: NotesStore) -> None:
         """An edit is the one change a reader is told about."""
         e = store.create(day=DAY, scan=5, author="a", body_md="x")
-        e2 = store.update(e.entry_id, body_md="y", author="a", expected_version=1)
+        e2 = store.update(e.entry_id, body_md="y", editor="a", expected_version=1)
         assert e2.edited_at is not None and e2.updated_at == e2.edited_at
 
 
@@ -239,7 +239,7 @@ class TestDelete:
         e = store.create(day=DAY, scan=5, author="a", body_md="x")
         store.delete(e.entry_id)
         with pytest.raises(KeyError):
-            store.update(e.entry_id, body_md="y", author="a", expected_version=2)
+            store.update(e.entry_id, body_md="y", editor="a", expected_version=2)
         with pytest.raises(KeyError):
             store.set_status(e.entry_id, "draft")
         with pytest.raises(KeyError):
@@ -312,7 +312,7 @@ class TestMirrorBookkeeping:
     def test_mark_is_pinned_to_the_version_written(self, store: NotesStore) -> None:
         """An edit between the read and the mark keeps the entry owed."""
         e = store.create(day=DAY, scan=1, author="a", body_md="v1")
-        store.update(e.entry_id, body_md="v2", author="a", expected_version=1)
+        store.update(e.entry_id, body_md="v2", editor="a", expected_version=1)
         assert store.mark_mirrored(e.entry_id, version=e.version) is False
         assert [x.entry_id for x in store.unmirrored()] == [e.entry_id]
         assert store.mark_mirrored(e.entry_id, version=2) is True

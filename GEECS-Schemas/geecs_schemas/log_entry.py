@@ -178,6 +178,11 @@ class LogEntry(VersionedSchemaModel):
         When it was first saved.
     edited_at : datetime or None
         When its *text* was last changed, if ever. What a reader is shown.
+    edited_by : str or None
+        Who last changed the text. ``author`` never changes — it is who
+        wrote the entry, and part of the mirror file's stable name — so a
+        colleague's typo fix is recorded here rather than by taking the
+        entry over.
     updated_at : datetime
         When *anything* about it last changed — text, status, attachments,
         deletion. What a synchroniser asks for: "everything since" is a
@@ -224,6 +229,7 @@ class LogEntry(VersionedSchemaModel):
 
     created_at: datetime = Field(description="First saved.")
     edited_at: Optional[datetime] = Field(None, description="Text last changed.")
+    edited_by: Optional[str] = Field(None, description="Who last changed the text.")
     updated_at: datetime = Field(description="Anything last changed.")
     deleted_at: Optional[datetime] = Field(None, description="Tombstone.")
     version: int = Field(1, ge=1, description="Optimistic-lock counter.")

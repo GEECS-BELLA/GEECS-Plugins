@@ -195,6 +195,10 @@ slow or unmounted; the file follows when it can (a sync runs on day views,
 at most once a minute). Deleting an entry leaves a tombstone row and
 removes the file.
 
+The store uses SQLite's JSON functions (`json_insert`), present in the
+interpreter's bundled SQLite from 3.31 on — any Python 3.11 build, and the
+system library on Ubuntu 22.04 or later.
+
 Without `--notes-db` the logbook is the read-only day view and no entry
 route exists. The unit template sets `StateDirectory=geecs-data-portal`,
 so systemd creates `/var/lib/geecs-data-portal` and the portal defaults

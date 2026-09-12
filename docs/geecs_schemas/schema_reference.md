@@ -1096,6 +1096,7 @@ One entry in the scan logbook.
 | `attachments` | `list[Attachment]` | no | empty | Files stored beside the markdown. |
 | `created_at` | `datetime` | yes | — | First saved. |
 | `edited_at` | `datetime (optional)` | no | None | Text last changed. |
+| `edited_by` | `str (optional)` | no | None | Who last changed the text. |
 | `updated_at` | `datetime` | yes | — | Anything last changed. |
 | `deleted_at` | `datetime (optional)` | no | None | Tombstone. |
 | `version` | `int` | no | 1 | Optimistic-lock counter. |

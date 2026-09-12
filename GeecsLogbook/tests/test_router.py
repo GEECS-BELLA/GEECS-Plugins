@@ -228,12 +228,12 @@ class TestWriteApi:
         e = _post(writable, scan=1)
         first = writable.patch(
             f"/log/api/entries/{e['entry_id']}",
-            json={"body_md": "one", "author": "a", "expected_version": 1},
+            json={"body_md": "one", "editor": "a", "expected_version": 1},
         )
         assert first.status_code == 200 and first.json()["version"] == 2
         stale = writable.patch(
             f"/log/api/entries/{e['entry_id']}",
-            json={"body_md": "two", "author": "b", "expected_version": 1},
+            json={"body_md": "two", "editor": "b", "expected_version": 1},
         )
         assert stale.status_code == 409
         assert stale.json()["detail"]["current"]["body_md"] == "one"
@@ -246,7 +246,7 @@ class TestWriteApi:
         assert writable.delete(f"/log/api/entries/{e['entry_id']}").status_code == 404
         again = writable.patch(
             f"/log/api/entries/{e['entry_id']}",
-            json={"body_md": "x", "author": "a", "expected_version": 2},
+            json={"body_md": "x", "editor": "a", "expected_version": 2},
         )
         assert again.status_code == 404
         assert "hello" not in writable.get("/log/day/2026-09-11").text

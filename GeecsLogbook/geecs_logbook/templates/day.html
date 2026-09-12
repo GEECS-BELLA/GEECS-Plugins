@@ -46,7 +46,7 @@
           {% if r.entry.template not in ('blank', 'scan_note', 'day_intro') %}
             <span class="chip chip-quiet">{{ r.entry.template }}</span>
           {% endif %}
-          <span class="stamp" title="{{ r.entry.created_at.isoformat() }}">{{ r.entry.created_at.astimezone().strftime('%H:%M') }}{% if r.entry.edited_at %} · edited{% endif %}</span>
+          <span class="stamp" title="{{ r.entry.created_at.isoformat() }}">{{ r.entry.created_at.astimezone().strftime('%H:%M') }}{% if r.entry.edited_at %} · edited{% if r.entry.edited_by and r.entry.edited_by != r.entry.author %} by {{ r.entry.edited_by }}{% endif %}{% endif %}</span>
           {% if writable %}
           <span class="entry-tools">
             <button class="linkbtn" type="button" data-edit="{{ r.entry.entry_id }}">Edit</button>
@@ -453,7 +453,7 @@ document.addEventListener("click", async ev => {
       try { localStorage.setItem(AUTHOR_KEY, name); } catch (x) {}
       try {
         await api("PATCH", `/entries/${art.dataset.entry}`, {
-          body_md: form.querySelector(".ta").value, author: name,
+          body_md: form.querySelector(".ta").value, editor: name,
           expected_version: Number(art.dataset.version) });
         location.reload();
       } catch (err) { fail(form, err); }

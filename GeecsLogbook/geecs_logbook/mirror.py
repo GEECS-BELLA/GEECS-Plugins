@@ -51,6 +51,7 @@ import logging
 import contextlib
 import os
 import tempfile
+import threading
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Optional, Union
@@ -64,6 +65,10 @@ logger = logging.getLogger(__name__)
 
 #: The logbook directory's name, beside ``scans/`` and ``analysis/``.
 LOGBOOK_DIR = "logbook"
+
+#: Read once: ``os.umask`` can only be queried by setting it.
+_UMASK = os.umask(0)
+os.umask(_UMASK)
 
 #: The attachments directory's name inside an entry's directory.
 ATTACHMENTS_DIR = "attachments"
@@ -175,6 +180,8 @@ def render(entry: LogEntry) -> str:
     lines.append(f"created_at: {entry.created_at.isoformat()}")
     if entry.edited_at:
         lines.append(f"edited_at: {entry.edited_at.isoformat()}")
+    if entry.edited_by:
+        lines.append(f"edited_by: {entry.edited_by}")
     lines.append(f"version: {entry.version}")
     lines.append(f"schema_version: {entry.schema_version}")
     if entry.payload is not None:
@@ -218,6 +225,9 @@ def _replace_with(path: Path, data: bytes) -> None:
         dir=path.parent, prefix=path.name + ".", suffix=".tmp"
     )
     try:
+        # mkstemp creates 0600; a mirror is for reading by people, so give
+        # the file the mode a plain write would have had.
+        os.fchmod(fd, 0o666 & ~_UMASK)
         with os.fdopen(fd, "wb") as fh:
             fh.write(data)
         os.replace(tmp_name, path)
@@ -261,19 +271,43 @@ def write_attachment(entry: LogEntry, filename: str, data: bytes, root: Path) ->
     """Store an uploaded file beside the entry and return its relative link.
 
     Same guard and same reasoning as :func:`write_entry`. The bytes live
-    only here; the store keeps the manifest.
+    only here; the store keeps the manifest. The link returned names the
+    file as stored — ``image-2.png`` when ``image.png`` was taken — so the
+    caller records that name, not the one it asked for.
     """
     if not _day_folder_exists(root):
         raise MirrorUnavailable(
             f"day folder not present yet, not creating it: {root.parent}"
         )
-    target = entry_dir(entry, root) / ATTACHMENTS_DIR / entry.entry_id / filename
+    folder = entry_dir(entry, root) / ATTACHMENTS_DIR / entry.entry_id
     try:
-        target.parent.mkdir(parents=True, exist_ok=True)
+        folder.mkdir(parents=True, exist_ok=True)
+        target = _claim_name(folder, filename)
         _replace_with(target, data)
     except OSError as exc:
-        raise MirrorUnavailable(f"cannot write {target}: {exc}") from exc
-    return attachment_link(entry, filename)
+        raise MirrorUnavailable(f"cannot write {folder / filename}: {exc}") from exc
+    return attachment_link(entry, target.name)
+
+
+def _claim_name(folder: Path, filename: str) -> Path:
+    """Reserve ``filename`` in ``folder``, numbering it if it is taken.
+
+    Claimed on disk with ``O_EXCL`` rather than by looking first: every
+    clipboard paste is ``image.png``, and two pastes in flight at once
+    must not both decide the name is free. The placeholder is then
+    replaced atomically by the real bytes.
+    """
+    stem, ext = os.path.splitext(filename)
+    n = 1
+    while True:
+        candidate = folder / (filename if n == 1 else f"{stem}-{n}{ext}")
+        try:
+            fd = os.open(candidate, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o666)
+        except FileExistsError:
+            n += 1
+            continue
+        os.close(fd)
+        return candidate
 
 
 def remove_entry(entry: LogEntry, root: Path) -> bool:
@@ -310,22 +344,50 @@ def sync(
     counts as written once the file is gone.
     """
     written = deferred = 0
-    for entry in store.unmirrored(limit=limit):
-        root = logbook_root(entry.day, experiment, base_directory)
+    for owed in store.unmirrored(limit=limit):
         try:
-            if entry.is_deleted:
-                remove_entry(entry, root)
-            else:
-                write_entry(entry, root)
+            mirror_one(store, owed.entry_id, experiment, base_directory)
         except MirrorUnavailable as exc:
-            logger.info("deferring %s: %s", entry.entry_id, exc)
-            store.mark_deferred(entry.entry_id)
+            logger.info("deferring %s: %s", owed.entry_id, exc)
+            store.mark_deferred(owed.entry_id)
             deferred += 1
             continue
-        # Pinned to the version this pass read: an edit that landed in
-        # between stays owed rather than being marked done under a stale file.
+        written += 1
+    return written, deferred
+
+
+#: One writer at a time to the share, per process: the request that just
+#: saved and the periodic sync both mirror entries, and without this a
+#: sync holding a stale read could write it over a newer file the request
+#: had already mirrored and marked.
+WRITE_LOCK = threading.Lock()
+
+
+def mirror_one(
+    store: NotesStore,
+    entry_id: str,
+    experiment: str,
+    base_directory: Optional[Union[Path, str]] = None,
+) -> None:
+    """Mirror the *current* state of one entry and mark that version done.
+
+    Reads the entry afresh under the lock, so what is written is what is
+    marked, and nothing older can land afterwards.
+
+    Raises
+    ------
+    MirrorUnavailable
+        When the share refuses; the caller records the deferral.
+    """
+    with WRITE_LOCK:
+        entry = store.get(entry_id, include_deleted=True)
+        if entry is None:
+            return
+        root = logbook_root(entry.day, experiment, base_directory)
+        if entry.is_deleted:
+            remove_entry(entry, root)
+        else:
+            write_entry(entry, root)
         store.mark_mirrored(
             entry.entry_id, datetime.now(timezone.utc), version=entry.version
         )
-        written += 1
-    return written, deferred

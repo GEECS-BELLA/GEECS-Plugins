@@ -97,10 +97,14 @@ class EntryCreate(BaseModel):
 
 
 class EntryUpdate(BaseModel):
-    """What a client sends to edit an entry's text."""
+    """What a client sends to edit an entry's text.
+
+    ``editor`` is who is making the edit; the entry's ``author`` is not
+    theirs to change.
+    """
 
     body_md: str = Field(max_length=200_000)
-    author: str = Field(min_length=1, max_length=120)
+    editor: str = Field(min_length=1, max_length=120)
     expected_version: int = Field(ge=1)
 
 
@@ -340,16 +344,10 @@ def create_log_router(
     def _mirror(entry: LogEntry) -> None:
         """Try to land an entry on the share; defer quietly if it cannot."""
         try:
-            mirror.write_entry(
-                entry, mirror.logbook_root(entry.day, experiment, base_directory)
-            )
+            mirror.mirror_one(store, entry.entry_id, experiment, base_directory)
         except mirror.MirrorUnavailable as exc:
             logger.info("mirror deferred for %s: %s", entry.entry_id, exc)
             store.mark_deferred(entry.entry_id)
-            return
-        store.mark_mirrored(
-            entry.entry_id, datetime.now(timezone.utc), version=entry.version
-        )
 
     @router.post("/api/entries", status_code=201)
     def _create(body: EntryCreate) -> LogEntry:
@@ -368,7 +366,7 @@ def create_log_router(
             entry = store.update(
                 entry_id,
                 body_md=body.body_md,
-                author=body.author,
+                editor=body.editor,
                 expected_version=body.expected_version,
             )
         except KeyError as exc:
@@ -408,13 +406,10 @@ def create_log_router(
             raise HTTPException(status_code=404, detail="no such entry")
         store.delete(entry_id)
         try:
-            mirror.remove_entry(
-                entry, mirror.logbook_root(entry.day, experiment, base_directory)
-            )
+            mirror.mirror_one(store, entry_id, experiment, base_directory)
         except mirror.MirrorUnavailable as exc:
             logger.warning("could not remove mirror of %s: %s", entry_id, exc)
-        else:
-            store.mark_mirrored(entry_id, datetime.now(timezone.utc))
+            store.mark_deferred(entry_id)
         return Response(status_code=204)
 
     @router.post("/api/entries/{entry_id}/attachments", status_code=201)
@@ -454,21 +449,16 @@ def create_log_router(
             )
             or "upload"
         )
-        # Every clipboard paste arrives as image.png: number the repeats
-        # rather than overwrite the last one on disk.
-        taken = {a.filename for a in entry.attachments}
-        filename = f"{stem}{ext}"
-        n = 2
-        while filename in taken:
-            filename = f"{stem}-{n}{ext}"
-            n += 1
+        # Every clipboard paste arrives as image.png; the mirror claims a
+        # free name on disk and the link says which one it got.
         try:
             root = mirror.logbook_root(entry.day, experiment, base_directory)
-            link = mirror.write_attachment(entry, filename, data, root)
+            link = mirror.write_attachment(entry, f"{stem}{ext}", data, root)
         except mirror.MirrorUnavailable as exc:
             raise HTTPException(
                 status_code=503, detail=f"the share is not taking uploads: {exc}"
             ) from exc
+        filename = link.rsplit("/", 1)[-1]
 
         attachment = Attachment(
             id=uuid.uuid4().hex[:12],
