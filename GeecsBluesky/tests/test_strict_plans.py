@@ -459,16 +459,20 @@ def test_first_strict_shot_zeroes_a_plugins_stale_count(
     RE(bp.count([cam], num=3, per_shot=geecs_per_shot(shot_control)))
     assert box.fires == 3  # no refire: the first shot counted from 0
     assert rewinds[0] == 0  # zeroed at the first arm
-    datums = [d["indices"] for d in col.docs["stream_datum"]]
+    resources = {r["uid"]: r["data_key"] for r in col.docs["stream_resource"]}
+    datums = [
+        d["indices"]
+        for d in col.docs["stream_datum"]
+        if resources[d["stream_resource"]] == "uc_a"
+    ]
+    assert datums == [
+        {"start": 0, "stop": 1},
+        {"start": 1, "stop": 2},
+        {"start": 2, "stop": 3},
+    ]
     assert (
-        datums[:3]
-        == [
-            {"start": 0, "stop": 1},
-            {"start": 1, "stop": 2},
-            {"start": 2, "stop": 3},
-        ]
-        or len(col.primary_events()) == 3
-    )
+        cam.count_zeroed is False
+    )  # cleared by the unstage: the next run zeroes again
 
 
 def test_missed_frame_on_plugin_cameras_rewinds_the_partial_row(

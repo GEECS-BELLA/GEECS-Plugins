@@ -215,10 +215,9 @@ def geecs_take_reading(
     if shot_period is not None and shot_period <= 0:
         raise ValueError(f"shot_period must be positive seconds, got {shot_period}")
     last_fire: dict[str, float | None] = {"at": None}
-    armed: set[int] = set()  # plugin cameras whose first arm of this run is done
 
     def throttle():
-        """Sleep the remainder of the shot period — BEFORE the detectors are armed.
+        """Sleep the remainder of the shot period — BEFORE the detectors are triggered.
 
         The sleep must precede ``trigger``: an armed detector's count /
         stamp wait runs on its own budget (``exposure_timeout``), and a
@@ -287,10 +286,14 @@ def geecs_take_reading(
             # (GEECS-Plugins#853), so a shot that baselined on it would wait
             # for N+1 while the frame posts 1 — zero it inside the fresh
             # session and prepare again on 0 (found on hardware, 2b A8).
+            # Keyed to the plugin session (``count_zeroed`` is cleared by
+            # stage/unstage), not to this closure: a reused hook zeroes again
+            # on its next run (reviewer of #850, post-acceptance).
             fresh = [
                 d
                 for d in detectors
-                if getattr(d, "plugin_backed", False) and id(d) not in armed
+                if getattr(d, "plugin_backed", False)
+                and not getattr(d, "count_zeroed", True)
             ]
             if fresh:
                 yield from bps.wait_for([d.zero_count for d in fresh])
@@ -300,7 +303,6 @@ def geecs_take_reading(
                         det, STRICT_TRIGGER_INFO, group=group, wait=False
                     )
                 yield from bps.wait(group=group)
-                armed.update(id(d) for d in fresh)
             attempts = max_refires + 1
             for attempt in range(1, attempts + 1):
                 yield from throttle()

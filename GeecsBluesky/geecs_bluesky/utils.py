@@ -52,6 +52,7 @@ RESERVED_DEVICE_ATTRIBUTES: frozenset[str] = frozenset(
         "collect_asset_docs",
         "complete",
         "connect",
+        "count_zeroed",
         "describe",
         "describe_collect",
         "describe_configuration",

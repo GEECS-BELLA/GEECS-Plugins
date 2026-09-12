@@ -47,7 +47,7 @@ the hardware acceptance (§5) is owed.
   that went away mid-run) is logged and skipped, never the item's failure.
 - `shot_period` on every bound scan verb (GEECS-Plugins#840): the strict
   rep-rate throttle — the plan sleeps for the remainder of the period
-  **before the detectors are armed** (a sleep between the triggers and the
+  **before the detectors are triggered** (a sleep between the triggers and the
   fire longer than the shot budget would time the shot out before it is
   fired, 2b acceptance A8); refused with `gated`, as is a nonzero `count`
   `delay` (the stock repeat loop would idle `(num-1)×delay` after the batch).
@@ -87,8 +87,10 @@ the hardware acceptance (§5) is owed.
   and collect are separate contingencies so a failed complete never costs
   the datums.  The strict path does the same at its first arm of a plugin camera
   (2b acceptance A8: the first strict shot after a closed session waited
-  for N+1 while its frame posted 1).  The plugin-side fix (post 0 at arm)
-  is GEECS-Plugins#853.
+  for N+1 while its frame posted 1); the strict guard is keyed to the
+  plugin session (`GeecsDetector.count_zeroed`, cleared by stage/unstage),
+  so a reused plan hook zeroes again on its next run.  The plugin-side fix
+  (post 0 at arm) is GEECS-Plugins#853.
 - The gated refusal of a LabVIEW-native saving essential names it as a
   "native-saving device", not a camera (2b acceptance A3: `U_HP_Daq`, an
   analog device with a LabVIEW file writer, was refused as a "camera").

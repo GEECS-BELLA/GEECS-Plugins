@@ -561,6 +561,10 @@ class GeecsDetectorScalars(ScalarsView):
 class GeecsDetector(StandardDetector):
     """One GEECS acquirer (camera, spectrometer, scope) as a StandardDetector.
 
+    ``count_zeroed`` is the per-session guard of :meth:`zero_count`: set by
+    it, cleared by ``stage`` / ``unstage`` (a new plugin session), read by
+    the strict plan so a reused plan hook zeroes again on its next run.
+
     ``scalars`` (:class:`GeecsDetectorScalars`) is the scalars-only view a
     plan lists instead of the detector itself when the frames are not
     wanted this run.
@@ -601,6 +605,9 @@ class GeecsDetector(StandardDetector):
     shot_timeout :
         Seconds to wait for the stamp after a fire.
     """
+
+    #: :meth:`zero_count` done in the current plugin session.
+    count_zeroed: bool = False
 
     def __init__(
         self,
@@ -751,6 +758,7 @@ class GeecsDetector(StandardDetector):
         per shot was the 0.7 s/row regression (``GeecsBluesky/CLAUDE.md``,
         "Read path: staging & shot coherence").
         """
+        self.count_zeroed = False
         await asyncio.gather(
             *(sig.stage() for sig in (*self._scalars, self.acq_timestamp))
         )
@@ -759,6 +767,7 @@ class GeecsDetector(StandardDetector):
     @AsyncStatus.wrap
     async def unstage(self) -> None:
         """Unstage the detector (saving off), then release the signal caches."""
+        self.count_zeroed = False
         await super().unstage()
         await asyncio.gather(
             *(sig.unstage() for sig in (*self._scalars, self.acq_timestamp))
@@ -974,10 +983,13 @@ class GeecsDetector(StandardDetector):
         from *N* (found on hardware, 2b acceptance A2: the first batch
         trimmed to 5 + 3).  A rewind to zero inside the fresh session posts
         the 0 (and drops an arming frame that was written); the plan
-        prepares again afterwards so the context baselines on it.  Fixed
-        in the plugin too (GeecsPvaGateway posts 0 at arm); this guard
-        stays for the gateways deployed before that.
+        prepares again afterwards so the context baselines on it.  The
+        plugin-side fix (post the 0 at ``Capture=1``) is GEECS-Plugins#853;
+        this guard stays for the gateways deployed before it lands.
+        ``count_zeroed`` records it for the session (cleared by ``stage`` /
+        ``unstage``).
         """
+        self.count_zeroed = True
         if self._prepare_ctx is None or not self._hdf_ios:
             return
         await self._rewind_plugins(0, "fresh session")

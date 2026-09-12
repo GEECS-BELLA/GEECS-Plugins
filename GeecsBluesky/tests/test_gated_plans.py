@@ -546,30 +546,48 @@ def test_bound_plan_refuses_bad_mode_and_a_throttled_gated_run(
 
 
 def test_shot_period_throttles_strict_fires(
-    RE: RunEngine, box: GatedBox, profiles: TriggerProfiles, tmp_path: Path
+    RE: RunEngine,
+    box: GatedBox,
+    profiles: TriggerProfiles,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """#840: one shot per period — the second and third fires wait.
 
     The period exceeds the camera's shot budget on purpose: the wait must
-    happen before the detectors are armed, or the armed count/stamp wait
-    times the shot out during the pause (found on hardware, A8).
+    happen before the detectors are triggered, or the triggered count/stamp
+    wait times the shot out during the pause (found on hardware, A8).
+    Pinned twice: a native camera's stamp wait uses its own 0.2 s budget,
+    and a plugin camera's count wait uses ``STRICT_TRIGGER_INFO``'s
+    ``exposure_timeout`` (patched down to 0.2 s here) — the reviewer found
+    the plugin-only form passing on the pre-A8 code.
     """
-    cam, _ = _plugin_camera(RE, box, "UC_Cam", tmp_path, shot_timeout=0.2)
+    from geecs_bluesky.plans import strict as strict_module
+
+    monkeypatch.setattr(
+        strict_module,
+        "STRICT_TRIGGER_INFO",
+        strict_module.STRICT_TRIGGER_INFO.model_copy(update={"exposure_timeout": 0.2}),
+    )
+    native = _camera(RE, box, "UC_Native", shot_timeout=0.2)
+    plugin, _ = _plugin_camera(RE, box, "UC_Cam", tmp_path, shot_timeout=0.2)
     count = bind_plans(profiles)["count"]
-    t0 = time.monotonic()
-    RE(count([cam], 3, shot_period=0.5))
-    elapsed = time.monotonic() - t0
-    assert box.fires == 3
-    assert elapsed >= 1.0
+    for cam in (native, plugin):
+        box.fires = 0
+        t0 = time.monotonic()
+        RE(count([cam], 3, shot_period=0.5))
+        elapsed = time.monotonic() - t0
+        assert box.fires == 3, cam.name
+        assert elapsed >= 1.0, cam.name
     col = DocCollector()
     RE.subscribe(col)
-    RE(count([cam], 1, shot_period=0.25))
+    RE(count([plugin], 1, shot_period=0.25))
     assert col.docs["start"][0]["shot_period"] == 0.25
 
 
 # --------------------------------------------------- non-essential stream
 def test_non_essential_camera_streams_for_the_run(
-    RE: RunEngine, box: GatedBox, profiles: TriggerProfiles, tmp_path: Path
+    RE: RunEngine, box: GatedBox, profiles: TriggerProfiles, tmp_path: Path, caplog
 ) -> None:
     """A strict count with B non-essential: B flies in ``uc_b_stream``, never waited on.
 
@@ -578,15 +596,26 @@ def test_non_essential_camera_streams_for_the_run(
     baselines, so the close's count wait returns and the datum covers the
     run's frames from 0.
     """
+    import logging
+
     a = _camera(RE, box, "UC_A")
     b, b_rewinds = _plugin_camera(RE, box, "UC_B", tmp_path)
     box.counts["uc_b"] = 6
     set_mock_value(b.hdf.num_captured, 6)
     col = DocCollector()
     RE.subscribe(col)
+    caplog.set_level(logging.WARNING, logger="geecs_bluesky.plans.gated")
     count = bind_plans(profiles)["count"]
+    t0 = time.monotonic()
     RE(count([a], 3, non_essential=[b]))
     assert col.docs["stop"][-1]["exit_status"] == "success"
+    # zeroed BEFORE the kickoff baselined: the close's complete returned at
+    # once (a baseline of 6 would have timed it out, skipped, and still
+    # collected — the same datum, a shot_timeout later, with a warning)
+    assert time.monotonic() - t0 < 2.0
+    assert not [
+        r for r in caplog.records if "failed at the run's close" in r.getMessage()
+    ]
     assert col.docs["start"][0]["non_essential"] == ["uc_b"]
     names = {d["name"] for d in col.docs["descriptor"]}
     assert names == {"primary", "uc_b_stream"}
@@ -720,6 +749,9 @@ def test_non_essential_that_fails_at_the_close_does_not_fail_the_run(
     assert len(_stream_events(col, "primary")) == 2
     messages = [r.getMessage() for r in caplog.records]
     assert any("non-essential uc_b: complete failed" in m for m in messages)
+    assert not any("collect failed" in m for m in messages)
+    # the failed complete never costs the datums: collect ran on its own
+    assert _datums_by_key(col)["uc_b"] == [{"start": 0, "stop": 2}]
     assert any("non-essential uc_b: unstage failed" in m for m in messages)
     assert box.states[-1] == "edges"  # STANDBY still driven on the way out
     b.complete = original
