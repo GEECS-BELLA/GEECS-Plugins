@@ -401,18 +401,25 @@ otherwise skipped).  Missing keys in a push (a variable the device did
 not send that shot) are written `NaN`.  Three things this needs, all in
 PR 2a:
 
-- **Attribute names carry the device**: `<ophyd name>-<variable>`
-  (`normalize_component(device)`, the naming contract both sides share
-  — the worker's `safe_name` is the same function), so the keys are
-  unique across cameras and identical to the strict row's columns.  The
-  two existing attributes are renamed the same way
-  (`<ophyd name>-acq_timestamp`, `-recv_timestamp`) — an on-disk layout
-  change of a just-shipped format: `scan_stack.TIMESTAMPS_DATASET`
-  becomes a lookup that accepts either spelling, the stack check reads
-  through it, and the files written between #823 and the fix stay
-  readable.  **This rename ships ahead of the rest of 2a as its own PR**,
-  because two plugin-backed cameras in one run collide on the bare names
-  today (§2).
+- **Attribute names carry the device and the plugin child, and are
+  never an event column's name**: `<ophyd name>-hdf-<image variable>-<scalar>`
+  (both parts through `normalize_component`, the naming contract both
+  sides share).  Unique across cameras — and *disjoint* from the
+  detector's own event columns, which the first fix got wrong:
+  `<ophyd name>-acq_timestamp` is the camera's CA stamp column, and a
+  stream key of the same name overwrote its description in `describe`
+  (readable providers first, streamable second, plain `dict.update`) so
+  Tiled's normalizer dropped the column and refused the stop document.
+  So a gated row's scalar columns are *not* spelled like a strict row's;
+  the s-file writer (§4.5) maps `<name>-hdf-<var>-<scalar>` back to the
+  `Device Variable` header, the same header the strict column carries.
+  The two existing attributes are renamed the same way
+  (`…-frame_acq_timestamp`, `…-frame_recv_timestamp`) — an on-disk layout
+  change of a just-shipped format: `scan_stack.timestamps_dataset`
+  accepts either spelling, the stack check reads through it, and the
+  files written between #823 and the fix stay readable.  **Shipped ahead
+  of the rest of 2a as its own PR (#830, issue #829)**, because two
+  plugin-backed cameras in one run collided on the bare names.
 - **The gateway subscribes the scalars**: the device's subscribed list
   joins `[var, "acq_timestamp", "systimestamp"]` in the one TCP
   subscription (§2), so `update` carries them at `_on_frame`.
@@ -464,13 +471,14 @@ references and, when `acquisition` is `gated`, for the essential ones.
 
 ## 5. Sequencing — three PRs, each with its own acceptance
 
-0. **The key-collision fix, first and alone** (GeecsPvaGateway minor for
-   the layout change; Data-Utils minor for the reader): attribute names
-   prefixed with the ophyd device name, the reader accepting both
-   spellings, a worker test with two plugin-backed cameras and the real
-   XML shape.  Deploy = merge, pull the share clone, `:restart` on the
-   nine boxes (no launcher change).  Hardware: a strict `count` on two
-   plugin-backed cameras.
+0. **The key-collision fix, first and alone — PR #830 (issue #829)**
+   (GeecsPvaGateway 0.8.0 for the layout change; Data-Utils 0.29.0 for
+   the reader; portal 0.21.4): `<device>-hdf-<variable>-frame_*`
+   attribute names, the reader accepting both spellings, a worker test
+   with two plugin-backed cameras and the real XML shape driven through
+   bluesky's `RunNormalizer`.  Deploy = merge, pull the share clone,
+   `:restart` on the nine boxes (no launcher change).  Hardware: a strict
+   `count` on two plugin-backed cameras, read back through Tiled.
 1. **2a — the gateway's attributes** (GeecsPvaGateway minor; Data-Utils
    minor; GEECS-Core minor for the scalar-policy move; GeecsBluesky
    patch for the import): subscribed scalars as NDAttributes, the
