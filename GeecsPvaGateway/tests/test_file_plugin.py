@@ -223,8 +223,9 @@ async def test_stock_adhdf_data_logic_drives_the_plugin(tmp_path, monkeypatch):
         assert keys["cam"]["shape"] == [1, *IMG.shape]
         assert keys["cam"]["dtype_numpy"] == "<u2"
         assert keys["cam"]["external"] == "STREAM:"
-        # The attribute keys carry the device (unique across cameras, #829)
-        # and spell the worker's event column for the stamp.
+        # The attribute keys carry the device and the plugin child (#829):
+        # unique across cameras and never an event column's name (the
+        # camera's own stamp column is uc_testcam-acq_timestamp).
         assert {
             "uc_testcam-hdf-image-frame_acq_timestamp",
             "uc_testcam-hdf-image-frame_recv_timestamp",
