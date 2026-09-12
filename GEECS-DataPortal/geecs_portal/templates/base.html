@@ -11,22 +11,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{% block title %}GEECS Data Portal{% endblock %}</title>
-<script>
-  /* Stamp the stored palette before first paint. Without this the page
-     renders in the default theme for a frame and then jumps. */
-  (function () {
-    try {
-      var r = document.documentElement;
-      r.setAttribute("data-theme", localStorage.getItem("geecs.theme") || "laser");
-      var m = localStorage.getItem("geecs.mode");
-      if (m && m !== "system") r.setAttribute("data-mode", m);
-    } catch (e) { /* private window: the defaults are fine */ }
-  })();
-</script>
-<link rel="stylesheet" href="{{ url_for('theme', path='/theme.css') }}">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+{# theme-boot.js stamps the stored palette before first paint (validated,
+   system mode resolved); loaded in <head> and NOT deferred for that reason.
+   URLs go through {{ root }} so a reverse-proxy prefix still resolves. #}
+<script src="{{ root }}/theme/theme-boot.js"></script>
+<link rel="stylesheet" href="{{ root }}/theme/theme.css?v={{ portal_version | default('') | urlencode }}">
+{# No CDN assets: control-room machines may lack internet (portal CLAUDE.md).
+   The token font stacks carry full local fallbacks. #}
 <style>
   * { box-sizing: border-box; }
   body {
@@ -68,6 +59,6 @@
 <main>
 {% block content %}{% endblock %}
 </main>
-<script src="{{ url_for('theme', path='/theme.js') }}" defer></script>
+<script src="{{ root }}/theme/theme.js?v={{ portal_version | default('') | urlencode }}" defer></script>
 </body>
 </html>

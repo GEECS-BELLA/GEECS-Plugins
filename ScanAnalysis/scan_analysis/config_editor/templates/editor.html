@@ -4,34 +4,16 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>GEECS analysis config editor</title>
-{% if theme_url %}
-<script>
-  /* Stamp the stored palette before first paint, so the page does not
-     render in the default theme for a frame and then jump. */
-  (function () {
-    try {
-      var r = document.documentElement;
-      r.setAttribute("data-theme", localStorage.getItem("geecs.theme") || "laser");
-      var m = localStorage.getItem("geecs.mode");
-      if (m && m !== "system") r.setAttribute("data-mode", m);
-    } catch (e) { /* private window: the defaults are fine */ }
-  })();
-</script>
-<link rel="stylesheet" href="{{ theme_url }}/theme.css">
-{% endif %}
+{% set theme_base = request.scope.get('root_path', '').rstrip('/') ~ theme_url %}
+{# theme-boot.js stamps the palette before first paint (in <head>, not
+   deferred). Every host serves the theme — the portal at /theme, the
+   standalone app from geecs_web_theme itself — so there is no fallback
+   palette copy here to drift. #}
+<script src="{{ theme_base }}/theme-boot.js"></script>
+<link rel="stylesheet" href="{{ theme_base }}/theme.css">
 <link rel="stylesheet" href="static/editor.css">
 <style>
-{% if not theme_url %}
-  /* Standalone fallback only. Mounted in a host that serves the shared
-     theme, the block above wins and these never apply. */
-  :root {
-    --paper: #12161a; --surface: #1a2026; --surface-2: #20272e; --rule: #2c353d;
-    --ink: #dde4ea; --muted: #8a95a0; --accent: #4cc2b4; --err: var(--crit);
-    --crit: #cf5347; --warn: #d9a441; --on-accent: #0c1114;
-    --ff-ui: system-ui, -apple-system, "Segoe UI", sans-serif;
-    --ff-mono: ui-monospace, Menlo, monospace;
-  }
-{% endif %}
+  :root { --err: var(--crit); }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--paper); color: var(--ink);
          font: 14px/1.5 var(--ff-ui); }
@@ -48,7 +30,7 @@
 <header>
   <span class="brand">GEECS analysis configs</span>
   <span class="sub">{% if read_only %}read-only browser{% else %}editor — saves write the configs tree; commit them yourself{% endif %}</span>
-  {% if theme_url %}<span class="spacer"></span><div data-theme-picker></div>{% endif %}
+  <span class="spacer"></span><div data-theme-picker></div>
 </header>
 <main>
   <div id="editor"></div>
@@ -64,6 +46,6 @@
     layout: "page",
   });
 </script>
-{% if theme_url %}<script src="{{ theme_url }}/theme.js" defer></script>{% endif %}
+<script src="{{ theme_base }}/theme.js" defer></script>
 </body>
 </html>

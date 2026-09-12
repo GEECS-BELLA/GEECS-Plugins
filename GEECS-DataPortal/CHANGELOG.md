@@ -14,6 +14,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   light and a dark variant, defaulting to `laser` following the system.
 - `--config-editor` passes the theme URL through, so the config editor
   adopts the same palette and the choice follows a viewer between pages.
+- The run page's Plotly figure paints with the live theme tokens (ground,
+  font, grid, and `--trace-1..4` for the marks) and re-draws on a theme
+  change; `figures.py`'s colours are the JS-off fallback. The injected
+  `TRACE_COLORS` contract is unchanged.
+- Theme assets are linked through `{{ root }}` with a version query, so a
+  reverse-proxy prefix resolves and a theme change is not served stale.
+- The Google Fonts links are gone: no CDN assets, per this package's own
+  doctrine — the token font stacks carry local fallbacks.
 
 ## [0.22.0] - 2026-09-11
 

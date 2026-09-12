@@ -449,6 +449,13 @@ const DAY = {{ day | tojson }};
 const SEL_DEVICE = {{ sel_device | tojson }};
 const VERSION = {{ portal_version | tojson }};
 const TRACE_COLORS = {{ trace_colors | tojson }};
+// The DEFAULT colour for trace i comes from the theme (--trace-1..4), read
+// at call time so a theme switch is honoured; the server's TRACE_COLORS is
+// the JS-off fallback and stays the injected contract.
+function defaultTraceColor(i) {
+  const c = getComputedStyle(document.documentElement).getPropertyValue(`--trace-${i + 1}`).trim();
+  return c || TRACE_COLORS[i];
+}
 const MSIZE_DEFAULT = {{ msize_default | tojson }};
 // Everything Plotly gives for free, switched ON: wheel zoom, in-place
 // legend-name editing, spike lines + hover modes, and the drawing
@@ -1041,7 +1048,7 @@ function removeY(i) {
   const d = dispCfg();
   if (Array.isArray(d.colors)) {  // keep custom colors aligned with their traces
     d.colors.splice(i, 1);
-    if (!d.colors.some((c, j) => c !== TRACE_COLORS[j])) delete d.colors;
+    if (!d.colors.some((c, j) => c !== defaultTraceColor(j))) delete d.colors;
     S.display = Object.keys(d).length ? JSON.stringify(d) : "";
   }
   renderPicked(); writeState(); refresh();
@@ -1102,7 +1109,7 @@ function traceColor(i) {
   // Same lengths the server's _is_hex_color accepts (3/4/6/8) — the
   // chip and the trace must agree on what counts as a custom color.
   return (typeof c === "string" && /^#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(c))
-    ? c : TRACE_COLORS[i];
+    ? c : defaultTraceColor(i);
 }
 
 function deepMerge(target, patch) {
@@ -1121,19 +1128,44 @@ function deepMerge(target, patch) {
   }
 }
 
+// The palette the figure paints with comes from the live theme tokens,
+// read at draw time — the server's figures.py colours are the JS-off
+// fallback only.  A theme change re-draws the last figure in place.
+function tokenColour(name) {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+function themedLayout() {
+  const grid = tokenColour("--rule-soft"), axis = tokenColour("--rule");
+  return {
+    paper_bgcolor: tokenColour("--surface"),
+    plot_bgcolor: tokenColour("--paper"),
+    font: { color: tokenColour("--ink") },
+    xaxis: { gridcolor: grid, zerolinecolor: axis, linecolor: axis, tickcolor: axis },
+    yaxis: { gridcolor: grid, zerolinecolor: axis, linecolor: axis, tickcolor: axis },
+    legend: { bgcolor: tokenColour("--surface") },
+  };
+}
+let LAST_FIGURE = null;
+
 function drawFigure(data) {
   // The figure is server-authored (geecs_portal/figures.py — display
-  // state included).  The one client-side step is the escape hatch:
+  // state included).  Two client-side steps, in order: the theme's
+  // colours replace the server's placeholders, then the escape hatch —
   // display.layout deep-merges LAST, so the whole Plotly layout schema
   // stays reachable without new portal code — and the URL-carried
   // patch stays in the browser with its prototype-pollution guard.
-  const fig = data.figure || { data: [], layout: {} };
+  LAST_FIGURE = data;
+  const fig = JSON.parse(JSON.stringify(data.figure || { data: [], layout: {} }));
+  deepMerge(fig.layout, themedLayout());
   const d = dispCfg();
   if (d.layout && typeof d.layout === "object") deepMerge(fig.layout, d.layout);
   Plotly.react(plotHost(), fig.data, fig.layout, PLOT_CONFIG);
   document.getElementById("codebox").textContent = data.code;
   setPassCount(data.pass, data.total);
 }
+window.addEventListener("geecs:theme", () => {
+  if (LAST_FIGURE && S.tab === "plot" && S.y.length) drawFigure(LAST_FIGURE);
+});
 
 function showPlotError(err) {
   plotMessage("⚠ " + err.message);
@@ -1318,9 +1350,9 @@ function applyDisplay() {
   }
   const colors = S.y.map((name, i) => {
     const input = document.getElementById("ds-color-" + i);
-    return input ? input.value : TRACE_COLORS[i];
+    return input ? input.value : defaultTraceColor(i);
   });
-  if (colors.some((c, i) => c !== TRACE_COLORS[i])) d.colors = colors;
+  if (colors.some((c, i) => c !== defaultTraceColor(i))) d.colors = colors;
   const rawLayout = document.getElementById("ds-layout").value.trim();
   if (rawLayout) {
     try {

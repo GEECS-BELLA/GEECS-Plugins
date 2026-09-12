@@ -9,10 +9,15 @@ Usage from a host application::
     from geecs_web_theme import static_dir
     app.mount("/theme", StaticFiles(directory=str(static_dir())), name="theme")
 
-then, in a template's ``<head>``::
+then, in a template's ``<head>`` — the boot script NOT deferred, so the
+palette is stamped before first paint; the picker script deferred::
 
+    <script src="/theme/theme-boot.js"></script>
     <link rel="stylesheet" href="/theme/theme.css">
     <script src="/theme/theme.js" defer></script>
+
+Behind a reverse proxy build those from the request's ``root_path``; the
+portal does this with its ``{{ root }}`` idiom.
 
 and wherever the control belongs::
 
@@ -21,7 +26,14 @@ and wherever the control belongs::
 
 from pathlib import Path
 
-__all__ = ["THEMES", "DEFAULT_THEME", "static_dir", "theme_css", "theme_js"]
+__all__ = [
+    "THEMES",
+    "DEFAULT_THEME",
+    "static_dir",
+    "theme_css",
+    "theme_js",
+    "theme_boot_js",
+]
 
 #: The palettes on offer. Kept here as well as in the stylesheet so a host
 #: can name them in a menu or a preference without parsing CSS.
@@ -31,7 +43,8 @@ THEMES: dict[str, str] = {
     "plasma": "Hydrogen plasma — Balmer H-beta cyan, H-alpha for the agent",
 }
 
-#: What a viewer gets before they choose. Matches ``theme.js``.
+#: What a viewer gets before they choose. The runtime authority is
+#: ``theme-boot.js``; ``tests/test_no_literal_colours.py`` pins the two.
 DEFAULT_THEME = "laser"
 
 
@@ -52,5 +65,10 @@ def theme_css() -> Path:
 
 
 def theme_js() -> Path:
-    """Return the path to the picker script."""
+    """Return the path to the picker script (load deferred)."""
     return static_dir() / "theme.js"
+
+
+def theme_boot_js() -> Path:
+    """Return the path to the boot script (load in ``<head>``, not deferred)."""
+    return static_dir() / "theme-boot.js"

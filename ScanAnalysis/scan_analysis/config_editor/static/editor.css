@@ -1,5 +1,5 @@
 /* GEECS analysis config editor — shared by the standalone page and the portal drawer.
-   Uses the portal's CSS variables (--paper, --surface, --surface-2, --rule, --ink, --muted, --accent). */
+/* Colours are GeecsWebTheme tokens (--surface, --surface-2, --rule, --ink, --muted, --accent, --crit, --warn, --on-accent); this file defines none. */
 .ce { display: grid; grid-template-columns: 15rem minmax(0, 1fr) 22rem; grid-auto-rows: minmax(0, 1fr); gap: 0.8rem; height: 100%; min-height: 0; }
 .ce.ce-nopreview { grid-template-columns: 15rem minmax(0, 1fr) 20rem; }
 .ce.ce-drawer { grid-template-columns: minmax(0, 1fr) 22rem; }

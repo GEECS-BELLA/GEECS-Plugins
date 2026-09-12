@@ -73,7 +73,7 @@ def create_editor_router(
     *,
     preview: Optional[PreviewFn] = None,
     read_only: bool = False,
-    theme_url: Optional[str] = None,
+    theme_url: str = "/theme",
 ) -> APIRouter:
     """Build the editor router over *store*.
 
@@ -86,13 +86,13 @@ def create_editor_router(
         without it ``POST /api/preview`` is 404 and the page hides the pane.
     read_only : bool, default False
         Serve the browser and validation but refuse writes (405).
-    theme_url : str, optional
-        Base URL of a mounted ``geecs_web_theme`` (the Data Portal serves
-        one at ``/theme``). Given it, the page adopts the shared palette
-        and its picker, so a viewer's choice follows them between the
-        portal and this editor. Without it the page keeps a self-contained
-        fallback palette — this editor also runs standalone, where no host
-        is serving a theme.
+    theme_url : str, default "/theme"
+        Where the host serves ``geecs_web_theme`` — the Data Portal mounts
+        it at ``/theme``, and so does :func:`create_editor_app` for the
+        standalone case. The template prefixes it with the request's
+        ``root_path`` so a reverse-proxy mount still resolves. There is no
+        fallback palette: every host serves the theme, and a copied palette
+        is exactly the drift the shared package exists to remove.
     """
     router = APIRouter()
 
@@ -231,7 +231,14 @@ def create_editor_router(
 
 def create_editor_app(root: Path, *, read_only: bool = False) -> FastAPI:
     """The standalone host: the editor at ``/`` over one configs tree, no preview."""
+    from fastapi.staticfiles import StaticFiles
+    from geecs_web_theme import static_dir
+
     app = FastAPI(title="GEECS analysis config editor", docs_url=None, redoc_url=None)
+    # The shared palette. GeecsWebTheme has no dependencies, so the editor
+    # can serve it itself standalone; hosted in the portal, the portal's
+    # mount at the same path wins.
+    app.mount("/theme", StaticFiles(directory=str(static_dir())), name="theme")
     app.include_router(create_editor_router(ConfigStore(root), read_only=read_only))
     return app
 

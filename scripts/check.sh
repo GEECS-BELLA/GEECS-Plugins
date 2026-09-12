@@ -116,6 +116,14 @@ else
         CHANGED+=("$f")
     done < <(git diff --name-only -z "$MB")
     for f in ${CHANGED[@]+"${CHANGED[@]}"}; do
+        # Any web surface the theme guard walks runs the guard too, even
+        # when changed-mode would otherwise pick only its own package.
+        case "$f" in
+            GEECS-DataPortal/geecs_portal/templates/*.html|\
+            GeecsScanLog/geecs_scan_log/static/*.css|GeecsScanLog/geecs_scan_log/templates/*.html|\
+            ScanAnalysis/scan_analysis/config_editor/static/*.css|ScanAnalysis/scan_analysis/config_editor/templates/*.html)
+                [ -d GeecsWebTheme ] && add_unit GeecsWebTheme ;;
+        esac
         top="${f%%/*}"
         if [ "$top" = "tests" ]; then
             add_unit "root-tests"

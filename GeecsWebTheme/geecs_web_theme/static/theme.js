@@ -1,14 +1,17 @@
-/* GEECS web theme — applies the stored palette and injects the picker.
+/* GEECS web theme — the picker, and re-theming after first paint.
  *
- * One implementation for every surface: the portal, the config editor and
- * the scan logbook all load this file, so the choice follows you across
- * /day, /run, /configs and /log without any of them knowing about the
- * others.
+ * theme-boot.js has already stamped the palette before this runs; this
+ * file adds the control and keeps the page right afterwards. One
+ * implementation for every surface, so a viewer's choice follows them
+ * across /day, /run, /configs and /log without any of those knowing about
+ * the others.
  *
- * The choice is a per-viewer convenience, so localStorage is the right
- * home — it never needs to reach another viewer or the server. It is also
- * read before first paint (see the inline bootstrap each surface includes)
- * so the page never flashes the wrong palette.
+ * It reads the theme list and default from window.GEECS_THEME (set by
+ * theme-boot.js) rather than carrying its own — one list, not two.
+ *
+ * On every change it dispatches `geecs:theme` on window with
+ * {theme, mode} so anything that paints outside CSS — the run page's
+ * Plotly figure — can re-read the tokens and repaint.
  *
  * Add <div data-theme-picker></div> where the control should appear. A
  * surface that wants the palette but not the control simply omits it.
@@ -16,56 +19,57 @@
 (function () {
   "use strict";
 
-  var THEMES = [
-    { id: "bella", label: "BELLA", hint: "BELLA Center — red on black" },
-    { id: "laser", label: "Laser", hint: "Laser room — 532 nm pump green" },
-    { id: "plasma", label: "Plasma", hint: "Hydrogen plasma — Balmer series" }
-  ];
-  var MODES = ["system", "light", "dark"];
-  var MODE_LABEL = { system: "Auto", light: "Light", dark: "Dark" };
-  var DEFAULT_THEME = "laser";
+  var CFG = window.GEECS_THEME;
+  if (!CFG) return; // theme-boot.js not loaded: nothing sensible to do
 
-  function read(key, fallback) {
-    try {
-      return window.localStorage.getItem(key) || fallback;
-    } catch (e) {
-      // Private windows and blocked site data both throw here. A theme is
-      // a convenience; losing it must never break the page.
-      return fallback;
-    }
-  }
+  var LABELS = {
+    bella: { label: "BELLA", hint: "BELLA Center — red on black" },
+    laser: { label: "Laser", hint: "Laser room — 532 nm pump green" },
+    plasma: { label: "Plasma", hint: "Hydrogen plasma — Balmer series" }
+  };
+  var MODE_LABEL = { system: "Auto", light: "Light", dark: "Dark" };
+
+  var root = document.documentElement;
+  var theme = root.getAttribute("data-theme") || CFG.defaultTheme;
+  var mode = root.getAttribute("data-mode-pref") || "system";
+  var mq = window.matchMedia ? window.matchMedia("(prefers-color-scheme: dark)") : null;
 
   function write(key, value) {
-    try {
-      window.localStorage.setItem(key, value);
-    } catch (e) {
-      /* see read() */
-    }
+    try { window.localStorage.setItem(key, value); } catch (e) { /* private window */ }
   }
 
-  var theme = read("geecs.theme", DEFAULT_THEME);
-  var mode = read("geecs.mode", "system");
-  if (!THEMES.some(function (t) { return t.id === theme; })) theme = DEFAULT_THEME;
-  if (MODES.indexOf(mode) === -1) mode = "system";
+  function effective() {
+    if (mode !== "system") return mode;
+    return mq && mq.matches ? "dark" : "light";
+  }
 
-  function apply() {
-    var root = document.documentElement;
+  function apply(persist) {
     root.setAttribute("data-theme", theme);
-    if (mode === "system") root.removeAttribute("data-mode");
-    else root.setAttribute("data-mode", mode);
+    root.setAttribute("data-mode", effective());
+    root.setAttribute("data-mode-pref", mode);
 
     var buttons = document.querySelectorAll("[data-set-theme]");
     for (var i = 0; i < buttons.length; i++) {
-      buttons[i].classList.toggle("is-on", buttons[i].dataset.setTheme === theme);
-      buttons[i].setAttribute(
-        "aria-pressed", String(buttons[i].dataset.setTheme === theme)
-      );
+      var on = buttons[i].dataset.setTheme === theme;
+      buttons[i].classList.toggle("is-on", on);
+      buttons[i].setAttribute("aria-pressed", String(on));
     }
     var mb = document.querySelector("[data-cycle-mode]");
     if (mb) mb.textContent = MODE_LABEL[mode];
 
-    write("geecs.theme", theme);
-    write("geecs.mode", mode);
+    // Persist only a CHOICE. Writing on every load would pin today's
+    // default for everyone who ever opened a page, so a later change of
+    // the default would never reach them.
+    if (persist) {
+      write(CFG.keys.theme, theme);
+      write(CFG.keys.mode, mode);
+    }
+
+    try {
+      window.dispatchEvent(new CustomEvent("geecs:theme", {
+        detail: { theme: theme, mode: effective(), pref: mode }
+      }));
+    } catch (e) { /* very old engines: no repaint hook, still themed */ }
   }
 
   function build(host) {
@@ -73,12 +77,12 @@
     host.setAttribute("role", "group");
     host.setAttribute("aria-label", "Colour theme");
     var html = "";
-    for (var i = 0; i < THEMES.length; i++) {
-      var t = THEMES[i];
+    for (var i = 0; i < CFG.themes.length; i++) {
+      var id = CFG.themes[i], meta = LABELS[id] || { label: id, hint: id };
       html +=
-        '<button type="button" class="th" data-set-theme="' + t.id +
-        '" title="' + t.hint + '"><span class="sw sw-' + t.id +
-        '"></span><span class="th-label">' + t.label + "</span></button>";
+        '<button type="button" class="th" data-set-theme="' + id +
+        '" title="' + meta.hint + '"><span class="sw sw-' + id +
+        '"></span><span class="th-label">' + meta.label + "</span></button>";
     }
     html +=
       '<span class="th-sep"></span>' +
@@ -91,19 +95,23 @@
       if (!b) return;
       if (b.dataset.setTheme) theme = b.dataset.setTheme;
       else if (b.hasAttribute("data-cycle-mode"))
-        mode = MODES[(MODES.indexOf(mode) + 1) % MODES.length];
+        mode = CFG.modes[(CFG.modes.indexOf(mode) + 1) % CFG.modes.length];
       else return;
-      apply();
+      apply(true);
     });
   }
 
   function init() {
     var hosts = document.querySelectorAll("[data-theme-picker]");
     for (var i = 0; i < hosts.length; i++) build(hosts[i]);
-    apply();
+    apply(false);
   }
 
-  apply(); // before paint where possible
+  // A viewer following the system gets re-stamped when the OS flips.
+  if (mq && mq.addEventListener) mq.addEventListener("change", function () {
+    if (mode === "system") apply(false);
+  });
+
   if (document.readyState === "loading")
     document.addEventListener("DOMContentLoaded", init);
   else init();
