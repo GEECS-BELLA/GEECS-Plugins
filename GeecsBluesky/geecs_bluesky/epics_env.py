@@ -8,6 +8,19 @@ shell exporting ``EPICS_CA_ADDR_LIST``::
     ca_addr_list = 192.168.6.14
     # ca_auto_addr_list = NO      (optional; defaults to NO when
     #                              ca_addr_list is applied from here)
+    [pva]
+    file_plugin_addr_list = 192.168.6.100 192.168.7.161    # the camera servers
+    # addr_list = ...              (the PVA image fleet; unioned in)
+    # pva_auto_addr_list = NO      (optional; defaults to NO when the
+    #                              list is applied from here)
+
+The PVA list is the same rule for the same reason: the camera servers sit
+on several subnets, so a PVA name search for the file plugin's PVs
+(``…:hdf1:``) needs a directed address list — the worker's own
+``[pva]`` keys already name those hosts, so nothing is exported twice
+(found on the first plugin scan through the RE Manager, 2026-09-11: the
+service environment carried the CA variables only and every plugin
+signal timed out at connect).
 
 Import-order constraint: libca reads these variables when the CA context is
 created, which happens as soon as aioca is imported — and the device modules
@@ -40,9 +53,12 @@ def apply_epics_address_config(
     variable is not already exported, and — only when the address list was
     applied from config — ``EPICS_CA_AUTO_ADDR_LIST`` from
     ``[epics] ca_auto_addr_list`` (default ``NO``: a directed address list
-    plus broadcast is rarely intended).  Never raises: a missing file,
-    section, or key is a silent no-op so the env-var-only workflow keeps
-    working unchanged.
+    plus broadcast is rarely intended).  Likewise ``EPICS_PVA_ADDR_LIST``
+    from the union of ``[pva] file_plugin_addr_list`` and ``[pva]
+    addr_list`` (in that order, duplicates dropped) and
+    ``EPICS_PVA_AUTO_ADDR_LIST`` from ``[pva] pva_auto_addr_list``
+    (default ``NO``).  Never raises: a missing file, section, or key is a
+    silent no-op so the env-var-only workflow keeps working unchanged.
 
     Parameters
     ----------
@@ -67,15 +83,26 @@ def apply_epics_address_config(
         parser = configparser.ConfigParser()
         parser.read(path)
         addr = parser.get("epics", "ca_addr_list", fallback="").strip()
-        if not addr:
-            return applied
-        if "EPICS_CA_ADDR_LIST" not in env:
+        if addr and "EPICS_CA_ADDR_LIST" not in env:
             env["EPICS_CA_ADDR_LIST"] = addr
             applied["EPICS_CA_ADDR_LIST"] = addr
             auto = parser.get("epics", "ca_auto_addr_list", fallback="NO").strip()
             if auto and "EPICS_CA_AUTO_ADDR_LIST" not in env:
                 env["EPICS_CA_AUTO_ADDR_LIST"] = auto
                 applied["EPICS_CA_AUTO_ADDR_LIST"] = auto
+        pva_hosts: list[str] = []
+        for key in ("file_plugin_addr_list", "addr_list"):
+            for token in parser.get("pva", key, fallback="").replace(",", " ").split():
+                if token not in pva_hosts:
+                    pva_hosts.append(token)
+        if pva_hosts and "EPICS_PVA_ADDR_LIST" not in env:
+            env["EPICS_PVA_ADDR_LIST"] = " ".join(pva_hosts)
+            applied["EPICS_PVA_ADDR_LIST"] = env["EPICS_PVA_ADDR_LIST"]
+            auto = parser.get("pva", "pva_auto_addr_list", fallback="NO").strip()
+            if auto and "EPICS_PVA_AUTO_ADDR_LIST" not in env:
+                env["EPICS_PVA_AUTO_ADDR_LIST"] = auto
+                applied["EPICS_PVA_AUTO_ADDR_LIST"] = auto
+        if applied:
             logger.info(
                 "EPICS client addressing from %s: %s",
                 path,
