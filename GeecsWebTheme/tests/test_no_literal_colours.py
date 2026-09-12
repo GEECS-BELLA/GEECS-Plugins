@@ -31,6 +31,13 @@ import pytest
 _REPO = Path(__file__).resolve().parents[2]
 _THEME_CSS = _REPO / "GeecsWebTheme/geecs_web_theme/static/theme.css"
 _KIT_CSS = _REPO / "GeecsWebTheme/geecs_web_theme/static/kit.css"
+
+#: The spacing scale a density block owns. theme.css declares these in the
+#: bare :root (the comfortable values) and every non-default density block
+#: in kit.css overrides exactly this set. Adding a fourth spacing token
+#: means adding it here too — at which point the density blocks that forgot
+#: it fail, which is the point.
+_DENSITY_TOKENS = {"--pad", "--row-h", "--gap"}
 _KIT_HTML = _REPO / "GeecsWebTheme/geecs_web_theme/static/kit.html"
 
 #: The web surfaces bound by the rule. Adding a surface means adding it
@@ -396,7 +403,25 @@ def test_python_and_boot_script_agree_on_the_density_list() -> None:
     for name in DENSITIES:
         if name == DEFAULT_DENSITY:
             continue
-        assert f':root[data-density="{name}"]' in kit, f"{name} has no kit block"
+        block = re.search(r':root\[data-density="%s"\]\s*\{([^}]*)\}' % name, kit)
+        assert block, f"{name} has no kit block"
+        # Not just "the selector is present": an EMPTY block passed the first
+        # version of this test, which is exactly the drift it has to catch —
+        # the comfortable values live in theme.css and the overrides here, so
+        # forgetting one leaves compact silently showing a comfortable value.
+        defined = set(re.findall(r"(--[\w-]+)\s*:", block.group(1)))
+        assert defined == _DENSITY_TOKENS, (
+            f'[data-density="{name}"] defines {sorted(defined)}, '
+            f"expected {sorted(_DENSITY_TOKENS)}"
+        )
+
+    # _blocks() reads raw text, and theme.css's header comment mentions
+    # ":root" — which the selector regex then runs together with the real
+    # block. Existing callers only take max(...) by length so they never
+    # noticed; keying by name needs the comments gone first.
+    bare = re.sub(r"/\*.*?\*/", " ", _THEME_CSS.read_text(), flags=re.S)
+    missing = _DENSITY_TOKENS - _blocks(bare)[":root"]
+    assert not missing, f"theme.css :root does not declare {sorted(missing)}"
 
 
 def test_kit_defines_no_token_the_theme_does_not() -> None:
@@ -432,3 +457,86 @@ def test_kit_reference_page_assets_all_exist() -> None:
     assert refs, "kit.html references nothing — did the page lose its head?"
     for ref in refs:
         assert (_KIT_HTML.parent / ref).is_file(), f"kit.html references missing {ref}"
+
+
+def test_status_vocabulary_is_pinned_to_the_kit() -> None:
+    """``geecs_web_theme.STATES`` and ``kit.css`` name the same statuses.
+
+    A mistyped state is the dangerous case and it is silent: a
+    ``data-state="no_data"`` matches no rule, and ``.chip`` still renders a
+    pill with ``border-color:transparent``, inherited colour and a
+    ``currentColor`` dot — a plausible neutral chip that survives both
+    review and the browser. Pinning both directions means the CSS cannot
+    style a status the vocabulary does not have, and the vocabulary cannot
+    name one the CSS does not colour.
+    """
+    import sys
+
+    sys.path.insert(0, str(_REPO / "GeecsWebTheme"))
+    from geecs_web_theme import STATES  # noqa: E402
+
+    kit = _KIT_CSS.read_text()
+    styled = set(re.findall(r'\.chip\[data-state="([\w-]+)"\]', kit))
+    assert styled == set(STATES), (
+        f"kit.css styles {sorted(styled)}; STATES names {sorted(STATES)}"
+    )
+    # Every status also needs the dot form, used where the row label carries
+    # the word instead.
+    dots = set(re.findall(r'\.dot\[data-state="([\w-]+)"\]', kit))
+    assert dots == set(STATES), (
+        f"kit.css dots {sorted(dots)}; STATES names {sorted(STATES)}"
+    )
+
+
+def test_pane_states_are_pinned_to_the_kit() -> None:
+    """No surface names a pane state outside ``PANE_STATES``.
+
+    Unlike the statuses, not every pane state needs its own rule — loading,
+    empty and denied share the neutral ground on purpose, and only error and
+    stale take a colour. So the pin runs one way for the CSS (it may style a
+    subset, never something outside the vocabulary) and strictly for the
+    reference page, which is the copy people will imitate.
+    """
+    import sys
+
+    sys.path.insert(0, str(_REPO / "GeecsWebTheme"))
+    from geecs_web_theme import PANE_STATES, STATES  # noqa: E402
+
+    kit = _KIT_CSS.read_text()
+    styled = set(re.findall(r'\.(?:state|banner)\[data-state="([\w-]+)"\]', kit))
+    unknown = styled - set(PANE_STATES)
+    assert not unknown, (
+        f"kit.css styles pane states {sorted(unknown)} not in PANE_STATES"
+    )
+
+    page = _KIT_HTML.read_text()
+    used = set(re.findall(r'data-state="([\w-]+)"', page))
+    stray = used - set(PANE_STATES) - set(STATES)
+    assert not stray, (
+        f"kit.html uses {sorted(stray)}, which is neither a status nor a pane "
+        "state — a typo here is invisible in a browser"
+    )
+
+
+def test_kit_rules_are_scoped_to_the_kit_class() -> None:
+    """Every kit rule is gated on ``.kit``, so a surface can adopt per page.
+
+    Both surfaces that will adopt this already use several of these class
+    names, one of them load-bearingly: the portal's run page is
+    ``.pane{display:none}`` / ``.pane.on{display:block}`` — its tab
+    mechanism — which ties on specificity with an ungated ``.pane`` here and
+    would be decided by stylesheet order alone. The only ungated selectors
+    allowed are the density blocks (which must hit the root element) and
+    ``body.kit`` itself.
+    """
+    css = _KIT_CSS.read_text()
+    css = re.sub(r"/\*.*?\*/", " ", css, flags=re.S)
+    ungated = []
+    for selector in re.findall(r"(?:^|[}{])\s*([^{}@][^{}]*?)\s*\{", css):
+        for part in (s.strip() for s in selector.split(",")):
+            if not part or part.startswith((":root", "body.kit", ".kit", "@")):
+                continue
+            if re.match(r"^\d|^from$|^to$", part):  # keyframe stops
+                continue
+            ungated.append(part)
+    assert not ungated, f"kit.css rules not scoped to .kit: {sorted(set(ungated))}"

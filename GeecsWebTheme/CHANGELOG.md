@@ -39,14 +39,46 @@ project adheres to semantic versioning.
   from `--r`, the control corner), `--bw`, `--tk`, `--pad`, `--row-h`,
   `--gap`, `--shell-max`, `--scrim`, `--lift`. Declared in the bare
   `:root` only, so every palette shares them until one wants its own.
-- `kit_css()`, `kit_js()`, `kit_html()` path helpers.
+- `kit_css()`, `kit_js()`, `kit_html()` path helpers, and `STATES` /
+  `PANE_STATES` constants so a host renders a vocabulary from a constant
+  rather than hand-typing a `data-state` that silently matches no rule.
+- A package `CLAUDE.md`: the kit's doctrine — the overlay ladder, the
+  container roles, the vocabularies — reachable from where an agent
+  building the next web surface actually looks.
 
 ### Changed
 
 - The literal-colour guard walks `kit.css`, `kit.html` and `kit.js`.
 - New tests: the kit introduces no token `theme.css` does not declare (one
   vocabulary, not two); every asset `kit.html` references exists; the
-  density list agrees across Python, the boot script and the CSS.
+  density list agrees across Python, the boot script and the CSS; both
+  vocabularies are pinned to `kit.css` in both directions; every kit rule
+  is scoped to `.kit`.
+- `README.md` and the root `CLAUDE.md` describe both layers, not just the
+  palette.
+
+### Fixed (from adversarial review, before first release)
+
+- **Every kit rule is scoped to `.kit` on `<body>`.** Ungated component
+  classes collided with both adoption targets, one load-bearingly: the
+  portal's run page is `.pane{display:none}` / `.pane.on{display:block}` —
+  its tab mechanism — which ties on specificity with an ungated `.pane`,
+  leaving which wins to stylesheet order. Every tab pane would have
+  rendered at once. Scoping also lets a surface convert one page at a time
+  instead of every page changing when the `<link>` lands.
+- The drawer honours `autofocus`. A selector list carries no priority, so
+  `querySelector("[autofocus],…")` returned the first match in *tree*
+  order — the header's Close button — while the adjacent `<dialog>` rung
+  honoured `autofocus` natively, so identical markup behaved differently
+  on two rungs.
+- A `data-drawer-open` / `data-dialog-open` naming a missing id warns
+  instead of producing a permanently dead control in silence.
+- `Esc` no longer closes the drawer underneath an open `<dialog>`.
+- The density picker builds into a host containing whitespace (ordinary
+  Jinja formatting previously counted as "already built").
+- The density pin asserted only that the selector existed — an *empty*
+  compact block passed it. It now asserts the block overrides exactly the
+  spacing tokens `theme.css` declares.
 
 ## [0.1.2] - 2026-09-12
 

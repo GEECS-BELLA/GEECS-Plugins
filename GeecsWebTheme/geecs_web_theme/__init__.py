@@ -49,6 +49,8 @@ __all__ = [
     "DEFAULT_THEME",
     "DENSITIES",
     "DEFAULT_DENSITY",
+    "STATES",
+    "PANE_STATES",
     "static_dir",
     "theme_css",
     "theme_js",
@@ -80,6 +82,39 @@ DENSITIES: dict[str, str] = {
 
 #: What a viewer gets before they choose a density.
 DEFAULT_DENSITY = "comfortable"
+
+#: The status vocabulary, in the order a thing moves through it. These
+#: replace the fifteen class names the portal and the logbook each invented
+#: (``done``/``success``/``ok``, ``fail``/``failed``/``aborted``, …), and a
+#: surface names one through ``data-state`` on ``.chip`` or ``.dot``.
+#:
+#: Named here, and not only in the CSS, for the reason a mistyped state is
+#: dangerous: ``data-state="no_data"`` matches no rule and still renders a
+#: plausible neutral pill, so it survives review and the browser alike. A
+#: host that renders these from a constant cannot mistype one, and
+#: ``tests/test_no_literal_colours.py`` pins the list to ``kit.css``.
+STATES: dict[str, str] = {
+    "queued": "Accepted, not started",
+    "running": "In progress now",
+    "ok": "Finished as intended",
+    "degraded": "Finished, but less than asked",
+    "failed": "Did not finish",
+    "unknown": "We have no information",
+    "agent": "Written by software, not a person",
+}
+
+#: The states every pane owes its reader, named on ``.state`` and
+#: ``.banner``. ``loading`` and ``empty`` exist on both surfaces today in
+#: private forms; ``error``, ``stale`` and ``denied`` exist on neither, and
+#: a control surface cannot open without the last two — a live value that
+#: silently stops updating is worse than no value.
+PANE_STATES: dict[str, str] = {
+    "loading": "Named, so the reader knows whether to wait",
+    "empty": "The query succeeded and matched nothing",
+    "error": "The request failed; nothing was lost",
+    "stale": "Showing a value older than it should be",
+    "denied": "Someone else holds it, or you may only read",
+}
 
 
 def static_dir() -> Path:

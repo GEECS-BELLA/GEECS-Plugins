@@ -62,7 +62,10 @@
     if (!CFG || !CFG.densities) return;
     var hosts = document.querySelectorAll("[data-density-picker]");
     Array.prototype.forEach.call(hosts, function (host) {
-      if (host.firstChild) return; // already built
+      // Not firstChild: `<div data-density-picker>\n</div>` — ordinary Jinja
+      // formatting — has a whitespace text node and would silently ship no
+      // control at all.
+      if (host.querySelector("button")) return; // already built
       host.className = host.className ? host.className + " seg" : "seg";
       host.setAttribute("role", "group");
       host.setAttribute("aria-label", "Row density");
@@ -129,10 +132,28 @@
     }
     el.setAttribute("data-open", "true");
     el.setAttribute("aria-hidden", "false");
-    var first = el.querySelector("[autofocus],[data-drawer-close],button,a[href],input,select,textarea");
+    // A selector list carries no priority — querySelector returns the first
+    // match in TREE order, which here is the header's Close button, so the
+    // one-call form silently ignores [autofocus]. <dialog>.showModal() does
+    // honour it, and two rungs disagreeing on identical markup gets debugged
+    // as a browser quirk. Ask for the preferred element first, on its own.
+    var first =
+      el.querySelector("[autofocus]") ||
+      el.querySelector("[data-drawer-close],button,a[href],input,select,textarea");
     if (first) {
       try { first.focus(); } catch (e) { /* nothing focusable: leave it */ }
     }
+  }
+
+  //: A missing target is always a typo in a template, and it fails by doing
+  //  nothing at all — the exact "dead button" shape a past review caught in
+  //  this repo before. Say so rather than returning quietly.
+  function need(id, what) {
+    var el = document.getElementById(id);
+    if (!el && window.console && console.warn) {
+      console.warn("[geecs-kit] no " + what + ' with id "' + id + '" — dead control');
+    }
+    return el;
   }
 
   function drawer(el) {
@@ -177,11 +198,11 @@
       var t = e.target && e.target.closest ? e.target.closest("[data-drawer-open],[data-drawer-close],[data-dialog-open],[data-dialog-close]") : null;
       if (!t) return;
       if (t.hasAttribute("data-drawer-open")) {
-        showDrawer(document.getElementById(t.getAttribute("data-drawer-open")), t);
+        showDrawer(need(t.getAttribute("data-drawer-open"), "drawer"), t);
       } else if (t.hasAttribute("data-drawer-close")) {
         closeDrawer();
       } else if (t.hasAttribute("data-dialog-open")) {
-        confirmDialog(document.getElementById(t.getAttribute("data-dialog-open"))).open();
+        confirmDialog(need(t.getAttribute("data-dialog-open"), "dialog")).open();
       } else if (t.hasAttribute("data-dialog-close")) {
         var host = t.closest("dialog");
         if (host) confirmDialog(host).close();
@@ -192,6 +213,9 @@
     // drawer's, which the platform does not give us.
     document.addEventListener("keydown", function (e) {
       if (e.key !== "Escape" || !openDrawer) return;
+      // A modal <dialog> above the drawer owns Esc and closes itself; taking
+      // it here would dismiss the drawer underneath instead.
+      if (document.querySelector("dialog[open]")) return;
       e.preventDefault();
       closeDrawer();
     });
