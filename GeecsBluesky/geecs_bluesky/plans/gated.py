@@ -421,6 +421,19 @@ def non_essential_wrapper(plan: Any, flyers: Sequence[Any]) -> Any:
                 flyer, UNBOUNDED_TRIGGER_INFO, group=group, wait=False
             )
         yield from bps.wait(group=group)
+        # The plugin's count PV still reads the previous session's total at
+        # the arm (GEECS-Plugins#853): zero it inside the fresh session and
+        # prepare again, or the kickoff baselines above what the run will
+        # write and the close's count wait never returns (2b A4).
+        zero = [f for f in flyers if hasattr(f, "zero_count")]
+        if zero:
+            yield from bps.wait_for([f.zero_count for f in zero])
+            group = short_uid("non-essential-prepare-zeroed")
+            for flyer in zero:
+                yield from bps.prepare(
+                    flyer, UNBOUNDED_TRIGGER_INFO, group=group, wait=False
+                )
+            yield from bps.wait(group=group)
         for flyer in flyers:
             yield from bps.declare_stream(flyer, name=stream_name(flyer), collect=True)
         yield from bps.kickoff_all(*flyers, wait=True)
@@ -430,22 +443,28 @@ def non_essential_wrapper(plan: Any, flyers: Sequence[Any]) -> Any:
         # went away mid-run must not fail the run at its close: each flyer's
         # complete + collect is its own contingency, logged and skipped.
         for flyer in flyers:
+            # complete and collect are SEPARATE contingencies: a complete
+            # that fails (a stalled or dead plugin) must not cost the
+            # datums for the frames it did write.
+            for verb, plan_factory in (
+                ("complete", lambda f=flyer: bps.complete(f, wait=True)),
+                ("collect", lambda f=flyer: bps.collect(f, name=stream_name(f))),
+            ):
 
-            def one(flyer=flyer):
-                yield from bps.complete(flyer, wait=True)
-                yield from bps.collect(flyer, name=stream_name(flyer))
+                def skip(exc, flyer=flyer, verb=verb):
+                    logger.warning(
+                        "non-essential %s: %s failed at the run's close (%s: %s) — "
+                        "its stream carries what it wrote",
+                        flyer.name,
+                        verb,
+                        type(exc).__name__,
+                        exc,
+                    )
+                    yield from bps.null()
 
-            def skip(exc, flyer=flyer):
-                logger.warning(
-                    "non-essential %s: complete/collect failed at the run's close "
-                    "(%s: %s) — its stream carries what it wrote",
-                    flyer.name,
-                    type(exc).__name__,
-                    exc,
+                yield from contingency_wrapper(
+                    plan_factory(), except_plan=skip, auto_raise=False
                 )
-                yield from bps.null()
-
-            yield from contingency_wrapper(one(), except_plan=skip, auto_raise=False)
 
     def insert_after_open(msg: Msg):
         if msg.command == "open_run":

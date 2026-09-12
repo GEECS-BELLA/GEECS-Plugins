@@ -571,9 +571,17 @@ def test_shot_period_throttles_strict_fires(
 def test_non_essential_camera_streams_for_the_run(
     RE: RunEngine, box: GatedBox, profiles: TriggerProfiles, tmp_path: Path
 ) -> None:
-    """A strict count with B non-essential: B flies in ``uc_b_stream``, never waited on."""
+    """A strict count with B non-essential: B flies in ``uc_b_stream``, never waited on.
+
+    B's plugin still reports a previous session's count at the arm
+    (GEECS-Plugins#853, found on hardware in A4): zeroed before the kickoff
+    baselines, so the close's count wait returns and the datum covers the
+    run's frames from 0.
+    """
     a = _camera(RE, box, "UC_A")
-    b, _ = _plugin_camera(RE, box, "UC_B", tmp_path)
+    b, b_rewinds = _plugin_camera(RE, box, "UC_B", tmp_path)
+    box.counts["uc_b"] = 6
+    set_mock_value(b.hdf.num_captured, 6)
     col = DocCollector()
     RE.subscribe(col)
     count = bind_plans(profiles)["count"]
@@ -587,6 +595,7 @@ def test_non_essential_camera_streams_for_the_run(
     assert len(_stream_events(col, "primary")) == 3
     # every fire advanced B's count too: one datum covering the run's frames
     assert _datums_by_key(col)["uc_b"] == [{"start": 0, "stop": 3}]
+    assert b_rewinds[0] == 0  # the stale count zeroed at the arm
     assert box.states[0] == "single" and box.states[-1] == "edges"
 
 
@@ -710,7 +719,7 @@ def test_non_essential_that_fails_at_the_close_does_not_fail_the_run(
     assert col.docs["stop"][-1]["exit_status"] == "success"
     assert len(_stream_events(col, "primary")) == 2
     messages = [r.getMessage() for r in caplog.records]
-    assert any("non-essential uc_b: complete/collect failed" in m for m in messages)
+    assert any("non-essential uc_b: complete failed" in m for m in messages)
     assert any("non-essential uc_b: unstage failed" in m for m in messages)
     assert box.states[-1] == "edges"  # STANDBY still driven on the way out
     b.complete = original

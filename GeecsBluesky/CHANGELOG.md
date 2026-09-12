@@ -82,7 +82,10 @@ the hardware acceptance (§5) is owed.
   acceptance A2: the first step trimmed to 5 + 3 frames).  The step now
   arms, rewinds every plugin to zero inside the fresh session
   (`GeecsDetector.zero_count`, which posts the 0) and prepares again on it.
-  The strict path does the same at its first arm of a plugin camera
+  The non-essential stream's arm does the same (A4: a stale baseline above
+  the run's count left the close's count wait hanging), and its complete
+  and collect are separate contingencies so a failed complete never costs
+  the datums.  The strict path does the same at its first arm of a plugin camera
   (2b acceptance A8: the first strict shot after a closed session waited
   for N+1 while its frame posted 1).  The plugin-side fix (post 0 at arm)
   is GEECS-Plugins#853.
