@@ -20,7 +20,7 @@ only as an example or a placeholder.
 
 | Side | Home | Who reads it |
 |---|---|---|
-| **Client** | `~/.config/geecs_python_api/config.ini` — `[Experiment]`, `[Paths]`, `[epics] ca_addr_list`, `[pva] addr_list`, `[tiled]`, `[qserver]`, `[mcp]` (reference: [Getting started](../tutorials/getting_started.md)) | every Python client and every service process; `scripts/lab_status.sh`, `scripts/fleet_status.sh` |
+| **Client** | `~/.config/geecs_python_api/config.ini` — `[Experiment]`, `[Paths]`, `[epics] ca_addr_list`, `[pva] addr_list` / `file_plugin_addr_list`, `[tiled]`, `[qserver]`, `[mcp]` (reference: [Getting started](../tutorials/getting_started.md)) | every Python client and every service process; `scripts/lab_status.sh`, `scripts/fleet_status.sh` |
 | **Host** | `/etc/geecs/site.env` — one file per service host, from [`deploy/site.env.example`](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/deploy/site.env.example) | every systemd unit (`EnvironmentFile=`), `deploy/render_units.sh`, `deploy/bootstrap_host.sh` |
 
 On a service host `site.env` is the root: the bootstrap renders the
@@ -54,9 +54,13 @@ Two kinds of keys, documented line by line in the example file:
   address, never the client `config.ini`.
 - **Install-time values** — the service account and its home, the
   checkout root, the absolute poetry path, the repo URL, the Tiled URI,
-  the queueserver host, the data-share mount, the configs-repo path.
-  These fill the unit templates' placeholders and the rendered
-  `config.ini`; they are harmless in the process environment.
+  the queueserver host, the PVA image fleet and its file-plugin boxes
+  (`GEECS_PVA_ADDR_LIST`, `GEECS_PVA_FILE_PLUGIN_ADDR_LIST` → the
+  rendered `[pva]` section, from which `geecs_bluesky` exports
+  `EPICS_PVA_ADDR_LIST` at import), the data-share mount, the
+  configs-repo path.  These fill the unit templates' placeholders and
+  the rendered `config.ini`; they are harmless in the process
+  environment.
 
 Syntax is systemd `EnvironmentFile=` syntax, which is stricter than
 shell: `KEY=VALUE` per line, comments **only on their own lines** (a

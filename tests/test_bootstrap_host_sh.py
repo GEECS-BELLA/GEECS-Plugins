@@ -92,6 +92,15 @@ def _run(
     )
 
 
+def test_rendered_config_ini_carries_the_pva_section(tmp_path: Path) -> None:
+    """[pva] addr_list / file_plugin_addr_list come from site.env (the worker's plugin rule)."""
+    result = _run(tmp_path, "exit 0")
+    out = result.stdout
+    assert "[pva]" in out, result.stderr
+    assert "addr_list = 192.168.6.80 192.168.6.100" in out
+    assert "file_plugin_addr_list = 192.168.6.80 192.168.6.100" in out
+
+
 def test_missing_redis_unit_prints_the_package_root_step(tmp_path: Path) -> None:
     r = _run(tmp_path, REDIS_ABSENT)
     assert r.returncode == 0, r.stderr

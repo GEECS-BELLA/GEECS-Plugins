@@ -5,6 +5,32 @@ All notable changes to `geecs-bluesky` are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
+## [0.82.1] - 2026-09-11
+
+### Fixed
+
+- **The worker could not reach the file plugin's PVs through the RE
+  Manager**: the service environment carried the CA variables only, so
+  every plugin signal timed out at `connect` on the first plugin-backed
+  scan submitted after the fleet roll (the #806 acceptance had exported
+  `EPICS_PVA_ADDR_LIST` by hand).  `epics_env.apply_epics_address_config`
+  now exports `EPICS_PVA_ADDR_LIST` from the union of `config.ini`'s
+  `[pva] file_plugin_addr_list` and `[pva] addr_list` (and
+  `EPICS_PVA_AUTO_ADDR_LIST`, default **`YES`** — unlike CA, the directed
+  list is added to the broadcast search, so a developer machine that
+  carries `[pva] addr_list` for the fleet tooling still finds a local
+  server; `[pva] pva_auto_addr_list = NO` opts out) the way it exports
+  the CA variables from `[epics]` — the hosts the worker already names,
+  exported once, an explicit environment variable still winning.  Every
+  process importing `geecs_bluesky` (worker, Console, MCP) now gets the
+  variables.  The CA block no longer short-circuits a config with `[pva]`
+  but no `[epics]`; both readers go through `data_paths.read_config_entry`
+  and the new `data_paths.pva_addr_tokens` (shared with
+  `devices.hdf_plugin.file_plugin_hosts`).  On a service host the `[pva]`
+  section is now rendered by `deploy/bootstrap_host.sh` from two new
+  install-time `site.env` keys, `GEECS_PVA_ADDR_LIST` and
+  `GEECS_PVA_FILE_PLUGIN_ADDR_LIST` (`docs/platform/site_profile.md`).
+
 ## [0.82.0] - 2026-09-11
 
 ### Added
