@@ -76,9 +76,25 @@ class PluginPathProvider(PathProvider):
         self._plugin_path = plugin_path
 
     def __call__(self, datakey_name: str | None = None) -> PathInfo:
-        """The device directory this run: Windows path for ``FilePath``, URI for Tiled."""
+        """The device directory this run: Windows path for ``FilePath``, URI for Tiled.
+
+        The directory is **created here**, inside the scan folder the
+        scanner claimed (``mkdir(exist_ok=True)``, never ``parents``: a
+        missing scan folder is an error, the root ``CLAUDE.md`` invariant).
+        The plugin never creates it — it refuses to arm on a missing
+        ``FilePath`` — and in a fly prepare (a gated batch, a non-essential
+        stream) the LabVIEW-native saving logic, whose ``prepare_single``
+        used to create it as a side effect of the dual-write, is not part
+        of the context (found on hardware, 2b acceptance A1, 2026-09-12).
+        """
         local = self._shared(self._device)
         local_dir = Path(local.directory_path)
+        if not local_dir.parent.is_dir():
+            raise FileNotFoundError(
+                f"{local_dir.parent} does not exist: the scan folder is claimed "
+                "by the scanner, never created by a detector's path provider"
+            )
+        local_dir.mkdir(exist_ok=True)
         return PathInfo(
             directory_path=PureWindowsPath(self._plugin_path(str(local_dir))),
             filename=self._device,

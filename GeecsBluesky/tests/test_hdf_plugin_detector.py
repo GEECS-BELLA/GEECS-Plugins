@@ -261,7 +261,12 @@ def test_prepare_failure_carries_the_plugins_reason(
 
 
 def test_plugin_path_provider_hands_out_both_paths(tmp_path: Path) -> None:
-    """Windows path for the plugin's FilePath, the worker's file URI for Tiled."""
+    """Windows path for the plugin's FilePath, the worker's file URI for Tiled.
+
+    The device directory is created inside the claimed scan folder (the
+    plugin refuses a missing FilePath and a fly prepare has no native-saving
+    logic to make it); a missing scan folder is an error, never a mkdir.
+    """
     shared = GeecsScanPathProvider()
     shared.point_at(tmp_path / "Scan007")
     provider = PluginPathProvider(
@@ -269,7 +274,13 @@ def test_plugin_path_provider_hands_out_both_paths(tmp_path: Path) -> None:
         "UC_TestCam",
         plugin_path=lambda local: local.replace(str(tmp_path), r"\\nas\hdna2\data"),
     )
+    with pytest.raises(FileNotFoundError, match="claimed by the scanner"):
+        provider("uc_testcam")
+    assert not (tmp_path / "Scan007").exists()  # the invariant: no scan folder created
+    (tmp_path / "Scan007").mkdir()
     info = provider("uc_testcam")  # the ophyd datakey is ignored
+    assert (tmp_path / "Scan007" / "UC_TestCam").is_dir()
+    provider("uc_testcam")  # idempotent
     assert isinstance(info.directory_path, PureWindowsPath)
     assert str(info.directory_path) == r"\\nas\hdna2\data\Scan007\UC_TestCam"
     assert info.filename == "UC_TestCam"

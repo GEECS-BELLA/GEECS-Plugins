@@ -71,6 +71,15 @@ the hardware acceptance (§5) is owed.
   `save` but no `hdf`), and a gated run needs an essential triggered
   device (an `acq_timestamp` child).
 
+### Fixed
+
+- `PluginPathProvider` creates the device directory inside the claimed scan
+  folder (`mkdir(exist_ok=True)`, a missing scan folder is an error): the
+  plugin refuses to arm on a missing `FilePath`, and in a fly prepare the
+  LabVIEW-native saving logic that used to create it as a side effect of
+  the dual-write is not part of the context — found on hardware (2b
+  acceptance A1, Scan001 of 26_0912).
+
 ### Changed
 
 - `StackCheckCallback` checks a datum-only stream (a gated `primary`, a
