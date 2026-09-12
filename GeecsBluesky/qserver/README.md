@@ -142,6 +142,22 @@ the plan of record).
   systemd event fires, `geecs-qserver-ready` stays `active (exited)` from
   its last successful run, and only the console/MCP preflight refusal
   names the gesture (`systemctl restart geecs-qserver-ready`).
+- **Allowed plans empty while the manager is idle with its environment
+  open** (`worker_environment_exists: True`, `re_state: idle`,
+  `plans_allowed: {}` for every user group, every submission refused
+  "not in the list of allowed plans", `geecs-qserver-ready` still
+  `active (exited)`) — the manager's own **download of the plan list
+  from the worker timed out** (journal: `Failed to download the list of
+  existing plans and devices from the worker process: Timeout`), seen
+  while the host thrashed in swap (GEECS-Plugins#838). It is not a closed
+  environment and needs no restart: `systemctl restart
+  geecs-qserver-ready` — `geecs-qserver-ensure-ready` now asks the manager
+  for an `environment_update` when the list is empty or incomplete with
+  the environment up, which re-downloads the lists and regenerates the
+  allowed ones (by hand: `qserver environment update`). Do NOT
+  `permissions_reload(restore_plans_devices=True)`: that reloads the
+  stale on-disk copy. The update runs as a foreground task and is refused
+  while a plan is running; run it when the manager is idle.
 - **`queue add` returns `success: False` with no reason at the CLI** — the
   manager was launched without a permissions file, or the file lacks the
   group the client submits as (the `qserver` CLI uses `primary` by

@@ -5,6 +5,22 @@ All notable changes to `geecs-bluesky` are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
+## [0.82.4] - 2026-09-12
+
+### Fixed
+
+- `geecs-qserver-ensure-ready` heals the manager that is idle with its
+  environment open and `plans_allowed` **empty** (GEECS-Plugins#838: the
+  manager's own download of the lists from the worker timed out while the
+  host thrashed, and every submission was then refused "not in the list of
+  allowed plans" while `status` looked healthy): a list still empty or
+  incomplete after the settle window is downloaded again once through
+  `environment_update`, with the settle window applied again — so
+  `systemctl restart geecs-qserver-ready` recovers it without a manager
+  restart.  The shared `plans_empty` verdict (Console banner, MCP
+  preflight) names that cause and that gesture; `qserver/README.md`
+  Troubleshooting carries the entry.
+
 ## [0.82.3] - 2026-09-12
 
 ### Changed

@@ -38,6 +38,7 @@ class _Manager:
         plans=GEECS_PLAN_NAMES,
         plans_sequence=None,
         open_reply=None,
+        update_reply=None,
         answer=True,
         plans_answer=True,
     ):
@@ -47,6 +48,7 @@ class _Manager:
         # manager's plan list landing *after* the environment reads up.
         self.plans_sequence = [list(p) for p in (plans_sequence or [])]
         self.open_reply = open_reply or {"success": True}
+        self.update_reply = update_reply or {"success": True, "task_uid": "t1"}
         self.answer = answer
         self.plans_answer = plans_answer
         self.calls: list[tuple[str, dict | None]] = []
@@ -60,6 +62,8 @@ class _Manager:
             return snap, ""
         if method == "environment_open":
             return self.open_reply, ""
+        if method == "environment_update":
+            return self.update_reply, ""
         if method == "plans_allowed":
             if not self.plans_answer:
                 return None, "timeout"
@@ -119,18 +123,22 @@ def test_missing_plan_is_not_ready_and_names_it() -> None:
 def test_empty_plan_list_after_open_is_not_ready() -> None:
     """The exact #793 invariant: open 'succeeded', plan list still empty.
 
-    The fake stays empty across the post-open settle re-reads, so the
-    conclusion is reached only after the settle window is exhausted.
+    The fake stays empty across the post-open settle re-reads, the one
+    ``environment_update`` re-download (#838) and its own settle window,
+    so the conclusion is reached only after both are exhausted.
     """
     manager = _Manager([_status(exists=False), _status(exists=True)], plans=[])
     log = []
     with pytest.raises(NotReady, match="lists no allowed plans"):
         ensure_ready(manager, timeout_s=30, log=log.append)
-    reads = [m for m, _ in manager.calls].count("plans_allowed")
-    assert reads == qserver_ready.PLAN_LIST_SETTLE_POLLS + 1
+    methods = [m for m, _ in manager.calls]
+    assert methods.count("environment_update") == 1
+    assert methods.count("plans_allowed") == 2 * (
+        qserver_ready.PLAN_LIST_SETTLE_POLLS + 1
+    )
     assert (
         sum("re-reading" in line for line in log)
-        == qserver_ready.PLAN_LIST_SETTLE_POLLS
+        == 2 * qserver_ready.PLAN_LIST_SETTLE_POLLS
     )
 
 
@@ -153,21 +161,79 @@ def test_plan_list_landing_after_the_open_is_ready() -> None:
 
 
 def test_no_settle_window_without_our_open() -> None:
-    """An environment someone else opened is judged on the first read."""
+    """An environment someone else opened is judged on the first read.
+
+    An empty list there is the #838 shape, so ONE ``environment_update``
+    follows (with its settle window) before the verdict is final.
+    """
     manager = _Manager([_status(exists=True)], plans=[])
     with pytest.raises(NotReady, match="lists no allowed plans"):
+        ensure_ready(manager, timeout_s=30, log=lambda s: None)
+    methods = [m for m, _ in manager.calls]
+    assert methods.index("environment_update") == methods.index("plans_allowed") + 1
+    assert methods.count("environment_update") == 1
+    assert methods.count("plans_allowed") == qserver_ready.PLAN_LIST_SETTLE_POLLS + 2
+
+
+def test_empty_list_with_the_environment_up_is_healed_by_environment_update() -> None:
+    """#838: the manager idle, environment open, plans_allowed EMPTY.
+
+    A timed-out download of the lists from the worker leaves the manager
+    this way; ``environment_update`` makes it download again, and the
+    list lands within the settle window — ready without a restart.
+    """
+    manager = _Manager(
+        [_status(exists=True)], plans_sequence=[[], [], GEECS_PLAN_NAMES]
+    )
+    log = []
+    allowed = ensure_ready(manager, timeout_s=30, log=log.append)
+    assert allowed == sorted(GEECS_PLAN_NAMES)
+    methods = [m for m, _ in manager.calls]
+    assert methods.count("environment_update") == 1
+    assert "environment_open" not in methods
+    assert ("environment_update", {}) in manager.calls
+    # first read empty → update → settle re-reads until the list lands
+    assert methods.count("plans_allowed") == 3
+    assert any("environment_update" in line and "#838" in line for line in log)
+    assert log[-1].startswith(f"ready: {len(GEECS_PLAN_NAMES)} allowed plans")
+
+
+def test_stale_list_is_redownloaded_then_ready() -> None:
+    """A list missing a plan gets the same one re-download (a stale copy)."""
+    manager = _Manager(
+        [_status(exists=True)], plans_sequence=[["mv"], GEECS_PLAN_NAMES]
+    )
+    allowed = ensure_ready(manager, timeout_s=30, log=lambda s: None)
+    assert allowed == sorted(GEECS_PLAN_NAMES)
+    assert [m for m, _ in manager.calls].count("environment_update") == 1
+
+
+def test_environment_update_refused_is_not_ready() -> None:
+    """The manager refuses the update (not idle): not ready, its reason named."""
+    manager = _Manager(
+        [_status(exists=True)],
+        plans=[],
+        update_reply={"success": False, "msg": "RE Manager must be in idle state"},
+    )
+    with pytest.raises(NotReady, match="refused 'environment_update'.*idle state"):
         ensure_ready(manager, timeout_s=30, log=lambda s: None)
     assert [m for m, _ in manager.calls].count("plans_allowed") == 1
 
 
 def test_unanswered_plan_list_after_open_is_not_retried() -> None:
-    """plans_unknown is never a settling state — unanswered is not ready."""
+    """plans_unknown is never a settling state — unanswered is not ready.
+
+    Nor is it re-downloaded: a manager that does not answer the list
+    request is not one to ask for an ``environment_update``.
+    """
     manager = _Manager(
         [_status(exists=False), _status(exists=True)], plans_answer=False
     )
     with pytest.raises(NotReady, match="could not be read"):
         ensure_ready(manager, timeout_s=30, log=lambda s: None)
-    assert [m for m, _ in manager.calls].count("plans_allowed") == 1
+    methods = [m for m, _ in manager.calls]
+    assert methods.count("plans_allowed") == 1
+    assert "environment_update" not in methods
 
 
 def test_unanswered_plan_list_is_not_ready() -> None:
