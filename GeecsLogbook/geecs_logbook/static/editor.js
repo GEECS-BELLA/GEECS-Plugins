@@ -200,6 +200,10 @@
     clearFail(form);
     form.classList.add("busy");
     let id = null;
+    let done;
+    // Kept on the form so a Save that lands mid-upload waits for the link
+    // to be inserted and the version to be re-read, instead of racing it.
+    form._uploading = new Promise((resolve) => { done = resolve; });
     try {
       id = await ensureEntry(form);
       for (const file of list) {
@@ -222,6 +226,8 @@
         catch (err) { fail(form, err); }
       }
       form.classList.remove("busy");
+      form._uploading = null;
+      done();
     }
   }
 
@@ -294,6 +300,9 @@
     const html = cd.getData("text/html");
     const tableRows = html ? htmlTableToRows(html) : null;
     if (tableRows) { ev.preventDefault(); insertBlock(ta, rowsToMarkdown(tableRows), true); return; }
+    // A single row still comes with a <table> (and, from Excel, a bitmap
+    // of the cells): let the default text paste through, upload nothing.
+    if (html && /<table[\s>]/i.test(html)) return;
     const files = [...cd.items].filter((i) => i.kind === "file").map((i) => i.getAsFile()).filter(Boolean);
     if (files.length) {
       // A file plus text (a rich paste from a page or a document): keep the
@@ -319,7 +328,10 @@
     if (form.dataset.saving === "1") return;
     form.dataset.saving = "1";
     form.querySelectorAll("button[type=submit],[data-discard]").forEach((b) => { b.disabled = true; });
-    try { await action(); }
+    try {
+      if (form._uploading) await form._uploading; // let a paste finish landing first
+      await action();
+    }
     finally {
       form.dataset.saving = "";
       form.querySelectorAll("button[type=submit],[data-discard]").forEach((b) => { b.disabled = false; });
@@ -329,7 +341,13 @@
   function save(form) {
     return exclusive(form, async () => {
       const ta = form.querySelector(".ta");
-      if (!ta.value.trim()) { ta.focus(); return; }
+      if (!ta.value.trim()) {
+        ta.focus();
+        if (form.dataset.entry && form.classList.contains("autosaved")) {
+          fail(form, { message: "Nothing to save — Discard removes this entry." });
+        }
+        return;
+      }
       const name = authorName(form);
       if (!name) return;
       clearFail(form);

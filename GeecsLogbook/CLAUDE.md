@@ -153,7 +153,11 @@ stays the plain text the mirror holds. The two things people actually
 need — paste a screenshot, paste a spreadsheet — are events on the
 textarea: a pasted or dropped file goes to the upload endpoint and its
 relative link lands at the cursor; a tab-separated or HTML-table paste
-becomes a markdown table. A brand-new entry has no id until saved, so
+becomes a markdown table (a text-only paste must have a consistent
+column count and a non-empty first header cell — tab-indented prose is
+not a table, and a cross-tab with a blank corner from a text-only source
+is pasted as text; spreadsheet apps supply the HTML form, which has no
+such rule). A brand-new entry has no id until saved, so
 the first attachment saves it first ("autosaved", with Discard); Save is
 then an edit. The page hands the script its facts through
 `<main id="logbook" data-api data-day data-book>`; nothing is templated
