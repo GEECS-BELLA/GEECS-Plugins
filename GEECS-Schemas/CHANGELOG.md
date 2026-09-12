@@ -5,6 +5,21 @@ All notable changes to GEECS-Schemas are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.22.0] - 2026-09-12
+
+### Removed
+
+- The action-library converter (`convert.actions`: `convert_action_library`,
+  `convert_assigned_actions`), its legacy fixtures and the corpus walk's
+  conversion pin.  Every `action_library/actions.yaml` in the configs repo
+  was regenerated once as an `ActionPlanLibrary` document (same plans, same
+  steps, same values) and `assigned_actions.yaml` — the legacy GUI's
+  pinned-button list, read by nothing — was dropped with it; the corpus is
+  authored new-schema only from here (GEECS-Plugins#827 follow-up).  The
+  corpus walk now validates every library as an `ActionPlanLibrary`;
+  `tests/fixtures/actions/actions_undulator.yaml` is that document and the
+  `Amp4_DUMP_HP` golden pins it.
+
 ## [0.21.0] - 2026-09-10
 
 ### Added

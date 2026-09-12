@@ -12,7 +12,7 @@ Corpus layout (regenerated 2026-09-10, GEECS-Plugins#807 phase 1 PR 2)::
       presets/                       # Preset documents (new schema only; no converter)
       scan_devices/                  # scan_variables.yaml (new schema only; no converter)
       shot_control_configurations/   # trigger configs (incl. laser-on/off pairs)
-      action_library/                # actions.yaml + assigned_actions.yaml
+      action_library/                # actions.yaml (ActionPlanLibrary, new schema only; no converter)
       optimizer_configs/             # Xopt optimizer configs (Undulator only)
       aux_configs/                   # visa plunger lookup (app data; no converter)
 """
@@ -23,10 +23,8 @@ from pathlib import Path
 import pytest
 import yaml
 
-from geecs_schemas import Preset, ScanVariables
+from geecs_schemas import ActionPlanLibrary, Preset, ScanVariables
 from geecs_schemas.convert import (
-    convert_action_library,
-    convert_assigned_actions,
     convert_optimizer_config,
     convert_shot_control,
 )
@@ -114,19 +112,25 @@ class TestFullCorpus:
                     converted += 1
         assert converted >= 8 and no_device >= 2
 
-    def test_every_action_library_converts(self):
+    def test_every_action_library_validates(self):
+        """Every deployed action library is a new-schema ``ActionPlanLibrary``.
+
+        There is no action-library converter any more (0.22.0): the corpus
+        was regenerated once, and the legacy ``assigned_actions.yaml``
+        (the old GUI's pinned-button list) went with it.
+        """
         libraries = {}
         for experiment in experiments():
             actions = experiment / "action_library" / "actions.yaml"
             if actions.exists():
-                libraries[experiment.name] = convert_action_library(actions)
+                document = yaml.safe_load(actions.read_text())
+                assert "actions" not in document, f"{experiment.name}: legacy dialect"
+                libraries[experiment.name] = ActionPlanLibrary.model_validate(document)
+            assert not (
+                experiment / "action_library" / "assigned_actions.yaml"
+            ).exists()
         assert set(libraries) >= {"Undulator", "Thomson"}
-        for experiment in experiments():
-            assigned = experiment / "action_library" / "assigned_actions.yaml"
-            if assigned.exists():
-                convert_assigned_actions(
-                    assigned, library=libraries.get(experiment.name)
-                )
+        assert libraries["Undulator"].plans
 
     def test_every_optimizer_config_converts(self):
         converted = 0

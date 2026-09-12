@@ -12,8 +12,6 @@ import pytest
 
 from geecs_schemas.convert import (
     SchemaConversionError,
-    convert_action_library,
-    convert_assigned_actions,
     convert_optimizer_config,
     convert_shot_control,
 )
@@ -65,46 +63,6 @@ class TestTriggerProfiles:
             convert_shot_control(
                 {"device": "D", "variables": {"V": {"BLASTOFF": "1"}}},
                 name="bad",
-            )
-
-
-class TestActions:
-    def test_thomson_library_converts(self):
-        library = convert_action_library(FIXTURES / "actions/actions.yaml")
-        assert set(library.plans) == {"Quad-In_Long0", "Quad-In_Long300"}
-
-    def test_undulator_library_nested_references(self):
-        library = convert_action_library(FIXTURES / "actions/actions_undulator.yaml")
-        outer = library.plans["experiment_CLOSEOUT"]
-        assert all(step.do == "run" for step in outer.steps)
-        assert_matches_golden(
-            library.plans["Amp4_DUMP_HP"].model_dump(mode="json"),
-            "amp4_dump_hp_plan.json",
-        )
-
-    def test_assigned_actions_extract_and_validate(self):
-        library = convert_action_library(FIXTURES / "actions/actions_undulator.yaml")
-        names = convert_assigned_actions(
-            FIXTURES / "actions/assigned_actions.yaml", library=library
-        )
-        assert "experiment_CLOSEOUT" in names
-
-    def test_script_run_step_fails_loudly(self):
-        with pytest.raises(SchemaConversionError, match="script"):
-            convert_action_library(
-                {
-                    "actions": {
-                        "bad": {
-                            "steps": [
-                                {
-                                    "action": "run",
-                                    "file_name": "x.py",
-                                    "class_name": "X",
-                                }
-                            ]
-                        }
-                    }
-                }
             )
 
 

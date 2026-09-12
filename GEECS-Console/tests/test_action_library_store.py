@@ -52,31 +52,6 @@ ALL_KINDS_LIBRARY = {
     },
 }
 
-LEGACY_LIBRARY = {
-    "actions": {
-        "zero_pressure": {
-            "steps": [
-                {
-                    "action": "set",
-                    "device": "U_HP_Daq",
-                    "variable": "AnalogOutput.Channel 1",
-                    "value": 0,
-                    "wait_for_execution": True,
-                },
-                {"action": "wait", "wait": 3},
-                {
-                    "action": "get",
-                    "device": "U_148_PLC",
-                    "variable": "DI.Ch17",
-                    "expected_value": "off",
-                },
-                {"action": "execute", "action_name": "nested"},
-            ]
-        },
-        "nested": {"steps": [{"action": "wait", "wait": 1}]},
-    }
-}
-
 
 @pytest.fixture
 def root(tmp_path):
@@ -172,30 +147,34 @@ class TestRoundTrip:
         assert make_store(root).load_library().plans == {}
 
 
-class TestLegacyConversion:
-    def test_legacy_dialect_loads_via_converter(self, root):
-        write_library(root, LEGACY_LIBRARY)
-        library = make_store(root).load_library()
-        steps = library.plans["zero_pressure"].steps
-        assert [step.do for step in steps] == ["set", "wait", "check", "run"]
-        assert steps[1].seconds == 3
-        assert steps[2].expected == "off"
-        assert steps[3].plan == "nested"
-
-    def test_legacy_migrates_to_new_schema_on_save(self, root):
-        write_library(root, LEGACY_LIBRARY)
-        store = make_store(root)
-        store.save_library(store.load_library())
-        document = yaml.safe_load(
-            (root / EXPERIMENT / "action_library" / "actions.yaml").read_text()
+class TestLegacyDialect:
+    def test_legacy_dialect_is_refused_naming_the_regeneration(self, root):
+        """No converter any more (GEECS-Schemas 0.22.0): the old shape is refused."""
+        write_library(
+            root,
+            {
+                "actions": {
+                    "zero_pressure": {
+                        "steps": [
+                            {
+                                "action": "set",
+                                "device": "D",
+                                "variable": "V",
+                                "value": 0,
+                            }
+                        ]
+                    }
+                }
+            },
         )
-        assert "actions" not in document
-        assert document["schema_version"] == 1
-        assert store.list_names() == ["nested", "zero_pressure"]
+        with pytest.raises(ActionLibraryStoreError, match="legacy 'actions:' dialect"):
+            make_store(root).load_library()
 
-    def test_unconvertible_legacy_raises(self, root):
-        write_library(root, {"actions": {"bad": {"steps": [{"action": "frobnicate"}]}}})
-        with pytest.raises(ActionLibraryStoreError, match="legacy"):
+    def test_document_without_plans_is_invalid(self, root):
+        write_library(root, {"schema_version": 1})
+        with pytest.raises(
+            ActionLibraryStoreError, match="not a valid ActionPlanLibrary"
+        ):
             make_store(root).load_library()
 
 

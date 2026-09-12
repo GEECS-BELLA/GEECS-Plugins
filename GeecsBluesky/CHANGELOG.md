@@ -5,6 +5,16 @@ All notable changes to `geecs-bluesky` are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
+## [0.82.5] - 2026-09-12
+
+### Changed
+
+- `ConfigsRepoResolver._action_library` loads `actions.yaml` as an
+  `ActionPlanLibrary` document only; a file in the legacy `actions:`
+  dialect is refused with a `GeecsConfigurationError` naming the
+  regeneration (the converter is gone, GEECS-Schemas 0.22.0; the corpus was
+  regenerated).  The action-compiler tests read the regenerated fixture.
+
 ## [0.82.4] - 2026-09-12
 
 ### Fixed

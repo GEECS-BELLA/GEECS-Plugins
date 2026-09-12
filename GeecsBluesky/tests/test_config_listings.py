@@ -121,6 +121,20 @@ def test_resolve_preset_refuses_a_legacy_document(repo):
         resolver.resolve_preset("old")
 
 
+def test_action_library_in_the_legacy_dialect_is_refused(repo):
+    """No converter any more (GEECS-Schemas 0.22.0): the old shape names the regeneration."""
+    from geecs_bluesky.exceptions import GeecsConfigurationError
+
+    folder = repo / "TestExp" / ConfigsRepoResolver.ACTION_FOLDER
+    folder.mkdir(exist_ok=True)
+    (folder / "actions.yaml").write_text(
+        yaml.safe_dump({"actions": {"x": {"steps": [{"action": "wait", "wait": 1}]}}})
+    )
+    resolver = ConfigsRepoResolver("TestExp", experiments_root=repo)
+    with pytest.raises(GeecsConfigurationError, match="legacy 'actions:' dialect"):
+        resolver.resolve_action_plan("x")
+
+
 def test_resolve_preset_missing_raises_with_kind(repo):
     from geecs_bluesky.exceptions import GeecsConfigurationError
 

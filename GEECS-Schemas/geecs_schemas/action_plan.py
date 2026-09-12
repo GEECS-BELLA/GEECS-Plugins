@@ -22,9 +22,12 @@ verbatim:
   runs another named plan, so plans compose and nest.
 
 The legacy ``RunStep`` (execute an external Python script/class) is
-**deliberately not carried into v1** — no config in the corpus uses it, and
-script execution belongs in Bluesky plans, not config files.  The converter
-raises loudly if it ever encounters one.
+**deliberately not carried into v1** — no config in the corpus used it, and
+script execution belongs in Bluesky plans, not config files.
+
+There is no converter from the legacy ``actions:`` dialect any more: the
+corpus was regenerated once as ``ActionPlanLibrary`` documents (0.22.0) and
+is authored v1-only since; a consumer meeting the legacy shape refuses it.
 
 In the target architecture (vision doc §4.5) a plan compiles to Bluesky plan
 stubs, inheriting abort/logging/event emission for free.

@@ -5,13 +5,12 @@ one ``geecs_bluesky.config_resolver.ConfigsRepoResolver`` reads::
 
     scanner_configs/experiments/<Experiment>/action_library/actions.yaml
 
-A file whose top level carries ``schema_version`` loads directly as a
-:class:`~geecs_schemas.ActionPlanLibrary`; anything else is treated as the
-legacy ``actions:`` dialect and goes through
-:func:`geecs_schemas.convert.convert_action_library` — mirroring the
-resolver, so the existing corpus opens unchanged.  Saving always writes the
-new schema (``model_dump(mode="json")``), which round-trips losslessly
-through ``ActionPlanLibrary.model_validate``.
+The file is an :class:`~geecs_schemas.ActionPlanLibrary` document (new
+schema only): the corpus was regenerated once and the legacy ``actions:``
+dialect has no converter any more (GEECS-Schemas 0.22.0), so a file in that
+shape is refused with a message naming the regeneration — mirroring the
+resolver.  Saving writes ``model_dump(mode="json")``, which round-trips
+losslessly through ``ActionPlanLibrary.model_validate``.
 
 Offline-safety mirrors :class:`~geecs_console.services.presets.PresetStore`:
 listing degrades to empty with no configs root; ``load``/``save``/``delete``/
@@ -39,7 +38,6 @@ from geecs_console.services.config_store import ExperimentConfigStore
 # tests can monkeypatch ``action_library_store._configs_base``.
 from geecs_console.services.configs import _configs_base  # noqa: F401
 from geecs_schemas import ActionPlan, ActionPlanLibrary
-from geecs_schemas.convert import SchemaConversionError, convert_action_library
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +46,7 @@ LIBRARY_FILE = "actions.yaml"
 
 # Identity sentinel for _read_mapping's empty_as: distinguishes an all-empty
 # YAML document (safe_load returns None → empty library) from a literal
-# ``{}`` mapping, which must still flow through the legacy converter.
+# ``{}`` mapping, which must still fail validation (no ``plans``).
 _EMPTY_DOCUMENT: dict = {}
 
 
@@ -165,9 +163,9 @@ class ActionLibraryStore(ExperimentConfigStore):
         Raises
         ------
         ActionLibraryStoreError
-            Missing configs repo / experiment, unparsable YAML, an
-            unconvertible legacy document, or a document the schema rejects
-            — always with a message fit for inline display.
+            Missing configs repo / experiment, unparsable YAML, a document
+            in the legacy ``actions:`` dialect, or one the schema rejects —
+            always with a message fit for inline display.
         """
         path = self._library_path_or_raise()
         if not path.exists():
@@ -177,19 +175,17 @@ class ActionLibraryStore(ExperimentConfigStore):
         )
         if document is _EMPTY_DOCUMENT:
             return ActionPlanLibrary(plans={})
-        if "schema_version" in document:
-            try:
-                return ActionPlanLibrary.model_validate(document)
-            except (ValidationError, ValueError) as exc:
-                raise ActionLibraryStoreError(
-                    f"Action library ({path}) is not a valid ActionPlanLibrary: {exc}"
-                ) from exc
-        try:
-            return convert_action_library(document)
-        except (SchemaConversionError, ValidationError, ValueError) as exc:
+        if "actions" in document and "plans" not in document:
             raise ActionLibraryStoreError(
-                f"Action library ({path}) could not be converted from the "
-                f"legacy dialect: {exc}"
+                f"Action library ({path}) is in the legacy 'actions:' dialect, "
+                "which has no converter any more — regenerate it as an "
+                "ActionPlanLibrary document (schema_version: 1, plans: {...})."
+            )
+        try:
+            return ActionPlanLibrary.model_validate(document)
+        except (ValidationError, ValueError) as exc:
+            raise ActionLibraryStoreError(
+                f"Action library ({path}) is not a valid ActionPlanLibrary: {exc}"
             ) from exc
 
     def save_library(self, library: ActionPlanLibrary) -> Path:
