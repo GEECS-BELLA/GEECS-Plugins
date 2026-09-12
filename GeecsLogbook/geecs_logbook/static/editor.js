@@ -199,6 +199,12 @@
       // picker so a later change is not silently ignored (Discard frees it).
       const when = form.querySelector(".when");
       if (when) { when.disabled = true; when.title = "Saved on this day — Discard to pick another"; }
+      // Same for the type: the entry recorded its template at creation and
+      // an edit does not carry one, so a later press would show a type the
+      // store does not hold.
+      form.querySelectorAll(".typebtn").forEach((b) => {
+        b.disabled = true; b.title = "Saved as " + (form.dataset.template || "a plain note") + " — Discard to change the type";
+      });
       const discard = form.querySelector("[data-discard]");
       if (discard) discard.hidden = false;
       return entry.entry_id;
@@ -276,6 +282,7 @@
 
   /** A template's prefill: replaces an empty textarea, else lands as a block. */
   function applyType(form, name) {
+    if (form.dataset.entry) return; // saved already; its template is fixed
     const ta = form.querySelector(".ta");
     const body = SEEDS[name];
     if (body === undefined) return;
