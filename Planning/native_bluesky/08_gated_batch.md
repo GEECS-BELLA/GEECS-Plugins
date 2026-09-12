@@ -295,7 +295,8 @@ axis has its column again.  `bin_number` therefore keeps its
   offset of the set plus a margin** (the drain offsets are the
   detectors' config signals) before rewinding: by then no frame is in
   flight and the rewind is deterministic.  Cost: about a second per
-  step, nothing per `count`.  (The alternative — a `Rewind` that takes
+  step; a gated `count` is one batch (`per_shot` binds no
+  `shots_per_step`, so `num` is the quota and the wait happens once).  (The alternative — a `Rewind` that takes
   the watermark as an argument — is a plugin change, kept in reserve.)
   `GeecsDetector.truncate_to_quota()` — `discard_uncollected`'s sibling —
   then rewinds each plugin to `ctx.collections_written + quota`.  Every
@@ -457,7 +458,7 @@ devices → `detectors`; `essential: false` → `non_essential=[…]`
 `acquisition` like it carries `shots_per_step`.  The corpus needs no
 regeneration (defaults keep every preset strict and all-essential).
 The client preflight adds the `hdf`-child rule for non-essential
-references.
+references and, when `acquisition` is `gated`, for the essential ones.
 
 ---
 
