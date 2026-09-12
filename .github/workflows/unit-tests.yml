@@ -100,4 +100,5 @@ jobs:
   # The console-windows job (the GEECS-Console suite + the qs_client tests on
   # windows-latest) was retired 2026-09-12: the console is not being changed
   # and is slated for retirement, and the job added ~5 minutes to every
-  # check. Restore it from git history if a Windows leg is wanted again.
+  # check. It was the console suite's ONLY CI leg — the suite is now local
+  # only (scripts/check.sh runs it). Restore from git history if wanted.

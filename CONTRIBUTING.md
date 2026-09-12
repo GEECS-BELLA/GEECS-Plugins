@@ -142,13 +142,14 @@ Style: NumPy docstrings, type hints on public functions, Pydantic v2
 
 ## Tests
 
-CI (`.github/workflows/unit-tests.yml`) runs: root `tests/`, ImageAnalysis,
-ScanAnalysis, GEECS-Data-Utils, GEECS-Schemas from the **root env** and
-GeecsBluesky from its **own env** (Ubuntu); on the greenfield branch a
-second job runs the GEECS-Console suite from its own env on **Windows**
-(control-room machines run Windows). The GeecsCAGateway and
-GEECS-LogTriage suites are not in CI — run them locally when touching
-those packages. Everything is hermetic — no lab network, no hardware.
+CI (`.github/workflows/unit-tests.yml`, one Ubuntu job) runs: root
+`tests/`, ImageAnalysis, ScanAnalysis, GEECS-Data-Utils and GEECS-Schemas
+from the **root env**, and GEECS-DataPortal, GEECS-Core, GeecsCAGateway,
+GeecsBluesky (pure unit tests, `qs-client` extra included), GEECS-MCP and
+GeecsPvaGateway each from its **own env**. Not in CI — run locally via
+`scripts/check.sh` when touching them: GEECS-Console (its Windows job was
+retired 2026-09-12; the console is not being changed and is slated for
+retirement) and GEECS-LogTriage. Everything is hermetic — no lab network, no hardware.
 `integration`-marked tests need the lab and are deselected by default;
 never run the top-level hardware scripts without lab access and operator
 coordination.

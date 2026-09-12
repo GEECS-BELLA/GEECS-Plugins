@@ -691,4 +691,5 @@ queued poll result), a segfault at a random test in isolated
 and then pumps events (`qtbot.waitUntil`) must `gc.collect()` itself first.  CI ran this suite on `windows-latest` too
 (the `console-windows` job in `.github/workflows/unit-tests.yml`) until
 2026-09-12, when the job was retired — the console is not being changed and
-the leg cost ~5 minutes per check; it is in git history if wanted again.
+the leg cost ~5 minutes per check. That was the suite's only CI leg: it is
+now local-only (`scripts/check.sh`); the job is in git history if wanted.

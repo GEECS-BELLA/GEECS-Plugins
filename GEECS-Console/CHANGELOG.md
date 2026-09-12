@@ -10,9 +10,11 @@ semantic.
 
 - The `console-windows` CI job (the console suite and the qs_client tests
   on `windows-latest`). The console is not being changed and is slated
-  for retirement; the job added ~5 minutes to every check. The Ubuntu job
-  still runs both suites. Restore from git history if a Windows leg is
-  wanted again.
+  for retirement; the job added ~5 minutes to every check. It was the
+  console suite's **only** CI leg, so the suite is now local-only —
+  `scripts/check.sh` still runs it when console files change. The
+  qs_client suite keeps its Ubuntu leg. Restore from git history if
+  wanted.
 
 ## [0.30.0] - 2026-09-04
 
