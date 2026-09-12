@@ -208,10 +208,13 @@ Every DB device is one long-lived noun (#808, kept). Two classes:
   the RE pausing simply stops the plan firing and the box stays ARMED —
   `pause()` does nothing; in gated mode edges flow on their own, so
   `pause() → OFF` and `resume()` restores SCAN;
-  the RE calls these on every Pausable it has seen in a message, §7), and a
-  `FlyerController` for gated mode (`prepare → OFF`, `kickoff → SCAN`,
-  `complete → N shots then OFF`). Replaces `shot_controller.py`'s plan-stub
-  methods and `plans/pause_semantics.py`.
+  the RE calls these on every Pausable it has seen in a message, §7).
+  **Not a flyer** (amended 2026-09-11, `08_gated_batch.md` §3): the box
+  has no counter, so a `complete` of its own could not know when N shots
+  have gone — the detectors count, and in gated mode the *plan* drives
+  the box SCAN after their `kickoff` and OFF after their `complete`.
+  Replaces `shot_controller.py`'s plan-stub methods and
+  `plans/pause_semantics.py`.
 
 ### B. Acquisition — three shapes, one mechanism each
 
@@ -249,19 +252,27 @@ needs the fire to be replay-safe; that is a plan-layer design item, not a
 `take_reading` one.
 
 **Non-essential stream.** Those detectors are *not* in `detectors`. They
-are `SupplementalData.flyers` (or `fly_during_wrapper` per plan, §7):
+are the bound plan's `non_essential=[…]` argument — `fly_during_wrapper`
+**per plan** with the stage and the unbounded prepare the stock wrapper
+lacks (amended 2026-09-11, `08_gated_batch.md` §3/§4.3: `SupplementalData`
+is RunEngine-level state, the same for every run, and which devices are
+non-essential is a fact of *this* scan):
 `prepare(TriggerInfo(EXTERNAL_EDGE, number_of_events=0))` — unbounded —
-`kickoff` at `open_run`, `complete`/`collect` at `close_run`, in their own
-stream, joined afterwards by offset-corrected stamp (§11.3). A 700 ms
+`kickoff` at `open_run`, `complete`/`collect` at `close_run`, each in its
+own stream, joined afterwards by offset-corrected stamp (§11.3). A 700 ms
 camera or a dying device there never holds a shot and never aborts a run.
 This is free-run's **second job** (§11.5), kept natively; its first job
 (the rep-rate hack) dies.
 
-**Gated batch (opt-in).** `bp.fly`-shaped: `prepare(detectors,
-TriggerInfo(EXTERNAL_EDGE, number_of_events=N))`, `prepare(shot_control)` →
-OFF, `kickoff` all → SCAN, `collect_while_completing`. Exact because the
-ordering is built into `prepare → kickoff`. Only for detectors that count
-(plugin-backed); replaces free-run's rep-rate role once #806 lands.
+**Gated batch (opt-in).** `acquisition="gated"` on the bound scan verbs
+(`08_gated_batch.md` §4.2): per step `prepare(detectors,
+TriggerInfo(EXTERNAL_EDGE, number_of_events=shots_per_step))`, `kickoff`,
+`mv(shot_control, SCAN)`, `complete`, `mv(shot_control, OFF)`, a `Rewind`
+to the quota, `collect`. Exact because the ordering is built into
+`prepare → kickoff` and the frames are counted by the plugin that writes
+them. Only for detectors that count (plugin-backed); the per-frame scalars
+ride in the stack as NDAttributes (§4.4 there). Replaces free-run's
+rep-rate role.
 
 **Telemetry.** `SupplementalData.baseline` for every subscribed scalar of
 the experiment (read at open and close): each scalar-only device whole
@@ -350,17 +361,17 @@ because it costs at least the longest device timeout per check (§11.2).
 | GEECS today | Native replacement |
 |---|---|
 | save set, as a device list | the plan's `detectors` argument; a client-side preset |
-| save set `synchronous` flag | essential (`detectors`) vs non-essential (`SupplementalData.flyers`) |
+| save set `synchronous` flag | essential (`detectors`) vs non-essential (the bound plan's `non_essential` list, streamed per plan — `08_gated_batch.md` §4.3) |
 | `save_nonscalar_data`, `localsavingpath`, `save` | the detector's data logic, opened and closed per run |
 | save set explicit scalar list | the device's own readables, individually addressable |
 | save-set rituals, setup/closeout | plan stubs and `finalize_wrapper` (#647) |
 | `background_telemetry` | `SupplementalData.baseline` + `monitors` |
 | scan variable alias | the namespace attribute (`U_S1H.current`) |
 | `kind: motor`, `confirm:`, pseudo | the device class, chosen once at namespace build |
-| trigger profile states | `ShotControl`: `Movable` over the states, `Pausable`, `FlyerController` for gated mode |
+| trigger profile states | `ShotControl`: `Movable` over the states, `Pausable`; in gated mode the plan drives it SCAN/OFF around the detectors' `kickoff`/`complete` (not a flyer — `08` §3) |
 | strict single shot | stock `per_step` with the fire between trigger and wait |
 | free run — the rep-rate job | gated batch: fly, detectors count |
-| free run — the contributor job | the non-essential stream: `SupplementalData.flyers` |
+| free run — the contributor job | the non-essential stream: `non_essential=[…]` on the bound plan (`fly_during_wrapper` per plan) |
 | Gate-2 save windowing | the detector's own capture window (open at prepare, close at unstage) |
 | `acq_timestamp` as the shot join key | **kept** — offset-corrected, it *is* the shot id (§11.3); positional for essential detectors, by stamp for the non-essential stream |
 | `shot_id`, `shot_offset`, `bin_number` | `seq_num`, the stamp, and the per-device drain offset as a config signal |
@@ -445,6 +456,16 @@ not the docs:
 - **Naming has moved**: the writer base is not `DetectorWriter` in this
   version, and the flyer's controller is `FlyerController`, not
   `TriggerLogic`. Older docs and blog posts will disagree.
+- **Verified 2026-09-11 for phase 2** (`08_gated_batch.md` §2, with line
+  numbers): `number_of_events=0` is unbounded but `kickoff` raises on a
+  frame written between `prepare` and `kickoff`; `complete` is the count
+  wait *then* `wait_for_idle` on the last kickoff; `exposure_timeout` is
+  per update, not per batch; `fly_during_wrapper` neither stages nor
+  prepares; multi-object `collect` needs a declared stream and cuts at
+  the minimum index; the stock `ADHDFDataLogic` sets `NumCapture=0` and
+  describes every NDAttribute the driver's XML declares; our plugin
+  stores `NumCapture` without honouring it and `Rewind` moves the stale
+  watermark.
 - **On hardware (M2, Scan 065):** the three-logic split fits a GEECS camera
   with no areaDetector IOC — `GeecsDetector` = `GeecsTriggerLogic` +
   `GeecsAcquireLogic` + `ScalarsDataLogic` + `LvNativeFileDataLogic` under
@@ -525,10 +546,13 @@ the least-verified component while the scan path waited.
    flipped (2026-09-11). #806 landed as #823 with its own acceptance
    (`07_806_acceptance.md`) and #824 rolled the fleet. **Phase 1 is
    complete.** Small debts carried into phase 2's warm-ups: `run_action`
-   as a queue plan, the presets corpus on the configs repo's main (done
+   as a queue plan (done 2026-09-11, #827), the presets corpus on the configs repo's main (done
    2026-09-11), the watch period before `Compression=zlib`.
-2. Gated batch + the non-essential stream via `SupplementalData.flyers`;
-   free-run deleted.
+2. Gated batch + the non-essential stream — designed 2026-09-11 in
+   `08_gated_batch.md` (three PRs: the plugin's per-frame scalar
+   attributes; the worker's `acquisition="gated"` + `non_essential` +
+   `essential` in presets; the s-file from stream data).  Free-run was
+   deleted in #816.
 3. The calibration plan + the preflight validation.
 
 **On #809:** do not merge. Nothing from it is deployed; its two open P1s
@@ -726,7 +750,14 @@ Still open, for Sam:
    second was a faster move that day).  Strict single-shot is therefore
    not the 1 Hz mode; phase 2's gated batch is.  Recorded here so the
    cadence fix is scoped as "gated batch", not "a faster fire".
-9. Two small carry-overs, unrelated to this direction: write
+9. **Phase-2 design (2026-09-11, `08_gated_batch.md`)** — awaiting Sam's
+   answers to its §6: scalars of non-plugin devices in a gated run
+   (baseline-only v1 recommended), "N frames each" as the gated meaning
+   of essential, which scalars ride in the stack (the subscribed list
+   recommended), the s-file join rule, mode as a keyword, pause mid-batch
+   failing the step.  Two amendments already taken as read: the box is
+   not a flyer (§4.A) and the non-essential list is per plan (§4.B).
+10. Two small carry-overs, unrelated to this direction: write
    `Amplitude.Ch AB: 0.5` explicitly in every state of `HTU-NoGas` so "no
    gas" stops being order-dependent, and add a check that all profiles in
    an experiment manage the same variable set.
@@ -830,7 +861,8 @@ logic:
    replaced by our own end-of-run file check; contained to the non-image
    proprietary devices once #806 lands.
 3. **A native home for the non-essential stream** when free-run goes —
-   `SupplementalData.flyers` (§4.B).
+   `fly_during_wrapper` per plan behind the bound plans' `non_essential`
+   argument (§4.B; `08_gated_batch.md` §4.3).
 
 Two hazards #806 already names that deserve more weight than the issue
 gives them: HDF5 written on Windows over SMB and read on Linux (disable
