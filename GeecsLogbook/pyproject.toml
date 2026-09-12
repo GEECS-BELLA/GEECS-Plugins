@@ -1,0 +1,30 @@
+[tool.poetry]
+name = "geecs-logbook"
+version = "0.6.0"
+description = "Scan logbook: a day-document view over scan folders, with human commentary stored beside the data"
+authors = ["GEECS-BELLA"]
+readme = "README.md"
+packages = [{ include = "geecs_logbook" }]
+
+[tool.poetry.dependencies]
+python = ">=3.11,<3.12"
+fastapi = ">=0.110"
+jinja2 = ">=3.1"
+pydantic = ">=2.7"
+# Rendering entries. markdown-it-py is CommonMark-compliant with a plugin
+# architecture (tables, strikethrough, footnotes); nh3 sanitizes the output,
+# which matters because an agent writes into the same field a human does.
+markdown-it-py = ">=3.0"
+mdit-py-plugins = ">=0.4"
+nh3 = ">=0.2"
+python-multipart = ">=0.0.9"
+geecs-data-utils = { path = "../GEECS-Data-Utils", develop = true }
+geecs-schemas = { path = "../GEECS-Schemas", develop = true }
+
+[tool.poetry.group.dev.dependencies]
+pytest = ">=8.0"
+httpx = ">=0.27"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

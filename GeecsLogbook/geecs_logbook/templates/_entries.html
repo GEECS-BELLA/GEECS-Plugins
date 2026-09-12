@@ -1,0 +1,119 @@
+{#
+  Shared markup: one rendered entry, a composer, the type buttons.
+
+  Imported by day.html and month.html so both books draw an entry the
+  same way and editor.js meets one shape of form. Every macro takes what
+  it needs explicitly; nothing reads the page context.
+
+  `seeds` is Context.page_seeds(book), a seed_templates.PageSeeds.
+#}
+
+{#
+  The type chip, then the tag chips — minus the tags the type's own
+  prefill carries: "Laser" next to "#laser" said one thing twice (owner,
+  2026-09-11). A tag the author added, or typed with no type, still shows.
+#}
+{% macro template_chip(entry, seeds) -%}
+  {% set t = seeds.labels.get(entry.template) %}
+  {% if t %}
+    <span class="chip chip-type tone-{{ t.colour }}">{{ t.label }}</span>
+  {% elif entry.template not in seeds.quiet %}
+    <span class="chip chip-quiet">{{ entry.template }}</span>
+  {% endif %}
+  {% set said = t.tags if t else [] %}
+  {% for tag in entry.tags if tag not in said %}<span class="chip chip-tag">#{{ tag }}</span>{% endfor %}
+{%- endmacro %}
+
+{# `hay` adds the filter haystack — only the month page filters entries,
+   so the day page does not carry a third copy of every body. #}
+{% macro entry_article(r, writable, seeds, hay=false) %}
+    <article class="entry{% if r.entry.kind.startswith('agent') %} entry-agent{% endif %}"
+             id="entry-{{ r.entry.entry_id }}"
+             data-entry="{{ r.entry.entry_id }}" data-version="{{ r.entry.version }}"
+             {%- if hay %} data-hay="{{ (r.entry.author ~ ' ' ~ r.entry.body_md ~ ' ' ~ r.entry.tags | join(' ')) | lower }}"{% endif %}>
+      <div class="avatar{% if r.entry.kind.startswith('agent') %} avatar-agent{% endif %}">{{ r.entry.author | initials }}</div>
+      <div class="entry-main">
+        <div class="entry-head">
+          <span class="author">{{ r.entry.author }}</span>
+          {% if r.entry.kind.startswith('agent') %}
+            <span class="chip chip-agent">{{ 'agent · draft' if r.entry.status == 'draft' else 'agent' }}</span>
+          {% endif %}
+          {{ template_chip(r.entry, seeds) }}
+          <span class="stamp" title="{{ r.entry.created_at.isoformat() }}">{{ r.entry.created_at.astimezone().strftime('%H:%M') }}{% if r.entry.edited_at %} · edited{% if r.entry.edited_by and r.entry.edited_by != r.entry.author %} by {{ r.entry.edited_by }}{% endif %}{% endif %}</span>
+          {% if writable %}
+          <span class="entry-tools">
+            <button class="linkbtn" type="button" data-edit="{{ r.entry.entry_id }}">Edit</button>
+            <button class="linkbtn" type="button" data-del="{{ r.entry.entry_id }}">Delete</button>
+          </span>
+          {% endif %}
+        </div>
+        {% if r.entry.status == 'draft' %}
+        <div class="draftnote">Draft &mdash; nobody has reviewed this.
+          {% if writable %}<button class="linkbtn" type="button" data-keep="{{ r.entry.entry_id }}">Keep in log</button>{% endif %}
+        </div>
+        {% endif %}
+        <div class="entry-body">{{ r.html | safe }}</div>
+        {# JSON, not text: a <script> body is raw text, so HTML-escaped
+           entities would come back literally into the editor. #}
+        <script type="application/json" class="raw">{{ r.entry.body_md | tojson }}</script>
+      </div>
+    </article>
+{% endmacro %}
+
+{% macro types_row(seeds) -%}
+  {% if seeds.buttons %}
+  <div class="types" role="group" aria-label="Entry type">
+    {% for t in seeds.buttons %}
+    <button class="typebtn tone-{{ t.colour }}" type="button" data-type="{{ t.name }}"
+            title="Start from the {{ t.label }} template">{{ t.label }}</button>
+    {% endfor %}
+  </div>
+  {% endif %}
+{%- endmacro %}
+
+{#
+  The composer. `day` is set only where the page has no single day (the
+  month page); the day page's forms take theirs from <main data-day>.
+  A caller block lands in the editor bar before the name field — the
+  month page puts its date picker there.
+#}
+{% macro composer(seeds, scan=none, after=none, day=none, rows=3,
+                  placeholder='Add a note… Markdown works.') %}
+    <form class="composer" data-scan="{{ scan if scan is not none else '' }}"
+          data-after="{{ after if after is not none else '' }}"
+          {%- if day %} data-day="{{ day }}"{% endif %}>
+      <div class="avatar avatar-you">&hellip;</div>
+      <div class="entry-main">
+        {{ types_row(seeds) }}
+        <textarea class="ta" rows="{{ rows }}" placeholder="{{ placeholder }}"></textarea>
+        <div class="editor-bar">
+          {% if caller %}{{ caller() }}{% endif %}
+          <input class="who" placeholder="Your name" required aria-label="Your name">
+          <button class="btn btn-sm btn-primary" type="submit">Save</button>
+          <span class="editor-hint">&#8984;&#8629; saves &middot; paste or drop a screenshot</span>
+        </div>
+      </div>
+    </form>
+{% endmacro %}
+
+{# The prefills, once per page, for editor.js — JSON so a body can hold
+   anything (tojson escapes the characters that could close the tag). #}
+{% macro seeds_json(seeds) -%}
+<script type="application/json" id="logbook-seeds">{{ seeds.prefill | tojson }}</script>
+{%- endmacro %}
+
+{#
+  The rail's calendar: a disclosure nav.js fills with a month grid when
+  opened. `unit` is what the arrow keys step ("day" or "month"), for the
+  hint line. It carries no data of its own — the marks are fetched.
+#}
+{% macro calendar(unit) %}
+  <details class="cal">
+    <summary>Calendar <kbd>c</kbd></summary>
+    <div class="calbody"></div>
+  </details>
+  <div class="kbdhint">
+    <span><kbd>&larr;</kbd> <kbd>&rarr;</kbd> {{ unit }}</span>
+    <span><kbd>t</kbd> today</span>
+  </div>
+{% endmacro %}

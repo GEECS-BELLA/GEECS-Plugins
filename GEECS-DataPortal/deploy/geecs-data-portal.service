@@ -47,6 +47,24 @@ WorkingDirectory=@CHECKOUT_ROOT@/portal-checkout/GEECS-DataPortal
 # /configs over that same tree: a WRITE verb (saves YAML into the configs
 # checkout on the share). Leave the key empty on a read-only viewer.
 ExecStart=@POETRY@ run geecs-data-portal --experiment ${GEECS_EXPERIMENT} --processing-configs "${GEECS_CONFIGS_ROOT}/scan_analysis_configs" $GEECS_PORTAL_EXTRA_ARGS
+# The logbook's entries (--scan-log): systemd creates
+# /var/lib/geecs-data-portal, owns it to the service user, and exports it
+# as $STATE_DIRECTORY, which the portal takes as the default --notes-db
+# location. Not a site value — the same path on every host — so it lives
+# here rather than in site.env. Back it up: what people wrote exists in
+# this file and in the markdown mirror on the share, nowhere else.
+StateDirectory=geecs-data-portal
+# Memory ceiling (#834): the portal shares the box with Tiled, MySQL and
+# the queueserver, and as the largest resident process it was the
+# kernel's first OOM pick. MemoryHigh= throttles and reclaims above the
+# soft line; MemoryMax= is the hard cap, at which systemd kills and
+# Restart= brings it back in seconds — the portal, not Tiled, pays for a
+# runaway. Sized per host in site.env (GEECS_PORTAL_MEMORY_HIGH/MAX;
+# systemd cannot expand ${VAR} here, so the render fills them). To change
+# without a re-render: `systemctl set-property geecs-data-portal
+# MemoryMax=4G` writes a persistent drop-in (`systemctl revert` removes).
+MemoryHigh=@PORTAL_MEMORY_HIGH@
+MemoryMax=@PORTAL_MEMORY_MAX@
 Restart=on-failure
 RestartSec=10
 # An analysis run in flight cannot be interrupted (DEPLOYMENT.md): give a

@@ -1,0 +1,350 @@
+{#
+  The day document.
+
+  A day reads top to bottom, one block per scan folder. Every value shown
+  is derived from the share at request time — the logbook stores none of
+  it. Scans collapse individually (native <details>, so keyboard and
+  no-JS both work) and a day with many scans opens collapsed.
+#}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Scan Log — {{ summary.day.strftime('%d %b %Y') }}</title>
+{# theme-boot.js stamps the stored palette before first paint; in <head>,
+   not deferred. Prefixed with the request's root_path so a reverse-proxy
+   mount still resolves. No CDN fonts: the token stacks carry fallbacks. #}
+{% set root = request.scope.get('root_path', '').rstrip('/') %}
+<script src="{{ root }}/theme/theme-boot.js"></script>
+<link rel="stylesheet" href="{{ root }}/theme/theme.css">
+{# .path, not the absolute URL url_for returns: behind TLS termination or a
+   host-rewriting proxy an absolute http:// URL is a mixed-content block. #}
+<link rel="stylesheet" href="{{ url_for('_static', name='scanlog.css').path }}">
+</head>
+<body>
+
+{% macro fact(label, value) %}
+<div class="fact"><dt>{{ label }}</dt>
+  <dd{% if value is none %} class="none"{% endif %}>{{ value if value is not none else '—' }}</dd></div>
+{%- endmacro %}
+
+{% import "_entries.html" as shared %}
+
+{% macro entries_block(anchor, scan, after, entries, writable) %}
+  {% set es = entries.get(anchor, []) %}
+  {% if es or writable %}
+  <div class="entries">
+    {% for r in es %}{{ shared.entry_article(r, writable, seeds) }}{% endfor %}
+    {% if writable %}{{ shared.composer(seeds, scan=scan, after=after) }}{% endif %}
+  </div>
+  {% endif %}
+{% endmacro %}
+
+{% macro between_block(after, entries, writable, prev_label, next_label) %}
+  {% set anchor = 'after-%04d' % after %}
+  {% set es = entries.get(anchor, []) %}
+  {% if es %}
+  <details class="between" open>
+    <summary><span class="tlabel">Between scans</span>
+      <span class="trange">{{ prev_label }} &rarr; {{ next_label }}</span>
+      <span class="count">{{ es | length }} note{{ '' if es | length == 1 else 's' }}</span></summary>
+    {{ entries_block(anchor, none, after, entries, writable) }}
+  </details>
+  {% elif writable %}
+  <div class="insert" data-insert="{{ after }}">
+    <div class="insert-rule"></div>
+    <button class="insert-btn" type="button">+ note between {{ prev_label }} and {{ next_label }}</button>
+    <div class="insert-rule"></div>
+  </div>
+  <details class="between" hidden data-between-host="{{ after }}">
+    <summary><span class="tlabel">Between scans</span>
+      <span class="trange">{{ prev_label }} &rarr; {{ next_label }}</span>
+      <span class="count">new note</span></summary>
+    {{ entries_block(anchor, none, after, entries, writable) }}
+  </details>
+  {% endif %}
+{% endmacro %}
+
+{% macro scan_block(s, expanded, entries, writable) %}
+  <details class="card scan" id="{{ s.label }}"
+           data-hay="{{ (s.label ~ ' ' ~ (s.parameter or '') ~ ' ' ~ (s.purpose or '') ~ ' ' ~ s.devices|join(' ')) | lower }}"
+           {% if expanded %}open{% endif %}>
+    <summary class="scanhead">
+      <span class="twisty" aria-hidden="true"></span>
+      <span class="scanid">{{ s.label }}</span>
+      <span class="scantime{% if s.started_approximate %} approx{% endif %}"
+            {%- if s.started_approximate %} title="Approximate: no scan.log, so this is when ScanInfo was last written"{% endif %}>
+        {%- if s.started -%}
+          {{ '~' if s.started_approximate }}{{ s.started.strftime('%H:%M:%S') }}
+        {%- else -%}&mdash;{%- endif -%}
+      </span>
+      <span class="scanpurpose{% if not s.purpose %} none{% endif %}">
+        {{ s.purpose or 'No purpose recorded at submission' }}</span>
+      <span class="chip chip-{{ s.status }}">
+        {%- if s.status == 'incomplete' -%}
+          {{ 'not finalised' if s.has_scan_info else 'no scan info' }}
+        {%- else -%}
+          {{ {'success':'success','failed':'failed',
+              'aborted':'aborted','unknown':'check'}[s.status] }}
+        {%- endif -%}
+      </span>
+    </summary>
+
+    {% if s.failure_reason %}
+    <div class="failstrip">
+      <div class="flabel">
+        Scan {{ 'was aborted' if s.status == 'aborted' else 'ended with an error' }}
+        &mdash; from ScanEndInfo</div>
+      <div class="fmsg">{{ s.failure_reason }}</div>
+    </div>
+    {% endif %}
+
+    <div class="derived">
+      <div class="derived-label">
+        <span>Derived — not stored here</span>
+        <span>{{ s.label }}/ScanInfo{{ s.label }}.ini</span>
+      </div>
+      <dl class="facts">
+        {{ fact('Scan variable', s.parameter) }}
+        {% if s.start is not none and s.end is not none %}
+          {{ fact('Range', '%g → %g' % (s.start, s.end)) }}
+        {% else %}{{ fact('Range', none) }}{% endif %}
+        {{ fact('Step size', '%g' % s.step_size if s.step_size is not none else none) }}
+        {{ fact('Shots per step', s.shots_per_step) }}
+        {{ fact('Plan', s.plan) }}
+        {{ fact('Mode', s.mode) }}
+        {{ fact('Trigger profile', s.trigger_profile) }}
+        {{ fact('Devices', s.devices | join(', ') if s.devices else none) }}
+      </dl>
+    </div>
+    {{ entries_block('scan-%04d' % s.number, s.number, none, entries, writable) }}
+  </details>
+{% endmacro %}
+
+{% set many = summary.scans | length > 20 %}
+
+<div class="topbar">
+  <div class="wrap">
+    <div class="brand">
+      <strong>Scan Log</strong>
+      <span class="facility">{{ experiment }}</span>
+    </div>
+    <label class="searchbox">
+      <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor"
+           stroke-width="1.7" aria-hidden="true"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5 14 14"/></svg>
+      <input id="q" type="search" placeholder="Filter scans…" autocomplete="off">
+    </label>
+    <div data-theme-picker></div>
+    <a class="btn booklink" href="{{ month_url }}">Ops book &rarr;</a>
+    <button class="btn" type="button" id="toggle-all"
+            data-expanded="{{ 'false' if many else 'true' }}">
+      {{ 'Expand all' if many else 'Collapse all' }}
+    </button>
+  </div>
+</div>
+
+<div class="wrap shell">
+
+  <aside class="rail">
+    <section>
+      <h4>Go to a day</h4>
+      <div class="daypick">
+        <a class="stepday" href="{{ url_for('_day_page', day=prev_day.isoformat()) }}"
+           title="Previous day" aria-label="Previous day">&lsaquo;</a>
+        <input type="date" id="daypicker" value="{{ summary.day.isoformat() }}"
+               aria-label="Jump to a date">
+        <a class="stepday" href="{{ url_for('_day_page', day=next_day.isoformat()) }}"
+           title="Next day" aria-label="Next day">&rsaquo;</a>
+      </div>
+      {% if summary.day != today %}
+      <a class="todaylink" href="{{ url_for('_day_page', day=today.isoformat()).path }}">
+        Back to today</a>
+      {% endif %}
+      {{ shared.calendar('day') }}
+      <div class="daylist">
+        {% for d in rail_days %}
+        <a class="day{% if d == summary.day %} is-active{% endif %}{% if d > today %} future{% endif %}"
+           href="{{ url_for('_day_page', day=d.isoformat()) }}">
+          <span>{{ d.strftime('%a %d %b') }}</span>
+          {% if d == today %}<span class="n">today</span>{% endif %}
+        </a>
+        {% endfor %}
+      </div>
+    </section>
+
+    {% if summary.scans %}
+    <section>
+      <h4>{{ 'Campaigns' if many else 'Scans' }} ·
+        {{ summary.campaigns | length if many else summary.scans | length }}</h4>
+      <div class="scanlist">
+        {% if many %}
+          {% for c in summary.campaigns %}
+          <a class="scanrow" href="#{{ c.scans[0].label }}">
+            <span class="dot dot-{{ 'failed' if c.failed else c.scans[0].status }}"></span>
+            <span class="id">{{ '%03d' % c.scans[0].number }}</span>
+            <span class="lbl">{{ c.parameter or '—' }}</span>
+            <span class="count">{{ c.scans | length }}</span>
+          </a>
+          {% endfor %}
+        {% else %}
+          {% for s in summary.scans %}
+          <a class="scanrow" href="#{{ s.label }}">
+            <span class="dot dot-{{ s.status }}"></span>
+            <span class="id">{{ '%03d' % s.number }}</span>
+            <span class="lbl">{{ s.parameter or '—' }}</span>
+          </a>
+          {% endfor %}
+        {% endif %}
+      </div>
+    </section>
+    {% endif %}
+  </aside>
+
+  <main id="logbook" data-api="{{ api_base }}" data-day="{{ summary.day.isoformat() }}" data-book="scans" data-accept="{{ accept }}"
+        data-prev="{{ url_for('_day_page', day=prev_day.isoformat()).path }}"
+        data-next="{{ url_for('_day_page', day=next_day.isoformat()).path }}"
+        data-today="{{ url_for('_day_page', day=today.isoformat()).path }}">
+
+    <div class="dayhead">
+      <div>
+        <h1>{{ summary.day.strftime('%A, %-d %B %Y') }}</h1>
+        <div class="sub">{{ summary.folder }}</div>
+      </div>
+      <div class="daystats">
+        <div>Scans<b>{{ summary.scans | length }}</b></div>
+        {% if writable or entry_count %}<div>Notes<b>{{ entry_count }}</b></div>{% endif %}
+        {% if summary.failed %}<div>Failed<b>{{ summary.failed }}</b></div>{% endif %}
+      </div>
+    </div>
+
+    {% if ops_count %}
+    <a class="opsstrip" href="{{ ops_url }}">
+      <span class="tlabel">Ops book</span>
+      {{ ops_count }} ops note{{ '' if ops_count == 1 else 's' }} today &rarr;
+    </a>
+    {% endif %}
+
+    {% if not summary.exists %}
+      <p class="empty">No <code>scans/</code> directory for this date. Nothing ran,
+      or the share is not mounted where this service expects it.</p>
+    {% elif not summary.scans %}
+      <p class="empty">The day folder exists but holds no scans yet.</p>
+    {% endif %}
+
+    {% if entries.get('day') or writable %}
+    <section class="card intro">
+      <header class="scanhead" style="cursor:default">
+        <span class="scanid">Day intro</span>
+        <span class="scanpurpose">What today is for, and the machine state going in</span>
+      </header>
+      {{ entries_block('day', none, none, entries, writable) }}
+    </section>
+    {% endif %}
+
+    {% set ns = namespace(prev=0, prev_label='the start of the day') %}
+    {% if many %}
+      {% for c in summary.campaigns %}
+      <details class="campaign" {% if c.scans | length == 1 %}open{% endif %}>
+        <summary class="camphead">
+          <span class="twisty" aria-hidden="true"></span>
+          <span class="campspan">{{ c.span }}</span>
+          <span class="campcount">{{ c.scans | length }}
+            scan{{ '' if c.scans | length == 1 else 's' }}</span>
+          {% if c.is_empty_run %}
+          <span class="camppurpose none">No scan metadata &mdash; folders only</span>
+          {% else %}
+          <span class="campparam">{{ c.parameter or '—' }}</span>
+          <span class="camppurpose">{{ c.purpose or 'No purpose recorded' }}</span>
+          {% endif %}
+          {% if c.failed %}<span class="chip chip-failed">{{ c.failed }} failed</span>{% endif %}
+        </summary>
+        <div class="campbody">
+          {% for s in c.scans %}
+            {{ between_block(ns.prev, entries, writable, ns.prev_label, s.label) }}
+            {{ scan_block(s, false, entries, writable) }}
+            {% set ns.prev = s.number %}{% set ns.prev_label = s.label %}
+          {% endfor %}
+        </div>
+      </details>
+      {% endfor %}
+    {% else %}
+      {% for s in summary.scans %}
+        {{ between_block(ns.prev, entries, writable, ns.prev_label, s.label) }}
+        {{ scan_block(s, true, entries, writable) }}
+        {% set ns.prev = s.number %}{% set ns.prev_label = s.label %}
+      {% endfor %}
+    {% endif %}
+
+    {% if summary.scans %}
+      {{ between_block(ns.prev, entries, writable, ns.prev_label, 'the end of the day') }}
+    {% endif %}
+    {% if not writable %}
+    <p class="foot">Read-only: no notes store is configured, so this view renders
+    the scan folders and stores nothing.</p>
+    {% endif %}
+  </main>
+</div>
+
+<script>
+"use strict";
+/* Collapse state is a per-viewer convenience, so localStorage is the right
+   home for it — it never needs to reach another viewer or the server. */
+const KEY = "scanlog.expandAll";
+const btn = document.getElementById("toggle-all");
+/* Expand/collapse reaches BOTH levels: opening only the campaigns left
+   every scan inside them shut, so the button appeared not to work. */
+const cards = () => [...document.querySelectorAll(
+  "details.campaign, details.scan, details.between")];
+
+function applyAll(expand){
+  cards().forEach(c => { if (!c.hidden) c.open = expand; });
+  btn.dataset.expanded = String(expand);
+  btn.textContent = expand ? "Collapse all" : "Expand all";
+  try { localStorage.setItem(KEY, String(expand)); } catch (e) {}
+}
+
+try {
+  const saved = localStorage.getItem(KEY);
+  if (saved !== null) applyAll(saved === "true");
+} catch (e) {}
+
+btn.addEventListener("click", () => applyAll(btn.dataset.expanded !== "true"));
+
+/* The picker navigates straight to any date, including ones the quick-link
+   window does not reach. */
+document.getElementById("daypicker").addEventListener("change", ev => {
+  if (ev.target.value) window.location.pathname =
+    window.location.pathname.replace(/[^/]+$/, ev.target.value);
+});
+
+/* Filter hides whole cards; it never changes their open state, so clearing
+   the box puts the page back exactly as it was. */
+document.getElementById("q").addEventListener("input", ev => {
+  const f = ev.target.value.trim().toLowerCase();
+  const blocks = [...document.querySelectorAll("details.scan")];
+  blocks.forEach(c => { c.hidden = !!f && !c.dataset.hay.includes(f); });
+  /* A campaign disappears only when every scan in it is filtered out, and
+     opens automatically so matches inside it are actually visible. */
+  document.querySelectorAll("details.campaign").forEach(camp => {
+    const kids = [...camp.querySelectorAll("details.scan")];
+    const any = kids.some(k => !k.hidden);
+    camp.hidden = !any;
+    if (f && any) camp.open = true;
+  });
+});
+
+/* Jumping from the rail should reveal what you jumped to. */
+document.querySelectorAll(".scanrow").forEach(a => a.addEventListener("click", () => {
+  const el = document.querySelector(a.getAttribute("href"));
+  if (!el) return;
+  el.open = true;
+  const camp = el.closest("details.campaign");
+  if (camp) camp.open = true;
+}));
+</script>
+{{ shared.seeds_json(seeds) }}
+<script src="{{ url_for('_static', name='editor.js') }}" defer></script>
+<script src="{{ url_for('_static', name='nav.js').path }}" defer></script>
+<script src="{{ root }}/theme/theme.js" defer></script>
+</body>
+</html>

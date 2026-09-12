@@ -37,6 +37,16 @@ from geecs_schemas.derived_channels import (
     DerivedInput,
 )
 from geecs_schemas.experiment_defaults import DefaultActions, ExperimentDefaults
+from geecs_schemas.log_entry import (
+    AnalysisPayload,
+    Attachment,
+    Book,
+    EntryKind,
+    EntryPayload,
+    EntryStatus,
+    LogEntry,
+    ProblemPayload,
+)
 from geecs_schemas.save_set import SaveRole, SaveSet, SaveSetEntry
 from geecs_schemas.scan_request import (
     AcquisitionMode,
@@ -127,6 +137,15 @@ __all__ = [
     "Line1DConfig",
     "RendererOptions",
     "ScanRuntime",
+    # log_entry
+    "LogEntry",
+    "Attachment",
+    "AnalysisPayload",
+    "ProblemPayload",
+    "EntryPayload",
+    "Book",
+    "EntryKind",
+    "EntryStatus",
     "SCHEMA_REGISTRY",
 ]
 
@@ -143,4 +162,5 @@ SCHEMA_REGISTRY: dict[str, type[VersionedSchemaModel]] = {
     "derived_channels": DerivedChannels,
     "analysis_diagnostic": AnalysisDiagnostic,
     "analysis_group": AnalysisGroup,
+    "log_entry": LogEntry,
 }

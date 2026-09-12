@@ -3,6 +3,93 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.26.0] - 2026-09-12
+
+### Added
+
+- The run page links to its scan's card in the scan logbook
+  (`/log/day/YYYY-MM-DD#ScanNNN`, in the rail beside the day steppers)
+  when the logbook is mounted, and `GET /api/run/{uid}` carries the same
+  URL as `logbook` (null when there is nothing to link). Built from the
+  mount prefix and the resolved day folder; the portal still never
+  imports the logbook. A run from another experiment than the logbook's
+  gets no link — scan numbers restart per experiment (review of #844).
+
+## [0.25.0] - 2026-09-11
+
+### Added
+
+- The logbook's seed templates (its type buttons) are read from
+  `logbook_templates/` beside the `--processing-configs` tree — the
+  configs checkout the portal already has; no new flag. Without that
+  tree the composers are plain.
+- Unit template: `MemoryHigh=` / `MemoryMax=` on the portal service,
+  rendered from two new **required** site.env keys
+  `GEECS_PORTAL_MEMORY_HIGH` / `GEECS_PORTAL_MEMORY_MAX` (3G / 4G in the
+  example, sized per host), so a runaway portal is throttled and then
+  restarted by systemd instead of being the kernel's first OOM pick on
+  the shared box (#834). Existing hosts add the two keys and re-render.
+
+### Changed
+
+- `/log/month/{YYYY-MM}` (the ops book) is now served under `--scan-log`
+  alongside the day pages (GeecsLogbook 0.5.0).
+
+## [0.24.1] - 2026-09-11
+
+### Changed
+
+- Docs and charter follow the logbook's foundation: uploads live in
+  `attachments/` beside the notes database (the state directory is the
+  one thing to back up), and the mirror writes `{experiment}/logbook/` on
+  the share rather than a folder inside each day. No code change.
+
+## [0.24.0] - 2026-09-11
+
+### Added
+
+- `--notes-db PATH` (and `create_app(notes_db=)`): the logbook's SQLite
+  file, which makes `/log` writable — entries, drafts, attachments — with
+  a markdown mirror into each day's `logbook/` folder on the share. A
+  charter amendment: a write verb for **commentary only**, never the
+  scans tree. Defaults to `logbook.db` under systemd's `$STATE_DIRECTORY`
+  when set; the unit template now declares `StateDirectory=geecs-data-portal`.
+  Without either, the logbook is the read-only day view.
+
+### Changed
+
+- The `log` extra now installs `geecs-logbook` (the package was renamed
+  from `geecs-scan-log`).
+
+## [0.23.0] - 2026-09-11
+
+### Changed
+
+- The portal draws its colours from `geecs_web_theme` rather than its own
+  seven inline tokens, and serves that package's stylesheet and picker at
+  `/theme` for every surface mounted in this app. **The portal's appearance
+  changes**: it was dark-only and now offers three palettes, each with a
+  light and a dark variant, defaulting to `laser` following the system.
+- `--config-editor` passes the theme URL through, so the config editor
+  adopts the same palette and the choice follows a viewer between pages.
+- The run page's Plotly figure paints with the live theme tokens (ground,
+  font, grid, and `--trace-1..4` for the marks) and re-draws on a theme
+  change; `figures.py`'s colours are the JS-off fallback. The injected
+  `TRACE_COLORS` contract is unchanged.
+- Theme assets are linked through `{{ root }}` with a version query, so a
+  reverse-proxy prefix resolves and a theme change is not served stale.
+- The Google Fonts links are gone: no CDN assets, per this package's own
+  doctrine — the token font stacks carry local fallbacks.
+
+## [0.22.0] - 2026-09-11
+
+### Added
+
+- `--scan-log` mounts the scan logbook (`geecs_logbook`) at `/log`, behind
+  the new `log` extra. Off by default, and skipped with a warning when no
+  `--experiment` is given: the logbook reads one experiment's share and
+  carries no facility default.
+
 ## [0.21.2] - 2026-09-08
 
 ### Changed

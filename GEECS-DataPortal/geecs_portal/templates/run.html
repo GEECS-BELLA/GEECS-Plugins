@@ -6,125 +6,125 @@
   main { max-width: none; margin: 0; padding: 0; }
   /* the config editor drawer: slides over the page from the right */
   .cedrawer { display: none; position: fixed; top: 0; right: 0; bottom: 0; width: min(1120px, 92vw);
-              background: var(--bg); border-left: 1px solid var(--line); z-index: 20;
+              background: var(--paper); border-left: 1px solid var(--rule); z-index: 20;
               box-shadow: -12px 0 30px rgba(0,0,0,0.45); flex-direction: column; }
   .cedrawer.on { display: flex; }
   .cedrawer .cehead { display: flex; gap: 0.7rem; align-items: center; padding: 0.5rem 0.9rem;
-                      background: var(--panel); border-bottom: 1px solid var(--line); font-size: 13px; flex-wrap: wrap; }
+                      background: var(--surface); border-bottom: 1px solid var(--rule); font-size: 13px; flex-wrap: wrap; }
   .cedrawer .cehead .t { font-weight: 600; color: var(--accent); margin-right: auto; }
-  .cedrawer .cehead select, .cedrawer .cehead input { background: var(--panel2); color: var(--ink); border: 1px solid var(--line); border-radius: 3px; padding: 0.15rem 0.4rem; font: inherit; font-size: 12px; }
+  .cedrawer .cehead select, .cedrawer .cehead input { background: var(--surface-2); color: var(--ink); border: 1px solid var(--rule); border-radius: 3px; padding: 0.15rem 0.4rem; font: inherit; font-size: 12px; }
   .cedrawer .cehead input { width: 5rem; }
   .cedrawer .cebody { flex: 1; min-height: 0; padding: 0.6rem 0.9rem; display: flex; flex-direction: column; overflow: hidden; }
   /* the mount wrapper is the flex item; the editor grid fills it and its panes scroll */
   .cedrawer .cebody #ceditor { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
   .cedrawer .cebody .ce { flex: 1 1 auto; min-height: 0; height: auto; }
-  .cedrawer .cehead .grp { color: var(--dim); font-size: 11px; }
+  .cedrawer .cehead .grp { color: var(--muted); font-size: 11px; }
   .cedrawer .cehead .dup { display: flex; gap: 0.3rem; align-items: center; }
   .cedrawer .cehead .dup input { width: 9rem; }
   .frame { display: grid; grid-template-columns: 17rem minmax(0, 1fr); min-height: calc(100vh - 3rem); }
-  .rail { background: var(--panel); border-right: 1px solid var(--line);
+  .rail { background: var(--surface); border-right: 1px solid var(--rule);
           padding: 0.9rem; display: flex; flex-direction: column; gap: 1rem; }
   .rail .scanline { font-size: 13px; }
   .rail .num { color: var(--accent); font-weight: 600; }
   .steprow { display: flex; gap: 0.3rem; align-items: center; margin-top: 0.45rem; flex-wrap: wrap; }
-  .act { background: var(--panel2); color: var(--ink); border: 1px solid var(--line);
+  .act { background: var(--surface-2); color: var(--ink); border: 1px solid var(--rule);
          border-radius: 3px; padding: 0.25rem 0.55rem; font-size: 12px; cursor: pointer; }
   .act:hover { border-color: var(--accent); }
   a.act { text-decoration: none; }
   .act.off { opacity: 0.35; pointer-events: none; }
   .provider { font-size: 11px; border-radius: 3px; padding: 0.1rem 0.4rem; margin-right: 0.3rem; }
-  .provider.run { background: rgba(76,194,180,0.14); color: var(--accent); }
-  .provider.sfile { background: rgba(214,168,96,0.14); color: #d6a860; }
-  .sect h3 { margin: 0 0 0.4rem; font-size: 12px; color: var(--dim); text-transform: uppercase; letter-spacing: 0.04em; }
-  .fchip { display: flex; gap: 0.4rem; align-items: center; background: var(--panel2);
-           border: 1px solid var(--line); border-radius: 4px; padding: 0.25rem 0.45rem;
+  .provider.run { background: var(--accent-soft); color: var(--accent); }
+  .provider.sfile { background: var(--warn-soft); color: var(--warn); }
+  .sect h3 { margin: 0 0 0.4rem; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+  .fchip { display: flex; gap: 0.4rem; align-items: center; background: var(--surface-2);
+           border: 1px solid var(--rule); border-radius: 4px; padding: 0.25rem 0.45rem;
            font-size: 12px; margin-bottom: 0.3rem; }
   .fchip .n { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .fchip .x { cursor: pointer; color: var(--dim); }
-  .fchip .x:hover { color: #cf5347; }
-  .count { font-size: 12px; color: var(--dim); margin-top: 0.3rem; }
+  .fchip .x { cursor: pointer; color: var(--muted); }
+  .fchip .x:hover { color: var(--crit); }
+  .count { font-size: 12px; color: var(--muted); margin-top: 0.3rem; }
   .count b { color: var(--ink); }
   .mainpane { padding: 0 1.2rem 1.2rem; min-width: 0; }
-  .tabs { display: flex; border-bottom: 1px solid var(--line); margin: 0 -1.2rem 1rem; padding: 0 1.2rem; }
+  .tabs { display: flex; border-bottom: 1px solid var(--rule); margin: 0 -1.2rem 1rem; padding: 0 1.2rem; }
   .tab { background: none; border: none; border-bottom: 2px solid transparent;
-         padding: 0.55rem 1rem; font-size: 13px; color: var(--dim); cursor: pointer; }
+         padding: 0.55rem 1rem; font-size: 13px; color: var(--muted); cursor: pointer; }
   .tab:hover { color: var(--ink); }
   .tab.on { color: var(--accent); border-bottom-color: var(--accent); }
   .pane { display: none; }
   .pane.on { display: block; }
-  .picker input[type=text] { width: 100%; background: var(--panel2); color: var(--ink);
-    border: 1px solid var(--line); border-radius: 3px; padding: 0.4rem 0.6rem; font-size: 13px; }
-  .collist { max-height: 11rem; overflow-y: auto; border: 1px solid var(--line);
-             border-radius: 3px; margin-top: 0.3rem; background: var(--panel); }
+  .picker input[type=text] { width: 100%; background: var(--surface-2); color: var(--ink);
+    border: 1px solid var(--rule); border-radius: 3px; padding: 0.4rem 0.6rem; font-size: 13px; }
+  .collist { max-height: 11rem; overflow-y: auto; border: 1px solid var(--rule);
+             border-radius: 3px; margin-top: 0.3rem; background: var(--surface); }
   .colrow { display: flex; gap: 0.5rem; padding: 0.22rem 0.55rem; font-size: 12px;
             cursor: pointer; font-family: ui-monospace, Menlo, monospace; }
-  .colrow:hover { background: var(--panel2); }
-  .colrow .pretty { color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .colrow:hover { background: var(--surface-2); }
+  .colrow .pretty { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .picked { display: flex; gap: 0.35rem; flex-wrap: wrap; margin-top: 0.45rem; }
   .ychip { display: flex; gap: 0.35rem; align-items: center; font-size: 12px;
-           font-family: ui-monospace, Menlo, monospace; background: var(--panel2);
-           border: 1px solid var(--line); border-left-width: 3px; border-radius: 4px;
+           font-family: ui-monospace, Menlo, monospace; background: var(--surface-2);
+           border: 1px solid var(--rule); border-left-width: 3px; border-radius: 4px;
            padding: 0.2rem 0.5rem; }
-  .ychip .x { cursor: pointer; color: var(--dim); }
+  .ychip .x { cursor: pointer; color: var(--muted); }
   .plotbar { display: flex; gap: 0.9rem; align-items: center; flex-wrap: wrap;
-             padding: 0.6rem 0; font-size: 12px; color: var(--dim); }
+             padding: 0.6rem 0; font-size: 12px; color: var(--muted); }
   .plotbar .right { margin-left: auto; display: flex; gap: 0.7rem; align-items: center; }
-  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
-  .seg button { background: var(--panel2); color: var(--dim); border: none;
+  .seg { display: inline-flex; border: 1px solid var(--rule); border-radius: 4px; overflow: hidden; }
+  .seg button { background: var(--surface-2); color: var(--muted); border: none;
                 padding: 0.25rem 0.7rem; font-size: 12px; cursor: pointer; }
-  .seg button.on { background: var(--accent); color: #10201d; }
+  .seg button.on { background: var(--accent); color: var(--on-accent); }
   .gear { cursor: pointer; font-size: 14px; }
   .gear:hover { color: var(--accent); }
-  #plotdiv { width: 100%; height: 26rem; background: var(--panel); border: 1px solid var(--line); border-radius: 4px; }
-  .codebox { display: none; background: #10141a; border: 1px solid var(--line); border-radius: 4px;
+  #plotdiv { width: 100%; height: 26rem; background: var(--surface); border: 1px solid var(--rule); border-radius: 4px; }
+  .codebox { display: none; background: var(--surface-2); border: 1px solid var(--rule); border-radius: 4px;
              padding: 0.7rem 0.9rem; font-family: ui-monospace, Menlo, monospace; font-size: 12px;
-             white-space: pre; overflow-x: auto; margin-top: 0.6rem; color: #b8c4d0; }
+             white-space: pre; overflow-x: auto; margin-top: 0.6rem; color: var(--slate); }
   .codebox.on { display: block; }
   .overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.55); z-index: 10; }
   .overlay.on { display: flex; align-items: flex-start; justify-content: center; padding-top: 8vh; }
-  .modal { background: var(--panel); border: 1px solid var(--line); border-radius: 6px;
+  .modal { background: var(--surface); border: 1px solid var(--rule); border-radius: 6px;
            padding: 1rem 1.2rem; width: min(620px, 94vw); max-height: 80vh; overflow-y: auto; }
   .modal h3 { margin: 0 0 0.7rem; font-size: 14px; }
-  .fgroup { border: 1px solid var(--line); border-radius: 4px; padding: 0.6rem; margin-bottom: 0.5rem; }
+  .fgroup { border: 1px solid var(--rule); border-radius: 4px; padding: 0.6rem; margin-bottom: 0.5rem; }
   .ghead { display: flex; gap: 0.5rem; align-items: center; margin-bottom: 0.45rem; font-size: 12px; }
-  .ghead input[type=text] { background: var(--panel2); color: var(--ink); border: 1px solid var(--line);
+  .ghead input[type=text] { background: var(--surface-2); color: var(--ink); border: 1px solid var(--rule);
     border-radius: 3px; padding: 0.2rem 0.45rem; font-size: 12px; }
   .frow { display: flex; gap: 0.4rem; align-items: center; margin-bottom: 0.35rem; }
-  .frow input, .frow select { background: var(--panel2); color: var(--ink);
-    border: 1px solid var(--line); border-radius: 3px; padding: 0.2rem 0.4rem; font-size: 12px; }
+  .frow input, .frow select { background: var(--surface-2); color: var(--ink);
+    border: 1px solid var(--rule); border-radius: 3px; padding: 0.2rem 0.4rem; font-size: 12px; }
   .frow input.col { flex: 1; min-width: 0; font-family: ui-monospace, Menlo, monospace; }
   .frow input.val { width: 5.5rem; }
-  .frow .x { cursor: pointer; color: var(--dim); }
-  .orjoin { text-align: center; color: var(--dim); font-size: 11px; margin: 0.4rem 0; }
+  .frow .x { cursor: pointer; color: var(--muted); }
+  .orjoin { text-align: center; color: var(--muted); font-size: 11px; margin: 0.4rem 0; }
   .setrow { display: flex; gap: 0.7rem; align-items: center; margin-bottom: 0.5rem; font-size: 13px; }
-  .setrow label { width: 7.5rem; color: var(--dim); font-size: 12px; }
-  .setrow input, .setrow select { background: var(--panel2); color: var(--ink);
-    border: 1px solid var(--line); border-radius: 3px; padding: 0.25rem 0.45rem; font-size: 12px; }
+  .setrow label { width: 7.5rem; color: var(--muted); font-size: 12px; }
+  .setrow input, .setrow select { background: var(--surface-2); color: var(--ink);
+    border: 1px solid var(--rule); border-radius: 3px; padding: 0.25rem 0.45rem; font-size: 12px; }
   .btnrow { display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 0.8rem; }
-  .apply { background: var(--accent); color: #10201d; border: none; border-radius: 3px;
+  .apply { background: var(--accent); color: var(--on-accent); border: none; border-radius: 3px;
            padding: 0.3rem 0.9rem; font-size: 12px; cursor: pointer; font-weight: 600; }
-  .plotmsg { color: var(--dim); font-size: 13px; padding: 2rem 0; text-align: center; }
-  .arow { border: 1px solid var(--line); border-radius: 4px; background: var(--panel);
+  .plotmsg { color: var(--muted); font-size: 13px; padding: 2rem 0; text-align: center; }
+  .arow { border: 1px solid var(--rule); border-radius: 4px; background: var(--surface);
           padding: 0.6rem 0.8rem; margin-bottom: 0.6rem; }
   .arow .head { display: flex; gap: 0.7rem; align-items: center; flex-wrap: wrap; font-size: 13px; }
   .arow .head .id { font-family: ui-monospace, Menlo, monospace; }
   .arow .head .right { margin-left: auto; display: flex; gap: 0.5rem; align-items: center; }
-  .badge { font-size: 11px; border-radius: 3px; padding: 0.1rem 0.45rem; border: 1px solid var(--line); color: var(--dim); }
+  .badge { font-size: 11px; border-radius: 3px; padding: 0.1rem 0.45rem; border: 1px solid var(--rule); color: var(--muted); }
   .badge.running, .badge.queued { color: var(--accent); border-color: var(--accent); }
-  .badge.done { color: #7fc47f; border-color: #7fc47f; }
-  .badge.failed { color: #cf5347; border-color: #cf5347; }
-  .badge.no_data { color: #d6a860; border-color: #d6a860; }
-  .arow .err { color: #cf5347; font-size: 12px; white-space: pre-wrap; margin: 0.4rem 0 0; font-family: ui-monospace, Menlo, monospace; }
+  .badge.done { color: var(--ok); border-color: var(--ok); }
+  .badge.failed { color: var(--crit); border-color: var(--crit); }
+  .badge.no_data { color: var(--warn); border-color: var(--warn); }
+  .arow .err { color: var(--crit); font-size: 12px; white-space: pre-wrap; margin: 0.4rem 0 0; font-family: ui-monospace, Menlo, monospace; }
   .arow details { margin-top: 0.4rem; font-size: 12px; }
-  .arow details pre { max-height: 14rem; overflow: auto; background: var(--panel2); padding: 0.5rem; border-radius: 3px; font-size: 11px; }
+  .arow details pre { max-height: 14rem; overflow: auto; background: var(--surface-2); padding: 0.5rem; border-radius: 3px; font-size: 11px; }
   .arts { display: flex; flex-wrap: wrap; gap: 0.6rem; margin-top: 0.5rem; }
   .binstep { display: flex; gap: 0.6rem; align-items: center; margin-top: 0.6rem; font-size: 12px; }
-  .arts img { max-width: 100%; max-height: 24rem; border: 1px solid var(--line); border-radius: 3px; background: var(--panel2); }
+  .arts img { max-width: 100%; max-height: 24rem; border: 1px solid var(--rule); border-radius: 3px; background: var(--surface-2); }
   .arts a.file { font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
-  #pane-analysis details.others > summary { cursor: pointer; color: var(--dim); font-size: 12px; margin: 0.6rem 0; }
+  #pane-analysis details.others > summary { cursor: pointer; color: var(--muted); font-size: 12px; margin: 0.6rem 0; }
   .bingrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
              gap: 0.8rem; margin-top: 0.7rem; }
-  .bincard { margin: 0; background: var(--panel); border: 1px solid var(--line);
+  .bincard { margin: 0; background: var(--surface); border: 1px solid var(--rule);
              border-radius: 4px; padding: 0.4rem; }
   .bincard figcaption { font-size: 11px; padding-top: 0.3rem; text-align: center; }
 </style>
@@ -144,6 +144,9 @@
         <a class="act" href="{{ root }}/run/jump/{{ prev_day }}?prefer={{ scan_number }}&amp;{{ qs(device="", shot="") }}" title="previous day (same scan number, else its latest)">‹ day</a>
         <a class="act" href="{{ root }}/day/{{ run_day }}?{{ qs(device="", shot="") }}" title="browse this day's list">{{ run_day }}</a>
         <a class="act" href="{{ root }}/run/jump/{{ next_day }}?prefer={{ scan_number }}&amp;{{ qs(device="", shot="") }}" title="next day (same scan number, else its latest)">day ›</a>
+        {% endif %}
+        {% if logbook_url %}
+        <a class="act logbook" href="{{ logbook_url }}" title="this scan's card in the scan logbook">log ↗</a>
         {% endif %}
       </div>
       <div class="steprow">
@@ -200,7 +203,7 @@
       </div>
       <div class="plotbar">
         <span>X: <input class="mono" id="xcol" list="all-cols" placeholder="(shot #)"
-              style="background:var(--panel2); color:var(--ink); border:1px solid var(--line); border-radius:3px; padding:0.2rem 0.4rem; width:16rem;"
+              style="background:var(--surface-2); color:var(--ink); border:1px solid var(--rule); border-radius:3px; padding:0.2rem 0.4rem; width:16rem;"
               onchange="S.x=this.value; writeState(); refresh();"></span>
         <span class="seg">
           <button id="seg-shot" onclick="setView('shot')">per-shot</button>
@@ -244,7 +247,7 @@
         {% if processing_options %}
         <label class="dim" style="font-size:12px;" title="run an ImageAnalysis diagnostic ephemerally on the served pixels (write-free); per-bin view processes each shot, then averages">processing
           <select id="procsel" onchange="setProcessing(this.value)"
-                  style="background:var(--panel2); color:var(--ink); border:1px solid var(--line); border-radius:3px; padding:0.2rem 0.4rem; font-size:12px; max-width:16rem;">
+                  style="background:var(--surface-2); color:var(--ink); border:1px solid var(--rule); border-radius:3px; padding:0.2rem 0.4rem; font-size:12px; max-width:16rem;">
             <option value="">raw</option>
             {% if processing and processing not in processing_options %}
             {# A bookmarked link naming a since-dropped diagnostic must
@@ -368,7 +371,7 @@
       <a href="https://plotly.com/javascript/reference/layout/" target="_blank" style="font-size:11px;">layout ref ↗</a></label>
       <textarea id="ds-layout" rows="3" spellcheck="false"
         placeholder='any Plotly layout JSON, merged last — e.g. {"yaxis":{"tickformat":".2e"},"legend":{"orientation":"v"}}'
-        style="flex:1; background:var(--panel2); color:var(--ink); border:1px solid var(--line); border-radius:3px; padding:0.3rem 0.45rem; font-family:ui-monospace,Menlo,monospace; font-size:11px;"></textarea></div>
+        style="flex:1; background:var(--surface-2); color:var(--ink); border:1px solid var(--rule); border-radius:3px; padding:0.3rem 0.45rem; font-family:ui-monospace,Menlo,monospace; font-size:11px;"></textarea></div>
     <div class="error" id="ds-error" style="display:none;"></div>
     <div class="dim" style="font-size:11px; margin-top:0.4rem;">
       Legend names are click-to-edit on the plot; axis titles via the advanced
@@ -449,6 +452,14 @@ const DAY = {{ day | tojson }};
 const SEL_DEVICE = {{ sel_device | tojson }};
 const VERSION = {{ portal_version | tojson }};
 const TRACE_COLORS = {{ trace_colors | tojson }};
+// The DEFAULT colour for trace i comes from the theme (--trace-1..4), read
+// at call time so a theme switch is honoured; the server's TRACE_COLORS is
+// the JS-off fallback and stays the injected contract.
+function defaultTraceColor(i) {
+  const n = TRACE_COLORS.length;                      // server cycles i % 4; match it
+  const c = getComputedStyle(document.documentElement).getPropertyValue(`--trace-${(i % n) + 1}`).trim();
+  return c || TRACE_COLORS[i % n];
+}
 const MSIZE_DEFAULT = {{ msize_default | tojson }};
 // Everything Plotly gives for free, switched ON: wheel zoom, in-place
 // legend-name editing, spike lines + hover modes, and the drawing
@@ -479,7 +490,7 @@ function flashNote(text) {
     note = document.createElement("div");
     note.id = "flashnote";
     note.style.cssText = "position:fixed; bottom:1rem; right:1rem; z-index:40;" +
-      "background:var(--panel2); color:var(--ink); border:1px solid var(--line);" +
+      "background:var(--surface-2); color:var(--ink); border:1px solid var(--rule);" +
       "border-radius:4px; padding:0.4rem 0.7rem; font-size:12px;";
     document.body.appendChild(note);
   }
@@ -1041,7 +1052,7 @@ function removeY(i) {
   const d = dispCfg();
   if (Array.isArray(d.colors)) {  // keep custom colors aligned with their traces
     d.colors.splice(i, 1);
-    if (!d.colors.some((c, j) => c !== TRACE_COLORS[j])) delete d.colors;
+    if (!d.colors.some((c, j) => c !== defaultTraceColor(j))) delete d.colors;
     S.display = Object.keys(d).length ? JSON.stringify(d) : "";
   }
   renderPicked(); writeState(); refresh();
@@ -1102,7 +1113,7 @@ function traceColor(i) {
   // Same lengths the server's _is_hex_color accepts (3/4/6/8) — the
   // chip and the trace must agree on what counts as a custom color.
   return (typeof c === "string" && /^#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(c))
-    ? c : TRACE_COLORS[i];
+    ? c : defaultTraceColor(i);
 }
 
 function deepMerge(target, patch) {
@@ -1121,19 +1132,43 @@ function deepMerge(target, patch) {
   }
 }
 
+// The server authors the figure with "$tok:--name" sentinels wherever a
+// colour goes (figures.THEMED_PALETTE).  One walk here resolves them
+// against the live theme tokens — traces, tick fonts, grids, titles and
+// the legend alike, with no per-property list to fall out of step.  A
+// theme change re-draws the last figure in place.
+function tokenColour(name) {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+function resolveThemeTokens(value) {
+  if (typeof value === "string")
+    return value.startsWith("$tok:") ? (tokenColour(value.slice(5)) || value) : value;
+  if (Array.isArray(value)) return value.map(resolveThemeTokens);
+  if (value && typeof value === "object") {
+    for (const k of Object.keys(value)) value[k] = resolveThemeTokens(value[k]);
+  }
+  return value;
+}
+let LAST_FIGURE = null;
+
 function drawFigure(data) {
   // The figure is server-authored (geecs_portal/figures.py — display
-  // state included).  The one client-side step is the escape hatch:
+  // state included).  Two client-side steps, in order: the theme's
+  // colours replace the server's placeholders, then the escape hatch —
   // display.layout deep-merges LAST, so the whole Plotly layout schema
   // stays reachable without new portal code — and the URL-carried
   // patch stays in the browser with its prototype-pollution guard.
-  const fig = data.figure || { data: [], layout: {} };
+  LAST_FIGURE = data;
+  const fig = resolveThemeTokens(JSON.parse(JSON.stringify(data.figure || { data: [], layout: {} })));
   const d = dispCfg();
   if (d.layout && typeof d.layout === "object") deepMerge(fig.layout, d.layout);
   Plotly.react(plotHost(), fig.data, fig.layout, PLOT_CONFIG);
   document.getElementById("codebox").textContent = data.code;
   setPassCount(data.pass, data.total);
 }
+window.addEventListener("geecs:theme", () => {
+  if (LAST_FIGURE && S.tab === "plot" && S.y.length) drawFigure(LAST_FIGURE);
+});
 
 function showPlotError(err) {
   plotMessage("⚠ " + err.message);
@@ -1318,9 +1353,9 @@ function applyDisplay() {
   }
   const colors = S.y.map((name, i) => {
     const input = document.getElementById("ds-color-" + i);
-    return input ? input.value : TRACE_COLORS[i];
+    return input ? input.value : defaultTraceColor(i);
   });
-  if (colors.some((c, i) => c !== TRACE_COLORS[i])) d.colors = colors;
+  if (colors.some((c, i) => c !== defaultTraceColor(i))) d.colors = colors;
   const rawLayout = document.getElementById("ds-layout").value.trim();
   if (rawLayout) {
     try {
