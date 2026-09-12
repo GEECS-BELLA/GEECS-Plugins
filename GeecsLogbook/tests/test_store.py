@@ -292,3 +292,47 @@ class TestMigration:
         assert not edited.is_deleted and store.for_day("2026-09-11") == [edited, fresh]
         # Opening again is a no-op, not a second ALTER.
         NotesStore(path)
+
+
+class TestMirrorBookkeeping:
+    """The queue rotates, and a mark cannot cover a newer version."""
+
+    def test_deferred_entries_rotate_to_the_back(self, store: NotesStore) -> None:
+        """A never-tried entry is served before one that failed already."""
+        stuck = store.create(day="2026-09-12", author="a", body_md="no day yet")
+        store.mark_deferred(stuck.entry_id)
+        fresh = store.create(day=DAY, scan=1, author="a", body_md="now")
+        assert [e.entry_id for e in store.unmirrored()] == [
+            fresh.entry_id,
+            stuck.entry_id,
+        ]
+        # A limit of one no longer starves the fresh one.
+        assert [e.entry_id for e in store.unmirrored(limit=1)] == [fresh.entry_id]
+
+    def test_mark_is_pinned_to_the_version_written(self, store: NotesStore) -> None:
+        """An edit between the read and the mark keeps the entry owed."""
+        e = store.create(day=DAY, scan=1, author="a", body_md="v1")
+        store.update(e.entry_id, body_md="v2", author="a", expected_version=1)
+        assert store.mark_mirrored(e.entry_id, version=e.version) is False
+        assert [x.entry_id for x in store.unmirrored()] == [e.entry_id]
+        assert store.mark_mirrored(e.entry_id, version=2) is True
+        assert store.unmirrored() == []
+
+    def test_concurrent_attachment_appends_both_land(self, store: NotesStore) -> None:
+        """Two appends from the same read do not lose one another."""
+        e = store.create(day=DAY, scan=1, author="a", body_md="x")
+
+        def mk(i: int) -> Attachment:
+            return Attachment(
+                id=f"f{i}",
+                filename=f"{i}.png",
+                content_type="image/png",
+                size_bytes=1,
+                uploaded_at=e.created_at,
+            )
+
+        store.add_attachment(e.entry_id, mk(1))
+        store.add_attachment(e.entry_id, mk(2))
+        got = store.get(e.entry_id)
+        assert got is not None and [a.id for a in got.attachments] == ["f1", "f2"]
+        assert got.version == 3

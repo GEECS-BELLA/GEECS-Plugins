@@ -198,7 +198,11 @@ removes the file.
 Without `--notes-db` the logbook is the read-only day view and no entry
 route exists. The unit template sets `StateDirectory=geecs-data-portal`,
 so systemd creates `/var/lib/geecs-data-portal` and the portal defaults
-`--notes-db` to `logbook.db` there — no path in `site.env`. **Back that
+`--notes-db` to `logbook.db` there — no path in `site.env`. Note what
+that means on upgrade: **a host already running `--scan-log` becomes
+writable at its next restart** with the re-rendered unit, with no
+`site.env` change; a site that wants the read-only view keeps the old
+rendered unit or renders without `StateDirectory`. **Back that
 file up**: it and the markdown mirror are the only two copies of what
 people wrote. Running the portal by hand (no systemd) gives a read-only
 logbook unless you pass `--notes-db` explicitly; its directory must

@@ -46,12 +46,12 @@ class TestPaths:
     def test_three_anchors_three_places(self, store: NotesStore, share: Path) -> None:
         """Day-level at the root, scan entries under ScanNNN/, interscan under after-ScanNNN/."""
         root = mirror.logbook_root(DAY, EXP, base_directory=share)
-        day = store.create(day=DAY, author="A. Gonsalves", body_md="x")
+        day = store.create(day=DAY, author="T. Operator", body_md="x")
         on = store.create(day=DAY, scan=5, author="S. Barber", body_md="x")
         between = store.create(day=DAY, after=3, author="osprey", body_md="x")
         assert mirror.entry_path(day, root).parent == root
         assert mirror.entry_path(day, root).name.endswith(
-            f"-agonsalves-{day.entry_id[:6]}.md"
+            f"-toperator-{day.entry_id[:6]}.md"
         )
         assert mirror.entry_path(on, root).parent == root / "Scan005"
         assert mirror.entry_path(between, root).parent == root / "after-Scan003"

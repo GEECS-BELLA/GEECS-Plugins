@@ -45,6 +45,31 @@ project adheres to semantic versioning.
 - The page takes its colours from `geecs_web_theme`; no palette of its
   own.
 
+### Fixed (review of #832)
+
+- Editing an entry whose text held `'`, `"`, `<`, `>` or `&` fed the
+  HTML-escaped form back into the editor and saved it. The raw body now
+  travels as JSON.
+- The mirror queue rotates: a failed attempt records `mirror_attempted_at`
+  and never-tried entries go first, so an entry whose day folder never
+  appears cannot starve the ones behind it.
+- Mirror filenames and the page's time stamps are the host's local time,
+  the clock the day and its scans are named by, not UTC.
+- Two uploads with the same name no longer overwrite each other
+  (`image-2.png`, …); each attachment has its own id; the manifest append
+  is one SQL statement, so concurrent uploads both land.
+- The upload route runs in the threadpool rather than blocking the event
+  loop on a share write; an unresolvable share is a 503 on upload and on
+  attachment serving, not a 500.
+- Task-list checkboxes survive sanitising.
+- A mirror mark is pinned to the version that was written, so a
+  concurrent edit stays owed instead of being marked done under a stale
+  file; temp files carry unique names so two writers cannot clobber each
+  other's.
+- New tests for the renderer (sanitiser, callouts, link rewrite, task
+  lists) and the attachment routes (upload, serve, size and type limits,
+  traversal, unresolvable share).
+
 ## [0.1.0] - 2026-09-11
 
 ### Added

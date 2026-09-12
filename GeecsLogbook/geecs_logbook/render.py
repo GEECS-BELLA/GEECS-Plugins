@@ -37,6 +37,12 @@ from mdit_py_plugins.tasklists import tasklists_plugin
 #: The four callout flavours, matching GitHub's.
 CALLOUTS = ("NOTE", "TIP", "WARNING", "CAUTION")
 
+#: nh3's defaults plus the task-list checkbox, which is the one form
+#: element the markdown can produce. Read-only on the page (``disabled``
+#: is what the plugin emits); nothing else from ``input`` is admitted.
+_TAGS = nh3.ALLOWED_TAGS | {"input"}
+_ATTRIBUTES = {**nh3.ALLOWED_ATTRIBUTES, "input": {"type", "checked", "disabled"}}
+
 _md = (
     MarkdownIt("commonmark", {"html": False, "breaks": False, "typographer": False})
     .enable(["table", "strikethrough"])
@@ -74,7 +80,9 @@ def render_markdown(body_md: str, *, attachment_base: str | None = None) -> str:
         Sanitized HTML.
     """
     rendered = _md.render(body_md or "")
-    clean = nh3.clean(rendered, link_rel="noopener noreferrer")
+    clean = nh3.clean(
+        rendered, tags=_TAGS, attributes=_ATTRIBUTES, link_rel="noopener noreferrer"
+    )
     clean = _callouts(clean)
     if attachment_base:
         base = attachment_base.rstrip("/")

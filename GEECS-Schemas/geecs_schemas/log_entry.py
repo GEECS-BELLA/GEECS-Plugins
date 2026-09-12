@@ -58,8 +58,9 @@ class Attachment(SchemaModel):
     Attributes
     ----------
     id : str
-        Opaque identifier, and the directory segment the file is stored
-        under.
+        Opaque identifier of this upload. The files of one entry share a
+        directory named by the *entry's* id; this distinguishes uploads
+        within it, and survives a rename of the file.
     filename : str
         Name as stored, so the entry's relative link is derivable.
     content_type : str
@@ -70,7 +71,7 @@ class Attachment(SchemaModel):
         When it was stored.
     """
 
-    id: str = Field(description="Opaque id; also the storage directory segment.")
+    id: str = Field(description="Opaque id of this upload.")
     filename: str = Field(description="Name as stored on disk.")
     content_type: str = Field(description="Media type, e.g. image/png.")
     size_bytes: int = Field(ge=0, description="Stored size in bytes.")

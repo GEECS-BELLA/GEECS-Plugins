@@ -194,6 +194,9 @@ accepting duplication now is that someone later removes it.
 | Two day views — the portal's `/day/` (Tiled runs) and `/log/day/` (scan folders) — can disagree | A scan Tiled never received appears in one; a folder predating the catalog appears in the other. Needs an owner ruling on which is canonical, not an implementation choice. |
 | Package name vs `geecs_data_utils.scan_log_loader` and `GEECS-LogTriage`, which read `scan.log` | This package is about the *logbook*, not `scan.log`, and `scan_reader` now imports `scan_log_loader`. Renaming costs one commit today and more later. |
 | Separating "running" from "aborted" from churn, for folders with no ScanInfo | Open, not impossible — `scan.log` is in every such folder. Add a `running` status when it is done. |
+| A day-level entry on a day with **no scans** never mirrors | The mirror refuses to create the day folder (the scanner makes days), so such an entry stays owed forever — rotated past by `mirror_attempted_at`, never written. The general logbook makes this common. Needs a ruling: a month-level `logbook/` home for dayless entries, or permission to create `YY_MMDD/logbook/` (not `scans/`). Decide with the month view. |
+| `EntryCreate` (the write shape) lives in the router, `LogEntry` (the stored shape) in `geecs_schemas` | An agent posts the create shape, so it belongs beside `LogEntry` for GEECS-MCP to validate. Moves with the agent-verbs phase, which is its first second consumer. |
+| A third private atomic-write helper (`mirror._replace_with`; `scan_analysis.config_store` and `task_queue` have their own) and `logbook_root` re-deriving the daily folder | Fold into the `ScanPaths`/`ScanData` review owed at master-merge — same home, same issue. |
 
 ## Deployment
 

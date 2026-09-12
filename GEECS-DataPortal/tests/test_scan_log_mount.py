@@ -56,13 +56,23 @@ class TestNotesDb:
             405,
         )
 
-    def test_writable_with_a_notes_db(self, tmp_path: Path) -> None:
+    def test_writable_with_a_notes_db(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """With --notes-db an entry is accepted and the words are in the file.
 
-        No share is configured in the test environment: the row lands, the
-        markdown mirror is deferred, and the client sees 201 either way —
-        a save never fails because the share is unreachable.
+        The share is made unresolvable here on purpose — a developer's box
+        may have the real one mounted, and this test must never write to
+        it. The row lands, the markdown mirror is deferred, and the client
+        sees 201 either way: a save never fails because the share is
+        unreachable.
         """
+        from geecs_logbook import mirror
+
+        def no_share(*args: object, **kwargs: object) -> Path:
+            raise mirror.MirrorUnavailable("no share in tests")
+
+        monkeypatch.setattr(mirror, "logbook_root", no_share)
         db = tmp_path / "logbook.db"
         client = TestClient(
             create_app(
@@ -77,7 +87,7 @@ class TestNotesDb:
         assert db.is_file()
         listed = client.get("/log/api/day/2026-09-11/entries").json()
         assert [e["body_md"] for e in listed] == ["hello"]
-        # Nothing was written anywhere but the database (no share here).
+        # Nothing was written anywhere but the database, and the mirror is owed.
         assert (
             sorted(
                 p.name
@@ -86,3 +96,6 @@ class TestNotesDb:
             )
             == []
         )
+        from geecs_logbook.store import NotesStore
+
+        assert [e.body_md for e in NotesStore(db).unmirrored()] == ["hello"]

@@ -250,3 +250,107 @@ class TestWriteApi:
         )
         assert again.status_code == 404
         assert "hello" not in writable.get("/log/day/2026-09-11").text
+
+
+_PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 64
+
+
+class TestAttachments:
+    """Upload lands on the share beside the entry; serving is contained."""
+
+    def _upload(
+        self,
+        client: TestClient,
+        entry_id: str,
+        name: str = "shot.png",
+        data: bytes = _PNG,
+        ctype: str = "image/png",
+    ):
+        return client.post(
+            f"/log/api/entries/{entry_id}/attachments",
+            files={"file": (name, data, ctype)},
+        )
+
+    def test_upload_then_serve(self, writable: TestClient, share: Path) -> None:
+        """201 with a relative link; the served route returns the bytes."""
+        e = _post(writable, scan=1)
+        r = self._upload(writable, e["entry_id"])
+        assert r.status_code == 201, r.text
+        body = r.json()
+        assert body["link"] == f"attachments/{e['entry_id']}/shot.png"
+        assert body["attachment"]["id"] != e["entry_id"]  # its own id
+        got = writable.get(
+            f"/log/attachments/2026-09-11/Scan001/{e['entry_id']}/shot.png"
+        )
+        assert got.status_code == 200 and got.content == _PNG
+        listed = writable.get("/log/api/day/2026-09-11/entries").json()
+        assert [a["filename"] for a in listed[0]["attachments"]] == ["shot.png"]
+        assert listed[0]["version"] == 2
+
+    def test_same_name_twice_is_numbered_not_overwritten(
+        self, writable: TestClient
+    ) -> None:
+        """Every clipboard paste is image.png; the second must not eat the first."""
+        e = _post(writable, scan=1)
+        first = self._upload(writable, e["entry_id"], "image.png", _PNG)
+        second = self._upload(writable, e["entry_id"], "image.png", _PNG + b"2")
+        assert first.json()["link"].endswith("/image.png")
+        assert second.json()["link"].endswith("/image-2.png")
+        base = f"/log/attachments/2026-09-11/Scan001/{e['entry_id']}"
+        assert writable.get(f"{base}/image.png").content == _PNG
+        assert writable.get(f"{base}/image-2.png").content == _PNG + b"2"
+        ids = {
+            a["id"]
+            for a in writable.get("/log/api/day/2026-09-11/entries").json()[0][
+                "attachments"
+            ]
+        }
+        assert len(ids) == 2
+
+    def test_type_and_size_limits(self, writable: TestClient) -> None:
+        """415 for a type we do not take; 413 over the cap; 422 for nothing."""
+        e = _post(writable, scan=1)
+        assert (
+            self._upload(
+                writable, e["entry_id"], "x.exe", b"MZ", "application/octet-stream"
+            ).status_code
+            == 415
+        )
+        big = b"\x00" * (20 * 1024 * 1024 + 1)
+        assert self._upload(writable, e["entry_id"], "big.png", big).status_code == 413
+        assert self._upload(writable, e["entry_id"], "e.png", b"").status_code == 422
+        assert self._upload(writable, "nope").status_code == 404
+
+    def test_serving_is_contained(self, writable: TestClient) -> None:
+        """No path escapes the entry's attachment directory."""
+        e = _post(writable, scan=1)
+        self._upload(writable, e["entry_id"])
+        for bad in (
+            "../../Scan001/shot.png",
+            "..%2F..%2Fshot.png",
+            "../../../scans/Scan001/ScanInfoScan001.ini",
+        ):
+            r = writable.get(
+                f"/log/attachments/2026-09-11/Scan001/{e['entry_id']}/{bad}"
+            )
+            assert r.status_code == 404, bad
+
+    def test_unresolvable_share_is_a_503(
+        self, writable: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Upload and serving say the share is down, rather than 500."""
+        from geecs_logbook import mirror
+
+        e = _post(writable, scan=1)
+
+        def no_share(*a: object, **k: object) -> Path:
+            raise mirror.MirrorUnavailable("gone")
+
+        monkeypatch.setattr(mirror, "logbook_root", no_share)
+        assert self._upload(writable, e["entry_id"]).status_code == 503
+        assert (
+            writable.get(
+                f"/log/attachments/2026-09-11/Scan001/{e['entry_id']}/x.png"
+            ).status_code
+            == 503
+        )

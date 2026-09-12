@@ -46,7 +46,7 @@
           {% if r.entry.template not in ('blank', 'scan_note', 'day_intro') %}
             <span class="chip chip-quiet">{{ r.entry.template }}</span>
           {% endif %}
-          <span class="stamp">{{ r.entry.created_at.strftime('%H:%M') }}{% if r.entry.edited_at %} · edited{% endif %}</span>
+          <span class="stamp" title="{{ r.entry.created_at.isoformat() }}">{{ r.entry.created_at.astimezone().strftime('%H:%M') }}{% if r.entry.edited_at %} · edited{% endif %}</span>
           {% if writable %}
           <span class="entry-tools">
             <button class="linkbtn" type="button" data-edit="{{ r.entry.entry_id }}">Edit</button>
@@ -60,7 +60,9 @@
         </div>
         {% endif %}
         <div class="entry-body">{{ r.html | safe }}</div>
-        <script type="text/plain" class="raw">{{ r.entry.body_md }}</script>
+        {# JSON, not text: a <script> body is raw text, so HTML-escaped
+           entities would come back literally into the editor. #}
+        <script type="application/json" class="raw">{{ r.entry.body_md | tojson }}</script>
       </div>
     </article>
     {% endfor %}
@@ -382,7 +384,9 @@ async function api(method, path, body){
     body: body ? JSON.stringify(body) : undefined });
   if (res.status === 204) return null;
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw Object.assign(new Error(data.detail?.message || data.detail || res.statusText), {status: res.status, data});
+  const d = data.detail;
+  const text = Array.isArray(d) ? d.map(x => x.msg || JSON.stringify(x)).join("; ") : (d?.message || d || res.statusText);
+  if (!res.ok) throw Object.assign(new Error(text), {status: res.status, data});
   return data;
 }
 function fail(el, err){
@@ -433,7 +437,7 @@ document.addEventListener("click", async ev => {
   }
   if (b.dataset.edit){
     const art = document.getElementById("entry-" + b.dataset.edit);
-    const main = art.querySelector(".entry-main"), raw = art.querySelector(".raw").textContent;
+    const main = art.querySelector(".entry-main"), raw = JSON.parse(art.querySelector(".raw").textContent);
     const bodyEl = main.querySelector(".entry-body");
     if (main.querySelector("form.editing")) return;
     const form = document.createElement("form"); form.className = "composer editing";

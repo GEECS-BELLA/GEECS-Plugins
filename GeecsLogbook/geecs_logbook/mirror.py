@@ -14,7 +14,7 @@ the share::
           attachments/e7f2a1/
             jet-trace.png
         after-Scan003/                  interscan entries
-          1210-agonsalves-b91c04.md
+          1210-toperator-b91c04.md
 
 Why a sibling of ``scans/``
 ---------------------------
@@ -48,7 +48,9 @@ from __future__ import annotations
 
 import json
 import logging
+import contextlib
 import os
+import tempfile
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Optional, Union
@@ -129,9 +131,12 @@ def entry_path(entry: LogEntry, root: Path) -> Path:
 
     The name is stable across edits — it carries the *creation* time, the
     author and the id, none of which change — so an edit overwrites the
-    same file rather than leaving a trail.
+    same file rather than leaving a trail. The time is the host's local
+    time (the unit sets ``TZ`` from ``site.env``), the same clock the
+    scan folders and the day itself are named by, so a listing sorts the
+    way the day ran.
     """
-    stamp = entry.created_at.astimezone(timezone.utc).strftime("%H%M")
+    stamp = entry.created_at.astimezone().strftime("%H%M")
     author = "".join(c for c in entry.author.lower() if c.isalnum()) or "anon"
     return entry_dir(entry, root) / f"{stamp}-{author}-{entry.entry_id[:6]}.md"
 
@@ -200,10 +205,26 @@ def _atomic_write(path: Path, text: str) -> None:
 
     A reader on another machine either sees the old file or the new one,
     never half of each — the property a mirror on a shared drive needs.
+    The temp name is unique per call, so the periodic sync and a request
+    mirroring the same entry at the same moment cannot clobber each
+    other's half-written file.
     """
-    tmp = path.with_name(path.name + ".tmp")
-    tmp.write_text(text, encoding="utf-8")
-    os.replace(tmp, path)
+    _replace_with(path, text.encode("utf-8"))
+
+
+def _replace_with(path: Path, data: bytes) -> None:
+    """Write ``data`` to a uniquely named sibling, then rename over ``path``."""
+    fd, tmp_name = tempfile.mkstemp(
+        dir=path.parent, prefix=path.name + ".", suffix=".tmp"
+    )
+    try:
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(data)
+        os.replace(tmp_name, path)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp_name)
+        raise
 
 
 def write_entry(entry: LogEntry, root: Path) -> Path:
@@ -249,9 +270,7 @@ def write_attachment(entry: LogEntry, filename: str, data: bytes, root: Path) ->
     target = entry_dir(entry, root) / ATTACHMENTS_DIR / entry.entry_id / filename
     try:
         target.parent.mkdir(parents=True, exist_ok=True)
-        tmp = target.with_name(target.name + ".tmp")
-        tmp.write_bytes(data)
-        os.replace(tmp, target)
+        _replace_with(target, data)
     except OSError as exc:
         raise MirrorUnavailable(f"cannot write {target}: {exc}") from exc
     return attachment_link(entry, filename)
@@ -300,8 +319,13 @@ def sync(
                 write_entry(entry, root)
         except MirrorUnavailable as exc:
             logger.info("deferring %s: %s", entry.entry_id, exc)
+            store.mark_deferred(entry.entry_id)
             deferred += 1
             continue
-        store.mark_mirrored(entry.entry_id, datetime.now(timezone.utc))
+        # Pinned to the version this pass read: an edit that landed in
+        # between stays owed rather than being marked done under a stale file.
+        store.mark_mirrored(
+            entry.entry_id, datetime.now(timezone.utc), version=entry.version
+        )
         written += 1
     return written, deferred

@@ -1154,7 +1154,7 @@ One file uploaded with an entry — a pasted screenshot, a PDF.
 
 | Field | Type | Required | Default | What it does |
 |---|---|---|---|---|
-| `id` | `str` | yes | — | Opaque id; also the storage directory segment. |
+| `id` | `str` | yes | — | Opaque id of this upload. |
 | `filename` | `str` | yes | — | Name as stored on disk. |
 | `content_type` | `str` | yes | — | Media type, e.g. image/png. |
 | `size_bytes` | `int` | yes | — | Stored size in bytes. |

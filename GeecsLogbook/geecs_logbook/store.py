@@ -67,7 +67,8 @@ CREATE TABLE IF NOT EXISTS entries (
     deleted_at   TEXT,
     version      INTEGER NOT NULL DEFAULT 1,
     schema_version INTEGER NOT NULL DEFAULT 1,
-    mirrored_at  TEXT
+    mirrored_at  TEXT,
+    mirror_attempted_at TEXT
 );
 """
 
@@ -87,6 +88,7 @@ CREATE INDEX IF NOT EXISTS entries_unmirrored ON entries (mirrored_at)
 _ADDED_COLUMNS: tuple[tuple[str, str, str], ...] = (
     ("updated_at", "TEXT", "COALESCE(edited_at, created_at)"),
     ("deleted_at", "TEXT", "NULL"),
+    ("mirror_attempted_at", "TEXT", "NULL"),
 )
 
 
@@ -200,11 +202,18 @@ class NotesStore:
         because the share is down, but something has to notice and retry.
         Deleted entries are included — their owed operation is removing the
         file, and :func:`geecs_logbook.mirror.sync` knows which is which.
+
+        Never-tried entries come first, then the least recently tried: an
+        entry whose day folder never appears (a note on a day with no
+        scans) must not sit at the head of the queue forever and starve
+        the ones behind it. Callers record each failed try with
+        :meth:`mark_deferred`.
         """
         with self._connect() as conn:
             rows = conn.execute(
                 "SELECT * FROM entries WHERE mirrored_at IS NULL "
-                "ORDER BY created_at LIMIT ?",
+                "ORDER BY mirror_attempted_at IS NOT NULL, mirror_attempted_at,"
+                " created_at LIMIT ?",
                 (limit,),
             ).fetchall()
         return [_from_row(row) for row in rows]
@@ -321,29 +330,61 @@ class NotesStore:
         return self.get(entry_id)  # type: ignore[return-value]
 
     def add_attachment(self, entry_id: str, attachment: Attachment) -> LogEntry:
-        """Record a stored file against an entry."""
-        current = self.get(entry_id)
-        if current is None:
-            raise KeyError(entry_id)
-        manifest = [*current.attachments, attachment]
+        """Record a stored file against an entry.
+
+        One statement, appending in SQL: two uploads landing at once must
+        both reach the manifest, and a read-modify-write here would let the
+        second overwrite the first — a file on disk that no manifest names.
+        """
         with self._connect() as conn:
-            conn.execute(
-                "UPDATE entries SET attachments = ?, updated_at = ?,"
-                " version = version + 1, mirrored_at = NULL WHERE entry_id = ?",
+            cursor = conn.execute(
+                "UPDATE entries SET"
+                " attachments = json_insert(attachments, '$[#]', json(?)),"
+                " updated_at = ?, version = version + 1, mirrored_at = NULL"
+                " WHERE entry_id = ? AND deleted_at IS NULL",
                 (
-                    json.dumps([a.model_dump(mode="json") for a in manifest]),
+                    json.dumps(attachment.model_dump(mode="json")),
                     _now().isoformat(),
                     entry_id,
                 ),
             )
+            if cursor.rowcount == 0:
+                raise KeyError(entry_id)
         return self.get(entry_id)  # type: ignore[return-value]
 
-    def mark_mirrored(self, entry_id: str, when: Optional[datetime] = None) -> None:
-        """Record that an entry's markdown reached the share."""
+    def mark_mirrored(
+        self,
+        entry_id: str,
+        when: Optional[datetime] = None,
+        *,
+        version: Optional[int] = None,
+    ) -> bool:
+        """Record that an entry's markdown reached the share.
+
+        With ``version``, only if the entry is still at that version: a
+        writer that mirrored what it read must not mark an edit that landed
+        in between as done. Returns whether the mark was applied.
+        """
+        with self._connect() as conn:
+            if version is None:
+                cursor = conn.execute(
+                    "UPDATE entries SET mirrored_at = ? WHERE entry_id = ?",
+                    ((when or _now()).isoformat(), entry_id),
+                )
+            else:
+                cursor = conn.execute(
+                    "UPDATE entries SET mirrored_at = ?"
+                    " WHERE entry_id = ? AND version = ?",
+                    ((when or _now()).isoformat(), entry_id, version),
+                )
+        return cursor.rowcount > 0
+
+    def mark_deferred(self, entry_id: str) -> None:
+        """Record a failed mirror attempt, so the queue rotates past it."""
         with self._connect() as conn:
             conn.execute(
-                "UPDATE entries SET mirrored_at = ? WHERE entry_id = ?",
-                ((when or _now()).isoformat(), entry_id),
+                "UPDATE entries SET mirror_attempted_at = ? WHERE entry_id = ?",
+                (_now().isoformat(), entry_id),
             )
 
     def delete(self, entry_id: str) -> bool:

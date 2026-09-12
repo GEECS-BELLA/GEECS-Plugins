@@ -32,15 +32,16 @@ from __future__ import annotations
 
 import logging
 import time
+import uuid
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from typing import Literal, Optional, Union
+from typing import Optional, Union
 
 from fastapi import APIRouter, HTTPException, Request, Response, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
-from geecs_schemas.log_entry import Attachment, LogEntry
+from geecs_schemas.log_entry import Attachment, EntryKind, EntryStatus, LogEntry
 from pydantic import BaseModel, Field
 
 from geecs_logbook import mirror
@@ -90,8 +91,8 @@ class EntryCreate(BaseModel):
     author: str = Field(min_length=1, max_length=120)
     body_md: str = Field(max_length=200_000)
     template: str = Field("blank", max_length=64)
-    kind: Literal["note", "agent_analysis", "agent_draft"] = "note"
-    status: Literal["kept", "draft"] = "kept"
+    kind: EntryKind = "note"
+    status: EntryStatus = "kept"
     payload: Optional[dict] = None
 
 
@@ -106,7 +107,7 @@ class EntryUpdate(BaseModel):
 class StatusUpdate(BaseModel):
     """Keep or un-keep an entry — a human act on unchanged text."""
 
-    status: Literal["kept", "draft"]
+    status: EntryStatus
 
 
 @dataclass(frozen=True)
@@ -304,7 +305,10 @@ def create_log_router(
     def _attachment(day: str, scope: str, entry_id: str, filename: str) -> FileResponse:
         """Serve an uploaded file from ``logbook/`` on the share."""
         _parse_day(day)
-        root = mirror.logbook_root(day, experiment, base_directory)
+        try:
+            root = mirror.logbook_root(day, experiment, base_directory)
+        except mirror.MirrorUnavailable as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
         base = (root if scope == "day" else root / scope).resolve()
         target = (base / mirror.ATTACHMENTS_DIR / entry_id / filename).resolve()
         if (
@@ -341,8 +345,11 @@ def create_log_router(
             )
         except mirror.MirrorUnavailable as exc:
             logger.info("mirror deferred for %s: %s", entry.entry_id, exc)
+            store.mark_deferred(entry.entry_id)
             return
-        store.mark_mirrored(entry.entry_id, datetime.now(timezone.utc))
+        store.mark_mirrored(
+            entry.entry_id, datetime.now(timezone.utc), version=entry.version
+        )
 
     @router.post("/api/entries", status_code=201)
     def _create(body: EntryCreate) -> LogEntry:
@@ -411,11 +418,14 @@ def create_log_router(
         return Response(status_code=204)
 
     @router.post("/api/entries/{entry_id}/attachments", status_code=201)
-    async def _upload(entry_id: str, file: UploadFile) -> dict:
+    def _upload(entry_id: str, file: UploadFile) -> dict:
         """Store an uploaded file beside the entry and return its link.
 
         Unlike text, bytes live only on the share, so this one write does
         need the share up — a 503 says so plainly rather than pretending.
+        A plain ``def`` on purpose: the share write runs in the threadpool
+        like every other route, instead of stalling the event loop for the
+        length of a 20 MiB write over SMB.
         """
         entry = store.get(entry_id)
         if entry is None:
@@ -427,7 +437,7 @@ def create_log_router(
                 detail=f"unsupported type {file.content_type!r}; "
                 f"accepted: {', '.join(sorted(_ATTACHMENT_TYPES))}",
             )
-        data = await file.read(_MAX_ATTACHMENT_BYTES + 1)
+        data = file.file.read(_MAX_ATTACHMENT_BYTES + 1)
         if len(data) > _MAX_ATTACHMENT_BYTES:
             raise HTTPException(
                 status_code=413,
@@ -444,9 +454,16 @@ def create_log_router(
             )
             or "upload"
         )
+        # Every clipboard paste arrives as image.png: number the repeats
+        # rather than overwrite the last one on disk.
+        taken = {a.filename for a in entry.attachments}
         filename = f"{stem}{ext}"
-        root = mirror.logbook_root(entry.day, experiment, base_directory)
+        n = 2
+        while filename in taken:
+            filename = f"{stem}-{n}{ext}"
+            n += 1
         try:
+            root = mirror.logbook_root(entry.day, experiment, base_directory)
             link = mirror.write_attachment(entry, filename, data, root)
         except mirror.MirrorUnavailable as exc:
             raise HTTPException(
@@ -454,13 +471,16 @@ def create_log_router(
             ) from exc
 
         attachment = Attachment(
-            id=entry.entry_id,
+            id=uuid.uuid4().hex[:12],
             filename=filename,
             content_type=file.content_type or "application/octet-stream",
             size_bytes=len(data),
             uploaded_at=datetime.now(timezone.utc),
         )
-        updated = store.add_attachment(entry_id, attachment)
+        try:
+            updated = store.add_attachment(entry_id, attachment)
+        except KeyError as exc:  # deleted between the check and the write
+            raise HTTPException(status_code=404, detail="no such entry") from exc
         _mirror(updated)
         return {"attachment": attachment.model_dump(mode="json"), "link": link}
 
