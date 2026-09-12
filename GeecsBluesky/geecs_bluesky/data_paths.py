@@ -34,6 +34,15 @@ def read_config_entry(
     return cfg[section].get(key) or None
 
 
+def pva_addr_tokens(raw: str | None) -> list[str]:
+    """The hosts of a ``[pva]`` address-list value: space- or comma-separated, in order, de-duplicated."""
+    tokens: list[str] = []
+    for token in (raw or "").replace(",", " ").split():
+        if token not in tokens:
+            tokens.append(token)
+    return tokens
+
+
 def _read_paths_entry(key: str) -> str | None:
     return read_config_entry("Paths", key)
 

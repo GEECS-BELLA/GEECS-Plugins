@@ -35,7 +35,11 @@ from ophyd_async.core._path_providers import generate_directory_uri
 from ophyd_async.epics.adcore import NDFileHDF5IO
 from ophyd_async.epics.core import PvSuffix
 
-from geecs_bluesky.data_paths import plugin_save_path, read_config_entry
+from geecs_bluesky.data_paths import (
+    plugin_save_path,
+    pva_addr_tokens,
+    read_config_entry,
+)
 
 
 class GeecsHdfIO(NDFileHDF5IO):
@@ -93,4 +97,4 @@ def file_plugin_hosts(config_path: Path | None = None) -> set[str] | None:
     raw = read_config_entry("pva", "file_plugin_addr_list", config_path)
     if raw is None:
         return None
-    return {token for token in raw.replace(",", " ").split() if token}
+    return set(pva_addr_tokens(raw))

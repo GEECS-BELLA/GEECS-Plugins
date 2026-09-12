@@ -194,7 +194,8 @@ failure after the claim.
 `launch_re_manager.sh` (Redis + the bluesky-0MQ-proxy document stream +
 `start-re-manager --keep-re`), `startup/startup.py` (imports
 `geecs_bluesky` first — load-bearing, it sets `EPICS_CA_ADDR_LIST` before
-libca's context exists; builds `RE` through `make_run_engine(tiled=True,
+libca's context exists and `EPICS_PVA_ADDR_LIST` from the `[pva]` hosts
+before the first plugin signal connects; builds `RE` through `make_run_engine(tiled=True,
 sfile=True)`; publishes documents to the proxy; exports the namespace and
 the plans — `plan_names.GEECS_PLAN_NAMES`: the stock verbs bound strict,
 `mv`, and `run_action` (a named plan from the experiment's `actions.yaml`
@@ -255,8 +256,10 @@ PNG retirement (#738).
 
 ## Configuration
 
-`~/.config/geecs_python_api/config.ini`: `[epics] ca_addr_list`,
-`[tiled] uri / api_key`, `[Paths]` (data root and the configs repo;
+`~/.config/geecs_python_api/config.ini`: `[epics] ca_addr_list`, `[pva]
+addr_list` + `file_plugin_addr_list` (both exported into
+`EPICS_PVA_ADDR_LIST` at import, `epics_env`; the second is also the
+namespace's plugin rule), `[tiled] uri / api_key`, `[Paths]` (data root and the configs repo;
 `geecs_pva_plugin_data_base_path` = the data root as the camera servers'
 file-plugin *service* sees it, UNC), `[pva] file_plugin_addr_list` (the
 camera servers whose gateway serves the file plugin; the rollout knob),

@@ -194,6 +194,10 @@ uri = $GEECS_TILED_URI
 [epics]
 ca_addr_list = $EPICS_CA_ADDR_LIST
 
+[pva]
+addr_list = ${GEECS_PVA_ADDR_LIST:-}
+file_plugin_addr_list = ${GEECS_PVA_FILE_PLUGIN_ADDR_LIST:-}
+
 [qserver]
 host = $GEECS_QSERVER_HOST
 doc_addr = $GEECS_QS_DOC_ADDR
