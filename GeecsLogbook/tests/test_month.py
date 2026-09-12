@@ -99,10 +99,14 @@ class TestMonthPage:
         monkeypatch.setattr(_common, "read_day", no_share)
         # The mirror sync writes to the share on the request thread; the
         # day page pays that debt, this page must not (review of #842).
-        monkeypatch.setattr(_common.mirror, "sync", no_share)
-        monkeypatch.setattr(_common, "SYNC_INTERVAL_S", 0.0)
+        # Patched at Context.maybe_sync, not mirror.sync: maybe_sync
+        # swallows anything the sync raises, so a pin one level down
+        # would stay green if the call were re-added to the route.
+        monkeypatch.setattr(_common.Context, "maybe_sync", no_share)
         _ops(app, "2026-09-11", "still here")
         assert "still here" in app.get("/log/month/2026-09").text
+        with pytest.raises(AssertionError):
+            app.get("/log/day/2026-09-11")  # the day page does call it
 
     def test_tag_chips_filter_through_the_url(self, app: TestClient) -> None:
         """Chips count the whole month; the list shows the filtered part."""
