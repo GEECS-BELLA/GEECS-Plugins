@@ -523,7 +523,16 @@ def test_bound_plan_refuses_bad_mode_and_a_throttled_gated_run(
         RE(count([a], 1, acquisition="gated", shot_period=2.0))
     with pytest.raises(GeecsConfigurationError, match="positive"):
         RE(count([a], 1, shot_period=0))
+    # Codex review of #850: the stock repeat loop would sleep `delay` after
+    # every no-op iteration of the batch hook — refused, like shot_period
+    with pytest.raises(GeecsConfigurationError, match="delay=4.0 is a strict-mode"):
+        RE(count([a], 5, 4.0, acquisition="gated"))
+    with pytest.raises(GeecsConfigurationError, match="strict-mode spacing"):
+        RE(count([a], 3, delay=[0.0, 2.0], acquisition="gated"))
     assert box.scan_runs == 0 and box.fires == 0
+    # zero (the default, or an explicit zero list) is fine
+    RE(count([a], 2, 0.0, acquisition="gated"))
+    assert box.scan_runs == 1
 
 
 def test_shot_period_throttles_strict_fires(

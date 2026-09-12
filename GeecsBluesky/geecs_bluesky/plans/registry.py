@@ -300,6 +300,18 @@ def strict_plan(
                     raise GeecsConfigurationError(
                         "a gated count needs a finite num (the batch size)"
                     )
+                delay = bound_args.get("delay", 0.0)
+                if _has_delay(delay):
+                    # The stock repeat loop sleeps `delay` after every one of
+                    # its `num` iterations, and the gated hook does its work
+                    # on the first only — the run would idle (num-1)×delay
+                    # after the batch.  A delay between shots is a strict
+                    # notion; the batch runs at the box's rate.
+                    raise GeecsConfigurationError(
+                        f"delay={delay!r} is a strict-mode spacing between shots: a "
+                        "gated count is one batch at the box's rate (drop delay "
+                        "or use acquisition='strict')"
+                    )
                 kwargs[hook] = gated_per_shot(shot_control, quota=int(num))
         elif hook == "per_step":
             kwargs[hook] = geecs_per_step(
@@ -357,6 +369,18 @@ def strict_plan(
     return plan
 
 
+def _has_delay(delay: Any) -> bool:
+    """Whether a ``count`` ``delay`` argument would make the repeat loop sleep."""
+    if delay is None:
+        return False
+    if isinstance(delay, (int, float)):
+        return delay > 0
+    try:
+        return any(float(d) > 0 for d in delay)
+    except TypeError:
+        return True  # an unknown shape: refuse rather than idle
+
+
 def _geecs_doc(stock: Callable[..., Any], hook: str) -> str:
     extra = (
         "    trigger_profile : str, optional\n"
@@ -380,7 +404,8 @@ def _geecs_doc(stock: Callable[..., Any], hook: str) -> str:
         "        its own '<name>_stream'; never waited on.\n"
         "    shot_period : float, optional\n"
         "        Strict only: seconds between fires (a deliberate rep-rate\n"
-        "        throttle); None fires as fast as the shot allows.\n"
+        "        throttle); None fires as fast as the shot allows.  A gated\n"
+        "        count refuses a nonzero delay for the same reason.\n"
     )
     return (
         f"GEECS {stock.__name__}: the stock plan with the trigger box driven "
