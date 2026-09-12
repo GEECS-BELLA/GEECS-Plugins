@@ -14,8 +14,9 @@ Two implementations live here:
   lazily inside the methods (module import-safe without the ``tiled``
   extra, matching :mod:`geecs_data_utils.tiled_export`); the day listing
   is one metadata-only search on the ``start.time`` range (+ experiment
-  key), and a run's event table is read with the repo-blessed pattern
-  ``run["primary"].read()`` (see ``GeecsBluesky/TILED_SETUP.md``).
+  key), and a run's event table is the primary stream's **scalar table
+  only** (:func:`read_primary_scalars` — never ``run["primary"].read()``,
+  which downloads every array part; see ``GeecsBluesky/TILED_SETUP.md``).
 
 Connection details are constructor arguments (pure);
 :meth:`TiledScanCatalog.from_config` reads ``[tiled]`` from the shared
@@ -427,10 +428,10 @@ class TiledScanCatalog:
         Returns
         -------
         RunDetail
-            Start/stop docs and the primary event stream (the repo-blessed
-            ``run["primary"].read()`` composite-container pattern,
-            flattened to a pandas DataFrame; ``data=None`` when the run
-            has no primary stream).
+            Start/stop docs and the primary event stream's **scalar**
+            columns as a pandas DataFrame (:func:`read_primary_scalars` —
+            the stream's array parts are never downloaded); ``data=None``
+            when the run has no primary stream or no event rows.
 
         Raises
         ------
@@ -447,13 +448,8 @@ class TiledScanCatalog:
         stop_doc = dict(metadata.get("stop") or {})
         data = None
         try:
-            dataset = run["primary"].read()
-            if dataset.sizes:
-                data = dataset.to_dataframe().reset_index()
-            else:
-                # A dimensionless dataset — an aborted or legacy run whose
-                # stream holds no event rows — has no index for a frame;
-                # ``to_dataframe`` raises. Same contract as "no stream".
+            data = read_primary_scalars(run["primary"])
+            if data is None:
                 logger.info("run %s primary stream has no event rows", uid)
         except KeyError:
             logger.info("run %s has no primary stream", uid)
@@ -463,6 +459,53 @@ class TiledScanCatalog:
             stop_doc=stop_doc,
             data=data,
         )
+
+
+def read_primary_scalars(primary: Any) -> Optional[Any]:
+    """The primary stream's scalar table(s) only — its array parts are never read.
+
+    A Bluesky run's ``primary`` node is a Tiled composite: one ``internal``
+    table (the event rows' scalar columns) plus one array node per external
+    data key (camera stacks, per-frame attributes).  ``primary.read()``
+    downloads every part and ``to_dataframe()`` then takes the outer
+    product of every array's dimensions — one 5×600×600 stack survives,
+    two stacks of different shapes multiply into billions of rows (a
+    two-camera plugin run took the worker host down, 2026-09-11).  So the
+    table parts are read by name through ``primary.base`` and the arrays
+    are left where they are.
+
+    Parameters
+    ----------
+    primary :
+        The run's ``primary`` node (a Tiled ``CompositeClient``).
+
+    Returns
+    -------
+    pandas.DataFrame or None
+        The scalar columns, one row per event; ``None`` for a stream with
+        no table part or no rows (an aborted or legacy run).  Typed loosely
+        so pandas stays a lazy import of this module.
+    """
+    tables = [
+        part
+        for part, item in primary.get_contents().items()
+        if item["attributes"]["structure_family"] == "table"
+    ]
+    if not tables:
+        return None
+    frames = []
+    for part in tables:
+        frame = primary.base[part].read()
+        if hasattr(frame, "compute"):
+            frame = frame.compute()
+        frames.append(frame)
+    if len(frames) == 1:
+        data = frames[0]
+    else:
+        import pandas as pd
+
+        data = pd.concat(frames, axis=1)
+    return data.reset_index(drop=True) if len(data) else None
 
 
 def resolve_scan_folder(detail: RunDetail, day: date) -> Optional[Path]:

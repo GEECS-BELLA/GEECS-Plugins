@@ -145,10 +145,14 @@ def _fetch_run(uid: str, tiled_uri: str, tiled_api_key: Optional[str]):
             "(pip install 'geecs-data-utils[tiled]') to export scalar files"
         ) from exc
 
+    from geecs_data_utils.tiled_catalog import read_primary_scalars
+
     client = from_uri(tiled_uri, api_key=tiled_api_key)
     run = client[uid]
     start_doc = dict(run.metadata.get("start") or {})
-    primary_df = run["primary"].read().to_dataframe().reset_index()
+    primary_df = read_primary_scalars(run["primary"])
+    if primary_df is None:
+        primary_df = pd.DataFrame()
     return start_doc, primary_df
 
 

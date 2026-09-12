@@ -4,6 +4,20 @@ All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
+## [0.29.1] - 2026-09-11
+
+### Fixed
+
+- **`TiledScanCatalog.load_run` and the Tiled → s-file export read the
+  primary stream's scalar table only** (`tiled_catalog.read_primary_scalars`).
+  Both used `run["primary"].read().to_dataframe()`, which downloads every
+  array part of the composite node — camera stacks and per-frame
+  attributes included — and then takes the outer product of every array's
+  dimensions: a two-camera plugin run (Scan008 of 26_0911) multiplied into
+  billions of rows and took the worker host down twice, through the
+  portal's run page.  The table parts are now read by name through
+  `primary.base`; array parts are never touched.
+
 ## [0.29.0] - 2026-09-11
 
 ### Changed
