@@ -239,7 +239,12 @@ class GeecsAcquireLogic(DetectorAcquireLogic):
         self.missed = False
         #: Fly mode (a gated batch or a non-essential stream): the plugin's
         #: count is the completion, so the stamp wait is skipped.  Set by
-        #: ``GeecsDetector.kickoff``, cleared by ``trigger``.
+        #: ``GeecsDetector.kickoff``, cleared by ``trigger``.  ONE flag per
+        #: device, shared by the detector, its ``.scalars`` view and anything
+        #: else that triggers through this logic: a device kicked off for a
+        #: stream while something triggers it would silently lose the stamp
+        #: wait — the bound plan refuses a device in both lists for that
+        #: reason (by owner, the view included).
         self.fly = False
         #: The plan abandoned the step in flight (an immediate pause, a
         #: stalled neighbour): a pending ``complete`` settles quietly.

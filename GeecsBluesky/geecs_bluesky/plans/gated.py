@@ -65,6 +65,7 @@ from typing import Any, Callable
 
 import bluesky.plan_stubs as bps
 from bluesky.preprocessors import (
+    contingency_wrapper,
     finalize_wrapper,
     plan_mutator,
     rewindable_wrapper,
@@ -138,6 +139,34 @@ def shot_clock(devices: Sequence[Any]) -> tuple[Any, str]:
     )
 
 
+def refuse_native_essentials(devices: Sequence[Any]) -> None:
+    """Refuse a LabVIEW-native camera as an essential detector of a gated run.
+
+    The preflight's rule, worker-side: a gated batch counts frames the
+    plugin writes, and a camera without one can neither count nor stream.
+    Called by the bound plan at bind time (before the run is claimed or
+    anything moves) and by the step itself.
+
+    Raises
+    ------
+    GeecsConfigurationError
+        Naming the cameras.
+    """
+    native = [
+        d
+        for d in devices
+        if isinstance(d, GeecsDetector) and d.native_save and not d.plugin_backed
+    ]
+    if native:
+        names = ", ".join(d._geecs_device_name for d in native)
+        raise GeecsConfigurationError(
+            f"gated acquisition: essential camera(s) without a file plugin: "
+            f"{names} — a gated batch counts frames the plugin writes; a "
+            "LabVIEW-native camera cannot. Use acquisition='strict' or "
+            "record its scalars only (save_images: false)."
+        )
+
+
 def gated_take_reading(
     shot_control: Any,
     *,
@@ -174,15 +203,7 @@ def gated_take_reading(
             d for d in devices if isinstance(d, GeecsDetector) and d.plugin_backed
         ]
         members = [d for d in devices if d not in plugin]
-        native = [m for m in members if isinstance(m, GeecsDetector) and m.native_save]
-        if native:
-            names = ", ".join(m._geecs_device_name for m in native)
-            raise GeecsConfigurationError(
-                f"gated acquisition: essential camera(s) without a file plugin: "
-                f"{names} — a gated batch counts frames the plugin writes; a "
-                "LabVIEW-native camera cannot. Use acquisition='strict' or "
-                "record its scalars only (save_images: false)."
-            )
+        refuse_native_essentials(members)
         sampler = state["sampler"]
         if sampler is None:
             clock, clock_name = shot_clock(devices)
@@ -387,9 +408,26 @@ def non_essential_wrapper(plan: Any, flyers: Sequence[Any]) -> Any:
         yield from bps.kickoff_all(*flyers, wait=True)
 
     def before_close():
-        yield from bps.complete_all(*flyers, wait=True)
+        # Nothing waits on a non-essential device — a plugin whose gateway
+        # went away mid-run must not fail the run at its close: each flyer's
+        # complete + collect is its own contingency, logged and skipped.
         for flyer in flyers:
-            yield from bps.collect(flyer, name=stream_name(flyer))
+
+            def one(flyer=flyer):
+                yield from bps.complete(flyer, wait=True)
+                yield from bps.collect(flyer, name=stream_name(flyer))
+
+            def skip(exc, flyer=flyer):
+                logger.warning(
+                    "non-essential %s: complete/collect failed at the run's close "
+                    "(%s: %s) — its stream carries what it wrote",
+                    flyer.name,
+                    type(exc).__name__,
+                    exc,
+                )
+                yield from bps.null()
+
+            yield from contingency_wrapper(one(), except_plan=skip, auto_raise=False)
 
     def insert_after_open(msg: Msg):
         if msg.command == "open_run":
@@ -432,9 +470,9 @@ __all__ = [
     "TRIGGER_PERIOD_S",
     "gated_per_shot",
     "gated_per_step",
-    "run_bracket",
     "gated_take_reading",
     "non_essential_wrapper",
+    "refuse_native_essentials",
     "run_bracket",
     "shot_clock",
 ]

@@ -515,9 +515,7 @@ def test_bound_plan_refuses_bad_mode_and_a_throttled_gated_run(
 ) -> None:
     a, _ = _plugin_camera(RE, box, "UC_A", tmp_path)
     count = bind_plans(profiles)["count"]
-    with pytest.raises(
-        GeecsConfigurationError, match="both as a detector and as non-essential"
-    ):
+    with pytest.raises(GeecsConfigurationError, match="both as a detector"):
         RE(count([a], 1, non_essential=[a]))
     with pytest.raises(GeecsConfigurationError, match="acquisition='sloppy'"):
         RE(count([a], 1, acquisition="sloppy"))
@@ -621,3 +619,60 @@ def test_non_essential_wrapper_without_flyers_is_the_plan(
 
 def _all_docs(col: DocCollector) -> list[tuple[str, dict[str, Any]]]:
     return col.ordered
+
+
+def test_scalars_view_essential_with_its_owner_non_essential_is_refused(
+    RE: RunEngine, box: GatedBox, profiles: TriggerProfiles, tmp_path: Path
+) -> None:
+    """Review of #850 R2: the same camera twice, by owner — its one fly flag would lie."""
+    a, _ = _plugin_camera(RE, box, "UC_A", tmp_path)
+    count = bind_plans(profiles)["count"]
+    with pytest.raises(GeecsConfigurationError, match="scalars view"):
+        RE(count([a.scalars], 2, non_essential=[a]))
+    assert box.fires == 0
+
+
+def test_native_essential_is_refused_before_the_run_opens(
+    RE: RunEngine, box: GatedBox, profiles: TriggerProfiles, tmp_path: Path
+) -> None:
+    """Review of #850 R1: the bound plan refuses at bind time — no run, no claim, no move."""
+    plugin, _ = _plugin_camera(RE, box, "UC_A", tmp_path)
+    native = _camera(RE, box, "UC_Native", native_save=True)
+    col = DocCollector()
+    RE.subscribe(col)
+    count = bind_plans(profiles)["count"]
+    with pytest.raises(GeecsConfigurationError, match="file plugin: UC_Native"):
+        RE(count([plugin, native], 2, acquisition="gated"))
+    assert col.docs["start"] == []  # refused before open_run
+    assert box.states == []  # the box was never driven
+
+
+def test_non_essential_that_fails_at_the_close_does_not_fail_the_run(
+    RE: RunEngine, box: GatedBox, profiles: TriggerProfiles, tmp_path: Path, caplog
+) -> None:
+    """Review of #850 R4: a plugin whose complete/collect raises at close is logged and skipped."""
+    import logging
+
+    a = _camera(RE, box, "UC_A")
+    b, _ = _plugin_camera(RE, box, "UC_B", tmp_path)
+
+    original = b.complete
+
+    def failing_complete():
+        from ophyd_async.core import AsyncStatus
+
+        async def boom():
+            raise ConnectionError("hdf1 PVs unreachable")
+
+        return AsyncStatus(boom())
+
+    b.complete = failing_complete
+    col = DocCollector()
+    RE.subscribe(col)
+    caplog.set_level(logging.WARNING, logger="geecs_bluesky.plans.gated")
+    count = bind_plans(profiles)["count"]
+    RE(count([a], 2, non_essential=[b]))
+    assert col.docs["stop"][-1]["exit_status"] == "success"
+    assert len(_stream_events(col, "primary")) == 2
+    assert any("non-essential uc_b" in r.getMessage() for r in caplog.records)
+    b.complete = original

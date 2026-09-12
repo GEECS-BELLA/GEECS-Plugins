@@ -80,6 +80,7 @@ from geecs_bluesky.plans.gated import (
     gated_per_shot,
     gated_per_step,
     non_essential_wrapper,
+    refuse_native_essentials,
     run_bracket,
     shot_clock,
 )
@@ -265,12 +266,17 @@ def strict_plan(
         )
         bound_args = signature.bind_partial(*args, **kwargs).arguments
         detectors = list(bound_args.get("detectors") or ())
-        both = [d for d in non_essential if d in detectors]
+        # Compared by OWNER: ``X.scalars`` essential with ``X`` non-essential
+        # is the same camera twice — its one acquire logic would be in fly
+        # mode for the stream while the view expects the strict stamp wait.
+        owners = {id(getattr(d, "_owner", d)) for d in detectors}
+        both = [d for d in non_essential if id(getattr(d, "_owner", d)) in owners]
         if both:
             names = ", ".join(getattr(d, "name", str(d)) for d in both)
             raise GeecsConfigurationError(
-                f"{names}: listed both as a detector and as non-essential — a "
-                "device is waited on every shot or streamed for the run, not both"
+                f"{names}: listed both as a detector (or its scalars view) and as "
+                "non-essential — a device is waited on every shot or streamed "
+                "for the run, not both"
             )
         md = dict(kwargs.pop("md", None) or {})
         # The key the plan resolved (the configs-repo file stem), not the
@@ -282,6 +288,7 @@ def strict_plan(
         if shot_period is not None:
             md["shot_period"] = shot_period
         if acquisition == "gated":
+            refuse_native_essentials(detectors)  # before the claim, before any move
             md["shot_clock"] = shot_clock(detectors)[1]
             if hook == "per_step":
                 kwargs[hook] = gated_per_step(
