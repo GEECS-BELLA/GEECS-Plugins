@@ -73,6 +73,8 @@ project adheres to semantic versioning.
 - Day navigation: a date picker, previous/next-day steps, a "back to today"
   link, and quick links centred on the shown date so stepping forward is as
   easy as stepping back.
+- The page's palette comes from `geecs_web_theme`; `scanlog.css` defines no
+  tokens of its own, and the picker in the top bar switches every surface.
 - `CLAUDE.md` records the deferred decisions from phase 01's review,
   including the owed issue to review `ScanPaths`/`ScanData` and extract
   their pure parts — the price of the duplication accepted here.

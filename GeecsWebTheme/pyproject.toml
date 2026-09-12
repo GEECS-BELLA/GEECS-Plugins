@@ -1,0 +1,21 @@
+[tool.poetry]
+name = "geecs-web-theme"
+version = "0.1.0"
+description = "One palette vocabulary for every GEECS web surface: tokens, themes, and the picker"
+authors = ["GEECS-BELLA"]
+readme = "README.md"
+packages = [{ include = "geecs_web_theme" }]
+include = ["geecs_web_theme/static/*"]
+
+[tool.poetry.dependencies]
+# No runtime dependencies on purpose. This package is a stylesheet, a small
+# script and a path helper — anything that can serve a static file can use
+# it, and nothing it serves should ever need a Python import to work.
+python = ">=3.11,<3.12"
+
+[tool.poetry.group.dev.dependencies]
+pytest = ">=8.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
