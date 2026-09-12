@@ -73,6 +73,7 @@ def create_editor_router(
     *,
     preview: Optional[PreviewFn] = None,
     read_only: bool = False,
+    theme_url: Optional[str] = None,
 ) -> APIRouter:
     """Build the editor router over *store*.
 
@@ -85,6 +86,13 @@ def create_editor_router(
         without it ``POST /api/preview`` is 404 and the page hides the pane.
     read_only : bool, default False
         Serve the browser and validation but refuse writes (405).
+    theme_url : str, optional
+        Base URL of a mounted ``geecs_web_theme`` (the Data Portal serves
+        one at ``/theme``). Given it, the page adopts the shared palette
+        and its picker, so a viewer's choice follows them between the
+        portal and this editor. Without it the page keeps a self-contained
+        fallback palette — this editor also runs standalone, where no host
+        is serving a theme.
     """
     router = APIRouter()
 
@@ -99,7 +107,11 @@ def create_editor_router(
         return _TEMPLATES.TemplateResponse(
             request,
             "editor.html",
-            {"preview": preview is not None, "read_only": read_only},
+            {
+                "preview": preview is not None,
+                "read_only": read_only,
+                "theme_url": theme_url,
+            },
         )
 
     @router.get("/static/{name}")

@@ -3,6 +3,18 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.23.0] - 2026-09-11
+
+### Changed
+
+- The portal draws its colours from `geecs_web_theme` rather than its own
+  seven inline tokens, and serves that package's stylesheet and picker at
+  `/theme` for every surface mounted in this app. **The portal's appearance
+  changes**: it was dark-only and now offers three palettes, each with a
+  light and a dark variant, defaulting to `laser` following the system.
+- `--config-editor` passes the theme URL through, so the config editor
+  adopts the same palette and the choice follows a viewer between pages.
+
 ## [0.22.0] - 2026-09-11
 
 ### Added

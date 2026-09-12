@@ -4,19 +4,42 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>GEECS analysis config editor</title>
+{% if theme_url %}
+<script>
+  /* Stamp the stored palette before first paint, so the page does not
+     render in the default theme for a frame and then jump. */
+  (function () {
+    try {
+      var r = document.documentElement;
+      r.setAttribute("data-theme", localStorage.getItem("geecs.theme") || "laser");
+      var m = localStorage.getItem("geecs.mode");
+      if (m && m !== "system") r.setAttribute("data-mode", m);
+    } catch (e) { /* private window: the defaults are fine */ }
+  })();
+</script>
+<link rel="stylesheet" href="{{ theme_url }}/theme.css">
+{% endif %}
 <link rel="stylesheet" href="static/editor.css">
 <style>
+{% if not theme_url %}
+  /* Standalone fallback only. Mounted in a host that serves the shared
+     theme, the block above wins and these never apply. */
   :root {
-    --bg: #12161a; --panel: #1a2026; --panel2: #20272e; --line: #2c353d;
-    --ink: #dde4ea; --dim: #8a95a0; --accent: #4cc2b4; --err: #cf5347;
+    --paper: #12161a; --surface: #1a2026; --surface-2: #20272e; --rule: #2c353d;
+    --ink: #dde4ea; --muted: #8a95a0; --accent: #4cc2b4; --err: var(--crit);
+    --crit: #cf5347; --warn: #d9a441; --on-accent: #0c1114;
+    --ff-ui: system-ui, -apple-system, "Segoe UI", sans-serif;
+    --ff-mono: ui-monospace, Menlo, monospace;
   }
+{% endif %}
   * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--ink);
-         font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
-  header { background: var(--panel); border-bottom: 1px solid var(--line);
+  body { margin: 0; background: var(--paper); color: var(--ink);
+         font: 14px/1.5 var(--ff-ui); }
+  header .spacer { margin-left: auto; }
+  header { background: var(--surface); border-bottom: 1px solid var(--rule);
            padding: 0.6rem 1.2rem; display: flex; gap: 1rem; align-items: baseline; }
   header .brand { font-weight: 600; color: var(--accent); }
-  header .sub { color: var(--dim); font-size: 12px; }
+  header .sub { color: var(--muted); font-size: 12px; }
   main { padding: 0.8rem 1.2rem; }
   #editor { height: calc(100vh - 5rem); }
 </style>
@@ -25,6 +48,7 @@
 <header>
   <span class="brand">GEECS analysis configs</span>
   <span class="sub">{% if read_only %}read-only browser{% else %}editor — saves write the configs tree; commit them yourself{% endif %}</span>
+  {% if theme_url %}<span class="spacer"></span><div data-theme-picker></div>{% endif %}
 </header>
 <main>
   <div id="editor"></div>
@@ -40,5 +64,6 @@
     layout: "page",
   });
 </script>
+{% if theme_url %}<script src="{{ theme_url }}/theme.js" defer></script>{% endif %}
 </body>
 </html>

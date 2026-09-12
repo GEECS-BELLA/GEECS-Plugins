@@ -1,38 +1,60 @@
-<!doctype html>
+{#
+  The portal shell.
+
+  Colours come entirely from GeecsWebTheme's tokens — nothing here defines
+  one. That is what lets the palette be switched from the picker below and
+  tweaked in one file, and it is enforced by
+  GeecsWebTheme/tests/test_no_literal_colours.py.
+#}<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{% block title %}GEECS Data Portal{% endblock %}</title>
+<script>
+  /* Stamp the stored palette before first paint. Without this the page
+     renders in the default theme for a frame and then jumps. */
+  (function () {
+    try {
+      var r = document.documentElement;
+      r.setAttribute("data-theme", localStorage.getItem("geecs.theme") || "laser");
+      var m = localStorage.getItem("geecs.mode");
+      if (m && m !== "system") r.setAttribute("data-mode", m);
+    } catch (e) { /* private window: the defaults are fine */ }
+  })();
+</script>
+<link rel="stylesheet" href="{{ url_for('theme', path='/theme.css') }}">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
 <style>
-  :root {
-    --bg: #12161a; --panel: #1a2026; --panel2: #20272e; --line: #2c353d;
-    --ink: #dde4ea; --dim: #8a95a0; --accent: #4cc2b4;
-  }
   * { box-sizing: border-box; }
   body {
-    margin: 0; background: var(--bg); color: var(--ink);
-    font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+    margin: 0; background: var(--paper); color: var(--ink);
+    font: 14px/1.5 var(--ff-ui);
   }
   header {
-    background: var(--panel); border-bottom: 1px solid var(--line);
-    padding: 0.6rem 1.2rem; display: flex; gap: 1rem; align-items: baseline;
+    background: var(--surface); border-bottom: 1px solid var(--rule);
+    padding: 0.6rem 1.2rem; display: flex; gap: 1rem; align-items: center;
   }
   header .brand { font-weight: 600; color: var(--accent); }
-  header .sub { color: var(--dim); font-size: 12px; }
+  header .sub { color: var(--muted); font-size: 12px; }
+  header .spacer { margin-left: auto; }
   main { max-width: 68rem; margin: 1.2rem auto; padding: 0 1.2rem; }
   a { color: var(--accent); text-decoration: none; }
   a:hover { text-decoration: underline; }
-  table { border-collapse: collapse; width: 100%; background: var(--panel); }
-  th, td { padding: 0.4rem 0.7rem; border-bottom: 1px solid var(--panel2); text-align: left; }
-  th { color: var(--dim); font-size: 12px; font-weight: 600; }
-  tr:hover td { background: var(--panel2); }
+  table { border-collapse: collapse; width: 100%; background: var(--surface); }
+  th, td { padding: 0.4rem 0.7rem; border-bottom: 1px solid var(--rule-soft); text-align: left; }
+  th { color: var(--muted); font-size: 12px; font-weight: 600; }
+  tr:hover td { background: var(--surface-2); }
   .nav { display: flex; gap: 1rem; align-items: baseline; margin: 0 0 1rem; }
-  .error { color: #cf5347; font-family: ui-monospace, monospace; font-size: 12px; }
-  .dim { color: var(--dim); }
-  .mono { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 12px; }
-  img.plot { max-width: 100%; background: #fff; border: 1px solid var(--line); border-radius: 4px; }
-  h1 { font-size: 1.25rem; } h2 { font-size: 1rem; color: var(--dim); }
+  .error { color: var(--crit); font-family: var(--ff-mono); font-size: 12px; }
+  .dim { color: var(--muted); }
+  .mono { font-family: var(--ff-mono); font-size: 12px; }
+  /* matplotlib renders onto white, so the frame matches its own ground
+     rather than the page's — the one place a fixed colour is correct. */
+  img.plot { max-width: 100%; background: #fff; border: 1px solid var(--rule); border-radius: 4px; }
+  h1 { font-size: 1.25rem; } h2 { font-size: 1rem; color: var(--muted); }
 </style>
 {% block head %}{% endblock %}
 </head>
@@ -40,9 +62,12 @@
 <header>
   <span class="brand">GEECS Data Portal</span>
   <span class="sub">read-only scan browser</span>
+  <span class="spacer"></span>
+  <div data-theme-picker></div>
 </header>
 <main>
 {% block content %}{% endblock %}
 </main>
+<script src="{{ url_for('theme', path='/theme.js') }}" defer></script>
 </body>
 </html>

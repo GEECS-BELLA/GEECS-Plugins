@@ -3,6 +3,16 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.21.1] - 2026-09-11
+
+### Changed
+
+- `create_editor_router` takes an optional `theme_url`. Given one (the Data
+  Portal passes `/theme`), the editor adopts the shared `geecs_web_theme`
+  palette and its picker instead of its own copied tokens. Without one it
+  keeps a self-contained fallback palette, because the editor also runs
+  standalone where no host serves a theme.
+
 ## [1.21.0] - 2026-09-08
 
 ### Fixed

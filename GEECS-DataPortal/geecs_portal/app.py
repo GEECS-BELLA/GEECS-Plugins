@@ -419,6 +419,14 @@ def create_app(
     # The one committed JS asset: the version-pinned vendored Plotly
     # bundle (doctrine amendment 2026-08-30 — still no npm, no CDN).
     app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
+
+    # The shared palette every GEECS web surface draws from. Mounted here
+    # because the portal is the host: the config editor and the scan
+    # logbook are routers inside this app, so one mount serves all three
+    # and a viewer's choice follows them between pages.
+    from geecs_web_theme import static_dir as _theme_dir
+
+    app.mount("/theme", StaticFiles(directory=str(_theme_dir())), name="theme")
     # Per-app pixel cache: completed runs' shot data kept in memory so
     # within-scan navigation never re-reads the share (owner doctrine,
     # 2026-08-29 — lazy stays the rule ACROSS scans only).
@@ -1881,6 +1889,7 @@ def create_app(
                 create_editor_router(
                     ConfigStore(Path(processing_config_dir)),
                     preview=_config_editor_preview,
+                    theme_url="/theme",
                 ),
                 prefix="/configs",
             )

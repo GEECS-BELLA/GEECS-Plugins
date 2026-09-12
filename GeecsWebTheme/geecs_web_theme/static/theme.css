@@ -1,0 +1,284 @@
+/* GEECS web theme — one palette vocabulary for every web surface.
+ *
+ * Every component in every surface styles THROUGH these names and never
+ * with a literal colour. That single discipline is what makes adding or
+ * tweaking a theme a block of overrides rather than a hunt through
+ * component rules, and tests/test_no_literal_colours.py enforces it.
+ *
+ * Two attributes select a palette:
+ *   data-theme="bella|laser|plasma"   which palette
+ *   data-mode="light|dark"            or absent, to follow the system
+ *
+ * The bare :root block is a complete light palette so the page is never
+ * unstyled before theme.js stamps the attributes.
+ */
+:root{
+  --paper:#f7f4f4;
+  --surface:#ffffff;
+  --surface2:#f0eaeb;
+  --ink:#171113;
+  --slate:#5c4a4e;
+  --muted:#8d7a7e;
+  --rule:#e2d7d9;
+  --rule-soft:#efe8e9;
+  --accent:#b3122b;
+  --accent-soft:#fbe9ec;
+  --on-accent:#ffffff;
+  --agent:#8a5a12;
+  --agent-soft:#fbf1de;
+  --agent-rule:#e4c98d;
+  --ok:#2b7a55;
+  --ok-soft:#e3f2ea;
+  --warn:#a8560a;
+  --warn-soft:#fcefe0;
+  --crit:#8c1020;
+  --crit-soft:#fae6e9;
+  --shadow:0 1px 2px rgba(17,24,33,.06), 0 4px 14px rgba(17,24,33,.05);
+  --ff-ui:"IBM Plex Sans",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
+  --ff-mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  --ff-prose:"Source Serif 4",Georgia,"Times New Roman",serif;
+  --r:6px;
+  color-scheme:light dark;
+}
+
+/* ---- bella ---- */
+:root[data-theme="bella"]{
+  --paper:#f7f4f4;
+  --surface:#ffffff;
+  --surface2:#f0eaeb;
+  --ink:#171113;
+  --slate:#5c4a4e;
+  --muted:#8d7a7e;
+  --rule:#e2d7d9;
+  --rule-soft:#efe8e9;
+  --accent:#b3122b;
+  --accent-soft:#fbe9ec;
+  --on-accent:#ffffff;
+  --agent:#8a5a12;
+  --agent-soft:#fbf1de;
+  --agent-rule:#e4c98d;
+  --ok:#2b7a55;
+  --ok-soft:#e3f2ea;
+  --warn:#a8560a;
+  --warn-soft:#fcefe0;
+  --crit:#8c1020;
+  --crit-soft:#fae6e9;
+  --shadow:0 1px 2px rgba(17,24,33,.06), 0 4px 14px rgba(17,24,33,.05);
+}
+:root[data-theme="bella"][data-mode="dark"]{
+  --paper:#0d0b0c;
+  --surface:#161213;
+  --surface2:#1f191b;
+  --ink:#eee6e8;
+  --slate:#b09ba0;
+  --muted:#7d6c70;
+  --rule:#322a2c;
+  --rule-soft:#241e20;
+  --accent:#e8556d;
+  --accent-soft:#2b1519;
+  --on-accent:#1a0d10;
+  --agent:#d9a94e;
+  --agent-soft:#2a2213;
+  --agent-rule:#5c4a22;
+  --ok:#61b98c;
+  --ok-soft:#14241c;
+  --warn:#d9954e;
+  --warn-soft:#2a2013;
+  --crit:#f07082;
+  --crit-soft:#2e1418;
+  --shadow:0 1px 2px rgba(0,0,0,.45), 0 4px 14px rgba(0,0,0,.35);
+}
+@media (prefers-color-scheme:dark){
+  :root[data-theme="bella"]:not([data-mode="light"]){
+  --paper:#0d0b0c;
+  --surface:#161213;
+  --surface2:#1f191b;
+  --ink:#eee6e8;
+  --slate:#b09ba0;
+  --muted:#7d6c70;
+  --rule:#322a2c;
+  --rule-soft:#241e20;
+  --accent:#e8556d;
+  --accent-soft:#2b1519;
+  --on-accent:#1a0d10;
+  --agent:#d9a94e;
+  --agent-soft:#2a2213;
+  --agent-rule:#5c4a22;
+  --ok:#61b98c;
+  --ok-soft:#14241c;
+  --warn:#d9954e;
+  --warn-soft:#2a2013;
+  --crit:#f07082;
+  --crit-soft:#2e1418;
+  --shadow:0 1px 2px rgba(0,0,0,.45), 0 4px 14px rgba(0,0,0,.35);
+  }
+}
+
+/* ---- laser ---- */
+:root[data-theme="laser"]{
+  --paper:#f4f8f5;
+  --surface:#ffffff;
+  --surface2:#e9f2ec;
+  --ink:#0d1710;
+  --slate:#46604f;
+  --muted:#77907f;
+  --rule:#d5e5da;
+  --rule-soft:#e6f0e9;
+  --accent:#0f8a3e;
+  --accent-soft:#e1f6e9;
+  --on-accent:#ffffff;
+  --agent:#8a5a12;
+  --agent-soft:#fbf1de;
+  --agent-rule:#e4c98d;
+  --ok:#0f8a3e;
+  --ok-soft:#e1f6e9;
+  --warn:#a8560a;
+  --warn-soft:#fcefe0;
+  --crit:#b31f1f;
+  --crit-soft:#fbe8e8;
+  --shadow:0 1px 2px rgba(17,24,33,.06), 0 4px 14px rgba(17,24,33,.05);
+}
+:root[data-theme="laser"][data-mode="dark"]{
+  --paper:#070b08;
+  --surface:#0f1611;
+  --surface2:#16201a;
+  --ink:#e2f0e6;
+  --slate:#9bb3a3;
+  --muted:#6d8377;
+  --rule:#23332a;
+  --rule-soft:#1a2620;
+  --accent:#3ee27a;
+  --accent-soft:#0e2417;
+  --on-accent:#03130a;
+  --agent:#d9a94e;
+  --agent-soft:#2a2213;
+  --agent-rule:#5c4a22;
+  --ok:#3ee27a;
+  --ok-soft:#0e2417;
+  --warn:#e0a44e;
+  --warn-soft:#2a2113;
+  --crit:#ff5a5a;
+  --crit-soft:#2e1313;
+  --shadow:0 1px 2px rgba(0,0,0,.45), 0 4px 14px rgba(0,0,0,.35);
+}
+@media (prefers-color-scheme:dark){
+  :root[data-theme="laser"]:not([data-mode="light"]){
+  --paper:#070b08;
+  --surface:#0f1611;
+  --surface2:#16201a;
+  --ink:#e2f0e6;
+  --slate:#9bb3a3;
+  --muted:#6d8377;
+  --rule:#23332a;
+  --rule-soft:#1a2620;
+  --accent:#3ee27a;
+  --accent-soft:#0e2417;
+  --on-accent:#03130a;
+  --agent:#d9a94e;
+  --agent-soft:#2a2213;
+  --agent-rule:#5c4a22;
+  --ok:#3ee27a;
+  --ok-soft:#0e2417;
+  --warn:#e0a44e;
+  --warn-soft:#2a2113;
+  --crit:#ff5a5a;
+  --crit-soft:#2e1313;
+  --shadow:0 1px 2px rgba(0,0,0,.45), 0 4px 14px rgba(0,0,0,.35);
+  }
+}
+
+/* ---- plasma ---- */
+:root[data-theme="plasma"]{
+  --paper:#f8f5fc;
+  --surface:#ffffff;
+  --surface2:#f0eaf8;
+  --ink:#150e21;
+  --slate:#55496b;
+  --muted:#8479a0;
+  --rule:#e0d6ee;
+  --rule-soft:#ece5f5;
+  --accent:#0e7f9b;
+  --accent-soft:#e2f4fa;
+  --on-accent:#ffffff;
+  --agent:#a0217a;
+  --agent-soft:#fbe7f4;
+  --agent-rule:#e9a8d3;
+  --ok:#2b7a55;
+  --ok-soft:#e3f2ea;
+  --warn:#a8560a;
+  --warn-soft:#fcefe0;
+  --crit:#a62b22;
+  --crit-soft:#fbeae8;
+  --shadow:0 1px 2px rgba(17,24,33,.06), 0 4px 14px rgba(17,24,33,.05);
+}
+:root[data-theme="plasma"][data-mode="dark"]{
+  --paper:#0a0712;
+  --surface:#130d1f;
+  --surface2:#1c1430;
+  --ink:#ebe4f7;
+  --slate:#a99bc4;
+  --muted:#7d6f99;
+  --rule:#2d2347;
+  --rule-soft:#211936;
+  --accent:#4fd4ee;
+  --accent-soft:#0e2733;
+  --on-accent:#04171d;
+  --agent:#f062c0;
+  --agent-soft:#2c1226;
+  --agent-rule:#6b2a56;
+  --ok:#61b98c;
+  --ok-soft:#14241c;
+  --warn:#d9954e;
+  --warn-soft:#2a2013;
+  --crit:#ff6b7a;
+  --crit-soft:#2e1418;
+  --shadow:0 1px 2px rgba(0,0,0,.45), 0 4px 14px rgba(0,0,0,.35);
+}
+@media (prefers-color-scheme:dark){
+  :root[data-theme="plasma"]:not([data-mode="light"]){
+  --paper:#0a0712;
+  --surface:#130d1f;
+  --surface2:#1c1430;
+  --ink:#ebe4f7;
+  --slate:#a99bc4;
+  --muted:#7d6f99;
+  --rule:#2d2347;
+  --rule-soft:#211936;
+  --accent:#4fd4ee;
+  --accent-soft:#0e2733;
+  --on-accent:#04171d;
+  --agent:#f062c0;
+  --agent-soft:#2c1226;
+  --agent-rule:#6b2a56;
+  --ok:#61b98c;
+  --ok-soft:#14241c;
+  --warn:#d9954e;
+  --warn-soft:#2a2013;
+  --crit:#ff6b7a;
+  --crit-soft:#2e1418;
+  --shadow:0 1px 2px rgba(0,0,0,.45), 0 4px 14px rgba(0,0,0,.35);
+  }
+}
+
+
+/* ---------------------------------------------------------------
+   The picker itself, and the few primitives every surface shares.
+   Everything here styles through the tokens above.
+----------------------------------------------------------------*/
+.themepick{display:flex;align-items:center;gap:2px;border:1px solid var(--rule);
+  border-radius:var(--r);padding:2px;background:var(--surface)}
+.themepick .th{display:flex;align-items:center;gap:5px;font:inherit;font-size:11.5px;
+  font-family:var(--ff-ui);border:0;background:transparent;color:var(--muted);
+  border-radius:4px;padding:4px 8px;cursor:pointer;white-space:nowrap}
+.themepick .th:hover{color:var(--ink);background:var(--surface-2)}
+.themepick .th.is-on{color:var(--ink);background:var(--surface-2);font-weight:600}
+.themepick .th:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.themepick .th-sep{width:1px;height:16px;background:var(--rule);margin:0 3px}
+.themepick .sw{width:10px;height:10px;border-radius:50%;flex:none;
+  box-shadow:inset 0 0 0 1px rgba(127,127,127,.35)}
+/* The swatches are the one legitimate place for literal colours: each must
+   show ITS palette regardless of which one is active. */
+.themepick .sw-bella{background:linear-gradient(135deg,#b3122b 50%,#1a1416 50%)}
+.themepick .sw-laser{background:linear-gradient(135deg,#3ee27a 50%,#b31f1f 50%)}
+.themepick .sw-plasma{background:linear-gradient(135deg,#4fd4ee 50%,#f062c0 50%)}
+@media (max-width:640px){.themepick .th-label{display:none}}
