@@ -10,7 +10,6 @@ one level up.
 Requires the ``ca`` extra (``aioca``): ``poetry install --extras ca``.
 """
 
-from geecs_bluesky.devices.ca.action_signals import CaActionSignalFactory
 from geecs_bluesky.devices.ca.confirm import CaConfirmSettable
 from geecs_bluesky.devices.ca.motor import CaMotor
 from geecs_bluesky.devices.ca.pseudo import CaPseudoMovable
@@ -18,7 +17,6 @@ from geecs_bluesky.devices.ca.settable import CaSettable
 from geecs_bluesky.devices.ca.snapshot import CaSnapshotReadable
 
 __all__ = [
-    "CaActionSignalFactory",
     "CaConfirmSettable",
     "CaMotor",
     "CaPseudoMovable",

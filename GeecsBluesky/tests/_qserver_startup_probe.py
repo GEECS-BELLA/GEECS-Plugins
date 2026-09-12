@@ -109,6 +109,14 @@ def main() -> None:
                 _fail("ns['mv'] is not bluesky's mv")
                 return
             continue
+        if name == "run_action":
+            if (
+                plan.__name__ != name
+                or "name" not in inspect.signature(plan).parameters
+            ):
+                _fail("ns['run_action'] is not the action-library plan")
+                return
+            continue
         if plan is getattr(bp, name) or plan.__name__ != name:
             _fail(f"ns[{name!r}] is not the strict-bound {name}")
             return

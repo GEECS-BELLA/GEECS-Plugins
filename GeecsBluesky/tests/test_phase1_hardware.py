@@ -121,7 +121,7 @@ def test_plan_layer_in_process_on_hardware() -> None:
     from geecs_bluesky.devices.ca.oneshot import try_caget_once
     from geecs_bluesky.namespace import GeecsNamespace
     from geecs_bluesky.plans.claim_scan import GeecsScanPathProvider
-    from geecs_bluesky.plans.registry import TriggerProfiles, bind_strict_plans
+    from geecs_bluesky.plans.registry import TriggerProfiles, bind_plans
     from geecs_bluesky.run_engine import make_run_engine
 
     t_build = time.monotonic()
@@ -138,7 +138,7 @@ def test_plan_layer_in_process_on_hardware() -> None:
         path_provider=provider,
         telemetry=namespace.telemetry(),
     )
-    plans = bind_strict_plans(profiles)
+    plans = bind_plans(profiles)
     camera = namespace[CAMERA]
     assert camera.native_save, f"{CAMERA} has no native saving controls in the DB"
     motor = namespace.resolve(SWEEP)

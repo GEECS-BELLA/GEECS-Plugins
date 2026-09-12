@@ -91,7 +91,7 @@ def test_plugin_camera_count_on_hardware() -> None:
     from geecs_bluesky.config_resolver import ConfigsRepoResolver
     from geecs_bluesky.namespace import GeecsNamespace
     from geecs_bluesky.plans.claim_scan import GeecsScanPathProvider
-    from geecs_bluesky.plans.registry import TriggerProfiles, bind_strict_plans
+    from geecs_bluesky.plans.registry import TriggerProfiles, bind_plans
     from geecs_bluesky.run_engine import make_run_engine
     from geecs_data_utils.io.scan_stack import (
         LABVIEW_EPOCH_OFFSET,
@@ -120,7 +120,7 @@ def test_plugin_camera_count_on_hardware() -> None:
         path_provider=provider,
         telemetry=namespace.telemetry(),
     )
-    plans = bind_strict_plans(profiles)
+    plans = bind_plans(profiles)
     print(
         f"\nbuilt in {time.monotonic() - t_build:.1f} s: {len(namespace)} devices; "
         f"{CAMERA} plugin PVs at {camera.hdf.capture.source}"

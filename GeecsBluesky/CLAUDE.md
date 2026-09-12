@@ -53,14 +53,15 @@ geecs_bluesky/
                             #   profile's states, Pausable; CaPutSetter + the writes
   devices/ca/               # scalar devices + settable children: CaSnapshotReadable,
                             #   CaSettable, CaMotor, CaConfirmSettable, CaPseudoMovable,
-                            #   CaActionSignalFactory, gateway_put, oneshot, liveness
+                            #   gateway_put, oneshot, liveness
   plans/strict.py           # geecs_take_reading (the fire between trigger and wait),
                             #   geecs_per_step (shots_per_step + bin_number), geecs_per_shot
   plans/registry.py         # the registration table: stock plan names bound strict,
+                            #   mv, run_action (the action library over the namespace),
                             #   TriggerProfiles (one ShotControl per configs-repo profile)
   plans/claim_scan.py       # the day-scoped claim (the ONE folder creator), the
                             #   claim_scan preprocessor, GeecsScanPathProvider
-  plans/action_compiler.py  # ActionPlan → plan stubs
+  plans/action_compiler.py  # ActionPlan → plan stubs; the namespace is its SettableFactory
   run_engine.py             # make_run_engine: RE + claim + headers + baseline + callbacks
   preprocessors.py          # connect_on_demand (installed outermost), scalar_headers
   callbacks.py              # ScanInfo ini, the s-file, scan.log, the stack check — per run, best-effort
@@ -195,9 +196,12 @@ failure after the claim.
 `geecs_bluesky` first — load-bearing, it sets `EPICS_CA_ADDR_LIST` before
 libca's context exists; builds `RE` through `make_run_engine(tiled=True,
 sfile=True)`; publishes documents to the proxy; exports the namespace and
-the stock plans — `plan_names.GEECS_PLAN_NAMES`, which the manager
-discovers as every generator function in the namespace, so never import a
-stray generator into the profile), `user_group_permissions.yaml`, and
+the plans — `plan_names.GEECS_PLAN_NAMES`: the stock verbs bound strict,
+`mv`, and `run_action` (a named plan from the experiment's `actions.yaml`
+compiled to stubs over the namespace devices; no run opened, nothing
+claimed) — which the manager discovers as every generator function in the
+namespace, so never import a stray generator into the profile),
+`user_group_permissions.yaml`, and
 `deploy/` (the manager and `geecs-qserver-ready` units + runbook).  **A
 running service means ready (#793)**: the readiness unit runs
 `geecs-qserver-ensure-ready` after every manager start — wait, open if

@@ -8,7 +8,6 @@ for the trigger box.
 """
 
 from .ca import (
-    CaActionSignalFactory,
     CaConfirmSettable,
     CaMotor,
     CaPseudoMovable,
@@ -19,7 +18,6 @@ from .detector import GeecsDetector
 from .shot_control import ShotControl
 
 __all__ = [
-    "CaActionSignalFactory",
     "CaConfirmSettable",
     "CaMotor",
     "CaPseudoMovable",

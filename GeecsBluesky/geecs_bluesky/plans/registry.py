@@ -32,6 +32,17 @@ express: the deprecated aliases (``relative_scan`` for ``rel_scan`` …) and
 ``scan_nd`` (a ``Cycler`` argument) are left out.
 :data:`~geecs_bluesky.plan_names.GEECS_PLAN_NAMES` pins the list for the
 import-light readers; ``tests/test_plan_registry.py`` asserts the two agree.
+
+The two non-scan queue items
+----------------------------
+``mv`` is the stock stub — a manual move as a queue item.  ``run_action``
+(:func:`~geecs_bluesky.plans.action_compiler.run_action_plan`) runs a named
+plan from the experiment's action library (``actions.yaml``): the steps compile to plain stubs
+(:mod:`geecs_bluesky.plans.action_compiler`) over the device namespace,
+which hands out each ``(device, variable)`` as the settable child or the
+readable signal it already is — no run is opened, so nothing is claimed
+and no file is written.  Neither takes a detector list, so a preset cannot
+name them.
 """
 
 from __future__ import annotations
@@ -49,7 +60,8 @@ from geecs_schemas.trigger_profile import TriggerState
 
 from geecs_bluesky.devices.shot_control import ShotControl
 from geecs_bluesky.exceptions import GeecsConfigurationError
-from geecs_bluesky.plan_names import GEECS_PLAN_NAMES
+from geecs_bluesky.plan_names import GEECS_PLAN_NAMES, NON_SCAN_PLAN_NAMES
+from geecs_bluesky.plans.action_compiler import SettableFactory, run_action_plan
 from geecs_bluesky.plans.strict import geecs_per_shot, geecs_per_step
 from geecs_bluesky.utils import safe_name
 
@@ -280,17 +292,27 @@ def _geecs_doc(stock: Callable[..., Any], hook: str) -> str:
     )
 
 
-def bind_strict_plans(profiles: TriggerProfiles) -> dict[str, Callable[..., Any]]:
+def bind_plans(
+    profiles: TriggerProfiles,
+    *,
+    resolver: Any | None = None,
+    settables: SettableFactory | None = None,
+) -> dict[str, Callable[..., Any]]:
     """Every name in :data:`GEECS_PLAN_NAMES` → the plan the worker registers.
 
     The scan verbs come back bound through :func:`strict_plan`; ``mv`` is
-    the stock stub (a manual move as a queue item, nothing strict about it).
+    the stock stub (a manual move as a queue item, nothing strict about it);
+    ``run_action`` is :func:`run_action_plan` over *resolver* and
+    *settables* (the namespace).
     """
     bound: dict[str, Callable[..., Any]] = {}
     for name in GEECS_PLAN_NAMES:
         if name == "mv":
             bound[name] = bps.mv
+        elif name == "run_action":
+            bound[name] = run_action_plan(resolver, settables)
         else:
+            assert name not in NON_SCAN_PLAN_NAMES
             bound[name] = strict_plan(getattr(bp, name), profiles)
     return bound
 
@@ -298,7 +320,7 @@ def bind_strict_plans(profiles: TriggerProfiles) -> dict[str, Callable[..., Any]
 __all__ = [
     "EXCLUDED_STOCK_PLANS",
     "TriggerProfiles",
-    "bind_strict_plans",
+    "bind_plans",
     "stock_plans_with_hook",
     "strict_plan",
 ]
