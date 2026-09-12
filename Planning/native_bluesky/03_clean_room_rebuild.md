@@ -207,8 +207,8 @@ Every DB device is one long-lived noun (#808, kept). Two classes:
   abstraction, §11.1), `Pausable` (state-dependent, §10.3: in strict mode
   the RE pausing simply stops the plan firing and the box stays ARMED —
   `pause()` does nothing; in gated mode edges flow on their own, so
-  `pause() → OFF` and `resume()` restores SCAN, and the plan then
-  repeats the interrupted step, §10.9;
+  `pause() → OFF` and `resume()` restores SCAN, and after an *immediate*
+  pause the plan repeats the interrupted step, §10.9;
   the RE calls these on every Pausable it has seen in a message, §7).
   **Not a flyer** (amended 2026-09-11, `08_gated_batch.md` §3): the box
   has no counter, so a `complete` of its own could not know when N shots
@@ -760,8 +760,8 @@ Still open, for Sam:
    not the 1 Hz mode; phase 2's gated batch is.  Recorded here so the
    cadence fix is scoped as "gated batch", not "a faster fire".
 9. ~~Phase-2 design awaiting Sam's answers to `08_gated_batch.md` §6~~
-   **Answered 2026-09-12 (Sam); `08` amended to match (its §4.2, §4.5,
-   §4.7, §5, §6).**  Two amendments already taken as read before:
+   **Answered 2026-09-12 (Sam); `08` amended to match (its §1, §3, §4.2,
+   §4.3, §4.5, §4.6, §4.7, §5, §6).**  Two amendments already taken as read before:
    the box is not a flyer (§4.A) and the non-essential list is per plan
    (§4.B).  The answers:
    - **Q1 — non-plugin devices in a gated run: a per-shot sampler, not

@@ -3,8 +3,8 @@
 **Status (2026-09-12): design, argued before code; Sam's answers to §6
 recorded 2026-09-12 (`03` §10.9) and folded in — the per-shot sampler
 (§4.7) replaces the per-step `steps` stream, an immediate pause repeats
-the step, orphan non-essential frames stay out of the s-file.** Phase 1 is complete
-and deployed (`03_clean_room_rebuild.md` §2). This document is the
+the step, orphan non-essential frames stay out of the s-file.**
+Phase 1 is complete and deployed (`03_clean_room_rebuild.md` §2). This document is the
 argument for phase 2 as `03` §8 lists it — the gated batch (the 1 Hz mode
 `05_phase1_acceptance.md` M6/M7 say strict single-shot is not) and the
 non-essential stream (free-run's second job, `03` §11.5) — with every
@@ -24,7 +24,7 @@ edges plus per-shot triggers are not exact).
 
 ## 1. What phase 2 delivers
 
-Two things, one mechanism each, and a preset field:
+Three things, one mechanism each, and a preset field:
 
 1. **Gated batch** — `acquisition="gated"` on the bound scan verbs.  The
    box free-runs in SCAN while the plugin-backed detectors *count* the
@@ -252,16 +252,18 @@ switches mode would change its plan name rather than one field.
 
 ### 4.2 Gated batch — `gated_take_reading`
 
-Per step (after `move_per_step`), for the essential detectors *D* (all
-plugin-backed — a detector without a streamable provider fails at
-`kickoff`, "not streamable", before the box moves) and the box *B*:
+Per step (after `move_per_step`), for *D* = the plugin-backed subset of
+the essential detectors (a camera without a streamable provider fails at
+`kickoff`, "not streamable", before the box moves), *S* = the per-shot
+sampler (§4.7), which carries every essential device that is not
+plugin-backed and every non-plugin device of the run, and the box *B*:
 
 ```
 prepare(D, TriggerInfo(EXTERNAL_EDGE, number_of_events=shots_per_step,
                        exposure_timeout=per-frame budget))     # capture on, count baselined
-prepare(S, quota=shots_per_step)                               # the sampler (§4.7): clock + columns
-declare_stream(*D, name="primary")        # first step only (needs describe_collect)
-declare_stream(S, name="shots")                                # first step only
+prepare(S, SamplerInfo(quota=shots_per_step))                  # the sampler (§4.7): clock + columns
+declare_stream(*D, name="primary", collect=True)  # first step only (describe_collect); D non-empty
+declare_stream(S, name="shots", collect=True)                  # first step only
 kickoff(D, wait=True)                                          # quota = shots_per_step
 kickoff(S, wait=True)                                          # sampler armed on the clock
 mv(B, SCAN)                                                    # edges flow
@@ -269,7 +271,7 @@ complete(D, S, wait=True)                                      # every D (and S)
 mv(B, OFF)                                                     # edges stop
 sleep(period + max drain offset + margin)                      # the in-flight frame lands
 wait_for(D.truncate_to_quota)                                  # Rewind to baseline + quota
-collect(*D, name="primary")                                    # one datum per D: the step's frames
+collect(*D, name="primary")                                    # one datum per D: the step's frames (D non-empty)
 collect(S, name="shots")                                       # one event per shot: everything else
 ```
 
@@ -402,14 +404,18 @@ unstage(NE)
   check callback reports frames vs referenced per stream as it does
   for primary.
 - **Non-essential requires a plugin** (a streamable provider), and so
-  does every essential detector of a *gated* run.  A LabVIEW-native
+  does every essential *camera* of a *gated* run.  A LabVIEW-native
   camera on a box without the plugin has no count and cannot fly; the
-  client preflight refuses either before submission (the manager's
+  client preflight refuses both before submission (the manager's
   device tree lists the `hdf` child of every plugin-backed detector — the
   existing reference walk in `submit_preflight.py` extended by one
-  membership rule, applied to both lists).  The `.scalars` view cannot
-  fly either; `essential: false` with `save_images: false` is refused at
-  expansion.
+  membership rule, applied to the non-essential list and to the
+  essential image devices of a gated run).  An essential triggered
+  *scalar* device (an ICT, an energy meter) is legal in gated mode: it
+  rides in the sampler (§4.7) and can be its clock; a gated run with no
+  essential triggered device at all is refused ("nothing counts shots;
+  use strict").  The `.scalars` view cannot fly either; `essential:
+  false` with `save_images: false` is refused at expansion.
 - Strict runs with a non-essential list: `discard_uncollected` in the
   partial-row path rewinds only the devices *of the shot*; the streams
   are untouched (they were never referenced per event).
@@ -494,7 +500,9 @@ devices → `detectors`; `essential: false` → `non_essential=[…]`
 `acquisition` like it carries `shots_per_step`.  The corpus needs no
 regeneration (defaults keep every preset strict and all-essential).
 The client preflight adds the `hdf`-child rule for non-essential
-references and, when `acquisition` is `gated`, for the essential ones.
+references and, when `acquisition` is `gated`, for the essential image
+devices — plus the shot-clock rule: at least one essential triggered
+device, camera or scalar (§4.7).
 
 ### 4.7 The per-shot sampler — every device that has no plugin
 
@@ -512,20 +520,22 @@ verbs (the protocols are Flyable + EventCollectable; every claim below
 is verified against the installed source in 2b, like §2's):
 
 - **Columns.**  Every non-plugin subscribed (`get='yes'`) signal of the
-  run's devices — the scalar-only devices whole, the triggered scalar
-  devices whole, and each plugin-backed camera's *non-image* signals
-  are **not** repeated here (they ride in its stack, §4.4) — plus the
-  scanned motors' readbacks and `BinCounter.bin_number`.  The sampler
+  run's devices — the scalar-only devices whole and the triggered scalar
+  devices whole — plus the scanned motors' readbacks and
+  `BinCounter.bin_number`.  A plugin-backed camera's own scalars are
+  **not** repeated here: they ride in its stack (§4.4).  The sampler
   keeps, per signal, the latest CA value **and its CA timestamp** from
-  the monitor cache the ophyd-async signals already hold.
+  the cache the signals' monitors hold once the sampler stages and
+  subscribes them.
 - **Clock.**  An essential *triggered* device's `acq_timestamp` — the
   signal strict waits on.  On each advance the sampler snapshots one
   row; triggered scalars carry their own stamp in the row, so the join
   (§4.5) stays exact when the clock camera's exposure is long.  For
   non-triggered devices "latest at the shot" is the strict semantics,
   within one publish period.
-- **Quota.**  `prepare(quota=shots_per_step)`; `complete` returns after
-  `quota` ticks, so the sampler can gate a step on its own: **a gated
+- **Quota.**  `prepare` takes the step's quota (`shots_per_step`, or
+  `num` for a gated `count`); `complete` returns after that many ticks,
+  so the sampler can gate a step on its own: **a gated
   run needs at least one essential triggered device, camera or scalar**
   (a U_S1H scan with an ICT and no camera is gated too).  A run with no
   triggered device is refused at preflight — "nothing counts shots; use
@@ -610,7 +620,7 @@ Recorded in `03` §10.9; the sections above are amended to match.
    lose every per-shot scalar.  Strict's rule, "the latest value into a
    row the trigger generated", one event per shot; the sampler also
    counts, so a gated run needs one essential *triggered* device
-   (camera or scalar) and no camera in particular.  Deadbands tossed.
+   (camera or scalar) — not a camera in particular.  Deadbands tossed.
 2. **"N frames each"** — accepted as the gated meaning of essential.
 3. **The subscribed list** rides in the stack (§4.4, PR 2a).
 4. **Orphan non-essential frames are dropped from the s-file**, kept in
