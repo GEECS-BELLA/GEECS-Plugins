@@ -4,6 +4,50 @@ All notable changes to `geecs-web-theme` are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 project adheres to semantic versioning.
 
+## [0.2.0] - 2026-09-12
+
+### Added
+
+- **`kit.css` — the layout vocabulary.** `theme.css` settled colour and
+  nothing else, so the portal and the logbook each answered the layout
+  questions separately and disagreed on all of them: two rails (17rem
+  fixed vs 228px sticky), fifteen status class names for about five
+  states, three overlay mechanisms, and a run page with no breakpoint at
+  all. The kit settles the shell (topbar / 216px rail / pane, one
+  breakpoint at 900px), three containers by role (`.panel`, `.group`,
+  `.well`), one status chip over six words, controls, tables, the five
+  states a pane owes its reader, and the overlay ladder. No consumer is
+  changed by this release — adoption is a separate step per surface.
+- **The overlay ladder**, as components rather than prose: `details.disc`
+  (rung 0), `.inspector` (1), `.drawer` (2), `<dialog>` (3), and a route
+  (4, which needs no CSS). The rule is to take the lowest rung that fits;
+  the decider is whether the user can lose work by pressing Esc.
+- **`kit.html` — the kit's reference page.** Every component in the real
+  theme, at whichever palette and density is picked. A static file beside
+  the stylesheets, so a host already mounting this package serves it at
+  `<mount>/kit.html` with no route of its own.
+- **`kit.js`** — the drawer (Esc, scrim, focus return), a `<dialog>`
+  helper with a fallback, and the density control, wired declaratively
+  through `data-drawer-open` / `data-dialog-open`. Entirely optional: with
+  it absent the page still renders and `<details>` still opens.
+- **Density as a viewer preference.** `theme-boot.js` stamps
+  `data-density` before first paint alongside the palette, and `kit.css`
+  redefines `--pad` / `--row-h` / `--gap` under `[data-density="compact"]`.
+  `geecs_web_theme.DENSITIES` / `DEFAULT_DENSITY` mirror the boot script
+  the way `THEMES` / `DEFAULT_THEME` already do, pinned by a test.
+- Structural tokens in `theme.css`: `--r-lg` (the panel corner, distinct
+  from `--r`, the control corner), `--bw`, `--tk`, `--pad`, `--row-h`,
+  `--gap`, `--shell-max`, `--scrim`, `--lift`. Declared in the bare
+  `:root` only, so every palette shares them until one wants its own.
+- `kit_css()`, `kit_js()`, `kit_html()` path helpers.
+
+### Changed
+
+- The literal-colour guard walks `kit.css`, `kit.html` and `kit.js`.
+- New tests: the kit introduces no token `theme.css` does not declare (one
+  vocabulary, not two); every asset `kit.html` references exists; the
+  density list agrees across Python, the boot script and the CSS.
+
 ## [0.1.2] - 2026-09-12
 
 ### Changed

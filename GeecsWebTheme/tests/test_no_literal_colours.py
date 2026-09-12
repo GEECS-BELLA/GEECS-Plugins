@@ -30,11 +30,16 @@ import pytest
 
 _REPO = Path(__file__).resolve().parents[2]
 _THEME_CSS = _REPO / "GeecsWebTheme/geecs_web_theme/static/theme.css"
+_KIT_CSS = _REPO / "GeecsWebTheme/geecs_web_theme/static/kit.css"
+_KIT_HTML = _REPO / "GeecsWebTheme/geecs_web_theme/static/kit.html"
 
 #: The web surfaces bound by the rule. Adding a surface means adding it
 #: here — a new page that skips the tokens should fail loudly, not quietly.
 _SURFACES = [
     "GeecsWebTheme/geecs_web_theme/static/theme.css",
+    "GeecsWebTheme/geecs_web_theme/static/kit.css",
+    "GeecsWebTheme/geecs_web_theme/static/kit.html",
+    "GeecsWebTheme/geecs_web_theme/static/kit.js",
     "GEECS-DataPortal/geecs_portal/templates/base.html",
     "GEECS-DataPortal/geecs_portal/templates/day.html",
     "GEECS-DataPortal/geecs_portal/templates/run.html",
@@ -278,8 +283,27 @@ def test_every_palette_defines_every_token() -> None:
     """
     blocks = _blocks(_THEME_CSS.read_text())
     assert len(blocks) >= 7, f"expected root + 3×(light,dark); found {list(blocks)}"
-    fonts = {"--ff-ui", "--ff-mono", "--ff-prose", "--r"}  # root-only by design
-    expected = max(blocks.values(), key=len) - fonts
+    # Root-only by design: a palette block carries colour, and these are
+    # the typeface and structure defaults every theme shares until one
+    # wants its own. Adding a palette override for one is a deliberate act
+    # — it means that theme reads differently, which is the point — and it
+    # then has to appear in every block, which this test will say.
+    root_only = {
+        "--ff-ui",
+        "--ff-mono",
+        "--ff-prose",
+        "--r",
+        "--r-lg",
+        "--bw",
+        "--tk",
+        "--pad",
+        "--row-h",
+        "--gap",
+        "--shell-max",
+        "--scrim",
+        "--lift",
+    }
+    expected = max(blocks.values(), key=len) - root_only
     for selector, tokens in sorted(blocks.items()):
         missing = expected - tokens
         assert not missing, f"{selector} is missing {sorted(missing)}"
@@ -343,3 +367,68 @@ def test_python_and_boot_script_agree_on_the_theme_list() -> None:
     css = _THEME_CSS.read_text()
     for name in THEMES:
         assert f':root[data-theme="{name}"]' in css, f"{name} has no CSS block"
+
+
+def test_python_and_boot_script_agree_on_the_density_list() -> None:
+    """``geecs_web_theme.DENSITIES`` and ``theme-boot.js`` agree, and the
+    kit implements every density that is not the default.
+
+    Same arrangement as the theme list, for the same reason: the JS stamps
+    the page, the Python is what a host reads, and a third copy of the
+    names lives in the CSS. The default needs no block — it is what
+    ``theme.css`` already defines.
+    """
+    import sys
+
+    sys.path.insert(0, str(_REPO / "GeecsWebTheme"))
+    from geecs_web_theme import DEFAULT_DENSITY, DENSITIES  # noqa: E402
+
+    boot = (_REPO / "GeecsWebTheme/geecs_web_theme/static/theme-boot.js").read_text()
+    js_list = re.findall(
+        r'"(\w+)"', re.search(r"densities:\s*\[([^\]]*)\]", boot).group(1)
+    )
+    js_default = re.search(r'defaultDensity:\s*"(\w+)"', boot).group(1)
+    assert js_list == list(DENSITIES), (js_list, list(DENSITIES))
+    assert js_default == DEFAULT_DENSITY, (js_default, DEFAULT_DENSITY)
+    assert DEFAULT_DENSITY in DENSITIES
+
+    kit = _KIT_CSS.read_text()
+    for name in DENSITIES:
+        if name == DEFAULT_DENSITY:
+            continue
+        assert f':root[data-density="{name}"]' in kit, f"{name} has no kit block"
+
+
+def test_kit_defines_no_token_the_theme_does_not() -> None:
+    """``kit.css`` overrides tokens; it never introduces one.
+
+    This is what keeps ``theme.css`` the single place to look for the
+    vocabulary. The kit legitimately redefines the spacing scale under
+    ``[data-density]`` and ``--shell-max`` on a wide shell — both are
+    overrides of tokens the theme already declares. A *new* name here
+    would be a second authority, and the next surface would have two
+    files to read instead of one.
+    """
+    theme_tokens: set[str] = set()
+    for tokens in _blocks(_THEME_CSS.read_text()).values():
+        theme_tokens |= tokens
+    kit_defined = set(re.findall(r"(--[\w-]+)\s*:", _KIT_CSS.read_text()))
+    introduced = kit_defined - theme_tokens
+    assert not introduced, (
+        f"kit.css introduces {sorted(introduced)} — declare it in theme.css "
+        "so there is one token vocabulary, not two"
+    )
+
+
+def test_kit_reference_page_assets_all_exist() -> None:
+    """Every file ``kit.html`` pulls in sits beside it.
+
+    The page is static and relative on purpose, so it works under any mount
+    prefix. That also means a renamed asset fails silently in a browser —
+    a blank page nobody sees until they open it. Here it fails loudly.
+    """
+    page = _KIT_HTML.read_text()
+    refs = re.findall(r'(?:src|href)="([^"#:]+)"', page)
+    assert refs, "kit.html references nothing — did the page lose its head?"
+    for ref in refs:
+        assert (_KIT_HTML.parent / ref).is_file(), f"kit.html references missing {ref}"

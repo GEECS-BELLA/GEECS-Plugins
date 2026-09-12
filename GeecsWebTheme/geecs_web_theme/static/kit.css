@@ -1,0 +1,447 @@
+/* GEECS surface kit — the layout vocabulary every web surface shares.
+ *
+ * theme.css settles COLOUR. This file settles everything else: the page
+ * skeleton, the three containers, the status chip, controls, tables, the
+ * five states a pane owes its reader, and the overlay ladder. It exists
+ * because the portal and the logbook each answered those questions
+ * separately and disagreed on all of them — two rails (17rem fixed vs
+ * 228px sticky), fifteen status class names for about five states, three
+ * overlay mechanisms, and one page with no breakpoint at all. A third
+ * surface (the console, once it is web-based) would have been a third
+ * set of answers.
+ *
+ * Rules this file lives by
+ * ------------------------
+ * - **It defines no colour token.** theme.css is the single token
+ *   authority; kit.css only consumes. tests/test_no_literal_colours.py
+ *   pins that both ways — a literal here fails, and a var() naming a
+ *   token theme.css does not define fails too.
+ * - **It ships no JavaScript dependency.** Every rule here works with
+ *   scripts off. kit.js adds the drawer, the dialog and the density
+ *   control; without it the page still renders and <details> still opens.
+ * - **Class names are the contract.** A surface adopting the kit deletes
+ *   its own rules and uses these names; it does not re-skin them. Where a
+ *   surface needs something genuinely its own, it adds a class of its own
+ *   rather than overriding one of these.
+ *
+ * The overlay ladder (see kit.html for working specimens): take the
+ * LOWEST rung that fits.
+ *   0  details.disc   inline disclosure — the default
+ *   1  .inspector     a persistent region that fills with the selection
+ *   2  .drawer        a focused sub-task on the current object
+ *   3  <dialog>       a question that blocks everything else
+ *   4  a route        anything the user could lose work by dismissing
+ */
+
+/* ---------------------------------------------------------------------
+   Density. theme.css defines the comfortable values; theme-boot.js stamps
+   data-density before first paint. Nothing else in the system encodes a
+   padding — a surface that hardcodes one stops responding to this.
+   --------------------------------------------------------------------- */
+:root[data-density="compact"]{
+  --pad:9px;
+  --row-h:26px;
+  --gap:10px;
+}
+
+/* ---------------------------------------------------------------------
+   Base
+   --------------------------------------------------------------------- */
+.kit *,
+.kit *::before,
+.kit *::after{box-sizing:border-box}
+
+body.kit{
+  margin:0;
+  background:var(--paper);
+  color:var(--ink);
+  font-family:var(--ff-ui);
+  font-size:14px;
+  line-height:1.55;
+  -webkit-font-smoothing:antialiased;
+}
+.kit a{color:var(--accent);text-decoration:none}
+.kit a:hover{text-decoration:underline}
+.kit h1,.kit h2,.kit h3,.kit h4{margin:0;text-wrap:balance}
+.kit code,.kit kbd{font-family:var(--ff-mono);font-size:.92em}
+.kit kbd{
+  border:var(--bw) solid var(--rule);border-radius:var(--r);
+  padding:1px 5px;background:var(--surface-2);color:var(--ink);
+}
+.kit :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+/* The uppercase micro-label that names a region. Used everywhere; the one
+   place --tk earns its keep. */
+.eyebrow{
+  font-family:var(--ff-mono);font-size:10.5px;font-weight:500;
+  letter-spacing:var(--tk);text-transform:uppercase;color:var(--muted);
+}
+.mono{font-family:var(--ff-mono);font-variant-numeric:tabular-nums}
+.dim{color:var(--muted)}
+
+/* ---------------------------------------------------------------------
+   Shell — topbar, rail, pane. One skeleton, every surface.
+   --------------------------------------------------------------------- */
+.topbar{
+  position:sticky;top:0;z-index:30;
+  background:var(--surface);
+  border-bottom:var(--bw) solid var(--rule);
+}
+.topbar-in{
+  display:flex;flex-wrap:wrap;align-items:center;gap:10px 16px;
+  max-width:var(--shell-max);margin:0 auto;
+  padding-block:10px;padding-inline:20px;
+}
+.brand{
+  display:flex;align-items:baseline;gap:9px;margin-right:auto;
+  font-size:15px;font-weight:600;letter-spacing:-.01em;color:var(--ink);
+}
+.brand .sub{
+  font-family:var(--ff-mono);font-size:11px;font-weight:400;
+  letter-spacing:var(--tk);text-transform:uppercase;color:var(--muted);
+}
+
+.shell{
+  display:grid;grid-template-columns:216px minmax(0,1fr);gap:28px;
+  max-width:var(--shell-max);margin:0 auto;
+  padding-block:24px 64px;padding-inline:20px;
+}
+.shell.wide{--shell-max:none}
+.shell.solo{grid-template-columns:minmax(0,1fr)}
+
+.rail{
+  position:sticky;top:62px;align-self:start;
+  max-height:calc(100vh - 86px);overflow:auto;
+  display:flex;flex-direction:column;gap:22px;
+}
+.rail h4{
+  font-family:var(--ff-mono);font-size:10.5px;font-weight:600;
+  letter-spacing:var(--tk);text-transform:uppercase;color:var(--muted);
+  margin-bottom:8px;
+}
+.rail nav{display:flex;flex-direction:column;gap:1px}
+.rail nav a,.rail nav button{
+  display:flex;justify-content:space-between;align-items:baseline;gap:8px;
+  font:inherit;font-size:13px;text-align:left;width:100%;
+  padding:5px 8px;border:0;border-radius:var(--r);
+  background:transparent;color:var(--slate);cursor:pointer;text-decoration:none;
+}
+.rail nav a:hover,.rail nav button:hover{background:var(--surface-2);color:var(--ink);text-decoration:none}
+.rail nav [aria-current="page"],.rail nav [aria-pressed="true"]{
+  background:var(--accent);color:var(--on-accent);font-weight:600;
+}
+
+.pane{min-width:0;display:flex;flex-direction:column;gap:var(--gap)}
+
+/* The one breakpoint. Below it the rail stops being a column and becomes a
+   strip above the pane; nothing else moves. */
+@media (max-width:900px){
+  .shell{grid-template-columns:minmax(0,1fr);gap:18px}
+  .rail{position:static;max-height:none;flex-direction:row;flex-wrap:wrap;gap:12px}
+  .rail nav{flex-direction:row;flex-wrap:wrap;gap:4px}
+  .rail nav a,.rail nav button{width:auto}
+}
+
+/* ---------------------------------------------------------------------
+   Containers — three, by role. Border, fill, radius and shadow each say
+   "separate object"; spending all four on every block flattens a dense
+   screen, which is why .group has none of them.
+   --------------------------------------------------------------------- */
+
+/* A thing with an identity and its own state: a device, a scan, a queue. */
+.panel{
+  background:var(--surface);
+  border:var(--bw) solid var(--rule);
+  border-radius:var(--r-lg);
+  box-shadow:var(--shadow);
+  min-width:0;
+}
+.panel > header{
+  display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+  padding:10px var(--pad);
+  border-bottom:var(--bw) solid var(--rule);
+}
+.panel > header .eyebrow{margin-right:auto}
+.panel > .body{
+  padding:var(--pad);
+  display:flex;flex-direction:column;gap:var(--gap);
+}
+.panel > footer{
+  padding:9px var(--pad);
+  border-top:var(--bw) solid var(--rule-soft);
+  background:var(--surface-2);
+}
+
+/* Related controls that belong to the panel around them. No edges — a
+   border here competes with the real one. */
+.group{display:flex;flex-direction:column;gap:8px;min-width:0}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;min-width:0}
+.row.end{justify-content:flex-end}
+.spacer{flex:1 1 auto}
+
+/* Output the reader did not write: a log tail, YAML, a repro snippet. */
+.well{
+  background:var(--surface-2);
+  border-radius:var(--r);
+  padding:var(--pad);
+  font-family:var(--ff-mono);font-size:12px;color:var(--slate);
+  overflow-x:auto;
+}
+.well pre{margin:0}
+
+.grid{display:grid;gap:var(--gap);grid-template-columns:repeat(auto-fit,minmax(280px,1fr))}
+
+/* ---------------------------------------------------------------------
+   Status — six words, one component. Colour is never the only carrier:
+   every chip is a dot plus a word, so it survives a colour-vision
+   difference, a greyscale print and a forced-colours mode.
+
+   queued | running | ok | degraded | failed | unknown  (+ agent)
+   --------------------------------------------------------------------- */
+.chip{
+  display:inline-flex;align-items:center;gap:6px;
+  font-family:var(--ff-ui);font-size:11.5px;font-weight:500;
+  padding:2px 9px;border-radius:99px;white-space:nowrap;
+  border:var(--bw) solid transparent;
+}
+.chip::before{
+  content:"";width:6px;height:6px;border-radius:50%;
+  background:currentColor;flex:none;
+}
+.chip[data-state="queued"],
+.chip[data-state="unknown"]{color:var(--muted);background:var(--surface-2);border-color:var(--rule)}
+.chip[data-state="running"]{color:var(--accent);background:var(--accent-soft);border-color:var(--accent-soft)}
+.chip[data-state="ok"]{color:var(--ok);background:var(--ok-soft);border-color:var(--ok-soft)}
+.chip[data-state="degraded"]{color:var(--warn);background:var(--warn-soft);border-color:var(--warn-soft)}
+.chip[data-state="failed"]{color:var(--crit);background:var(--crit-soft);border-color:var(--crit-soft)}
+/* Not a severity: who wrote this. The logbook already separates what an
+   analyzer wrote from what a person wrote, and the console will want the
+   same for actions an agent submitted — that distinction carries trust,
+   so it belongs in the vocabulary rather than in each surface's styling. */
+.chip[data-state="agent"]{color:var(--agent);background:var(--agent-soft);border-color:var(--agent-rule)}
+
+.chip[data-state="running"]::before{animation:kit-pulse 1.6s ease-in-out infinite}
+@keyframes kit-pulse{0%,100%{opacity:1}50%{opacity:.25}}
+
+/* A bare dot for a dense list where the word is the row label beside it.
+   Still never alone: give it aria-label or a title. */
+.dot{width:8px;height:8px;border-radius:50%;flex:none;display:inline-block}
+.dot[data-state="queued"],.dot[data-state="unknown"]{background:var(--muted)}
+.dot[data-state="running"]{background:var(--accent)}
+.dot[data-state="ok"]{background:var(--ok)}
+.dot[data-state="degraded"]{background:var(--warn)}
+.dot[data-state="failed"]{background:var(--crit)}
+.dot[data-state="agent"]{background:var(--agent)}
+
+/* ---------------------------------------------------------------------
+   Controls
+   --------------------------------------------------------------------- */
+.btn{
+  display:inline-flex;align-items:center;gap:7px;
+  font:inherit;font-size:13px;font-weight:500;
+  height:var(--row-h);padding:0 13px;
+  border:var(--bw) solid var(--rule);border-radius:var(--r);
+  background:var(--surface);color:var(--ink);
+  cursor:pointer;white-space:nowrap;
+}
+.btn:hover{background:var(--surface-2)}
+.btn[disabled],.btn[aria-disabled="true"]{opacity:.5;cursor:not-allowed}
+.btn.primary{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
+.btn.primary:hover{filter:brightness(1.07)}
+/* Destructive. Never adjacent to an ordinary action — put a .spacer
+   between them — and always confirmed through rung 3. */
+.btn.danger{color:var(--crit);background:var(--crit-soft);border-color:var(--crit-soft)}
+.btn.danger:hover{filter:brightness(.97)}
+.btn.sm{height:26px;font-size:12px;padding:0 10px}
+.btn.ghost{background:transparent;border-color:transparent;color:var(--muted)}
+.btn.ghost:hover{background:var(--surface-2);color:var(--ink)}
+
+.field{display:flex;flex-direction:column;gap:4px;min-width:150px}
+.field label{
+  font-family:var(--ff-mono);font-size:10.5px;letter-spacing:var(--tk);
+  text-transform:uppercase;color:var(--muted);
+}
+.field input,.field select,.field textarea{
+  font:inherit;font-size:13px;
+  padding:0 10px;height:var(--row-h);
+  border:var(--bw) solid var(--rule);border-radius:var(--r);
+  background:var(--surface);color:var(--ink);
+}
+.field textarea{height:auto;padding:8px 10px;font-family:var(--ff-mono);font-size:12.5px;resize:vertical}
+.field input:focus,.field select:focus,.field textarea:focus{
+  border-color:var(--accent);outline:2px solid var(--accent);outline-offset:-1px;
+}
+.field .hint{font-size:11.5px;color:var(--muted)}
+
+/* A segmented choice: mode, density, per-shot vs binned. */
+.seg{
+  display:inline-flex;gap:2px;padding:2px;
+  border:var(--bw) solid var(--rule);border-radius:var(--r);
+  background:var(--surface);
+}
+.seg button{
+  font:inherit;font-size:11.5px;
+  border:0;border-radius:calc(var(--r) - 1px);
+  padding:4px 10px;background:transparent;color:var(--muted);
+  cursor:pointer;white-space:nowrap;
+}
+.seg button:hover{color:var(--ink);background:var(--surface-2)}
+.seg button[aria-pressed="true"]{color:var(--ink);background:var(--surface-2);font-weight:600}
+
+/* ---------------------------------------------------------------------
+   Tables. Wide ones go inside .tscroll so the page body never scrolls
+   sideways.
+   --------------------------------------------------------------------- */
+.tscroll{overflow-x:auto;max-width:100%}
+.kit table{width:100%;border-collapse:collapse;font-size:13px}
+.kit th{
+  text-align:left;vertical-align:bottom;
+  font-family:var(--ff-mono);font-size:10.5px;font-weight:500;
+  letter-spacing:var(--tk);text-transform:uppercase;color:var(--muted);
+  padding:7px var(--pad);white-space:nowrap;
+  border-bottom:var(--bw) solid var(--rule);
+}
+.kit td{
+  padding:7px var(--pad);vertical-align:top;
+  border-bottom:var(--bw) solid var(--rule-soft);
+}
+.kit tbody tr:last-child td{border-bottom:0}
+.kit tbody tr:hover td{background:var(--surface-2)}
+.kit td.num{font-family:var(--ff-mono);font-variant-numeric:tabular-nums;text-align:right}
+.kit td.id{font-family:var(--ff-mono);font-weight:500;color:var(--ink)}
+.kit tr[aria-selected="true"] td{background:var(--accent-soft)}
+.kit tr[aria-selected="true"] td.id{color:var(--accent);font-weight:600}
+
+/* ---------------------------------------------------------------------
+   The five states every pane owes its reader.
+
+   loading / empty / error / stale / denied. The first two exist on both
+   surfaces today in some private form; the last three exist nowhere,
+   and a control surface cannot open without stale and denied.
+   --------------------------------------------------------------------- */
+.state{
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:8px;text-align:center;
+  min-height:120px;padding:var(--pad);
+  border:var(--bw) solid var(--rule);border-radius:var(--r);
+  background:var(--surface);
+}
+.state .t{font-size:13px;font-weight:600;color:var(--ink)}
+.state .m{font-size:12.5px;color:var(--muted);max-width:38ch}
+.state[data-state="error"]{border-color:var(--crit-soft);background:var(--crit-soft)}
+.state[data-state="error"] .t,
+.state[data-state="error"] .m{color:var(--crit)}
+/* Stale is the one that matters for hardware: a number that silently
+   stops updating is worse than no number. Any live value carries its own
+   age, and past a threshold the surface says so instead of continuing to
+   look confident. */
+.state[data-state="stale"]{border-color:var(--warn-soft);background:var(--warn-soft)}
+.state[data-state="stale"] .t,
+.state[data-state="stale"] .m{color:var(--warn)}
+
+.bar{width:64%;max-width:220px;height:3px;border-radius:2px;background:var(--surface-2);overflow:hidden}
+.bar i{display:block;height:100%;width:38%;border-radius:2px;background:var(--accent)}
+@media (prefers-reduced-motion:no-preference){
+  .bar i{animation:kit-slide 1.5s ease-in-out infinite}
+  @keyframes kit-slide{0%{margin-left:-38%}100%{margin-left:100%}}
+}
+
+/* An inline banner for the same five states, when the pane has content
+   already and the state is a qualifier rather than a replacement. */
+.banner{
+  display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+  padding:8px var(--pad);border-radius:var(--r);
+  border:var(--bw) solid var(--rule);background:var(--surface-2);
+  font-size:12.5px;color:var(--ink);
+}
+.banner[data-state="error"]{border-color:var(--crit-soft);background:var(--crit-soft);color:var(--crit)}
+.banner[data-state="stale"]{border-color:var(--warn-soft);background:var(--warn-soft);color:var(--warn)}
+.banner .spacer{flex:1 1 auto}
+
+/* ---------------------------------------------------------------------
+   Overlay ladder
+   --------------------------------------------------------------------- */
+
+/* Rung 0 — inline disclosure. Native <details>: keyboard, no-JS and
+   find-in-page all work once it is open, and there is no open/close state
+   to write. If a surface is tracking this in JavaScript, it is on the
+   wrong rung. */
+details.disc{
+  border:var(--bw) solid var(--rule);border-radius:var(--r);
+  background:var(--surface-2);
+}
+details.disc > summary{
+  display:flex;align-items:center;gap:8px;
+  padding:7px 11px;font-size:12.5px;color:var(--ink);
+  cursor:pointer;list-style:none;
+}
+details.disc > summary::-webkit-details-marker{display:none}
+details.disc > summary::before{content:"\25B8";color:var(--muted);font-size:10px}
+details.disc[open] > summary::before{content:"\25BE"}
+details.disc > .dbody{padding:0 11px 11px;font-size:12.5px;color:var(--slate)}
+
+/* Rung 1 — inspector: a persistent region that fills with the selection,
+   so stepping to the next item costs one click instead of close-then-open.
+   The selection belongs in the URL; if the link cannot carry it, it is
+   not finished. */
+.inspector{
+  display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.1fr);
+  gap:1px;background:var(--rule);
+  border:var(--bw) solid var(--rule);border-radius:var(--r);overflow:hidden;
+}
+.inspector > .list{background:var(--surface);display:flex;flex-direction:column;min-width:0}
+.inspector > .detail{background:var(--surface-2);padding:var(--pad);min-width:0}
+@media (max-width:640px){.inspector{grid-template-columns:minmax(0,1fr)}}
+
+/* Rung 2 — drawer: a focused sub-task on the object already on screen.
+   Never opens another drawer, never holds a destructive confirm, and must
+   survive Esc without losing typing — if it cannot, it is rung 4. */
+.drawer{
+  position:fixed;top:0;right:0;bottom:0;z-index:60;
+  width:min(560px,94vw);
+  display:flex;flex-direction:column;
+  background:var(--surface);
+  border-left:var(--bw) solid var(--rule);
+  box-shadow:var(--lift);
+  transform:translateX(100%);visibility:hidden;
+}
+.drawer[data-open="true"]{transform:none;visibility:visible}
+@media (prefers-reduced-motion:no-preference){
+  .drawer{transition:transform .22s cubic-bezier(.3,.8,.4,1),visibility .22s}
+}
+.drawer > header{
+  display:flex;align-items:center;gap:10px;
+  padding:11px var(--pad);
+  border-bottom:var(--bw) solid var(--rule);
+}
+.drawer > header .eyebrow{margin-right:auto}
+.drawer > .body{
+  flex:1;min-height:0;overflow:auto;
+  padding:var(--pad);
+  display:flex;flex-direction:column;gap:var(--gap);
+}
+.scrim{position:fixed;inset:0;z-index:50;background:var(--scrim);display:none}
+.scrim[data-open="true"]{display:block}
+
+/* Rung 3 — dialog. A real <dialog> opened with showModal(): the focus
+   trap, Esc, and the inert background come free, which is exactly what
+   the portal's hand-rolled .overlay/.modal never had. One question, at
+   most two buttons, no scrolling, no form. Focus never lands on the
+   destructive button — put autofocus on the safe one. */
+.kit dialog,
+dialog.kit-dialog{
+  padding:0;max-width:min(440px,92vw);
+  border:var(--bw) solid var(--rule);border-radius:var(--r-lg);
+  background:var(--surface);color:var(--ink);
+  font-family:var(--ff-ui);box-shadow:var(--lift);
+}
+.kit dialog::backdrop,
+dialog.kit-dialog::backdrop{background:var(--scrim)}
+.kit dialog > .body,
+dialog.kit-dialog > .body{padding:var(--pad);display:flex;flex-direction:column;gap:11px}
+.kit dialog h4,
+dialog.kit-dialog h4{font-size:15px;font-weight:600}
+.kit dialog p,
+dialog.kit-dialog p{margin:0;font-size:13px;color:var(--slate)}
+
+/* Rung 4 is a route and needs no CSS — which is the point. */

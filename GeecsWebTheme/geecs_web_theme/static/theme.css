@@ -52,7 +52,38 @@
   --ff-ui:"IBM Plex Sans",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
   --ff-mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
   --ff-prose:"Source Serif 4",Georgia,"Times New Roman",serif;
+
+  /* Structure. These live in the bare :root ONLY — no palette overrides one
+   * yet, so every theme shares them and kit.css can read them unconditionally.
+   * When a palette wants its own corner radius or tracking (a drafting theme
+   * with square corners, a control-room theme with hairline rules), it adds
+   * the override to its own block and nothing else changes.
+   *
+   * --r is the CONTROL corner (a button, an input); --r-lg is the PANEL
+   * corner. One value cannot say both: a 26px button and a full-width card
+   * want different answers, and which pair a theme picks is most of what
+   * makes it read as sharp or soft.
+   */
   --r:6px;
+  --r-lg:8px;
+  --bw:1px;
+  --tk:.06em;
+
+  /* Spacing scale. theme-boot.js stamps data-density before first paint and
+   * kit.css redefines these three under [data-density="compact"]; nothing
+   * else in the system encodes a padding. */
+  --pad:14px;
+  --row-h:34px;
+  --gap:14px;
+
+  /* How wide the shell runs before it centres. A surface that wants the
+   * full window (a wall display) sets --shell-max:none on its own .shell. */
+  --shell-max:1240px;
+
+  /* Opacity over whatever is behind them, so they read on every ground and
+   * take no palette colour — the same reason --shadow is a literal here. */
+  --scrim:rgba(0,0,0,.5);
+  --lift:0 8px 30px -10px rgba(0,0,0,.35);
 }
 
 /* ---- bella ---- */

@@ -1,6 +1,20 @@
-"""The shared GEECS web palette: where the files are, and what they offer.
+"""The shared GEECS web palette and layout kit: the files, and what they offer.
 
-This package ships a stylesheet and a small script and nothing else. It has
+Two layers ship here. ``theme.css`` settles **colour** — the token
+vocabulary and the palettes. ``kit.css`` settles **everything else** — the
+page shell, the three containers, the status chip, controls, tables, the
+five pane states and the overlay ladder. They are separate files because
+they answer separate questions and a surface may adopt the first without
+the second, but the kit is the layer that stops a third web surface from
+inventing a third set of answers.
+
+``kit.html`` is the kit's own reference page: every component rendered in
+the real theme, at whichever palette and density the viewer picks. It is a
+static file beside the stylesheets, so a host that mounts this package
+already serves it — the portal reaches it at ``/theme/kit.html`` with no
+route of its own.
+
+This package ships stylesheets and small scripts and nothing else. It has
 no runtime dependencies on purpose — anything that can serve a static
 directory can use it, and nothing it serves needs a Python import to work.
 
@@ -14,14 +28,18 @@ palette is stamped before first paint; the picker script deferred::
 
     <script src="/theme/theme-boot.js"></script>
     <link rel="stylesheet" href="/theme/theme.css">
+    <link rel="stylesheet" href="/theme/kit.css">
     <script src="/theme/theme.js" defer></script>
+    <script src="/theme/kit.js" defer></script>
 
 Behind a reverse proxy build those from the request's ``root_path``; the
 portal does this with its ``{{ root }}`` idiom.
 
-and wherever the control belongs::
+Give ``<body>`` the ``kit`` class so the kit's base rules apply, and put
+the two controls wherever they belong::
 
     <div data-theme-picker></div>
+    <div data-density-picker></div>
 """
 
 from pathlib import Path
@@ -29,10 +47,15 @@ from pathlib import Path
 __all__ = [
     "THEMES",
     "DEFAULT_THEME",
+    "DENSITIES",
+    "DEFAULT_DENSITY",
     "static_dir",
     "theme_css",
     "theme_js",
     "theme_boot_js",
+    "kit_css",
+    "kit_js",
+    "kit_html",
 ]
 
 #: The palettes on offer. Kept here as well as in the stylesheet so a host
@@ -46,6 +69,17 @@ THEMES: dict[str, str] = {
 #: What a viewer gets before they choose. The runtime authority is
 #: ``theme-boot.js``; ``tests/test_no_literal_colours.py`` pins the two.
 DEFAULT_THEME = "laser"
+
+#: The spacing scales ``kit.css`` implements. Same arrangement as THEMES:
+#: named here so a host can offer them, defined for real in
+#: ``theme-boot.js``, and the two pinned together by a test.
+DENSITIES: dict[str, str] = {
+    "comfortable": "Roomier rows — reading and writing",
+    "compact": "Tighter rows — tables and live panels",
+}
+
+#: What a viewer gets before they choose a density.
+DEFAULT_DENSITY = "comfortable"
 
 
 def static_dir() -> Path:
@@ -72,3 +106,31 @@ def theme_js() -> Path:
 def theme_boot_js() -> Path:
     """Return the path to the boot script (load in ``<head>``, not deferred)."""
     return static_dir() / "theme-boot.js"
+
+
+def kit_css() -> Path:
+    """Return the path to the layout kit stylesheet.
+
+    Load it *after* ``theme.css``: the kit styles through that file's
+    tokens and defines none of its own.
+    """
+    return static_dir() / "kit.css"
+
+
+def kit_js() -> Path:
+    """Return the path to the kit script (load deferred).
+
+    Optional. Without it the page still renders and ``<details>`` still
+    opens; only the drawer, the dialog helper and the density control go
+    missing.
+    """
+    return static_dir() / "kit.js"
+
+
+def kit_html() -> Path:
+    """Return the path to the kit's reference page.
+
+    A static file in the same directory, so any host already mounting
+    :func:`static_dir` serves it at ``<mount>/kit.html`` without a route.
+    """
+    return static_dir() / "kit.html"
