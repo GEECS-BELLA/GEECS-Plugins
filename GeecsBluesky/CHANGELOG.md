@@ -83,7 +83,9 @@ the hardware acceptance (§5) is owed.
   for +: 'SignalR' and 'float'` (found on hardware, 2b broader set
   2026-09-12, Scan017).  The readback stands in for the setpoint: the
   gateway's `:SP` is the last put through the gateway, not where the device
-  is.
+  is.  Scope: the CA settables and motors; a `CaPseudoMovable` has no
+  `locate` yet (an absolute pseudo reads NaN before its first set, so a
+  relative plan over one is still undefined — a follow-up).
 - A gated run's first arm **zeroes the plugin's count** before the batch
   baselines: the file plugin posts `NumCaptured_RBV` only when it writes a
   frame, never a zero at `Capture=1`, so after a session closed at *N* the
