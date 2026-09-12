@@ -89,22 +89,24 @@
   {% set anchor = 'after-%04d' % after %}
   {% set es = entries.get(anchor, []) %}
   {% if es %}
-  <section class="between">
-    <header><span class="tlabel">Between scans</span>
-      <span class="trange">{{ prev_label }} &rarr; {{ next_label }}</span></header>
+  <details class="between" open>
+    <summary><span class="tlabel">Between scans</span>
+      <span class="trange">{{ prev_label }} &rarr; {{ next_label }}</span>
+      <span class="count">{{ es | length }} note{{ '' if es | length == 1 else 's' }}</span></summary>
     {{ entries_block(anchor, none, after, entries, writable) }}
-  </section>
+  </details>
   {% elif writable %}
   <div class="insert" data-insert="{{ after }}">
     <div class="insert-rule"></div>
     <button class="insert-btn" type="button">+ note between {{ prev_label }} and {{ next_label }}</button>
     <div class="insert-rule"></div>
   </div>
-  <section class="between" hidden data-between-host="{{ after }}">
-    <header><span class="tlabel">Between scans</span>
-      <span class="trange">{{ prev_label }} &rarr; {{ next_label }}</span></header>
+  <details class="between" hidden data-between-host="{{ after }}">
+    <summary><span class="tlabel">Between scans</span>
+      <span class="trange">{{ prev_label }} &rarr; {{ next_label }}</span>
+      <span class="count">new note</span></summary>
     {{ entries_block(anchor, none, after, entries, writable) }}
-  </section>
+  </details>
   {% endif %}
 {% endmacro %}
 
@@ -241,7 +243,7 @@
     {% endif %}
   </aside>
 
-  <main id="logbook" data-api="{{ api_base }}" data-day="{{ summary.day.isoformat() }}" data-book="scans">
+  <main id="logbook" data-api="{{ api_base }}" data-day="{{ summary.day.isoformat() }}" data-book="scans" data-accept="{{ accept }}">
 
     <div class="dayhead">
       <div>
@@ -325,7 +327,7 @@ const btn = document.getElementById("toggle-all");
 /* Expand/collapse reaches BOTH levels: opening only the campaigns left
    every scan inside them shut, so the button appeared not to work. */
 const cards = () => [...document.querySelectorAll(
-  "details.campaign, details.scan")];
+  "details.campaign, details.scan, details.between")];
 
 function applyAll(expand){
   cards().forEach(c => { if (!c.hidden) c.open = expand; });

@@ -28,6 +28,7 @@
   const API = host.dataset.api;
   const DAY = host.dataset.day;
   const BOOK = host.dataset.book || "scans";
+  const ACCEPT = (host.dataset.accept || "image/png,image/jpeg,image/gif,image/webp,application/pdf").split(",");
   const AUTHOR_KEY = "geecs.author";
 
   // ------------------------------------------------------------ plumbing
@@ -78,10 +79,14 @@
 
   /** Prefix every selected line (or the current one). */
   function prefixLines(ta, prefix) {
-    const s = ta.selectionStart, e = ta.selectionEnd;
-    const lineStart = ta.value.lastIndexOf("\n", s - 1) + 1;
+    const s = ta.selectionStart;
+    // A selection that ends just after a newline (a triple-clicked line)
+    // does not reach into the next line.
+    const e = ta.selectionEnd > s && ta.value[ta.selectionEnd - 1] === "\n" ? ta.selectionEnd - 1 : ta.selectionEnd;
+    const lineStart = s === 0 ? 0 : ta.value.lastIndexOf("\n", s - 1) + 1;
     let lineEnd = ta.value.indexOf("\n", e);
     if (lineEnd === -1) lineEnd = ta.value.length;
+    if (lineEnd < lineStart) lineEnd = lineStart;
     const block = ta.value.slice(lineStart, lineEnd);
     const done = block.split("\n").map((l) => (l.startsWith(prefix) ? l : prefix + l)).join("\n");
     ta.setRangeText(done, lineStart, lineEnd, "select");
@@ -89,12 +94,18 @@
     ta.dispatchEvent(new Event("input", { bubbles: true }));
   }
 
-  /** Insert a block on its own lines at the cursor. */
-  function insertBlock(ta, text) {
+  /** Insert a block on its own lines at the cursor.
+   *
+   * ``select`` leaves the block selected — right for a skeleton the author
+   * will overtype (a table, a callout), wrong for an attachment link, which
+   * the next keystroke or the next upload would otherwise replace.
+   */
+  function insertBlock(ta, text, select) {
     const s = ta.selectionStart;
     const before = ta.value.slice(0, s);
     const lead = before.length === 0 || before.endsWith("\n\n") ? "" : before.endsWith("\n") ? "\n" : "\n\n";
-    replaceSelection(ta, lead + text + "\n", lead.length, lead.length + text.length);
+    if (select) replaceSelection(ta, lead + text + "\n", lead.length, lead.length + text.length);
+    else replaceSelection(ta, lead + text + "\n");
   }
 
   // ------------------------------------------------------- tables
@@ -113,7 +124,12 @@
   function tsvToRows(text) {
     const lines = text.replace(/\r/g, "").split("\n").filter((l) => l.trim() !== "");
     if (lines.length < 2 || !lines.every((l) => l.includes("\t"))) return null;
-    return lines.map((l) => l.split("\t"));
+    const rows = lines.map((l) => l.split("\t"));
+    // Tab-indented prose is not a spreadsheet: every row has the same
+    // number of columns (2+) and the first cell of the header is not empty.
+    const width = rows[0].length;
+    if (width < 2 || rows[0][0].trim() === "" || !rows.every((r) => r.length === width)) return null;
+    return rows;
   }
 
   /** Excel/Sheets put an HTML table on the clipboard too; prefer it when present. */
@@ -128,33 +144,64 @@
 
   // ----------------------------------------------------- attachments
 
-  const IMAGE_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp", "application/pdf"];
+  /** The author's name from the form, or null (with the field focused). */
+  function authorName(form) {
+    const input = form.querySelector(".who");
+    const name = input.value.trim();
+    if (name) { remember(name); return name; }
+    input.focus();
+    fail(form, { message: "Enter your name first." });
+    return null;
+  }
 
-  /** The entry this form edits, creating it first if it is brand new. */
-  async function ensureEntry(form) {
-    if (form.dataset.entry) return form.dataset.entry;
+  /** The entry this form edits, creating it first if it is brand new.
+   *
+   * One create per form, ever: the pending promise is kept on the form so
+   * a second paste, a drop and a Save racing the first create all await
+   * the same POST instead of each making an entry.
+   */
+  function ensureEntry(form) {
+    if (form.dataset.entry) return Promise.resolve(form.dataset.entry);
+    if (form._creating) return form._creating;
+    const name = authorName(form);
+    if (!name) return Promise.reject(Object.assign(new Error("Enter your name first."), { silent: true }));
     const ta = form.querySelector(".ta");
-    const name = form.querySelector(".who").value.trim() || who() || "unknown";
     const body = { day: DAY, book: BOOK, author: name, body_md: ta.value || "" };
     if (form.dataset.after !== undefined && form.dataset.after !== "") body.after = Number(form.dataset.after);
     else if (form.dataset.scan !== undefined && form.dataset.scan !== "") body.scan = Number(form.dataset.scan);
-    const entry = await api("POST", "/entries", body);
-    form.dataset.entry = entry.entry_id;
-    form.dataset.version = String(entry.version);
-    form.classList.add("autosaved");
-    const discard = form.querySelector("[data-discard]");
-    if (discard) discard.hidden = false;
-    return entry.entry_id;
+    form._creating = api("POST", "/entries", body).then((entry) => {
+      form.dataset.entry = entry.entry_id;
+      form.dataset.version = String(entry.version);
+      form.classList.add("autosaved");
+      const discard = form.querySelector("[data-discard]");
+      if (discard) discard.hidden = false;
+      return entry.entry_id;
+    }).finally(() => { form._creating = null; });
+    return form._creating;
+  }
+
+  /** Record the entry's current version on the form and, for an in-place
+   *  edit, on the article too, so a Cancel-then-Edit does not start stale. */
+  function noteVersion(form, version) {
+    form.dataset.version = String(version);
+    const art = form.closest("article");
+    if (art && art.dataset.entry === form.dataset.entry) art.dataset.version = String(version);
   }
 
   async function uploadFiles(form, files) {
     const ta = form.querySelector(".ta");
-    const list = [...files].filter((f) => IMAGE_TYPES.includes(f.type));
+    const all = [...files];
+    const list = all.filter((f) => ACCEPT.includes(f.type));
+    if (all.length && !list.length) {
+      fail(form, { message: `Not an accepted type (${all.map((f) => f.type || "unknown").join(", ")}); accepted: ${ACCEPT.join(", ")}` });
+      return;
+    }
     if (!list.length) return;
     clearFail(form);
     form.classList.add("busy");
+    let id = null;
     try {
-      const id = await ensureEntry(form);
+      id = await ensureEntry(form);
       for (const file of list) {
         const fd = new FormData();
         fd.append("file", file, file.name || "image.png");
@@ -163,14 +210,17 @@
         if (!res.ok) throw Object.assign(new Error((data.detail && data.detail.message) || data.detail || res.statusText), { status: res.status });
         const alt = (file.name || "image").replace(/\.[^.]+$/, "");
         const md = file.type === "application/pdf" ? `[${alt}](${data.link})` : `![${alt}](${data.link})`;
-        insertBlock(ta, md);
+        insertBlock(ta, md, false);
       }
-      // Uploads bump the version; the eventual Save must carry the current one.
-      const fresh = await api("GET", `/entries/${id}`);
-      form.dataset.version = String(fresh.version);
     } catch (err) {
-      fail(form, err);
+      if (!err.silent) fail(form, err);
     } finally {
+      // Every upload that landed bumped the version — including the ones
+      // before a failure — so the eventual Save must carry the current one.
+      if (id) {
+        try { const fresh = await api("GET", `/entries/${id}`); noteVersion(form, fresh.version); }
+        catch (err) { fail(form, err); }
+      }
       form.classList.remove("busy");
     }
   }
@@ -182,9 +232,9 @@
     let pane = form.querySelector(".preview");
     const btn = form.querySelector("[data-tool=preview]");
     if (pane && !pane.hidden) { pane.hidden = true; ta.hidden = false; btn.classList.remove("is-on"); return; }
-    if (!pane) { pane = document.createElement("div"); pane.className = "entry-body preview"; ta.after(pane); }
+    if (!pane) { pane = document.createElement("div"); pane.className = "entry-body preview"; pane.hidden = true; ta.after(pane); }
     try {
-      const data = await api("POST", "/preview", { body_md: ta.value, entry_id: form.dataset.entry || null });
+      const data = await api("POST", "/preview", { body_md: ta.value });
       pane.innerHTML = data.html;
       pane.hidden = false; ta.hidden = true; btn.classList.add("is-on");
     } catch (err) { fail(form, err); }
@@ -200,9 +250,9 @@
     { key: "task", label: "☐ task", title: "Task list", run: (ta) => prefixLines(ta, "- [ ] ") },
     { key: "link", label: "link", title: "Link", run: (ta) => wrap(ta, "[", "](https://)", "text") },
     { key: "table", label: "table", title: "Table (or paste a spreadsheet range)",
-      run: (ta) => insertBlock(ta, rowsToMarkdown([["Parameter", "Value", "Note"], ["", "", ""]])) },
+      run: (ta) => insertBlock(ta, rowsToMarkdown([["Parameter", "Value", "Note"], ["", "", ""]]), true) },
     { key: "callout", label: "callout", title: "Callout — NOTE, TIP, WARNING or CAUTION",
-      run: (ta) => insertBlock(ta, "> [!NOTE]\n> ") },
+      run: (ta) => insertBlock(ta, "> [!NOTE]\n> ", true) },
     { key: "image", label: "image", title: "Attach an image or PDF (or paste / drop one)", run: null },
     { key: "preview", label: "preview", title: "Show it as the page will", run: null },
   ];
@@ -221,7 +271,7 @@
       bar.appendChild(b);
     }
     const picker = document.createElement("input");
-    picker.type = "file"; picker.accept = IMAGE_TYPES.join(","); picker.multiple = true; picker.hidden = true;
+    picker.type = "file"; picker.accept = ACCEPT.join(","); picker.multiple = true; picker.hidden = true;
     picker.addEventListener("change", () => { uploadFiles(form, picker.files); picker.value = ""; });
     bar.appendChild(picker);
     bar.addEventListener("click", (ev) => {
@@ -238,12 +288,22 @@
 
   function onPaste(form, ev) {
     const cd = ev.clipboardData; if (!cd) return;
-    const files = [...cd.items].filter((i) => i.kind === "file").map((i) => i.getAsFile()).filter(Boolean);
-    if (files.length) { ev.preventDefault(); uploadFiles(form, files); return; }
+    const ta = form.querySelector(".ta");
+    // A spreadsheet range often arrives as an HTML table AND a bitmap of
+    // the same cells (Excel); the table is what was meant.
     const html = cd.getData("text/html");
-    const text = cd.getData("text/plain");
-    const rows = (html && htmlTableToRows(html)) || (text && tsvToRows(text));
-    if (rows) { ev.preventDefault(); insertBlock(form.querySelector(".ta"), rowsToMarkdown(rows)); }
+    const tableRows = html ? htmlTableToRows(html) : null;
+    if (tableRows) { ev.preventDefault(); insertBlock(ta, rowsToMarkdown(tableRows), true); return; }
+    const files = [...cd.items].filter((i) => i.kind === "file").map((i) => i.getAsFile()).filter(Boolean);
+    if (files.length) {
+      // A file plus text (a rich paste from a page or a document): keep the
+      // browser's default text paste and upload the file as well.
+      if (!cd.getData("text/plain")) ev.preventDefault();
+      uploadFiles(form, files);
+      return;
+    }
+    const rows = tsvToRows(cd.getData("text/plain") || "");
+    if (rows) { ev.preventDefault(); insertBlock(ta, rowsToMarkdown(rows), true); }
   }
 
   function onDrop(form, ev) {
@@ -254,28 +314,43 @@
 
   // ------------------------------------------------------------ save
 
-  async function save(form) {
-    const ta = form.querySelector(".ta");
-    const name = form.querySelector(".who").value.trim();
-    if (!name) { form.querySelector(".who").focus(); return; }
-    remember(name);
-    clearFail(form);
-    try {
-      if (form.dataset.entry) {
-        await api("PATCH", `/entries/${form.dataset.entry}`, {
-          body_md: ta.value, editor: name, expected_version: Number(form.dataset.version) });
-      } else {
-        if (!ta.value.trim()) return;
-        await ensureEntry(form);
-      }
-      location.reload();
-    } catch (err) { fail(form, err); }
+  /** Run one save-shaped action per form at a time; the buttons follow. */
+  async function exclusive(form, action) {
+    if (form.dataset.saving === "1") return;
+    form.dataset.saving = "1";
+    form.querySelectorAll("button[type=submit],[data-discard]").forEach((b) => { b.disabled = true; });
+    try { await action(); }
+    finally {
+      form.dataset.saving = "";
+      form.querySelectorAll("button[type=submit],[data-discard]").forEach((b) => { b.disabled = false; });
+    }
   }
 
-  async function discard(form) {
-    if (!form.dataset.entry) return;
-    try { await api("DELETE", `/entries/${form.dataset.entry}`); location.reload(); }
-    catch (err) { fail(form, err); }
+  function save(form) {
+    return exclusive(form, async () => {
+      const ta = form.querySelector(".ta");
+      if (!ta.value.trim()) { ta.focus(); return; }
+      const name = authorName(form);
+      if (!name) return;
+      clearFail(form);
+      try {
+        if (form.dataset.entry) {
+          await api("PATCH", `/entries/${form.dataset.entry}`, {
+            body_md: ta.value, editor: name, expected_version: Number(form.dataset.version) });
+        } else {
+          await ensureEntry(form);
+        }
+        location.reload();
+      } catch (err) { if (!err.silent) fail(form, err); }
+    });
+  }
+
+  function discard(form) {
+    if (!form.dataset.entry) return Promise.resolve();
+    return exclusive(form, async () => {
+      try { await api("DELETE", `/entries/${form.dataset.entry}`); location.reload(); }
+      catch (err) { fail(form, err); }
+    });
   }
 
   // ----------------------------------------------------------- mount
@@ -300,7 +375,10 @@
     form.addEventListener("drop", (ev) => onDrop(form, ev));
     form.addEventListener("submit", (ev) => { ev.preventDefault(); save(form); });
     ta.addEventListener("keydown", (ev) => {
-      if ((ev.metaKey || ev.ctrlKey) && ev.key === "Enter") { ev.preventDefault(); save(form); }
+      if ((ev.metaKey || ev.ctrlKey) && ev.key === "Enter") {
+        ev.preventDefault();
+        if (!ev.repeat) save(form); // a held key must not save N times
+      }
     });
   }
 
@@ -313,7 +391,10 @@
     if (b.closest("[data-insert]")) {
       const after = b.closest("[data-insert]").dataset.insert;
       const hostEl = document.querySelector(`[data-between-host="${after}"]`);
-      if (hostEl) { hostEl.hidden = false; b.closest("[data-insert]").hidden = true; const ta = hostEl.querySelector(".ta"); if (ta) ta.focus(); }
+      if (hostEl) {
+        hostEl.hidden = false; hostEl.open = true; b.closest("[data-insert]").hidden = true;
+        const ta = hostEl.querySelector(".ta"); if (ta) ta.focus();
+      }
       return;
     }
     if (b.dataset.keep) {
@@ -341,7 +422,7 @@
         <div class="editor-bar"><input class="who" placeholder="Your name" required aria-label="Your name">
         <button class="btn btn-sm btn-primary" type="submit">Save</button>
         <button class="btn btn-sm" type="button" data-cancel="1">Cancel</button>
-        <span class="editor-hint">&#8984;&#8629; saves</span></div></div>`;
+        <span class="editor-hint">⌘↩ saves</span></div></div>`;
       form.querySelector(".ta").value = raw;
       bodyEl.hidden = true; bodyEl.after(form);
       mount(form);

@@ -15,11 +15,9 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Response
+from fastapi import APIRouter, HTTPException, Request, Response
 from geecs_schemas.log_entry import Book, EntryKind, EntryStatus, LogEntry
 from pydantic import BaseModel, Field
-
-from fastapi import Request
 
 from geecs_logbook.render import render_markdown
 from geecs_logbook.routes._common import Context, attachment_base
@@ -70,10 +68,6 @@ class PreviewRequest(BaseModel):
     """A body to render as the page would, before it is saved."""
 
     body_md: str = Field(max_length=200_000)
-    entry_id: Optional[str] = Field(
-        None,
-        description="Unused for now; attachment links resolve the same way for every entry.",
-    )
 
 
 class HistoryItem(BaseModel):

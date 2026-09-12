@@ -248,7 +248,11 @@ details.campaign[hidden]{display:none}
 .card.intro .scanhead{cursor:default}
 .between{border-left:2px solid var(--agent-rule);background:var(--surface);border-radius:0 var(--r) var(--r) 0;
   border-top:1px solid var(--rule);border-right:1px solid var(--rule);border-bottom:1px solid var(--rule);overflow:hidden}
-.between > header{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:9px 16px;background:var(--surface-2)}
+.between > summary{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:9px 16px;background:var(--surface-2);cursor:pointer;list-style:none}
+.between > summary::-webkit-details-marker{display:none}
+.between > summary::before{content:"\25B8";color:var(--muted);font-size:11px;transition:transform .12s}
+.between[open] > summary::before{transform:rotate(90deg)}
+.between .count{margin-left:auto;font-family:var(--ff-mono);font-size:11px;color:var(--muted)}
 .between .tlabel{font-family:var(--ff-mono);font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--agent);font-weight:600}
 .between .trange{font-family:var(--ff-mono);font-size:11px;color:var(--muted)}
 .between .entries{border-top:0}

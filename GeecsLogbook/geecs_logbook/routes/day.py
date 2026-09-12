@@ -19,6 +19,7 @@ from geecs_schemas.log_entry import Book, LogEntry
 
 from geecs_logbook.models import DaySummary
 from geecs_logbook.render import render_markdown
+from geecs_logbook.routes.attachments import ATTACHMENT_TYPES
 from geecs_logbook.routes._common import (
     STATIC_DIR,
     Context,
@@ -87,6 +88,7 @@ def register(router: APIRouter, ctx: Context) -> None:
                 "entry_count": sum(len(v) for v in entries.values()),
                 "writable": ctx.writable,
                 "api_base": api_base(request),
+                "accept": ",".join(sorted(ATTACHMENT_TYPES)),
             },
         )
 

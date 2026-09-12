@@ -460,6 +460,10 @@ class TestEditorHooks:
         page = writable.get("/log/day/2026-09-11").text
         assert 'id="logbook"' in page and 'data-api="/log/api"' in page
         assert 'data-day="2026-09-11"' in page and 'data-book="scans"' in page
+        assert (
+            'data-accept="application/pdf,image/gif,image/jpeg,image/png,image/webp"'
+            in page
+        )
         assert "editor.js" in page
         js = writable.get("/log/static/editor.js")
         assert js.status_code == 200 and "uploadFiles" in js.text

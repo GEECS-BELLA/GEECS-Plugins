@@ -28,7 +28,35 @@ The editor: what makes people use it.
 
 - The day page's inline write-path script is gone; the page hands the
   editor its facts through `<main id="logbook" data-api data-day
-  data-book>` and loads `editor.js`.
+  data-book data-accept>` and loads `editor.js`.
+
+### Fixed (review of #837)
+
+- An uploaded image link was left selected, so the next keystroke — or
+  the second file of a multi-file drop — replaced it. Attachment links
+  now insert with the caret after them; only the table and callout
+  skeletons stay selected for overtyping.
+- Duplicate entries from a held ⌘↵ (key repeat), a double submit, or two
+  quick pastes on a new composer: one create per form (the pending POST
+  is shared), key-repeat ignored, Save/Discard exclusive with the buttons
+  disabled meanwhile.
+- The version is re-read after uploads even when a later file in the
+  batch failed, and written back to the article for an in-place edit so
+  Cancel-then-Edit does not start stale.
+- Attaching before entering a name no longer creates an entry attributed
+  to "unknown" forever: the name is required first.
+- Paste precedence: an HTML table on the clipboard wins over a bitmap of
+  the same cells (Excel); a file pasted alongside text keeps the text and
+  uploads the file.
+- Tab-indented prose is not turned into a table (consistent column count
+  and a non-empty header cell are required); list/task prefixing at the
+  start of the text and on a triple-clicked line; a failed preview leaves
+  nothing visible; a dropped file of a type the server does not take says
+  so instead of vanishing. Accepted types come from the page
+  (`data-accept`), one list not two. The theme guard walks `editor.js`.
+- Between-scan blocks collapse as well as expand (owner's hand-test):
+  they are `<details>` like the scans, with a count in the header, and
+  Expand all / Collapse all reaches them.
 
 ## [0.3.0] - 2026-09-11
 
