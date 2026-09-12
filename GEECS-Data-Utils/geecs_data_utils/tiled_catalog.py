@@ -448,11 +448,13 @@ class TiledScanCatalog:
         stop_doc = dict(metadata.get("stop") or {})
         data = None
         try:
-            data = read_primary_scalars(run["primary"])
-            if data is None:
-                logger.info("run %s primary stream has no event rows", uid)
+            primary = run["primary"]
         except KeyError:
             logger.info("run %s has no primary stream", uid)
+        else:
+            data = read_primary_scalars(primary)
+            if data is None:
+                logger.info("run %s primary stream has no event rows", uid)
         return RunDetail(
             summary=summary_from_metadata(uid, start_doc, stop_doc),
             start_doc=start_doc,
@@ -498,14 +500,16 @@ def read_primary_scalars(primary: Any) -> Optional[Any]:
         frame = primary.base[part].read()
         if hasattr(frame, "compute"):
             frame = frame.compute()
-        frames.append(frame)
+        # Positional rows: a partitioned table's index labels repeat per
+        # partition, so the tables are aligned by row order, never by label.
+        frames.append(frame.reset_index(drop=True))
     if len(frames) == 1:
         data = frames[0]
     else:
         import pandas as pd
 
         data = pd.concat(frames, axis=1)
-    return data.reset_index(drop=True) if len(data) else None
+    return data if len(data) else None
 
 
 def resolve_scan_folder(detail: RunDetail, day: date) -> Optional[Path]:

@@ -97,10 +97,15 @@ sudo systemctl start tiled
 ```
 
 Post-upgrade verification from any client: `/api/v1/` reports the new
-`library_version`; existing runs read back (`run["primary"].read()` — the
-pattern `tiled_export.py` / `tiled_readback.py` use — survived 0.2.14's
-composite-container change; ad-hoc `run["primary"]["data"]` does **not**,
-use `.base` for raw node access).
+`library_version`; existing runs read back through
+`geecs_data_utils.tiled_catalog.read_primary_scalars(run["primary"])` —
+the pattern `tiled_catalog.py` / `tiled_export.py` / `tiled_readback.py`
+use: the composite node's `internal` table via `.base`, **never**
+`run["primary"].read()`, which downloads every camera stack and per-frame
+attribute array and outer-joins their dimensions (a two-camera plugin run
+took the worker host down, #834).  Ad-hoc `run["primary"]["data"]` does
+**not** work under 0.2.14's composite-container layout; use `.base` for
+raw node access.
 
 **The web UI lives at `/ui`, not `/`** (verified live 0.2.14): the pip
 wheel ships Tiled's built React catalog browser in `share/tiled/ui/`
@@ -183,7 +188,8 @@ from tiled.client import from_uri
 c = from_uri("http://192.168.6.14:8000", api_key="<key>")
 run = c.values().last()
 print(run.metadata["start"])
-df = run["primary"].read()
+from geecs_data_utils.tiled_catalog import read_primary_scalars
+df = read_primary_scalars(run["primary"])   # scalar table only — never run["primary"].read() (#834)
 
 # Run hardware integration test (requires lab network)
 cd GeecsBluesky

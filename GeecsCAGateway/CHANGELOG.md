@@ -3,6 +3,14 @@
 All notable changes to `geecs-ca-gateway` are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and semantic versioning.
 
+## [0.20.4] - 2026-09-11
+
+### Changed
+
+- `DEPLOYMENT.md`'s Tiled client recipe reads the per-shot table through
+  `geecs_data_utils.tiled_catalog.read_primary_scalars` instead of
+  `run["primary"].read().to_dataframe()` (GEECS-Plugins#834).
+
 ## [0.20.3] - 2026-09-09
 
 ### Changed
