@@ -581,6 +581,15 @@ class GeecsNamespace:
     # built — the Movable for a settable, the readback signal otherwise.
     def get_settable(self, device: str, variable: str) -> Movable:
         """The Movable child for a ``set`` step; loud when the variable is read-only."""
+        owner = self._lookup(device)
+        if variable.lower() in NATIVE_SAVE_VARIABLES and getattr(
+            owner, "native_save", False
+        ):
+            raise GeecsConfigurationError(
+                f"device namespace: {device}:{variable} is owned by the detector's "
+                "native saving (opened and closed by the run) — not settable "
+                "from an action plan"
+            )
         child = self._child_for_step(device, variable)
         if not isinstance(child, Movable):
             raise GeecsConfigurationError(

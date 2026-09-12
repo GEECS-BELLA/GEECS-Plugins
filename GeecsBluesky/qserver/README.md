@@ -64,8 +64,13 @@ namespace devices — a queue item names a plan and its devices by name:
 qserver queue add plan '{"name": "count", "args": [["U_S1H"], 3], "item_type": "plan"}'
 qserver queue add plan '{"name": "scan", "args": [["U_S1H"], "U_S1H.current", -1, 1, 5], "item_type": "plan"}'
 qserver queue add plan '{"name": "mv", "args": ["U_S1H.current", 0.0], "item_type": "plan"}'
+qserver queue add plan '{"name": "run_action", "args": ["Amp4_DUMP_HP"], "item_type": "plan"}'
 qserver queue start
 ```
+
+`run_action` runs a named plan from the experiment's action library
+(`action_library/actions.yaml`, read from disk on every item) as plain
+stubs over the same devices: no run is opened, nothing is claimed.
 
 The `qserver` CLI parses that argument as a **Python literal, not JSON**:
 `null` / `true` / `false` are rejected with an unhelpful "Error occurred
@@ -108,12 +113,16 @@ Opt out with `QS_DOC_PROXY=OFF` (launcher) plus `QS_DOC_PUBLISH_ADDR=OFF`
 (worker). The stream is best-effort: a worker without it still runs scans
 correctly — only live GUI progress is lost.
 
-## Manual moves
+## Manual moves and action plans
 
 A manual move is a queue item of the stock `mv` plan (above): idle-only
-ordering and queue provenance for free.  The `function_execute` verbs of
-the retired funnel (`geecs_move_variable`, `geecs_describe_action`) are
-gone with it (#807 phase 1).
+ordering and queue provenance for free; an action plan is a `run_action`
+item.  The `function_execute` verbs of the retired funnel
+(`geecs_move_variable`, `geecs_describe_action`, `geecs_run_action_plan`)
+are gone with it (#807 phase 1); a step preview is client-side
+(`plans.action_compiler.flatten_action_steps`).  The Console's actions
+menu still calls the funnel's submitter verb until its rewire (§10.5 of
+the plan of record).
 
 ## Troubleshooting
 

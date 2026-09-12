@@ -27,12 +27,11 @@ from geecs_bluesky.exceptions import (  # noqa: E402
 )
 from geecs_bluesky.namespace import DeviceRoster, GeecsNamespace  # noqa: E402
 from geecs_bluesky.plan_names import GEECS_PLAN_NAMES  # noqa: E402
-from geecs_bluesky.plans.action_compiler import SettableFactory  # noqa: E402
-from geecs_bluesky.plans.registry import (  # noqa: E402
-    TriggerProfiles,
-    bind_plans,
+from geecs_bluesky.plans.action_compiler import (  # noqa: E402
+    SettableFactory,
     run_action_plan,
 )
+from geecs_bluesky.plans.registry import TriggerProfiles, bind_plans  # noqa: E402
 from geecs_bluesky.run_engine import make_run_engine  # noqa: E402
 from tests.ca_mock_helpers import connect_mock  # noqa: E402
 from tests.test_namespace import row  # noqa: E402
@@ -140,6 +139,27 @@ def test_the_namespace_is_a_settable_factory(namespace) -> None:
         namespace.get_readable("U_148_PLC", "Nope")
     with pytest.raises(GeecsConfigurationError, match="no device"):
         namespace.get_settable("U_Missing", "X")
+
+
+def test_native_save_controls_are_refused_by_name() -> None:
+    roster = DeviceRoster(
+        experiment="TestExp",
+        variables={
+            "UC_Cam": [
+                row("MeanCounts"),
+                row("trigger", settable=True, choices="on,off"),
+                row("save", settable=True, choices="on,off"),
+                row("localsavingpath", settable=True, choices="path"),
+            ]
+        },
+        subscribed={"UC_Cam": ["MeanCounts"]},
+    )
+    ns = GeecsNamespace(roster, file_plugin_hosts=None)
+    assert ns["UC_Cam"].native_save
+    with pytest.raises(GeecsConfigurationError, match="native saving"):
+        ns.get_settable("UC_Cam", "localsavingpath")
+    with pytest.raises(GeecsConfigurationError, match="native saving"):
+        ns.get_settable("UC_Cam", "save")
 
 
 def test_run_action_sets_checks_and_opens_no_run(RE, namespace) -> None:

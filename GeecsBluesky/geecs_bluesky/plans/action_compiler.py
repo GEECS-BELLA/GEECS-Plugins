@@ -22,11 +22,17 @@ statement):
 
 Purity contract: this module never touches Channel Access, sessions, or PV
 strings — signals come from the injected :class:`SettableFactory`.
+
+:func:`run_action_plan` is the queue plan the worker registers under
+``run_action`` (:mod:`geecs_bluesky.plans.registry`): the compiler over the
+experiment's action library and the device namespace, which is the
+production :class:`SettableFactory`.
 """
 
 from __future__ import annotations
 
-from typing import Mapping, Protocol, runtime_checkable
+import logging
+from typing import Any, Callable, Mapping, Protocol, runtime_checkable
 
 import bluesky.plan_stubs as bps
 from bluesky.protocols import Movable, Readable
@@ -44,12 +50,16 @@ from geecs_bluesky.exceptions import (
     ActionCheckFailedError,
     ActionPlanCycleError,
     ActionPlanNotFoundError,
+    GeecsConfigurationError,
 )
+
+logger = logging.getLogger(__name__)
 
 __all__ = [
     "SettableFactory",
     "compile_action_plan",
     "flatten_action_steps",
+    "run_action_plan",
     "values_match",
 ]
 
@@ -232,3 +242,50 @@ def _compile(
             yield from _compile(nested, registry, settables, (*stack, step.plan))
         else:  # pragma: no cover - schema discriminator prevents this
             raise TypeError(f"Unrecognized action step type: {type(step)!r}")
+
+
+def run_action_plan(
+    resolver: Any | None, settables: SettableFactory | None
+) -> Callable[[str], Any]:
+    """The ``run_action`` queue plan: run a named plan from the action library.
+
+    Parameters
+    ----------
+    resolver :
+        The experiment's config resolver (``resolve_action_plan`` +
+        ``action_plan_registry``, the ``ConfigResolver`` protocol).
+    settables :
+        Hands out the signals the steps touch — the device namespace.
+
+    Either ``None`` registers a plan that refuses to run (the hermetic
+    worker, ``QS_DEVICE_NAMESPACE=off``), so the manager's plan list is the
+    same in every mode.
+    """
+
+    def run_action(name: str):
+        """Run the action plan *name* from the experiment's action library.
+
+        The steps (``set`` / ``wait`` / ``check`` / ``run``) execute in order
+        as plain plan stubs over the namespace devices; a ``check``
+        mismatch aborts the item.  No run is opened: nothing is claimed
+        and nothing is written.
+
+        Parameters
+        ----------
+        name : str
+            A plan name from the experiment's ``actions.yaml``.
+        """
+        if resolver is None or settables is None:
+            raise GeecsConfigurationError(
+                "run_action: this worker has no device namespace "
+                "(QS_DEVICE_NAMESPACE=off), so action plans cannot run"
+            )
+        plan = resolver.resolve_action_plan(name)
+        logger.info("run_action: %s (%d step(s))", name, len(plan.steps))
+        return (
+            yield from compile_action_plan(
+                plan, registry=resolver.action_plan_registry(), settables=settables
+            )
+        )
+
+    return run_action

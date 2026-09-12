@@ -32,11 +32,12 @@ user_groups:
   # Operator group: queue submission is restricted to the plans the startup
   # profile registers (geecs_bluesky.plan_names.GEECS_PLAN_NAMES — the stock
   # scan verbs bound strict over the device namespace, plus mv for a manual
-  # move; tests/test_deploy_templates.py pins this line to that tuple); no
+  # move and run_action for a named action plan;
+  # tests/test_deploy_templates.py pins this line to that tuple); no
   # function execution (the function verbs went with the funnel, #807).
   operator:
     allowed_plans:
-      - ":^(count|scan|rel_scan|list_scan|rel_list_scan|log_scan|rel_log_scan|grid_scan|rel_grid_scan|list_grid_scan|rel_list_grid_scan|spiral|rel_spiral|spiral_fermat|rel_spiral_fermat|spiral_square|rel_spiral_square|x2x_scan|mv)$"
+      - ":^(count|scan|rel_scan|list_scan|rel_list_scan|log_scan|rel_log_scan|grid_scan|rel_grid_scan|list_grid_scan|rel_list_grid_scan|spiral|rel_spiral|spiral_fermat|rel_spiral_fermat|spiral_square|rel_spiral_square|x2x_scan|mv|run_action)$"
     forbidden_plans:
       - null
     # Devices are nouns in the namespace (#807 phase 1): a plan argument may

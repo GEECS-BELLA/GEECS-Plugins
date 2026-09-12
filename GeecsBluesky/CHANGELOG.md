@@ -24,7 +24,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   name; the hermetic worker registers a `run_action` that refuses, so the
   manager's plan list is the same in every mode.  `submit_plan("run_action",
   ["Amp4_DUMP_HP"])` works unchanged; a preset cannot name it
-  (`PRESET_PLAN_NAMES`).
+  (`PRESET_PLAN_NAMES`).  The `operator` user group allows it
+  (`qserver/user_group_permissions.yaml`, now pinned to
+  `GEECS_PLAN_NAMES` by `tests/test_deploy_templates.py`).
+
+### Changed
+
+- `ConfigsRepoResolver._action_library` reads `actions.yaml` on every call
+  instead of caching it for the resolver's lifetime: the worker holds one
+  resolver, so a plan edited in the Console's action-library editor is
+  what the next `run_action` item runs.
+- `GeecsNamespace.get_settable` names the real cause when an action plan
+  sets a native-saving camera's `save` / `localsavingpath`: owned by the
+  detector's data logic, not settable from a plan.
 
 ### Removed
 
