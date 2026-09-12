@@ -43,6 +43,32 @@ The foundation for the operations book. Owner rulings 2026-09-11.
   `routes/attachments`; `router.create_log_router` only wires them.
 - Front matter carries `book` and `tags`.
 
+### Fixed (review of #835)
+
+- **`/log/attachments/../logbook.db` served the database.** The
+  attachment store checked that a file sat inside the entry directory
+  but not that the entry directory sat inside the root; `..` as an entry
+  id resolved to the state directory. Both levels are now checked, and
+  the test's decoys sit where an escape would land.
+- A share root containing a `scans` component (`/mnt/scans/data`) made
+  every save 500 after the row was written: the invariant assert now
+  inspects only the mirror's own `logbook/Y/M/D` segments and raises
+  `MirrorUnavailable`; anything else the mirror raises after the row
+  landed is logged and deferred, never surfaced as a failed save.
+- A dropped share no longer gets a logbook tree built on the bare mount
+  point: the experiment directory must exist before any `mkdir`.
+- Deleting a tombstone (or a missing id) no longer records a spurious
+  history snapshot; an edit racing a delete is a 404, not a 409 with a
+  body that no longer exists.
+- `query(limit=-1)` is bounded.
+- Tags: a markdown anchor link `[see](#results)` and `?#top` are not
+  tags; a trailing `-` is dropped; the tail is Unicode-aware (`#eé` is
+  not the tag `e`).
+- `update` uses the shared transaction helper; one `attachments`
+  constant; `?book=` typed as `Book`; the unused per-view ops count is
+  gone until the month page; `geecs_schemas` exports `Book`; docs that
+  still described the day-folder mirror and an unparsed body corrected.
+
 ## [0.2.0] - 2026-09-11
 
 ### Added

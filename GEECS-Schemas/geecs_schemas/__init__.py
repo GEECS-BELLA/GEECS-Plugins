@@ -40,6 +40,7 @@ from geecs_schemas.experiment_defaults import DefaultActions, ExperimentDefaults
 from geecs_schemas.log_entry import (
     AnalysisPayload,
     Attachment,
+    Book,
     EntryKind,
     EntryPayload,
     EntryStatus,
@@ -142,6 +143,7 @@ __all__ = [
     "AnalysisPayload",
     "ProblemPayload",
     "EntryPayload",
+    "Book",
     "EntryKind",
     "EntryStatus",
     "SCHEMA_REGISTRY",

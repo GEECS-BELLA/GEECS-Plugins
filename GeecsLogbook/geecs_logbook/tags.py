@@ -5,12 +5,14 @@ a typist writes the same thing by hand. Either way the body is the truth
 and this module reads the tags back out of it at save, so the store can
 index them without anyone maintaining a category column.
 
-What counts as a tag is deliberately narrow: ``#`` followed by a letter,
-then letters, digits, ``-`` or ``_``, at most 32 characters, and not glued
-to a preceding word character. ``#1`` (an issue number), ``C#``, a URL
-fragment and a markdown heading (``# Title`` — the space rules it out) are
-all left alone. Anything inside a code span or a fenced block is skipped:
-``#include`` in a snippet is not a category.
+What counts as a tag is deliberately narrow: ``#`` followed by an ASCII
+letter, then ASCII letters, digits, ``-`` or ``_`` (not ending in ``-``),
+at most 32 characters, and not glued to a preceding word character or
+link punctuation. ``#1`` (an issue number), ``C#``, a URL fragment
+(``?#top``), a markdown anchor link (``[see](#results)``) and a heading
+(``# Title`` — the space rules it out) are all left alone. Anything
+inside a code span or a fenced block is skipped: ``#include`` in a
+snippet is not a category.
 """
 
 from __future__ import annotations
@@ -19,7 +21,12 @@ import re
 
 _FENCE = re.compile(r"```.*?```|~~~.*?~~~", re.S)
 _INLINE_CODE = re.compile(r"`[^`\n]*`")
-_TAG = re.compile(r"(?<![\w#&/.])#([A-Za-z][\w-]{0,31})(?![\w-])")
+#: ``(?<!\]\()`` refuses a markdown anchor link ``[see](#results)``; a
+#: tag in plain parentheses ``(#laser)`` is still a tag. The trailing
+#: lookahead is Unicode-aware on purpose: ``#eé`` is not the tag ``e``.
+_TAG = re.compile(
+    r"(?<!\]\()(?<![A-Za-z0-9_#&/.?])#([A-Za-z](?:[A-Za-z0-9_-]{0,30}[A-Za-z0-9_])?)(?![\w-])"
+)
 
 
 def parse_tags(body_md: str) -> list[str]:

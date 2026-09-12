@@ -28,12 +28,10 @@ from fastapi import APIRouter
 from fastapi.templating import Jinja2Templates
 
 from geecs_logbook.attachments import AttachmentStore
+from geecs_logbook.mirror import ATTACHMENTS_DIR
 from geecs_logbook.routes import attachments, day, entries
 from geecs_logbook.routes._common import TEMPLATES_DIR, Context, initials
 from geecs_logbook.store import NotesStore
-
-#: The attachment directory's name, beside the database file.
-ATTACHMENTS_DIRNAME = "attachments"
 
 
 def create_log_router(
@@ -68,7 +66,9 @@ def create_log_router(
     blobs: Optional[AttachmentStore] = None
     if notes_db:
         store = NotesStore(notes_db)
-        blobs = AttachmentStore(Path(notes_db).parent / ATTACHMENTS_DIRNAME)
+        # The same name as inside the mirror tree, so the relative link
+        # ``attachments/<id>/<file>`` is true on the host and on the share.
+        blobs = AttachmentStore(Path(notes_db).parent / ATTACHMENTS_DIR)
 
     ctx = Context(
         experiment=experiment,

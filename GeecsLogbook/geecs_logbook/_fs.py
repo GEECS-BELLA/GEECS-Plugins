@@ -25,7 +25,10 @@ def replace_with(path: Path, data: bytes) -> None:
     half of each. The temp name is unique per call, so two writers on the
     same target cannot clobber each other's half-written file. ``mkstemp``
     creates 0600; the file gets the mode a plain write would have had,
-    because a mirror is for people to read.
+    because a mirror is for people to read. On an SMB share the rename
+    needs DELETE permission on the target (``scan_analysis.task_queue``
+    learned this the hard way); the mirror is written by the service
+    account, which has it.
     """
     fd, tmp_name = tempfile.mkstemp(
         dir=path.parent, prefix=path.name + ".", suffix=".tmp"

@@ -396,6 +396,17 @@ class TestQuery:
         by_b = store.query(day_from="2026-09-01", day_to="2026-09-30", author="b")
         assert [e.body_md for e in by_b] == ["ops #laser"]
 
+    def test_limit_is_always_bounded(self, store: NotesStore) -> None:
+        """A negative or absurd limit cannot lift the cap."""
+        self._seed(store)
+        assert (
+            len(store.query(day_from="2026-01-01", day_to="2026-12-31", limit=-1)) == 1
+        )
+        assert (
+            len(store.query(day_from="2026-01-01", day_to="2026-12-31", limit=10**9))
+            == 4
+        )
+
     def test_scan_anchored_can_be_hidden(self, store: NotesStore) -> None:
         """The month page's default: the campaign record stays out of the way."""
         self._seed(store)
@@ -442,6 +453,32 @@ class TestHistory:
         assert hist[0].entry.body_md == "v1" and hist[1].entry.status == "draft"
         assert hist[3].entry.attachments[0].filename == "a.png"
         assert all(h.recorded_at.tzinfo is not None for h in hist)
+
+    def test_deleting_a_tombstone_leaves_no_history(self, store: NotesStore) -> None:
+        """A second delete replaces nothing, so it records nothing."""
+        e = store.create(day=DAY, scan=1, author="a", body_md="x")
+        assert store.delete(e.entry_id) is True
+        assert store.delete(e.entry_id) is False
+        assert store.delete("nope") is False
+        assert [h.reason for h in store.history(e.entry_id)] == ["delete"]
+
+    def test_edit_after_a_concurrent_delete_is_missing_not_conflict(
+        self, store: NotesStore, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Deleted between the read and the write: 404, not a stale 409."""
+        e = store.create(day=DAY, scan=1, author="a", body_md="x")
+        real_get = store.get
+
+        def get_then_delete(entry_id: str, **kw: object):
+            monkeypatch.setattr(store, "get", real_get)
+            result = real_get(entry_id, **kw)
+            store.delete(entry_id)
+            return result
+
+        monkeypatch.setattr(store, "get", get_then_delete)
+        with pytest.raises(KeyError):
+            store.update(e.entry_id, body_md="y", editor="a", expected_version=1)
+        assert [h.reason for h in store.history(e.entry_id)] == ["delete"]
 
     def test_a_refused_edit_leaves_no_history(self, store: NotesStore) -> None:
         """A conflict rolls the snapshot back with the update."""

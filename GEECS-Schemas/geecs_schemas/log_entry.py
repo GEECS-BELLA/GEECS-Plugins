@@ -15,9 +15,11 @@ other. This package depends on pydantic alone, so all three can.
 
 The body is opaque
 ------------------
-``body_md`` is one markdown string and nothing in this repository parses
-it. Templates supply its *initial text* and stop there; the first save is
-copy-on-write and the text is then entirely the author's.
+``body_md`` is one markdown string. Nothing in this repository parses it
+for *structure*: the only reads are the renderer (to draw it) and the tag
+scan (``#laser`` → ``tags``, at save). Templates supply its *initial
+text* and stop there; the first save is copy-on-write and the text is
+then entirely the author's.
 
 That is a deliberate rejection of the obvious alternative — storing an
 entry as structured fields named by a template's headings. Under that
@@ -49,7 +51,8 @@ LOG_ENTRY_SCHEMA_VERSION = 1
 class Attachment(SchemaModel):
     """One file uploaded with an entry — a pasted screenshot, a PDF.
 
-    The bytes live on disk beside the entry's markdown, never in the
+    The bytes live on disk — in the logbook's attachment store beside its
+    database, and copied beside the mirrored markdown — never in the
     database. This is the manifest: what was uploaded, so that "stored but
     no longer referenced by any body" is computable and orphans can be
     found. The body stays authoritative for *display*; this is
@@ -185,11 +188,11 @@ class LogEntry(VersionedSchemaModel):
         entry keeps its template name because that is what the author
         reached for.
     body_md : str
-        The entry itself. Opaque markdown; nothing parses it.
+        The entry itself. Opaque markdown; only rendered and tag-scanned.
     payload : EntryPayload or None
         Optional machine-authored structure. Never human prose.
     attachments : list of Attachment
-        Files stored beside this entry's markdown.
+        Files uploaded with this entry.
     created_at : datetime
         When it was first saved.
     edited_at : datetime or None
@@ -244,7 +247,7 @@ class LogEntry(VersionedSchemaModel):
         None, description="Machine-authored structure, never human prose."
     )
     attachments: list[Attachment] = Field(
-        default_factory=list, description="Files stored beside the markdown."
+        default_factory=list, description="Files uploaded with the entry."
     )
 
     created_at: datetime = Field(description="First saved.")

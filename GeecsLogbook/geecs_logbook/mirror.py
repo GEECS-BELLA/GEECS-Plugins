@@ -124,15 +124,32 @@ def logbook_root(
     day_dir = scans.parent
     month_dir = day_dir.parent
     year_dir = month_dir.parent
-    root = year_dir.parent / LOGBOOK_DIR / year_dir.name / month_dir.name / day_dir.name
+    experiment_dir = year_dir.parent
+    if not experiment_dir.is_dir():
+        # The one thing checked before any mkdir: the experiment directory
+        # is where the scanner's year folders live, so its absence means
+        # the share is not mounted (or the configuration is wrong), and
+        # the mirror must not build a tree on the bare mount point that
+        # the real share will hide when it comes back. A day or month that
+        # does not exist yet is fine — those are ours to make.
+        raise MirrorUnavailable(
+            f"share not mounted: experiment directory missing: {experiment_dir}"
+        )
+    root = experiment_dir / LOGBOOK_DIR / year_dir.name / month_dir.name / day_dir.name
     _assert_own_tree(root)
     return root
 
 
 def _assert_own_tree(path: Path) -> None:
-    """Refuse any path that enters the data tree. Pins the invariant."""
-    if "scans" in path.parts or LOGBOOK_DIR not in path.parts:
-        raise RuntimeError(f"mirror path is not in the logbook tree: {path}")
+    """Refuse a day root that is not ``…/logbook/Y/M/D``. Pins the invariant.
+
+    Only the four trailing segments are this module's; the share root
+    above them is the site's and may legitimately contain a ``scans``
+    component (``/mnt/scans/data``), so it is not inspected.
+    """
+    ours = path.parts[-4:]
+    if len(ours) < 4 or ours[0] != LOGBOOK_DIR or "scans" in ours:
+        raise MirrorUnavailable(f"mirror path is not in the logbook tree: {path}")
 
 
 def entry_dir(entry: LogEntry, root: Path) -> Path:

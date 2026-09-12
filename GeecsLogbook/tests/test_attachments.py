@@ -39,12 +39,19 @@ def test_parallel_same_name_saves_all_get_their_own_file(
 
 
 def test_serving_is_contained(blobs: AttachmentStore) -> None:
-    """A filename that escapes the entry's directory is not an attachment."""
+    """Neither the filename nor the entry id can escape the attachment root.
+
+    The decoys sit where an escape would land: the database beside the
+    store (``..`` as the entry id) and a file at the root itself (``.``).
+    """
     blobs.save("e", "a.png", b"x")
-    (blobs.root / "secret.txt").write_text("no")
+    (blobs.root.parent / "logbook.db").write_text("SQLite format 3")
+    (blobs.root / "loose.txt").write_text("no")
     assert blobs.path("e", "a.png") is not None
-    assert blobs.path("e", "../secret.txt") is None
-    assert blobs.path("..", "secret.txt") is None
+    assert blobs.path("e", "../loose.txt") is None
+    assert blobs.path("e", "../../logbook.db") is None
+    assert blobs.path("..", "logbook.db") is None
+    assert blobs.path(".", "loose.txt") is None
     assert blobs.path("e", "missing.png") is None
 
 

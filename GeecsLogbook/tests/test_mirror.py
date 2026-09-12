@@ -17,7 +17,11 @@ EXP = "Undulator"
 
 @pytest.fixture
 def share(tmp_path: Path) -> Path:
-    """A share with the day folder and its scans/ present, as the scanner leaves it."""
+    """A share with the day folder and its scans/ present, as the scanner leaves it.
+
+    The experiment directory is what the mirror checks for; the day and
+    its scans are there so the reader half of the tests has something.
+    """
     scans = tmp_path / EXP / "Y2026" / "09-Sep" / "26_0911" / "scans"
     (scans / "Scan005").mkdir(parents=True)
     (scans / "Scan005" / "scan.log").write_text("")
@@ -49,13 +53,26 @@ class TestPaths:
         assert root == share / EXP / "logbook" / "Y2026" / "09-Sep" / "26_0911"
         assert "scans" not in root.parts
 
+    def test_a_share_root_containing_scans_is_fine(self, tmp_path: Path) -> None:
+        """Only the mirror's own segments are inspected; /mnt/scans/data is a valid site."""
+        base = tmp_path / "scans" / "data"
+        (base / EXP).mkdir(parents=True)
+        root = mirror.logbook_root(DAY, EXP, base_directory=base)
+        assert root == base / EXP / "logbook" / "Y2026" / "09-Sep" / "26_0911"
+
+    def test_missing_experiment_directory_means_unmounted(self, tmp_path: Path) -> None:
+        """With no experiment directory the share is not there; nothing is built."""
+        with pytest.raises(mirror.MirrorUnavailable, match="not mounted"):
+            mirror.logbook_root(DAY, EXP, base_directory=tmp_path)
+        assert list(tmp_path.iterdir()) == []
+
     def test_a_path_into_the_data_tree_is_refused(self, share: Path) -> None:
         """The invariant is pinned in code, not only by construction."""
-        with pytest.raises(RuntimeError):
+        with pytest.raises(mirror.MirrorUnavailable):
             mirror._assert_own_tree(
                 share / EXP / "Y2026" / "09-Sep" / "26_0911" / "scans"
             )
-        with pytest.raises(RuntimeError):
+        with pytest.raises(mirror.MirrorUnavailable):
             mirror._assert_own_tree(share / EXP / "logbook" / "x" / "scans")
 
     def test_three_anchors_three_places(self, store: NotesStore, share: Path) -> None:
@@ -174,6 +191,7 @@ class TestWrite:
         self, store: NotesStore, tmp_path: Path
     ) -> None:
         """A note on a day with no scans has a home: the tree is the logbook's."""
+        (tmp_path / EXP).mkdir()  # the share is mounted; the year has no days yet
         root = mirror.logbook_root("2026-09-12", EXP, base_directory=tmp_path)
         e = store.create(day="2026-09-12", author="a", body_md="quiet day", book="ops")
         path = mirror.write_entry(e, root)
@@ -181,19 +199,28 @@ class TestWrite:
         assert not (tmp_path / EXP / "Y2026").exists()  # no day folder was made
 
     def test_never_creates_anything_in_the_data_tree(
-        self, store: NotesStore, share: Path, monkeypatch: pytest.MonkeyPatch
+        self,
+        store: NotesStore,
+        share: Path,
+        blobs: AttachmentStore,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """Every mkdir the mirror issues is under logbook/."""
+        """Every mkdir the mirror issues — markdown and attachments — is under logbook/."""
         real_mkdir = Path.mkdir
+        made: list[Path] = []
 
         def guarded(self: Path, *a: object, **k: object) -> None:
             assert "logbook" in self.parts and "scans" not in self.parts, self
+            made.append(self)
             return real_mkdir(self, *a, **k)
 
-        monkeypatch.setattr(Path, "mkdir", guarded)
         root = mirror.logbook_root(DAY, EXP, base_directory=share)
         e = store.create(day=DAY, scan=5, author="a", body_md="x")
+        blobs.save(e.entry_id, "a.png", b"x")
+        monkeypatch.setattr(Path, "mkdir", guarded)
         mirror.write_entry(e, root)
+        mirror.mirror_attachments(e, root, blobs)
+        assert len(made) >= 2
 
     def test_attachments_are_copied_beside_the_entry(
         self, store: NotesStore, share: Path, blobs: AttachmentStore

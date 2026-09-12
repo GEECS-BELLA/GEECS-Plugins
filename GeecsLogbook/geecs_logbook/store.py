@@ -273,7 +273,7 @@ class NotesStore:
         if not include_scan_anchored:
             sql += " AND scan IS NULL AND after_scan IS NULL"
         sql += " ORDER BY day, created_at, rowid LIMIT ?"
-        params.append(min(limit, _QUERY_CAP))
+        params.append(max(1, min(limit, _QUERY_CAP)))
         with self._connect() as conn:
             rows = conn.execute(sql, params).fetchall()
         return [_from_row(row) for row in rows]
@@ -325,10 +325,9 @@ class NotesStore:
         file, and :func:`geecs_logbook.mirror.sync` knows which is which.
 
         Never-tried entries come first, then the least recently tried: an
-        entry whose day folder never appears (a note on a day with no
-        scans) must not sit at the head of the queue forever and starve
-        the ones behind it. Callers record each failed try with
-        :meth:`mark_deferred`.
+        entry the share keeps refusing must not sit at the head of the
+        queue and starve the ones behind it. Callers record each failed
+        try with :meth:`mark_deferred`.
         """
         with self._connect() as conn:
             rows = conn.execute(
@@ -430,39 +429,37 @@ class NotesStore:
         if current.version != expected_version:
             raise ConflictError(current)
 
-        with self._connect() as conn:
+        with self._connect() as conn, _transaction(conn):
             # The WHERE clause repeats the version check: between the read
             # above and this write another process may have saved, and the
             # comparison has to happen where the write happens. The
             # snapshot and the update are one transaction, so history can
             # never hold a state that was not the one replaced.
-            conn.execute("BEGIN IMMEDIATE")
-            try:
-                self._snapshot(conn, entry_id, "edit")
-                now = _now().isoformat()
-                cursor = conn.execute(
-                    "UPDATE entries SET body_md = ?, tags = ?, edited_by = ?,"
-                    " edited_at = ?, updated_at = ?, version = version + 1,"
-                    " mirrored_at = NULL"
-                    " WHERE entry_id = ? AND version = ? AND deleted_at IS NULL",
-                    (
-                        body_md,
-                        json.dumps(parse_tags(body_md)),
-                        editor,
-                        now,
-                        now,
-                        entry_id,
-                        expected_version,
-                    ),
-                )
-                if cursor.rowcount == 0:
-                    conn.execute("ROLLBACK")
-                    raise ConflictError(self.get(entry_id) or current)
-                conn.execute("COMMIT")
-            except BaseException:
-                if conn.in_transaction:
-                    conn.execute("ROLLBACK")
-                raise
+            self._snapshot(conn, entry_id, "edit")
+            now = _now().isoformat()
+            cursor = conn.execute(
+                "UPDATE entries SET body_md = ?, tags = ?, edited_by = ?,"
+                " edited_at = ?, updated_at = ?, version = version + 1,"
+                " mirrored_at = NULL"
+                " WHERE entry_id = ? AND version = ? AND deleted_at IS NULL",
+                (
+                    body_md,
+                    json.dumps(parse_tags(body_md)),
+                    editor,
+                    now,
+                    now,
+                    entry_id,
+                    expected_version,
+                ),
+            )
+            if cursor.rowcount == 0:
+                # Either someone saved first, or the entry was deleted
+                # between the read above and here; the two deserve
+                # different answers.
+                latest = self.get(entry_id, include_deleted=True)
+                if latest is None or latest.is_deleted:
+                    raise KeyError(entry_id)
+                raise ConflictError(latest)
         return self.get(entry_id)  # type: ignore[return-value]
 
     def set_status(self, entry_id: str, status: str) -> LogEntry:
@@ -553,16 +550,27 @@ class NotesStore:
         file — and ``mirrored_at`` is cleared so :func:`sync` owes the
         removal until that happens.
         """
-        with self._connect() as conn, _transaction(conn):
-            self._snapshot(conn, entry_id, "delete")
-            now = _now().isoformat()
-            cursor = conn.execute(
-                "UPDATE entries SET deleted_at = ?, updated_at = ?,"
-                " version = version + 1, mirrored_at = NULL"
-                " WHERE entry_id = ? AND deleted_at IS NULL",
-                (now, now, entry_id),
-            )
-        return cursor.rowcount > 0
+        try:
+            with self._connect() as conn, _transaction(conn):
+                self._snapshot(conn, entry_id, "delete")
+                now = _now().isoformat()
+                cursor = conn.execute(
+                    "UPDATE entries SET deleted_at = ?, updated_at = ?,"
+                    " version = version + 1, mirrored_at = NULL"
+                    " WHERE entry_id = ? AND deleted_at IS NULL",
+                    (now, now, entry_id),
+                )
+                if cursor.rowcount == 0:
+                    # Missing or already a tombstone: nothing was replaced,
+                    # so the snapshot must not be kept either.
+                    raise _NothingToDelete
+        except _NothingToDelete:
+            return False
+        return True
+
+
+class _NothingToDelete(Exception):
+    """Private: unwinds a delete that matched no live row, rolling back."""
 
 
 @contextmanager

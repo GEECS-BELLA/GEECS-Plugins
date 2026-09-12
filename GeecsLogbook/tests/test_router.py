@@ -401,6 +401,22 @@ class TestBooksTagsHistory:
             writable.get("/log/api/day/2026-09-11/entries?book=nope").status_code == 422
         )
 
+    def test_a_mirror_crash_never_fails_the_save(
+        self, writable: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Anything the mirror raises after the row landed is a deferral, not a 500."""
+        from geecs_logbook import mirror
+
+        def boom(*a: object, **k: object) -> None:
+            raise RuntimeError("unexpected")
+
+        monkeypatch.setattr(mirror, "mirror_one", boom)
+        e = _post(writable, scan=1, body_md="still saved")
+        assert (
+            writable.get(f"/log/api/entries/{e['entry_id']}").json()["body_md"]
+            == "still saved"
+        )
+
     def test_tags_follow_the_body(self, writable: TestClient) -> None:
         """Tags are parsed at save and re-parsed on edit; the page shows chips."""
         e = _post(writable, scan=1, body_md="#laser tuned; see #jet")

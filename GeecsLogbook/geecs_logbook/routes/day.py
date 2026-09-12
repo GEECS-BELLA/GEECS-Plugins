@@ -11,9 +11,11 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 
+from typing import Optional
+
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
-from geecs_schemas.log_entry import LogEntry
+from geecs_schemas.log_entry import Book, LogEntry
 
 from geecs_logbook.models import DaySummary
 from geecs_logbook.render import render_markdown
@@ -71,7 +73,6 @@ def register(router: APIRouter, ctx: Context) -> None:
         summary = ctx.load_day(when)
         ctx.maybe_sync()
         entries = grouped(request, day)
-        ops_count = len(ctx.store.for_day(day, book="ops")) if ctx.store else 0
         return ctx.templates.TemplateResponse(
             request=request,
             name="day.html",
@@ -84,7 +85,6 @@ def register(router: APIRouter, ctx: Context) -> None:
                 "next_day": when + timedelta(days=1),
                 "entries": entries,
                 "entry_count": sum(len(v) for v in entries.values()),
-                "ops_count": ops_count,
                 "writable": ctx.writable,
                 "api_base": api_base(request),
             },
@@ -96,11 +96,9 @@ def register(router: APIRouter, ctx: Context) -> None:
         return ctx.load_day(parse_day(day))
 
     @router.get("/api/day/{day}/entries")
-    def _entries_json(day: str, book: str | None = None) -> list[LogEntry]:
+    def _entries_json(day: str, book: Optional[Book] = None) -> list[LogEntry]:
         """Return one day's commentary as JSON; ``?book=`` narrows to one book."""
         parse_day(day)
         if ctx.store is None:
             return []
-        if book is not None and book not in ("scans", "ops"):
-            raise HTTPException(status_code=422, detail="book is scans or ops")
         return ctx.store.for_day(day, book=book)

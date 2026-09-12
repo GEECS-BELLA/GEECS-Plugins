@@ -70,8 +70,14 @@ Commentary is mirrored into **a tree the logbook owns**,
 `{experiment}/logbook/Y2026/09-Sep/26_0911/…` — the data tree's date
 shape, outside the data tree. It is always writable (a note on a day with
 no scans has a home), backs up and syncs as one folder, and never enters
-`scans/` at all: `mirror._assert_own_tree` refuses any path with `scans`
-in it, pinned in `tests/test_mirror.py`. The first cut put `logbook/`
+`scans/` at all: `mirror._assert_own_tree` refuses a day root whose own
+four segments are not `logbook/Y/M/D` (the site's share root above them
+is not inspected — `/mnt/scans/data` is a valid site), and a test
+monkeypatches `Path.mkdir` across both the markdown and the attachment
+copy to assert every directory made is under `logbook/`. One sentinel
+stands before any `mkdir`: the **experiment directory** must exist,
+because its absence means the share is not mounted, and a tree built on
+the bare mount point would be hidden when the share came back. The first cut put `logbook/`
 inside each day folder and could not create the day; that stranded the
 ops book, which is why it moved (owner ruling 2026-09-11).
 

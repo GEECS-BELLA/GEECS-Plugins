@@ -1095,7 +1095,7 @@ One entry in the scan logbook.
 | `template` | `str` | no | 'blank' | Seed template it started from. |
 | `body_md` | `str` | no | '' | The entry. Opaque markdown. |
 | `payload` | `AnalysisPayload \| ProblemPayload (optional)` | no | None | Machine-authored structure, never human prose. |
-| `attachments` | `list[Attachment]` | no | empty | Files stored beside the markdown. |
+| `attachments` | `list[Attachment]` | no | empty | Files uploaded with the entry. |
 | `created_at` | `datetime` | yes | — | First saved. |
 | `edited_at` | `datetime (optional)` | no | None | Text last changed. |
 | `edited_by` | `str (optional)` | no | None | Who last changed the text. |

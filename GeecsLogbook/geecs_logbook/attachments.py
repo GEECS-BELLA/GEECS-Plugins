@@ -61,10 +61,16 @@ class AttachmentStore:
     def path(self, entry_id: str, filename: str) -> Optional[Path]:
         """Return the file for a served link, or ``None`` if it is not one.
 
-        Contained: a path that resolves outside the entry's directory is
-        not an attachment, whatever it is.
+        Contained twice over: the entry directory must sit directly inside
+        the root, and the file directly inside the entry directory. The
+        first check is the one that matters — without it ``..`` as an
+        entry id resolves to the state directory and the database beside
+        this store is served as an attachment.
         """
-        folder = (self.root / entry_id).resolve()
+        root = self.root.resolve()
+        folder = (root / entry_id).resolve()
+        if folder.parent != root:
+            return None
         target = (folder / filename).resolve()
         if target.parent != folder or not target.is_file():
             return None

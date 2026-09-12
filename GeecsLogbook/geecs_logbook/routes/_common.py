@@ -123,6 +123,9 @@ class Context:
         except mirror.MirrorUnavailable as exc:
             logger.info("mirror deferred for %s: %s", entry_id, exc)
             self.store.mark_deferred(entry_id)
+        except Exception:  # noqa: BLE001 — the row is saved; a 500 here would lie
+            logger.exception("mirror failed for %s; deferred", entry_id)
+            self.store.mark_deferred(entry_id)
 
 
 # --------------------------------------------------------------- helpers
