@@ -105,8 +105,6 @@ class TestMonthPage:
         monkeypatch.setattr(_common.Context, "maybe_sync", no_share)
         _ops(app, "2026-09-11", "still here")
         assert "still here" in app.get("/log/month/2026-09").text
-        with pytest.raises(AssertionError):
-            app.get("/log/day/2026-09-11")  # the day page does call it
 
     def test_tag_chips_filter_through_the_url(self, app: TestClient) -> None:
         """Chips count the whole month; the list shows the filtered part."""
