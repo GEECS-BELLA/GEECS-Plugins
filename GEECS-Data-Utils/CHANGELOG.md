@@ -3,6 +3,18 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.27.1] - 2026-09-12
+
+### Fixed
+
+- Backport of #836 to master (it had landed only on
+  `feature/native-bluesky-plans`): the Tiled catalog's `load_run` and the
+  s-file export read the primary stream's **scalar table only**.
+  `run['primary'].read().to_dataframe()` downloaded every array part and
+  outer-joined their dimensions — a two-camera plugin run pulled 14 GB and
+  took the worker host down (#834). Needed on master so the data portal
+  can deploy from master with the logbook (#849) without regressing.
+
 ## [0.27.0] - 2026-09-11
 
 ### Added
