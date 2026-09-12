@@ -20,6 +20,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `tests/fixtures/actions/actions_undulator.yaml` is that document and the
   `Amp4_DUMP_HP` golden pins it.
 
+### Added
+
+- `ActionPlanLibrary` refuses a document in the legacy `actions:` dialect
+  from `model_validate` (a `before` validator naming the regeneration, the
+  pattern `AnalysisDiagnostic._refuse_v1_layout` set), so every consumer
+  gets the one message and none carries its own guard.
+
 ## [0.21.0] - 2026-09-10
 
 ### Added

@@ -312,13 +312,12 @@ class ConfigsRepoResolver:
         """
         path = self._root / self.ACTION_FOLDER / "actions.yaml"
         document = self._load_yaml(path, "action library", "actions")
-        if "actions" in document and "plans" not in document:
-            raise GeecsConfigurationError(
-                f"action library {path} is in the legacy 'actions:' dialect, "
-                "which has no converter any more (GEECS-Schemas 0.22.0) — "
-                "regenerate it as an ActionPlanLibrary document "
-                "(schema_version: 1, plans: {...})."
-            )
+        if not document:
+            # An empty file (a fresh experiment's placeholder) is an empty
+            # library — the Console's store reads it the same way.
+            return ActionPlanLibrary(plans={})
+        # A legacy 'actions:' document is refused by the schema itself
+        # (ActionPlanLibrary's before-validator names the regeneration).
         return ActionPlanLibrary.model_validate(document)
 
     def resolve_action_plan(self, name: str) -> ActionPlan:
@@ -339,11 +338,15 @@ class ConfigsRepoResolver:
             ) from None
 
     def action_plan_registry(self) -> dict[str, ActionPlan]:
-        """Return every named plan visible to nested ``run`` steps (the library)."""
-        try:
-            return dict(self._action_library().plans)
-        except GeecsConfigurationError:
-            return {}  # no actions.yaml
+        """Return every named plan visible to nested ``run`` steps (the library).
+
+        Empty when the experiment has no ``actions.yaml`` at all; an
+        unreadable or legacy-dialect file **raises** (a listing that read
+        empty would hide the regeneration a legacy file needs).
+        """
+        if not (self._root / self.ACTION_FOLDER / "actions.yaml").exists():
+            return {}
+        return dict(self._action_library().plans)
 
     DEFAULTS_FILE = "experiment_defaults.yaml"
 

@@ -11,9 +11,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - `ConfigsRepoResolver._action_library` loads `actions.yaml` as an
   `ActionPlanLibrary` document only; a file in the legacy `actions:`
-  dialect is refused with a `GeecsConfigurationError` naming the
-  regeneration (the converter is gone, GEECS-Schemas 0.22.0; the corpus was
-  regenerated).  The action-compiler tests read the regenerated fixture.
+  dialect is refused by the schema (a `ValidationError` naming the
+  regeneration — the converter is gone, GEECS-Schemas 0.22.0; the corpus
+  was regenerated); an empty file is an empty library, as the Console
+  reads it.  `action_plan_registry` (the MCP's listing) is empty only when
+  the file is absent — an unreadable or legacy file raises instead of
+  listing nothing.  The action-compiler tests read the regenerated fixture.
 
 ## [0.82.4] - 2026-09-12
 

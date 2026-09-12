@@ -8,9 +8,10 @@ one ``geecs_bluesky.config_resolver.ConfigsRepoResolver`` reads::
 The file is an :class:`~geecs_schemas.ActionPlanLibrary` document (new
 schema only): the corpus was regenerated once and the legacy ``actions:``
 dialect has no converter any more (GEECS-Schemas 0.22.0), so a file in that
-shape is refused with a message naming the regeneration — mirroring the
-resolver.  Saving writes ``model_dump(mode="json")``, which round-trips
-losslessly through ``ActionPlanLibrary.model_validate``.
+shape is refused — by the schema itself, with a message naming the
+regeneration, the same one the worker's resolver relays.  Saving writes
+``model_dump(mode="json")``, which round-trips losslessly through
+``ActionPlanLibrary.model_validate``.
 
 Offline-safety mirrors :class:`~geecs_console.services.presets.PresetStore`:
 listing degrades to empty with no configs root; ``load``/``save``/``delete``/
@@ -175,13 +176,9 @@ class ActionLibraryStore(ExperimentConfigStore):
         )
         if document is _EMPTY_DOCUMENT:
             return ActionPlanLibrary(plans={})
-        if "actions" in document and "plans" not in document:
-            raise ActionLibraryStoreError(
-                f"Action library ({path}) is in the legacy 'actions:' dialect, "
-                "which has no converter any more — regenerate it as an "
-                "ActionPlanLibrary document (schema_version: 1, plans: {...})."
-            )
         try:
+            # A legacy 'actions:' document is refused by the schema itself,
+            # its message naming the regeneration.
             return ActionPlanLibrary.model_validate(document)
         except (ValidationError, ValueError) as exc:
             raise ActionLibraryStoreError(

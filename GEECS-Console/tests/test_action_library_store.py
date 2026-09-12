@@ -149,7 +149,7 @@ class TestRoundTrip:
 
 class TestLegacyDialect:
     def test_legacy_dialect_is_refused_naming_the_regeneration(self, root):
-        """No converter any more (GEECS-Schemas 0.22.0): the old shape is refused."""
+        """No converter any more (GEECS-Schemas 0.22.0): the schema refuses the old shape."""
         write_library(
             root,
             {
@@ -172,6 +172,16 @@ class TestLegacyDialect:
 
     def test_document_without_plans_is_invalid(self, root):
         write_library(root, {"schema_version": 1})
+        with pytest.raises(
+            ActionLibraryStoreError, match="not a valid ActionPlanLibrary"
+        ):
+            make_store(root).load_library()
+
+
+class TestEmptyDocuments:
+    def test_literal_empty_mapping_is_invalid_but_an_empty_file_is_not(self, root):
+        """The sentinel rule: YAML ``None`` → empty library; a literal ``{}`` → invalid."""
+        write_library(root, {})
         with pytest.raises(
             ActionLibraryStoreError, match="not a valid ActionPlanLibrary"
         ):

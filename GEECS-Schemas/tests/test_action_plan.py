@@ -122,9 +122,18 @@ class TestCorpusDocument:
             "change is intentional, regenerate with tests/generate_golden.py."
         )
 
-    def test_legacy_dialect_is_not_a_library(self):
-        """No converter: the old shape fails validation (unknown key, no plans)."""
-        with pytest.raises(ValidationError):
+    def test_legacy_dialect_is_refused_naming_the_regeneration(self):
+        """No converter: the old shape is refused by the schema itself.
+
+        The guard lives here (a ``before`` validator, the pattern
+        ``AnalysisDiagnostic._refuse_v1_layout`` set) so every consumer —
+        the worker's resolver, the Console's store, a listing — gets the
+        same message from ``model_validate`` and none carries its own.
+        """
+        with pytest.raises(ValidationError, match="legacy 'actions:' dialect"):
             ActionPlanLibrary.model_validate(
                 {"actions": {"x": {"steps": [{"action": "wait", "wait": 1}]}}}
             )
+        # a document that is merely incomplete gets the plain schema error
+        with pytest.raises(ValidationError, match="plans"):
+            ActionPlanLibrary.model_validate({"schema_version": 1})
