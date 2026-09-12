@@ -160,6 +160,17 @@ the plan of record).
   queue (or remove the item) before resubmitting a corrected request;
   clients that blindly add-and-start will re-execute the failed item
   first.
+- **A gated (or strict) scan's first arm fails with `no frame within 8 s`
+  right after a camera server restart** — the PVA gateway's file plugin
+  arms its session on the *first frame* after `Capture=1`, and a freshly
+  restarted DG645 comes up in its external-edges default: with the laser
+  off no edge reaches the camera, so no frame ever arms the plugin (2b
+  acceptance, 2026-09-12). Fire a few shots by hand (the box in internal
+  mode, then back) before the first scan of the day; the plugin's stale
+  `NumCaptured_RBV` from the previous session is zeroed by the scan itself
+  (GEECS-Plugins#853 is the plugin-side fix). The same symptom on a
+  camera whose LabVIEW device was started *after* its gateway is the
+  gateway's subscription gap (GEECS-Plugins#854).
 - **`qserver history get` shows a literal `'...'` entry** — the CLI
   truncates long histories for display; the newest items may not be
   shown. Read history through the API (`bluesky-queueserver-api`) for

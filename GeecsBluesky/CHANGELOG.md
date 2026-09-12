@@ -89,6 +89,9 @@ the hardware acceptance (§5) is owed.
   (2b acceptance A8: the first strict shot after a closed session waited
   for N+1 while its frame posted 1).  The plugin-side fix (post 0 at arm)
   is GEECS-Plugins#853.
+- The gated refusal of a LabVIEW-native saving essential names it as a
+  "native-saving device", not a camera (2b acceptance A3: `U_HP_Daq`, an
+  analog device with a LabVIEW file writer, was refused as a "camera").
 - `PluginPathProvider` creates the device directory inside the claimed scan
   folder (`mkdir(exist_ok=True)`, a missing scan folder is an error): the
   plugin refuses to arm on a missing `FilePath`, and in a fly prepare the

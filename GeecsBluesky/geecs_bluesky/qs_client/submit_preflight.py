@@ -301,10 +301,10 @@ def acquisition_refusal(item: Any, known: set[str]) -> Optional[str]:
     ]
     if native:
         return (
-            f"gated acquisition: essential camera(s) without a file plugin: "
+            f"gated acquisition: native-saving device(s) without a file plugin: "
             f"{', '.join(native)} — a gated batch counts frames the plugin "
-            "writes; a LabVIEW-native camera cannot. Use acquisition='strict' "
-            "or record its scalars only (save_images: false)."
+            "writes; a device saving through LabVIEW cannot. Use "
+            "acquisition='strict' or record its scalars only (save_images: false)."
         )
     owners = [r[: -len(".scalars")] if r.endswith(".scalars") else r for r in detectors]
     if not any(f"{r}.acq_timestamp" in known for r in owners):

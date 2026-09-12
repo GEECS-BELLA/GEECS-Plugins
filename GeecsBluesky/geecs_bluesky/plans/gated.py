@@ -141,10 +141,12 @@ def shot_clock(devices: Sequence[Any]) -> tuple[Any, str]:
 
 
 def refuse_native_essentials(devices: Sequence[Any]) -> None:
-    """Refuse a LabVIEW-native camera as an essential detector of a gated run.
+    """Refuse a LabVIEW-native saving device as an essential of a gated run.
 
     The preflight's rule, worker-side: a gated batch counts frames the
-    plugin writes, and a camera without one can neither count nor stream.
+    plugin writes, and a device that saves natively without one (a
+    LabVIEW-native camera, a DAQ with its own file writer) can neither
+    count nor stream.
     Called by the bound plan at bind time (before the run is claimed or
     anything moves) and by the step itself.
 
@@ -161,10 +163,10 @@ def refuse_native_essentials(devices: Sequence[Any]) -> None:
     if native:
         names = ", ".join(d._geecs_device_name for d in native)
         raise GeecsConfigurationError(
-            f"gated acquisition: essential camera(s) without a file plugin: "
+            f"gated acquisition: native-saving device(s) without a file plugin: "
             f"{names} — a gated batch counts frames the plugin writes; a "
-            "LabVIEW-native camera cannot. Use acquisition='strict' or "
-            "record its scalars only (save_images: false)."
+            "device saving through LabVIEW cannot. Use acquisition='strict' "
+            "or record its scalars only (save_images: false)."
         )
 
 
