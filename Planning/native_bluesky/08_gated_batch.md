@@ -166,7 +166,13 @@ Line numbers are from the installed files (`GeecsBluesky/.venv/…`).
   an *event* in a declared stream must read exactly the declared objects
   (`bundlers.py:606-607`, "Mismatched objects read"), so a scanned motor's
   readback cannot share the datum stream.  A bare `Msg("collect", obj)`
-  with no declared stream lands in **`primary`** (`bundlers.py:732`).
+  (no `name`, which is what `fly_during_wrapper` emits) resolves to the
+  **one** stream declared for exactly that object set
+  (`bundlers.py:1105-1107`: "if one was not provided, but a single stream
+  has been declared, then use that stream"); with nothing declared for
+  the object it lands in **`primary`** (`bundlers.py:732`).  So a
+  `declare_stream(ne, name=…)` before the wrapper's kickoff is what routes
+  the non-essential datums, and the stock wrapper needs no replacement.
 - `StackCheckCallback` builds its expected stamps from primary *event*
   rows (`callbacks.py:412-418`); a stream with no events warns "N frame(s)
   … but 0 row(s) own a frame" (`:470-475`).  `SFileCallback.on_stop`
@@ -364,8 +370,10 @@ unstage(NE)
   `finalize`/`stage` bracket supplies the stage, the prepare and the
   `declare_stream(ne, name="<device>_stream")` it lacks — the declare
   comes after the prepare and before the kickoff, and it is what routes
-  the wrapper's bare `collect` into that stream instead of `primary`
-  (§2).  Each NE is collected **alone** (one object → no index, the
+  the wrapper's bare `collect` into that stream: the bundler resolves a
+  nameless collect to the single stream declared for that object, and
+  only falls back to `primary` when none is (§2, `bundlers.py:1105-1107`
+  versus `:732`).  Each NE is collected **alone** (one object → no index, the
   datum covers everything it wrote), in its own stream: a joint stream
   would cut every camera at the slowest one's count.
 - `complete` on an unbounded prepare: count wait returns at once
