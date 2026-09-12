@@ -94,6 +94,13 @@ project adheres to semantic versioning.
 - `kit.html`'s dialog no longer carries `class="kit-dialog"`, which stopped
   matching anything when the rules were scoped. A dead class on the page
   people copy from is the wrong thing to copy.
+- **`.picklist`**, extracted from `.rail nav` (Codex review of #856). The
+  selectable-list styling was scoped to where it sat, so the inspector on
+  the reference page rendered three native browser buttons — a component
+  shown on the copy-from page that the kit did not actually style. It is
+  now a named component the rail, the inspector and the console's device
+  list all use, and a new guard fails when `kit.html` shows any class
+  nothing styles.
 
 ## [0.1.2] - 2026-09-12
 

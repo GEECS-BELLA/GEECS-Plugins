@@ -33,6 +33,11 @@ which is a real `<dialog>`.
 - **Containers** — `.panel` (a thing with its own state), `.group` (no
   edges; controls belonging to the panel around them), `.well` (recessed;
   output the reader did not write).
+- **`.picklist`** — a vertical list of selectable things: the rail's
+  navigation, the inspector's item list, the console's device list. The
+  current item is marked with `aria-current="page"` or
+  `aria-pressed="true"` — the state is the accessibility attribute, never
+  a class, so it cannot be styled-but-unannounced.
 - **Status** — `queued · running · ok · degraded · failed · unknown`, plus
   `agent` for *who wrote this*. Named on `data-state`; every chip is a dot
   **and** a word, so colour is never the only carrier.

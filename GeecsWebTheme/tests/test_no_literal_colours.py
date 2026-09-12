@@ -612,3 +612,30 @@ def test_probe_scoping(css: str, expected: bool) -> None:
         if not _KIT_SCOPED.match(s) and not _UNSCOPED_OK.match(s)
     ]
     assert bool(ungated) is expected, (css, ungated)
+
+
+def test_reference_page_demonstrates_only_what_the_kit_provides() -> None:
+    """Every class ``kit.html`` uses is styled by the kit or the theme.
+
+    ``kit.html`` is the page adopters copy from, so a component shown there
+    that the kit does not actually style is worse than one that is missing:
+    it gets copied, renders as browser defaults in the surface, and the
+    adopter writes their own CSS for it — which is the per-surface
+    divergence this package exists to stop. The inspector shipped exactly
+    that way (a selection list of bare ``<button>`` elements, styled only
+    by ``.rail nav``, which the inspector is not inside).
+
+    A class here with no rule anywhere is either a component the kit owes,
+    or a stray on the demo page. Both want fixing.
+    """
+    used: set[str] = set()
+    for attr in re.finditer(r'class="([^"]+)"', _KIT_HTML.read_text()):
+        used |= set(attr.group(1).split())
+    styled = set(
+        re.findall(r"\.([A-Za-z][\w-]*)", _KIT_CSS.read_text() + _THEME_CSS.read_text())
+    )
+    missing = sorted(used - styled)
+    assert not missing, (
+        f"kit.html shows {missing} but nothing styles them — either the kit "
+        "owes the component or the page should not be demonstrating it"
+    )

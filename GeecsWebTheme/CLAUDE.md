@@ -74,6 +74,17 @@ four on every block is why dense screens go flat.
 - `.well` — recessed fill, no border: output the reader did not write (a log
   tail, YAML, a repro snippet).
 
+## `.picklist`
+
+A vertical list of selectable things — the rail's navigation, the
+inspector's item list, whatever the console's device list becomes. It is a
+**named component, not a location**: the first cut styled `.rail nav`,
+which left the inspector on the reference page rendering native browser
+buttons and guaranteed a third use would need a third rule. Mark the
+current item with `aria-current="page"` (navigation) or
+`aria-pressed="true"` (selection); the state is the accessibility
+attribute, never a class.
+
 ## Status and pane states
 
 `queued · running · ok · degraded · failed · unknown`, plus `agent` — not a
