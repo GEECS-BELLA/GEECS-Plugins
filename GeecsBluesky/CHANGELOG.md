@@ -75,6 +75,15 @@ the hardware acceptance (§5) is owed.
 
 ### Fixed
 
+- `CaSettable` / `CaMotor` implement `locate()` (bluesky's `Locatable`), so
+  the `rel_*` plans (`rel_scan`, `rel_grid_scan`, …) and
+  `reset_positions_wrapper` work: bluesky used to fall back to
+  `obj.position`, which is the readback *signal* on a `CaMotor`, and every
+  relative plan failed at its first move with `unsupported operand type(s)
+  for +: 'SignalR' and 'float'` (found on hardware, 2b broader set
+  2026-09-12, Scan017).  The readback stands in for the setpoint: the
+  gateway's `:SP` is the last put through the gateway, not where the device
+  is.
 - A gated run's first arm **zeroes the plugin's count** before the batch
   baselines: the file plugin posts `NumCaptured_RBV` only when it writes a
   frame, never a zero at `Capture=1`, so after a session closed at *N* the
