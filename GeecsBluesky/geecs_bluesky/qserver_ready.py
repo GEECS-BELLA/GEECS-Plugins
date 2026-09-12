@@ -21,9 +21,10 @@ only that check catches it.  The plan list is read through the same
 check runs (one definition of ready); after an open this run requested it
 is re-read for a short settle window, because the manager reports the
 environment up before its own plan-list download has landed.  A list that
-is still empty or incomplete after that is downloaded again once through
-the manager's ``environment_update`` (#838: the manager's own download can
-time out and leave it idle, environment open, knowing no plans — the unit
+is still empty or incomplete after that is restored once from the worker's
+on-disk copy through the manager's ``permissions_reload(restore_plans_devices=True)``
+(#838: the manager's own download of the lists from the worker can time
+out and leave it idle, environment open, knowing no plans — the unit
 re-run, ``systemctl restart geecs-qserver-ready``, heals that without a
 manager restart), and the settle window applies again.  Exit codes:
 0 ready; 1 not ready (the message says exactly what was found); 2 usage.
@@ -95,13 +96,26 @@ PLAN_LIST_SETTLE_POLLS = 5
 #: — an unanswered list is not ready, full stop).
 _SETTLING_STATES = ("plans_empty", "plan_missing")
 #: After the settle window a list that is still empty or incomplete is
-#: re-downloaded ONCE through ``environment_update`` (#838): the manager's
-#: own download of the lists from the worker can time out — observed
-#: while the host thrashed in swap — and then leaves the manager idle,
-#: environment open, ``plans_allowed`` empty, refusing every submission.
-#: The update asks the worker for the lists again and regenerates the
-#: allowed lists; the re-read settle window applies again after it.
-_REDOWNLOAD_STATES = _SETTLING_STATES
+#: restored ONCE from disk through ``permissions_reload`` with
+#: ``restore_plans_devices=True`` (#838): the manager's own download of the
+#: lists from the worker can time out — observed while the host thrashed
+#: in swap — and then leaves the manager idle, environment open,
+#: ``plans_allowed`` empty, refusing every submission.  The worker writes
+#: ``existing_plans_and_devices.yaml`` from its namespace at every
+#: environment open (``--update-existing-plans-devices`` default
+#: ``ENVIRONMENT_OPEN``), so that file IS the running environment's list;
+#: the reload loads it into the manager and regenerates the allowed lists
+#: unconditionally (``manager.py: _update_allowed_plans_and_devices``).
+#: ``environment_update`` was considered and rejected: it re-downloads
+#: only when the worker's regenerated descriptions DIFFER from its own
+#: stored copy (``worker.py: _load_script_into_environment``), so on an
+#: unchanged namespace it is a no-op.  The settle window applies again
+#: after the restore.
+_RESTORE_STATES = _SETTLING_STATES
+#: The restore is one manager call; the manager answers it after reading
+#: the file and pushing the permissions to the worker, which can exceed
+#: the 2 s status-poll transport budget on a host in the #838 state.
+RESTORE_TIMEOUT_S = 10.0
 
 #: ``request(method, params) -> (msg, err_msg)``: the manager transport.
 Request = Callable[[str, dict[str, Any] | None], tuple[dict[str, Any] | None, str]]
@@ -116,11 +130,12 @@ def _zmq_request(control_addr: str) -> Request:
     from bluesky_queueserver.manager.comms import zmq_single_request
 
     def request(method: str, params: dict[str, Any] | None = None):
+        budget = RESTORE_TIMEOUT_S if method == "permissions_reload" else POLL_S
         return zmq_single_request(
             method,
             params or {},
             zmq_server_address=control_addr,
-            timeout=int(POLL_S * 1000),
+            timeout=int(budget * 1000),
         )
 
     return request
@@ -292,7 +307,7 @@ def ensure_ready(
     # be in flight when the environment first reads up, so an empty or
     # incomplete list is re-read for a short settle window (F1, #795).
     settle_polls = PLAN_LIST_SETTLE_POLLS if opened else 0
-    redownloaded = False
+    restored = False
     while True:
         verdict = readiness_from_reads(
             queue_status_from_manager(status), read_plans, list(expected_plans)
@@ -312,20 +327,31 @@ def ensure_ready(
             status = _wait_for_manager(request, deadline)
             continue
         if (
-            verdict.state in _REDOWNLOAD_STATES
-            and not redownloaded
+            verdict.state in _RESTORE_STATES
+            and not restored
             and time.monotonic() < deadline
         ):
             # The list is still empty / incomplete with the environment up:
             # the manager's download of it from the worker may have timed
-            # out (#838).  Ask it to download again, then settle-read anew.
-            redownloaded = True
+            # out (#838).  Restore it from the worker's on-disk copy, then
+            # settle-read anew.
+            restored = True
             log(
-                "plan list %s with the environment up — requesting "
-                "environment_update (a timed-out list download, "
+                "plan list %s with the environment up — restoring the lists "
+                "from the worker's on-disk copy (permissions_reload, "
+                "restore_plans_devices=True; a timed-out list download, "
                 "GEECS-Plugins#838)" % verdict.state
             )
-            _call(request, "environment_update", {})
+            try:
+                reply = _call(
+                    request, "permissions_reload", {"restore_plans_devices": True}
+                )
+            except NotReady as exc:
+                raise NotReady(
+                    f"{verdict.detail} (user_group={user_group!r}); "
+                    f"and the restore from disk failed: {exc}"
+                ) from exc
+            log("lists restored from disk: %s" % (reply.get("msg") or "accepted"))
             settle_polls = PLAN_LIST_SETTLE_POLLS
             time.sleep(POLL_S)
             status = _wait_for_manager(request, deadline)

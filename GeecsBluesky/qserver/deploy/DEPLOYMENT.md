@@ -158,8 +158,11 @@ allowed plans" while `qserver status` looks healthy (live 2026-09-04,
 GEECS-Plugins#793). For GEECS a running service means ready, so the
 readiness unit runs `geecs-qserver-ensure-ready`: wait for the manager,
 open the environment if closed, wait for idle, then **assert
-`plans_allowed` lists every GEECS plan** (`geecs_bluesky.plan_names`),
-exiting non-zero with a precise message otherwise. A separate unit on
+`plans_allowed` lists every GEECS plan** (`geecs_bluesky.plan_names`) —
+restoring the lists once from the worker's on-disk copy when they read
+empty or incomplete with the environment up (a timed-out list download,
+GEECS-Plugins#838) — exiting non-zero with a precise message otherwise. A
+separate unit on
 purpose: the manager's start is never blocked by the optimize-stack import
 warm-up, a failed open shows as one failed unit rather than a crash-looping
 manager, and `systemctl restart geecs-qserver-ready` is the recovery

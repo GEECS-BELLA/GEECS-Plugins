@@ -89,10 +89,10 @@ class TestReadinessVerdict:
         assert not verdict.ready and verdict.state == "plans_empty"
         assert "Troubleshooting" in verdict.detail
         # #838: the timed-out list download is a named cause, and the
-        # gesture is the readiness unit (environment_update), not a restart.
+        # gesture is the readiness unit (permissions_reload from disk), not a restart.
         assert "timed out" in verdict.detail and "#838" in verdict.detail
         assert "systemctl restart geecs-qserver-ready" in verdict.detail
-        assert "environment_update" in verdict.detail
+        assert "permissions_reload" in verdict.detail
 
     def test_missing_expected_plan_lists_what_is_allowed(self):
         verdict = readiness_verdict(UP, {"mv": {}}, SCAN_PLAN)

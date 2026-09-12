@@ -48,7 +48,7 @@ class _Manager:
         # manager's plan list landing *after* the environment reads up.
         self.plans_sequence = [list(p) for p in (plans_sequence or [])]
         self.open_reply = open_reply or {"success": True}
-        self.update_reply = update_reply or {"success": True, "task_uid": "t1"}
+        self.update_reply = update_reply or {"success": True, "msg": ""}
         self.answer = answer
         self.plans_answer = plans_answer
         self.calls: list[tuple[str, dict | None]] = []
@@ -62,7 +62,8 @@ class _Manager:
             return snap, ""
         if method == "environment_open":
             return self.open_reply, ""
-        if method == "environment_update":
+        if method == "permissions_reload":
+            assert params == {"restore_plans_devices": True}, params
             return self.update_reply, ""
         if method == "plans_allowed":
             if not self.plans_answer:
@@ -124,15 +125,15 @@ def test_empty_plan_list_after_open_is_not_ready() -> None:
     """The exact #793 invariant: open 'succeeded', plan list still empty.
 
     The fake stays empty across the post-open settle re-reads, the one
-    ``environment_update`` re-download (#838) and its own settle window,
-    so the conclusion is reached only after both are exhausted.
+    restore from disk (#838) and its own settle window, so the conclusion
+    is reached only after both are exhausted.
     """
     manager = _Manager([_status(exists=False), _status(exists=True)], plans=[])
     log = []
     with pytest.raises(NotReady, match="lists no allowed plans"):
         ensure_ready(manager, timeout_s=30, log=log.append)
     methods = [m for m, _ in manager.calls]
-    assert methods.count("environment_update") == 1
+    assert methods.count("permissions_reload") == 1
     assert methods.count("plans_allowed") == 2 * (
         qserver_ready.PLAN_LIST_SETTLE_POLLS + 1
     )
@@ -163,24 +164,25 @@ def test_plan_list_landing_after_the_open_is_ready() -> None:
 def test_no_settle_window_without_our_open() -> None:
     """An environment someone else opened is judged on the first read.
 
-    An empty list there is the #838 shape, so ONE ``environment_update``
+    An empty list there is the #838 shape, so ONE restore from disk
     follows (with its settle window) before the verdict is final.
     """
     manager = _Manager([_status(exists=True)], plans=[])
     with pytest.raises(NotReady, match="lists no allowed plans"):
         ensure_ready(manager, timeout_s=30, log=lambda s: None)
     methods = [m for m, _ in manager.calls]
-    assert methods.index("environment_update") == methods.index("plans_allowed") + 1
-    assert methods.count("environment_update") == 1
+    assert methods.index("permissions_reload") == methods.index("plans_allowed") + 1
+    assert methods.count("permissions_reload") == 1
     assert methods.count("plans_allowed") == qserver_ready.PLAN_LIST_SETTLE_POLLS + 2
 
 
-def test_empty_list_with_the_environment_up_is_healed_by_environment_update() -> None:
+def test_empty_list_with_the_environment_up_is_healed_by_a_restore_from_disk() -> None:
     """#838: the manager idle, environment open, plans_allowed EMPTY.
 
     A timed-out download of the lists from the worker leaves the manager
-    this way; ``environment_update`` makes it download again, and the
-    list lands within the settle window — ready without a restart.
+    this way; ``permissions_reload(restore_plans_devices=True)`` loads the
+    copy the worker wrote at environment open, and the list reads back
+    within the settle window — ready without a restart.
     """
     manager = _Manager(
         [_status(exists=True)], plans_sequence=[[], [], GEECS_PLAN_NAMES]
@@ -189,42 +191,69 @@ def test_empty_list_with_the_environment_up_is_healed_by_environment_update() ->
     allowed = ensure_ready(manager, timeout_s=30, log=log.append)
     assert allowed == sorted(GEECS_PLAN_NAMES)
     methods = [m for m, _ in manager.calls]
-    assert methods.count("environment_update") == 1
+    assert methods.count("permissions_reload") == 1
     assert "environment_open" not in methods
-    assert ("environment_update", {}) in manager.calls
-    # first read empty → update → settle re-reads until the list lands
+    assert "environment_update" not in methods
+    assert ("permissions_reload", {"restore_plans_devices": True}) in manager.calls
+    # first read empty → restore → settle re-reads until the list lands
     assert methods.count("plans_allowed") == 3
-    assert any("environment_update" in line and "#838" in line for line in log)
+    assert any("permissions_reload" in line and "#838" in line for line in log)
     assert log[-1].startswith(f"ready: {len(GEECS_PLAN_NAMES)} allowed plans")
 
 
 def test_stale_list_is_redownloaded_then_ready() -> None:
-    """A list missing a plan gets the same one re-download (a stale copy)."""
+    """A list missing a plan gets the same one restore (the pre-open list)."""
     manager = _Manager(
         [_status(exists=True)], plans_sequence=[["mv"], GEECS_PLAN_NAMES]
     )
     allowed = ensure_ready(manager, timeout_s=30, log=lambda s: None)
     assert allowed == sorted(GEECS_PLAN_NAMES)
-    assert [m for m, _ in manager.calls].count("environment_update") == 1
+    assert [m for m, _ in manager.calls].count("permissions_reload") == 1
 
 
-def test_environment_update_refused_is_not_ready() -> None:
-    """The manager refuses the update (not idle): not ready, its reason named."""
+def test_restore_refused_is_not_ready_and_keeps_the_verdict() -> None:
+    """The manager refuses the restore: not ready, both reasons in the message."""
     manager = _Manager(
         [_status(exists=True)],
-        plans=[],
-        update_reply={"success": False, "msg": "RE Manager must be in idle state"},
+        plans=["mv"],
+        update_reply={"success": False, "msg": "Queue is locked"},
     )
-    with pytest.raises(NotReady, match="refused 'environment_update'.*idle state"):
+    with pytest.raises(NotReady) as excinfo:
         ensure_ready(manager, timeout_s=30, log=lambda s: None)
+    message = str(excinfo.value)
+    assert "does not list" in message and "rel_list_grid_scan" in message
+    assert "restore from disk failed" in message and "Queue is locked" in message
     assert [m for m, _ in manager.calls].count("plans_allowed") == 1
+
+
+def test_restore_call_gets_the_longer_transport_budget(monkeypatch) -> None:
+    """The one restore call is answered after a disk read + a worker push."""
+    import sys
+    import types
+
+    seen = {}
+
+    def fake_zmq(method, params, *, zmq_server_address, timeout):
+        seen[method] = timeout
+        return {"success": True}, ""
+
+    monkeypatch.setitem(
+        sys.modules,
+        "bluesky_queueserver.manager.comms",
+        types.SimpleNamespace(zmq_single_request=fake_zmq),
+    )
+    request = qserver_ready._zmq_request("tcp://localhost:1")
+    request("status", None)
+    request("permissions_reload", {"restore_plans_devices": True})
+    assert seen["status"] == int(qserver_ready.POLL_S * 1000)
+    assert seen["permissions_reload"] == int(qserver_ready.RESTORE_TIMEOUT_S * 1000)
 
 
 def test_unanswered_plan_list_after_open_is_not_retried() -> None:
     """plans_unknown is never a settling state — unanswered is not ready.
 
-    Nor is it re-downloaded: a manager that does not answer the list
-    request is not one to ask for an ``environment_update``.
+    Nor is it restored: a manager that does not answer the list request
+    is not one to ask for a ``permissions_reload``.
     """
     manager = _Manager(
         [_status(exists=False), _status(exists=True)], plans_answer=False
@@ -233,7 +262,7 @@ def test_unanswered_plan_list_after_open_is_not_retried() -> None:
         ensure_ready(manager, timeout_s=30, log=lambda s: None)
     methods = [m for m, _ in manager.calls]
     assert methods.count("plans_allowed") == 1
-    assert "environment_update" not in methods
+    assert "permissions_reload" not in methods
 
 
 def test_unanswered_plan_list_is_not_ready() -> None:
