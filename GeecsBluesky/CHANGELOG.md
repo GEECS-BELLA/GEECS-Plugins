@@ -5,6 +5,56 @@ All notable changes to `geecs-bluesky` are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
+## [0.82.0] - 2026-09-11
+
+### Added
+
+- **`run_action` as a queue plan** (#807 phase-2 warm-up; the gap the
+  phase-1 ledger carried): the worker registers `run_action(name)` beside
+  the scan verbs (`plan_names.GEECS_PLAN_NAMES`, `NON_SCAN_PLAN_NAMES =
+  ("mv", "run_action")`).  It resolves *name* in the experiment's action
+  library and runs the compiled steps (`plans.action_compiler`) over the
+  device namespace, which is now the compiler's `SettableFactory`
+  (`GeecsNamespace.get_settable` / `get_readable`: the Movable child for
+  a settable, the served signal otherwise; a read-only variable in a
+  `set` step and an unknown device or variable raise
+  `GeecsConfigurationError`).  Every target of the flattened plan is
+  resolved and read once **before the first write**, so a typo in a later
+  step fails the item with nothing changed on the machine.  No run is
+  opened, so nothing is claimed and nothing is written.  `registry.bind_plans(profiles, resolver=,
+  settables=)` replaces `bind_strict_plans` and returns every registered
+  name; the hermetic worker registers a `run_action` that refuses, so the
+  manager's plan list is the same in every mode.  `submit_plan("run_action",
+  ["Amp4_DUMP_HP"])` works unchanged; a preset cannot name it
+  (`PRESET_PLAN_NAMES`).  The `operator` user group allows it
+  (`qserver/user_group_permissions.yaml`, now pinned to
+  `GEECS_PLAN_NAMES` by `tests/test_deploy_templates.py`).
+
+### Changed
+
+- `ConfigsRepoResolver._action_library` reads `actions.yaml` on every call
+  instead of caching it for the resolver's lifetime: the worker holds one
+  resolver, so a plan edited in the Console's action-library editor is
+  what the next `run_action` item runs.
+- `GeecsNamespace.get_settable` names the real cause when an action plan
+  sets a native-saving camera's `save` / `localsavingpath`: owned by the
+  detector's data logic, not settable from a plan.
+
+### Removed
+
+- `devices/ca/action_signals.py` (`CaActionSignalFactory`) and its test:
+  the session-era CA factory nothing used since #816 — the namespace's
+  children are the signals an action plan touches.
+
+## [0.81.1] - 2026-09-11
+
+### Changed
+
+- `TILED_SETUP.md`: the two server-side settings the file plugin's stacks
+  need (`readable_storage` covering the data share; `HDF5_USE_FILE_LOCKING=FALSE`
+  on the service), found on the #806 acceptance run and recorded where
+  the next site stands the server up.
+
 ## [0.81.0] - 2026-09-11
 
 ### Added

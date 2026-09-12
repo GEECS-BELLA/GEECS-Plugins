@@ -10,7 +10,9 @@ exports every device of the experiment as a noun
 over them with the strict ``take_reading`` pre-bound
 (:mod:`geecs_bluesky.plans.registry`) — ``count([UC_Amp4_IR_input], 10)``,
 ``scan([UC_Amp4_IR_input], U_S1H.current, -1, 1, 5, shots_per_step=10)``,
-``mv(U_S1H.current, 0)``.  Every run claims a GEECS scan number and leaves
+``mv(U_S1H.current, 0)``, ``run_action("Amp4_DUMP_HP")`` (a named plan from
+the experiment's action library, over the same devices, no run opened).
+Every run claims a GEECS scan number and leaves
 ScanInfo, the s-file, ``scan.log`` and the detectors' native files in its
 folder; every subscribed scalar of the experiment rides in the run as the
 baseline stream (``make_run_engine``).
@@ -56,7 +58,7 @@ from geecs_bluesky.config_resolver import ConfigsRepoResolver
 from geecs_bluesky.namespace import GeecsNamespace
 from geecs_bluesky.plan_names import GEECS_PLAN_NAMES
 from geecs_bluesky.plans.claim_scan import GeecsScanPathProvider
-from geecs_bluesky.plans.registry import TriggerProfiles, bind_strict_plans
+from geecs_bluesky.plans.registry import TriggerProfiles, bind_plans
 from geecs_bluesky.run_engine import make_run_engine
 
 logger = logging.getLogger(__name__)
@@ -99,6 +101,8 @@ _hermetic = os.environ.get("QS_DEVICE_NAMESPACE", "db").strip().lower() == "off"
 _path_provider = GeecsScanPathProvider()
 _DEVICE_NAMES: list[str] = []
 _telemetry: list = []
+_resolver = None
+namespace = None
 if _hermetic:
     _profiles = TriggerProfiles({})
 else:
@@ -107,12 +111,11 @@ else:
     )
     _DEVICE_NAMES = namespace.export_into(globals())
     _telemetry = namespace.telemetry()
-    # The trigger profiles (one ShotControl each) a plan's trigger_profile
-    # argument resolves against; the experiment default from
-    # experiment_defaults.yaml.
-    _profiles = TriggerProfiles.from_resolver(
-        ConfigsRepoResolver(_experiment), experiment=_experiment
-    )
+    # The configs repo: the trigger profiles (one ShotControl each) a plan's
+    # trigger_profile argument resolves against, the experiment default from
+    # experiment_defaults.yaml, and the action library run_action reads.
+    _resolver = ConfigsRepoResolver(_experiment)
+    _profiles = TriggerProfiles.from_resolver(_resolver, experiment=_experiment)
 
 # The manager's --keep-re contract needs a top-level `RE` in this module's
 # namespace.  tiled=True: the [tiled] config mechanism
@@ -129,10 +132,11 @@ RE = make_run_engine(
 
 # The plans the manager discovers (every generator function in this
 # namespace is a plan to it — profile_ops.plans_from_nspace): the stock
-# verbs bound strict, under their own names, pinned by
-# geecs_bluesky.plan_names (the readiness check asserts them).  Never import
-# a stray generator into this module.
-globals().update(bind_strict_plans(_profiles))
+# verbs bound strict, under their own names, plus mv and run_action (the
+# action library over the namespace), pinned by geecs_bluesky.plan_names
+# (the readiness check asserts them).  Never import a stray generator into
+# this module.
+globals().update(bind_plans(_profiles, resolver=_resolver, settables=namespace))
 
 # ZMQ document publisher — the GUI progress stream (#648). bluesky documents
 # go to a bluesky-0MQ-proxy (started by launch_re_manager.sh alongside

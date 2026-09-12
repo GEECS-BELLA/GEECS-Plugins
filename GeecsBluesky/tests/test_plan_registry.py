@@ -17,11 +17,11 @@ from ophyd_async.core import Device, set_mock_value  # noqa: E402
 from geecs_bluesky.devices.ca import CaMotor  # noqa: E402
 from geecs_bluesky.devices.shot_control import ShotControl  # noqa: E402
 from geecs_bluesky.exceptions import GeecsConfigurationError  # noqa: E402
-from geecs_bluesky.plan_names import GEECS_PLAN_NAMES  # noqa: E402
+from geecs_bluesky.plan_names import GEECS_PLAN_NAMES, NON_SCAN_PLAN_NAMES  # noqa: E402
 from geecs_bluesky.plans.registry import (  # noqa: E402
     EXCLUDED_STOCK_PLANS,
     TriggerProfiles,
-    bind_strict_plans,
+    bind_plans,
     stock_plans_with_hook,
     strict_plan,
 )
@@ -56,16 +56,17 @@ def profiles(RE: RunEngine, box: FakeBox) -> TriggerProfiles:
 def test_plan_names_are_every_expressible_stock_plan_with_the_hook() -> None:
     """GEECS_PLAN_NAMES (import-light) pins the derivation the registry uses."""
     derived = set(stock_plans_with_hook()) - EXCLUDED_STOCK_PLANS
-    assert derived == set(GEECS_PLAN_NAMES) - {"mv"}
+    assert derived == set(GEECS_PLAN_NAMES) - set(NON_SCAN_PLAN_NAMES)
     assert EXCLUDED_STOCK_PLANS <= set(stock_plans_with_hook())
 
 
 def test_bound_plans_keep_the_stock_signature_minus_the_hook(profiles) -> None:
-    bound = bind_strict_plans(profiles)
+    bound = bind_plans(profiles)
     assert set(bound) == set(GEECS_PLAN_NAMES)
     assert bound["mv"] is bps.mv
+    assert list(inspect.signature(bound["run_action"]).parameters) == ["name"]
     for name in GEECS_PLAN_NAMES:
-        if name == "mv":
+        if name in NON_SCAN_PLAN_NAMES:
             continue
         plan = bound[name]
         assert is_plan(plan) and inspect.isgeneratorfunction(plan)
@@ -96,7 +97,7 @@ def test_queue_items_validate_against_the_bound_plans(RE, box, profiles) -> None
     )
 
     cam = _camera(RE, box, "UC_Cam")
-    ns = {"UC_Cam": cam, "U_S1H": Magnet(), **bind_strict_plans(profiles)}
+    ns = {"UC_Cam": cam, "U_S1H": Magnet(), **bind_plans(profiles)}
     plans, devices, *_ = existing_plans_and_devices_from_nspace(nspace=ns)
     assert set(plans) == set(GEECS_PLAN_NAMES)
     assert "scalars" in devices["UC_Cam"]["components"]
@@ -106,6 +107,7 @@ def test_queue_items_validate_against_the_bound_plans(RE, box, profiles) -> None
         ("scan", [["UC_Cam"], "U_S1H.current", -1, 1, 5], {"shots_per_step": 4}),
         ("list_scan", [["UC_Cam"], "U_S1H.current", [0.0, 0.5]], {}),
         ("rel_grid_scan", [["UC_Cam"], "U_S1H.current", -1, 1, 3], {}),
+        ("run_action", ["Amp4_DUMP_HP"], {}),
     ]
     for name, args, kwargs in items:
         processed = _process_plan(ns[name], existing_devices={}, existing_plans={})
@@ -137,7 +139,7 @@ def test_bound_scan_runs_strict_with_shots_per_step_and_bins(RE, box, profiles):
     follow_setpoint(magnet.current)
     col = DocCollector()
     RE.subscribe(col)
-    scan = bind_strict_plans(profiles)["scan"]
+    scan = bind_plans(profiles)["scan"]
     RE(scan([cam], magnet.current, -1.0, 1.0, 3, shots_per_step=2))
     events = col.primary_events()
     assert box.fires == 6 and len(events) == 6
@@ -165,7 +167,7 @@ def test_bound_count_is_one_bin_and_scalars_view_saves_nothing(
     set_mock_value(cam.save, "on")  # a stale flag from a crash
     col = DocCollector()
     RE.subscribe(col)
-    count = bind_strict_plans(profiles)["count"]
+    count = bind_plans(profiles)["count"]
     RE(count([cam.scalars], 3))
     events = col.primary_events()
     assert box.fires == 3 and len(events) == 3
@@ -192,7 +194,7 @@ def test_scalars_view_of_a_scalar_only_device_reads_the_device(RE, box, profiles
     set_mock_value(gauge.pressure, 1.5e-6)
     col = DocCollector()
     RE.subscribe(col)
-    count = bind_strict_plans(profiles)["count"]
+    count = bind_plans(profiles)["count"]
     RE(count([cam, gauge.scalars], 2))
     events = col.primary_events()
     assert box.fires == 2 and len(events) == 2
@@ -207,7 +209,7 @@ def test_scalars_view_of_a_scalar_only_device_reads_the_device(RE, box, profiles
 
 def test_unknown_profile_is_refused_before_any_move(RE, box, profiles) -> None:
     cam = _camera(RE, box, "UC_Cam")
-    count = bind_strict_plans(profiles)["count"]
+    count = bind_plans(profiles)["count"]
     with pytest.raises(GeecsConfigurationError, match="unknown trigger profile"):
         RE(count([cam], 1, trigger_profile="HTU-Nope"))
     assert box.puts == [] and box.fires == 0
@@ -280,7 +282,7 @@ def test_scalars_view_yields_to_the_owners_scanned_child(RE, box, profiles):
     follow_setpoint(cam.exposure)
     col = DocCollector()
     RE.subscribe(col)
-    scan = bind_strict_plans(profiles)["scan"]
+    scan = bind_plans(profiles)["scan"]
     RE(scan([magnet.scalars], magnet.current, -1.0, 1.0, 3))
     RE(scan([cam.scalars], cam.exposure, 1.0, 3.0, 3))
     events = col.primary_events()

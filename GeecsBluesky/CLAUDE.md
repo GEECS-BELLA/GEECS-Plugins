@@ -10,21 +10,25 @@ facts) before proposing a change here; it carries a staleness rule (a PR
 that changes direction edits it in the same PR).  Phase-0 measurements are
 in `04_phase0_measurements.md`.
 
-**Where things stand (phase 1 PR 2, GeecsBluesky 0.80.0):** a queue item
-naming a stock plan and namespace devices runs a complete strict GEECS
-scan — claimed scan number, native files in `ScanNNN/<device>/`, ScanInfo,
-the s-file, `scan.log`, the baseline telemetry stream.  The worker
-registers the stock `bluesky.plans` verbs under their own names with the
-strict `take_reading` pre-bound (`plans/registry.py`); a client submits a
-stock plan item or a saved preset (`qs_client.submit_plan` /
-`submit_preset`).  Hardware-accepted 2026-09-10 (PR 3,
-`tests/test_phase1_hardware.py`, `Planning/native_bluesky/05_phase1_acceptance.md`):
-in process and through a second RE Manager, Scans 104–108 of 26_0910 (the
-worker flip is recorded there).  The Console and GEECS-MCP are rewired
+**Where things stand (phase 1 complete and deployed, 2026-09-11):** a
+queue item naming a stock plan and namespace devices runs a complete
+strict GEECS scan — claimed scan number, the detectors' files in
+`ScanNNN/<device>/` (an HDF5 stack from the PVA gateway's file plugin on
+the rolled camera servers, LabVIEW-native files elsewhere), ScanInfo, the
+s-file, `scan.log`, the baseline telemetry stream.  The worker registers
+the stock `bluesky.plans` verbs under their own names with the strict
+`take_reading` pre-bound (`plans/registry.py`); a client submits a stock
+plan item or a saved preset (`qs_client.submit_plan` / `submit_preset`).
+Hardware-accepted (`tests/test_phase1_hardware.py`,
+`Planning/native_bluesky/05_phase1_acceptance.md` M4–M7; the file plugin
+in `07_806_acceptance.md`); the worker runs the feature branch at the
+#823 merge and nine camera-server gateways serve the plugin
+(`03_clean_room_rebuild.md` §2).  The Console and GEECS-MCP are rewired
 once, when the foundation is stable — not per step (their submit paths
 call the removed funnel verbs meanwhile).  Per-shot budget: ~7 ms of
-plan-layer work, ~100 ms of margin at 1 Hz on this camera — strict
-single-shot is not the 1 Hz mode, phase 2's gated batch is.
+plan-layer work; the camera exposure sets the margin at 1 Hz — strict
+single-shot is not the 1 Hz mode, phase 2's gated batch is
+(`08_gated_batch.md`, designed 2026-09-11).
 
 ## The two rules
 
@@ -49,14 +53,15 @@ geecs_bluesky/
                             #   profile's states, Pausable; CaPutSetter + the writes
   devices/ca/               # scalar devices + settable children: CaSnapshotReadable,
                             #   CaSettable, CaMotor, CaConfirmSettable, CaPseudoMovable,
-                            #   CaActionSignalFactory, gateway_put, oneshot, liveness
+                            #   gateway_put, oneshot, liveness
   plans/strict.py           # geecs_take_reading (the fire between trigger and wait),
                             #   geecs_per_step (shots_per_step + bin_number), geecs_per_shot
   plans/registry.py         # the registration table: stock plan names bound strict,
+                            #   mv, run_action (the action library over the namespace),
                             #   TriggerProfiles (one ShotControl per configs-repo profile)
   plans/claim_scan.py       # the day-scoped claim (the ONE folder creator), the
                             #   claim_scan preprocessor, GeecsScanPathProvider
-  plans/action_compiler.py  # ActionPlan → plan stubs
+  plans/action_compiler.py  # ActionPlan → plan stubs; the namespace is its SettableFactory
   run_engine.py             # make_run_engine: RE + claim + headers + baseline + callbacks
   preprocessors.py          # connect_on_demand (installed outermost), scalar_headers
   callbacks.py              # ScanInfo ini, the s-file, scan.log, the stack check — per run, best-effort
@@ -104,7 +109,9 @@ qserver/                    # the worker: launcher, startup profile, permissions
   value as its wire string, 10 s budget — hardware-proven, pinned by
   `tests/test_gateway_put.py`); `Pausable` keyed on the standing state
   (§10.3: ARMED → nothing; SCAN/STANDBY → OFF and back).  Neither
-  notification ever raises.  A `FlyerController` for gated mode is phase 2.
+  notification ever raises.  Not a flyer: the box has no counter, so in
+  gated mode (phase 2, `08_gated_batch.md`) the plan drives it SCAN after
+  the detectors' `kickoff` and OFF after their `complete`.
 - **`GeecsNamespace`** — every enabled device of the experiment, built from
   the DB roster (loud on failure) and connected on first use by
   `connect_on_demand`.  Triggerable (`looks_triggerable`) → `GeecsDetector`
@@ -154,7 +161,10 @@ and the next edge (M1/M2) — the plan layer recovers it, not `take_reading`.
 Free-run is gone.  Its two jobs return natively in phase 2: the rep-rate
 job as gated batch (`bp.fly`-shaped, plugin-backed detectors that count)
 and the contributor job as the non-essential stream
-(`SupplementalData.flyers`, joined by offset-corrected stamp, §11.5).
+(a per-plan `non_essential=[…]` argument — `fly_during_wrapper` per plan
+with the stage and unbounded prepare it lacks, never RunEngine-level
+`SupplementalData.flyers` — joined by offset-corrected stamp, §11.5;
+`08_gated_batch.md`).
 
 ## The GEECS scan (§4.C): one claim, three files, one telemetry stream
 
@@ -186,9 +196,12 @@ failure after the claim.
 `geecs_bluesky` first — load-bearing, it sets `EPICS_CA_ADDR_LIST` before
 libca's context exists; builds `RE` through `make_run_engine(tiled=True,
 sfile=True)`; publishes documents to the proxy; exports the namespace and
-the stock plans — `plan_names.GEECS_PLAN_NAMES`, which the manager
-discovers as every generator function in the namespace, so never import a
-stray generator into the profile), `user_group_permissions.yaml`, and
+the plans — `plan_names.GEECS_PLAN_NAMES`: the stock verbs bound strict,
+`mv`, and `run_action` (a named plan from the experiment's `actions.yaml`
+compiled to stubs over the namespace devices; no run opened, nothing
+claimed) — which the manager discovers as every generator function in the
+namespace, so never import a stray generator into the profile),
+`user_group_permissions.yaml`, and
 `deploy/` (the manager and `geecs-qserver-ready` units + runbook).  **A
 running service means ready (#793)**: the readiness unit runs
 `geecs-qserver-ensure-ready` after every manager start — wait, open if

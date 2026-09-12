@@ -138,3 +138,8 @@ def test_expansion_records_its_references_and_leaves_literal_strings_alone() -> 
 def test_a_preset_cannot_name_mv() -> None:
     with pytest.raises(GeecsConfigurationError, match="submit_plan\\('mv'"):
         expand_preset(_preset(plan={"name": "mv", "args": ["U_S1H:Current", 0.0]}))
+
+
+def test_a_preset_cannot_name_run_action() -> None:
+    with pytest.raises(GeecsConfigurationError, match="submit_plan\\('run_action'"):
+        expand_preset(_preset(plan={"name": "run_action", "args": ["Amp4_DUMP_HP"]}))

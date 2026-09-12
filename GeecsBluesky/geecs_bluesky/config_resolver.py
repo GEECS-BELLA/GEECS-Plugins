@@ -126,7 +126,6 @@ class ConfigsRepoResolver:
             Path(experiments_root) if experiments_root is not None else None
         )
         self._scan_variables_cache: ScanVariables | None = None
-        self._action_library_cache: ActionPlanLibrary | None = None
 
     @property
     def _root(self) -> Path:
@@ -304,17 +303,18 @@ class ConfigsRepoResolver:
             ) from None
 
     def _action_library(self) -> ActionPlanLibrary:
-        """Load (and cache) the experiment's action-plan library."""
-        if self._action_library_cache is not None:
-            return self._action_library_cache
+        """Load the experiment's action-plan library — from disk on every call.
+
+        Not cached: the worker holds one resolver for its lifetime and
+        ``run_action`` resolves through it, so a plan edited in
+        ``actions.yaml`` (the Console's action-library editor writes it)
+        must be what the next queue item runs.  One small YAML per item.
+        """
         path = self._root / self.ACTION_FOLDER / "actions.yaml"
         document = self._load_yaml(path, "action library", "actions")
         if "schema_version" in document:
-            library = ActionPlanLibrary.model_validate(document)
-        else:
-            library = convert_action_library(document)
-        self._action_library_cache = library
-        return library
+            return ActionPlanLibrary.model_validate(document)
+        return convert_action_library(document)
 
     def resolve_action_plan(self, name: str) -> ActionPlan:
         """Look up the action plan *name* in the experiment library.

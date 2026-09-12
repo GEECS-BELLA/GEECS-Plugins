@@ -30,7 +30,7 @@ from geecs_bluesky.plans.claim_scan import (  # noqa: E402
     GeecsScanPathProvider,
     claim_scan_preprocessor,
 )
-from geecs_bluesky.plans.registry import TriggerProfiles, bind_strict_plans  # noqa: E402
+from geecs_bluesky.plans.registry import TriggerProfiles, bind_plans  # noqa: E402
 from geecs_bluesky.preprocessors import scalar_headers  # noqa: E402
 from geecs_bluesky.devices.shot_control import ShotControl  # noqa: E402
 from tests.ca_mock_helpers import (  # noqa: E402
@@ -165,7 +165,7 @@ def worker(RE, box, tmp_path):
     sc = ShotControl(WRITES, experiment="TestExp", name="htu", setter_factory=box)
     connect_mock(RE, sc)
     profiles = TriggerProfiles({"HTU-Test": sc}, default="HTU-Test")
-    return bind_strict_plans(profiles), claim, provider
+    return bind_plans(profiles), claim, provider
 
 
 def test_a_strict_scan_leaves_every_legacy_file(RE, box, worker, tmp_path):

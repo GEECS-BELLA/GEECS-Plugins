@@ -9,8 +9,10 @@ after the environment opens — the invariant #793 found violated).
 The names are the stock ``bluesky.plans`` verbs — registered by the plan
 layer with the strict ``take_reading`` pre-bound
 (:mod:`geecs_bluesky.plans.registry`; plan of record §4.D, §10.5) — plus
-``mv``, the manual move as a queue item.  The table is every stock verb
-exposing ``per_step`` / ``per_shot`` that a queue item can express;
+the two GEECS queue items that are not scans: ``mv``, the manual move,
+and ``run_action``, a named action plan from the experiment's action
+library (:data:`NON_SCAN_PLAN_NAMES`).  The scan verbs are every stock
+verb exposing ``per_step`` / ``per_shot`` that a queue item can express;
 ``tests/test_plan_registry.py`` pins this tuple to that derivation.
 
 This module may depend on nothing heavier than the standard library (the
@@ -19,8 +21,13 @@ same rule as :mod:`geecs_bluesky.log_markers`).
 
 from __future__ import annotations
 
+#: The registered plans that are not scans: a queue item naming one runs no
+#: run, claims no scan number and takes no detector list — so a preset
+#: cannot name them (``qs_client.presets.PRESET_PLAN_NAMES``).
+NON_SCAN_PLAN_NAMES: tuple[str, ...] = ("mv", "run_action")
+
 #: Every plan the worker registers: the stock ``bluesky.plans`` scan verbs
-#: (absolute and relative) bound strict, plus ``mv``.
+#: (absolute and relative) bound strict, plus :data:`NON_SCAN_PLAN_NAMES`.
 GEECS_PLAN_NAMES: tuple[str, ...] = (
     "count",
     "scan",
@@ -40,7 +47,7 @@ GEECS_PLAN_NAMES: tuple[str, ...] = (
     "spiral_square",
     "rel_spiral_square",
     "x2x_scan",
-    "mv",
+    *NON_SCAN_PLAN_NAMES,
 )
 
-__all__ = ["GEECS_PLAN_NAMES"]
+__all__ = ["GEECS_PLAN_NAMES", "NON_SCAN_PLAN_NAMES"]

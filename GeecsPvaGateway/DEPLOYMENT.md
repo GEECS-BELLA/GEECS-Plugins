@@ -66,7 +66,7 @@ resolve inside a checkout — a console session can use the share clone as
 PVA firewall ports (TCP 5075 / UDP 5076), fetches `nssm.exe`, and registers
 the `GeecsPvaGateway` service (auto-start, restart on any exit, online-rotating
 logs). If you omitted `-ConfigSource`, place `Configurations.INI` in the
-profile (rule 1); then `nssm start GeecsPvaGateway`. Note `launch.bat` is
+profile (rule 1); then `C:\geecs\pva-gateway\nssm.exe start GeecsPvaGateway` (`nssm` is not on `PATH`). Note `launch.bat` is
 copied at bootstrap time — launcher changes need the stop/copy/start step
 under **Rollout** (or a re-bootstrap); package additions do not, since
 `deploy/requirements-fleet.txt` is read from the share on every restart.
@@ -98,13 +98,17 @@ eight boxes rolled after 6.100 got it through this path.
 **Launcher changes still need a per-box step, with the service stopped**:
 `launch.bat` is copied locally at bootstrap, so a change to the launcher
 itself (its package list gained GEECS-Core at 0.4.5 and the wheel step at
-0.7.1) does NOT reach a box via `:restart` alone. From an elevated console
-on the box (a console session can read the share; an ssh token cannot):
+0.7.1) does NOT reach a box via `:restart` alone. From an **elevated**
+session on the box — a console, or an ssh session whose key is in
+`C:\ProgramData\ssh\administrators_authorized_keys` (an elevated session
+reads the share with the machine's credentials; a plain ssh token cannot,
+found on the first box of the 2026-09-11 roll, and the nine-box roll then
+went through elevated ssh):
 
 ```powershell
-nssm stop GeecsPvaGateway
+Stop-Service GeecsPvaGateway            # nssm is not on PATH: C:\geecs\pva-gateway\nssm.exe stop GeecsPvaGateway works too
 Copy-Item "\\<nas>\<share>\...\Active Version\GEECS-Plugins\GeecsPvaGateway\deploy\launch.bat" C:\geecs\pva-gateway\launch.bat -Force
-nssm start GeecsPvaGateway
+Start-Service GeecsPvaGateway
 ```
 
 **Never copy over a running service and then `:restart`**: cmd reads a
@@ -174,7 +178,7 @@ cmd /c "set USERPROFILE=C:\geecs\pva-gateway\profile&& C:\geecs\pva-gateway\venv
 ```
 
 prints the host's served PV names (DB-scoped: this box's cameras only). After
-`nssm start`, the `version`/`heartbeat` PVs answering is the end-to-end check.
+`Start-Service GeecsPvaGateway`, the `version`/`heartbeat` PVs answering is the end-to-end check.
 From any machine with p4p (over VPN, set the address list per **Client
 access** below so name search unicasts):
 

@@ -12,9 +12,27 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import re
+
+import yaml
+
+from geecs_bluesky.plan_names import GEECS_PLAN_NAMES
+
 PACKAGE = Path(__file__).resolve().parents[1]
 READY = PACKAGE / "qserver" / "deploy" / "geecs-qserver-ready.service"
 MANAGER = PACKAGE / "qserver" / "deploy" / "geecs-qserver.service"
+PERMISSIONS = PACKAGE / "qserver" / "user_group_permissions.yaml"
+
+
+def test_operator_group_allows_exactly_the_registered_plans() -> None:
+    """The operator regex is GEECS_PLAN_NAMES — a new verb cannot drift from it."""
+    groups = yaml.safe_load(PERMISSIONS.read_text())["user_groups"]
+    (pattern,) = groups["operator"]["allowed_plans"]
+    match = re.fullmatch(r":\^\((.*)\)\$", pattern)
+    assert match, pattern
+    assert set(match.group(1).split("|")) == set(GEECS_PLAN_NAMES)
+    for name in GEECS_PLAN_NAMES:
+        assert re.fullmatch(pattern[1:], name)
 
 
 def _directives(path: Path) -> list[str]:
