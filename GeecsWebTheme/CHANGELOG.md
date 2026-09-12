@@ -79,6 +79,21 @@ project adheres to semantic versioning.
 - The density pin asserted only that the selector existed — an *empty*
   compact block passed it. It now asserts the block overrides exactly the
   spacing tokens `theme.css` declares.
+- The scoping guard itself had three holes, found by re-review and each
+  reproduced before fixing. A regex over selectors consumed the `{` of
+  every `@media` prelude, so the **first rule inside each media block was
+  never examined** — four blocks, four unguarded rules, one of them the
+  mobile shell collapse. It also waved through `.kitchen` (a string
+  prefix, not a class token) and `:root .pane` (a fully global descendant
+  selector). The guard now walks braces instead of matching a regex, skips
+  `@keyframes` stops, and allows exactly two unscoped shapes. Each hole is
+  pinned as a probe case.
+- The vocabulary pins only recognised double-quoted attribute selectors,
+  so `[data-state='aborted']` slipped past — inconsistent with
+  `_INLINE_STYLE` in the same file, which already handled both.
+- `kit.html`'s dialog no longer carries `class="kit-dialog"`, which stopped
+  matching anything when the rules were scoped. A dead class on the page
+  people copy from is the wrong thing to copy.
 
 ## [0.1.2] - 2026-09-12
 

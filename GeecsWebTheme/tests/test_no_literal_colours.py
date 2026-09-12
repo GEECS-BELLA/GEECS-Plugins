@@ -476,13 +476,13 @@ def test_status_vocabulary_is_pinned_to_the_kit() -> None:
     from geecs_web_theme import STATES  # noqa: E402
 
     kit = _KIT_CSS.read_text()
-    styled = set(re.findall(r'\.chip\[data-state="([\w-]+)"\]', kit))
+    styled = set(re.findall(r'\.chip\[data-state=["\']([\w-]+)["\']\]', kit))
     assert styled == set(STATES), (
         f"kit.css styles {sorted(styled)}; STATES names {sorted(STATES)}"
     )
     # Every status also needs the dot form, used where the row label carries
     # the word instead.
-    dots = set(re.findall(r'\.dot\[data-state="([\w-]+)"\]', kit))
+    dots = set(re.findall(r'\.dot\[data-state=["\']([\w-]+)["\']\]', kit))
     assert dots == set(STATES), (
         f"kit.css dots {sorted(dots)}; STATES names {sorted(STATES)}"
     )
@@ -503,19 +503,73 @@ def test_pane_states_are_pinned_to_the_kit() -> None:
     from geecs_web_theme import PANE_STATES, STATES  # noqa: E402
 
     kit = _KIT_CSS.read_text()
-    styled = set(re.findall(r'\.(?:state|banner)\[data-state="([\w-]+)"\]', kit))
+    styled = set(
+        re.findall(r'\.(?:state|banner)\[data-state=["\']([\w-]+)["\']\]', kit)
+    )
     unknown = styled - set(PANE_STATES)
     assert not unknown, (
         f"kit.css styles pane states {sorted(unknown)} not in PANE_STATES"
     )
 
     page = _KIT_HTML.read_text()
-    used = set(re.findall(r'data-state="([\w-]+)"', page))
+    used = set(re.findall(r'data-state=["\']([\w-]+)["\']', page))
     stray = used - set(PANE_STATES) - set(STATES)
     assert not stray, (
         f"kit.html uses {sorted(stray)}, which is neither a status nor a pane "
         "state — a typo here is invisible in a browser"
     )
+
+
+def _rule_selectors(css: str) -> list[str]:
+    """Every rule selector in a stylesheet, at any nesting depth.
+
+    A regex cannot do this. The first version of the caller used one, and
+    it consumed the ``{`` of each ``@media`` prelude — so the FIRST rule
+    inside every media block lost its anchor and was never examined. Four
+    blocks, four invisible rules, one of them the mobile shell collapse.
+    A brace walk has no such blind spot: at-rule preludes are recognised
+    and skipped, ``@keyframes`` bodies are skipped whole (their ``0%`` and
+    ``from`` stops are not selectors), and everything else yields.
+    """
+    css = re.sub(r"/\*.*?\*/", " ", css, flags=re.S)
+    out: list[str] = []
+
+    def walk(text: str) -> None:
+        i, n = 0, len(text)
+        while i < n:
+            brace = text.find("{", i)
+            if brace == -1:
+                return
+            head = text[i:brace].strip()
+            depth, k = 0, brace
+            while k < n:
+                if text[k] == "{":
+                    depth += 1
+                elif text[k] == "}":
+                    depth -= 1
+                    if depth == 0:
+                        break
+                k += 1
+            body = text[brace + 1 : k]
+            if head.startswith("@keyframes"):
+                pass  # stops are not selectors
+            elif head.startswith("@"):
+                walk(body)  # @media and friends: the rules inside still count
+            else:
+                out.extend(s.strip() for s in head.split(",") if s.strip())
+            i = k + 1
+
+    walk(css)
+    return out
+
+
+#: The only selectors allowed to escape the ``.kit`` scope: the density
+#: blocks, which must match the root element, and the body rule that
+#: carries the class itself.
+_UNSCOPED_OK = re.compile(r'^(?::root\[data-density="[\w-]+"\]|body\.kit)$')
+#: ``.kit`` as a whole class token — ``.kitchen`` is a different class and
+#: must not be waved through by a bare string prefix.
+_KIT_SCOPED = re.compile(r"^\.kit(?![\w-])")
 
 
 def test_kit_rules_are_scoped_to_the_kit_class() -> None:
@@ -525,18 +579,36 @@ def test_kit_rules_are_scoped_to_the_kit_class() -> None:
     names, one of them load-bearingly: the portal's run page is
     ``.pane{display:none}`` / ``.pane.on{display:block}`` — its tab
     mechanism — which ties on specificity with an ungated ``.pane`` here and
-    would be decided by stylesheet order alone. The only ungated selectors
-    allowed are the density blocks (which must hit the root element) and
-    ``body.kit`` itself.
+    would be decided by stylesheet order alone.
     """
-    css = _KIT_CSS.read_text()
-    css = re.sub(r"/\*.*?\*/", " ", css, flags=re.S)
-    ungated = []
-    for selector in re.findall(r"(?:^|[}{])\s*([^{}@][^{}]*?)\s*\{", css):
-        for part in (s.strip() for s in selector.split(",")):
-            if not part or part.startswith((":root", "body.kit", ".kit", "@")):
-                continue
-            if re.match(r"^\d|^from$|^to$", part):  # keyframe stops
-                continue
-            ungated.append(part)
+    ungated = [
+        s
+        for s in _rule_selectors(_KIT_CSS.read_text())
+        if not _KIT_SCOPED.match(s) and not _UNSCOPED_OK.match(s)
+    ]
     assert not ungated, f"kit.css rules not scoped to .kit: {sorted(set(ungated))}"
+
+
+@pytest.mark.parametrize(
+    "css,expected",
+    [
+        # The three shapes the first version of this test waved through.
+        ("@media (max-width:900px){\n  .shell{gap:1px}\n}\n", True),
+        (".kitchen{display:flex}\n", True),
+        (":root .pane{display:flex}\n", True),
+        # …and the legitimate ones stay legitimate.
+        ("@media (max-width:900px){\n  .kit .shell{gap:1px}\n}\n", False),
+        (':root[data-density="compact"]{--pad:9px}\n', False),
+        ("body.kit{margin:0}\n", False),
+        ("@keyframes k{0%,100%{opacity:1}}\n", False),
+        (".kit .panel > header{gap:1px}\n", False),
+    ],
+)
+def test_probe_scoping(css: str, expected: bool) -> None:
+    """Each hole the re-review found, pinned, plus the cases that must pass."""
+    ungated = [
+        s
+        for s in _rule_selectors(css)
+        if not _KIT_SCOPED.match(s) and not _UNSCOPED_OK.match(s)
+    ]
+    assert bool(ungated) is expected, (css, ungated)
