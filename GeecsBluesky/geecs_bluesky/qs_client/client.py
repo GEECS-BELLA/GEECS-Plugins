@@ -267,8 +267,12 @@ def readiness_verdict(
             False,
             "plans_empty",
             "The RE Manager lists no allowed plans although its worker environment "
-            "exists — the startup profile registered nothing (import error?) or the "
-            "permissions file allows nothing; see GeecsBluesky/qserver/README.md, "
+            "exists — its download of the plan list from the worker timed out "
+            "(GEECS-Plugins#838), the startup profile registered nothing (import "
+            "error?), or the permissions file allows nothing. On the worker host "
+            "`systemctl restart geecs-qserver-ready` restores the lists from the "
+            "worker's on-disk copy (`permissions_reload`, restore_plans_devices) "
+            "without restarting the manager; see GeecsBluesky/qserver/README.md, "
             "Troubleshooting.",
             allowed,
         )

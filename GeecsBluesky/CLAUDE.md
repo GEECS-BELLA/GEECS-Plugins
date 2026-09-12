@@ -244,7 +244,9 @@ namespace, so never import a stray generator into the profile),
 `deploy/` (the manager and `geecs-qserver-ready` units + runbook).  **A
 running service means ready (#793)**: the readiness unit runs
 `geecs-qserver-ensure-ready` after every manager start — wait, open if
-closed, wait for idle, assert `plans_allowed ⊇ GEECS_PLAN_NAMES`.  Read
+closed, wait for idle, assert `plans_allowed ⊇ GEECS_PLAN_NAMES` (and,
+when the list is empty or incomplete with the environment up, restore it
+once from the worker's on-disk copy via `permissions_reload`, #838).  Read
 `qserver/README.md` first; its Troubleshooting section is the empirical
 contract (permissions file, `--keep-re`, manager-restart-after-install,
 failed-items-requeue-at-front, CLI parses Python literals not JSON).

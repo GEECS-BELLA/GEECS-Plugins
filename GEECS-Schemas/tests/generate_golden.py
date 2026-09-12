@@ -8,8 +8,10 @@ Run after an *intentional* schema or converter change, then review the diff:
 import json
 from pathlib import Path
 
+import yaml
+
+from geecs_schemas import ActionPlanLibrary
 from geecs_schemas.convert import (
-    convert_action_library,
     convert_optimizer_config,
     convert_shot_control,
 )
@@ -32,7 +34,9 @@ def main() -> None:
     profile = convert_shot_control(FIXTURES / "shot_control/HTU-Normal.yaml")
     write("htu_trigger_profile.json", profile.model_dump(mode="json"))
 
-    library = convert_action_library(FIXTURES / "actions/actions_undulator.yaml")
+    library = ActionPlanLibrary.model_validate(
+        yaml.safe_load((FIXTURES / "actions/actions_undulator.yaml").read_text())
+    )
     write(
         "amp4_dump_hp_plan.json",
         library.plans["Amp4_DUMP_HP"].model_dump(mode="json"),

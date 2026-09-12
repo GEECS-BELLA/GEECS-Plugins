@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "geecs-data-portal"
-version = "0.21.4"
+version = "0.21.5"
 description = "Scan-browsing web service (read-only except explicit analysis runs): a zero-install browser view over the Tiled catalog and the GEECS data share"
 authors = ["GEECS-BELLA"]
 readme = "README.md"

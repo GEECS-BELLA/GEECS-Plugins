@@ -121,6 +121,44 @@ def test_resolve_preset_refuses_a_legacy_document(repo):
         resolver.resolve_preset("old")
 
 
+def test_action_library_in_the_legacy_dialect_is_refused(repo):
+    """No converter any more (GEECS-Schemas 0.22.0): the schema names the regeneration.
+
+    Both the resolution and the registry (the MCP's listing) raise — a
+    listing that read empty would hide the regeneration the file needs.
+    """
+    from pydantic import ValidationError
+
+    folder = repo / "TestExp" / ConfigsRepoResolver.ACTION_FOLDER
+    folder.mkdir(exist_ok=True)
+    (folder / "actions.yaml").write_text(
+        yaml.safe_dump({"actions": {"x": {"steps": [{"action": "wait", "wait": 1}]}}})
+    )
+    resolver = ConfigsRepoResolver("TestExp", experiments_root=repo)
+    with pytest.raises(ValidationError, match="legacy 'actions:' dialect"):
+        resolver.resolve_action_plan("x")
+    with pytest.raises(ValidationError, match="legacy 'actions:' dialect"):
+        resolver.action_plan_registry()
+
+
+def test_action_library_absent_or_empty(repo):
+    """No file → an empty registry; an empty file → an empty library (the Console's rule)."""
+    from geecs_bluesky.exceptions import GeecsConfigurationError
+
+    resolver = ConfigsRepoResolver("TestExp", experiments_root=repo)
+    assert resolver.action_plan_registry() == {}
+    with pytest.raises(GeecsConfigurationError, match="not found"):
+        resolver.resolve_action_plan("x")
+    folder = repo / "TestExp" / ConfigsRepoResolver.ACTION_FOLDER
+    folder.mkdir(exist_ok=True)
+    (folder / "actions.yaml").write_text("")
+    assert resolver.action_plan_registry() == {}
+    with pytest.raises(GeecsConfigurationError, match="not in the"):
+        resolver.resolve_action_plan("x")
+    (folder / "actions.yaml").write_text("{}\n")  # _load_yaml reads None and {} alike
+    assert resolver.action_plan_registry() == {}
+
+
 def test_resolve_preset_missing_raises_with_kind(repo):
     from geecs_bluesky.exceptions import GeecsConfigurationError
 

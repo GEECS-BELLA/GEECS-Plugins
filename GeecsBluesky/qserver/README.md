@@ -142,6 +142,29 @@ the plan of record).
   systemd event fires, `geecs-qserver-ready` stays `active (exited)` from
   its last successful run, and only the console/MCP preflight refusal
   names the gesture (`systemctl restart geecs-qserver-ready`).
+- **Allowed plans empty while the manager is idle with its environment
+  open** (`worker_environment_exists: True`, `re_state: idle`,
+  `plans_allowed: {}` for every user group, every submission refused
+  "not in the list of allowed plans", `geecs-qserver-ready` still
+  `active (exited)`) — the manager's own **download of the plan list
+  from the worker timed out** (journal: `Failed to download the list of
+  existing plans and devices from the worker process: Timeout`), seen
+  while the host thrashed in swap (GEECS-Plugins#838). It is not a closed
+  environment and needs no restart: `systemctl restart
+  geecs-qserver-ready` — `geecs-qserver-ensure-ready` asks the manager to
+  restore the lists from the worker's on-disk copy when the list is empty
+  or incomplete with the environment up (`permissions_reload` with
+  `restore_plans_devices=True`; by hand: `qserver permissions reload
+  lists`). That copy (`existing_plans_and_devices.yaml` in the startup
+  dir) is written by the *worker* from its namespace at every environment
+  open (`--update-existing-plans-devices` default `ENVIRONMENT_OPEN`), so
+  it is the running environment's list, not a stale one. `qserver
+  environment update` is NOT the fix: the worker re-downloads only when
+  its regenerated descriptions differ from its stored copy, so on an
+  unchanged namespace it is a no-op (and it needs an idle manager). The
+  file is stale only after a deploy that changed the plan set without
+  re-opening the environment — and then the worker process is equally
+  stale, so `systemctl restart geecs-qserver` is the gesture.
 - **`queue add` returns `success: False` with no reason at the CLI** — the
   manager was launched without a permissions file, or the file lacks the
   group the client submits as (the `qserver` CLI uses `primary` by

@@ -22,9 +22,12 @@ verbatim:
   runs another named plan, so plans compose and nest.
 
 The legacy ``RunStep`` (execute an external Python script/class) is
-**deliberately not carried into v1** — no config in the corpus uses it, and
-script execution belongs in Bluesky plans, not config files.  The converter
-raises loudly if it ever encounters one.
+**deliberately not carried into v1** — no config in the corpus used it, and
+script execution belongs in Bluesky plans, not config files.
+
+There is no converter from the legacy ``actions:`` dialect any more: the
+corpus was regenerated once as ``ActionPlanLibrary`` documents (0.22.0) and
+is authored v1-only since; a consumer meeting the legacy shape refuses it.
 
 In the target architecture (vision doc §4.5) a plan compiles to Bluesky plan
 stubs, inheriting abort/logging/event emission for free.
@@ -34,7 +37,7 @@ from __future__ import annotations
 
 from typing import Annotated, Literal, Union
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from geecs_schemas._base import SchemaModel, VersionedSchemaModel
 
@@ -201,6 +204,40 @@ class ActionPlanLibrary(VersionedSchemaModel):
     plans: dict[str, ActionPlan] = Field(
         description="All named plans, keyed by the name used to invoke them."
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _refuse_legacy_dialect(cls, data: object) -> object:
+        """Refuse the legacy ``actions:`` dialect with the regeneration named.
+
+        There is no converter any more (0.22.0): the corpus was regenerated
+        once, so a file in the old shape is a stray to regenerate, and every
+        consumer (the worker's resolver, the Console's store, a listing)
+        gets the same message from ``model_validate``.
+
+        Parameters
+        ----------
+        data : object
+            The raw input; non-mapping input passes through untouched.
+
+        Returns
+        -------
+        object
+            *data* unchanged.
+
+        Raises
+        ------
+        ValueError
+            If the document is in the legacy dialect.
+        """
+        if isinstance(data, dict) and "actions" in data and "plans" not in data:
+            raise ValueError(
+                "this is an action library in the legacy 'actions:' dialect, "
+                "which has no converter any more (GEECS-Schemas 0.22.0) — "
+                "regenerate it as an ActionPlanLibrary document "
+                "(schema_version: 1, plans: {...})."
+            )
+        return data
 
     def model_post_init(self, __context: object) -> None:
         """Verify that every nested ``run`` step references a plan that exists.

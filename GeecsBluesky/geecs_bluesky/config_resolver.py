@@ -4,11 +4,13 @@
 production implementation over the real configs-repo layout
 (``scanner_configs/experiments/<Experiment>/``).  A YAML file carrying a
 ``schema_version`` key loads as the new schema directly; trigger profiles
-and action libraries without one are converted from their legacy dialect
-via :mod:`geecs_schemas.convert`.  Presets and scan-variable catalogs are
-new-schema only (the legacy save elements / scan presets were regenerated
-once as ``Preset`` documents, GEECS-Plugins#807; the scan-device pair and
-its converter were retired 2026-09, #779).
+without one are converted from their legacy dialect via
+:mod:`geecs_schemas.convert`.  Presets, scan-variable catalogs and action
+libraries are new-schema only (the legacy save elements / scan presets were
+regenerated once as ``Preset`` documents, GEECS-Plugins#807; the
+scan-device pair and its converter were retired 2026-09, #779; the action
+libraries were regenerated once as ``ActionPlanLibrary`` documents and
+their converter deleted, GEECS-Schemas 0.22.0).
 
 The client seam expands a preset into a stock plan queue item
 (:mod:`geecs_bluesky.qs_client.presets`).
@@ -33,10 +35,7 @@ from geecs_schemas import (
     ScanVariableSpec,
     TriggerProfile,
 )
-from geecs_schemas.convert import (
-    convert_action_library,
-    convert_shot_control,
-)
+from geecs_schemas.convert import convert_shot_control
 
 logger = logging.getLogger(__name__)
 
@@ -91,14 +90,15 @@ class ConfigsRepoResolver:
       (new schema only; the legacy ``scan_devices.yaml`` +
       ``composite_variables.yaml`` pair and its converter were retired
       2026-09, GEECS-Plugins#779)
-    - ``action_library/actions.yaml`` — the action-plan library
+    - ``action_library/actions.yaml`` — the action-plan library (new
+      schema only; the legacy ``actions:`` dialect is refused)
     - ``optimizer_configs/<name>.yaml`` — listed (for clients) but not
       resolved here: ``OptimizationSpec`` documents validated by their
       consumers.
 
-    A trigger profile or action library whose top level carries
-    ``schema_version`` is loaded as the new schema; anything else goes
-    through the matching legacy converter.  Named configs resolve from
+    A trigger profile whose top level carries ``schema_version`` is
+    loaded as the new schema; anything else goes through the legacy
+    converter.  Named configs resolve from
     either the ``.yaml`` or ``.yml`` spelling (console parity), so every
     listed name round-trips through resolution.
 
@@ -312,9 +312,16 @@ class ConfigsRepoResolver:
         """
         path = self._root / self.ACTION_FOLDER / "actions.yaml"
         document = self._load_yaml(path, "action library", "actions")
-        if "schema_version" in document:
-            return ActionPlanLibrary.model_validate(document)
-        return convert_action_library(document)
+        if not document:
+            # An empty file (a fresh experiment's placeholder) is an empty
+            # library, as the Console's store reads it.  ``_load_yaml`` maps
+            # YAML ``None`` to ``{}``, so a literal ``{}`` reads the same way
+            # here (the Console's store rejects that one — a file no writer
+            # produces; its ``save_library`` writes ``plans: {}``).
+            return ActionPlanLibrary(plans={})
+        # A legacy 'actions:' document is refused by the schema itself
+        # (ActionPlanLibrary's before-validator names the regeneration).
+        return ActionPlanLibrary.model_validate(document)
 
     def resolve_action_plan(self, name: str) -> ActionPlan:
         """Look up the action plan *name* in the experiment library.
@@ -334,11 +341,15 @@ class ConfigsRepoResolver:
             ) from None
 
     def action_plan_registry(self) -> dict[str, ActionPlan]:
-        """Return every named plan visible to nested ``run`` steps (the library)."""
-        try:
-            return dict(self._action_library().plans)
-        except GeecsConfigurationError:
-            return {}  # no actions.yaml
+        """Return every named plan visible to nested ``run`` steps (the library).
+
+        Empty when the experiment has no ``actions.yaml`` at all; an
+        unreadable or legacy-dialect file **raises** (a listing that read
+        empty would hide the regeneration a legacy file needs).
+        """
+        if not (self._root / self.ACTION_FOLDER / "actions.yaml").exists():
+            return {}
+        return dict(self._action_library().plans)
 
     DEFAULTS_FILE = "experiment_defaults.yaml"
 

@@ -3,11 +3,12 @@
 Versioned Pydantic models for every GEECS scanner config — presets (the
 saved scan: device group + plan call), scan requests, scan variables,
 trigger profiles, and action plans — plus converters from the legacy YAML
-dialects still in use (shot control, action libraries, optimizer configs).
-Scan-variable catalogs and presets have no converter: they are authored
-new-schema only (the legacy scan-device pair was retired 2026-09,
-GEECS-Plugins#779; the save elements and scan presets were regenerated as
-presets once, #807).
+dialects still in use (shot control, optimizer configs).
+Scan-variable catalogs, presets and action libraries have no converter:
+they are authored new-schema only (the legacy scan-device pair was retired
+2026-09, GEECS-Plugins#779; the save elements and scan presets were
+regenerated as presets once, #807; the action libraries were regenerated
+as `ActionPlanLibrary` documents once, 0.22.0).
 
 **Configs are schemas; YAML is just serialization.** This package is the
 schema layer of the target architecture. It depends on **pydantic
@@ -84,7 +85,7 @@ independently:
 | `scan_variables` | `ScanVariables` | `scan_devices.yaml` + `composite_variables.yaml` — retired 2026-09: catalogs are authored new-schema only, there is no converter |
 | `trigger_profile` | `TriggerProfile` | shot-control configs (one profile per operating condition); states are machine states holding *ordered, multi-device* write lists |
 | `action_plan` | `ActionPlan` | one entry of the action library |
-| `action_plan_library` | `ActionPlanLibrary` | `action_library/actions.yaml` |
+| `action_plan_library` | `ActionPlanLibrary` | `action_library/actions.yaml` — regenerated once from the legacy `actions:` dialect (0.22.0) and authored new-schema only since; there is no converter |
 | `experiment_defaults` | `ExperimentDefaults` | (new — legacy kept these choices in GUI state) per-experiment fallbacks where a scan request is silent; defaults run first, then the scan's own |
 | `analysis_diagnostic` | `AnalysisDiagnostic` | the unified analysis diagnostic (`scan_analysis_configs/analyzers/<ns>/<id>.yaml`) — format v2: `analyzer:` is a closed discriminated union on `kind` (one spec model per analyzer the suite ships), `image:` is the camera / line processing section, `scan:` the typed scan-runtime section. pre-v2 files are refused — the corpus was regenerated in v2 once (0.19.0) and is authored v2-only since; there is no converter |
 | `analysis_group` | `AnalysisGroup` | analysis groups (`scan_analysis_configs/groups/<ns>/<name>.yaml`) — unchanged shape plus the `schema_version` stamp |
@@ -128,16 +129,12 @@ what could not be mapped — nothing is dropped silently.
 ```python
 from geecs_schemas.convert import (
     convert_shot_control,
-    convert_action_library,
     convert_optimizer_config,
 )
 
 # Shot control → TriggerProfile (one profile per operating condition)
 profile = convert_shot_control("shot_control_configurations/HTU-Normal.yaml")
 profile.writes_for("SCAN")
-
-# Action library → ActionPlanLibrary (nested run-references validated)
-library = convert_action_library("action_library/actions.yaml")
 
 # Optimizer config → OptimizationSpec (+ device_requirements as a device group)
 opt = convert_optimizer_config("optimizer_configs/hexapod_alignment.yaml")

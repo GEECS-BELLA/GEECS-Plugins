@@ -121,6 +121,39 @@ the hardware acceptance (§5) is owed.
 - The bound plans' docstrings and start-document metadata carry
   `acquisition`, `non_essential`, `shot_period` and `shot_clock`.
 
+## [0.82.5] - 2026-09-12
+
+### Changed
+
+- `ConfigsRepoResolver._action_library` loads `actions.yaml` as an
+  `ActionPlanLibrary` document only; a file in the legacy `actions:`
+  dialect is refused by the schema (a `ValidationError` naming the
+  regeneration — the converter is gone, GEECS-Schemas 0.22.0; the corpus
+  was regenerated); an empty (or literal `{}`) file is an empty library,
+  as the Console reads an empty file.  `action_plan_registry` (the MCP's
+  listing) is empty only when
+  the file is absent — an unreadable or legacy file raises instead of
+  listing nothing.  The action-compiler tests read the regenerated fixture.
+
+## [0.82.4] - 2026-09-12
+
+### Fixed
+
+- `geecs-qserver-ensure-ready` heals the manager that is idle with its
+  environment open and `plans_allowed` **empty** (GEECS-Plugins#838: the
+  manager's own download of the lists from the worker timed out while the
+  host thrashed, and every submission was then refused "not in the list of
+  allowed plans" while `status` looked healthy): a list still empty or
+  incomplete after the settle window is restored once from the worker's
+  on-disk copy through `permissions_reload(restore_plans_devices=True)`
+  — the copy the worker writes at every environment open — with the
+  settle window applied again, so `systemctl restart geecs-qserver-ready`
+  recovers it without a manager restart.  (`environment_update`, the fix
+  #838 first named, re-downloads only when the worker's namespace changed
+  and is not used.)  The shared `plans_empty` verdict (Console banner,
+  MCP preflight) names that cause and that gesture; `qserver/README.md`
+  Troubleshooting carries the entry.
+
 ## [0.82.3] - 2026-09-12
 
 ### Changed
