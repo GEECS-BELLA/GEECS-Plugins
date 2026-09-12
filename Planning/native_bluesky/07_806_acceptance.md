@@ -5,7 +5,8 @@ conventions as `05_phase1_acceptance.md`: what was done to which host,
 what it showed.  Setup: HTU-NoGas, camera `UC_Amp4_IR_input` (camera
 server 192.168.6.100, exposure 1 ms), PR #823 at 69a9870a, the production
 worker untouched (feature branch, idle), the run driven **in process**
-from the staging clone on the worker host.
+from the staging clone on the worker host.  #823 merged the same day
+(0fd767fa); the Tiled read and the fleet roll below followed the merge.
 
 ## Runbook (as executed)
 
@@ -61,26 +62,58 @@ variable's PVs.
 | cadence | `[1.0, 1.001, 1.0, 0.999]` s — **1 Hz holds** with the count wait (frame → NAS write → `NumCaptured_RBV` monitor) in the loop; wall 14.0 s for 5 shots (first-shot phase + build) |
 | plugin counters | `frames_received 10, frames_written 5, duplicates_dropped 1, stale_skipped 4, rewound 0, shape/decode/open/append 0` — the 4 stale are the idle re-pushes before the first fire, the duplicate a re-push of the last shot |
 | camera after | `save` reads `off` (the LabVIEW-native logic's `stop` at unstage) |
-| Tiled | run registered; the array read returned **500**: `Refusing to serve file://…/Scan007/…/UC_Amp4_IR_input.h5 because it is outside the readable storage area for this server` — `readable_storage` in the Tiled server's config lists only its own storage dir |
+| Tiled | run registered; the array read first returned **500** (`Refusing to serve file://…/Scan007/…/UC_Amp4_IR_input.h5 because it is outside the readable storage area for this server` — `readable_storage` in the Tiled server's config listed only its own storage dir).  After the server fix below, the `(5, 600, 600)` array read back through Tiled **identical** to the file |
 
 ## What the run settles
 
 - The ASSUMED bullets of `03` §7 for #806: lossless, deduped, stale-filtered
   counting within a capture window — **verified**; Tiled's stock adapter
-  read — **not yet** (server allowlist, below).
+  read of the plugin's file — **verified** once the server allowed the
+  data share (below).
 - The machine account **can write** the data share over UNC: the stack
   was created and finalized by the service.
 - Uncompressed 5 × 720 KB = 3.9 MB against 5 × 235 KB of PNGs: `zlib`
   (gzip-1 + shuffle) is the expected production setting once the diff is
   trusted — a put on `Compression`, no release.
 
-## Owed (deployment, `site.env`/unit — the end-of-branch touch per 03 §10.5)
+## Settled after the merge (2026-09-11)
 
-1. Tiled server: add `/mnt/hdna2/data` under `readable_storage` in
-   `~/tiled/config.yml` and `Environment=HDF5_USE_FILE_LOCKING=FALSE` on
-   the `tiled` unit (`sudo systemctl edit tiled`), then restart — the
-   Tiled read of Scan007's array is the check.
-2. Production worker: restart `geecs-qserver` once the PR merges into the
-   feature branch (its checkout follows; the config keys are in place).
-3. Fleet: the other camera servers need the launcher fix and h5py before
-   their restart (the share clone is already on the plugin code).
+1. **Tiled server.** `/mnt/hdna2/data` added under `readable_storage` in
+   the server's config and `Environment=HDF5_USE_FILE_LOCKING=FALSE` on
+   the `tiled` unit (a `systemctl edit` drop-in), then restarted: Scan007's
+   array reads back through Tiled identical to the file.  The Tiled server
+   is pip-installed and has no rendered unit in `deploy/`, so `site.env`
+   cannot carry either fact; both are recorded in
+   `GeecsBluesky/TILED_SETUP.md` (the Tiled operator doc), where the next
+   site finds them.
+2. **Production worker.** `~/qs-checkout` pulled to 0fd767fa, its env
+   reinstalled (p4p), `[pva] file_plugin_addr_list` widened to the nine
+   camera servers once they were rolled, and `geecs-qserver` restarted
+   at 15:00 — the namespace reads the host list at startup, so the
+   restart is what made every camera on those boxes plugin-backed.  No
+   scan has gone through the *manager* on the plugin code yet (Scan007 ran
+   in process from the staging clone); the watch period's first camera
+   scan is that check.
+3. **Fleet roll (PR #824, GeecsPvaGateway 0.7.1).** What the first box
+   taught: the boxes predating GEECS-Core carried a `launch.bat` whose
+   reinstall line lacked `geecs-core`, so a bare `:restart` on the new
+   code crash-loops; and `h5py` is a bootstrap-time dependency.  #824
+   makes both a mechanism (`deploy/requirements-fleet.txt`,
+   `deploy/stage_wheels.sh`, the launcher's offline wheel step).  All
+   nine gateways (192.168.6.80, 6.100, 7.161–7.164, 8.197, 8.199, 8.201)
+   went to 0.7.1 with their `:hdf1:` PVs between 14:55 and 14:59, one
+   box at a time; `h5py` arrived through the launcher's wheel step, no
+   hand install.  The per-box procedure and the byte-offset lesson
+   (never copy `launch.bat` over a running service and `:restart`) live
+   in `GeecsPvaGateway/DEPLOYMENT.md` § "Launcher changes still need a
+   per-box step" — corrected on two points this roll established: an
+   *elevated* ssh session (key in the administrators' authorized-keys
+   file) reads the share, and `nssm` is not on `PATH` on the boxes.
+
+## Watch period
+
+Every camera scan now writes a stack beside its PNGs.  Diff the first
+scans of each camera family (`geecs-pva-gateway diff ScanNNN`); when the
+diffs are clean across families, put `Compression=zlib` (gzip-1 +
+shuffle) — a PV put, no release — and re-measure the writer thread's
+per-frame cost before leaving it on (`06` §9).

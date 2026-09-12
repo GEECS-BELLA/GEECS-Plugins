@@ -4,6 +4,14 @@ All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
+## [0.21.4] - 2026-09-11
+
+### Changed
+
+- The stack cache resolves the stamp dataset through
+  `scan_stack.timestamps_dataset` (either the device-prefixed or the bare
+  name, GEECS-Plugins#829).
+
 ## [0.21.3] - 2026-09-11
 
 ### Changed

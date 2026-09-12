@@ -319,6 +319,29 @@ def test_a_failed_fire_is_not_a_dropped_frame(
     assert refusing.fires == 1  # no refire on a failed fire
 
 
+def _attributes_xml(ophyd_name: str, *names: str) -> str:
+    """The ``NDAttributesFile`` shape the gateway's file plugin serves.
+
+    ``<device>-hdf-<variable>-frame_acq_timestamp`` / ``-frame_recv_timestamp``
+    (``geecs_pva_gateway.file_plugin.attributes_xml``): unique per camera and
+    never an event column's name.  Explicit *names* override, to pin what the
+    bare names of #829 did.
+    """
+    names = names or (
+        f"{ophyd_name}-hdf-image-frame_acq_timestamp",
+        f"{ophyd_name}-hdf-image-frame_recv_timestamp",
+    )
+    return (
+        "<Attributes>"
+        + "".join(
+            f'<Attribute name="{n}" type="PARAM" source="{n}" datatype="DOUBLE" '
+            'description="x"/>'
+            for n in names
+        )
+        + "</Attributes>"
+    )
+
+
 def _plugin_camera(RE: RunEngine, box: FakeBox, name: str, tmp_path: Path, **kw):
     """A plugin-backed camera on mocks; the box advances its count on every fire."""
     from ophyd_async.core import callback_on_mock_put
@@ -339,6 +362,7 @@ def _plugin_camera(RE: RunEngine, box: FakeBox, name: str, tmp_path: Path, **kw)
     set_mock_value(cam.hdf.file_path_exists, True)
     set_mock_value(cam.hdf.data_type, "UInt16")
     set_mock_value(cam.hdf.color_mode, "Mono")
+    set_mock_value(cam.hdf.nd_attributes_file, _attributes_xml(cam.name))
     rewinds: list[int] = []
 
     def plugin_rewinds(value, **_) -> None:
@@ -349,6 +373,76 @@ def _plugin_camera(RE: RunEngine, box: FakeBox, name: str, tmp_path: Path, **kw)
     callback_on_mock_put(cam.hdf.rewind, plugin_rewinds)
     box.cameras.append(cam)
     return cam, rewinds
+
+
+def test_two_plugin_cameras_in_one_run_keep_distinct_attribute_keys(
+    RE: RunEngine, box: FakeBox, tmp_path: Path
+) -> None:
+    """The plugin's attribute keys are unique per camera and disjoint from its columns (#829).
+
+    Pinned through the consumer that broke: bluesky's ``RunNormalizer`` (the
+    front of ``TiledWriter``) must keep the camera's own CA stamp column
+    ``<name>-acq_timestamp`` as an internal event column and emit the stop
+    document — a stream key of the same name overwrote the column and made
+    it raise "Cannot emit StreamDatum … Datum document is missing".
+    """
+    from bluesky.callbacks.tiled_writer import RunNormalizer
+
+    a, _ = _plugin_camera(RE, box, "UC_A", tmp_path)
+    b, _ = _plugin_camera(RE, box, "UC_B", tmp_path)
+    sc = ShotControl(WRITES, experiment="TestExp", name="htu", setter_factory=box)
+    connect_mock(RE, sc)
+    docs = DocCollector()
+    RE.subscribe(docs)
+    RE(bp.count([a, b], 2, per_shot=geecs_per_shot(sc)))
+    assert docs.docs["stop"][-1]["exit_status"] == "success"
+    data_keys = docs.docs["descriptor"][0]["data_keys"]
+    for cam in (a, b):
+        stamp = data_keys[f"{cam.name}-acq_timestamp"]
+        assert "external" not in stamp and "acq_timestamp" in stamp["source"]
+        assert data_keys[f"{cam.name}-hdf-image-frame_acq_timestamp"]["external"]
+    assert sorted(d["data_key"] for d in docs.docs["stream_resource"]) == [
+        "uc_a",
+        "uc_a-hdf-image-frame_acq_timestamp",
+        "uc_a-hdf-image-frame_recv_timestamp",
+        "uc_b",
+        "uc_b-hdf-image-frame_acq_timestamp",
+        "uc_b-hdf-image-frame_recv_timestamp",
+    ]
+
+    class Collecting(RunNormalizer):
+        def __init__(self) -> None:
+            super().__init__()
+            self.emitted: list[tuple[str, dict]] = []
+
+        def emit(self, name, doc):  # noqa: D102 - the collector
+            self.emitted.append((str(getattr(name, "value", name)), doc))
+
+    normalizer = Collecting()
+    for name, doc in docs.ordered:
+        normalizer(name, doc)
+    names = [n for n, _ in normalizer.emitted]
+    assert names[-1] == "stop"
+    normalized = next(d for n, d in normalizer.emitted if n == "descriptor")
+    assert "external" not in normalized["data_keys"]["uc_a-acq_timestamp"]
+    event = next(d for n, d in normalizer.emitted if n == "event")
+    assert "uc_a-acq_timestamp" in event["data"]
+
+
+def test_bare_attribute_names_collide_on_the_second_camera(
+    RE: RunEngine, box: FakeBox, tmp_path: Path
+) -> None:
+    """What #829 looked like: the gateway's pre-0.8 XML fails the run at its descriptor."""
+    a, _ = _plugin_camera(RE, box, "UC_A", tmp_path)
+    b, _ = _plugin_camera(RE, box, "UC_B", tmp_path)
+    for cam in (a, b):
+        set_mock_value(
+            cam.hdf.nd_attributes_file, _attributes_xml(cam.name, "acq_timestamp")
+        )
+    sc = ShotControl(WRITES, experiment="TestExp", name="htu", setter_factory=box)
+    connect_mock(RE, sc)
+    with pytest.raises(ValueError, match="collide"):
+        RE(bp.count([a, b], 2, per_shot=geecs_per_shot(sc)))
 
 
 def test_missed_frame_on_plugin_cameras_rewinds_the_partial_row(

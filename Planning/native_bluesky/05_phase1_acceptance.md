@@ -182,7 +182,13 @@ restore all as in M5 (`1 passed in 31 s`).
 readout + push, the fire put, and whatever runs per event; the plan
 layer's own ~7 ms is noise.  A long exposure eats the period directly.
 
-## The worker flip (2026-09-10, prepared; restart pending)
+## The worker flip (prepared 2026-09-10; done 2026-09-11)
+
+**Done 2026-09-11:** the restart below happened in the morning (19 plans,
+Scan005 of 26_0911 through the manager), and a second restart at 15:00
+put the worker on the #823 merge with the file-plugin host list —
+`07_806_acceptance.md` has that record.  The rest of this section is the
+runbook as prepared.
 
 What the flip is: `~/qs-checkout` (the deployed worker's clone, shared
 with `geecs-capture`; the MCP venv is baked separately and does not
@@ -209,5 +215,5 @@ sudo systemctl restart geecs-capture      # picks up the same clone's code (opti
 
 The clients' configs stay on the share's `main` (the worker reads no
 presets; the trigger profiles, scan-variable catalog and action library
-are unchanged there); the `presets-v1` branch merges into the configs
-`main` with the Console/MCP rewire, when something reads it.
+are unchanged there); the `presets-v1` branch merged into the configs
+`main` on 2026-09-11, after the flip.

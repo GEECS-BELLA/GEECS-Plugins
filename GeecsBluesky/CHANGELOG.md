@@ -46,6 +46,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   the session-era CA factory nothing used since #816 — the namespace's
   children are the signals an action plan touches.
 
+## [0.81.1] - 2026-09-11
+
+### Changed
+
+- `TILED_SETUP.md`: the two server-side settings the file plugin's stacks
+  need (`readable_storage` covering the data share; `HDF5_USE_FILE_LOCKING=FALSE`
+  on the service), found on the #806 acceptance run and recorded where
+  the next site stands the server up.
+
 ## [0.81.0] - 2026-09-11
 
 ### Added

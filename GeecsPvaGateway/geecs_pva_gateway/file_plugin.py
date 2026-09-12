@@ -55,7 +55,11 @@ import numpy as np
 from p4p.nt import NTEnum, NTScalar
 from p4p.server.thread import SharedPV
 
-from geecs_core.pv_naming import HDF_PLUGIN_SUFFIX, hdf_plugin_prefix
+from geecs_core.pv_naming import (
+    HDF_PLUGIN_SUFFIX,
+    hdf_plugin_prefix,
+    normalize_component,
+)
 from geecs_data_utils.io import decode_imaq_image_string
 from geecs_data_utils.io.scan_stack import ATTRIBUTES_GROUP, FRAMES_DATASET
 
@@ -86,8 +90,45 @@ PLUGIN_SUFFIX = HDF_PLUGIN_SUFFIX
 #: The dataset paths (``FRAMES_DATASET``, ``ATTRIBUTES_GROUP``) are the read
 #: side's (``geecs_data_utils.io.scan_stack``): the NDFileHDF5 layout
 #: ophyd-async's ``ADHDFDataLogic`` describes and Tiled's HDF5 adapter reads.
-#: Per-frame attribute datasets (declared to the worker via ``NDAttributesFile``).
-ATTRIBUTES = ("acq_timestamp", "recv_timestamp")
+#: The per-frame attribute datasets, by suffix.  Each plugin names them
+#: ``<device>-hdf-<variable>-<suffix>`` (:func:`attribute_names`, both
+#: parts through ``normalize_component``, the worker's ophyd-name rule).
+#: The stock ``ADHDFDataLogic`` turns attribute names into stream data
+#: keys verbatim, so the names must be **unique across the cameras of one
+#: run** (bare ``acq_timestamp`` collided on the second camera,
+#: GEECS-Plugins#829) and **disjoint from every event column** of the
+#: detector (``<name>-acq_timestamp`` is the camera's own CA stamp column;
+#: a stream key of the same name overwrote its description and broke
+#: Tiled's ingestion).  ``-hdf-`` names the plugin child, and the
+#: ``frame_`` suffixes never spell an event column.
+ATTRIBUTE_SUFFIXES = ("frame_acq_timestamp", "frame_recv_timestamp")
+_ATTRIBUTE_DESCRIPTIONS = {
+    "frame_acq_timestamp": "GEECS acquisition stamp of the frame, Unix s (the shot join key)",
+    "frame_recv_timestamp": "gateway receive time of the frame, Unix s (delivery diagnostics)",
+}
+
+
+def attribute_names(device: str, variable: str) -> tuple[str, ...]:
+    """The attribute dataset (and stream data key) names for one image variable."""
+    prefix = f"{normalize_component(device)}-hdf-{normalize_component(variable)}"
+    return tuple(f"{prefix}-{suffix}" for suffix in ATTRIBUTE_SUFFIXES)
+
+
+def attributes_xml(device: str, variable: str) -> str:
+    """The ``NDAttributesFile`` document declaring the plugin's attribute datasets."""
+    return (
+        "<Attributes>"
+        + "".join(
+            f'<Attribute name="{name}" type="PARAM" source="{name}" '
+            f'datatype="DOUBLE" description="{_ATTRIBUTE_DESCRIPTIONS[suffix]}"/>'
+            for name, suffix in zip(
+                attribute_names(device, variable), ATTRIBUTE_SUFFIXES
+            )
+        )
+        + "</Attributes>"
+    )
+
+
 #: The chunk shape ophyd-async assumes for attribute datasets.
 ATTRIBUTE_CHUNK = 16384
 #: Seconds a frame may be stamped before the watermark and still count as
@@ -129,19 +170,6 @@ COMPRESSIONS = ("None", "N-bit", "szip", "zlib", "Blosc", "BSLZ4", "LZ4", "JPEG"
 ENABLE_DISABLE = ("Enable", "Disable")
 WRITE_STATUS = ("Write OK", "Write Error")
 
-NDATTRIBUTES_XML = (
-    "<Attributes>"
-    + "".join(
-        f'<Attribute name="{name}" type="PARAM" source="{name}" datatype="DOUBLE" '
-        f'description="{desc}"/>'
-        for name, desc in (
-            ("acq_timestamp", "GEECS acquisition stamp, Unix s (the shot join key)"),
-            ("recv_timestamp", "gateway receive time, Unix s (delivery diagnostics)"),
-        )
-    )
-    + "</Attributes>"
-)
-
 
 @dataclass(frozen=True)
 class _Param:
@@ -159,7 +187,9 @@ PV_TABLE: tuple[_Param, ...] = (
     # NDArrayBaseIO
     _Param("PortName_RBV", "s", "HDF1"),
     _Param("UniqueId_RBV", "i", 0),
-    _Param("NDAttributesFile", "s", NDATTRIBUTES_XML),
+    _Param(
+        "NDAttributesFile", "s", ""
+    ),  # per instance: attributes_xml(device, variable)
     _Param("ArraySizeX_RBV", "i", 0),
     _Param("ArraySizeY_RBV", "i", 0),
     _Param("ArraySizeZ_RBV", "i", 0),
@@ -327,6 +357,7 @@ class HdfFilePlugin:
         self.variable = variable
         self.experiment = experiment
         self.prefix = hdf_plugin_prefix(experiment, device, variable)
+        self.attributes = attribute_names(device, variable)
         self._retain = retain
         self._release = release
         self._lock = threading.Lock()
@@ -337,6 +368,8 @@ class HdfFilePlugin:
             initial = param.initial
             if param.suffix == "NDArrayPort":
                 initial = variable
+            elif param.suffix == "NDAttributesFile":
+                initial = attributes_xml(device, variable)
             self._params[param.suffix] = param
             self._values[param.suffix] = initial
             wrapped = _wrap(param.kind, initial, param.choices)
@@ -646,7 +679,7 @@ class HdfFilePlugin:
             dtype=frame.dtype,
             **filters,
         )
-        for name in ATTRIBUTES:
+        for name in self.attributes:
             h5.create_dataset(
                 f"{ATTRIBUTES_GROUP}/{name}",
                 shape=(0,),
@@ -659,16 +692,15 @@ class HdfFilePlugin:
         self._post("FullFileName_RBV", session.path)
         logger.info("%s %s: opened %s", self.device, self.variable, session.path)
 
-    @staticmethod
     def _append(
-        session: _Session, frame: np.ndarray, stamp: float, recv: float
+        self, session: _Session, frame: np.ndarray, stamp: float, recv: float
     ) -> None:
         n = session.count
         h5 = session.file
         frames = h5[FRAMES_DATASET]
         frames.resize(n + 1, axis=0)
         frames[n] = frame
-        for name, value in zip(ATTRIBUTES, (stamp, recv), strict=True):
+        for name, value in zip(self.attributes, (stamp, recv), strict=True):
             ds = h5[f"{ATTRIBUTES_GROUP}/{name}"]
             ds.resize(n + 1, axis=0)
             ds[n] = value
@@ -684,7 +716,7 @@ class HdfFilePlugin:
             return
         if session.file is not None and n < session.count:
             session.file[FRAMES_DATASET].resize(n, axis=0)
-            for name in ATTRIBUTES:
+            for name in self.attributes:
                 session.file[f"{ATTRIBUTES_GROUP}/{name}"].resize(n, axis=0)
             session.file.flush()
         session.counters.rewound += session.count - n
