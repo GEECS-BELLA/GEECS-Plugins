@@ -54,6 +54,7 @@ from geecs_data_utils.data.row_filters import filter_mask
 from geecs_data_utils.io.images import average_frames
 from geecs_data_utils.scan_frame import PROVENANCE_RUN, scan_frame
 from geecs_data_utils.tiled_catalog import (
+    RunDetail,
     RunSummary,
     ScanCatalog,
     fmt_time_of_day,
@@ -442,6 +443,27 @@ def create_app(
     # 2026-08-29 — lazy stays the rule ACROSS scans only).
     data_cache = ShotDataCache()
     config_editor_enabled = False  # set when the editor router mounts (below)
+    scan_log_enabled = False  # set when the logbook router mounts (below)
+
+    def _logbook_url(
+        request: Request, detail: RunDetail, run_day: Optional[date]
+    ) -> str:
+        """The run's entry in the scan logbook, or "" when there is none to link.
+
+        The logbook's day page anchors each scan card by its folder name
+        (``#Scan012``); the portal knows the mount prefix and the day, so
+        the link is built here without importing the logbook — a peer
+        view layer, reached by URL like any other page. The logbook is
+        mounted for the default experiment alone, and scan numbers
+        restart daily per experiment, so a run from another experiment
+        gets no link rather than a wrong one.
+        """
+        summary = detail.summary
+        if not (scan_log_enabled and run_day and summary.scan_number):
+            return ""
+        if summary.experiment and summary.experiment != default_experiment:
+            return ""
+        return f"{_root(request)}/log/day/{run_day.isoformat()}#Scan{summary.scan_number:03d}"
 
     def _load_run(uid: str):
         """Load one run, mapping failures to honest HTTP status codes.
@@ -1376,6 +1398,7 @@ def create_app(
             "processing_options": _processing_names(),
             "analysis_enabled": _analysis_enabled_for(folder),
             "config_editor": config_editor_enabled,
+            "logbook": _logbook_url(request, detail, run_day) or None,
             "page": f"{_root(request)}/run/{uid}",
             "portal_version": _portal_version(),
         }
@@ -1598,6 +1621,7 @@ def create_app(
                 "next_uid": next_uid,
                 "day_runs": day_runs,
                 "scan_number": detail.summary.scan_number or 0,
+                "logbook_url": _logbook_url(request, detail, run_day),
                 "prev_day": (
                     (run_day - timedelta(days=1)).isoformat() if run_day else ""
                 ),
@@ -1938,6 +1962,7 @@ def create_app(
                     ),
                     prefix="/log",
                 )
+                scan_log_enabled = True
                 logger.info(
                     "scan log mounted at /log for %s (%s; templates %s)",
                     default_experiment,

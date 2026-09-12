@@ -145,6 +145,9 @@
         <a class="act" href="{{ root }}/day/{{ run_day }}?{{ qs(device="", shot="") }}" title="browse this day's list">{{ run_day }}</a>
         <a class="act" href="{{ root }}/run/jump/{{ next_day }}?prefer={{ scan_number }}&amp;{{ qs(device="", shot="") }}" title="next day (same scan number, else its latest)">day ›</a>
         {% endif %}
+        {% if logbook_url %}
+        <a class="act logbook" href="{{ logbook_url }}" title="this scan's card in the scan logbook">log ↗</a>
+        {% endif %}
       </div>
       <div class="steprow">
         <a class="act {{ "off" if not prev_uid }}" href="{{ root }}/run/{{ prev_uid }}?{{ qs() }}" title="previous scan">‹ scan</a>

@@ -48,10 +48,11 @@
         <a class="stepday" href="{{ url_for('_month_page', month=next_month.strftime('%Y-%m')).path }}"
            title="Next month" aria-label="Next month">&rsaquo;</a>
       </div>
-      {% if not (first <= today <= last) %}
-      <a class="todaylink" href="{{ url_for('_month_page', month=today.strftime('%Y-%m')).path }}">
-        Back to this month</a>
-      {% endif %}
+      {# Always present: today is a place in every month's rail, not only
+         a way back. Lands on today's day group when there is one. #}
+      <a class="todaylink" href="{{ today_url }}">
+        {{ 'Today' if first <= today <= last else 'Back to this month' }}</a>
+      {{ shared.calendar('month') }}
     </section>
 
     {% if tags %}
@@ -84,7 +85,11 @@
     {% endif %}
   </aside>
 
-  <main id="logbook" data-api="{{ api_base }}" data-book="ops" data-accept="{{ accept }}">
+  <main id="logbook" data-api="{{ api_base }}" data-book="ops" data-accept="{{ accept }}"
+        data-month="{{ first.strftime('%Y-%m') }}"
+        data-prev="{{ url_for('_month_page', month=prev_month.strftime('%Y-%m')).path }}"
+        data-next="{{ url_for('_month_page', month=next_month.strftime('%Y-%m')).path }}"
+        data-today="{{ today_url }}">
 
     <div class="dayhead">
       <div>
@@ -189,6 +194,7 @@ document.getElementById("q").addEventListener("input", ev => {
 });
 </script>
 <script src="{{ url_for('_static', name='editor.js') }}" defer></script>
+<script src="{{ url_for('_static', name='nav.js').path }}" defer></script>
 <script src="{{ root }}/theme/theme.js" defer></script>
 </body>
 </html>

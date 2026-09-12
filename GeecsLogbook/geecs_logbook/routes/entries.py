@@ -9,13 +9,18 @@ and the share second; see :mod:`geecs_logbook.mirror` for why that order.
 ``DELETE /log/api/entries/{id}``                tombstone (204)
 ``GET    /log/api/entries/{id}``                one entry
 ``GET    /log/api/entries/{id}/history``        its earlier states
+``GET    /log/api/entries?since=``              the change feed: everything
+                                                whose ``updated_at`` moved
+                                                after ``since``, tombstones
+                                                included, in change order
 """
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Request, Response
+from fastapi import APIRouter, HTTPException, Query, Request, Response
 from geecs_schemas.log_entry import Book, EntryKind, EntryStatus, LogEntry
 from pydantic import BaseModel, Field
 
@@ -79,6 +84,19 @@ class HistoryItem(BaseModel):
     entry: LogEntry
 
 
+class ChangeFeed(BaseModel):
+    """A page of the change feed."""
+
+    entries: list[LogEntry] = Field(
+        description="Ordered by updated_at, then by row; tombstones included."
+    )
+    next_cursor: Optional[str] = Field(
+        None,
+        description="Pass back as ?cursor= to continue; null when this page"
+        " was the last.",
+    )
+
+
 def register(router: APIRouter, ctx: Context) -> None:
     """Add the entry routes to ``router``. Requires a store."""
     store = ctx.store
@@ -102,6 +120,50 @@ def register(router: APIRouter, ctx: Context) -> None:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         ctx.mirror(entry.entry_id)
         return store.get(entry.entry_id) or entry
+
+    @router.get("/api/entries")
+    def _changed(
+        since: Optional[datetime] = Query(
+            None, description="Aware ISO 8601; changes strictly after this."
+        ),
+        until: Optional[datetime] = Query(None, description="Aware ISO 8601."),
+        book: Optional[Book] = None,
+        include_deleted: bool = True,
+        cursor: Optional[str] = Query(None, max_length=128),
+        limit: int = Query(500, ge=1, le=2000),
+    ) -> ChangeFeed:
+        """List what changed after ``since``, oldest change first.
+
+        The synchroniser's endpoint. A promotion, an upload or a delete
+        moves ``updated_at`` like an edit does, so a copy that asks for
+        "everything since my last ``updated_at``" misses nothing (stamps
+        are taken under the store's write lock, so they commit in order;
+        overlapping ``since`` by a few seconds is belt and braces, and a
+        re-sent row is the same row) — and it is the one listing that
+        returns **tombstones**, since a deletion is a change too. Either
+        ``since`` or ``cursor`` is required; a full page carries
+        ``next_cursor`` — opaque, URL-safe — which resumes after its
+        last row even when several rows share an ``updated_at``.
+        """
+        if since is None and cursor is None:
+            raise HTTPException(status_code=422, detail="since or cursor is required")
+        for name, value in (("since", since), ("until", until)):
+            if value is not None and value.tzinfo is None:
+                raise HTTPException(
+                    status_code=422, detail=f"{name} must carry a timezone"
+                )
+        try:
+            page = store.changed_since(
+                since or datetime.min.replace(tzinfo=timezone.utc),
+                until=until,
+                book=book,
+                include_deleted=include_deleted,
+                cursor=cursor,
+                limit=limit,
+            )
+        except ValueError as exc:  # a malformed cursor
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        return ChangeFeed(entries=page.entries, next_cursor=page.next_cursor)
 
     @router.get("/api/entries/{entry_id}")
     def _one(entry_id: str) -> LogEntry:

@@ -118,8 +118,9 @@ package. Rules the store enforces, each pinned in `tests/test_store.py`:
   `GET /api/entries/{id}/history` serves it; undo is a new edit with an
   old body. Nothing rewrites history.
 - **One query.** `NotesStore.query(day range, book, tag, kind, status,
-  author, include_scan_anchored)` is the month page, its filter chips, a
-  search, and a synchroniser's "everything since" — one method, not four.
+  author, include_scan_anchored)` is the month page, its filter chips and
+  a search — one method, not three. A synchroniser asks a different
+  question ("what changed"), answered by `changed_since` below.
 - **An agent's entry is born a draft.** `kind` other than `note` with
   `status="kept"` is refused at creation. A person keeps it via the status
   route; an agent has no route to promote itself. A *promoted* agent entry
@@ -131,8 +132,9 @@ package. Rules the store enforces, each pinned in `tests/test_store.py`:
   "everything since".
 - **Delete is a tombstone.** `deleted_at` is set, listings hide the row,
   writes to it fail as if it were missing, and the mirror sync removes the
-  file. The row stays so a downstream copy can learn it went and an
-  accidental delete is a field to clear.
+  file. The row stays so a downstream copy can learn it went (through the
+  change feed, the one listing that shows it) and an accidental delete is
+  a field to clear.
 - **Optimistic locking.** Every edit carries the `version` it read; a
   mismatch is a 409 with the current entry, never a silently eaten
   paragraph.
@@ -156,6 +158,51 @@ into the month's day heading, and every day group on the month page
 links to its day document. The pages share one set of Jinja macros
 (`templates/_entries.html`): an entry and a composer look the same in
 either book, and the editor script meets one shape of form.
+
+## Navigation
+
+`static/nav.js` is the other script both pages load: the rail calendar,
+keyboard stepping and hover prefetch. Like the editor it reads its facts
+off `<main id="logbook">` (`data-api`, `data-day` or `data-month`,
+`data-prev`, `data-next`, `data-today`) and templates nothing.
+
+The **calendar** is a `<details>` the script fills when opened. Its marks
+come from `GET /api/month/{m}/days` — the store's per-day counts (one
+grouped query) plus which day folders exist. The share side of that is
+**one listing of the month folder** (`scan_reader.days_with_folders`),
+never thirty per-day walks, and it is a lazy fetch by the *open*
+calendar, so the month page keeps its promise: the page itself still
+reads the store alone (pinned in `tests/test_nav.py`, which makes the
+listing explode under the month page). A missing experiment directory
+comes back as `share: false` — said, not hidden — and the store's marks
+stand on their own.
+
+"Faster day switching" is keyboard stepping (`←` `→` `t` `c`; refused
+while any composer holds unsaved text — a shortcut must never discard a
+note) and a `<link rel="prefetch">` added when the viewer **rests** on a
+day or month link for 250 ms — the page they are about to open is served
+warm. Nothing is prefetched on load: every day page is a share read, and
+the rail offers fifteen of them; the dwell is what keeps a pass over the
+rail from prefetching them all. The trade-off, stated: the pages send no
+freshness headers, and Chrome may reuse a prefetched document for a few
+minutes without asking, so a scan that landed between the hover and the
+click appears on the next reload. `/log/today` and `/log/month/today`
+are the bookmarkable names.
+
+## The change feed
+
+`GET /api/entries?since=<aware ISO 8601>` (`NotesStore.changed_since`) is
+the synchroniser's listing — ARIEL's, first: everything whose
+`updated_at` moved after `since`, oldest change first, **tombstones
+included**. It is the one listing that returns a deleted row, because a
+deletion is a change a downstream copy has to learn, and this is the
+only place it can. Rows are ordered `(updated_at, rowid)` and a full
+page carries a `next_cursor` that resumes after its last row, so two
+entries sharing an `updated_at` across a page boundary cannot lose one.
+`since` must carry a timezone — the columns are UTC `isoformat()`
+strings and a naive value would be compared in a zone nobody stated.
+Scans are not in this feed; a since-filtered scan list waits for a
+caller that finds walking the day endpoints too slow.
 
 ## The editor
 
@@ -293,6 +340,7 @@ is where that is tracked.
 | `EntryCreate` (the write shape) lives in the router, `LogEntry` (the stored shape) in `geecs_schemas` | An agent posts the create shape, so it belongs beside `LogEntry` for GEECS-MCP to validate. Moves with the agent-verbs phase, which is its first second consumer. |
 | A third private atomic-write helper (`_fs.replace_with`; `scan_analysis.config_store` and `task_queue` have their own) and `logbook_root` re-deriving the daily folder | Fold into the `ScanPaths`/`ScanData` review, #839 — same home, same issue. |
 | Which template "started" an entry when several buttons were pressed | The last one pressed is recorded. Provenance only; nothing reads it back but the chip. |
+| `scan_reader.month_folder` / `days_with_folders` are a third copy of the share-layout walk (`.parent` chains up from `get_daily_scan_folder`; a `YY_MMDD` parser beside `ScanPaths.get_scan_tag`'s and `scans_database.builder`'s `strptime("%y_%m%d")`), after `mirror.logbook_root` and `read_day` | The layout has one builder in `geecs_data_utils.scan_paths` and should have one reader there (`day_folder_date(name)`, `list_day_folders(month)`), which is exactly #839's brief. Recorded on #839 at the review of #844; not lifted here so the logbook keeps depending on `ScanPaths` alone. |
 | `seed_templates.parse_template` is the package's first front-matter reader, while `mirror.render` is its writer | One reader, one writer, different shapes today (the template header has no lists). When the mirror *reader* lands (off-site/rebuild, deferred above), extract one `parse_front_matter` beside `mirror` and point both at it — not before there is a second caller. Waived in the review of #842. |
 
 ## Deployment

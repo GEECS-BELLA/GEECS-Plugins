@@ -31,6 +31,7 @@ instead of a sentence that quietly vanished.
 
 from __future__ import annotations
 
+import base64
 import json
 import logging
 import sqlite3
@@ -146,6 +147,19 @@ class HistoryRecord:
     entry: LogEntry
 
 
+@dataclass(frozen=True)
+class ChangePage:
+    """One page of the change feed: entries in ``updated_at`` order and a cursor.
+
+    ``next_cursor`` is ``None`` when the page was not full; otherwise pass
+    it back as ``cursor`` to continue exactly where this page stopped,
+    ties in ``updated_at`` included (the cursor carries the row too).
+    """
+
+    entries: list[LogEntry]
+    next_cursor: Optional[str]
+
+
 def _now() -> datetime:
     """Return an aware UTC timestamp.
 
@@ -153,6 +167,44 @@ def _now() -> datetime:
     timestamp is ambiguous the moment anyone reads it from another zone.
     """
     return datetime.now(timezone.utc)
+
+
+def _stamp(when: datetime) -> str:
+    """Render an aware datetime the way the store's columns hold them.
+
+    Columns are ``datetime.isoformat()`` of a UTC-aware value, so a
+    comparison against a value rendered the same way is a correct string
+    comparison. A naive datetime is refused: the caller's zone is unknown.
+    """
+    if when.tzinfo is None or when.utcoffset() is None:
+        raise ValueError("timestamp must be timezone-aware")
+    return when.astimezone(timezone.utc).isoformat()
+
+
+def _encode_cursor(stamp: str, rowid: int) -> str:
+    """Render a feed cursor: opaque and URL-safe.
+
+    The stamp carries ``+00:00``, which a raw query string turns into a
+    space and thereby into a value that sorts *below* every real stamp —
+    the boundary row would be re-sent. Base64 (URL alphabet, unpadded)
+    keeps the cursor a token a client cannot half-encode.
+    """
+    raw = f"{stamp}|{rowid}".encode()
+    return base64.urlsafe_b64encode(raw).decode().rstrip("=")
+
+
+def _decode_cursor(cursor: str) -> tuple[str, int]:
+    """Parse a cursor back into ``(stamp, rowid)``; ``ValueError`` if it is not one."""
+    try:
+        padded = cursor + "=" * (-len(cursor) % 4)
+        raw = base64.urlsafe_b64decode(padded.encode()).decode()
+        stamp, _, row = raw.rpartition("|")
+        datetime.fromisoformat(stamp)  # a real timestamp, not merely a shape
+        if not row.isdigit():
+            raise ValueError(row)
+    except (ValueError, UnicodeDecodeError) as exc:  # binascii.Error is a ValueError
+        raise ValueError(f"malformed cursor: {cursor!r}") from exc
+    return stamp, int(row)
 
 
 class NotesStore:
@@ -280,6 +332,80 @@ class NotesStore:
             rows = conn.execute(sql, params).fetchall()
         return [_from_row(row) for row in rows]
 
+    def count_by_day(self, day_from: str, day_to: str) -> dict[str, dict[str, int]]:
+        """Return live entry counts per day and book in an inclusive range.
+
+        One grouped query for a whole month — what a calendar needs to
+        mark the days that have notes, without loading a single body.
+        The result maps ``YYYY-MM-DD`` to ``{book: count}`` and lists only
+        days that have at least one live entry.
+        """
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT day, book, COUNT(*) AS n FROM entries"
+                " WHERE day BETWEEN ? AND ? AND deleted_at IS NULL"
+                " GROUP BY day, book",
+                (day_from, day_to),
+            ).fetchall()
+        out: dict[str, dict[str, int]] = {}
+        for row in rows:
+            out.setdefault(row["day"], {})[row["book"]] = row["n"]
+        return out
+
+    def changed_since(
+        self,
+        since: datetime,
+        *,
+        until: Optional[datetime] = None,
+        book: Optional[str] = None,
+        include_deleted: bool = True,
+        cursor: Optional[str] = None,
+        limit: int = _QUERY_CAP,
+    ) -> ChangePage:
+        """Return entries whose ``updated_at`` is after ``since``, oldest change first.
+
+        The synchroniser's question ("everything that changed since I last
+        asked"), and the one listing that includes **tombstones**: a
+        deleted entry is a change a downstream copy must learn about, and
+        this is the only place it can. ``include_deleted=False`` drops them.
+
+        Timestamps are aware. Rows are ordered by ``(updated_at, rowid)``
+        and a full page returns a cursor that resumes after its last row,
+        so two entries sharing an ``updated_at`` across a page boundary
+        cannot lose one. ``since`` is exclusive, ``until`` inclusive.
+        """
+        if limit < 1:
+            raise ValueError("limit must be at least 1")
+        sql = "SELECT rowid AS _rowid, * FROM entries WHERE "
+        params: list[object] = []
+        if cursor is not None:
+            stamp, row = _decode_cursor(cursor)
+            sql += "(updated_at > ? OR (updated_at = ? AND rowid > ?))"
+            params += [stamp, stamp, row]
+        else:
+            sql += "updated_at > ?"
+            params.append(_stamp(since))
+        if until is not None:
+            sql += " AND updated_at <= ?"
+            params.append(_stamp(until))
+        if book is not None:
+            sql += " AND book = ?"
+            params.append(book)
+        if not include_deleted:
+            sql += " AND deleted_at IS NULL"
+        limit = min(limit, _QUERY_CAP)
+        sql += " ORDER BY updated_at, rowid LIMIT ?"
+        params.append(limit + 1)  # one extra tells us whether a page follows
+        with self._connect() as conn:
+            rows = conn.execute(sql, params).fetchall()
+        more = len(rows) > limit
+        rows = rows[:limit]
+        entries = [_from_row(row) for row in rows]
+        next_cursor = (
+            _encode_cursor(rows[-1]["updated_at"], rows[-1]["_rowid"]) if more else None
+        )
+        return ChangePage(entries=entries, next_cursor=next_cursor)
+
     def history(self, entry_id: str) -> list[HistoryRecord]:
         """Return an entry's earlier states, oldest first."""
         with self._connect() as conn:
@@ -379,24 +505,28 @@ class NotesStore:
                 f"a {kind} entry is created as a draft; a person keeps it afterwards"
             )
 
-        now = _now()
-        entry = LogEntry(
-            entry_id=uuid.uuid4().hex[:12],
-            day=day,
-            book=book,
-            scan=scan,
-            after=after,
-            author=author,
-            kind=kind,
-            status=status,
-            template=template,
-            body_md=body_md,
-            tags=parse_tags(body_md),
-            payload=payload,
-            created_at=now,
-            updated_at=now,
-        )
-        with self._connect() as conn:
+        # The stamp is taken under the write lock, as every other writer
+        # takes its own: taken before it, two concurrent creates could
+        # commit out of stamp order and the change feed's high-water mark
+        # would skip one for good.
+        with self._connect() as conn, _transaction(conn):
+            now = _now()
+            entry = LogEntry(
+                entry_id=uuid.uuid4().hex[:12],
+                day=day,
+                book=book,
+                scan=scan,
+                after=after,
+                author=author,
+                kind=kind,
+                status=status,
+                template=template,
+                body_md=body_md,
+                tags=parse_tags(body_md),
+                payload=payload,
+                created_at=now,
+                updated_at=now,
+            )
             conn.execute(
                 "INSERT INTO entries (entry_id, day, scan, after_scan, author, kind,"
                 " status, template, body_md, payload, attachments, created_at,"

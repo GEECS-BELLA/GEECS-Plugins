@@ -4,6 +4,55 @@ All notable changes to `geecs-logbook` are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 project adheres to semantic versioning.
 
+## [0.6.0] - 2026-09-12
+
+Navigation polish, and the synchroniser's feed.
+
+### Added
+
+- **A calendar in the rail** of both pages (`static/nav.js`, a
+  `<details class="cal">` drawn on open): a month grid whose days are
+  marked when they have notes (the store's per-day counts) and when a
+  day folder exists on the share. The marks come from a new
+  `GET /log/api/month/{YYYY-MM}/days`, fetched lazily by the open
+  calendar — the month page itself still never touches the share, and
+  the share side is **one** listing of the month folder
+  (`scan_reader.days_with_folders`), never a walk of the days. When the
+  experiment directory is missing the payload says `share: false` and
+  the store's marks stand alone.
+- **Keyboard stepping**: `←` / `→` go to the previous / next day (day
+  page) or month (month page), `t` to today, `c` toggles the calendar;
+  ignored while typing. The pages hand the targets to the script as
+  `data-prev` / `data-next` / `data-today` on `<main>`.
+- **Hover prefetch**: resting on a day or month link adds a
+  `<link rel="prefetch">` for it, so the click that follows is served
+  from the browser's cache. Only links the viewer is about to follow —
+  nothing is fetched speculatively on load.
+- **Today, by name**: `GET /log/today` (the day page) and
+  `GET /log/month/today` (this month, at today's day group). The month
+  rail's Today control is now always present, not only as a way back
+  from another month.
+- **The change feed** — `GET /log/api/entries?since=<aware ISO 8601>`:
+  every entry whose `updated_at` moved after `since`, oldest change
+  first, **tombstones included** (the one listing that returns them —
+  a delete is a change a downstream copy must learn). `until=`,
+  `book=`, `include_deleted=false` narrow it; `limit=` pages it with a
+  `next_cursor` that resumes after the last row even when rows share an
+  `updated_at`. `NotesStore.changed_since` and `NotesStore.count_by_day`
+  are the store methods behind the feed and the calendar.
+
+### Changed
+
+- `NotesStore.create` takes its timestamp under the write lock, as every
+  other writer already did, so two concurrent creates cannot commit out
+  of stamp order and slip past a synchroniser's high-water mark (review
+  of #844). The feed's cursor is opaque and URL-safe (a pasted, unencoded
+  cursor no longer re-sends the boundary row) and a corrupted one is a
+  422, not a quiet "caught up". `/api/month/{m}/days` turns a share I/O
+  error into `share: false` and anything else into a 503, like the day
+  page. Keyboard stepping is refused while a composer holds unsaved text;
+  the prefetch dwell is 250 ms so a pass over the rail prefetches nothing.
+
 ## [0.5.0] - 2026-09-11
 
 The ops book: the second book gets its page, and entries get types.

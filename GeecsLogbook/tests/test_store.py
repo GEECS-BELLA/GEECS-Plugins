@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
 from geecs_schemas.log_entry import Attachment
 
+from geecs_logbook import store as store_module
 from geecs_logbook.store import ConflictError, NotesStore
 
 DAY = "2026-09-11"
@@ -486,3 +487,120 @@ class TestHistory:
         with pytest.raises(ConflictError):
             store.update(e.entry_id, body_md="x", editor="a", expected_version=9)
         assert store.history(e.entry_id) == []
+
+
+class TestCountByDay:
+    """The calendar's question: which days have notes, and how many."""
+
+    def test_counts_per_day_and_book_live_only(self, store: NotesStore) -> None:
+        """One grouped query; a deleted entry is not counted."""
+        store.create(day="2026-09-11", author="a", body_md="x", book="ops")
+        store.create(day="2026-09-11", author="a", body_md="y", book="ops")
+        store.create(day="2026-09-11", author="a", body_md="z", scan=1)
+        gone = store.create(day="2026-09-03", author="a", body_md="gone")
+        store.delete(gone.entry_id)
+        store.create(day="2026-10-01", author="a", body_md="next month")
+        assert store.count_by_day("2026-09-01", "2026-09-30") == {
+            "2026-09-11": {"ops": 2, "scans": 1}
+        }
+
+
+class TestChangedSince:
+    """The synchroniser's feed: every change after a moment, tombstones included."""
+
+    @staticmethod
+    def _at(store: NotesStore, monkeypatch: pytest.MonkeyPatch, stamp: datetime):
+        monkeypatch.setattr(store_module, "_now", lambda: stamp)
+
+    def test_orders_by_change_and_includes_tombstones(
+        self, store: NotesStore, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A delete is a change: the tombstone rides the feed, hidden elsewhere."""
+        t0 = datetime(2026, 9, 11, 8, 0, tzinfo=timezone.utc)
+        self._at(store, monkeypatch, t0)
+        first = store.create(day="2026-09-11", author="a", body_md="first")
+        self._at(store, monkeypatch, t0 + timedelta(minutes=1))
+        second = store.create(day="2026-09-11", author="a", body_md="second")
+        self._at(store, monkeypatch, t0 + timedelta(minutes=2))
+        store.delete(first.entry_id)
+        page = store.changed_since(t0 - timedelta(seconds=1))
+        assert [e.entry_id for e in page.entries] == [second.entry_id, first.entry_id]
+        assert page.entries[1].is_deleted and page.next_cursor is None
+        assert store.for_day("2026-09-11") == [second]
+        assert [
+            e.entry_id
+            for e in store.changed_since(
+                t0 - timedelta(seconds=1), include_deleted=False
+            ).entries
+        ] == [second.entry_id]
+
+    def test_since_is_exclusive_and_status_moves_an_entry(
+        self, store: NotesStore, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A promotion is invisible to "edited since"; it must not be to this."""
+        t0 = datetime(2026, 9, 11, 8, 0, tzinfo=timezone.utc)
+        self._at(store, monkeypatch, t0)
+        entry = store.create(
+            day="2026-09-11",
+            author="agent",
+            body_md="draft",
+            kind="agent_draft",
+            status="draft",
+        )
+        assert store.changed_since(t0).entries == []  # strictly after
+        self._at(store, monkeypatch, t0 + timedelta(minutes=5))
+        store.set_status(entry.entry_id, "kept")
+        got = store.changed_since(t0).entries
+        assert [e.status for e in got] == ["kept"]
+        assert store.changed_since(t0, until=t0 + timedelta(minutes=4)).entries == []
+        assert (
+            len(store.changed_since(t0, until=t0 + timedelta(minutes=5)).entries) == 1
+        )
+
+    def test_pagination_cannot_skip_a_shared_timestamp(
+        self, store: NotesStore, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Three rows on one updated_at across a page boundary all arrive once."""
+        t0 = datetime(2026, 9, 11, 8, 0, tzinfo=timezone.utc)
+        self._at(store, monkeypatch, t0)
+        ids = [
+            store.create(day="2026-09-11", author="a", body_md=str(i)).entry_id
+            for i in range(3)
+        ]
+        self._at(store, monkeypatch, t0 + timedelta(minutes=1))
+        ids.append(store.create(day="2026-09-11", author="a", body_md="later").entry_id)
+        seen: list[str] = []
+        cursor = None
+        pages = 0
+        while True:
+            page = store.changed_since(
+                t0 - timedelta(seconds=1), cursor=cursor, limit=2
+            )
+            seen += [e.entry_id for e in page.entries]
+            pages += 1
+            cursor = page.next_cursor
+            if cursor is None:
+                break
+        assert seen == ids and pages == 2
+        assert (
+            store.changed_since(t0 - timedelta(seconds=1), limit=4).next_cursor is None
+        )
+
+    def test_book_filter_and_bad_inputs(
+        self, store: NotesStore, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A naive timestamp and a malformed cursor are refused, not guessed."""
+        t0 = datetime(2026, 9, 11, 8, 0, tzinfo=timezone.utc)
+        self._at(store, monkeypatch, t0)
+        store.create(day="2026-09-11", author="a", body_md="ops", book="ops")
+        store.create(day="2026-09-11", author="a", body_md="scan", scan=2)
+        since = t0 - timedelta(seconds=1)
+        assert [e.book for e in store.changed_since(since, book="ops").entries] == [
+            "ops"
+        ]
+        with pytest.raises(ValueError):
+            store.changed_since(datetime(2026, 9, 11, 8, 0))
+        with pytest.raises(ValueError):
+            store.changed_since(since, cursor="nonsense")
+        with pytest.raises(ValueError):
+            store.changed_since(since, limit=0)
