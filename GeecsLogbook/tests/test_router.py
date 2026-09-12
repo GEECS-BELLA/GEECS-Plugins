@@ -8,7 +8,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from geecs_scan_log.router import create_log_router
+from geecs_logbook.router import create_log_router
 
 
 @pytest.fixture

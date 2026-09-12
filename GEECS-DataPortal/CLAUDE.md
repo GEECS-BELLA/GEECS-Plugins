@@ -13,7 +13,7 @@ this package; the architecture rules below are its distillation.
   `Planning/data_portal/04_analysis_run_design.md` — and 2026-09-06).
   The portal itself has no write verbs: no annotations.  Three
   exceptions, all explicit opt-ins.  **The scan logbook**
-  (`--scan-log`, 0.22.0) mounts `geecs_scan_log`'s router at `/log`
+  (`--scan-log`, 0.22.0) mounts `geecs_logbook`'s router at `/log`
   behind the `log` extra: a day-document view over scan *folders*,
   read-only in this phase — it renders `ScanInfoScanNNN.ini` and stores
   nothing (pinned in `tests/test_scan_log_mount.py`).  It needs
@@ -149,7 +149,7 @@ geecs_portal/
   static/        # the vendored Plotly bundle (the ONE committed JS asset)
   __main__.py    # CLI (geecs-data-portal): real TiledScanCatalog + uvicorn;
                  #   --config-editor mounts scan_analysis.config_editor at /configs
-                 #   --scan-log     mounts geecs_scan_log at /log (needs --experiment)
+                 #   --scan-log     mounts geecs_logbook at /log (needs --experiment)
   templates/     # base.html / day.html / run.html (Jinja2; every colour a GeecsWebTheme token)
 tests/
   test_app.py        # TestClient over FakeCatalog/StubCatalog (+ /api)

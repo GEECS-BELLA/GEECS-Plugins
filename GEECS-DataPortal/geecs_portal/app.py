@@ -381,7 +381,7 @@ def create_app(
     FastAPI
         The configured application.
     scan_log : bool, default False
-        Mount the scan logbook (``geecs_scan_log``) at ``/log``. Requires
+        Mount the scan logbook (``geecs_logbook``) at ``/log``. Requires
         ``default_experiment``, since the logbook reads one experiment's
         share and this package carries no facility default. ``False``
         leaves ``/log`` unserved.
@@ -1908,7 +1908,7 @@ def create_app(
             )
         else:
             try:
-                from geecs_scan_log import create_log_router
+                from geecs_logbook import create_log_router
             except ImportError as exc:  # the log extra is not installed
                 logger.warning("scan log requested but not installed: %s", exc)
             else:

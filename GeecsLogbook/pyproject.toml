@@ -1,10 +1,10 @@
 [tool.poetry]
-name = "geecs-scan-log"
+name = "geecs-logbook"
 version = "0.1.0"
 description = "Scan logbook: a day-document view over scan folders, with human commentary stored beside the data"
 authors = ["GEECS-BELLA"]
 readme = "README.md"
-packages = [{ include = "geecs_scan_log" }]
+packages = [{ include = "geecs_logbook" }]
 
 [tool.poetry.dependencies]
 python = ">=3.11,<3.12"

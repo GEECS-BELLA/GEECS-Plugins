@@ -46,12 +46,12 @@ jobs:
         working-directory: GeecsWebTheme
         run: poetry run pytest tests --tb=short -q
 
-      - name: Install GeecsScanLog dependencies
-        working-directory: GeecsScanLog
+      - name: Install GeecsLogbook dependencies
+        working-directory: GeecsLogbook
         run: poetry install --with dev
 
-      - name: Run GeecsScanLog tests
-        working-directory: GeecsScanLog
+      - name: Run GeecsLogbook tests
+        working-directory: GeecsLogbook
         run: poetry run pytest tests --tb=short -q
 
       - name: Install GEECS-DataPortal dependencies
@@ -59,7 +59,7 @@ jobs:
         # --extras analysis: the Images tab's processing-selector tests
         # (TestProcessingSelector) importorskip image_analysis and would
         # silently skip without it (the #737 CI-red lesson, 2026-09-01).
-        # --extras log: test_scan_log_mount importorskips geecs_scan_log and
+        # --extras log: test_scan_log_mount importorskips geecs_logbook and
         # would silently skip without it (same lesson as #737).
         run: poetry install --with dev --extras analysis --extras log
 

@@ -24,7 +24,7 @@ package has, and the reason it is a charter exception in the portal:
 ``POST /log/api/entries/{id}/attachments``
 
 Every write goes to the store first and the share second — see
-:mod:`geecs_scan_log.mirror` for why that order. Writes touch ``logbook/``
+:mod:`geecs_logbook.mirror` for why that order. Writes touch ``logbook/``
 only, a sibling of ``scans/``; nothing here can create a scan folder.
 """
 
@@ -43,11 +43,11 @@ from fastapi.templating import Jinja2Templates
 from geecs_schemas.log_entry import Attachment, LogEntry
 from pydantic import BaseModel, Field
 
-from geecs_scan_log import mirror
-from geecs_scan_log.models import DaySummary
-from geecs_scan_log.render import render_markdown
-from geecs_scan_log.scan_reader import read_day
-from geecs_scan_log.store import ConflictError, NotesStore
+from geecs_logbook import mirror
+from geecs_logbook.models import DaySummary
+from geecs_logbook.render import render_markdown
+from geecs_logbook.scan_reader import read_day
+from geecs_logbook.store import ConflictError, NotesStore
 
 logger = logging.getLogger(__name__)
 
@@ -81,8 +81,12 @@ class EntryCreate(BaseModel):
     """What a client sends to add an entry."""
 
     day: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
-    scan: Optional[int] = Field(None, ge=0, description="Scan number; 0 = the day intro.")
-    after: Optional[int] = Field(None, ge=0, description="Interscan: the scan it follows.")
+    scan: Optional[int] = Field(
+        None, ge=0, description="Scan number; 0 = the day intro."
+    )
+    after: Optional[int] = Field(
+        None, ge=0, description="Interscan: the scan it follows."
+    )
     author: str = Field(min_length=1, max_length=120)
     body_md: str = Field(max_length=200_000)
     template: str = Field("blank", max_length=64)
@@ -225,7 +229,11 @@ def create_log_router(
         prefix or reverse-proxy ``root_path``.
         """
         full = request.url_for(
-            "_attachment", day=entry.day, scope=_scope(entry), entry_id="X", filename="Y"
+            "_attachment",
+            day=entry.day,
+            scope=_scope(entry),
+            entry_id="X",
+            filename="Y",
         ).path
         return full[: -len("/X/Y")]
 
@@ -299,7 +307,10 @@ def create_log_router(
         root = mirror.logbook_root(day, experiment, base_directory)
         base = (root if scope == "day" else root / scope).resolve()
         target = (base / mirror.ATTACHMENTS_DIR / entry_id / filename).resolve()
-        if not str(target).startswith(str(base / mirror.ATTACHMENTS_DIR)) or not target.is_file():
+        if (
+            not str(target).startswith(str(base / mirror.ATTACHMENTS_DIR))
+            or not target.is_file()
+        ):
             raise HTTPException(status_code=404, detail="no such attachment")
         return FileResponse(target)
 
@@ -325,7 +336,9 @@ def create_log_router(
     def _mirror(entry: LogEntry) -> None:
         """Try to land an entry on the share; defer quietly if it cannot."""
         try:
-            mirror.write_entry(entry, mirror.logbook_root(entry.day, experiment, base_directory))
+            mirror.write_entry(
+                entry, mirror.logbook_root(entry.day, experiment, base_directory)
+            )
         except mirror.MirrorUnavailable as exc:
             logger.info("mirror deferred for %s: %s", entry.entry_id, exc)
             return
@@ -358,7 +371,10 @@ def create_log_router(
             # lost to rather than only that it lost.
             raise HTTPException(
                 status_code=409,
-                detail={"message": str(exc), "current": exc.current.model_dump(mode="json")},
+                detail={
+                    "message": str(exc),
+                    "current": exc.current.model_dump(mode="json"),
+                },
             ) from exc
         _mirror(entry)
         return store.get(entry_id) or entry
@@ -381,7 +397,9 @@ def create_log_router(
             raise HTTPException(status_code=404, detail="no such entry")
         store.delete(entry_id)
         try:
-            mirror.remove_entry(entry, mirror.logbook_root(entry.day, experiment, base_directory))
+            mirror.remove_entry(
+                entry, mirror.logbook_root(entry.day, experiment, base_directory)
+            )
         except mirror.MirrorUnavailable as exc:
             logger.warning("could not remove mirror of %s: %s", entry_id, exc)
         return Response(status_code=204)
@@ -412,7 +430,14 @@ def create_log_router(
         if not data:
             raise HTTPException(status_code=422, detail="empty upload")
 
-        stem = "".join(c for c in Path(file.filename or "upload").stem if c.isalnum() or c in "-_") or "upload"
+        stem = (
+            "".join(
+                c
+                for c in Path(file.filename or "upload").stem
+                if c.isalnum() or c in "-_"
+            )
+            or "upload"
+        )
         filename = f"{stem}{ext}"
         root = mirror.logbook_root(entry.day, experiment, base_directory)
         try:

@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 from geecs_portal.app import create_app
 from test_app import FakeCatalog
 
-pytest.importorskip("geecs_scan_log")
+pytest.importorskip("geecs_logbook")
 
 
 class TestScanLogMount:

@@ -1,4 +1,4 @@
-# GeecsScanLog — Developer Context for Claude
+# GeecsLogbook — Developer Context for Claude
 
 The scan logbook. Successor to `LogMaker4GoogleDocs`, which this package
 will eventually replace outright.

@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 from geecs_schemas.log_entry import Attachment
 
-from geecs_scan_log.store import ConflictError, NotesStore
+from geecs_logbook.store import ConflictError, NotesStore
 
 DAY = "2026-09-11"
 
@@ -55,10 +55,17 @@ class TestRead:
     def test_get_round_trips(self, store: NotesStore) -> None:
         """What went in comes back, payload included."""
         e = store.create(
-            day=DAY, scan=5, author="osprey", body_md="peak at 3.5 mm",
-            kind="agent_analysis", template="figures",
-            payload={"kind": "analysis", "analyzer": "Array1D",
-                     "metrics": {"onset_mm": 4.1}},
+            day=DAY,
+            scan=5,
+            author="osprey",
+            body_md="peak at 3.5 mm",
+            kind="agent_analysis",
+            template="figures",
+            payload={
+                "kind": "analysis",
+                "analyzer": "Array1D",
+                "metrics": {"onset_mm": 4.1},
+            },
         )
         got = store.get(e.entry_id)
         assert got is not None
@@ -119,8 +126,14 @@ class TestStatusAndAttachments:
 
     def test_promote_draft_is_separate_from_edit(self, store: NotesStore) -> None:
         """Keeping an agent draft changes status, not text."""
-        e = store.create(day=DAY, scan=5, author="osprey", body_md="guess",
-                         kind="agent_draft", status="draft")
+        e = store.create(
+            day=DAY,
+            scan=5,
+            author="osprey",
+            body_md="guess",
+            kind="agent_draft",
+            status="draft",
+        )
         got = store.set_status(e.entry_id, "kept")
         assert got.status == "kept" and got.version == 2
         assert got.body_md == "guess"
@@ -129,12 +142,26 @@ class TestStatusAndAttachments:
         """Each upload appends to the manifest."""
         e = store.create(day=DAY, scan=5, author="a", body_md="x")
         now = datetime.now(timezone.utc)
-        store.add_attachment(e.entry_id, Attachment(
-            id=e.entry_id, filename="a.png", content_type="image/png",
-            size_bytes=10, uploaded_at=now))
-        got = store.add_attachment(e.entry_id, Attachment(
-            id=e.entry_id, filename="b.pdf", content_type="application/pdf",
-            size_bytes=20, uploaded_at=now))
+        store.add_attachment(
+            e.entry_id,
+            Attachment(
+                id=e.entry_id,
+                filename="a.png",
+                content_type="image/png",
+                size_bytes=10,
+                uploaded_at=now,
+            ),
+        )
+        got = store.add_attachment(
+            e.entry_id,
+            Attachment(
+                id=e.entry_id,
+                filename="b.pdf",
+                content_type="application/pdf",
+                size_bytes=20,
+                uploaded_at=now,
+            ),
+        )
         assert [a.filename for a in got.attachments] == ["a.png", "b.pdf"]
 
 

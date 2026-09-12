@@ -36,7 +36,7 @@ cd "$REPO_ROOT"
 #   root env  — root tests/ + these packages, marker "not integration and not gui"
 #   own env   — these packages run their suite from inside the package dir
 ROOT_ENV_PKGS="ImageAnalysis ScanAnalysis GEECS-Data-Utils GEECS-Schemas"
-OWN_ENV_PKGS="GeecsBluesky GeecsCAGateway GeecsPvaGateway GEECS-Console GEECS-Core GEECS-DataPortal GEECS-LogTriage GEECS-MCP GeecsScanLog GeecsWebTheme"
+OWN_ENV_PKGS="GeecsBluesky GeecsCAGateway GeecsPvaGateway GEECS-Console GEECS-Core GEECS-DataPortal GEECS-LogTriage GEECS-MCP GeecsLogbook GeecsWebTheme"
 
 MODE="changed"      # changed | all | lint
 BASE=""
@@ -120,7 +120,7 @@ else
         # when changed-mode would otherwise pick only its own package.
         case "$f" in
             GEECS-DataPortal/geecs_portal/templates/*.html|\
-            GeecsScanLog/geecs_scan_log/static/*.css|GeecsScanLog/geecs_scan_log/templates/*.html|\
+            GeecsLogbook/geecs_logbook/static/*.css|GeecsLogbook/geecs_logbook/templates/*.html|\
             ScanAnalysis/scan_analysis/config_editor/static/*.css|ScanAnalysis/scan_analysis/config_editor/templates/*.html)
                 [ -d GeecsWebTheme ] && add_unit GeecsWebTheme ;;
         esac
@@ -243,7 +243,7 @@ run_suite() {
             (cd GeecsBluesky && poetry run pytest tests -m "not integration and not fake_server" --tb=short -q) ;;
         GEECS-Console)
             (cd GEECS-Console && QT_QPA_PLATFORM=offscreen poetry run pytest --tb=short -q) ;;
-        GeecsCAGateway|GeecsPvaGateway|GEECS-Core|GEECS-DataPortal|GEECS-LogTriage|GEECS-MCP|GeecsScanLog|GeecsWebTheme)
+        GeecsCAGateway|GeecsPvaGateway|GEECS-Core|GEECS-DataPortal|GEECS-LogTriage|GEECS-MCP|GeecsLogbook|GeecsWebTheme)
             (cd "$1" && poetry run pytest tests --tb=short -q) ;;
         *)
             echo "check.sh: no runner for '$1'" >&2; return 1 ;;

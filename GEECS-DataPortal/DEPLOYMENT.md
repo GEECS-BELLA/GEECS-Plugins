@@ -176,7 +176,7 @@ same PR when this deployment moves or changes.
 
 ## The scan logbook (`--scan-log`)
 
-Off by default. `--scan-log` mounts `geecs_scan_log` at `/log`: a
+Off by default. `--scan-log` mounts `geecs_logbook` at `/log`: a
 day-document view over scan **folders** — `/log/day/2026-09-11` lists
 whatever `ScanNNN` directories exist for that date, reading each
 `ScanInfoScanNNN.ini` at request time. There is no daily job and nothing
@@ -184,7 +184,7 @@ to create; a scan appears because its folder does.
 
 Read-only in this phase: it renders scan folders and stores nothing, and
 like every consumer of the scans tree it never creates a folder (pinned in
-`GeecsScanLog/tests/test_scan_reader.py::TestScanFolderCreationInvariant`).
+`GeecsLogbook/tests/test_scan_reader.py::TestScanFolderCreationInvariant`).
 
 Two requirements, or it warn-and-skips rather than serving a broken page:
 

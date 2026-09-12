@@ -5071,7 +5071,7 @@ files = [
 
 [[package]]
 name = "scananalysis"
-version = "1.21.1"
+version = "1.22.0"
 description = "Modules for performing analyses routines on full scans"
 optional = false
 python-versions = ">=3.11,<3.12"

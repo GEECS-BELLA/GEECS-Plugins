@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to `geecs-scan-log` are documented here. The format
+All notable changes to `geecs-logbook` are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 project adheres to semantic versioning.
 
@@ -9,9 +9,9 @@ project adheres to semantic versioning.
 ### Added
 
 - Initial package: a read-only day-document view over scan folders.
-- `geecs_scan_log.models` — `ScanSummary` and `DaySummary`, the derived
+- `geecs_logbook.models` — `ScanSummary` and `DaySummary`, the derived
   view of a scan folder. Nothing here is stored by the logbook.
-- `geecs_scan_log.scan_reader.read_day` — lists a day's `ScanNNN` folders
+- `geecs_logbook.scan_reader.read_day` — lists a day's `ScanNNN` folders
   and parses each `ScanInfoScanNNN.ini` into a `ScanSummary`. Read-only by
   construction: it never constructs `ScanPaths(read_mode=False)` and never
   calls `mkdir`.
@@ -78,6 +78,6 @@ project adheres to semantic versioning.
 - `CLAUDE.md` records the deferred decisions from phase 01's review,
   including the owed issue to review `ScanPaths`/`ScanData` and extract
   their pure parts — the price of the duplication accepted here.
-- `geecs_scan_log.router.create_log_router` — an `APIRouter` the Data
+- `geecs_logbook.router.create_log_router` — an `APIRouter` the Data
   Portal mounts at `/log`, serving `/log/day/{date}` and a JSON peer at
   `/log/api/day/{date}`.

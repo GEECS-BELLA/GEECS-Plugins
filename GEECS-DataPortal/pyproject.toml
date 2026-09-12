@@ -18,7 +18,7 @@ geecs-web-theme = { path = "../GeecsWebTheme", develop = true }
 plotly = "^7.0"
 imageanalysis = { path = "../ImageAnalysis", develop = true, optional = true }
 scananalysis = { path = "../ScanAnalysis", develop = true, optional = true }
-geecs-scan-log = { path = "../GeecsScanLog", develop = true, optional = true }
+geecs-logbook = { path = "../GeecsLogbook", develop = true, optional = true }
 
 [tool.poetry.extras]
 # The Images tab's ephemeral-processing selector (run_diagnostic_ephemeral)
@@ -29,7 +29,7 @@ analysis = ["imageanalysis", "scananalysis"]
 
 # The scan logbook mounted at /log (--scan-log). Without it the portal
 # serves everything else and /log 404s.
-log = ["geecs-scan-log"]
+log = ["geecs-logbook"]
 
 [tool.poetry.group.dev.dependencies]
 pytest = ">=8.0"

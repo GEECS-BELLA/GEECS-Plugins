@@ -1,4 +1,4 @@
-# GeecsScanLog
+# GeecsLogbook
 
 The scan logbook: a day-document view over GEECS scan folders.
 

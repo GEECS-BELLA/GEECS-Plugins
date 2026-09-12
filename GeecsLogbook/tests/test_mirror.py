@@ -6,9 +6,9 @@ from pathlib import Path
 
 import pytest
 
-from geecs_scan_log import mirror
-from geecs_scan_log.mirror import MirrorUnavailable
-from geecs_scan_log.store import NotesStore
+from geecs_logbook import mirror
+from geecs_logbook.mirror import MirrorUnavailable
+from geecs_logbook.store import NotesStore
 
 DAY = "2026-09-11"
 EXP = "Undulator"
@@ -58,7 +58,9 @@ class TestPaths:
         root = mirror.logbook_root(DAY, EXP, base_directory=share)
         e = store.create(day=DAY, scan=5, author="S. Barber", body_md="v1")
         before = mirror.entry_path(e, root)
-        e2 = store.update(e.entry_id, body_md="v2", author="S. Barber", expected_version=1)
+        e2 = store.update(
+            e.entry_id, body_md="v2", author="S. Barber", expected_version=1
+        )
         assert mirror.entry_path(e2, root) == before
         assert before.name.endswith(f"-sbarber-{e.entry_id[:6]}.md")
 
@@ -76,14 +78,23 @@ class TestRender:
     def test_front_matter_then_verbatim_body(self, store: NotesStore) -> None:
         """Envelope up top as key: value; the author's text untouched below."""
         body = "### What were we trying to do?\n\nRolloff is **real**.\n"
-        e = store.create(day=DAY, scan=5, author="S. Barber", body_md=body,
-                         template="scan_note")
+        e = store.create(
+            day=DAY, scan=5, author="S. Barber", body_md=body, template="scan_note"
+        )
         text = mirror.render(e)
         head, _, rest = text.partition("\n---\n")
         assert head.startswith("---\n")
-        for key in ("entry_id:", "day: 2026-09-11", "scan: 5", "author: S. Barber",
-                    "kind: note", "status: kept", "template: scan_note",
-                    "version: 1", "schema_version: 1"):
+        for key in (
+            "entry_id:",
+            "day: 2026-09-11",
+            "scan: 5",
+            "author: S. Barber",
+            "kind: note",
+            "status: kept",
+            "template: scan_note",
+            "version: 1",
+            "schema_version: 1",
+        ):
             assert key in head, key
         assert rest.strip() == body.strip()
 
@@ -98,12 +109,27 @@ class TestRender:
         from datetime import datetime, timezone
         from geecs_schemas.log_entry import Attachment
 
-        e = store.create(day=DAY, scan=5, author="osprey", body_md="x",
-                         payload={"kind": "analysis", "analyzer": "A1D",
-                                  "metrics": {"onset_mm": 4.1}})
-        e = store.add_attachment(e.entry_id, Attachment(
-            id=e.entry_id, filename="a.png", content_type="image/png",
-            size_bytes=1, uploaded_at=datetime.now(timezone.utc)))
+        e = store.create(
+            day=DAY,
+            scan=5,
+            author="osprey",
+            body_md="x",
+            payload={
+                "kind": "analysis",
+                "analyzer": "A1D",
+                "metrics": {"onset_mm": 4.1},
+            },
+        )
+        e = store.add_attachment(
+            e.entry_id,
+            Attachment(
+                id=e.entry_id,
+                filename="a.png",
+                content_type="image/png",
+                size_bytes=1,
+                uploaded_at=datetime.now(timezone.utc),
+            ),
+        )
         head = mirror.render(e).split("\n---\n")[0]
         assert '"onset_mm": 4.1' in head
         assert f"- attachments/{e.entry_id}/a.png" in head
@@ -151,7 +177,9 @@ class TestWrite:
         with pytest.raises(MirrorUnavailable):
             mirror.write_entry(e, root)
 
-    def test_attachment_lands_beside_the_entry(self, store: NotesStore, share: Path) -> None:
+    def test_attachment_lands_beside_the_entry(
+        self, store: NotesStore, share: Path
+    ) -> None:
         """Bytes go to attachments/<id>/; the returned link points at them."""
         root = mirror.logbook_root(DAY, EXP, base_directory=share)
         e = store.create(day=DAY, scan=5, author="a", body_md="x")
@@ -159,7 +187,9 @@ class TestWrite:
         target = mirror.entry_dir(e, root) / link
         assert target.read_bytes() == b"\x89PNGdata"
 
-    def test_remove_reports_and_tolerates_absence(self, store: NotesStore, share: Path) -> None:
+    def test_remove_reports_and_tolerates_absence(
+        self, store: NotesStore, share: Path
+    ) -> None:
         """Removing twice is fine; the second is a no-op."""
         root = mirror.logbook_root(DAY, EXP, base_directory=share)
         e = store.create(day=DAY, scan=5, author="a", body_md="x")
@@ -171,7 +201,9 @@ class TestWrite:
 class TestSync:
     """Paying what the store owes."""
 
-    def test_writes_owed_entries_and_marks_them(self, store: NotesStore, share: Path) -> None:
+    def test_writes_owed_entries_and_marks_them(
+        self, store: NotesStore, share: Path
+    ) -> None:
         """Unmirrored entries land and stop being owed."""
         a = store.create(day=DAY, scan=5, author="a", body_md="one")
         b = store.create(day=DAY, after=5, author="a", body_md="two")
@@ -182,7 +214,9 @@ class TestSync:
         assert mirror.entry_path(a, root).is_file()
         assert mirror.entry_path(b, root).is_file()
 
-    def test_defers_a_day_that_does_not_exist_yet(self, store: NotesStore, share: Path) -> None:
+    def test_defers_a_day_that_does_not_exist_yet(
+        self, store: NotesStore, share: Path
+    ) -> None:
         """An intro written before the first scan waits; the others land."""
         today = store.create(day=DAY, scan=5, author="a", body_md="now")
         early = store.create(day="2026-09-12", scan=0, author="a", body_md="tomorrow")

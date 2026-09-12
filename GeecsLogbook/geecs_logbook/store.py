@@ -7,7 +7,7 @@ is the one place in the package where losing state means losing something.
 Why SQLite is authoritative and the markdown is the mirror
 ----------------------------------------------------------
 Entries are held twice: as rows here, and as markdown files beside the data
-on the share (:mod:`geecs_scan_log.mirror`). The database is what the page
+on the share (:mod:`geecs_logbook.mirror`). The database is what the page
 reads and writes; the markdown is what stays legible when none of this code
 runs.
 
@@ -299,9 +299,7 @@ class NotesStore:
         thing that loses a file.
         """
         with self._connect() as conn:
-            cursor = conn.execute(
-                "DELETE FROM entries WHERE entry_id = ?", (entry_id,)
-            )
+            cursor = conn.execute("DELETE FROM entries WHERE entry_id = ?", (entry_id,))
         return cursor.rowcount > 0
 
 

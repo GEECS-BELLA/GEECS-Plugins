@@ -1,6 +1,6 @@
 """The markdown mirror: the copy of the notes that outlives the software.
 
-:mod:`~geecs_scan_log.store` is what the page reads and writes. This module
+:mod:`~geecs_logbook.store` is what the page reads and writes. This module
 writes the same entries a second time, as markdown files beside the data on
 the share::
 
@@ -56,7 +56,7 @@ from typing import Optional, Union
 from geecs_data_utils import ScanPaths
 from geecs_schemas.log_entry import LogEntry
 
-from geecs_scan_log.store import NotesStore
+from geecs_logbook.store import NotesStore
 
 logger = logging.getLogger(__name__)
 
@@ -170,7 +170,8 @@ def render(entry: LogEntry) -> str:
     lines.append(f"schema_version: {entry.schema_version}")
     if entry.payload is not None:
         lines.append(
-            "payload: " + json.dumps(entry.payload.model_dump(mode="json"), sort_keys=True)
+            "payload: "
+            + json.dumps(entry.payload.model_dump(mode="json"), sort_keys=True)
         )
     if entry.attachments:
         lines.append("attachments:")
