@@ -78,6 +78,23 @@ LIBRARY = ActionPlanLibrary.model_validate(
                     }
                 ]
             },
+            "late_typo": {
+                "steps": [
+                    {"do": "run", "plan": "close_shutter"},
+                    {
+                        "do": "set",
+                        "device": "U_148_PLC",
+                        "variable": "DO.Ch9",
+                        "value": "off",
+                    },
+                    {
+                        "do": "check",
+                        "device": "U_148_PLC",
+                        "variable": "DI.Ch99",
+                        "expected": "off",
+                    },
+                ]
+            },
         },
     }
 )
@@ -194,6 +211,22 @@ def test_refusals_are_loud(RE, namespace) -> None:
     hermetic = run_action_plan(None, None)
     with pytest.raises(GeecsConfigurationError, match="no device namespace"):
         RE(hermetic("dump"))
+
+
+def test_a_late_typo_fails_before_the_first_write(RE, namespace) -> None:
+    """Every target is resolved and read before any set: nothing changes on a typo."""
+    run_action = run_action_plan(StubResolver(), namespace)
+    plc = namespace["U_148_PLC"]
+    shutter = namespace["U_GaiaSVEReader"].internalshuttera
+    set_mock_value(plc.do_ch9._setpoint, "on")
+    set_mock_value(shutter._setpoint, 1.0)
+    commands: list[str] = []
+    RE.msg_hook = lambda msg: commands.append(msg.command)
+    with pytest.raises(GeecsConfigurationError, match="DI.Ch99"):
+        RE(run_action("late_typo"))
+    assert "set" not in commands  # refused before the plan's first write
+    assert _value(RE, plc.do_ch9._setpoint) == "on"
+    assert _value(RE, shutter._setpoint) == 1.0
 
 
 def test_run_action_is_registered_beside_the_scan_verbs() -> None:

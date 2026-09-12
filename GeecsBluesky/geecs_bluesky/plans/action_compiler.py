@@ -270,6 +270,17 @@ def run_action_plan(
         mismatch aborts the item.  No run is opened: nothing is claimed
         and nothing is written.
 
+        Every target is resolved and touched **before the first write**:
+        the flattened plan (nested ``run`` steps inlined, cycles and
+        unknown names refused) is walked once, each ``set`` / ``check``
+        target is looked up — an unknown device or variable, or a
+        read-only variable in a ``set``, fails here — and each is read
+        once, which is the message that connects it (the worker's
+        ``connect_on_demand`` preprocessor).  A typo in the third step of
+        "close the shutters, set the PLC, check the interlock" therefore
+        fails the item with nothing changed on the machine, instead of
+        after the shutters closed.
+
         Parameters
         ----------
         name : str
@@ -281,11 +292,26 @@ def run_action_plan(
                 "(QS_DEVICE_NAMESPACE=off), so action plans cannot run"
             )
         plan = resolver.resolve_action_plan(name)
-        logger.info("run_action: %s (%d step(s))", name, len(plan.steps))
+        registry = resolver.action_plan_registry()
+        targets: dict[int, Any] = {}
+        for step, _origin in flatten_action_steps(plan, registry=registry):
+            if isinstance(step, SetStep):
+                target = settables.get_settable(step.device, step.variable)
+            elif isinstance(step, CheckStep):
+                target = settables.get_readable(step.device, step.variable)
+            else:
+                continue
+            targets.setdefault(id(target), target)
+        logger.info(
+            "run_action: %s (%d step(s), %d target(s))",
+            name,
+            len(plan.steps),
+            len(targets),
+        )
+        for target in targets.values():
+            yield from bps.rd(target)
         return (
-            yield from compile_action_plan(
-                plan, registry=resolver.action_plan_registry(), settables=settables
-            )
+            yield from compile_action_plan(plan, registry=registry, settables=settables)
         )
 
     return run_action

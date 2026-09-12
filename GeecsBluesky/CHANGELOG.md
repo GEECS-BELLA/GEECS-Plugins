@@ -18,8 +18,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   (`GeecsNamespace.get_settable` / `get_readable`: the Movable child for
   a settable, the served signal otherwise; a read-only variable in a
   `set` step and an unknown device or variable raise
-  `GeecsConfigurationError`).  No run is opened, so nothing is claimed and
-  nothing is written.  `registry.bind_plans(profiles, resolver=,
+  `GeecsConfigurationError`).  Every target of the flattened plan is
+  resolved and read once **before the first write**, so a typo in a later
+  step fails the item with nothing changed on the machine.  No run is
+  opened, so nothing is claimed and nothing is written.  `registry.bind_plans(profiles, resolver=,
   settables=)` replaces `bind_strict_plans` and returns every registered
   name; the hermetic worker registers a `run_action` that refuses, so the
   manager's plan list is the same in every mode.  `submit_plan("run_action",
