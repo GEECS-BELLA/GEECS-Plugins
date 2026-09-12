@@ -30,11 +30,23 @@ import pytest
 
 _REPO = Path(__file__).resolve().parents[2]
 _THEME_CSS = _REPO / "GeecsWebTheme/geecs_web_theme/static/theme.css"
+_KIT_CSS = _REPO / "GeecsWebTheme/geecs_web_theme/static/kit.css"
+
+#: The spacing scale a density block owns. theme.css declares these in the
+#: bare :root (the comfortable values) and every non-default density block
+#: in kit.css overrides exactly this set. Adding a fourth spacing token
+#: means adding it here too — at which point the density blocks that forgot
+#: it fail, which is the point.
+_DENSITY_TOKENS = {"--pad", "--row-h", "--gap"}
+_KIT_HTML = _REPO / "GeecsWebTheme/geecs_web_theme/static/kit.html"
 
 #: The web surfaces bound by the rule. Adding a surface means adding it
 #: here — a new page that skips the tokens should fail loudly, not quietly.
 _SURFACES = [
     "GeecsWebTheme/geecs_web_theme/static/theme.css",
+    "GeecsWebTheme/geecs_web_theme/static/kit.css",
+    "GeecsWebTheme/geecs_web_theme/static/kit.html",
+    "GeecsWebTheme/geecs_web_theme/static/kit.js",
     "GEECS-DataPortal/geecs_portal/templates/base.html",
     "GEECS-DataPortal/geecs_portal/templates/day.html",
     "GEECS-DataPortal/geecs_portal/templates/run.html",
@@ -278,8 +290,27 @@ def test_every_palette_defines_every_token() -> None:
     """
     blocks = _blocks(_THEME_CSS.read_text())
     assert len(blocks) >= 7, f"expected root + 3×(light,dark); found {list(blocks)}"
-    fonts = {"--ff-ui", "--ff-mono", "--ff-prose", "--r"}  # root-only by design
-    expected = max(blocks.values(), key=len) - fonts
+    # Root-only by design: a palette block carries colour, and these are
+    # the typeface and structure defaults every theme shares until one
+    # wants its own. Adding a palette override for one is a deliberate act
+    # — it means that theme reads differently, which is the point — and it
+    # then has to appear in every block, which this test will say.
+    root_only = {
+        "--ff-ui",
+        "--ff-mono",
+        "--ff-prose",
+        "--r",
+        "--r-lg",
+        "--bw",
+        "--tk",
+        "--pad",
+        "--row-h",
+        "--gap",
+        "--shell-max",
+        "--scrim",
+        "--lift",
+    }
+    expected = max(blocks.values(), key=len) - root_only
     for selector, tokens in sorted(blocks.items()):
         missing = expected - tokens
         assert not missing, f"{selector} is missing {sorted(missing)}"
@@ -343,3 +374,268 @@ def test_python_and_boot_script_agree_on_the_theme_list() -> None:
     css = _THEME_CSS.read_text()
     for name in THEMES:
         assert f':root[data-theme="{name}"]' in css, f"{name} has no CSS block"
+
+
+def test_python_and_boot_script_agree_on_the_density_list() -> None:
+    """``geecs_web_theme.DENSITIES`` and ``theme-boot.js`` agree, and the
+    kit implements every density that is not the default.
+
+    Same arrangement as the theme list, for the same reason: the JS stamps
+    the page, the Python is what a host reads, and a third copy of the
+    names lives in the CSS. The default needs no block — it is what
+    ``theme.css`` already defines.
+    """
+    import sys
+
+    sys.path.insert(0, str(_REPO / "GeecsWebTheme"))
+    from geecs_web_theme import DEFAULT_DENSITY, DENSITIES  # noqa: E402
+
+    boot = (_REPO / "GeecsWebTheme/geecs_web_theme/static/theme-boot.js").read_text()
+    js_list = re.findall(
+        r'"(\w+)"', re.search(r"densities:\s*\[([^\]]*)\]", boot).group(1)
+    )
+    js_default = re.search(r'defaultDensity:\s*"(\w+)"', boot).group(1)
+    assert js_list == list(DENSITIES), (js_list, list(DENSITIES))
+    assert js_default == DEFAULT_DENSITY, (js_default, DEFAULT_DENSITY)
+    assert DEFAULT_DENSITY in DENSITIES
+
+    kit = _KIT_CSS.read_text()
+    for name in DENSITIES:
+        if name == DEFAULT_DENSITY:
+            continue
+        block = re.search(r':root\[data-density="%s"\]\s*\{([^}]*)\}' % name, kit)
+        assert block, f"{name} has no kit block"
+        # Not just "the selector is present": an EMPTY block passed the first
+        # version of this test, which is exactly the drift it has to catch —
+        # the comfortable values live in theme.css and the overrides here, so
+        # forgetting one leaves compact silently showing a comfortable value.
+        defined = set(re.findall(r"(--[\w-]+)\s*:", block.group(1)))
+        assert defined == _DENSITY_TOKENS, (
+            f'[data-density="{name}"] defines {sorted(defined)}, '
+            f"expected {sorted(_DENSITY_TOKENS)}"
+        )
+
+    # _blocks() reads raw text, and theme.css's header comment mentions
+    # ":root" — which the selector regex then runs together with the real
+    # block. Existing callers only take max(...) by length so they never
+    # noticed; keying by name needs the comments gone first.
+    bare = re.sub(r"/\*.*?\*/", " ", _THEME_CSS.read_text(), flags=re.S)
+    missing = _DENSITY_TOKENS - _blocks(bare)[":root"]
+    assert not missing, f"theme.css :root does not declare {sorted(missing)}"
+
+
+def test_kit_defines_no_token_the_theme_does_not() -> None:
+    """``kit.css`` overrides tokens; it never introduces one.
+
+    This is what keeps ``theme.css`` the single place to look for the
+    vocabulary. The kit legitimately redefines the spacing scale under
+    ``[data-density]`` and ``--shell-max`` on a wide shell — both are
+    overrides of tokens the theme already declares. A *new* name here
+    would be a second authority, and the next surface would have two
+    files to read instead of one.
+    """
+    theme_tokens: set[str] = set()
+    for tokens in _blocks(_THEME_CSS.read_text()).values():
+        theme_tokens |= tokens
+    kit_defined = set(re.findall(r"(--[\w-]+)\s*:", _KIT_CSS.read_text()))
+    introduced = kit_defined - theme_tokens
+    assert not introduced, (
+        f"kit.css introduces {sorted(introduced)} — declare it in theme.css "
+        "so there is one token vocabulary, not two"
+    )
+
+
+def test_kit_reference_page_assets_all_exist() -> None:
+    """Every file ``kit.html`` pulls in sits beside it.
+
+    The page is static and relative on purpose, so it works under any mount
+    prefix. That also means a renamed asset fails silently in a browser —
+    a blank page nobody sees until they open it. Here it fails loudly.
+    """
+    page = _KIT_HTML.read_text()
+    refs = re.findall(r'(?:src|href)="([^"#:]+)"', page)
+    assert refs, "kit.html references nothing — did the page lose its head?"
+    for ref in refs:
+        assert (_KIT_HTML.parent / ref).is_file(), f"kit.html references missing {ref}"
+
+
+def test_status_vocabulary_is_pinned_to_the_kit() -> None:
+    """``geecs_web_theme.STATES`` and ``kit.css`` name the same statuses.
+
+    A mistyped state is the dangerous case and it is silent: a
+    ``data-state="no_data"`` matches no rule, and ``.chip`` still renders a
+    pill with ``border-color:transparent``, inherited colour and a
+    ``currentColor`` dot — a plausible neutral chip that survives both
+    review and the browser. Pinning both directions means the CSS cannot
+    style a status the vocabulary does not have, and the vocabulary cannot
+    name one the CSS does not colour.
+    """
+    import sys
+
+    sys.path.insert(0, str(_REPO / "GeecsWebTheme"))
+    from geecs_web_theme import STATES  # noqa: E402
+
+    kit = _KIT_CSS.read_text()
+    styled = set(re.findall(r'\.chip\[data-state=["\']([\w-]+)["\']\]', kit))
+    assert styled == set(STATES), (
+        f"kit.css styles {sorted(styled)}; STATES names {sorted(STATES)}"
+    )
+    # Every status also needs the dot form, used where the row label carries
+    # the word instead.
+    dots = set(re.findall(r'\.dot\[data-state=["\']([\w-]+)["\']\]', kit))
+    assert dots == set(STATES), (
+        f"kit.css dots {sorted(dots)}; STATES names {sorted(STATES)}"
+    )
+
+
+def test_pane_states_are_pinned_to_the_kit() -> None:
+    """No surface names a pane state outside ``PANE_STATES``.
+
+    Unlike the statuses, not every pane state needs its own rule — loading,
+    empty and denied share the neutral ground on purpose, and only error and
+    stale take a colour. So the pin runs one way for the CSS (it may style a
+    subset, never something outside the vocabulary) and strictly for the
+    reference page, which is the copy people will imitate.
+    """
+    import sys
+
+    sys.path.insert(0, str(_REPO / "GeecsWebTheme"))
+    from geecs_web_theme import PANE_STATES, STATES  # noqa: E402
+
+    kit = _KIT_CSS.read_text()
+    styled = set(
+        re.findall(r'\.(?:state|banner)\[data-state=["\']([\w-]+)["\']\]', kit)
+    )
+    unknown = styled - set(PANE_STATES)
+    assert not unknown, (
+        f"kit.css styles pane states {sorted(unknown)} not in PANE_STATES"
+    )
+
+    page = _KIT_HTML.read_text()
+    used = set(re.findall(r'data-state=["\']([\w-]+)["\']', page))
+    stray = used - set(PANE_STATES) - set(STATES)
+    assert not stray, (
+        f"kit.html uses {sorted(stray)}, which is neither a status nor a pane "
+        "state — a typo here is invisible in a browser"
+    )
+
+
+def _rule_selectors(css: str) -> list[str]:
+    """Every rule selector in a stylesheet, at any nesting depth.
+
+    A regex cannot do this. The first version of the caller used one, and
+    it consumed the ``{`` of each ``@media`` prelude — so the FIRST rule
+    inside every media block lost its anchor and was never examined. Four
+    blocks, four invisible rules, one of them the mobile shell collapse.
+    A brace walk has no such blind spot: at-rule preludes are recognised
+    and skipped, ``@keyframes`` bodies are skipped whole (their ``0%`` and
+    ``from`` stops are not selectors), and everything else yields.
+    """
+    css = re.sub(r"/\*.*?\*/", " ", css, flags=re.S)
+    out: list[str] = []
+
+    def walk(text: str) -> None:
+        i, n = 0, len(text)
+        while i < n:
+            brace = text.find("{", i)
+            if brace == -1:
+                return
+            head = text[i:brace].strip()
+            depth, k = 0, brace
+            while k < n:
+                if text[k] == "{":
+                    depth += 1
+                elif text[k] == "}":
+                    depth -= 1
+                    if depth == 0:
+                        break
+                k += 1
+            body = text[brace + 1 : k]
+            if head.startswith("@keyframes"):
+                pass  # stops are not selectors
+            elif head.startswith("@"):
+                walk(body)  # @media and friends: the rules inside still count
+            else:
+                out.extend(s.strip() for s in head.split(",") if s.strip())
+            i = k + 1
+
+    walk(css)
+    return out
+
+
+#: The only selectors allowed to escape the ``.kit`` scope: the density
+#: blocks, which must match the root element, and the body rule that
+#: carries the class itself.
+_UNSCOPED_OK = re.compile(r'^(?::root\[data-density="[\w-]+"\]|body\.kit)$')
+#: ``.kit`` as a whole class token — ``.kitchen`` is a different class and
+#: must not be waved through by a bare string prefix.
+_KIT_SCOPED = re.compile(r"^\.kit(?![\w-])")
+
+
+def test_kit_rules_are_scoped_to_the_kit_class() -> None:
+    """Every kit rule is gated on ``.kit``, so a surface can adopt per page.
+
+    Both surfaces that will adopt this already use several of these class
+    names, one of them load-bearingly: the portal's run page is
+    ``.pane{display:none}`` / ``.pane.on{display:block}`` — its tab
+    mechanism — which ties on specificity with an ungated ``.pane`` here and
+    would be decided by stylesheet order alone.
+    """
+    ungated = [
+        s
+        for s in _rule_selectors(_KIT_CSS.read_text())
+        if not _KIT_SCOPED.match(s) and not _UNSCOPED_OK.match(s)
+    ]
+    assert not ungated, f"kit.css rules not scoped to .kit: {sorted(set(ungated))}"
+
+
+@pytest.mark.parametrize(
+    "css,expected",
+    [
+        # The three shapes the first version of this test waved through.
+        ("@media (max-width:900px){\n  .shell{gap:1px}\n}\n", True),
+        (".kitchen{display:flex}\n", True),
+        (":root .pane{display:flex}\n", True),
+        # …and the legitimate ones stay legitimate.
+        ("@media (max-width:900px){\n  .kit .shell{gap:1px}\n}\n", False),
+        (':root[data-density="compact"]{--pad:9px}\n', False),
+        ("body.kit{margin:0}\n", False),
+        ("@keyframes k{0%,100%{opacity:1}}\n", False),
+        (".kit .panel > header{gap:1px}\n", False),
+    ],
+)
+def test_probe_scoping(css: str, expected: bool) -> None:
+    """Each hole the re-review found, pinned, plus the cases that must pass."""
+    ungated = [
+        s
+        for s in _rule_selectors(css)
+        if not _KIT_SCOPED.match(s) and not _UNSCOPED_OK.match(s)
+    ]
+    assert bool(ungated) is expected, (css, ungated)
+
+
+def test_reference_page_demonstrates_only_what_the_kit_provides() -> None:
+    """Every class ``kit.html`` uses is styled by the kit or the theme.
+
+    ``kit.html`` is the page adopters copy from, so a component shown there
+    that the kit does not actually style is worse than one that is missing:
+    it gets copied, renders as browser defaults in the surface, and the
+    adopter writes their own CSS for it — which is the per-surface
+    divergence this package exists to stop. The inspector shipped exactly
+    that way (a selection list of bare ``<button>`` elements, styled only
+    by ``.rail nav``, which the inspector is not inside).
+
+    A class here with no rule anywhere is either a component the kit owes,
+    or a stray on the demo page. Both want fixing.
+    """
+    used: set[str] = set()
+    for attr in re.finditer(r'class="([^"]+)"', _KIT_HTML.read_text()):
+        used |= set(attr.group(1).split())
+    styled = set(
+        re.findall(r"\.([A-Za-z][\w-]*)", _KIT_CSS.read_text() + _THEME_CSS.read_text())
+    )
+    missing = sorted(used - styled)
+    assert not missing, (
+        f"kit.html shows {missing} but nothing styles them — either the kit "
+        "owes the component or the page should not be demonstrating it"
+    )

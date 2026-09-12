@@ -10,6 +10,9 @@
  * EFFECTIVE mode. That is why theme.css needs exactly one dark block per
  * theme and no @media copy of it — the copy is what drifted before.
  *
+ * It also stamps the spacing density the kit (kit.css) keys off, for the
+ * same pre-paint reason.
+ *
  * Everything is guarded: a private window, blocked storage, or a stale or
  * foreign value under our localStorage key (every page on this origin
  * shares it) must fall back to the default, never leave the page unstamped.
@@ -20,7 +23,13 @@
     themes: ["bella", "laser", "plasma"],
     defaultTheme: "laser",
     modes: ["system", "light", "dark"],
-    keys: { theme: "geecs.theme", mode: "geecs.mode" }
+    densities: ["comfortable", "compact"],
+    defaultDensity: "comfortable",
+    keys: {
+      theme: "geecs.theme",
+      mode: "geecs.mode",
+      density: "geecs.density"
+    }
   };
   window.GEECS_THEME = CFG;
 
@@ -39,8 +48,15 @@
     effective = mq && mq.matches ? "dark" : "light";
   }
 
+  var density = read(CFG.keys.density);
+  if (CFG.densities.indexOf(density) === -1) density = CFG.defaultDensity;
+
   var root = document.documentElement;
   root.setAttribute("data-theme", theme);
+  // Spacing scale. Stamped here for the same reason as the palette: the
+  // kit's padding and row heights key off it, so choosing it after first
+  // paint would reflow every panel on the page.
+  root.setAttribute("data-density", density);
   root.setAttribute("data-mode", effective);
   // What the viewer CHOSE, distinct from what is showing; theme.js reads it.
   root.setAttribute("data-mode-pref", mode);
