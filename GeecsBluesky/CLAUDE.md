@@ -71,7 +71,8 @@ geecs_bluesky/
   qs_client/                # the RE Manager client every GEECS client uses
                             #   (+ presets.expand_preset: a Preset → the queue item)
   config_resolver.py        # ConfigsRepoResolver: presets, trigger profiles, catalogs, actions
-  db_runtime.py             # the DB providers (served set, scalar policy, device types)
+  db_runtime.py             # the DB providers (served set, device types; the scalar
+                            #   policy lives in geecs_core.db.scalar_policy)
   tiled_integration.py      # subscribe_tiled (+ the geecs:// descriptor patch, goes with #806)
   data_paths.py, forward_expr.py, scanner_configs.py, epics_env.py, exceptions.py
   models/shot_control.py    # ShotControlWrites + QUIESCE_FROM (TriggerState names)

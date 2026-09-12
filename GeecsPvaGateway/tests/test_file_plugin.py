@@ -41,13 +41,15 @@ LV_EPOCH = 2_082_844_800
 PREFIX = "testexp:uc_testcam:image" + PLUGIN_SUFFIX
 
 
-def _push(img: np.ndarray, unix_stamp: float) -> bytes:
+def _push(img: np.ndarray, unix_stamp: float, scalars: dict | None = None) -> bytes:
     body = (
         DEVICE
         + b">>7>>image nval,"
         + _imaq_blob(img)
         + b" nvar,acq_timestamp nval,%.3f nvar" % (unix_stamp + LV_EPOCH)
     )
+    for name, value in (scalars or {}).items():
+        body += b",%s nval,%s nvar" % (name.encode(), str(value).encode())
     return struct.pack(">i", len(body)) + body
 
 
@@ -59,7 +61,7 @@ class StampedCamera:
     """
 
     def __init__(self) -> None:
-        self.frames: asyncio.Queue[tuple[np.ndarray, float]] = asyncio.Queue()
+        self.frames: asyncio.Queue[tuple[np.ndarray, float, dict]] = asyncio.Queue()
         self.connections = 0
         self.connected = asyncio.Event()
         self.disconnected = asyncio.Event()
@@ -75,8 +77,9 @@ class StampedCamera:
         self._server.close()
         await self._server.wait_closed()
 
-    def push(self, img: np.ndarray, unix_stamp: float) -> None:
-        self.frames.put_nowait((img, unix_stamp))
+    def push(self, img: np.ndarray, unix_stamp: float, **scalars) -> None:
+        """Queue a frame; *scalars* ride in the same push (``MaxCounts=7``)."""
+        self.frames.put_nowait((img, unix_stamp, scalars))
 
     async def _handle(
         self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
@@ -99,8 +102,8 @@ class StampedCamera:
                     with contextlib.suppress(asyncio.CancelledError):
                         await getter
                     break
-                img, stamp = getter.result()
-                writer.write(_push(img, stamp))
+                img, stamp, scalars = getter.result()
+                writer.write(_push(img, stamp, scalars))
                 await writer.drain()
         except (ConnectionError, asyncio.IncompleteReadError):
             pass
@@ -115,13 +118,16 @@ class StampedCamera:
                 writer.close()
 
 
-async def _start_gateway(cam: StampedCamera) -> tuple[GeecsPvaGateway, asyncio.Task]:
+async def _start_gateway(
+    cam: StampedCamera, scalar_variables: tuple[str, ...] = ()
+) -> tuple[GeecsPvaGateway, asyncio.Task]:
     spec = CameraSpec(
         device=DEVICE.decode(),
         host="127.0.0.1",
         port=cam.port,
         experiment="testexp",
         image_variables=["image"],
+        scalar_variables=list(scalar_variables),
     )
     gateway = GeecsPvaGateway(PvaGatewayConfig(experiment="testexp", cameras=[spec]))
     task = asyncio.create_task(gateway.run(isolate=True))
@@ -190,7 +196,9 @@ async def test_stock_adhdf_data_logic_drives_the_plugin(tmp_path, monkeypatch):
 
     cam = StampedCamera()
     await cam.start()
-    gateway, task = await _start_gateway(cam)
+    # The device's subscribed scalars ride in the stack (08 §4.4): two here,
+    # one of which the camera omits on the second shot.
+    gateway, task = await _start_gateway(cam, ("MaxCounts", "Mean Counts"))
     # ophyd-async's PVA context reads the environment once; point it at the
     # isolated server before the first connect.
     for key, value in gateway.conf().items():
@@ -229,21 +237,26 @@ async def test_stock_adhdf_data_logic_drives_the_plugin(tmp_path, monkeypatch):
         assert {
             "uc_testcam-hdf-image-frame_acq_timestamp",
             "uc_testcam-hdf-image-frame_recv_timestamp",
+            "uc_testcam-hdf-image-maxcounts",
+            "uc_testcam-hdf-image-mean_counts",
         } <= set(keys)
         assert not {"acq_timestamp", "uc_testcam-acq_timestamp"} & set(keys)
+        # The scalar attributes are DOUBLE stream columns, never event columns.
+        assert keys["uc_testcam-hdf-image-maxcounts"]["dtype_numpy"] == "<f8"
+        assert "uc_testcam-maxcounts" not in keys
         assert provider.uri.endswith("UC_TestCam/UC_TestCam.h5")
         assert await provider.collections_written_signal.get_value() == 0
         # Two shots, then a re-push of the second (dedupe), then a stale one.
         t = time.time()
-        cam.push(IMG, t)
-        cam.push(IMG + 1, t + 1.0)
-        cam.push(IMG + 1, t + 1.0)
+        cam.push(IMG, t, MaxCounts=4095, **{"Mean Counts": 12.5})
+        cam.push(IMG + 1, t + 1.0, MaxCounts=4000)  # Mean Counts not sent
+        cam.push(IMG + 1, t + 1.0, MaxCounts=4000)
         cam.push(IMG, t - 30.0)
         await _wait_until(lambda: _plugin(gateway).value("NumCaptured_RBV") == 2)
         await asyncio.sleep(0.2)
         assert await provider.collections_written_signal.get_value() == 2
         docs = [doc async for doc in provider.make_stream_docs(2, 1)]
-        assert [name for name, _ in docs].count("stream_resource") == 3
+        assert [name for name, _ in docs].count("stream_resource") == 5
         datum = next(doc for name, doc in docs if name == "stream_datum")
         assert datum["indices"] == {"start": 0, "stop": 2}
         await logic.stop()
@@ -259,6 +272,12 @@ async def test_stock_adhdf_data_logic_drives_the_plugin(tmp_path, monkeypatch):
         stamps = f[f"{ATTRIBUTES_GROUP}/uc_testcam-hdf-image-frame_acq_timestamp"][:]
         assert stamps[1] == pytest.approx(t + 1.0, abs=0.002)
         assert "acq_timestamp" not in f[ATTRIBUTES_GROUP]
+        # The scalars of the same push, positionally exact; a missing key is NaN.
+        np.testing.assert_array_equal(
+            f[f"{ATTRIBUTES_GROUP}/uc_testcam-hdf-image-maxcounts"][:], [4095.0, 4000.0]
+        )
+        means = f[f"{ATTRIBUTES_GROUP}/uc_testcam-hdf-image-mean_counts"][:]
+        assert means[0] == 12.5 and np.isnan(means[1])
         assert f.attrs["finalized"]
         assert f.attrs["frames_written"] == 2
         assert f.attrs["duplicates_dropped"] == 1
@@ -450,11 +469,31 @@ def test_pathinfo_windows_and_uri_are_independent():
 
 # ------------------------------------------------------------ attribute names
 def test_attribute_names_carry_the_normalized_device() -> None:
-    """``<device>-<suffix>`` under the shared naming contract (the worker's ophyd name)."""
+    """``<device>-hdf-<variable>-<suffix>`` under the shared naming contract."""
     assert attribute_names("UC Test.Cam", "bakground image") == (
         "uc_test_cam-hdf-bakground_image-frame_acq_timestamp",
         "uc_test_cam-hdf-bakground_image-frame_recv_timestamp",
     )
+    # The subscribed scalars follow the stamps, in DB order, normalized —
+    # and never spell the detector's event column (uc_test_cam-maxcounts).
+    assert attribute_names("UC Test.Cam", "image", ["MaxCounts", "Mean Counts"]) == (
+        "uc_test_cam-hdf-image-frame_acq_timestamp",
+        "uc_test_cam-hdf-image-frame_recv_timestamp",
+        "uc_test_cam-hdf-image-maxcounts",
+        "uc_test_cam-hdf-image-mean_counts",
+    )
+    xml = attributes_xml("UC_TestCam", "image", ["Max&Counts"])
+    assert 'name="uc_testcam-hdf-image-max_counts"' in xml
+    assert "Max&amp;Counts" in xml  # descriptions are escaped
+    with pytest.raises(ValueError, match="collide"):
+        HdfFilePlugin(
+            device="UC_TestCam",
+            variable="image",
+            experiment="TestExp",
+            retain=lambda _v: None,
+            release=lambda _v: None,
+            scalar_variables=["Mean Counts", "mean counts"],
+        )
     xml = attributes_xml("UC_TestCam", "image")
     assert 'name="uc_testcam-hdf-image-frame_acq_timestamp"' in xml
     assert 'name="uc_testcam-hdf-image-frame_recv_timestamp"' in xml

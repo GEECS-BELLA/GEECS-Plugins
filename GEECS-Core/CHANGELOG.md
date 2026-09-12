@@ -4,6 +4,20 @@ All notable changes to `geecs-core` are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and semantic versioning.
 
 
+## [0.6.0] - 2026-09-12
+
+### Added
+
+- `db.scalar_policy`: `GeecsDbScalarPolicy` and the `ScalarPolicyProvider`
+  protocol — the subscribed (`get='yes'`) scalars rule, moved here from
+  `geecs_bluesky.db_runtime` beside `variable_types`.  The PVA gateway's
+  file plugin now writes a camera's subscribed scalars as per-frame
+  attributes (`Planning/native_bluesky/08_gated_batch.md` §4.4) and
+  depends on GEECS-Core alone; one home for the rule keeps a gated row's
+  columns and a strict row's columns the same by construction.  Semantics
+  unchanged: one batched query per kind, cached; a DB failure degrades to
+  empty policy with one warning.
+
 ## [0.5.1] - 2026-09-11
 
 ### Added

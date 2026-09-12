@@ -170,3 +170,42 @@ class TestSharedJoinHelpers:
         assert index == 1
         assert frame[0, 0] == 1
         assert read_shot_for_acq_timestamp(path, 999.0 + LABVIEW_EPOCH_OFFSET) is None
+
+
+def test_stack_attributes_read_and_parse(tmp_path) -> None:
+    """The per-frame scalars (GeecsPvaGateway >= 0.9) read beside the stamps."""
+    from geecs_data_utils.io.scan_stack import (
+        parse_attribute_name,
+        read_stack_attributes,
+    )
+
+    device_dir = tmp_path / "UC_Cam"
+    stamps = "/entry/instrument/NDAttributes/uc_cam-hdf-image-frame_acq_timestamp"
+    path = _write_stack(device_dir, timestamps=stamps)
+    with h5py.File(path, "a") as f:
+        f.create_dataset(
+            "/entry/instrument/NDAttributes/uc_cam-hdf-image-maxcounts",
+            data=[4095.0, np.nan, 4000.0],
+        )
+    attrs = read_stack_attributes(path)
+    assert set(attrs) == {
+        "uc_cam-hdf-image-frame_acq_timestamp",
+        "recv_timestamp",
+        "uc_cam-hdf-image-maxcounts",
+    }
+    np.testing.assert_array_equal(
+        attrs["uc_cam-hdf-image-maxcounts"][[0, 2]], [4095.0, 4000.0]
+    )
+    assert np.isnan(attrs["uc_cam-hdf-image-maxcounts"][1])
+    assert parse_attribute_name("uc_cam-hdf-image-maxcounts") == (
+        "uc_cam",
+        "image",
+        "maxcounts",
+    )
+    assert parse_attribute_name("uc_cam-hdf-image-frame_acq_timestamp") == (
+        "uc_cam",
+        "image",
+        "frame_acq_timestamp",
+    )
+    assert parse_attribute_name("recv_timestamp") is None
+    assert parse_attribute_name("uc_cam-hdf-image") is None

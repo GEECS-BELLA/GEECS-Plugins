@@ -117,6 +117,7 @@ class _CameraWorker:
                     experiment=spec.experiment,
                     retain=self.retain,
                     release=self.release,
+                    scalar_variables=spec.scalar_variables,
                 )
                 for var in spec.image_variables
             }
@@ -197,6 +198,19 @@ class _CameraWorker:
 
     # -- subscription supervisor (one per watched variable) ----------------
 
+    def subscription_variables(self, var: str) -> list[str]:
+        """The one TCP subscription for *var*.
+
+        The frame, the timestamp ladder, and — where the file plugin serves
+        the variable — the device's subscribed scalars, so the per-frame
+        attributes come from the same push as the frame
+        (``08_gated_batch.md`` §4.4: still one subscription, no second stream).
+        """
+        names = [var, *_TIMESTAMP_VARS]
+        if var in self._plugins:
+            names.extend(s for s in self._spec.scalar_variables if s not in names)
+        return names
+
     async def _run(self, var: str) -> None:
         """Keep one variable's subscription alive; reconnect on socket drops."""
         backoff = _RECONNECT_MIN_S
@@ -205,7 +219,7 @@ class _CameraWorker:
             try:
                 await subscriber.connect()
                 await subscriber.subscribe(
-                    [var, *_TIMESTAMP_VARS],
+                    self.subscription_variables(var),
                     lambda update: self._on_frame(var, update),
                     text_variables={var},
                 )
@@ -247,7 +261,12 @@ class _CameraWorker:
         # delivery contract is the opposite of the stream's below.
         plugin = self._plugins.get(var)
         if plugin is not None:
-            plugin.offer(blob, stamp, time.time())
+            plugin.offer(
+                blob,
+                stamp,
+                time.time(),
+                {name: update.get(name) for name in plugin.scalar_variables},
+            )
         # Latest-wins slot: an unconsumed frame is replaced, never queued.
         self._latest[var] = (blob, stamp)
         if var not in self._publishing:

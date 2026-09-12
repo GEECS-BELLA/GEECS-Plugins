@@ -28,7 +28,8 @@ device layer (``Planning/native_bluesky/01a_device_layer_audit.md``):
 
 What each object *reads* is the DB's subscribed (``get='yes'``) list — what
 GEECS itself logs — resolved by the same
-:class:`~geecs_bluesky.db_runtime.GeecsDbScalarPolicy` the scan path uses;
+:class:`~geecs_core.db.scalar_policy.GeecsDbScalarPolicy` the file plugin
+writes a camera's per-frame scalars from (one home for the rule);
 which variables *exist* as children is the gateway's served set, from the
 same :class:`~geecs_bluesky.db_runtime.GeecsDbServedSetProvider` the
 unserved-variables preflight uses; every variable's CA type is
@@ -54,6 +55,7 @@ from typing import Any
 from bluesky.protocols import Movable, Readable
 from ophyd_async.core import Device, PathProvider
 
+from geecs_core.db.scalar_policy import GeecsDbScalarPolicy
 from geecs_core.db.variable_types import (
     VARTYPE_TO_DTYPE,
     effective_vartype,
@@ -61,11 +63,7 @@ from geecs_core.db.variable_types import (
     is_scalar_vartype,
 )
 
-from geecs_bluesky.db_runtime import (
-    GeecsDbDeviceTypes,
-    GeecsDbScalarPolicy,
-    GeecsDbServedSetProvider,
-)
+from geecs_bluesky.db_runtime import GeecsDbDeviceTypes, GeecsDbServedSetProvider
 from geecs_bluesky.devices.ca.motor import CaMotor
 from geecs_bluesky.devices.ca.settable import CaSettable
 from geecs_bluesky.devices.ca.snapshot import CaSnapshotReadable

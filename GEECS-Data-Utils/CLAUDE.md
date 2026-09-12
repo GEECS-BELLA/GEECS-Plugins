@@ -27,8 +27,12 @@ geecs_data_utils/
                                #   /entry/instrument/NDAttributes/<device>-hdf-
                                #   <variable>-frame_acq_timestamp, resolved by
                                #   timestamps_dataset — the bare acq_timestamp of
-                               #   older stacks reads too; written by
-                               #   GeecsPvaGateway's file plugin, #806/#829)
+                               #   older stacks reads too; plus the device's
+                               #   subscribed scalars as <device>-hdf-<variable>-
+                               #   <scalar> since GeecsPvaGateway 0.9, read by
+                               #   read_stack_attributes / parse_attribute_name;
+                               #   written by GeecsPvaGateway's file plugin,
+                               #   #806/#829)
                                #   incl. ShotRef — a Path carrying a
                                #   frame index for per-shot pipelines
   plotting_utils.py            # Simple matplotlib helpers for binned data

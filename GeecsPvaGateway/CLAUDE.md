@@ -112,7 +112,16 @@ tests/
   stale-filtered against a watermark set at `Capture=1` and moved by
   `Rewind` (the refire guard: truncate to N, drop older-stamped
   arrivals); `NumCaptured_RBV` posts after each frame is on disk;
-  `Capture=0` stamps the reconciliation counters and closes. Never
+  `Capture=0` stamps the reconciliation counters and closes. Beside the
+  two frame stamps the plugin writes the device's **subscribed scalars**
+  per frame (`CameraSpec.scalar_variables`, from
+  `geecs_core.db.scalar_policy.GeecsDbScalarPolicy` — the same rule the
+  worker builds a device's row from; numeric/enum types only, the
+  timestamp ladder excluded) as `<device>-hdf-<variable>-<scalar>`
+  `DOUBLE` attributes, declared in `NDAttributesFile` so the stock data
+  logic describes them as stream columns; their values come from the
+  frame's own TCP push (the one subscription is widened by the list,
+  `_CameraWorker.subscription_variables`), `NaN` when absent. Never
   creates a directory (`CreateDirectory` is ignored); never HDF5 SWMR
   across SMB (`SWMRMode` accepted and ignored; flush per frame, file
   locking off). Served only where `h5py` imports (`file_plugin.available`).

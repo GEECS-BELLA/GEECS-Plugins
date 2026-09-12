@@ -6,6 +6,20 @@ import pytest
 
 from geecs_pva_gateway.config import CameraSpec, PvaGatewayConfig
 
+#: The DB ``get='yes'`` list per device (GeecsDbScalarPolicy's query).
+SUBSCRIBED = {
+    "UC_CamA": [
+        "acq_timestamp",
+        "MaxCounts",
+        "exposure",
+        "trigger",
+        "localsavingpath",
+        "image",
+        "ghost",
+    ],
+    "UC_CamB": ["image"],
+}
+
 ENDPOINTS = {
     "UC_CamA": ("192.168.6.100", 65186),
     "UC_CamB": ("192.168.6.100", 65199),
@@ -18,6 +32,10 @@ VAR_MAP = {
         {"name": "image", "variabletype": "image", "choices": None},
         {"name": "processed image", "variabletype": "image", "choices": None},
         {"name": "exposure", "variabletype": "numeric", "choices": None},
+        {"name": "MaxCounts", "variabletype": "numeric", "choices": None},
+        {"name": "trigger", "variabletype": "", "choices": "on,off"},
+        {"name": "localsavingpath", "variabletype": "string", "choices": None},
+        {"name": "acq_timestamp", "variabletype": "numeric", "choices": None},
     ],
     "UC_CamB": [
         # image typed via the choice-descriptor quirk (#512)
@@ -44,6 +62,11 @@ def fake_db(monkeypatch):
         "get_experiment_device_variables",
         classmethod(lambda cls, e, **kw: VAR_MAP),
     )
+    monkeypatch.setattr(
+        GeecsDb,
+        "get_subscribed_variables",
+        classmethod(lambda cls, e, **kw: SUBSCRIBED),
+    )
 
 
 def test_host_scoping_selects_image_devices_only(fake_db):
@@ -54,6 +77,26 @@ def test_host_scoping_selects_image_devices_only(fake_db):
     assert by_dev["UC_CamA"].image_variables == ["image", "processed image"]
     assert by_dev["UC_CamB"].image_variables == ["image"]  # choice-descriptor
     assert by_dev["UC_CamA"].port == 65186
+    # The per-frame scalar attributes: the subscribed list in DB order,
+    # numbers and enums only, minus the timestamp ladder the stamps carry;
+    # strings, images and names without a metadata row drop out.
+    assert by_dev["UC_CamA"].scalar_variables == ["MaxCounts", "exposure", "trigger"]
+    assert by_dev["UC_CamB"].scalar_variables == []
+
+
+def test_scalar_attributes_empty_when_the_policy_query_fails(
+    fake_db, monkeypatch, caplog
+):
+    """A DB blip on the get='yes' query degrades to frames-and-stamps with a warning."""
+    from geecs_core.db.geecs_db import GeecsDb
+
+    def boom(cls, e, **kw):
+        raise RuntimeError("no network")
+
+    monkeypatch.setattr(GeecsDb, "get_subscribed_variables", classmethod(boom))
+    cfg = PvaGatewayConfig.from_geecs_experiment("Undulator", host="192.168.6.100")
+    assert [c.scalar_variables for c in cfg.cameras] == [[], []]
+    assert "Could not read get='yes'" in caplog.text
 
 
 def test_device_subset_and_missing_warning(fake_db, caplog):

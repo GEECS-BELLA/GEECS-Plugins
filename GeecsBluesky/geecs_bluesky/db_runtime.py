@@ -4,133 +4,33 @@ Turns the GEECS experiment DB's per-experiment variable policy
 (``expt_device_variable``) into the providers the device namespace builds
 from (``geecs_bluesky.namespace``):
 
-1. **Subscribed scalars** (``get='yes'``) — :class:`GeecsDbScalarPolicy`:
-   what every device reads into its rows and what the run's baseline
-   telemetry carries (``SupplementalData``, phase 1 PR 2).
-2. **Served-set resolution** — :class:`GeecsDbServedSetProvider` (the
+1. **Served-set resolution** — :class:`GeecsDbServedSetProvider` (the
    gateway serves ``get='yes'`` union settable variables of enabled
    devices; anything else has no PV).
-3. **Device types** — :class:`GeecsDbDeviceTypes`.
+2. **Device types** — :class:`GeecsDbDeviceTypes`.
+
+The **subscribed scalars** rule (``get='yes'`` — what every device reads
+into its rows and what the run's baseline telemetry carries) is
+:class:`geecs_core.db.scalar_policy.GeecsDbScalarPolicy` since 2026-09-12:
+the PVA gateway's file plugin writes the same list as per-frame attributes
+and depends on GEECS-Core alone, so the rule has one home there.
 
 The **set-side** (DB scan start/end writes) is intentionally disabled: the
 boundary writes would race the shot controller / TriggerProfile on the DG645,
 so the reserved schema fields stay inert.  Everything here is a pure function
-except the two failure-tolerant ``GeecsDb`` touchpoints
-(:class:`GeecsDbScalarPolicy`, :class:`GeecsDbServedSetProvider`) — a scan
-must never abort because the DB blipped.  Design rationale:
-``GeecsBluesky/CLAUDE.md`` (M3c).
+except the failure-tolerant ``GeecsDb`` touchpoints — a scan must never
+abort because the DB blipped.  Design rationale: ``GeecsBluesky/CLAUDE.md``
+(M3c).
 """
 
 from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Optional, Protocol, runtime_checkable
+from typing import Optional
 
 
 logger = logging.getLogger(__name__)
-
-
-@runtime_checkable
-class ScalarPolicyProvider(Protocol):
-    """Supplies per-device DB variable policy for one experiment.
-
-    The seam between the pure resolution logic and
-    :class:`~geecs_core.db.geecs_db.GeecsDb`.  Every method returns an
-    empty result rather than raising when the DB is unavailable or a device
-    is uncurated.  This covers only the **get-side** (subscribed ``get='yes'``
-    variables + all-variables queries); the set-side is disabled (see the
-    module docstring).
-    """
-
-    def get_variables(self, device: str) -> list[str]:
-        """Return the device's ``get='yes'`` variables (may be empty)."""
-        ...
-
-    def all_variables(self, device: str) -> list[str]:
-        """Return every variable the experiment tracks for *device* (may be empty)."""
-        ...
-
-    def subscribed_by_device(self) -> dict[str, list[str]]:
-        """Return ``{device: [get='yes' vars]}`` for the whole experiment."""
-        ...
-
-
-@dataclass
-class GeecsDbScalarPolicy:
-    """DB-backed :class:`ScalarPolicyProvider`, one batched query per kind.
-
-    Wraps :class:`~geecs_core.db.geecs_db.GeecsDb` for one experiment,
-    caching each of its two get-side whole-experiment queries on first use.
-    Every query is wrapped so a DB failure (off the lab network, a missing
-    table, an uncurated experiment) degrades to empty policy with a single
-    warning — a scan must never abort because the DB was briefly unreachable.
-
-    Parameters
-    ----------
-    experiment : str
-        GEECS experiment name.
-    enabled_only : bool
-        Restrict to devices enabled in the experiment (default true).
-    db : type, optional
-        The ``GeecsDb`` class (injectable for tests); imported lazily by
-        default so this module has no hard dependency on the ``ca`` DB stack.
-    """
-
-    experiment: str
-    enabled_only: bool = True
-    db: object | None = None
-    _subscribed: Optional[dict[str, list[str]]] = field(default=None, init=False)
-    _all: Optional[dict[str, list[str]]] = field(default=None, init=False)
-
-    def _geecs_db(self) -> object:
-        if self.db is not None:
-            return self.db
-        from geecs_core.db.geecs_db import GeecsDb
-
-        self.db = GeecsDb
-        return GeecsDb
-
-    def subscribed_by_device(self) -> dict[str, list[str]]:
-        """Return ``{device: [get='yes' vars]}`` (cached; empty on DB failure)."""
-        if self._subscribed is None:
-            try:
-                self._subscribed = self._geecs_db().get_subscribed_variables(
-                    self.experiment, enabled_only=self.enabled_only
-                )
-            except Exception:
-                logger.warning(
-                    "Could not read get='yes' variables for experiment %r; "
-                    "db_scalars and background telemetry will use no DB rows",
-                    self.experiment,
-                    exc_info=True,
-                )
-                self._subscribed = {}
-        return self._subscribed
-
-    def _all_by_device(self) -> dict[str, list[str]]:
-        if self._all is None:
-            try:
-                self._all = self._geecs_db().get_all_experiment_variables(
-                    self.experiment, enabled_only=self.enabled_only
-                )
-            except Exception:
-                logger.warning(
-                    "Could not read all variables for experiment %r; "
-                    "all_scalars entries will fall back to get='yes'/explicit",
-                    self.experiment,
-                    exc_info=True,
-                )
-                self._all = {}
-        return self._all
-
-    def get_variables(self, device: str) -> list[str]:
-        """Return *device*'s ``get='yes'`` variables (empty if uncurated)."""
-        return list(self.subscribed_by_device().get(device, []))
-
-    def all_variables(self, device: str) -> list[str]:
-        """Return every tracked variable for *device* (empty if uncurated)."""
-        return list(self._all_by_device().get(device, []))
 
 
 #: Variables the gateway synthesizes for EVERY device, independent of the
@@ -157,7 +57,8 @@ class GeecsDbServedSetProvider:
     at all, so a detector signal on it can never connect.  This provider
     computes that union from two batched DB queries, cached on first use.
 
-    Failure semantics differ from :class:`GeecsDbScalarPolicy` deliberately:
+    Failure semantics differ from
+    :class:`~geecs_core.db.scalar_policy.GeecsDbScalarPolicy` deliberately:
     the served set drives a *check*, so a DB failure must read as "unknown"
     (``None`` — the check is skipped with one warning), never as "empty"
     (which would condemn every variable as unserved and dialog the operator
