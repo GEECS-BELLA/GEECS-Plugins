@@ -319,12 +319,16 @@ from tiled.client import from_uri
 c = from_uri("http://192.168.6.14:8000", api_key="<key>")
 run = c.values().last()        # most recent scan
 run.metadata["start"]          # scan number, device list, mode, applied defaults…
-df = run["primary"].read().to_dataframe().reset_index()   # per-shot scalar table
+from geecs_data_utils.tiled_catalog import read_primary_scalars
+df = read_primary_scalars(run["primary"])   # per-shot scalar table
 ```
 
-(`.read()` alone returns an xarray Dataset under the deployed Tiled's
-composite-container layout — the `.to_dataframe()` step is how the repo's
-own readers get the per-shot table.)
+(Never `run["primary"].read()` on a run with camera data: under the
+deployed Tiled's composite-container layout it downloads every camera
+stack and per-frame attribute array and `.to_dataframe()` outer-joins
+their dimensions — a two-camera run took the worker host down, #834.
+`read_primary_scalars` reads the `internal` table part only, which is how
+the repo's own readers get the per-shot table.)
 
 A generic web catalog browser is served at `http://192.168.6.14:8000/ui`
 (first visit: `/ui?api_key=<key>` — the server moves the key into a cookie

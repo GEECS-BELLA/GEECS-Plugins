@@ -5,6 +5,17 @@ All notable changes to `geecs-bluesky` are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
+## [0.82.2] - 2026-09-11
+
+### Fixed
+
+- `assets.tiled_readback.read_primary_dataframe` reads the primary stream's
+  scalar table only (`geecs_data_utils.tiled_catalog.read_primary_scalars`)
+  instead of `run["primary"].read().to_dataframe()`, which downloaded every
+  camera stack and per-frame attribute array of the run and outer-joined
+  their dimensions (GEECS-Plugins#834 — the same defect the catalog had).
+  `TILED_SETUP.md`'s recipes say so.
+
 ## [0.82.1] - 2026-09-11
 
 ### Fixed
