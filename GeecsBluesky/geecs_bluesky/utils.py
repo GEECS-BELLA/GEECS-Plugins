@@ -78,6 +78,7 @@ RESERVED_DEVICE_ATTRIBUTES: frozenset[str] = frozenset(
         "trigger",
         "truncate_to_quota",
         "unstage",
+        "zero_count",
     }
 )
 

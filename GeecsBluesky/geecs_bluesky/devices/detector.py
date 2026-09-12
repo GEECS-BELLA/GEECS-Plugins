@@ -964,6 +964,24 @@ class GeecsDetector(StandardDetector):
         keep = int(ctx.collections_written + ctx.trigger_info.number_of_collections)
         await self._rewind_plugins(keep, "quota")
 
+    async def zero_count(self) -> None:
+        """Rewind every plugin to zero after a run's first arm: the count starts clean.
+
+        The file plugin posts ``NumCaptured_RBV`` only when it writes a
+        frame (or rewinds) — never a zero at ``Capture=1`` — so after a
+        session closed at *N* the PV still reads *N* at the next arm until
+        the first frame lands, and a prepare that baselines on it counts
+        from *N* (found on hardware, 2b acceptance A2: the first batch
+        trimmed to 5 + 3).  A rewind to zero inside the fresh session posts
+        the 0 (and drops an arming frame that was written); the plan
+        prepares again afterwards so the context baselines on it.  Fixed
+        in the plugin too (GeecsPvaGateway posts 0 at arm); this guard
+        stays for the gateways deployed before that.
+        """
+        if self._prepare_ctx is None or not self._hdf_ios:
+            return
+        await self._rewind_plugins(0, "fresh session")
+
     async def rewind_to_step_baseline(self) -> None:
         """Rewind every plugin to the count the step's prepare baselined.
 

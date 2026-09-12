@@ -216,6 +216,10 @@ def test_gated_count_two_plugin_cameras(
     """
     a, a_rewinds = _plugin_camera(RE, box, "UC_A", tmp_path)
     b, b_rewinds = _plugin_camera(RE, box, "UC_B", tmp_path)
+    # A's plugin still reports the previous session's count (found on
+    # hardware, A2): the run's first arm zeroes it before the batch baselines
+    box.counts["uc_a"] = 5
+    set_mock_value(a.hdf.num_captured, 5)
     set_mock_value(a.meancounts, 5.0)
     col = DocCollector()
     RE.subscribe(col)
@@ -226,8 +230,9 @@ def test_gated_count_two_plugin_cameras(
     datums = _datums_by_key(col)
     assert datums["uc_a"] == [{"start": 0, "stop": 3}]
     assert datums["uc_b"] == [{"start": 0, "stop": 3}]
-    # the in-flight edge after OFF landed a 4th frame; the trim took it out
-    assert a_rewinds == [3] and b_rewinds == [3]
+    # the stale count zeroed at the first arm, then the in-flight edge after
+    # OFF landed a 4th frame of the batch and the trim took it out
+    assert a_rewinds == [0, 3] and b_rewinds == [0, 3]
     rows = _events_from_pages(col, "shots")
     assert len(rows) == 3
     assert [r["data"]["bin_number"] for r in rows] == [1, 1, 1]
@@ -267,7 +272,12 @@ def test_gated_scan_batches_per_position_with_motor_and_bin(
         {"start": 2, "stop": 4},
         {"start": 4, "stop": 6},
     ]
-    assert rewinds == [2, 4, 6]  # baseline + quota, every step
+    assert rewinds == [
+        0,
+        2,
+        4,
+        6,
+    ]  # the first arm's zero, then baseline + quota per step
     rows = _events_from_pages(col, "shots")
     assert [r["data"]["bin_number"] for r in rows] == [1, 1, 2, 2, 3, 3]
     assert [r["data"]["u_s1h-current-position"] for r in rows] == pytest.approx(

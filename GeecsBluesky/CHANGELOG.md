@@ -73,6 +73,14 @@ the hardware acceptance (§5) is owed.
 
 ### Fixed
 
+- A gated run's first arm **zeroes the plugin's count** before the batch
+  baselines: the file plugin posts `NumCaptured_RBV` only when it writes a
+  frame, never a zero at `Capture=1`, so after a session closed at *N* the
+  next arm still read *N* and the first batch counted from there (2b
+  acceptance A2: the first step trimmed to 5 + 3 frames).  The step now
+  arms, rewinds every plugin to zero inside the fresh session
+  (`GeecsDetector.zero_count`, which posts the 0) and prepares again on it.
+  The plugin-side fix (post 0 at arm) is its own GeecsPvaGateway issue.
 - `PluginPathProvider` creates the device directory inside the claimed scan
   folder (`mkdir(exist_ok=True)`, a missing scan folder is an error): the
   plugin refuses to arm on a missing `FilePath`, and in a fly prepare the

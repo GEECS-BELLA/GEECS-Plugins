@@ -15,6 +15,8 @@ detectors, *S* = the per-shot sampler over every other device of the step
 
     mv(B, OFF)                                   # the step opens quiet — also after a
                                                  #   resume, which restored SCAN first
+    if the run's first step:                     # arm, then zero the plugin's stale count
+        prepare(D); wait_for(D.zero_count)
     if repeating (an immediate pause interrupted the step):
         sleep(period + max drain + margin)       # the in-flight frame lands
         wait_for(D.rewind_to_step_baseline)      # the partial frames leave the stacks
@@ -233,8 +235,18 @@ def gated_take_reading(
                 yield from bps.sleep(drain)
                 if attempt > 1 and plugin:
                     yield from bps.wait_for([d.rewind_to_step_baseline for d in plugin])
-            group = short_uid("gated-prepare")
             info = gated_trigger_info(quota, exposure_timeout=shot_timeout)
+            if plugin and first_step and attempt == 1:
+                # The run's first arm: the plugin's NumCaptured_RBV still
+                # reads the previous session's count until a frame lands
+                # (found on hardware, A2), so arm, zero the count inside the
+                # fresh session, and let the prepare below baseline on 0.
+                group = short_uid("gated-arm")
+                for d in plugin:
+                    yield from bps.prepare(d, info, group=group, wait=False)
+                yield from bps.wait(group=group)
+                yield from bps.wait_for([d.zero_count for d in plugin])
+            group = short_uid("gated-prepare")
             for d in plugin:
                 yield from bps.prepare(d, info, group=group, wait=False)
             yield from bps.prepare(sampler, quota, group=group, wait=False)
