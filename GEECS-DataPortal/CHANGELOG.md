@@ -12,7 +12,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   when the logbook is mounted, and `GET /api/run/{uid}` carries the same
   URL as `logbook` (null when there is nothing to link). Built from the
   mount prefix and the resolved day folder; the portal still never
-  imports the logbook.
+  imports the logbook. A run from another experiment than the logbook's
+  gets no link — scan numbers restart per experiment (review of #844).
 
 ## [0.25.0] - 2026-09-11
 

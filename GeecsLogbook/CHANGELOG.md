@@ -41,6 +41,18 @@ Navigation polish, and the synchroniser's feed.
   `updated_at`. `NotesStore.changed_since` and `NotesStore.count_by_day`
   are the store methods behind the feed and the calendar.
 
+### Changed
+
+- `NotesStore.create` takes its timestamp under the write lock, as every
+  other writer already did, so two concurrent creates cannot commit out
+  of stamp order and slip past a synchroniser's high-water mark (review
+  of #844). The feed's cursor is opaque and URL-safe (a pasted, unencoded
+  cursor no longer re-sends the boundary row) and a corrupted one is a
+  422, not a quiet "caught up". `/api/month/{m}/days` turns a share I/O
+  error into `share: false` and anything else into a 503, like the day
+  page. Keyboard stepping is refused while a composer holds unsaved text;
+  the prefetch dwell is 250 ms so a pass over the rail prefetches nothing.
+
 ## [0.5.0] - 2026-09-11
 
 The ops book: the second book gets its page, and entries get types.

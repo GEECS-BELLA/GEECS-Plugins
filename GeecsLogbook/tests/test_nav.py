@@ -80,6 +80,20 @@ class TestDaysWithFolders:
             is None
         )
 
+    def test_share_io_error_is_none_not_a_traceback(
+        self, share: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """EACCES / EIO on the share root reads as "share unavailable"."""
+
+        def denied(self: Path) -> bool:
+            raise PermissionError(13, "Permission denied", str(self))
+
+        monkeypatch.setattr(Path, "is_dir", denied)
+        assert (
+            days_with_folders(date(2026, 9, 1), "Undulator", base_directory=share)
+            is None
+        )
+
     def test_never_creates_anything(
         self, share: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -136,6 +150,19 @@ class TestMonthMarks:
     def test_bad_month_is_400(self, app: TestClient) -> None:
         """The same month grammar as the page."""
         assert app.get("/log/api/month/2026-9/days").status_code == 400
+
+    def test_an_unexpected_failure_is_a_503(
+        self, app: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Anything the listing raises is an honest 503, as on the day page."""
+        from geecs_logbook.routes import month
+
+        def boom(*a: object, **k: object) -> None:
+            raise RuntimeError("paths config missing")
+
+        monkeypatch.setattr(month, "days_with_folders", boom)
+        res = app.get("/log/api/month/2026-09/days")
+        assert res.status_code == 503 and "unavailable" in res.text
 
     def test_month_page_never_calls_it(
         self, app: TestClient, monkeypatch: pytest.MonkeyPatch
@@ -239,6 +266,25 @@ class TestChangeFeed:
             "/log/api/entries", params={"since": since, "include_deleted": "false"}
         ).json()
         assert [e["body_md"] for e in live["entries"]] == ["keep me"]
+
+    def test_cursor_survives_a_raw_query_string(self, app: TestClient) -> None:
+        """A cursor pasted unencoded into a URL must not re-send the boundary row."""
+        for i in range(3):
+            _note(app, "2026-09-11", f"n{i}", book="ops")
+        since = "2000-01-01T00:00:00+00:00"
+        first = app.get("/log/api/entries", params={"since": since, "limit": 1}).json()
+        cursor = first["next_cursor"]
+        assert "+" not in cursor and "/" not in cursor and "=" not in cursor
+        second = app.get(f"/log/api/entries?cursor={cursor}&limit=1").json()
+        assert [e["body_md"] for e in second["entries"]] == ["n1"]
+
+    def test_a_shaped_but_bogus_cursor_is_refused(self, app: TestClient) -> None:
+        """A corrupted cursor is a 422, never a quiet "caught up"."""
+        import base64
+
+        bogus = base64.urlsafe_b64encode(b"junk|5").decode().rstrip("=")
+        assert app.get("/log/api/entries", params={"cursor": bogus}).status_code == 422
+        assert app.get("/log/api/entries", params={"cursor": "%%%"}).status_code == 422
 
     def test_not_served_without_a_store(self, share: Path) -> None:
         app = FastAPI()

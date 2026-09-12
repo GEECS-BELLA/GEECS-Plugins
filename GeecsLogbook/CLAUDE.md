@@ -177,12 +177,17 @@ listing explode under the month page). A missing experiment directory
 comes back as `share: false` — said, not hidden — and the store's marks
 stand on their own.
 
-"Faster day switching" is keyboard stepping (`←` `→` `t` `c`) and a
-`<link rel="prefetch">` added when the viewer rests on a day or month
-link — the page they are about to open is served warm. Nothing is
-prefetched on load: every day page is a share read, and the rail offers
-fifteen of them. `/log/today` and `/log/month/today` are the bookmarkable
-names.
+"Faster day switching" is keyboard stepping (`←` `→` `t` `c`; refused
+while any composer holds unsaved text — a shortcut must never discard a
+note) and a `<link rel="prefetch">` added when the viewer **rests** on a
+day or month link for 250 ms — the page they are about to open is served
+warm. Nothing is prefetched on load: every day page is a share read, and
+the rail offers fifteen of them; the dwell is what keeps a pass over the
+rail from prefetching them all. The trade-off, stated: the pages send no
+freshness headers, and Chrome may reuse a prefetched document for a few
+minutes without asking, so a scan that landed between the hover and the
+click appears on the next reload. `/log/today` and `/log/month/today`
+are the bookmarkable names.
 
 ## The change feed
 
@@ -335,6 +340,7 @@ is where that is tracked.
 | `EntryCreate` (the write shape) lives in the router, `LogEntry` (the stored shape) in `geecs_schemas` | An agent posts the create shape, so it belongs beside `LogEntry` for GEECS-MCP to validate. Moves with the agent-verbs phase, which is its first second consumer. |
 | A third private atomic-write helper (`_fs.replace_with`; `scan_analysis.config_store` and `task_queue` have their own) and `logbook_root` re-deriving the daily folder | Fold into the `ScanPaths`/`ScanData` review, #839 — same home, same issue. |
 | Which template "started" an entry when several buttons were pressed | The last one pressed is recorded. Provenance only; nothing reads it back but the chip. |
+| `scan_reader.month_folder` / `days_with_folders` are a third copy of the share-layout walk (`.parent` chains up from `get_daily_scan_folder`; a `YY_MMDD` parser beside `ScanPaths.get_scan_tag`'s and `scans_database.builder`'s `strptime("%y_%m%d")`), after `mirror.logbook_root` and `read_day` | The layout has one builder in `geecs_data_utils.scan_paths` and should have one reader there (`day_folder_date(name)`, `list_day_folders(month)`), which is exactly #839's brief. Recorded on #839 at the review of #844; not lifted here so the logbook keeps depending on `ScanPaths` alone. |
 | `seed_templates.parse_template` is the package's first front-matter reader, while `mirror.render` is its writer | One reader, one writer, different shapes today (the template header has no lists). When the mirror *reader* lands (off-site/rebuild, deferred above), extract one `parse_front_matter` beside `mirror` and point both at it — not before there is a second caller. Waived in the review of #842. |
 
 ## Deployment

@@ -163,3 +163,18 @@ class TestRunPageLink:
         html = client.get(f"/run/{self._UID}").text
         assert "/log/day/" not in html
         assert client.get(f"/api/run/{self._UID}").json()["logbook"] is None
+
+    def test_absent_for_a_run_from_another_experiment(self) -> None:
+        """The logbook is one experiment's; scan numbers restart per experiment."""
+        import dataclasses
+
+        catalog = FakeCatalog()
+        detail = catalog.details[self._UID]
+        catalog.details[self._UID] = dataclasses.replace(
+            detail, summary=dataclasses.replace(detail.summary, experiment="Thomson")
+        )
+        client = TestClient(
+            create_app(catalog, default_experiment="Undulator", scan_log=True)
+        )
+        assert "/log/day/" not in client.get(f"/run/{self._UID}").text
+        assert client.get(f"/api/run/{self._UID}").json()["logbook"] is None

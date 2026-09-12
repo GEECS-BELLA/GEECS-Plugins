@@ -377,12 +377,12 @@ def days_with_folders(
     different fact from "nothing happened this month" and the caller
     should say so. A month folder that does not exist is an empty set.
     """
-    folder = month_folder(first, experiment, base_directory)
-    if not folder.parent.parent.is_dir():  # {base}/{experiment}
-        logger.warning("experiment directory missing: %s", folder.parent.parent)
-        return None
     found: set[date] = set()
     try:
+        folder = month_folder(first, experiment, base_directory)
+        if not folder.parent.parent.is_dir():  # {base}/{experiment}
+            logger.warning("experiment directory missing: %s", folder.parent.parent)
+            return None
         with os.scandir(folder) as entries:
             for entry in entries:
                 match = _DAY_DIR.match(entry.name)
@@ -397,9 +397,9 @@ def days_with_folders(
                 except ValueError:
                     continue
     except FileNotFoundError:
-        return found
-    except OSError as exc:
-        logger.warning("cannot list %s: %s", folder, exc)
+        return found  # no month folder: nothing happened this month
+    except OSError as exc:  # EACCES, EIO, a wedged mount — the share, not the month
+        logger.warning("cannot list the month folder for %s: %s", first, exc)
         return None
     return found
 

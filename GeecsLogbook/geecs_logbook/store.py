@@ -31,6 +31,7 @@ instead of a sentence that quietly vanished.
 
 from __future__ import annotations
 
+import base64
 import json
 import logging
 import sqlite3
@@ -178,6 +179,32 @@ def _stamp(when: datetime) -> str:
     if when.tzinfo is None or when.utcoffset() is None:
         raise ValueError("timestamp must be timezone-aware")
     return when.astimezone(timezone.utc).isoformat()
+
+
+def _encode_cursor(stamp: str, rowid: int) -> str:
+    """Render a feed cursor: opaque and URL-safe.
+
+    The stamp carries ``+00:00``, which a raw query string turns into a
+    space and thereby into a value that sorts *below* every real stamp —
+    the boundary row would be re-sent. Base64 (URL alphabet, unpadded)
+    keeps the cursor a token a client cannot half-encode.
+    """
+    raw = f"{stamp}|{rowid}".encode()
+    return base64.urlsafe_b64encode(raw).decode().rstrip("=")
+
+
+def _decode_cursor(cursor: str) -> tuple[str, int]:
+    """Parse a cursor back into ``(stamp, rowid)``; ``ValueError`` if it is not one."""
+    try:
+        padded = cursor + "=" * (-len(cursor) % 4)
+        raw = base64.urlsafe_b64decode(padded.encode()).decode()
+        stamp, _, row = raw.rpartition("|")
+        datetime.fromisoformat(stamp)  # a real timestamp, not merely a shape
+        if not row.isdigit():
+            raise ValueError(row)
+    except (ValueError, UnicodeDecodeError) as exc:  # binascii.Error is a ValueError
+        raise ValueError(f"malformed cursor: {cursor!r}") from exc
+    return stamp, int(row)
 
 
 class NotesStore:
@@ -352,11 +379,9 @@ class NotesStore:
         sql = "SELECT rowid AS _rowid, * FROM entries WHERE "
         params: list[object] = []
         if cursor is not None:
-            stamp, _, row = cursor.rpartition("|")
-            if not stamp or not row.isdigit():
-                raise ValueError(f"malformed cursor: {cursor!r}")
+            stamp, row = _decode_cursor(cursor)
             sql += "(updated_at > ? OR (updated_at = ? AND rowid > ?))"
-            params += [stamp, stamp, int(row)]
+            params += [stamp, stamp, row]
         else:
             sql += "updated_at > ?"
             params.append(_stamp(since))
@@ -376,7 +401,9 @@ class NotesStore:
         more = len(rows) > limit
         rows = rows[:limit]
         entries = [_from_row(row) for row in rows]
-        next_cursor = f"{rows[-1]['updated_at']}|{rows[-1]['_rowid']}" if more else None
+        next_cursor = (
+            _encode_cursor(rows[-1]["updated_at"], rows[-1]["_rowid"]) if more else None
+        )
         return ChangePage(entries=entries, next_cursor=next_cursor)
 
     def history(self, entry_id: str) -> list[HistoryRecord]:
@@ -478,24 +505,28 @@ class NotesStore:
                 f"a {kind} entry is created as a draft; a person keeps it afterwards"
             )
 
-        now = _now()
-        entry = LogEntry(
-            entry_id=uuid.uuid4().hex[:12],
-            day=day,
-            book=book,
-            scan=scan,
-            after=after,
-            author=author,
-            kind=kind,
-            status=status,
-            template=template,
-            body_md=body_md,
-            tags=parse_tags(body_md),
-            payload=payload,
-            created_at=now,
-            updated_at=now,
-        )
-        with self._connect() as conn:
+        # The stamp is taken under the write lock, as every other writer
+        # takes its own: taken before it, two concurrent creates could
+        # commit out of stamp order and the change feed's high-water mark
+        # would skip one for good.
+        with self._connect() as conn, _transaction(conn):
+            now = _now()
+            entry = LogEntry(
+                entry_id=uuid.uuid4().hex[:12],
+                day=day,
+                book=book,
+                scan=scan,
+                after=after,
+                author=author,
+                kind=kind,
+                status=status,
+                template=template,
+                body_md=body_md,
+                tags=parse_tags(body_md),
+                payload=payload,
+                created_at=now,
+                updated_at=now,
+            )
             conn.execute(
                 "INSERT INTO entries (entry_id, day, scan, after_scan, author, kind,"
                 " status, template, body_md, payload, attachments, created_at,"

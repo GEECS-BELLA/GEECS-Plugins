@@ -13,9 +13,13 @@
  *     page itself never asks; only the open calendar does, so a slow
  *     share delays a popup, not a page. Months are cached per page load.
  *   - Keys: ← / → step to the previous / next day (or month), t goes to
- *     today. Ignored while typing in a field.
- *   - Prefetch: hovering a day or month link for a moment adds a
- *     <link rel="prefetch">, so the click that follows is served warm.
+ *     today. Ignored while typing in a field, and while any composer
+ *     holds unsaved text — a shortcut must never discard a note.
+ *   - Prefetch: resting on a day or month link (250 ms — a pass over the
+ *     rail's fifteen links prefetches nothing) adds a <link rel="prefetch">,
+ *     so the click that follows is served warm. The browser may reuse a
+ *     prefetched page for a few minutes; a reload shows a scan that landed
+ *     in between.
  *
  * Styling is entirely through the page's tokens; this file sets no colours.
  */
@@ -158,6 +162,8 @@
 
   const typing = (el) => !!el && (
     el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || el.isContentEditable);
+  /** Any composer holding text: a keystroke must not throw it away. */
+  const drafting = () => [...document.querySelectorAll("textarea")].some((t) => t.value.trim());
 
   document.addEventListener("keydown", (ev) => {
     if (ev.defaultPrevented || ev.metaKey || ev.ctrlKey || ev.altKey || typing(ev.target)) return;
@@ -166,7 +172,7 @@
     else if (ev.key === "ArrowRight") url = host.dataset.next;
     else if (ev.key === "t" || ev.key === "T") url = host.dataset.today;
     else if (ev.key === "c" || ev.key === "C") { if (cal) { cal.open = !cal.open; ev.preventDefault(); } return; }
-    if (!url) return;
+    if (!url || drafting()) return;  // an unsaved note outranks a shortcut
     ev.preventDefault();
     window.location.href = url;
   });
@@ -194,7 +200,7 @@
     const a = ev.target && ev.target.closest && ev.target.closest("a[href]");
     if (!a) return;
     clearTimeout(timer);
-    timer = setTimeout(() => warm(a), 80);  // a pass-through hover costs nothing
+    timer = setTimeout(() => warm(a), 250);  // a real rest, not a pass-through
   });
   document.addEventListener("mouseout", () => clearTimeout(timer));
   document.addEventListener("focusin", (ev) => {

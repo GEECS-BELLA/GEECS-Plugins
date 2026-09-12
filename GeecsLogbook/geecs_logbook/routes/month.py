@@ -16,11 +16,12 @@ bad day: when the share is slow the month page is not.
 
 from __future__ import annotations
 
+import logging
 from collections import Counter
 from datetime import date
 from typing import Optional
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from geecs_schemas.log_entry import Book, LogEntry
 from pydantic import BaseModel, Field
@@ -36,6 +37,8 @@ from geecs_logbook.routes._common import (
     parse_month,
 )
 from geecs_logbook.scan_reader import days_with_folders
+
+logger = logging.getLogger(__name__)
 
 #: The book the month page shows. The scans book has its own page.
 BOOK = "ops"
@@ -176,7 +179,13 @@ def register(router: APIRouter, ctx: Context) -> None:
             if ctx.store is not None
             else {}
         )
-        folders = days_with_folders(first, ctx.experiment, ctx.base_directory)
+        try:
+            folders = days_with_folders(first, ctx.experiment, ctx.base_directory)
+        except Exception as exc:  # noqa: BLE001 — the same honesty as load_day
+            logger.exception("listing the month folder for %s failed", month)
+            raise HTTPException(
+                status_code=503, detail=f"data share unavailable: {exc}"
+            ) from exc
         days: dict[str, DayMarks] = {}
         for day, by_book in counts.items():
             days[day] = DayMarks(

@@ -129,18 +129,21 @@ def register(router: APIRouter, ctx: Context) -> None:
         until: Optional[datetime] = Query(None, description="Aware ISO 8601."),
         book: Optional[Book] = None,
         include_deleted: bool = True,
-        cursor: Optional[str] = Query(None, max_length=64),
+        cursor: Optional[str] = Query(None, max_length=128),
         limit: int = Query(500, ge=1, le=2000),
     ) -> ChangeFeed:
         """List what changed after ``since``, oldest change first.
 
         The synchroniser's endpoint. A promotion, an upload or a delete
         moves ``updated_at`` like an edit does, so a copy that asks for
-        "everything since my last ``updated_at``" misses nothing — and it
-        is the one listing that returns **tombstones**, since a deletion
-        is a change too. Either ``since`` or ``cursor`` is required; a
-        full page carries ``next_cursor``, which resumes after its last
-        row even when several rows share an ``updated_at``.
+        "everything since my last ``updated_at``" misses nothing (stamps
+        are taken under the store's write lock, so they commit in order;
+        overlapping ``since`` by a few seconds is belt and braces, and a
+        re-sent row is the same row) — and it is the one listing that
+        returns **tombstones**, since a deletion is a change too. Either
+        ``since`` or ``cursor`` is required; a full page carries
+        ``next_cursor`` — opaque, URL-safe — which resumes after its
+        last row even when several rows share an ``updated_at``.
         """
         if since is None and cursor is None:
             raise HTTPException(status_code=422, detail="since or cursor is required")
