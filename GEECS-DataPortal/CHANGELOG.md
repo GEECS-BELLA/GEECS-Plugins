@@ -3,6 +3,15 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.24.1] - 2026-09-11
+
+### Changed
+
+- Docs and charter follow the logbook's foundation: uploads live in
+  `attachments/` beside the notes database (the state directory is the
+  one thing to back up), and the mirror writes `{experiment}/logbook/` on
+  the share rather than a folder inside each day. No code change.
+
 ## [0.24.0] - 2026-09-11
 
 ### Added

@@ -1,32 +1,34 @@
 """The markdown mirror: the copy of the notes that outlives the software.
 
 :mod:`~geecs_logbook.store` is what the page reads and writes. This module
-writes the same entries a second time, as markdown files beside the data on
-the share::
+writes the same entries a second time, as markdown files on the share, in
+a tree the logbook **owns**::
 
-    {day}/
-      scans/            <- the scanner's; never written here
-      analysis/
-      logbook/          <- this module's, a SIBLING of scans/
-        day.md                          the day intro
-        Scan005/
-          1154-sbarber-e7f2a1.md        one file per entry
-          attachments/e7f2a1/
-            jet-trace.png
-        after-Scan003/                  interscan entries
-          1210-toperator-b91c04.md
+    {experiment}/
+      Y2026/09-Sep/26_0911/scans/      <- the scanner's; never written here
+      logbook/                          <- this module's
+        Y2026/
+          09-Sep/
+            26_0911/
+              0834-sbarber-1c2d3e.md          a day-level entry (either book)
+              Scan005/
+                1154-sbarber-e7f2a1.md        one file per entry
+                attachments/e7f2a1/
+                  jet-trace.png
+              after-Scan003/                  interscan entries
+                1210-toperator-b91c04.md
 
-Why a sibling of ``scans/``
----------------------------
-Human commentary never mixes into the raw-data tree, the day intro has a
-home, and — the reason that matters most — nothing here ever traverses
-``scans/ScanNNN/``. The repository's scan-folder invariant (root
-``CLAUDE.md``) is satisfied by construction rather than by care.
-
-One creation the invariant does forbid is guarded explicitly: the **day
-folder** itself. The mirror lands only once the scanner has made the day;
-an intro written at 08:00 before the first scan stays in the store and is
-mirrored when the folder appears. See :func:`write_entry`.
+Why its own tree, not ``logbook/`` inside each day folder
+--------------------------------------------------------
+The first cut put ``logbook/`` beside ``scans/`` inside the day, and
+refused to create the day folder because the scanner makes days. That
+stranded every entry written on a day with no scans — the operations
+book's staple. A tree of the logbook's own has the same date shape (so a
+person browsing by day still finds it), is always writable, backs up and
+syncs as one folder, and — the reason that matters most — never enters
+the data tree at all. The repository's scan-folder invariant (root
+``CLAUDE.md``) is satisfied by construction: no path this module makes
+has ``scans`` in it, and :func:`_assert_own_tree` pins that.
 
 Links are relative
 ------------------
@@ -39,18 +41,16 @@ whole reason for the mirror.
 
 Write order
 -----------
-The store is written first, the mirror second. A slow or unreachable share
-must never lose the sentence someone just typed; ``mirrored_at`` stays null
-until the file lands and :func:`sync` retries what is owed.
+The store (and, for bytes, :mod:`~geecs_logbook.attachments`) is written
+first, the mirror second. A slow or unreachable share must never lose the
+sentence someone just typed or the screenshot they pasted; ``mirrored_at``
+stays null until the files land and :func:`sync` retries what is owed.
 """
 
 from __future__ import annotations
 
 import json
 import logging
-import contextlib
-import os
-import tempfile
 import threading
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -59,16 +59,14 @@ from typing import Optional, Union
 from geecs_data_utils import ScanPaths
 from geecs_schemas.log_entry import LogEntry
 
+from geecs_logbook._fs import replace_with
+from geecs_logbook.attachments import AttachmentStore
 from geecs_logbook.store import NotesStore
 
 logger = logging.getLogger(__name__)
 
-#: The logbook directory's name, beside ``scans/`` and ``analysis/``.
+#: The logbook tree's name, a sibling of the ``Y{YYYY}`` year folders.
 LOGBOOK_DIR = "logbook"
-
-#: Read once: ``os.umask`` can only be queried by setting it.
-_UMASK = os.umask(0)
-os.umask(_UMASK)
 
 #: The attachments directory's name inside an entry's directory.
 ATTACHMENTS_DIR = "attachments"
@@ -92,7 +90,11 @@ def logbook_root(
     experiment: str,
     base_directory: Optional[Union[Path, str]] = None,
 ) -> Path:
-    """Return the day's ``logbook/`` directory. Only a path; nothing is made.
+    """Return the day's directory in the logbook tree. Only a path; nothing is made.
+
+    Derived from where the scanner would put that day's ``scans/`` so the
+    two trees share one date layout and one configured share root, then
+    re-rooted under ``{experiment}/logbook/``.
 
     Parameters
     ----------
@@ -102,6 +104,14 @@ def logbook_root(
         The experiment whose share this is.
     base_directory : Path or str, optional
         Override the configured data-share root. Used by tests.
+
+    Raises
+    ------
+    MirrorUnavailable
+        When the share root cannot be resolved at all (no configuration,
+        unmounted drive). A host with no share is the same situation as a
+        share that is down: the words are safe in the store, the file is
+        owed.
     """
     when = date.fromisoformat(day) if isinstance(day, str) else day
     tag = ScanPaths.get_scan_tag(
@@ -110,19 +120,26 @@ def logbook_root(
     try:
         scans = ScanPaths.get_daily_scan_folder(tag=tag, base_directory=base_directory)
     except Exception as exc:  # noqa: BLE001 — no share config, unmounted drive …
-        # A host with no data-share configuration is the same situation as
-        # a share that is down: the words are safe in the store, the file
-        # is owed. Surfacing it as a 500 after the row was written would
-        # tell the writer their entry failed when it did not.
         raise MirrorUnavailable(f"cannot resolve the data share: {exc}") from exc
-    return scans.parent / LOGBOOK_DIR
+    day_dir = scans.parent
+    month_dir = day_dir.parent
+    year_dir = month_dir.parent
+    root = year_dir.parent / LOGBOOK_DIR / year_dir.name / month_dir.name / day_dir.name
+    _assert_own_tree(root)
+    return root
+
+
+def _assert_own_tree(path: Path) -> None:
+    """Refuse any path that enters the data tree. Pins the invariant."""
+    if "scans" in path.parts or LOGBOOK_DIR not in path.parts:
+        raise RuntimeError(f"mirror path is not in the logbook tree: {path}")
 
 
 def entry_dir(entry: LogEntry, root: Path) -> Path:
     """Return the directory an entry's file and attachments live in.
 
-    A day-level entry sits at the root; a scan's entries in ``ScanNNN/``;
-    an interscan entry in ``after-ScanNNN/``. Nothing here is created.
+    A day-level entry sits at the day's root; a scan's entries in
+    ``ScanNNN/``; an interscan entry in ``after-ScanNNN/``.
     """
     if entry.after is not None:
         return root / f"after-Scan{entry.after:03d}"
@@ -161,14 +178,15 @@ def attachment_link(entry: LogEntry, filename: str) -> str:
 def render(entry: LogEntry) -> str:
     """Render an entry as markdown with a front-matter envelope.
 
-    The front matter carries what the body cannot — who, when, which scan,
-    the template it started from, the version — as plain ``key: value``
-    lines a reader can parse back without a YAML library. The body follows
+    The front matter carries what the body cannot — who, when, which book
+    and scan, the tags, the version — as plain ``key: value`` lines a
+    reader can parse back without a YAML library. The body follows
     verbatim: it is the author's text and this module does not touch it.
     """
     lines = ["---"]
     lines.append(f"entry_id: {entry.entry_id}")
     lines.append(f"day: {entry.day}")
+    lines.append(f"book: {entry.book}")
     if entry.after is not None:
         lines.append(f"after: {entry.after}")
     elif entry.scan is not None:
@@ -177,6 +195,8 @@ def render(entry: LogEntry) -> str:
     lines.append(f"kind: {entry.kind}")
     lines.append(f"status: {entry.status}")
     lines.append(f"template: {entry.template}")
+    if entry.tags:
+        lines.append("tags: " + ", ".join(entry.tags))
     lines.append(f"created_at: {entry.created_at.isoformat()}")
     if entry.edited_at:
         lines.append(f"edited_at: {entry.edited_at.isoformat()}")
@@ -202,119 +222,59 @@ def render(entry: LogEntry) -> str:
 # ----------------------------------------------------------------- write
 
 
-def _day_folder_exists(root: Path) -> bool:
-    """Whether the scanner has made the day this logbook belongs to."""
-    return root.parent.is_dir()
-
-
-def _atomic_write(path: Path, text: str) -> None:
-    """Write via a temp file and rename, so a torn write never lands.
-
-    A reader on another machine either sees the old file or the new one,
-    never half of each — the property a mirror on a shared drive needs.
-    The temp name is unique per call, so the periodic sync and a request
-    mirroring the same entry at the same moment cannot clobber each
-    other's half-written file.
-    """
-    _replace_with(path, text.encode("utf-8"))
-
-
-def _replace_with(path: Path, data: bytes) -> None:
-    """Write ``data`` to a uniquely named sibling, then rename over ``path``."""
-    fd, tmp_name = tempfile.mkstemp(
-        dir=path.parent, prefix=path.name + ".", suffix=".tmp"
-    )
-    try:
-        # mkstemp creates 0600; a mirror is for reading by people, so give
-        # the file the mode a plain write would have had.
-        os.fchmod(fd, 0o666 & ~_UMASK)
-        with os.fdopen(fd, "wb") as fh:
-            fh.write(data)
-        os.replace(tmp_name, path)
-    except BaseException:
-        with contextlib.suppress(OSError):
-            os.unlink(tmp_name)
-        raise
-
-
 def write_entry(entry: LogEntry, root: Path) -> Path:
     """Write an entry's markdown to the share and return the path.
+
+    ``mkdir(parents=True)`` is used freely: the deepest thing it can create
+    is a day inside ``{experiment}/logbook/``, and :func:`_assert_own_tree`
+    has already refused any path that touches the data tree.
 
     Raises
     ------
     MirrorUnavailable
-        When the day folder does not exist yet — the scanner makes days,
-        never this module — or when the share refuses the write. The
-        caller leaves ``mirrored_at`` null and :func:`sync` retries.
-
-    Notes
-    -----
-    ``mkdir(parents=True)`` is used here and is safe *because of* the day
-    folder guard above it: with the day present, the deepest thing it can
-    create is ``logbook/ScanNNN/``, and it never touches ``scans/``.
+        When the share refuses the write. The caller leaves ``mirrored_at``
+        null and :func:`sync` retries.
     """
-    if not _day_folder_exists(root):
-        raise MirrorUnavailable(
-            f"day folder not present yet, not creating it: {root.parent}"
-        )
+    _assert_own_tree(root)
     path = entry_path(entry, root)
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        _atomic_write(path, render(entry))
+        replace_with(path, render(entry).encode("utf-8"))
     except OSError as exc:
         raise MirrorUnavailable(f"cannot write {path}: {exc}") from exc
     logger.info("mirrored %s -> %s", entry.entry_id, path)
     return path
 
 
-def write_attachment(entry: LogEntry, filename: str, data: bytes, root: Path) -> str:
-    """Store an uploaded file beside the entry and return its relative link.
+def mirror_attachments(entry: LogEntry, root: Path, source: AttachmentStore) -> int:
+    """Copy the entry's stored files beside its markdown; return how many landed.
 
-    Same guard and same reasoning as :func:`write_entry`. The bytes live
-    only here; the store keeps the manifest. The link returned names the
-    file as stored — ``image-2.png`` when ``image.png`` was taken — so the
-    caller records that name, not the one it asked for.
+    A file already on the share at the same size is left alone, so the
+    periodic sync costs one ``stat`` per attachment rather than a re-copy.
+
+    Raises
+    ------
+    MirrorUnavailable
+        When the share refuses a write.
     """
-    if not _day_folder_exists(root):
-        raise MirrorUnavailable(
-            f"day folder not present yet, not creating it: {root.parent}"
-        )
+    files = source.files(entry.entry_id)
+    if not files:
+        return 0
+    _assert_own_tree(root)
     folder = entry_dir(entry, root) / ATTACHMENTS_DIR / entry.entry_id
+    copied = 0
     try:
         folder.mkdir(parents=True, exist_ok=True)
-        target = _claim_name(folder, filename)
+        for src in files:
+            dst = folder / src.name
+            size = src.stat().st_size
+            if dst.is_file() and dst.stat().st_size == size:
+                continue
+            replace_with(dst, src.read_bytes())
+            copied += 1
     except OSError as exc:
-        raise MirrorUnavailable(f"cannot write {folder / filename}: {exc}") from exc
-    try:
-        _replace_with(target, data)
-    except OSError as exc:
-        # The claimed name is an empty file until the bytes land; a failed
-        # write must not leave it to be served as a 0-byte attachment.
-        with contextlib.suppress(OSError):
-            target.unlink()
-        raise MirrorUnavailable(f"cannot write {target}: {exc}") from exc
-    return attachment_link(entry, target.name)
-
-
-def _claim_name(folder: Path, filename: str) -> Path:
-    """Reserve ``filename`` in ``folder``, numbering it if it is taken.
-
-    Claimed on disk with ``O_EXCL`` rather than by looking first: every
-    clipboard paste is ``image.png``, and two pastes in flight at once
-    must not both decide the name is free. The placeholder is then
-    replaced atomically by the real bytes.
-    """
-    stem, ext = os.path.splitext(filename)
-    n = 1
-    while True:
-        candidate = folder / (filename if n == 1 else f"{stem}-{n}{ext}")
-        try:
-            fd = os.open(candidate, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o666)
-        except FileExistsError:
-            n += 1
-            continue
-        os.close(fd)
-        return candidate
+        raise MirrorUnavailable(f"cannot write {folder}: {exc}") from exc
+    return copied
 
 
 def remove_entry(entry: LogEntry, root: Path) -> bool:
@@ -335,34 +295,6 @@ def remove_entry(entry: LogEntry, root: Path) -> bool:
 
 # ------------------------------------------------------------------ sync
 
-
-def sync(
-    store: NotesStore,
-    experiment: str,
-    base_directory: Optional[Union[Path, str]] = None,
-    limit: int = 100,
-) -> tuple[int, int]:
-    """Mirror everything the store owes, and return ``(written, deferred)``.
-
-    The reconciliation half of writing the store first. Each entry is tried
-    on its own; one day's absent folder or one refused write defers that
-    entry and moves on, so a single bad share path never blocks the rest.
-    A tombstoned entry's owed operation is the removal of its file, and it
-    counts as written once the file is gone.
-    """
-    written = deferred = 0
-    for owed in store.unmirrored(limit=limit):
-        try:
-            mirror_one(store, owed.entry_id, experiment, base_directory)
-        except MirrorUnavailable as exc:
-            logger.info("deferring %s: %s", owed.entry_id, exc)
-            store.mark_deferred(owed.entry_id)
-            deferred += 1
-            continue
-        written += 1
-    return written, deferred
-
-
 #: One writer at a time to the share, per process: the request that just
 #: saved and the periodic sync both mirror entries, and without this a
 #: sync holding a stale read could write it over a newer file the request
@@ -375,11 +307,13 @@ def mirror_one(
     entry_id: str,
     experiment: str,
     base_directory: Optional[Union[Path, str]] = None,
+    attachments: Optional[AttachmentStore] = None,
 ) -> None:
     """Mirror the *current* state of one entry and mark that version done.
 
     Reads the entry afresh under the lock, so what is written is what is
-    marked, and nothing older can land afterwards.
+    marked, and nothing older can land afterwards. With ``attachments``,
+    the entry's stored files are copied beside the markdown too.
 
     Raises
     ------
@@ -395,6 +329,36 @@ def mirror_one(
             remove_entry(entry, root)
         else:
             write_entry(entry, root)
+            if attachments is not None:
+                mirror_attachments(entry, root, attachments)
         store.mark_mirrored(
             entry.entry_id, datetime.now(timezone.utc), version=entry.version
         )
+
+
+def sync(
+    store: NotesStore,
+    experiment: str,
+    base_directory: Optional[Union[Path, str]] = None,
+    attachments: Optional[AttachmentStore] = None,
+    limit: int = 100,
+) -> tuple[int, int]:
+    """Mirror everything the store owes, and return ``(written, deferred)``.
+
+    The reconciliation half of writing the store first. Each entry is tried
+    on its own; one refused write defers that entry and moves on, so a
+    single bad path never blocks the rest. A tombstoned entry's owed
+    operation is the removal of its file, and it counts as written once
+    the file is gone.
+    """
+    written = deferred = 0
+    for owed in store.unmirrored(limit=limit):
+        try:
+            mirror_one(store, owed.entry_id, experiment, base_directory, attachments)
+        except MirrorUnavailable as exc:
+            logger.info("deferring %s: %s", owed.entry_id, exc)
+            store.mark_deferred(owed.entry_id)
+            deferred += 1
+            continue
+        written += 1
+    return written, deferred

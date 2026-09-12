@@ -4,6 +4,45 @@ All notable changes to `geecs-logbook` are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 project adheres to semantic versioning.
 
+## [0.3.0] - 2026-09-11
+
+The foundation for the operations book. Owner rulings 2026-09-11.
+
+### Added
+
+- **Two books.** `book` (`scans` | `ops`) on every entry, chosen by the
+  page the author writes from. An ops entry is day-level only. The day
+  document shows the scans book; `GET /api/day/{day}/entries?book=`
+  filters either way.
+- **Tags from the body.** `#laser` in the text is the tag;
+  `tags.parse_tags` reads them at every save into an indexed `tags`
+  column (narrowly: not `#1`, not headings, not inside code). Rendered as
+  chips.
+- **History.** `entry_history` keeps the entry as it was before every
+  edit, keep/un-keep, upload and delete, in the same transaction;
+  `GET /api/entries/{id}/history` serves it. `GET /api/entries/{id}`.
+- **`NotesStore.query`** — a day range with book, tag, kind, status,
+  author and scan-anchored filters: the one method the month page, its
+  filter chips and a synchroniser will share.
+- **Attachments are store-first.** `attachments.AttachmentStore` keeps
+  uploads under `attachments/` beside the database; the page serves them
+  from `/log/attachments/{entry_id}/{filename}` and the mirror copies them
+  beside the markdown. A screenshot pasted with the share unmounted lands.
+- Additive column migration for `book` and `tags`.
+
+### Changed
+
+- **The mirror owns its tree.** Entries mirror into
+  `{experiment}/logbook/Y2026/09-Sep/26_0911/…` — the data tree's date
+  shape, outside it — instead of `logbook/` inside each day folder. The
+  tree is always writable, so a note on a day with no scans has a home
+  and the "deferred forever" state is gone; `mirror._assert_own_tree`
+  refuses any path with `scans` in it. `write_attachment` is replaced by
+  `mirror_attachments` (from the store to the share).
+- The router is assembled from `routes/day`, `routes/entries` and
+  `routes/attachments`; `router.create_log_router` only wires them.
+- Front matter carries `book` and `tags`.
+
 ## [0.2.0] - 2026-09-11
 
 ### Added

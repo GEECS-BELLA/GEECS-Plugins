@@ -130,6 +130,13 @@ EntryPayload = Annotated[
 #: read its own unreviewed output back as fact will cite its own guesses.
 EntryKind = Literal["note", "agent_analysis", "agent_draft"]
 
+#: Which book an entry belongs to. The **scans** book is the curated
+#: campaign record — the day document, anchored to scans; the **ops** book
+#: is routine operations — laser notes, maintenance, shift handovers — read
+#: by month. Same store, same shape; the author chooses the book by which
+#: page they write from, never the timestamp.
+Book = Literal["scans", "ops"]
+
 #: ``draft`` renders with a "nobody has reviewed this" banner. Only a human
 #: promotes a draft to ``kept``; an agent cannot promote its own. The store
 #: enforces the birth half of that rule — an ``agent_*`` entry cannot be
@@ -149,6 +156,9 @@ class LogEntry(VersionedSchemaModel):
         Stable identifier, also the attachment directory segment.
     day : str
         The run day this entry belongs to, as ``YYYY-MM-DD``.
+    book : Book
+        ``scans`` (the campaign record, may be anchored to a scan) or
+        ``ops`` (operations; day-level only).
     scan : int or None
         The scan it annotates, when the entry is about one. Mutually
         exclusive with ``after``; an entry with neither is a **day-level**
@@ -163,6 +173,12 @@ class LogEntry(VersionedSchemaModel):
         Human note, agent analysis, or agent draft.
     status : EntryStatus
         ``draft`` until a human keeps it.
+    tags : list of str
+        Words the author marked with ``#`` in the body (``#laser``),
+        parsed at save and kept here so a month can be filtered without
+        reading every body. The body stays the truth: editing the tag out
+        drops it from here on the next save. Templates seed the common
+        ones, so a type button and a typed tag are the same thing.
     template : str
         Which seed template it started from. Metadata about provenance,
         never structure: the body may have diverged completely, and the
@@ -207,6 +223,7 @@ class LogEntry(VersionedSchemaModel):
     day: str = Field(
         pattern=r"^\d{4}-\d{2}-\d{2}$", description="Run day, as YYYY-MM-DD."
     )
+    book: Book = Field("scans", description="Campaign record or operations.")
     scan: Optional[int] = Field(
         None, ge=1, description="Scan annotated; none for a day-level entry."
     )
@@ -217,6 +234,9 @@ class LogEntry(VersionedSchemaModel):
     author: str = Field(min_length=1, description="Who wrote it.")
     kind: EntryKind = Field("note", description="Human note, or which agent output.")
     status: EntryStatus = Field("kept", description="Drafts await a human.")
+    tags: list[str] = Field(
+        default_factory=list, description="#tags parsed from the body at save."
+    )
     template: str = Field("blank", description="Seed template it started from.")
 
     body_md: str = Field("", description="The entry. Opaque markdown.")
@@ -238,6 +258,8 @@ class LogEntry(VersionedSchemaModel):
     def _one_anchor_at_most(self) -> "LogEntry":
         if self.scan is not None and self.after is not None:
             raise ValueError("an entry is anchored to a scan or after one, not both")
+        if self.book == "ops" and (self.scan is not None or self.after is not None):
+            raise ValueError("an ops entry is about the day, not a scan")
         return self
 
     @property

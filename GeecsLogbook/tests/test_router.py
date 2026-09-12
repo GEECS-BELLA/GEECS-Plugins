@@ -256,7 +256,7 @@ _PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 64
 
 
 class TestAttachments:
-    """Upload lands on the share beside the entry; serving is contained."""
+    """Upload lands on the host beside the database; serving is contained."""
 
     def _upload(
         self,
@@ -279,9 +279,7 @@ class TestAttachments:
         body = r.json()
         assert body["link"] == f"attachments/{e['entry_id']}/shot.png"
         assert body["attachment"]["id"] != e["entry_id"]  # its own id
-        got = writable.get(
-            f"/log/attachments/2026-09-11/Scan001/{e['entry_id']}/shot.png"
-        )
+        got = writable.get(f"/log/attachments/{e['entry_id']}/shot.png")
         assert got.status_code == 200 and got.content == _PNG
         listed = writable.get("/log/api/day/2026-09-11/entries").json()
         assert [a["filename"] for a in listed[0]["attachments"]] == ["shot.png"]
@@ -296,7 +294,7 @@ class TestAttachments:
         second = self._upload(writable, e["entry_id"], "image.png", _PNG + b"2")
         assert first.json()["link"].endswith("/image.png")
         assert second.json()["link"].endswith("/image-2.png")
-        base = f"/log/attachments/2026-09-11/Scan001/{e['entry_id']}"
+        base = f"/log/attachments/{e['entry_id']}"
         assert writable.get(f"{base}/image.png").content == _PNG
         assert writable.get(f"{base}/image-2.png").content == _PNG + b"2"
         ids = {
@@ -330,15 +328,13 @@ class TestAttachments:
             "..%2F..%2Fshot.png",
             "../../../scans/Scan001/ScanInfoScan001.ini",
         ):
-            r = writable.get(
-                f"/log/attachments/2026-09-11/Scan001/{e['entry_id']}/{bad}"
-            )
+            r = writable.get(f"/log/attachments/{e['entry_id']}/{bad}")
             assert r.status_code == 404, bad
 
-    def test_unresolvable_share_is_a_503(
+    def test_upload_and_serving_work_without_the_share(
         self, writable: TestClient, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Upload and serving say the share is down, rather than 500."""
+        """Bytes are store-first: an unmounted share costs nothing but the mirror."""
         from geecs_logbook import mirror
 
         e = _post(writable, scan=1)
@@ -347,10 +343,92 @@ class TestAttachments:
             raise mirror.MirrorUnavailable("gone")
 
         monkeypatch.setattr(mirror, "logbook_root", no_share)
-        assert self._upload(writable, e["entry_id"]).status_code == 503
+        r = self._upload(writable, e["entry_id"])
+        assert r.status_code == 201, r.text
         assert (
-            writable.get(
-                f"/log/attachments/2026-09-11/Scan001/{e['entry_id']}/x.png"
-            ).status_code
-            == 503
+            writable.get(f"/log/attachments/{e['entry_id']}/shot.png").content == _PNG
         )
+
+    def test_rendered_page_links_to_the_serving_route(
+        self, writable: TestClient
+    ) -> None:
+        """A body's relative link is rewritten onto /log/attachments/<id>/<file>."""
+        e = _post(writable, scan=1)
+        self._upload(writable, e["entry_id"])
+        writable.patch(
+            f"/log/api/entries/{e['entry_id']}",
+            json={
+                "body_md": f"![s](attachments/{e['entry_id']}/shot.png)",
+                "editor": "a",
+                "expected_version": 2,
+            },
+        )
+        page = writable.get("/log/day/2026-09-11").text
+        assert f'src="/log/attachments/{e["entry_id"]}/shot.png"' in page
+
+
+class TestBooksTagsHistory:
+    """The foundation for the ops book: books, tags and an entry's past."""
+
+    def test_ops_entry_is_day_level_only(self, writable: TestClient) -> None:
+        """An ops entry with a scan anchor is refused; without one it lands."""
+        r = writable.post(
+            "/log/api/entries",
+            json={
+                "day": "2026-09-11",
+                "author": "a",
+                "body_md": "x",
+                "book": "ops",
+                "scan": 1,
+            },
+        )
+        assert r.status_code == 422
+        e = _post(writable, book="ops", body_md="chiller filter swapped #maintenance")
+        assert e["book"] == "ops" and e["tags"] == ["maintenance"]
+
+    def test_day_page_shows_scans_book_and_counts_ops(
+        self, writable: TestClient
+    ) -> None:
+        """Ops entries do not render on the day document; the API can filter either way."""
+        _post(writable, scan=1, body_md="on the scan")
+        _post(writable, book="ops", body_md="in the ops book")
+        page = writable.get("/log/day/2026-09-11").text
+        assert "on the scan" in page and "in the ops book" not in page
+        both = writable.get("/log/api/day/2026-09-11/entries").json()
+        ops = writable.get("/log/api/day/2026-09-11/entries?book=ops").json()
+        assert len(both) == 2 and [x["body_md"] for x in ops] == ["in the ops book"]
+        assert (
+            writable.get("/log/api/day/2026-09-11/entries?book=nope").status_code == 422
+        )
+
+    def test_tags_follow_the_body(self, writable: TestClient) -> None:
+        """Tags are parsed at save and re-parsed on edit; the page shows chips."""
+        e = _post(writable, scan=1, body_md="#laser tuned; see #jet")
+        assert e["tags"] == ["laser", "jet"]
+        page = writable.get("/log/day/2026-09-11").text
+        assert "#laser</span>" in page and "#jet</span>" in page
+        edited = writable.patch(
+            f"/log/api/entries/{e['entry_id']}",
+            json={"body_md": "just #jet now", "editor": "a", "expected_version": 1},
+        ).json()
+        assert edited["tags"] == ["jet"]
+
+    def test_history_keeps_every_earlier_state(self, writable: TestClient) -> None:
+        """Edit, keep, delete: each leaves the state it replaced, oldest first."""
+        e = _post(writable, scan=1, body_md="v1")
+        writable.patch(
+            f"/log/api/entries/{e['entry_id']}",
+            json={"body_md": "v2", "editor": "b", "expected_version": 1},
+        )
+        writable.post(
+            f"/log/api/entries/{e['entry_id']}/status", json={"status": "draft"}
+        )
+        writable.delete(f"/log/api/entries/{e['entry_id']}")
+        hist = writable.get(f"/log/api/entries/{e['entry_id']}/history").json()
+        assert [(h["reason"], h["version"], h["entry"]["body_md"]) for h in hist] == [
+            ("edit", 1, "v1"),
+            ("status", 2, "v2"),
+            ("delete", 3, "v2"),
+        ]
+        assert hist[2]["entry"]["status"] == "draft"
+        assert writable.get("/log/api/entries/nope/history").status_code == 404
