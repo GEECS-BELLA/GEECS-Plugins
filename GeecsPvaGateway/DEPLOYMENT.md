@@ -98,13 +98,17 @@ eight boxes rolled after 6.100 got it through this path.
 **Launcher changes still need a per-box step, with the service stopped**:
 `launch.bat` is copied locally at bootstrap, so a change to the launcher
 itself (its package list gained GEECS-Core at 0.4.5 and the wheel step at
-0.7.1) does NOT reach a box via `:restart` alone. From an elevated console
-on the box (a console session can read the share; an ssh token cannot):
+0.7.1) does NOT reach a box via `:restart` alone. From an **elevated**
+session on the box — a console, or an ssh session whose key is in
+`C:\ProgramData\ssh\administrators_authorized_keys` (an elevated session
+reads the share with the machine's credentials; a plain ssh token cannot,
+found on the first box of the 2026-09-11 roll, and the nine-box roll then
+went through elevated ssh):
 
 ```powershell
-nssm stop GeecsPvaGateway
+Stop-Service GeecsPvaGateway            # nssm is not on PATH: C:\geecs\pva-gateway\nssm.exe stop GeecsPvaGateway works too
 Copy-Item "\\<nas>\<share>\...\Active Version\GEECS-Plugins\GeecsPvaGateway\deploy\launch.bat" C:\geecs\pva-gateway\launch.bat -Force
-nssm start GeecsPvaGateway
+Start-Service GeecsPvaGateway
 ```
 
 **Never copy over a running service and then `:restart`**: cmd reads a

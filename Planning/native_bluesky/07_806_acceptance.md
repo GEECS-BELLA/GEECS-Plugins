@@ -80,37 +80,35 @@ variable's PVs.
 
 1. **Tiled server.** `/mnt/hdna2/data` added under `readable_storage` in
    the server's config and `Environment=HDF5_USE_FILE_LOCKING=FALSE` on
-   the `tiled` unit (a `systemctl edit` drop-in, `override.conf`), then
-   restarted: Scan007's array reads back through Tiled identical to the
-   file.  Both are `site.env`/unit facts and belong to the end-of-branch
-   deployment touch (`03` §10.5); until then they live in the drop-in
-   and the config file on the host.
+   the `tiled` unit (a `systemctl edit` drop-in), then restarted: Scan007's
+   array reads back through Tiled identical to the file.  The Tiled server
+   is pip-installed and has no rendered unit in `deploy/`, so `site.env`
+   cannot carry either fact; both are recorded in
+   `GeecsBluesky/TILED_SETUP.md` (the Tiled operator doc), where the next
+   site finds them.
 2. **Production worker.** `~/qs-checkout` pulled to 0fd767fa, its env
    reinstalled (p4p), `[pva] file_plugin_addr_list` widened to the nine
    camera servers once they were rolled, and `geecs-qserver` restarted
    at 15:00 — the namespace reads the host list at startup, so the
-   restart is what made every camera on those boxes plugin-backed.
+   restart is what made every camera on those boxes plugin-backed.  No
+   scan has gone through the *manager* on the plugin code yet (Scan007 ran
+   in process from the staging clone); the watch period's first camera
+   scan is that check.
 3. **Fleet roll (PR #824, GeecsPvaGateway 0.7.1).** What the first box
    taught: the boxes predating GEECS-Core carried a `launch.bat` whose
    reinstall line lacked `geecs-core`, so a bare `:restart` on the new
    code crash-loops; and `h5py` is a bootstrap-time dependency.  #824
-   makes both a mechanism — `deploy/requirements-fleet.txt` (the pinned
-   closure, installed `--no-deps` on both sides), `deploy/stage_wheels.sh`
-   (wheels staged under `<Active Version>/pva-wheels`), and a launcher
-   that installs the pins offline before the reinstall.  All nine
-   gateways (192.168.6.80, 6.100, 7.161–7.164, 8.197, 8.199, 8.201) went
-   to 0.7.1 with their `:hdf1:` PVs between 14:55 and 14:59 by
-   stop-service / copy-launcher / start-service over an elevated ssh
-   session per box; `h5py` arrived through the launcher's wheel step, no
-   hand install.
-   **Lesson (from the review of #824): never copy `launch.bat` over a
-   running service and then `:restart`** — `cmd` resumes a batch file by
-   *byte offset* in whatever file is now at that path, so the running
-   launcher continues at a random line of the new one.  The per-box step
-   is stop the service, copy the launcher, start the service.  (`nssm` is
-   not on `PATH` on the boxes; `sc` / `Stop-Service` work, and the copy
-   needs a session that can read the share — an elevated console or
-   elevated ssh.)
+   makes both a mechanism (`deploy/requirements-fleet.txt`,
+   `deploy/stage_wheels.sh`, the launcher's offline wheel step).  All
+   nine gateways (192.168.6.80, 6.100, 7.161–7.164, 8.197, 8.199, 8.201)
+   went to 0.7.1 with their `:hdf1:` PVs between 14:55 and 14:59, one
+   box at a time; `h5py` arrived through the launcher's wheel step, no
+   hand install.  The per-box procedure and the byte-offset lesson
+   (never copy `launch.bat` over a running service and `:restart`) live
+   in `GeecsPvaGateway/DEPLOYMENT.md` § "Launcher changes still need a
+   per-box step" — corrected on two points this roll established: an
+   *elevated* ssh session (key in the administrators' authorized-keys
+   file) reads the share, and `nssm` is not on `PATH` on the boxes.
 
 ## Watch period
 

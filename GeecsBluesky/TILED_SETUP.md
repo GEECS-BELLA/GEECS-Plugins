@@ -27,6 +27,42 @@ from any Python session on the network without touching the raw data files.
   server; stored in `~/.config/geecs_python_api/config.ini` on all client
   machines
 
+### Serving the file plugin's stacks (verified 2026-09-11)
+
+The PVA gateway's file plugin (#806) writes each camera's frames as one
+HDF5 stack under the run folder on the data share, and the worker's
+`TiledWriter` registers that file by its `file://` URI.  Two server-side
+facts, both found by failure on the first run (Scan007 of 26_0911):
+
+1. **`readable_storage` must include the data share** as mounted on the
+   Tiled host.  Without it the array read answers 500, `Refusing to serve
+   file://…/ScanNNN/<device>/<device>.h5 because it is outside the
+   readable storage area for this server`.  In `~/tiled/config.yml`, at
+   the top level beside `trees:` (the HTU mount is the example):
+
+   ```yaml
+   readable_storage:
+     - /mnt/hdna2/data
+   ```
+
+2. **`HDF5_USE_FILE_LOCKING=FALSE` in the service's environment.**  The
+   stacks are written on Windows over SMB and read on Linux over the same
+   share; HDF5's file locking does not survive that path.  On a systemd
+   host, `sudo systemctl edit tiled` and add:
+
+   ```ini
+   [Service]
+   Environment=HDF5_USE_FILE_LOCKING=FALSE
+   ```
+
+   then `sudo systemctl restart tiled`.  The check: a plugin-written run's
+   array (`run[<device>]` through the same client pattern as
+   `tiled_readback.py`) reads back identical to `h5py` on the file.
+
+The Tiled server is pip-installed and unit-less as far as `deploy/` is
+concerned (no rendered unit, no `site.env` key), so these two settings
+live here, not in the deployment tree.
+
 ### Upgrading the server (verified 2026-07-12, 0.2.9 → 0.2.14)
 
 ```bash

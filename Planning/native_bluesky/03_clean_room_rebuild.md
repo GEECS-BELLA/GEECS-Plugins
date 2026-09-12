@@ -4,8 +4,9 @@
 (#816), the plan layer (#821), the headless hardware acceptance (#822), the
 PVA file plugin (#823, `06_pva_file_plugin.md`, `07_806_acceptance.md`) and
 the fleet-requirements mechanism (#824) are merged into the feature branch;
-the worker runs the feature head and nine camera-server gateways serve the
-plugin.  Phase 2 (§8) is next.** Written at the end of the session that built #809 as a handoff,
+the worker runs the #823 merge (#824 touched only the gateway's deploy
+tree) and nine camera-server gateways serve the plugin.  Phase 2 (§8) is
+next.** Written at the end of the session that built #809 as a handoff,
 then amended by the next session after the discussion recorded in §11 and
 §12. Read this before `00_overview.md`, because it supersedes that
 document's phase plan.
@@ -60,16 +61,16 @@ is right in five years, not the one that is reachable in small steps.
 
 ---
 
-## 2. Where things actually stand (verified 2026-09-09)
+## 2. Where things actually stand (verified 2026-09-11)
 
 | thing | state |
 |---|---|
 | `feature/native-bluesky-plans` | integration branch off master; **#808 merged** 2026-09-09 (device namespace); **#811 merged** 2026-09-10 (phase 0, hardware-accepted — `04_phase0_measurements.md` M2/M3); **#813 merged** 2026-09-10 (test speed, #812) |
-| the worker (`geecs-gw`) | **on the feature branch since 2026-09-11** (`~/qs-checkout`, restarted 15:00 on 0fd767fa with the nine-host plugin list): 19 plans registered, every camera on a rolled box plugin-backed; a production preset scan (Scan005 of 26_0911) passed through the manager. Rollback = `git checkout master` there, reinstall, restart. The master Console and MCP cannot submit scans meanwhile (by design, §10.5) |
+| the worker host | **on the feature branch since 2026-09-11.** Flipped in the morning at the #822 state (`~/qs-checkout`; 19 plans registered; Scan005 of 26_0911, a production preset scan through the manager with LabVIEW-native saving). Restarted at 15:00 on 0fd767fa (#823) with the nine-host plugin list: every camera on a rolled box is plugin-backed by the namespace rule, **not yet exercised through the manager** — the watch period's first camera scan is that check (`07_806_acceptance.md`; the acceptance scan ran in process from the staging clone). Rollback = `git checkout master` there, reinstall, restart. The master Console and MCP cannot submit scans meanwhile (by design, §10.5) |
 | `deploy/pva-fleet-requirements` (#824) | **MERGED 2026-09-11** — GeecsPvaGateway 0.7.1: `deploy/requirements-fleet.txt` (the pinned closure, `--no-deps` both sides), `deploy/stage_wheels.sh`, the launcher's offline wheel step; the nine gateways rolled the same afternoon (`07_806_acceptance.md`, with the launcher byte-offset lesson) |
-| `phase/04-pva-file-plugin` (#806) | **MERGED 2026-09-11 (#823)** — the file plugin in GeecsPvaGateway 0.7.0 (`file_plugin.py`, the areaDetector PV set + `Rewind`), `GeecsHdfIO` + `PluginPathProvider` on the worker (GeecsBluesky 0.81.0) under the **stock** `ADHDFDataLogic`, the capture daemon deleted; hardware-accepted on Scan007 of 26_0911 (frames == rows == PNGs, pixel-identical, 1 Hz held), Tiled read verified. Design `06_pva_file_plugin.md`, record `07_806_acceptance.md` |
+| `phase/04-pva-file-plugin` (#806) | **MERGED 2026-09-11 (#823)** — the file plugin in GeecsPvaGateway 0.7.0 (`file_plugin.py`, the areaDetector PV set + `Rewind`), `GeecsHdfIO` + `PluginPathProvider` on the worker (GeecsBluesky 0.81.0) under the **stock** `ADHDFDataLogic`, the capture daemon's runtime deleted (its unit, bootstrap entry and `site.env.example` lines wait for the end-of-branch deployment touch, §10.5); hardware-accepted on Scan007 of 26_0911 (frames == rows == PNGs, pixel-identical, 1 Hz held), Tiled read verified. Design `06_pva_file_plugin.md`, record `07_806_acceptance.md` |
 | `phase/03-hardware-acceptance` (phase 1 PR 3) | **MERGED 2026-09-11 (#822)** — `tests/test_phase1_hardware.py`: the worker's wiring in process (Scans 104/105) and a `Preset` through a second RE Manager (Scans 106/108), every file asserted from disk; per-shot budget measured (`05_phase1_acceptance.md` M4–M7: strict single-shot is not the 1 Hz mode, the exposure sets the margin) |
-| `phase/02-plan-layer` (phase 1 PR 2) | **MERGED 2026-09-10 (#821)** — the plan layer (GeecsBluesky 0.80.0, GEECS-Schemas 0.21.0): the registration table (`plans/registry.py` — 18 stock verbs bound strict under their own names, `trigger_profile` + `shots_per_step` keyword-only, ARMED → STANDBY bracket), the `claim_scan` preprocessor + `GeecsScanPathProvider` (every run claims), the `scalar_headers` preprocessor, the ScanInfo / s-file (from the documents) / `scan.log` callbacks, `SupplementalData` baseline telemetry, `GeecsDetector.scalars`, `Preset` v1 (save sets deleted; corpus regenerated on the configs branch `presets-v1`), `qs_client.submit_plan` / `submit_preset`.  Decisions in §10.7 |
+| `phase/02-plan-layer` (phase 1 PR 2) | **MERGED 2026-09-10 (#821)** — the plan layer (GeecsBluesky 0.80.0, GEECS-Schemas 0.21.0): the registration table (`plans/registry.py` — 18 stock verbs bound strict under their own names, `trigger_profile` + `shots_per_step` keyword-only, ARMED → STANDBY bracket), the `claim_scan` preprocessor + `GeecsScanPathProvider` (every run claims), the `scalar_headers` preprocessor, the ScanInfo / s-file (from the documents) / `scan.log` callbacks, `SupplementalData` baseline telemetry, `GeecsDetector.scalars`, `Preset` v1 (save sets deleted; corpus regenerated as presets — on the configs branch `presets-v1` until the worker flip, on the configs `main` since 2026-09-11), `qs_client.submit_plan` / `submit_preset`.  Decisions in §10.7 |
 | `phase/01-foundation` (phase 1 PR 1) | **MERGED 2026-09-10 (#816)** — the deletions: the `ScanRequest` funnel and named plans, free-run, `GeecsSession`, `scan_request_runner`, `preflight`, `pause_semantics`, `t0_sync`, the funnel-only devices (`CaGenericDetector`, `CaTriggerable`, `CaTelemetryReadable`, `CaTimestampedReadable`, the shot-id / contributor / nonscalar-save mixins), `ShotController` (its write machinery folded into `ShotControl`), the optimization glue (`plans/optimize`, `optimize.py`, `session_bridge`, `worker_loader`) and every test of theirs; the namespace builds `GeecsDetector` for every triggerable device (`native_save` iff the DB lists `save` + `localsavingpath`); `run_engine.make_run_engine` replaces the session; the startup profile exports the stock `bluesky.plans` verbs (`plan_names.GEECS_PLAN_NAMES`) over the namespace; `qs_client` keeps its surface (readiness + liveness preflight only) so the Console and MCP stay importable |
 | #809 `phase/02-preamble-preprocessor` | **CLOSED 2026-09-11** with a pointer here, never merged. The evidence behind §3 |
 | #807 | the decision log; its six-then-three phase plan is superseded by §8 here. Comments there point here |
@@ -706,7 +707,10 @@ Still open, for Sam:
      written for any exit status with rows.
    - **Corpus regeneration is on a configs-repo branch** (`presets-v1`),
      not main: the deployed master worker still reads `save_devices/`;
-     the branch merges with the worker flip (PR 3).
+     the branch merges with the worker flip (PR 3).  **Merged to `main`
+     2026-09-11**, after the flip — nothing deployed reads `save_devices/`
+     any more, and two legacy documents found untracked in the share clone
+     were regenerated as presets in the same push.
 8. **PR 3 facts (2026-09-10/11, `05_phase1_acceptance.md` M6):** the fire
    request is asynchronous to the laser, so a cold shot's request-to-frame
    delay is uniform over one period; after the first shot the loop is
