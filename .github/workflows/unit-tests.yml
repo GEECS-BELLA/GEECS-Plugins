@@ -123,6 +123,15 @@ jobs:
     # machines run Windows — this job pins that the console suite passes
     # on windows-latest.  Console only; the rest of the monorepo is
     # covered by the ubuntu job above.
+    #
+    # OFF BY DEFAULT since 2026-09-12: the console is not being changed
+    # and is slated for retirement, and this leg added ~5 minutes to
+    # every check. It is the console suite's only CI leg, so while it is
+    # off the suite is local-only (scripts/check.sh runs it). Turn it on
+    # without a commit: repository Settings → Secrets and variables →
+    # Actions → Variables → CI_CONSOLE_WINDOWS = true (the job reports
+    # "skipped" while off; no branch protection names it).
+    if: ${{ vars.CI_CONSOLE_WINDOWS == 'true' }}
     runs-on: windows-latest
 
     defaults:

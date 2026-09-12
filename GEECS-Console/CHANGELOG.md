@@ -4,6 +4,19 @@ All notable changes to GEECS-Console are documented here.  Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is
 semantic.
 
+## [0.30.1] - 2026-09-12
+
+### Changed
+
+- The `console-windows` CI job (the console suite and the qs_client tests
+  on `windows-latest`) is **off by default**, gated on the repository
+  Actions variable `CI_CONSOLE_WINDOWS` (`true` turns it on from
+  Settings, no commit). The console is not being changed and is slated
+  for retirement; the job added ~5 minutes to every check. It is the
+  console suite's **only** CI leg, so while off the suite is local-only —
+  `scripts/check.sh` still runs it when console files change. The
+  qs_client suite keeps its Ubuntu leg.
+
 ## [0.30.0] - 2026-09-04
 
 ### Added
