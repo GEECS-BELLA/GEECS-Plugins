@@ -1,6 +1,0 @@
-assigned_actions:
-- name: Amp4_DUMP_HP
-- name: Amp4_SEND_HP_TO_TARGET
-- name: experiment_CLOSEOUT
-- name: zero_steering_magnets
-- name: pmq_INSERT

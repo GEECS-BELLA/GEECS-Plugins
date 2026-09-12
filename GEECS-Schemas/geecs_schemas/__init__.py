@@ -4,9 +4,9 @@ Configs are schemas; YAML is just serialization.  This package is the single
 home of the models (vision doc §4): presets (the saved scan: device group +
 plan call), scan requests, scan variables, trigger profiles, action plans,
 and gateway derived channels — plus converters from the legacy YAML
-dialects still in use (``geecs_schemas.convert``; scan variables and
-presets have none, GEECS-Plugins#779 / #807) and a Markdown reference
-generator (``geecs_schemas.docgen``).
+dialects still in use (``geecs_schemas.convert``; scan variables, presets
+and action libraries have none, GEECS-Plugins#779 / #807) and a Markdown
+reference generator (``geecs_schemas.docgen``).
 
 It depends on Pydantic only, so anything — engine, GUI, scripts, docs
 tooling — can import it without dragging in hardware or analysis stacks.

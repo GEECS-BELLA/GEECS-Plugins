@@ -4,6 +4,16 @@ All notable changes to GEECS-Console are documented here.  Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is
 semantic.
 
+## [0.32.0] - 2026-09-12
+
+### Removed
+
+- `ActionLibraryStore.load_library`'s legacy-dialect path: an
+  `actions.yaml` in the old `actions:` shape is refused with an
+  `ActionLibraryStoreError` naming the regeneration instead of being
+  converted on read (the converter is gone, GEECS-Schemas 0.22.0; the
+  configs corpus was regenerated as `ActionPlanLibrary` documents).
+
 ## [0.31.0] - 2026-09-10
 
 ### Removed
