@@ -155,6 +155,8 @@ def test_action_library_absent_or_empty(repo):
     assert resolver.action_plan_registry() == {}
     with pytest.raises(GeecsConfigurationError, match="not in the"):
         resolver.resolve_action_plan("x")
+    (folder / "actions.yaml").write_text("{}\n")  # _load_yaml reads None and {} alike
+    assert resolver.action_plan_registry() == {}
 
 
 def test_resolve_preset_missing_raises_with_kind(repo):

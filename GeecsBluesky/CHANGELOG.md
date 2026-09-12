@@ -13,8 +13,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `ActionPlanLibrary` document only; a file in the legacy `actions:`
   dialect is refused by the schema (a `ValidationError` naming the
   regeneration — the converter is gone, GEECS-Schemas 0.22.0; the corpus
-  was regenerated); an empty file is an empty library, as the Console
-  reads it.  `action_plan_registry` (the MCP's listing) is empty only when
+  was regenerated); an empty (or literal `{}`) file is an empty library,
+  as the Console reads an empty file.  `action_plan_registry` (the MCP's
+  listing) is empty only when
   the file is absent — an unreadable or legacy file raises instead of
   listing nothing.  The action-compiler tests read the regenerated fixture.
 

@@ -314,7 +314,10 @@ class ConfigsRepoResolver:
         document = self._load_yaml(path, "action library", "actions")
         if not document:
             # An empty file (a fresh experiment's placeholder) is an empty
-            # library — the Console's store reads it the same way.
+            # library, as the Console's store reads it.  ``_load_yaml`` maps
+            # YAML ``None`` to ``{}``, so a literal ``{}`` reads the same way
+            # here (the Console's store rejects that one — a file no writer
+            # produces; its ``save_library`` writes ``plans: {}``).
             return ActionPlanLibrary(plans={})
         # A legacy 'actions:' document is refused by the schema itself
         # (ActionPlanLibrary's before-validator names the regeneration).
