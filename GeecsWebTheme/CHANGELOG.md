@@ -4,6 +4,13 @@ All notable changes to `geecs-web-theme` are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 project adheres to semantic versioning.
 
+## [0.1.1] - 2026-09-11
+
+### Changed
+
+- The literal-colour guard's surface list follows the logbook package
+  rename (`GeecsLogbook/geecs_logbook/`).
+
 ## [0.1.0] - 2026-09-11
 
 ### Added

@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import date
 from pathlib import Path
 
-from geecs_scan_log.scan_reader import read_day, scan_status
+from geecs_logbook.scan_reader import read_day, scan_status
 
 DAY = date(2026, 9, 11)
 
@@ -178,7 +178,7 @@ class TestCaching:
 
     def test_second_read_uses_the_cache(self, share: Path) -> None:
         """Re-reading a day hits the cache rather than the share."""
-        from geecs_scan_log.scan_reader import _read_scan_cached
+        from geecs_logbook.scan_reader import _read_scan_cached
 
         _read_scan_cached.cache_clear()
         read_day(DAY, "Undulator", base_directory=share)
@@ -198,7 +198,7 @@ class TestCaching:
         write no s-file that might otherwise have disturbed the folder.
         """
         import os
-        from geecs_scan_log.scan_reader import _read_scan_cached
+        from geecs_logbook.scan_reader import _read_scan_cached
 
         _read_scan_cached.cache_clear()
         scans = share / "Undulator" / "Y2026" / "09-Sep" / "26_0911" / "scans"
@@ -228,7 +228,7 @@ class TestCaching:
     def test_a_changed_folder_misses_the_cache(self, share: Path) -> None:
         """A scan still being written is never served stale."""
         import os
-        from geecs_scan_log.scan_reader import _read_scan_cached
+        from geecs_logbook.scan_reader import _read_scan_cached
 
         _read_scan_cached.cache_clear()
         first = read_day(DAY, "Undulator", base_directory=share)
@@ -257,7 +257,7 @@ class TestLeanReads:
 
     def test_one_listing_answers_every_question(self, share: Path) -> None:
         """A populated scan yields ini, its stat, the log and the devices."""
-        from geecs_scan_log.scan_reader import scan_contents
+        from geecs_logbook.scan_reader import scan_contents
 
         folder = share / "Undulator" / "Y2026" / "09-Sep" / "26_0911" / "scans"
         got = scan_contents(folder / "Scan001")
@@ -269,7 +269,7 @@ class TestLeanReads:
 
     def test_bare_folder_yields_only_its_log(self, share: Path) -> None:
         """A folder with no ScanInfo still reports the log it does have."""
-        from geecs_scan_log.scan_reader import scan_contents
+        from geecs_logbook.scan_reader import scan_contents
 
         folder = share / "Undulator" / "Y2026" / "09-Sep" / "26_0911" / "scans"
         got = scan_contents(folder / "Scan031")
@@ -279,7 +279,7 @@ class TestLeanReads:
 
     def test_missing_folder_is_reported_not_raised(self, tmp_path: Path) -> None:
         """An absent folder returns empties rather than exploding a day."""
-        from geecs_scan_log.scan_reader import scan_contents
+        from geecs_logbook.scan_reader import scan_contents
 
         assert scan_contents(tmp_path / "nope") == (None, None, None, None, ())
 

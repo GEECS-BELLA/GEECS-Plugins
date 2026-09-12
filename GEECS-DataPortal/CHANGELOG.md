@@ -3,6 +3,23 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.24.0] - 2026-09-11
+
+### Added
+
+- `--notes-db PATH` (and `create_app(notes_db=)`): the logbook's SQLite
+  file, which makes `/log` writable — entries, drafts, attachments — with
+  a markdown mirror into each day's `logbook/` folder on the share. A
+  charter amendment: a write verb for **commentary only**, never the
+  scans tree. Defaults to `logbook.db` under systemd's `$STATE_DIRECTORY`
+  when set; the unit template now declares `StateDirectory=geecs-data-portal`.
+  Without either, the logbook is the read-only day view.
+
+### Changed
+
+- The `log` extra now installs `geecs-logbook` (the package was renamed
+  from `geecs-scan-log`).
+
 ## [0.23.0] - 2026-09-11
 
 ### Changed
@@ -27,7 +44,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
-- `--scan-log` mounts the scan logbook (`geecs_scan_log`) at `/log`, behind
+- `--scan-log` mounts the scan logbook (`geecs_logbook`) at `/log`, behind
   the new `log` extra. Off by default, and skipped with a warning when no
   `--experiment` is given: the logbook reads one experiment's share and
   carries no facility default.

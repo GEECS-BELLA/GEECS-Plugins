@@ -350,6 +350,7 @@ def create_app(
     analysis_factory: Optional[analysis_runs.AnalyzerFactory] = None,
     config_editor: bool = False,
     scan_log: bool = False,
+    notes_db: Optional[Path] = None,
 ) -> FastAPI:
     """Build the portal application over an injected catalog.
 
@@ -381,10 +382,16 @@ def create_app(
     FastAPI
         The configured application.
     scan_log : bool, default False
-        Mount the scan logbook (``geecs_scan_log``) at ``/log``. Requires
+        Mount the scan logbook (``geecs_logbook``) at ``/log``. Requires
         ``default_experiment``, since the logbook reads one experiment's
         share and this package carries no facility default. ``False``
         leaves ``/log`` unserved.
+    notes_db : Path, optional
+        The SQLite file the logbook keeps its entries in. With it the
+        logbook is **writable** — notes, drafts, attachments — and mirrors
+        each entry as markdown into the day's ``logbook/`` folder on the
+        share (a sibling of ``scans/``; never inside it). Without it the
+        logbook is the read-only day view. Ignored unless ``scan_log``.
     config_editor : bool, default False
         Mount the analysis config editor (``scan_analysis.config_editor``)
         at ``/configs`` over the same ``processing_config_dir`` tree, with a
@@ -1908,11 +1915,18 @@ def create_app(
             )
         else:
             try:
-                from geecs_scan_log import create_log_router
+                from geecs_logbook import create_log_router
             except ImportError as exc:  # the log extra is not installed
                 logger.warning("scan log requested but not installed: %s", exc)
             else:
-                app.include_router(create_log_router(default_experiment), prefix="/log")
-                logger.info("scan log mounted at /log for %s", default_experiment)
+                app.include_router(
+                    create_log_router(default_experiment, notes_db=notes_db),
+                    prefix="/log",
+                )
+                logger.info(
+                    "scan log mounted at /log for %s (%s)",
+                    default_experiment,
+                    f"entries in {notes_db}" if notes_db else "read-only",
+                )
 
     return app

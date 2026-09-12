@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "geecs-web-theme"
-version = "0.1.0"
+version = "0.1.1"
 description = "One palette vocabulary for every GEECS web surface: tokens, themes, and the picker"
 authors = ["GEECS-BELLA"]
 readme = "README.md"

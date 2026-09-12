@@ -28,7 +28,86 @@
   <dd{% if value is none %} class="none"{% endif %}>{{ value if value is not none else '—' }}</dd></div>
 {%- endmacro %}
 
-{% macro scan_block(s, expanded) %}
+{% macro entries_block(anchor, scan, after, entries, writable) %}
+  {% set es = entries.get(anchor, []) %}
+  {% if es or writable %}
+  <div class="entries">
+    {% for r in es %}
+    <article class="entry{% if r.entry.kind.startswith('agent') %} entry-agent{% endif %}"
+             id="entry-{{ r.entry.entry_id }}"
+             data-entry="{{ r.entry.entry_id }}" data-version="{{ r.entry.version }}">
+      <div class="avatar{% if r.entry.kind.startswith('agent') %} avatar-agent{% endif %}">{{ r.entry.author | initials }}</div>
+      <div class="entry-main">
+        <div class="entry-head">
+          <span class="author">{{ r.entry.author }}</span>
+          {% if r.entry.kind.startswith('agent') %}
+            <span class="chip chip-agent">{{ 'agent · draft' if r.entry.status == 'draft' else 'agent' }}</span>
+          {% endif %}
+          {% if r.entry.template not in ('blank', 'scan_note', 'day_intro') %}
+            <span class="chip chip-quiet">{{ r.entry.template }}</span>
+          {% endif %}
+          <span class="stamp" title="{{ r.entry.created_at.isoformat() }}">{{ r.entry.created_at.astimezone().strftime('%H:%M') }}{% if r.entry.edited_at %} · edited{% if r.entry.edited_by and r.entry.edited_by != r.entry.author %} by {{ r.entry.edited_by }}{% endif %}{% endif %}</span>
+          {% if writable %}
+          <span class="entry-tools">
+            <button class="linkbtn" type="button" data-edit="{{ r.entry.entry_id }}">Edit</button>
+            <button class="linkbtn" type="button" data-del="{{ r.entry.entry_id }}">Delete</button>
+          </span>
+          {% endif %}
+        </div>
+        {% if r.entry.status == 'draft' %}
+        <div class="draftnote">Draft &mdash; nobody has reviewed this.
+          {% if writable %}<button class="linkbtn" type="button" data-keep="{{ r.entry.entry_id }}">Keep in log</button>{% endif %}
+        </div>
+        {% endif %}
+        <div class="entry-body">{{ r.html | safe }}</div>
+        {# JSON, not text: a <script> body is raw text, so HTML-escaped
+           entities would come back literally into the editor. #}
+        <script type="application/json" class="raw">{{ r.entry.body_md | tojson }}</script>
+      </div>
+    </article>
+    {% endfor %}
+    {% if writable %}
+    <form class="composer" data-scan="{{ scan if scan is not none else '' }}"
+          data-after="{{ after if after is not none else '' }}">
+      <div class="avatar avatar-you">&hellip;</div>
+      <div class="entry-main">
+        <textarea class="ta" rows="3" placeholder="Add a note&hellip; Markdown works."></textarea>
+        <div class="editor-bar">
+          <input class="who" placeholder="Your name" required aria-label="Your name">
+          <button class="btn btn-sm btn-primary" type="submit">Save</button>
+          <span class="editor-hint">&#8984;&#8629; saves</span>
+        </div>
+      </div>
+    </form>
+    {% endif %}
+  </div>
+  {% endif %}
+{% endmacro %}
+
+{% macro between_block(after, entries, writable, prev_label, next_label) %}
+  {% set anchor = 'after-%04d' % after %}
+  {% set es = entries.get(anchor, []) %}
+  {% if es %}
+  <section class="between">
+    <header><span class="tlabel">Between scans</span>
+      <span class="trange">{{ prev_label }} &rarr; {{ next_label }}</span></header>
+    {{ entries_block(anchor, none, after, entries, writable) }}
+  </section>
+  {% elif writable %}
+  <div class="insert" data-insert="{{ after }}">
+    <div class="insert-rule"></div>
+    <button class="insert-btn" type="button">+ note between {{ prev_label }} and {{ next_label }}</button>
+    <div class="insert-rule"></div>
+  </div>
+  <section class="between" hidden data-between-host="{{ after }}">
+    <header><span class="tlabel">Between scans</span>
+      <span class="trange">{{ prev_label }} &rarr; {{ next_label }}</span></header>
+    {{ entries_block(anchor, none, after, entries, writable) }}
+  </section>
+  {% endif %}
+{% endmacro %}
+
+{% macro scan_block(s, expanded, entries, writable) %}
   <details class="card scan" id="{{ s.label }}"
            data-hay="{{ (s.label ~ ' ' ~ (s.parameter or '') ~ ' ' ~ (s.purpose or '') ~ ' ' ~ s.devices|join(' ')) | lower }}"
            {% if expanded %}open{% endif %}>
@@ -80,6 +159,7 @@
         {{ fact('Devices', s.devices | join(', ') if s.devices else none) }}
       </dl>
     </div>
+    {{ entries_block('scan-%04d' % s.number, s.number, none, entries, writable) }}
   </details>
 {% endmacro %}
 
@@ -169,6 +249,7 @@
       </div>
       <div class="daystats">
         <div>Scans<b>{{ summary.scans | length }}</b></div>
+        {% if writable or entry_count %}<div>Notes<b>{{ entry_count }}</b></div>{% endif %}
         {% if summary.failed %}<div>Failed<b>{{ summary.failed }}</b></div>{% endif %}
       </div>
     </div>
@@ -180,6 +261,17 @@
       <p class="empty">The day folder exists but holds no scans yet.</p>
     {% endif %}
 
+    {% if entries.get('day') or writable %}
+    <section class="card intro">
+      <header class="scanhead" style="cursor:default">
+        <span class="scanid">Day intro</span>
+        <span class="scanpurpose">What today is for, and the machine state going in</span>
+      </header>
+      {{ entries_block('day', none, none, entries, writable) }}
+    </section>
+    {% endif %}
+
+    {% set ns = namespace(prev=0, prev_label='the start of the day') %}
     {% if many %}
       {% for c in summary.campaigns %}
       <details class="campaign" {% if c.scans | length == 1 %}open{% endif %}>
@@ -197,16 +289,29 @@
           {% if c.failed %}<span class="chip chip-failed">{{ c.failed }} failed</span>{% endif %}
         </summary>
         <div class="campbody">
-          {% for s in c.scans %}{{ scan_block(s, false) }}{% endfor %}
+          {% for s in c.scans %}
+            {{ between_block(ns.prev, entries, writable, ns.prev_label, s.label) }}
+            {{ scan_block(s, false, entries, writable) }}
+            {% set ns.prev = s.number %}{% set ns.prev_label = s.label %}
+          {% endfor %}
         </div>
       </details>
       {% endfor %}
     {% else %}
-      {% for s in summary.scans %}{{ scan_block(s, true) }}{% endfor %}
+      {% for s in summary.scans %}
+        {{ between_block(ns.prev, entries, writable, ns.prev_label, s.label) }}
+        {{ scan_block(s, true, entries, writable) }}
+        {% set ns.prev = s.number %}{% set ns.prev_label = s.label %}
+      {% endfor %}
     {% endif %}
 
-    <p class="foot">Notes and figures land here in the next change. This view is
-    read-only: it renders the scan folders and stores nothing.</p>
+    {% if summary.scans %}
+      {{ between_block(ns.prev, entries, writable, ns.prev_label, 'the end of the day') }}
+    {% endif %}
+    {% if not writable %}
+    <p class="foot">Read-only: no notes store is configured, so this view renders
+    the scan folders and stores nothing.</p>
+    {% endif %}
   </main>
 </div>
 
@@ -266,6 +371,96 @@ document.querySelectorAll(".scanrow").forEach(a => a.addEventListener("click", (
   const camp = el.closest("details.campaign");
   if (camp) camp.open = true;
 }));
+
+/* ---- notes: the minimal write path. A real editor replaces this. ---- */
+const API = {{ api_base | tojson }};
+const AUTHOR_KEY = "geecs.author";
+const who = () => { try { return localStorage.getItem(AUTHOR_KEY) || ""; } catch (e) { return ""; } };
+document.querySelectorAll(".composer .who").forEach(i => { i.value = who(); });
+
+async function api(method, path, body){
+  const res = await fetch(API + path, {
+    method, headers: body ? {"Content-Type": "application/json"} : {},
+    body: body ? JSON.stringify(body) : undefined });
+  if (res.status === 204) return null;
+  const data = await res.json().catch(() => ({}));
+  const d = data.detail;
+  const text = Array.isArray(d) ? d.map(x => x.msg || JSON.stringify(x)).join("; ") : (d?.message || d || res.statusText);
+  if (!res.ok) throw Object.assign(new Error(text), {status: res.status, data});
+  return data;
+}
+function fail(el, err){
+  const msg = el.querySelector(".errmsg") || el.appendChild(Object.assign(document.createElement("div"), {className: "errmsg"}));
+  msg.textContent = err.status === 409
+    ? "Someone else saved this first. Reload to see their version, then re-apply your change."
+    : (err.message || "Could not save.");
+}
+
+document.addEventListener("submit", async ev => {
+  const form = ev.target.closest("form.composer"); if (!form) return;
+  ev.preventDefault();
+  const ta = form.querySelector(".ta"), name = form.querySelector(".who").value.trim();
+  if (!ta.value.trim() || !name) return;
+  try { localStorage.setItem(AUTHOR_KEY, name); } catch (e) {}
+  const body = { day: {{ summary.day.isoformat() | tojson }}, author: name, body_md: ta.value };
+  if (form.dataset.after !== "") body.after = Number(form.dataset.after);
+  else if (form.dataset.scan !== "") body.scan = Number(form.dataset.scan);
+  // neither: a day-level entry
+  try { await api("POST", "/entries", body); location.reload(); }
+  catch (err) { fail(form, err); }
+});
+
+document.addEventListener("keydown", ev => {
+  if ((ev.metaKey || ev.ctrlKey) && ev.key === "Enter" && ev.target.matches(".ta")){
+    ev.preventDefault(); ev.target.closest("form")?.requestSubmit();
+  }
+});
+
+document.addEventListener("click", async ev => {
+  const b = ev.target.closest("button"); if (!b) return;
+  if (b.closest("[data-insert]")){
+    const after = b.closest("[data-insert]").dataset.insert;
+    const host = document.querySelector(`[data-between-host="${after}"]`);
+    if (host){ host.hidden = false; b.closest("[data-insert]").hidden = true; host.querySelector(".ta")?.focus(); }
+    return;
+  }
+  if (b.dataset.keep){
+    try { await api("POST", `/entries/${b.dataset.keep}/status`, {status: "kept"}); location.reload(); }
+    catch (err) { fail(b.closest(".entry-main"), err); }
+    return;
+  }
+  if (b.dataset.del){
+    if (b.dataset.armed !== "1"){ b.dataset.armed = "1"; b.textContent = "Really delete"; return; }
+    try { await api("DELETE", `/entries/${b.dataset.del}`); location.reload(); }
+    catch (err) { fail(b.closest(".entry-main"), err); }
+    return;
+  }
+  if (b.dataset.edit){
+    const art = document.getElementById("entry-" + b.dataset.edit);
+    const main = art.querySelector(".entry-main"), raw = JSON.parse(art.querySelector(".raw").textContent);
+    const bodyEl = main.querySelector(".entry-body");
+    if (main.querySelector("form.editing")) return;
+    const form = document.createElement("form"); form.className = "composer editing";
+    form.innerHTML = `<div class="entry-main"><textarea class="ta" rows="6"></textarea>
+      <div class="editor-bar"><input class="who" placeholder="Your name" required aria-label="Your name">
+      <button class="btn btn-sm btn-primary" type="submit">Save</button>
+      <button class="btn btn-sm" type="button" data-cancel="1">Cancel</button></div></div>`;
+    form.querySelector(".ta").value = raw; form.querySelector(".who").value = who();
+    bodyEl.hidden = true; bodyEl.after(form); form.querySelector(".ta").focus();
+    form.addEventListener("submit", async e => {
+      e.preventDefault();
+      const name = form.querySelector(".who").value.trim(); if (!name) return;
+      try { localStorage.setItem(AUTHOR_KEY, name); } catch (x) {}
+      try {
+        await api("PATCH", `/entries/${art.dataset.entry}`, {
+          body_md: form.querySelector(".ta").value, editor: name,
+          expected_version: Number(art.dataset.version) });
+        location.reload();
+      } catch (err) { fail(form, err); }
+    });
+    form.querySelector("[data-cancel]").addEventListener("click", () => { form.remove(); bodyEl.hidden = false; });
+  }
+});
 </script>
 <script src="{{ root }}/theme/theme.js" defer></script>
 </body>

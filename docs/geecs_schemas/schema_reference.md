@@ -1073,3 +1073,90 @@ One diagnostic in a group, optionally disabled or re-prioritised for this group.
 | `ref` | `str` | yes | — | The diagnostic's ID (its YAML file stem). |
 | `enabled` | `bool` | no | True | False keeps the entry listed but skips it when the group runs. |
 | `priority` | `int (optional)` | no | None | Run order within this group; unset uses the diagnostic's own scan.priority. |
+
+## `log_entry`
+
+### LogEntry
+
+One entry in the scan logbook.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `schema_version` | `int` | no | 1 | Entry format revision. |
+| `entry_id` | `str` | yes | — | Stable id; also the attachment directory. |
+| `day` | `str` | yes | — | Run day, as YYYY-MM-DD. |
+| `scan` | `int (optional)` | no | None | Scan annotated; none for a day-level entry. |
+| `after` | `int (optional)` | no | None | For an interscan entry, the scan it follows. |
+| `author` | `str` | yes | — | Who wrote it. |
+| `kind` | `'note' \| 'agent_analysis' \| 'agent_draft'` | no | 'note' | Human note, or which agent output. |
+| `status` | `'kept' \| 'draft'` | no | 'kept' | Drafts await a human. |
+| `template` | `str` | no | 'blank' | Seed template it started from. |
+| `body_md` | `str` | no | '' | The entry. Opaque markdown. |
+| `payload` | `AnalysisPayload \| ProblemPayload (optional)` | no | None | Machine-authored structure, never human prose. |
+| `attachments` | `list[Attachment]` | no | empty | Files stored beside the markdown. |
+| `created_at` | `datetime` | yes | — | First saved. |
+| `edited_at` | `datetime (optional)` | no | None | Text last changed. |
+| `edited_by` | `str (optional)` | no | None | Who last changed the text. |
+| `updated_at` | `datetime` | yes | — | Anything last changed. |
+| `deleted_at` | `datetime (optional)` | no | None | Tombstone. |
+| `version` | `int` | no | 1 | Optimistic-lock counter. |
+
+Example:
+
+```yaml
+schema_version: 1
+entry_id: 7f3a9c2b1d04
+day: "2026-09-11"
+scan: 12                         # omit both scan and after for a day-level entry
+author: S. Barber
+kind: note                       # agent_analysis / agent_draft are born as drafts
+status: kept
+template: scan_note
+body_md: |
+  Charge rolloff onset moved to 4.1 mm after the jet realignment.
+  ![top view](attachments/7f3a9c2b1d04/topview.png)
+payload:
+  kind: analysis                 # optional machine-readable half
+  analyzer: Array1DScanAnalyzer
+  metrics: {onset_mm: 4.1}
+attachments:
+  - {id: 7f3a9c2b1d04, filename: topview.png, content_type: image/png,
+     size_bytes: 48213, uploaded_at: "2026-09-11T17:42:10+00:00"}
+created_at: "2026-09-11T17:40:02+00:00"
+updated_at: "2026-09-11T17:42:10+00:00"   # moves on every change; edited_at only on text
+version: 2
+```
+
+### AnalysisPayload
+
+Structured results an analysis wants to make queryable.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `kind` | `'analysis'` | no | 'analysis' | Payload type tag. |
+| `analyzer` | `str` | yes | — | Which analyzer produced this, e.g. Array1DScanAnalyzer. |
+| `metrics` | `dict[str, float]` | no | empty | Named scalar results. Free-form by design: an analyzer names its own. |
+| `figures` | `list[str]` | no | empty | Paths to figures in the analysis tree, referenced not copied. |
+
+### ProblemPayload
+
+A problem worth finding again later.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `kind` | `'problem'` | no | 'problem' | Payload type tag. |
+| `severity` | `'note' \| 'degraded' \| 'blocked'` | no | 'note' | How much it stopped the run. |
+| `devices` | `list[str]` | no | empty | Devices implicated, by GEECS name. |
+| `issue_url` | `str (optional)` | no | None | Tracker link, when one was filed. |
+
+### Attachment
+
+One file uploaded with an entry — a pasted screenshot, a PDF.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `id` | `str` | yes | — | Opaque id of this upload. |
+| `filename` | `str` | yes | — | Name as stored on disk. |
+| `content_type` | `str` | yes | — | Media type, e.g. image/png. |
+| `size_bytes` | `int` | yes | — | Stored size in bytes. |
+| `uploaded_at` | `datetime` | yes | — | When the file was stored. |

@@ -38,8 +38,8 @@ _SURFACES = [
     "GEECS-DataPortal/geecs_portal/templates/base.html",
     "GEECS-DataPortal/geecs_portal/templates/day.html",
     "GEECS-DataPortal/geecs_portal/templates/run.html",
-    "GeecsScanLog/geecs_scan_log/static/scanlog.css",
-    "GeecsScanLog/geecs_scan_log/templates/day.html",
+    "GeecsLogbook/geecs_logbook/static/scanlog.css",
+    "GeecsLogbook/geecs_logbook/templates/day.html",
     "ScanAnalysis/scan_analysis/config_editor/static/editor.css",
     "ScanAnalysis/scan_analysis/config_editor/templates/editor.html",
 ]

@@ -1,17 +1,92 @@
 # Changelog
 
-All notable changes to `geecs-scan-log` are documented here. The format
+All notable changes to `geecs-logbook` are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 project adheres to semantic versioning.
+
+## [0.2.0] - 2026-09-11
+
+### Added
+
+- **Commentary.** `geecs_logbook.store.NotesStore` — SQLite (WAL) with
+  optimistic locking (`version`, `ConflictError` carrying the current
+  entry) — and `geecs_logbook.mirror`, which writes each entry as
+  front-matter markdown into the day's `logbook/` folder on the share
+  (a sibling of `scans/`; never inside a scan folder, never creating the
+  day). The store is written first; `mirror.sync` pays the debt when the
+  share is back.
+- Entry routes on the router when `notes_db` is given: create, edit
+  (409 on a stale version), keep/un-keep, delete, attachment upload
+  (20 MiB; png/jpeg/gif/webp/pdf), plus `GET /api/day/{day}/entries`.
+  The day page grows a composer per scan, per gap and for the day.
+- `geecs_logbook.render.render_markdown` — markdown-it (commonmark +
+  tables + strikethrough + task lists) sanitised by nh3, with `> [!NOTE]`
+  callouts and attachment links rewritten to the serving route.
+- Day-level entries: neither `scan` nor `after` — a note about the day.
+- `updated_at` on every entry (moves on any change; `edited_at` only on
+  text) and `deleted_at` tombstones instead of row removal.
+- An agent's entry (`kind` other than `note`) cannot be created `kept`;
+  the store refuses it and the route answers 422.
+- Additive column migration for an existing database file.
+
+### Changed
+
+- **Renamed from `GeecsScanLog` / `geecs_scan_log`.** The scan logger is
+  the archetype for a general logbook, so the package is named for what it
+  is becoming. Distribution name `geecs-logbook`; the portal's `log` extra
+  follows.
+- The day intro (`scan=0`) is gone; `scan` starts at 1 and the intro card
+  holds the day-level entries. Their mirror files sit at `logbook/` root
+  under the same stamped name as every other entry (no `day.md`).
+- `mirror.logbook_root` raises `MirrorUnavailable` when the share cannot
+  be resolved at all (no configuration, unmounted), so a save on such a
+  host still returns 201 with the file owed rather than a 500 after the
+  row was written.
+- The page takes its colours from `geecs_web_theme`; no palette of its
+  own.
+
+### Fixed (review of #832)
+
+- Editing an entry whose text held `'`, `"`, `<`, `>` or `&` fed the
+  HTML-escaped form back into the editor and saved it. The raw body now
+  travels as JSON.
+- The mirror queue rotates: a failed attempt records `mirror_attempted_at`
+  and never-tried entries go first, so an entry whose day folder never
+  appears cannot starve the ones behind it.
+- Mirror filenames and the page's time stamps are the host's local time,
+  the clock the day and its scans are named by, not UTC.
+- Two uploads with the same name no longer overwrite each other
+  (`image-2.png`, …); each attachment has its own id; the manifest append
+  is one SQL statement, so concurrent uploads both land.
+- The upload route runs in the threadpool rather than blocking the event
+  loop on a share write; an unresolvable share is a 503 on upload and on
+  attachment serving, not a 500.
+- Task-list checkboxes survive sanitising.
+- Mirroring is serialised per process (`mirror.WRITE_LOCK`) and reads
+  the entry afresh under the lock, so the periodic sync can never write
+  an older body over a file a request just mirrored; the mark is pinned
+  to the version written. Temp files carry unique names and the mode a
+  plain write would have had (mkstemp's 0600 is not for a mirror people
+  read).
+- An edit no longer changes the entry's `author` (which is part of the
+  mirror file's stable name — the old behaviour left a stale file behind
+  and re-attributed the entry to whoever fixed a typo). The editor is
+  recorded as `edited_by` and shown as "edited by …". `PATCH` takes
+  `editor`, not `author`.
+- Same-name uploads are numbered by claiming the name on disk
+  (`O_EXCL`), so pastes in flight at once cannot collide.
+- New tests for the renderer (sanitiser, callouts, link rewrite, task
+  lists) and the attachment routes (upload, serve, size and type limits,
+  traversal, unresolvable share).
 
 ## [0.1.0] - 2026-09-11
 
 ### Added
 
 - Initial package: a read-only day-document view over scan folders.
-- `geecs_scan_log.models` — `ScanSummary` and `DaySummary`, the derived
+- `geecs_logbook.models` — `ScanSummary` and `DaySummary`, the derived
   view of a scan folder. Nothing here is stored by the logbook.
-- `geecs_scan_log.scan_reader.read_day` — lists a day's `ScanNNN` folders
+- `geecs_logbook.scan_reader.read_day` — lists a day's `ScanNNN` folders
   and parses each `ScanInfoScanNNN.ini` into a `ScanSummary`. Read-only by
   construction: it never constructs `ScanPaths(read_mode=False)` and never
   calls `mkdir`.
@@ -78,6 +153,6 @@ project adheres to semantic versioning.
 - `CLAUDE.md` records the deferred decisions from phase 01's review,
   including the owed issue to review `ScanPaths`/`ScanData` and extract
   their pure parts — the price of the duplication accepted here.
-- `geecs_scan_log.router.create_log_router` — an `APIRouter` the Data
+- `geecs_logbook.router.create_log_router` — an `APIRouter` the Data
   Portal mounts at `/log`, serving `/log/day/{date}` and a JSON peer at
   `/log/api/day/{date}`.

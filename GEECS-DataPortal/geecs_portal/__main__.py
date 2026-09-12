@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 from pathlib import Path
 
 import matplotlib
@@ -67,7 +68,25 @@ def main() -> None:
             "mount the scan logbook at /log (requires the `log` extra and --experiment)"
         ),
     )
+    parser.add_argument(
+        "--notes-db",
+        default=None,
+        help=(
+            "SQLite file for the logbook's entries; makes /log writable "
+            "(a WRITE verb: rows here, markdown mirrored into each day's "
+            "logbook/ folder on the share). Default: logbook.db under "
+            "systemd's $STATE_DIRECTORY when set, else none — a read-only "
+            "logbook. Its directory must already exist."
+        ),
+    )
     args = parser.parse_args()
+
+    notes_db: Path | None = Path(args.notes_db) if args.notes_db else None
+    if notes_db is None and os.environ.get("STATE_DIRECTORY"):
+        # StateDirectory= in the unit: systemd creates it and sets this
+        # variable, so a deployed portal has somewhere durable to write
+        # without any site value in code or the unit template.
+        notes_db = Path(os.environ["STATE_DIRECTORY"].split(":")[0]) / "logbook.db"
 
     logging.basicConfig(
         level=args.log_level.upper(),
@@ -92,6 +111,7 @@ def main() -> None:
         ),
         config_editor=args.config_editor,
         scan_log=args.scan_log,
+        notes_db=notes_db,
     )
     uvicorn.run(
         app,

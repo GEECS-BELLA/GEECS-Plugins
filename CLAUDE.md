@@ -20,8 +20,8 @@ tooling. Each subdirectory is an independent Python package with its own
 | `GEECS-MCP/` | The general GEECS MCP server for AI agents (OSPREY) — domains as modules, scans first: read tools (status/history/results/config listings/validation) + control verbs (submit with cap/etiquette/acknowledge-loop, ownership-gated stop, clear_queue) over `geecs_bluesky.qs_client` + the resolver + Tiled. Osprey integrates via `profile.yml` — central HTTP (the multi-machine mode) or stdio; see its `deploy/DEPLOYMENT.md` |
 | `GEECS-DataPortal/` | Scan-browsing web service (FastAPI, port 8200 on the worker host), read-only except explicit ScanAnalysis runs from its Analysis tab: day → scan → metadata/scalar plots/images in any browser, over the same `ScanCatalog` layer as the console's scan browser. Arc spec: `Planning/data_portal/` |
 | `GeecsWebTheme/` | One palette vocabulary for every GEECS web surface: three themes (`bella` red/black, `laser` 532 nm green, `plasma` hydrogen Balmer), each light and dark, plus the picker. No runtime dependencies — a stylesheet, a script and `static_dir()`. The rule it exists to enforce: surfaces style **through tokens, never with a literal colour**, pinned by its own test which walks the portal's and the editor's templates too |
-| `GeecsScanLog/` | The scan logbook (successor to LogMaker4GoogleDocs): a day-document view over scan folders, mounted by the Data Portal at `/log`. A day is a **query**, not a document — no daily job, no template stamping. Derived scan facts are rendered per request and stored nowhere; human commentary lands in `logbook/`, a sibling of `scans/` |
-| `LogMaker4GoogleDocs/` | Google Docs/Drive API wrapper for automated experiment logs — being replaced by `GeecsScanLog/` |
+| `GeecsLogbook/` | The scan logbook (successor to LogMaker4GoogleDocs): a day-document view over scan folders, mounted by the Data Portal at `/log`. A day is a **query**, not a document — no daily job, no template stamping. Derived scan facts are rendered per request and stored nowhere; human commentary lands in `logbook/`, a sibling of `scans/` |
+| `LogMaker4GoogleDocs/` | Google Docs/Drive API wrapper for automated experiment logs — being replaced by `GeecsLogbook/` |
 
 Each subpackage has its own `CLAUDE.md` with deep architectural detail.
 
@@ -179,7 +179,7 @@ GEECS-DataPortal     →  GEECS-Data-Utils (tiled extra — the ScanCatalog
                         ephemeral-processing selector over
                         image_analysis.ephemeral's write-free seam, and
                         the Analysis tab's direct ScanAnalyzer runs)
-                        (+ GeecsScanLog, optional via the `log` extra —
+                        (+ GeecsLogbook, optional via the `log` extra —
                         the scan logbook mounted at /log by --scan-log),
                         GeecsWebTheme (the shared palette; the portal is
                         the host that mounts it at /theme for every
@@ -188,7 +188,7 @@ GeecsWebTheme        →  (no deps at all — a stylesheet, a script and a
                         path helper. Everything web-facing depends on it;
                         it depends on nothing, which is why it is its own
                         package rather than living inside the portal)
-GeecsScanLog         →  GEECS-Data-Utils (ScanPaths only — it reads scan
+GeecsLogbook         →  GEECS-Data-Utils (ScanPaths only — it reads scan
                         folders and nothing else; a peer VIEW LAYER of
                         GEECS-DataPortal, which mounts it at /log behind
                         the portal's `log` extra. Never imports the
@@ -304,7 +304,7 @@ Every package has a `CHANGELOG.md` following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format:
 `GEECS-Data-Utils/`, `ScanAnalysis/`, `ImageAnalysis/`,
 `LogMaker4GoogleDocs/`, `GeecsBluesky/`, `GEECS-Core/`, `GeecsCAGateway/`,
-`GeecsPvaGateway/`, `GEECS-Schemas/`, `GEECS-Console/`, `GeecsScanLog/`,
+`GeecsPvaGateway/`, `GEECS-Schemas/`, `GEECS-Console/`, `GeecsLogbook/`,
 `GeecsWebTheme/`.
 
 Git tags (`geecs-scanner-v0.8.0` style) are cut at **milestones** — a state
@@ -354,7 +354,7 @@ The rule is pinned by tests:
 - `ImageAnalysis/tests/analyzers/test_magspec_calib.py::TestScanFolderInvariant`
 - `ImageAnalysis/tests/processing/test_array1d_background.py`
 - `GEECS-Data-Utils/tests/test_scan_paths_create_invariant.py`
-- `GeecsScanLog/tests/test_scan_reader.py::TestScanFolderCreationInvariant`
+- `GeecsLogbook/tests/test_scan_reader.py::TestScanFolderCreationInvariant`
 
 Each package's CLAUDE.md restates this rule with package-specific guidance for
 adding new analyzers/writers.
@@ -409,7 +409,7 @@ revisit. Speculative cleanup is not.
 - **`LogMaker4GoogleDocs` is being replaced, not refactored.** It works in
   production (Google Doc log uploads) and is optional everywhere, but don't
   extend it or use it as a style reference. Its successor is
-  `GeecsScanLog/`, being built in phases; LogMaker stays in place and
+  `GeecsLogbook/`, being built in phases; LogMaker stays in place and
   untouched until that arc can carry the Google Doc export, at which point
   it is deleted rather than tidied.
   The per-experiment Google Doc index IDs (`EXPERIMENT_FILE_IDS` in

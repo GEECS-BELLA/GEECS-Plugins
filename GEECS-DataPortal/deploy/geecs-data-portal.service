@@ -47,6 +47,13 @@ WorkingDirectory=@CHECKOUT_ROOT@/portal-checkout/GEECS-DataPortal
 # /configs over that same tree: a WRITE verb (saves YAML into the configs
 # checkout on the share). Leave the key empty on a read-only viewer.
 ExecStart=@POETRY@ run geecs-data-portal --experiment ${GEECS_EXPERIMENT} --processing-configs "${GEECS_CONFIGS_ROOT}/scan_analysis_configs" $GEECS_PORTAL_EXTRA_ARGS
+# The logbook's entries (--scan-log): systemd creates
+# /var/lib/geecs-data-portal, owns it to the service user, and exports it
+# as $STATE_DIRECTORY, which the portal takes as the default --notes-db
+# location. Not a site value — the same path on every host — so it lives
+# here rather than in site.env. Back it up: what people wrote exists in
+# this file and in the markdown mirror on the share, nowhere else.
+StateDirectory=geecs-data-portal
 Restart=on-failure
 RestartSec=10
 # An analysis run in flight cannot be interrupted (DEPLOYMENT.md): give a

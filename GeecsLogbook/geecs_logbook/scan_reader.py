@@ -1,4 +1,4 @@
-"""Read a day's scan folders into :mod:`~geecs_scan_log.models` views.
+"""Read a day's scan folders into :mod:`~geecs_logbook.models` views.
 
 A day is a *query*: :func:`read_day` lists whatever ``ScanNNN`` folders
 exist under the date's ``scans/`` directory at the moment it is called.
@@ -44,7 +44,7 @@ from geecs_data_utils import ScanPaths
 from geecs_data_utils.scan_log_loader import first_log_timestamp
 from geecs_data_utils.scan_paths import read_scan_info_file
 
-from geecs_scan_log.models import DaySummary, ScanStatus, ScanSummary
+from geecs_logbook.models import DaySummary, ScanStatus, ScanSummary
 
 logger = logging.getLogger(__name__)
 
