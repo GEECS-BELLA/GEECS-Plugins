@@ -1,46 +1,15 @@
+/* The scan logbook's own components.
+ *
+ * Every colour comes from geecs_web_theme's tokens — this file defines
+ * none, which is what lets the logbook follow the palette a viewer picked
+ * on any other GEECS page. Enforced by
+ * GeecsWebTheme/tests/test_no_literal_colours.py.
+ */
+
 /* Scan logbook — day document.
    Ported from the design prototype; token-level light/dark so the
    page holds on either ground. */
 
-:root{
-  --paper:#f4f6f8; --surface:#ffffff; --surface-2:#eef1f5;
-  --ink:#111821; --slate:#55606d; --muted:#8b95a2;
-  --rule:#dfe4ea; --rule-soft:#ecf0f4;
-  --accent:#1f5f9e; --accent-soft:#e6eff8;
-  --agent:#8a5a12; --agent-soft:#fbf1de; --agent-rule:#e4c98d;
-  --ok:#2b7a55; --ok-soft:#e3f2ea;
-  --warn:#a8560a; --warn-soft:#fcefe0;
-  --crit:#a62b22; --crit-soft:#fbeae8;
-  --ff-ui:"IBM Plex Sans",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
-  --ff-mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
-  --ff-prose:"Source Serif 4",Georgia,"Times New Roman",serif;
-  --r:6px;
-  --shadow:0 1px 2px rgba(17,24,33,.06), 0 4px 14px rgba(17,24,33,.05);
-}
-@media (prefers-color-scheme:dark){
-  :root:not([data-theme="light"]){
-    --paper:#0e1319; --surface:#151c24; --surface-2:#1c242e;
-    --ink:#e6eaef; --slate:#a3adba; --muted:#77828f;
-    --rule:#2a333e; --rule-soft:#212a34;
-    --accent:#6fa8dc; --accent-soft:#182734;
-    --agent:#d9a94e; --agent-soft:#2a2213; --agent-rule:#5c4a22;
-    --ok:#61b98c; --ok-soft:#14241c;
-    --warn:#d9954e; --warn-soft:#2a2013;
-    --crit:#e0796e; --crit-soft:#2b1614;
-    --shadow:0 1px 2px rgba(0,0,0,.4), 0 4px 14px rgba(0,0,0,.3);
-  }
-}
-:root[data-theme="dark"]{
-  --paper:#0e1319; --surface:#151c24; --surface-2:#1c242e;
-  --ink:#e6eaef; --slate:#a3adba; --muted:#77828f;
-  --rule:#2a333e; --rule-soft:#212a34;
-  --accent:#6fa8dc; --accent-soft:#182734;
-  --agent:#d9a94e; --agent-soft:#2a2213; --agent-rule:#5c4a22;
-  --ok:#61b98c; --ok-soft:#14241c;
-  --warn:#d9954e; --warn-soft:#2a2013;
-  --crit:#e0796e; --crit-soft:#2b1614;
-  --shadow:0 1px 2px rgba(0,0,0,.4), 0 4px 14px rgba(0,0,0,.3);
-}
 *{box-sizing:border-box}
 body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--ff-ui);font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased}
 a{color:var(--accent)}
@@ -58,7 +27,7 @@ svg{display:block;max-width:100%}
 .btn{font:inherit;font-size:13px;font-weight:500;border:1px solid var(--rule);background:var(--surface);color:var(--ink);padding:5px 12px;border-radius:var(--r);cursor:pointer}
 .btn:hover{border-color:var(--accent);color:var(--accent)}
 .btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-.btn-primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn-primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
 .btn-sm{font-size:12px;padding:3px 9px}
 .shell{display:grid;grid-template-columns:228px minmax(0,1fr);gap:28px;padding-block:24px 64px}
 @media(max-width:860px){.shell{grid-template-columns:1fr;gap:20px}}
@@ -69,7 +38,7 @@ svg{display:block;max-width:100%}
 .daylist,.scanlist{display:flex;flex-direction:column;gap:1px}
 .day{display:flex;justify-content:space-between;align-items:baseline;gap:8px;padding:5px 8px;border-radius:4px;color:var(--slate);font-size:13px;cursor:pointer;border:0;background:transparent;font-family:inherit;text-align:left;width:100%}
 .day:hover{background:var(--surface-2)}
-.day.is-active{background:var(--accent);color:#fff;font-weight:600}
+.day.is-active{background:var(--accent);color:var(--on-accent);font-weight:600}
 .day .n{font-family:var(--ff-mono);font-size:11px;opacity:.75;font-variant-numeric:tabular-nums}
 .scanrow{display:flex;align-items:center;gap:8px;padding:5px 8px;border-radius:4px;cursor:pointer;border:0;background:transparent;font-family:inherit;width:100%;text-align:left}
 .scanrow:hover{background:var(--surface-2)}
@@ -133,7 +102,6 @@ svg{display:block;max-width:100%}
 /* insert affordance */
 .insert{display:flex;align-items:center;gap:10px;padding:2px 0}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
-
 
 /* ---- day document: collapsible scan blocks ---- */
 .scanhead{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:12px 16px;

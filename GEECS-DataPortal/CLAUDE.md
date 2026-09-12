@@ -150,7 +150,7 @@ geecs_portal/
   __main__.py    # CLI (geecs-data-portal): real TiledScanCatalog + uvicorn;
                  #   --config-editor mounts scan_analysis.config_editor at /configs
                  #   --scan-log     mounts geecs_scan_log at /log (needs --experiment)
-  templates/     # base.html / day.html / run.html (Jinja2, dark palette)
+  templates/     # base.html / day.html / run.html (Jinja2; every colour a GeecsWebTheme token)
 tests/
   test_app.py        # TestClient over FakeCatalog/StubCatalog (+ /api)
   test_resources.py  # tmp scan trees: gallery routes + tier ladder + union

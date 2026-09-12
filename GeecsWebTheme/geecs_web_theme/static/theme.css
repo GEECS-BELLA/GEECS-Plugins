@@ -1,0 +1,253 @@
+/* GEECS web theme — one palette vocabulary for every web surface.
+ *
+ * Every component in every surface styles THROUGH these names and never
+ * with a literal colour. That single discipline is what makes adding or
+ * tweaking a theme a block of overrides rather than a hunt through
+ * component rules, and tests/test_no_literal_colours.py enforces it.
+ *
+ * Two attributes on the root element select a palette, and theme-boot.js
+ * stamps both before first paint:
+ *   data-theme="bella|laser|plasma"   which palette
+ *   data-mode="light|dark"            the EFFECTIVE mode — the boot script
+ *                                     resolves "follow the system" itself
+ *                                     via matchMedia, so there is exactly
+ *                                     one dark block per theme and no
+ *                                     @media copy of it to drift.
+ *
+ * The bare :root block is a complete light palette so a page renders
+ * sanely with scripts off. color-scheme is set per block so native
+ * widgets (selects, scrollbars) follow the chosen mode, not the OS.
+ *
+ * Contrast: every muted/paper, accent/paper and on-accent/accent pair is
+ * held at >= 4.5:1 (WCAG AA for body text) by tests/test_contrast.py.
+ * --trace-1..4 are plot marks on the plot ground and are exempt.
+ */
+:root{
+  --paper:#f7f4f4;
+  --surface:#ffffff;
+  --surface-2:#f0eaeb;
+  --ink:#171113;
+  --slate:#5c4a4e;
+  --muted:#6f5d61;
+  --rule:#e2d7d9;
+  --rule-soft:#efe8e9;
+  --accent:#b3122b;
+  --accent-soft:#fbe9ec;
+  --on-accent:#ffffff;
+  --agent:#8a5a12;
+  --agent-soft:#fbf1de;
+  --agent-rule:#e4c98d;
+  --ok:#2b7a55;
+  --ok-soft:#e3f2ea;
+  --warn:#a8560a;
+  --warn-soft:#fcefe0;
+  --crit:#8c1020;
+  --crit-soft:#fae6e9;
+  --trace-1:#b3122b;
+  --trace-2:#1f5f9e;
+  --trace-3:#2b7a55;
+  --trace-4:#8a5a12;
+  --shadow:0 1px 2px rgba(17,24,33,.06), 0 4px 14px rgba(17,24,33,.05);
+  color-scheme:light;
+  --ff-ui:"IBM Plex Sans",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
+  --ff-mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  --ff-prose:"Source Serif 4",Georgia,"Times New Roman",serif;
+  --r:6px;
+}
+
+/* ---- bella ---- */
+:root[data-theme="bella"]{
+  --paper:#f7f4f4;
+  --surface:#ffffff;
+  --surface-2:#f0eaeb;
+  --ink:#171113;
+  --slate:#5c4a4e;
+  --muted:#6f5d61;
+  --rule:#e2d7d9;
+  --rule-soft:#efe8e9;
+  --accent:#b3122b;
+  --accent-soft:#fbe9ec;
+  --on-accent:#ffffff;
+  --agent:#8a5a12;
+  --agent-soft:#fbf1de;
+  --agent-rule:#e4c98d;
+  --ok:#2b7a55;
+  --ok-soft:#e3f2ea;
+  --warn:#a8560a;
+  --warn-soft:#fcefe0;
+  --crit:#8c1020;
+  --crit-soft:#fae6e9;
+  --trace-1:#b3122b;
+  --trace-2:#1f5f9e;
+  --trace-3:#2b7a55;
+  --trace-4:#8a5a12;
+  --shadow:0 1px 2px rgba(17,24,33,.06), 0 4px 14px rgba(17,24,33,.05);
+  color-scheme:light;
+}
+:root[data-theme="bella"][data-mode="dark"]{
+  --paper:#0d0b0c;
+  --surface:#161213;
+  --surface-2:#1f191b;
+  --ink:#eee6e8;
+  --slate:#b09ba0;
+  --muted:#9d8b8f;
+  --rule:#322a2c;
+  --rule-soft:#241e20;
+  --accent:#e8556d;
+  --accent-soft:#2b1519;
+  --on-accent:#1a0d10;
+  --agent:#d9a94e;
+  --agent-soft:#2a2213;
+  --agent-rule:#5c4a22;
+  --ok:#61b98c;
+  --ok-soft:#14241c;
+  --warn:#d9954e;
+  --warn-soft:#2a2013;
+  --crit:#f07082;
+  --crit-soft:#2e1418;
+  --trace-1:#e8556d;
+  --trace-2:#6fa8dc;
+  --trace-3:#61b98c;
+  --trace-4:#d9a94e;
+  --shadow:0 1px 2px rgba(0,0,0,.45), 0 4px 14px rgba(0,0,0,.35);
+  color-scheme:dark;
+}
+
+/* ---- laser ---- */
+:root[data-theme="laser"]{
+  --paper:#f4f8f5;
+  --surface:#ffffff;
+  --surface-2:#e9f2ec;
+  --ink:#0d1710;
+  --slate:#46604f;
+  --muted:#546b5c;
+  --rule:#d5e5da;
+  --rule-soft:#e6f0e9;
+  --accent:#0b6e31;
+  --accent-soft:#e1f6e9;
+  --on-accent:#ffffff;
+  --agent:#8a5a12;
+  --agent-soft:#fbf1de;
+  --agent-rule:#e4c98d;
+  --ok:#0b6e31;
+  --ok-soft:#e1f6e9;
+  --warn:#a8560a;
+  --warn-soft:#fcefe0;
+  --crit:#b31f1f;
+  --crit-soft:#fbe8e8;
+  --trace-1:#0b6e31;
+  --trace-2:#b31f1f;
+  --trace-3:#1f5f9e;
+  --trace-4:#8a5a12;
+  --shadow:0 1px 2px rgba(17,24,33,.06), 0 4px 14px rgba(17,24,33,.05);
+  color-scheme:light;
+}
+:root[data-theme="laser"][data-mode="dark"]{
+  --paper:#070b08;
+  --surface:#0f1611;
+  --surface-2:#16201a;
+  --ink:#e2f0e6;
+  --slate:#9bb3a3;
+  --muted:#8aa092;
+  --rule:#23332a;
+  --rule-soft:#1a2620;
+  --accent:#3ee27a;
+  --accent-soft:#0e2417;
+  --on-accent:#03130a;
+  --agent:#d9a94e;
+  --agent-soft:#2a2213;
+  --agent-rule:#5c4a22;
+  --ok:#3ee27a;
+  --ok-soft:#0e2417;
+  --warn:#e0a44e;
+  --warn-soft:#2a2113;
+  --crit:#ff5a5a;
+  --crit-soft:#2e1313;
+  --trace-1:#3ee27a;
+  --trace-2:#ff5a5a;
+  --trace-3:#6fa8dc;
+  --trace-4:#d9a94e;
+  --shadow:0 1px 2px rgba(0,0,0,.45), 0 4px 14px rgba(0,0,0,.35);
+  color-scheme:dark;
+}
+
+/* ---- plasma ---- */
+:root[data-theme="plasma"]{
+  --paper:#f8f5fc;
+  --surface:#ffffff;
+  --surface-2:#f0eaf8;
+  --ink:#150e21;
+  --slate:#55496b;
+  --muted:#68597f;
+  --rule:#e0d6ee;
+  --rule-soft:#ece5f5;
+  --accent:#0a6a82;
+  --accent-soft:#e2f4fa;
+  --on-accent:#ffffff;
+  --agent:#a0217a;
+  --agent-soft:#fbe7f4;
+  --agent-rule:#e9a8d3;
+  --ok:#2b7a55;
+  --ok-soft:#e3f2ea;
+  --warn:#a8560a;
+  --warn-soft:#fcefe0;
+  --crit:#a62b22;
+  --crit-soft:#fbeae8;
+  --trace-1:#0a6a82;
+  --trace-2:#a0217a;
+  --trace-3:#2b7a55;
+  --trace-4:#a8560a;
+  --shadow:0 1px 2px rgba(17,24,33,.06), 0 4px 14px rgba(17,24,33,.05);
+  color-scheme:light;
+}
+:root[data-theme="plasma"][data-mode="dark"]{
+  --paper:#0a0712;
+  --surface:#130d1f;
+  --surface-2:#1c1430;
+  --ink:#ebe4f7;
+  --slate:#a99bc4;
+  --muted:#9a8db6;
+  --rule:#2d2347;
+  --rule-soft:#211936;
+  --accent:#4fd4ee;
+  --accent-soft:#0e2733;
+  --on-accent:#04171d;
+  --agent:#f062c0;
+  --agent-soft:#2c1226;
+  --agent-rule:#6b2a56;
+  --ok:#61b98c;
+  --ok-soft:#14241c;
+  --warn:#d9954e;
+  --warn-soft:#2a2013;
+  --crit:#ff6b7a;
+  --crit-soft:#2e1418;
+  --trace-1:#4fd4ee;
+  --trace-2:#f062c0;
+  --trace-3:#61b98c;
+  --trace-4:#d9954e;
+  --shadow:0 1px 2px rgba(0,0,0,.45), 0 4px 14px rgba(0,0,0,.35);
+  color-scheme:dark;
+}
+
+
+/* ---------------------------------------------------------------
+   The picker itself, and the few primitives every surface shares.
+   Everything here styles through the tokens above.
+----------------------------------------------------------------*/
+.themepick{display:flex;align-items:center;gap:2px;border:1px solid var(--rule);
+  border-radius:var(--r);padding:2px;background:var(--surface)}
+.themepick .th{display:flex;align-items:center;gap:5px;font:inherit;font-size:11.5px;
+  font-family:var(--ff-ui);border:0;background:transparent;color:var(--muted);
+  border-radius:4px;padding:4px 8px;cursor:pointer;white-space:nowrap}
+.themepick .th:hover{color:var(--ink);background:var(--surface-2)}
+.themepick .th.is-on{color:var(--ink);background:var(--surface-2);font-weight:600}
+.themepick .th:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.themepick .th-sep{width:1px;height:16px;background:var(--rule);margin:0 3px}
+.themepick .sw{width:10px;height:10px;border-radius:50%;flex:none;
+  box-shadow:inset 0 0 0 1px rgba(127,127,127,.35)}
+/* The swatches are the one legitimate place for literal colours: each must
+   show ITS palette regardless of which one is active. */
+.themepick .sw-bella{background:linear-gradient(135deg,#b3122b 50%,#1a1416 50%)}
+.themepick .sw-laser{background:linear-gradient(135deg,#3ee27a 50%,#b31f1f 50%)}
+.themepick .sw-plasma{background:linear-gradient(135deg,#4fd4ee 50%,#f062c0 50%)}
+@media (max-width:640px){.themepick .th-label{display:none}}

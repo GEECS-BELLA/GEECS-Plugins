@@ -35,6 +35,17 @@ jobs:
           poetry run pytest GEECS-Data-Utils/tests -m "not integration and not gui" --tb=short -q
           poetry run pytest GEECS-Schemas/tests -m "not integration and not gui" --tb=short -q
 
+      - name: Install GeecsWebTheme dependencies
+        working-directory: GeecsWebTheme
+        run: poetry install --with dev
+
+      # Guards the whole repo's web surfaces, not just this package: it walks
+      # the portal's and the editor's templates too, so a colour literal added
+      # anywhere fails here.
+      - name: Run GeecsWebTheme tests
+        working-directory: GeecsWebTheme
+        run: poetry run pytest tests --tb=short -q
+
       - name: Install GeecsScanLog dependencies
         working-directory: GeecsScanLog
         run: poetry install --with dev

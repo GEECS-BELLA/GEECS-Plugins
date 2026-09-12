@@ -11,9 +11,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Scan Log — {{ summary.day.strftime('%d %b %Y') }}</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=swap">
+{# theme-boot.js stamps the stored palette before first paint; in <head>,
+   not deferred. Prefixed with the request's root_path so a reverse-proxy
+   mount still resolves. No CDN fonts: the token stacks carry fallbacks. #}
+{% set root = request.scope.get('root_path', '').rstrip('/') %}
+<script src="{{ root }}/theme/theme-boot.js"></script>
+<link rel="stylesheet" href="{{ root }}/theme/theme.css">
 {# .path, not the absolute URL url_for returns: behind TLS termination or a
    host-rewriting proxy an absolute http:// URL is a mixed-content block. #}
 <link rel="stylesheet" href="{{ url_for('_static', name='scanlog.css').path }}">
@@ -171,6 +174,7 @@
            stroke-width="1.7" aria-hidden="true"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5 14 14"/></svg>
       <input id="q" type="search" placeholder="Filter scans…" autocomplete="off">
     </label>
+    <div data-theme-picker></div>
     <button class="btn" type="button" id="toggle-all"
             data-expanded="{{ 'false' if many else 'true' }}">
       {{ 'Expand all' if many else 'Collapse all' }}
@@ -453,5 +457,6 @@ document.addEventListener("click", async ev => {
   }
 });
 </script>
+<script src="{{ root }}/theme/theme.js" defer></script>
 </body>
 </html>
