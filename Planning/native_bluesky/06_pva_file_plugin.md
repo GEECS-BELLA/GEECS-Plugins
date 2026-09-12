@@ -371,8 +371,10 @@ per-scan state between sessions; the worker tells it where to write.
 
 `geecs_bluesky/capture/` (daemon, `__main__`, heartbeat, discovery,
 subscriber, writer, `FORMAT.md`), `tests/capture/`, the `capture` extra,
-`pyzmq`, the two `geecs-capture-*` scripts, the daemon's systemd unit
-and its `DEPLOYMENT.md`/`fleet_map.md`/`site_profile.md` rows.  `p4p`
+`pyzmq`, the two `geecs-capture-*` scripts (the daemon's systemd unit,
+its `DEPLOYMENT.md` and the `render_units.sh` / `bootstrap_host.sh` /
+`site.env.example` / `fleet_map.md` / `site_profile.md` entries were
+left for the end-of-branch deployment touch — §8).  `p4p`
 moves under the `ca` extra (the worker talks PVA to the plugin; `ca` is
 "the gateway clients", which is what the extra always meant), so the
 deploy install line does not change.  `capture/diff.py` becomes
@@ -383,11 +385,20 @@ Tiled descriptor patch stay until PNG retirement (#738).
 
 ## 8. Rollout and acceptance (hardware, after the PR merges into the feature branch)
 
-**Done 2026-09-11 on 192.168.6.100 / `UC_Amp4_IR_input` (steps 1–4, from
-the PR branch before the merge): `07_806_acceptance.md` — Scan007, 5
-frames == 5 rows == 5 PNGs, pixel-identical, 1 Hz held, the service writes
-the share over UNC.  Owed: the Tiled server's `readable_storage` +
-file-locking env, the fleet roll (step 5).**
+**Done 2026-09-11: `07_806_acceptance.md` — Scan007 on 192.168.6.100 /
+`UC_Amp4_IR_input`, 5 frames == 5 rows == 5 PNGs, pixel-identical, 1 Hz
+held, the service writes the share over UNC; the Tiled read verified after
+the server's `readable_storage` + file-locking fix; the fleet rolled to
+GeecsPvaGateway 0.7.1 (#824) — nine gateways with `:hdf1:` PVs, the
+worker restarted on the full host list.  What remains is the watch period
+(diffs per camera family, then `Compression=zlib`); the daemon's
+deployment residue — `capture/deploy/` (unit + `DEPLOYMENT.md`), the
+`geecs-capture` entries in `deploy/render_units.sh`,
+`deploy/bootstrap_host.sh` (whose `capture` extra no longer exists) and
+`deploy/site.env.example` — which goes with the end-of-branch deployment
+touch (`03` §10.5); and, later, step 5's tail: `LvNativeFileDataLogic`
+narrowing to the non-image devices and the `file_plugin_addr_list` key
+going.**
 
 1. **Share clone → feature branch.**  The fleet pin is the share clone's
    commit; the plugin ships inert (no PVs unless `h5py` imports, no

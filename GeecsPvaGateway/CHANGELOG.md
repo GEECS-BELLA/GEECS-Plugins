@@ -25,6 +25,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   bare name; `geecs_data_utils.io.scan_stack.timestamps_dataset` resolves
   either.  Deploy = pull the share clone and `:restart` each box (no
   launcher change).
+- `DEPLOYMENT.md`, the per-box launcher step: an *elevated* ssh session
+  (key in `administrators_authorized_keys`) reads the share — the earlier
+  "an ssh token cannot" was true of a plain session only — and `nssm` is
+  not on `PATH` on the boxes (`Stop-Service` / `Start-Service`, or the
+  full `nssm.exe` path).  Both learned on the 2026-09-11 fleet roll.
 
 ## [0.7.1] - 2026-09-11
 
