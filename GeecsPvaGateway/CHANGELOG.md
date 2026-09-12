@@ -4,10 +4,27 @@ All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
-## [0.7.2] - 2026-09-11
+## [0.8.0] - 2026-09-11
 
 ### Changed
 
+- **File plugin: attribute names carry the device and the plugin child**
+  (GEECS-Plugins#829).  The per-frame attribute datasets and the
+  `NDAttributesFile` XML now name
+  `<device>-hdf-<variable>-frame_acq_timestamp` / `-frame_recv_timestamp`
+  (`file_plugin.attribute_names` / `attributes_xml`, both parts through
+  `geecs_core.pv_naming.normalize_component`) instead of the bare
+  `acq_timestamp` / `recv_timestamp`.  The stock `ADHDFDataLogic` turns
+  attribute names into stream data keys verbatim, so the names must be
+  unique across the cameras of one run (the bare names collided on the
+  second camera and the run failed at its descriptor after claiming a scan
+  number) and disjoint from every event column (`<device>-acq_timestamp`
+  is the camera's own CA stamp column — the review of the first fix showed
+  a stream key of that name overwriting it and breaking Tiled's
+  ingestion).  On-disk layout change: stacks written by 0.7.x keep the
+  bare name; `geecs_data_utils.io.scan_stack.timestamps_dataset` resolves
+  either.  Deploy = pull the share clone and `:restart` each box (no
+  launcher change).
 - `DEPLOYMENT.md`, the per-box launcher step: an *elevated* ssh session
   (key in `administrators_authorized_keys`) reads the share — the earlier
   "an ssh token cannot" was true of a plain session only — and `nssm` is
