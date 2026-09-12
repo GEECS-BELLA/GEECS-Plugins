@@ -429,8 +429,9 @@ PR 2a:
   of the rest of 2a as its own PR (#830, issue #829)**, because two
   plugin-backed cameras in one run collided on the bare names.
 - **The gateway subscribes the scalars**: the device's subscribed list
-  joins `[var, "acq_timestamp", "systimestamp"]` in the one TCP
-  subscription (§2), so `update` carries them at `_on_frame`.
+  joins `[var, *TIMESTAMP_LADDER]` (`geecs_core.db.variable_types`, the
+  one ladder) in the one TCP subscription (§2), so `update` carries them
+  at `_on_frame`.
 - **The subscribed-scalars rule moved down (PR 2a, #843)**: it was
   `GeecsDbScalarPolicy.subscribed_by_device()` in
   `geecs_bluesky.db_runtime`, and GeecsPvaGateway depends on GEECS-Core

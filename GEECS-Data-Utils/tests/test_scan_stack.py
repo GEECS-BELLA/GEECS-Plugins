@@ -221,4 +221,8 @@ def test_stack_attributes_read_and_parse(tmp_path) -> None:
     # A pre-0.9 stack: stamps only, no manifest.
     older = _write_stack(tmp_path / "UC_Old")
     assert stack_scalar_variables(older) == {}
+    # Half a manifest is no manifest.
+    with h5py.File(older, "a") as f:
+        f.attrs["scalar_attributes"] = ["uc_old-hdf-image-x"]
+    assert stack_scalar_variables(older) == {}
     assert set(read_stack_attributes(older)) == {"acq_timestamp", "recv_timestamp"}

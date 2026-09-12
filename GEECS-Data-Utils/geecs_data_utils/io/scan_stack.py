@@ -133,6 +133,11 @@ def stack_scalar_variables(path: "str | Path") -> "dict[str, str]":
     with open_stack(path) as f:
         names = [str(n) for n in f.attrs.get("scalar_attributes", [])]
         variables = [str(v) for v in f.attrs.get("scalar_variables", [])]
+    if len(names) != len(variables):
+        # Half a manifest (a third-party or damaged file): no names, like
+        # read_stack_attributes skips rather than raises on foreign members.
+        logger.warning("%s: scalar manifest attributes disagree in length", path)
+        return {}
     return dict(zip(names, variables, strict=True))
 
 
