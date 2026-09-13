@@ -52,7 +52,7 @@
    scans" and the range it fell in. That was ceremony: where the entry sits
    already says where it sits, and the wrapper made the same content look
    like a different kind of thing from the identical note in the ops book. #}
-{% macro between_block(after, entries, writable, prev_label, next_label) %}
+{% macro between_block(after, entries, writable, prev_label, next_label, hay='') %}
   {% set anchor = 'after-%04d' % after %}
   {% set es = entries.get(anchor, []) %}
   {% if es %}
@@ -60,25 +60,32 @@
      the only thing that said which gap a note sat in, so a filtered page
      used to leave an unlabelled note floating above whichever scan
      survived — reading as commentary on a scan it has nothing to do with. #}
-  <div class="betweens" data-hay="{{ (prev_label ~ ' ' ~ next_label) | lower }}">
+  <div class="betweens" data-hay="{{ (prev_label ~ ' ' ~ next_label ~ ' ' ~ hay) | lower }}">
     {{ entries_block(anchor, none, after, entries, writable) }}
   </div>
   {% elif writable %}
-  <div class="insert" data-insert="{{ after }}" data-hay="{{ (prev_label ~ ' ' ~ next_label) | lower }}">
+  <div class="insert" data-insert="{{ after }}" data-hay="{{ (prev_label ~ ' ' ~ next_label ~ ' ' ~ hay) | lower }}">
     <div class="insert-rule"></div>
     <button class="insert-btn" type="button">+ note after {{ prev_label }}</button>
     <div class="insert-rule"></div>
   </div>
   {# editor.js reveals this when the button above is used. #}
-  <div hidden data-between-host="{{ after }}">
+  <div hidden data-between-host="{{ after }}"
+       data-hay="{{ (prev_label ~ ' ' ~ next_label ~ ' ' ~ hay) | lower }}">
     {{ entries_block(anchor, none, after, entries, writable) }}
   </div>
   {% endif %}
 {% endmacro %}
 
+{# One definition of what a scan matches on, so a note bracketed by two
+   scans can borrow theirs. Filtering by the parameter — the string the
+   rail prints in every row — used to hide every note on the page while
+   leaving all the scans, because a note's hay held only the two labels. #}
+{% macro scan_hay(s) %}{{ (s.label ~ ' ' ~ (s.parameter or '') ~ ' ' ~ (s.purpose or '') ~ ' ' ~ s.devices|join(' ')) | lower }}{% endmacro %}
+
 {% macro scan_block(s, expanded, entries, writable) %}
   <details class="panel scan" id="{{ s.label }}"
-           data-hay="{{ (s.label ~ ' ' ~ (s.parameter or '') ~ ' ' ~ (s.purpose or '') ~ ' ' ~ s.devices|join(' ')) | lower }}"
+           data-hay="{{ scan_hay(s) }}"
            {% if expanded %}open{% endif %}>
     <summary class="scanhead">
       <span class="twisty" aria-hidden="true"></span>
@@ -244,18 +251,21 @@
     </section>
     {% endif %}
 
-    {% set ns = namespace(prev=0, prev_label='the start of the day') %}
+    {% set ns = namespace(prev=0, prev_label='the start of the day', prev_hay='') %}
     {# These are the scans that happened, in the order they happened. The
        log reports them; it does not group them by what it thinks they were
        for. Notes fall between them wherever their timestamps put them. #}
     {% for s in summary.scans %}
-      {{ between_block(ns.prev, entries, writable, ns.prev_label, s.label) }}
+      {{ between_block(ns.prev, entries, writable, ns.prev_label, s.label,
+                       ns.prev_hay ~ ' ' ~ scan_hay(s)) }}
       {{ scan_block(s, not many, entries, writable) }}
       {% set ns.prev = s.number %}{% set ns.prev_label = s.label %}
+      {% set ns.prev_hay = scan_hay(s) %}
     {% endfor %}
 
     {% if summary.scans %}
-      {{ between_block(ns.prev, entries, writable, ns.prev_label, 'the end of the day') }}
+      {{ between_block(ns.prev, entries, writable, ns.prev_label,
+                       'the end of the day', ns.prev_hay) }}
     {% endif %}
     {% if not writable %}
     <p class="foot">Read-only: no notes store is configured, so this view renders
@@ -300,8 +310,15 @@ document.getElementById("daypicker").addEventListener("change", ev => {
    the box puts the page back exactly as it was. */
 document.getElementById("q").addEventListener("input", ev => {
   const f = ev.target.value.trim().toLowerCase();
-  const blocks = [...document.querySelectorAll("details.scan, .betweens, .insert")];
-  blocks.forEach(c => { c.hidden = !!f && !(c.dataset.hay || "").includes(f); });
+  const blocks = [...document.querySelectorAll(
+    "details.scan, .betweens, .insert, [data-between-host]")];
+  blocks.forEach(c => {
+    /* data-filtered, never `hidden`: editor.js owns `hidden` on an insert
+       row as its used-flag, and a revealed composer is `hidden=false` for
+       a reason the filter must not overwrite. */
+    if (!!f && !(c.dataset.hay || "").includes(f)) c.dataset.filtered = "1";
+    else delete c.dataset.filtered;
+  });
 });
 
 /* Jumping from the rail should reveal what you jumped to. */

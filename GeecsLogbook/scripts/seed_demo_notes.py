@@ -23,21 +23,27 @@ Usage
 ::
 
     poetry run python scripts/seed_demo_notes.py /tmp/demo-notes.db
+    poetry run geecs-portal --scan-log --notes-db /tmp/demo-notes.db
 
 The scan folders for ``DAY`` must be reachable for the scan-anchored
 entries to appear: an anchor naming a scan the day does not contain is
 stored and counted but never drawn. The day-level entry always renders,
 so it is the check that seeding worked.
-    poetry run geecs-portal --scan-log --notes-db /tmp/demo-notes.db
 """
 
 from __future__ import annotations
 
 import argparse
+import sqlite3
 import sys
 from pathlib import Path
 
 from geecs_logbook.store import NotesStore
+
+#: What a deployment names its store (GeecsLogbook/CLAUDE.md, the portal's
+#: state directory). Refused outright: on a fresh host the file does not
+#: exist yet, so an existence check alone lets the worst case through.
+DEPLOYED_DB_NAME = "logbook.db"
 
 #: The day these entries belong to, and the scans they hang off.
 DAY = "2026-09-12"
@@ -132,16 +138,49 @@ ENTRIES: list[tuple[int | None, int | None, str, str]] = [
 def seed(db_path: Path) -> int:
     """Write the example entries into ``db_path`` and return how many.
 
-    Refuses a database that already holds entries: calling this twice on
-    one path silently doubles every row, and the CLI's ``exists()`` guard
-    does not cover an import.
+    Refuses anything that looks like a real store. The checks run *before*
+    :class:`NotesStore` opens the file, because constructing one runs the
+    schema and its column migration on whatever path it is handed — so a
+    guard that consults the store has already touched the thing it meant
+    to protect.
+
+    Two holes an earlier version had, both reachable by import rather than
+    through the CLI: it asked only whether :data:`DAY` had entries, so a
+    store holding a human's notes for every *other* day sailed through;
+    and it ignored tombstones, so re-seeding after a delete doubled the
+    rows.
     """
+    if db_path.name == DEPLOYED_DB_NAME:
+        raise ValueError(
+            f"{db_path} is named {DEPLOYED_DB_NAME}, which is what a deployment "
+            "calls its real store — seed a differently named file"
+        )
+    if db_path.exists() and _holds_anything(db_path):
+        raise ValueError(f"{db_path} already holds entries — seed a fresh file")
+
     store = NotesStore(db_path)
-    if store.for_day(DAY):
-        raise ValueError(f"{db_path} already holds entries for {DAY}")
     for scan, after, author, body in ENTRIES:
         store.create(day=DAY, author=author, body_md=body, scan=scan, after=after)
     return len(ENTRIES)
+
+
+def _holds_anything(db_path: Path) -> bool:
+    """Whether the database has any entry row at all, tombstones included.
+
+    Read-only and schema-free: it opens the file directly rather than
+    through :class:`NotesStore`, so a real store is never migrated by the
+    act of being checked.
+    """
+    conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    try:
+        rows = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='entries'"
+        ).fetchall()
+        if not rows:
+            return False
+        return conn.execute("SELECT 1 FROM entries LIMIT 1").fetchone() is not None
+    finally:
+        conn.close()
 
 
 def main(argv: list[str] | None = None) -> int:

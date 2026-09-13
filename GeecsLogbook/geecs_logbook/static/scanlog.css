@@ -188,6 +188,12 @@ details.scan[hidden]{display:none}
    rule's block, so a hidden insert row inherited display:flex and stayed
    on screen. There is no global [hidden]{display:none} to fall back on. */
 .insert[hidden],.betweens[hidden]{display:none}
+/* The filter uses its OWN channel. editor.js writes `hidden` on an insert
+   row to mean "this one has been used"; a filter that also wrote `hidden`
+   un-hid every used row the moment the box was cleared, putting the
+   affordance back above the composer it had just opened. Two meanings,
+   two attributes. */
+[data-filtered]{display:none!important}
 
 /* the editor: toolbar, preview, drop target, and the image grid */
 .toolbar{display:flex;gap:2px;flex-wrap:wrap;margin-bottom:5px}

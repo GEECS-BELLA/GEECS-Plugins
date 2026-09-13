@@ -457,6 +457,44 @@ class TestEditorHooks:
         )
 
 
+def _scan_block_parents(html: str) -> set[tuple[str, ...]]:
+    """Return the ancestor chains of every scan block, below ``<main>``.
+
+    A flat day gives exactly ``{("main",)}``. Anything else means something
+    was introduced around the loop — which is what a grouping is, whatever
+    element or class name it wears.
+    """
+    from html.parser import HTMLParser
+
+    class Walk(HTMLParser):
+        def __init__(self) -> None:
+            super().__init__()
+            self.stack: list[str] = []
+            self.found: set[tuple[str, ...]] = set()
+
+        def handle_starttag(self, tag, attrs):
+            d = dict(attrs)
+            if tag == "details" and d.get("class") == "panel scan":
+                below = (
+                    self.stack[self.stack.index("main") + 1 :]
+                    if "main" in self.stack
+                    else tuple(self.stack)
+                )
+                self.found.add(
+                    ("main", *below) if "main" in self.stack else tuple(self.stack)
+                )
+            if tag not in {"br", "img", "input", "meta", "link", "hr"}:
+                self.stack.append(tag)
+
+        def handle_endtag(self, tag):
+            if tag in self.stack:
+                del self.stack[len(self.stack) - 1 - self.stack[::-1].index(tag) :]
+
+    w = Walk()
+    w.feed(html)
+    return w.found
+
+
 class TestLongDay:
     """A long day opens collapsed — a fact about volume, not about meaning.
 
@@ -504,8 +542,19 @@ class TestLongDay:
         and would miss a grouping reintroduced under any other name.
         """
         html = busy.get("/log/day/2026-09-11").text
-        outer = re.findall(r'<details class="([^"]*)"', html)
+        # Structural, not spelling. A class-attribute regex missed two real
+        # reintroductions: a grouping that is a <section> rather than a
+        # <details> (the obvious next attempt, since the complaint was a
+        # second *collapsible*), and a <details> whose class is not its
+        # first attribute. Counting every <details> catches both.
+        assert html.count("<details") == 26, "25 scans + the calendar"
+        outer = re.findall(r'<details[^>]*class="([^"]*)"', html)
         assert set(outer) <= {"panel scan", "cal"}, outer
+        # and nothing wraps the run. A regex cannot see this — consecutive
+        # scan blocks legitimately sit next to each other — so parse, and
+        # check each scan block's ancestors. A <section class="batch">
+        # around the loop is the shape a class-attribute check misses.
+        assert _scan_block_parents(html) == {("main",)}, _scan_block_parents(html)
 
     def test_the_rail_lists_scans(self, busy: TestClient) -> None:
         """The rail names scans, never a grouping of them."""

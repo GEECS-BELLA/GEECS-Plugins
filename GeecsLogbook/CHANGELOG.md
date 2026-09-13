@@ -76,6 +76,16 @@ project adheres to semantic versioning.
   haystack and hide in the same pass.
 - `editor.js` no longer sets `.open` on the reveal target, which stopped
   being a `<details>` in this release.
+- **The filter and the editor were writing the same property.** `editor.js`
+  uses `hidden` on an insert row to mean "this one has been used"; the new
+  filter wrote `hidden` too, so clearing the box un-hid every used row and
+  put the affordance back above the composer it had just opened. Filtering
+  moved to its own `data-filtered` channel.
+- **Filtering by a scan parameter hid every note on the page.** The
+  bracketing-label haystack held only two labels, while a scan's held its
+  parameter, purpose and devices — so typing the string the rail prints in
+  every row left all the scans and hid all the notes, and nothing brought
+  them back. Notes now borrow the haystacks of the scans that bracket them.
 - Dead after the deletion: `.scanrow .count` (the grouped rail row was its
   only emitter), and the package `CLAUDE.md`'s "campaign shaping" and
   "curated campaign record", which named the concept this release removes.
