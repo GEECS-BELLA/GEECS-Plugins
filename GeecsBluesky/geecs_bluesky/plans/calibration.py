@@ -338,8 +338,9 @@ class SyncVerdict:
         The corrected stamps agreed to within *tolerance_s*, once whole
         trigger periods were folded out.
     deviation_s :
-        Object name → its corrected stamp minus the set's median, with any
-        whole number of trigger periods removed.  This is what is judged.
+        Object name → its corrected stamp minus the latest device's, with any
+        whole number of trigger periods removed.  The spread of these is
+        what is judged.
     spread_s :
         Widest disagreement between two devices once whole trigger periods
         are folded out — the judged figure, because it is what the join
@@ -349,8 +350,8 @@ class SyncVerdict:
     corrected :
         Object name → its stalled stamp minus its stored offset.
     shots_out :
-        Object name → how many whole trigger periods it sits away from the
-        median (never ``0``).  A device here missed the last edge or two
+        Object name → how many whole trigger periods it sits behind the
+        latest device (never ``0``).  A device here missed the last edge or two
         before the box went OFF — routine, because STANDBY passes edges
         right up to the moment this plan drives OFF, and a long exposure
         cut by the amplitude drop holds the previous shot.  Reported and
@@ -394,15 +395,15 @@ def sync_verdict_from_stamps(
     Two refinements over "is the range inside the tolerance", both from the
     review of #861 (finding 4):
 
-    - **The verdict is on the pairwise spread; the median names the
-      culprit.**  What costs rows is two devices disagreeing — the join
-      matches a frame to a row by their two corrected stamps — so the
-      spread is the quantity judged.  A per-device deviation from the
+    - **The verdict is on the pairwise spread, and the two devices at its
+      ends are named.**  What costs rows is two devices disagreeing — the
+      join matches a frame to a row by their two corrected stamps — so the
+      spread is the quantity judged.  A per-device deviation from a set
       median cannot be: with two devices the median sits midway, so an
       84 ms disagreement reads as ±42 ms and passes a 50 ms budget while
-      the join sees all 84 ms.  The deviations are still computed and
-      reported, so the message names the device that is out instead of only
-      saying how wide the set is.  Note that a spread is a range statistic
+      the join sees all 84 ms.  Nothing in two disagreeing stamps says
+      which is wrong, so the message names both ends rather than electing
+      a culprit.  Note that a spread is a range statistic
       and grows with the number of devices: with ~10 ms of host dither and
       5-10 ms of NTP, a set of a few dozen devices may need a wider
       *tolerance_s* than the pairwise default.
@@ -498,9 +499,9 @@ def sync_verdict_from_stamps(
     # differing from a notional truth. (A per-device deviation from the
     # median cannot carry this: with two devices the median sits midway and
     # an 84 ms disagreement reads as ±42 ms, inside a 50 ms budget, while
-    # the join sees the full 84 ms.) The median deviations are still
-    # computed, to NAME the device that is out rather than only report how
-    # wide the set is.
+    # the join sees the full 84 ms.) The per-device deviations from the
+    # anchor are kept to name the two devices at the ends of the
+    # disagreement, not to elect a culprit.
     spread = max(deviation.values()) - min(deviation.values())
     synced = spread <= tolerance_s
     # Name the two devices at the ends of the disagreement, not "the one that
@@ -520,9 +521,18 @@ def sync_verdict_from_stamps(
             "offsets no longer describe this set, so re-run "
             "measure_shot_offsets"
         )
+        if shots_out:
+            # The fold anchors on the latest stamp, so when the anchor device
+            # is the one that is out, the devices that agree with each other
+            # are the ones reported behind.
+            detail += (
+                " (the fold anchors on the latest device: if the devices "
+                "reported behind agree with each other, the anchor is the one "
+                "that moved)"
+            )
     if shots_out:
         behind = ", ".join(
-            f"{n} {abs(k)} shot(s) {'behind' if k < 0 else 'ahead'}"
+            f"{n} {abs(k)} shot(s) behind"  # anchored on the latest: never ahead
             for n, k in sorted(shots_out.items())
         )
         detail += (
@@ -580,18 +590,25 @@ def _refuse_implausible(
     measurement: OffsetMeasurement,
     *,
     max_offset: float,
-    trigger_period: float | None = None,
 ) -> None:
     """Refuse to *store* a measurement outside the physically possible range.
 
     A drain offset is a frame-drain latency, and the measured HTU set spans
     0 to 160 ms (2026-09-12; the un-ROI'd camera is the slow one, §4.F).  A
-    measurement a whole trigger period out is not an unusual camera — it is a
-    device that latched a different edge, or a stamp wait that did not wait —
-    and it would be seeded into every future run's join.  A fixed cap cannot
-    catch that on its own once the period is short (at 5 Hz a whole period is
-    only 0.2 s), so *trigger_period* bounds it too.  The numbers are already
-    logged by the caller, so refusing costs only the write.
+    measurement far outside that is not an unusual camera — it is a device
+    that latched a different edge, or a stamp wait that did not wait — and
+    it would be seeded into every future run's join.  The numbers are
+    already logged by the caller, so refusing costs only the write.
+
+    The cap is *max_offset* alone, deliberately **not** tightened by the
+    trigger period: at 5 Hz a period is 0.2 s and the real ModeImager drain
+    is 0.16 s, so a whole-period error and a genuine slow drain are the same
+    magnitude and no bound can tell them apart (review of #861, round 3: a
+    half-period bound refused the real calibration at 5 Hz, and *max_offset*
+    could not lift it).  The defence against a whole-period error is
+    upstream — the stamp wait that actually waits (``fly`` cleared at the
+    view) and the completeness rule (a shot any device missed is retaken,
+    never averaged in).
 
     Raises
     ------
@@ -599,12 +616,7 @@ def _refuse_implausible(
         An offset exceeds *max_offset*, or a scatter exceeds
         :data:`MAX_PLAUSIBLE_SCATTER_S`.
     """
-    # A whole-period error is the corruption this guard exists for, and a
-    # fixed cap cannot catch it once the period is short: at 5 Hz a whole
-    # period is 0.2 s, under any plausible cap. So bound by the period too.
     bound = max_offset
-    if trigger_period:
-        bound = min(bound, trigger_period / 2.0)
     wild = {n: v for n, v in measurement.offsets.items() if abs(v) > bound}
     noisy = {
         n: v for n, v in measurement.scatter.items() if v > MAX_PLAUSIBLE_SCATTER_S
@@ -628,14 +640,28 @@ def _refuse_implausible(
                 ", ".join(f"{n} {v * 1e3:.0f} ms" for n, v in sorted(noisy.items())),
             )
         )
+    # Branched advice: max_offset can lift an offset refusal, never a
+    # scatter one (review of #861, round 2 finding 10).
+    advice = []
+    if wild:
+        advice.append(
+            "An offset that far past the measured 0-160 ms range is a bad "
+            "measurement, not unusual hardware: a device latched a different "
+            "edge, or its stamp wait returned without waiting. Re-run, and "
+            "raise max_offset only if you have reason to believe the hardware."
+        )
+    if noisy:
+        advice.append(
+            "Scatter that wide is a host with a timekeeping problem or a box "
+            "still passing edges, and max_offset cannot lift it: find the cause "
+            "and re-run."
+        )
     raise GeecsConfigurationError(
         "refusing to store this measurement — "
         + "; ".join(parts)
-        + ". A frame drain does not take a whole trigger period, so this is a bad "
-        "measurement, not unusual hardware: a device latched a different "
-        "edge, or its stamp wait returned without waiting. The table above "
-        "is the measurement; nothing was written. Re-run, and raise "
-        "max_offset only if you have reason to believe the hardware."
+        + ". "
+        + " ".join(advice)
+        + " The table above is the measurement; nothing was written."
     )
 
 
@@ -670,6 +696,11 @@ def _stamp_views(detectors: Sequence[Any]) -> list[Any]:
             "is its own reference by definition"
         )
     return views
+
+
+def _usable(value: float | None) -> bool:
+    """A stamp that can be compared: read, and from a real acquisition (not 0.0)."""
+    return value is not None and value != 0.0
 
 
 def _read_stamps(views: Sequence[Any]):
@@ -750,24 +781,22 @@ def _settle_quiet(views: Sequence[Any], quiet_time: float, confirm_time: float):
         and settled.get(name) is not None
         and value != settled[name]
     ]
-    drained = [
-        name
-        for name, value in settled.items()
-        if value is not None and before.get(name) is not None and value != before[name]
-    ]
     # Two independent signals that the box never went OFF. The second is
     # free and covers what the first can miss: ONE device draining an
     # in-flight frame across the long wait is expected, but the WHOLE set
     # advancing across a wait that already exceeds the device timeout is a
     # box still passing edges.
-    # Count only devices that held a usable stamp in BOTH reads: a `None`
-    # or a never-acquired 0.0 can never appear in `drained`, so counting it
-    # in the denominator would disable this backstop permanently.
+    # Count only devices that held a usable stamp in BOTH reads. A `None`
+    # (unreadable) or a 0.0 (never acquired since boot) cannot advance, so
+    # counting one in the denominator would disable this backstop for as
+    # long as that device sits there (review of #861, round 3: a camera
+    # holding 0.0 let the two others advance across the wait unrefused).
     comparable = [
         name
         for name, value in settled.items()
-        if value is not None and before.get(name) is not None
+        if _usable(value) and _usable(before.get(name))
     ]
+    drained = [name for name in comparable if settled[name] != before[name]]
     everything_moved = len(comparable) > 1 and len(drained) == len(comparable)
     if moving or everything_moved:
         culprits = sorted(moving) or sorted(drained)
@@ -910,6 +939,13 @@ def measure_shot_offsets_plan(
             raise GeecsConfigurationError(
                 f"trigger_period must be positive seconds, got {trigger_period}"
             )
+        if measured_at_rate_hz is not None and not measured_at_rate_hz > 0:
+            # Before any shot: the document's own validator (gt=0) would
+            # otherwise reject it only after the shots were spent.
+            raise GeecsConfigurationError(
+                "measured_at_rate_hz must be a positive rate in Hz, or left "
+                f"unset — got {measured_at_rate_hz}"
+            )
         if write and not _can_write(resolver):
             raise GeecsConfigurationError(
                 "measure_shot_offsets: this worker cannot write the "
@@ -1006,9 +1042,7 @@ def measure_shot_offsets_plan(
                     "the experiment's shot_offsets.yaml"
                 )
                 return measurement
-            _refuse_implausible(
-                measurement, max_offset=max_offset, trigger_period=trigger_period
-            )
+            _refuse_implausible(measurement, max_offset=max_offset)
             document = measurement.to_document(
                 geecs_names={
                     view._owner.name: view._owner._geecs_device_name for view in views

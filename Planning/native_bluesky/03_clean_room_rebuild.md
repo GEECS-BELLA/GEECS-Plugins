@@ -451,8 +451,8 @@ Three things the review of #861 added that are worth not re-deriving:
   and covers the same gap from another side: *every* device advancing
   across a wait that already exceeds the device timeout is a running box,
   whatever the confirmation window saw.
-- **The measurement needs a plausibility bound before it is stored.** §11.4
-  fixes the physical range at 36–100 ms, so a number an order of magnitude
+- **The measurement needs a plausibility bound before it is stored.** the
+  measured HTU set spans 0–160 ms (§4.F, 2026-09-12), so a number well
   outside it is a bad measurement — a device latching a different edge, a
   stamp wait that did not wait — not unusual hardware. Nothing downstream
   would question it: the schema validates any finite float, and the join

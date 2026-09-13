@@ -14,7 +14,7 @@ calibration and its preflight.  **Every `drain_offset` in the field read
 `0.0` before this** — phase 2c threaded the offsets through both sides of
 the s-file join; this puts real numbers into them.
 
-At 1 Hz the join windows are ±0.5 s and swallow the ~36–100 ms device
+At 1 Hz the join windows are ±0.5 s and swallow the 0–160 ms device
 spread, so nothing was broken.  They narrow with the rep rate: at 5 Hz they
 are ±0.1 s, the same order as the spread, where an uncalibrated offset costs
 rows.  This is what makes faster running safe.
@@ -161,9 +161,9 @@ the ROI'd amplifier cameras at +59 / +96 ms).  Re-run after an ROI change.
   that already exceeds the device timeout is a running box, whatever the
   confirmation window saw.
 - **A physically impossible measurement is refused for writing.**  The
-  drain spread is 36-100 ms; `MAX_PLAUSIBLE_OFFSET_S` (0.3 s) and
-  `MAX_PLAUSIBLE_SCATTER_S` (0.1 s) stop a measurement an order of
-  magnitude outside it from reaching the share, where it would be seeded
+  measured HTU set spans 0-160 ms; `MAX_PLAUSIBLE_OFFSET_S` (0.3 s) and
+  `MAX_PLAUSIBLE_SCATTER_S` (0.1 s) stop a measurement well outside it
+  from reaching the share, where it would be seeded
   into every future join.  The table is still reported; only the write is
   refused, and `max_offset` raises the bound deliberately.
 - **`check_shot_sync` folds whole trigger periods out** before judging.
@@ -172,8 +172,8 @@ the ROI'd amplifier cameras at +59 / +96 ms).  Re-run after an ROI change.
   warned about rather than failing a queue.  A set too sparse to judge is
   reported as **could not check** — `SyncVerdict.comparable` — and no
   longer raises, because that is not a failure.  The verdict stays on the
-  pairwise spread (what the join actually consumes) while the per-device
-  deviation from the set median names the culprit.
+  pairwise spread (what the join actually consumes) and names the two
+  devices at its ends.
 - **The stamp read is a genuine uncached get.**  `bps.rd` goes through
   ophyd-async's monitor cache, whose `get_reading` *awaits its first
   update* — so under OFF, where the stamp PV publishes nothing by design,
@@ -189,6 +189,41 @@ the ROI'd amplifier cameras at +59 / +96 ms).  Re-run after an ROI change.
   are checked **before** a measurement is spent rather than after; fewer
   than three shots warns; `resolve_shot_offsets` joins the `ConfigResolver`
   protocol.
+
+### Review rounds 2 and 3 (2026-09-13)
+
+Round 1's fixes were reviewer-confirmed in round 2, and round 2's in
+round 3.  Each round found a defect inside the previous round's own fix.
+
+- **`check_shot_sync` folds whole periods against the latest device, not
+  the median.**  Round 1 anchored on the set median, which is not an
+  instant any device reported: for an even-sized set it sits between the
+  groups, a device exactly one period out lands half a period from it,
+  `round(±0.5)` is `0`, nothing folds, and the plan **stopped the queue on
+  its own routine case** — while a two-period gap folded to a fabricated
+  "one ahead, one behind".  The latest corrected stamp is a real instant,
+  so every other device is a whole number of periods behind it or is
+  genuinely out.  Pinned for 1/2/3 periods, an even 2-2 split, and the
+  half-period case that must still fail.
+- **`measured_at_rate_hz` is declared by the caller, never derived** from
+  `trigger_period` — the plan fires single shots with a stamp wait between,
+  so its own spacing is not the machine's rate — and is checked positive
+  before any shot is fired.
+- **The plausibility cap is `max_offset` alone.**  Round 2 also bounded it
+  by half the trigger period; round 3 removed that: at 5 Hz a period is
+  0.2 s and the real ModeImager drain is 0.16 s, so a whole-period error
+  and a genuine slow drain are the same magnitude, and the bound refused
+  the real calibration with no escape (`max_offset` could not lift a
+  `min`).  The refusal's advice is branched — a scatter refusal is not
+  something `max_offset` can lift.
+- **The quiet backstop ignores never-acquired devices.**  A camera holding
+  a `0.0` stamp cannot advance, so counting it let the rest of the set
+  advance across the wait unrefused.
+- **A `chmod` the share refuses warns instead of aborting the write** and
+  throwing the shots away; `resolve_annotations` raises on an unmapped
+  parameter instead of silently dropping its annotation; one
+  `plan_report_sink` per plan, package-scoped, so the resolver's own
+  "written to <path>" reaches the worker log.
 
 ## [0.84.0] - 2026-09-12
 

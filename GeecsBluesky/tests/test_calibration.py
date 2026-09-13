@@ -608,7 +608,7 @@ def test_measure_refuses_to_store_a_physically_impossible_offset(
 ) -> None:
     """A bad measurement must not reach the share.
 
-    The physical drain spread is 36-100 ms. Half a second is a device that
+    The measured HTU set spans 0-160 ms. Half a second is a device that
     latched a different edge, and storing it would seed every future join
     with it. The numbers are still reported; only the write is refused.
     """
@@ -632,6 +632,97 @@ def test_measure_refuses_to_store_a_physically_impossible_offset(
     # Raising max_offset is the documented escape hatch.
     RE(plan(cams, shots=3, quiet_time=0.01, write=True, max_offset=1.0))
     assert len(recorder.written) == 1
+
+
+def test_a_real_drain_longer_than_half_a_period_is_stored(RE: RunEngine) -> None:
+    """The cap must not refuse the hardware the feature exists for.
+
+    At 5 Hz a period is 0.2 s and the un-ROI'd ModeImager drains in 0.16 s
+    (hardware, 2026-09-12). Round 2 bounded the cap by half the period, which
+    refused that real measurement with no escape — `max_offset` could not
+    lift a `min`. The cap is `max_offset` alone (round 3).
+    """
+
+    class Recorder:
+        def __init__(self) -> None:
+            self.written: list[Any] = []
+
+        def write_shot_offsets(self, document: Any):
+            self.written.append(document)
+            return "/tmp/shot_offsets.yaml"
+
+    box = _box({"amp3": 0.0, "modeimager": 0.16})
+    sc = _shot_control(RE, box)
+    cams = [_camera(RE, box, n) for n in ("amp3", "modeimager")]
+    recorder = Recorder()
+    plan = measure_shot_offsets_plan(_profiles(sc), resolver=recorder)
+    RE(plan(cams, shots=3, quiet_time=0.01, trigger_period=0.2, write=True))
+    assert len(recorder.written) == 1
+    offsets = {k: v.offset_s for k, v in recorder.written[0].devices.items()}
+    assert offsets["modeimager"] == pytest.approx(0.16, abs=1e-6)
+
+
+def test_a_scatter_refusal_does_not_advise_raising_max_offset(
+    RE: RunEngine,
+) -> None:
+    """`max_offset` cannot lift a scatter refusal, so the advice must not say so."""
+    from geecs_bluesky.plans.calibration import OffsetMeasurement, _refuse_implausible
+
+    noisy = OffsetMeasurement(
+        reference="amp3",
+        offsets={"amp3": 0.0, "amp4": 0.04},
+        scatter={"amp3": 0.0, "amp4": 0.5},
+        shots=3,
+    )
+    with pytest.raises(GeecsConfigurationError) as info:
+        _refuse_implausible(noisy, max_offset=0.3)
+    assert "scatter past" in str(info.value)
+    assert "raise max_offset" not in str(info.value)
+
+
+def test_a_bad_rate_is_refused_before_any_shot(RE: RunEngine) -> None:
+    """The document rejects a non-positive rate; learn that before the shots."""
+    box = _box({"amp3": 0.0, "amp4": 0.036})
+    sc = _shot_control(RE, box)
+    cams = [_camera(RE, box, n) for n in ("amp3", "amp4")]
+    plan = measure_shot_offsets_plan(_profiles(sc), resolver=None)
+    with pytest.raises(GeecsConfigurationError, match="measured_at_rate_hz"):
+        RE(plan(cams, shots=3, quiet_time=0.01, measured_at_rate_hz=0.0))
+    assert box.fires == 0
+    assert box.puts == []
+
+
+def test_a_never_acquired_device_does_not_disable_the_backstop(
+    RE: RunEngine,
+) -> None:
+    """A camera holding 0.0 cannot advance; it must not be counted.
+
+    Round 2's denominator excluded only `None`, so a never-acquired camera
+    sat in `comparable`, never in `drained`, and the whole-set signal could
+    never fire while it was in the set (round 3).
+    """
+    box = _box({"amp3": 0.0, "amp4": 0.036, "dead": 0.0})
+    sc = _shot_control(RE, box)
+    cams = [_camera(RE, box, n) for n in ("amp3", "amp4", "dead")]
+    live = [cam for cam in cams if cam.name != "dead"]
+    (dead,) = [cam for cam in cams if cam.name == "dead"]
+    set_mock_value(dead.acq_timestamp, 0.0)
+    plan = measure_shot_offsets_plan(_profiles(sc), resolver=None)
+
+    async def bump():
+        await asyncio.sleep(0.05)
+        for cam in live:
+            set_mock_value(cam.acq_timestamp, 9999.0 + box.latencies[cam.name])
+
+    import asyncio as _asyncio
+
+    fut = _asyncio.run_coroutine_threadsafe(bump(), RE._loop)
+    try:
+        with pytest.raises(GeecsConfigurationError, match="every device advanced"):
+            RE(plan(cams, shots=2, quiet_time=0.3, trigger_period=0.05))
+    finally:
+        fut.cancel()
+    assert box.fires == 0
 
 
 def test_the_whole_set_advancing_across_the_quiet_wait_is_refused(
@@ -827,5 +918,7 @@ class TestWholePeriodFoldingIsNotParityDependent:
             {"fast": 5000.0, "slow": 4999.5}, {}, trigger_period_s=1.0
         )
         assert not verdict.synced
-        assert verdict.shots_out == {}
+        # Whether exactly half a period rounds to 0 or -1 is float rounding,
+        # not the invariant; either way the verdict must be a failure that
+        # names both ends.
         assert "fast" in verdict.detail and "slow" in verdict.detail
