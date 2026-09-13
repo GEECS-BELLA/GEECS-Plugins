@@ -133,8 +133,9 @@ def test_submit_then_run_pause_resume_stop(
     assert client.post("/api/pause", json={"operator": "sam"}).json()["ok"] is True
     for _ in range(8):  # to the next step boundary (shot 20)
         manager.step()
+    # pause is the manager's word; the progress picture keeps saying running
     assert client.get("/api/status").json()["re_state"] == "paused"
-    assert client.get("/api/progress").json()["state"] == "paused"
+    assert client.get("/api/progress").json()["state"] == "running"
     manager.step()
     assert client.get("/api/progress").json()["shots_done"] == 20
 
@@ -151,7 +152,8 @@ def test_submit_then_run_pause_resume_stop(
     done = q["finished"][0]
     assert done["state"] == "failed" and done["word"] == "stopped"
     assert done["scan_numbers"] == [47] and done["detail"] == "stopped by operator"
-    assert client.get("/api/progress").json()["state"] == "aborted"
+    # RunEngine.stop() marks the run successful; the history row is what says stopped
+    assert client.get("/api/progress").json()["state"] == "done"
 
 
 def test_queue_runs_items_in_order_and_clear_drops_the_waiting(
@@ -159,18 +161,41 @@ def test_queue_runs_items_in_order_and_clear_drops_the_waiting(
 ) -> None:
     first = service.preset("eb_align_1hz")
     second = service.preset("background_dark")
-    for doc in (first, second):
-        assert (
-            client.post(
-                "/api/submit",
-                json={"preset": doc, "acknowledged": ["gateway_liveness"]},
-            ).status_code
-            == 200
-        )
+    ack = ["gateway_liveness"]
+    # first item: idle queue -> starts at once; second: queues behind it
+    assert (
+        client.post(
+            "/api/submit", json={"preset": first, "acknowledged": ack}
+        ).status_code
+        == 200
+    )
+    assert (
+        client.post(
+            "/api/submit", json={"preset": second, "acknowledged": ack}
+        ).status_code
+        == 200
+    )
     q = client.get("/api/queue").json()
     assert q["running"]["plan"] == "count" and q["running"]["planned_shots"] == 20
     assert [w["position"] for w in q["waiting"]] == [1]
     assert q["waiting"][0]["summary"].startswith("background · count · 50 shots")
+    # a third while one WAITS is the failed-item-at-front trap: refused, pending items named
+    r = client.post("/api/submit", json={"preset": first, "acknowledged": ack})
+    assert r.status_code == 409
+    err = r.json()["error"]
+    assert (
+        err["kind"] == "policy_refusal" and err["pending_items"][0]["plan"] == "count"
+    )
+    assert len(client.get("/api/queue").json()["waiting"]) == 1
+    # clear_pending replaces the waiting item
+    r = client.post(
+        "/api/submit",
+        json={"preset": first, "acknowledged": ack, "clear_pending": True},
+    )
+    assert r.status_code == 200
+    q = client.get("/api/queue").json()
+    assert len(q["waiting"]) == 1 and q["waiting"][0]["plan"] == "count"
+    assert not q["waiting"][0]["summary"].startswith("background")
     for _ in range(20):
         manager.step()
     q = client.get("/api/queue").json()
@@ -178,18 +203,18 @@ def test_queue_runs_items_in_order_and_clear_drops_the_waiting(
         47
     ]
     # the manager keeps going: the next waiting item is running already
-    assert q["running"]["summary"].startswith("background") and q["waiting"] == []
+    assert q["running"]["plan"] == "count" and q["waiting"] == []
     assert client.get("/api/progress").json()["scan_number"] == 48
     manager.stop_scan()
     assert (
         client.post(
-            "/api/submit", json={"preset": first, "acknowledged": ["gateway_liveness"]}
+            "/api/submit", json={"preset": second, "acknowledged": ack}
         ).status_code
         == 200
     )
     assert (
         client.post(
-            "/api/submit", json={"preset": second, "acknowledged": ["gateway_liveness"]}
+            "/api/submit", json={"preset": first, "acknowledged": ack}
         ).status_code
         == 200
     )

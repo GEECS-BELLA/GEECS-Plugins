@@ -39,6 +39,14 @@ logger = logging.getLogger("geecs_scanner.streams")
 #: Console lines kept for late-joining pages.
 _CONSOLE_KEEP = 400
 
+#: The streams whose events are shots.  A strict run's rows are ``primary``
+#: events; a gated run's ``primary`` is datum-only and its per-shot rows are
+#: the sampler's ``shots`` stream (phase 2, ``plans/gated.py``).  The same
+#: pair the s-file writer counts (``geecs_bluesky.callbacks.ROW_STREAMS``);
+#: ``tests/test_streams.py`` pins the two together.  Spelled here rather
+#: than imported because ``callbacks`` drags the engine in.
+ROW_STREAMS: tuple[str, ...] = ("primary", "shots")
+
 
 class ProgressCache:
     """Lock-protected latest-run picture plus a ring of console lines.
@@ -57,7 +65,7 @@ class ProgressCache:
         self._available = False
         self._detail = "stream cache not started"
         self._state: dict[str, Any] = {}
-        self._primary: set[str] = set()
+        self._rows: set[str] = set()
         self._console: deque[ConsoleLine] = deque(maxlen=_CONSOLE_KEEP)
         self._seq = 0
         self._version = 0
@@ -95,7 +103,7 @@ class ProgressCache:
         with self._lock:
             now = self._clock()
             if name == "start":
-                self._primary = set()
+                self._rows = set()
                 num_points = doc.get("num_points") or doc.get("max_iterations")
                 shots = doc.get("shots_per_step")
                 total: Optional[int] = None
@@ -117,27 +125,26 @@ class ProgressCache:
                     "updated_at": now,
                 }
             elif name == "descriptor":
-                if doc.get("name") == "primary" and doc.get("uid"):
-                    self._primary.add(str(doc["uid"]))
+                if doc.get("name") in ROW_STREAMS and doc.get("uid"):
+                    self._rows.add(str(doc["uid"]))
             elif name == "event":
-                if str(doc.get("descriptor")) in self._primary:
+                if str(doc.get("descriptor")) in self._rows:
                     seq = _as_int(doc.get("seq_num")) or 0
                     self._state["shots_done"] = max(
                         seq, int(self._state.get("shots_done") or 0)
                     )
+                    # Progress proves the resume: a row after a failed-move
+                    # pause means the operator resumed, so the reason and
+                    # the paused word go (the MCP's finding #683-1).
+                    if self._state.get("state") == "paused":
+                        self._state["state"] = "running"
+                        self._state["paused_reason"] = None
                     self._state["updated_at"] = now
             elif name == "stop":
                 status = str(doc.get("exit_status") or "")
                 self._state["exit_status"] = status
                 self._state["state"] = "done" if status == "success" else "aborted"
                 self._state["updated_at"] = now
-            self._version += 1
-
-    def set_state(self, state: str) -> None:
-        """Set the picture's state word from outside the documents (paused/running)."""
-        with self._lock:
-            self._state["state"] = state
-            self._state["updated_at"] = self._clock()
             self._version += 1
 
     def push_console_line(

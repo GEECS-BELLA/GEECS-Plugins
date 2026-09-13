@@ -1,7 +1,7 @@
 """GEECS Scanner — the web scanner console's service layer and HTTP API.
 
 The third web surface on the GEECS surface kit, and the replacement for
-the PySide6 GEECS-Console (``Planning/native_bluesky/10_web_scanner.md``).
+the PySide6 GEECS-Console (``Planning/native_bluesky/10_web_scanner.md``, #869).
 Two layers, one seam:
 
 - :mod:`geecs_scanner.service` — pure Python over

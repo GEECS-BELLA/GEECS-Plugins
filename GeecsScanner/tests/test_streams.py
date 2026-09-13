@@ -39,6 +39,26 @@ def test_start_seeds_total_and_never_inherits_the_previous_run() -> None:
     assert c.snapshot().planned_total is None
 
 
+def test_gated_rows_on_the_shots_stream_count_too() -> None:
+    c = ProgressCache()
+    c.on_document(
+        "start",
+        {"scan_number": 5, "plan_name": "scan", "num_points": 3, "shots_per_step": 4},
+    )
+    c.on_document("descriptor", {"uid": "p", "name": "primary"})
+    c.on_document("descriptor", {"uid": "s", "name": "shots"})
+    c.on_document("event", {"descriptor": "s", "seq_num": 9})  # a gated run's rows
+    assert c.snapshot().shots_done == 9
+
+
+def test_row_streams_are_the_sfile_writers() -> None:
+    from geecs_bluesky.callbacks import ROW_STREAMS as ENGINE_ROWS
+
+    from geecs_scanner.service.streams import ROW_STREAMS
+
+    assert tuple(ROW_STREAMS) == tuple(ENGINE_ROWS)
+
+
 def test_count_total_is_its_num() -> None:
     c = ProgressCache()
     c.on_document(
@@ -60,7 +80,12 @@ def test_stop_records_exit_and_console_prefix_sets_the_paused_reason() -> None:
     )
     s = c.snapshot()
     assert s.state == "paused" and s.paused_reason == "U_Hexapod did not reach 1.0"
-    c.on_document("stop", {"exit_status": "abort", "reason": "stopped"})
+    # the next row proves the resume: the reason and the word go
+    c.on_document("descriptor", {"uid": "d", "name": "primary"})
+    c.on_document("event", {"descriptor": "d", "seq_num": 1})
+    s = c.snapshot()
+    assert s.state == "running" and s.paused_reason is None
+    c.on_document("stop", {"exit_status": "abort", "reason": "halted"})
     s = c.snapshot()
     assert s.state == "aborted" and s.exit_status == "abort"
     lines = c.console_since(0)

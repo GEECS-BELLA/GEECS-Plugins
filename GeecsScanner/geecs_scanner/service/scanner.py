@@ -1,9 +1,13 @@
 """The scanner's verbs, over an injected queue client and configs resolver.
 
-Every method blocks (the client is 0MQ request/reply) and every method
-holds one lock: one client per process, one call at a time.  The web layer
-runs these on FastAPI's threadpool; tests call them directly with the demo
-backend.  Nothing here knows about HTTP.
+Every method blocks (the client is 0MQ request/reply).  The **verbs**
+(submit, pause, resume, stop, clear) hold one lock — one write at a time —
+and the reads do not: the client is documented thread-safe for "a status
+poller plus one-at-a-time verb calls", and a graceful stop can take up to
+two minutes (deferred pause, then stop), during which every page's status
+poll must keep answering.  The web layer runs these on FastAPI's
+threadpool; tests call them directly with the demo backend.  Nothing here
+knows about HTTP.
 
 Policy the service enforces — the operator's, not an agent's (GEECS-MCP's
 shot cap and "refuse if anything is queued" are agent posture and are
@@ -18,6 +22,9 @@ deliberately not here):
 - **Ownership** (who may stop whose scan) arrives with the operator
   registry (arc PR 5); until then every verb acts and ``force`` is
   recorded but changes nothing.
+- **Pause is the manager's word.** ``StatusOut.re_state`` says ``paused``;
+  the progress picture only says it after a failed-move line, until the
+  next row proves the resume.
 """
 
 from __future__ import annotations
@@ -115,9 +122,8 @@ class ScannerService:
 
     def status(self) -> StatusOut:
         """One manager poll plus the readiness verdict (never raises)."""
-        with self._lock:
-            snap = self.client.status()
-            verdict = self.client.readiness()
+        snap = self.client.status()
+        verdict = self.client.readiness()
         return StatusOut(
             connected=snap.connected,
             re_state=snap.re_state,
@@ -147,10 +153,9 @@ class ScannerService:
     def queue(self, history_limit: int = 10) -> QueueOut:
         """The running item, the waiting items front-first, recent history newest-first."""
         try:
-            with self._lock:
-                running = self.client.running_item()
-                waiting = self.client.queue_items()
-                history = self.client.history_items()
+            running = self.client.running_item()
+            waiting = self.client.queue_items()
+            history = self.client.history_items()
         except Exception as exc:  # noqa: BLE001 — the client raises on failure
             raise ScannerError(
                 "manager_unreachable", f"queue unavailable: {exc}"
@@ -221,8 +226,7 @@ class ScannerService:
     def devices(self) -> list[str]:
         """Every device reference the manager resolves (the add-device list)."""
         try:
-            with self._lock:
-                return sorted(self.client.allowed_device_names())
+            return sorted(self.client.allowed_device_names())
         except Exception as exc:  # noqa: BLE001
             raise ScannerError(
                 "manager_unreachable", f"device list unavailable: {exc}"
@@ -377,8 +381,9 @@ class ScannerService:
 
     def _run_preflight(self, preset: Any, catalog: Mapping[str, Any]) -> Any:
         fn = self._preflight or _default_preflight()
-        with self._lock:
-            return fn(preset, self.experiment, client=self.client, catalog=catalog)
+        # No lock: the preflight reads the manager and the gateway itself
+        # (a couple of seconds of CA reads); a status poll must not wait on it.
+        return fn(preset, self.experiment, client=self.client, catalog=catalog)
 
     @staticmethod
     def _expand(preset: Any, catalog: Mapping[str, Any]) -> Any:

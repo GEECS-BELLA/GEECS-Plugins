@@ -318,6 +318,18 @@ class DemoQueueClient:
             "item_uid": uuid.uuid4().hex[:12],
         }
         with self._lock:
+            # The real client's guard (client._submit_item): an item already
+            # WAITING refuses the add unless the caller clears it first — the
+            # failed-item-at-front trap. The running item does not count.
+            if self._queue and not clear_pending:
+                return SubmitResult(
+                    ok=False,
+                    message=(
+                        f"{len(self._queue)} item(s) already queued (a failed item "
+                        "returns to the queue front) — clear before resubmitting"
+                    ),
+                    pending_items=[dict(i) for i in self._queue],
+                )
             if clear_pending:
                 self._queue.clear()
             self._queue.append(item)
@@ -362,7 +374,6 @@ class DemoQueueClient:
                 return False, "not paused"
             self._re_state = "running"
             self._pause_requested = False
-            self.streams.set_state("running")
             self.streams.push_console_line("resumed")
             return True, "resumed"
 
@@ -430,9 +441,10 @@ class DemoQueueClient:
             if self._shots >= self._total:
                 self._finish("completed", "")
             elif boundary and self._pause_requested:
+                # The manager's word, not a document: re_state says paused;
+                # the progress picture keeps saying running, as on the worker.
                 self._re_state = "paused"
                 self._pause_requested = False
-                self.streams.set_state("paused")
                 self.streams.push_console_line("paused at step boundary")
 
     def _drive(self, period: float) -> None:
@@ -488,11 +500,16 @@ class DemoQueueClient:
     def _finish(self, exit_status: str, msg: str) -> None:
         item = self._running
         assert item is not None
+        # RunEngine.stop() marks the run SUCCESSFUL (bluesky: "mark it as
+        # successful (not aborted)"); only abort/halt write "abort"/"fail".
+        # The manager's history says "stopped"; the documents say success.
         self.streams.on_document(
             "stop",
             {
                 "run_start": self._run_uid,
-                "exit_status": "success" if exit_status == "completed" else "abort",
+                "exit_status": "success"
+                if exit_status in ("completed", "stopped")
+                else "abort",
                 "reason": msg,
                 "time": self._clock(),
             },
