@@ -59,6 +59,7 @@ __all__ = [
     "node_available",
     "referenced_tokens",
     "rule_selectors",
+    "selector_parts",
     "styled_classes",
     "token_indirections",
     "unknown_data_states",
@@ -277,10 +278,7 @@ def css_rules(css: str) -> list[tuple[str, list[tuple[str, list[Any]]]]]:
         if not parent:
             return own
         return ", ".join(
-            f"{p.strip()} {o.strip()}"
-            for p in parent.split(",")
-            for o in own.split(",")
-            if p.strip() and o.strip()
+            f"{p} {o}" for p in selector_parts(parent) for o in selector_parts(own)
         )
 
     def block(content: Any, selector: str) -> None:
@@ -315,14 +313,29 @@ def css_rules(css: str) -> list[tuple[str, list[tuple[str, list[Any]]]]]:
     return out
 
 
+def selector_parts(selector: str) -> list[str]:
+    """Split a selector list on its TOP-LEVEL commas only.
+
+    ``.kit :is(.panel, .well)`` is one selector; a plain ``split(",")``
+    would cut it inside the parentheses. The tokenizer hands functions and
+    blocks back as single tokens, so a comma seen here is a real separator.
+    """
+    tc = _tinycss2()
+    parts: list[str] = []
+    current: list[Any] = []
+    for tok in tc.parse_component_value_list(selector):
+        if tok.type == "literal" and tok.value == ",":
+            parts.append(tc.serialize(current).strip())
+            current = []
+        else:
+            current.append(tok)
+    parts.append(tc.serialize(current).strip())
+    return [p for p in parts if p]
+
+
 def rule_selectors(css: str) -> list[str]:
-    """Return every selector in *css*, one entry per comma-separated part."""
-    return [
-        part.strip()
-        for selector, _ in css_rules(css)
-        for part in selector.split(",")
-        if part.strip()
-    ]
+    """Return every selector in *css*, one entry per top-level comma-separated part."""
+    return [part for selector, _ in css_rules(css) for part in selector_parts(selector)]
 
 
 def _is_root_selector(selector: str) -> bool:
@@ -333,7 +346,7 @@ def _is_root_selector(selector: str) -> bool:
     entry.
     """
     tc = _tinycss2()
-    for part in selector.split(","):
+    for part in selector_parts(selector):
         tokens = [
             t for t in tc.parse_component_value_list(part) if t.type != "whitespace"
         ]
@@ -472,7 +485,7 @@ def colour_literals(css: str, *, allowed: Iterable[str] = ()) -> list[str]:
     out: list[str] = []
     for selector, decls in css_rules(css):
         if marks and all(
-            _allowed_part(part.strip(), marks) for part in selector.split(",")
+            _allowed_part(part, marks) for part in selector_parts(selector)
         ):
             continue
         root = _is_root_selector(selector)
@@ -499,12 +512,15 @@ class _StyleSources(HTMLParser):
             self._in = tag
             self._buf = []
         for name, value in attrs:
-            if value is None or "{{" in value or "{%" in value:
+            if value is None:
                 continue
+            # A Jinja fragment is not a literal, but the rest of the value
+            # still is: style="color:#ff00ff; width:{{ w }}px" carries one.
+            residue = _JINJA_BLOCK.sub(" ", _JINJA_OUTPUT.sub("jinja", value))
             if name == "style":
-                self.css.append(f"x{{{value}}}")
+                self.css.append(f"x{{{residue}}}")
             elif name in ("fill", "stroke"):
-                self.css.append(f"x{{{name}:{value}}}")
+                self.css.append(f"x{{{name}:{residue}}}")
 
     def handle_endtag(self, tag: str) -> None:
         if tag == self._in:
@@ -533,15 +549,21 @@ def html_style_sources(html: Union[Path, str]) -> tuple[list[str], list[str]]:
     return parser.css, parser.scripts
 
 
-_JS_STRING = re.compile(r'"((?:[^"\\\n]|\\.)*)"|\'((?:[^\'\\\n]|\\.)*)\'')
+#: Double-quoted, single-quoted and template-literal strings. A nested
+#: template literal inside a ``${…}`` interpolation ends the outer match
+#: early — accepted; the guarded pages build HTML with backticks and put
+#: colours nowhere near an interpolation.
+_JS_STRING = re.compile(
+    r'"((?:[^"\\\n]|\\.)*)"|\'((?:[^\'\\\n]|\\.)*)\'|`((?:[^`\\]|\\.)*)`'
+)
 
 
 def js_colour_literals(js: str) -> list[str]:
     """Return the string literals in *js* whose whole value is a CSS colour.
 
-    ``el.style.color = "orange"``, ``cssText = "color:#ff00ff"`` and
-    ``setProperty("color", "#fff")`` all put a colour in a string; so does
-    a Plotly layout. Each string literal is parsed as a CSS value and
+    ``el.style.color = "orange"``, ``cssText = "color:#ff00ff"``,
+    ``setProperty("color", "#fff")`` and a template-literal HTML builder
+    all put a colour in a string; so does a Plotly layout. Each string literal is parsed as a CSS value and
     reported when it contains a colour literal — a ``#now`` element id is
     not one (``now`` is not hex), a ``"#abc"`` would be. Comments are not
     special-cased: a colour in a comment is a string only if quoted.
@@ -549,7 +571,7 @@ def js_colour_literals(js: str) -> list[str]:
     tc = _tinycss2()
     out: list[str] = []
     for m in _JS_STRING.finditer(js):
-        s = m.group(1) if m.group(1) is not None else m.group(2)
+        s = next(g for g in m.groups() if g is not None)
         if not s or "{{" in s:
             continue
         # A bare value, or a declaration list ("color:#fff;font:x").
@@ -637,22 +659,33 @@ def defined_tokens(css: str) -> dict[str, set[str]]:
 
 
 def styled_classes(*css_texts: str) -> set[str]:
-    """Return every class name any selector in the given stylesheets mentions."""
+    """Return every class name any selector in the given stylesheets mentions.
+
+    Descends into ``:is()``, ``:where()``, ``:not()`` and attribute blocks,
+    so ``.kit :is(.panel, .well)`` styles ``panel`` and ``well``.
+    """
     tc = _tinycss2()
     out: set[str] = set()
+
+    def walk(tokens: Iterable[Any]) -> None:
+        prev = None
+        for tok in tokens:
+            if (
+                tok.type == "ident"
+                and prev is not None
+                and prev.type == "literal"
+                and prev.value == "."
+            ):
+                out.add(tok.value)
+            elif tok.type == "function":
+                walk(tok.arguments)
+            elif tok.type in ("() block", "[] block", "{} block"):
+                walk(tok.content)
+            prev = tok
+
     for css in css_texts:
         for selector, _ in css_rules(css):
-            tokens = tc.parse_component_value_list(selector)
-            prev = None
-            for tok in tokens:
-                if (
-                    tok.type == "ident"
-                    and prev is not None
-                    and prev.type == "literal"
-                    and prev.value == "."
-                ):
-                    out.add(tok.value)
-                prev = tok
+            walk(tc.parse_component_value_list(selector))
     return out
 
 

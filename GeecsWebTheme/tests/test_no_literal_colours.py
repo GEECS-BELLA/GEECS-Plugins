@@ -205,6 +205,13 @@ def test_probe_css_literals(css: str, expected: bool) -> None:
         ('<script>el.style.cssText = "background:var(--surface-2)";</script>', False),
         ('{# <div style="color:#ff00ff"> in a Jinja comment #}', False),
         ('<div style="{{ inline }}"></div>', False),
+        ('<div style="color:#ff00ff; width:{{ w }}px"></div>', True),
+        ('<svg><path fill="{{ tone }}" stroke="#ff00ff"/></svg>', True),
+        ("<script>const css = `color:#ff00ff`;</script>", True),
+        (
+            '<script>el.innerHTML = `<b class="chip" data-state="${s}">${w}</b>`;</script>',
+            False,
+        ),
     ],
 )
 def test_probe_html_and_script_literals(html: str, expected: bool) -> None:
@@ -492,3 +499,21 @@ def test_a_token_named_in_a_css_comment_is_not_a_reference() -> None:
     assert referenced_tokens(
         "// was var(--old)\nel.style.cssText = 'x'", css=False
     ) == {"--old"}
+
+
+def test_selector_lists_split_on_top_level_commas_only() -> None:
+    """``:is(.panel, .well)`` is one selector, and both classes count as styled."""
+    from geecs_web_theme.testing import selector_parts
+
+    assert selector_parts(".kit :is(.panel, .well), .kit .x") == [
+        ".kit :is(.panel, .well)",
+        ".kit .x",
+    ]
+    assert rule_selectors(".kit :is(.panel, .well){x:1}") == [".kit :is(.panel, .well)"]
+    assert styled_classes(".kit :is(.panel, .well):not(.dim){x:1}") == {
+        "kit", "panel", "well", "dim",
+    }  # fmt: skip
+    assert rule_selectors(".kit .a{ &:is(.b, .c){x:1} }") == [
+        ".kit .a",
+        ".kit .a &:is(.b, .c)",
+    ]
