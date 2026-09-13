@@ -92,6 +92,20 @@ nothing), the save-set widget (dead since GEECS-Schemas 0.21.0).
 - **Ports:** the portal's "read-only" was history, not principle. Three
   surfaces run as **separate processes behind one front door** (§3.2).
 - **The mock is the design.** Iterate on the working version, not the mock.
+- **Interim data-taking:** HTU is down for a day or two; if the scanner is not
+  up by then, the host checkouts go **back to master** for data-taking. No
+  interim CLI is built for this arc.
+- **Hardware acceptance needs no beam** — a strict `count` and a 1D magnet
+  scan with cameras on dark exercise the whole path. Beam is available if a
+  case ever needs it.
+- **The tail shows both narrations** — scan.log and the manager's console
+  text — behind a `.seg` toggle, scan.log the default. Their shot counts are
+  never reconciled (GEECS-Console CLAUDE.md).
+- **Kit additions (PR 1) go to master**, where the portal and logbook can use
+  them now; one more master → branch sync follows.
+- **Operators are a registry, not a free-text field**: pick from a list, with
+  a built-in **guest** profile for visitors. No passwords — "our team is small
+  and I trust people"; the posture the Qt console had.
 
 ---
 
@@ -135,8 +149,12 @@ unit. What the operator wants is nevertheless **one origin**: one bookmark,
 one theme and density choice, one operator name — all of which are
 same-origin `localStorage` under the theme's keys.
 
-So: a reverse proxy on the worker host (Caddy — one binary, one config file,
-solo-maintainable) on 80/443 routing `/portal` → 8200, `/log` → 8200/log,
+So: a reverse proxy on the worker host — **Caddy**: a web server whose only
+job here is to listen on one port and send each path to the right process,
+adding the `X-Forwarded-Prefix` header the portal already reads; one static
+binary, a ten-line config, its own systemd unit, automatic TLS if ever
+wanted; the fleet's first non-Python service, accepted for that reason — on
+80/443 routing `/portal` → 8200, `/log` → 8200/log,
 `/scan` → 8300. The forwarded-prefix middleware the portal already has exists
 for exactly this, and OSPREY's panel integration already assumes a proxy.
 SSE needs `flush_interval` / no buffering on that route — one line. The
@@ -153,6 +171,7 @@ taxonomy → HTTP: `invalid_request` 400, `policy_refusal` 409,
 | `GET /api/status` | `client.status()` + `readiness_verdict` | `re_state`, `manager_state`, items, running uid, readiness word |
 | `GET /api/queue` · `GET /api/history?limit=` | `queue_items` / `history_items` / `running_item` | rows summarized server-side (the console's `summarize_item` ports unchanged) |
 | `GET /api/configs/{kind}` | `ConfigsRepoResolver` | `presets`, `trigger_profiles`, `scan_variables` (with `kind`, alias first), `actions`, `optimizer_configs`; `GET /api/configs/presets/{name}` resolves one |
+| `GET /api/operators` | `operators.yaml` in the experiment's configs tree | the operator picklist; a built-in `guest` entry is always present |
 | `GET /api/devices` | `allowed_device_names` + namespace type | the "add device" list; a device the gateway does not serve does not appear |
 | `POST /api/preflight` | `run_submit_preflight(preset, …)` | body = a `Preset`; returns refusal \| questions \| outcomes; submits nothing |
 | `POST /api/submit` | `build_submission_record` + `client.submit_preset` | body = `{preset, acknowledged: [check…], operator}`; unacknowledged questions ⇒ 409 with `needs_acknowledgement`; acknowledged checks stamped `continued` in the `SubmissionRecord` that rides in `md["geecs"]` |
@@ -189,7 +208,9 @@ the portal's run pages), pane:
    determinate meter (shots, step, time left), live values with age (trigger
    box state, the scan axis readback, rate, one charge monitor, document
    age), Pause/Resume + Stop (rung 3 dialog), the `denied` banner when the
-   running item belongs to someone else, scan.log tail in a `.well`.
+   running item belongs to someone else, the tail in a `.well` with a `.seg`
+   toggle between **scan.log** (default) and the **manager console** text —
+   two narrations, never reconciled.
 2. **New scan** — mode `seg` (No-scan · 1D · Grid · Background · Optimize
    greyed), acquisition `seg` (strict default · gated), axis 1 (variable
    alias-first, start/stop/step with validation), axis 2 for grid, shots per
@@ -248,18 +269,19 @@ is its own small PR against `kit.html`, not an inline style.
 
 ## 4. Sequencing — six PRs, each with its own acceptance
 
-All target `feature/native-bluesky-plans`. GeecsWebTheme has no Bluesky
-dependency and its additions are additive, so they *could* go to master —
-but the arc lands as one, and the branch carries them to master with it.
+All target `feature/native-bluesky-plans` **except PR 1**, which targets
+master: GeecsWebTheme has no Bluesky dependency, its additions are additive,
+and the portal and logbook on master can use them at once. One more
+master → branch sync brings them here before PR 3.
 
 | # | PR | contents | acceptance |
 |---|---|---|---|
 | 0 | *(prerequisite, in flight)* | master → branch sync: the kit arrives | `feature/web-surface-kit` content present on the branch; CI green |
-| 1 | **GeecsWebTheme 0.3.0** — the kit additions | §3.6 + `kit.html` specimens + tests (`STATES` gains `paused`; the literal-colour walk gains the scanner's paths) | 127+ tests green; `kit.html` shows every addition; contrast test passes for `paused` |
+| 1 | **GeecsWebTheme 0.3.0** — the kit additions (**targets master**; the next sync carries it here) | §3.6 + `kit.html` specimens + tests (`STATES` gains `paused`; the literal-colour walk gains the scanner's paths) | 127+ tests green; `kit.html` shows every addition; contrast test passes for `paused` |
 | 2 | **GeecsScanner 0.1.0** — service layer + HTTP API | package, `service/`, `web/api`, the doc-stream bridge, SSE, `StubQueueClient`-backed tests; unit template, `render_units.sh` line, `site.env` keys, fleet-map row, DEPLOYMENT.md | **headless**: every route exercised against the stub in tests; on the box, `curl` against the real worker: status, configs, preflight of a real preset, `/api/events` streaming during a queued `count` |
 | 3 | **GeecsScanner 0.2.0** — the page, day one | Now, New scan (count / scan / grid_scan), Queue, health chips, the four dialogs, keyboard; template guards | **hardware**: Sam submits a strict `count` and a strict 1D `scan` from a browser on the box; pause/resume/stop each observed once; the s-file matches the console-era shape |
 | 4 | **GeecsScanner 0.3.0** — the rest of the mock | Devices · move (`mv`), Actions (preview/arm/run), Calibration, Add-device drawer, Save-as-preset (writes YAML through the resolver root), Today rail → portal links | each verb observed once on hardware; a saved preset round-trips through `GET /api/configs/presets/{name}` and submits |
-| 5 | **Front door + operator** | Caddy on the worker host (`/portal`, `/log`, `/scan`), unit + site.env; `geecs.operator` in `theme-boot.js` beside `geecs.theme`, read by the scanner's operator field **and** the logbook's author field (GeecsLogbook patch); ownership compare in `/api/stop` and `/api/pause` | one origin serves all three; theme/density/operator follow between them; a foreign running item shows `denied` and needs `force` |
+| 5 | **Front door + operators** | Caddy on the worker host (`/portal`, `/log`, `/scan`), unit + site.env; an **operator registry** — `operators.yaml` in the experiment's configs tree (name, initials, optional role), plus the built-in `guest` — served by `/api/operators`; the chosen operator stored as `geecs.operator` in `theme-boot.js` beside `geecs.theme`, so the scanner's picker **and** the logbook's author field (GeecsLogbook patch: a picklist over the same registry, free text only for guest) read one value; ownership compare in `/api/stop` and `/api/pause` | one origin serves all three; theme/density/operator follow between them; the logbook and scanner offer the same names; a foreign running item shows `denied` and needs `force` |
 | 6 | **Delete GEECS-Console** — the closing PR | the package, `console-windows` CI job + its repo variable, docs pages, fleet-map rows, root `CLAUDE.md` row and dependency-graph entry; `git tag` a milestone first | CI green without the job; `docs/` builds; **the branch is now eligible for master** per the 2026-09-12 gate |
 
 Each PR gets the `/land` ritual (scope, version + CHANGELOG, tests as CI runs
@@ -315,13 +337,10 @@ The scanner must not make either harder. Concretely:
 
 ## 6. Open questions
 
-None blocking. Two to settle during PR 3 by looking at the deployed page:
+None blocking. One to settle during PR 3 by looking at the deployed page:
 
 1. Whether the Now panel's live-value slots are chosen server-side (the
    scan axis + the preset's essential scalars) or pinned by the operator.
    Server-side first; pinning is a later drawer if wanted.
-2. How much of the scan.log tail to stream — the console deliberately showed
-   the manager's text, *not* scan.log, and the two narrations' shot counts
-   must never be reconciled (GEECS-Console CLAUDE.md). The mock shows
-   scan.log; the SSE stream carries both as separate event types so the page
-   can show either.
+2. ~~Which tail to show~~ — settled 2026-09-13: both, behind a toggle,
+   scan.log default; the SSE stream carries them as separate event types.
