@@ -491,11 +491,15 @@ def test_status_vocabulary_is_pinned_to_the_kit() -> None:
 def test_pane_states_are_pinned_to_the_kit() -> None:
     """No surface names a pane state outside ``PANE_STATES``.
 
-    Unlike the statuses, not every pane state needs its own rule — loading,
-    empty and denied share the neutral ground on purpose, and only error and
-    stale take a colour. So the pin runs one way for the CSS (it may style a
-    subset, never something outside the vocabulary) and strictly for the
-    reference page, which is the copy people will imitate.
+    Unlike the statuses, not every pane state needs its own rule — loading
+    and empty share the neutral ground on purpose; error and stale take a
+    colour, denied a dashed edge. So the pin runs one way for the CSS (it
+    may style a subset, never something outside the vocabulary) and
+    strictly for the reference page, which is the copy people will imitate.
+
+    ``data-age`` is pinned the same strict way: its one value is ``stale``
+    (a fresh reading carries no attribute), so anything else on the page is
+    a typo that renders as fresh.
     """
     import sys
 
@@ -517,6 +521,10 @@ def test_pane_states_are_pinned_to_the_kit() -> None:
     assert not stray, (
         f"kit.html uses {sorted(stray)}, which is neither a status nor a pane "
         "state — a typo here is invisible in a browser"
+    )
+    ages = set(re.findall(r'data-age=["\']([\w-]+)["\']', page))
+    assert ages <= {"stale"}, (
+        f"kit.html uses data-age={sorted(ages)}; the only value is 'stale'"
     )
 
 
@@ -665,4 +673,31 @@ def test_hidden_survives_the_components() -> None:
     first_display = re.search(r"\.kit \.[\w-]+\{[^}]*display:", css)
     assert first_display and m.start() < first_display.start(), (
         "the [hidden] rule sits after a component that sets display"
+    )
+
+
+_LIVE_CONTROLS = {
+    "live": r'class="live"',
+    "meter": r'class="meter"',
+    "field validation": r'aria-invalid="true"',
+    "chip.lg": r'class="chip lg"',
+    "sticky table": r'class="tscroll sticky"',
+    "ack dialog": r'<dialog[^>]*class="ack"',
+    "paused status": r'data-state="paused"',
+    "denied banner": r'class="banner" data-state="denied"',
+}
+
+
+@pytest.mark.parametrize("name,pattern", sorted(_LIVE_CONTROLS.items()))
+def test_reference_page_demonstrates_the_live_controls(name: str, pattern: str) -> None:
+    """Every 0.3.0 addition has a specimen on the reference page.
+
+    ``test_reference_page_demonstrates_only_what_the_kit_provides`` runs the
+    other way — nothing on the page without a rule. A rule without a
+    specimen is the quieter failure: the component exists, nobody copies it,
+    and the next surface writes its own. The scanner's mock is where each of
+    these was first drawn; the page is where they live now.
+    """
+    assert re.search(pattern, _KIT_HTML.read_text()), (
+        f"kit.html shows no {name} ({pattern!r}) — add the specimen beside the rule"
     )

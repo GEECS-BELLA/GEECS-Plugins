@@ -38,10 +38,14 @@ which is a real `<dialog>`.
   current item is marked with `aria-current="page"` or
   `aria-pressed="true"` — the state is the accessibility attribute, never
   a class, so it cannot be styled-but-unannounced.
-- **Status** — `queued · running · ok · degraded · failed · unknown`, plus
+- **Status** — `queued · running · paused · ok · degraded · failed · unknown`, plus
   `agent` for *who wrote this*. Named on `data-state`; every chip is a dot
   **and** a word, so colour is never the only carrier.
 - **Pane states** — `loading · empty · error · stale · denied`.
+- **Live controls** (0.3.0) — `.live` (a reading with its age; `data-age="stale"`
+  past a threshold), `.meter` (determinate progress), `.field` validation
+  (`aria-invalid` on the control, `.err`, `.req`, disabled), `.chip.lg`, `.tscroll.sticky`,
+  and `dialog.ack` — the one widened rung 3, a list of tickable questions.
 - **The overlay ladder** — `details.disc` → `.inspector` → `.drawer` →
   `<dialog>` → a route. Take the lowest rung that fits; the decider is
   whether the user can lose work by pressing Esc.
