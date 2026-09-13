@@ -117,8 +117,21 @@ class ProgressCache:
                         total = int(num_points)
                 except (TypeError, ValueError):
                     total = None
+                tag = (
+                    doc.get("scan_tag") if isinstance(doc.get("scan_tag"), dict) else {}
+                )
+                day = None
+                try:
+                    if tag.get("year") and tag.get("month") and tag.get("day"):
+                        day = f"{int(tag['year']):04d}-{int(tag['month']):02d}-{int(tag['day']):02d}"
+                except (TypeError, ValueError):
+                    day = None
                 self._state = {
                     "scan_number": _as_int(doc.get("scan_number")),
+                    "scan_folder": str(doc["scan_folder"])
+                    if doc.get("scan_folder")
+                    else None,
+                    "day": day,
                     "plan_name": doc.get("plan_name"),
                     "planned_total": total,
                     "shots_done": 0,

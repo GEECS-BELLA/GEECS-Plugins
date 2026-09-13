@@ -351,3 +351,77 @@ def test_a_share_that_refuses_chmod_still_gets_the_calibration(repo, monkeypatch
     assert path.exists()
     assert resolver.resolve_shot_offsets().reference == "a"
     assert list(path.parent.glob(".*tmp")) == []
+
+
+def _preset(name: str = "s1h_steer", **overrides):
+    from geecs_schemas import Preset
+
+    doc = {
+        "name": name,
+        "description": "steer S1H",
+        "trigger_profile": "HTU-LaserOFF",
+        "devices": [{"device": "UC_Amp4_IR_input", "save_images": True}],
+        "plan": {
+            "name": "scan",
+            "args": ["S1H current", 0.0, 0.2, 3],
+            "kwargs": {"shots_per_step": 3, "acquisition": "strict"},
+        },
+    }
+    doc.update(overrides)
+    return Preset.model_validate(doc)
+
+
+def test_write_preset_round_trips_through_resolve_and_listing(repo):
+    resolver = ConfigsRepoResolver("TestExp", repo)
+    path = resolver.write_preset(_preset())
+    assert (
+        path == repo / "TestExp" / ConfigsRepoResolver.PRESET_FOLDER / "s1h_steer.yaml"
+    )
+    assert "s1h_steer" in resolver.list_presets()
+    again = resolver.resolve_preset("s1h_steer")
+    assert again.plan.args == ["S1H current", 0.0, 0.2, 3]
+    assert again.trigger_profile == "HTU-LaserOFF"
+    assert yaml.safe_load(path.read_text())["schema_version"] == 1
+    assert [p.name for p in path.parent.glob(".*tmp")] == []
+
+
+def test_write_preset_refuses_to_replace_unless_asked(repo):
+    from geecs_bluesky.exceptions import GeecsConfigurationError
+
+    resolver = ConfigsRepoResolver("TestExp", repo)
+    # Amp4In exists in the fixture (as an empty document).
+    before = resolver.preset_path("Amp4In").read_text()
+    with pytest.raises(GeecsConfigurationError, match="already exists"):
+        resolver.write_preset(_preset("Amp4In"))
+    assert resolver.preset_path("Amp4In").read_text() == before
+    resolver.write_preset(_preset("Amp4In"), overwrite=True)
+    assert resolver.resolve_preset("Amp4In").description == "steer S1H"
+
+
+def test_write_preset_refuses_a_name_that_is_not_a_file_stem(repo):
+    from geecs_bluesky.exceptions import GeecsConfigurationError
+
+    resolver = ConfigsRepoResolver("TestExp", repo)
+    for bad in ("../escape", "a/b", ".hidden", "", "with space"):
+        with pytest.raises(GeecsConfigurationError, match="not a file name"):
+            resolver.write_preset(_preset(bad))
+    assert not (repo / "escape.yaml").exists()
+
+
+def test_write_preset_refuses_a_missing_experiment_folder(tmp_path):
+    """Same rule as write_shot_offsets: never plant an experiment folder."""
+    from geecs_bluesky.exceptions import GeecsConfigurationError
+
+    resolver = ConfigsRepoResolver("NoSuchExp", tmp_path)
+    with pytest.raises(GeecsConfigurationError, match="no configs folder"):
+        resolver.write_preset(_preset())
+    assert not (tmp_path / "NoSuchExp").exists()
+
+
+def test_write_preset_creates_only_the_presets_folder(tmp_path):
+    """A fresh experiment has the folder but no presets/ yet; that one is fine to add."""
+    (tmp_path / "Fresh").mkdir()
+    resolver = ConfigsRepoResolver("Fresh", tmp_path)
+    path = resolver.write_preset(_preset())
+    assert path.parent == tmp_path / "Fresh" / "presets"
+    assert resolver.list_presets() == ["s1h_steer"]

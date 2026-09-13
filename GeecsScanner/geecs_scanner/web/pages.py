@@ -39,5 +39,6 @@ def register(router: APIRouter, service: ScannerService) -> None:
                 "experiment": service.experiment,
                 "identity": service.identity,
                 "version": __version__,
+                "portal": service.portal_url,
             },
         )

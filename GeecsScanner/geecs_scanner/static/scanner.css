@@ -24,7 +24,7 @@
 .kit .tail .ln{display:flex;gap:10px;white-space:pre-wrap}
 .kit .tail .ln .t{color:var(--muted);flex:none;font-variant-numeric:tabular-nums}
 .kit .tail .ln.warn{color:var(--warn)}
-.kit .tail:empty::before{content:"No console output yet.";color:var(--muted)}
+.kit .tail:empty::before{content:attr(data-empty);color:var(--muted)}
 
 .kit .axes{display:grid;gap:var(--gap);grid-template-columns:minmax(0,1.6fr) repeat(3,minmax(0,1fr))}
 @media (max-width:640px){.kit .axes{grid-template-columns:1fr 1fr}}
@@ -35,3 +35,19 @@
 .kit .devtable input[type="checkbox"]{width:15px;height:15px;margin:0;vertical-align:middle}
 .kit .est{font-family:var(--ff-mono);font-size:12.5px;color:var(--slate);font-variant-numeric:tabular-nums}
 .kit .est b{color:var(--ink)}
+
+.kit .devtable .rm{opacity:.35}
+.kit .devtable tr:hover .rm, .kit .devtable .rm:focus-visible{opacity:1}
+.kit .steps{margin:0;padding:0 0 0 1.6em;font-size:12px;line-height:1.6}
+.kit .steps li{margin:0}
+.kit .steps li .from{color:var(--muted);margin-left:6px}
+.kit .steps li.write{color:var(--ink)}
+.kit #preset-yaml{font-size:11.5px;line-height:1.5;white-space:pre}
+/* The three side-by-side panels stretch to one height; the footer stays at the bottom. */
+.kit .trio > .panel{display:flex;flex-direction:column}
+.kit .trio > .panel > .body{flex:1}
+/* Secondary text on a picklist row (step count, "in the table") that must stay readable on the selected row. */
+.kit .picklist .sub{color:var(--muted);font-size:12px;text-align:right}
+.kit .picklist [aria-pressed="true"] .sub{color:inherit;opacity:.85}
+.kit .picklist .sub.prob{color:var(--warn)}
+.kit .rail h4 a{color:inherit}

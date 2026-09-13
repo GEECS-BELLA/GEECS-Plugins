@@ -23,7 +23,7 @@
    absolute http:// URL is a mixed-content block. #}
 <link rel="stylesheet" href="{{ url_for('scanner_static', path='scanner.css').path }}">
 </head>
-<body class="kit" data-root="{{ root }}" data-experiment="{{ experiment }}" data-identity="{{ identity }}">
+<body class="kit" data-root="{{ root }}" data-experiment="{{ experiment }}" data-identity="{{ identity }}" data-portal="{{ portal }}">
 
 <header class="topbar">
   <div class="topbar-in">
@@ -47,6 +47,9 @@
         <a href="#now" aria-current="page">Now</a>
         <a href="#submit">New scan</a>
         <a href="#queue">Queue</a>
+        <a href="#devices">Devices</a>
+        <a href="#actions">Actions</a>
+        <a href="#calib">Calibration</a>
       </nav>
     </div>
     <div>
@@ -55,7 +58,7 @@
       <p class="dim rail-note" id="presets-note">Loading…</p>
     </div>
     <div>
-      <h4>Recent</h4>
+      <h4 id="recent-h">Recent</h4>
       <nav class="picklist recent" id="recent" aria-label="Recent scans"></nav>
     </div>
   </nav>
@@ -106,16 +109,17 @@
           <div class="row">
             <span class="eyebrow">tail</span>
             <div class="seg" role="group" aria-label="Which narration" id="tail-seg">
-              <button type="button" data-tail="manager" aria-pressed="true" title="The RE Manager's console output">manager</button>
-              <button type="button" data-tail="scanlog" aria-disabled="true" title="scan.log arrives with the run's folder (a later step)">scan.log</button>
+              <button type="button" data-tail="scanlog" aria-pressed="true" title="The run's scan.log, read from the folder the start document names">scan.log</button>
+              <button type="button" data-tail="manager" title="The RE Manager's console output">manager</button>
             </div>
+            <span class="dim note" id="tail-note"></span>
             <span class="spacer"></span>
             <span class="dim note" id="paused-reason"></span>
           </div>
           <div class="well tail" id="tail" aria-live="polite"></div>
         </div>
       </div>
-      <footer class="eyebrow" id="now-foot">state from the manager every second · shots from the document stream</footer>
+      <footer class="eyebrow" id="now-foot">state from the manager every second · shots from the document stream · two narrations, never reconciled</footer>
     </section>
 
     {# =========================== SUBMIT =========================== #}
@@ -172,12 +176,12 @@
           <div class="row">
             <span class="eyebrow" id="devices-eyebrow">devices</span>
             <span class="spacer"></span>
-            <span class="dim note">from the selected preset · adding devices arrives with the next step</span>
+            <button class="btn sm ghost" type="button" data-drawer-open="drw-devices" id="btn-add-device">Add device…</button>
           </div>
           <div class="tscroll">
             <table class="devtable">
-              <thead><tr><th>device</th><th>save images</th><th>essential</th></tr></thead>
-              <tbody id="devs"><tr><td class="dim" colspan="3">Pick a preset in the rail.</td></tr></tbody>
+              <thead><tr><th>device</th><th>save images</th><th>essential</th><th></th></tr></thead>
+              <tbody id="devs"><tr><td class="dim" colspan="4">Pick a preset in the rail.</td></tr></tbody>
             </table>
           </div>
           <span class="dim note">Not essential + no images is refused at expansion. A gated run needs at least one essential triggered device.</span>
@@ -188,6 +192,7 @@
           <span class="est" id="est">—</span>
           <span class="spacer"></span>
           <span class="dim note" id="preset-name"></span>
+          <button class="btn" type="button" data-drawer-open="drw-preset" id="btn-save-preset" disabled>Save as preset…</button>
           <button class="btn primary" type="button" id="btn-start" disabled>Start</button>
         </div>
       </footer>
@@ -214,9 +219,118 @@
       </footer>
     </section>
 
-    <p class="dim footnote">Keys: <kbd>P</kbd> pause / resume · <kbd>S</kbd> stop · <kbd>N</kbd> new scan.</p>
+    {# =================== DEVICES / ACTIONS / CALIBRATION =================== #}
+    <div class="grid trio">
+
+      <section id="devices" class="panel" aria-labelledby="d-h">
+        <header>
+          <span class="eyebrow" id="d-h">devices · move</span>
+          <span class="chip" data-state="unknown" id="mv-chip">idle only</span>
+        </header>
+        <div class="body">
+          <div class="fields">
+            <div class="field"><label for="mv-var">variable</label><select id="mv-var"></select><span class="hint" id="mv-hint">catalog name → device:variable</span></div>
+            <div class="field"><label for="mv-val">set to</label><input id="mv-val" type="number" step="any" placeholder="value"><span class="hint">&nbsp;</span><span class="err" id="err-mv-val">Enter a number.</span></div>
+          </div>
+          <div class="row">
+            <span class="dim note" id="mv-note">A move is an <code>mv</code> queue item: it runs only while nothing runs or waits.</span>
+            <span class="spacer"></span>
+            <button class="btn" type="button" id="btn-move" disabled>Move</button>
+          </div>
+        </div>
+        <footer class="eyebrow">resolved as a scan axis would be · pseudo variables refused</footer>
+      </section>
+
+      <section id="actions" class="panel" aria-labelledby="a-h">
+        <header>
+          <span class="eyebrow" id="a-h">actions</span>
+          <span class="chip" data-state="unknown" id="act-chip">disarmed</span>
+        </header>
+        <div class="body">
+          <nav class="picklist" id="actions-list" aria-label="Action plans"></nav>
+          <p class="dim note" id="actions-note">Loading the action library…</p>
+          <div class="group" id="action-preview-group" hidden>
+            <div class="row">
+              <span class="eyebrow" id="action-preview-title">preview</span>
+              <span class="spacer"></span>
+              <span class="dim note" id="action-writes"></span>
+            </div>
+            <ol class="well steps" id="action-steps"></ol>
+          </div>
+        </div>
+        <footer>
+          <div class="row">
+            <span class="dim note">Arm, then Run — a <code>run_action</code> queue item, idle only. Arming is never remembered.</span>
+            <span class="spacer"></span>
+            <button class="btn sm" type="button" id="act-arm" disabled>Arm</button>
+            <button class="btn sm primary" type="button" id="act-run" disabled>Run</button>
+          </div>
+        </footer>
+      </section>
+
+      <section id="calib" class="panel" aria-labelledby="c-h">
+        <header>
+          <span class="eyebrow" id="c-h">calibration</span>
+          <span class="chip" data-state="unknown" id="cal-chip">—</span>
+        </header>
+        <div class="body">
+          <div class="grid tight">
+            <div class="live"><span class="k">shot offsets</span><span class="v" id="cal-devices">—</span><span class="age" id="cal-when"></span></div>
+            <div class="live"><span class="k">max offset</span><span class="v" id="cal-max">—</span><span class="age" id="cal-max-dev"></span></div>
+          </div>
+          <div class="fields">
+            <div class="field"><label for="cal-shots">shots to average</label><input id="cal-shots" type="number" min="1" step="1" value="10"><span class="hint">measure only</span></div>
+            <div class="field"><label for="cal-write">store the result</label><select id="cal-write"><option value="">report only</option><option value="1">write shot_offsets.yaml</option></select><span class="hint">a written file still needs a commit</span></div>
+          </div>
+          <p class="dim note" id="cal-set">Over the devices in the New scan table.</p>
+        </div>
+        <footer>
+          <div class="row">
+            <span class="dim note">Box OFF, no run opened. Check costs no shot.</span>
+            <span class="spacer"></span>
+            <button class="btn sm" type="button" id="cal-check" disabled>Check sync</button>
+            <button class="btn sm" type="button" data-dialog-open="dlg-measure" id="cal-measure" disabled>Measure offsets…</button>
+          </div>
+        </footer>
+      </section>
+
+    </div>
+
+    <p class="dim footnote">Keys: <kbd>P</kbd> pause / resume · <kbd>S</kbd> stop · <kbd>N</kbd> new scan · <kbd>Esc</kbd> closes a drawer.</p>
   </main>
 </div>
+
+{# ============================ DRAWERS ============================ #}
+<div class="scrim"></div>
+
+<aside class="drawer" id="drw-devices" role="dialog" aria-modal="false" aria-labelledby="drw-devices-title" aria-hidden="true" data-open="false">
+  <header>
+    <span class="eyebrow" id="drw-devices-title">add device</span>
+    <button class="btn sm ghost" type="button" data-drawer-close>Close</button>
+  </header>
+  <div class="body">
+    <div class="field"><label for="devq">search</label><input id="devq" placeholder="UC_… or U_…" autocomplete="off"><span class="hint" id="devq-hint">names the manager resolves against the worker namespace</span></div>
+    <nav class="picklist" id="devlist" aria-label="Devices"></nav>
+    <span class="dim note">A device the gateway does not serve does not appear. Added rows save images and are essential until you say otherwise.</span>
+  </div>
+</aside>
+
+<aside class="drawer" id="drw-preset" role="dialog" aria-modal="false" aria-labelledby="drw-preset-title" aria-hidden="true" data-open="false">
+  <header>
+    <span class="eyebrow" id="drw-preset-title">save as preset</span>
+    <button class="btn sm ghost" type="button" data-drawer-close>Close</button>
+  </header>
+  <div class="body">
+    <div class="field"><label for="pname">name</label><input id="pname" placeholder="my_scan" autocomplete="off"><span class="hint">one YAML under presets/ in the configs repo</span><span class="err" id="err-pname">Letters, digits, _ - . only.</span></div>
+    <div class="field"><label for="pdesc">description</label><textarea id="pdesc" rows="2"></textarea></div>
+    <div class="well"><pre id="preset-yaml"></pre></div>
+    <p class="dim note" id="preset-saved"></p>
+    <div class="row end">
+      <button class="btn" type="button" data-drawer-close>Cancel</button>
+      <button class="btn primary" type="button" id="do-save-preset">Save preset</button>
+    </div>
+  </div>
+</aside>
 
 {# ============================ DIALOGS ============================ #}
 <dialog id="dlg-stop" aria-labelledby="dlg-stop-title">
@@ -240,6 +354,22 @@
     <h4 id="dlg-pending-title">An item is already waiting</h4>
     <p id="dlg-pending-text">The manager runs one item behind the running one. Replace the waiting item with this scan?</p>
     <div class="row end"><button class="btn" type="button" data-dialog-close autofocus>Keep it</button><button class="btn primary" type="button" id="do-replace">Replace and queue</button></div>
+  </div>
+</dialog>
+
+<dialog id="dlg-measure" aria-labelledby="dlg-measure-title">
+  <div class="body">
+    <h4 id="dlg-measure-title">Measure shot offsets?</h4>
+    <p id="dlg-measure-text">Drives the trigger box OFF, waits the set quiet, fires single shots and reads every device's timestamp.</p>
+    <div class="row end"><button class="btn" type="button" data-dialog-close autofocus>Not now</button><button class="btn primary" type="button" id="do-measure">Measure</button></div>
+  </div>
+</dialog>
+
+<dialog id="dlg-overwrite" aria-labelledby="dlg-overwrite-title">
+  <div class="body">
+    <h4 id="dlg-overwrite-title">Replace preset <span id="dlg-overwrite-name"></span>?</h4>
+    <p>A preset of that name already exists in the configs tree. Replacing it changes what everyone submits under that name.</p>
+    <div class="row end"><button class="btn" type="button" data-dialog-close autofocus>Keep the old one</button><button class="btn danger" type="button" id="do-overwrite">Replace</button></div>
   </div>
 </dialog>
 

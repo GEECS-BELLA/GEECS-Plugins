@@ -4,6 +4,21 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.86.0] - 2026-09-13
+
+### Added
+
+- `ConfigsRepoResolver.write_preset(preset, *, overwrite=False)` and
+  `preset_path(name)`: the scanner's "Save as preset" writes
+  `presets/<name>.yaml` through the resolver, so the folder keeps one
+  owner now that the Qt console's `PresetStore` is going. Same contract
+  as `write_shot_offsets` — atomic (temp file, fsync, `os.replace`), mode
+  preserved, the experiment folder never created here, the configs repo
+  is a git checkout and committing is a human act. Refuses a name that is
+  not a plain file stem and, without `overwrite`, an existing preset.
+  The atomic write is now one module-level primitive shared by both
+  writers.
+
 ## [0.85.1] - 2026-09-13
 
 ### Changed

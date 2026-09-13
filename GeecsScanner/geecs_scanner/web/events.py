@@ -6,6 +6,10 @@ One stream, three event types, each a JSON object:
   sent every round so the page can show how long ago the manager answered;
 - ``progress`` — the latest-run picture from the document stream, sent
   when it changes;
+- ``log``      — the run's ``scan.log`` lines (:mod:`geecs_scanner.service.scanlog`),
+  one frame per chunk, from the folder the start document names; a new
+  run replays its file from the top, and a folder this host cannot read
+  is said once (``available: false``);
 - ``console``  — one manager console-output line each, carrying
   ``id: <epoch>:<seq>`` so the browser's own reconnect resumes where it
   left off (``Last-Event-ID``); ``?since=<seq>`` is the manual form. A new
@@ -80,6 +84,9 @@ def register(router: APIRouter, service: ScannerService) -> None:
             last_progress: str | None = None
             epoch = service.streams.epoch
             cursor = _resume_from(request, since, epoch)
+            log_folder: str | None = None
+            log_offset = 0
+            log_said_missing = False
             last_sent = time.monotonic()
             while True:
                 # Every round, changed or not: the page shows how long ago the
@@ -94,6 +101,24 @@ def register(router: APIRouter, service: ScannerService) -> None:
                     last_progress = p
                     last_sent = time.monotonic()
                     yield _frame("progress", progress.model_dump())
+                if progress.scan_folder and progress.scan_folder != log_folder:
+                    log_folder, log_offset, log_said_missing = (
+                        progress.scan_folder,
+                        0,
+                        False,
+                    )
+                if log_folder:
+                    chunk = await anyio.to_thread.run_sync(
+                        service.scan_log, log_offset, log_folder
+                    )
+                    if chunk.available:
+                        log_offset = chunk.offset
+                        if chunk.lines:
+                            last_sent = time.monotonic()
+                            yield _frame("log", chunk.model_dump())
+                    elif not log_said_missing:
+                        log_said_missing = True
+                        yield _frame("log", chunk.model_dump())
                 for line in service.console_since(cursor):
                     cursor = line.seq
                     last_sent = time.monotonic()

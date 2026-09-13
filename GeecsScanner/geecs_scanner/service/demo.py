@@ -24,10 +24,12 @@ a flag, and every name in it is sample content.
 
 from __future__ import annotations
 
+import tempfile
 import threading
 import time
 import uuid
 from collections.abc import Callable, Mapping, Sequence
+from pathlib import Path
 from typing import Any, Optional
 
 from geecs_scanner.service.streams import ProgressCache
@@ -41,6 +43,28 @@ _DEMO_DEVICES = [
     "U_S1H",
     "U_Hexapod",
 ]
+
+#: Queue items that open no run (``geecs_bluesky.plan_names.NON_SCAN_PLAN_NAMES``,
+#: spelled here so the demo needs no import at module load).
+_NON_RUN_PLANS = ("mv", "run_action", "check_shot_sync", "measure_shot_offsets")
+
+
+def _nonrun_report(item: dict) -> str:
+    """The one-line result the fake worker writes for a non-run item."""
+    name, args, kwargs = item["name"], item["args"], item["kwargs"]
+    if name == "mv":
+        pairs = ", ".join(
+            f"{args[i]} = {args[i + 1]}" for i in range(0, len(args) - 1, 2)
+        )
+        return f"moved {pairs}"
+    if name == "run_action":
+        return f"action {args[0]!r} ran to completion" if args else "action ran"
+    n = len(args[0]) if args and isinstance(args[0], list) else 0
+    if name == "check_shot_sync":
+        return f"{n} devices in tolerance (spread 0.008 s)"
+    return f"offsets measured over {n} devices" + (
+        " and written to shot_offsets.yaml" if kwargs.get("write") else " (not written)"
+    )
 
 
 def demo_presets() -> list[Any]:
@@ -142,9 +166,102 @@ class DemoResolver:
         """Optimizer-config names (listed; nothing submits one yet)."""
         return ["xopt_beam_charge"]
 
+    def write_preset(self, preset: Any, *, overwrite: bool = False) -> Path:
+        """Keep *preset* in memory under its name; the path is where the real one would go."""
+        from geecs_bluesky.exceptions import GeecsConfigurationError
+
+        if preset.name in self._presets and not overwrite:
+            raise GeecsConfigurationError(
+                f"preset {preset.name!r} already exists at {self.preset_path(preset.name)}; "
+                "pass overwrite=True to replace it"
+            )
+        self._presets[preset.name] = preset
+        return self.preset_path(preset.name)
+
+    def preset_path(self, name: str) -> Path:
+        """Where the real resolver would write *name*."""
+        return Path("demo") / "presets" / f"{name}.yaml"
+
     def action_plan_registry(self) -> dict[str, Any]:
-        """Action plans by name (none in the demo)."""
-        return {}
+        """Three action plans: one plain, one nesting another, one broken on purpose."""
+        from geecs_schemas import ActionPlan
+
+        return {
+            "close_shutters": ActionPlan.model_validate(
+                {
+                    "description": "Close both shutters and confirm",
+                    "steps": [
+                        {
+                            "do": "set",
+                            "device": "U_148_PLC",
+                            "variable": "shutter1",
+                            "value": "off",
+                        },
+                        {
+                            "do": "set",
+                            "device": "U_148_PLC",
+                            "variable": "shutter2",
+                            "value": "off",
+                        },
+                        {"do": "wait", "seconds": 2},
+                        {
+                            "do": "check",
+                            "device": "U_148_PLC",
+                            "variable": "shutter1",
+                            "expected": "off",
+                        },
+                    ],
+                }
+            ),
+            "experiment_closeout": ActionPlan.model_validate(
+                {
+                    "description": "Zero the steering magnets, then close the shutters",
+                    "steps": [
+                        {
+                            "do": "set",
+                            "device": "U_S1H",
+                            "variable": "current",
+                            "value": 0.0,
+                        },
+                        {"do": "run", "plan": "close_shutters"},
+                    ],
+                }
+            ),
+            "broken_reference": ActionPlan.model_validate(
+                {
+                    "description": "Runs a plan that is not in the library",
+                    "steps": [{"do": "run", "plan": "no_such_plan"}],
+                }
+            ),
+        }
+
+    def resolve_action_plan(self, name: str) -> Any:
+        """One plan, or ``KeyError``."""
+        return self.action_plan_registry()[name]
+
+    @property
+    def shot_offsets_path(self) -> Path:
+        """Where the real resolver would keep the calibration."""
+        return Path("demo") / "shot_offsets.yaml"
+
+    def resolve_shot_offsets(self) -> Any:
+        """A stored calibration over three demo devices."""
+        from geecs_schemas import DeviceOffset, ShotOffsets
+
+        return ShotOffsets(
+            reference="uc_alineebeam3",
+            devices={
+                "uc_alineebeam3": DeviceOffset(offset_s=0.0, scatter_s=0.004, shots=10),
+                "uc_tc_phosphor": DeviceOffset(
+                    offset_s=0.031, scatter_s=0.006, shots=10
+                ),
+                "u_ict": DeviceOffset(offset_s=-0.012, scatter_s=0.003, shots=10),
+            },
+            measured_at="2026-09-12T15:02:00",
+            trigger_profile="standard_1hz",
+            trigger_rate_hz=1.0,
+            description="demo calibration",
+        )
 
     def scan_variable_catalog(self) -> Any:
         """A catalog with three plain entries and one pseudo entry."""
@@ -243,7 +360,14 @@ class DemoQueueClient:
         self._scan_number = first_scan
         self._run_uid = ""
         self._desc_uid = ""
+        self._nonrun: Optional[str] = None
         self._user = user
+        # Every demo run claims a folder under one temporary root and writes
+        # a scan.log there the way the worker does, so the page's scan.log
+        # tail has something to show.  Sample content in a temp dir — never
+        # the data tree.
+        self._root = Path(tempfile.mkdtemp(prefix="geecs-scanner-demo-"))
+        self._log: Optional[Path] = None
         if period > 0:
             threading.Thread(
                 target=self._drive, args=(period,), name="demo-manager", daemon=True
@@ -423,6 +547,9 @@ class DemoQueueClient:
                 return
             if self._re_state != "running":
                 return
+            if self._nonrun is not None:
+                self._finish("completed", self._nonrun)
+                return
             self._shots += 1
             self.streams.on_document(
                 "event",
@@ -433,10 +560,17 @@ class DemoQueueClient:
                 },
             )
             boundary = self._shots % self._per_step == 0
+            if self._per_step == self._total:
+                # A count has no steps; the worker's scan.log narrates each shot.
+                self._scan_log(f"shot {self._shots}/{self._total} acquired")
             if boundary:
                 step = self._shots // self._per_step
                 self.streams.push_console_line(
                     f"step {step}/{max(1, self._total // self._per_step)} · {self._per_step} shots"
+                )
+                self._scan_log(
+                    f"step {step}/{max(1, self._total // self._per_step)}: "
+                    f"{self._per_step} shots, {self._per_step} frames each device"
                 )
             if self._shots >= self._total:
                 self._finish("completed", "")
@@ -462,8 +596,23 @@ class DemoQueueClient:
         self._running = item
         self._re_state = "running"
         self._pause_requested = False
-        self._scan_number += 1
         summary = summarize_item(item)
+        if item["name"] in _NON_RUN_PLANS:
+            # A move, an action or a calibration opens no run: no scan number
+            # is claimed, no document is emitted; the item finishes on the
+            # next step with the worker's one-line report in its result.
+            self._nonrun = _nonrun_report(item)
+            self._shots, self._total, self._per_step = 0, 1, 1
+            self.streams.push_console_line(
+                f"queue: running {summary.text} · submitted by {item['user']}"
+            )
+            return
+        self._nonrun = None
+        self._scan_number += 1
+        folder = self._root / f"Scan{self._scan_number:03d}"
+        folder.mkdir(exist_ok=True)
+        self._log = folder / "scan.log"
+        today = time.localtime(self._clock())
         self._per_step = summary.shots_per_step or 1
         self._total = summary.planned_shots or self._per_step
         self._shots = 0
@@ -482,6 +631,13 @@ class DemoQueueClient:
             {
                 "uid": self._run_uid,
                 "scan_number": self._scan_number,
+                "scan_folder": str(folder),
+                "scan_tag": {
+                    "year": today.tm_year,
+                    "month": today.tm_mon,
+                    "day": today.tm_mday,
+                    "number": self._scan_number,
+                },
                 "plan_name": item["name"],
                 "num_points": self._total if is_count else summary.steps,
                 "shots_per_step": 1 if is_count else self._per_step,
@@ -496,10 +652,41 @@ class DemoQueueClient:
         self.streams.push_console_line(
             f"Scan {self._scan_number:03d} claimed · {summary.text} · submitted by {item['user']}"
         )
+        self._scan_log(f"scan Scan{self._scan_number:03d}: starting (dir={folder})")
+        self._scan_log(f"plan {summary.text}")
+
+    def _scan_log(self, text: str) -> None:
+        """Append one line to the current run's scan.log, in the worker's shape."""
+        if self._log is None:
+            return
+        stamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(self._clock()))
+        with self._log.open("a", encoding="utf-8") as fh:
+            fh.write(
+                f"{stamp}.000 INFO geecs_bluesky.demo [demo-manager] "
+                f"scan=Scan{self._scan_number:03d} - {text}\n"
+            )
 
     def _finish(self, exit_status: str, msg: str) -> None:
         item = self._running
         assert item is not None
+        if self._nonrun is not None:
+            item = dict(item)
+            item["result"] = {
+                "exit_status": exit_status,
+                "msg": msg,
+                "time_start": self._clock(),
+                "time_stop": self._clock(),
+                "scan_ids": [],
+                "run_uids": [],
+            }
+            self._history.append(item)
+            self._running = None
+            self._nonrun = None
+            self._re_state = "idle"
+            self.streams.push_console_line(f"{item['name']} {exit_status}: {msg}")
+            if self._queue:
+                self._start_next()
+            return
         # RunEngine.stop() marks the run SUCCESSFUL (bluesky: "mark it as
         # successful (not aborted)"); only abort/halt write "abort"/"fail".
         # The manager's history says "stopped"; the documents say success.
@@ -529,6 +716,7 @@ class DemoQueueClient:
         self.streams.push_console_line(
             f"Scan {self._scan_number:03d} {exit_status} after {self._shots} shots"
         )
+        self._scan_log(f"finished ({exit_status}) after {self._shots} shots")
         # The manager keeps going: the next waiting item starts at once.
         if self._queue:
             self._start_next()

@@ -71,6 +71,7 @@ def create_app(service: ScannerService, *, root_path: str = "") -> FastAPI:
             "experiment": service.experiment,
             "api": "/api/status",
             "events": "/api/events",
+            "portal": service.portal_url or None,
             "openapi": "/openapi.json",
             "kit": "/theme/kit.html",
         }

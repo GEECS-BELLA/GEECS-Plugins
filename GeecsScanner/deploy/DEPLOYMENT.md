@@ -39,7 +39,14 @@ sudo systemctl enable --now geecs-scanner
 `site.env` keys the template reads: `GEECS_EXPERIMENT` (required),
 `GEECS_SCANNER_EXTRA_ARGS` (optional; `--root-path /scan` when the front
 door mounts the scanner under a prefix and does not send
-`X-Forwarded-Prefix`).
+`X-Forwarded-Prefix`; `--portal-url <the portal's base URL>` so the rail's
+scan links open the Data Portal's run pages — behind the front door that
+is the `/portal` prefix).
+
+The scan.log tail reads `<scan_folder>/scan.log` as the worker's start
+document names the folder, so the scanner runs on the worker host (same
+data-share mount); elsewhere the tail says the file is not readable and
+nothing else changes.
 
 ## Verify
 
