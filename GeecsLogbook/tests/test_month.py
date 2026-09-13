@@ -220,7 +220,7 @@ class TestTypeButtons:
         _ops(app, "2026-09-11", "plain", template="retired_type")
         html = app.get("/log/month/2026-09").text
         assert '<span class="tag tag-type tone-ok">Laser</span>' in html
-        assert '<span class="chip" data-state="unknown">retired_type</span>' in html
+        assert '<span class="tag tag-retired">retired_type</span>' in html
         # The type chip already says #laser; the tag chip would say it twice.
         assert '<span class="tag">#laser</span>' not in html
 

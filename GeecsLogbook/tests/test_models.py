@@ -26,15 +26,40 @@ class TestKitStateMapping:
         unknown = sorted(set(KIT_STATE.values()) - set(STATES))
         assert not unknown, f"{unknown} are not kit states; kit knows {sorted(STATES)}"
 
-    def test_severity_is_preserved_where_it_matters(self) -> None:
-        """The mapping may merge colours, never severities.
+    def test_the_colour_each_status_had_is_the_colour_it_keeps(self) -> None:
+        """Adoption must not repaint a status. This is the whole pin.
 
-        ``aborted`` and ``incomplete`` share ``degraded`` on purpose — both
-        finished with less than was asked, and the chip still writes which
-        one it was. What must never happen is a failure reading as success
-        or vice versa.
+        Before the kit, ``scanlog.css`` gave each status a colour family,
+        and two of them are load-bearing decisions recorded in this
+        package's CLAUDE.md under "Status is reported, not inferred":
+
+        - ``incomplete`` (empty ``ScanEndInfo``) was **neutral grey**. It is
+          the most common state on the real share — 37 of 49 ScanInfo files
+          across four sampled days — and classifying it as a warning
+          "painted most of a day amber". It is an absence of information.
+        - ``unknown`` (a non-empty ``ScanEndInfo`` we cannot read) was
+          **amber**. Something was written and we cannot interpret it, which
+          is the genuinely suspicious case.
+
+        So the mapping is deliberately NOT the identity on those two names:
+        the logbook's ``unknown`` is the kit's ``degraded``, and the
+        logbook's ``incomplete`` is the kit's ``unknown``. A first cut of
+        this mapping had them the other way round, silently swapping the two
+        severities, and a weaker version of this test passed.
         """
+        neutral, amber = {"unknown", "queued"}, {"degraded"}
         assert KIT_STATE["success"] == "ok"
         assert KIT_STATE["failed"] == "failed"
-        assert KIT_STATE["aborted"] != "ok"
-        assert KIT_STATE["incomplete"] != "ok"
+        assert KIT_STATE["aborted"] in amber
+        assert KIT_STATE["incomplete"] in neutral, (
+            "empty ScanEndInfo is the common case and must stay neutral — "
+            "see CLAUDE.md, 'Status is reported, not inferred'"
+        )
+        assert KIT_STATE["unknown"] in amber, (
+            "an unreadable ScanEndInfo is the suspicious case and keeps amber"
+        )
+
+    def test_no_failure_ever_reads_as_success(self) -> None:
+        """The one merge that must never happen."""
+        for status in ("failed", "aborted", "incomplete", "unknown"):
+            assert KIT_STATE[status] != "ok"

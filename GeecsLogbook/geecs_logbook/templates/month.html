@@ -38,7 +38,7 @@
   </div>
 </div>
 
-<div class="wrap shell">
+<div class="shell">
 
   <aside class="rail">
     <section>
@@ -76,7 +76,7 @@
     {% if days %}
     <section>
       <h4>Days · {{ days | length }}</h4>
-      <nav class="picklist daylist">
+      <nav class="picklist">
         {% for d, rs in days %}
         <a class="day" href="#day-{{ d.isoformat() }}">
           <span>{{ d.strftime('%a %d %b') }}</span>
@@ -111,7 +111,7 @@
     {% endif %}
 
     {% if writable %}
-    <section class="card compose">
+    <section class="panel compose">
       <header class="scanhead">
         <span class="scanid">New note</span>
         <span class="scanpurpose">Something about the day &mdash; not a scan. Pick a type or just write.</span>
@@ -135,10 +135,10 @@
     {% endif %}
 
     {% for d, rs in days %}
-    <section class="card daygroup" id="day-{{ d.isoformat() }}">
+    <section class="panel daygroup" id="day-{{ d.isoformat() }}">
       <header class="scanhead">
         <span class="scanid">{{ d.strftime('%a %-d %b') }}</span>
-        {% if d == today %}<span class="chip" data-state="running">today</span>{% endif %}
+        {% if d == today %}<span class="chip" data-state="unknown">today</span>{% endif %}
         <span class="scanpurpose">{{ rs | length }} note{{ '' if rs | length == 1 else 's' }}</span>
         <span class="hdr-actions">
           {% if writable %}

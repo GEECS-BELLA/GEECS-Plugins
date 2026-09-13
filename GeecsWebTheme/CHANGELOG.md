@@ -4,6 +4,17 @@ All notable changes to `geecs-web-theme` are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 project adheres to semantic versioning.
 
+## [0.2.1] - 2026-09-12
+
+### Fixed
+
+- The `running` chip's pulse had **no reduced-motion escape**. It is the
+  kit's only animation that never ends, so it is the one that most needed
+  one — and a surface's own `prefers-reduced-motion` rule typically kills
+  `transition` only, which does not touch it. Found while reviewing the
+  logbook's adoption, where a permanent "today" label had been given that
+  state.
+
 ## [0.2.0] - 2026-09-12
 
 ### Added

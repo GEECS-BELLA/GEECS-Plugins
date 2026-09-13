@@ -18,7 +18,7 @@
   {% if t %}
     <span class="tag tag-type tone-{{ t.colour }}">{{ t.label }}</span>
   {% elif entry.template not in seeds.quiet %}
-    <span class="chip" data-state="unknown">{{ entry.template }}</span>
+    <span class="tag tag-retired">{{ entry.template }}</span>
   {% endif %}
   {% set said = t.tags if t else [] %}
   {% for tag in entry.tags if tag not in said %}<span class="tag">#{{ tag }}</span>{% endfor %}
@@ -89,7 +89,7 @@
         <div class="editor-bar">
           {% if caller %}{{ caller() }}{% endif %}
           <input class="who" placeholder="Your name" required aria-label="Your name">
-          <button class="btn btn-sm btn-primary" type="submit">Save</button>
+          <button class="btn sm primary" type="submit">Save</button>
           <span class="editor-hint">&#8984;&#8629; saves &middot; paste or drop a screenshot</span>
         </div>
       </div>

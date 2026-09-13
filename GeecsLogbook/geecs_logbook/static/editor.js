@@ -430,7 +430,7 @@
     buildToolbar(form);
     if (!form.classList.contains("editing") && !form.querySelector("[data-discard]")) {
       const d = document.createElement("button");
-      d.type = "button"; d.className = "btn btn-sm"; d.dataset.discard = "1"; d.hidden = true; d.textContent = "Discard";
+      d.type = "button"; d.className = "btn sm"; d.dataset.discard = "1"; d.hidden = true; d.textContent = "Discard";
       d.title = "This entry was saved when you attached a file; discard deletes it";
       form.querySelector(".editor-bar").appendChild(d);
       d.addEventListener("click", () => discard(form));
@@ -487,8 +487,8 @@
       form.dataset.version = art.dataset.version;
       form.innerHTML = `<div class="entry-main"><textarea class="ta" rows="8"></textarea>
         <div class="editor-bar"><input class="who" placeholder="Your name" required aria-label="Your name">
-        <button class="btn btn-sm btn-primary" type="submit">Save</button>
-        <button class="btn btn-sm" type="button" data-cancel="1">Cancel</button>
+        <button class="btn sm primary" type="submit">Save</button>
+        <button class="btn sm" type="button" data-cancel="1">Cancel</button>
         <span class="editor-hint">⌘↩ saves</span></div></div>`;
       form.querySelector(".ta").value = raw;
       bodyEl.hidden = true; bodyEl.after(form);

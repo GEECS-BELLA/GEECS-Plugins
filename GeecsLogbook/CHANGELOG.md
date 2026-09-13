@@ -23,8 +23,9 @@ project adheres to semantic versioning.
   on the chip. Colour carries severity, text carries which.
 - A **tag is no longer a `.chip`.** It was borrowing the status chip,
   whose leading dot means *state*, which a tag is not; it gets `.tag`.
-- The theme and density pickers now persist across the logbook and the
-  portal both, since they are the kit's and stamped before first paint.
+- The active day in the rail is marked with `aria-current="page"` rather
+  than an `is-active` class — the kit keys on the accessibility attribute,
+  which also closes a screen-reader gap the class never covered.
 
 ### Fixed
 
@@ -43,7 +44,44 @@ project adheres to semantic versioning.
   host mounting this package standalone can now serve the theme from here
   rather than relying on the portal's mount.
 - `tests/test_models.py` pins `KIT_STATE` — every `ScanStatus` mapped,
-  every target a real kit state, and no failure ever reading as success.
+  every target a real kit state, the colour each status had is the colour
+  it keeps, and no failure ever reading as success.
+
+### Fixed (from adversarial review, before merge)
+
+- **`month.html` had not been converted at all.** Its `.card` composer and
+  every day group were left orphaned by the CSS deletion — no background,
+  border, radius or shadow — and their own overrides had been renamed to
+  `.panel.*`, matching nothing. A `git checkout` I used to revert a test
+  mutation had silently discarded the file's edits, and no test asserts the
+  month page's container class.
+- **The Save button in every composer** rendered as a plain neutral button:
+  `_entries.html` and `editor.js` emit `btn btn-sm btn-primary`, and the
+  three-class form was not covered by the rename. `editor.js` had not been
+  touched at all.
+- **`incomplete` and `unknown` had their severities swapped.** This package's
+  CLAUDE.md records that empty `ScanEndInfo` is the most common state on the
+  real share (37 of 49 across four sampled days) and that painting it amber
+  "painted most of a day amber" — yet `incomplete` was mapped to `degraded`,
+  while `unknown`, the genuinely unreadable case, went neutral. Both are now
+  the colour they had, and the test pins the colours rather than merely
+  asserting they are not `ok`.
+- The "today" chip no longer claims `running`, which in the kit carries a
+  permanent pulse — and that pulse had **no reduced-motion escape at all**
+  (GeecsWebTheme 0.2.1 adds one; the logbook's own reduced-motion rule only
+  kills `transition`).
+- A retired template name is no longer a `.chip`: it is not a status, and
+  the kit's chip leads with a dot that means *state* — the same rule this
+  PR applied to tags.
+- `.rail section + section` outlived the shell it belonged to and was
+  double-spacing rail sections against the kit's `gap`.
+- Dead markup dropped: `class="wrap shell"`, and the `daylist` / `scanlist`
+  hooks that existed only for the deleted rule.
+- `geecs-web-theme` moved to **dev** dependencies — no module under
+  `geecs_logbook/` imports it, and the templates reach the theme through the
+  host's mount. The root `CLAUDE.md` dependency graph, which claims to be
+  verified against each `pyproject.toml`, now names this edge and the
+  pre-existing `GEECS-Schemas` one it had also been missing.
 
 ## [0.6.0] - 2026-09-12
 

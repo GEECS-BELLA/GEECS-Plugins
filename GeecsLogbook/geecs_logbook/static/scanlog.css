@@ -14,7 +14,6 @@ svg{display:block;max-width:100%}
 .searchbox{display:flex;align-items:center;gap:8px;border:1px solid var(--rule);border-radius:var(--r);background:var(--paper);padding:5px 10px;flex:1 1 200px;max-width:340px}
 .searchbox input{border:0;background:transparent;color:var(--ink);font:inherit;font-size:13px;width:100%;outline:none}
 .searchbox svg{flex:none;opacity:.5}
-.rail section + section{margin-top:22px}
 .day .n{font-family:var(--ff-mono);font-size:11px;opacity:.75;font-variant-numeric:tabular-nums}
 /* .picklist aligns to the baseline; a row that leads with a status dot
    wants its items centred on it instead. */
@@ -33,6 +32,7 @@ svg{display:block;max-width:100%}
 .hdr-actions{display:flex;gap:6px;margin-left:auto}
 /* A tag is not a status — it gets its own chip rather than borrowing the
    kit's, whose leading dot means "state". Same reason .tagchip exists. */
+.tag-retired{background:var(--surface-2);color:var(--muted)}
 .tag{display:inline-block;font-family:var(--ff-mono);font-size:10.5px;font-weight:500;
   letter-spacing:.05em;text-transform:uppercase;padding:2px 7px;border-radius:3px;
   white-space:nowrap;background:var(--accent-soft);color:var(--accent)}

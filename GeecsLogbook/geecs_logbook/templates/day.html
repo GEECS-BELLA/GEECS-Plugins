@@ -147,7 +147,7 @@
   </div>
 </div>
 
-<div class="wrap shell">
+<div class="shell">
 
   <aside class="rail">
     <section>
@@ -165,9 +165,10 @@
         Back to today</a>
       {% endif %}
       {{ shared.calendar('day') }}
-      <nav class="picklist daylist">
+      <nav class="picklist">
         {% for d in rail_days %}
-        <a class="day{% if d == summary.day %} is-active{% endif %}{% if d > today %} future{% endif %}"
+        <a class="day{% if d > today %} future{% endif %}"
+           {% if d == summary.day %}aria-current="page"{% endif %}
            href="{{ url_for('_day_page', day=d.isoformat()).path }}">
           <span>{{ d.strftime('%a %d %b') }}</span>
           {% if d == today %}<span class="n">today</span>{% endif %}
@@ -180,7 +181,7 @@
     <section>
       <h4>{{ 'Campaigns' if many else 'Scans' }} ·
         {{ summary.campaigns | length if many else summary.scans | length }}</h4>
-      <nav class="picklist scanlist">
+      <nav class="picklist">
         {% if many %}
           {% for c in summary.campaigns %}
           <a class="scanrow" href="#{{ c.scans[0].label }}">

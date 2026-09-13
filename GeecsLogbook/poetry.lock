@@ -372,11 +372,11 @@ url = "../GEECS-Schemas"
 
 [[package]]
 name = "geecs-web-theme"
-version = "0.2.0"
+version = "0.2.1"
 description = "One palette vocabulary for every GEECS web surface: tokens, themes, and the picker"
 optional = false
 python-versions = ">=3.11,<3.12"
-groups = ["main"]
+groups = ["dev"]
 files = []
 develop = true
 
@@ -1598,4 +1598,4 @@ zstd = ["backports-zstd (>=1.0.0) ; python_version < \"3.14\""]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.11,<3.12"
-content-hash = "5c7e09679509d3fa951dff7798d244fdcc733109290180f66a0be306d65d5d09"
+content-hash = "7a76eff38c506c02a17b7c81a3a8ade2ac6e2a4cd10dc26449481756cdb0e5a4"

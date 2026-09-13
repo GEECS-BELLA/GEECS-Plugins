@@ -193,10 +193,16 @@ GeecsWebTheme        →  (no deps at all — stylesheets, two small scripts
                         the status words and the overlay ladder instead
                         of inventing a fourth set)
 GeecsLogbook         →  GEECS-Data-Utils (ScanPaths only — it reads scan
-                        folders and nothing else; a peer VIEW LAYER of
-                        GEECS-DataPortal, which mounts it at /log behind
-                        the portal's `log` extra. Never imports the
-                        portal, ScanAnalysis, or anything Bluesky)
+                        folders and nothing else), GEECS-Schemas (the
+                        LogEntry document and its payload union)
+                        (+ GeecsWebTheme, dev only — the templates reach
+                        the theme through the HOST's /theme mount, so the
+                        package needs it solely to pin its ScanStatus →
+                        kit-state mapping against the real vocabulary)
+                        — a peer VIEW LAYER of GEECS-DataPortal, which
+                        mounts it at /log behind the portal's `log`
+                        extra. Never imports the portal, ScanAnalysis, or
+                        anything Bluesky
 ScanAnalysis         →  GEECS-Data-Utils, ImageAnalysis, GEECS-Schemas,
                         LogMaker4GoogleDocs (+ fastapi/jinja2/uvicorn via
                         the `editor` extra — scan_analysis.config_editor,

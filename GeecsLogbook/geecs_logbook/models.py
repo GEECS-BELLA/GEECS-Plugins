@@ -33,8 +33,16 @@ KIT_STATE: dict[str, str] = {
     "success": "ok",
     "failed": "failed",
     "aborted": "degraded",
-    "incomplete": "degraded",
-    "unknown": "unknown",
+    # NOT degraded. `incomplete` means ScanEndInfo is still empty — the most
+    # common state on the real share (37 of 49 across four sampled days), and
+    # this file's "Status is reported, not inferred" section records that
+    # painting it amber "painted most of a day amber". It is an absence of
+    # information, which is what the kit's `unknown` means.
+    "incomplete": "unknown",
+    # ...and this one IS the suspicious case: a non-empty ScanEndInfo we do
+    # not recognise. Something was written and we cannot read it, which is
+    # worth a colour. This pair is deliberately not the identity mapping.
+    "unknown": "degraded",
 }
 
 
