@@ -80,6 +80,11 @@ from bluesky.utils import (
     short_uid,
     single_gen,
 )
+
+# The stream the sampler's rows go to: defined in ``geecs_data_utils.shot_join``,
+# the one home of that document contract — the plan writes it, the s-file
+# callback reads it, and the offline re-export reads it back out of Tiled.
+from geecs_data_utils.shot_join import SHOTS_STREAM
 from geecs_schemas.trigger_profile import TriggerState
 
 from geecs_bluesky.devices.ca._view import ScalarsView
@@ -101,8 +106,6 @@ logger = logging.getLogger(__name__)
 TRIGGER_PERIOD_S = 1.0
 #: Margin on top of the period and the largest drain offset.
 DRAIN_MARGIN_S = 0.25
-#: The event stream the sampler's rows go to.
-SHOTS_STREAM = "shots"
 
 
 def shot_clock(devices: Sequence[Any]) -> tuple[Any, str]:

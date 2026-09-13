@@ -5,6 +5,79 @@ All notable changes to `geecs-bluesky` are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
+## [0.84.0] - 2026-09-12
+
+Phase 2c of the native-Bluesky rebuild (GEECS-Plugins#807,
+`Planning/native_bluesky/08_gated_batch.md` §4.5, §5 item 3): the s-file of a
+gated run.  Before this a gated run wrote **no** s-file at all — the callback
+found no `primary` events and logged the skip.
+
+### Added
+
+- **`SFileCallback` writes a gated run's scalar files** from the per-shot
+  sampler's `shots` rows (the non-plugin scalars, the scanned motors'
+  readbacks, `bin_number` and the clock camera's stamp) joined to every
+  **datum-only** stream of the run — a gated run's cameras and, in either
+  mode, a non-essential camera — by offset-corrected stamp
+  (`geecs_data_utils.shot_join`).  One row per essential shot: each
+  camera's per-frame scalars and its own stamp arrive from its stack under
+  the column names a *strict* row uses, an orphan frame stays in the stack
+  and in Tiled, and a shot a camera has no frame for reads `NaN`.  A run
+  with no such stream is still written synchronously from its `primary`
+  events — nothing about a strict run changed.
+- **`StackCheckCallback` compares a gated stack's stamps with the `shots`
+  rows**, not just its frame count: the batch trims every essential stack
+  to the quota and the sampler ticks once per shot, so one frame per row
+  with nothing orphaned is the contract, and a frame the trim missed is a
+  defect the count alone hides (its own datum covers it).  A non-essential
+  stream keeps the count check alone — an orphan there is normal.
+
+- **`shot_clock_column` in the start document** of a gated run, beside
+  `shot_clock`: the row column the sampler writes the shot id into, not just
+  the device name.  The s-file writer and the offline re-export need the
+  column, and deriving it from the device name would put a second copy of
+  the naming contract in a package that cannot import it.  A run recorded
+  before this still resolves, by matching the device name.
+- **`ScanOutputs`**, what `subscribe_scan_outputs` now returns: the four
+  callbacks plus their tokens, with a `join()` that waits for the pending
+  stack reads and s-file writes.  `make_run_engine` keeps it on the
+  RunEngine as `geecs_scan_outputs`, so a shutdown can wait for work that
+  finishes on a thread instead of losing it.  **Breaking** for a caller
+  that unpacked the old four-tuple of tokens — read `.tokens`.
+
+### Changed
+
+- The two stream-reading callbacks share one piece of document bookkeeping
+  (`_StreamCallback`: the streams, their event rows, the stacks their
+  resources name with the frames their datums reference, and each object's
+  `drain_offset` from the descriptors' configuration) and one bounded wait
+  for the plugin's `finalized` attribute (`await_finalized`).  Both do
+  their file reading on a daemon thread whose failures are logged, never
+  raised — the stop document precedes `unstage`, when the plugin closes the
+  file.  A gated run's s-file therefore lands a moment after the run, and a
+  stack that never finalizes costs its own columns and a warning, never the
+  s-file.
+- Document dispatch unpacks `event_page` into its events, so a `collect`ed
+  stream's rows (the `shots` stream) reach the same hooks as a strict run's.
+  Only `primary` and `shots` events are buffered — `baseline`'s open/close
+  telemetry is not per-shot data and was never a row source.
+- Rows are kept in **arrival order** with their sequence number alongside,
+  not keyed by it: the s-file's rows are the ones the run emitted (a partial
+  row is data, `EVENT_SCHEMA.md`) while the stack check still maps a datum's
+  sequence numbers onto rows.  The RunEngine reuses a sequence number after
+  a rewind, so the two orders are not the same thing.
+- A stack's stream is attributed from its first **datum**: a
+  `StreamResource` names no descriptor (`event_model`'s schema has no such
+  field), so the resource-time lookup was dead code.
+- The finalize wait is one window for all of a run's stacks rather than one
+  each, so a three-camera run whose plugin never finalizes does not hold its
+  s-file for three timeouts.  A run that never emits a stop document has its
+  buffers evicted after a few more runs instead of held forever.
+- `SHOTS_STREAM` is re-exported from `geecs_data_utils.shot_join`, the one
+  home of that document contract.
+- The skip line for a run with no rows names the real condition: "no
+  per-shot rows in any stream".
+
 ## [0.83.0] - 2026-09-12
 
 Phase 2b of the native-Bluesky rebuild (GEECS-Plugins#807,

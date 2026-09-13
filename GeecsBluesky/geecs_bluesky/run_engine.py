@@ -116,7 +116,10 @@ def make_run_engine(
             )
         )
         RE.preprocessors.append(scalar_headers)
-        subscribe_scan_outputs(RE)
+        # Kept on the RunEngine so a shutdown (or a caller that wants the
+        # s-file on disk before it moves on) can wait for the stack reads
+        # and the joined s-file write, which finish on their own threads.
+        RE.geecs_scan_outputs = subscribe_scan_outputs(RE)  # type: ignore[attr-defined]
     if telemetry:
         install_telemetry(RE, telemetry, mock=mock, timeout=connect_timeout)
     # Installed LAST on purpose: connect_on_demand must be the OUTERMOST

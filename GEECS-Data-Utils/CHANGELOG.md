@@ -4,6 +4,69 @@ All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
+## [0.31.0] - 2026-09-12
+
+Phase 2c of the native-Bluesky rebuild (GEECS-Plugins#807,
+`Planning/native_bluesky/08_gated_batch.md` §4.5): the s-file of a run whose
+per-shot values live outside its event rows.
+
+### Added
+
+- **`geecs_data_utils.shot_join`** — the one home of the rule that joins a
+  run's per-frame stream columns onto its shot rows, shared by the worker's
+  live s-file callback and by the offline re-export so the two cannot
+  drift.  `FrameColumns` (a datum-only stream source: its frames' stamps in
+  the rows' LabVIEW epoch, its per-frame columns spelled as a *strict* row
+  spells them, its drain offset), `join_frames_to_shots` (each frame to the
+  nearest row after both sides are corrected by their device's drain
+  offset — `03_clean_room_rebuild.md` §11.3/§11.4 — keep-first on a
+  duplicate), `join_window` (half the shot period, and never more than half
+  the closest gap between two rows, so two rows can never contend for one
+  frame and a run faster than the period narrows the window by itself),
+  `shot_clock_column` (the row column that identifies each shot: the device
+  the start document's `shot_clock` names, else the first detector with a
+  stamp column) and `frame_columns_from_attributes` (a stack's attribute
+  datasets → event keys: `…-frame_acq_timestamp` becomes
+  `<device>-acq_timestamp`, a subscribed scalar becomes
+  `<device>-<scalar>`).  `SHOTS_STREAM` lives here too — the stream name is
+  a document contract the plan, the callback and the re-export all share.
+- **`tiled_export.join_frame_columns`** and the `frames` / `drain_offsets`
+  arguments of `build_legacy_scalar_dataframe` and
+  `write_scalar_files`: **one** offsets map covers both sides of the join
+  (the clock device's and every source's), so the live path and the
+  re-export cannot correct by different amounts.  The joined columns are
+  appended to the rows before
+  the header map renames them, so **one** projection serves both shapes of
+  run.  One s-file row per essential shot, always: a frame with no row
+  inside the window is an orphan and stays in the stack and in Tiled (Sam,
+  2026-09-12, `08` §6 Q4), a row with no frame gets `NaN`, and a column the
+  row already carries is never overwritten (a strict run's essential camera
+  is read per shot and its row is the authority).  Orphans and duplicates
+  are logged per source with the window they were measured against.
+- **`tiled_export.read_run_rows` / `read_frame_columns` /
+  `read_drain_offsets`**: the offline re-export reads a gated run too — the
+  rows from `primary` when it has events and from `shots` otherwise, and
+  the per-frame columns of every **other** stream from its 1-D attribute
+  arrays by name (the test is "not the row stream", which is exactly what
+  `read_run_rows` decided, so the two cannot disagree about a stream whose
+  table part happens to be empty).  A frame stack, the only
+  multi-dimensional part, is never downloaded (the #836 lesson) — but its
+  *shape* is read from the node's structure metadata and the device's
+  columns are truncated to it, because Tiled builds that shape from the
+  stream datums.  So the offline path uses the same frames the worker's
+  live path does, whether or not the server clips a 1-D attribute dataset
+  to the datum range.  Drain
+  offsets are read once for the whole run from each stream node's
+  descriptor configuration — Tiled keeps it at the top of the node's
+  metadata, and a writer that nests it under `descriptors` is read too.
+
+### Changed
+
+- `write_scalar_files_from_tiled(uid)` now reproduces the s-file of a gated
+  run as well as a strict one — the same rows and the same join the worker
+  used, so a re-export is a check of the live path and not a second
+  implementation of it.
+
 ## [0.30.0] - 2026-09-12
 
 ### Added

@@ -289,7 +289,13 @@ def strict_plan(
             md["shot_period"] = shot_period
         if acquisition == "gated":
             refuse_native_essentials(detectors)  # before the claim, before any move
-            md["shot_clock"] = shot_clock(detectors)[1]
+            clock, clock_name = shot_clock(detectors)
+            md["shot_clock"] = clock_name
+            # The row COLUMN as well as the device: the s-file writer and the
+            # offline re-export need the column the sampler writes, and
+            # deriving it from the device name would put a second copy of the
+            # naming contract in a package that cannot import it.
+            md["shot_clock_column"] = clock.name
             if hook == "per_step":
                 kwargs[hook] = gated_per_step(
                     shot_control, shots_per_step=shots_per_step

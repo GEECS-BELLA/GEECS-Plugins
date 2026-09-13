@@ -26,6 +26,7 @@ adds (phase 1 PR 2):
 | `scan_folder` | `claim_scan` preprocessor | Absolute path of the claimed `scans/ScanNNN/` folder |
 | `scan_tag` | `claim_scan` preprocessor | `{year, month, day, number, experiment}` — the `geecs_data_utils.ScanTag` |
 | `geecs_scalar_headers` | `scalar_headers` preprocessor | Event key → legacy `Device Variable` header for every staged device (the s-file and the browser's display names) |
+| `shot_clock` / `shot_clock_column` | the bound plan (gated) | The device whose `acq_timestamp` is the shot id, and the row column carrying it — what the s-file's join keys on |
 | `trigger_profile` | the bound plan | The trigger profile that drove the shots |
 | `shots_per_step` | the bound plan | Rows per position (`1` for `count`, whose `num` is the shot count) |
 | `description`, `background` | the client (`md`) | The preset's description (ScanInfo's `ScanStartInfo`) and background flag |
@@ -71,6 +72,30 @@ Native files are named with the row's stamp
 (`<Device>_<acq_timestamp>.png`, `geecs_data_utils.native_files`) and join
 to rows by that stamp — never by position.
 
+## Event stream `shots` (a gated run)
+
+A gated run has no `primary` events at all: the box free-runs and the
+plugin-backed cameras count the frames they write, so `primary` carries
+only their stacks as stream datums.  The per-shot record is the sampler's
+`shots` stream instead (`08_gated_batch.md` §4.7) — **one event per shot**,
+arriving as event *pages* from a `collect`: the latest value of every
+non-plugin subscribed signal, the scanned motors' readbacks,
+`bin_number`, and the clock device's `acq_timestamp`, which is the shot id
+the sampler ticked on.  A plugin-backed camera's own scalars are **not**
+repeated here; they ride in its stack as per-frame attributes
+(`<ophyd>-hdf-<variable>-<scalar>`, GeecsPvaGateway >= 0.9).
+
+The s-file of such a run is the `shots` rows with each stack's per-frame
+columns joined on by offset-corrected stamp
+(`geecs_data_utils.shot_join`, §4.5): the attribute
+`<ophyd>-hdf-<variable>-frame_acq_timestamp` becomes the column
+`<ophyd>-acq_timestamp` and a subscribed scalar becomes
+`<ophyd>-<scalar>` — the same spellings a strict row uses, so one header
+map renames both.  One row per essential shot: a frame with no shot inside
+the join window stays in the stack and in Tiled and is left out of the
+s-file.  The same join adds a **non-essential** camera's columns
+(`<name>_stream`) to either mode's rows.
+
 ## Event stream `baseline`
 
 Every subscribed scalar of the experiment, read at the open and the close
@@ -86,5 +111,8 @@ Every device carries `_column_headers` — event data-key → the GEECS
 `Device Variable` header (`UC_Wavemeter Wavelength (nm)`); the
 `scalar_headers` preprocessor merges the staged devices' maps into the
 start document's `geecs_scalar_headers`, which the s-file callback
-(`callbacks.py`, from the run's own events at the stop document) and the
+(`callbacks.py`, from the run's own rows at the stop document) and the
 offline re-export (`geecs_data_utils.write_scalar_files_from_tiled`) read.
+Both take their rows from `primary` when it has events and from `shots`
+otherwise, and both run the same join, so a re-export checks the live path
+rather than re-implementing it.
