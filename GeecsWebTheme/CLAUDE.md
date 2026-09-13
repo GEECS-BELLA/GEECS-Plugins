@@ -87,7 +87,7 @@ attribute, never a class.
 
 ## Status and pane states
 
-`queued · running · ok · degraded · failed · unknown`, plus `agent` — not a
+`queued · running · paused · ok · degraded · failed · unknown`, plus `agent` — not a
 severity but *who wrote this*, because the logbook already separates what an
 analyzer wrote from what a person wrote and the console will want the same
 for agent-submitted actions. Colour is never the only carrier: every chip is
@@ -97,7 +97,28 @@ Every pane owes five states: `loading · empty · error · stale · denied`.
 `stale` is the one that matters for hardware — a live number that silently
 stops updating is worse than no number, so any live value carries its own
 age and the surface says so past a threshold rather than continuing to look
-confident.
+confident. `.live` is that doctrine as a component (0.3.0): label, value,
+age, and `data-age="stale"` set by the surface — the attribute's one value;
+a fresh reading carries none. `paused` joined the status words with the
+scanner — a run holding between steps is neither running nor degraded (the
+Qt console had an amber pill for it; the kit had no word); it takes the warn
+wash and does not pulse. `denied` has a rule of
+its own, a dashed edge on the recessed ground: not an alarm, a door someone
+else is holding.
+
+## Live controls
+
+What a surface that writes and watches needs, found by building the
+scanner's mock and written in the kit's own idiom: `.meter` (determinate,
+two-ended label, `data-state` colours the fill by state), `.field`
+validation (`aria-invalid="true"` on the control colours it and shows the
+`.err` slot that follows it — the accessibility attribute is the state, as
+with `.picklist`; the `.hint` stays because it carries the unit; `.req` marks
+required; disabled inputs are styled), `.chip.lg`
+for the one state a room watches, `.tscroll.sticky` for a live table, and
+`dialog.ack` — rung 3 widened exactly once, to admit a list of tickable
+preflight questions under one decision. Anything further is its own small
+PR against `kit.html`, not an inline style in a surface.
 
 ## The reference page
 
