@@ -29,6 +29,13 @@ the measured shot offsets.
   `offset_s` must be `0.0`.  Only *differences* between offsets matter to
   the join, so the reference exists purely to anchor the set.
 
+  Also `trigger_rate_hz`: a pipelining camera's offset is rate-dependent
+  (an un-ROI'd camera shifted 11.3 ms between 1 Hz and 5 Hz on HTU while an
+  ROI'd one moved 0.2 ms), so a stored calibration is only good for the rate
+  it was taken at.  **Declared by the caller, not derived** — the calibration
+  plan fires single shots with a stamp wait between them, so its own shot
+  spacing is not the machine's rate.
+
   No legacy dialect and no converter: the legacy scanner stored no
   calibration at all — the sync ritual was run by hand and the numbers
   lived in the operator's head.

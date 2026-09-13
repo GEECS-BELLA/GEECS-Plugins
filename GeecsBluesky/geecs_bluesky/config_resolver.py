@@ -471,7 +471,20 @@ class ConfigsRepoResolver:
                 # Durability before the rename: without it a crash can leave
                 # a zero-length file where a calibration used to be.
                 os.fsync(handle.fileno())
-            os.chmod(temporary, mode)
+            try:
+                os.chmod(temporary, mode)
+            except OSError:
+                # The configs repo usually lives on the data share, and CIFS
+                # mounts reject chmod unless mounted with unix extensions.
+                # A mode we could not set is cosmetic; losing the ten shots
+                # this document cost is not, so never fail the write for it.
+                logger.warning(
+                    "could not set the mode of %s (the share may not support "
+                    "it) — the file is written, but check it is readable by "
+                    "whoever has to review and commit it",
+                    path,
+                    exc_info=True,
+                )
             os.replace(temporary, path)
             temporary = None
         finally:

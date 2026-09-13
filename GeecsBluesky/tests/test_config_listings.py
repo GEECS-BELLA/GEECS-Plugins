@@ -326,3 +326,28 @@ def test_a_failed_write_leaves_no_temp_file_and_keeps_the_calibration(
         resolver.write_shot_offsets(document)
     assert resolver.shot_offsets_path.read_text() == before
     assert list(resolver.shot_offsets_path.parent.glob(".*tmp")) == []
+
+
+def test_a_share_that_refuses_chmod_still_gets_the_calibration(repo, monkeypatch):
+    """A mode we cannot set must never cost the ten shots the document took.
+
+    The configs repo usually lives on the data share, and CIFS mounts reject
+    `chmod` with EPERM unless mounted with unix extensions. The chmod sits
+    between the fsync and the replace, inside the try — so an EPERM there
+    would unlink the temp and propagate, failing every `write=True` run on
+    such a mount. A cosmetic problem must not destroy a measurement (review
+    of #861, finding 6).
+    """
+    from geecs_schemas import DeviceOffset, ShotOffsets
+
+    resolver = ConfigsRepoResolver("TestExp", repo)
+
+    def refuse(*args, **kwargs):
+        raise PermissionError(1, "Operation not permitted")
+
+    monkeypatch.setattr("geecs_bluesky.config_resolver.os.chmod", refuse)
+    document = ShotOffsets(reference="a", devices={"a": DeviceOffset(offset_s=0.0)})
+    path = resolver.write_shot_offsets(document)
+    assert path.exists()
+    assert resolver.resolve_shot_offsets().reference == "a"
+    assert list(path.parent.glob(".*tmp")) == []

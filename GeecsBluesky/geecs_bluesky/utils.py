@@ -152,8 +152,22 @@ def resolve_annotations(
         *plan*, with ``__signature__`` set.
     """
     signature = inspect.signature(plan)
+    unmapped = [n for n in signature.parameters if n not in annotations]
+    if unmapped:
+        raise ValueError(
+            f"{plan.__name__}: no resolved annotation given for "
+            f"{', '.join(unmapped)} — add each to the mapping (map to None to "
+            "drop the annotation deliberately), or the manager loses its "
+            "validation and device-name conversion for that argument"
+        )
     parameters = [
-        parameter.replace(annotation=annotations.get(name, inspect.Parameter.empty))
+        parameter.replace(
+            annotation=(
+                inspect.Parameter.empty
+                if annotations[name] is None
+                else annotations[name]
+            )
+        )
         for name, parameter in signature.parameters.items()
     ]
     plan.__signature__ = signature.replace(  # type: ignore[attr-defined]

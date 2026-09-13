@@ -41,7 +41,7 @@ A device's offset is not perfectly steady: each host's clock dithers around
 its average by up to ~10 ms (higher-end boxes hold ~1 ms) while the domain
 keeps the averages on a common target (Sam, 2026-09-13).  One shot
 therefore measures the offset only to that precision, against real spreads
-of 36–100 ms.  The expensive part of this plan is the quiet wait, paid
+of tens to hundreds of milliseconds (0–160 ms measured on HTU, 2026-09-12).  The expensive part of this plan is the quiet wait, paid
 once; the shots after it cost a second each.  So the default is several
 shots, and the document records each device's **peak-to-peak scatter**
 beside its mean — a device whose scatter dwarfs its peers' has a
@@ -82,6 +82,12 @@ from geecs_bluesky.utils import resolve_annotations
 
 logger = logging.getLogger(__name__)
 
+#: The logger surfaced for the duration of a calibration plan.  The whole
+#: package, not just this module: the resolver's "shot offsets written to
+#: <path>" and the detectors' own narrative belong in a calibration's report
+#: for the same reason they belong in a scan's ``scan.log``.
+REPORT_LOGGER = "geecs_bluesky"
+
 #: The timeout a GEECS device falls back on when no acquisition arrives —
 #: 1.5 s for ~95 % of them (§11.2).  Not discoverable: the experiment DB
 #: carries no timeout column, so this is the documented constant, and a set
@@ -116,16 +122,19 @@ _RETAKE_BUDGET = 2
 #: and the whole-shot folding in the sync check.
 DEFAULT_TRIGGER_PERIOD_S = TRIGGER_PERIOD_S
 
-#: A measured offset larger than this is refused for *writing*: the physical
-#: range is 36-100 ms (§11.4), so a third of a second is already far outside
-#: it and means the measurement is wrong — a device latched a different
-#: edge, or the stamp wait did not wait.  Reported, never silently stored
+#: A measured offset larger than this is refused for *writing*.  The
+#: measured HTU set spans 0–160 ms (2026-09-12), so a third of a second is
+#: already outside anything a frame drain explains and means the measurement
+#: is wrong — a device latched a different edge, or the stamp wait did not
+#: wait.  Bounded by half the trigger period as well, because a whole-period
+#: error is smaller than this cap at any rate above ~3 Hz.  Reported, never silently stored
 #: (review of #861, finding 3: a +1.964 s "drain latency" passed every
 #: validator).  Overridable for a genuinely slow device.
 MAX_PLAUSIBLE_OFFSET_S = 0.3
 
-#: Likewise for the scatter: the documented host dither is ~10 ms, so an
-#: order of magnitude past it means the shots were not all the same shot.
+#: Likewise for the scatter: host dither runs ~1–10 ms (both ends measured
+#: on HTU), so an order of magnitude past it means the shots were not all
+#: the same shot.
 MAX_PLAUSIBLE_SCATTER_S = 0.1
 
 #: Below this many shots the scatter column is not meaningful and the mean
@@ -151,6 +160,7 @@ _PLAN_ANNOTATIONS: dict[str, Any] = {
     "trigger_period": float,
     "write": bool,
     "max_offset": float,
+    "measured_at_rate_hz": Optional[float],
     "description": str,
     "tolerance_s": float,
 }
@@ -420,7 +430,7 @@ def sync_verdict_from_stamps(
     offsets :
         Object name → its stored drain offset, seconds.
     tolerance_s :
-        Per-device budget against the median.
+        Widest accepted disagreement between any two corrected stamps.
     trigger_period_s :
         The trigger period whole multiples of which are folded out.
 
@@ -463,11 +473,21 @@ def sync_verdict_from_stamps(
                 "few shots by hand and check again"
             ),
         )
-    median = statistics.median(corrected.values())
+    # Fold whole periods against the LATEST device, never against the median.
+    # A median is not a real instant: for an even-sized set it sits BETWEEN
+    # the groups, so a device exactly one period out lands at half a period
+    # from it and `round(±0.5)` is 0 (banker's rounding) — nothing folds, the
+    # verdict reads a full period of disagreement and the plan raises on the
+    # very case it documents as routine, while a two-period gap folds to a
+    # fabricated "one ahead, one behind". Both reproduced in review.
+    # The latest corrected stamp is an instant some device actually reported,
+    # so every other device is a whole number of periods behind it or is
+    # genuinely mis-calibrated.
+    anchor = max(corrected.values())
     deviation: dict[str, float] = {}
     shots_out: dict[str, int] = {}
     for name, value in corrected.items():
-        raw = value - median
+        raw = value - anchor
         whole = round(raw / trigger_period_s)
         if whole:
             shots_out[name] = int(whole)
@@ -483,17 +503,21 @@ def sync_verdict_from_stamps(
     # wide the set is.
     spread = max(deviation.values()) - min(deviation.values())
     synced = spread <= tolerance_s
-    offenders = sorted(n for n, v in deviation.items() if abs(v) > tolerance_s / 2)
-    worst = max(sorted(deviation), key=lambda n: abs(deviation[n]))
+    # Name the two devices at the ends of the disagreement, not "the one that
+    # is wrong": when two corrected stamps differ, nothing in the data says
+    # which of them is off. Anchoring on the latest device would also
+    # systematically exonerate it, since its own deviation is 0 by
+    # construction.
+    earliest = min(sorted(deviation), key=lambda n: deviation[n])
+    latest = max(sorted(deviation), key=lambda n: deviation[n])
     detail = (
         f"corrected stamps span {spread * 1e3:.1f} ms against a "
-        f"{tolerance_s * 1e3:.0f} ms tolerance (furthest from the set median: "
-        f"{worst} {deviation[worst] * 1e3:+.1f} ms)"
+        f"{tolerance_s * 1e3:.0f} ms tolerance"
     )
     if not synced:
         detail += (
-            f" — out by more than half the budget: {', '.join(offenders) or worst}; "
-            "the stored offsets no longer describe this set, so re-run "
+            f" — {earliest} and {latest} disagree by that much; the stored "
+            "offsets no longer describe this set, so re-run "
             "measure_shot_offsets"
         )
     if shots_out:
@@ -552,13 +576,21 @@ def _refuse_profile_without(shot_control: Any, state: TriggerState) -> None:
         )
 
 
-def _refuse_implausible(measurement: OffsetMeasurement, *, max_offset: float) -> None:
+def _refuse_implausible(
+    measurement: OffsetMeasurement,
+    *,
+    max_offset: float,
+    trigger_period: float | None = None,
+) -> None:
     """Refuse to *store* a measurement outside the physically possible range.
 
-    The physical spread is 36-100 ms (§11.4).  A measurement an order of
-    magnitude past that is not an unusual camera — it is a device that
-    latched a different edge, or a stamp wait that did not wait — and it
-    would be seeded into every future run's join.  The numbers are already
+    A drain offset is a frame-drain latency, and the measured HTU set spans
+    0 to 160 ms (2026-09-12; the un-ROI'd camera is the slow one, §4.F).  A
+    measurement a whole trigger period out is not an unusual camera — it is a
+    device that latched a different edge, or a stamp wait that did not wait —
+    and it would be seeded into every future run's join.  A fixed cap cannot
+    catch that on its own once the period is short (at 5 Hz a whole period is
+    only 0.2 s), so *trigger_period* bounds it too.  The numbers are already
     logged by the caller, so refusing costs only the write.
 
     Raises
@@ -567,7 +599,13 @@ def _refuse_implausible(measurement: OffsetMeasurement, *, max_offset: float) ->
         An offset exceeds *max_offset*, or a scatter exceeds
         :data:`MAX_PLAUSIBLE_SCATTER_S`.
     """
-    wild = {n: v for n, v in measurement.offsets.items() if abs(v) > max_offset}
+    # A whole-period error is the corruption this guard exists for, and a
+    # fixed cap cannot catch it once the period is short: at 5 Hz a whole
+    # period is 0.2 s, under any plausible cap. So bound by the period too.
+    bound = max_offset
+    if trigger_period:
+        bound = min(bound, trigger_period / 2.0)
+    wild = {n: v for n, v in measurement.offsets.items() if abs(v) > bound}
     noisy = {
         n: v for n, v in measurement.scatter.items() if v > MAX_PLAUSIBLE_SCATTER_S
     }
@@ -578,7 +616,7 @@ def _refuse_implausible(measurement: OffsetMeasurement, *, max_offset: float) ->
         parts.append(
             "offsets past %.0f ms: %s"
             % (
-                max_offset * 1e3,
+                bound * 1e3,
                 ", ".join(f"{n} {v * 1e3:+.0f} ms" for n, v in sorted(wild.items())),
             )
         )
@@ -593,7 +631,7 @@ def _refuse_implausible(measurement: OffsetMeasurement, *, max_offset: float) ->
     raise GeecsConfigurationError(
         "refusing to store this measurement — "
         + "; ".join(parts)
-        + ". The physical drain spread is 36-100 ms, so this is a bad "
+        + ". A frame drain does not take a whole trigger period, so this is a bad "
         "measurement, not unusual hardware: a device latched a different "
         "edge, or its stamp wait returned without waiting. The table above "
         "is the measurement; nothing was written. Re-run, and raise "
@@ -637,21 +675,20 @@ def _stamp_views(detectors: Sequence[Any]) -> list[Any]:
 def _read_stamps(views: Sequence[Any]):
     """Plan: object name → each device's current stamp, by an **uncached** get.
 
-    Deliberately not ``bps.rd``: that issues ``Msg('read', signal)``, and
-    ophyd-async's ``SignalR.read`` uses the monitor cache whenever one
+    Deliberately not ``bps.rd``: that issues ``Msg('read', signal)`` and
+    ophyd-async's ``SignalR.read`` serves the monitor cache whenever one
     exists — which it always does here, because ``GeecsAcquireLogic.attach``
-    subscribes at connect.  Worse, the cache's ``get_reading`` awaits its
-    first update, so a device whose monitor has never delivered *blocks*
-    until the signal timeout instead of returning the value the PV plainly
-    holds.  In OFF that is exactly the population we care about: the stamp
-    PV publishes nothing at all (a device's timeout event carries an
-    unchanged stamp and the gateway's change suppression drops it, §11.2),
-    so a monitor that attached during the quiet window has nothing to
-    deliver while the PV still holds the last real shot's stamp.
+    subscribes at connect.  Under OFF the stamp PV publishes nothing at all
+    (a device's timeout event carries an unchanged stamp and the gateway's
+    change suppression drops it, §11.2), so the cache holds whatever the
+    monitor last delivered rather than what the PV holds now.  In practice a
+    CA monitor delivers an initial update at subscribe, so the two agree —
+    which is why the plan's own connect-touch (``bps.read(view)``) works
+    fine.  An explicit uncached get is simply the read that means what this
+    function says it means, and it does not depend on that.
 
-    So: an explicit uncached get, through the stock ``wait_for`` stub so it
-    runs on the RunEngine's loop like any other message (review of #861,
-    finding 8).
+    Goes through the stock ``wait_for`` stub so it runs on the RunEngine's
+    loop like any other message.
     """
     stamps: dict[str, float | None] = {}
     for view in views:
@@ -723,7 +760,15 @@ def _settle_quiet(views: Sequence[Any], quiet_time: float, confirm_time: float):
     # in-flight frame across the long wait is expected, but the WHOLE set
     # advancing across a wait that already exceeds the device timeout is a
     # box still passing edges.
-    everything_moved = len(settled) > 1 and len(drained) == len(settled)
+    # Count only devices that held a usable stamp in BOTH reads: a `None`
+    # or a never-acquired 0.0 can never appear in `drained`, so counting it
+    # in the denominator would disable this backstop permanently.
+    comparable = [
+        name
+        for name, value in settled.items()
+        if value is not None and before.get(name) is not None
+    ]
+    everything_moved = len(comparable) > 1 and len(drained) == len(comparable)
     if moving or everything_moved:
         culprits = sorted(moving) or sorted(drained)
         why = (
@@ -775,6 +820,7 @@ def measure_shot_offsets_plan(
         trigger_period: float = DEFAULT_TRIGGER_PERIOD_S,
         write: bool = False,
         max_offset: float = MAX_PLAUSIBLE_OFFSET_S,
+        measured_at_rate_hz: float | None = None,
         description: str = "",
     ):
         """Measure each device's edge-to-stamp latency; optionally store it.
@@ -826,11 +872,21 @@ def measure_shot_offsets_plan(
             by luck.
         write : bool, optional
             Store the result in the configs repo (default ``False``).
+        measured_at_rate_hz : float, optional
+            The machine's rep rate, recorded in the document as provenance
+            because a pipelining camera's offset depends on it. **Declared,
+            not measured**: this plan fires single shots with a stamp wait
+            between them, so its own shot spacing is not the machine's rate
+            and cannot be used. Left unset the document records no rate,
+            which is honest; setting it wrongly is worse than leaving it out.
         max_offset : float, optional
-            Largest offset accepted for *writing*, seconds (default 0.3).
-            The physical range is 36-100 ms, so anything near this means the
-            measurement is wrong rather than the hardware unusual. The
-            measurement is still reported; only the write is refused.
+            Largest offset accepted for *writing*, seconds (default 0.3),
+            further bounded by half the trigger period.
+            The measured HTU set spans 0-160 ms, so anything near this means
+            the measurement is wrong rather than the hardware unusual. Also
+            bounded by half the trigger period, since a whole-period error is
+            smaller than this cap above ~3 Hz. The measurement is still
+            reported; only the write is refused.
         description : str, optional
             Note recorded in the document.
 
@@ -930,10 +986,14 @@ def measure_shot_offsets_plan(
                 )
             return complete
 
-        with plan_report_sink(__name__):
+        # ONE sink around the whole body, scoped to the package: entering it
+        # per logging statement left everything between the blocks discarded
+        # — including the resolver's own "shot offsets written to <path>",
+        # which is the line telling the operator there is an uncommitted
+        # change to review (review of #861, finding 11).
+        with plan_report_sink(REPORT_LOGGER):
             complete = yield from run_bracket(inner(), shot_control, TriggerState.OFF)
-        measurement = offsets_from_shots(complete)
-        with plan_report_sink(__name__):
+            measurement = offsets_from_shots(complete)
             logger.info(
                 "shot offsets over %d shot(s), reference %s:\n%s",
                 measurement.shots,
@@ -945,26 +1005,26 @@ def measure_shot_offsets_plan(
                     "measured only — re-run with write=True to store this in "
                     "the experiment's shot_offsets.yaml"
                 )
-        if not write:
-            return measurement
-        _refuse_implausible(measurement, max_offset=max_offset)
-        document = measurement.to_document(
-            geecs_names={
-                view._owner.name: view._owner._geecs_device_name for view in views
-            },
-            trigger_profile=profile_key,
-            trigger_rate_hz=(1.0 / trigger_period if trigger_period else None),
-            description=description,
-        )
-        path = resolver.write_shot_offsets(document)
-        with plan_report_sink(__name__):
+                return measurement
+            _refuse_implausible(
+                measurement, max_offset=max_offset, trigger_period=trigger_period
+            )
+            document = measurement.to_document(
+                geecs_names={
+                    view._owner.name: view._owner._geecs_device_name for view in views
+                },
+                trigger_profile=profile_key,
+                trigger_rate_hz=measured_at_rate_hz,
+                description=description,
+            )
+            path = resolver.write_shot_offsets(document)
             logger.info(
                 "shot offsets stored in %s — this is an UNCOMMITTED change in "
                 "the configs repo: review and commit it. The worker picks the new "
                 "offsets up at its next environment open, not now.",
                 path,
             )
-        return measurement
+            return measurement
 
     return resolve_annotations(measure_shot_offsets, _PLAN_ANNOTATIONS)
 
@@ -991,10 +1051,13 @@ def check_shot_sync_plan(profiles: Any) -> Callable[..., Any]:
         Sam's shortcut, and it costs no shot: with the box OFF and the set
         quiet, every device still holds the stamp of the same last real
         shot, so correcting those stalled stamps by the stored offsets
-        should collapse them onto one instant.  Each device is judged
-        against the set's **median**, not the set's range, so the verdict
-        names the device that is wrong and does not grow stricter as the set
-        grows.  Whole trigger periods are folded out first: STANDBY passes
+        should collapse them onto one instant.  The verdict is on the
+        **pairwise spread** of the corrected stamps — what the join actually
+        consumes — and the message names the two devices at the ends of the
+        disagreement rather than pretending to know which one is wrong.  Note
+        a spread is a range statistic and grows with the number of devices,
+        so a set of a few dozen may want a wider *tolerance_s*.  Whole trigger
+        periods are folded out first: STANDBY passes
         edges right up to the moment this plan drives OFF, so a slow camera
         can legitimately hold the previous shot — that is reported and
         warned about, not failed.
@@ -1022,9 +1085,10 @@ def check_shot_sync_plan(profiles: Any) -> Callable[..., Any]:
         trigger_profile : str, optional
             Profile driving the box (the experiment default when omitted).
         tolerance_s : float, optional
-            Per-device deviation from the set median accepted, seconds
-            (default 0.05 — clear of the ~10 ms host dither and the 5-10 ms
-            of NTP, tight enough to catch a real mis-calibration).
+            Widest disagreement accepted between any two corrected stamps,
+            seconds (default 0.05 — clear of the ~10 ms host dither and the
+            5-10 ms of NTP, tight enough to catch a real mis-calibration).
+            A range statistic, so raise it for a large set.
         quiet_time : float, optional
             Seconds to wait in OFF before believing the set is quiet.
         trigger_period : float, optional
@@ -1069,17 +1133,16 @@ def check_shot_sync_plan(profiles: Any) -> Callable[..., Any]:
                 offsets[owner.name] = float(value or 0.0)
             return stalled, offsets
 
-        with plan_report_sink(__name__):
+        with plan_report_sink(REPORT_LOGGER):
             stalled, offsets = yield from run_bracket(
                 inner(), shot_control, TriggerState.OFF
             )
-        verdict = sync_verdict_from_stamps(
-            stalled,
-            offsets,
-            tolerance_s=tolerance_s,
-            trigger_period_s=trigger_period,
-        )
-        with plan_report_sink(__name__):
+            verdict = sync_verdict_from_stamps(
+                stalled,
+                offsets,
+                tolerance_s=tolerance_s,
+                trigger_period_s=trigger_period,
+            )
             if not any(offsets.values()):
                 logger.warning(
                     "every stored drain offset reads 0.0 — this set has never "

@@ -4,9 +4,10 @@ A GEECS device's ``acq_timestamp`` is the shot's identity in everything but
 name, but two devices stamp the *same* shot at different times: the stamp is
 the trigger's arrival plus however long that device took to drain the frame,
 a per-device constant (``03_clean_room_rebuild.md`` §11.3/§11.4).  The
-constant differs by tens of milliseconds across a camera set — 36 ms between
-two amplifier cameras, near 100 ms across a set mixing a 4 MB camera with a
-0.5 MB one.
+constant differs by tens to hundreds of milliseconds across a camera set —
+37 ms between two ROI'd amplifier cameras, 160 ms out to an un-ROI'd large
+chip, all measured on HTU 2026-09-12.  It tracks frame size, so re-ROI'ing a
+camera invalidates its calibration.
 
 Joining frames to shot rows therefore corrects each side by its own offset
 before matching (``geecs_data_utils.shot_join``).  Until this document
@@ -35,8 +36,8 @@ Why the scatter is recorded
 ---------------------------
 A device's offset is not perfectly steady: each machine's clock dithers
 around its average by up to ~10 ms (a consequence of the host's own
-timekeeping — higher-end boxes hold ~1 ms), while the domain keeps the
-averages on a common target.  One shot therefore estimates the offset only
+timekeeping — good boxes hold ~1 ms), while the domain keeps the averages on
+a common target.  One shot therefore estimates the offset only
 to that precision, so the plan averages several shots and records the
 observed scatter alongside the mean.  The scatter is evidence in its own
 right: a device whose scatter is much larger than its peers' has a

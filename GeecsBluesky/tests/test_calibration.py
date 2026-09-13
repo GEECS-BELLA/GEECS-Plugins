@@ -760,7 +760,72 @@ def test_the_document_records_the_rate_it_was_measured_at(RE: RunEngine) -> None
     cams = [_camera(RE, box, n) for n in ("amp3", "amp4")]
     recorder = Recorder()
     plan = measure_shot_offsets_plan(_profiles(sc), resolver=recorder)
+    # Declared, not derived: this plan fires single shots with a stamp wait
+    # between them, so its own shot spacing is not the machine's rate and
+    # trigger_period (which only sizes the confirmation window) must not be
+    # mistaken for it.
     RE(plan(cams, shots=3, quiet_time=0.01, trigger_period=0.2, write=True))
-    document = recorder.written[0]
+    assert recorder.written[0].trigger_rate_hz is None
+    RE(
+        plan(
+            cams,
+            shots=3,
+            quiet_time=0.01,
+            trigger_period=0.2,
+            measured_at_rate_hz=5.0,
+            write=True,
+        )
+    )
+    document = recorder.written[1]
     assert document.trigger_rate_hz == pytest.approx(5.0)
     assert document.trigger_profile == "test"
+
+
+class TestWholePeriodFoldingIsNotParityDependent:
+    """Folding must anchor on a real instant, never on the set's median.
+
+    A median is not an instant any device reported: for an EVEN-sized set it
+    sits *between* the groups, so a device exactly one period out lands half a
+    period from it, `round(±0.5)` is 0 (banker's rounding), nothing folds, and
+    the verdict reads a whole period of disagreement. The plan then raises on
+    precisely the case its own docstring calls routine — while a two-period
+    gap folds to a fabricated "one ahead, one behind" and passes.
+
+    Both reproduced in review of #861. The earlier test covered only the
+    odd-sized three-device case, which is why it survived.
+    """
+
+    @pytest.mark.parametrize("periods", [1, 2, 3])
+    def test_an_even_sized_set_folds_at_every_multiple(self, periods: int) -> None:
+        verdict = sync_verdict_from_stamps(
+            {"fast": 5000.0, "slow": 5000.0 - periods},
+            {},
+            trigger_period_s=1.0,
+        )
+        assert verdict.synced, verdict.detail
+        assert verdict.shots_out == {"slow": -periods}
+        assert verdict.spread_s == pytest.approx(0.0, abs=1e-9)
+
+    def test_a_two_two_split_folds(self) -> None:
+        """Four devices, half of them a period behind — the even-set trap."""
+        verdict = sync_verdict_from_stamps(
+            {"a": 5000.0, "b": 5000.0, "c": 4999.0, "d": 4999.0},
+            {},
+            trigger_period_s=1.0,
+        )
+        assert verdict.synced, verdict.detail
+        assert verdict.shots_out == {"c": -1, "d": -1}
+
+    def test_a_half_period_offset_is_still_a_failure(self) -> None:
+        """Folding must not swallow a device genuinely half a period out.
+
+        This is the shape the median anchoring confused itself with, so it
+        needs pinning from the other side: half a period is not a whole
+        number of shots and must fail.
+        """
+        verdict = sync_verdict_from_stamps(
+            {"fast": 5000.0, "slow": 4999.5}, {}, trigger_period_s=1.0
+        )
+        assert not verdict.synced
+        assert verdict.shots_out == {}
+        assert "fast" in verdict.detail and "slow" in verdict.detail
