@@ -510,9 +510,11 @@ def test_selector_lists_split_on_top_level_commas_only() -> None:
         ".kit .x",
     ]
     assert rule_selectors(".kit :is(.panel, .well){x:1}") == [".kit :is(.panel, .well)"]
+    # :not()/:has() name a class without styling it
     assert styled_classes(".kit :is(.panel, .well):not(.dim){x:1}") == {
-        "kit", "panel", "well", "dim",
+        "kit", "panel", "well",
     }  # fmt: skip
+    assert styled_classes(".kit .a:has(.thumb){x:1}") == {"kit", "a"}
     assert rule_selectors(".kit .a{ &:is(.b, .c){x:1} }") == [
         ".kit .a",
         ".kit .a &:is(.b, .c)",

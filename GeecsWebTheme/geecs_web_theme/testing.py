@@ -661,8 +661,10 @@ def defined_tokens(css: str) -> dict[str, set[str]]:
 def styled_classes(*css_texts: str) -> set[str]:
     """Return every class name any selector in the given stylesheets mentions.
 
-    Descends into ``:is()``, ``:where()``, ``:not()`` and attribute blocks,
-    so ``.kit :is(.panel, .well)`` styles ``panel`` and ``well``.
+    Descends into ``:is()`` / ``:where()`` and attribute blocks, so
+    ``.kit :is(.panel, .well)`` styles ``panel`` and ``well``; it does NOT
+    descend into ``:not()`` / ``:has()``, which name a class without
+    painting it.
     """
     tc = _tinycss2()
     out: set[str] = set()
@@ -678,7 +680,10 @@ def styled_classes(*css_texts: str) -> set[str]:
             ):
                 out.add(tok.value)
             elif tok.type == "function":
-                walk(tok.arguments)
+                # :is()/:where() style their arguments; :not()/:has() name a
+                # class WITHOUT styling it — `.a:not(.dim)` paints no `.dim`.
+                if tok.lower_name not in ("not", "has"):
+                    walk(tok.arguments)
             elif tok.type in ("() block", "[] block", "{} block"):
                 walk(tok.content)
             prev = tok
