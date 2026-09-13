@@ -77,6 +77,7 @@ from geecs_bluesky.devices.detector import GeecsDetector
 from geecs_bluesky.exceptions import GeecsConfigurationError
 from geecs_bluesky.plans.gated import TRIGGER_PERIOD_S, run_bracket
 from geecs_bluesky.plans.strict import fire_and_await_shot
+from geecs_bluesky.scan_log import plan_report_sink
 from geecs_bluesky.utils import resolve_annotations
 
 logger = logging.getLogger(__name__)
@@ -927,19 +928,22 @@ def measure_shot_offsets_plan(
                 )
             return complete
 
-        complete = yield from run_bracket(inner(), shot_control, TriggerState.OFF)
+        with plan_report_sink(__name__):
+            complete = yield from run_bracket(inner(), shot_control, TriggerState.OFF)
         measurement = offsets_from_shots(complete)
-        logger.info(
-            "shot offsets over %d shot(s), reference %s:\n%s",
-            measurement.shots,
-            measurement.reference,
-            measurement.table(),
-        )
-        if not write:
+        with plan_report_sink(__name__):
             logger.info(
-                "measured only — re-run with write=True to store this in the "
-                "experiment's shot_offsets.yaml"
+                "shot offsets over %d shot(s), reference %s:\n%s",
+                measurement.shots,
+                measurement.reference,
+                measurement.table(),
             )
+            if not write:
+                logger.info(
+                    "measured only — re-run with write=True to store this in "
+                    "the experiment's shot_offsets.yaml"
+                )
+        if not write:
             return measurement
         _refuse_implausible(measurement, max_offset=max_offset)
         document = measurement.to_document(
@@ -950,12 +954,13 @@ def measure_shot_offsets_plan(
             description=description,
         )
         path = resolver.write_shot_offsets(document)
-        logger.info(
-            "shot offsets stored in %s — this is an UNCOMMITTED change in the "
-            "configs repo: review and commit it. The worker picks the new "
-            "offsets up at its next environment open, not now.",
-            path,
-        )
+        with plan_report_sink(__name__):
+            logger.info(
+                "shot offsets stored in %s — this is an UNCOMMITTED change in "
+                "the configs repo: review and commit it. The worker picks the new "
+                "offsets up at its next environment open, not now.",
+                path,
+            )
         return measurement
 
     return resolve_annotations(measure_shot_offsets, _PLAN_ANNOTATIONS)
@@ -1061,30 +1066,32 @@ def check_shot_sync_plan(profiles: Any) -> Callable[..., Any]:
                 offsets[owner.name] = float(value or 0.0)
             return stalled, offsets
 
-        stalled, offsets = yield from run_bracket(
-            inner(), shot_control, TriggerState.OFF
-        )
+        with plan_report_sink(__name__):
+            stalled, offsets = yield from run_bracket(
+                inner(), shot_control, TriggerState.OFF
+            )
         verdict = sync_verdict_from_stamps(
             stalled,
             offsets,
             tolerance_s=tolerance_s,
             trigger_period_s=trigger_period,
         )
-        if not any(offsets.values()):
-            logger.warning(
-                "every stored drain offset reads 0.0 — this set has never been "
-                "calibrated, so the check below only says whether the devices "
-                "stamp together, not whether the calibration is right. Run "
-                "measure_shot_offsets."
-            )
-        if verdict.shots_out:
-            logger.warning("shot sync: %s", verdict.detail)
-        if not verdict.comparable:
-            # Not a failure: "could not check" must not stop a queue.
-            logger.warning("shot sync could not be checked: %s", verdict.detail)
-            return verdict
-        if verdict.synced:
-            logger.info("shot sync OK: %s", verdict.detail)
+        with plan_report_sink(__name__):
+            if not any(offsets.values()):
+                logger.warning(
+                    "every stored drain offset reads 0.0 — this set has never "
+                    "been calibrated, so the check below only says whether the "
+                    "devices stamp together, not whether the calibration is "
+                    "right. Run measure_shot_offsets."
+                )
+            if verdict.shots_out:
+                logger.warning("shot sync: %s", verdict.detail)
+            if not verdict.comparable:
+                # Not a failure: "could not check" must not stop a queue.
+                logger.warning("shot sync could not be checked: %s", verdict.detail)
+            elif verdict.synced:
+                logger.info("shot sync OK: %s", verdict.detail)
+        if not verdict.comparable or verdict.synced:
             return verdict
         raise GeecsConfigurationError(f"shot sync FAILED: {verdict.detail}")
 

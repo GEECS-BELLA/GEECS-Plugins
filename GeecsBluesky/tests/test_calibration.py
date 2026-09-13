@@ -712,3 +712,26 @@ def test_measure_refuses_a_resolver_that_cannot_write_before_firing(
     with pytest.raises(GeecsConfigurationError, match="cannot write the measurement"):
         RE(plan(cams, shots=2, quiet_time=0.01, write=True))
     assert box.fires == 0  # nothing was spent finding out
+
+
+def test_the_measurement_table_reaches_an_operator(RE: RunEngine, capsys) -> None:
+    """The plan's whole product is a report; it must not be swallowed.
+
+    A scan gets its narrative in scan.log, because ScanLogFile lifts the root
+    logger to INFO while the run is open. These plans open no run, and the
+    root logger sits above INFO by default — so on the first real hardware
+    run the calibration measured ten shots and its table vanished completely:
+    nothing in the journal, nothing on the manager's console stream, and a
+    return value no queueserver client can retrieve (#861). `plan_report_sink`
+    is the fix; this pins that it works.
+    """
+    box = _box({"amp3": 0.0, "amp4": 0.036})
+    sc = _shot_control(RE, box)
+    cams = [_camera(RE, box, n) for n in ("amp3", "amp4")]
+    plan = measure_shot_offsets_plan(_profiles(sc), resolver=None)
+    RE(plan(cams, shots=3, quiet_time=0.01))
+    out = capsys.readouterr().out
+    assert "shot offsets over 3 shot(s)" in out
+    assert "reference amp3" in out or "amp3" in out
+    assert "+36.0 ms" in out  # the measured value itself, not just a heading
+    assert "re-run with write=True" in out

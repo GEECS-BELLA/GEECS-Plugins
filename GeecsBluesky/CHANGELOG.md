@@ -97,6 +97,19 @@ rows.  This is what makes faster running safe.
 
 ### Found by the hardware run
 
+- **A non-scan plan's INFO logging went nowhere, so the calibration's report
+  vanished.**  A scan gets its narrative in `scan.log` because `ScanLogFile`
+  lifts the root logger to INFO while the run is open; the root logger sits
+  above INFO otherwise.  A plan that opens **no run** therefore has every
+  `logger.info` discarded — and a queueserver client cannot retrieve a plan's
+  return value either.  The first real `measure_shot_offsets` run measured ten
+  shots on hardware, completed cleanly, and produced *no observable output at
+  all*: nothing in the journal, nothing on the manager's console stream.
+  `geecs_bluesky.scan_log.plan_report_sink` attaches a stdout handler scoped to
+  one logger and lifts just that logger to INFO for the duration, so a
+  non-scan plan whose product is a report for a human can actually deliver it.
+  (`run_action` has the same hole and can adopt it.)
+
 - **A registered plan cannot carry postponed (string) annotations.** The
   queueserver manager builds a pydantic model from each plan's signature at
   submission and evaluates the annotations **in its own namespace**, so
