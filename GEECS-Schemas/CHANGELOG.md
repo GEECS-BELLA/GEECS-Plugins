@@ -5,7 +5,7 @@ All notable changes to GEECS-Schemas are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.23.1] - 2026-09-13
+## [0.24.0] - 2026-09-13
 
 ### Changed
 
@@ -16,6 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `geecs_schemas.__init__` exports the union: the logbook vocabulary
   (`LogEntry`, `Book`, …) from master and `ShotOffsets` plus the
   plan-layer exports from the branch.
+- Minor, not patch: relative to the branch line this release brings
+  master's `log_entry` schema kind and its exports — new public API.
 
 ## [0.23.0] - 2026-09-13
 

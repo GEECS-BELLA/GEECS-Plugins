@@ -3,7 +3,7 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [0.31.2] - 2026-09-13
+## [0.32.0] - 2026-09-13
 
 ### Changed
 
@@ -15,6 +15,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   reads, the gated s-file join (#858) and the plural `motors` /
   `plan_pattern` readers (#864); master's #851 backport of #836 carried
   nothing the branch's versions lacked.
+- Minor, not patch: relative to the branch line this release brings
+  master's `read_scan_info_file` and `first_log_timestamp` — new public API.
 
 ## [0.31.1] - 2026-09-12
 

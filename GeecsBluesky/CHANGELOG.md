@@ -17,6 +17,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   gating and the falsy-cause selection, #820 DB move tolerance) were
   checked against the rebuilt code by reading — see the PR body for the
   per-fix disposition.
+- `plans/strict.py`: a refused SINGLESHOT put is now ERROR-logged with its
+  cause by `str` (`failure_cause_text`, shared with the gated batch
+  message) before the `FailedStatus` propagates — the #817 line, at the
+  fire, where a waited `mv` fails.  A detector's own no-frame timeout
+  thrown into the fire propagates unlabelled, as before.  The move-side
+  half of #817 has no counterpart on this branch: #868.
+- `devices/ca/motor.py`: `TOLERANCE_SPAN_FRACTION` removed (its only
+  consumer was the deleted `GeecsSession`); `DEFAULT_TOLERANCE` is the
+  bare-constructor default only — the namespace passes the DB tolerance.
 
 ## [0.85.0] - 2026-09-13
 

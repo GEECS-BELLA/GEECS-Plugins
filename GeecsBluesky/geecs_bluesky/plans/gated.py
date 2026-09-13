@@ -96,7 +96,7 @@ from geecs_bluesky.devices.detector import (
 )
 from geecs_bluesky.devices.sampler import ShotSampler
 from geecs_bluesky.exceptions import GeecsConfigurationError, GeecsTriggerTimeoutError
-from geecs_bluesky.plans.strict import BinCounter
+from geecs_bluesky.plans.strict import BinCounter, failure_cause_text
 
 logger = logging.getLogger(__name__)
 
@@ -313,14 +313,10 @@ def gated_take_reading(
                 cause = failure.__cause__
                 if isinstance(cause, GeecsTriggerTimeoutError):
                     raise cause
-                # ``is not None`` and ``str``, not ``or`` and ``repr``: a
-                # failed CA put (``aioca.CANothing``) is falsy and its repr is
-                # the bare error code — the PV and message are in ``str`` (#817).
-                cause = cause if cause is not None else failure
                 raise GeecsTriggerTimeoutError(
                     getattr(cause, "device_name", None) or "gated batch",
                     shot_timeout,
-                    f"gated batch failed: {type(cause).__name__}: {cause}",
+                    f"gated batch failed: {failure_cause_text(failure)}",
                 ) from failure
             if plugin:
                 yield from bps.wait_for([d.truncate_to_quota for d in plugin])

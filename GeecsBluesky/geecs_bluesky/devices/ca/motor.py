@@ -32,17 +32,11 @@ logger = logging.getLogger(__name__)
 
 _DEFAULT_MOVE_TIMEOUT = 30.0  # seconds
 
-#: Fallback move-completion tolerance, used only when the GEECS DB records no
-#: usable ``tolerance`` for the variable.  ``GeecsNamespace`` passes each
-#: variable's positive DB tolerance; a non-positive one binds a plain setpoint.
+#: Move-completion tolerance of a bare ``CaMotor(...)`` — tests and ad-hoc
+#: devices.  In a scan the motor comes from ``GeecsNamespace``, which passes
+#: the variable's positive DB ``tolerance``; a non-positive one binds a plain
+#: setpoint (``CaSettable``), so this default is never used for a DB device.
 DEFAULT_TOLERANCE = 0.005
-
-#: A DB tolerance larger than this fraction of the variable's own travel span
-#: is logged as suspect.  Span-relative, not absolute: tolerances are in each
-#: variable's own units (µm on U_CompAeroTech, mm on the ESPs), so any fixed
-#: threshold flags correctly-configured axes purely for their unit choice —
-#: exactly the unit-blindness it is meant to detect.
-TOLERANCE_SPAN_FRACTION = 0.01
 
 # Binary floating point puts an exactly-on-tolerance arrival a few ULPs *over*
 # the limit: |-10.505 - -10.5| evaluates to 0.005000000000000782, not 0.005.
