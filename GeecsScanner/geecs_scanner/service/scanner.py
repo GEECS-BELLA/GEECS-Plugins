@@ -524,13 +524,9 @@ class ScannerService:
         # The 409 is decided here, from the listing, so the page's "replace?"
         # dialog does not hang on the wording of the resolver's refusal; the
         # resolver still refuses underneath (the backstop for a race).
-        stem = (
-            name[:-5]
-            if name.endswith(".yaml")
-            else name[:-4]
-            if name.endswith(".yml")
-            else name
-        )
+        stem = name
+        while stem.endswith((".yaml", ".yml")):
+            stem = stem.rsplit(".", 1)[0]
         try:
             existing = set(self.resolver.list_presets())
         except Exception:  # noqa: BLE001 — a listing never raises in the real resolver

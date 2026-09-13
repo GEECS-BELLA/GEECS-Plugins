@@ -59,8 +59,11 @@ def read_scan_log(
     with path.open("rb") as fh:
         fh.seek(offset)
         raw = fh.read(limit)
-    text = raw.decode("utf-8", errors="replace")
-    end = text.rfind("\n")
+    # All cursor arithmetic in BYTES: a chunk boundary may fall inside a
+    # multibyte character, and re-encoding a decoded (replaced) text to
+    # count bytes overshoots — the offset would pass the end and the whole
+    # file would replay every poll (confirmation review of #876).
+    end = raw.rfind(b"\n")
     if end < 0:
         if len(raw) < limit:
             # A partial last line: wait for its newline.
@@ -72,16 +75,14 @@ def read_scan_log(
             available=True,
             folder=folder,
             offset=offset + len(raw),
-            lines=[text + " …"],
+            lines=[raw.decode("utf-8", errors="replace") + " …"],
             more=True,
         )
-    complete = text[: end + 1]
-    lines = complete.splitlines()
-    consumed = len(complete.encode("utf-8", errors="replace"))
+    complete = raw[: end + 1]
     return ScanLogOut(
         available=True,
         folder=folder,
-        offset=offset + consumed,
-        lines=lines,
+        offset=offset + len(complete),
+        lines=complete.decode("utf-8", errors="replace").splitlines(),
         more=len(raw) >= limit,
     )

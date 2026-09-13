@@ -169,6 +169,11 @@ class DemoResolver:
         """Keep *preset* in memory under its name; the path is where the real one would go."""
         from geecs_bluesky.exceptions import GeecsConfigurationError
 
+        name = preset.name
+        while name.endswith((".yaml", ".yml")):
+            name = name.rsplit(".", 1)[0]
+        if name != preset.name:
+            preset = preset.model_copy(update={"name": name})
         if preset.name in self._presets and not overwrite:
             raise GeecsConfigurationError(
                 f"preset {preset.name!r} already exists at {self.preset_path(preset.name)}; "

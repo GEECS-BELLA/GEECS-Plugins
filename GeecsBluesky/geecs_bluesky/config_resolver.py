@@ -337,7 +337,9 @@ class ConfigsRepoResolver:
             (never created here — see :meth:`write_shot_offsets`), or an
             existing preset without *overwrite*.
         """
-        name = self._strip_yaml_suffix(preset.name)
+        name = preset.name
+        while name != self._strip_yaml_suffix(name):
+            name = self._strip_yaml_suffix(name)
         if name != preset.name:
             # ``jet.yaml`` is the file, ``jet`` the preset: the document's
             # name must be what ``list_presets`` says and ``resolve_preset``

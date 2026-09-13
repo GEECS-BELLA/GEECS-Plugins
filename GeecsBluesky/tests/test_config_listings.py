@@ -429,7 +429,7 @@ def test_write_preset_creates_only_the_presets_folder(tmp_path):
 
 def test_write_preset_strips_a_yaml_suffix_into_the_document(repo):
     resolver = ConfigsRepoResolver("TestExp", repo)
-    path = resolver.write_preset(_preset("jet.yaml"))
+    path = resolver.write_preset(_preset("jet.yaml.yaml"))
     assert path.name == "jet.yaml"
     assert (
         "jet" in resolver.list_presets() and "jet.yaml" not in resolver.list_presets()

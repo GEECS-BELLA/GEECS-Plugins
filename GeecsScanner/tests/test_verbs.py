@@ -114,7 +114,10 @@ def test_actions_list_and_preview_inline_nested_runs(client: TestClient) -> None
     r = client.get("/api/actions/broken_reference")
     assert r.status_code == 400 and "no_such_plan" in r.json()["error"]["message"]
     # a loop: the library validator lets it through, the flatten must not
-    assert "loop" in rows["loop_a"]["problem"] and "loop" in rows["loop_b"]["problem"]
+    assert (
+        "in a loop" in rows["loop_a"]["problem"]
+        and "in a loop" in rows["loop_b"]["problem"]
+    )
     r = client.get("/api/actions/loop_a")
     assert r.status_code == 400 and "in a loop" in r.json()["error"]["message"]
     assert client.post("/api/actions/loop_a/run").status_code == 400

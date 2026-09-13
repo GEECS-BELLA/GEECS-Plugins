@@ -55,6 +55,22 @@ def test_a_line_longer_than_a_chunk_does_not_stall_the_tail(tmp_path: Path) -> N
     assert out[-1] == "next" and offset == log.stat().st_size
 
 
+def test_a_multibyte_character_on_the_chunk_boundary_does_not_replay(
+    tmp_path: Path,
+) -> None:
+    """The cursor is bytes: a split character must not overshoot the file and reset to 0."""
+    log = tmp_path / "scan.log"
+    log.write_text("a" * 99 + "—" + "b" * 50 + "\nsecond line\n", encoding="utf-8")
+    size = log.stat().st_size
+    first = read_scan_log(str(tmp_path), 0, limit=100)
+    assert first.offset == 100 and first.more
+    second = read_scan_log(str(tmp_path), first.offset, limit=100)
+    assert second.offset == size, (second.offset, size)
+    assert second.lines[-1] == "second line"
+    third = read_scan_log(str(tmp_path), second.offset, limit=100)
+    assert third.lines == [] and third.offset == size
+
+
 def test_reader_never_creates_anything(tmp_path: Path) -> None:
     missing = tmp_path / "Scan999"
     out = read_scan_log(str(missing), 0)
