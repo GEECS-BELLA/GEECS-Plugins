@@ -4,6 +4,44 @@ All notable changes to `geecs-web-theme` are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 project adheres to semantic versioning.
 
+## [0.5.0] - 2026-09-13
+
+### Changed
+
+- **The CSS guards read stylesheets through tinycss2, not regular
+  expressions.** `tests/test_no_literal_colours.py` is rewritten over new
+  parser-based helpers in `geecs_web_theme.testing` (`css_rules`,
+  `rule_selectors`, `colour_literals`, `html_style_sources`,
+  `js_colour_literals`, `referenced_tokens`, `defined_tokens`,
+  `styled_classes`, `attribute_selector_values`, `classes_used`); HTML is
+  read with the standard library's parser. Comments, `@media` blocks,
+  nested braces and quoted strings are structure before a check looks at
+  them, so each check reads like the rule it enforces and a wrong check
+  fails loudly instead of matching nothing — the six regex scanners this
+  replaces each had a silent hole found by review. 703 lines → ~430, and
+  every kept guard was proven to bite by breaking a real file (a literal
+  in `kit.css`, in a `style=` attribute, in an inline-script string; an
+  unknown status styled; an unscoped rule; an unstyled class on the
+  reference page; an undefined token; a palette missing a token; a token
+  introduced by the kit; an emptied density block).
+- **Pruned.** Kept: no literal colours; every referenced token defined and
+  every palette complete; the kit introduces no token; the vocabularies
+  agree across Python, `theme-boot.js` and the CSS; every kit rule scoped
+  to `.kit`; the reference page shows only what the kit styles. Deleted:
+  the `[hidden]` ordering check (a one-time bug, now a comment beside the
+  rule), the per-component specimen list for the reference page (a
+  maintenance list, not an invariant), and the probe cases that pinned
+  holes in the old regexes.
+- The allowlist is now by **selector** (`.themepick .sw`, `img.plot`,
+  `.ce-preview img`), each with its reason, instead of by line substring.
+
+### Added
+
+- The `testing` extra (tinycss2) for consumers whose test suite uses a CSS
+  helper — the scanner's "every class on the page is styled" check becomes
+  `classes_used(template) - styled_classes(kit, theme, own_css)`. The HTML
+  guards still need nothing.
+
 ## [0.4.0] - 2026-09-13
 
 ### Added

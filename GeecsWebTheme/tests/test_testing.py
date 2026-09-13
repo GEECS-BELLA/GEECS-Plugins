@@ -94,3 +94,48 @@ def test_javascript_syntax_error_without_node_is_loud(
     assert not node_available()
     with pytest.raises(RuntimeError):
         javascript_syntax_error("1")
+
+
+# ------------------------------------------------------------ CSS helpers
+
+
+def test_classes_used_and_styled_classes_pair_up() -> None:
+    from geecs_web_theme.testing import classes_used, styled_classes
+
+    html = '<div class="panel {{ extra }} chip">{# <i class="ghost"> #}</div><b class="lone"></b>'
+    css = ".kit .panel{x:1} .chip[data-state=ok], .kit .well > .dim{x:1} @media (a){.tight{x:1}}"
+    assert classes_used(html) == {"panel", "chip", "lone"}
+    assert styled_classes(css) == {"kit", "panel", "chip", "well", "dim", "tight"}
+    assert classes_used(html) - styled_classes(css) == {"lone"}
+
+
+def test_attribute_selector_values_by_class() -> None:
+    from geecs_web_theme.testing import attribute_selector_values
+
+    css = (
+        '.kit .chip[data-state="ok"], .kit .chip[data-state="failed"]{x:1}'
+        ".kit .dot[data-state='ok']{x:1} .kit .state[data-state=denied]{x:1}"
+    )
+    assert attribute_selector_values(css, "data-state", on_class="chip") == {
+        "ok",
+        "failed",
+    }
+    assert attribute_selector_values(css, "data-state", on_class="dot") == {"ok"}
+    assert attribute_selector_values(css, "data-state") == {"ok", "failed", "denied"}
+
+
+def test_css_helpers_name_the_missing_extra(monkeypatch: pytest.MonkeyPatch) -> None:
+    import builtins
+
+    from geecs_web_theme import testing
+
+    real = builtins.__import__
+
+    def no_tinycss2(name, *a, **k):
+        if name == "tinycss2":
+            raise ImportError(name)
+        return real(name, *a, **k)
+
+    monkeypatch.setattr(builtins, "__import__", no_tinycss2)
+    with pytest.raises(RuntimeError, match="geecs-web-theme\\[testing\\]"):
+        testing.colour_literals("a{color:#fff}")

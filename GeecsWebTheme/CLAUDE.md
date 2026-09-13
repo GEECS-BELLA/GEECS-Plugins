@@ -142,15 +142,33 @@ before adding a component**, and change it in the same commit when you add
 one — `test_kit_reference_page_assets_all_exist` pins its assets, and it is
 the page people will copy from.
 
-## Sharp edges
+## The guards read CSS through a parser
 
-- The literal-colour guard blanks `/* */` comments but not `//` line
-  comments in a standalone `.js` file, so a `#765`-style reference in a JS
-  comment reads as a three-digit hex and fails the guard. Write it without
-  the `#`. (Naive `//` handling would blank the `//` in every URL, which is
-  why the guard does not try.)
-- `_blocks()` in that test file reads raw CSS text, so a `:root` mentioned
-  in a header comment runs together with the real selector. Strip comments
-  before keying its result by selector name.
-- Adding a spacing token means adding it to `_DENSITY_TOKENS` in the test
-  too, or the density blocks that forgot it will not fail.
+`tests/test_no_literal_colours.py` and the CSS helpers in
+`geecs_web_theme.testing` (`colour_literals`, `referenced_tokens`,
+`defined_tokens`, `styled_classes`, `attribute_selector_values`,
+`rule_selectors`, `html_style_sources`, `js_colour_literals`,
+`classes_used`) read stylesheets through **tinycss2** and HTML through the
+standard library's parser. Comments, `@media` blocks, nested braces and
+quoted strings are structure by the time a check looks at them, so a check
+reads like the rule it enforces. **Never add a regex CSS scanner** — six of
+them had silent holes across three review rounds, and each hole passed
+green. If a new check needs to see CSS, add a helper on `css_rules()` and
+prove it bites by breaking a real file first.
+
+What is pinned: no literal colours; every referenced token defined and
+every palette complete; the kit introduces no token; the four vocabularies
+agree across Python, `theme-boot.js` and the CSS; every kit rule scoped to
+`.kit`; the reference page shows only what the kit styles. Deleted on
+purpose: the `[hidden]` ordering check and the per-component specimen list.
+
+Remaining edges:
+
+- The `web` and `testing` extras are separate on purpose: a consumer's
+  test suite takes `testing` (tinycss2) only if it uses a CSS helper; the
+  HTML guards need nothing.
+- Adding a spacing token means adding it to `_DENSITY_TOKENS` in the test,
+  or the density block that forgot it will not fail.
+- `js_colour_literals` judges string literals only: a colour built by
+  concatenation is not seen. Scripts read colours through
+  `getPropertyValue("--x")`, which is what the token check looks for.
