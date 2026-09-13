@@ -228,8 +228,14 @@ def test_save_preset_exists_is_decided_from_the_listing_not_a_message(
     assert r.status_code == 409  # the suffix names the same file
 
 
-def test_save_preset_refuses_an_invalid_document(client: TestClient) -> None:
+def test_save_preset_refuses_an_invalid_document(
+    client: TestClient, preset_doc: dict
+) -> None:
     r = client.post("/api/configs/presets/bad", json={"preset": {"devices": "nope"}})
     assert r.status_code == 400
     assert r.json()["error"]["kind"] == "invalid_request"
     assert "bad" not in client.get("/api/configs/presets").json()["names"]
+    # a name that is only a suffix strips to nothing and is refused, not written as ''
+    r = client.post("/api/configs/presets/.yaml", json={"preset": preset_doc})
+    assert r.status_code == 400 and "not a file name" in r.json()["error"]["message"]
+    assert "" not in client.get("/api/configs/presets").json()["names"]

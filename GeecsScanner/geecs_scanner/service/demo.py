@@ -172,6 +172,12 @@ class DemoResolver:
         name = preset.name
         while name.endswith((".yaml", ".yml")):
             name = name.rsplit(".", 1)[0]
+        if not name or not name[0].isalnum() and name[0] != "_":
+            # The real resolver's _PRESET_STEM rule, in the double too.
+            raise GeecsConfigurationError(
+                f"preset name {preset.name!r} is not a file name: use letters, "
+                "digits, '_', '-' and '.', no separators"
+            )
         if name != preset.name:
             preset = preset.model_copy(update={"name": name})
         if preset.name in self._presets and not overwrite:
