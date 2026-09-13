@@ -14,7 +14,11 @@ machine-global journal, so the per-scan file must stay the complete record.
 from __future__ import annotations
 
 import logging
+import sys
+from contextlib import contextmanager
+from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -143,4 +147,59 @@ class ScanLogFile:
         self.path = None
 
 
-__all__ = ["QUIET_LOGGER_PREFIXES", "ScanLogContextFilter", "ScanLogFile"]
+@contextmanager
+def plan_report_sink(logger_name: str, *, stream: Any = None) -> Iterator[None]:
+    """Make one logger's INFO records visible for the duration of a *non-scan* plan.
+
+    A scan gets its narrative in ``scan.log``, because :class:`ScanLogFile`
+    attaches a file handler and lifts the root level to INFO while the run is
+    open.  A plan that opens **no run** gets neither, and the root logger sits
+    above INFO by default — so every ``logger.info`` a queue plan emits is
+    discarded, with nothing in the journal, nothing on the console stream, and
+    no return value a queueserver client can retrieve.
+
+    That is fine for a plan whose product is a side effect on the machine
+    (``mv``).  It is not fine for one whose product is *a report for a human*:
+    the shot-offset calibration measured ten shots on hardware and its table
+    vanished entirely (GEECS-Plugins#861, found on the first real run).
+
+    This attaches a stdout handler scoped to *logger_name* and lifts just that
+    logger to INFO, restoring both afterwards — so the plan's own narrative
+    reaches the worker's stdout (and from there the journal) without raising
+    the log level of anything else.
+
+    Parameters
+    ----------
+    logger_name :
+        The logger to surface, e.g. ``"geecs_bluesky.plans.calibration"``.
+    stream :
+        Where to write; defaults to ``sys.stdout`` (what the service unit
+        captures).  Injectable for tests.
+
+    Yields
+    ------
+    None
+    """
+    target = logging.getLogger(logger_name)
+    handler = logging.StreamHandler(stream if stream is not None else sys.stdout)
+    handler.setLevel(logging.INFO)
+    handler.setFormatter(logging.Formatter("%(levelname)s %(name)s - %(message)s"))
+    previous_level = target.level
+    if target.level == logging.NOTSET or target.level > logging.INFO:
+        target.setLevel(logging.INFO)
+    target.addHandler(handler)
+    try:
+        yield
+    finally:
+        target.removeHandler(handler)
+        target.setLevel(previous_level)
+        handler.flush()
+        handler.close()
+
+
+__all__ = [
+    "QUIET_LOGGER_PREFIXES",
+    "ScanLogContextFilter",
+    "ScanLogFile",
+    "plan_report_sink",
+]

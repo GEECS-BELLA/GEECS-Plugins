@@ -106,15 +106,38 @@ namespace = None
 if _hermetic:
     _profiles = TriggerProfiles({})
 else:
+    # The configs repo: the trigger profiles (one ShotControl each) a plan's
+    # trigger_profile argument resolves against, the experiment default from
+    # experiment_defaults.yaml, the action library run_action reads, and the
+    # measured drain offsets.  Built BEFORE the namespace because each
+    # detector's drain_offset is seeded at construction (§4.F) — so a
+    # re-measurement reaches the worker at the next environment open, not
+    # mid-session.
+    _resolver = ConfigsRepoResolver(_experiment)
+    try:
+        _offsets = _resolver.resolve_shot_offsets()
+    except Exception:
+        # An unreadable or invalid shot_offsets.yaml must not stop the
+        # worker coming up — a scan at 1 Hz is unaffected by zero offsets.
+        # Loud, because at a tight rep rate it costs rows.
+        logger.warning(
+            "shot offsets not loaded — every drain offset stays 0.0, which "
+            "misjoins rows at a tight rep rate; fix the document or re-run "
+            "measure_shot_offsets",
+            exc_info=True,
+        )
+        _offsets = None
     namespace = GeecsNamespace.from_experiment(
-        _experiment, path_provider=_path_provider
+        _experiment,
+        path_provider=_path_provider,
+        drain_offsets=(
+            {name: entry.offset_s for name, entry in _offsets.devices.items()}
+            if _offsets is not None
+            else None
+        ),
     )
     _DEVICE_NAMES = namespace.export_into(globals())
     _telemetry = namespace.telemetry()
-    # The configs repo: the trigger profiles (one ShotControl each) a plan's
-    # trigger_profile argument resolves against, the experiment default from
-    # experiment_defaults.yaml, and the action library run_action reads.
-    _resolver = ConfigsRepoResolver(_experiment)
     _profiles = TriggerProfiles.from_resolver(_resolver, experiment=_experiment)
 
 # The manager's --keep-re contract needs a top-level `RE` in this module's

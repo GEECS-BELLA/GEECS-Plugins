@@ -182,6 +182,91 @@ def test_stock_plans_pass_manager_validation_over_namespace_devices(
         assert ok, (name, msg)
 
 
+def test_no_registered_plan_exposes_a_string_annotation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Every registered plan's annotations must be resolved objects, not strings.
+
+    This is the root cause of a defect hardware found while every unit test
+    passed (#861). The manager builds a pydantic model from each plan's
+    signature at submission and evaluates the annotations **in its own
+    namespace**. A plan defined in a module using ``from __future__ import
+    annotations`` hands it strings like ``"Sequence[Any]"``, which it cannot
+    resolve — `queue add` then fails with "`Model` is not fully defined; you
+    should define `Sequence`". The stock ``bluesky.plans`` verbs are immune
+    only because that module does not postpone its annotations.
+
+    Checked as a property of the whole registered tuple rather than per
+    plan, so a plan added later cannot drift out of it — which is exactly
+    how the two calibration plans slipped past the queue-item test below,
+    which named only ``count`` / ``scan`` / ``mv``.
+    """
+    pytest.importorskip("bluesky_queueserver")
+    pytest.importorskip("aioca")
+    import inspect
+
+    from geecs_bluesky.namespace import GeecsNamespace
+    from geecs_bluesky.plan_names import GEECS_PLAN_NAMES
+
+    monkeypatch.setenv("QS_EXPERIMENT", "TestExp")
+    monkeypatch.setenv("QS_DEVICE_NAMESPACE", "db")
+    monkeypatch.setattr(
+        GeecsNamespace,
+        "from_experiment",
+        classmethod(lambda cls, exp, **kw: cls(_make_roster())),
+    )
+    ns = runpy.run_path(str(STARTUP_PATH), run_name="__not_main__")
+    stringly = {}
+    for name in GEECS_PLAN_NAMES:
+        for param, spec in inspect.signature(ns[name]).parameters.items():
+            if isinstance(spec.annotation, str):
+                stringly.setdefault(name, []).append(f"{param}: {spec.annotation!r}")
+    assert not stringly, (
+        "these plans expose unresolved string annotations, which the manager "
+        f"cannot build a model from: {stringly}"
+    )
+
+
+def test_the_calibration_plans_validate_a_real_queue_item(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The exact `queue add` the acceptance submits, through the manager's path."""
+    pytest.importorskip("bluesky_queueserver")
+    pytest.importorskip("aioca")
+    from bluesky_queueserver.manager.profile_ops import (
+        _process_plan,
+        existing_plans_and_devices_from_nspace,
+        validate_plan,
+    )
+
+    from geecs_bluesky.namespace import GeecsNamespace
+
+    monkeypatch.setenv("QS_EXPERIMENT", "TestExp")
+    monkeypatch.setenv("QS_DEVICE_NAMESPACE", "db")
+    monkeypatch.setattr(
+        GeecsNamespace,
+        "from_experiment",
+        classmethod(lambda cls, exp, **kw: cls(_make_roster())),
+    )
+    ns = runpy.run_path(str(STARTUP_PATH), run_name="__not_main__")
+    _plans, devices, *_ = existing_plans_and_devices_from_nspace(nspace=ns)
+    for name, args, kwargs in (
+        (
+            "measure_shot_offsets",
+            [["UC_TestCam"]],
+            {"trigger_profile": "p", "shots": 10, "write": False},
+        ),
+        ("check_shot_sync", [["UC_TestCam"]], {"trigger_profile": "p"}),
+    ):
+        processed = _process_plan(ns[name], existing_devices={}, existing_plans={})
+        ok, msg = validate_plan(
+            {"name": name, "args": args, "kwargs": kwargs, "item_type": "plan"},
+            allowed_plans={name: processed},
+            allowed_devices=devices,
+        )
+        assert ok, (name, msg)
+
+
 _ROW = {
     "settable": False,
     "variabletype": None,

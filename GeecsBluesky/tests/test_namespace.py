@@ -432,3 +432,60 @@ def test_file_plugin_hosts_default_reads_the_config(monkeypatch) -> None:
         _roster_on("192.168.6.100"), path_provider=GeecsScanPathProvider()
     )
     assert ns.devices["UC_TestCam"].plugin_backed
+
+
+# ------------------------------------------------- measured drain offsets
+
+
+def _offset(device) -> float:
+    """The detector's seeded drain offset, read off the soft signal."""
+    import asyncio
+
+    async def go() -> float:
+        await device.drain_offset.connect()
+        return await device.drain_offset.get_value()
+
+    return asyncio.run(go())
+
+
+def test_measured_drain_offsets_reach_the_detectors() -> None:
+    """The calibration's numbers are seeded into the config signal at build.
+
+    This is the delivery path of ``shot_offsets.yaml``: the resolver's
+    document becomes this mapping, which becomes each detector's
+    ``drain_offset``, which rides in every descriptor and is what the s-file
+    join corrects stamps by (``03`` §4.F).  A namespace that dropped the
+    mapping would leave every device at 0.0 — exactly the state the
+    calibration exists to end — with nothing failing to say so.
+    """
+    ns = GeecsNamespace(ROSTER, drain_offsets={"uc_testcam": 0.036})
+    assert _offset(ns["UC_TestCam"]) == pytest.approx(0.036)
+
+
+def test_a_device_without_a_measured_offset_keeps_zero() -> None:
+    """Absent from the document means "stamps with the reference", i.e. 0.0."""
+    ns = GeecsNamespace(ROSTER, drain_offsets={"uc_testcam": 0.036})
+    other = [
+        d
+        for d in ns.devices.values()
+        if isinstance(d, GeecsDetector) and d.name != "uc_testcam"
+    ]
+    for device in other:
+        assert _offset(device) == 0.0
+
+
+def test_an_offset_naming_no_detector_warns_rather_than_failing(caplog) -> None:
+    """A stale calibration (renamed or retired camera) must be visible.
+
+    It cannot be an error — the worker has to come up — but it must not be
+    silent either: the device it meant to correct is left at 0.0 and its
+    rows misjoin once the windows tighten, with nothing else to point at.
+    """
+    import logging
+
+    with caplog.at_level(logging.WARNING, logger="geecs_bluesky.namespace"):
+        GeecsNamespace(ROSTER, drain_offsets={"uc_camera_that_left": 0.05})
+    assert any(
+        "uc_camera_that_left" in record.message and "stale" in record.message
+        for record in caplog.records
+    )

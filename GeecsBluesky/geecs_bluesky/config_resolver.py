@@ -19,6 +19,8 @@ The client seam expands a preset into a stock plan queue item
 from __future__ import annotations
 
 import logging
+import os
+import tempfile
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 
@@ -33,6 +35,7 @@ from geecs_schemas import (
     Preset,
     ScanVariables,
     ScanVariableSpec,
+    ShotOffsets,
     TriggerProfile,
 )
 from geecs_schemas.convert import convert_shot_control
@@ -63,6 +66,16 @@ class ConfigResolver(Protocol):
 
     def resolve_action_plan(self, name: str) -> ActionPlan:
         """Return the action plan called *name*."""
+        ...
+
+    def resolve_shot_offsets(self) -> ShotOffsets | None:
+        """Return the measured drain offsets, or ``None`` if never measured.
+
+        Resolvers without this method are tolerated (no calibration), so
+        callers check for it rather than assuming it — see
+        ``geecs_bluesky.plans.calibration._can_write`` for the write side,
+        which must be checked *before* a measurement is spent.
+        """
         ...
 
     def resolve_experiment_defaults(self) -> ExperimentDefaults | None:
@@ -364,3 +377,121 @@ class ConfigsRepoResolver:
             return None
         document = self._load_yaml(path, "experiment defaults", self.DEFAULTS_FILE)
         return ExperimentDefaults.model_validate(document)
+
+    SHOT_OFFSETS_FILE = "shot_offsets.yaml"
+
+    @property
+    def shot_offsets_path(self) -> Path:
+        """Where this experiment's measured drain offsets live (written or not)."""
+        return self._root / self.SHOT_OFFSETS_FILE
+
+    def resolve_shot_offsets(self) -> ShotOffsets | None:
+        """Load ``<experiment>/shot_offsets.yaml``; ``None`` if never measured.
+
+        The per-device edge-to-stamp latencies the ``measure_shot_offsets``
+        calibration plan writes (``03`` §4.F).  ``None`` — the state of
+        every experiment until the plan is first run — leaves every
+        detector's ``drain_offset`` at ``0.0``, which is what the join
+        assumed before this document existed.
+
+        Raises
+        ------
+        GeecsConfigurationError
+            The file exists but is not a YAML mapping.
+        pydantic.ValidationError
+            The file exists but is not a valid ``ShotOffsets`` document.
+            Deliberately loud rather than falling back to zeros: a
+            calibration that silently reverted to 0.0 would misjoin rows at
+            a tight rep rate with nothing in the log to say why.
+        """
+        path = self.shot_offsets_path
+        if not path.exists():
+            return None
+        document = self._load_yaml(path, "shot offsets", self.SHOT_OFFSETS_FILE)
+        return ShotOffsets.model_validate(document)
+
+    def write_shot_offsets(self, offsets: ShotOffsets) -> Path:
+        """Write the measured drain offsets, replacing any previous measurement.
+
+        Written atomically (a temporary file in the same directory, fsynced,
+        then ``os.replace``) so a reader — the worker reopening its
+        environment, another host's resolver — never sees a half-written
+        document, and a failure part-way leaves the previous calibration
+        intact and no temporary behind.  The destination's permissions are
+        preserved (0644 for a new file): the configs repo is a shared
+        checkout, and a file only the service account could read would
+        block the very review this write exists to invite.
+
+        The configs repo is a **git checkout**, usually on the data share.
+        This writes the working tree only: committing and pushing is a
+        human act, and the caller logs the path so the operator knows there
+        is an uncommitted change to review.
+
+        Returns
+        -------
+        Path
+            The file written.
+
+        Raises
+        ------
+        GeecsConfigurationError
+            The experiment folder does not exist — the configs root is
+            misconfigured or unreachable, and creating the tree here would
+            plant an experiment folder in the wrong place.
+        """
+        path = self.shot_offsets_path
+        if not path.parent.is_dir():
+            raise GeecsConfigurationError(
+                f"cannot write shot offsets for experiment {self._experiment!r}: "
+                f"no configs folder at {path.parent} (check the configs root "
+                "and that the share is mounted)"
+            )
+        payload = yaml.safe_dump(offsets.model_dump(), sort_keys=False)
+        # The destination's mode, or the default a normal umask would give:
+        # NamedTemporaryFile creates 0600 and os.replace keeps the temp
+        # inode's mode, so without this one write makes the file unreadable
+        # to the operator who has to review and commit it, to git run as
+        # anyone else, and to another host's resolver.
+        try:
+            mode = path.stat().st_mode & 0o777
+        except OSError:
+            mode = 0o644
+        temporary: Path | None = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                "w",
+                dir=path.parent,
+                prefix=f".{path.stem}-",
+                suffix=".tmp",
+                delete=False,
+            ) as handle:
+                temporary = Path(handle.name)
+                handle.write(payload)
+                handle.flush()
+                # Durability before the rename: without it a crash can leave
+                # a zero-length file where a calibration used to be.
+                os.fsync(handle.fileno())
+            try:
+                os.chmod(temporary, mode)
+            except OSError:
+                # The configs repo usually lives on the data share, and CIFS
+                # mounts reject chmod unless mounted with unix extensions.
+                # A mode we could not set is cosmetic; losing the ten shots
+                # this document cost is not, so never fail the write for it.
+                logger.warning(
+                    "could not set the mode of %s (the share may not support "
+                    "it) — the file is written, but check it is readable by "
+                    "whoever has to review and commit it",
+                    path,
+                    exc_info=True,
+                )
+            os.replace(temporary, path)
+            temporary = None
+        finally:
+            # Covers the write and the chmod as well as the replace: a full
+            # or disconnected share fails in `handle.write`, and a leftover
+            # dot-file in a git working tree is somebody's next puzzle.
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
+        logger.info("shot offsets written to %s", path)
+        return path

@@ -5,6 +5,231 @@ All notable changes to `geecs-bluesky` are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
+
+## [0.85.0] - 2026-09-13
+
+Phase 3 of the native-Bluesky rebuild (GEECS-Plugins#807,
+`Planning/native_bluesky/03_clean_room_rebuild.md` §4.F): the shot-offset
+calibration and its preflight.  **Every `drain_offset` in the field read
+`0.0` before this** — phase 2c threaded the offsets through both sides of
+the s-file join; this puts real numbers into them.
+
+At 1 Hz the join windows are ±0.5 s and swallow the 0–160 ms device
+spread, so nothing was broken.  They narrow with the rep rate: at 5 Hz they
+are ±0.1 s, the same order as the spread, where an uncalibrated offset costs
+rows.  This is what makes faster running safe.
+
+### Hardware-accepted 2026-09-12
+
+Measured on HTU under `HTU-LaserOFF`, 10 shots, over UC_Amp3_IR_input,
+UC_Amp4_IR_input, UC_ModeImager and U_BCaveICT:
+
+| device | offset | scatter |
+|---|---|---|
+| `u_bcaveict` | reference | 0.8 ms |
+| `uc_amp4_ir_input` | +58.9 ms | 0.8 ms |
+| `uc_amp3_ir_input` | +96.0 ms | 1.5 ms |
+| `uc_modeimager` | +160.3 ms | 1.5 ms |
+
+Two independent runs agreed to under 1 ms per device, and Amp3 − Amp4 came
+out 37.0 / 37.1 ms against the 36 ms phase 2c measured independently.  The
+delivery path was proven end to end by `check_shot_sync`, which **failed at
+161.0 ms before** the worker loaded the measurement and **passed at 0.7 ms
+after** — file → resolver → namespace → `drain_offset` → descriptors.  A
+strict scan (Scan022) then carried the measured offsets in its run documents,
+where `geecs_data_utils.shot_join` reads them.
+
+Note for operators: the offset tracks **frame size**, so re-ROI'ing a camera
+invalidates its calibration (UC_ModeImager is un-ROI'd and drains at +160 ms;
+the ROI'd amplifier cameras at +59 / +96 ms).  Re-run after an ROI change.
+
+### Added
+
+- **`measure_shot_offsets`** (`geecs_bluesky.plans.calibration`), a
+  registered queue plan: drives the trigger box OFF, waits the device set
+  quiet, then fires single shots through `fire_and_await_shot` and reads
+  every device's `acq_timestamp`.  The spread across devices is the
+  calibration.
+
+  Several shots are averaged (default 10) because each host's clock dithers
+  around its own average by up to ~10 ms while the domain holds the averages
+  on a common target (Sam, 2026-09-13) — one shot would measure a 36 ms
+  difference to ±10 ms.  The quiet wait, which dominates the cost, is paid
+  once; the shots after it cost about a second each.  Each device's
+  peak-to-peak scatter is recorded beside its mean, so a host with a
+  timekeeping problem is visible instead of hidden inside an average.
+
+  Shots are anchored on the *mean of their own stamps* before averaging, so
+  the laser's phase drifting between shots cancels and only the
+  device-to-device differences — the quantity the join uses — survive.
+  Only complete shots contribute: a shot one device missed would shift that
+  shot's anchor and bias every other device's offset, so it is discarded and
+  retaken.
+
+  Measures and reports by default; stores only with `write=True`, so a
+  re-run cannot silently replace a good calibration with a worse one.  No
+  run is opened — no scan number, no s-file — and the box is left in
+  STANDBY however the plan ends.
+
+- **`check_shot_sync`**, the preflight (§11.7): with the box OFF and the set
+  quiet, every device still holds the stamp of the same last real shot, so
+  correcting those stalled stamps by the stored offsets says whether the
+  calibration still holds — **at no shot cost at all**.  Raises when the set
+  is out of tolerance, so a queue that puts it ahead of its scans stops
+  before taking data against a stale calibration.
+
+  A queue item, deliberately, and never a step inside a scan: it costs at
+  least the longest device timeout every time it runs (§11.2 — a device's
+  timeout event carries an unchanged stamp, which the gateway's change
+  suppression drops, so nothing announces quiescence), and running it from
+  the queue also means it cannot drive the trigger box while a scan is using
+  it.
+
+- **`ConfigsRepoResolver.resolve_shot_offsets` / `write_shot_offsets`** over
+  the experiment's `shot_offsets.yaml`.  Absent reads as "never measured"
+  (every offset stays `0.0`); an *invalid* document raises rather than
+  falling back to zeros, because a calibration that silently reverted would
+  misjoin rows with nothing in the log to say why.  The write is atomic
+  (same-directory temporary plus `os.replace`), so a reader never sees a
+  half-written document and a failure leaves the previous calibration
+  intact, and it refuses to create a missing experiment folder.
+
+- **`GeecsNamespace(drain_offsets=...)`** seeds each detector's
+  `drain_offset` at construction, and `GeecsDetector(drain_offset=...)`
+  takes it.  The startup profile now builds the resolver *before* the
+  namespace to pass them; a re-measurement therefore reaches the worker at
+  its next environment open, not mid-session.  An offset naming no detector
+  in the namespace is warned about loudly as a stale calibration — the
+  device it meant to correct would otherwise be left at `0.0` silently.
+
+### Fixed
+
+- **`GeecsDetectorScalars.trigger` now leaves fly mode**, as the parent's
+  `trigger` already did.  `fly` is one flag shared by a detector and its
+  scalars view, set by `kickoff` and cleared only by `trigger`, and
+  `wait_for_idle` returns immediately while it is set.  So a view triggered
+  after *any* gated run — the calibration's own path — reported every shot
+  complete without waiting for a stamp at all: a device that never
+  delivered was recorded with its stale stamp, with no retake and no
+  warning.  Found by the review of #861.
+
+### Changed
+
+- `GEECS_PLAN_NAMES` grows to **22** plans; the operator permissions regex
+  and `NON_SCAN_PLAN_NAMES` gain both calibration plans.  The readiness
+  check (`geecs-qserver-ensure-ready`) asserts all 22.
+
+### Found by the hardware run
+
+- **A non-scan plan's INFO logging went nowhere, so the calibration's report
+  vanished.**  A scan gets its narrative in `scan.log` because `ScanLogFile`
+  lifts the root logger to INFO while the run is open; the root logger sits
+  above INFO otherwise.  A plan that opens **no run** therefore has every
+  `logger.info` discarded — and a queueserver client cannot retrieve a plan's
+  return value either.  The first real `measure_shot_offsets` run measured ten
+  shots on hardware, completed cleanly, and produced *no observable output at
+  all*: nothing in the journal, nothing on the manager's console stream.
+  `geecs_bluesky.scan_log.plan_report_sink` attaches a stdout handler scoped to
+  one logger and lifts just that logger to INFO for the duration, so a
+  non-scan plan whose product is a report for a human can actually deliver it.
+  (`run_action` has the same hole and can adopt it.)
+
+- **A registered plan cannot carry postponed (string) annotations.** The
+  queueserver manager builds a pydantic model from each plan's signature at
+  submission and evaluates the annotations **in its own namespace**, so
+  `calibration.py`'s `from __future__ import annotations` made `queue add`
+  refuse both plans with *"`Model` is not fully defined; you should define
+  `Sequence`"* — after a completely green test suite.  The stock
+  `bluesky.plans` verbs are immune only because that module does not
+  postpone its annotations.  `geecs_bluesky.utils.resolve_annotations` now
+  gives every GEECS-defined registered plan a `__signature__` of resolved
+  objects (`run_action` included, so the rule has no exceptions), with
+  `detectors` annotated exactly as the stock verbs annotate theirs.
+
+  The existing manager-validation test covered only `count` / `scan` / `mv`,
+  which is how this got through.  It is now joined by a property test over
+  the **whole** registered tuple — no plan can drift out of it — plus a
+  queue-item validation of the two calibration plans.
+
+### Review of #861 — the guards it added
+
+- **The quiet confirmation window is sized from the trigger period**
+  (`QUIET_CONFIRM_PERIODS = 1.5`), not a flat 0.5 s.  A window shorter than
+  one period catches a box that never went OFF only when an edge happens to
+  fall inside it: at 1 Hz a phase sweep caught it in 6 runs of 12.  A second,
+  free signal was added beside it — the *whole set* advancing across a wait
+  that already exceeds the device timeout is a running box, whatever the
+  confirmation window saw.
+- **A physically impossible measurement is refused for writing.**  The
+  measured HTU set spans 0-160 ms; `MAX_PLAUSIBLE_OFFSET_S` (0.3 s) and
+  `MAX_PLAUSIBLE_SCATTER_S` (0.1 s) stop a measurement well outside it
+  from reaching the share, where it would be seeded
+  into every future join.  The table is still reported; only the write is
+  refused, and `max_offset` raises the bound deliberately.
+- **`check_shot_sync` folds whole trigger periods out** before judging.
+  STANDBY passes edges up to the moment the plan drives OFF, so a slow
+  camera can legitimately hold the previous shot; that is now named and
+  warned about rather than failing a queue.  A set too sparse to judge is
+  reported as **could not check** — `SyncVerdict.comparable` — and no
+  longer raises, because that is not a failure.  The verdict stays on the
+  pairwise spread (what the join actually consumes) and names the two
+  devices at its ends.
+- **The stamp read is a genuine uncached get.**  `bps.rd` goes through
+  ophyd-async's monitor cache, whose `get_reading` *awaits its first
+  update* — so under OFF, where the stamp PV publishes nothing by design,
+  a device whose monitor never delivered would block for the signal
+  timeout instead of returning the value the PV plainly holds.
+- **`write_shot_offsets` preserves the destination's permissions** (0644
+  for a new file) and fsyncs before the rename.  `NamedTemporaryFile`
+  creates 0600 and `os.replace` keeps the temp inode's mode, so one write
+  would have left the calibration unreadable to the operator who has to
+  commit it.  The temp file is now cleaned up on *any* failure, not only a
+  failed replace.
+- Smaller: the write capability and the profile's ARMED/SINGLESHOT writes
+  are checked **before** a measurement is spent rather than after; fewer
+  than three shots warns; `resolve_shot_offsets` joins the `ConfigResolver`
+  protocol.
+
+### Review rounds 2 and 3 (2026-09-13)
+
+Round 1's fixes were reviewer-confirmed in round 2, and round 2's in
+round 3.  Each round found a defect inside the previous round's own fix.
+
+- **`check_shot_sync` folds whole periods against the latest device, not
+  the median.**  Round 1 anchored on the set median, which is not an
+  instant any device reported: for an even-sized set it sits between the
+  groups, a device exactly one period out lands half a period from it,
+  `round(±0.5)` is `0`, nothing folds, and the plan **stopped the queue on
+  its own routine case** — while a two-period gap folded to a fabricated
+  "one ahead, one behind".  The latest corrected stamp is a real instant,
+  so every other device is a whole number of periods behind it or is
+  genuinely out.  Pinned for 1/2/3 periods, an even 2-2 split, and the
+  half-period case that must still fail.
+- **`measured_at_rate_hz` is declared by the caller, never derived** from
+  `trigger_period` — the plan fires single shots with a stamp wait between,
+  so its own spacing is not the machine's rate — and is checked positive
+  before any shot is fired.
+- **The plausibility cap is `max_offset` alone.**  Round 2 also bounded it
+  by half the trigger period; round 3 removed that: at 5 Hz a period is
+  0.2 s and the real ModeImager drain is 0.16 s, so a whole-period error
+  and a genuine slow drain are the same magnitude, and the bound refused
+  the real calibration with no escape (`max_offset` could not lift a
+  `min`).  The refusal's advice is branched — a scatter refusal is not
+  something `max_offset` can lift.
+- **Both plans preflight every trigger state they drive** — OFF and
+  STANDBY for the bracket, plus ARMED and SINGLESHOT for the measurement —
+  before any wait or shot.  A profile missing STANDBY would otherwise have
+  failed in the bracket's finalizer after the shots were spent, leaving the
+  box in the calibration state (Codex review of #861).
+- **The quiet backstop ignores never-acquired devices.**  A camera holding
+  a `0.0` stamp cannot advance, so counting it let the rest of the set
+  advance across the wait unrefused.
+- **A `chmod` the share refuses warns instead of aborting the write** and
+  throwing the shots away; `resolve_annotations` raises on an unmapped
+  parameter instead of silently dropping its annotation; one
+  `plan_report_sink` per plan, package-scoped, so the resolver's own
+  "written to <path>" reaches the worker log.
+
 ## [0.84.0] - 2026-09-12
 
 Phase 2c of the native-Bluesky rebuild (GEECS-Plugins#807,

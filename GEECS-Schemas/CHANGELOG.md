@@ -5,6 +5,41 @@ All notable changes to GEECS-Schemas are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+
+## [0.23.0] - 2026-09-13
+
+Phase 3 of the native-Bluesky rebuild (GEECS-Plugins#807,
+`Planning/native_bluesky/03_clean_room_rebuild.md` §4.F): the vocabulary for
+the measured shot offsets.
+
+### Added
+
+- **`geecs_schemas.shot_offsets`** — `ShotOffsets`, the per-experiment
+  document of each device's measured edge-to-stamp latency, and its
+  `DeviceOffset` entries (`offset_s`, the peak-to-peak `scatter_s`, the
+  `shots` that contributed, the GEECS device name).  Written by the
+  `measure_shot_offsets` calibration plan, read at worker startup into each
+  detector's `drain_offset` config signal, and ultimately what the s-file
+  join corrects stamps by (`geecs_data_utils.shot_join`).  Registered in
+  `SCHEMA_REGISTRY` under `shot_offsets`.
+
+  Two properties the model enforces, because a document violating either
+  would anchor readers differently from the measurement that wrote it: the
+  `reference` device must be among the measured devices, and its own
+  `offset_s` must be `0.0`.  Only *differences* between offsets matter to
+  the join, so the reference exists purely to anchor the set.
+
+  Also `trigger_rate_hz`: a pipelining camera's offset is rate-dependent
+  (an un-ROI'd camera shifted 11.3 ms between 1 Hz and 5 Hz on HTU while an
+  ROI'd one moved 0.2 ms), so a stored calibration is only good for the rate
+  it was taken at.  **Declared by the caller, not derived** — the calibration
+  plan fires single shots with a stamp wait between them, so its own shot
+  spacing is not the machine's rate.
+
+  No legacy dialect and no converter: the legacy scanner stored no
+  calibration at all — the sync ritual was run by hand and the numbers
+  lived in the operator's head.
+
 ## [0.22.1] - 2026-09-12
 
 ### Added
