@@ -84,8 +84,11 @@ class DeviceOffset(SchemaModel):
         1,
         ge=1,
         description=(
-            "How many shots contributed to the mean. Fewer than the "
-            "measurement requested means this device missed shots."
+            "How many complete shots were averaged into this offset. A shot "
+            "counts only when every device in the set delivered, so this is "
+            "the same for every device of one measurement; shots that some "
+            "device missed were discarded and retaken, and appear only in "
+            "the calibration plan's log."
         ),
     )
     geecs_device: str = Field(

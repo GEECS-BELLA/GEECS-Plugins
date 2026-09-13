@@ -548,7 +548,7 @@ One device's measured edge-to-stamp latency, relative to the reference.
 |---|---|---|---|---|
 | `offset_s` | `float` | yes | — | Seconds after the reference device that this device stamps the same shot — the mean over the shots that contributed. The reference device's own value is 0.0. Subtracted from this device's acq_timestamp before frames are matched to shot rows. |
 | `scatter_s` | `float` | no | 0.0 | Peak-to-peak spread of this device's per-shot offset across the measurement, seconds. Expect up to ~10 ms from ordinary host clock dither; markedly more than the other devices in the set means this machine's timekeeping is worth looking at. |
-| `shots` | `int` | no | 1 | How many shots contributed to the mean. Fewer than the measurement requested means this device missed shots. |
+| `shots` | `int` | no | 1 | How many complete shots were averaged into this offset. A shot counts only when every device in the set delivered, so this is the same for every device of one measurement; shots that some device missed were discarded and retaken, and appear only in the calibration plan's log. |
 | `geecs_device` | `str` | no | '' | GEECS device name this offset was measured for, e.g. 'UC_Amp3_IR_input'. Informational: the mapping key is the ophyd object name the runtime uses. |
 
 ## `analysis_diagnostic`

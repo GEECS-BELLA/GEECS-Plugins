@@ -129,7 +129,15 @@ def _shot_control(RE: RunEngine, box: LatencyBox) -> ShotControl:
 
 
 def _camera(RE: RunEngine, box: LatencyBox, name: str) -> GeecsDetector:
-    cam = GeecsDetector(name, ["MeanCounts"], experiment="TestExp", name=name.lower())
+    # The GEECS device name and the ophyd object name deliberately DIFFER, so
+    # a test asserting one cannot pass by accident when the code uses the
+    # other (review of #861, finding 13).
+    cam = GeecsDetector(
+        f"UC_{name.capitalize()}_camera",
+        ["MeanCounts"],
+        experiment="TestExp",
+        name=name.lower(),
+    )
     connect_mock(RE, cam)
     # The stalled stamp of the "last real shot" before this plan runs.
     set_mock_value(cam.acq_timestamp, box.shot_instant + box.latencies[cam.name])
@@ -256,12 +264,18 @@ def test_document_round_trips_and_pins_its_own_reference() -> None:
 
 
 def test_sync_passes_when_the_stored_offsets_describe_the_hardware() -> None:
-    """Stalled stamps 36 ms apart, corrected by a 36 ms offset, collapse."""
+    """Correcting is what makes it pass — the raw stamps would not.
+
+    The raw spread here is 120 ms, well past the 50 ms default: a check that
+    compared stamps without subtracting the stored offsets would fail this
+    perfectly calibrated set. Only after correction do they collapse.
+    """
     verdict = sync_verdict_from_stamps(
-        {"amp3": 5000.0, "amp4": 5000.036}, {"amp3": 0.0, "amp4": 0.036}
+        {"amp3": 5000.0, "amp4": 5000.120}, {"amp3": 0.0, "amp4": 0.120}
     )
     assert verdict.synced
     assert verdict.spread_s == pytest.approx(0.0, abs=1e-9)
+    assert verdict.corrected["amp3"] == pytest.approx(verdict.corrected["amp4"])
 
 
 def test_sync_fails_when_the_stored_offsets_are_stale() -> None:
@@ -282,15 +296,42 @@ def test_sync_fails_when_the_stored_offsets_are_stale() -> None:
     assert "re-run measure_shot_offsets" in verdict.detail
 
 
-def test_sync_flags_a_device_a_whole_shot_out_of_step() -> None:
-    """A device that stopped receiving the trigger holds an older stamp."""
+def test_a_device_a_whole_shot_behind_is_reported_not_failed() -> None:
+    """Holding the previous shot is routine and must not stop the queue.
+
+    STANDBY passes edges right up to the moment the caller drives OFF, so a
+    slow camera whose exposure was cut by the amplitude drop legitimately
+    holds shot k-1 while the fast ones hold k. The stamps alone cannot tell
+    that from a device that stopped being triggered, so the verdict says
+    what it saw — the whole periods are folded out, the device is named, and
+    the set still reads synced.
+    """
     verdict = sync_verdict_from_stamps(
-        {"amp3": 5000.0, "amp4": 5000.036, "dead": 4998.0},
-        {"amp3": 0.0, "amp4": 0.036, "dead": 0.01},
+        {"amp3": 5000.0, "amp4": 5000.036, "slow": 4998.010},
+        {"amp3": 0.0, "amp4": 0.036, "slow": 0.010},
+        trigger_period_s=1.0,
+    )
+    assert verdict.synced
+    assert verdict.shots_out == {"slow": -2}
+    assert "slow 2 shot(s) behind" in verdict.detail
+    assert "still being triggered" in verdict.detail
+
+
+def test_a_device_out_by_a_fraction_of_a_period_still_fails() -> None:
+    """Folding whole periods must not swallow a real mis-calibration.
+
+    420 ms is not a multiple of the 1 s period, so nothing is folded and the
+    device is out on the millisecond tolerance — the case the folding above
+    must never be allowed to hide.
+    """
+    verdict = sync_verdict_from_stamps(
+        {"amp3": 5000.0, "amp4": 5000.036, "wrong": 5000.430},
+        {"amp3": 0.0, "amp4": 0.036, "wrong": 0.010},
+        trigger_period_s=1.0,
     )
     assert not verdict.synced
-    assert verdict.spread_s > 1.0
-    assert "dead" in verdict.detail
+    assert verdict.shots_out == {}
+    assert "wrong" in verdict.detail
 
 
 def test_sync_reports_devices_that_have_never_acquired() -> None:
@@ -305,9 +346,11 @@ def test_sync_reports_devices_that_have_never_acquired() -> None:
 
 
 def test_sync_cannot_judge_fewer_than_two_measurable_devices() -> None:
+    """ "Could not check" is a distinct outcome from "failed"."""
     verdict = sync_verdict_from_stamps({"amp3": 5000.0, "fresh": 0.0}, {})
+    assert not verdict.comparable
     assert not verdict.synced
-    assert "cannot be compared" in verdict.detail
+    assert "could not be compared" in verdict.detail
 
 
 def test_sync_refuses_a_non_positive_tolerance() -> None:
@@ -350,26 +393,36 @@ def test_measure_leaves_the_box_in_standby(RE: RunEngine) -> None:
     assert box.state_puts[-1] == "edges"  # STANDBY
 
 
-def test_measure_refuses_a_set_that_never_goes_quiet(RE: RunEngine) -> None:
+@pytest.mark.parametrize("phase", [0.0, 0.25, 0.5, 0.75])
+def test_measure_refuses_a_set_that_never_goes_quiet(
+    RE: RunEngine, phase: float
+) -> None:
     """A box still passing edges makes every number meaningless.
 
-    The plan proves quiet by re-reading the stamps over a confirmation
-    window after the wait; a pacer advancing them throughout stands in for
-    an OFF state that does not actually stop the trigger.
+    The pacer runs at the machine's real 1 Hz, not a token fast rate, and
+    the phase is swept: the confirmation window has to span more than one
+    trigger period or it catches a running box only when an edge happens to
+    fall inside it. Sized at 0.5 s against 1 Hz this failed half the phases
+    (review of #861, finding 2).
     """
     box = _box({"amp3": 0.0, "amp4": 0.036})
     sc = _shot_control(RE, box)
     cams = [_camera(RE, box, n) for n in ("amp3", "amp4")]
     pacer = start_pacer(
-        RE, [(c, 2000.0) for c in cams], initial_delay=0.0, interval=0.05
+        RE,
+        [(c, 2000.0) for c in cams],
+        initial_delay=phase,
+        interval=1.0,
+        period=1.0,
     )
     try:
         plan = measure_shot_offsets_plan(_profiles(sc), resolver=None)
-        with pytest.raises(GeecsConfigurationError, match="still acquiring"):
-            RE(plan(cams, shots=2, quiet_time=0.01))
+        with pytest.raises(GeecsConfigurationError, match="not actually\\s+off"):
+            RE(plan(cams, shots=2, quiet_time=0.01, trigger_period=1.0))
     finally:
         pacer.cancel()
     assert box.fires == 0  # refused before firing anything
+    assert sc.standing_state == "STANDBY"  # and handed the box back safely
 
 
 def test_measure_retakes_an_incomplete_shot(RE: RunEngine) -> None:
@@ -432,7 +485,7 @@ def test_measure_writes_nothing_without_write_true(RE: RunEngine) -> None:
     document = recorder.written[0]
     assert document.reference == "amp3"
     assert document.offset_for("amp4") == pytest.approx(0.036, abs=1e-6)
-    assert document.devices["amp4"].geecs_device == "amp4"
+    assert document.devices["amp4"].geecs_device == "UC_Amp4_camera"
 
 
 def test_measure_refuses_write_without_a_resolver(RE: RunEngine) -> None:
@@ -440,7 +493,7 @@ def test_measure_refuses_write_without_a_resolver(RE: RunEngine) -> None:
     sc = _shot_control(RE, box)
     cams = [_camera(RE, box, n) for n in ("amp3", "amp4")]
     plan = measure_shot_offsets_plan(_profiles(sc), resolver=None)
-    with pytest.raises(GeecsConfigurationError, match="cannot be written"):
+    with pytest.raises(GeecsConfigurationError, match="cannot write the measurement"):
         RE(plan(cams, quiet_time=0.01, write=True))
 
 
@@ -515,3 +568,147 @@ def test_drain_offset_reaches_the_descriptor(RE: RunEngine) -> None:
     value = config["uc_amp4_ir_input-drain_offset"]["value"]
     assert value == pytest.approx(0.036)
     assert math.isfinite(value)
+
+
+# ------------------------------------------ the guards the review asked for
+
+
+def test_a_camera_left_in_fly_mode_still_waits_for_its_stamp(
+    RE: RunEngine,
+) -> None:
+    """A gated run leaves `fly` set, and only `trigger` ever clears it.
+
+    `wait_for_idle` returns immediately in fly mode, so a view that did not
+    clear the flag would report every shot complete without waiting — a
+    device that never delivered would be recorded with its stale stamp, no
+    retake, no warning, and the "offset" would be whole trigger periods
+    (review of #861, finding 1, reproduced at +1.964 s).
+    """
+    box = _box({"amp3": 0.0, "amp4": 0.036}, drop={("amp4", 1)})
+    sc = _shot_control(RE, box)
+    cams = [_camera(RE, box, n) for n in ("amp3", "amp4")]
+    for cam in cams:  # what a preceding gated run leaves behind
+        cam._acquire.fly = True
+    plan = measure_shot_offsets_plan(_profiles(sc), resolver=None)
+    captured: dict[str, Any] = {}
+
+    def runner():
+        captured["result"] = yield from plan(cams, shots=2, quiet_time=0.01)
+
+    RE(runner())
+    # The dropped first shot was noticed and retaken, which can only happen
+    # if the stamp wait actually waited.
+    assert box.fires == 3
+    assert captured["result"].offsets["amp4"] == pytest.approx(0.036, abs=1e-6)
+    assert all(not cam._acquire.fly for cam in cams)
+
+
+def test_measure_refuses_to_store_a_physically_impossible_offset(
+    RE: RunEngine,
+) -> None:
+    """A bad measurement must not reach the share.
+
+    The physical drain spread is 36-100 ms. Half a second is a device that
+    latched a different edge, and storing it would seed every future join
+    with it. The numbers are still reported; only the write is refused.
+    """
+
+    class Recorder:
+        def __init__(self) -> None:
+            self.written: list[Any] = []
+
+        def write_shot_offsets(self, document: Any):
+            self.written.append(document)
+            return "/tmp/shot_offsets.yaml"
+
+    box = _box({"amp3": 0.0, "amp4": 0.5})
+    sc = _shot_control(RE, box)
+    cams = [_camera(RE, box, n) for n in ("amp3", "amp4")]
+    recorder = Recorder()
+    plan = measure_shot_offsets_plan(_profiles(sc), resolver=recorder)
+    with pytest.raises(GeecsConfigurationError, match="refusing to store"):
+        RE(plan(cams, shots=3, quiet_time=0.01, write=True))
+    assert recorder.written == []
+    # Raising max_offset is the documented escape hatch.
+    RE(plan(cams, shots=3, quiet_time=0.01, write=True, max_offset=1.0))
+    assert len(recorder.written) == 1
+
+
+def test_the_whole_set_advancing_across_the_quiet_wait_is_refused(
+    RE: RunEngine,
+) -> None:
+    """The second, free signal that the box never went OFF.
+
+    One device draining an in-flight frame across the long wait is expected.
+    Every device advancing across a wait that already exceeds the device
+    timeout is a box still passing edges — caught even if the confirmation
+    window happens to fall between two edges.
+    """
+    box = _box({"amp3": 0.0, "amp4": 0.036})
+    sc = _shot_control(RE, box)
+    cams = [_camera(RE, box, n) for n in ("amp3", "amp4")]
+    plan = measure_shot_offsets_plan(_profiles(sc), resolver=None)
+
+    # Advance every stamp once, during the long quiet wait only — so the
+    # confirmation window itself sees nothing move.
+    async def bump():
+        await asyncio.sleep(0.05)
+        for cam in cams:
+            set_mock_value(cam.acq_timestamp, 9999.0 + box.latencies[cam.name])
+
+    import asyncio as _asyncio
+
+    fut = _asyncio.run_coroutine_threadsafe(bump(), RE._loop)
+    try:
+        with pytest.raises(GeecsConfigurationError, match="every device advanced"):
+            RE(plan(cams, shots=2, quiet_time=0.3, trigger_period=0.05))
+    finally:
+        fut.cancel()
+    assert box.fires == 0
+
+
+def test_measure_refuses_a_profile_that_cannot_fire(RE: RunEngine) -> None:
+    """Learned up front, not after several seconds of quiet wait."""
+    from geecs_bluesky.models.shot_control import ShotControlWrites
+
+    box = _box({"amp3": 0.0, "amp4": 0.036})
+    partial_writes = ShotControlWrites(
+        name="no-singleshot",
+        states={
+            "OFF": [("DG", "Trigger.Amplitude", "0")],
+            "STANDBY": [("DG", "Trigger.Source", "edges")],
+        },
+    )
+    sc = ShotControl(
+        partial_writes, experiment="TestExp", name="shot_control", setter_factory=box
+    )
+    connect_mock(RE, sc)
+    cams = [_camera(RE, box, n) for n in ("amp3", "amp4")]
+    plan = measure_shot_offsets_plan(_profiles(sc), resolver=None)
+    with pytest.raises(GeecsConfigurationError, match="defines no writes for ARMED"):
+        RE(plan(cams, shots=2, quiet_time=0.01))
+    assert box.puts == []  # refused before the box was touched at all
+
+
+def test_measure_refuses_a_resolver_that_cannot_write_before_firing(
+    RE: RunEngine,
+) -> None:
+    """The write capability is checked BEFORE the measurement is spent.
+
+    The ConfigResolver protocol does not require `write_shot_offsets`, so a
+    resolver satisfying the protocol without it would otherwise fail with
+    AttributeError only after ten shots had been fired and averaged (review
+    of #861, finding 14).
+    """
+
+    class ReadOnlyResolver:
+        def resolve_shot_offsets(self):
+            return None
+
+    box = _box({"amp3": 0.0, "amp4": 0.036})
+    sc = _shot_control(RE, box)
+    cams = [_camera(RE, box, n) for n in ("amp3", "amp4")]
+    plan = measure_shot_offsets_plan(_profiles(sc), resolver=ReadOnlyResolver())
+    with pytest.raises(GeecsConfigurationError, match="cannot write the measurement"):
+        RE(plan(cams, shots=2, quiet_time=0.01, write=True))
+    assert box.fires == 0  # nothing was spent finding out

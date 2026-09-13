@@ -414,6 +414,31 @@ drive the trigger box while a scan is using it. The DB carries no timeout
 column, so the wait is the documented 1.5 s constant plus a drain margin,
 overridable per call.
 
+Three things the review of #861 added that are worth not re-deriving:
+
+- **Proving quiet needs a window longer than one trigger period.** There
+  is no event to wait for, so the only proof is "the stamps did not move",
+  and a window shorter than a period misses a running box whenever no edge
+  falls inside it — at 1 Hz, half the time. A second signal costs nothing
+  and covers the same gap from another side: *every* device advancing
+  across a wait that already exceeds the device timeout is a running box,
+  whatever the confirmation window saw.
+- **The measurement needs a plausibility bound before it is stored.** §11.4
+  fixes the physical range at 36–100 ms, so a number an order of magnitude
+  outside it is a bad measurement — a device latching a different edge, a
+  stamp wait that did not wait — not unusual hardware. Nothing downstream
+  would question it: the schema validates any finite float, and the join
+  would then use it forever.
+- **A device holding the previous shot is routine, not a fault.** STANDBY
+  passes edges up to the instant the plan drives OFF, so a slow camera's
+  exposure can be cut by the amplitude drop. Whole trigger periods are
+  therefore folded out of the sync verdict and reported, and the stamps
+  alone cannot distinguish that from a device that stopped being
+  triggered — so the check says what it saw rather than guessing. The
+  verdict itself stays on the *pairwise* spread, because that is what the
+  join consumes; the per-device deviation from the set median only names
+  the culprit.
+
 ---
 
 ## 5. The mapping

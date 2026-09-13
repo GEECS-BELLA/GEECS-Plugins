@@ -247,3 +247,82 @@ def test_write_shot_offsets_refuses_a_missing_experiment_folder(tmp_path):
     with pytest.raises(GeecsConfigurationError, match="no configs folder"):
         resolver.write_shot_offsets(document)
     assert not (tmp_path / "NoSuchExp").exists()
+
+
+def test_write_shot_offsets_keeps_the_file_readable(repo):
+    """A shared git checkout: 0600 would lock out the reviewer and git.
+
+    NamedTemporaryFile creates 0600 and os.replace keeps the temp inode's
+    mode, so without an explicit chmod one write makes the calibration
+    unreadable to the operator who has to commit it, to another host's
+    resolver, and to git run as anyone else (review of #861, finding 6).
+    """
+    import os
+    import stat
+
+    from geecs_schemas import DeviceOffset, ShotOffsets
+
+    resolver = ConfigsRepoResolver("TestExp", repo)
+    document = ShotOffsets(reference="a", devices={"a": DeviceOffset(offset_s=0.0)})
+    # A new file gets a sane default.
+    path = resolver.write_shot_offsets(document)
+    assert stat.S_IMODE(path.stat().st_mode) == 0o644
+    # An existing file keeps whatever the repo gave it.
+    os.chmod(path, 0o664)
+    resolver.write_shot_offsets(document)
+    assert stat.S_IMODE(path.stat().st_mode) == 0o664
+
+
+def test_a_failed_write_leaves_no_temp_file_and_keeps_the_calibration(
+    repo, monkeypatch
+):
+    """The realistic failure is a full or disconnected share, mid-write.
+
+    Only the replace was guarded before, so a write that raised left a
+    dot-prefixed temp file in the configs git working tree (review of #861,
+    finding 7). The previous calibration must also survive intact.
+    """
+    import io
+    import tempfile
+
+    from geecs_schemas import DeviceOffset, ShotOffsets
+
+    resolver = ConfigsRepoResolver("TestExp", repo)
+    resolver.shot_offsets_path.write_text(yaml.safe_dump(OFFSETS))
+    before = resolver.shot_offsets_path.read_text()
+
+    real_named_temporary = tempfile.NamedTemporaryFile
+
+    class FullDisk(io.StringIO):
+        """A real temp file on disk whose `write` fails, as a full share does."""
+
+        def __init__(self, handle):
+            super().__init__()
+            self._handle = handle
+            self.name = handle.name
+
+        def write(self, _data):
+            raise OSError(28, "No space left on device")
+
+        def flush(self):
+            pass
+
+        def fileno(self):
+            return self._handle.fileno()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            self._handle.close()
+            return False
+
+    monkeypatch.setattr(
+        "geecs_bluesky.config_resolver.tempfile.NamedTemporaryFile",
+        lambda *a, **k: FullDisk(real_named_temporary(*a, **k)),
+    )
+    document = ShotOffsets(reference="a", devices={"a": DeviceOffset(offset_s=0.0)})
+    with pytest.raises(OSError):
+        resolver.write_shot_offsets(document)
+    assert resolver.shot_offsets_path.read_text() == before
+    assert list(resolver.shot_offsets_path.parent.glob(".*tmp")) == []

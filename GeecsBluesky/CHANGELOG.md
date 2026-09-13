@@ -78,11 +78,61 @@ rows.  This is what makes faster running safe.
   in the namespace is warned about loudly as a stale calibration — the
   device it meant to correct would otherwise be left at `0.0` silently.
 
+### Fixed
+
+- **`GeecsDetectorScalars.trigger` now leaves fly mode**, as the parent's
+  `trigger` already did.  `fly` is one flag shared by a detector and its
+  scalars view, set by `kickoff` and cleared only by `trigger`, and
+  `wait_for_idle` returns immediately while it is set.  So a view triggered
+  after *any* gated run — the calibration's own path — reported every shot
+  complete without waiting for a stamp at all: a device that never
+  delivered was recorded with its stale stamp, with no retake and no
+  warning.  Found by the review of #861.
+
 ### Changed
 
 - `GEECS_PLAN_NAMES` grows to **22** plans; the operator permissions regex
   and `NON_SCAN_PLAN_NAMES` gain both calibration plans.  The readiness
   check (`geecs-qserver-ensure-ready`) asserts all 22.
+
+### Review of #861 — the guards it added
+
+- **The quiet confirmation window is sized from the trigger period**
+  (`QUIET_CONFIRM_PERIODS = 1.5`), not a flat 0.5 s.  A window shorter than
+  one period catches a box that never went OFF only when an edge happens to
+  fall inside it: at 1 Hz a phase sweep caught it in 6 runs of 12.  A second,
+  free signal was added beside it — the *whole set* advancing across a wait
+  that already exceeds the device timeout is a running box, whatever the
+  confirmation window saw.
+- **A physically impossible measurement is refused for writing.**  The
+  drain spread is 36-100 ms; `MAX_PLAUSIBLE_OFFSET_S` (0.3 s) and
+  `MAX_PLAUSIBLE_SCATTER_S` (0.1 s) stop a measurement an order of
+  magnitude outside it from reaching the share, where it would be seeded
+  into every future join.  The table is still reported; only the write is
+  refused, and `max_offset` raises the bound deliberately.
+- **`check_shot_sync` folds whole trigger periods out** before judging.
+  STANDBY passes edges up to the moment the plan drives OFF, so a slow
+  camera can legitimately hold the previous shot; that is now named and
+  warned about rather than failing a queue.  A set too sparse to judge is
+  reported as **could not check** — `SyncVerdict.comparable` — and no
+  longer raises, because that is not a failure.  The verdict stays on the
+  pairwise spread (what the join actually consumes) while the per-device
+  deviation from the set median names the culprit.
+- **The stamp read is a genuine uncached get.**  `bps.rd` goes through
+  ophyd-async's monitor cache, whose `get_reading` *awaits its first
+  update* — so under OFF, where the stamp PV publishes nothing by design,
+  a device whose monitor never delivered would block for the signal
+  timeout instead of returning the value the PV plainly holds.
+- **`write_shot_offsets` preserves the destination's permissions** (0644
+  for a new file) and fsyncs before the rename.  `NamedTemporaryFile`
+  creates 0600 and `os.replace` keeps the temp inode's mode, so one write
+  would have left the calibration unreadable to the operator who has to
+  commit it.  The temp file is now cleaned up on *any* failure, not only a
+  failed replace.
+- Smaller: the write capability and the profile's ARMED/SINGLESHOT writes
+  are checked **before** a measurement is spent rather than after; fewer
+  than three shots warns; `resolve_shot_offsets` joins the `ConfigResolver`
+  protocol.
 
 ## [0.84.0] - 2026-09-12
 

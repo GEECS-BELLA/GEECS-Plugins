@@ -68,6 +68,16 @@ class ConfigResolver(Protocol):
         """Return the action plan called *name*."""
         ...
 
+    def resolve_shot_offsets(self) -> ShotOffsets | None:
+        """Return the measured drain offsets, or ``None`` if never measured.
+
+        Resolvers without this method are tolerated (no calibration), so
+        callers check for it rather than assuming it — see
+        ``geecs_bluesky.plans.calibration._can_write`` for the write side,
+        which must be checked *before* a measurement is spent.
+        """
+        ...
+
     def resolve_experiment_defaults(self) -> ExperimentDefaults | None:
         """Return the experiment's defaults, or ``None`` if none are declared.
 
@@ -403,10 +413,14 @@ class ConfigsRepoResolver:
     def write_shot_offsets(self, offsets: ShotOffsets) -> Path:
         """Write the measured drain offsets, replacing any previous measurement.
 
-        Written atomically (a temporary file in the same directory, then
-        ``os.replace``) so a reader — the worker reopening its environment,
-        another host's resolver — never sees a half-written document, and a
-        failure part-way leaves the previous calibration intact.
+        Written atomically (a temporary file in the same directory, fsynced,
+        then ``os.replace``) so a reader — the worker reopening its
+        environment, another host's resolver — never sees a half-written
+        document, and a failure part-way leaves the previous calibration
+        intact and no temporary behind.  The destination's permissions are
+        preserved (0644 for a new file): the configs repo is a shared
+        checkout, and a file only the service account could read would
+        block the very review this write exists to invite.
 
         The configs repo is a **git checkout**, usually on the data share.
         This writes the working tree only: committing and pushing is a
@@ -433,19 +447,38 @@ class ConfigsRepoResolver:
                 "and that the share is mounted)"
             )
         payload = yaml.safe_dump(offsets.model_dump(), sort_keys=False)
-        with tempfile.NamedTemporaryFile(
-            "w",
-            dir=path.parent,
-            prefix=f".{path.stem}-",
-            suffix=".tmp",
-            delete=False,
-        ) as handle:
-            handle.write(payload)
-            temporary = Path(handle.name)
+        # The destination's mode, or the default a normal umask would give:
+        # NamedTemporaryFile creates 0600 and os.replace keeps the temp
+        # inode's mode, so without this one write makes the file unreadable
+        # to the operator who has to review and commit it, to git run as
+        # anyone else, and to another host's resolver.
         try:
-            os.replace(temporary, path)
+            mode = path.stat().st_mode & 0o777
         except OSError:
-            temporary.unlink(missing_ok=True)
-            raise
+            mode = 0o644
+        temporary: Path | None = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                "w",
+                dir=path.parent,
+                prefix=f".{path.stem}-",
+                suffix=".tmp",
+                delete=False,
+            ) as handle:
+                temporary = Path(handle.name)
+                handle.write(payload)
+                handle.flush()
+                # Durability before the rename: without it a crash can leave
+                # a zero-length file where a calibration used to be.
+                os.fsync(handle.fileno())
+            os.chmod(temporary, mode)
+            os.replace(temporary, path)
+            temporary = None
+        finally:
+            # Covers the write and the chmod as well as the replace: a full
+            # or disconnected share fails in `handle.write`, and a leftover
+            # dot-file in a git working tree is somebody's next puzzle.
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
         logger.info("shot offsets written to %s", path)
         return path

@@ -539,8 +539,19 @@ class GeecsDetectorScalars(ScalarsView):
         return self._owner._acquire.missed
 
     def trigger(self) -> AsyncStatus:
-        """Baseline the parent's stamp now, then wait for it to advance."""
+        """Baseline the parent's stamp now, then wait for it to advance.
+
+        Leaves fly mode first, exactly as the parent's ``trigger`` does: a
+        trigger is strict by definition, and ``fly`` is ONE flag shared by
+        the detector and this view.  Without this a view triggered after a
+        gated run — the run set it, and only ``trigger`` ever clears it —
+        would find ``wait_for_idle`` returning at once, so every shot would
+        report complete without waiting for a stamp at all (review of #861,
+        finding 1: a calibration measuring whole trigger periods and
+        recording them as drain latencies).
+        """
         acquire = self._owner._acquire
+        acquire.fly = False
         acquire.baseline()
         return AsyncStatus(acquire.wait_for_idle())
 
