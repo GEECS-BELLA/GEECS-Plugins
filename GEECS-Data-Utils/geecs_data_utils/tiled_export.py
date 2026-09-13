@@ -358,6 +358,15 @@ def read_frame_columns(run: Any, row_stream: str) -> list[FrameColumns]:
     with no warning at all.  Joining a stream that does have rows would be
     harmless anyway — the row is the authority for a column it carries.
 
+    Each device's columns are **truncated to the frame count Tiled reports
+    for that device's stack** (its shape, read from the node's structure
+    metadata — no download).  That count comes from the run's stream
+    datums, which is exactly what the worker's live path truncates to, so
+    the two paths agree whether or not the server happens to clip a 1-D
+    attribute dataset to the datum range: a non-essential camera's frames
+    written between its ``collect`` and its ``unstage`` reach neither
+    s-file.
+
     Parameters
     ----------
     run :
@@ -381,8 +390,9 @@ def read_frame_columns(run: Any, row_stream: str) -> list[FrameColumns]:
         if stream == row_stream:
             continue
         node = run[stream]
+        contents = node.get_contents()
         per_device: dict[str, dict[str, Any]] = {}
-        for part in node.get_contents():
+        for part in contents:
             parsed = parse_attribute_name(str(part))
             if parsed is None:
                 continue  # the frame stack (or a part of another shape)
@@ -393,9 +403,39 @@ def read_frame_columns(run: Any, row_stream: str) -> list[FrameColumns]:
                 attributes,
                 labview_epoch_offset=LABVIEW_EPOCH_OFFSET,
             )
-            if columns is not None:
-                out.append(columns)
+            if columns is None:
+                continue
+            referenced = _referenced_frames(contents, device)
+            if 0 <= referenced < len(columns):
+                logger.info(
+                    "%s/%s: %d frame(s) in the attribute arrays, %d referenced by "
+                    "the stream's datums; the join uses the referenced ones",
+                    stream,
+                    device,
+                    len(columns),
+                    referenced,
+                )
+                columns = columns.truncated(referenced)
+            out.append(columns)
     return out
+
+
+def _referenced_frames(contents: Mapping[str, Any], device: str) -> int:
+    """Frames the run's datums gave *device*, from its stack part's shape, or ``-1``.
+
+    Tiled builds an external array's shape from the ``StreamDatum``
+    ``indices``, not from the file, so the part named after the device
+    reports the referenced count without any data being read.
+    """
+    item = contents.get(device)
+    if item is None:
+        return -1
+    structure = ((item.get("attributes") or {}).get("structure")) or {}
+    shape = structure.get("shape") or ()
+    try:
+        return int(shape[0])
+    except (IndexError, TypeError, ValueError):
+        return -1
 
 
 def read_drain_offsets(run: Any) -> dict[str, float]:

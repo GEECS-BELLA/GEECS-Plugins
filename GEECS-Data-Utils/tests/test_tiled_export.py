@@ -239,11 +239,17 @@ def test_an_empty_run_with_frames_writes_nothing(tmp_path) -> None:
 
 # ------------------------------------------- the offline re-export from Tiled
 class _FakePart:
-    """One part of a composite stream node."""
+    """One part of a composite stream node.
 
-    def __init__(self, value, family: str) -> None:
+    *shape* stands in for the structure Tiled reports.  For an external
+    array it comes from the stream datums, not from the file, so it can be
+    shorter than what ``read()`` would hand back.
+    """
+
+    def __init__(self, value, family: str, shape: tuple | None = None) -> None:
         self.value = value
         self.family = family
+        self.shape = shape if shape is not None else getattr(value, "shape", ())
 
     def read(self):
         """The part's data."""
@@ -270,9 +276,14 @@ class _FakeStream:
             self.metadata = {"configuration": configuration or {}}
 
     def get_contents(self) -> dict:
-        """Part name → its structure family."""
+        """Part name → its structure family and shape, as Tiled reports them."""
         return {
-            name: {"attributes": {"structure_family": part.family}}
+            name: {
+                "attributes": {
+                    "structure_family": part.family,
+                    "structure": {"shape": list(part.shape or ())},
+                }
+            }
             for name, part in self._parts.items()
         }
 
@@ -463,3 +474,77 @@ def test_a_column_no_header_names_is_reported_not_silently_dropped(caplog) -> No
     assert "uc_a-max_counts (GEECS 'Max Counts')" in caplog.text
     # the plugin's own receive stamp is not a drift signal
     assert "frame_recv_timestamp" not in caplog.text
+
+
+def test_only_the_frames_the_datums_referenced_reach_the_offline_s_file() -> None:
+    """Codex's open question on #858, made moot rather than answered.
+
+    A non-essential camera keeps writing between its ``collect`` and its
+    ``unstage``, so its stack can hold frames no stream datum covers.  Tiled
+    builds the stack part's **shape** from the datums, so that shape is the
+    referenced count whether or not the server clips a 1-D attribute dataset
+    to it — and the offline path truncates to it, exactly as the worker
+    truncates to the datums' width.  Here Tiled reports 3 frames while the
+    attribute arrays hand back 5.
+    """
+    import numpy as np
+
+    from geecs_data_utils.tiled_export import read_frame_columns
+
+    stream = _FakeStream(
+        {
+            # the datums referenced three frames; the file holds five
+            "uc_b": _FakePart(np.zeros((5, 2, 2)), "array", shape=(3, 2, 2)),
+            "uc_b-hdf-image-frame_acq_timestamp": _FakePart(
+                np.array([1.0, 2.0, 3.0, 4.0, 5.0]), "array"
+            ),
+            "uc_b-hdf-image-meancounts": _FakePart(
+                np.array([11.0, 12.0, 13.0, 99.0, 99.0]), "array"
+            ),
+        },
+        configuration={},
+    )
+
+    class _Run:
+        metadata: dict = {}
+
+        def __iter__(self):
+            return iter(["uc_b_stream"])
+
+        def __getitem__(self, key):
+            assert key == "uc_b_stream"
+            return stream
+
+    (columns,) = read_frame_columns(_Run(), "shots")
+    assert len(columns) == 3
+    assert list(columns.columns["uc_b-meancounts"]) == [11.0, 12.0, 13.0]
+    assert 99.0 not in set(columns.columns["uc_b-meancounts"])
+
+
+def test_a_stack_part_without_a_reported_shape_is_not_truncated() -> None:
+    """No shape to trust, no truncation — better a full join than a silent cut."""
+    import numpy as np
+
+    from geecs_data_utils.tiled_export import read_frame_columns
+
+    stream = _FakeStream(
+        {
+            "uc_b": _FakePart(np.zeros((5, 2, 2)), "array", shape=()),
+            "uc_b-hdf-image-frame_acq_timestamp": _FakePart(
+                np.array([1.0, 2.0, 3.0]), "array"
+            ),
+        },
+        configuration={},
+    )
+
+    class _Run:
+        metadata: dict = {}
+
+        def __iter__(self):
+            return iter(["uc_b_stream"])
+
+        def __getitem__(self, key):
+            return stream
+
+    (columns,) = read_frame_columns(_Run(), "shots")
+    assert len(columns) == 3

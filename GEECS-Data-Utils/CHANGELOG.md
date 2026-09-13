@@ -50,7 +50,12 @@ per-shot values live outside its event rows.
   arrays by name (the test is "not the row stream", which is exactly what
   `read_run_rows` decided, so the two cannot disagree about a stream whose
   table part happens to be empty).  A frame stack, the only
-  multi-dimensional part, is never downloaded (the #836 lesson).  Drain
+  multi-dimensional part, is never downloaded (the #836 lesson) — but its
+  *shape* is read from the node's structure metadata and the device's
+  columns are truncated to it, because Tiled builds that shape from the
+  stream datums.  So the offline path uses the same frames the worker's
+  live path does, whether or not the server clips a 1-D attribute dataset
+  to the datum range.  Drain
   offsets are read once for the whole run from each stream node's
   descriptor configuration — Tiled keeps it at the top of the node's
   metadata, and a writer that nests it under `descriptors` is read too.

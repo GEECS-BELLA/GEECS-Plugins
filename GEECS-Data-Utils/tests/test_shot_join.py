@@ -121,20 +121,47 @@ def test_two_frames_for_one_shot_keep_the_nearer_one() -> None:
     assert join.contested == (1,)
 
 
-def test_a_frame_on_the_boundary_two_rows_share_goes_to_one_of_them() -> None:
-    """The windows are half-open, so no frame can ever be given to two rows.
+def test_one_frame_is_never_given_to_two_rows() -> None:
+    """Ownership is global, so no window arithmetic carries this on its own.
 
-    A frame exactly midway between two rows is inside both rows' closed
-    windows; ``[stamp - w, stamp + w)`` gives it to the later row alone.
+    Two cases that both used to break it. A frame exactly midway between two
+    rows is inside both windows: it goes to one row (ties by row order) and
+    the other reads `NaN`.  And two rows published a fraction of a
+    millisecond apart — which ``row_windows`` deliberately does not let
+    narrow each other, since they are one shot's publish race — both reach
+    the single frame between them; only one gets it.  The second case is
+    Codex's P2 on #858, which the half-open window did **not** cover.
     """
     rows = np.array([1001.0, 1002.0])
     join = _join(rows, np.array([1001.5]))
-    assert join.frame_for_shot == (None, 0)
+    assert join.frame_for_shot == (0, None)
     assert join.orphans == () and join.contested == ()
+
+    twins = np.array([1001.0, 1001.0002])
+    join = _join(twins, np.array([1001.0001]))
+    assert join.frame_for_shot == (0, None)
+    assert sorted(i for i in join.frame_for_shot if i is not None) == [0]
+    assert join.orphans == () and join.contested == ()
+
     # and with a frame of its own, each row keeps the nearer one
     join = _join(rows, np.array([1001.0, 1001.5, 1002.0]))
     assert join.frame_for_shot == (0, 2)
     assert join.contested == (1,)
+
+
+def test_no_frame_is_ever_owned_twice_over_random_inputs() -> None:
+    """The invariant, fuzzed: one frame per row and one row per frame."""
+    rng = np.random.default_rng(20260912)
+    for _ in range(400):
+        rows = np.sort(1000.0 + rng.random(rng.integers(1, 8)) * 4.0)
+        frames = 1000.0 + rng.random(rng.integers(0, 10)) * 4.0
+        join = _join(rows, frames)
+        owned = [i for i in join.frame_for_shot if i is not None]
+        assert len(owned) == len(set(owned)), (rows, frames, join)
+        # every frame is accounted for exactly once
+        buckets = set(owned) | set(join.orphans) | set(join.contested)
+        assert buckets == set(range(len(frames)))
+        assert len(owned) + len(join.orphans) + len(join.contested) == len(frames)
 
 
 def test_non_finite_stamps_match_nothing() -> None:

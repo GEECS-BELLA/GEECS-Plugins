@@ -20,10 +20,11 @@ inside that row's own window.
 
 The window is **per row**, not per run (:func:`row_windows`): half the
 shot period, narrowed to half the distance to that row's closest
-neighbour, and half-open so a frame exactly on the boundary two rows share
-belongs to one of them.  So no frame can ever be claimed by two rows, a
-faster rep rate tightens the window by itself, and one anomalous pair of
-row stamps tightens only those two rows instead of the whole run.
+neighbour.  A faster rep rate tightens the windows by itself, and one
+anomalous pair of row stamps tightens only those two rows instead of the
+whole run.  Ownership is then resolved **globally** — nearest pair first,
+one frame per row and one row per frame — so no window arithmetic has to
+carry the "a frame belongs to one row" invariant on its own.
 
 A frame no row claims is an **orphan**: the extra edge at a step's end, a
 frame taken during an interrupted step, a non-essential camera's frame for
@@ -286,15 +287,24 @@ def join_frames_to_shots(
     shot_offset: float = 0.0,
     frame_offset: float = 0.0,
 ) -> ShotJoin:
-    """Give each row the nearest frame inside its own window.
+    """Pair each row with one frame inside its window, nearest pair first.
 
     Both sides are corrected by their device's drain offset first (``03``
     §11.4: the stamp is the trigger's arrival plus a per-device constant),
     so after the correction one shot's stamps land within NTP jitter of
-    each other.  Row-centric and nearest-wins: when two frames fall in one
-    row's window the **closer** one takes the row and the other is
-    reported as contested, never the one that happens to come first in the
-    file.
+    each other.
+
+    Ownership is resolved **globally**, not row by row: every (row, frame)
+    pair inside that row's window is ranked by how close it is, and the
+    closest pair takes both, then the next, and so on.  So **one frame is
+    never given to two rows** and one row never takes two frames, whatever
+    the windows look like — including the case this function got wrong
+    before (two rows published a fraction of a millisecond apart, which
+    :func:`row_windows` deliberately does not let narrow each other, both
+    reaching the one frame between them).  A frame that lost its row to a
+    closer pairing is *contested*; a frame inside no row's window is an
+    *orphan*.  Ties are broken by row order, then frame order, so the
+    result is deterministic.
 
     Parameters
     ----------
@@ -324,38 +334,34 @@ def join_frames_to_shots(
         dtype=int,
     )
     sorted_frames = frames[finite] if finite.size else np.empty(0)
-    owner: dict[int, int] = {}
-    losers: set[int] = set()
+    # Every pairing a window allows, ranked by distance; ties by row then frame.
+    candidates: list[tuple[float, int, int]] = []
     for row in range(shots.size):
         if not np.isfinite(shots[row]) or not sorted_frames.size:
             continue
         low = int(np.searchsorted(sorted_frames, shots[row] - half[row], "left"))
-        # "left" on the upper bound too: the window is half-open, so a frame
-        # exactly on the boundary two rows share goes to the later row only.
-        high = int(np.searchsorted(sorted_frames, shots[row] + half[row], "left"))
-        best: int | None = None
-        best_delta = float("inf")
+        high = int(np.searchsorted(sorted_frames, shots[row] + half[row], "right"))
         for position in range(low, high):
-            frame = int(finite[position])
-            delta = abs(float(sorted_frames[position]) - float(shots[row]))
-            if delta < best_delta:
-                if best is not None:
-                    losers.add(best)
-                best, best_delta = frame, delta
-            else:
-                losers.add(frame)
-        if best is not None:
-            owner[row] = best
-            losers.discard(best)
-    claimed = set(owner.values())
+            candidates.append(
+                (
+                    abs(float(sorted_frames[position]) - float(shots[row])),
+                    row,
+                    int(finite[position]),
+                )
+            )
+    candidates.sort()
+    owner: dict[int, int] = {}
+    claimed: set[int] = set()
+    for _delta, row, frame in candidates:
+        if row in owner or frame in claimed:
+            continue
+        owner[row] = frame
+        claimed.add(frame)
+    reachable = {frame for _d, _r, frame in candidates}
     return ShotJoin(
         frame_for_shot=tuple(owner.get(row) for row in range(shots.size)),
-        orphans=tuple(
-            frame
-            for frame in range(frames.size)
-            if frame not in claimed and frame not in losers
-        ),
-        contested=tuple(sorted(losers)),
+        orphans=tuple(f for f in range(frames.size) if f not in reachable),
+        contested=tuple(sorted(reachable - claimed)),
     )
 
 
