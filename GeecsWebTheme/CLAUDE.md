@@ -49,6 +49,19 @@ keyboard), so it sets the vocabulary rather than inheriting a compromise.
   `window.GEECS_THEME` rather than carrying a copy, and the Python
   constants are pinned to it by test.
 
+## The FastAPI glue and the template guards
+
+`geecs_web_theme.web` (the `web` extra) is the one copy of what every
+FastAPI surface needs around the theme: `ForwardedPrefixMiddleware`,
+`clean_prefix`, `root_of`, `mount_theme`, `make_templates`. The portal,
+the logbook and the scanner each carried a copy and drifted (three
+mechanisms for `root`). **A new surface imports these; it does not copy
+them.** `geecs_web_theme.testing` is the same for the template guards —
+`bare_url_for_calls`, `unknown_data_states`, `inline_scripts` +
+`javascript_syntax_error` — so a surface's `tests/test_page.py` is three
+one-line tests over its templates. Both modules are exercised by
+`tests/test_web.py` and `tests/test_testing.py`.
+
 ## The overlay ladder
 
 The rule for what happens when someone clicks a thing. **Take the lowest
