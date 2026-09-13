@@ -3,7 +3,7 @@
 One stream, three event types, each a JSON object:
 
 - ``status``   — the manager poll (:class:`~geecs_scanner.service.models.StatusOut`),
-  sent when it changes;
+  sent every round so the page can show how long ago the manager answered;
 - ``progress`` — the latest-run picture from the document stream, sent
   when it changes;
 - ``console``  — one manager console-output line each, with a ``seq`` the
@@ -56,17 +56,16 @@ def register(router: APIRouter, service: ScannerService) -> None:
         """Status, progress and console lines as Server-Sent Events."""
 
         async def gen() -> AsyncIterator[str]:
-            last_status: str | None = None
             last_progress: str | None = None
             cursor = since
             last_sent = time.monotonic()
             while True:
+                # Every round, changed or not: the page shows how long ago the
+                # manager last answered, and a quiet manager must read as
+                # "answered, unchanged", never as "unheard-from".
                 status = await anyio.to_thread.run_sync(service.status)
-                s = status.model_dump_json()
-                if s != last_status:
-                    last_status = s
-                    last_sent = time.monotonic()
-                    yield _frame("status", status.model_dump())
+                last_sent = time.monotonic()
+                yield _frame("status", status.model_dump())
                 progress = service.progress()
                 p = progress.model_dump_json()
                 if p != last_progress:

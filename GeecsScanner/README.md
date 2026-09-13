@@ -19,6 +19,9 @@ GEECS-Console. Arc brief: `Planning/native_bluesky/10_web_scanner.md` (#869).
   Events: `status`, `progress`, `console`), `/health`, and the kit served
   at `/theme`. The page arrives in 0.2.0.
 
+The page is one Jinja template (`templates/console.html`) and one script
+(`static/scanner.js`) over that API; open `http://<host>:8300/` in a browser.
+
 The submission document is the `geecs_schemas.Preset`: a device group, a
 plan call, a trigger profile. The scanner expands it with the same
 `expand_preset` every client uses and binds no device itself.
@@ -40,6 +43,7 @@ without a worker.
 
 | route | answers |
 |---|---|
+| `GET /` | **the page** — Now, New scan, Queue on the kit |
 | `GET /health` | liveness, manager reachable, readiness word, version |
 | `GET /api/status` | one manager poll + the readiness verdict |
 | `GET /api/queue?history=` | running / waiting / finished rows, summarized |

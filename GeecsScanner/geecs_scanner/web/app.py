@@ -19,7 +19,7 @@ from fastapi.staticfiles import StaticFiles
 from geecs_scanner import __version__
 from geecs_scanner.service.errors import ScannerError
 from geecs_scanner.service.scanner import ScannerService
-from geecs_scanner.web import api, events
+from geecs_scanner.web import api, events, pages
 
 #: Requests carrying a proxy mount prefix — the Grafana/JupyterHub
 #: convention every reverse proxy speaks.
@@ -63,6 +63,7 @@ class ForwardedPrefixMiddleware:
 def create_scanner_router(service: ScannerService) -> APIRouter:
     """The scanner's routes as a router a host could mount under a prefix."""
     router = APIRouter()
+    pages.register(router, service)
     api.register(router, service)
     events.register(router, service)
     return router
@@ -90,11 +91,16 @@ def create_app(service: ScannerService, *, root_path: str = "") -> FastAPI:
     except Exception:  # noqa: BLE001 — the theme is a page concern; the API stands without it
         pass
 
+    # The page's own assets, named so templates can url_for(...).path them.
+    app.mount(
+        "/static", StaticFiles(directory=str(pages.STATIC_DIR)), name="scanner_static"
+    )
+
     app.include_router(create_scanner_router(service))
 
-    @app.get("/")
+    @app.get("/api", include_in_schema=False)
     def index() -> dict:
-        """Where things are, until the page (0.2.0) takes this route."""
+        """Where things are."""
         return {
             "service": "geecs-scanner",
             "version": __version__,

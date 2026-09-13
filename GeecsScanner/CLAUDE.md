@@ -19,8 +19,12 @@ geecs_scanner/
     errors.py     ScannerError(kind, message, **extra); kind → HTTP status in one table
   web/
     app.py        create_app (the process) and create_scanner_router (the same as a router)
+    pages.py      GET / — the page (Jinja2Templates with `root` in every context)
     api.py        one route per verb, three lines each
     events.py     GET /api/events — SSE: status, progress, console
+  templates/console.html   the page; the kit's vocabulary, page-only classes from static/
+  static/scanner.js        the page's one script: API + EventSource + form → Preset
+  static/scanner.css       page-only classes; never re-skins a kit class
   __main__.py     geecs-scanner: --experiment | --demo, --port 8300, --root-path
 deploy/           the unit template + DEPLOYMENT.md
 ```
@@ -65,9 +69,20 @@ deploy/           the unit template + DEPLOYMENT.md
 `GET /api/events?once=1` is the one-round form of the stream for tests and
 `curl`.
 
+## The page
+
+`console.html` is filled entirely by `scanner.js` from `/api/*` and kept
+live over `/api/events`; Jinja renders only the experiment, identity and
+version. Rules the logbook learned, pinned by `tests/test_page.py`:
+`url_for(...).path` never the absolute URL; every literal `data-state`
+(template or `setChip` in the script) is a kit word; every script passes
+`node --check`; every class the page uses is styled by the kit, the theme
+or `scanner.css`. The form builds a `Preset` and posts it — the page never
+resolves a variable to a device.
+
 ## What is not here yet
 
-The page (0.2.0), the scan.log tail (needs the day folder; the SSE stream
+The scan.log tail (needs the day folder; the SSE stream
 carries the manager's console text now and gains a `log` event type then),
 `mv` / `run_action` / calibration verbs (0.3.0), the operator registry and
 ownership (arc PR 5).

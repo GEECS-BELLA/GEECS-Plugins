@@ -1,0 +1,260 @@
+{#
+  The scanner console — one page.
+
+  Jinja renders the skeleton; static/scanner.js fills every value from the
+  API and keeps it live over /api/events. Nothing here is computed
+  server-side except the experiment name, the identity and the version.
+  Layout is the surface kit's (GeecsWebTheme): shell, panel/group/well, the
+  status words, .live/.meter/.field validation, dialog.ack. Page-only
+  classes live in static/scanner.css and never re-skin a kit class.
+#}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GEECS Scanner — {{ experiment }}</title>
+{# theme-boot.js stamps the stored palette before first paint; in <head>,
+   not deferred. Prefixed with the request's root_path so a reverse-proxy
+   mount still resolves. No CDN fonts: the token stacks carry fallbacks. #}
+<script src="{{ root }}/theme/theme-boot.js"></script>
+<link rel="stylesheet" href="{{ root }}/theme/theme.css">
+<link rel="stylesheet" href="{{ root }}/theme/kit.css">
+{# .path, not the absolute URL url_for returns: behind TLS termination an
+   absolute http:// URL is a mixed-content block. #}
+<link rel="stylesheet" href="{{ url_for('scanner_static', path='scanner.css').path }}">
+</head>
+<body class="kit" data-root="{{ root }}" data-experiment="{{ experiment }}" data-identity="{{ identity }}">
+
+<header class="topbar">
+  <div class="topbar-in">
+    <span class="brand">GEECS Scanner <span class="exp">{{ experiment }}</span> <span class="sub">v{{ version }}</span></span>
+    <div class="health" aria-label="Service health">
+      <span class="chip" data-state="unknown" id="chip-manager" title="RE Manager: not polled yet">manager</span>
+      <span class="chip" data-state="unknown" id="chip-docs" title="Document stream: not heard yet">doc stream</span>
+    </div>
+    <label class="who">operator <input id="operator" placeholder="your name" aria-label="Operator name"></label>
+    <div data-density-picker></div>
+    <div data-theme-picker></div>
+  </div>
+</header>
+
+<div class="shell">
+
+  <nav class="rail" aria-label="Sections">
+    <div>
+      <h4>Scanner</h4>
+      <nav class="picklist">
+        <a href="#now" aria-current="page">Now</a>
+        <a href="#submit">New scan</a>
+        <a href="#queue">Queue</a>
+      </nav>
+    </div>
+    <div>
+      <h4>Presets</h4>
+      <nav class="picklist" id="presets" aria-label="Presets"></nav>
+      <p class="dim rail-note" id="presets-note">Loading…</p>
+    </div>
+    <div>
+      <h4>Recent</h4>
+      <nav class="picklist recent" id="recent" aria-label="Recent scans"></nav>
+    </div>
+  </nav>
+
+  <main class="pane">
+
+    <div class="banner" data-state="error" id="page-error" hidden>
+      <span id="page-error-text"></span>
+      <span class="spacer"></span>
+      <button class="btn sm" type="button" id="page-error-close">Dismiss</button>
+    </div>
+
+    {# ============================ NOW ============================ #}
+    <section id="now" class="panel" aria-labelledby="now-h">
+      <header>
+        <span class="eyebrow" id="now-h">now</span>
+        <span class="chip lg" data-state="unknown" id="now-chip">connecting</span>
+      </header>
+      <div class="body">
+        <div class="nowhead">
+          <span class="scan" id="now-scan">—</span>
+          <span class="planline" id="now-plan">Waiting for the manager.</span>
+          <span class="spacer"></span>
+          <span class="q-by" id="now-by"></span>
+        </div>
+
+        <div class="meter" id="meter" role="progressbar" aria-valuemin="0" aria-valuemax="1" aria-valuenow="0" aria-label="Shots completed">
+          <div class="track"><i class="fill" id="meter-fill" style="width:0%"></i></div>
+          <div class="lbl"><span id="meter-l">—</span><span id="meter-r"></span></div>
+        </div>
+
+        <div class="grid tight">
+          <div class="live"><span class="k">shots</span><span class="v" id="lv-shots">—</span><span class="age" id="ag-shots"></span></div>
+          <div class="live"><span class="k">planned</span><span class="v" id="lv-planned">—</span><span class="age" id="ag-planned"></span></div>
+          <div class="live" id="live-docs"><span class="k">documents</span><span class="v" id="lv-docs">—</span><span class="age" id="ag-docs"></span></div>
+          <div class="live" id="live-manager"><span class="k">manager</span><span class="v" id="lv-manager">—</span><span class="age" id="ag-manager"></span></div>
+        </div>
+
+        <div class="row">
+          <button class="btn" type="button" id="btn-pause" disabled>Pause</button>
+          <button class="btn" type="button" id="btn-resume" hidden>Resume</button>
+          <span class="dim note" id="verb-note">Pause takes effect after the current step.</span>
+          <span class="spacer"></span>
+          <button class="btn danger" type="button" data-dialog-open="dlg-stop" id="btn-stop" disabled>Stop scan…</button>
+        </div>
+
+        <div class="group">
+          <div class="row">
+            <span class="eyebrow">tail</span>
+            <div class="seg" role="group" aria-label="Which narration" id="tail-seg">
+              <button type="button" data-tail="manager" aria-pressed="true" title="The RE Manager's console output">manager</button>
+              <button type="button" data-tail="scanlog" aria-disabled="true" title="scan.log arrives with the run's folder (a later step)">scan.log</button>
+            </div>
+            <span class="spacer"></span>
+            <span class="dim note" id="paused-reason"></span>
+          </div>
+          <div class="well tail" id="tail" aria-live="polite"></div>
+        </div>
+      </div>
+      <footer class="eyebrow" id="now-foot">state from the manager every second · shots from the document stream</footer>
+    </section>
+
+    {# =========================== SUBMIT =========================== #}
+    <section id="submit" class="panel" aria-labelledby="sub-h">
+      <header>
+        <span class="eyebrow" id="sub-h">new scan</span>
+        <div class="seg" role="group" aria-label="Scan mode" id="mode">
+          <button type="button" data-mode="noscan">No-scan</button>
+          <button type="button" data-mode="scan" aria-pressed="true">1D</button>
+          <button type="button" data-mode="grid">Grid</button>
+          <button type="button" data-mode="background">Background</button>
+          <button type="button" data-mode="optimize" aria-disabled="true" title="No optimization plan on the worker yet">Optimize</button>
+        </div>
+        <div class="seg" role="group" aria-label="Acquisition" id="acq">
+          <button type="button" data-acq="strict" aria-pressed="true" title="Fire between trigger and wait; one row per shot">strict</button>
+          <button type="button" data-acq="gated" title="Box in SCAN, cameras count a batch; one shots row per shot">gated</button>
+        </div>
+      </header>
+      <div class="body">
+        <p class="mode-note" id="mode-note"></p>
+
+        <div class="group" id="axis1">
+          <span class="eyebrow">axis 1</span>
+          <div class="axes">
+            <div class="field">
+              <label for="var1">variable <span class="req" aria-hidden="true">*</span></label>
+              <select id="var1"></select>
+              <span class="hint" id="var1-hint">catalog name → device:variable</span>
+            </div>
+            <div class="field"><label for="start1">start</label><input id="start1" type="number" step="any" value="0"><span class="hint">&nbsp;</span><span class="err" id="err-start1">Start is past stop. Swap them.</span></div>
+            <div class="field"><label for="stop1">stop</label><input id="stop1" type="number" step="any" value="1"><span class="hint">&nbsp;</span></div>
+            <div class="field"><label for="step1">step</label><input id="step1" type="number" step="any" value="0.1"><span class="hint" id="pts1">11 points</span><span class="err" id="err-step1">Step must be a positive number.</span></div>
+          </div>
+        </div>
+
+        <div class="group" id="axis2" hidden>
+          <span class="eyebrow">axis 2 · inner</span>
+          <div class="axes">
+            <div class="field"><label for="var2">variable <span class="req" aria-hidden="true">*</span></label><select id="var2"></select><span class="hint">stepped inside each axis-1 point</span></div>
+            <div class="field"><label for="start2">start</label><input id="start2" type="number" step="any" value="0"><span class="hint">&nbsp;</span><span class="err" id="err-start2">Start is past stop. Swap them.</span></div>
+            <div class="field"><label for="stop2">stop</label><input id="stop2" type="number" step="any" value="1"><span class="hint">&nbsp;</span></div>
+            <div class="field"><label for="step2">step</label><input id="step2" type="number" step="any" value="0.5"><span class="hint" id="pts2">3 points</span><span class="err" id="err-step2">Step must be a positive number.</span></div>
+          </div>
+        </div>
+
+        <div class="fields">
+          <div class="field"><label for="shots">shots per step</label><input id="shots" type="number" min="1" step="1" value="10"><span class="hint" id="shots-hint">shots_per_step</span><span class="err" id="err-shots">At least one shot.</span></div>
+          <div class="field"><label for="trig">trigger profile</label><select id="trig"></select><span class="hint">shot_control_configurations/</span></div>
+          <div class="field"><label for="period">shot period</label><input id="period" type="number" min="0" step="any" placeholder="auto"><span class="hint">strict only · seconds · blank = as fast as the box allows</span></div>
+          <div class="field wide"><label for="desc">description</label><input id="desc" placeholder="what this scan is for"><span class="hint">goes to ScanInfo and the logbook entry</span></div>
+        </div>
+
+        <div class="group">
+          <div class="row">
+            <span class="eyebrow" id="devices-eyebrow">devices</span>
+            <span class="spacer"></span>
+            <span class="dim note">from the selected preset · adding devices arrives with the next step</span>
+          </div>
+          <div class="tscroll">
+            <table class="devtable">
+              <thead><tr><th>device</th><th>save images</th><th>essential</th></tr></thead>
+              <tbody id="devs"><tr><td class="dim" colspan="3">Pick a preset in the rail.</td></tr></tbody>
+            </table>
+          </div>
+          <span class="dim note">Not essential + no images is refused at expansion. A gated run needs at least one essential triggered device.</span>
+        </div>
+      </div>
+      <footer>
+        <div class="row">
+          <span class="est" id="est">—</span>
+          <span class="spacer"></span>
+          <span class="dim note" id="preset-name"></span>
+          <button class="btn primary" type="button" id="btn-start" disabled>Start</button>
+        </div>
+      </footer>
+    </section>
+
+    {# ============================ QUEUE ============================ #}
+    <section id="queue" class="panel" aria-labelledby="q-h">
+      <header>
+        <span class="eyebrow" id="q-h">queue</span>
+        <span class="dim note" id="q-summary">—</span>
+      </header>
+      <div class="tscroll sticky">
+        <table>
+          <thead><tr><th>state</th><th>item</th><th>by</th><th>detail</th></tr></thead>
+          <tbody id="qbody"><tr><td class="dim" colspan="4">Waiting for the manager.</td></tr></tbody>
+        </table>
+      </div>
+      <footer>
+        <div class="row">
+          <span class="dim note">The manager runs one item behind the running one; a new submission replaces the waiting item after you say so.</span>
+          <span class="spacer"></span>
+          <button class="btn danger sm" type="button" data-dialog-open="dlg-clear" id="btn-clear" disabled>Clear queue…</button>
+        </div>
+      </footer>
+    </section>
+
+    <p class="dim footnote">Keys: <kbd>P</kbd> pause / resume · <kbd>S</kbd> stop · <kbd>N</kbd> new scan.</p>
+  </main>
+</div>
+
+{# ============================ DIALOGS ============================ #}
+<dialog id="dlg-stop" aria-labelledby="dlg-stop-title">
+  <div class="body">
+    <h4 id="dlg-stop-title">Stop <span id="dlg-stop-scan">the running scan</span>?</h4>
+    <p>Pauses at the next shot boundary, then stops gracefully. The shots already taken keep their rows; the box returns to STANDBY. This can take a while.</p>
+    <div class="row end"><button class="btn" type="button" data-dialog-close autofocus>Keep running</button><button class="btn danger" type="button" id="do-stop">Stop scan</button></div>
+  </div>
+</dialog>
+
+<dialog id="dlg-clear" aria-labelledby="dlg-clear-title">
+  <div class="body">
+    <h4 id="dlg-clear-title">Clear <span id="dlg-clear-n">the waiting items</span>?</h4>
+    <p>The running scan is not affected. Cleared items are listed in the history.</p>
+    <div class="row end"><button class="btn" type="button" data-dialog-close autofocus>Keep them</button><button class="btn danger" type="button" id="do-clear">Clear queue</button></div>
+  </div>
+</dialog>
+
+<dialog id="dlg-pending" aria-labelledby="dlg-pending-title">
+  <div class="body">
+    <h4 id="dlg-pending-title">An item is already waiting</h4>
+    <p id="dlg-pending-text">The manager runs one item behind the running one. Replace the waiting item with this scan?</p>
+    <div class="row end"><button class="btn" type="button" data-dialog-close autofocus>Keep it</button><button class="btn primary" type="button" id="do-replace">Replace and queue</button></div>
+  </div>
+</dialog>
+
+<dialog id="dlg-ack" class="ack" aria-labelledby="dlg-ack-title">
+  <div class="body">
+    <h4 id="dlg-ack-title">Preflight found things to acknowledge</h4>
+    <p>The request is valid and the worker is ready. Each item is a question, not a refusal; tick it to continue with it on record.</p>
+    <ul class="qs" id="ack-list"></ul>
+    <p class="dim note">Acknowledged checks are stamped <code>continued</code> in the submission record that rides with the run.</p>
+    <div class="row end"><button class="btn" type="button" data-dialog-close autofocus>Cancel</button><button class="btn primary" type="button" id="do-submit" disabled>Submit to queue</button></div>
+  </div>
+</dialog>
+
+<script src="{{ root }}/theme/theme.js" defer></script>
+<script src="{{ root }}/theme/kit.js" defer></script>
+<script src="{{ url_for('scanner_static', path='scanner.js').path }}" defer></script>
+</body>
+</html>
