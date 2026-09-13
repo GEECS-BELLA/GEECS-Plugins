@@ -312,17 +312,21 @@
       var tr = $("trig"); tr.textContent = "";
       tr.appendChild(option("", "— none —"));
       S.triggers.forEach(function (n) { tr.appendChild(option(n, n)); });
-      if (S.presets.length) selectPreset(S.presets[0]);
+      // Default to the first preset only if the operator has not already
+      // picked one while the listing was loading.
+      if (S.presets.length && !S.presetName) selectPreset(S.presets[0]);
       recalc();
     }).catch(function (e) { showError("Loading configs failed: " + e.message); });
   }
 
   function selectPreset(name) {
+    S.presetName = name;  // claimed now, so a slower default cannot override the click
     Array.prototype.forEach.call($("presets").querySelectorAll("button"), function (b) {
       b.setAttribute("aria-pressed", String(b.dataset.preset === name));
     });
     api("/api/configs/presets/" + encodeURIComponent(name)).then(function (doc) {
-      S.presetName = name; S.presetDoc = doc;
+      if (S.presetName !== name) return;  // a later click won
+      S.presetDoc = doc;
       $("preset-name").textContent = "preset " + name;
       $("devices-eyebrow").textContent = "devices · preset " + name;
       fillFormFromPreset(doc);
@@ -422,13 +426,14 @@
   }
 
   function axis(n) {
+    // A descending range is a scan like any other (the focus scan runs
+    // -18 → -26); only the step has to be positive.
     var a = Number($("start" + n).value), b = Number($("stop" + n).value), s = Number($("step" + n).value);
-    var badStep = !(s > 0), badOrder = !badStep && a > b;
+    var badStep = !(s > 0);
     setInvalid("step" + n, badStep);
-    setInvalid("start" + n, badOrder);
     var pts = badStep ? 0 : points(a, b, s);
-    $("pts" + n).textContent = pts ? pts + " point" + (pts === 1 ? "" : "s") : "—";
-    return { variable: $("var" + n).value, start: a, stop: b, num: pts, ok: !badStep && !badOrder && !!$("var" + n).value };
+    $("pts" + n).textContent = pts ? pts + " point" + (pts === 1 ? "" : "s") + (a > b ? " · descending" : "") : "—";
+    return { variable: $("var" + n).value, start: a, stop: b, num: pts, ok: !badStep && !!$("var" + n).value };
   }
 
   var valid = false;
