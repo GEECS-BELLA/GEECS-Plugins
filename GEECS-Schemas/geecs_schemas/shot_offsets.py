@@ -152,6 +152,19 @@ class ShotOffsets(VersionedSchemaModel):
             "different latencies."
         ),
     )
+    trigger_rate_hz: Optional[float] = Field(
+        None,
+        gt=0.0,
+        description=(
+            "Rep rate the measurement was taken at, Hz. Load-bearing "
+            "provenance, not decoration: a camera that pipelines — exposing "
+            "the next frame while draining the last — has a rate-DEPENDENT "
+            "offset. Measured on HTU 2026-09-12: an un-ROI'd camera's offset "
+            "shifted 11.3 ms between 1 Hz and 5 Hz while an ROI'd one moved "
+            "0.2 ms. Calibrate at the rate you intend to run at, and compare "
+            "this field against it before trusting the numbers."
+        ),
+    )
     description: str = Field(
         "",
         description="Optional note about this measurement.",

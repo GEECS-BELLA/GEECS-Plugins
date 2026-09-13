@@ -513,6 +513,7 @@ The experiment's measured per-device drain offsets.
 | `devices` | `dict[str, DeviceOffset]` | no | empty | Ophyd object name (e.g. 'uc_amp3_ir_input') → that device's measured offset. A device absent from this mapping keeps the 0.0 default, which is correct only if it really stamps with the reference. |
 | `measured_at` | `str (optional)` | no | None | ISO-8601 timestamp of the measurement, with offset. Informational, but the thing to look at when a join goes wrong: a calibration older than the last camera or server change is suspect. |
 | `trigger_profile` | `str (optional)` | no | None | Trigger profile the measurement fired through. Recorded because a profile that drives a different trigger box would measure different latencies. |
+| `trigger_rate_hz` | `float (optional)` | no | None | Rep rate the measurement was taken at, Hz. Load-bearing provenance, not decoration: a camera that pipelines — exposing the next frame while draining the last — has a rate-DEPENDENT offset. Measured on HTU 2026-09-12: an un-ROI'd camera's offset shifted 11.3 ms between 1 Hz and 5 Hz while an ROI'd one moved 0.2 ms. Calibrate at the rate you intend to run at, and compare this field against it before trusting the numbers. |
 | `description` | `str` | no | '' | Optional note about this measurement. |
 
 Example:

@@ -205,6 +205,7 @@ class OffsetMeasurement:
         *,
         geecs_names: Mapping[str, str] | None = None,
         trigger_profile: str | None = None,
+        trigger_rate_hz: float | None = None,
         description: str = "",
         measured_at: str | None = None,
     ) -> ShotOffsets:
@@ -224,6 +225,7 @@ class OffsetMeasurement:
             measured_at=measured_at
             or datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"),
             trigger_profile=trigger_profile,
+            trigger_rate_hz=trigger_rate_hz,
             description=description,
         )
 
@@ -951,6 +953,7 @@ def measure_shot_offsets_plan(
                 view._owner.name: view._owner._geecs_device_name for view in views
             },
             trigger_profile=profile_key,
+            trigger_rate_hz=(1.0 / trigger_period if trigger_period else None),
             description=description,
         )
         path = resolver.write_shot_offsets(document)

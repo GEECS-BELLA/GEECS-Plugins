@@ -735,3 +735,32 @@ def test_the_measurement_table_reaches_an_operator(RE: RunEngine, capsys) -> Non
     assert "reference amp3" in out or "amp3" in out
     assert "+36.0 ms" in out  # the measured value itself, not just a heading
     assert "re-run with write=True" in out
+
+
+def test_the_document_records_the_rate_it_was_measured_at(RE: RunEngine) -> None:
+    """A pipelining camera's offset is rate-dependent, so the rate is provenance.
+
+    Measured on HTU 2026-09-12: between 1 Hz and 5 Hz the un-ROI'd
+    UC_ModeImager's offset shifted 11.3 ms while the ROI'd UC_Amp4 moved
+    0.2 ms — a systematic far larger than the 2.0 ms per-shot scatter in
+    either run. A stored calibration is therefore only good for the rate it
+    was taken at, and a reader cannot tell without this field.
+    """
+
+    class Recorder:
+        def __init__(self) -> None:
+            self.written: list[Any] = []
+
+        def write_shot_offsets(self, document: Any):
+            self.written.append(document)
+            return "/tmp/shot_offsets.yaml"
+
+    box = _box({"amp3": 0.0, "amp4": 0.036})
+    sc = _shot_control(RE, box)
+    cams = [_camera(RE, box, n) for n in ("amp3", "amp4")]
+    recorder = Recorder()
+    plan = measure_shot_offsets_plan(_profiles(sc), resolver=recorder)
+    RE(plan(cams, shots=3, quiet_time=0.01, trigger_period=0.2, write=True))
+    document = recorder.written[0]
+    assert document.trigger_rate_hz == pytest.approx(5.0)
+    assert document.trigger_profile == "test"
