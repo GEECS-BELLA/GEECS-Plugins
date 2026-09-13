@@ -184,14 +184,19 @@ GEECS-DataPortal     →  GEECS-Data-Utils (tiled extra — the ScanCatalog
                         GeecsWebTheme (the shared palette; the portal is
                         the host that mounts it at /theme for every
                         surface inside this app)
-GeecsWebTheme        →  (no deps at all — stylesheets, two small scripts
-                        and a path helper. Everything web-facing depends
-                        on it; it depends on nothing, which is why it is
-                        its own package rather than living inside the
-                        portal. Carries BOTH the colour tokens and the
-                        layout kit, so a new surface inherits the shell,
-                        the status words and the overlay ladder instead
-                        of inventing a fourth set)
+GeecsWebTheme        →  (no intra-repo deps — stylesheets, two small
+                        scripts and a path helper; fastapi + jinja2 only
+                        via the `web` extra, for geecs_web_theme.web, the
+                        one copy of the forwarded-prefix middleware, the
+                        /theme mount and the `root` templates factory
+                        every FastAPI surface shares. Everything
+                        web-facing depends on it; it depends on nothing
+                        in the repo, which is why it is its own package
+                        rather than living inside the portal. Carries
+                        BOTH the colour tokens and the layout kit, so a
+                        new surface inherits the shell, the status words
+                        and the overlay ladder instead of inventing a
+                        fourth set)
 GeecsLogbook         →  GEECS-Data-Utils (ScanPaths only — it reads scan
                         folders and nothing else), GEECS-Schemas (the
                         LogEntry document and its payload union)

@@ -4,6 +4,37 @@ All notable changes to `geecs-web-theme` are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 project adheres to semantic versioning.
 
+## [0.4.0] - 2026-09-13
+
+### Added
+
+- **`geecs_web_theme.web` — the FastAPI glue, written once** (behind the
+  new `web` extra: fastapi + jinja2; the static-only use stays
+  dependency-free). Three surfaces each carried a copy of the same three
+  things, verbatim by intent, and they drifted anyway — the portal computed
+  `root` in Python, the logbook in Jinja, the scanner in a context
+  processor. This module is the one copy: `ForwardedPrefixMiddleware`
+  (the portal's `X-Forwarded-Prefix` → `root_path` middleware, path
+  re-prefixed so a mount named like a route head still routes and
+  trailing-slash redirects keep the prefix), `clean_prefix`, `root_of`,
+  `mount_theme(app)` (the `/theme` mount, named for `url_for`), and
+  `make_templates(dir, globals=, filters=, context_processors=)` (a
+  `Jinja2Templates` with `root` in every context). The portal's prefix
+  tests are re-homed here as the module's own.
+- **`geecs_web_theme.testing` — the template guards as helpers**
+  (standard library only): `bare_url_for_calls` (a `url_for(...)` without
+  `.path` is a mixed-content block behind TLS), `unknown_data_states` (a
+  literal `data-state` the kit does not colour renders a plausible neutral
+  chip), `inline_scripts` + `javascript_syntax_error` (`node --check` over
+  a template's inline scripts, Jinja blanked, JSON payloads skipped) and
+  `node_available`. The logbook and the scanner each wrote these three
+  tests by hand; the next surface writes three one-line tests instead.
+- No consumer changes in this release. The portal, the logbook, the
+  scanner and the analysis config editor (`scan_analysis.config_editor`,
+  which hand-mounts the theme and builds a `root`-less template
+  environment) switch to the shared copies in their own PRs and delete
+  theirs.
+
 ## [0.3.0] - 2026-09-13
 
 ### Added
