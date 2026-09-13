@@ -124,3 +124,75 @@ def _callouts(fragment: str) -> str:
         )
 
     return _CALLOUT.sub(swap, fragment)
+
+
+def _plain(token) -> str:
+    """The readable text of one inline token.
+
+    An image's ``content`` IS its alt, and a line break inside a block is a
+    child with no content — so both are handled here rather than by joining
+    on content alone, which glued a wrapped callout's two lines together.
+    """
+    return "".join(
+        " " if child.type in {"softbreak", "hardbreak"} else child.content
+        for child in (token.children or [])
+        if child.type in {"text", "code_inline", "softbreak", "hardbreak", "image"}
+    ).strip()
+
+
+def summarize(body_md: str, limit: int = 120) -> str:
+    """A one-line stand-in for an entry, for when it is collapsed.
+
+    Every entry in every book is collapsible, which only works if the shut
+    state says something worth reading — otherwise a closed note is an
+    author and a timestamp, and the reader opens all of them to find one.
+
+    **Derived, never asked for.** A title field would make the writer name
+    a thing before they could type it, and would be empty for every entry
+    already written — the ceremony this package refuses elsewhere (a day is
+    a query, tags come out of the body, nobody declares anything). Derived
+    but steerable: start with a markdown heading and it becomes the summary.
+
+    It reads the **token stream**, not the raw text. A first version lived
+    in ``geecs_schemas`` and stripped ``` `*_~ ``` with a regex, which
+    turned ``~20 mJ, jitter ~3%`` into ``20 mJ, jitter 3%`` and
+    ``3*10^18 W/cm2`` into ``310^18`` — a single ``~`` is not markdown at
+    all and a single ``*`` is not emphasis, but both are ordinary lab
+    notation. Asking the parser that already renders the body avoids
+    guessing: emphasis that *is* emphasis loses its markers, and arithmetic
+    keeps its characters.
+
+    Fenced code is skipped (a summary reading ``import os`` is worse than
+    none) and a callout keeps its text but loses its ``[!NOTE]`` marker,
+    which the chip beside it already shows.
+    """
+    in_table_cell = False
+    first_cell = ""
+    for token in _md.parse(body_md or ""):
+        # A table cell's contents is an ordinary inline token, so the first
+        # one wins and a summary reads "Parameter" or "Date" — the header of
+        # the toolbar's own table skeleton, or of a pasted spreadsheet.
+        # Content-free, and worse than empty because it looks like a summary.
+        if token.type in {"th_open", "td_open"}:
+            in_table_cell = True
+        elif token.type in {"th_close", "td_close"}:
+            in_table_cell = False
+        if token.type != "inline" or not token.content.strip():
+            continue
+        if in_table_cell:
+            # Remembered, not discarded. The toolbar's table button and the
+            # spreadsheet paste both leave the cursor ONE newline below the
+            # block, and markdown-it absorbs a sentence typed there as another
+            # row — so skipping cells outright summarised such a note as
+            # nothing at all. Prose still wins; a table-only note gets its
+            # first cell, which is thin but true.
+            if not first_cell:
+                first_cell = _plain(token)
+            continue
+        # A line break inside one block is a child token carrying no content,
+        # so joining on content alone glues the lines together — a wrapped
+        # callout came out as "Jet pressure driftingchecked it".
+        text = re.sub(r"^\[!\w+\]\s*", "", _plain(token))  # callout flavour marker
+        if text:
+            return text[: limit - 1] + "\u2026" if len(text) > limit else text
+    return first_cell

@@ -1,0 +1,359 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GEECS surface kit</title>
+<!--
+  The kit's own reference page: every component the kit ships, rendered in
+  the real theme, at whichever density and palette you pick.
+
+  It is a STATIC file in the same directory as the stylesheets, so any host
+  that already mounts this package gets it for free at <mount>/kit.html —
+  the portal serves it at /theme/kit.html with no route of its own. That is
+  also why every asset below is referenced relatively: the page must work
+  under any mount prefix and behind a reverse proxy.
+
+  Its job is to be looked at. When a component here is wrong, it is cheap
+  to change; once three surfaces use it, it is not.
+-->
+<script src="theme-boot.js"></script>
+<link rel="stylesheet" href="theme.css">
+<link rel="stylesheet" href="kit.css">
+</head>
+<body class="kit">
+
+<header class="topbar">
+  <div class="topbar-in">
+    <span class="brand">GEECS surface kit <span class="sub">reference</span></span>
+    <div data-density-picker></div>
+    <div data-theme-picker></div>
+  </div>
+</header>
+
+<div class="shell">
+
+  <nav class="rail" aria-label="Sections">
+    <div>
+      <h4>Components</h4>
+      <nav class="picklist">
+        <a href="#shell" aria-current="page">Shell</a>
+        <a href="#containers">Containers</a>
+        <a href="#status">Status</a>
+        <a href="#controls">Controls</a>
+        <a href="#tables">Tables</a>
+        <a href="#states">Pane states</a>
+        <a href="#overlays">Overlay ladder</a>
+      </nav>
+    </div>
+    <div>
+      <h4>Live sample</h4>
+      <nav class="picklist">
+        <button type="button" aria-pressed="true">Scan 043 <span class="dim">now</span></button>
+        <button type="button">Scan 042 <span class="dim">14:02</span></button>
+        <button type="button">Scan 041 <span class="dim">13:31</span></button>
+      </nav>
+    </div>
+  </nav>
+
+  <main class="pane">
+
+    <section class="group">
+      <div class="banner">
+        <span><strong>Reference page.</strong> Every device name, scan number and
+          reading below is sample content chosen to make the components legible
+          &mdash; it is not this installation&rsquo;s data, and nothing here is a
+          default in code.</span>
+      </div>
+    </section>
+
+    <section id="shell" class="group">
+      <h2>The shell</h2>
+      <p class="dim">This page is the specimen: sticky topbar, 216&nbsp;px rail, one
+        pane. Below 900&nbsp;px the rail becomes a strip and nothing else moves —
+        narrow the window. Both controls in the topbar are the kit's own, and both
+        persist across every GEECS surface on this origin.</p>
+    </section>
+
+    <section id="containers" class="group">
+      <h2>Containers</h2>
+      <p class="dim">Border, fill, radius and shadow each say <em>separate object</em>.
+        Three containers, by role — spending all four on every block is why dense
+        screens go flat.</p>
+
+      <div class="grid">
+        <article class="panel">
+          <header>
+            <span class="eyebrow">panel &middot; a thing with its own state</span>
+            <span class="chip" data-state="ok">ok</span>
+          </header>
+          <div class="body">
+            <div class="row">
+              <span class="mono">U_ICT</span>
+              <span class="spacer"></span>
+              <span class="mono">187 pC</span>
+            </div>
+            <p class="dim">A device, a scan, a queue: something that can be addressed
+              and can be wrong on its own.</p>
+          </div>
+          <footer class="eyebrow">last update 0.4 s ago</footer>
+        </article>
+
+        <div class="group">
+          <span class="eyebrow">group &middot; no edges</span>
+          <p class="dim">Controls that belong to the panel around them. Spacing does
+            the work; a border here competes with the real one.</p>
+          <div class="row">
+            <button class="btn sm" type="button">Per-shot</button>
+            <button class="btn sm" type="button">Binned</button>
+          </div>
+        </div>
+
+        <div class="group">
+          <span class="eyebrow">well &middot; output you did not write</span>
+          <div class="well"><pre>scan_variables:
+  jet_pressure:
+    device: U_HP_Daq
+    variable: Jet pressure
+    start: 2.0   stop: 5.0   step: 0.5</pre></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="status" class="group">
+      <h2>Status</h2>
+      <p class="dim">Six words replacing the fifteen class names the portal and the
+        logbook invented separately, plus <code>agent</code> — not a severity, but
+        <em>who wrote this</em>. Colour is never the only carrier: every chip is a
+        dot plus a word.</p>
+      <div class="row">
+        <span class="chip" data-state="queued">queued</span>
+        <span class="chip" data-state="running">running</span>
+        <span class="chip" data-state="ok">ok</span>
+        <span class="chip" data-state="degraded">degraded</span>
+        <span class="chip" data-state="failed">failed</span>
+        <span class="chip" data-state="unknown">unknown</span>
+        <span class="chip" data-state="agent">agent</span>
+      </div>
+
+      <div class="panel">
+        <header><span class="eyebrow">device health &middot; the dot form</span></header>
+        <div class="body">
+          <div class="row"><span class="dot" data-state="ok" aria-hidden="true"></span>
+            <span class="mono">U_ChicaneSpec</span><span class="spacer"></span>
+            <span class="mono dim">102.4 MeV</span></div>
+          <div class="row"><span class="dot" data-state="ok" aria-hidden="true"></span>
+            <span class="mono">U_Hexapod</span><span class="spacer"></span>
+            <span class="mono dim">&minus;0.42 mm</span></div>
+          <div class="row"><span class="dot" data-state="degraded" aria-hidden="true"></span>
+            <span class="mono">UC_HASO</span><span class="spacer"></span>
+            <span class="mono dim">stale 41 s</span></div>
+          <div class="row"><span class="dot" data-state="failed" aria-hidden="true"></span>
+            <span class="mono">U_S4H</span><span class="spacer"></span>
+            <span class="mono dim">no reply</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="controls" class="group">
+      <h2>Controls</h2>
+      <div class="panel"><div class="body">
+        <div class="row">
+          <div class="field">
+            <label for="k-var">Scan variable</label>
+            <select id="k-var">
+              <option>U_HP_Daq:Jet pressure</option>
+              <option>U_Hexapod:ypos</option>
+              <option>U_S4H:Current</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="k-shots">Shots / step</label>
+            <input id="k-shots" type="text" inputmode="numeric" value="30">
+            <span class="hint">30 &times; 7 steps = 210 shots</span>
+          </div>
+        </div>
+        <div class="row">
+          <button class="btn primary" type="button">Submit scan</button>
+          <button class="btn" type="button">Validate</button>
+          <button class="btn ghost" type="button">Reset</button>
+          <span class="spacer"></span>
+          <button class="btn danger" type="button" data-dialog-open="k-dialog">Abort run&hellip;</button>
+        </div>
+        <p class="dim">Destructive actions sit behind a <code>.spacer</code>, wear
+          their own colour, and confirm through rung&nbsp;3 — never adjacent to an
+          ordinary button.</p>
+      </div></div>
+    </section>
+
+    <section id="tables" class="group">
+      <h2>Tables</h2>
+      <div class="panel"><div class="tscroll">
+        <table>
+          <thead><tr><th>Scan</th><th>Plan</th><th class="num">Shots</th><th>State</th></tr></thead>
+          <tbody>
+            <tr aria-selected="true"><td class="id">Scan 043</td><td>scan_1d</td>
+              <td class="num">120 / 180</td><td><span class="chip" data-state="running">running</span></td></tr>
+            <tr><td class="id">Scan 042</td><td>count</td><td class="num">50 / 50</td>
+              <td><span class="chip" data-state="ok">ok</span></td></tr>
+            <tr><td class="id">Scan 041</td><td>scan_1d</td><td class="num">208 / 210</td>
+              <td><span class="chip" data-state="degraded">degraded</span></td></tr>
+            <tr><td class="id">Scan 040</td><td>grid_scan</td><td class="num">64 / 256</td>
+              <td><span class="chip" data-state="failed">failed</span></td></tr>
+            <tr><td class="id">Scan 039</td><td>scan_1d</td><td class="num">&mdash;</td>
+              <td><span class="chip" data-state="queued">queued</span></td></tr>
+          </tbody>
+        </table>
+      </div></div>
+    </section>
+
+    <section id="states" class="group">
+      <h2>The five states every pane owes</h2>
+      <p class="dim">Loading and empty exist on both surfaces today in private forms.
+        Error, stale and denied exist nowhere — and a control surface cannot open
+        without the last two.</p>
+
+      <div class="grid">
+        <div class="state" data-state="loading">
+          <div class="t">Loading Scan 043</div>
+          <div class="bar"><i></i></div>
+          <div class="m">Name what is loading. A bare spinner tells nobody whether to wait.</div>
+        </div>
+        <div class="state" data-state="empty">
+          <div class="t">No scans on 11 Sep</div>
+          <div class="m">The folder exists and holds nothing.</div>
+          <button class="btn sm" type="button">Jump to last day with data</button>
+        </div>
+        <div class="state" data-state="error">
+          <div class="t">Tiled refused the connection</div>
+          <div class="m">The portal host may be down. Nothing was lost.</div>
+          <button class="btn sm" type="button">Retry</button>
+        </div>
+        <div class="state" data-state="stale">
+          <div class="t">Showing the value from 41 s ago</div>
+          <div class="m">UC_HASO stopped updating. A number that silently goes stale
+            is worse than no number.</div>
+        </div>
+        <div class="state" data-state="denied">
+          <div class="t">Another operator holds the run</div>
+          <div class="m">Read-only until they release it.</div>
+        </div>
+      </div>
+
+      <div class="banner" data-state="stale">
+        <span>Live values last updated 41 s ago.</span>
+        <span class="spacer"></span>
+        <button class="btn sm" type="button">Reconnect</button>
+      </div>
+    </section>
+
+    <section id="overlays" class="group">
+      <h2>The overlay ladder</h2>
+      <p class="dim">Take the lowest rung that fits. The decider: <strong>can the user
+        lose work by pressing Esc?</strong> If yes it is a route, whatever it looks
+        like. All four below work — click them.</p>
+
+      <div class="panel"><div class="body">
+
+        <div class="group">
+          <span class="eyebrow">rung 0 &middot; inline disclosure &middot; the default</span>
+          <details class="disc">
+            <summary>Scan 041 &middot; 2 shots excluded</summary>
+            <div class="dbody">Shots 88 and 141 dropped on <code>UC_ALineEBeam3</code>
+              (trigger miss) and were excluded from the bin means. Native
+              <code>&lt;details&gt;</code>: keyboard, no-JS and find-in-page all work.</div>
+          </details>
+        </div>
+
+        <div class="group">
+          <span class="eyebrow">rung 1 &middot; inspector &middot; stepping through many items</span>
+          <div class="inspector">
+            <div class="list">
+              <nav class="picklist">
+                <button type="button" aria-pressed="true">U_ICT</button>
+                <button type="button">U_Hexapod</button>
+                <button type="button">UC_HASO</button>
+              </nav>
+            </div>
+            <div class="detail">
+              <div class="mono">U_ICT</div>
+              <p class="dim">The selection belongs in the URL. If the link cannot carry
+                it, the inspector is not finished.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="group">
+          <span class="eyebrow">rung 2 &middot; drawer &middot; a sub-task on this object</span>
+          <div class="row">
+            <button class="btn" type="button" data-drawer-open="k-drawer">Edit save set&hellip;</button>
+            <span class="dim">Esc closes it; nothing here can be lost.</span>
+          </div>
+        </div>
+
+        <div class="group">
+          <span class="eyebrow">rung 3 &middot; dialog &middot; must be answered now</span>
+          <div class="row">
+            <button class="btn danger" type="button" data-dialog-open="k-dialog">Clear queue&hellip;</button>
+            <span class="dim">A real <code>&lt;dialog&gt;</code>: focus trap, Esc and an
+              inert background, free.</span>
+          </div>
+        </div>
+
+        <div class="group">
+          <span class="eyebrow">rung 4 &middot; route &middot; needs no component</span>
+          <div class="well">/run/{uid}/plot?x=shot&amp;y=charge&amp;view=bin</div>
+        </div>
+
+      </div></div>
+    </section>
+
+  </main>
+</div>
+
+<div class="scrim"></div>
+
+<aside class="drawer" id="k-drawer" role="dialog" aria-modal="false"
+       aria-labelledby="k-drawer-title" aria-hidden="true" data-open="false">
+  <header>
+    <span class="eyebrow" id="k-drawer-title">Save set &middot; HTU_standard</span>
+    <button class="btn sm" type="button" data-drawer-close>Close</button>
+  </header>
+  <div class="body">
+    <p class="dim">The page is still behind you and the scrim is dismissible. A drawer
+      never opens another drawer and never holds a destructive confirm.</p>
+    <div class="group">
+      <span class="eyebrow">Devices in this set</span>
+      <div class="row">
+        <span class="chip" data-state="ok">U_ICT</span>
+        <span class="chip" data-state="ok">U_ChicaneSpec</span>
+        <span class="chip" data-state="degraded">UC_HASO</span>
+        <span class="chip" data-state="queued">U_Hexapod</span>
+      </div>
+    </div>
+    <div class="well"><pre>save_set: HTU_standard
+  db_scalars: true
+  devices: [U_ICT, U_ChicaneSpec, UC_HASO, U_Hexapod]</pre></div>
+    <div class="row end">
+      <button class="btn" type="button" data-drawer-close>Cancel</button>
+      <button class="btn primary" type="button" data-drawer-close>Save</button>
+    </div>
+  </div>
+</aside>
+
+<dialog id="k-dialog" aria-labelledby="k-dialog-title">
+  <div class="body">
+    <h4 id="k-dialog-title">Clear the queue?</h4>
+    <p>Three queued scans will be removed: Scan 044, 045 and 046. The run in
+      progress (Scan 043) is not affected. This cannot be undone.</p>
+    <div class="row end">
+      <button class="btn" type="button" data-dialog-close autofocus>Keep them</button>
+      <button class="btn danger" type="button" data-dialog-close>Clear 3 scans</button>
+    </div>
+  </div>
+</dialog>
+
+<script src="theme.js" defer></script>
+<script src="kit.js" defer></script>
+</body>
+</html>

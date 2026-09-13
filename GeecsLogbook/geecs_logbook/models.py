@@ -17,6 +17,40 @@ from pydantic import BaseModel, Field
 
 ScanStatus = Literal["success", "failed", "aborted", "incomplete", "unknown"]
 
+#: How a scan status maps onto the kit's shared status vocabulary
+#: (:data:`geecs_web_theme.STATES`), which is what drives the chip colour.
+#:
+#: The mapping is deliberately NOT the identity on two names, and the
+#: reason is in "Status is reported, not inferred" in this package's
+#: CLAUDE.md. ``incomplete`` — an empty ``ScanEndInfo`` — is the most
+#: common state on the real share, so painting it amber painted most of a
+#: day amber; it is an absence of information, which is what the kit's
+#: ``unknown`` means. Our ``unknown`` is the opposite case: something WAS
+#: written and we cannot read it, which earns the amber.
+#:
+#: Nothing is lost where two statuses do share a colour, because the chip
+#: keeps its own *word* — the reader still sees "aborted" or "not
+#: finalised" written on it. Colour carries severity; text carries which.
+#:
+#: ``tests/test_models.py`` pins every value to a real kit state and every
+#: :data:`ScanStatus` to an entry here, so adding a status without deciding
+#: its severity fails rather than rendering an uncoloured chip.
+KIT_STATE: dict[str, str] = {
+    "success": "ok",
+    "failed": "failed",
+    "aborted": "degraded",
+    # NOT degraded. `incomplete` means ScanEndInfo is still empty — the most
+    # common state on the real share (37 of 49 across four sampled days), and
+    # this file's "Status is reported, not inferred" section records that
+    # painting it amber "painted most of a day amber". It is an absence of
+    # information, which is what the kit's `unknown` means.
+    "incomplete": "unknown",
+    # ...and this one IS the suspicious case: a non-empty ScanEndInfo we do
+    # not recognise. Something was written and we cannot read it, which is
+    # worth a colour. This pair is deliberately not the identity mapping.
+    "unknown": "degraded",
+}
+
 
 class ScanSummary(BaseModel):
     """One scan, as its folder describes it.
@@ -93,57 +127,6 @@ class ScanSummary(BaseModel):
         return f"Scan{self.number:03d}"
 
 
-class Campaign(BaseModel):
-    """A run of consecutive scans sharing a parameter and a purpose.
-
-    A busy day is a handful of campaigns, not a hundred unrelated scans:
-    an operator sweeps one variable for twenty scans, changes something,
-    sweeps another. Grouping is *derived* from what the scanner already
-    wrote — nobody declares a campaign — so it costs no new input and
-    cannot be forgotten.
-
-    Attributes
-    ----------
-    parameter : str or None
-        The shared ``Scan Parameter``.
-    purpose : str or None
-        The shared ``ScanStartInfo``.
-    scans : list of ScanSummary
-        The run, in scan order.
-    """
-
-    parameter: Optional[str] = None
-    purpose: Optional[str] = None
-    scans: list["ScanSummary"] = Field(default_factory=list)
-
-    @property
-    def span(self) -> str:
-        """Return the scan range, e.g. ``"Scan012–Scan033"``."""
-        first, last = self.scans[0], self.scans[-1]
-        if first.number == last.number:
-            return first.label
-        return f"{first.label}\u2013{last.label}"
-
-    @property
-    def failed(self) -> int:
-        """Return how many scans in this campaign failed."""
-        return sum(1 for s in self.scans if s.status == "failed")
-
-    @property
-    def is_empty_run(self) -> bool:
-        """Whether this run is folders with no scan metadata at all.
-
-        A real day carries these: folders claimed by a scan that never
-        wrote ``ScanInfo`` — an aborted run, or development churn. They
-        group together because they share ``(None, None)``, which is the
-        right outcome (one row, not sixty-five) but needs saying plainly
-        rather than rendering as an em dash and "No purpose recorded".
-        """
-        return self.parameter is None and all(
-            s.status == "incomplete" and not s.has_scan_info for s in self.scans
-        )
-
-
 class DaySummary(BaseModel):
     """Every scan folder present for one date.
 
@@ -173,27 +156,3 @@ class DaySummary(BaseModel):
     def failed(self) -> int:
         """Return how many scans on this day ended in a failure."""
         return sum(1 for s in self.scans if s.status == "failed")
-
-    @property
-    def campaigns(self) -> list[Campaign]:
-        """Group consecutive scans sharing a parameter and purpose.
-
-        Returns
-        -------
-        list of Campaign
-            One entry per run, in scan order. A day of unrelated scans
-            yields one single-scan campaign each, which is why the view
-            only groups above a threshold — see ``day.html``.
-        """
-        runs: list[Campaign] = []
-        for scan in self.scans:
-            key = (scan.parameter, scan.purpose)
-            if runs and (runs[-1].parameter, runs[-1].purpose) == key:
-                runs[-1].scans.append(scan)
-            else:
-                runs.append(
-                    Campaign(
-                        parameter=scan.parameter, purpose=scan.purpose, scans=[scan]
-                    )
-                )
-        return runs

@@ -1,7 +1,7 @@
 # GeecsLogbook — Developer Context for Claude
 
 The logbook: two books in one store. The **scans** book is the curated
-campaign record — a day document over scan folders, the successor to
+per-scan record — a day document over scan folders, the successor to
 `LogMaker4GoogleDocs`, which this package will eventually replace
 outright. The **ops** book is routine operations, read by month. They
 share every mechanism below and differ only in which page you write from.
@@ -61,7 +61,7 @@ the folder (the analysis task queue's `analysis_status/`, for one) moves it,
 and it has been measured over an hour off the real start.
 
 What this package owns is the *logbook's* reading of those facts: the status
-classification, campaign shaping, and the day document.
+classification, day shaping, and the day document.
 
 Pinned by `tests/test_scan_reader.py::TestScanFolderCreationInvariant`, which
 monkeypatches `Path.mkdir` to explode.

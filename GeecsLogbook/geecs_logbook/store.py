@@ -306,7 +306,7 @@ class NotesStore:
         month view (a book, a range, a tag), a search, and later a
         synchroniser. ``day_from``/``day_to`` are inclusive ``YYYY-MM-DD``.
         ``include_scan_anchored=False`` drops entries on or after a scan,
-        which is how the month page hides the campaign record by default.
+        which is how the month page hides the per-scan record by default.
         """
         sql = "SELECT * FROM entries WHERE day BETWEEN ? AND ? AND deleted_at IS NULL"
         params: list[object] = [day_from, day_to]
