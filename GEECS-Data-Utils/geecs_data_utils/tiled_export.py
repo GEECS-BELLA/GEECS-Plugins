@@ -355,10 +355,25 @@ def read_frame_columns(run: Any, row_stream: str) -> list[FrameColumns]:
 
 
 def _descriptor_drain_offsets(node: Any) -> dict[str, float]:
-    """``{object name: drain offset}`` from a stream node's descriptors, if kept."""
+    """``{object name: drain offset}`` from a stream node's descriptor configuration.
+
+    A Tiled stream node carries the descriptor's ``configuration`` block at
+    the top of its own metadata (verified against the lab catalog,
+    2026-09-12: ``{object: {"data": {"<object>-drain_offset": …}}}``); a
+    writer that nests the whole descriptor list under ``descriptors``
+    instead is read as well.  Missing either way means ``0.0``, which is
+    what every offset reads until the sync calibration (``03`` §11.7,
+    §4.F) sets them.
+    """
+    metadata = node.metadata
+    blocks = [metadata.get("configuration") or {}]
+    blocks += [
+        descriptor.get("configuration") or {}
+        for descriptor in metadata.get("descriptors") or ()
+    ]
     offsets: dict[str, float] = {}
-    for descriptor in node.metadata.get("descriptors") or ():
-        for name, config in (descriptor.get("configuration") or {}).items():
+    for block in blocks:
+        for name, config in block.items():
             value = (config.get("data") or {}).get(f"{name}-drain_offset")
             if value is not None:
                 offsets[str(name)] = float(value)

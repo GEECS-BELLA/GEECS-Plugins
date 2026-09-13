@@ -251,11 +251,21 @@ class _FakePart:
 
 
 class _FakeStream:
-    """A Tiled composite stream node: named parts plus descriptor metadata."""
+    """A Tiled composite stream node: named parts plus its descriptor metadata.
 
-    def __init__(self, parts: dict, descriptors: list | None = None) -> None:
+    Tiled puts the descriptor's ``configuration`` block at the top of the
+    stream node's own metadata (verified against the lab catalog); *nested*
+    models the other shape, a writer that keeps the descriptor list whole.
+    """
+
+    def __init__(
+        self, parts: dict, configuration: dict | None = None, nested: bool = False
+    ) -> None:
         self._parts = parts
-        self.metadata = {"descriptors": descriptors or []}
+        if configuration and nested:
+            self.metadata = {"descriptors": [{"configuration": configuration}]}
+        else:
+            self.metadata = {"configuration": configuration or {}}
 
     def get_contents(self) -> dict:
         """Part name → its structure family."""
@@ -287,9 +297,7 @@ class _FakeGatedRun:
                         np.array([1.0, 2.0, 3.0, 4.0, 9.0]), "array"
                     ),
                 },
-                descriptors=[
-                    {"configuration": {"uc_a": {"data": {"uc_a-drain_offset": 0.05}}}}
-                ],
+                configuration={"uc_a": {"data": {"uc_a-drain_offset": 0.05}}},
             ),
             "shots": _FakeStream({"internal": _FakePart(_shots_df(), "table")}),
         }
@@ -302,6 +310,18 @@ class _FakeGatedRun:
     def __getitem__(self, key):
         """One stream node."""
         return self._streams[key]
+
+
+def test_a_nested_descriptor_block_gives_the_same_drain_offsets() -> None:
+    """The other metadata shape: the whole descriptor list under ``descriptors``."""
+    from geecs_data_utils.tiled_export import _descriptor_drain_offsets
+
+    configuration = {"uc_a": {"data": {"uc_a-drain_offset": 0.05}}}
+    flat = _FakeStream({}, configuration=configuration)
+    nested = _FakeStream({}, configuration=configuration, nested=True)
+    assert _descriptor_drain_offsets(flat) == {"uc_a": 0.05}
+    assert _descriptor_drain_offsets(nested) == {"uc_a": 0.05}
+    assert _descriptor_drain_offsets(_FakeStream({})) == {}
 
 
 def test_read_run_rows_falls_through_to_the_shots_stream() -> None:
