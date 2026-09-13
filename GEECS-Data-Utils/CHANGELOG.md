@@ -4,8 +4,7 @@ All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
-
-## [0.31.1] - 2026-09-13
+## [0.31.1] - 2026-09-12
 
 ### Fixed
 
@@ -18,11 +17,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   column offered as the X axis, and per-step statistics disabled — all while
   the run's own `ScanInfo` ini correctly said `ScanMode = "standard"`.
 
-  The three readers now share one `scan_motors()` helper that takes `motors`
-  and falls back to `motor`, so runs from either backend classify the same
-  way.  Found in the portal on 26_0912's Scan018, a `rel_scan` over
+  The readers now share one `scan_motors()` helper that takes `motors` and
+  falls back to `motor`, so runs from either backend classify the same way.
+  Found in the portal on 26_0912's Scan018, a `rel_scan` over
   `U_CompAerotech Position.Axis1` carrying
   `motors = ['u_compaerotech-position_axis1']`.
+
+- **The Overview table lost its "Scan variable" row on a native run, and its
+  "Mode" row lost the strict/gated suffix.**  `tiled_catalog.metadata_rows` —
+  what both the console scan browser and the portal run page render — read the
+  same stale singular `motor`, and `acquisition_mode` where the native scanner
+  writes `acquisition`.  Same bug class, same package, on the very page the
+  wrong mode chip was reported from; neither row had a test.
+
+- **A multi-motor `scan` is 1D, not a grid.**  Classifying on the motor
+  *count* was safe only because the funnel wrote a list solely for grids.
+  Stock `scan` / `rel_scan` / `list_scan` correlate N motors along one
+  trajectory (`plan_pattern` `inner_product` / `inner_list_product`); only
+  `grid_scan`'s `outer_product` is a grid.  `scan_mode` now reads
+  `plan_pattern` where it exists and keeps the count-based reading for funnel
+  documents, which have none.  (Caught in review — the first version of this
+  fix turned those runs from wrongly-`NOSCAN` into wrongly-`GRID`.)
 
 ## [0.31.0] - 2026-09-12
 

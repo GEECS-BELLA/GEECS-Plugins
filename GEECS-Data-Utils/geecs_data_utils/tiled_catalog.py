@@ -634,7 +634,9 @@ def metadata_rows(detail: RunDetail) -> list[tuple[str, str]]:
         rows.append(("Experiment", summary.experiment))
     if summary.description:
         rows.append(("Description", summary.description))
-    acquisition = str(start.get("acquisition_mode") or "")
+    # Both spellings: the native scanner writes `acquisition` (strict/gated),
+    # the retired funnel wrote `acquisition_mode`.
+    acquisition = str(start.get("acquisition") or start.get("acquisition_mode") or "")
     rows.append(
         ("Mode", f"{summary.mode} · {acquisition}" if acquisition else summary.mode)
     )
@@ -650,8 +652,10 @@ def metadata_rows(detail: RunDetail) -> list[tuple[str, str]]:
         if shape and points:
             shape_text = " × ".join(str(s) for s in shape)
             rows.append(("Grid", f"{shape_text} = {points} steps"))
-    elif start.get("motor"):
-        rows.append(("Scan variable", str(start["motor"])))
+    elif tiled_schema.scan_motors(start):
+        # Plural `motors` (stock bluesky) or the funnel's singular `motor`;
+        # several entries for a correlated or grid trajectory.
+        rows.append(("Scan variable", ", ".join(tiled_schema.scan_motors(start))))
 
     num_points = start.get("num_points")
     shots_per_step = start.get("shots_per_step")

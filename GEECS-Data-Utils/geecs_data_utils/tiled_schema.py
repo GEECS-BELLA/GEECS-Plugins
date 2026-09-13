@@ -475,9 +475,7 @@ def scan_motors(start_doc: Mapping[str, Any]) -> list[str]:
         One entry per stepped device, in the plan's axis order (outermost
         first); empty when nothing was stepped.
     """
-    raw = start_doc.get("motors")
-    if raw is None:
-        raw = start_doc.get("motor")
+    raw = start_doc.get("motors") or start_doc.get("motor")
     if not raw:
         return []
     if isinstance(raw, str):
@@ -539,6 +537,16 @@ def scan_mode(start_doc: Mapping[str, Any]) -> str:
     motors = scan_motors(start_doc)
     if not motors:
         return "NOSCAN"
+    # `plan_pattern` is the stock bluesky discriminator and the only reliable
+    # one: `scan`/`rel_scan`/`list_scan` move N motors along ONE correlated
+    # trajectory (`inner_product`, `inner_list_product`) and are 1D however
+    # many motors they name; only `grid_scan`'s `outer_product` is a grid.
+    # The same branch is spelled out in GeecsBluesky's ScanInfo writer.
+    pattern = str(start_doc.get("plan_pattern") or "")
+    if pattern:
+        return "GRID" if pattern.startswith("outer_") else "1D"
+    # Funnel vocabulary (no plan_pattern): a list of motors, or its own
+    # grid_shape / scan_axes keys, meant a grid.
     if len(motors) > 1:
         return "GRID"
     if start_doc.get("grid_shape") or (

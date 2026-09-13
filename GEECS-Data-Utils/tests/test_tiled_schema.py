@@ -309,3 +309,84 @@ class TestSteppedDevicesFromEitherBackend:
         ]
         assert tiled_schema.scan_motors({}) == []
         assert tiled_schema.scan_motors({"motors": []}) == []
+
+
+class TestStockPlanPatternDecidesGrid:
+    """A list of motors is not a grid on the native path.
+
+    Stock ``scan`` / ``rel_scan`` / ``list_scan`` move N motors along ONE
+    correlated trajectory (``plan_pattern`` ``inner_product`` /
+    ``inner_list_product``) and are 1D however many motors they name; only
+    ``grid_scan``'s ``outer_product`` is a grid. The funnel had no
+    ``plan_pattern`` and only ever wrote a list for a grid, so its documents
+    keep the old reading — which is why the discriminator has to be the
+    pattern, not the motor count.
+    """
+
+    def test_a_two_motor_inner_product_scan_is_1d_not_a_grid(self):
+        assert (
+            tiled_schema.scan_mode(
+                {
+                    "plan_name": "scan",
+                    "motors": ["u_s1h-current", "u_s2h-current"],
+                    "plan_pattern": "inner_product",
+                }
+            )
+            == "1D"
+        )
+
+    def test_a_two_motor_list_scan_is_1d(self):
+        assert (
+            tiled_schema.scan_mode(
+                {
+                    "plan_name": "list_scan",
+                    "motors": ["u_s1h-current", "u_s2h-current"],
+                    "plan_pattern": "inner_list_product",
+                }
+            )
+            == "1D"
+        )
+
+    def test_an_outer_product_grid_scan_is_a_grid(self):
+        assert (
+            tiled_schema.scan_mode(
+                {
+                    "plan_name": "grid_scan",
+                    "motors": ("u_s1h-current", "u_s2h-current"),
+                    "plan_pattern": "outer_product",
+                }
+            )
+            == "GRID"
+        )
+
+    def test_a_funnel_motor_list_is_still_a_grid(self):
+        """No plan_pattern: the funnel only ever wrote a list for a grid."""
+        assert (
+            tiled_schema.scan_mode(
+                {
+                    "plan_name": "geecs_step_scan",
+                    "motor": ["u_s1h-current", "u_s2h-current"],
+                }
+            )
+            == "GRID"
+        )
+
+
+class TestScanMotorsShapes:
+    """Every shape either backend can actually put in a start document."""
+
+    def test_a_tuple_is_accepted(self):
+        """grid_scan's in-memory shape is a tuple; only JSON makes it a list."""
+        assert tiled_schema.scan_motors({"motors": ("a", "b")}) == ["a", "b"]
+
+    def test_an_empty_plural_does_not_shadow_a_populated_singular(self):
+        """A merged or patched start doc can carry both; the real one wins."""
+        assert tiled_schema.scan_motors({"motors": [], "motor": "m1"}) == ["m1"]
+        assert tiled_schema.scan_motors({"motors": None, "motor": "m1"}) == ["m1"]
+
+    def test_a_populated_plural_wins_over_a_singular(self):
+        assert tiled_schema.scan_motors({"motors": ["a"], "motor": "b"}) == ["a"]
+
+    def test_a_non_iterable_does_not_raise(self):
+        """The old code raised on this; the helper is the tolerant reader."""
+        assert tiled_schema.scan_motors({"motor": 3}) == ["3"]
