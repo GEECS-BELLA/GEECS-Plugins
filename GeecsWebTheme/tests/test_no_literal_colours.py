@@ -98,7 +98,10 @@ _SURFACES = [
 #: Selectors whose rules may carry a literal, each with its reason. This is
 #: where the rule erodes if it erodes; expect the reason to be read.
 _ALLOWED = {
-    ".themepick .sw": "each swatch shows ITS palette whichever one is active; the ring is a neutral grey",
+    ".themepick .sw": "the swatch ring is a neutral grey that reads on any ground",
+    ".themepick .sw-bella": "each swatch shows ITS palette whichever one is active",
+    ".themepick .sw-laser": "each swatch shows ITS palette whichever one is active",
+    ".themepick .sw-plasma": "each swatch shows ITS palette whichever one is active",
     "img.plot": "matplotlib renders onto white; the frame matches its own ground",
     ".ce-preview img": "matplotlib renders onto white; the frame matches its own ground",
 }
@@ -450,12 +453,14 @@ def test_referenced_tokens_sees_css_a_script_builds() -> None:
 
 
 def test_allowlist_matches_whole_selector_parts() -> None:
-    """``img.plot`` covers ``img.plot`` but not ``img.plotwrap`` nor the other
-    half of ``img.plot, .other``; ``.themepick .sw`` covers ``.themepick .sw-x``."""
-    marks = {"img.plot": "", ".themepick .sw": ""}
+    """``img.plot`` covers ``img.plot`` and ``img.plot:hover`` but not
+    ``img.plotwrap``, ``img.plot-x``, nor the other half of ``img.plot, .other``."""
+    marks = {"img.plot": ""}
     assert not colour_literals("img.plot{background:#fff}", allowed=marks)
-    assert not colour_literals(".themepick .sw-bella{background:#fff}", allowed=marks)
+    assert not colour_literals("img.plot:hover{background:#fff}", allowed=marks)
+    assert not colour_literals("img.plot .x{background:#fff}", allowed=marks)
     assert colour_literals("img.plotwrap{background:#fff}", allowed=marks)
+    assert colour_literals("img.plot-x{background:#fff}", allowed=marks)
     assert colour_literals("img.plot, .other{background:#fff}", allowed=marks)
 
 
@@ -464,3 +469,26 @@ def test_nested_rules_keep_their_parent_scope() -> None:
     parent first — and an unscoped one inside ``@media{@supports{}}`` is seen."""
     assert rule_selectors(".kit .a{ &:hover{x:1} }") == [".kit .a", ".kit .a &:hover"]
     assert rule_selectors("@media (a){@supports (b){.pane{x:1}}}") == [".pane"]
+    # comma lists on either side cross-multiply
+    assert rule_selectors(".a, .b{ &:hover, &:focus{x:1} }") == [
+        ".a", ".b", ".a &:hover", ".a &:focus", ".b &:hover", ".b &:focus",
+    ]  # fmt: skip
+    # declarations directly inside a nested at-rule belong to the parent
+    assert colour_literals(".kit .a{ @media (min-width:1px){ color:#ff00ff } }") == [
+        ".kit .a: color: #ff00ff"
+    ]
+    assert colour_literals(".kit .a{ @media (x){ &:hover{color:#ff00ff} } }")
+    # an at-rule whose body is declarations only yields nothing
+    assert (
+        rule_selectors("@font-face{font-family:x;src:url(x.woff2)} @page{margin:1cm}")
+        == []
+    )
+
+
+def test_a_token_named_in_a_css_comment_is_not_a_reference() -> None:
+    """Comments are structure to the parser; only a script's built CSS text is
+    scanned as text, and there ``var(`` counts."""
+    assert referenced_tokens("/* was var(--old) */ a{color:var(--ink)}") == {"--ink"}
+    assert referenced_tokens(
+        "// was var(--old)\nel.style.cssText = 'x'", css=False
+    ) == {"--old"}

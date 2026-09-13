@@ -253,8 +253,11 @@ def css_rules(css: str) -> list[tuple[str, list[tuple[str, list[Any]]]]]:
     declarations (``@font-face``) yields nothing. **Native nesting** is
     flattened too: a rule nested inside ``.a{…}`` is reported with the
     selector ``.a &:hover`` — parent first, so a scoping check that reads
-    the front of the selector sees the parent's scope. Comments are dropped
-    by the parser. Each declaration is ``(name, value_tokens)``.
+    the front of the selector sees the parent's scope; comma lists on
+    either side cross-multiply, and declarations sitting directly inside a
+    nested at-rule (``.a{ @media (x){ color:red } }``) belong to ``.a``.
+    Comments are dropped by the parser. Each declaration is
+    ``(name, value_tokens)``.
 
     Parameters
     ----------
@@ -269,12 +272,22 @@ def css_rules(css: str) -> list[tuple[str, list[tuple[str, list[Any]]]]]:
     tc = _tinycss2()
     out: list[tuple[str, list[tuple[str, list[Any]]]]] = []
 
-    def qualified(rule: Any, parent: str) -> None:
-        own = tc.serialize(rule.prelude).strip()
-        selector = f"{parent} {own}" if parent else own
+    def compose(parent: str, own: str) -> str:
+        """Every parent part × every own part: ``.a, .b`` under ``.k`` → ``.k .a, .k .b``."""
+        if not parent:
+            return own
+        return ", ".join(
+            f"{p.strip()} {o.strip()}"
+            for p in parent.split(",")
+            for o in own.split(",")
+            if p.strip() and o.strip()
+        )
+
+    def block(content: Any, selector: str) -> None:
+        """Walk a ``{}`` body that may hold declarations and nested rules."""
         decls: list[tuple[str, list[Any]]] = []
         nested: list[Any] = []
-        for item in tc.parse_blocks_contents(rule.content, skip_whitespace=True):
+        for item in tc.parse_blocks_contents(content, skip_whitespace=True):
             if item.type == "declaration":
                 decls.append((item.name, item.value))
             elif item.type in ("qualified-rule", "at-rule"):
@@ -285,9 +298,14 @@ def css_rules(css: str) -> list[tuple[str, list[tuple[str, list[Any]]]]]:
     def walk(rules: Sequence[Any], parent: str = "") -> None:
         for rule in rules:
             if rule.type == "qualified-rule":
-                qualified(rule, parent)
+                block(rule.content, compose(parent, tc.serialize(rule.prelude).strip()))
             elif rule.type == "at-rule" and rule.content is not None:
                 if rule.lower_at_keyword == "keyframes":
+                    continue
+                if parent:
+                    # Nested inside a rule: `.a{ @media (x){ color:red; &:hover{} } }`
+                    # — bare declarations still belong to `.a`.
+                    block(rule.content, parent)
                     continue
                 inner = tc.parse_rule_list(rule.content, skip_whitespace=True)
                 if any(r.type in ("qualified-rule", "at-rule") for r in inner):
@@ -408,17 +426,16 @@ def _ground_free(text: str) -> bool:
 def _allowed_part(part: str, marks: tuple[str, ...]) -> bool:
     """Whether one comma-part of a selector is covered by an allowlist entry.
 
-    An entry matches the part exactly or as a prefix ending at a class
-    boundary: ``.themepick .sw`` covers ``.themepick .sw-bella``, and
-    ``img.plot`` does not cover ``img.plotwrap``.
+    An entry matches the part exactly, or as a prefix followed by a
+    descendant, a pseudo-class or a further class (``img.plot`` covers
+    ``img.plot:hover`` and ``img.plot .x``) — never by extending the class
+    name itself, so it does not cover ``img.plotwrap`` or ``img.plot-x``.
     """
     for mark in marks:
         if part == mark:
             return True
-        if part.startswith(mark):
-            nxt = part[len(mark)]
-            if not (nxt.isalnum() or nxt == "_"):
-                return True
+        if part.startswith(mark) and part[len(mark)] in " :.>[":
+            return True
     return False
 
 
@@ -435,7 +452,8 @@ def colour_literals(css: str, *, allowed: Iterable[str] = ()) -> list[str]:
     - a rule every one of whose selector parts is covered by an *allowed*
       entry is skipped — the caller's allowlist, each entry with a stated
       reason; ``img.plot`` covers ``img.plot`` and ``img.plot .x``, not
-      ``img.plotwrap`` and not the other half of ``img.plot, .other``.
+      ``img.plotwrap``, not ``img.plot-x``, and not the other half of
+      ``img.plot, .other``.
 
     Parameters
     ----------
@@ -545,9 +563,10 @@ def js_colour_literals(js: str) -> list[str]:
 #: script reading a token, a server-emitted sentinel, and CSS text a script
 #: builds (``cssText = "background:var(--surface-2)"``), which the old
 #: raw-text guard saw and a parser over stylesheet files alone does not.
-_TOKEN_REF_TEXT = re.compile(
-    r'getPropertyValue\(\s*["\'`](--[\w-]+)|\$tok:(--[\w-]+)|var\(\s*(--[\w-]+)'
-)
+_TOKEN_REF_TEXT = re.compile(r'getPropertyValue\(\s*["\'`](--[\w-]+)|\$tok:(--[\w-]+)')
+#: Only for text that is NOT a stylesheet: in CSS the parser finds var()
+#: uses, and a token named in a CSS comment is not a reference.
+_TOKEN_REF_JS_VAR = re.compile(r"var\(\s*(--[\w-]+)")
 
 
 def referenced_tokens(source: Union[Path, str], *, css: bool = True) -> set[str]:
@@ -563,6 +582,8 @@ def referenced_tokens(source: Union[Path, str], *, css: bool = True) -> set[str]
     names: set[str] = {
         g for m in _TOKEN_REF_TEXT.finditer(text) for g in m.groups() if g
     }
+    if not css:
+        names |= set(_TOKEN_REF_JS_VAR.findall(text))
     if css:
 
         def walk(tokens: Iterable[Any]) -> None:
