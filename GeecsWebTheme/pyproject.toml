@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "geecs-web-theme"
-version = "0.2.2"
+version = "0.4.0"
 description = "One palette vocabulary for every GEECS web surface: tokens, themes, and the picker"
 authors = ["GEECS-BELLA"]
 readme = "README.md"
@@ -8,13 +8,25 @@ packages = [{ include = "geecs_web_theme" }]
 include = ["geecs_web_theme/static/*"]
 
 [tool.poetry.dependencies]
-# No runtime dependencies on purpose. This package is a stylesheet, a small
-# script and a path helper — anything that can serve a static file can use
-# it, and nothing it serves should ever need a Python import to work.
+# No runtime dependencies without an extra, on purpose. This package is a
+# stylesheet, a small script and a path helper — anything that can serve a
+# static file can use it, and nothing it serves needs a Python import to work.
 python = ">=3.11,<3.12"
+# The `web` extra: geecs_web_theme.web — the forwarded-prefix middleware, the
+# /theme mount and the templates factory every FastAPI surface shares. Opt-in
+# so the static-only use stays dependency-free.
+fastapi = { version = ">=0.110", optional = true }
+jinja2 = { version = ">=3.1", optional = true }
+
+[tool.poetry.extras]
+web = ["fastapi", "jinja2"]
 
 [tool.poetry.group.dev.dependencies]
 pytest = ">=8.0"
+# tests/test_web.py exercises the `web` extra end to end.
+fastapi = ">=0.110"
+jinja2 = ">=3.1"
+httpx = ">=0.27"
 
 [build-system]
 requires = ["poetry-core"]

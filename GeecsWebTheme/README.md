@@ -38,10 +38,14 @@ which is a real `<dialog>`.
   current item is marked with `aria-current="page"` or
   `aria-pressed="true"` — the state is the accessibility attribute, never
   a class, so it cannot be styled-but-unannounced.
-- **Status** — `queued · running · ok · degraded · failed · unknown`, plus
+- **Status** — `queued · running · paused · ok · degraded · failed · unknown`, plus
   `agent` for *who wrote this*. Named on `data-state`; every chip is a dot
   **and** a word, so colour is never the only carrier.
 - **Pane states** — `loading · empty · error · stale · denied`.
+- **Live controls** (0.3.0) — `.live` (a reading with its age; `data-age="stale"`
+  past a threshold), `.meter` (determinate progress), `.field` validation
+  (`aria-invalid` on the control, `.err`, `.req`, disabled), `.chip.lg`, `.tscroll.sticky`,
+  and `dialog.ack` — the one widened rung 3, a list of tickable questions.
 - **The overlay ladder** — `details.disc` → `.inspector` → `.drawer` →
   `<dialog>` → a route. Take the lowest rung that fits; the decider is
   whether the user can lose work by pressing Esc.
@@ -90,8 +94,27 @@ It shows every component in the real theme at whichever palette and density
 you pick. It is the place to look before adding a component, and the place
 to argue with one.
 
-## No dependencies
+## The FastAPI glue (`web` extra)
 
-Deliberately: this package is stylesheets, two small scripts and a path
-helper. Anything that can serve a static directory can use it, and nothing
-it serves needs a Python import to work.
+Every FastAPI surface needs the same three things around the theme, so
+they live here once, in `geecs_web_theme.web`, behind the `web` extra:
+
+```python
+from geecs_web_theme.web import ForwardedPrefixMiddleware, make_templates, mount_theme
+
+app.add_middleware(ForwardedPrefixMiddleware)   # X-Forwarded-Prefix → root_path
+mount_theme(app)                                # /theme/…, named "theme" for url_for
+templates = make_templates(TEMPLATES_DIR)       # {{ root }} in every context
+```
+
+`geecs_web_theme.testing` (standard library only) carries the three
+template guards every surface's test suite runs: `bare_url_for_calls`,
+`unknown_data_states`, and `inline_scripts` + `javascript_syntax_error`
+(`node --check`).
+
+## No runtime dependencies without the extra
+
+Deliberately: the package itself is stylesheets, two small scripts and a
+path helper. Anything that can serve a static directory can use it, and
+nothing it serves needs a Python import to work. The `web` extra is
+opt-in glue for hosts that are FastAPI apps.
