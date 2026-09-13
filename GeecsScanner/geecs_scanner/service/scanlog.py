@@ -62,8 +62,18 @@ def read_scan_log(
     text = raw.decode("utf-8", errors="replace")
     end = text.rfind("\n")
     if end < 0:
+        if len(raw) < limit:
+            # A partial last line: wait for its newline.
+            return ScanLogOut(available=True, folder=folder, offset=offset)
+        # One line longer than a whole chunk: emit what we have as a
+        # (truncated) line and move on, else every poll would re-read the
+        # same bytes forever and the tail would stall in silence.
         return ScanLogOut(
-            available=True, folder=folder, offset=offset, more=len(raw) >= limit
+            available=True,
+            folder=folder,
+            offset=offset + len(raw),
+            lines=[text + " …"],
+            more=True,
         )
     complete = text[: end + 1]
     lines = complete.splitlines()

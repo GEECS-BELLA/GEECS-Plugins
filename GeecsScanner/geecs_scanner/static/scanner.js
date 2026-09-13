@@ -131,10 +131,14 @@
     var p = S.progress, h = $("recent-h");
     h.textContent = "";
     var day = p && p.day;
-    if (day && PORTAL) {
-      var a = document.createElement("a"); a.href = PORTAL + "/day/" + day; a.textContent = "Today · " + day; a.title = "the day in the Data Portal";
+    if (!day) { h.textContent = "Recent"; return; }
+    // The last run's day is "today" only until midnight.
+    var now = new Date(), iso = now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0") + "-" + String(now.getDate()).padStart(2, "0");
+    var label = (day === iso ? "Today" : "Last run") + " · " + day;
+    if (PORTAL) {
+      var a = document.createElement("a"); a.href = PORTAL + "/day/" + day; a.textContent = label; a.title = "the day in the Data Portal";
       h.appendChild(a);
-    } else h.textContent = day ? "Today · " + day : "Recent";
+    } else h.textContent = label;
   }
   function renderProgress() {
     var p = S.progress;
@@ -866,7 +870,7 @@
   $("cal-measure").addEventListener("click", function () {
     var n = parseInt($("cal-shots").value, 10) || 10, write = !!$("cal-write").value;
     $("dlg-measure-text").textContent = "Drives the trigger box OFF, waits the set quiet, then fires " + n + " single shots and reads every device's timestamp. "
-      + (write ? "The result REPLACES shot_offsets.yaml in the configs tree (a commit is still yours)." : "The result is reported only; nothing is written.");
+      + (write ? "The result REPLACES shot_offsets.yaml in the configs tree (a commit is still yours) and reaches the worker at its NEXT environment open, not this session's scans." : "The result is reported only; nothing is written.");
   });
   $("do-measure").addEventListener("click", function () {
     window.GeecsKit.confirm($("dlg-measure")).close();

@@ -324,7 +324,8 @@ class ConfigsRepoResolver:
         preset : Preset
             The validated document.  Its ``name`` is the file stem and must
             be a plain file name: letters, digits, ``_``, ``-`` and ``.``
-            (no separators, no leading dot).
+            (no separators, no leading dot).  A ``.yaml`` / ``.yml`` suffix
+            is stripped — the stem is the preset's name in the document too.
         overwrite : bool, default False
             Replace an existing preset of that name.  Off by default so a
             typo in the name cannot silently replace a curated preset.
@@ -336,7 +337,12 @@ class ConfigsRepoResolver:
             (never created here — see :meth:`write_shot_offsets`), or an
             existing preset without *overwrite*.
         """
-        name = preset.name
+        name = self._strip_yaml_suffix(preset.name)
+        if name != preset.name:
+            # ``jet.yaml`` is the file, ``jet`` the preset: the document's
+            # name must be what ``list_presets`` says and ``resolve_preset``
+            # is asked for.
+            preset = preset.model_copy(update={"name": name})
         if not _PRESET_STEM.fullmatch(name):
             raise GeecsConfigurationError(
                 f"preset name {name!r} is not a file name: use letters, digits, "

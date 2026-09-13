@@ -498,12 +498,18 @@ class ScannerService:
             if body.shots < 1:
                 raise ScannerError("invalid_request", "shots must be at least 1")
             kwargs["shots"] = body.shots
-        return self._queue_item(
+        out = self._queue_item(
             "measure_shot_offsets",
             [self._device_references(body.devices)],
             kwargs,
             what="an offset measurement",
         )
+        if body.write:
+            out.message = (out.message + " · " if out.message else "") + (
+                "a written measurement reaches the worker at its next environment "
+                "open, not immediately"
+            )
+        return out
 
     def save_preset(self, name: str, body: SavePresetIn) -> SavePresetOut:
         """Write a preset document to the configs tree as ``presets/<name>.yaml``.
@@ -515,17 +521,34 @@ class ScannerService:
         doc = dict(body.preset)
         doc["name"] = name
         preset = self._validate_preset(doc)
+        # The 409 is decided here, from the listing, so the page's "replace?"
+        # dialog does not hang on the wording of the resolver's refusal; the
+        # resolver still refuses underneath (the backstop for a race).
+        stem = (
+            name[:-5]
+            if name.endswith(".yaml")
+            else name[:-4]
+            if name.endswith(".yml")
+            else name
+        )
+        try:
+            existing = set(self.resolver.list_presets())
+        except Exception:  # noqa: BLE001 — a listing never raises in the real resolver
+            existing = set()
+        if not body.overwrite and stem in existing:
+            raise ScannerError(
+                "policy_refusal",
+                f"preset {stem!r} already exists; replace it or pick another name",
+                exists=True,
+            )
         try:
             path = self.resolver.write_preset(preset, overwrite=body.overwrite)
         except Exception as exc:  # noqa: BLE001 — GeecsConfigurationError, operator-facing
-            kind = (
-                "policy_refusal" if "already exists" in str(exc) else "invalid_request"
-            )
-            raise ScannerError(kind, str(exc), exists=kind == "policy_refusal") from exc
+            raise ScannerError("invalid_request", str(exc)) from exc
         return SavePresetOut(
-            name=name,
+            name=path.stem,
             path=str(path),
-            message=f"preset {name!r} written to {path} — review and commit it in the configs repo",
+            message=f"preset {path.stem!r} written to {path} — review and commit it in the configs repo",
         )
 
     # --------------------------------------------------------------- verbs

@@ -18,6 +18,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   not a plain file stem and, without `overwrite`, an existing preset.
   The atomic write is now one module-level primitive shared by both
   writers.
+- `geecs_bluesky.action_steps.flatten_action_steps` — the compiler's
+  flatten moved to an import-light module (schema models + this package's
+  exceptions, no bluesky) so a client that must never import
+  `geecs_bluesky.plans` previews the exact step order the worker runs
+  from the same function. `plans.action_compiler` re-exports it.
 
 ## [0.85.1] - 2026-09-13
 

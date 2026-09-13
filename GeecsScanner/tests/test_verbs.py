@@ -102,7 +102,7 @@ def test_actions_list_and_preview_inline_nested_runs(client: TestClient) -> None
     )
     assert rows["experiment_closeout"]["steps"] == 5
     assert rows["experiment_closeout"]["nested"] == ["close_shutters"]
-    assert "not in the library" in rows["broken_reference"]["problem"]
+    assert "no_such_plan" in rows["broken_reference"]["problem"]
     d = client.get("/api/actions/experiment_closeout").json()
     assert [s["do"] for s in d["steps"]] == ["set", "set", "set", "wait", "check"]
     assert [s["from_plan"] for s in d["steps"]] == [None] + ["close_shutters"] * 4
@@ -113,6 +113,14 @@ def test_actions_list_and_preview_inline_nested_runs(client: TestClient) -> None
     assert client.get("/api/actions/no_such").status_code == 404
     r = client.get("/api/actions/broken_reference")
     assert r.status_code == 400 and "no_such_plan" in r.json()["error"]["message"]
+    # a loop: the library validator lets it through, the flatten must not
+    assert "loop" in rows["loop_a"]["problem"] and "loop" in rows["loop_b"]["problem"]
+    r = client.get("/api/actions/loop_a")
+    assert (
+        r.status_code == 400
+        and "loop_a -> loop_b -> loop_a" in r.json()["error"]["message"]
+    )
+    assert client.post("/api/actions/loop_a/run").status_code == 400
 
 
 def test_run_action_queues_run_action_and_refuses_an_unresolvable_one(
@@ -206,6 +214,18 @@ def test_save_preset_writes_then_refuses_to_overwrite_unless_asked(
     )
     assert r.status_code == 200
     assert client.get("/api/configs/presets/jet_v2").json()["description"] == "second"
+
+
+def test_save_preset_exists_is_decided_from_the_listing_not_a_message(
+    client: TestClient, preset_doc: dict
+) -> None:
+    """The page's replace dialog keys on 409 + exists; that must not hang on the resolver's wording."""
+    r = client.post("/api/configs/presets/eb_align_1hz", json={"preset": preset_doc})
+    assert r.status_code == 409 and r.json()["error"]["exists"] is True
+    r = client.post(
+        "/api/configs/presets/eb_align_1hz.yaml", json={"preset": preset_doc}
+    )
+    assert r.status_code == 409  # the suffix names the same file
 
 
 def test_save_preset_refuses_an_invalid_document(client: TestClient) -> None:

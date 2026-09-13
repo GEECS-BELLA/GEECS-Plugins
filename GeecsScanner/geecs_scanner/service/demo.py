@@ -44,9 +44,8 @@ _DEMO_DEVICES = [
     "U_Hexapod",
 ]
 
-#: Queue items that open no run (``geecs_bluesky.plan_names.NON_SCAN_PLAN_NAMES``,
-#: spelled here so the demo needs no import at module load).
-_NON_RUN_PLANS = ("mv", "run_action", "check_shot_sync", "measure_shot_offsets")
+#: Queue items that open no run — the worker's own tuple.
+from geecs_bluesky.plan_names import NON_SCAN_PLAN_NAMES as _NON_RUN_PLANS  # noqa: E402
 
 
 def _nonrun_report(item: dict) -> str:
@@ -233,6 +232,20 @@ class DemoResolver:
                     "steps": [{"do": "run", "plan": "no_such_plan"}],
                 }
             ),
+            # The library validator refuses unknown names but not loops;
+            # the shared flatten is the one guard, exercised here.
+            "loop_a": ActionPlan.model_validate(
+                {
+                    "description": "Runs loop_b",
+                    "steps": [{"do": "run", "plan": "loop_b"}],
+                }
+            ),
+            "loop_b": ActionPlan.model_validate(
+                {
+                    "description": "Runs loop_a",
+                    "steps": [{"do": "run", "plan": "loop_a"}],
+                }
+            ),
         }
 
     def resolve_action_plan(self, name: str) -> Any:
@@ -366,7 +379,8 @@ class DemoQueueClient:
         # a scan.log there the way the worker does, so the page's scan.log
         # tail has something to show.  Sample content in a temp dir — never
         # the data tree.
-        self._root = Path(tempfile.mkdtemp(prefix="geecs-scanner-demo-"))
+        self._tmp = tempfile.TemporaryDirectory(prefix="geecs-scanner-demo-")
+        self._root = Path(self._tmp.name)  # removed with this instance
         self._log: Optional[Path] = None
         if period > 0:
             threading.Thread(

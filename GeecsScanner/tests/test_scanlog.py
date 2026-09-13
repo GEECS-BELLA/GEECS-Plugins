@@ -39,6 +39,22 @@ def test_reader_restarts_when_the_file_shrank_and_bounds_a_chunk(
     assert read_scan_log(str(tmp_path), 5000).lines == ["fresh"]
 
 
+def test_a_line_longer_than_a_chunk_does_not_stall_the_tail(tmp_path: Path) -> None:
+    log = tmp_path / "scan.log"
+    log.write_text("x" * 500 + "\nnext\n")
+    first = read_scan_log(str(tmp_path), 0, limit=100)
+    assert first.lines == ["x" * 100 + " …"] and first.offset == 100 and first.more
+    # the cursor advances every call; the rest of the long line and the next line arrive
+    out, offset = [], first.offset
+    for _ in range(10):
+        chunk = read_scan_log(str(tmp_path), offset, limit=100)
+        if chunk.offset == offset:
+            break
+        offset = chunk.offset
+        out += chunk.lines
+    assert out[-1] == "next" and offset == log.stat().st_size
+
+
 def test_reader_never_creates_anything(tmp_path: Path) -> None:
     missing = tmp_path / "Scan999"
     out = read_scan_log(str(missing), 0)

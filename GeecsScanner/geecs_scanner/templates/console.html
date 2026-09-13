@@ -275,12 +275,12 @@
         </header>
         <div class="body">
           <div class="grid tight">
-            <div class="live"><span class="k">shot offsets</span><span class="v" id="cal-devices">—</span><span class="age" id="cal-when"></span></div>
+            <div class="live" title="What the file in the configs tree says — the worker seeds offsets when its environment opens"><span class="k">shot offsets · file</span><span class="v" id="cal-devices">—</span><span class="age" id="cal-when"></span></div>
             <div class="live"><span class="k">max offset</span><span class="v" id="cal-max">—</span><span class="age" id="cal-max-dev"></span></div>
           </div>
           <div class="fields">
             <div class="field"><label for="cal-shots">shots to average</label><input id="cal-shots" type="number" min="1" step="1" value="10"><span class="hint">measure only</span></div>
-            <div class="field"><label for="cal-write">store the result</label><select id="cal-write"><option value="">report only</option><option value="1">write shot_offsets.yaml</option></select><span class="hint">a written file still needs a commit</span></div>
+            <div class="field"><label for="cal-write">store the result</label><select id="cal-write"><option value="">report only</option><option value="1">write shot_offsets.yaml</option></select><span class="hint">a written file needs a commit, and reaches the worker at its next environment open</span></div>
           </div>
           <p class="dim note" id="cal-set">Over the devices in the New scan table.</p>
         </div>
