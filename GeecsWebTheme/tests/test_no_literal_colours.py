@@ -639,3 +639,30 @@ def test_reference_page_demonstrates_only_what_the_kit_provides() -> None:
         f"kit.html shows {missing} but nothing styles them — either the kit "
         "owes the component or the page should not be demonstrating it"
     )
+
+
+def test_hidden_survives_the_components() -> None:
+    """``[hidden]`` outranks every component rule that sets ``display``.
+
+    The browser's ``[hidden]{display:none}`` is a user-agent rule, so any
+    author rule setting ``display`` beats it. This file sets ``display``
+    on a dozen components, so without an explicit rule a
+    ``<button class="btn" hidden>`` renders — which shipped: the
+    logbook's Discard button, meant to appear only after an attachment
+    autosaves, was visible from page load and inert when pressed.
+
+    The rule must come BEFORE the components it protects only if it were
+    equal-specificity; it carries ``!important``, so what actually matters
+    is that it exists at all. Both are asserted, because a future edit
+    that drops the ``!important`` should not silently re-open this.
+    """
+    css = _KIT_CSS.read_text()
+    m = re.search(r"\.kit \[hidden\]\{([^}]*)\}", css)
+    assert m, "kit.css must carry a [hidden] rule — see the docstring"
+    assert "display:none" in m.group(1).replace(" ", "")
+    assert "!important" in m.group(1)
+    # ahead of the first component that sets its own display
+    first_display = re.search(r"\.kit \.[\w-]+\{[^}]*display:", css)
+    assert first_display and m.start() < first_display.start(), (
+        "the [hidden] rule sits after a component that sets display"
+    )

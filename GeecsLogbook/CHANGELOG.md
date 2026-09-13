@@ -4,6 +4,66 @@ All notable changes to `geecs-logbook` are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 project adheres to semantic versioning.
 
+## [0.9.0] - 2026-09-12
+
+### Added
+
+- **Every entry is collapsible, in both books** — the scan log and the ops
+  book. `<details>` was added for scan blocks and never generalised, so the
+  scan log could fold a scan but not a note, and the ops book could fold
+  nothing at all. Open by default (the notes are what you came to read);
+  Collapse All shuts them. A shut entry shows `LogEntry.summary`.
+- **The ops book has a Collapse All button**, which it never had — so
+  carrying this across meant building the control, not porting one. It
+  shares the scan log's stored preference: how dense a logbook reads is one
+  preference, not two.
+- **One way to add a note, everywhere.** Each anchor — a scan, a gap, the
+  day — renders its entries, then a `+ note` affordance with the composer
+  folded behind it. Close or `Esc` folds it away and the affordance returns;
+  nothing typed is lost, because the form stays in the DOM.
+- The **density control** is on both pages. It had been built, tested and
+  pinned across three files, and wired into no template at all — reachable
+  from nowhere since it was written.
+
+### Removed
+
+- **The scan filter.** It matched on scan label, parameter, purpose and
+  devices, so typing anything from a *note* hid the whole page, and it
+  caused three regressions in one day. Ctrl-F searches note bodies too,
+  which is what a reader actually wants. Gone with it: the search box, the
+  handler, the `data-hay` plumbing on scans, `data-filtered`, and the
+  `scan_hay` macro.
+
+  The **ops book's filter stays** — it searches note *bodies*, which is why
+  it works and the scan one did not. They were never the same feature.
+
+### Fixed
+
+- **A composer that could not be closed.** A gap with no notes hid its
+  composer behind "+ note"; a gap that already had notes rendered one
+  **permanently** — twenty-two open text boxes on a busy day, with no
+  affordance and no host, so the Close button added for the first case
+  correctly did nothing in the second. The asymmetry is gone rather than
+  patched, which also collapsed `between_block` to two lines.
+- **Notes were uncollapsible**: `scanlog.css` carried `.entry{display:grid}`
+  from when an entry was an `<article>` laid out as avatar-plus-body.
+  Setting `display` on a `<details>` makes the browser lay out every child
+  regardless of `open` — no error, it simply stops being a disclosure.
+  There were two `.entry` rules in that file and only the second was
+  updated.
+- **The page's inline script was a syntax error.** Deleting the filter left
+  its closing `});` behind, so the browser refused to execute the block and
+  Collapse All *and* the rail jump died together. 217 tests were green.
+
+### Changed
+
+- New guards, each verified by mutation: every inline `<script>` in every
+  template parses (`node --check`, Jinja blanked); no `<details>` is given a
+  `display`; and the single-class-variant ordering rule now only considers
+  classes that actually land on the **same element**, after flagging
+  `.entry-body` as a variant of `.entry` — a guard that cries wolf gets
+  switched off.
+
 ## [0.8.0] - 2026-09-12
 
 ### Removed

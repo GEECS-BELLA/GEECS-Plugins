@@ -7,7 +7,11 @@ deployment nobody runs locally.
 
 from __future__ import annotations
 
+import os
 import re
+import shutil
+import subprocess
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -73,24 +77,144 @@ def test_a_single_class_variant_is_declared_after_its_base() -> None:
     decides — a variant declared first is silently overridden by the base
     it exists to vary. That shipped once: ``.tag-retired`` landed above
     ``.tag`` and the retired-template name rendered accent-coloured,
-    pixel-identical to the real tag beside it, which was the exact
-    confusion the class was added to remove. Markup assertions cannot see
-    it because the markup is correct.
+    pixel-identical to the real tag beside it. Markup assertions cannot
+    see it, because the markup is correct.
+
+    The rule only applies to classes that actually land on the SAME
+    element. A first version keyed on the name alone and flagged
+    ``.entry-body`` as a variant of ``.entry`` — they share a prefix but
+    never a element, so ordering them is meaningless, and a guard that
+    cries wolf gets switched off. So: read the pairs out of the markup.
     """
+    together: set[tuple[str, str]] = set()
+    for template in _TEMPLATES:
+        for attr in re.finditer(r'class="([^"]*)"', template.read_text()):
+            names = [w for w in attr.group(1).split() if not w.startswith("{")]
+            for name in names:
+                for other in names:
+                    if other != name and name.startswith(other + "-"):
+                        together.add((f".{name}", f".{other}"))
+
     css = re.sub(r"/\*.*?\*/", " ", _CSS.read_text(), flags=re.S)
     first: dict[str, int] = {}
-    for m in re.finditer(r"(?:^|[};])\s*([^{};]+?)\s*\{", css):
+    for m in re.finditer(r"(?:^|(?<=[};]))\s*([^{};]+?)\s*\{", css):
         for part in (s.strip() for s in m.group(1).split(",")):
             if re.fullmatch(r"\.[\w-]+", part):
                 first.setdefault(part, m.start(1))
+
     inverted = [
-        (sel, base)
-        for sel, pos in first.items()
-        if (base := sel.rsplit("-", 1)[0]) != sel
-        and base in first
-        and first[base] > pos
+        (variant, base)
+        for variant, base in sorted(together)
+        if variant in first and base in first and first[base] > first[variant]
     ]
     assert not inverted, (
-        "declared before the rule they vary, so the base wins on source "
-        f"order: {inverted}"
+        "declared before the rule they vary, and they share an element so "
+        f"source order decides: {inverted}"
     )
+
+
+def test_no_collapsible_element_is_given_a_display() -> None:
+    """A ``<details>`` must keep its default ``display``, or it never folds.
+
+    Setting ``display`` on the element itself — grid, flex, anything but
+    block — makes the browser lay out every child regardless of ``open``,
+    so the thing renders permanently expanded and clicking does nothing.
+    There is no error and no warning; it simply stops being a disclosure.
+
+    This shipped. ``scanlog.css`` carried ``.entry{display:grid}`` from
+    when an entry was an ``<article>`` laid out as avatar-plus-body. When
+    entries became ``<details>`` the rule stayed, and every note on the
+    page was uncollapsible — reported by the owner, invisible to 216
+    passing tests, because the markup was correct and only the rendering
+    was wrong.
+
+    The classes here are the ones the templates put on a ``<details>``.
+    """
+    collapsible = set()
+    for template in _TEMPLATES:
+        for m in re.finditer(r"<details[^>]*?class=\"([^\"]*)\"", template.read_text()):
+            # the attribute carries Jinja — `class="entry{% if %} entry-agent{% endif %}"`
+            # — so blank the expressions and keep the literal words. A first
+            # version required a Jinja-free attribute and therefore skipped
+            # the one element this test exists to protect.
+            literal = re.sub(r"\{[%{].*?[%}]\}", " ", m.group(1), flags=re.S)
+            collapsible |= {w for w in literal.split() if w}
+    assert "entry" in collapsible, f"expected the entry among {collapsible}"
+
+    # Lookbehind, not a consuming class: re.finditer resumes after the
+    # previous match, so a `}` matched as an anchor is eaten and the NEXT
+    # rule has none — every second rule goes unexamined. That flaw shipped
+    # once already in the kit's scoping test, found by review; this is the
+    # same mistake in a different file, found by the owner reporting that
+    # a fix did not work.
+    css = re.sub(r"/\*.*?\*/", " ", _CSS.read_text(), flags=re.S)
+    offenders = []
+    for m in re.finditer(r"(?:^|(?<=[};]))\s*([^{};]+?)\s*\{([^}]*)\}", css):
+        body = m.group(2).replace(" ", "")
+        if "display:" not in body:
+            continue
+        for part in (s.strip() for s in m.group(1).split(",")):
+            # a selector matching the <details> ELEMENT itself, not a descendant
+            bare = re.fullmatch(r"(?:details)?\.([\w-]+)(?:\[[^\]]*\])?", part)
+            if bare and bare.group(1) in collapsible:
+                offenders.append((part, body[:40]))
+    assert not offenders, (
+        f"these set display on a <details>, which stops it collapsing: {offenders}"
+    )
+
+
+@pytest.mark.parametrize("template", _TEMPLATES, ids=lambda p: p.name)
+def test_inline_scripts_parse(template: Path) -> None:
+    """A page's inline ``<script>`` is syntactically valid JavaScript.
+
+    Nothing else checks this. A template renders fine, every router test
+    passes, and the browser silently refuses to execute a block with a
+    syntax error — so every behaviour in it dies at once and the suite
+    says nothing.
+
+    That shipped: deleting the scan filter removed the handler's body and
+    left its closing ``});`` behind, which broke Collapse All and the rail
+    jump on the same page. 217 tests were green. The owner found it by
+    clicking a button.
+
+    Jinja is blanked to a string literal before parsing — this checks the
+    JavaScript's shape, not what any particular render produces.
+    """
+    # Jinja comments first: `{# … a <script> body is raw text … #}` mentions
+    # the tag, and an extractor that does not blank comments starts a match
+    # inside one and swallows the real script after it.
+    text = re.sub(r"\{#.*?#\}", " ", template.read_text(), flags=re.S)
+    # (attributes, body) — a <script type="application/json"> carries a data
+    # payload, not code, and node would choke on it. Judge by the type
+    # attribute, never by inspecting the body: the first version of this
+    # test wrote `"application/json" not in b[:0]`, which tests the empty
+    # string and is therefore always true.
+    blocks = re.findall(r"<script(?![^>]*\bsrc=)([^>]*)>(.*?)</script>", text, re.S)
+    scripts = [
+        body
+        for attrs, body in blocks
+        if body.strip()
+        and not re.search(r'type\s*=\s*"(?!text/javascript|module)', attrs)
+    ]
+    if not scripts:
+        pytest.skip("no inline script in this template")
+
+    node = shutil.which("node")
+    if node is None:  # pragma: no cover - CI and dev machines have it
+        pytest.skip("node not available to parse JavaScript")
+
+    for i, block in enumerate(scripts):
+        code = re.sub(r"\{\{.*?\}\}|\{%.*?%\}", '"jinja"', block, flags=re.S)
+        with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as fh:
+            fh.write(code)
+            path = fh.name
+        try:
+            done = subprocess.run(
+                [node, "--check", path], capture_output=True, text=True
+            )
+        finally:
+            os.unlink(path)
+        assert done.returncode == 0, (
+            f"{template.name} inline script #{i + 1} does not parse:\n"
+            + done.stderr.strip()
+        )

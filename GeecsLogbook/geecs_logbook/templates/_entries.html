@@ -26,27 +26,42 @@
 
 {# `hay` adds the filter haystack — only the month page filters entries,
    so the day page does not carry a third copy of every body. #}
+{# Every entry is collapsible, in BOTH books. It was not, and the asymmetry
+   was an accident of history: <details> was added for scan blocks and never
+   generalised, so the scan log could fold a scan but not a note, and the ops
+   book could fold nothing at all.
+
+   Open by default — the notes are what you came to read — and Collapse All
+   shuts them. The summary row is the head that was always there plus
+   `entry.summary`, the first line of prose with its markdown stripped, so a
+   shut entry says what it is rather than just who wrote it and when.
+
+   Edit/Delete stay in the summary. A click inside a <summary> toggles it,
+   so editor.js calls preventDefault on those. #}
 {% macro entry_article(r, writable, seeds, hay=false) %}
-    <article class="entry{% if r.entry.kind.startswith('agent') %} entry-agent{% endif %}"
+    <details class="entry{% if r.entry.kind.startswith('agent') %} entry-agent{% endif %}" open
              id="entry-{{ r.entry.entry_id }}"
              data-entry="{{ r.entry.entry_id }}" data-version="{{ r.entry.version }}"
              {%- if hay %} data-hay="{{ (r.entry.author ~ ' ' ~ r.entry.body_md ~ ' ' ~ r.entry.tags | join(' ')) | lower }}"{% endif %}>
-      <div class="avatar{% if r.entry.kind.startswith('agent') %} avatar-agent{% endif %}">{{ r.entry.author | initials }}</div>
+      <summary class="entry-head">
+        <span class="twisty" aria-hidden="true"></span>
+        <span class="avatar{% if r.entry.kind.startswith('agent') %} avatar-agent{% endif %}">{{ r.entry.author | initials }}</span>
+        <span class="author">{{ r.entry.author }}</span>
+        {% if r.entry.kind.startswith('agent') %}
+          <span class="chip" data-state="agent">{{ 'agent · draft' if r.entry.status == 'draft' else 'agent' }}</span>
+        {% endif %}
+        {{ template_chip(r.entry, seeds) }}
+        <span class="stamp" title="{{ r.entry.created_at.isoformat() }}">{{ r.entry.created_at.astimezone().strftime('%H:%M') }}{% if r.entry.edited_at %} · edited{% if r.entry.edited_by and r.entry.edited_by != r.entry.author %} by {{ r.entry.edited_by }}{% endif %}{% endif %}</span>
+        {# Shown only when shut: open, the body says it better. #}
+        <span class="entry-summary">{{ r.entry.summary }}</span>
+        {% if writable %}
+        <span class="entry-tools">
+          <button class="linkbtn" type="button" data-edit="{{ r.entry.entry_id }}">Edit</button>
+          <button class="linkbtn" type="button" data-del="{{ r.entry.entry_id }}">Delete</button>
+        </span>
+        {% endif %}
+      </summary>
       <div class="entry-main">
-        <div class="entry-head">
-          <span class="author">{{ r.entry.author }}</span>
-          {% if r.entry.kind.startswith('agent') %}
-            <span class="chip" data-state="agent">{{ 'agent · draft' if r.entry.status == 'draft' else 'agent' }}</span>
-          {% endif %}
-          {{ template_chip(r.entry, seeds) }}
-          <span class="stamp" title="{{ r.entry.created_at.isoformat() }}">{{ r.entry.created_at.astimezone().strftime('%H:%M') }}{% if r.entry.edited_at %} · edited{% if r.entry.edited_by and r.entry.edited_by != r.entry.author %} by {{ r.entry.edited_by }}{% endif %}{% endif %}</span>
-          {% if writable %}
-          <span class="entry-tools">
-            <button class="linkbtn" type="button" data-edit="{{ r.entry.entry_id }}">Edit</button>
-            <button class="linkbtn" type="button" data-del="{{ r.entry.entry_id }}">Delete</button>
-          </span>
-          {% endif %}
-        </div>
         {% if r.entry.status == 'draft' %}
         <div class="draftnote">Draft &mdash; nobody has reviewed this.
           {% if writable %}<button class="linkbtn" type="button" data-keep="{{ r.entry.entry_id }}">Keep in log</button>{% endif %}
@@ -57,7 +72,7 @@
            entities would come back literally into the editor. #}
         <script type="application/json" class="raw">{{ r.entry.body_md | tojson }}</script>
       </div>
-    </article>
+    </details>
 {% endmacro %}
 
 {% macro types_row(seeds) -%}
@@ -78,7 +93,7 @@
   month page puts its date picker there.
 #}
 {% macro composer(seeds, scan=none, after=none, day=none, rows=3,
-                  placeholder='Add a note… Markdown works.') %}
+                  placeholder='Add a note… Markdown works.', anchor=none) %}
     <form class="composer" data-scan="{{ scan if scan is not none else '' }}"
           data-after="{{ after if after is not none else '' }}"
           {%- if day %} data-day="{{ day }}"{% endif %}>
@@ -90,6 +105,15 @@
           {% if caller %}{{ caller() }}{% endif %}
           <input class="who" placeholder="Your name" required aria-label="Your name">
           <button class="btn sm primary" type="submit">Save</button>
+          {# Only the between-scan composer can be closed: the day-level and
+             scan-level ones are part of the document, always there. This one
+             was opened by "+ note after …" and had no way back — an abandoned
+             one stayed on screen until the page was reloaded. Closing is
+             non-destructive: the form stays in the DOM, so anything typed is
+             still there if it is reopened. #}
+          {% if anchor %}
+          <button class="btn sm" type="button" data-close-composer="{{ anchor }}">Close</button>
+          {% endif %}
           <span class="editor-hint">&#8984;&#8629; saves &middot; paste or drop a screenshot</span>
         </div>
       </div>

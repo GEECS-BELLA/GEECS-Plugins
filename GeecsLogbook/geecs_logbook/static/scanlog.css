@@ -11,9 +11,6 @@
    page holds on either ground. */
 
 svg{display:block;max-width:100%}
-.searchbox{display:flex;align-items:center;gap:8px;border:1px solid var(--rule);border-radius:var(--r);background:var(--paper);padding:5px 10px;flex:1 1 200px;max-width:340px}
-.searchbox input{border:0;background:transparent;color:var(--ink);font:inherit;font-size:13px;width:100%;outline:none}
-.searchbox svg{flex:none;opacity:.5}
 .day .n{font-family:var(--ff-mono);font-size:11px;opacity:.75;font-variant-numeric:tabular-nums}
 /* .picklist aligns to the baseline; a row that leads with a status dot
    wants its items centred on it instead. */
@@ -56,9 +53,8 @@ svg{display:block;max-width:100%}
 .fig{border:1px solid var(--rule);border-radius:4px;overflow:hidden;background:var(--surface)}
 .fig figcaption{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 9px;border-top:1px solid var(--rule-soft);font-family:var(--ff-mono);font-size:10.5px;color:var(--muted)}
 .entries{display:flex;flex-direction:column}
-.entry{display:grid;grid-template-columns:26px minmax(0,1fr);gap:11px;padding:14px 16px}
+
 .avatar{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;font-family:var(--ff-mono);font-size:10.5px;font-weight:600;background:var(--surface-2);color:var(--slate);border:1px solid var(--rule)}
-.entry-head{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;margin-bottom:5px}
 .author{font-size:13px;font-weight:600}
 .stamp{font-family:var(--ff-mono);font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
 .entry-body{font-family:var(--ff-prose);font-size:15px;line-height:1.6;color:var(--ink);overflow-wrap:anywhere}
@@ -110,7 +106,23 @@ details.scan[open] > .scanhead .twisty{transform:rotate(45deg)}
 
 /* ---- entries: the commentary half ---- */
 .entries{display:flex;flex-direction:column;border-top:1px solid var(--rule-soft)}
-.entry,.composer{display:grid;grid-template-columns:26px minmax(0,1fr);gap:11px;padding:13px 16px}
+.composer{display:grid;grid-template-columns:26px minmax(0,1fr);gap:11px;padding:13px 16px}
+/* An entry is a <details>: the head is its <summary> row, the body sits
+   beneath. The avatar moved into the head, so the old two-column grid
+   (avatar | everything) is gone. */
+.entry{padding:0}
+.entry > .entry-main{padding:0 16px 13px 53px}
+.entry-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+  padding:13px 16px;cursor:pointer;list-style:none;user-select:none;margin:0}
+.entry-head::-webkit-details-marker{display:none}
+.entry-head:hover{background:var(--surface-2)}
+.entry-head:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.entry[open] > .entry-head .twisty{transform:rotate(45deg)}
+/* The summary line stands in for the body, so it is only wanted when the
+   body is not there to read. */
+.entry-summary{font-size:12.5px;color:var(--muted);overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap;flex:1 1 120px;min-width:0}
+.entry[open] > .entry-head .entry-summary{display:none}
 .entry + .entry,.entries > .composer{border-top:1px solid var(--rule-soft)}
 .entry-agent{background:var(--agent-soft)}
 .avatar{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;
@@ -119,7 +131,6 @@ details.scan[open] > .scanhead .twisty{transform:rotate(45deg)}
 .avatar-agent{background:transparent;border-color:var(--agent-rule);color:var(--agent)}
 .avatar-you{color:var(--muted)}
 .entry-main{min-width:0}
-.entry-head{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;margin-bottom:5px}
 .author{font-size:13px;font-weight:600}
 .stamp{font-family:var(--ff-mono);font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
 .entry-tools{margin-left:auto;display:flex;gap:4px;opacity:0;transition:opacity .12s}
@@ -186,13 +197,7 @@ details.scan[open] > .scanhead .twisty{transform:rotate(45deg)}
    rule that followed it: a dangling `.insert[hidden],` swallowed the NEXT
    rule's block, so a hidden insert row inherited display:flex and stayed
    on screen. There is no global [hidden]{display:none} to fall back on. */
-.insert[hidden],.betweens[hidden]{display:none}
-/* The filter uses its OWN channel. editor.js writes `hidden` on an insert
-   row to mean "this one has been used"; a filter that also wrote `hidden`
-   un-hid every used row the moment the box was cleared, putting the
-   affordance back above the composer it had just opened. Two meanings,
-   two attributes. */
-#logbook [data-filtered]{display:none}
+.insert[hidden]{display:none}
 
 /* the editor: toolbar, preview, drop target, and the image grid */
 .toolbar{display:flex;gap:2px;flex-wrap:wrap;margin-bottom:5px}

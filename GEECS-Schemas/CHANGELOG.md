@@ -5,6 +5,29 @@ All notable changes to GEECS-Schemas are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.23.0] - 2026-09-12
+
+### Added
+
+- `LogEntry.summary` — the one-line stand-in an entry shows when it is
+  collapsed. Every entry in every logbook is now collapsible, which only
+  works if the shut state says something worth reading; otherwise a closed
+  note is an author and a timestamp and the reader opens all of them to
+  find one. So the summary is part of what an entry *is*, not something a
+  view invents.
+
+  **Derived, never asked for.** A title field would make the writer name a
+  thing before they could type it, and would be empty for every entry
+  already written — the ceremony this design refuses elsewhere. Derived
+  but steerable: start with a markdown heading and that heading becomes
+  the summary.
+
+  Fenced code blocks are skipped whole (a summary reading `import os` is
+  worse than none); a callout keeps its text but loses its `[!NOTE]`
+  marker; **underscores survive**, because they are markdown emphasis and
+  also inside every GEECS device name, and `UC_Amp3_IR_input` matters more
+  than a stray `_`.
+
 ## [0.22.0] - 2026-09-11
 
 ### Added

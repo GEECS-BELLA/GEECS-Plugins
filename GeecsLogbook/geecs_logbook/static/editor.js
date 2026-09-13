@@ -216,7 +216,7 @@
    *  edit, on the article too, so a Cancel-then-Edit does not start stale. */
   function noteVersion(form, version) {
     form.dataset.version = String(version);
-    const art = form.closest("article");
+    const art = form.closest("[data-entry]");
     if (art && art.dataset.entry === form.dataset.entry) art.dataset.version = String(version);
   }
 
@@ -411,6 +411,27 @@
     });
   }
 
+  /* Fold a composer away and put its affordance back. Nothing is
+     destroyed — the form keeps its text, so reopening restores it. */
+  function closeComposer(anchor) {
+    const host = document.querySelector(`[data-compose-host="${anchor}"]`);
+    const row = document.querySelector(`[data-insert="${anchor}"]`);
+    if (host) host.hidden = true;
+    if (row) row.hidden = false;
+  }
+
+  /* Esc folds an open composer away, wherever it is. Safe because closing
+     keeps the text: the form stays in the DOM, so reopening restores what
+     was typed. Reached through the host rather than the form's anchor —
+     one lookup, and it cannot go stale when the anchor scheme changes. */
+  document.addEventListener("keydown", (ev) => {
+    if (ev.key !== "Escape") return;
+    const host = ev.target.closest && ev.target.closest("[data-compose-host]");
+    if (!host || host.hidden) return;
+    ev.preventDefault();
+    closeComposer(host.dataset.composeHost);
+  });
+
   function discard(form) {
     if (!form.dataset.entry) return Promise.resolve();
     return exclusive(form, async () => {
@@ -455,9 +476,19 @@
 
   document.addEventListener("click", async (ev) => {
     const b = ev.target.closest("button"); if (!b) return;
+    /* An entry's head is a <summary>, and any click inside one toggles the
+       <details>. The tools live there on purpose — you should be able to
+       edit without opening first — so they stop the toggle. */
+    if (b.closest("summary")) ev.preventDefault();
+    /* Put the affordance back and fold the composer away. Nothing is
+       destroyed — the form keeps its text, so reopening restores it. */
+    if (b.dataset.closeComposer !== undefined) {
+      closeComposer(b.dataset.closeComposer);
+      return;
+    }
     if (b.closest("[data-insert]")) {
       const after = b.closest("[data-insert]").dataset.insert;
-      const hostEl = document.querySelector(`[data-between-host="${after}"]`);
+      const hostEl = document.querySelector(`[data-compose-host="${after}"]`);
       if (hostEl) {
         hostEl.hidden = false; b.closest("[data-insert]").hidden = true;
         const ta = hostEl.querySelector(".ta"); if (ta) ta.focus();
