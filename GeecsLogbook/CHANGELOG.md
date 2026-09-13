@@ -17,10 +17,11 @@ project adheres to semantic versioning.
   the day list and the scan list are both `.picklist`.
 - **One status vocabulary.** The nine `chip-*` / `dot-*` classes are gone.
   `KIT_STATE` in `models.py` maps each `ScanStatus` onto a kit state, and
-  the chip keeps its own word: `success` reads ok, `failed` reads failed,
-  and `aborted` and `incomplete` share `degraded` — both finished with
-  less than was asked — while still writing "aborted" or "not finalised"
-  on the chip. Colour carries severity, text carries which.
+  the chip keeps its own word. The mapping is deliberately not the
+  identity: `incomplete` (an empty `ScanEndInfo`, the most common state on
+  the real share) stays neutral, because painting it amber painted most of
+  a day amber; `unknown` (something was written and we cannot read it) is
+  the case that earns amber. Colour carries severity, text carries which.
 - A **tag is no longer a `.chip`.** It was borrowing the status chip,
   whose leading dot means *state*, which a tag is not; it gets `.tag`.
 - The active day in the rail is marked with `aria-current="page"` rather

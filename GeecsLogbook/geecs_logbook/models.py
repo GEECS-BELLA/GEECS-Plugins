@@ -20,11 +20,17 @@ ScanStatus = Literal["success", "failed", "aborted", "incomplete", "unknown"]
 #: How a scan status maps onto the kit's shared status vocabulary
 #: (:data:`geecs_web_theme.STATES`), which is what drives the chip colour.
 #:
-#: Two statuses share a colour and nothing is lost by it, because the chip
-#: keeps its own *word*: an aborted scan and an incomplete one are both
-#: "finished with less than asked", which is exactly what ``degraded``
-#: means, and the reader still sees "aborted" or "not finalised" written on
-#: the chip. Colour carries severity; text carries which.
+#: The mapping is deliberately NOT the identity on two names, and the
+#: reason is in "Status is reported, not inferred" in this package's
+#: CLAUDE.md. ``incomplete`` — an empty ``ScanEndInfo`` — is the most
+#: common state on the real share, so painting it amber painted most of a
+#: day amber; it is an absence of information, which is what the kit's
+#: ``unknown`` means. Our ``unknown`` is the opposite case: something WAS
+#: written and we cannot read it, which earns the amber.
+#:
+#: Nothing is lost where two statuses do share a colour, because the chip
+#: keeps its own *word* — the reader still sees "aborted" or "not
+#: finalised" written on it. Colour carries severity; text carries which.
 #:
 #: ``tests/test_models.py`` pins every value to a real kit state and every
 #: :data:`ScanStatus` to an entry here, so adding a status without deciding
