@@ -343,7 +343,7 @@ class TestBooks:
     """Two books, one store."""
 
     def test_default_book_is_scans(self, store: NotesStore) -> None:
-        """Existing callers get the campaign record."""
+        """Existing callers get the per-scan record."""
         assert store.create(day=DAY, scan=1, author="a", body_md="x").book == "scans"
 
     def test_ops_is_day_level_only(self, store: NotesStore) -> None:
@@ -409,7 +409,7 @@ class TestQuery:
         )
 
     def test_scan_anchored_can_be_hidden(self, store: NotesStore) -> None:
-        """The month page's default: the campaign record stays out of the way."""
+        """The month page's default: the per-scan record stays out of the way."""
         self._seed(store)
         day_level = store.query(
             day_from="2026-09-01", day_to="2026-09-30", include_scan_anchored=False

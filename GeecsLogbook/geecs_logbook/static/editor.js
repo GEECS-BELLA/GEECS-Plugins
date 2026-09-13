@@ -459,7 +459,7 @@
       const after = b.closest("[data-insert]").dataset.insert;
       const hostEl = document.querySelector(`[data-between-host="${after}"]`);
       if (hostEl) {
-        hostEl.hidden = false; hostEl.open = true; b.closest("[data-insert]").hidden = true;
+        hostEl.hidden = false; b.closest("[data-insert]").hidden = true;
         const ta = hostEl.querySelector(".ta"); if (ta) ta.focus();
       }
       return;

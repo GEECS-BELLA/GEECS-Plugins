@@ -23,6 +23,11 @@ Usage
 ::
 
     poetry run python scripts/seed_demo_notes.py /tmp/demo-notes.db
+
+The scan folders for ``DAY`` must be reachable for the scan-anchored
+entries to appear: an anchor naming a scan the day does not contain is
+stored and counted but never drawn. The day-level entry always renders,
+so it is the check that seeding worked.
     poetry run geecs-portal --scan-log --notes-db /tmp/demo-notes.db
 """
 
@@ -41,6 +46,21 @@ DAY = "2026-09-12"
 #: set, which the store enforces: an entry is anchored to a scan or after
 #: one, never both.
 ENTRIES: list[tuple[int | None, int | None, str, str]] = [
+    # A day-level entry, anchored to neither a scan nor a gap. It is the one
+    # shape that renders whether or not the share is reachable, so it is the
+    # signal that seeding worked: every other entry here hangs off a scan
+    # number, and an anchor naming a scan the day folder does not contain is
+    # accepted, counted in "Notes N", and never drawn.
+    (
+        None,
+        None,
+        "demo",
+        "> [!NOTE] Seeded example day\n"
+        "> Written by `scripts/seed_demo_notes.py`, not by a person.\n\n"
+        "Native-Bluesky phase-2b acceptance. If the scan blocks below are "
+        "missing, the data share for this day is not reachable from here — "
+        "the notes are stored either way.",
+    ),
     # --- the A1 gap: two failures, then a pass, with 18 minutes in between
     (
         None,
@@ -110,8 +130,15 @@ ENTRIES: list[tuple[int | None, int | None, str, str]] = [
 
 
 def seed(db_path: Path) -> int:
-    """Write the example entries into ``db_path`` and return how many."""
+    """Write the example entries into ``db_path`` and return how many.
+
+    Refuses a database that already holds entries: calling this twice on
+    one path silently doubles every row, and the CLI's ``exists()`` guard
+    does not cover an import.
+    """
     store = NotesStore(db_path)
+    if store.for_day(DAY):
+        raise ValueError(f"{db_path} already holds entries for {DAY}")
     for scan, after, author, body in ENTRIES:
         store.create(day=DAY, author=author, body_md=body, scan=scan, after=after)
     return len(ENTRIES)

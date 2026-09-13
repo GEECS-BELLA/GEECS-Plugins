@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import re
+
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -461,19 +463,51 @@ class TestLongDay:
     The grouped view this replaced inferred which scans belonged together
     from two matching fields. That is interpretation, and the logbook's
     rule is that it reports what the files say. What survives is the only
-    honest part of the old behaviour: past a certain number of scans the
-    day is easier to read as a closed list.
+    honest part of the old behaviour: past a threshold the day is easier
+    to read as a closed list.
+
+    The first version of this class took the four-scan fixture, so ``many``
+    was false in every test and it asserted nothing about collapsing at
+    all — replacing the threshold with a literal ``false`` left the whole
+    suite green. It needs a day that actually crosses the line.
     """
 
-    def test_a_long_day_renders_every_scan_at_the_top_level(
-        self, client: TestClient
-    ) -> None:
-        """No wrapper groups them; each scan is its own block."""
-        html = client.get("/log/day/2026-09-11").text
-        assert "campaign" not in html
-        assert html.count('<details class="panel scan"') == 4
+    @pytest.fixture
+    def busy(self, make_run) -> TestClient:
+        """A client over a day of 25 scans — past the 20 threshold."""
+        app = FastAPI()
+        app.include_router(
+            create_log_router("Undulator", base_directory=make_run(25)),
+            prefix="/log",
+        )
+        return TestClient(app)
 
-    def test_the_rail_lists_scans(self, client: TestClient) -> None:
-        """The rail names scans, never a grouping of them."""
+    def test_a_long_day_starts_collapsed(self, busy: TestClient) -> None:
+        """No scan block is open, and the button offers to expand."""
+        html = busy.get("/log/day/2026-09-11").text
+        assert html.count('<details class="panel scan"') == 25
+        assert " open>" not in html
+        assert "Expand all" in html
+
+    def test_a_short_day_starts_open(self, client: TestClient) -> None:
+        """Below the threshold every scan is readable without a click."""
         html = client.get("/log/day/2026-09-11").text
-        assert "Scans &middot;" in html or "Scans ·" in html
+        assert "Collapse all" in html
+        assert " open>" in html
+
+    def test_no_day_groups_its_scans(self, busy: TestClient) -> None:
+        """Every scan is a top-level block, whatever the day's length.
+
+        Asserting on the rendered markup, not on the absence of the word
+        "campaign": the old inline script carried `details.campaign` as a
+        selector string, so a substring check passed for the wrong reason
+        and would miss a grouping reintroduced under any other name.
+        """
+        html = busy.get("/log/day/2026-09-11").text
+        outer = re.findall(r'<details class="([^"]*)"', html)
+        assert set(outer) <= {"panel scan", "cal"}, outer
+
+    def test_the_rail_lists_scans(self, busy: TestClient) -> None:
+        """The rail names scans, never a grouping of them."""
+        html = busy.get("/log/day/2026-09-11").text
+        assert "Scans &middot; 25" in html or "Scans · 25" in html

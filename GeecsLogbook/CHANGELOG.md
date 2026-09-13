@@ -49,14 +49,36 @@ project adheres to semantic versioning.
   else), so invented content must never be seeded into it; but a day with
   no notes shows none of what the page is for, which is how an unstyled
   composer shipped unnoticed. Entries say in their own body that they are
-  seeded, and the script refuses to write to a file that already exists.
+  seeded, and the script refuses to write to a file that already exists —
+  or, on import, to a database that already holds entries for the day.
+
+  One entry is anchored to the day rather than a scan, because it is the
+  only shape that renders whether or not the share is reachable: an anchor
+  naming a scan the day folder does not contain is stored and counted in
+  "Notes N" but never drawn, so seeding on a checkout with no share
+  mounted otherwise produced exactly the empty page the script exists to
+  prevent.
 
 ### Fixed
 
-- The `KIT_STATE` comment and the 0.7.0 changelog entry both still
-  described the mapping as it was *before* the severity correction —
-  claiming `aborted` and `incomplete` share `degraded`. Prose is not
-  covered by a test suite; both now say what the code does.
+- **A dangling selector left `.insert[hidden]` visible.** Removing
+  `.between[hidden]` from `.insert[hidden],.between[hidden]{display:none}`
+  took the declaration block with it, so `.insert[hidden],` merged into the
+  *next* rule and inherited `display:flex`. Clicking "+ note after …" hid
+  nothing: the row stayed on screen above the composer it had just opened,
+  mis-spaced, accumulating until a save reloaded the page. There is no
+  global `[hidden]{display:none}` to fall back on.
+- **The filter left notes between scans floating unlabelled.** Deleting the
+  wrapper removed the only thing that said which gap a note sat in, and the
+  `#q` handler hid scans only — so filtering to one scan left a note from
+  a different gap sitting directly above it, reading as commentary on it.
+  Notes and insert rows now carry the bracketing scan labels as a
+  haystack and hide in the same pass.
+- `editor.js` no longer sets `.open` on the reveal target, which stopped
+  being a `<details>` in this release.
+- Dead after the deletion: `.scanrow .count` (the grouped rail row was its
+  only emitter), and the package `CLAUDE.md`'s "campaign shaping" and
+  "curated campaign record", which named the concept this release removes.
 
 ## [0.7.0] - 2026-09-12
 

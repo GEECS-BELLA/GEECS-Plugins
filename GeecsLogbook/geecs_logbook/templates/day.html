@@ -56,9 +56,15 @@
   {% set anchor = 'after-%04d' % after %}
   {% set es = entries.get(anchor, []) %}
   {% if es %}
-  {{ entries_block(anchor, none, after, entries, writable) }}
+  {# data-hay so the filter reaches these too. Deleting the wrapper removed
+     the only thing that said which gap a note sat in, so a filtered page
+     used to leave an unlabelled note floating above whichever scan
+     survived — reading as commentary on a scan it has nothing to do with. #}
+  <div class="betweens" data-hay="{{ (prev_label ~ ' ' ~ next_label) | lower }}">
+    {{ entries_block(anchor, none, after, entries, writable) }}
+  </div>
   {% elif writable %}
-  <div class="insert" data-insert="{{ after }}">
+  <div class="insert" data-insert="{{ after }}" data-hay="{{ (prev_label ~ ' ' ~ next_label) | lower }}">
     <div class="insert-rule"></div>
     <button class="insert-btn" type="button">+ note after {{ prev_label }}</button>
     <div class="insert-rule"></div>
@@ -294,8 +300,8 @@ document.getElementById("daypicker").addEventListener("change", ev => {
    the box puts the page back exactly as it was. */
 document.getElementById("q").addEventListener("input", ev => {
   const f = ev.target.value.trim().toLowerCase();
-  const blocks = [...document.querySelectorAll("details.scan")];
-  blocks.forEach(c => { c.hidden = !!f && !c.dataset.hay.includes(f); });
+  const blocks = [...document.querySelectorAll("details.scan, .betweens, .insert")];
+  blocks.forEach(c => { c.hidden = !!f && !(c.dataset.hay || "").includes(f); });
 });
 
 /* Jumping from the rail should reveal what you jumped to. */
