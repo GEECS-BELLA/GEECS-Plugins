@@ -155,8 +155,8 @@ def seed(db_path: Path) -> int:
             f"{db_path} is named {DEPLOYED_DB_NAME}, which is what a deployment "
             "calls its real store — seed a differently named file"
         )
-    if db_path.exists() and _holds_anything(db_path):
-        raise ValueError(f"{db_path} already holds entries — seed a fresh file")
+    if db_path.exists() and _is_a_store(db_path):
+        raise ValueError(f"{db_path} is already a notes store — seed a fresh file")
 
     store = NotesStore(db_path)
     for scan, after, author, body in ENTRIES:
@@ -164,21 +164,32 @@ def seed(db_path: Path) -> int:
     return len(ENTRIES)
 
 
-def _holds_anything(db_path: Path) -> bool:
-    """Whether the database has any entry row at all, tombstones included.
+def _is_a_store(db_path: Path) -> bool:
+    """Whether this file is a notes store — not whether it has rows in it.
+
+    Asking about rows was not enough. Mounting ``--notes-db some.db`` on a
+    fresh host creates the file and the ``entries`` table with zero rows,
+    so a row check waved through the live store of a deployment that had
+    started but not yet been written in — exactly the case the reserved
+    filename was added to catch, except ``--notes-db`` takes any path.
 
     Read-only and schema-free: it opens the file directly rather than
-    through :class:`NotesStore`, so a real store is never migrated by the
-    act of being checked.
+    through :class:`NotesStore`, whose constructor would create and
+    migrate the very thing this is protecting.
     """
-    conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
     try:
-        rows = conn.execute(
-            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='entries'"
-        ).fetchall()
-        if not rows:
-            return False
-        return conn.execute("SELECT 1 FROM entries LIMIT 1").fetchone() is not None
+        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    except sqlite3.Error:  # pragma: no cover - unreadable path
+        return True  # refuse what we cannot inspect
+    try:
+        return bool(
+            conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='entries'"
+            ).fetchone()
+        )
+    except sqlite3.DatabaseError:
+        # Not a SQLite file at all. Refusing beats overwriting it.
+        return True
     finally:
         conn.close()
 

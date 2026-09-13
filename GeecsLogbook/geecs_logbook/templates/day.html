@@ -286,7 +286,11 @@ const btn = document.getElementById("toggle-all");
 const cards = () => [...document.querySelectorAll("details.scan")];
 
 function applyAll(expand){
-  cards().forEach(c => { if (!c.hidden) c.open = expand; });
+  /* Visible ones only. The guard used to read `hidden`, which the filter
+     wrote; moving filtering to data-filtered made it inert and silently
+     widened "Expand all" from the scans you can see to every scan on the
+     page. Nobody decided that, so it goes back. */
+  cards().forEach(c => { if (!c.dataset.filtered) c.open = expand; });
   btn.dataset.expanded = String(expand);
   btn.textContent = expand ? "Collapse all" : "Expand all";
   try { localStorage.setItem(KEY, String(expand)); } catch (e) {}

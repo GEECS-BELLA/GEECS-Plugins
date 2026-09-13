@@ -475,14 +475,11 @@ def _scan_block_parents(html: str) -> set[tuple[str, ...]]:
         def handle_starttag(self, tag, attrs):
             d = dict(attrs)
             if tag == "details" and d.get("class") == "panel scan":
-                below = (
-                    self.stack[self.stack.index("main") + 1 :]
-                    if "main" in self.stack
-                    else tuple(self.stack)
-                )
-                self.found.add(
-                    ("main", *below) if "main" in self.stack else tuple(self.stack)
-                )
+                if "main" in self.stack:
+                    below = self.stack[self.stack.index("main") + 1 :]
+                    self.found.add(("main", *below))
+                else:
+                    self.found.add(tuple(self.stack))
             if tag not in {"br", "img", "input", "meta", "link", "hr"}:
                 self.stack.append(tag)
 
@@ -556,7 +553,21 @@ class TestLongDay:
         # around the loop is the shape a class-attribute check misses.
         assert _scan_block_parents(html) == {("main",)}, _scan_block_parents(html)
 
-    def test_the_rail_lists_scans(self, busy: TestClient) -> None:
-        """The rail names scans, never a grouping of them."""
+    def test_the_rail_lists_scans_and_nothing_else(self, busy: TestClient) -> None:
+        """The rail names scans, one row each, and groups nothing.
+
+        The document-structure check above pins the body — but a grouping
+        can come back without wrapping anything, as a rail section listing
+        runs. That is not a hypothetical: it is the shape this change
+        singles out as the harmful one, because "Campaigns · 15" rendered
+        in the rail and told an operator the day held fifteen multi-week
+        efforts. Verified by putting exactly that back and watching the
+        suite stay green.
+
+        So: one row per scan, and the rail's headings are exactly the two
+        it is allowed to have.
+        """
         html = busy.get("/log/day/2026-09-11").text
-        assert "Scans &middot; 25" in html or "Scans · 25" in html
+        assert html.count('class="scanrow"') == 25
+        headings = {h.strip() for h in re.findall(r"<h4>(.*?)</h4>", html, re.S)}
+        assert headings == {"Go to a day", "Scans &middot; 25"}, headings

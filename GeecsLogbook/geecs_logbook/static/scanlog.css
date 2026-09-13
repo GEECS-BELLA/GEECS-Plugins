@@ -91,7 +91,6 @@ details.scan[open] > .scanhead .twisty{transform:rotate(45deg)}
   border-radius:var(--r);padding:16px;margin:0}
 .empty code{font-family:var(--ff-mono);font-size:12.5px}
 .foot{color:var(--muted);font-size:12.5px;margin:4px 0 0}
-details.scan[hidden]{display:none}
 
 
 /* ---- day navigation ---- */
@@ -193,7 +192,7 @@ details.scan[hidden]{display:none}
    un-hid every used row the moment the box was cleared, putting the
    affordance back above the composer it had just opened. Two meanings,
    two attributes. */
-[data-filtered]{display:none!important}
+#logbook [data-filtered]{display:none}
 
 /* the editor: toolbar, preview, drop target, and the image grid */
 .toolbar{display:flex;gap:2px;flex-wrap:wrap;margin-bottom:5px}
