@@ -666,3 +666,30 @@ def test_hidden_survives_the_components() -> None:
     assert first_display and m.start() < first_display.start(), (
         "the [hidden] rule sits after a component that sets display"
     )
+
+
+_LIVE_CONTROLS = {
+    "live": r'class="live"',
+    "meter": r'class="meter"',
+    "field validation": r'class="field" data-invalid="true"',
+    "chip.lg": r'class="chip lg"',
+    "sticky table": r'class="tscroll sticky"',
+    "ack dialog": r'<dialog[^>]*class="ack"',
+    "paused status": r'data-state="paused"',
+    "denied banner": r'class="banner" data-state="denied"',
+}
+
+
+@pytest.mark.parametrize("name,pattern", sorted(_LIVE_CONTROLS.items()))
+def test_reference_page_demonstrates_the_live_controls(name: str, pattern: str) -> None:
+    """Every 0.3.0 addition has a specimen on the reference page.
+
+    ``test_reference_page_demonstrates_only_what_the_kit_provides`` runs the
+    other way — nothing on the page without a rule. A rule without a
+    specimen is the quieter failure: the component exists, nobody copies it,
+    and the next surface writes its own. The scanner's mock is where each of
+    these was first drawn; the page is where they live now.
+    """
+    assert re.search(pattern, _KIT_HTML.read_text()), (
+        f"kit.html shows no {name} ({pattern!r}) — add the specimen beside the rule"
+    )

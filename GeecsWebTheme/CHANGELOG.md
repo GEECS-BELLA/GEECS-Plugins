@@ -4,6 +4,38 @@ All notable changes to `geecs-web-theme` are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 project adheres to semantic versioning.
 
+## [0.3.0] - 2026-09-13
+
+### Added
+
+- **Live controls** — what a surface that *writes and watches* needs, found
+  by building the web scanner's mock (`Planning/native_bluesky/10_web_scanner.md`,
+  the arc's PR 1) and written in the kit's own idiom so it is not a third
+  dialect:
+  - `.live` — a reading with its label, value (+ unit) and **age**; the
+    surface sets `data-age="stale"` past its threshold and the value says
+    "stale" instead of continuing to look confident. The pane-level `stale`
+    doctrine at value granularity. `.grid.tight` for a row of them.
+  - `.meter` — determinate progress (`.bar` is indeterminate): track, fill,
+    a two-ended label; `data-state` colours the fill at a terminal state.
+  - `.field` validation — `data-invalid="true"` on the field shows its
+    `.err` slot and hides the hint; `.req` marks a required label; disabled
+    inputs are styled. Focus was the only state a field had.
+  - `.chip.lg` — the one state a room watches, at a size it can read.
+  - `.tscroll.sticky` — a capped, scrolling table that keeps its header.
+  - `dialog.ack` — rung 3 widened exactly once: a list of tickable
+    preflight questions under one decision, Submit held until all are ticked.
+- **`paused` joins the status words** (`STATES`, chip and dot): a run
+  holding between steps is neither running nor degraded, and the console
+  rendered it as one or the other for want of a word. Warn wash, no pulse.
+- **`denied` has a rule of its own** on `.state` and `.banner` — a dashed
+  edge on the recessed ground. It was named-but-neutral; ownership refusal
+  in the scanner is its first real use.
+- The reference page demonstrates every addition (a "Live controls" section,
+  a validation specimen, the sticky table, the `denied` banner, the
+  acknowledgement dialog behind "Submit scan…"), and a test pins that it
+  keeps doing so.
+
 ## [0.2.2] - 2026-09-12
 
 ### Fixed

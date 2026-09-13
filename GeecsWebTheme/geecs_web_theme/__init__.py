@@ -96,6 +96,7 @@ DEFAULT_DENSITY = "comfortable"
 STATES: dict[str, str] = {
     "queued": "Accepted, not started",
     "running": "In progress now",
+    "paused": "Holding between steps; resumes where it stopped",
     "ok": "Finished as intended",
     "degraded": "Finished, but less than asked",
     "failed": "Did not finish",
@@ -107,7 +108,9 @@ STATES: dict[str, str] = {
 #: ``.banner``. ``loading`` and ``empty`` exist on both surfaces today in
 #: private forms; ``error``, ``stale`` and ``denied`` exist on neither, and
 #: a control surface cannot open without the last two — a live value that
-#: silently stops updating is worse than no value.
+#: silently stops updating is worse than no value. ``error`` and ``stale``
+#: take a colour, ``denied`` a dashed edge; ``loading`` and ``empty`` share
+#: the neutral ground on purpose.
 PANE_STATES: dict[str, str] = {
     "loading": "Named, so the reader knows whether to wait",
     "empty": "The query succeeded and matched nothing",

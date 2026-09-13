@@ -42,6 +42,7 @@
         <a href="#status">Status</a>
         <a href="#controls">Controls</a>
         <a href="#tables">Tables</a>
+        <a href="#live">Live controls</a>
         <a href="#states">Pane states</a>
         <a href="#overlays">Overlay ladder</a>
       </nav>
@@ -122,18 +123,25 @@
 
     <section id="status" class="group">
       <h2>Status</h2>
-      <p class="dim">Six words replacing the fifteen class names the portal and the
+      <p class="dim">Seven words replacing the fifteen class names the portal and the
         logbook invented separately, plus <code>agent</code> — not a severity, but
         <em>who wrote this</em>. Colour is never the only carrier: every chip is a
-        dot plus a word.</p>
+        dot plus a word. <code>paused</code> is the scanner's: a run holding between
+        steps, warn wash, no pulse.</p>
       <div class="row">
         <span class="chip" data-state="queued">queued</span>
         <span class="chip" data-state="running">running</span>
+        <span class="chip" data-state="paused">paused</span>
         <span class="chip" data-state="ok">ok</span>
         <span class="chip" data-state="degraded">degraded</span>
         <span class="chip" data-state="failed">failed</span>
         <span class="chip" data-state="unknown">unknown</span>
         <span class="chip" data-state="agent">agent</span>
+      </div>
+      <div class="row">
+        <span class="eyebrow">.chip.lg &middot; the one state the room watches</span>
+        <span class="chip lg" data-state="running">running</span>
+        <span class="chip lg" data-state="paused">paused</span>
       </div>
 
       <div class="panel">
@@ -145,6 +153,9 @@
           <div class="row"><span class="dot" data-state="ok" aria-hidden="true"></span>
             <span class="mono">U_Hexapod</span><span class="spacer"></span>
             <span class="mono dim">&minus;0.42 mm</span></div>
+          <div class="row"><span class="dot" data-state="paused" aria-hidden="true"></span>
+            <span class="mono">U_S1H</span><span class="spacer"></span>
+            <span class="mono dim">holding at 1.200 A</span></div>
           <div class="row"><span class="dot" data-state="degraded" aria-hidden="true"></span>
             <span class="mono">UC_HASO</span><span class="spacer"></span>
             <span class="mono dim">stale 41 s</span></div>
@@ -174,6 +185,27 @@
           </div>
         </div>
         <div class="row">
+          <div class="field" data-invalid="true">
+            <label for="k-start">Start <span class="req" aria-hidden="true">*</span></label>
+            <input id="k-start" type="text" inputmode="decimal" value="5.0" aria-invalid="true" aria-describedby="k-start-err">
+            <span class="hint">psi</span>
+            <span class="err" id="k-start-err">Start is past stop (2.0). Swap them or change the step sign.</span>
+          </div>
+          <div class="field">
+            <label for="k-stop">Stop</label>
+            <input id="k-stop" type="text" inputmode="decimal" value="2.0">
+            <span class="hint">psi</span>
+          </div>
+          <div class="field">
+            <label for="k-period">Shot period</label>
+            <input id="k-period" type="text" inputmode="decimal" placeholder="auto" disabled>
+            <span class="hint">strict acquisition only</span>
+          </div>
+        </div>
+        <p class="dim">Validation is one attribute on the <code>.field</code>:
+          <code>data-invalid="true"</code> shows the <code>.err</code> slot and hides the
+          hint. The words carry the failure; the colour only points at it.</p>
+        <div class="row">
           <button class="btn primary" type="button">Submit scan</button>
           <button class="btn" type="button">Validate</button>
           <button class="btn ghost" type="button">Reset</button>
@@ -188,7 +220,10 @@
 
     <section id="tables" class="group">
       <h2>Tables</h2>
-      <div class="panel"><div class="tscroll">
+      <p class="dim"><code>.tscroll</code> guards the page against sideways scroll;
+        <code>.tscroll.sticky</code> also caps the height and keeps the header while
+        a live queue scrolls under it.</p>
+      <div class="panel"><div class="tscroll sticky">
         <table>
           <thead><tr><th>Scan</th><th>Plan</th><th class="num">Shots</th><th>State</th></tr></thead>
           <tbody>
@@ -202,16 +237,68 @@
               <td><span class="chip" data-state="failed">failed</span></td></tr>
             <tr><td class="id">Scan 039</td><td>scan_1d</td><td class="num">&mdash;</td>
               <td><span class="chip" data-state="queued">queued</span></td></tr>
+            <tr><td class="id">Scan 038</td><td>count</td><td class="num">50 / 50</td>
+              <td><span class="chip" data-state="ok">ok</span></td></tr>
+            <tr><td class="id">Scan 037</td><td>scan_1d</td><td class="num">110 / 110</td>
+              <td><span class="chip" data-state="ok">ok</span></td></tr>
+            <tr><td class="id">Scan 036</td><td>grid_scan</td><td class="num">96 / 256</td>
+              <td><span class="chip" data-state="paused">paused</span></td></tr>
+            <tr><td class="id">Scan 035</td><td>count</td><td class="num">50 / 50</td>
+              <td><span class="chip" data-state="ok">ok</span></td></tr>
           </tbody>
         </table>
       </div></div>
+    </section>
+
+    <section id="live" class="group">
+      <h2>Live controls</h2>
+      <p class="dim">What a surface that <em>writes and watches</em> needs. Found by
+        building the scanner's Now panel; written in the same idiom as everything
+        above, so it is not a third dialect.</p>
+
+      <article class="panel">
+        <header>
+          <span class="eyebrow">now &middot; Scan 043</span>
+          <span class="chip lg" data-state="running">running</span>
+        </header>
+        <div class="body">
+          <div class="meter" role="progressbar" aria-valuemin="0" aria-valuemax="180" aria-valuenow="120" aria-label="Shots completed">
+            <div class="track"><i class="fill" style="width:67%"></i></div>
+            <div class="lbl"><span>120 / 180 shots &middot; step 7 of 11</span><span>~60 s left</span></div>
+          </div>
+          <div class="grid tight">
+            <div class="live" data-age="fresh"><span class="k">trigger box</span><span class="v">SCAN</span><span class="age">0.2 s</span></div>
+            <div class="live" data-age="fresh"><span class="k">U_S1H.current</span><span class="v">1.200<small>A</small></span><span class="age">0.4 s</span></div>
+            <div class="live" data-age="fresh"><span class="k">rate</span><span class="v">1.0<small>Hz</small></span><span class="age">0.4 s</span></div>
+            <div class="live" data-age="stale"><span class="k">U_ICT charge</span><span class="v">187<small>pC</small></span><span class="age">6.1 s</span></div>
+          </div>
+          <p class="dim"><code>.meter</code> is determinate where <code>.bar</code> is not;
+            <code>.live</code> is the <code>stale</code> doctrine at value granularity — the
+            surface sets <code>data-age="stale"</code> past its threshold and the reading
+            says so instead of continuing to look confident.</p>
+        </div>
+        <footer><div class="row">
+          <span class="dim">Terminal states colour the fill:</span>
+          <div class="meter" data-state="paused" style="width:120px"><div class="track"><i class="fill" style="width:53%"></i></div></div>
+          <div class="meter" data-state="ok" style="width:120px"><div class="track"><i class="fill" style="width:100%"></i></div></div>
+          <div class="meter" data-state="failed" style="width:120px"><div class="track"><i class="fill" style="width:37%"></i></div></div>
+        </div></footer>
+      </article>
+
+      <div class="row">
+        <button class="btn primary" type="button" data-dialog-open="k-ack">Submit scan&hellip;</button>
+        <span class="dim"><code>dialog.ack</code> &mdash; rung 3 widened once, for the
+          preflight questions an operator must answer on the record before a scan
+          is queued. Try it.</span>
+      </div>
     </section>
 
     <section id="states" class="group">
       <h2>The five states every pane owes</h2>
       <p class="dim">Loading and empty exist on both surfaces today in private forms.
         Error, stale and denied exist nowhere — and a control surface cannot open
-        without the last two.</p>
+        without the last two. Error and stale take a colour; denied takes a dashed
+        edge — not an alarm, a door someone else is holding.</p>
 
       <div class="grid">
         <div class="state" data-state="loading">
@@ -244,6 +331,11 @@
         <span>Live values last updated 41 s ago.</span>
         <span class="spacer"></span>
         <button class="btn sm" type="button">Reconnect</button>
+      </div>
+      <div class="banner" data-state="denied">
+        <span><strong>Scan 048 belongs to tony.</strong> Pause and Stop are held for its owner.</span>
+        <span class="spacer"></span>
+        <button class="btn sm" type="button">Take over&hellip;</button>
       </div>
     </section>
 
@@ -349,6 +441,26 @@
     <div class="row end">
       <button class="btn" type="button" data-dialog-close autofocus>Keep them</button>
       <button class="btn danger" type="button" data-dialog-close>Clear 3 scans</button>
+    </div>
+  </div>
+</dialog>
+
+<dialog id="k-ack" class="ack" aria-labelledby="k-ack-title">
+  <div class="body">
+    <h4 id="k-ack-title">Preflight found 2 things to acknowledge</h4>
+    <p>The request is valid and the worker is ready. Each item is a question, not a
+      refusal; tick it to continue with it on record.</p>
+    <ul class="qs">
+      <li><label><input type="checkbox" checked><span>UC_TC_Phosphor reports <code>Disconnected</code> on the gateway
+        <span class="m">One CA read, 0.8 s ago. Its frames would be missing rows in the s-file.</span></span></label></li>
+      <li><label><input type="checkbox"><span>U_ICT last updated 6 s ago
+        <span class="m">The stack check at stop will flag missing rows rather than fail the scan.</span></span></label></li>
+    </ul>
+    <p class="dim">Acknowledged checks are stamped <code>continued</code> in the submission record
+      that rides with the run. The surface keeps Submit disabled until every box is ticked.</p>
+    <div class="row end">
+      <button class="btn" type="button" data-dialog-close autofocus>Cancel</button>
+      <button class="btn primary" type="button" data-dialog-close disabled>Submit to queue</button>
     </div>
   </div>
 </dialog>
