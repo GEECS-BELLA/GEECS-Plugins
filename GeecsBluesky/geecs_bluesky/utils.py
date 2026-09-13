@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import inspect
+from collections.abc import Mapping
+from typing import Any, Callable
+
 from geecs_core.pv_naming import normalize_component
 
 
@@ -113,3 +117,46 @@ def device_reference(device: str, variable: str | None = None) -> str:
     """
     base = identifier_name(device)
     return base if variable is None else f"{base}.{settable_attribute(variable)}"
+
+
+def resolve_annotations(
+    plan: Callable[..., Any], annotations: Mapping[str, Any]
+) -> Callable[..., Any]:
+    """Give *plan* a ``__signature__`` carrying resolved annotation objects.
+
+    The queueserver manager builds a pydantic model from a registered plan's
+    signature at submission, evaluating the annotations **in its own
+    namespace**.  A plan defined in a module using ``from __future__ import
+    annotations`` hands it strings instead of objects, and anything that is
+    not a plain builtin then fails with "`Model` is not fully defined; you
+    should define `Sequence`" — at ``queue add``, on hardware, with every
+    unit test green (GEECS-Plugins#861).  The stock ``bluesky.plans`` verbs
+    are immune only because that module does not postpone its annotations.
+
+    So every GEECS-defined registered plan passes through here with a
+    mapping of parameter name → the resolved object.  A parameter the
+    mapping does not name loses its annotation entirely, which the manager
+    accepts (it is what ``strict_plan`` already does for the stock varargs:
+    an unannotated argument is whatever the manager resolves).
+
+    Parameters
+    ----------
+    plan :
+        The generator function being registered.
+    annotations :
+        Parameter name → annotation object (not a string).
+
+    Returns
+    -------
+    callable
+        *plan*, with ``__signature__`` set.
+    """
+    signature = inspect.signature(plan)
+    parameters = [
+        parameter.replace(annotation=annotations.get(name, inspect.Parameter.empty))
+        for name, parameter in signature.parameters.items()
+    ]
+    plan.__signature__ = signature.replace(  # type: ignore[attr-defined]
+        parameters=parameters, return_annotation=inspect.Signature.empty
+    )
+    return plan

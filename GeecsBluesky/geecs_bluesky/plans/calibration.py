@@ -65,9 +65,10 @@ from functools import partial
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Callable
+from typing import Any, Callable, Optional
 
 import bluesky.plan_stubs as bps
+from bluesky.protocols import Readable
 from bluesky.utils import separate_devices
 from geecs_schemas.shot_offsets import DeviceOffset, ShotOffsets
 from geecs_schemas.trigger_profile import TriggerState
@@ -76,6 +77,7 @@ from geecs_bluesky.devices.detector import GeecsDetector
 from geecs_bluesky.exceptions import GeecsConfigurationError
 from geecs_bluesky.plans.gated import TRIGGER_PERIOD_S, run_bracket
 from geecs_bluesky.plans.strict import fire_and_await_shot
+from geecs_bluesky.utils import resolve_annotations
 
 logger = logging.getLogger(__name__)
 
@@ -133,6 +135,24 @@ MIN_USEFUL_SHOTS = 3
 #: for the by-eye version; 50 ms is well clear of the ~10 ms dither and
 #: still catches a device a whole shot out of step.
 DEFAULT_SYNC_TOLERANCE_S = 0.05
+
+
+#: Resolved annotation objects for the two registered plans — see
+#: :func:`~geecs_bluesky.utils.resolve_annotations` for why a registered plan
+#: cannot carry this module's postponed (string) annotations.  ``detectors``
+#: is annotated exactly as the stock verbs annotate theirs, so the manager
+#: treats the argument the way it treats ``count``'s.
+_PLAN_ANNOTATIONS: dict[str, Any] = {
+    "detectors": Sequence[Readable],
+    "trigger_profile": Optional[str],
+    "shots": int,
+    "quiet_time": Optional[float],
+    "trigger_period": float,
+    "write": bool,
+    "max_offset": float,
+    "description": str,
+    "tolerance_s": float,
+}
 
 
 # ---------------------------------------------------------------- pure logic
@@ -938,7 +958,7 @@ def measure_shot_offsets_plan(
         )
         return measurement
 
-    return measure_shot_offsets
+    return resolve_annotations(measure_shot_offsets, _PLAN_ANNOTATIONS)
 
 
 def check_shot_sync_plan(profiles: Any) -> Callable[..., Any]:
@@ -1068,7 +1088,7 @@ def check_shot_sync_plan(profiles: Any) -> Callable[..., Any]:
             return verdict
         raise GeecsConfigurationError(f"shot sync FAILED: {verdict.detail}")
 
-    return check_shot_sync
+    return resolve_annotations(check_shot_sync, _PLAN_ANNOTATIONS)
 
 
 __all__ = [

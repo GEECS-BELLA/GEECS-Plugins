@@ -95,6 +95,25 @@ rows.  This is what makes faster running safe.
   and `NON_SCAN_PLAN_NAMES` gain both calibration plans.  The readiness
   check (`geecs-qserver-ensure-ready`) asserts all 22.
 
+### Found by the hardware run
+
+- **A registered plan cannot carry postponed (string) annotations.** The
+  queueserver manager builds a pydantic model from each plan's signature at
+  submission and evaluates the annotations **in its own namespace**, so
+  `calibration.py`'s `from __future__ import annotations` made `queue add`
+  refuse both plans with *"`Model` is not fully defined; you should define
+  `Sequence`"* — after a completely green test suite.  The stock
+  `bluesky.plans` verbs are immune only because that module does not
+  postpone its annotations.  `geecs_bluesky.utils.resolve_annotations` now
+  gives every GEECS-defined registered plan a `__signature__` of resolved
+  objects (`run_action` included, so the rule has no exceptions), with
+  `detectors` annotated exactly as the stock verbs annotate theirs.
+
+  The existing manager-validation test covered only `count` / `scan` / `mv`,
+  which is how this got through.  It is now joined by a property test over
+  the **whole** registered tuple — no plan can drift out of it — plus a
+  queue-item validation of the two calibration plans.
+
 ### Review of #861 — the guards it added
 
 - **The quiet confirmation window is sized from the trigger period**

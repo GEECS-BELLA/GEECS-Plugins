@@ -46,6 +46,7 @@ from geecs_schemas.action_plan import (
     WaitStep,
 )
 
+from geecs_bluesky.utils import resolve_annotations
 from geecs_bluesky.exceptions import (
     ActionCheckFailedError,
     ActionPlanCycleError,
@@ -314,4 +315,4 @@ def run_action_plan(
             yield from compile_action_plan(plan, registry=registry, settables=settables)
         )
 
-    return run_action
+    return resolve_annotations(run_action, {"name": str})
