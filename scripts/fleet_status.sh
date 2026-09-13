@@ -41,6 +41,7 @@ set -u  # deliberately not -e: a failed probe is a *finding*, not an error
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PORTAL_PORT=8200       # fleet map: GEECS Data Portal
 MCP_PORT=8100          # fleet map: GEECS-MCP HTTP mode
+SCANNER_PORT=8300      # fleet map: GEECS Scanner (the web scanner console)
 TCP_TIMEOUT=2          # seconds per port probe / HTTP get
 SSH_TIMEOUT=25         # seconds per host (one ssh call per host)
 PVA_TIMEOUT=2          # seconds per PVA get (geecs-pva-gateway fleet --timeout)
@@ -233,6 +234,28 @@ if [ "$NET_UP" -eq 1 ]; then
         rec "role=GEECS-MCP	state=down	note=not listening"
     fi
 
+    # GEECS Scanner — /health carries ok + the manager probe + the readiness
+    # word + installed version. A scanner whose manager is unreachable is up
+    # but useless; say so rather than calling it ok.
+    SC_HOST="${WORKER_HOST:-$LAB_HOST}"
+    sh_="$(bounded "$TCP_TIMEOUT" curl -s -m "$TCP_TIMEOUT" "http://$SC_HOST:$SCANNER_PORT/health")"
+    if [ -n "$sh_" ]; then
+        sv="$(printf '%s' "$sh_" | sed -nE 's/.*"version": *"([^"]+)".*/\1/p')"
+        sready="$(printf '%s' "$sh_" | sed -nE 's/.*"readiness": *"([^"]*)".*/\1/p')"
+        if [ "$sready" = "ready" ]; then
+            ok "GEECS Scanner $SC_HOST:$SCANNER_PORT  geecs-scanner ${sv:-?}  (manager ready)"
+            rec "role=GEECS Scanner	state=ok	version=${sv:-}"
+        else
+            warn "GEECS Scanner $SC_HOST:$SCANNER_PORT  geecs-scanner ${sv:-?}  up but manager ${sready:-unknown}"
+            rec "role=GEECS Scanner	state=ok	version=${sv:-}	note=manager ${sready:-unknown}"
+        fi
+    elif port_open "$SC_HOST" "$SCANNER_PORT"; then
+        warn "GEECS Scanner $SC_HOST:$SCANNER_PORT  listening but no /health answer"
+        rec "role=GEECS Scanner	state=ok	note=no /health answer"
+    else
+        rec "role=GEECS Scanner	state=absent"
+    fi
+
     # CA gateway — /lab-status tier 2 (read-only CA gets). Contract: its
     # stdout carries one `role=CA gateway<TAB>...` record; the rest is prose.
     if [ -n "$EXPERIMENT" ]; then
@@ -288,14 +311,14 @@ set -u
 command -v systemctl >/dev/null 2>&1 || { echo "nosystemd"; exit 0; }
 # fleet map ports -> role label (what a listener on that port is)
 role_for_port() { case "$1" in
-    5064) echo "CA gateway";; 8000) echo "Tiled";; 8200) echo "Data Portal";; 8100) echo "GEECS-MCP";;
+    5064) echo "CA gateway";; 8000) echo "Tiled";; 8200) echo "Data Portal";; 8100) echo "GEECS-MCP";; 8300) echo "GEECS Scanner";;
     60615) echo "Queueserver RE Manager";; 5568) echo "Bluesky doc proxy";; *) echo "port $1";; esac; }
 role_for_unit() { case "$1" in
     geecs-ca-gateway*) echo "CA gateway";; tiled*) echo "Tiled";; geecs-data-portal*) echo "Data Portal";;
-    geecs-mcp*) echo "GEECS-MCP";; geecs-qserver-ready*) echo "Queueserver readiness";;
+    geecs-mcp*) echo "GEECS-MCP";; geecs-scanner*) echo "GEECS Scanner";; geecs-qserver-ready*) echo "Queueserver readiness";;
     geecs-qserver*) echo "Queueserver RE Manager";; geecs-capture*) echo "Capture daemon";;
     *) echo "$1";; esac; }
-FLEET_PORTS="5064 8000 8200 8100 60615 5568"
+FLEET_PORTS="5064 8000 8200 8100 8300 60615 5568"
 SEEN=" "
 SEEN_UNITS=" "
 reflog_ts() {  # unix time HEAD last moved (checkout/pull/reset), from the reflog
