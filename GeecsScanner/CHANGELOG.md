@@ -4,6 +4,72 @@ All notable changes to `geecs-scanner` are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 project adheres to semantic versioning.
 
+## [0.2.0] - 2026-09-13
+
+The page — PR 3 of the web scanner arc. Day one of the console's job, as
+the reviewed mock drew it, on the kit.
+
+### Added
+
+- **`GET /`** renders `templates/console.html`: topbar (experiment, manager
+  and doc-stream chips, operator, density and theme pickers), rail
+  (sections, presets from the configs tree, recent scans), and three
+  panels — **Now** (`.chip.lg` state, scan number, plan line, `.meter`,
+  `.live` shots / planned / document age / manager age, Pause · Resume ·
+  Stop, the manager console tail behind a `.seg` whose scan.log half
+  arrives with the run's folder), **New scan** (mode `seg`: No-scan · 1D ·
+  Grid · Background · Optimize greyed; acquisition `seg`, strict default;
+  axes with `aria-invalid` validation; shots, trigger profile, shot period,
+  description; the preset's devices as a table with save-images and
+  essential boxes; the estimate; Start), **Queue** (running / waiting /
+  finished, sticky header, Clear queue…).
+- **`static/scanner.js`** drives it: the JSON API for configs and the queue,
+  `EventSource` on `/api/events` for status, progress and console lines
+  (with `since` on reconnect), the form → `Preset` builder (a `count`,
+  `scan` or `grid_scan` plan call from the fields; the preset's device
+  group edited in place), the acknowledgement dialog over the preflight
+  questions, and the **replace-the-waiting-item** dialog for the manager's
+  one-deep queue (a 409 with `pending_items` → resubmit with
+  `clear_pending`). Operator name kept under `geecs.operator` beside the
+  theme's keys until the registry (arc PR 5).
+- **`static/scanner.css`** — the page's own classes only; the kit is not
+  re-skinned.
+- `tests/test_page.py` — the logbook's three template guards (`url_for`
+  takes `.path`, literal `data-state` values are kit words — the script's
+  `setChip` literals too, every script parses under `node --check`), the
+  proxy-prefix render, and "every class the page uses is styled".
+
+### Changed
+
+- The JSON pointer that was `GET /` moved to `GET /api`.
+- `GET /api/events` sends `status` every round, not only on change, so the
+  page can show how long ago the manager answered. Console frames carry
+  `id: <epoch>:<seq>`; a browser reconnect resumes through `Last-Event-ID`,
+  and a new epoch (the scanner restarted) replays from the start.
+- `create_scanner_router` is the API + events only; the page is registered
+  by `create_app`, which owns the named `/static` mount it needs.
+
+### Fixed (from adversarial review, before merge)
+
+- A preset whose plan the form cannot express (`list_scan`, a `rel_*`, a
+  two-motor `scan`) rendered and would have submitted as a 1D `scan`. The
+  form now says so and disables Start; a `background` flag survives a mode
+  change.
+- Every kit status word the script sets lives in one `K` table, pinned to
+  `geecs_web_theme.STATES`; the guard also refuses a literal in `setChip`.
+- The estimate no longer assumes 1 Hz: it quotes a time only when a shot
+  period is given; the points hint shows the effective step when the typed
+  step does not divide the range.
+- The scanner's template, script and stylesheet joined GeecsWebTheme's
+  literal-colour walk.
+
+### Owed (recorded, not in this release)
+
+- The forwarded-prefix middleware, the `root` context processor and the
+  template guards are verbatim copies of the portal's and the logbook's;
+  they move into GeecsWebTheme in arc PR 5, when the fourth surface makes
+  three copies four (the brief's PR-5 row carries the same line).
+
 ## [0.1.0] - 2026-09-13
 
 The service layer and the HTTP API — PR 2 of the web scanner arc

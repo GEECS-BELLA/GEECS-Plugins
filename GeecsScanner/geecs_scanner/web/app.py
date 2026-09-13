@@ -19,7 +19,7 @@ from fastapi.staticfiles import StaticFiles
 from geecs_scanner import __version__
 from geecs_scanner.service.errors import ScannerError
 from geecs_scanner.service.scanner import ScannerService
-from geecs_scanner.web import api, events
+from geecs_scanner.web import api, events, pages
 
 #: Requests carrying a proxy mount prefix — the Grafana/JupyterHub
 #: convention every reverse proxy speaks.
@@ -61,7 +61,11 @@ class ForwardedPrefixMiddleware:
 
 
 def create_scanner_router(service: ScannerService) -> APIRouter:
-    """The scanner's routes as a router a host could mount under a prefix."""
+    """The API and the event stream as a router a host could mount under a prefix.
+
+    The page is not in it: it needs the named ``/static`` mount that only
+    :func:`create_app` provides.
+    """
     router = APIRouter()
     api.register(router, service)
     events.register(router, service)
@@ -90,11 +94,20 @@ def create_app(service: ScannerService, *, root_path: str = "") -> FastAPI:
     except Exception:  # noqa: BLE001 — the theme is a page concern; the API stands without it
         pass
 
-    app.include_router(create_scanner_router(service))
+    # The page's own assets, named so templates can url_for(...).path them.
+    app.mount(
+        "/static", StaticFiles(directory=str(pages.STATIC_DIR)), name="scanner_static"
+    )
 
-    @app.get("/")
+    app.include_router(create_scanner_router(service))
+    # The page lives on the process, not the router: it addresses its own
+    # assets through the named /static mount above, which a host mounting
+    # only the router does not have.
+    pages.register(app.router, service)
+
+    @app.get("/api", include_in_schema=False)
     def index() -> dict:
-        """Where things are, until the page (0.2.0) takes this route."""
+        """Where things are."""
         return {
             "service": "geecs-scanner",
             "version": __version__,

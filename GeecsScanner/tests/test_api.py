@@ -11,7 +11,7 @@ def test_health_and_index(client: TestClient) -> None:
     h = client.get("/health").json()
     assert h["ok"] is True and h["manager"] is True and h["readiness"] == "ready"
     assert h["experiment"] == "Demo" and h["version"] == "0.0.0+test"
-    idx = client.get("/").json()
+    idx = client.get("/api").json()
     assert idx["api"] == "/api/status" and idx["kit"] == "/theme/kit.html"
 
 
