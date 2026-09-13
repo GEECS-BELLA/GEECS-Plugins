@@ -68,6 +68,9 @@ class ProgressCache:
         self._rows: set[str] = set()
         self._console: deque[ConsoleLine] = deque(maxlen=_CONSOLE_KEEP)
         self._seq = 0
+        #: Distinguishes this process's sequence numbers from a restarted
+        #: one's — a reconnecting page must not take a low seq for "seen".
+        self.epoch = f"{int(clock() * 1000):x}"
         self._version = 0
 
     # ---------------------------------------------------------------- read

@@ -42,6 +42,26 @@ the reviewed mock drew it, on the kit.
 ### Changed
 
 - The JSON pointer that was `GET /` moved to `GET /api`.
+- `GET /api/events` sends `status` every round, not only on change, so the
+  page can show how long ago the manager answered. Console frames carry
+  `id: <epoch>:<seq>`; a browser reconnect resumes through `Last-Event-ID`,
+  and a new epoch (the scanner restarted) replays from the start.
+- `create_scanner_router` is the API + events only; the page is registered
+  by `create_app`, which owns the named `/static` mount it needs.
+
+### Fixed (from adversarial review, before merge)
+
+- A preset whose plan the form cannot express (`list_scan`, a `rel_*`, a
+  two-motor `scan`) rendered and would have submitted as a 1D `scan`. The
+  form now says so and disables Start; a `background` flag survives a mode
+  change.
+- Every kit status word the script sets lives in one `K` table, pinned to
+  `geecs_web_theme.STATES`; the guard also refuses a literal in `setChip`.
+- The estimate no longer assumes 1 Hz: it quotes a time only when a shot
+  period is given; the points hint shows the effective step when the typed
+  step does not divide the range.
+- The scanner's template, script and stylesheet joined GeecsWebTheme's
+  literal-colour walk.
 
 ## [0.1.0] - 2026-09-13
 

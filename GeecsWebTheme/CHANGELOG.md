@@ -4,6 +4,14 @@ All notable changes to `geecs-web-theme` are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 project adheres to semantic versioning.
 
+## [0.3.1] - 2026-09-13
+
+### Changed
+
+- The literal-colour walk covers the third surface: GeecsScanner's
+  `console.html`, `scanner.css` and `scanner.js` joined `_SURFACES`
+  (adding a surface means adding it there — this package's CLAUDE.md).
+
 ## [0.3.0] - 2026-09-13
 
 ### Added

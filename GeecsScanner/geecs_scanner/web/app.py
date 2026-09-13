@@ -61,9 +61,12 @@ class ForwardedPrefixMiddleware:
 
 
 def create_scanner_router(service: ScannerService) -> APIRouter:
-    """The scanner's routes as a router a host could mount under a prefix."""
+    """The API and the event stream as a router a host could mount under a prefix.
+
+    The page is not in it: it needs the named ``/static`` mount that only
+    :func:`create_app` provides.
+    """
     router = APIRouter()
-    pages.register(router, service)
     api.register(router, service)
     events.register(router, service)
     return router
@@ -97,6 +100,10 @@ def create_app(service: ScannerService, *, root_path: str = "") -> FastAPI:
     )
 
     app.include_router(create_scanner_router(service))
+    # The page lives on the process, not the router: it addresses its own
+    # assets through the named /static mount above, which a host mounting
+    # only the router does not have.
+    pages.register(app.router, service)
 
     @app.get("/api", include_in_schema=False)
     def index() -> dict:

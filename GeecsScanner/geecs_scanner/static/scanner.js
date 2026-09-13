@@ -48,7 +48,8 @@
     presets: [], presetName: null, presetDoc: null,
     variables: [], triggers: [],
     mode: "scan", acq: "strict",
-    consoleSeq: 0,
+    consoleSeq: 0, epoch: null,
+    formable: true, formableNote: "",
     pendingPreset: null, pendingAck: []
   };
 
@@ -78,6 +79,10 @@
 
   /* ---------------------------------------------------------- chips */
 
+  // Every kit status word this page can set, spelled once; tests pin these
+  // against geecs_web_theme.STATES, and setChip never takes a literal.
+  var K = { ok: "ok", running: "running", paused: "paused", degraded: "degraded", failed: "failed", unknown: "unknown", queued: "queued" };
+
   function setChip(el, state, word, title) {
     el.setAttribute("data-state", state);
     el.textContent = word;
@@ -93,18 +98,17 @@
     var st = S.status;
     if (!st) return;
     var running = st.re_state === "running" || st.re_state === "paused";
+    var runWord = st.re_state === "paused" ? K.paused : K.running;
     if (!st.connected) {
-      setChip($("chip-manager"), "failed", "manager", st.detail || "not answering");
-      setChip($("now-chip"), "failed", "unreachable");
+      setChip($("chip-manager"), K.failed, "manager", st.detail || "not answering");
+      setChip($("now-chip"), K.failed, "unreachable");
     } else if (st.readiness !== "ready") {
-      setChip($("chip-manager"), "degraded", "manager", st.readiness_detail || st.readiness);
-      setChip($("now-chip"), running ? (st.re_state === "paused" ? "paused" : "running") : "degraded",
-              running ? st.re_state : st.readiness);
+      setChip($("chip-manager"), K.degraded, "manager", st.readiness_detail || st.readiness);
+      setChip($("now-chip"), running ? runWord : K.degraded, running ? st.re_state : st.readiness);
     } else {
-      setChip($("chip-manager"), "ok", "manager", "RE Manager answers; " + st.readiness_detail);
-      if (st.re_state === "paused") setChip($("now-chip"), "paused", "paused");
-      else if (st.re_state === "running") setChip($("now-chip"), "running", "running");
-      else setChip($("now-chip"), "unknown", "idle");
+      setChip($("chip-manager"), K.ok, "manager", "RE Manager answers; " + st.readiness_detail);
+      if (running) setChip($("now-chip"), runWord, st.re_state);
+      else setChip($("now-chip"), K.unknown, "idle");
     }
     $("btn-pause").disabled = st.re_state !== "running";
     $("btn-pause").hidden = st.re_state === "paused";
@@ -132,9 +136,9 @@
     // Idle: the history's word, not the documents' — RunEngine.stop() marks a
     // stopped run's documents "success"; the manager's history says "stopped".
     var last = (!st.re_state || st.re_state === "idle") && S.queue && S.queue.finished[0];
-    var word = st.re_state === "paused" ? "paused"
+    var word = st.re_state === "paused" ? K.paused
       : last ? last.state
-      : (p.state === "done" ? "ok" : (p.state === "aborted" ? "failed" : ""));
+      : (p.state === "done" ? K.ok : (p.state === "aborted" ? K.failed : ""));
     meter.setAttribute("data-state", word);
     $("lv-shots").textContent = done;
     $("lv-planned").textContent = total == null ? "—" : total;
@@ -142,7 +146,7 @@
     $("meter-l").textContent = total ? done + " / " + total + " shots" : (done ? done + " shots" : "—");
     var right = "";
     if (st.re_state === "paused") right = "paused at shot " + done;
-    else if (p.state === "running" && total) right = "~" + Math.max(0, total - done) + " s left at 1 Hz";
+    else if (p.state === "running" && total) right = Math.max(0, total - done) + " shots left";
     else if (last) right = last.word + (last.state === "ok" ? "" : " at shot " + done);
     else if (p.state === "done") right = "done";
     else if (p.state === "aborted") right = "stopped at shot " + done;
@@ -150,7 +154,7 @@
     $("now-scan").textContent = p.scan_number ? "Scan " + String(p.scan_number).padStart(3, "0") : "—";
     if (p.paused_reason) $("paused-reason").textContent = "paused: " + p.paused_reason;
     $("lv-docs").textContent = p.available ? (done ? "event #" + done : (p.scan_number ? "start" : "quiet")) : "off";
-    if (!p.available) setChip($("chip-docs"), "degraded", "doc stream", p.detail || "not consuming");
+    if (!p.available) setChip($("chip-docs"), K.degraded, "doc stream", p.detail || "not consuming");
   }
 
   function tickAges() {
@@ -167,8 +171,8 @@
       var running = st && st.re_state === "running";
       $("ag-docs").textContent = fmtAge(da);
       var stale = running && p.available && da > STALE_DOCS_S;
-      if (stale) { $("live-docs").setAttribute("data-age", "stale"); setChip($("chip-docs"), "degraded", "doc stream", "last document " + da.toFixed(0) + " s ago while running"); }
-      else { $("live-docs").removeAttribute("data-age"); if (p.available) setChip($("chip-docs"), "ok", "doc stream", "documents flowing"); }
+      if (stale) { $("live-docs").setAttribute("data-age", "stale"); setChip($("chip-docs"), K.degraded, "doc stream", "last document " + da.toFixed(0) + " s ago while running"); }
+      else { $("live-docs").removeAttribute("data-age"); if (p.available) setChip($("chip-docs"), K.ok, "doc stream", "documents flowing"); }
     }
   }
   setInterval(tickAges, 500);
@@ -239,7 +243,10 @@
 
   var lastKey = "";
   function connect() {
-    var es = new EventSource(ROOT + "/api/events?since=" + S.consoleSeq);
+    // The browser reconnects by itself and sends Last-Event-ID (the console
+    // frames carry id: "<epoch>:<seq>"), so a blip resumes where it left
+    // off; a new epoch means the scanner restarted, and the tail starts over.
+    var es = new EventSource(ROOT + "/api/events");
     es.addEventListener("status", function (ev) {
       S.status = JSON.parse(ev.data); S.statusAt = nowS();
       renderStatus();
@@ -255,11 +262,13 @@
     });
     es.addEventListener("console", function (ev) {
       var line = JSON.parse(ev.data);
+      if (S.epoch !== null && line.epoch !== S.epoch) { $("tail").textContent = ""; }
+      S.epoch = line.epoch;
       S.consoleSeq = line.seq;
       appendTail(line);
     });
     es.onerror = function () {
-      setChip($("chip-manager"), "failed", "manager", "event stream lost; reconnecting");
+      setChip($("chip-manager"), K.failed, "manager", "event stream lost; reconnecting");
     };
   }
 
@@ -333,13 +342,23 @@
     }).catch(function (e) { showError("Preset " + name + ": " + e.message); });
   }
 
+  // The shapes the form can express. Anything else is shown, not guessed:
+  // a preset that runs list_scan must not be resubmitted as a scan.
+  function formShape(plan) {
+    var args = plan.args || [];
+    if (plan.name === "count" && args.length === 0) return "count";
+    if (plan.name === "scan" && args.length === 4) return "scan";
+    if (plan.name === "grid_scan" && args.length === 8) return "grid";
+    return null;
+  }
+
   function fillFormFromPreset(doc) {
     var plan = doc.plan || { name: "count", args: [], kwargs: {} };
     var kw = plan.kwargs || {}, args = plan.args || [];
-    var mode = "scan";
-    if (plan.name === "count") mode = doc.background ? "background" : "noscan";
-    else if (plan.name === "grid_scan") mode = "grid";
-    else if (plan.name === "scan") mode = "scan";
+    var shape = formShape(plan);
+    S.formable = shape !== null;
+    S.formableNote = S.formable ? "" : "this preset runs " + plan.name + " with " + args.length + " argument(s); no form for it yet";
+    var mode = shape === "count" ? (doc.background ? "background" : "noscan") : (shape || "scan");
     setMode(mode, true);
     setAcq(kw.acquisition || "strict");
     if (plan.name === "scan" && args.length >= 4) {
@@ -416,6 +435,10 @@
     $(id).addEventListener("input", recalc);
   });
 
+  function fmtSecs(secs) {
+    var m = Math.floor(secs / 60), s = Math.round(secs % 60);
+    return (m ? m + " min " : "") + s + " s";
+  }
   function points(a, b, s) {
     if (!(s > 0)) return 0;
     return Math.floor(Math.abs(b - a) / s + 1e-9) + 1;
@@ -432,7 +455,11 @@
     var badStep = !(s > 0);
     setInvalid("step" + n, badStep);
     var pts = badStep ? 0 : points(a, b, s);
-    $("pts" + n).textContent = pts ? pts + " point" + (pts === 1 ? "" : "s") + (a > b ? " · descending" : "") : "—";
+    // The plan takes a point COUNT; when the step does not divide the range
+    // the effective step differs from the one typed, so say so.
+    var eff = pts > 1 ? Math.abs(b - a) / (pts - 1) : 0;
+    var effNote = pts > 1 && Math.abs(eff - s) > 1e-9 ? " · effective step " + Number(eff.toFixed(6)) : "";
+    $("pts" + n).textContent = pts ? pts + " point" + (pts === 1 ? "" : "s") + (a > b ? " · descending" : "") + effNote : "—";
     return { variable: $("var" + n).value, start: a, stop: b, num: pts, ok: !badStep && !!$("var" + n).value };
   }
 
@@ -448,10 +475,11 @@
       if (S.mode === "grid") { var a2 = axis(2); ok = ok && a2.ok; steps *= (a2.num || 0); }
     }
     var total = count ? shots : steps * shots;
-    var secs = total, m = Math.floor(secs / 60), s = secs % 60;
+    var period = S.acq === "strict" && $("period").value !== "" ? Number($("period").value) : null;
+    var time = period ? " · ~<b>" + fmtSecs(total * period) + "</b> at " + period + " s/shot" : "";
     $("est").innerHTML = count
-      ? "<b>" + shots + "</b> shots · ~<b>" + (m ? m + " min " : "") + s + " s</b> at 1 Hz"
-      : "<b>" + steps + "</b> step" + (steps === 1 ? "" : "s") + " × <b>" + shots + "</b> shots = <b>" + total + "</b> shots · ~<b>" + (m ? m + " min " : "") + s + " s</b> at 1 Hz";
+      ? "<b>" + shots + "</b> shots" + time
+      : "<b>" + steps + "</b> step" + (steps === 1 ? "" : "s") + " × <b>" + shots + "</b> shots = <b>" + total + "</b> shots" + time;
     valid = ok && !!S.presetDoc;
     updateStartGate();
   }
@@ -460,8 +488,9 @@
     var st = S.status;
     var busy = !st || !st.connected || st.re_state === "running" || st.re_state === "paused";
     var btn = $("btn-start");
-    btn.disabled = busy || !valid;
-    btn.title = !st ? "waiting for the manager" : !st.connected ? "manager unreachable" : busy ? "a scan is running" : !S.presetDoc ? "pick a preset" : !valid ? "fix the form first" : "";
+    btn.disabled = busy || !valid || !S.formable;
+    btn.title = !st ? "waiting for the manager" : !st.connected ? "manager unreachable" : busy ? "a scan is running" : !S.presetDoc ? "pick a preset" : !S.formable ? S.formableNote : !valid ? "fix the form first" : "";
+    $("preset-name").textContent = S.presetName ? "preset " + S.presetName + (S.formable ? "" : " · " + S.formableNote) : "";
   }
 
   function buildPreset() {
@@ -494,7 +523,9 @@
       name: S.presetName || "adhoc",
       description: $("desc").value.trim(),
       trigger_profile: $("trig").value || null,
-      background: S.mode === "background",
+      // A background flag on the preset survives a mode change; the
+      // Background mode sets it for a count.
+      background: S.mode === "background" || (S.mode !== "noscan" && !!doc.background),
       devices: devices,
       plan: plan
     };

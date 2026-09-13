@@ -64,11 +64,22 @@ def test_every_literal_data_state_is_a_kit_state() -> None:
         for m in re.finditer(r'data-state="([a-z_][\w-]*)"', template.read_text()):
             if m.group(1) not in STATES and m.group(1) not in PANE_STATES:
                 problems.append(f"{template.name}: {m.group(1)}")
-    # the script writes states too — every literal it can set must be a kit word
+    # the script writes states too: every word lives in its K table, pinned
+    # here, and no setChip call may pass a literal instead
     for script in _SCRIPTS:
-        for m in re.finditer(r'setChip\([^,]+,\s*"([a-z_]+)"', script.read_text()):
+        text = script.read_text()
+        k = re.search(r"var K = \{([^}]*)\}", text)
+        assert k, f"{script.name}: no K table of kit words"
+        for m in re.finditer(r'"([a-z_]+)"', k.group(1)):
             if m.group(1) not in STATES:
-                problems.append(f"{script.name}: {m.group(1)}")
+                problems.append(f"{script.name} K: {m.group(1)}")
+        for m in re.finditer(r"setChip\(([^;]*?)\);", text, re.S):
+            if re.search(r'^\s*[^,]+,\s*"', m.group(1)) or re.search(
+                r'\?\s*"[a-z_]+"\s*:', m.group(1)
+            ):
+                problems.append(
+                    f"{script.name}: literal state in setChip({m.group(1)[:60]}…)"
+                )
     assert not problems, f"data-state values the kit does not colour: {problems}"
 
 

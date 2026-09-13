@@ -6,9 +6,11 @@ One stream, three event types, each a JSON object:
   sent every round so the page can show how long ago the manager answered;
 - ``progress`` — the latest-run picture from the document stream, sent
   when it changes;
-- ``console``  — one manager console-output line each, with a ``seq`` the
-  page keeps so a reconnect resumes where it left off
-  (``?since=<seq>``).
+- ``console``  — one manager console-output line each, carrying
+  ``id: <epoch>:<seq>`` so the browser's own reconnect resumes where it
+  left off (``Last-Event-ID``); ``?since=<seq>`` is the manual form. A new
+  epoch (the scanner restarted) replays from the start and the page clears
+  its tail.
 
 SSE, not WebSocket: one direction, plain HTTP, survives every reverse
 proxy with one "no buffering" line, and the browser reconnects on its own.
@@ -42,8 +44,27 @@ _HEADERS = {
 }
 
 
-def _frame(event: str, payload: object) -> str:
-    return f"event: {event}\ndata: {json.dumps(payload, default=str)}\n\n"
+def _frame(event: str, payload: object, event_id: str | None = None) -> str:
+    head = f"id: {event_id}\n" if event_id else ""
+    return f"{head}event: {event}\ndata: {json.dumps(payload, default=str)}\n\n"
+
+
+def _resume_from(request: Request, since: int, epoch: str) -> int:
+    """Where to resume the console cursor after a browser reconnect.
+
+    ``EventSource`` reconnects by itself and sends ``Last-Event-ID`` — the
+    ``<epoch>:<seq>`` the console frames carry — so a blip resumes where it
+    left off. A different epoch means this process restarted and its ``seq``
+    started over: replay from the start (the page clears its tail on the
+    epoch change). The ``?since=`` query is the manual form of the same.
+    """
+    last = request.headers.get("last-event-id", "")
+    if last:
+        got_epoch, _, seq = last.rpartition(":")
+        if got_epoch == epoch and seq.isdigit():
+            return int(seq)
+        return 0
+    return since
 
 
 def register(router: APIRouter, service: ScannerService) -> None:
@@ -57,7 +78,8 @@ def register(router: APIRouter, service: ScannerService) -> None:
 
         async def gen() -> AsyncIterator[str]:
             last_progress: str | None = None
-            cursor = since
+            epoch = service.streams.epoch
+            cursor = _resume_from(request, since, epoch)
             last_sent = time.monotonic()
             while True:
                 # Every round, changed or not: the page shows how long ago the
@@ -75,7 +97,9 @@ def register(router: APIRouter, service: ScannerService) -> None:
                 for line in service.console_since(cursor):
                     cursor = line.seq
                     last_sent = time.monotonic()
-                    yield _frame("console", line.model_dump())
+                    payload = line.model_dump()
+                    payload["epoch"] = epoch
+                    yield _frame("console", payload, f"{epoch}:{line.seq}")
                 if once:
                     return
                 if time.monotonic() - last_sent > KEEPALIVE_S:
