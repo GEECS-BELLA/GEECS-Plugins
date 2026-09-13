@@ -69,10 +69,6 @@ svg{display:block;max-width:100%}
 .entry-body code{font-family:var(--ff-mono);font-size:12.5px;background:var(--surface-2);padding:1px 4px;border-radius:3px}
 .entry-body img{max-width:min(100%,430px);border:1px solid var(--rule);border-radius:4px;margin:8px 0 4px;display:block}
 .entry-body strong{font-weight:600}
-/* interscan block — deliberately NOT a card: it sits between things */
-.between{display:flex;flex-direction:column;gap:0;border-left:2px solid var(--agent-rule);
-  background:var(--surface);border-radius:0 var(--r) var(--r) 0;border-top:1px solid var(--rule);
-  border-right:1px solid var(--rule);border-bottom:1px solid var(--rule);overflow:hidden}
 /* insert affordance */
 .insert{display:flex;align-items:center;gap:10px;padding:2px 0}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
@@ -97,28 +93,6 @@ details.scan[open] > .scanhead .twisty{transform:rotate(45deg)}
 .foot{color:var(--muted);font-size:12.5px;margin:4px 0 0}
 details.scan[hidden]{display:none}
 
-/* ---- campaigns: consecutive scans sharing a parameter and purpose ---- */
-.campaign{background:var(--surface);border:1px solid var(--rule);
-  border-radius:var(--r);box-shadow:var(--shadow);overflow:hidden}
-.camphead{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:13px 16px;
-  cursor:pointer;list-style:none;user-select:none;background:var(--surface-2)}
-.camphead::-webkit-details-marker{display:none}
-.camphead:hover{background:var(--accent-soft)}
-.camphead:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
-details.campaign[open] > .camphead{border-bottom:1px solid var(--rule)}
-details.campaign[open] > .camphead .twisty{transform:rotate(45deg)}
-.campspan{font-family:var(--ff-mono);font-size:13.5px;font-weight:600;
-  font-variant-numeric:tabular-nums;white-space:nowrap}
-.campcount{font-family:var(--ff-mono);font-size:10.5px;letter-spacing:.05em;
-  text-transform:uppercase;color:var(--muted);white-space:nowrap}
-.campparam{font-family:var(--ff-mono);font-size:12px;color:var(--accent);
-  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
-.camppurpose{font-size:13px;color:var(--slate);flex:1 1 180px;min-width:0;
-  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.campbody{display:flex;flex-direction:column;padding:10px 12px 12px;gap:8px;
-  background:var(--paper)}
-.campbody .panel{box-shadow:none}
-details.campaign[hidden]{display:none}
 .scanrow .count{font-family:var(--ff-mono);font-size:10.5px;color:var(--muted);
   font-variant-numeric:tabular-nums}
 
@@ -134,7 +108,6 @@ details.campaign[hidden]{display:none}
 .stepday:hover{border-color:var(--accent);color:var(--accent)}
 .todaylink{display:inline-block;font-size:11.5px;margin-bottom:9px}
 .day.future{opacity:.45}
-.camppurpose.none{color:var(--muted);font-style:italic}
 .scantime.approx{color:var(--muted);font-style:italic}
 
 
@@ -207,23 +180,12 @@ details.campaign[hidden]{display:none}
 
 /* the day intro and interscan blocks */
 .panel.intro .scanhead{cursor:default}
-.between{border-left:2px solid var(--agent-rule);background:var(--surface);border-radius:0 var(--r) var(--r) 0;
-  border-top:1px solid var(--rule);border-right:1px solid var(--rule);border-bottom:1px solid var(--rule);overflow:hidden}
-.between > summary{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:9px 16px;background:var(--surface-2);cursor:pointer;list-style:none}
-.between > summary::-webkit-details-marker{display:none}
-.between > summary::before{content:"\25B8";color:var(--muted);font-size:11px;transition:transform .12s}
-.between[open] > summary::before{transform:rotate(90deg)}
-.between .count{margin-left:auto;font-family:var(--ff-mono);font-size:11px;color:var(--muted)}
-.between .tlabel{font-family:var(--ff-mono);font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--agent);font-weight:600}
-.between .trange{font-family:var(--ff-mono);font-size:11px;color:var(--muted)}
-.between .entries{border-top:0}
 .insert{display:flex;align-items:center;gap:10px;padding:0}
 .insert-rule{flex:1;height:1px;background:var(--rule)}
 .insert-btn{border:1px solid var(--rule);background:var(--surface);color:var(--muted);font:inherit;font-size:11.5px;
   border-radius:20px;padding:2px 11px;cursor:pointer}
 .insert-btn:hover{border-color:var(--accent);color:var(--accent)}
-.insert[hidden],.between[hidden]{display:none}
-
+.insert[hidden],
 /* the editor: toolbar, preview, drop target, and the image grid */
 .toolbar{display:flex;gap:2px;flex-wrap:wrap;margin-bottom:5px}
 .tool{font:inherit;font-size:11.5px;color:var(--slate);background:var(--surface);border:1px solid var(--rule);

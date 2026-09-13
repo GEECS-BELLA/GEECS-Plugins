@@ -44,28 +44,29 @@
   {% endif %}
 {% endmacro %}
 
+{# A note between two scans is just a note. It carries its own timestamp,
+   which is usually out of step with the scans on either side, and that is
+   the point — the day reads as what happened in the order it happened.
+
+   It used to wear a <details class="between"> wrapper announcing "Between
+   scans" and the range it fell in. That was ceremony: where the entry sits
+   already says where it sits, and the wrapper made the same content look
+   like a different kind of thing from the identical note in the ops book. #}
 {% macro between_block(after, entries, writable, prev_label, next_label) %}
   {% set anchor = 'after-%04d' % after %}
   {% set es = entries.get(anchor, []) %}
   {% if es %}
-  <details class="between" open>
-    <summary><span class="tlabel">Between scans</span>
-      <span class="trange">{{ prev_label }} &rarr; {{ next_label }}</span>
-      <span class="count">{{ es | length }} note{{ '' if es | length == 1 else 's' }}</span></summary>
-    {{ entries_block(anchor, none, after, entries, writable) }}
-  </details>
+  {{ entries_block(anchor, none, after, entries, writable) }}
   {% elif writable %}
   <div class="insert" data-insert="{{ after }}">
     <div class="insert-rule"></div>
-    <button class="insert-btn" type="button">+ note between {{ prev_label }} and {{ next_label }}</button>
+    <button class="insert-btn" type="button">+ note after {{ prev_label }}</button>
     <div class="insert-rule"></div>
   </div>
-  <details class="between" hidden data-between-host="{{ after }}">
-    <summary><span class="tlabel">Between scans</span>
-      <span class="trange">{{ prev_label }} &rarr; {{ next_label }}</span>
-      <span class="count">new note</span></summary>
+  {# editor.js reveals this when the button above is used. #}
+  <div hidden data-between-host="{{ after }}">
     {{ entries_block(anchor, none, after, entries, writable) }}
-  </details>
+  </div>
   {% endif %}
 {% endmacro %}
 
@@ -125,6 +126,9 @@
   </details>
 {% endmacro %}
 
+{# Volume only: a long day opens collapsed so it reads as a list.
+   This is a fact about how many scans there are, not a claim about
+   what they were for. #}
 {% set many = summary.scans | length > 20 %}
 
 <div class="topbar">
@@ -179,28 +183,15 @@
 
     {% if summary.scans %}
     <section>
-      <h4>{{ 'Campaigns' if many else 'Scans' }} ·
-        {{ summary.campaigns | length if many else summary.scans | length }}</h4>
+      <h4>Scans &middot; {{ summary.scans | length }}</h4>
       <nav class="picklist">
-        {% if many %}
-          {% for c in summary.campaigns %}
-          <a class="scanrow" href="#{{ c.scans[0].label }}">
-            <span class="dot" data-state="{{ kit_state['failed' if c.failed else c.scans[0].status] }}"
-                  aria-hidden="true"></span>
-            <span class="id">{{ '%03d' % c.scans[0].number }}</span>
-            <span class="lbl">{{ c.parameter or '—' }}</span>
-            <span class="count">{{ c.scans | length }}</span>
-          </a>
-          {% endfor %}
-        {% else %}
-          {% for s in summary.scans %}
+        {% for s in summary.scans %}
           <a class="scanrow" href="#{{ s.label }}">
             <span class="dot" data-state="{{ kit_state[s.status] }}" aria-hidden="true"></span>
             <span class="id">{{ '%03d' % s.number }}</span>
             <span class="lbl">{{ s.parameter or '—' }}</span>
           </a>
-          {% endfor %}
-        {% endif %}
+        {% endfor %}
       </nav>
     </section>
     {% endif %}
@@ -248,38 +239,14 @@
     {% endif %}
 
     {% set ns = namespace(prev=0, prev_label='the start of the day') %}
-    {% if many %}
-      {% for c in summary.campaigns %}
-      <details class="campaign" {% if c.scans | length == 1 %}open{% endif %}>
-        <summary class="camphead">
-          <span class="twisty" aria-hidden="true"></span>
-          <span class="campspan">{{ c.span }}</span>
-          <span class="campcount">{{ c.scans | length }}
-            scan{{ '' if c.scans | length == 1 else 's' }}</span>
-          {% if c.is_empty_run %}
-          <span class="camppurpose none">No scan metadata &mdash; folders only</span>
-          {% else %}
-          <span class="campparam">{{ c.parameter or '—' }}</span>
-          <span class="camppurpose">{{ c.purpose or 'No purpose recorded' }}</span>
-          {% endif %}
-          {% if c.failed %}<span class="chip" data-state="failed">{{ c.failed }} failed</span>{% endif %}
-        </summary>
-        <div class="campbody">
-          {% for s in c.scans %}
-            {{ between_block(ns.prev, entries, writable, ns.prev_label, s.label) }}
-            {{ scan_block(s, false, entries, writable) }}
-            {% set ns.prev = s.number %}{% set ns.prev_label = s.label %}
-          {% endfor %}
-        </div>
-      </details>
-      {% endfor %}
-    {% else %}
-      {% for s in summary.scans %}
-        {{ between_block(ns.prev, entries, writable, ns.prev_label, s.label) }}
-        {{ scan_block(s, true, entries, writable) }}
-        {% set ns.prev = s.number %}{% set ns.prev_label = s.label %}
-      {% endfor %}
-    {% endif %}
+    {# These are the scans that happened, in the order they happened. The
+       log reports them; it does not group them by what it thinks they were
+       for. Notes fall between them wherever their timestamps put them. #}
+    {% for s in summary.scans %}
+      {{ between_block(ns.prev, entries, writable, ns.prev_label, s.label) }}
+      {{ scan_block(s, not many, entries, writable) }}
+      {% set ns.prev = s.number %}{% set ns.prev_label = s.label %}
+    {% endfor %}
 
     {% if summary.scans %}
       {{ between_block(ns.prev, entries, writable, ns.prev_label, 'the end of the day') }}
@@ -297,10 +264,10 @@
    home for it — it never needs to reach another viewer or the server. */
 const KEY = "scanlog.expandAll";
 const btn = document.getElementById("toggle-all");
-/* Expand/collapse reaches BOTH levels: opening only the campaigns left
-   every scan inside them shut, so the button appeared not to work. */
-const cards = () => [...document.querySelectorAll(
-  "details.campaign, details.scan, details.between")];
+/* One level now: every scan is its own block at the top of the document,
+   and a note between scans is an ordinary entry rather than a container
+   to open. */
+const cards = () => [...document.querySelectorAll("details.scan")];
 
 function applyAll(expand){
   cards().forEach(c => { if (!c.hidden) c.open = expand; });
@@ -329,14 +296,6 @@ document.getElementById("q").addEventListener("input", ev => {
   const f = ev.target.value.trim().toLowerCase();
   const blocks = [...document.querySelectorAll("details.scan")];
   blocks.forEach(c => { c.hidden = !!f && !c.dataset.hay.includes(f); });
-  /* A campaign disappears only when every scan in it is filtered out, and
-     opens automatically so matches inside it are actually visible. */
-  document.querySelectorAll("details.campaign").forEach(camp => {
-    const kids = [...camp.querySelectorAll("details.scan")];
-    const any = kids.some(k => !k.hidden);
-    camp.hidden = !any;
-    if (f && any) camp.open = true;
-  });
 });
 
 /* Jumping from the rail should reveal what you jumped to. */
@@ -344,8 +303,6 @@ document.querySelectorAll(".scanrow").forEach(a => a.addEventListener("click", (
   const el = document.querySelector(a.getAttribute("href"));
   if (!el) return;
   el.open = true;
-  const camp = el.closest("details.campaign");
-  if (camp) camp.open = true;
 }));
 </script>
 {{ shared.seeds_json(seeds) }}

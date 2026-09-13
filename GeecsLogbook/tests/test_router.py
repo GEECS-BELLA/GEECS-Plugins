@@ -82,38 +82,6 @@ class TestDayPage:
         assert "Collapse all" in html
 
 
-class TestBusyDay:
-    """A day over the grouping threshold renders campaigns, not a flat list."""
-
-    @pytest.fixture
-    def busy(self, make_run) -> TestClient:
-        """Build a day of 25 identical scans — one campaign."""
-        root = make_run(25)
-        app = FastAPI()
-        app.include_router(
-            create_log_router("Undulator", base_directory=root), prefix="/log"
-        )
-        return TestClient(app)
-
-    def test_groups_into_campaigns(self, busy: TestClient) -> None:
-        """Twenty-five scans render inside one campaign block."""
-        html = busy.get("/log/day/2026-09-11").text
-        assert html.count('<details class="campaign"') == 1
-        assert html.count('<details class="panel scan"') == 25
-
-    def test_rail_lists_campaigns_not_scans(self, busy: TestClient) -> None:
-        """The rail shows one row per campaign so it stays scannable."""
-        html = busy.get("/log/day/2026-09-11").text
-        assert html.count('class="scanrow"') == 1
-        assert "Campaigns" in html
-
-    def test_busy_day_starts_collapsed(self, busy: TestClient) -> None:
-        """Nothing is expanded on arrival; the button offers Expand all."""
-        html = busy.get("/log/day/2026-09-11").text
-        assert " open>" not in html
-        assert "Expand all" in html
-
-
 class TestHonestChips:
     """The status chip must not contradict the card under it."""
 
@@ -485,3 +453,27 @@ class TestEditorHooks:
             404,
             405,
         )
+
+
+class TestLongDay:
+    """A long day opens collapsed — a fact about volume, not about meaning.
+
+    The grouped view this replaced inferred which scans belonged together
+    from two matching fields. That is interpretation, and the logbook's
+    rule is that it reports what the files say. What survives is the only
+    honest part of the old behaviour: past a certain number of scans the
+    day is easier to read as a closed list.
+    """
+
+    def test_a_long_day_renders_every_scan_at_the_top_level(
+        self, client: TestClient
+    ) -> None:
+        """No wrapper groups them; each scan is its own block."""
+        html = client.get("/log/day/2026-09-11").text
+        assert "campaign" not in html
+        assert html.count('<details class="panel scan"') == 4
+
+    def test_the_rail_lists_scans(self, client: TestClient) -> None:
+        """The rail names scans, never a grouping of them."""
+        html = client.get("/log/day/2026-09-11").text
+        assert "Scans &middot;" in html or "Scans ·" in html

@@ -1,3 +1,57 @@
+## [0.8.0] - 2026-09-12
+
+### Removed
+
+- **The `Campaign` concept, entirely.** It grouped consecutive scans that
+  shared a `Scan Parameter` and a `ScanStartInfo`, and rendered them in a
+  second collapsible above the scans themselves. Two things were wrong with
+  it. It **inferred** — nothing in `ScanInfo` says those scans belong
+  together — which is the one rule this package already holds itself to
+  ("Status is reported, not inferred": *report what the files say and do
+  not guess*). And it borrowed a word the lab uses for something else: a
+  campaign here is weeks of work, so a day page announcing "Campaigns · 15"
+  was telling an operator it held fifteen multi-week efforts.
+
+  It also did not pay. Measured across four real days, grouping collapsed
+  108 scans into 11 on a sweep day — but on an acceptance run of 21 scans
+  it produced **15 groups, 11 of them wrapping a single scan**, because the
+  threshold asked "is the day long?" when the question was "does grouping
+  help?". Gone: the model, the property, seven CSS classes, the grouped
+  template branch, and the filter and jump logic that had to reach two
+  nesting levels.
+
+  What survives is the honest part: **a long day opens collapsed**, which
+  is a fact about volume, not a claim about meaning.
+
+### Changed
+
+- **A note between two scans is just a note.** It had worn a
+  `<details class="between">` announcing "Between scans" and the range it
+  fell in; that was ceremony, and it made identical content look like a
+  different kind of thing from the same note in the ops book. Now it
+  renders as an ordinary entry at document level, carrying its own
+  timestamp — usually out of step with the scans either side, which is the
+  point. The day reads as what happened, in the order it happened.
+- Notes between scans render **between** scan blocks rather than inside the
+  following one. Under the old grouping a note "after Scan005" was emitted
+  inside Scan006's group.
+
+### Added
+
+- `scripts/seed_demo_notes.py` — worked-example entries for a **separate**
+  database. The store is authoritative (what people wrote exists nowhere
+  else), so invented content must never be seeded into it; but a day with
+  no notes shows none of what the page is for, which is how an unstyled
+  composer shipped unnoticed. Entries say in their own body that they are
+  seeded, and the script refuses to write to a file that already exists.
+
+### Fixed
+
+- The `KIT_STATE` comment and the 0.7.0 changelog entry both still
+  described the mapping as it was *before* the severity correction —
+  claiming `aborted` and `incomplete` share `degraded`. Prose is not
+  covered by a test suite; both now say what the code does.
+
 # Changelog
 
 All notable changes to `geecs-logbook` are documented here. The format
