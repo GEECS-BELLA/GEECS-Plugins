@@ -1,3 +1,9 @@
+# Changelog
+
+All notable changes to `geecs-logbook` are documented here. The format
+follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
+project adheres to semantic versioning.
+
 ## [0.8.0] - 2026-09-12
 
 ### Removed
@@ -51,12 +57,6 @@
   described the mapping as it was *before* the severity correction —
   claiming `aborted` and `incomplete` share `degraded`. Prose is not
   covered by a test suite; both now say what the code does.
-
-# Changelog
-
-All notable changes to `geecs-logbook` are documented here. The format
-follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
-project adheres to semantic versioning.
 
 ## [0.7.0] - 2026-09-12
 
