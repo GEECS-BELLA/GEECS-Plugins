@@ -541,7 +541,8 @@ def scan_mode(start_doc: Mapping[str, Any]) -> str:
     # one: `scan`/`rel_scan`/`list_scan` move N motors along ONE correlated
     # trajectory (`inner_product`, `inner_list_product`) and are 1D however
     # many motors they name; only `grid_scan`'s `outer_product` is a grid.
-    # The same branch is spelled out in GeecsBluesky's ScanInfo writer.
+    # (GeecsBluesky's ScanInfo writer reads `plan_pattern` the same way for
+    # Start/End/Step; it does not classify grids. Only this reader does.)
     pattern = str(start_doc.get("plan_pattern") or "")
     if pattern:
         return "GRID" if pattern.startswith("outer_") else "1D"
