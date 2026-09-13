@@ -77,7 +77,12 @@ version. Rules the logbook learned, pinned by `tests/test_page.py`:
 `url_for(...).path` never the absolute URL; every literal `data-state`
 (template or `setChip` in the script) is a kit word; every script passes
 `node --check`; every class the page uses is styled by the kit, the theme
-or `scanner.css`. The form builds a `Preset` and posts it — the page never
+or `scanner.css`. The first three are `geecs_web_theme.testing`'s helpers
+— the test file asserts over their findings and adds only what is the
+scanner's own (the script's `K` table, `setChip` literals). Likewise the
+forwarded-prefix middleware, the `/theme` mount and the templates factory
+come from `geecs_web_theme.web` (the `web` extra): import them, never copy
+them. The form builds a `Preset` and posts it — the page never
 resolves a variable to a device.
 
 ## What is not here yet

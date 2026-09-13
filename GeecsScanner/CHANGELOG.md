@@ -4,6 +4,31 @@ All notable changes to `geecs-scanner` are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 project adheres to semantic versioning.
 
+## [0.3.0] - unreleased
+
+The rest of the mock — PR 4 of the web scanner arc. Opens with the
+shared-glue adoption the #871/#872 reviews asked for once
+`geecs_web_theme.web` existed.
+
+### Changed
+
+- **The web glue is imported, not copied.** The `geecs-web-theme` path
+  dependency gains `extras = ["web"]`; `web/app.py` uses
+  `geecs_web_theme.web.ForwardedPrefixMiddleware` and `mount_theme`, and
+  `web/pages.py` builds its environment with `make_templates(TEMPLATES_DIR)`
+  (`root` in every context comes from the shared factory). Deleted: the
+  scanner's `ForwardedPrefixMiddleware` + `_clean_prefix`, `_root` + the
+  `Jinja2Templates` setup, and the try/except around the theme mount (the
+  theme has been a hard dependency since 0.1.0). The scanner's named
+  `/static` mount and `url_for(...).path` stay — they are the page's own.
+- `tests/test_page.py`'s three template guards are one-line asserts over
+  `geecs_web_theme.testing` (`bare_url_for_calls`, `unknown_data_states`,
+  `inline_scripts` + `javascript_syntax_error`); the scanner-specific
+  checks (the script's `K` table and `setChip` literals, the page's script
+  file, "every class is styled") stay local. Proven to bite: a planted
+  template with a bare `url_for`, a `data-state="FAILED"` and a broken
+  inline script fails all three.
+
 ## [0.2.0] - 2026-09-13
 
 The page — PR 3 of the web scanner arc. Day one of the console's job, as

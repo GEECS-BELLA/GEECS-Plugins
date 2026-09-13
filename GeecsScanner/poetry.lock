@@ -974,13 +974,20 @@ url = "../GEECS-Schemas"
 
 [[package]]
 name = "geecs-web-theme"
-version = "0.3.0"
+version = "0.4.1"
 description = "One palette vocabulary for every GEECS web surface: tokens, themes, and the picker"
 optional = false
 python-versions = ">=3.11,<3.12"
 groups = ["main"]
 files = []
 develop = true
+
+[package.dependencies]
+fastapi = {version = ">=0.110", optional = true}
+jinja2 = {version = ">=3.1", optional = true}
+
+[package.extras]
+web = ["fastapi (>=0.110)", "jinja2 (>=3.1)"]
 
 [package.source]
 type = "directory"
@@ -4045,4 +4052,4 @@ files = [
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.11,<3.12"
-content-hash = "da9adb1bd8ba3911860bcec0853671ad20c335029b77aa486b4d8a1a719ec31e"
+content-hash = "6244ca89aeef45115c37affb034469f32a3aa1368b90cb5aac95f8424482aa4c"
