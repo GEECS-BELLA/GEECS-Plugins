@@ -73,6 +73,10 @@ def test_every_literal_data_state_is_a_kit_state() -> None:
         for m in re.finditer(r'"([a-z_]+)"', k.group(1)):
             if m.group(1) not in STATES:
                 problems.append(f"{script.name} K: {m.group(1)}")
+        keys = set(re.findall(r"([a-z_]+):\s*\"", k.group(1)))
+        for m in re.finditer(r"\bK\.([A-Za-z_]+)", text):
+            if m.group(1) not in keys:
+                problems.append(f"{script.name}: K.{m.group(1)} is not in the K table")
         for m in re.finditer(r"setChip\(([^;]*?)\);", text, re.S):
             if re.search(r'^\s*[^,]+,\s*"', m.group(1)) or re.search(
                 r'\?\s*"[a-z_]+"\s*:', m.group(1)
