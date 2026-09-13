@@ -48,6 +48,23 @@ def test_unknown_data_states_against_the_kit_vocabulary() -> None:
     assert unknown_data_states(text, STATES) == ["denied", "no_data"]
 
 
+def test_unknown_data_states_judges_malformed_values_and_skips_jinja() -> None:
+    """Case, whitespace and emptiness are unknown words too; Jinja is not a literal.
+
+    The first cut matched only values that already looked like a kit word,
+    so ``"FAILED"``, ``"ok "`` and ``""`` — each an uncoloured chip in the
+    browser — were never reported (Codex review of #873).
+    """
+    text = (
+        '<i data-state="FAILED"></i><i data-state="ok "></i><i data-state=""></i>'
+        "<i data-state='Running'></i>"
+        '<i data-state="{{ kit_state[s.status] }}"></i>'
+        '<i data-state="{% if x %}ok{% else %}failed{% endif %}"></i>'
+        '<i data-state="ok"></i>'
+    )
+    assert unknown_data_states(text, STATES) == ["FAILED", "ok ", "", "Running"]
+
+
 def test_inline_scripts_skip_src_json_and_jinja_comments() -> None:
     text = (
         "{# a <script>inside a comment</script> must not start a match #}"

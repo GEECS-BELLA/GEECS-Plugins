@@ -48,7 +48,10 @@ __all__ = [
 # and ``url_for('a', d=f(g(x)))`` — which is as deep as a template argument
 # gets; a third level is not matched and is documented as the limit.
 _URL_FOR_BARE = re.compile(r"url_for\((?:[^()]|\((?:[^()]|\([^()]*\))*\))*\)(?!\.path)")
-_DATA_STATE = re.compile(r"""data-state=["']([a-z_][\w-]*)["']""")
+# Any quoted value, however malformed — `"FAILED"`, `"ok "`, `""` are all
+# words the kit does not colour and must be reported; the first cut only
+# matched values that already looked like a kit word (Codex review of #873).
+_DATA_STATE = re.compile(r"""data-state=(?:"([^"]*)"|'([^']*)')""")
 _JINJA_COMMENT = re.compile(r"\{#.*?#\}", re.S)
 _JINJA_OUTPUT = re.compile(r"\{\{.*?\}\}", re.S)
 _JINJA_BLOCK = re.compile(r"\{%.*?%\}", re.S)
@@ -94,18 +97,27 @@ def unknown_data_states(
         The vocabulary — typically ``STATES`` plus ``PANE_STATES`` from
         :mod:`geecs_web_theme`.
 
+    A value rendered by Jinja (``data-state="{{ kit_state[s] }}"``) is not
+    a literal and is skipped; the constant it reads from is pinned
+    elsewhere. Everything else is judged exactly as written — case,
+    whitespace and emptiness included — because the browser matches the
+    attribute exactly too.
+
     Returns
     -------
     list of str
-        The unknown words, in order of appearance, duplicates kept so a
+        The unknown values, in order of appearance, duplicates kept so a
         count is a count.
     """
     ok = set(allowed)
-    return [
-        m.group(1)
-        for m in _DATA_STATE.finditer(_text(template))
-        if m.group(1) not in ok
-    ]
+    out = []
+    for m in _DATA_STATE.finditer(_text(template)):
+        value = m.group(1) if m.group(1) is not None else m.group(2)
+        if "{{" in value or "{%" in value:
+            continue
+        if value not in ok:
+            out.append(value)
+    return out
 
 
 def inline_scripts(template: Union[Path, str]) -> list[str]:
