@@ -1,10 +1,12 @@
 # Phase 2 — gated batch and the non-essential stream
 
 **Status (2026-09-12): PR 2a merged (#843, gateway 0.9.0 ×9 deployed);
-PR 2b code-complete on mocks (GeecsBluesky 0.83.0, GEECS-Schemas 0.22.0 —
-`plans/gated.py`, `devices/sampler.py`, the detector's fly mode, the
-preflight rules, `essential` on `PresetDevice`), its hardware acceptance
-(§5 item 2) OWED; 2c not started.  Two things the build found that the
+PR 2b merged (#850) and **hardware-accepted** — A1–A4/A6–A8 plus a broader
+device set on 26_0912 (A5 deferred by Sam); PR **2c built** (GeecsBluesky
+0.84.0, GEECS-Data-Utils 0.31.0 — `geecs_data_utils.shot_join`, the s-file
+callback's row/stack join, the stack check's gated stamp comparison, the
+offline re-export of a gated run), its acceptance = re-exporting 2b's scans
+(§5 item 3).  Phase 2 is then complete.  Two things the build found that the
 design did not say: a fly `prepare` on a `GeecsDetector` must leave the
 per-event data logics out (the stock context refuses "multiple
 collections" for a readable provider and would switch LabVIEW-native
@@ -645,9 +647,16 @@ the stock `kickoff`/`complete`/`collect` verbs.
    immediate pause mid-step, the step repeated on resume.
    With the laser off: `HTU-LaserOFF` (SCAN = internal), which exercises
    everything but the laser's phase.
-3. **2c — the s-file from streams** (GeecsBluesky minor; Data-Utils
-   minor): §4.5, pinned by an offline test over a synthetic run and by
-   re-exporting 2b's scans.
+3. **2c — the s-file from streams** (GeecsBluesky 0.84.0; Data-Utils
+   0.31.0): §4.5, pinned offline by the join's own unit tests, by a
+   synthetic gated run driven through the real plans (two plugin cameras,
+   a gauge and a motor: the `shots` rows joined to stacks written as the
+   plugin writes them, with a late second camera and an orphan frame) and
+   by a strict run with a non-essential camera; plus a Tiled re-export
+   test over a gated run's node shape.  **Built 2026-09-12**; the
+   hardware acceptance is the re-export of 2b's accepted scans of 26_0912
+   (Scan012–021) on the worker host — one s-file row per essential shot,
+   the stamps matching the stacks, no orphan rows.
 
 `03` §8's "free-run deleted" is already true (#816).  The optimization
 re-glue and the web scanner v1 stay after phase 2 as listed.

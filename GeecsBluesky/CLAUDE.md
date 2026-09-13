@@ -199,10 +199,22 @@ right after `open_run` and each collected alone into `<name>_stream`
 before `close_run` — `fly_during_wrapper`'s shape with the stage and
 prepare it lacks, per plan, never RunEngine-level
 `SupplementalData.flyers`; nothing waits on them.  `shot_period` is the
-strict rep-rate throttle (#840).  The s-file for a run with stream data is
-phase 2c (`08` §4.5): today `SFileCallback` skips a run with no primary
-events with a log line, and `StackCheckCallback` checks a datum-only
-stream by count.
+strict rep-rate throttle (#840).
+
+**The s-file of a run with stream data** (phase 2c, `08` §4.5): the rows
+are `primary`'s events when it has them and the sampler's `shots` events
+otherwise, and every **datum-only** stream's per-frame columns are joined
+onto them by offset-corrected stamp — the join itself is
+`geecs_data_utils.shot_join`, shared with the offline re-export so the two
+cannot drift.  One row per essential shot: a camera's per-frame scalars
+and its own stamp come from its stack under the names a *strict* row uses,
+an orphan frame stays in the stack and in Tiled, a shot without a frame
+reads `NaN`, and a column the row already carries wins.  Such a run's
+s-file is written on a thread (a stack may only be read once the plugin
+finalizes it, which happens at `unstage`, after the stop document); a run
+with no datum-only stream is still written synchronously.
+`StackCheckCallback` checks a non-essential stream by count and a *gated*
+stack by count **and** stamps — one frame per `shots` row, none orphaned.
 
 ## The GEECS scan (§4.C): one claim, three files, one telemetry stream
 
@@ -219,8 +231,8 @@ never delivers), and last `connect_on_demand`.  Three callbacks write
 **into** the claimed folder, never creating it: `ScanInfoCallback` (the
 legacy `[Scan Info]` keys downstream parses, `ScanEndInfo` filled at the
 stop), `SFileCallback` (`ScanDataScanNNN.txt` + `analysis/sNNN.txt` from
-the run's own primary events, for any exit status with rows — no Tiled
-round trip), `ScanLogCallback`.  A detector's native files go to
+the run's own per-shot rows joined to its stacks, for any exit status with
+rows — no Tiled round trip), `ScanLogCallback`.  A detector's native files go to
 `ScanNNN/<GEECS device>/`; `X.scalars` (a view every namespace device
 carries) in the detector list records the same columns without files
 (`save_images: false`).  The telemetry set is connected once at build and

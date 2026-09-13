@@ -34,6 +34,7 @@ from geecs_bluesky.plans.registry import TriggerProfiles, bind_plans  # noqa: E4
 from geecs_bluesky.preprocessors import scalar_headers  # noqa: E402
 from geecs_bluesky.devices.shot_control import ShotControl  # noqa: E402
 from tests.ca_mock_helpers import (  # noqa: E402
+    DocCollector,
     connect_mock,
     follow_setpoint,
     read_scan_info,
@@ -263,14 +264,14 @@ def test_scan_info_callback_ignores_runs_without_a_folder(tmp_path, caplog):
     assert "does not exist" in caplog.text
 
 
-def test_sfile_callback_skips_a_run_without_events(tmp_path, caplog):
+def test_sfile_callback_skips_a_run_without_rows(tmp_path, caplog):
     folder = tmp_path / "scans" / "Scan002"
     folder.mkdir(parents=True)
     cb = SFileCallback()
     with caplog.at_level(logging.INFO):
         cb("start", {"uid": "u", "scan_number": 2, "scan_folder": str(folder)})
         cb("stop", {"run_start": "u", "exit_status": "abort"})
-    assert "no primary events" in caplog.text
+    assert "no per-shot rows in any stream" in caplog.text
     assert not (folder / "ScanDataScan002.txt").exists()
 
 
@@ -454,5 +455,352 @@ def test_stack_check_counts_a_datum_only_stream(tmp_path, caplog):
     short = feed([1.0, 2.0, 3.0, 4.0, 5.0], [3, 3], stream="uc_cam_stream")
     assert short == [
         "scan 9: uc_cam: 5 frame(s) in UC_Cam.h5, 6 referenced by the stream's datums — MISMATCH"
+    ]
+    assert any(r.levelno == logging.WARNING for r in caplog.records)
+
+
+# -------------------------------------------- the s-file of a gated run (2c)
+def _write_plugin_stack(
+    path: Path, stamps, *, scalars: dict, device: str, variable: str = "image"
+) -> None:
+    """The stack the file plugin would have written for one camera.
+
+    Frames plus the per-frame attribute datasets the gateway writes
+    (``<device>-hdf-<variable>-frame_acq_timestamp`` in Unix seconds, the
+    subscribed scalars beside it), finalized.  Written to a part file and
+    renamed, so the callback's thread never sees a half-written stack —
+    exactly the ordering the plugin gives it on the share.
+    """
+    import h5py
+    import numpy as np
+
+    from geecs_data_utils.io.scan_stack import (
+        ATTRIBUTES_GROUP,
+        FRAMES_DATASET,
+        LABVIEW_EPOCH_OFFSET,
+    )
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    part = path.with_name(path.name + ".part")
+    prefix = f"{ATTRIBUTES_GROUP}/{device}-hdf-{variable}"
+    with h5py.File(part, "w", libver="latest") as f:
+        f.create_dataset(FRAMES_DATASET, data=np.zeros((len(stamps), 2, 2)))
+        f.create_dataset(
+            f"{prefix}-frame_acq_timestamp",
+            data=np.asarray(stamps, dtype=float) - LABVIEW_EPOCH_OFFSET,
+        )
+        for name, values in scalars.items():
+            f.create_dataset(f"{prefix}-{name}", data=np.asarray(values, dtype=float))
+        f.attrs["finalized"] = True
+    part.replace(path)
+
+
+def _stack_uri(col, data_key: str) -> Path:
+    """One camera's frame-stack path, from the run's own stream resource."""
+    from urllib.parse import unquote, urlparse
+
+    from geecs_data_utils.io.scan_stack import FRAMES_DATASET
+
+    resource = next(
+        r
+        for r in col.docs["stream_resource"]
+        if r["data_key"] == data_key
+        and (r.get("parameters") or {}).get("dataset") == FRAMES_DATASET
+    )
+    return Path(unquote(urlparse(resource["uri"]).path))
+
+
+@pytest.fixture
+def gated_worker(RE, tmp_path, monkeypatch):
+    """A RunEngine wired like the worker for a gated run, with the s-file callback."""
+    from geecs_bluesky.plans import gated as gated_module
+    from tests.test_gated_plans import GATED_WRITES, GatedBox
+
+    monkeypatch.setattr(gated_module, "TRIGGER_PERIOD_S", 0.08)
+    monkeypatch.setattr(gated_module, "DRAIN_MARGIN_S", 0.04)
+    claim = FakeClaim(tmp_path)
+    provider = GeecsScanPathProvider()
+    RE.preprocessors.append(
+        partial(
+            claim_scan_preprocessor,
+            experiment="TestExp",
+            claim=claim,
+            path_provider=provider,
+        )
+    )
+    RE.preprocessors.append(scalar_headers)
+    gated_box = GatedBox()
+    sc = ShotControl(
+        GATED_WRITES, experiment="TestExp", name="sc", setter_factory=gated_box
+    )
+    connect_mock(RE, sc)
+    sfile = SFileCallback(finalize_timeout=6.0)
+    RE.subscribe(ScanInfoCallback())
+    RE.subscribe(sfile)
+    profiles = TriggerProfiles({"HTU-Test": sc}, default="HTU-Test")
+    return bind_plans(profiles), gated_box, sfile
+
+
+def test_a_gated_scan_writes_its_s_file_from_the_shots_rows_and_the_stacks(
+    RE, gated_worker, tmp_path
+):
+    """Phase 2c: one row per essential shot, the cameras' columns out of their stacks.
+
+    The gated run's ``primary`` carries no events at all — the rows are the
+    sampler's ``shots`` stream (the gauge, the motor's readback, the bin and
+    the clock camera's stamp) and each camera's per-frame scalars are joined
+    on from the stack the plugin wrote.  The second camera stamps 120 ms
+    after the clock (cross-device drain, ``03`` §11.4) and still joins,
+    bringing its own stamp column with it; the in-flight frame after OFF has
+    no shot row and stays out of the s-file.
+    """
+    from geecs_bluesky.devices.ca.snapshot import CaSnapshotReadable
+    from tests.test_gated_plans import _events_from_pages, _magnet, _stream_events
+    from tests.test_strict_plans import _attributes_xml, _plugin_camera
+
+    plans, gated_box, sfile = gated_worker
+    cameras = []
+    for name in ("UC_A", "UC_B"):
+        cam, _ = _plugin_camera(RE, gated_box, name, tmp_path)
+        set_mock_value(
+            cam.hdf.nd_attributes_file,
+            _attributes_xml(
+                cam.name,
+                f"{cam.name}-hdf-image-frame_acq_timestamp",
+                f"{cam.name}-hdf-image-meancounts",
+            ),
+        )
+        cameras.append(cam)
+    gauge = CaSnapshotReadable(
+        "U_Gauge", ["Pressure"], experiment="TestExp", name="u_gauge"
+    )
+    connect_mock(RE, gauge)
+    set_mock_value(gauge.pressure, 2e-6)
+    magnet = _magnet(RE)
+    col = DocCollector()
+    RE.subscribe(col)
+    RE(
+        plans["scan"](
+            [*cameras, gauge],
+            magnet,
+            -1.0,
+            1.0,
+            2,
+            shots_per_step=2,
+            acquisition="gated",
+        )
+    )
+    assert col.docs["stop"][-1]["exit_status"] == "success"
+    assert col.docs["start"][0]["shot_clock"] == "UC_A"
+    assert _stream_events(col, "primary") == []  # the frames are datums only
+    rows = _events_from_pages(col, "shots")
+    stamps = [r["data"]["uc_a-acq_timestamp"] for r in rows]
+    assert len(stamps) == 4
+
+    # A: a frame per shot plus the in-flight edge after OFF; B: 120 ms later.
+    _write_plugin_stack(
+        _stack_uri(col, "uc_a"),
+        [*stamps, stamps[-1] + 1.0],
+        scalars={"meancounts": [10.0, 20.0, 30.0, 40.0, 99.0]},
+        device="uc_a",
+    )
+    _write_plugin_stack(
+        _stack_uri(col, "uc_b"),
+        [s + 0.12 for s in stamps],
+        scalars={"meancounts": [11.0, 21.0, 31.0, 41.0]},
+        device="uc_b",
+    )
+    sfile.join(15.0)
+
+    table = pd.read_csv(tmp_path / "analysis" / "s1.txt", sep="\t")
+    scan_txt = pd.read_csv(
+        tmp_path / "scans" / "Scan001" / "ScanDataScan001.txt", sep="\t"
+    )
+    assert list(scan_txt.columns) == list(table.columns)
+    assert len(table) == 4
+    assert list(table["Bin #"]) == [1, 1, 2, 2]
+    assert list(table["Shotnumber"]) == [1, 2, 3, 4]
+    # out of the stacks: the scalars, and B's own stamps; the orphan frame gone
+    assert list(table["UC_A MeanCounts"]) == [10.0, 20.0, 30.0, 40.0]
+    assert list(table["UC_B MeanCounts"]) == [11.0, 21.0, 31.0, 41.0]
+    assert list(table["UC_B acq_timestamp"]) == pytest.approx(
+        [s + 0.12 for s in stamps]
+    )
+    # the clock camera's stamp is the row's own: it IS the shot id the sampler used
+    assert list(table["UC_A acq_timestamp"]) == pytest.approx(stamps)
+    # out of the shots rows: the sampler's columns
+    assert list(table["U_Gauge Pressure"]) == [2e-6] * 4
+    assert list(table["U_S1H Current"]) == pytest.approx([-1.0, -1.0, 1.0, 1.0])
+    assert not any(c.startswith("uc_") for c in table.columns)
+
+
+def test_a_gated_run_whose_stack_never_finalizes_still_gets_its_s_file(
+    RE, gated_worker, tmp_path, caplog
+):
+    """The rows are the bulk of the s-file: a stack that never arrives costs its columns."""
+    from tests.test_gated_plans import _magnet
+    from tests.test_strict_plans import _plugin_camera
+
+    plans, gated_box, sfile = gated_worker
+    cam, _ = _plugin_camera(RE, gated_box, "UC_A", tmp_path)
+    magnet = _magnet(RE)
+    with caplog.at_level(logging.WARNING, logger="geecs_bluesky.callbacks"):
+        RE(plans["scan"]([cam], magnet, -1.0, 1.0, 2, acquisition="gated"))
+        sfile.join(15.0)
+    assert "not finalized within" in caplog.text
+    table = pd.read_csv(tmp_path / "analysis" / "s1.txt", sep="\t")
+    assert len(table) == 2
+    assert list(table["U_S1H Current"]) == pytest.approx([-1.0, 1.0])
+    assert "UC_A MeanCounts" not in table.columns
+
+
+def test_a_strict_run_with_a_non_essential_camera_joins_its_stack(
+    RE, gated_worker, tmp_path
+):
+    """The strict rows stay the primary events; the streamed camera joins by stamp."""
+    from tests.test_gated_plans import _magnet, _stream_events
+    from tests.test_strict_plans import _attributes_xml, _plugin_camera
+
+    plans, gated_box, sfile = gated_worker
+    essential = _camera(RE, gated_box, "UC_Main")
+    streamed, _ = _plugin_camera(RE, gated_box, "UC_B", tmp_path)
+    set_mock_value(
+        streamed.hdf.nd_attributes_file,
+        _attributes_xml(
+            streamed.name,
+            f"{streamed.name}-hdf-image-frame_acq_timestamp",
+            f"{streamed.name}-hdf-image-meancounts",
+        ),
+    )
+    magnet = _magnet(RE)
+    col = DocCollector()
+    RE.subscribe(col)
+    RE(plans["scan"]([essential], magnet, -1.0, 1.0, 2, non_essential=[streamed]))
+    assert col.docs["stop"][-1]["exit_status"] == "success"
+    stamps = [
+        e["data"]["uc_main-acq_timestamp"] for e in _stream_events(col, "primary")
+    ]
+    assert len(stamps) == 2
+    # B streamed the run's edges: a frame for each row plus one between steps
+    _write_plugin_stack(
+        _stack_uri(col, "uc_b"),
+        [stamps[0], (stamps[0] + stamps[1]) / 2, stamps[1]],
+        scalars={"meancounts": [1.0, 7.0, 2.0]},
+        device=streamed.name,
+    )
+    sfile.join(15.0)
+    table = pd.read_csv(tmp_path / "analysis" / "s1.txt", sep="\t")
+    assert len(table) == 2
+    assert list(table["UC_Main acq_timestamp"]) == pytest.approx(stamps)
+    assert list(table["UC_B MeanCounts"]) == [1.0, 2.0]  # the 7.0 frame orphaned
+
+
+def test_stack_check_compares_a_gated_stack_with_the_shots_rows(tmp_path, caplog):
+    """Phase 2c: a gated stack's frames must each fall on a ``shots`` row.
+
+    The batch trims every essential stack to the quota and the sampler ticks
+    once per shot, so one frame per row with nothing orphaned is the
+    contract — a frame the trim missed is a defect the count alone hides
+    (its datum covers it).
+    """
+    import h5py
+    import numpy as np
+
+    from geecs_bluesky.callbacks import StackCheckCallback
+    from geecs_data_utils.io.scan_stack import (
+        FRAMES_DATASET,
+        LABVIEW_EPOCH_OFFSET,
+        TIMESTAMPS_DATASET,
+    )
+
+    def feed(frame_stamps, row_stamps, label):
+        scan_dir = tmp_path / label / "Scan009"
+        device_dir = scan_dir / "UC_A"
+        device_dir.mkdir(parents=True)
+        path = device_dir / "UC_A.h5"
+        with h5py.File(path, "w", libver="latest") as f:
+            f.create_dataset(FRAMES_DATASET, data=np.zeros((len(frame_stamps), 2, 2)))
+            f.create_dataset(TIMESTAMPS_DATASET, data=np.array(frame_stamps))
+            f.attrs["finalized"] = True
+        cb = StackCheckCallback(finalize_timeout=1.0)
+        caplog.set_level(logging.INFO, logger="geecs_bluesky.callbacks")
+        cb(
+            "start",
+            {
+                "uid": "run1",
+                "scan_number": 9,
+                "scan_folder": str(scan_dir),
+                "acquisition": "gated",
+                "shot_clock": "UC_A",
+                "detectors": ["uc_a"],
+            },
+        )
+        cb(
+            "descriptor",
+            {
+                "uid": "d1",
+                "run_start": "run1",
+                "name": "primary",
+                "configuration": {"uc_a": {"data": {"uc_a-drain_offset": 0.0}}},
+            },
+        )
+        cb("descriptor", {"uid": "d2", "run_start": "run1", "name": "shots"})
+        cb(
+            "stream_resource",
+            {
+                "uid": "sr1",
+                "run_start": "run1",
+                "descriptor": "d1",
+                "data_key": "uc_a",
+                "mimetype": "application/x-hdf5",
+                "uri": path.as_uri().replace("file:///", "file://localhost/"),
+                "parameters": {"dataset": FRAMES_DATASET, "chunk_shape": (1, 2, 2)},
+            },
+        )
+        cb(
+            "stream_datum",
+            {
+                "stream_resource": "sr1",
+                "descriptor": "d1",
+                "indices": {"start": 0, "stop": len(frame_stamps)},
+                "seq_nums": {"start": 0, "stop": len(frame_stamps)},
+            },
+        )
+        cb(
+            "event_page",
+            {
+                "descriptor": "d2",
+                "uid": [f"e{i}" for i in range(len(row_stamps))],
+                "time": [0.0] * len(row_stamps),
+                "seq_num": list(range(1, len(row_stamps) + 1)),
+                "data": {
+                    "uc_a-acq_timestamp": list(row_stamps),
+                    "bin_number": [1] * len(row_stamps),
+                },
+                "timestamps": {
+                    "uc_a-acq_timestamp": [0.0] * len(row_stamps),
+                    "bin_number": [0.0] * len(row_stamps),
+                },
+            },
+        )
+        cb("stop", {"run_start": "run1", "exit_status": "success"})
+        cb.join(5.0)
+        return [r.getMessage() for r in caplog.records if "uc_a" in r.getMessage()]
+
+    rows = [1001.0, 1002.0, 1003.0, 1004.0]
+    stack = [s - LABVIEW_EPOCH_OFFSET for s in rows]
+    ok = feed(stack, rows, "matching")
+    assert ok == [
+        "scan 9: uc_a: 4 frame(s) in UC_A.h5, 4 referenced by the stream's datums",
+        "scan 9: uc_a: 4 frame(s) in UC_A.h5 match the shots rows' stamps",
+    ]
+    caplog.clear()
+    # the in-flight frame after OFF survived the trim: the count agrees with
+    # its own datum and only the stamps catch it
+    orphaned = feed(stack + [stack[-1] + 1.0], rows, "orphan")
+    assert orphaned == [
+        "scan 9: uc_a: 5 frame(s) in UC_A.h5, 5 referenced by the stream's datums",
+        "scan 9: uc_a: 4 of 5 frame(s) in UC_A.h5 fall on a shots row (±0.500 s) — "
+        "1 orphan(s), 0 shot(s) with no frame",
     ]
     assert any(r.levelno == logging.WARNING for r in caplog.records)

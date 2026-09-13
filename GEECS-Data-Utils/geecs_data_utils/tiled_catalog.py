@@ -476,10 +476,15 @@ def read_primary_scalars(primary: Any) -> Optional[Any]:
     table parts are read by name through ``primary.base`` and the arrays
     are left where they are.
 
+    Nothing about it is specific to ``primary``: any composite stream node
+    works the same way, and :func:`geecs_data_utils.tiled_export.read_run_rows`
+    passes a gated run's ``shots`` node through here.
+
     Parameters
     ----------
     primary :
-        The run's ``primary`` node (a Tiled ``CompositeClient``).
+        The run's ``primary`` node (a Tiled ``CompositeClient``), or any
+        other stream node of the run.
 
     Returns
     -------
