@@ -1,0 +1,49 @@
+# GEECS Scanner — systemd unit TEMPLATE.
+#
+# Do not copy this file to /etc/systemd/system by hand. Render it from the
+# host's site.env with `deploy/render_units.sh` (or `deploy/bootstrap_host.sh`)
+# — see docs/platform/site_profile.md. @PLACEHOLDER@ holes are filled at render
+# time (paths + identity); ${VARIABLE} values come from site.env at start via
+# EnvironmentFile= (valid only in command arguments).
+#
+# Upgrade:
+#   git -C <checkout> pull && poetry install && sudo systemctl restart geecs-scanner
+#
+# See DEPLOYMENT.md (this directory).
+
+[Unit]
+Description=GEECS Scanner (the web scanner console over the queueserver)
+# The scanner talks to the RE Manager over 0MQ; when the manager runs on
+# the same box, start after it. Ordering only — a manager elsewhere needs
+# no edit, and the scanner degrades honestly (status reports the manager
+# unreachable) rather than failing to start.
+After=network-online.target geecs-qserver.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=@SERVICE_USER@
+# Poetry resolves its cache/venvs under $HOME; systemd does not always set it.
+Environment=HOME=@SERVICE_HOME@
+# The host's site profile: GEECS_EXPERIMENT (the experiment this scanner
+# serves) and the [qserver] address come from config.ini in the service
+# user's home, as for every other queue client.
+EnvironmentFile=@SITE_ENV@
+# The scanner shares the WORKER's checkout: it is a client of the plan
+# surface that checkout defines (plan_names, qs_client), so the two cannot
+# drift apart — the same reason GEECS-MCP builds from qs-checkout.
+WorkingDirectory=@CHECKOUT_ROOT@/qs-checkout/GeecsScanner
+# Site-chosen flags come from GEECS_SCANNER_EXTRA_ARGS in site.env
+# (unquoted: systemd splits it on whitespace; an unset key adds nothing) —
+# --root-path /scan when the front door mounts the scanner under a prefix
+# and does not send X-Forwarded-Prefix.
+ExecStart=@POETRY@ run geecs-scanner --experiment ${GEECS_EXPERIMENT} $GEECS_SCANNER_EXTRA_ARGS
+Restart=on-failure
+RestartSec=5
+# Nothing in flight belongs to this process — a scan continues on the
+# worker whether or not the scanner is up — so a stop is quick.
+TimeoutStopSec=15
+SyslogIdentifier=geecs-scanner
+
+[Install]
+WantedBy=multi-user.target
