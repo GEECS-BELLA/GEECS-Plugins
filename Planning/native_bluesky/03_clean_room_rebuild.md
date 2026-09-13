@@ -1064,7 +1064,9 @@ and every one of them changed a design choice.
    ("the scanner through the browser") is the end point Sam has in mind;
    GEECS-DataPortal is already a FastAPI service on that host speaking to
    Tiled, so it is the natural landing — not now, but nothing here closes
-   it off.
+   it off. **Brief: `10_web_scanner.md`** (2026-09-13) — its own arc on this
+   branch, a separate `GeecsScanner` process behind one front door, ending
+   with the console deleted; that closing PR is what lifts the merge gate.
 
 ---
 
