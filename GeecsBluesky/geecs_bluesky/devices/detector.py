@@ -604,6 +604,15 @@ class GeecsDetector(StandardDetector):
         retirement #738); without one a stale ``save=on`` is still cleared.
     shot_timeout :
         Seconds to wait for the stamp after a fire.
+    drain_offset :
+        This device's measured edge-to-stamp latency in seconds, relative to
+        the calibration's reference device (``03`` §4.F; the
+        ``measure_shot_offsets`` plan writes it, the namespace reads it out
+        of the experiment's ``shot_offsets.yaml``).  It is the initial value
+        of the ``drain_offset`` config signal, which rides in every
+        descriptor and is what the s-file join corrects this device's stamps
+        by.  ``0.0`` — the default, and the value every device carried
+        before the calibration existed — means "stamps with the reference".
     """
 
     #: :meth:`zero_count` done in the current plugin session.
@@ -621,6 +630,7 @@ class GeecsDetector(StandardDetector):
         native_save: bool = False,
         hdf_plugins: Sequence[tuple[str, PathProvider]] = (),
         shot_timeout: float = DEFAULT_SHOT_TIMEOUT,
+        drain_offset: float = 0.0,
     ) -> None:
         self._geecs_device_name = device
         per_variable = {k.lower(): v for k, v in (datatypes or {}).items()}
@@ -641,7 +651,7 @@ class GeecsDetector(StandardDetector):
         self.connected_status = epics_signal_r(
             str, ca_pv(experiment, device, "CONNECTED")
         )
-        self.drain_offset = soft_signal_rw(float, 0.0, units="s")
+        self.drain_offset = soft_signal_rw(float, float(drain_offset), units="s")
         self._scalars: list[SignalR] = list(scalars)
         self._acquire = GeecsAcquireLogic(
             self.acq_timestamp, device, shot_timeout=shot_timeout

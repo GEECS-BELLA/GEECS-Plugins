@@ -165,3 +165,85 @@ def test_resolve_preset_missing_raises_with_kind(repo):
     resolver = ConfigsRepoResolver("TestExp", experiments_root=repo)
     with pytest.raises(GeecsConfigurationError, match="preset 'nope'"):
         resolver.resolve_preset("nope")
+
+
+# ------------------------------------------------- measured drain offsets
+
+
+OFFSETS = {
+    "schema_version": 1,
+    "reference": "uc_amp3_ir_input",
+    "devices": {
+        "uc_amp3_ir_input": {"offset_s": 0.0, "scatter_s": 0.004, "shots": 10},
+        "uc_amp4_ir_input": {"offset_s": 0.036, "scatter_s": 0.009, "shots": 10},
+    },
+    "measured_at": "2026-09-13T18:22:04-07:00",
+    "trigger_profile": "HTU-LaserOFF",
+}
+
+
+def test_shot_offsets_absent_reads_as_never_measured(repo):
+    """Every experiment's state until the calibration is first run."""
+    assert ConfigsRepoResolver("TestExp", repo).resolve_shot_offsets() is None
+
+
+def test_shot_offsets_round_trip(repo):
+    resolver = ConfigsRepoResolver("TestExp", repo)
+    resolver.shot_offsets_path.write_text(yaml.safe_dump(OFFSETS))
+    document = resolver.resolve_shot_offsets()
+    assert document.reference == "uc_amp3_ir_input"
+    assert document.offset_for("uc_amp4_ir_input") == pytest.approx(0.036)
+    assert document.trigger_profile == "HTU-LaserOFF"
+
+
+def test_an_invalid_shot_offsets_document_is_loud(repo):
+    """Never a silent fall back to zeros.
+
+    A calibration that quietly reverted to 0.0 would misjoin rows at a tight
+    rep rate with nothing in the log to say why — the failure this whole
+    phase exists to prevent. The worker's startup catches this and warns;
+    the resolver itself must raise so there is something to catch.
+    """
+    resolver = ConfigsRepoResolver("TestExp", repo)
+    broken = dict(OFFSETS, reference="a_device_it_does_not_list")
+    resolver.shot_offsets_path.write_text(yaml.safe_dump(broken))
+    with pytest.raises(Exception):
+        resolver.resolve_shot_offsets()
+
+
+def test_write_shot_offsets_replaces_the_previous_measurement(repo):
+    from geecs_schemas import DeviceOffset, ShotOffsets
+
+    resolver = ConfigsRepoResolver("TestExp", repo)
+    resolver.shot_offsets_path.write_text(yaml.safe_dump(OFFSETS))
+    fresh = ShotOffsets(
+        reference="uc_amp4_ir_input",
+        devices={
+            "uc_amp4_ir_input": DeviceOffset(offset_s=0.0),
+            "uc_amp3_ir_input": DeviceOffset(offset_s=0.012),
+        },
+    )
+    path = resolver.write_shot_offsets(fresh)
+    assert path == resolver.shot_offsets_path
+    again = resolver.resolve_shot_offsets()
+    assert again.reference == "uc_amp4_ir_input"
+    assert again.offset_for("uc_amp3_ir_input") == pytest.approx(0.012)
+    # Atomic: no temporary file left behind for the next listing to trip on.
+    assert [p.name for p in path.parent.glob(".*tmp")] == []
+
+
+def test_write_shot_offsets_refuses_a_missing_experiment_folder(tmp_path):
+    """A misconfigured or unmounted configs root must not be papered over.
+
+    Creating the tree here would plant an experiment folder wherever the
+    misconfiguration pointed, and the next read would find a calibration
+    that no reviewer ever saw.
+    """
+    from geecs_bluesky.exceptions import GeecsConfigurationError
+    from geecs_schemas import DeviceOffset, ShotOffsets
+
+    resolver = ConfigsRepoResolver("NoSuchExp", tmp_path)
+    document = ShotOffsets(reference="a", devices={"a": DeviceOffset(offset_s=0.0)})
+    with pytest.raises(GeecsConfigurationError, match="no configs folder"):
+        resolver.write_shot_offsets(document)
+    assert not (tmp_path / "NoSuchExp").exists()

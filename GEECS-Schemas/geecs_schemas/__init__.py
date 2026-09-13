@@ -56,6 +56,7 @@ from geecs_schemas.scan_request import (
     ScanRequestMode,
     SubmissionRecord,
 )
+from geecs_schemas.shot_offsets import DeviceOffset, ShotOffsets
 from geecs_schemas.scan_variables import (
     CompositeMode,
     PseudoComponent,
@@ -128,6 +129,9 @@ __all__ = [
     "Line1DConfig",
     "RendererOptions",
     "ScanRuntime",
+    # shot_offsets
+    "ShotOffsets",
+    "DeviceOffset",
     "SCHEMA_REGISTRY",
 ]
 
@@ -142,6 +146,7 @@ SCHEMA_REGISTRY: dict[str, type[VersionedSchemaModel]] = {
     "action_plan_library": ActionPlanLibrary,
     "experiment_defaults": ExperimentDefaults,
     "derived_channels": DerivedChannels,
+    "shot_offsets": ShotOffsets,
     "analysis_diagnostic": AnalysisDiagnostic,
     "analysis_group": AnalysisGroup,
 }

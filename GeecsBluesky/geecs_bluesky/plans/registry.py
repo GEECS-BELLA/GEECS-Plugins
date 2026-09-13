@@ -44,8 +44,8 @@ express: the deprecated aliases (``relative_scan`` for ``rel_scan`` …) and
 :data:`~geecs_bluesky.plan_names.GEECS_PLAN_NAMES` pins the list for the
 import-light readers; ``tests/test_plan_registry.py`` asserts the two agree.
 
-The two non-scan queue items
-----------------------------
+The non-scan queue items
+------------------------
 ``mv`` is the stock stub — a manual move as a queue item.  ``run_action``
 (:func:`~geecs_bluesky.plans.action_compiler.run_action_plan`) runs a named
 plan from the experiment's action library (``actions.yaml``): the steps compile to plain stubs
@@ -54,6 +54,17 @@ which hands out each ``(device, variable)`` as the settable child or the
 readable signal it already is — no run is opened, so nothing is claimed
 and no file is written.  Neither takes a detector list, so a preset cannot
 name them.
+
+``measure_shot_offsets`` and ``check_shot_sync``
+(:mod:`geecs_bluesky.plans.calibration`) are the two once-run shot-offset
+plans of plan of record §4.F: the calibration that measures each device's
+edge-to-stamp latency, and the preflight that says whether the stored
+measurement still holds.  They *do* take a detector list, but no positions
+— they open no run, claim no scan number and write no scan data, so a
+preset (which describes a scan) still cannot express them.  Both drive the
+trigger box OFF and cost at least the longest device timeout in the set,
+which is exactly why they are queue items and never steps inside a scan
+(§11.2).
 """
 
 from __future__ import annotations
@@ -76,6 +87,10 @@ from geecs_bluesky.plan_names import (
     NON_SCAN_PLAN_NAMES,
 )
 from geecs_bluesky.plans.action_compiler import SettableFactory, run_action_plan
+from geecs_bluesky.plans.calibration import (
+    check_shot_sync_plan,
+    measure_shot_offsets_plan,
+)
 from geecs_bluesky.plans.gated import (
     gated_per_shot,
     gated_per_step,
@@ -441,6 +456,10 @@ def bind_plans(
             bound[name] = bps.mv
         elif name == "run_action":
             bound[name] = run_action_plan(resolver, settables)
+        elif name == "measure_shot_offsets":
+            bound[name] = measure_shot_offsets_plan(profiles, resolver)
+        elif name == "check_shot_sync":
+            bound[name] = check_shot_sync_plan(profiles)
         else:
             assert name not in NON_SCAN_PLAN_NAMES
             bound[name] = strict_plan(getattr(bp, name), profiles)

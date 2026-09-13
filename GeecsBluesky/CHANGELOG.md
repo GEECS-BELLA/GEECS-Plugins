@@ -5,6 +5,85 @@ All notable changes to `geecs-bluesky` are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
+
+## [0.85.0] - 2026-09-13
+
+Phase 3 of the native-Bluesky rebuild (GEECS-Plugins#807,
+`Planning/native_bluesky/03_clean_room_rebuild.md` §4.F): the shot-offset
+calibration and its preflight.  **Every `drain_offset` in the field read
+`0.0` before this** — phase 2c threaded the offsets through both sides of
+the s-file join; this puts real numbers into them.
+
+At 1 Hz the join windows are ±0.5 s and swallow the ~36–100 ms device
+spread, so nothing was broken.  They narrow with the rep rate: at 5 Hz they
+are ±0.1 s, the same order as the spread, where an uncalibrated offset costs
+rows.  This is what makes faster running safe.
+
+### Added
+
+- **`measure_shot_offsets`** (`geecs_bluesky.plans.calibration`), a
+  registered queue plan: drives the trigger box OFF, waits the device set
+  quiet, then fires single shots through `fire_and_await_shot` and reads
+  every device's `acq_timestamp`.  The spread across devices is the
+  calibration.
+
+  Several shots are averaged (default 10) because each host's clock dithers
+  around its own average by up to ~10 ms while the domain holds the averages
+  on a common target (Sam, 2026-09-13) — one shot would measure a 36 ms
+  difference to ±10 ms.  The quiet wait, which dominates the cost, is paid
+  once; the shots after it cost about a second each.  Each device's
+  peak-to-peak scatter is recorded beside its mean, so a host with a
+  timekeeping problem is visible instead of hidden inside an average.
+
+  Shots are anchored on the *mean of their own stamps* before averaging, so
+  the laser's phase drifting between shots cancels and only the
+  device-to-device differences — the quantity the join uses — survive.
+  Only complete shots contribute: a shot one device missed would shift that
+  shot's anchor and bias every other device's offset, so it is discarded and
+  retaken.
+
+  Measures and reports by default; stores only with `write=True`, so a
+  re-run cannot silently replace a good calibration with a worse one.  No
+  run is opened — no scan number, no s-file — and the box is left in
+  STANDBY however the plan ends.
+
+- **`check_shot_sync`**, the preflight (§11.7): with the box OFF and the set
+  quiet, every device still holds the stamp of the same last real shot, so
+  correcting those stalled stamps by the stored offsets says whether the
+  calibration still holds — **at no shot cost at all**.  Raises when the set
+  is out of tolerance, so a queue that puts it ahead of its scans stops
+  before taking data against a stale calibration.
+
+  A queue item, deliberately, and never a step inside a scan: it costs at
+  least the longest device timeout every time it runs (§11.2 — a device's
+  timeout event carries an unchanged stamp, which the gateway's change
+  suppression drops, so nothing announces quiescence), and running it from
+  the queue also means it cannot drive the trigger box while a scan is using
+  it.
+
+- **`ConfigsRepoResolver.resolve_shot_offsets` / `write_shot_offsets`** over
+  the experiment's `shot_offsets.yaml`.  Absent reads as "never measured"
+  (every offset stays `0.0`); an *invalid* document raises rather than
+  falling back to zeros, because a calibration that silently reverted would
+  misjoin rows with nothing in the log to say why.  The write is atomic
+  (same-directory temporary plus `os.replace`), so a reader never sees a
+  half-written document and a failure leaves the previous calibration
+  intact, and it refuses to create a missing experiment folder.
+
+- **`GeecsNamespace(drain_offsets=...)`** seeds each detector's
+  `drain_offset` at construction, and `GeecsDetector(drain_offset=...)`
+  takes it.  The startup profile now builds the resolver *before* the
+  namespace to pass them; a re-measurement therefore reaches the worker at
+  its next environment open, not mid-session.  An offset naming no detector
+  in the namespace is warned about loudly as a stale calibration — the
+  device it meant to correct would otherwise be left at `0.0` silently.
+
+### Changed
+
+- `GEECS_PLAN_NAMES` grows to **22** plans; the operator permissions regex
+  and `NON_SCAN_PLAN_NAMES` gain both calibration plans.  The readiness
+  check (`geecs-qserver-ensure-ready`) asserts all 22.
+
 ## [0.84.0] - 2026-09-12
 
 Phase 2c of the native-Bluesky rebuild (GEECS-Plugins#807,
