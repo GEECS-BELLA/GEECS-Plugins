@@ -46,7 +46,7 @@ def test_every_literal_data_state_is_a_kit_state() -> None:
     """A hand-written ``data-state`` names a state the kit actually colours.
 
     ``KIT_STATE`` is pinned by ``test_models.py``, but three call sites
-    write the attribute literally rather than through it — a campaign's
+    write the attribute literally rather than through it — a failed-scan
     "failed" count, the month page's "today", and an agent entry. A typo in
     any of those renders an uncoloured chip: ``.chip`` still gives a pill
     with inherited colour and a ``currentColor`` dot, so it looks plausible

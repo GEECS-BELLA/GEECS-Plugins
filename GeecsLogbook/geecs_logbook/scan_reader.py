@@ -8,7 +8,7 @@ simply there on the next call.
 What this module owns, and what it borrows
 ------------------------------------------
 It owns the *logbook's* view of a scan: the status classification and the
-day/campaign shaping. The parsing primitives live one layer down in
+day shaping. The parsing primitives live one layer down in
 ``geecs_data_utils``, which already owns scan folders, so there is one
 surface to fix when the formats change:
 

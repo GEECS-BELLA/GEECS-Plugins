@@ -4,6 +4,92 @@ All notable changes to `geecs-logbook` are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 project adheres to semantic versioning.
 
+## [0.8.0] - 2026-09-12
+
+### Removed
+
+- **The `Campaign` concept, entirely.** It grouped consecutive scans that
+  shared a `Scan Parameter` and a `ScanStartInfo`, and rendered them in a
+  second collapsible above the scans themselves. Two things were wrong with
+  it. It **inferred** — nothing in `ScanInfo` says those scans belong
+  together — which is the one rule this package already holds itself to
+  ("Status is reported, not inferred": *report what the files say and do
+  not guess*). And it borrowed a word the lab uses for something else: a
+  campaign here is weeks of work, so a day page announcing "Campaigns · 15"
+  was telling an operator it held fifteen multi-week efforts.
+
+  It also did not pay. Measured across four real days, grouping collapsed
+  108 scans into 11 on a sweep day — but on an acceptance run of 21 scans
+  it produced **15 groups, 11 of them wrapping a single scan**, because the
+  threshold asked "is the day long?" when the question was "does grouping
+  help?". Gone: the model, the property, seven CSS classes, the grouped
+  template branch, and the filter and jump logic that had to reach two
+  nesting levels.
+
+  What survives is the honest part: **a long day opens collapsed**, which
+  is a fact about volume, not a claim about meaning.
+
+### Changed
+
+- **A note between two scans is just a note.** It had worn a
+  `<details class="between">` announcing "Between scans" and the range it
+  fell in; that was ceremony, and it made identical content look like a
+  different kind of thing from the same note in the ops book. Now it
+  renders as an ordinary entry at document level, carrying its own
+  timestamp — usually out of step with the scans either side, which is the
+  point. The day reads as what happened, in the order it happened.
+- Notes between scans render **between** scan blocks rather than inside the
+  following one. Under the old grouping a note "after Scan005" was emitted
+  inside Scan006's group.
+
+### Added
+
+- `scripts/seed_demo_notes.py` — worked-example entries for a **separate**
+  database. The store is authoritative (what people wrote exists nowhere
+  else), so invented content must never be seeded into it; but a day with
+  no notes shows none of what the page is for, which is how an unstyled
+  composer shipped unnoticed. Entries say in their own body that they are
+  seeded, and the script refuses to write to a file that already exists —
+  or, on import, to a database that already holds entries for the day.
+
+  One entry is anchored to the day rather than a scan, because it is the
+  only shape that renders whether or not the share is reachable: an anchor
+  naming a scan the day folder does not contain is stored and counted in
+  "Notes N" but never drawn, so seeding on a checkout with no share
+  mounted otherwise produced exactly the empty page the script exists to
+  prevent.
+
+### Fixed
+
+- **A dangling selector left `.insert[hidden]` visible.** Removing
+  `.between[hidden]` from `.insert[hidden],.between[hidden]{display:none}`
+  took the declaration block with it, so `.insert[hidden],` merged into the
+  *next* rule and inherited `display:flex`. Clicking "+ note after …" hid
+  nothing: the row stayed on screen above the composer it had just opened,
+  mis-spaced, accumulating until a save reloaded the page. There is no
+  global `[hidden]{display:none}` to fall back on.
+- **The filter left notes between scans floating unlabelled.** Deleting the
+  wrapper removed the only thing that said which gap a note sat in, and the
+  `#q` handler hid scans only — so filtering to one scan left a note from
+  a different gap sitting directly above it, reading as commentary on it.
+  Notes and insert rows now carry the bracketing scan labels as a
+  haystack and hide in the same pass.
+- `editor.js` no longer sets `.open` on the reveal target, which stopped
+  being a `<details>` in this release.
+- **The filter and the editor were writing the same property.** `editor.js`
+  uses `hidden` on an insert row to mean "this one has been used"; the new
+  filter wrote `hidden` too, so clearing the box un-hid every used row and
+  put the affordance back above the composer it had just opened. Filtering
+  moved to its own `data-filtered` channel.
+- **Filtering by a scan parameter hid every note on the page.** The
+  bracketing-label haystack held only two labels, while a scan's held its
+  parameter, purpose and devices — so typing the string the rail prints in
+  every row left all the scans and hid all the notes, and nothing brought
+  them back. Notes now borrow the haystacks of the scans that bracket them.
+- Dead after the deletion: `.scanrow .count` (the grouped rail row was its
+  only emitter), and the package `CLAUDE.md`'s "campaign shaping" and
+  "curated campaign record", which named the concept this release removes.
+
 ## [0.7.0] - 2026-09-12
 
 ### Changed

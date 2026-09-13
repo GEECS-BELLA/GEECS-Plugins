@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import re
+
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -80,38 +82,6 @@ class TestDayPage:
         html = client.get("/log/day/2026-09-11").text
         assert html.count('<details class="panel scan"') == 4
         assert "Collapse all" in html
-
-
-class TestBusyDay:
-    """A day over the grouping threshold renders campaigns, not a flat list."""
-
-    @pytest.fixture
-    def busy(self, make_run) -> TestClient:
-        """Build a day of 25 identical scans — one campaign."""
-        root = make_run(25)
-        app = FastAPI()
-        app.include_router(
-            create_log_router("Undulator", base_directory=root), prefix="/log"
-        )
-        return TestClient(app)
-
-    def test_groups_into_campaigns(self, busy: TestClient) -> None:
-        """Twenty-five scans render inside one campaign block."""
-        html = busy.get("/log/day/2026-09-11").text
-        assert html.count('<details class="campaign"') == 1
-        assert html.count('<details class="panel scan"') == 25
-
-    def test_rail_lists_campaigns_not_scans(self, busy: TestClient) -> None:
-        """The rail shows one row per campaign so it stays scannable."""
-        html = busy.get("/log/day/2026-09-11").text
-        assert html.count('class="scanrow"') == 1
-        assert "Campaigns" in html
-
-    def test_busy_day_starts_collapsed(self, busy: TestClient) -> None:
-        """Nothing is expanded on arrival; the button offers Expand all."""
-        html = busy.get("/log/day/2026-09-11").text
-        assert " open>" not in html
-        assert "Expand all" in html
 
 
 class TestHonestChips:
@@ -485,3 +455,119 @@ class TestEditorHooks:
             404,
             405,
         )
+
+
+def _scan_block_parents(html: str) -> set[tuple[str, ...]]:
+    """Return the ancestor chains of every scan block, below ``<main>``.
+
+    A flat day gives exactly ``{("main",)}``. Anything else means something
+    was introduced around the loop — which is what a grouping is, whatever
+    element or class name it wears.
+    """
+    from html.parser import HTMLParser
+
+    class Walk(HTMLParser):
+        def __init__(self) -> None:
+            super().__init__()
+            self.stack: list[str] = []
+            self.found: set[tuple[str, ...]] = set()
+
+        def handle_starttag(self, tag, attrs):
+            d = dict(attrs)
+            if tag == "details" and d.get("class") == "panel scan":
+                if "main" in self.stack:
+                    below = self.stack[self.stack.index("main") + 1 :]
+                    self.found.add(("main", *below))
+                else:
+                    self.found.add(tuple(self.stack))
+            if tag not in {"br", "img", "input", "meta", "link", "hr"}:
+                self.stack.append(tag)
+
+        def handle_endtag(self, tag):
+            if tag in self.stack:
+                del self.stack[len(self.stack) - 1 - self.stack[::-1].index(tag) :]
+
+    w = Walk()
+    w.feed(html)
+    return w.found
+
+
+class TestLongDay:
+    """A long day opens collapsed — a fact about volume, not about meaning.
+
+    The grouped view this replaced inferred which scans belonged together
+    from two matching fields. That is interpretation, and the logbook's
+    rule is that it reports what the files say. What survives is the only
+    honest part of the old behaviour: past a threshold the day is easier
+    to read as a closed list.
+
+    The first version of this class took the four-scan fixture, so ``many``
+    was false in every test and it asserted nothing about collapsing at
+    all — replacing the threshold with a literal ``false`` left the whole
+    suite green. It needs a day that actually crosses the line.
+    """
+
+    @pytest.fixture
+    def busy(self, make_run) -> TestClient:
+        """A client over a day of 25 scans — past the 20 threshold."""
+        app = FastAPI()
+        app.include_router(
+            create_log_router("Undulator", base_directory=make_run(25)),
+            prefix="/log",
+        )
+        return TestClient(app)
+
+    def test_a_long_day_starts_collapsed(self, busy: TestClient) -> None:
+        """No scan block is open, and the button offers to expand."""
+        html = busy.get("/log/day/2026-09-11").text
+        assert html.count('<details class="panel scan"') == 25
+        assert " open>" not in html
+        assert "Expand all" in html
+
+    def test_a_short_day_starts_open(self, client: TestClient) -> None:
+        """Below the threshold every scan is readable without a click."""
+        html = client.get("/log/day/2026-09-11").text
+        assert "Collapse all" in html
+        assert " open>" in html
+
+    def test_no_day_groups_its_scans(self, busy: TestClient) -> None:
+        """Every scan is a top-level block, whatever the day's length.
+
+        Asserting on the rendered markup, not on the absence of the word
+        "campaign": the old inline script carried `details.campaign` as a
+        selector string, so a substring check passed for the wrong reason
+        and would miss a grouping reintroduced under any other name.
+        """
+        html = busy.get("/log/day/2026-09-11").text
+        # Structural, not spelling. A class-attribute regex missed two real
+        # reintroductions: a grouping that is a <section> rather than a
+        # <details> (the obvious next attempt, since the complaint was a
+        # second *collapsible*), and a <details> whose class is not its
+        # first attribute. Counting every <details> catches both.
+        assert html.count("<details") == 26, "25 scans + the calendar"
+        outer = re.findall(r'<details[^>]*class="([^"]*)"', html)
+        assert set(outer) <= {"panel scan", "cal"}, outer
+        # and nothing wraps the run. A regex cannot see this — consecutive
+        # scan blocks legitimately sit next to each other — so parse, and
+        # check each scan block's ancestors. A <section class="batch">
+        # around the loop is the shape a class-attribute check misses.
+        assert _scan_block_parents(html) == {("main",)}, _scan_block_parents(html)
+
+    def test_the_rail_lists_scans_and_nothing_else(self, busy: TestClient) -> None:
+        """The rail names scans, one row each, and groups nothing.
+
+        The document-structure check above pins the body — but a grouping
+        can come back without wrapping anything, as a rail section listing
+        runs. That is not a hypothetical: it is the shape this change
+        singles out as the harmful one, because "Campaigns · 15" rendered
+        in the rail and told an operator the day held fifteen multi-week
+        efforts. Verified by putting exactly that back and watching the
+        suite stay green.
+
+        So: one row per scan, and the rail's headings are exactly the two
+        it is allowed to have.
+        """
+        html = busy.get("/log/day/2026-09-11").text
+        assert html.count('class="scanrow"') == 25
+        headings = {h.strip() for h in re.findall(r"<h4>(.*?)</h4>", html, re.S)}
+        assert headings == {"Go to a day", "Scans &middot; 25"}, headings
