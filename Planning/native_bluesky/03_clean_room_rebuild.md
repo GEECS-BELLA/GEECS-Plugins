@@ -647,6 +647,9 @@ the least-verified component while the scan path waited.
 
 ### The pseudo arc (split out of phase 3, 2026-09-13)
 
+**Full brief: `09_pseudo_transform.md`** — the corpus table, the Transform
+survey, the suggested order, and the open question. Summary below.
+
 Pseudo (composite) scan variables — one scanned number fanned out to
 several targets by a formula — **cannot be scanned at all on this branch**:
 `presets.py` refuses a `kind: pseudo` axis and the namespace builds no noun
