@@ -16,12 +16,12 @@
 {% macro template_chip(entry, seeds) -%}
   {% set t = seeds.labels.get(entry.template) %}
   {% if t %}
-    <span class="chip chip-type tone-{{ t.colour }}">{{ t.label }}</span>
+    <span class="tag tag-type tone-{{ t.colour }}">{{ t.label }}</span>
   {% elif entry.template not in seeds.quiet %}
-    <span class="chip chip-quiet">{{ entry.template }}</span>
+    <span class="chip" data-state="unknown">{{ entry.template }}</span>
   {% endif %}
   {% set said = t.tags if t else [] %}
-  {% for tag in entry.tags if tag not in said %}<span class="chip chip-tag">#{{ tag }}</span>{% endfor %}
+  {% for tag in entry.tags if tag not in said %}<span class="tag">#{{ tag }}</span>{% endfor %}
 {%- endmacro %}
 
 {# `hay` adds the filter haystack — only the month page filters entries,
@@ -36,7 +36,7 @@
         <div class="entry-head">
           <span class="author">{{ r.entry.author }}</span>
           {% if r.entry.kind.startswith('agent') %}
-            <span class="chip chip-agent">{{ 'agent · draft' if r.entry.status == 'draft' else 'agent' }}</span>
+            <span class="chip" data-state="agent">{{ 'agent · draft' if r.entry.status == 'draft' else 'agent' }}</span>
           {% endif %}
           {{ template_chip(r.entry, seeds) }}
           <span class="stamp" title="{{ r.entry.created_at.isoformat() }}">{{ r.entry.created_at.astimezone().strftime('%H:%M') }}{% if r.entry.edited_at %} · edited{% if r.entry.edited_by and r.entry.edited_by != r.entry.author %} by {{ r.entry.edited_by }}{% endif %}{% endif %}</span>

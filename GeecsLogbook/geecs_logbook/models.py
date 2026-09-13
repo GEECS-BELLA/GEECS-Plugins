@@ -17,6 +17,26 @@ from pydantic import BaseModel, Field
 
 ScanStatus = Literal["success", "failed", "aborted", "incomplete", "unknown"]
 
+#: How a scan status maps onto the kit's shared status vocabulary
+#: (:data:`geecs_web_theme.STATES`), which is what drives the chip colour.
+#:
+#: Two statuses share a colour and nothing is lost by it, because the chip
+#: keeps its own *word*: an aborted scan and an incomplete one are both
+#: "finished with less than asked", which is exactly what ``degraded``
+#: means, and the reader still sees "aborted" or "not finalised" written on
+#: the chip. Colour carries severity; text carries which.
+#:
+#: ``tests/test_models.py`` pins every value to a real kit state and every
+#: :data:`ScanStatus` to an entry here, so adding a status without deciding
+#: its severity fails rather than rendering an uncoloured chip.
+KIT_STATE: dict[str, str] = {
+    "success": "ok",
+    "failed": "failed",
+    "aborted": "degraded",
+    "incomplete": "degraded",
+    "unknown": "unknown",
+}
+
 
 class ScanSummary(BaseModel):
     """One scan, as its folder describes it.

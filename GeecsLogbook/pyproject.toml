@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "geecs-logbook"
-version = "0.6.0"
+version = "0.7.0"
 description = "Scan logbook: a day-document view over scan folders, with human commentary stored beside the data"
 authors = ["GEECS-BELLA"]
 readme = "README.md"
@@ -19,6 +19,11 @@ mdit-py-plugins = ">=0.4"
 nh3 = ">=0.2"
 python-multipart = ">=0.0.9"
 geecs-data-utils = { path = "../GEECS-Data-Utils", develop = true }
+# The shared look. Zero runtime dependencies of its own, so the edge is
+# one-way and costs nothing; the logbook needs its status vocabulary to map
+# ScanStatus onto, and a host that mounts this package standalone can now
+# serve the theme from here rather than relying on the portal's mount.
+geecs-web-theme = { path = "../GeecsWebTheme", develop = true }
 geecs-schemas = { path = "../GEECS-Schemas", develop = true }
 
 [tool.poetry.group.dev.dependencies]

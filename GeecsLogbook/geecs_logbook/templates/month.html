@@ -13,17 +13,20 @@
 {% set root = request.scope.get('root_path', '').rstrip('/') %}
 <script src="{{ root }}/theme/theme-boot.js"></script>
 <link rel="stylesheet" href="{{ root }}/theme/theme.css">
+{# kit.css after theme.css: the kit styles THROUGH the theme's tokens and
+   defines none of its own. Every kit rule is scoped to .kit on <body>. #}
+<link rel="stylesheet" href="{{ root }}/theme/kit.css">
 <link rel="stylesheet" href="{{ url_for('_static', name='scanlog.css').path }}">
 </head>
-<body>
+<body class="kit">
 {% import "_entries.html" as shared %}
 {% set month_path = url_for('_month_page', month=first.strftime('%Y-%m')).path %}
 
 <div class="topbar">
-  <div class="wrap">
+  <div class="topbar-in">
     <div class="brand">
       <strong>Ops Book</strong>
-      <span class="facility">{{ experiment }}</span>
+      <span class="sub">{{ experiment }}</span>
     </div>
     <label class="searchbox">
       <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor"
@@ -73,14 +76,14 @@
     {% if days %}
     <section>
       <h4>Days · {{ days | length }}</h4>
-      <div class="daylist">
+      <nav class="picklist daylist">
         {% for d, rs in days %}
         <a class="day" href="#day-{{ d.isoformat() }}">
           <span>{{ d.strftime('%a %d %b') }}</span>
           <span class="n">{{ rs | length }}</span>
         </a>
         {% endfor %}
-      </div>
+      </nav>
     </section>
     {% endif %}
   </aside>
@@ -103,7 +106,7 @@
     </div>
 
     {% if active_tag %}
-    <p class="filternote">Showing notes tagged <span class="chip chip-tag">#{{ active_tag }}</span>
+    <p class="filternote">Showing notes tagged <span class="tag">#{{ active_tag }}</span>
       &middot; <a href="{{ month_path }}">show all</a></p>
     {% endif %}
 
@@ -135,7 +138,7 @@
     <section class="card daygroup" id="day-{{ d.isoformat() }}">
       <header class="scanhead">
         <span class="scanid">{{ d.strftime('%a %-d %b') }}</span>
-        {% if d == today %}<span class="chip chip-quiet">today</span>{% endif %}
+        {% if d == today %}<span class="chip" data-state="running">today</span>{% endif %}
         <span class="scanpurpose">{{ rs | length }} note{{ '' if rs | length == 1 else 's' }}</span>
         <span class="hdr-actions">
           {% if writable %}
@@ -193,8 +196,9 @@ document.getElementById("q").addEventListener("input", ev => {
   });
 });
 </script>
-<script src="{{ url_for('_static', name='editor.js') }}" defer></script>
+<script src="{{ url_for('_static', name='editor.js').path }}" defer></script>
 <script src="{{ url_for('_static', name='nav.js').path }}" defer></script>
+<script src="{{ root }}/theme/kit.js" defer></script>
 <script src="{{ root }}/theme/theme.js" defer></script>
 </body>
 </html>

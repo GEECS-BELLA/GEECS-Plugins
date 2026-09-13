@@ -4,6 +4,47 @@ All notable changes to `geecs-logbook` are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 project adheres to semantic versioning.
 
+## [0.7.0] - 2026-09-12
+
+### Changed
+
+- **The logbook adopts the surface kit.** `<body class="kit">` plus
+  `kit.css`, and the page's own copies of the shell, the topbar, the rail,
+  buttons, the selectable lists, the card and the status chips are
+  deleted rather than overridden — `scanlog.css` goes from 359 to 311
+  lines. The rail is the kit's 216 px with one breakpoint at 900 px,
+  replacing the logbook's 228 px and 860 px; scan blocks are `.panel`;
+  the day list and the scan list are both `.picklist`.
+- **One status vocabulary.** The nine `chip-*` / `dot-*` classes are gone.
+  `KIT_STATE` in `models.py` maps each `ScanStatus` onto a kit state, and
+  the chip keeps its own word: `success` reads ok, `failed` reads failed,
+  and `aborted` and `incomplete` share `degraded` — both finished with
+  less than was asked — while still writing "aborted" or "not finalised"
+  on the chip. Colour carries severity, text carries which.
+- A **tag is no longer a `.chip`.** It was borrowing the status chip,
+  whose leading dot means *state*, which a tag is not; it gets `.tag`.
+- The theme and density pickers now persist across the logbook and the
+  portal both, since they are the kit's and stamped before first paint.
+
+### Fixed
+
+- **Five `url_for(...)` calls had no `.path`**, including both `editor.js`
+  script tags. Starlette returns an ABSOLUTE url built from the request
+  the app saw, so behind TLS termination that is `http://` — a
+  mixed-content block for a `<script src>`, meaning the editor's script
+  silently never loads and the composer stops working, with every test
+  green. Both templates have carried a comment saying to use `.path`
+  since they were written. Pinned by `tests/test_templates.py`.
+
+### Added
+
+- `geecs-web-theme` as a dependency (it has none of its own, so the edge
+  is one-way): the logbook needs its status vocabulary to map onto, and a
+  host mounting this package standalone can now serve the theme from here
+  rather than relying on the portal's mount.
+- `tests/test_models.py` pins `KIT_STATE` — every `ScanStatus` mapped,
+  every target a real kit state, and no failure ever reading as success.
+
 ## [0.6.0] - 2026-09-12
 
 Navigation polish, and the synchroniser's feed.
