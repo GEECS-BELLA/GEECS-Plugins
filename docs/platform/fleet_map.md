@@ -17,7 +17,10 @@ back into this table.
 !!! note "Snapshot"
     Reflects the fleet as observed on **2026-09-04**, after the
     site-profile cutover of the interim services host (PR #792 updated
-    this table the same day). The five repo-managed Linux services — CA
+    this table the same day). Amended **2026-09-12** for the portal row
+    only: the logbook went live at `/log` on the same unit and the
+    portal's memory ceiling was installed (#849, #851); no other row was
+    re-observed that day. The five repo-managed Linux services — CA
     gateway, queueserver worker, capture daemon, GEECS-MCP HTTP, Data
     Portal — run as **system** units rendered from the host's `site.env`
     ([Site Profile](site_profile.md)), from the per-service-family clones
@@ -59,7 +62,7 @@ flowchart TB
         qs["Queueserver stack<br/>RE Manager :60615 / :60625<br/>doc stream :5568<br/>Redis (loopback)"]
         mcp["GEECS-MCP server<br/>:8100 (HTTP mode)"]
         capture["Capture daemon<br/>(geecs-capture)"]
-        portal["GEECS Data Portal<br/>:8200 (GEECS-DataPortal)"]
+        portal["GEECS Data Portal + logbook<br/>:8200 (GEECS-DataPortal, /log = GeecsLogbook)"]
     end
 
     subgraph camsrv["Camera servers (DB roster: 11 hosts, 9 deployed; Windows)"]
@@ -135,7 +138,7 @@ rendered from it, never edited by hand.
 | Queueserver worker (RE Manager + Redis + doc proxy) | 192.168.6.14 (interim: the gateway's box, until the services server) | `<root>/qs-checkout` | ZMQ 60615 (control), 60625 (console stream), 5568 (documents); Redis loopback-only | systemd `geecs-qserver` + `geecs-qserver-ready` (oneshot: opens the worker environment and asserts the plan list after every manager start) | `qserver status` from any client env — **ready** means the worker environment exists (`worker_environment_exists` true) *and* the allowed-plan list is non-empty; a running unit with a closed environment refuses every plan (`scripts/fleet_status.sh` reports both, #793) | [GeecsBluesky/qserver/deploy/DEPLOYMENT.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsBluesky/qserver/deploy/DEPLOYMENT.md) |
 | GEECS-MCP server (HTTP mode) | 192.168.6.14 (co-located with the worker by design; stdio mode remains available per machine) | baked non-editably from the **worker's** clone `<root>/qs-checkout` into `<root>/geecs-mcp-venv` (config-truth parity, by design) | HTTP 8100 (`/mcp`) | systemd `geecs-mcp` | tool call `scan_status` from an agent | [GEECS-MCP/deploy/DEPLOYMENT.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GEECS-MCP/deploy/DEPLOYMENT.md) |
 | Capture daemon (`geecs_bluesky.capture`) | 192.168.6.14 (with the worker — co-location is a **requirement**: shared filesystem view + local heartbeat) | `<root>/qs-checkout` (shares the worker's clone — the co-location requirement extends to code state) | consumes doc stream (5568) + pvAccess; no listening port | systemd `geecs-capture` | heartbeat file refreshing every ~10 s (`~/.local/state/geecs-capture/heartbeat.json` in the service user's home); discovery line in `journalctl -u geecs-capture` | [GeecsBluesky/capture/deploy/DEPLOYMENT.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsBluesky/capture/deploy/DEPLOYMENT.md) |
-| GEECS Data Portal (GEECS-DataPortal) | 192.168.6.14 (interim; moves with the services-server consolidation) | `<root>/portal-checkout` | HTTP 8200 | systemd `geecs-data-portal` | `GET /health` (catalog probe); any day page in a browser | [GEECS-DataPortal/DEPLOYMENT.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GEECS-DataPortal/DEPLOYMENT.md) |
+| GEECS Data Portal (GEECS-DataPortal) — hosts the logbook (GeecsLogbook) at `/log` since 2026-09-12; entries in the unit's `StateDirectory` (`/var/lib/geecs-data-portal`), mirrored to `<experiment>/logbook/` on the share; memory ceiling from `site.env` | 192.168.6.14 (interim; moves with the services-server consolidation) | `<root>/portal-checkout` | HTTP 8200 | systemd `geecs-data-portal` | `GET /health` (catalog probe); any day page in a browser; `GET /log/` → 307 to today | [GEECS-DataPortal/DEPLOYMENT.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GEECS-DataPortal/DEPLOYMENT.md) § The scan logbook |
 | PVA image gateways (GeecsPvaGateway) | each deployed camera server — the roster is the DB (endpoints hosting the experiment's image devices: 11 for Undulator on 2026-09-04), the deployed set is `config.ini [pva] addr_list` (9); the other 2 hosts are *not deployed* (cameras only nominally, no instance installed) and show as such on the screen and in `scripts/fleet_status.sh` | — (installs from the lab's shared "Active Version" clone on the data share; per host only a baked venv — **the share clone's checked-out commit is the fleet pin**) | pvAccess TCP 5075 / UDP 5076 | NSSM service `GeecsPvaGateway` (auto-start, pull-on-restart) | fleet status Phoebus screen (`deploy/fleet_status_undulator.bob`, generated per experiment by `deploy/gen_fleet_status.py`) | [GeecsPvaGateway/DEPLOYMENT.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsPvaGateway/DEPLOYMENT.md) |
 | GEECS MySQL DB | 192.168.6.14 | — | 3306 | LabVIEW/GEECS infrastructure (not managed by this repo) | `scripts/lab_status.sh` (a handshake-completing probe — never a bare TCP connect, see below); any `GeecsDb` client connect | — |
 | Data share (NAS) | NAS appliance | — | SMB | storage infrastructure (not managed by this repo) | mount visible, scan folders resolvable | — |
