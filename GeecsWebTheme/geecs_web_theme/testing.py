@@ -118,8 +118,10 @@ def inline_scripts(template: Union[Path, str]) -> list[str]:
     code, and is skipped — judged by the attribute, never by the body.
     ``{{ … }}`` becomes the string literal ``"jinja"`` and ``{% … %}`` an
     empty statement ``;``, so the result is the script's shape, not one
-    render of it, and both ``{% if x %}f(){% endif %}`` inline and block
-    tags on their own lines still parse. A ``{{ … }}`` inside a
+    render of it, and block tags in statement position — inline
+    ``{% if x %}f(){% endif %}`` or on their own lines — still parse. A
+    block tag inside an expression (an object literal, an array, the right
+    side of an assignment) does not; keep those out of scripts. A ``{{ … }}`` inside a
     double-quoted JavaScript string does not (``""jinja""``); templates
     hand values to scripts through data attributes or single quotes.
 

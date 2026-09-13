@@ -21,7 +21,7 @@ dependencies: anything that can serve a static directory can use it, and
 nothing it serves needs a Python import to work.
 
 A FastAPI host imports the glue rather than writing its own (the portal,
-the logbook and the scanner each did, and drifted)::
+the logbook, the scanner and the config editor each did, and drifted)::
 
     from geecs_web_theme.web import ForwardedPrefixMiddleware, make_templates, mount_theme
 
