@@ -94,8 +94,27 @@ It shows every component in the real theme at whichever palette and density
 you pick. It is the place to look before adding a component, and the place
 to argue with one.
 
-## No dependencies
+## The FastAPI glue (`web` extra)
 
-Deliberately: this package is stylesheets, two small scripts and a path
-helper. Anything that can serve a static directory can use it, and nothing
-it serves needs a Python import to work.
+Every FastAPI surface needs the same three things around the theme, so
+they live here once, in `geecs_web_theme.web`, behind the `web` extra:
+
+```python
+from geecs_web_theme.web import ForwardedPrefixMiddleware, make_templates, mount_theme
+
+app.add_middleware(ForwardedPrefixMiddleware)   # X-Forwarded-Prefix → root_path
+mount_theme(app)                                # /theme/…, named "theme" for url_for
+templates = make_templates(TEMPLATES_DIR)       # {{ root }} in every context
+```
+
+`geecs_web_theme.testing` (standard library only) carries the three
+template guards every surface's test suite runs: `bare_url_for_calls`,
+`unknown_data_states`, and `inline_scripts` + `javascript_syntax_error`
+(`node --check`).
+
+## No runtime dependencies without the extra
+
+Deliberately: the package itself is stylesheets, two small scripts and a
+path helper. Anything that can serve a static directory can use it, and
+nothing it serves needs a Python import to work. The `web` extra is
+opt-in glue for hosts that are FastAPI apps.
