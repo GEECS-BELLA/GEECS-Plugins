@@ -500,6 +500,57 @@ One source variable bound to a symbol in a derived-channel formula.
 | `device` | `str` | yes | — | GEECS source device that provides this input variable, e.g. 'U_DaqPad1'. Inputs may span devices only when the derived channel declares stale_after. |
 | `variable` | `str` | yes | — | GEECS source variable on the input device, e.g. 'Analog Input 10'. The gateway subscribes to it even if it is not exposed as its own raw readback PV. |
 
+## `shot_offsets`
+
+### ShotOffsets
+
+The experiment's measured per-device drain offsets.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `schema_version` | `int` | no | 1 | Format version of this config file. Leave at 1 — tools update this automatically when the file format changes. |
+| `reference` | `str` | yes | — | The ophyd object name of the device the offsets are measured against — the one that stamped first. Its own offset_s is 0.0. Only differences matter, so which device this is carries no meaning beyond anchoring the numbers. |
+| `devices` | `dict[str, DeviceOffset]` | no | empty | Ophyd object name (e.g. 'uc_amp3_ir_input') → that device's measured offset. A device absent from this mapping keeps the 0.0 default, which is correct only if it really stamps with the reference. |
+| `measured_at` | `str (optional)` | no | None | ISO-8601 timestamp of the measurement, with offset. Informational, but the thing to look at when a join goes wrong: a calibration older than the last camera or server change is suspect. |
+| `trigger_profile` | `str (optional)` | no | None | Trigger profile the measurement fired through. Recorded because a profile that drives a different trigger box would measure different latencies. |
+| `description` | `str` | no | '' | Optional note about this measurement. |
+
+Example:
+
+```yaml
+schema_version: 1
+# Written by the measure_shot_offsets calibration plan, not by hand.
+reference: uc_amp3_ir_input   # stamped first; its own offset is 0.0 by definition
+devices:
+  uc_amp3_ir_input:
+    offset_s: 0.0             # seconds after the reference that this device stamps
+    scatter_s: 0.004          # peak-to-peak over the shots (host clock dither)
+    shots: 10                 # complete shots that contributed to the mean
+    geecs_device: UC_Amp3_IR_input
+  uc_amp4_ir_input:
+    offset_s: 0.036
+    scatter_s: 0.009
+    shots: 10
+    geecs_device: UC_Amp4_IR_input
+measured_at: "2026-09-13T18:22:04-07:00"
+trigger_profile: HTU-LaserOFF
+description: "after the Amp4 server rebuild"
+# Only DIFFERENCES matter: the join subtracts each device's offset from its
+# stamp before matching frames to rows, so adding a constant to every entry
+# changes nothing. A device absent here keeps 0.0.
+```
+
+### DeviceOffset
+
+One device's measured edge-to-stamp latency, relative to the reference.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `offset_s` | `float` | yes | — | Seconds after the reference device that this device stamps the same shot — the mean over the shots that contributed. The reference device's own value is 0.0. Subtracted from this device's acq_timestamp before frames are matched to shot rows. |
+| `scatter_s` | `float` | no | 0.0 | Peak-to-peak spread of this device's per-shot offset across the measurement, seconds. Expect up to ~10 ms from ordinary host clock dither; markedly more than the other devices in the set means this machine's timekeeping is worth looking at. |
+| `shots` | `int` | no | 1 | How many shots contributed to the mean. Fewer than the measurement requested means this device missed shots. |
+| `geecs_device` | `str` | no | '' | GEECS device name this offset was measured for, e.g. 'UC_Amp3_IR_input'. Informational: the mapping key is the ophyd object name the runtime uses. |
+
 ## `analysis_diagnostic`
 
 ### AnalysisDiagnostic

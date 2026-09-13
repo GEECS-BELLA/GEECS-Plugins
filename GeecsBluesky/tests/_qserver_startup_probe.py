@@ -88,7 +88,7 @@ def main() -> None:
     from bluesky import RunEngine
     from bluesky_queueserver.manager.profile_ops import plans_from_nspace
 
-    from geecs_bluesky.plan_names import GEECS_PLAN_NAMES
+    from geecs_bluesky.plan_names import CALIBRATION_PLAN_NAMES, GEECS_PLAN_NAMES
     from geecs_bluesky.preprocessors import connect_on_demand
 
     if not isinstance(ns.get("RE"), RunEngine):
@@ -115,6 +115,15 @@ def main() -> None:
                 or "name" not in inspect.signature(plan).parameters
             ):
                 _fail("ns['run_action'] is not the action-library plan")
+                return
+            continue
+        if name in CALIBRATION_PLAN_NAMES:
+            # The two once-run shot-offset plans (§4.F) are GEECS plans, not
+            # stock verbs: they take a detector list but no positions and no
+            # strict hook, so the stock-verb assertions below do not apply.
+            parameters = inspect.signature(plan).parameters
+            if plan.__name__ != name or "detectors" not in parameters:
+                _fail(f"ns[{name!r}] is not the calibration plan")
                 return
             continue
         if plan is getattr(bp, name) or plan.__name__ != name:

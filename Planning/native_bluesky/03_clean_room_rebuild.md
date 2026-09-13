@@ -356,14 +356,63 @@ gain.
 
 ### F. Calibration
 
-A standalone `measure_shot_offsets` plan (OFF → wait the longest device
-timeout in the set → one fire → read every stamp) writes each device's
-drain offset to the configs repo, from where the config signal reads it.
+**Built in phase 3** (`geecs_bluesky.plans.calibration`, GeecsBluesky
+0.85.0 / GEECS-Schemas 0.23.0). Both are registered queue plans, neither
+opens a run.
+
+`measure_shot_offsets` — OFF → wait the set quiet → fire → read every
+stamp → the spread *is* each device's drain offset, written to the
+experiment's `shot_offsets.yaml` in the configs repo, from where the
+namespace seeds each detector's `drain_offset` config signal at build.
+
+Three things the build settled that the sketch above did not say:
+
+- **Several shots, not one.** Each host's clock dithers around its own
+  average by up to ~10 ms (higher-end boxes ~1 ms) while the domain keeps
+  the averages on a common target (Sam, 2026-09-13). One shot measures a
+  36 ms difference to ±10 ms. The quiet wait dominates the cost and is
+  paid once, so the default is 10 shots and the document records each
+  device's peak-to-peak **scatter** beside its mean — a host with a
+  timekeeping problem is then visible rather than averaged away. The
+  scatter is relative to the set (the anchor absorbs 1/N of it), which is
+  the right quantity because the join is relative too.
+- **Each shot is anchored on the mean of its own stamps** before
+  averaging, so the laser's phase drifting between shots cancels and only
+  the device-to-device differences survive. The mean rather than the
+  minimum: the minimum of noisy values is biased and carries the earliest
+  device's full dither into everyone else's. Only complete shots
+  contribute — a shot one device missed would shift that shot's anchor and
+  bias every other device's offset — so an incomplete shot is discarded
+  and retaken.
+- **Only differences matter**, so the document anchors on a real device
+  (`reference`, whose own offset is `0.0`) and the schema enforces that.
+  The reference is resolved explicitly — smallest mean, ties broken by
+  name, zero assigned outright — not left to float arithmetic.
+
+It **measures and reports by default**, storing only with `write=True`:
+the configs repo is a git working tree on the share, committing is a human
+act, and a re-run must not silently replace a good calibration. A stored
+measurement reaches the worker at its next environment open.
+
 Strict runs carry the same data for free (one fire, every device waited
 on, shot time known), so "sync" can also be recomputed from any recent
-strict scan. Sam's validation shortcut (OFF, stalled stamps within
-tolerance) becomes a `qserver_ready`-style preflight — never a scan step,
-because it costs at least the longest device timeout per check (§11.2).
+strict scan — not built, still true.
+
+`check_shot_sync` is Sam's validation shortcut (§11.7) and **costs no shot
+at all**: with the box OFF and the set quiet, every device still holds the
+stamp of the same last real shot, so correcting those stalled stamps by
+the stored offsets and comparing says whether the calibration still holds.
+It raises when out of tolerance, so a queue that puts it ahead of its
+scans stops before taking data against a stale calibration. Default
+tolerance 50 ms — §11.7's by-eye figure is ~200 ms; 50 ms is clear of the
+~10 ms dither and still catches a device a whole shot out of step.
+
+A **queue plan, never a scan step** — both of them. The cost floor is the
+longest device timeout in the set every time either runs, because nothing
+announces quiescence (§11.2); and being queue items also means neither can
+drive the trigger box while a scan is using it. The DB carries no timeout
+column, so the wait is the documented 1.5 s constant plus a drain margin,
+overridable per call.
 
 ---
 
@@ -565,7 +614,64 @@ the least-verified component while the scan path waited.
    `acquisition="gated"` + `non_essential` + the per-shot sampler +
    `essential` in presets; the s-file from stream data).  Free-run was
    deleted in #816.
-3. The calibration plan + the preflight validation.
+3. The calibration plan + the preflight validation — **built** (§4.F):
+   `measure_shot_offsets` and `check_shot_sync` as queue plans, the
+   `ShotOffsets` document, and the namespace seeding every detector's
+   `drain_offset` from it. Pseudo scan variables were *considered* for this
+   phase and deliberately split out: see "The pseudo arc" below.
+
+### The pseudo arc (split out of phase 3, 2026-09-13)
+
+Pseudo (composite) scan variables — one scanned number fanned out to
+several targets by a formula — **cannot be scanned at all on this branch**:
+`presets.py` refuses a `kind: pseudo` axis and the namespace builds no noun
+for one. Sam confirmed they are scanned regularly on HTU, so this is a lost
+capability and a merge-gate item, not a nicety.
+
+It was going to ride with phase 3 as #855 (`CaPseudoMovable.locate()`).
+Surveying it first changed the answer, and the survey is recorded here so a
+later session does not redo it:
+
+- **ophyd-async has the native mechanism**: `Transform` +
+  `DerivedSignalFactory` (`ophyd_async.core`, 0.19.3, already installed).
+  A `Transform` subclass declares `derived_to_raw` (our `forward`) *and*
+  `raw_to_derived` — the **inverse**, which the pseudo arc has been
+  deferring since #600. The product is a plain `SignalRW`, so it reads,
+  locates and moves through stock machinery.
+- **#855 as filed is the wrong fix.** Its hard case is "an absolute
+  pseudo's readback is NaN before its first set, so `rel_scan` moves to
+  NaN + offset". A derived signal computes the readback from the component
+  motors' live readbacks, so it is always defined and `locate()` is free.
+  Hand-rolling `locate()` onto `CaPseudoMovable` would build something the
+  Transform migration then deletes.
+- **`mode: relative` may be a workaround for the missing inverse.** 11 of
+  the 13 Undulator corpus entries are `relative`, carried by hand-rolled
+  baseline capture (`_capture_baselines`) and a custom
+  `restore_baselines_plan`. With a real readback, "relative" is just
+  `rel_scan` over the pseudo — stock bluesky, stock restore. The whole
+  mode split is then a candidate for deletion.
+- **The corpus is nearly all affine.** 13 pseudos, 26 target formulas: 24
+  are `a*x + b` (`composite_var * -2`, `(composite_var-41000) * 14/1000 -
+  20`), so one `AffineTransform` reading `a`/`b` from the catalog covers
+  them with a free inverse. The other two are
+  `±sqrt(100**2 * composite_var / 560968.636)` (`R56_at_100MeV`),
+  invertible in a line.
+- **YAML is not load-bearing here** (Sam, 2026-09-13: "there is literally
+  no reason to stick to that"). The shape to aim at: the catalog keeps
+  declaring *which* pseudos exist and their coefficients — operators edit
+  that without a deploy — while the maths is a `Transform` subclass,
+  `AffineTransform` for 24 of 26.
+- **The open physics question, which is Sam's**: reading a pseudo back is
+  **over-determined**. `ALine_e_beam_angle_offset_x` drives S3H ×1 and S4H
+  ×−2; two raw values, one derived number. `raw_to_derived` needs a rule
+  for which raw defines it, and an answer for when the components have
+  drifted out of the formula's relation. Per pseudo, and not something to
+  guess.
+
+Also still deferred from `01_device_namespace.md`: the catalog's
+`kind: motor` opt-in (today motor-vs-settable comes from the DB tolerance
+alone and the catalog is ignored), `confirm` entries as nouns, and the axis
+expansion. Those belong with the pseudo arc, not with calibration.
 
 **On #809:** do not merge. Nothing from it is deployed; its two open P1s
 need no fix if it does not ship. Close it with a pointer here once this

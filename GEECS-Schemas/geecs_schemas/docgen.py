@@ -189,6 +189,28 @@ derived_channels:
     precision: 6
     description: "Convectron pressure from U_VacuumGauge analog input 0"
 """,
+    "shot_offsets": """\
+schema_version: 1
+# Written by the measure_shot_offsets calibration plan, not by hand.
+reference: uc_amp3_ir_input   # stamped first; its own offset is 0.0 by definition
+devices:
+  uc_amp3_ir_input:
+    offset_s: 0.0             # seconds after the reference that this device stamps
+    scatter_s: 0.004          # peak-to-peak over the shots (host clock dither)
+    shots: 10                 # complete shots that contributed to the mean
+    geecs_device: UC_Amp3_IR_input
+  uc_amp4_ir_input:
+    offset_s: 0.036
+    scatter_s: 0.009
+    shots: 10
+    geecs_device: UC_Amp4_IR_input
+measured_at: "2026-09-13T18:22:04-07:00"
+trigger_profile: HTU-LaserOFF
+description: "after the Amp4 server rebuild"
+# Only DIFFERENCES matter: the join subtracts each device's offset from its
+# stamp before matching frames to rows, so adding a constant to every entry
+# changes nothing. A device absent here keeps 0.0.
+""",
     "analysis_diagnostic": """\
 schema_version: 2
 name: UC_TopView                 # the device folder under scans/ScanNNN/

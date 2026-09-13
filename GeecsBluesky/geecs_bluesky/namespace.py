@@ -293,6 +293,15 @@ class GeecsNamespace:
         same device elsewhere keeps LabVIEW-native saving.  Defaults to
         ``config.ini [pva] file_plugin_addr_list``; absent or ``None``
         means no host (the rollout is opt-in per box).
+    drain_offsets :
+        Ophyd object name → that device's measured edge-to-stamp latency in
+        seconds (the experiment's ``shot_offsets.yaml``, written by the
+        ``measure_shot_offsets`` plan; ``03`` §4.F).  Seeded into each
+        detector's ``drain_offset`` config signal at construction, so it
+        rides in every descriptor and the s-file join corrects by it.  A
+        device the mapping does not name keeps ``0.0`` — what every device
+        carried before the calibration existed.  Read once at build: a
+        re-measurement reaches the worker when its environment is reopened.
     """
 
     def __init__(
@@ -301,6 +310,7 @@ class GeecsNamespace:
         *,
         path_provider: PathProvider | None = None,
         file_plugin_hosts: set[str] | None | object = _HOSTS_FROM_CONFIG,
+        drain_offsets: Mapping[str, float] | None = None,
     ) -> None:
         self.experiment = roster.experiment
         self.roster = roster
@@ -311,6 +321,9 @@ class GeecsNamespace:
             else file_plugin_hosts
         )
         self._file_plugin_hosts: set[str] = set(hosts or ())
+        self._drain_offsets: dict[str, float] = {
+            str(k): float(v) for k, v in (drain_offsets or {}).items()
+        }
         self._devices: dict[str, Any] = {}
         self._by_geecs_name: dict[str, Any] = {}
         self._attrs: dict[str, dict[str, str]] = {}  # ns name → {lower var → attr}
@@ -353,6 +366,45 @@ class GeecsNamespace:
                 len(skipped),
                 ", ".join(sorted(skipped)),
             )
+        self._log_drain_offsets(detectors)
+
+    def _log_drain_offsets(self, detectors: Sequence[Any]) -> None:
+        """Say what the calibration did — including the names it could not place.
+
+        An offset naming a device this namespace does not build is a *stale
+        calibration*: a renamed or retired camera, or a document measured
+        against another experiment.  It is warned about rather than ignored
+        because the failure it causes downstream is silent — the device it
+        meant to correct is simply left at ``0.0`` and its rows misjoin at a
+        tight rep rate.
+        """
+        if not self._drain_offsets:
+            logger.info(
+                "device namespace: no measured drain offsets (every device at "
+                "0.0) — run the measure_shot_offsets plan to calibrate"
+            )
+            return
+        applied = {
+            d.name: self._drain_offsets[d.name]
+            for d in detectors
+            if d.name in self._drain_offsets
+        }
+        logger.info(
+            "device namespace: drain offsets applied to %d detector(s): %s",
+            len(applied),
+            ", ".join(f"{n} {v * 1e3:+.1f} ms" for n, v in sorted(applied.items()))
+            or "none",
+        )
+        unplaced = sorted(set(self._drain_offsets) - {d.name for d in detectors})
+        if unplaced:
+            logger.warning(
+                "device namespace: %d measured drain offset(s) name no detector "
+                "in this namespace and were NOT applied: %s — the calibration "
+                "is stale (renamed or retired device), re-run "
+                "measure_shot_offsets",
+                len(unplaced),
+                ", ".join(unplaced),
+            )
 
     @classmethod
     def from_experiment(
@@ -362,12 +414,14 @@ class GeecsNamespace:
         geecs_db: Any | None = None,
         path_provider: PathProvider | None = None,
         file_plugin_hosts: set[str] | None | object = _HOSTS_FROM_CONFIG,
+        drain_offsets: Mapping[str, float] | None = None,
     ) -> GeecsNamespace:
         """Build from the GEECS DB (loud on failure)."""
         return cls(
             DeviceRoster.from_geecs_db(experiment, geecs_db=geecs_db),
             path_provider=path_provider,
             file_plugin_hosts=file_plugin_hosts,
+            drain_offsets=drain_offsets,
         )
 
     # ------------------------------------------------------------------ build
@@ -455,6 +509,7 @@ class GeecsNamespace:
                     (var, PluginPathProvider(self._path_provider, device))
                     for var in plugin_vars
                 ],
+                drain_offset=self._drain_offsets.get(ophyd_name, 0.0),
             )
         else:
             dev = CaSnapshotReadable(

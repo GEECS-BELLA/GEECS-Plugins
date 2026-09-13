@@ -22,9 +22,28 @@ same rule as :mod:`geecs_bluesky.log_markers`).
 from __future__ import annotations
 
 #: The registered plans that are not scans: a queue item naming one runs no
-#: run, claims no scan number and takes no detector list — so a preset
-#: cannot name them (``qs_client.presets.PRESET_PLAN_NAMES``).
-NON_SCAN_PLAN_NAMES: tuple[str, ...] = ("mv", "run_action")
+#: run and claims no scan number — so a preset cannot name them
+#: (``qs_client.presets.PRESET_PLAN_NAMES``).  ``mv`` and ``run_action``
+#: take no detector list at all; the two calibration plans
+#: (:data:`CALIBRATION_PLAN_NAMES`) do take one, but they take no positions
+#: and write no data, so a preset — which describes a *scan* — still cannot
+#: express them.
+NON_SCAN_PLAN_NAMES: tuple[str, ...] = (
+    "mv",
+    "run_action",
+    "measure_shot_offsets",
+    "check_shot_sync",
+)
+
+#: The once-run shot-offset plans (``03_clean_room_rebuild.md`` §4.F): the
+#: calibration that measures each device's edge-to-stamp latency, and the
+#: preflight that says whether the stored measurement still holds.  Named
+#: apart because both drive the trigger box OFF and cost at least the
+#: longest device timeout (§11.2) — never a step inside a scan.
+CALIBRATION_PLAN_NAMES: tuple[str, ...] = (
+    "measure_shot_offsets",
+    "check_shot_sync",
+)
 
 #: Every plan the worker registers: the stock ``bluesky.plans`` scan verbs
 #: (absolute and relative) bound strict, plus :data:`NON_SCAN_PLAN_NAMES`.
@@ -55,4 +74,9 @@ GEECS_PLAN_NAMES: tuple[str, ...] = (
 #: Shared by the registry (the plan) and the client seam (the preset).
 ACQUISITION_MODES: tuple[str, ...] = ("strict", "gated")
 
-__all__ = ["ACQUISITION_MODES", "GEECS_PLAN_NAMES", "NON_SCAN_PLAN_NAMES"]
+__all__ = [
+    "ACQUISITION_MODES",
+    "CALIBRATION_PLAN_NAMES",
+    "GEECS_PLAN_NAMES",
+    "NON_SCAN_PLAN_NAMES",
+]

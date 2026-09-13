@@ -19,6 +19,8 @@ The client seam expands a preset into a stock plan queue item
 from __future__ import annotations
 
 import logging
+import os
+import tempfile
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 
@@ -33,6 +35,7 @@ from geecs_schemas import (
     Preset,
     ScanVariables,
     ScanVariableSpec,
+    ShotOffsets,
     TriggerProfile,
 )
 from geecs_schemas.convert import convert_shot_control
@@ -364,3 +367,85 @@ class ConfigsRepoResolver:
             return None
         document = self._load_yaml(path, "experiment defaults", self.DEFAULTS_FILE)
         return ExperimentDefaults.model_validate(document)
+
+    SHOT_OFFSETS_FILE = "shot_offsets.yaml"
+
+    @property
+    def shot_offsets_path(self) -> Path:
+        """Where this experiment's measured drain offsets live (written or not)."""
+        return self._root / self.SHOT_OFFSETS_FILE
+
+    def resolve_shot_offsets(self) -> ShotOffsets | None:
+        """Load ``<experiment>/shot_offsets.yaml``; ``None`` if never measured.
+
+        The per-device edge-to-stamp latencies the ``measure_shot_offsets``
+        calibration plan writes (``03`` §4.F).  ``None`` — the state of
+        every experiment until the plan is first run — leaves every
+        detector's ``drain_offset`` at ``0.0``, which is what the join
+        assumed before this document existed.
+
+        Raises
+        ------
+        GeecsConfigurationError
+            The file exists but is not a YAML mapping.
+        pydantic.ValidationError
+            The file exists but is not a valid ``ShotOffsets`` document.
+            Deliberately loud rather than falling back to zeros: a
+            calibration that silently reverted to 0.0 would misjoin rows at
+            a tight rep rate with nothing in the log to say why.
+        """
+        path = self.shot_offsets_path
+        if not path.exists():
+            return None
+        document = self._load_yaml(path, "shot offsets", self.SHOT_OFFSETS_FILE)
+        return ShotOffsets.model_validate(document)
+
+    def write_shot_offsets(self, offsets: ShotOffsets) -> Path:
+        """Write the measured drain offsets, replacing any previous measurement.
+
+        Written atomically (a temporary file in the same directory, then
+        ``os.replace``) so a reader — the worker reopening its environment,
+        another host's resolver — never sees a half-written document, and a
+        failure part-way leaves the previous calibration intact.
+
+        The configs repo is a **git checkout**, usually on the data share.
+        This writes the working tree only: committing and pushing is a
+        human act, and the caller logs the path so the operator knows there
+        is an uncommitted change to review.
+
+        Returns
+        -------
+        Path
+            The file written.
+
+        Raises
+        ------
+        GeecsConfigurationError
+            The experiment folder does not exist — the configs root is
+            misconfigured or unreachable, and creating the tree here would
+            plant an experiment folder in the wrong place.
+        """
+        path = self.shot_offsets_path
+        if not path.parent.is_dir():
+            raise GeecsConfigurationError(
+                f"cannot write shot offsets for experiment {self._experiment!r}: "
+                f"no configs folder at {path.parent} (check the configs root "
+                "and that the share is mounted)"
+            )
+        payload = yaml.safe_dump(offsets.model_dump(), sort_keys=False)
+        with tempfile.NamedTemporaryFile(
+            "w",
+            dir=path.parent,
+            prefix=f".{path.stem}-",
+            suffix=".tmp",
+            delete=False,
+        ) as handle:
+            handle.write(payload)
+            temporary = Path(handle.name)
+        try:
+            os.replace(temporary, path)
+        except OSError:
+            temporary.unlink(missing_ok=True)
+            raise
+        logger.info("shot offsets written to %s", path)
+        return path
