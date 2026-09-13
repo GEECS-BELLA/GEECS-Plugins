@@ -574,15 +574,18 @@ def _can_write(resolver: Any) -> bool:
 def _refuse_profile_without(shot_control: Any, state: TriggerState) -> None:
     """Refuse up front a profile that cannot drive *state*.
 
-    Before the quiet wait, not after: a profile missing ARMED or SINGLESHOT
-    fails the plan either way, but failing after several seconds of waiting
-    with ``_drive``'s generic "defines no writes" is a worse way to learn it.
+    Before the quiet wait, not after: a profile missing a state fails the
+    plan either way, but failing after several seconds of waiting with
+    ``_drive``'s generic "defines no writes" is a worse way to learn it — and
+    a profile missing STANDBY would fail in the bracket's *finalizer*, after
+    the shots, leaving the box in the calibration state.
     """
     if not shot_control.defines(state):
         raise GeecsConfigurationError(
             f"trigger profile {shot_control.profile_name!r} defines no writes "
-            f"for {state.value} — the calibration fires single shots, so it "
-            f"needs both ARMED and SINGLESHOT"
+            f"for {state.value} — the calibration plans bracket the box "
+            "OFF → … → STANDBY, and measure_shot_offsets fires through ARMED "
+            "and SINGLESHOT, so the profile must define every state it drives"
         )
 
 
@@ -963,8 +966,18 @@ def measure_shot_offsets_plan(
             )
         views = _stamp_views(detectors)
         shot_control = profiles.resolve(trigger_profile)
-        _refuse_profile_without(shot_control, TriggerState.ARMED)
-        _refuse_profile_without(shot_control, TriggerState.SINGLESHOT)
+        # Every state the plan drives, before any wait or shot: run_bracket
+        # opens with OFF and its finalizer restores STANDBY, so a profile
+        # missing STANDBY would spend the quiet wait and the shots and then
+        # fail in the finalizer, leaving the box in the calibration state
+        # (Codex review of #861).
+        for state in (
+            TriggerState.OFF,
+            TriggerState.STANDBY,
+            TriggerState.ARMED,
+            TriggerState.SINGLESHOT,
+        ):
+            _refuse_profile_without(shot_control, state)
         confirm_time = max(
             QUIET_CONFIRM_FLOOR_S, QUIET_CONFIRM_PERIODS * trigger_period
         )
@@ -1152,6 +1165,10 @@ def check_shot_sync_plan(profiles: Any) -> Callable[..., Any]:
             )
         views = _stamp_views(detectors)
         shot_control = profiles.resolve(trigger_profile)
+        # The bracket drives OFF and restores STANDBY; refuse a profile that
+        # cannot, before the quiet wait is spent (Codex review of #861).
+        _refuse_profile_without(shot_control, TriggerState.OFF)
+        _refuse_profile_without(shot_control, TriggerState.STANDBY)
         confirm_time = max(
             QUIET_CONFIRM_FLOOR_S, QUIET_CONFIRM_PERIODS * trigger_period
         )

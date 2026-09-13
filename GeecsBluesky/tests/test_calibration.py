@@ -781,6 +781,62 @@ def test_measure_refuses_a_profile_that_cannot_fire(RE: RunEngine) -> None:
     assert box.puts == []  # refused before the box was touched at all
 
 
+@pytest.mark.parametrize("missing", ["OFF", "STANDBY"])
+def test_measure_refuses_a_profile_that_cannot_bracket(
+    RE: RunEngine, missing: str
+) -> None:
+    """OFF opens the bracket and STANDBY closes it; both are checked up front.
+
+    A profile missing STANDBY would otherwise spend the quiet wait and the
+    shots, then fail in the finalizer and leave the box in the calibration
+    state (Codex review of #861).
+    """
+    from geecs_bluesky.models.shot_control import ShotControlWrites
+
+    box = _box({"amp3": 0.0, "amp4": 0.036})
+    states = {k: list(v) for k, v in WRITES.states.items() if k != missing}
+    sc = ShotControl(
+        ShotControlWrites(name=f"no-{missing.lower()}", states=states),
+        experiment="TestExp",
+        name="shot_control",
+        setter_factory=box,
+    )
+    connect_mock(RE, sc)
+    cams = [_camera(RE, box, n) for n in ("amp3", "amp4")]
+    plan = measure_shot_offsets_plan(_profiles(sc), resolver=None)
+    with pytest.raises(
+        GeecsConfigurationError, match=f"defines no writes for {missing}"
+    ):
+        RE(plan(cams, shots=2, quiet_time=0.01))
+    assert box.puts == []
+    assert box.fires == 0
+
+
+@pytest.mark.parametrize("missing", ["OFF", "STANDBY"])
+def test_check_shot_sync_refuses_a_profile_that_cannot_bracket(
+    RE: RunEngine, missing: str
+) -> None:
+    """The sync check brackets the box too, and preflights the same way."""
+    from geecs_bluesky.models.shot_control import ShotControlWrites
+
+    box = _box({"amp3": 0.0, "amp4": 0.036})
+    states = {k: list(v) for k, v in WRITES.states.items() if k != missing}
+    sc = ShotControl(
+        ShotControlWrites(name=f"no-{missing.lower()}", states=states),
+        experiment="TestExp",
+        name="shot_control",
+        setter_factory=box,
+    )
+    connect_mock(RE, sc)
+    cams = [_camera(RE, box, n) for n in ("amp3", "amp4")]
+    plan = check_shot_sync_plan(_profiles(sc))
+    with pytest.raises(
+        GeecsConfigurationError, match=f"defines no writes for {missing}"
+    ):
+        RE(plan(cams, quiet_time=0.01))
+    assert box.puts == []
+
+
 def test_measure_refuses_a_resolver_that_cannot_write_before_firing(
     RE: RunEngine,
 ) -> None:

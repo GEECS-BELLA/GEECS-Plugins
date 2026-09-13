@@ -216,6 +216,11 @@ round 3.  Each round found a defect inside the previous round's own fix.
   the real calibration with no escape (`max_offset` could not lift a
   `min`).  The refusal's advice is branched — a scatter refusal is not
   something `max_offset` can lift.
+- **Both plans preflight every trigger state they drive** — OFF and
+  STANDBY for the bracket, plus ARMED and SINGLESHOT for the measurement —
+  before any wait or shot.  A profile missing STANDBY would otherwise have
+  failed in the bracket's finalizer after the shots were spent, leaving the
+  box in the calibration state (Codex review of #861).
 - **The quiet backstop ignores never-acquired devices.**  A camera holding
   a `0.0` stamp cannot advance, so counting it let the rest of the set
   advance across the wait unrefused.
