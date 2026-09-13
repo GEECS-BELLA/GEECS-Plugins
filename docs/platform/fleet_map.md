@@ -17,7 +17,10 @@ back into this table.
 !!! note "Snapshot"
     Reflects the fleet as observed on **2026-09-04**, after the
     site-profile cutover of the interim services host (PR #792 updated
-    this table the same day). The five repo-managed Linux services — CA
+    this table the same day). Amended **2026-09-12** for the portal row
+    only: the logbook went live at `/log` on the same unit and the
+    portal's memory ceiling was installed (#849, #851); no other row was
+    re-observed that day. The five repo-managed Linux services — CA
     gateway, queueserver worker, capture daemon, GEECS-MCP HTTP, Data
     Portal — run as **system** units rendered from the host's `site.env`
     ([Site Profile](site_profile.md)), from the per-service-family clones
