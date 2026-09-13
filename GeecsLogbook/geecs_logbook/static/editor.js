@@ -216,7 +216,12 @@
    *  edit, on the article too, so a Cancel-then-Edit does not start stale. */
   function noteVersion(form, version) {
     form.dataset.version = String(version);
-    const art = form.closest("article");
+    /* parentElement first: closest() includes the element it starts from, and
+       an in-place edit form carries its own data-entry — so this matched the
+       FORM, the guard below passed trivially, and the entry's data-version
+       was never updated. The next Edit read a stale version and the author
+       got a 409 against their own edit. */
+    const art = form.parentElement && form.parentElement.closest("[data-entry]");
     if (art && art.dataset.entry === form.dataset.entry) art.dataset.version = String(version);
   }
 
@@ -411,6 +416,59 @@
     });
   }
 
+  /* Where an entry-level error message goes. The tools moved into the
+     entry's <summary> when entries became <details>, so they are no longer
+     INSIDE .entry-main — closest(".entry-main") returned null and fail()
+     threw a TypeError instead of showing the message. Reachable by anyone
+     deleting an entry someone else already deleted: a 404 became a silent
+     nothing. */
+  function errorTarget(el) {
+    const entry = el.closest("[data-entry]");
+    return (entry && entry.querySelector(".entry-main")) || entry;
+  }
+
+  /* Fold a composer away and put its affordance back. Nothing is
+     destroyed — the form keeps its text, so reopening restores it. */
+  function closeComposer(anchor) {
+    const host = document.querySelector(`[data-compose-host="${anchor}"]`);
+    const row = document.querySelector(`[data-insert="${anchor}"]`);
+    if (!host) return;
+    /* Refuse while the entry is already in the store. Attaching a file
+       autosaves a real entry, so folding the composer away would take its
+       Discard button with it: the affordance comes back, the author
+       reasonably concludes nothing was written, and the note is in the log.
+       A silent publish.
+
+       Refusing without an exit is the Discard-button bug again, so the
+       message names both. Nothing is discarded on the user's behalf —
+       Close stays non-destructive, which is what makes Esc safe to wire. */
+    const form = host.querySelector("form.composer");
+    if (form && form.dataset.entry) {
+      fail(form, {
+        message:
+          "This note was saved when you attached a file. " +
+          "Save it, or Discard to remove it.",
+      });
+      const ta = form.querySelector(".ta");
+      if (ta) ta.focus();
+      return;
+    }
+    host.hidden = true;
+    if (row) row.hidden = false;
+  }
+
+  /* Esc folds an open composer away, wherever it is. Safe because closing
+     keeps the text: the form stays in the DOM, so reopening restores what
+     was typed. Reached through the host rather than the form's anchor —
+     one lookup, and it cannot go stale when the anchor scheme changes. */
+  document.addEventListener("keydown", (ev) => {
+    if (ev.key !== "Escape") return;
+    const host = ev.target.closest && ev.target.closest("[data-compose-host]");
+    if (!host || host.hidden) return;
+    ev.preventDefault();
+    closeComposer(host.dataset.composeHost);
+  });
+
   function discard(form) {
     if (!form.dataset.entry) return Promise.resolve();
     return exclusive(form, async () => {
@@ -455,9 +513,19 @@
 
   document.addEventListener("click", async (ev) => {
     const b = ev.target.closest("button"); if (!b) return;
+    /* An entry's head is a <summary>, and any click inside one toggles the
+       <details>. The tools live there on purpose — you should be able to
+       edit without opening first — so they stop the toggle. */
+    if (b.closest("summary")) ev.preventDefault();
+    /* Put the affordance back and fold the composer away. Nothing is
+       destroyed — the form keeps its text, so reopening restores it. */
+    if (b.dataset.closeComposer !== undefined) {
+      closeComposer(b.dataset.closeComposer);
+      return;
+    }
     if (b.closest("[data-insert]")) {
       const after = b.closest("[data-insert]").dataset.insert;
-      const hostEl = document.querySelector(`[data-between-host="${after}"]`);
+      const hostEl = document.querySelector(`[data-compose-host="${after}"]`);
       if (hostEl) {
         hostEl.hidden = false; b.closest("[data-insert]").hidden = true;
         const ta = hostEl.querySelector(".ta"); if (ta) ta.focus();
@@ -466,16 +534,23 @@
     }
     if (b.dataset.keep) {
       try { await api("POST", `/entries/${b.dataset.keep}/status`, { status: "kept" }); location.reload(); }
-      catch (err) { fail(b.closest(".entry-main"), err); }
+      catch (err) { fail(errorTarget(b), err); }
       return;
     }
     if (b.dataset.del) {
       if (b.dataset.armed !== "1") { b.dataset.armed = "1"; b.textContent = "Really delete"; return; }
       try { await api("DELETE", `/entries/${b.dataset.del}`); location.reload(); }
-      catch (err) { fail(b.closest(".entry-main"), err); }
+      catch (err) { fail(errorTarget(b), err); }
       return;
     }
     if (b.dataset.edit) {
+      /* The entry may be shut — the tools live in its <summary> precisely so
+         you can edit without opening first, and the handler above suppresses
+         the toggle. So open it here: otherwise the form lands in a subtree
+         the browser does not render, focus() is a no-op, and a second click
+         returns early on a form it cannot show. */
+      const shut = b.closest("details.entry");
+      if (shut) shut.open = true;
       const art = document.getElementById("entry-" + b.dataset.edit);
       const main = art.querySelector(".entry-main");
       const raw = JSON.parse(art.querySelector(".raw").textContent);

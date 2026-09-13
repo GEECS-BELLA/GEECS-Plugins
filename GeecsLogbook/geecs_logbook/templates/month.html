@@ -34,6 +34,8 @@
       <input id="q" type="search" placeholder="Filter notes…" autocomplete="off">
     </label>
     <div data-theme-picker></div>
+    <div data-density-picker></div>
+    <button class="btn" type="button" id="toggle-all" data-expanded="true">Collapse all</button>
     <a class="btn booklink" href="{{ url_for('_day_page', day=today.isoformat()).path }}">Scan log &rarr;</a>
   </div>
 </div>
@@ -188,16 +190,48 @@ document.querySelectorAll("[data-compose-day]").forEach(b => b.addEventListener(
 /* Filter hides entries, and a day whose entries are all hidden. */
 document.getElementById("q").addEventListener("input", ev => {
   const f = ev.target.value.trim().toLowerCase();
-  document.querySelectorAll("article.entry").forEach(e => {
-    e.hidden = !!f && !e.dataset.hay.includes(f);
+  /* `.entry`, not `article.entry`: an entry became a <details> in 0.9.0 and
+     the selector was not followed. It matched nothing, so no entry was ever
+     hidden — and every day group then saw zero visible entries and hid
+     ITSELF, blanking the page on the first keystroke. */
+  document.querySelectorAll(".entry").forEach(e => {
+    e.hidden = !!f && !(e.dataset.hay || "").includes(f);
   });
   document.querySelectorAll("section.daygroup").forEach(g => {
-    g.hidden = !!f && ![...g.querySelectorAll("article.entry")].some(e => !e.hidden);
+    g.hidden = !!f && ![...g.querySelectorAll(".entry")].some(e => !e.hidden);
   });
 });
 </script>
 <script src="{{ url_for('_static', name='editor.js').path }}" defer></script>
 <script src="{{ url_for('_static', name='nav.js').path }}" defer></script>
+<script>
+"use strict";
+/* Collapse All, the ops book's copy. The scan log has had this since
+   scans became <details>; entries only became collapsible in 0.9.0, so
+   until now this book had nothing to fold and no button to fold it with.
+   Same localStorage key as the scan log: a viewer's preference for how
+   dense a logbook reads is one preference, not two. */
+(function () {
+  const KEY = "scanlog.expandAll";
+  const btn = document.getElementById("toggle-all");
+  if (!btn) return;
+  const cards = () => [...document.querySelectorAll("details.entry")];
+
+  function applyAll(expand) {
+    cards().forEach(c => { c.open = expand; });
+    btn.dataset.expanded = String(expand);
+    btn.textContent = expand ? "Collapse all" : "Expand all";
+    try { localStorage.setItem(KEY, String(expand)); } catch (e) { /* private window */ }
+  }
+
+  try {
+    const saved = localStorage.getItem(KEY);
+    if (saved !== null) applyAll(saved === "true");
+  } catch (e) { /* private window */ }
+
+  btn.addEventListener("click", () => applyAll(btn.dataset.expanded !== "true"));
+})();
+</script>
 <script src="{{ root }}/theme/kit.js" defer></script>
 <script src="{{ root }}/theme/theme.js" defer></script>
 </body>

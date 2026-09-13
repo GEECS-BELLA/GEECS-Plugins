@@ -59,6 +59,17 @@
    --------------------------------------------------------------------- */
 .kit *, .kit *::before, .kit *::after{box-sizing:border-box}
 
+/* `hidden` has to keep working. The browser's own [hidden]{display:none}
+   is a USER-AGENT rule, so any author rule setting `display` beats it —
+   and this file sets `display` on .btn, .chip, .row, .picklist, .seg,
+   .panel > header and more. A `<button class="btn" hidden>` therefore
+   rendered, which is how the logbook's Discard button — meant to appear
+   only after an attachment autosaves — sat on screen from the start,
+   doing nothing when pressed because there was nothing to discard.
+   One rule, ahead of every component, so the platform attribute means
+   what it says. */
+.kit [hidden]{display:none!important}
+
 body.kit{
   margin:0;
   background:var(--paper);

@@ -4,7 +4,201 @@ All notable changes to `geecs-logbook` are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 project adheres to semantic versioning.
 
+## [0.9.0] - 2026-09-12
+
+### Added
+
+- `render.summarize()` — the one-line stand-in a collapsed entry shows,
+  beside the markdown parser it uses. Derived, never asked for: a title
+  field would make the writer name a thing before typing it and would be
+  empty for every entry already written.
+- **Every entry is collapsible, in both books** — the scan log and the ops
+  book. `<details>` was added for scan blocks and never generalised, so the
+  scan log could fold a scan but not a note, and the ops book could fold
+  nothing at all. Open by default (the notes are what you came to read);
+  Collapse All shuts them. A shut entry shows a one-line summary derived from its body.
+- **The ops book has a Collapse All button**, which it never had — so
+  carrying this across meant building the control, not porting one. It
+  shares the scan log's stored preference: how dense a logbook reads is one
+  preference, not two.
+- **One way to add a note, everywhere.** Each anchor — a scan, a gap, the
+  day — renders its entries, then a `+ note` affordance with the composer
+  folded behind it. Close or `Esc` folds it away and the affordance returns;
+  nothing typed is lost, because the form stays in the DOM.
+- The **density control** is on both pages. It had been built, tested and
+  pinned across three files, and wired into no template at all — reachable
+  from nowhere since it was written.
+
+### Fixed (from adversarial review, before merge)
+
+- **The ops book's filter blanked the whole page on any keystroke.** Its
+  handler still selected `article.entry`; an entry became a `<details>` in
+  this release. So it hid no entry, every day group then saw zero visible
+  entries and hid *itself*. That is the same failure this release deletes
+  the scan filter for, reintroduced in the other book by the same change.
+- The ops book's **search box lost its styling** — `.searchbox` went out
+  with the scan filter, leaving a bare label, a chromeless input and the
+  magnifier on its own line. Its filter reads note *bodies*, which is why
+  it survived; the CSS should have too.
+- **Edit did nothing on a collapsed entry.** The tools moved into the
+  `<summary>` and the toggle is suppressed there on purpose, so the edit
+  form was inserted into a subtree the browser does not render — and a
+  second click returned early on a form it could not show.
+- **A failed Delete threw instead of showing the error.** The tools are no
+  longer inside `.entry-main`, so `closest(".entry-main")` returned null:
+  deleting an entry someone else already deleted produced a silent
+  TypeError rather than "no such entry".
+- **Spurious 409s against your own edit.** `closest()` includes the element
+  it starts from, and an in-place edit form carries its own `data-entry` —
+  so the version was written back to the form, never to the entry, and the
+  next Edit read a stale one.
+- The summary **mangled lab notation**: a regex stripping `` ` * _ ~ ``
+  turned `~20 mJ, jitter ~3%` into `20 mJ, jitter 3%`. A single `~` is not
+  markdown and a single `*` is not emphasis. It now reads markdown-it's
+  token stream instead of guessing, so emphasis loses its markers and
+  arithmetic keeps its characters.
+- **Close silently published an autosaved entry.** Attaching a file saves a
+  real entry immediately; folding the composer away took its Discard button
+  with it, so the affordance returned, the author concluded nothing was
+  written, and the note was in the log. Close and `Esc` now refuse while the
+  entry is in the store, and name both ways out — refusing without an exit
+  is the Discard bug over again.
+- The summary returned a **table's first cell** (`"Parameter"`, `"Date"` —
+  the toolbar's own table skeleton, and a pasted spreadsheet), which is
+  content-free while looking like a summary; and **nothing at all** for a
+  note that is one pasted screenshot, the commonest attachment shape here.
+  A test pinning the table case existed and was dropped when the function
+  moved packages.
+- **The refusal message rendered into the 26px avatar column.** A composer
+  is a two-column grid and `fail()` appends to the form, so the message
+  landed under the avatar — pre-existing, but load-bearing the moment Close
+  started refusing, since that message is the only thing separating a
+  refusal from a button that appears to do nothing.
+- The summary returned **nothing** for a table followed immediately by
+  prose — the shape the toolbar's table button and the spreadsheet paste
+  both produce, since they leave the cursor one newline below the block and
+  markdown-it absorbs that line as another row. It now falls back to the
+  first cell: thin, but true.
+- Guard holes, each found by mutation: the `<details>`-display rule matched
+  only the bare `.entry{…}` form (missing `.panel.scan`, `#logbook .entry`,
+  `:not([open])`, descendant and `@media` shapes) and read only one
+  stylesheet; the variant-ordering rule never blanked Jinja, so the very
+  pairs it was rewritten for — `.entry-agent`/`.entry` and
+  `.avatar-agent`/`.avatar` — were invisible to it. It also recorded each
+  selector's **first** declaration while the cascade is decided by its
+  **last**, and eight selectors in this sheet are declared twice — so a
+  variant placed *between* two copies of its base was still overridden and
+  still passed. And a statement at-rule (`@import …;`, `@layer base;`)
+  erased every rule between it and the next `{`, because the prelude match
+  was not bounded at `;`.
+
+### Removed, after three review rounds
+
+- **Two hand-rolled CSS scanners** — the `<details>`-display guard and the
+  single-class-variant guard. Six regex CSS scanners were written this
+  session and every one had a silent coverage gap: a consumed anchor
+  (three times), a filter testing the empty string, a match starting
+  inside a Jinja comment, and a first-declaration lookup where the cascade
+  reads the last — the last of which made a mutation test pass for the
+  wrong reason. Across three adversarial rounds the shipped surface
+  converged (7 defects → 2 → 2) while the guards stayed flat at 2 per
+  round, each one a hole in the guard written to close the previous hole.
+
+  What survived untouched is the guard that **does not parse anything
+  itself**: `test_inline_scripts_parse` shells out to `node --check`. So
+  does the rule — the same one this release already found on the Python
+  side, where `summarize()` stopped generating findings the moment it
+  read markdown-it's token stream instead of stripping characters. Ask a
+  real parser. For CSS that means `tinycss2` in a follow-up, not more
+  regex here.
+
+  Neither invariant is lost: `.entry{display:grid}` is fixed and confirmed
+  on the deployed branch, and `.tag-retired` was a single historical bug.
+
+### Known, deliberately not fixed here
+
+- `summarize()` is a **second full markdown parse** per entry: 0.73 ms
+  against `render_markdown`'s 1.18 ms on a 12.6 KB body, so ~60% more
+  markdown work per entry and ~145 ms on a 200-entry month page. One
+  `_md.parse()` feeding both a render and a summarize removes it — a change
+  to `render_markdown`'s shape, which does not belong in a PR that has
+  already grown twice.
+
+### Removed
+
+- **The scan filter.** It matched on scan label, parameter, purpose and
+  devices, so typing anything from a *note* hid the whole page, and it
+  caused three regressions in one day. Ctrl-F searches note bodies too,
+  which is what a reader actually wants. Gone with it: the search box, the
+  handler, the `data-hay` plumbing on scans, `data-filtered`, and the
+  `scan_hay` macro.
+
+  The **ops book's filter stays** — it searches note *bodies*, which is why
+  it works and the scan one did not. They were never the same feature.
+
+### Fixed
+
+- **A composer that could not be closed.** A gap with no notes hid its
+  composer behind "+ note"; a gap that already had notes rendered one
+  **permanently** — twenty-two open text boxes on a busy day, with no
+  affordance and no host, so the Close button added for the first case
+  correctly did nothing in the second. The asymmetry is gone rather than
+  patched, which also collapsed `between_block` to two lines.
+- **Notes were uncollapsible**: `scanlog.css` carried `.entry{display:grid}`
+  from when an entry was an `<article>` laid out as avatar-plus-body.
+  Setting `display` on a `<details>` makes the browser lay out every child
+  regardless of `open` — no error, it simply stops being a disclosure.
+  There were two `.entry` rules in that file and only the second was
+  updated.
+- **The page's inline script was a syntax error.** Deleting the filter left
+  its closing `});` behind, so the browser refused to execute the block and
+  Collapse All *and* the rail jump died together. 217 tests were green.
+
+### Changed
+
+- New guards, each verified by mutation: every inline `<script>` in every
+  template parses (`node --check`, Jinja blanked); no `<details>` is given a
+  `display`; and the single-class-variant ordering rule now only considers
+  classes that actually land on the **same element**, after flagging
+  `.entry-body` as a variant of `.entry` — a guard that cries wolf gets
+  switched off.
+
 ## [0.8.0] - 2026-09-12
+
+### Fixed (from adversarial review, before merge)
+
+- **The ops book's filter blanked the whole page on any keystroke.** Its
+  handler still selected `article.entry`; an entry became a `<details>` in
+  this release. So it hid no entry, every day group then saw zero visible
+  entries and hid *itself*. That is the same failure this release deletes
+  the scan filter for, reintroduced in the other book by the same change.
+- The ops book's **search box lost its styling** — `.searchbox` went out
+  with the scan filter, leaving a bare label, a chromeless input and the
+  magnifier on its own line. Its filter reads note *bodies*, which is why
+  it survived; the CSS should have too.
+- **Edit did nothing on a collapsed entry.** The tools moved into the
+  `<summary>` and the toggle is suppressed there on purpose, so the edit
+  form was inserted into a subtree the browser does not render — and a
+  second click returned early on a form it could not show.
+- **A failed Delete threw instead of showing the error.** The tools are no
+  longer inside `.entry-main`, so `closest(".entry-main")` returned null:
+  deleting an entry someone else already deleted produced a silent
+  TypeError rather than "no such entry".
+- **Spurious 409s against your own edit.** `closest()` includes the element
+  it starts from, and an in-place edit form carries its own `data-entry` —
+  so the version was written back to the form, never to the entry, and the
+  next Edit read a stale one.
+- The summary **mangled lab notation**: a regex stripping `` ` * _ ~ ``
+  turned `~20 mJ, jitter ~3%` into `20 mJ, jitter 3%`. A single `~` is not
+  markdown and a single `*` is not emphasis. It now reads markdown-it's
+  token stream instead of guessing, so emphasis loses its markers and
+  arithmetic keeps its characters.
+- Guard holes, each found by mutation: the `<details>`-display rule matched
+  only the bare `.entry{…}` form (missing `.panel.scan`, `#logbook .entry`,
+  `:not([open])`, descendant and `@media` shapes) and read only one
+  stylesheet; the variant-ordering rule never blanked Jinja, so the very
+  pairs it was rewritten for — `.entry-agent`/`.entry` and
+  `.avatar-agent`/`.avatar` — were invisible to it.
 
 ### Removed
 

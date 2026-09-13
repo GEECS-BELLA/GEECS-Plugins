@@ -26,7 +26,7 @@ from geecs_schemas.log_entry import LogEntry
 from geecs_logbook import mirror
 from geecs_logbook.attachments import AttachmentStore
 from geecs_logbook.models import DaySummary
-from geecs_logbook.render import render_markdown
+from geecs_logbook.render import render_markdown, summarize
 from geecs_logbook.scan_reader import read_day
 from geecs_logbook.seed_templates import PageSeeds, SeedTemplates
 from geecs_logbook.store import NotesStore
@@ -48,10 +48,11 @@ SYNC_INTERVAL_S = 60.0
 
 @dataclass(frozen=True)
 class RenderedEntry:
-    """An entry plus its HTML, for a template."""
+    """An entry plus its HTML and its one-line summary, for a template."""
 
     entry: LogEntry
     html: str
+    summary: str = ""
 
 
 @dataclass
@@ -126,7 +127,11 @@ class Context:
             return []
         base = attachment_base(request)
         return [
-            RenderedEntry(e, render_markdown(e.body_md, attachment_base=base))
+            RenderedEntry(
+                e,
+                render_markdown(e.body_md, attachment_base=base),
+                summarize(e.body_md),
+            )
             for e in entries
         ]
 

@@ -7,14 +7,17 @@ deployment nobody runs locally.
 
 from __future__ import annotations
 
+import os
 import re
+import shutil
+import subprocess
+import tempfile
 from pathlib import Path
 
 import pytest
 
 _PKG = Path(__file__).resolve().parents[1] / "geecs_logbook"
 _TEMPLATES = sorted((_PKG / "templates").glob("*.html"))
-_CSS = _PKG / "static/scanlog.css"
 
 
 @pytest.mark.parametrize("template", _TEMPLATES, ids=lambda p: p.name)
@@ -66,31 +69,79 @@ def test_every_literal_data_state_is_a_kit_state() -> None:
     )
 
 
-def test_a_single_class_variant_is_declared_after_its_base() -> None:
-    """``.tag-retired`` must come after ``.tag``, not before it.
+@pytest.mark.parametrize("template", _TEMPLATES, ids=lambda p: p.name)
+def test_inline_scripts_parse(template: Path) -> None:
+    """A page's inline ``<script>`` is syntactically valid JavaScript.
 
-    Both are one class, so they tie on specificity and source order alone
-    decides — a variant declared first is silently overridden by the base
-    it exists to vary. That shipped once: ``.tag-retired`` landed above
-    ``.tag`` and the retired-template name rendered accent-coloured,
-    pixel-identical to the real tag beside it, which was the exact
-    confusion the class was added to remove. Markup assertions cannot see
-    it because the markup is correct.
+    Nothing else checks this. A template renders fine, every router test
+    passes, and the browser silently refuses to execute a block with a
+    syntax error — so every behaviour in it dies at once and the suite says
+    nothing. That shipped: deleting the scan filter left its closing ``});``
+    behind, which broke Collapse All and the rail jump together while 217
+    tests were green.
+
+    It shells out to ``node --check`` rather than parsing anything itself.
+    That is deliberate and is why this guard has never produced a false
+    result: every hand-rolled scanner written alongside it had a silent
+    coverage gap — a consumed regex anchor, a filter testing the empty
+    string, a match starting inside a Jinja comment, a first-declaration
+    lookup where the cascade reads the last. Ask a real parser.
+
+    Jinja is blanked to a string literal first: this checks the
+    JavaScript's shape, not what any particular render produces.
     """
-    css = re.sub(r"/\*.*?\*/", " ", _CSS.read_text(), flags=re.S)
-    first: dict[str, int] = {}
-    for m in re.finditer(r"(?:^|[};])\s*([^{};]+?)\s*\{", css):
-        for part in (s.strip() for s in m.group(1).split(",")):
-            if re.fullmatch(r"\.[\w-]+", part):
-                first.setdefault(part, m.start(1))
-    inverted = [
-        (sel, base)
-        for sel, pos in first.items()
-        if (base := sel.rsplit("-", 1)[0]) != sel
-        and base in first
-        and first[base] > pos
+    # Jinja comments first: `{# … a <script> body is raw text … #}` mentions
+    # the tag, and an extractor that does not blank comments starts a match
+    # inside one and swallows the real script after it.
+    text = re.sub(r"\{#.*?#\}", " ", template.read_text(), flags=re.S)
+    # (attributes, body) — a <script type="application/json"> carries a data
+    # payload, not code. Judge by the type attribute, never by inspecting
+    # the body.
+    blocks = re.findall(r"<script(?![^>]*\bsrc=)([^>]*)>(.*?)</script>", text, re.S)
+    scripts = [
+        body
+        for attrs, body in blocks
+        if body.strip()
+        and not re.search(r'type\s*=\s*"(?!text/javascript|module)', attrs)
     ]
-    assert not inverted, (
-        "declared before the rule they vary, so the base wins on source "
-        f"order: {inverted}"
-    )
+    if not scripts:
+        pytest.skip("no inline script in this template")
+
+    node = shutil.which("node")
+    if node is None:  # pragma: no cover - CI and dev machines have it
+        pytest.skip("node not available to parse JavaScript")
+
+    for i, block in enumerate(scripts):
+        code = re.sub(r"\{\{.*?\}\}|\{%.*?%\}", '"jinja"', block, flags=re.S)
+        with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as fh:
+            fh.write(code)
+            path = fh.name
+        try:
+            done = subprocess.run(
+                [node, "--check", path], capture_output=True, text=True
+            )
+        finally:
+            os.unlink(path)
+        assert done.returncode == 0, (
+            f"{template.name} inline script #{i + 1} does not parse:\n"
+            + done.stderr.strip()
+        )
+
+
+def test_both_books_share_one_collapse_preference() -> None:
+    """The two Collapse-All blocks agree on their storage key.
+
+    They are deliberately two: the scan log folds scans *and* entries, the
+    ops book only entries, and a third file for ~20 lines is not worth it.
+    What genuinely couples them is the key — how dense a logbook reads is
+    one preference, not two — and nothing pinned it.
+    """
+    keys: set[str] = set()
+    for template in _TEMPLATES:
+        text = re.sub(r"\{#.*?#\}", " ", template.read_text(), flags=re.S)
+        for block in re.findall(
+            r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", text, re.S
+        ):
+            keys |= set(re.findall(r"localStorage\.\w+\(\s*[\"\']([^\"\']+)", block))
+            keys |= set(re.findall(r'(?:const|let|var)\s+KEY\s*=\s*"([^"]+)"', block))
+    assert keys == {"scanlog.expandAll"}, keys

@@ -4,6 +4,23 @@ All notable changes to `geecs-web-theme` are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 project adheres to semantic versioning.
 
+## [0.2.2] - 2026-09-12
+
+### Fixed
+
+- **`hidden` did not hide.** The browser's `[hidden]{display:none}` is a
+  *user-agent* rule, so any author rule setting `display` beats it — and
+  this kit sets `display` on `.btn`, `.chip`, `.row`, `.picklist`, `.seg`,
+  `.panel > header` and more. A `<button class="btn" hidden>` therefore
+  rendered. That shipped: the logbook's Discard button, meant to appear
+  only after an attachment autosaves, sat on screen from page load and did
+  nothing when pressed, because there was nothing to discard.
+
+  One `.kit [hidden]{display:none!important}` ahead of every component, so
+  the platform attribute means what it says. Pinned, including that it
+  keeps its `!important` and stays ahead of the first component that sets
+  a `display`.
+
 ## [0.2.1] - 2026-09-12
 
 ### Fixed
