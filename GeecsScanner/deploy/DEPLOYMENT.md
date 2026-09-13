@@ -51,8 +51,10 @@ curl -N localhost:8300/api/events             # status / progress / console even
 
 `readiness` must read `ready`; anything else names the recovery gesture
 (`environment_closed` → the `geecs-qserver-ready` unit; `plans_empty` →
-`qserver permissions reload lists`). `scripts/fleet_status.sh` checks that
-port 8300 is listening; reading `/health` there is a follow-up.
+`qserver permissions reload lists`). `scripts/fleet_status.sh` reads
+`/health` here for the fleet picture (ok only when `readiness` is `ready`)
+and shows the unit as "GEECS Scanner"; a host without the scanner shows
+the role as absent, not down.
 
 ## Behind the front door
 

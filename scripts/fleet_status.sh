@@ -234,6 +234,28 @@ if [ "$NET_UP" -eq 1 ]; then
         rec "role=GEECS-MCP	state=down	note=not listening"
     fi
 
+    # GEECS Scanner — /health carries ok + the manager probe + the readiness
+    # word + installed version. A scanner whose manager is unreachable is up
+    # but useless; say so rather than calling it ok.
+    SC_HOST="${WORKER_HOST:-$LAB_HOST}"
+    sh_="$(bounded "$TCP_TIMEOUT" curl -s -m "$TCP_TIMEOUT" "http://$SC_HOST:$SCANNER_PORT/health")"
+    if [ -n "$sh_" ]; then
+        sv="$(printf '%s' "$sh_" | sed -nE 's/.*"version": *"([^"]+)".*/\1/p')"
+        sready="$(printf '%s' "$sh_" | sed -nE 's/.*"readiness": *"([^"]*)".*/\1/p')"
+        if [ "$sready" = "ready" ]; then
+            ok "GEECS Scanner $SC_HOST:$SCANNER_PORT  geecs-scanner ${sv:-?}  (manager ready)"
+            rec "role=GEECS Scanner	state=ok	version=${sv:-}"
+        else
+            warn "GEECS Scanner $SC_HOST:$SCANNER_PORT  geecs-scanner ${sv:-?}  up but manager ${sready:-unknown}"
+            rec "role=GEECS Scanner	state=ok	version=${sv:-}	note=manager ${sready:-unknown}"
+        fi
+    elif port_open "$SC_HOST" "$SCANNER_PORT"; then
+        warn "GEECS Scanner $SC_HOST:$SCANNER_PORT  listening but no /health answer"
+        rec "role=GEECS Scanner	state=ok	note=no /health answer"
+    else
+        rec "role=GEECS Scanner	state=absent"
+    fi
+
     # CA gateway — /lab-status tier 2 (read-only CA gets). Contract: its
     # stdout carries one `role=CA gateway<TAB>...` record; the rest is prose.
     if [ -n "$EXPERIMENT" ]; then
@@ -293,7 +315,7 @@ role_for_port() { case "$1" in
     60615) echo "Queueserver RE Manager";; 5568) echo "Bluesky doc proxy";; *) echo "port $1";; esac; }
 role_for_unit() { case "$1" in
     geecs-ca-gateway*) echo "CA gateway";; tiled*) echo "Tiled";; geecs-data-portal*) echo "Data Portal";;
-    geecs-mcp*) echo "GEECS-MCP";; geecs-qserver-ready*) echo "Queueserver readiness";;
+    geecs-mcp*) echo "GEECS-MCP";; geecs-scanner*) echo "GEECS Scanner";; geecs-qserver-ready*) echo "Queueserver readiness";;
     geecs-qserver*) echo "Queueserver RE Manager";; geecs-capture*) echo "Capture daemon";;
     *) echo "$1";; esac; }
 FLEET_PORTS="5064 8000 8200 8100 8300 60615 5568"
