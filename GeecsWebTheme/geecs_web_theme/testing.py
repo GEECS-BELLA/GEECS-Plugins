@@ -60,6 +60,7 @@ __all__ = [
     "referenced_tokens",
     "rule_selectors",
     "styled_classes",
+    "token_indirections",
     "unknown_data_states",
 ]
 
@@ -236,6 +237,8 @@ NAMED_COLOURS = frozenset(
     "darkgray darkgrey whitesmoke gold crimson".split()
 )
 _COLOUR_FUNCTIONS = frozenset({"rgb", "rgba", "hsl", "hsla"})
+#: A hex colour inside a URL or data: string, percent-encoded or not.
+_ENCODED_HEX = re.compile(r"(?:%23|#)[0-9a-fA-F]{3,8}\b")
 _HEX_LENGTHS = frozenset({3, 4, 6, 8})
 _HEX = re.compile(r"^[0-9a-fA-F]+$")
 
@@ -243,11 +246,15 @@ _HEX = re.compile(r"^[0-9a-fA-F]+$")
 def css_rules(css: str) -> list[tuple[str, list[tuple[str, list[Any]]]]]:
     """Return every qualified rule as ``(selector, declarations)``, flattened.
 
-    ``@media`` and other conditional at-rules are descended into, so a rule
+    ``@media`` and other conditional at-rules are descended into at any
+    depth (``@media { @supports { .a{} } }`` yields ``.a``), so a rule
     inside one counts like any other; ``@keyframes`` bodies are skipped
-    (their ``0%`` stops are not selectors); ``@font-face``-style at-rules
-    with declaration bodies are skipped too. Comments are dropped by the
-    parser. Each declaration is ``(name, value_tokens)``.
+    (their ``0%`` stops are not selectors); an at-rule whose body is only
+    declarations (``@font-face``) yields nothing. **Native nesting** is
+    flattened too: a rule nested inside ``.a{…}`` is reported with the
+    selector ``.a &:hover`` — parent first, so a scoping check that reads
+    the front of the selector sees the parent's scope. Comments are dropped
+    by the parser. Each declaration is ``(name, value_tokens)``.
 
     Parameters
     ----------
@@ -262,23 +269,29 @@ def css_rules(css: str) -> list[tuple[str, list[tuple[str, list[Any]]]]]:
     tc = _tinycss2()
     out: list[tuple[str, list[tuple[str, list[Any]]]]] = []
 
-    def walk(rules: Sequence[Any]) -> None:
+    def qualified(rule: Any, parent: str) -> None:
+        own = tc.serialize(rule.prelude).strip()
+        selector = f"{parent} {own}" if parent else own
+        decls: list[tuple[str, list[Any]]] = []
+        nested: list[Any] = []
+        for item in tc.parse_blocks_contents(rule.content, skip_whitespace=True):
+            if item.type == "declaration":
+                decls.append((item.name, item.value))
+            elif item.type in ("qualified-rule", "at-rule"):
+                nested.append(item)
+        out.append((selector, decls))
+        walk(nested, selector)
+
+    def walk(rules: Sequence[Any], parent: str = "") -> None:
         for rule in rules:
             if rule.type == "qualified-rule":
-                decls = [
-                    (d.name, d.value)
-                    for d in tc.parse_declaration_list(
-                        rule.content, skip_whitespace=True
-                    )
-                    if d.type == "declaration"
-                ]
-                out.append((tc.serialize(rule.prelude).strip(), decls))
+                qualified(rule, parent)
             elif rule.type == "at-rule" and rule.content is not None:
                 if rule.lower_at_keyword == "keyframes":
                     continue
-                nested = tc.parse_rule_list(rule.content, skip_whitespace=True)
-                if any(r.type == "qualified-rule" for r in nested):
-                    walk(nested)
+                inner = tc.parse_rule_list(rule.content, skip_whitespace=True)
+                if any(r.type in ("qualified-rule", "at-rule") for r in inner):
+                    walk(inner, parent)
 
     walk(tc.parse_stylesheet(css, skip_comments=True, skip_whitespace=True))
     return out
@@ -361,27 +374,52 @@ def _colour_tokens(
                     _colour_tokens(tok.arguments, in_var_fallback=in_var_fallback)
                 )
         elif tok.type == "url":
-            if "%23" in tok.value or "#" in tok.value:
+            # an unquoted data: URL carrying SVG with fill='%23ff00ff'
+            if _ENCODED_HEX.search(tok.value):
                 found.append("url(…%23…)")
         elif tok.type == "string":
-            # data: URLs in strings carry SVG with fill='%23ff00ff'
-            if re.search(r"%23[0-9a-fA-F]{3,8}\b", tok.value):
+            # the quoted form of the same
+            if _ENCODED_HEX.search(tok.value):
                 found.append("'…%23…'")
+        elif tok.type == "error" and getattr(tok, "kind", "") == "bad-url":
+            # url(data:…fill='%23fff'…) unquoted, with a quote inside, is not
+            # parseable CSS at all; the browser drops it and so would a check
+            # that skipped errors. Report it — quoting the URL fixes both.
+            found.append("bad-url (unparseable url(); quote it)")
         elif tok.type in ("() block", "[] block", "{} block"):
             found.extend(_colour_tokens(tok.content, in_var_fallback=in_var_fallback))
     return found
 
 
-_GROUND_FREE = re.compile(r"^rgba\(\s*(?:0\s*,\s*0\s*,\s*0|17\s*,\s*24\s*,\s*33)\s*,")
+_GROUND_FREE = re.compile(r"^rgba\(\s*0\s*,\s*0\s*,\s*0\s*,")
 
 
 def _ground_free(text: str) -> bool:
-    """Whether a colour function is opacity over black or ink-black.
+    """Whether a colour function is opacity over plain black.
 
     Shadows and scrims read on every ground and have no token to take; a
-    coloured glow is a colour and must go through a token.
+    coloured glow — or a tinted black — is a colour and must go through a
+    token (the palettes' own ``--shadow`` definitions live in ``:root`` and
+    are exempt on that ground).
     """
     return bool(_GROUND_FREE.match(text.replace(" ", "")))
+
+
+def _allowed_part(part: str, marks: tuple[str, ...]) -> bool:
+    """Whether one comma-part of a selector is covered by an allowlist entry.
+
+    An entry matches the part exactly or as a prefix ending at a class
+    boundary: ``.themepick .sw`` covers ``.themepick .sw-bella``, and
+    ``img.plot`` does not cover ``img.plotwrap``.
+    """
+    for mark in marks:
+        if part == mark:
+            return True
+        if part.startswith(mark):
+            nxt = part[len(mark)]
+            if not (nxt.isalnum() or nxt == "_"):
+                return True
+    return False
 
 
 def colour_literals(css: str, *, allowed: Iterable[str] = ()) -> list[str]:
@@ -394,15 +432,18 @@ def colour_literals(css: str, *, allowed: Iterable[str] = ()) -> list[str]:
     - a ``--local: #fff`` inside any other rule is a hidden literal;
     - a ``var(--x)`` use is not a literal; its fallback argument is;
     - ``rgba()`` over black or ink-black (shadows, scrims) is exempt;
-    - a rule whose selector contains any *allowed* marker is skipped —
-      the caller's allowlist, each entry with a stated reason.
+    - a rule every one of whose selector parts is covered by an *allowed*
+      entry is skipped — the caller's allowlist, each entry with a stated
+      reason; ``img.plot`` covers ``img.plot`` and ``img.plot .x``, not
+      ``img.plotwrap`` and not the other half of ``img.plot, .other``.
 
     Parameters
     ----------
     css : str
         Stylesheet text.
     allowed : iterable of str, optional
-        Selector substrings whose rules may carry a literal.
+        Selectors (exact, or a prefix at a class boundary) whose rules may
+        carry a literal.
 
     Returns
     -------
@@ -412,7 +453,9 @@ def colour_literals(css: str, *, allowed: Iterable[str] = ()) -> list[str]:
     marks = tuple(allowed)
     out: list[str] = []
     for selector, decls in css_rules(css):
-        if any(m in selector for m in marks):
+        if marks and all(
+            _allowed_part(part.strip(), marks) for part in selector.split(",")
+        ):
             continue
         root = _is_root_selector(selector)
         for name, value in decls:
@@ -498,16 +541,23 @@ def js_colour_literals(js: str) -> list[str]:
     return out
 
 
-_TOKEN_REF_TEXT = re.compile(r'getPropertyValue\(\s*["\'`](--[\w-]+)|\$tok:(--[\w-]+)')
+#: Token references that are STRING patterns rather than CSS structure — a
+#: script reading a token, a server-emitted sentinel, and CSS text a script
+#: builds (``cssText = "background:var(--surface-2)"``), which the old
+#: raw-text guard saw and a parser over stylesheet files alone does not.
+_TOKEN_REF_TEXT = re.compile(
+    r'getPropertyValue\(\s*["\'`](--[\w-]+)|\$tok:(--[\w-]+)|var\(\s*(--[\w-]+)'
+)
 
 
 def referenced_tokens(source: Union[Path, str], *, css: bool = True) -> set[str]:
     """Return every ``--token`` a file references.
 
     In CSS that is every ``var(--x)`` (found through the parser, at any
-    nesting). In scripts and Python it is ``getPropertyValue("--x")`` and
-    the ``$tok:--x`` sentinels a server emits for the page to resolve —
-    string patterns, not CSS structure, so a small regex is the honest tool.
+    nesting). In scripts and Python it is ``getPropertyValue("--x")``, the
+    ``$tok:--x`` sentinels a server emits for the page to resolve, and any
+    ``var(--x)`` inside CSS text a script builds — string patterns, not
+    CSS structure, so a small regex is the honest tool.
     """
     text = _text(source)
     names: set[str] = {
@@ -532,6 +582,27 @@ def referenced_tokens(source: Union[Path, str], *, css: bool = True) -> set[str]
             for _, value in decls:
                 walk(value)
     return names
+
+
+def token_indirections(css: str) -> set[str]:
+    """Return the ``--local`` tokens whose value is exactly one ``var(--x)``.
+
+    ``.tone-ok{--tone:var(--ok)}`` is a surface's own indirection over a
+    theme token, so ``var(--tone)`` elsewhere is not an undefined reference.
+    """
+    out: set[str] = set()
+    for _, decls in css_rules(css):
+        for name, value in decls:
+            if not name.startswith("--"):
+                continue
+            real = [v for v in value if v.type != "whitespace"]
+            if (
+                len(real) == 1
+                and real[0].type == "function"
+                and real[0].lower_name == "var"
+            ):
+                out.add(name)
+    return out
 
 
 def defined_tokens(css: str) -> dict[str, set[str]]:

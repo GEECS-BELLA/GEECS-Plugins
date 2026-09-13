@@ -60,6 +60,8 @@ from geecs_web_theme.testing import (
     referenced_tokens,
     rule_selectors,
     styled_classes,
+    token_indirections,
+    unknown_data_states,
 )
 
 _REPO = Path(__file__).resolve().parents[2]
@@ -155,6 +157,15 @@ def test_surface_uses_only_tokens(relative: str) -> None:
         ("a{background:url(\"data:image/svg+xml,%3Csvg fill='%23ff00ff'/%3E\")}", True),
         (":root .foo{--x:#ff00ff}", True),
         ("@media (max-width:900px){.a{color:#fff}}", True),
+        ("@media (a){@supports (b){.a{color:#fff}}}", True),
+        (".a{color:var(--ink); &:hover{color:#ff00ff}}", True),
+        ("a{background:url(data:image/svg+xml,%3Csvg fill='%23ff00ff'/%3E)}", True),
+        (
+            "a{background:url(data:image/svg+xml,%3Csvg%20fill=%27%23ff00ff%27/%3E)}",
+            True,
+        ),
+        ("a{background:url(icons.svg#frag)}", False),
+        ("a{box-shadow:0 1px rgba(17,24,33,.4)}", True),
         ("/* #fff in a comment */ a{color:var(--ink)}", False),
         ("a{box-shadow:0 1px 2px rgba(0,0,0,.4)}", False),
         (":root{--x:#123456}", False),
@@ -188,6 +199,7 @@ def test_probe_css_literals(css: str, expected: bool) -> None:
         ('<svg><path fill="currentColor" stroke="var(--rule)"/></svg>', False),
         ("<script>// see #765 for the dead-button finding</script>", False),
         ('<script>document.querySelector("#now")</script>', False),
+        ('<script>el.style.cssText = "background:var(--surface-2)";</script>', False),
         ('{# <div style="color:#ff00ff"> in a Jinja comment #}', False),
         ('<div style="{{ inline }}"></div>', False),
     ],
@@ -233,33 +245,33 @@ def test_every_referenced_token_is_defined() -> None:
 
     This is the test that would have caught ``--surface2`` vs
     ``--surface-2``: 34 references and zero definitions, invisible to a
-    check that only compared theme blocks against each other.
+    check that only compared theme blocks against each other. Scripts
+    count too — the portal's run page writes one token through
+    ``cssText`` — and a surface's own ``.tone-ok{--tone:var(--ok)}``
+    indirection is a definition, not an undefined reference.
     """
     defined: set[str] = set()
     for tokens in defined_tokens(_THEME_CSS.read_text()).values():
         defined |= tokens
-    # ``.tone-ok{--tone:var(--ok)}`` is a surface's own indirection over a
-    # theme token; it counts as defined when its value is itself a token.
-    local = re.compile(r"(--[\w-]+)\s*:\s*var\(\s*--[\w-]+\s*\)")
     problems = []
     for relative in _SURFACES + ["GEECS-DataPortal/geecs_portal/figures.py"]:
         path = _REPO / relative
         text = path.read_text()
+        names: set[str] = set()
+        local: set[str] = set()
         if path.suffix in {".html", ".htm"}:
             css_chunks, scripts = html_style_sources(text)
-            names = (
-                set().union(*(referenced_tokens(c) for c in css_chunks))
-                if css_chunks
-                else set()
-            )
-            names |= (
-                set().union(*(referenced_tokens(s, css=False) for s in scripts))
-                if scripts
-                else set()
-            )
+            for chunk in css_chunks:
+                names |= referenced_tokens(chunk)
+                local |= token_indirections(chunk)
+            for body in scripts:
+                names |= referenced_tokens(body, css=False)
+        elif path.suffix == ".css":
+            names = referenced_tokens(text)
+            local = token_indirections(text)
         else:
-            names = referenced_tokens(text, css=path.suffix == ".css")
-        names -= set(local.findall(text))
+            names = referenced_tokens(text, css=False)
+        names -= local
         # --trace-${i} is built from a prefix at runtime.
         names = {n for n in names if not n.endswith("-") and n != "--name"}
         if "--trace-" in text:
@@ -362,17 +374,12 @@ def test_pane_states_are_pinned_to_the_kit() -> None:
     styled = attribute_selector_values(
         kit, "data-state", on_class="state"
     ) | attribute_selector_values(kit, "data-state", on_class="banner")
-    assert not styled - set(PANE_STATES), (
-        f"kit.css styles pane states {sorted(styled - set(PANE_STATES))}"
-    )
+    unknown = styled - set(PANE_STATES)
+    assert not unknown, f"kit.css styles pane states {sorted(unknown)}"
     page = _KIT_HTML.read_text()
-    stray = (
-        set(re.findall(r'data-state=["\']([^"\']*)["\']', page))
-        - set(PANE_STATES)
-        - set(STATES)
-    )
+    stray = unknown_data_states(page, {**STATES, **PANE_STATES})
     assert not stray, (
-        f"kit.html uses {sorted(stray)}, neither a status nor a pane state"
+        f"kit.html uses {sorted(set(stray))}, neither a status nor a pane state"
     )
     ages = set(re.findall(r'data-age=["\']([^"\']*)["\']', page))
     assert ages <= {"stale"}, (
@@ -430,3 +437,30 @@ def test_reference_page_demonstrates_only_what_the_kit_provides() -> None:
         f"kit.html shows {missing} but nothing styles them — either the kit "
         "owes the component or the page should not be demonstrating it"
     )
+
+
+def test_referenced_tokens_sees_css_a_script_builds() -> None:
+    """``cssText = "…var(--x)…"`` in a script counts as a reference.
+
+    The portal's run page writes one token this way; a check over
+    stylesheet files alone would have let ``var(--surfce-2)`` there ship.
+    """
+    js = 'note.style.cssText = "padding:2px; background:var(--surfce-2)";'
+    assert referenced_tokens(js, css=False) == {"--surfce-2"}
+
+
+def test_allowlist_matches_whole_selector_parts() -> None:
+    """``img.plot`` covers ``img.plot`` but not ``img.plotwrap`` nor the other
+    half of ``img.plot, .other``; ``.themepick .sw`` covers ``.themepick .sw-x``."""
+    marks = {"img.plot": "", ".themepick .sw": ""}
+    assert not colour_literals("img.plot{background:#fff}", allowed=marks)
+    assert not colour_literals(".themepick .sw-bella{background:#fff}", allowed=marks)
+    assert colour_literals("img.plotwrap{background:#fff}", allowed=marks)
+    assert colour_literals("img.plot, .other{background:#fff}", allowed=marks)
+
+
+def test_nested_rules_keep_their_parent_scope() -> None:
+    """A rule nested inside ``.kit .a`` is reported as ``.kit .a &:hover`` —
+    parent first — and an unscoped one inside ``@media{@supports{}}`` is seen."""
+    assert rule_selectors(".kit .a{ &:hover{x:1} }") == [".kit .a", ".kit .a &:hover"]
+    assert rule_selectors("@media (a){@supports (b){.pane{x:1}}}") == [".pane"]

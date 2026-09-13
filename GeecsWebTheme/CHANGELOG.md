@@ -18,7 +18,7 @@ project adheres to semantic versioning.
   nested braces and quoted strings are structure before a check looks at
   them, so each check reads like the rule it enforces and a wrong check
   fails loudly instead of matching nothing — the six regex scanners this
-  replaces each had a silent hole found by review. 703 lines → 401, and
+  replaces each had a silent hole found by review. 703 lines → ~430, and
   every kept guard was proven to bite by breaking a real file (a literal
   in `kit.css`, in a `style=` attribute, in an inline-script string; an
   unknown status styled; an unscoped rule; an unstyled class on the
