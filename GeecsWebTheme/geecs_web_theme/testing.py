@@ -20,6 +20,14 @@ test suite imports this without the ``web`` extra.
   to a real parser on purpose: every hand-rolled scanner written alongside
   it had a silent coverage gap.
 
+The CSS helpers below the HTML ones read stylesheets through **tinycss2**,
+a real CSS parser, instead of regular expressions: comments, ``@media``
+blocks, nested braces and quoted strings are already structure by the time
+a helper looks at them, so a check reads like the rule it enforces and a
+mistake fails loudly rather than matching nothing. tinycss2 is imported
+lazily — the HTML helpers above stay standard-library only — and is
+declared under the ``testing`` extra.
+
 Each helper returns findings; the calling test asserts. None of them
 imports pytest, so a suite decides for itself whether a missing ``node``
 skips or fails.
@@ -32,15 +40,26 @@ import re
 import shutil
 import subprocess
 import tempfile
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
+from html.parser import HTMLParser
 from pathlib import Path
-from typing import Optional, Union
+from typing import Any, Optional, Union
 
 __all__ = [
+    "attribute_selector_values",
     "bare_url_for_calls",
+    "classes_used",
+    "colour_literals",
+    "css_rules",
+    "defined_tokens",
+    "html_style_sources",
     "inline_scripts",
     "javascript_syntax_error",
+    "js_colour_literals",
     "node_available",
+    "referenced_tokens",
+    "rule_selectors",
+    "styled_classes",
     "unknown_data_states",
 ]
 
@@ -191,3 +210,412 @@ def javascript_syntax_error(code: str) -> Optional[str]:
     finally:
         os.unlink(path)
     return None if done.returncode == 0 else done.stderr.strip()
+
+
+# ----------------------------------------------------------------- CSS
+# Everything below reads CSS through tinycss2. The HTML side uses the
+# standard library's HTMLParser for the same reason: structure first,
+# then a rule expressed over the structure.
+
+
+def _tinycss2() -> Any:  # the module; typed Any because it is optional
+    try:
+        import tinycss2
+    except ImportError as exc:  # pragma: no cover - the extra is missing
+        raise RuntimeError(
+            "the CSS guards need tinycss2: install geecs-web-theme[testing]"
+        ) from exc
+    return tinycss2
+
+
+#: Named colours people actually reach for as values. The full CSS list would
+#: flag words like ``tan`` or ``plum`` in an ident that is not a colour at all.
+NAMED_COLOURS = frozenset(
+    "white black red green blue gray grey orange yellow purple pink cyan magenta "
+    "navy teal olive maroon silver lime aqua fuchsia tomato lightgray lightgrey "
+    "darkgray darkgrey whitesmoke gold crimson".split()
+)
+_COLOUR_FUNCTIONS = frozenset({"rgb", "rgba", "hsl", "hsla"})
+_HEX_LENGTHS = frozenset({3, 4, 6, 8})
+_HEX = re.compile(r"^[0-9a-fA-F]+$")
+
+
+def css_rules(css: str) -> list[tuple[str, list[tuple[str, list[Any]]]]]:
+    """Return every qualified rule as ``(selector, declarations)``, flattened.
+
+    ``@media`` and other conditional at-rules are descended into, so a rule
+    inside one counts like any other; ``@keyframes`` bodies are skipped
+    (their ``0%`` stops are not selectors); ``@font-face``-style at-rules
+    with declaration bodies are skipped too. Comments are dropped by the
+    parser. Each declaration is ``(name, value_tokens)``.
+
+    Parameters
+    ----------
+    css : str
+        Stylesheet text.
+
+    Returns
+    -------
+    list of (str, list of (str, list))
+        The serialized selector and its declarations, in source order.
+    """
+    tc = _tinycss2()
+    out: list[tuple[str, list[tuple[str, list[Any]]]]] = []
+
+    def walk(rules: Sequence[Any]) -> None:
+        for rule in rules:
+            if rule.type == "qualified-rule":
+                decls = [
+                    (d.name, d.value)
+                    for d in tc.parse_declaration_list(
+                        rule.content, skip_whitespace=True
+                    )
+                    if d.type == "declaration"
+                ]
+                out.append((tc.serialize(rule.prelude).strip(), decls))
+            elif rule.type == "at-rule" and rule.content is not None:
+                if rule.lower_at_keyword == "keyframes":
+                    continue
+                nested = tc.parse_rule_list(rule.content, skip_whitespace=True)
+                if any(r.type == "qualified-rule" for r in nested):
+                    walk(nested)
+
+    walk(tc.parse_stylesheet(css, skip_comments=True, skip_whitespace=True))
+    return out
+
+
+def rule_selectors(css: str) -> list[str]:
+    """Return every selector in *css*, one entry per comma-separated part."""
+    return [
+        part.strip()
+        for selector, _ in css_rules(css)
+        for part in selector.split(",")
+        if part.strip()
+    ]
+
+
+def _is_root_selector(selector: str) -> bool:
+    """Whether every part of *selector* is ``:root`` plus attribute filters only.
+
+    ``:root[data-theme="x"]`` qualifies; ``:root .foo`` does not — a token
+    defined on a descendant is a component's private literal, not a palette
+    entry.
+    """
+    tc = _tinycss2()
+    for part in selector.split(","):
+        tokens = [
+            t for t in tc.parse_component_value_list(part) if t.type != "whitespace"
+        ]
+        if len(tokens) < 2 or tokens[0].type != "literal" or tokens[0].value != ":":
+            return False
+        if tokens[1].type != "ident" or tokens[1].lower_value != "root":
+            return False
+        if any(t.type != "[] block" for t in tokens[2:]):
+            return False
+        # whitespace between :root and a block means a descendant selector
+        if re.search(r":root\s+\S", part.strip()):
+            return False
+    return True
+
+
+def _colour_tokens(
+    tokens: Iterable[Any], *, in_var_fallback: bool = False
+) -> list[str]:
+    """Return the colour literals among *tokens*, descending into functions.
+
+    A ``var(--x)`` use is not a literal, but a ``var(--x, #fff)`` *fallback*
+    is, so the arguments after the first comma of a ``var()`` are judged.
+    Shadows and scrims over black are ground-free and exempt — see
+    :func:`colour_literals`.
+    """
+    found: list[str] = []
+    for tok in tokens:
+        if tok.type == "hash":
+            if len(tok.value) in _HEX_LENGTHS and _HEX.match(tok.value):
+                found.append("#" + tok.value)
+        elif tok.type == "ident":
+            if tok.lower_value in NAMED_COLOURS:
+                found.append(tok.value)
+        elif tok.type == "function":
+            name = tok.lower_name
+            if name == "var":
+                args = list(tok.arguments)
+                comma = next(
+                    (
+                        i
+                        for i, a in enumerate(args)
+                        if a.type == "literal" and a.value == ","
+                    ),
+                    None,
+                )
+                if comma is not None:
+                    found.extend(
+                        _colour_tokens(args[comma + 1 :], in_var_fallback=True)
+                    )
+            elif name in _COLOUR_FUNCTIONS:
+                text = _tinycss2().serialize([tok])
+                if not _ground_free(text):
+                    found.append(text)
+            else:
+                found.extend(
+                    _colour_tokens(tok.arguments, in_var_fallback=in_var_fallback)
+                )
+        elif tok.type == "url":
+            if "%23" in tok.value or "#" in tok.value:
+                found.append("url(…%23…)")
+        elif tok.type == "string":
+            # data: URLs in strings carry SVG with fill='%23ff00ff'
+            if re.search(r"%23[0-9a-fA-F]{3,8}\b", tok.value):
+                found.append("'…%23…'")
+        elif tok.type in ("() block", "[] block", "{} block"):
+            found.extend(_colour_tokens(tok.content, in_var_fallback=in_var_fallback))
+    return found
+
+
+_GROUND_FREE = re.compile(r"^rgba\(\s*(?:0\s*,\s*0\s*,\s*0|17\s*,\s*24\s*,\s*33)\s*,")
+
+
+def _ground_free(text: str) -> bool:
+    """Whether a colour function is opacity over black or ink-black.
+
+    Shadows and scrims read on every ground and have no token to take; a
+    coloured glow is a colour and must go through a token.
+    """
+    return bool(_GROUND_FREE.match(text.replace(" ", "")))
+
+
+def colour_literals(css: str, *, allowed: Iterable[str] = ()) -> list[str]:
+    """Return every colour literal in *css* outside a ``:root`` token definition.
+
+    Rules, in the order they are applied:
+
+    - a ``--token: value`` declaration inside a ``:root…`` rule is the one
+      legitimate literal and is skipped;
+    - a ``--local: #fff`` inside any other rule is a hidden literal;
+    - a ``var(--x)`` use is not a literal; its fallback argument is;
+    - ``rgba()`` over black or ink-black (shadows, scrims) is exempt;
+    - a rule whose selector contains any *allowed* marker is skipped —
+      the caller's allowlist, each entry with a stated reason.
+
+    Parameters
+    ----------
+    css : str
+        Stylesheet text.
+    allowed : iterable of str, optional
+        Selector substrings whose rules may carry a literal.
+
+    Returns
+    -------
+    list of str
+        ``"selector: property: literal"`` per finding, in source order.
+    """
+    marks = tuple(allowed)
+    out: list[str] = []
+    for selector, decls in css_rules(css):
+        if any(m in selector for m in marks):
+            continue
+        root = _is_root_selector(selector)
+        for name, value in decls:
+            if root and name.startswith("--"):
+                continue
+            for lit in _colour_tokens(value):
+                out.append(f"{selector}: {name}: {lit}")
+    return out
+
+
+class _StyleSources(HTMLParser):
+    """Collect the CSS an HTML document carries outside a stylesheet file."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.css: list[str] = []
+        self.scripts: list[str] = []
+        self._in: Optional[str] = None
+        self._buf: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, Optional[str]]]) -> None:
+        if tag in ("style", "script"):
+            self._in = tag
+            self._buf = []
+        for name, value in attrs:
+            if value is None or "{{" in value or "{%" in value:
+                continue
+            if name == "style":
+                self.css.append(f"x{{{value}}}")
+            elif name in ("fill", "stroke"):
+                self.css.append(f"x{{{name}:{value}}}")
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag == self._in:
+            body = "".join(self._buf)
+            (self.css if tag == "style" else self.scripts).append(body)
+            self._in = None
+
+    def handle_data(self, data: str) -> None:
+        if self._in:
+            self._buf.append(data)
+
+
+def html_style_sources(html: Union[Path, str]) -> tuple[list[str], list[str]]:
+    """Return ``(css_chunks, script_bodies)`` an HTML template carries.
+
+    CSS is the contents of every ``<style>`` element plus each ``style="…"``
+    and SVG ``fill``/``stroke`` attribute, wrapped as a rule so
+    :func:`colour_literals` can judge it. Script bodies are returned
+    separately for :func:`js_colour_literals`. Jinja comments are removed
+    first and a Jinja-rendered attribute value is not a literal.
+    """
+    text = _JINJA_COMMENT.sub(" ", _text(html))
+    parser = _StyleSources()
+    parser.feed(text)
+    parser.close()
+    return parser.css, parser.scripts
+
+
+_JS_STRING = re.compile(r'"((?:[^"\\\n]|\\.)*)"|\'((?:[^\'\\\n]|\\.)*)\'')
+
+
+def js_colour_literals(js: str) -> list[str]:
+    """Return the string literals in *js* whose whole value is a CSS colour.
+
+    ``el.style.color = "orange"``, ``cssText = "color:#ff00ff"`` and
+    ``setProperty("color", "#fff")`` all put a colour in a string; so does
+    a Plotly layout. Each string literal is parsed as a CSS value and
+    reported when it contains a colour literal — a ``#now`` element id is
+    not one (``now`` is not hex), a ``"#abc"`` would be. Comments are not
+    special-cased: a colour in a comment is a string only if quoted.
+    """
+    tc = _tinycss2()
+    out: list[str] = []
+    for m in _JS_STRING.finditer(js):
+        s = m.group(1) if m.group(1) is not None else m.group(2)
+        if not s or "{{" in s:
+            continue
+        # A bare value, or a declaration list ("color:#fff;font:x").
+        tokens = tc.parse_component_value_list(s, skip_comments=True)
+        if _colour_tokens(tokens):
+            out.append(s)
+    return out
+
+
+_TOKEN_REF_TEXT = re.compile(r'getPropertyValue\(\s*["\'`](--[\w-]+)|\$tok:(--[\w-]+)')
+
+
+def referenced_tokens(source: Union[Path, str], *, css: bool = True) -> set[str]:
+    """Return every ``--token`` a file references.
+
+    In CSS that is every ``var(--x)`` (found through the parser, at any
+    nesting). In scripts and Python it is ``getPropertyValue("--x")`` and
+    the ``$tok:--x`` sentinels a server emits for the page to resolve —
+    string patterns, not CSS structure, so a small regex is the honest tool.
+    """
+    text = _text(source)
+    names: set[str] = {
+        g for m in _TOKEN_REF_TEXT.finditer(text) for g in m.groups() if g
+    }
+    if css:
+
+        def walk(tokens: Iterable[Any]) -> None:
+            for tok in tokens:
+                if tok.type == "function":
+                    if tok.lower_name == "var":
+                        first = next(
+                            (a for a in tok.arguments if a.type == "ident"), None
+                        )
+                        if first is not None:
+                            names.add(first.value)
+                    walk(tok.arguments)
+                elif tok.type in ("() block", "[] block", "{} block"):
+                    walk(tok.content)
+
+        for _, decls in css_rules(text):
+            for _, value in decls:
+                walk(value)
+    return names
+
+
+def defined_tokens(css: str) -> dict[str, set[str]]:
+    """Return ``{selector: {--token, …}}`` for every rule that defines tokens."""
+    out: dict[str, set[str]] = {}
+    for selector, decls in css_rules(css):
+        names = {n for n, _ in decls if n.startswith("--")}
+        if names:
+            out.setdefault(selector, set()).update(names)
+    return out
+
+
+def styled_classes(*css_texts: str) -> set[str]:
+    """Return every class name any selector in the given stylesheets mentions."""
+    tc = _tinycss2()
+    out: set[str] = set()
+    for css in css_texts:
+        for selector, _ in css_rules(css):
+            tokens = tc.parse_component_value_list(selector)
+            prev = None
+            for tok in tokens:
+                if (
+                    tok.type == "ident"
+                    and prev is not None
+                    and prev.type == "literal"
+                    and prev.value == "."
+                ):
+                    out.add(tok.value)
+                prev = tok
+    return out
+
+
+def attribute_selector_values(
+    css: str, attribute: str, *, on_class: Optional[str] = None
+) -> set[str]:
+    """Return the values ``[attribute="…"]`` takes in *css*, optionally on one class.
+
+    ``attribute_selector_values(kit, "data-state", on_class="chip")`` is the
+    set of states the chip colours — pinned against ``STATES`` both ways.
+    """
+    tc = _tinycss2()
+    out: set[str] = set()
+    for part in rule_selectors(css):
+        tokens = tc.parse_component_value_list(part)
+        prev = None
+        for tok in tokens:
+            if tok.type == "[] block":
+                inner = [t for t in tok.content if t.type != "whitespace"]
+                if (
+                    len(inner) >= 3
+                    and inner[0].type == "ident"
+                    and inner[0].value == attribute
+                    and inner[-1].type in ("string", "ident")
+                ):
+                    if on_class is None or (
+                        prev is not None
+                        and prev.type == "ident"
+                        and prev.value == on_class
+                    ):
+                        out.add(inner[-1].value)
+            prev = tok
+    return out
+
+
+class _ClassCollector(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.classes: set[str] = set()
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, Optional[str]]]) -> None:
+        for name, value in attrs:
+            if name == "class" and value:
+                # A Jinja-rendered fragment is not a literal class name.
+                literal = _JINJA_BLOCK.sub(" ", _JINJA_OUTPUT.sub(" ", value))
+                self.classes.update(literal.split())
+
+
+def classes_used(html: Union[Path, str]) -> set[str]:
+    """Return every class name an HTML document puts on an element.
+
+    Jinja-rendered class fragments are skipped; with :func:`styled_classes`
+    this is the "every class on the page is styled by something" guard.
+    """
+    parser = _ClassCollector()
+    parser.feed(_JINJA_COMMENT.sub(" ", _text(html)))
+    parser.close()
+    return parser.classes
