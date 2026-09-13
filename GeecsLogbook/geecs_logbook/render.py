@@ -126,6 +126,20 @@ def _callouts(fragment: str) -> str:
     return _CALLOUT.sub(swap, fragment)
 
 
+def _plain(token) -> str:
+    """The readable text of one inline token.
+
+    An image's ``content`` IS its alt, and a line break inside a block is a
+    child with no content — so both are handled here rather than by joining
+    on content alone, which glued a wrapped callout's two lines together.
+    """
+    return "".join(
+        " " if child.type in {"softbreak", "hardbreak"} else child.content
+        for child in (token.children or [])
+        if child.type in {"text", "code_inline", "softbreak", "hardbreak", "image"}
+    ).strip()
+
+
 def summarize(body_md: str, limit: int = 120) -> str:
     """A one-line stand-in for an entry, for when it is collapsed.
 
@@ -153,6 +167,7 @@ def summarize(body_md: str, limit: int = 120) -> str:
     which the chip beside it already shows.
     """
     in_table_cell = False
+    first_cell = ""
     for token in _md.parse(body_md or ""):
         # A table cell's contents is an ordinary inline token, so the first
         # one wins and a summary reads "Parameter" or "Date" — the header of
@@ -162,23 +177,22 @@ def summarize(body_md: str, limit: int = 120) -> str:
             in_table_cell = True
         elif token.type in {"th_close", "td_close"}:
             in_table_cell = False
-        if in_table_cell or token.type != "inline" or not token.content.strip():
+        if token.type != "inline" or not token.content.strip():
+            continue
+        if in_table_cell:
+            # Remembered, not discarded. The toolbar's table button and the
+            # spreadsheet paste both leave the cursor ONE newline below the
+            # block, and markdown-it absorbs a sentence typed there as another
+            # row — so skipping cells outright summarised such a note as
+            # nothing at all. Prose still wins; a table-only note gets its
+            # first cell, which is thin but true.
+            if not first_cell:
+                first_cell = _plain(token)
             continue
         # A line break inside one block is a child token carrying no content,
         # so joining on content alone glues the lines together — a wrapped
         # callout came out as "Jet pressure driftingchecked it".
-        text = "".join(
-            " "
-            if child.type in {"softbreak", "hardbreak"}
-            # an image's `content` IS its alt text. A note that is one pasted
-            # screenshot — the commonest attachment shape in this editor —
-            # otherwise collapsed to an author and a timestamp, which is the
-            # exact state a summary exists to prevent.
-            else child.content
-            for child in (token.children or [])
-            if child.type in {"text", "code_inline", "softbreak", "hardbreak", "image"}
-        ).strip()
-        text = re.sub(r"^\[!\w+\]\s*", "", text)  # a callout's flavour marker
+        text = re.sub(r"^\[!\w+\]\s*", "", _plain(token))  # callout flavour marker
         if text:
             return text[: limit - 1] + "\u2026" if len(text) > limit else text
-    return ""
+    return first_cell

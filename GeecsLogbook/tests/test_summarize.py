@@ -54,6 +54,18 @@ from geecs_logbook.render import summarize
             "looked fine",
         ),
         ("| Date | Shots |\n|---|---|\n| x | 1 |\n\nprose after", "prose after"),
+        # A table followed IMMEDIATELY by prose — no blank line — is a shape
+        # the editor produces on its own: insertBlock appends one newline, so
+        # both the table button and the spreadsheet paste leave the cursor
+        # there. markdown-it absorbs that sentence as another ROW, so the
+        # prose is genuinely inside a cell and cannot be preferred. The first
+        # cell is the fallback: thin, but true, and not empty.
+        (
+            "| Parameter | Value |\n|---|---|\n| p | 3 bar |\nreseated, looked fine",
+            "Parameter",
+        ),
+        # a table with nothing else gets the same fallback
+        ("| Parameter | Value |\n|---|---|\n| p | 3 bar |", "Parameter"),
         # a note that is one pasted screenshot — the commonest attachment
         # shape here — must not collapse to an author and a timestamp
         (

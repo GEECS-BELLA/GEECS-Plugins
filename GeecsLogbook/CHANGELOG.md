@@ -69,6 +69,16 @@ project adheres to semantic versioning.
   note that is one pasted screenshot, the commonest attachment shape here.
   A test pinning the table case existed and was dropped when the function
   moved packages.
+- **The refusal message rendered into the 26px avatar column.** A composer
+  is a two-column grid and `fail()` appends to the form, so the message
+  landed under the avatar — pre-existing, but load-bearing the moment Close
+  started refusing, since that message is the only thing separating a
+  refusal from a button that appears to do nothing.
+- The summary returned **nothing** for a table followed immediately by
+  prose — the shape the toolbar's table button and the spreadsheet paste
+  both produce, since they leave the cursor one newline below the block and
+  markdown-it absorbs that line as another row. It now falls back to the
+  first cell: thin, but true.
 - Guard holes, each found by mutation: the `<details>`-display rule matched
   only the bare `.entry{…}` form (missing `.panel.scan`, `#logbook .entry`,
   `:not([open])`, descendant and `@media` shapes) and read only one
@@ -81,6 +91,29 @@ project adheres to semantic versioning.
   still passed. And a statement at-rule (`@import …;`, `@layer base;`)
   erased every rule between it and the next `{`, because the prelude match
   was not bounded at `;`.
+
+### Removed, after three review rounds
+
+- **Two hand-rolled CSS scanners** — the `<details>`-display guard and the
+  single-class-variant guard. Six regex CSS scanners were written this
+  session and every one had a silent coverage gap: a consumed anchor
+  (three times), a filter testing the empty string, a match starting
+  inside a Jinja comment, and a first-declaration lookup where the cascade
+  reads the last — the last of which made a mutation test pass for the
+  wrong reason. Across three adversarial rounds the shipped surface
+  converged (7 defects → 2 → 2) while the guards stayed flat at 2 per
+  round, each one a hole in the guard written to close the previous hole.
+
+  What survived untouched is the guard that **does not parse anything
+  itself**: `test_inline_scripts_parse` shells out to `node --check`. So
+  does the rule — the same one this release already found on the Python
+  side, where `summarize()` stopped generating findings the moment it
+  read markdown-it's token stream instead of stripping characters. Ask a
+  real parser. For CSS that means `tinycss2` in a follow-up, not more
+  regex here.
+
+  Neither invariant is lost: `.entry{display:grid}` is fixed and confirmed
+  on the deployed branch, and `.tag-retired` was a single historical bug.
 
 ### Known, deliberately not fixed here
 

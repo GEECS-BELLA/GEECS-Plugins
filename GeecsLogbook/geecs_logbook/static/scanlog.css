@@ -151,7 +151,14 @@ details.scan[open] > .scanhead .twisty{transform:rotate(45deg)}
 .linkbtn:hover{color:var(--accent)}
 .linkbtn:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 .draftnote{font-size:12px;color:var(--agent);margin-bottom:6px}
-.errmsg{font-size:12px;color:var(--crit);margin-top:6px}
+.errmsg{font-size:12px;color:var(--crit);margin-top:6px;overflow-wrap:anywhere}
+/* A composer is a two-column grid (avatar | body) and fail() appends to the
+   FORM, so auto-placement drops the message into the 26px avatar track. It
+   has always been wrong there; it became load-bearing when Close started
+   refusing an autosaved entry, because that message is the entire reason
+   the refusal is not the Discard button all over again — a control that
+   appears to do nothing. */
+.composer > .errmsg{grid-column:2}
 .raw{display:none}
 
 /* prose */
