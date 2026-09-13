@@ -124,3 +124,46 @@ def _callouts(fragment: str) -> str:
         )
 
     return _CALLOUT.sub(swap, fragment)
+
+
+def summarize(body_md: str, limit: int = 120) -> str:
+    """A one-line stand-in for an entry, for when it is collapsed.
+
+    Every entry in every book is collapsible, which only works if the shut
+    state says something worth reading — otherwise a closed note is an
+    author and a timestamp, and the reader opens all of them to find one.
+
+    **Derived, never asked for.** A title field would make the writer name
+    a thing before they could type it, and would be empty for every entry
+    already written — the ceremony this package refuses elsewhere (a day is
+    a query, tags come out of the body, nobody declares anything). Derived
+    but steerable: start with a markdown heading and it becomes the summary.
+
+    It reads the **token stream**, not the raw text. A first version lived
+    in ``geecs_schemas`` and stripped ``` `*_~ ``` with a regex, which
+    turned ``~20 mJ, jitter ~3%`` into ``20 mJ, jitter 3%`` and
+    ``3*10^18 W/cm2`` into ``310^18`` — a single ``~`` is not markdown at
+    all and a single ``*`` is not emphasis, but both are ordinary lab
+    notation. Asking the parser that already renders the body avoids
+    guessing: emphasis that *is* emphasis loses its markers, and arithmetic
+    keeps its characters.
+
+    Fenced code is skipped (a summary reading ``import os`` is worse than
+    none) and a callout keeps its text but loses its ``[!NOTE]`` marker,
+    which the chip beside it already shows.
+    """
+    for token in _md.parse(body_md or ""):
+        if token.type != "inline" or not token.content.strip():
+            continue
+        # A line break inside one block is a child token carrying no content,
+        # so joining on content alone glues the lines together — a wrapped
+        # callout came out as "Jet pressure driftingchecked it".
+        text = "".join(
+            " " if child.type in {"softbreak", "hardbreak"} else child.content
+            for child in (token.children or [])
+            if child.type in {"text", "code_inline", "softbreak", "hardbreak"}
+        ).strip()
+        text = re.sub(r"^\[!\w+\]\s*", "", text)  # a callout's flavour marker
+        if text:
+            return text[: limit - 1] + "\u2026" if len(text) > limit else text
+    return ""

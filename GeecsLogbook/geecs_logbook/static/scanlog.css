@@ -11,6 +11,17 @@
    page holds on either ground. */
 
 svg{display:block;max-width:100%}
+
+/* The ops book still has a search box — its filter reads note BODIES, which
+   is why it survived when the scan filter (scan metadata only) was deleted.
+   These rules went with that deletion by mistake, leaving a bare label, a
+   chromeless input, and the magnifier forced onto its own line by the
+   unscoped svg rule above. */
+.searchbox{display:flex;align-items:center;gap:8px;border:1px solid var(--rule);
+  border-radius:var(--r);background:var(--paper);padding:5px 10px;flex:1 1 200px;max-width:340px}
+.searchbox input{border:0;background:transparent;color:var(--ink);font:inherit;
+  font-size:13px;width:100%;outline:none}
+.searchbox svg{flex:none;opacity:.5;display:inline}
 .day .n{font-family:var(--ff-mono);font-size:11px;opacity:.75;font-variant-numeric:tabular-nums}
 /* .picklist aligns to the baseline; a row that leads with a status dot
    wants its items centred on it instead. */
@@ -196,7 +207,8 @@ details.scan[open] > .scanhead .twisty{transform:rotate(45deg)}
 /* On its own line, not merged into a list whose block was deleted with the
    rule that followed it: a dangling `.insert[hidden],` swallowed the NEXT
    rule's block, so a hidden insert row inherited display:flex and stayed
-   on screen. There is no global [hidden]{display:none} to fall back on. */
+   on screen. (kit.css now carries a global [hidden] rule too; both are
+   wanted — the kit's covers components it gives a display to.) */
 .insert[hidden]{display:none}
 
 /* the editor: toolbar, preview, drop target, and the image grid */
@@ -259,7 +271,7 @@ details.scan[open] > .scanhead .twisty{transform:rotate(45deg)}
 .daylink{text-decoration:none}
 .when{font:inherit;font-size:12px;font-family:var(--ff-mono);border:1px solid var(--rule);border-radius:4px;
   background:var(--surface);color:var(--ink);padding:4px 6px}
-article.entry[hidden],section.daygroup[hidden]{display:none}
+section.daygroup[hidden]{display:none}
 
 /* ---- the rail calendar (nav.js draws it) ---- */
 .cal{margin:2px 0 9px}

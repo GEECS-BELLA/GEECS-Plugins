@@ -216,7 +216,12 @@
    *  edit, on the article too, so a Cancel-then-Edit does not start stale. */
   function noteVersion(form, version) {
     form.dataset.version = String(version);
-    const art = form.closest("[data-entry]");
+    /* parentElement first: closest() includes the element it starts from, and
+       an in-place edit form carries its own data-entry — so this matched the
+       FORM, the guard below passed trivially, and the entry's data-version
+       was never updated. The next Edit read a stale version and the author
+       got a 409 against their own edit. */
+    const art = form.parentElement && form.parentElement.closest("[data-entry]");
     if (art && art.dataset.entry === form.dataset.entry) art.dataset.version = String(version);
   }
 
@@ -411,6 +416,17 @@
     });
   }
 
+  /* Where an entry-level error message goes. The tools moved into the
+     entry's <summary> when entries became <details>, so they are no longer
+     INSIDE .entry-main — closest(".entry-main") returned null and fail()
+     threw a TypeError instead of showing the message. Reachable by anyone
+     deleting an entry someone else already deleted: a 404 became a silent
+     nothing. */
+  function errorTarget(el) {
+    const entry = el.closest("[data-entry]");
+    return (entry && entry.querySelector(".entry-main")) || entry;
+  }
+
   /* Fold a composer away and put its affordance back. Nothing is
      destroyed — the form keeps its text, so reopening restores it. */
   function closeComposer(anchor) {
@@ -497,16 +513,23 @@
     }
     if (b.dataset.keep) {
       try { await api("POST", `/entries/${b.dataset.keep}/status`, { status: "kept" }); location.reload(); }
-      catch (err) { fail(b.closest(".entry-main"), err); }
+      catch (err) { fail(errorTarget(b), err); }
       return;
     }
     if (b.dataset.del) {
       if (b.dataset.armed !== "1") { b.dataset.armed = "1"; b.textContent = "Really delete"; return; }
       try { await api("DELETE", `/entries/${b.dataset.del}`); location.reload(); }
-      catch (err) { fail(b.closest(".entry-main"), err); }
+      catch (err) { fail(errorTarget(b), err); }
       return;
     }
     if (b.dataset.edit) {
+      /* The entry may be shut — the tools live in its <summary> precisely so
+         you can edit without opening first, and the handler above suppresses
+         the toggle. So open it here: otherwise the form lands in a subtree
+         the browser does not render, focus() is a no-op, and a second click
+         returns early on a form it cannot show. */
+      const shut = b.closest("details.entry");
+      if (shut) shut.open = true;
       const art = document.getElementById("entry-" + b.dataset.edit);
       const main = art.querySelector(".entry-main");
       const raw = JSON.parse(art.querySelector(".raw").textContent);

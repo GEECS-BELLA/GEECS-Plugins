@@ -19,6 +19,7 @@ import pytest
 _PKG = Path(__file__).resolve().parents[1] / "geecs_logbook"
 _TEMPLATES = sorted((_PKG / "templates").glob("*.html"))
 _CSS = _PKG / "static/scanlog.css"
+_KIT_CSS = _PKG.parents[1] / "GeecsWebTheme/geecs_web_theme/static/kit.css"
 
 
 @pytest.mark.parametrize("template", _TEMPLATES, ids=lambda p: p.name)
@@ -88,8 +89,16 @@ def test_a_single_class_variant_is_declared_after_its_base() -> None:
     """
     together: set[tuple[str, str]] = set()
     for template in _TEMPLATES:
-        for attr in re.finditer(r'class="([^"]*)"', template.read_text()):
-            names = [w for w in attr.group(1).split() if not w.startswith("{")]
+        text = re.sub(r"\{#.*?#\}", " ", template.read_text(), flags=re.S)
+        for attr in re.finditer(r'class="([^"]*)"', text):
+            # Blank the Jinja inside the attribute, as the script guard does.
+            # Without it `class="entry{% if %} entry-agent{% endif %}"`
+            # tokenises to `entry{%`, `if`, `entry-agent{%` — so the pair this
+            # guard was rewritten to catch was never even considered, and
+            # .avatar-agent/.avatar (which collide on all three properties)
+            # went unseen too.
+            literal = re.sub(r"\{[%{].*?[%}]\}", " ", attr.group(1), flags=re.S)
+            names = [w for w in literal.split() if w]
             for name in names:
                 for other in names:
                     if other != name and name.startswith(other + "-"):
@@ -97,7 +106,7 @@ def test_a_single_class_variant_is_declared_after_its_base() -> None:
 
     css = re.sub(r"/\*.*?\*/", " ", _CSS.read_text(), flags=re.S)
     first: dict[str, int] = {}
-    for m in re.finditer(r"(?:^|(?<=[};]))\s*([^{};]+?)\s*\{", css):
+    for m in re.finditer(r"(?:^|(?<=[};{]))\s*([^{};\s][^{};]*?)\s*\{", css):
         for part in (s.strip() for s in m.group(1).split(",")):
             if re.fullmatch(r"\.[\w-]+", part):
                 first.setdefault(part, m.start(1))
@@ -147,16 +156,37 @@ def test_no_collapsible_element_is_given_a_display() -> None:
     # once already in the kit's scoping test, found by review; this is the
     # same mistake in a different file, found by the owner reporting that
     # a fix did not work.
-    css = re.sub(r"/\*.*?\*/", " ", _CSS.read_text(), flags=re.S)
+    # BOTH sheets: `panel` is on the scan block and `.kit .panel` lives in
+    # kit.css, which a scanlog-only guard never opens — adding display:flex
+    # there would expand every scan block on the page, guard green.
+    css = "\n".join(
+        re.sub(r"/\*.*?\*/", " ", path.read_text(), flags=re.S)
+        for path in (_CSS, _KIT_CSS)
+    )
+    # An at-rule's prelude has to go, not just be skipped: the first rule
+    # INSIDE `@media (…){ … }` is anchored by the media block's own `{`,
+    # which is neither `}` nor `;`, so it never matched at all. Replacing
+    # the prelude with a bare `{` keeps the braces balanced and exposes the
+    # rules within, which is why the lookbehind admits `{` too.
+    # (Same shape as the anchor bug in the kit's scoping
+    # test, which is now three times this session.)
+    css = re.sub(r"@[\w-]+[^{]*\{", "{", css)
     offenders = []
-    for m in re.finditer(r"(?:^|(?<=[};]))\s*([^{};]+?)\s*\{([^}]*)\}", css):
+    for m in re.finditer(r"(?:^|(?<=[};{]))\s*([^{};\s][^{};]*?)\s*\{([^}]*)\}", css):
         body = m.group(2).replace(" ", "")
-        if "display:" not in body:
+        if "display:" not in body or body.startswith("display:none"):
             continue
         for part in (s.strip() for s in m.group(1).split(",")):
-            # a selector matching the <details> ELEMENT itself, not a descendant
-            bare = re.fullmatch(r"(?:details)?\.([\w-]+)(?:\[[^\]]*\])?", part)
-            if bare and bare.group(1) in collapsible:
+            if part.startswith("@"):
+                continue
+            # The LAST compound in the selector is the element being styled.
+            # A first version used fullmatch on the whole selector and so
+            # only ever caught the bare `.entry{…}` form — `.panel.scan`,
+            # `.entries > .entry`, `.entry:not([open])`, `#logbook .entry`
+            # and anything inside an @media block all sailed past.
+            last = re.split(r"[ >+~]+", part)[-1]
+            classes = set(re.findall(r"\.([\w-]+)", last))
+            if classes & collapsible:
                 offenders.append((part, body[:40]))
     assert not offenders, (
         f"these set display on a <details>, which stops it collapsing: {offenders}"

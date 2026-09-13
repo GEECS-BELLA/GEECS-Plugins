@@ -190,11 +190,15 @@ document.querySelectorAll("[data-compose-day]").forEach(b => b.addEventListener(
 /* Filter hides entries, and a day whose entries are all hidden. */
 document.getElementById("q").addEventListener("input", ev => {
   const f = ev.target.value.trim().toLowerCase();
-  document.querySelectorAll("article.entry").forEach(e => {
-    e.hidden = !!f && !e.dataset.hay.includes(f);
+  /* `.entry`, not `article.entry`: an entry became a <details> in 0.9.0 and
+     the selector was not followed. It matched nothing, so no entry was ever
+     hidden — and every day group then saw zero visible entries and hid
+     ITSELF, blanking the page on the first keystroke. */
+  document.querySelectorAll(".entry").forEach(e => {
+    e.hidden = !!f && !(e.dataset.hay || "").includes(f);
   });
   document.querySelectorAll("section.daygroup").forEach(g => {
-    g.hidden = !!f && ![...g.querySelectorAll("article.entry")].some(e => !e.hidden);
+    g.hidden = !!f && ![...g.querySelectorAll(".entry")].some(e => !e.hidden);
   });
 });
 </script>

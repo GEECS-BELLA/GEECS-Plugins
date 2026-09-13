@@ -36,7 +36,6 @@ it. Human writing never goes there.
 from __future__ import annotations
 
 from datetime import datetime
-import re
 from typing import Annotated, Literal, Optional, Union
 
 from pydantic import Field, model_validator
@@ -294,53 +293,3 @@ class LogEntry(VersionedSchemaModel):
         if self.scan is None:
             return "day"
         return f"scan-{self.scan:04d}"
-
-    @property
-    def summary(self) -> str:
-        """A one-line stand-in for this entry, for when it is collapsed.
-
-        Every entry in every book is collapsible, which only works if the
-        shut state says something worth reading — otherwise a closed note
-        is an author and a timestamp, and the reader has to open all of
-        them to find the one they wanted. So the summary is part of what an
-        entry *is*, not something a view invents.
-
-        It is **derived**, never asked for. A title field would make the
-        writer name a thing before they could type it, and would be empty
-        for every entry already written — the same ceremony this package
-        refuses elsewhere (a day is a query, tags come out of the body,
-        nobody declares anything). Derived, but steerable: start with a
-        markdown heading and that heading becomes the summary, which is a
-        convention rather than a field.
-
-        The first line that carries prose wins. A fenced code block is
-        skipped whole — its first line is usually an import or a brace, and
-        a summary reading "```" or "def main():" is worse than none. A
-        callout keeps its text but loses its ``[!NOTE]`` marker, which is a
-        flavour the chip beside it already shows. Underscores survive: they
-        are markdown emphasis, but they are also inside every GEECS device
-        name, and ``UC_Amp3_IR_input`` matters more than a stray ``_``.
-        """
-        fenced = False
-        for raw in self.body_md.splitlines():
-            line = raw.strip()
-            if line.startswith("```"):
-                fenced = not fenced
-                continue
-            if fenced or not line or line.startswith(("---", "|", "<!--")):
-                continue
-            # blockquote and callout markers, then list bullets and headings
-            line = re.sub(r"^>\s*(\[![A-Za-z]+\])?\s*", "", line)
-            line = re.sub(r"^(#{1,6}|[-*+]|\d+\.)\s+", "", line).strip()
-            if not line:
-                continue
-            # inline markup: links keep their text, emphasis and code drop
-            line = re.sub(r"!?\[([^\]]*)\]\([^)]*\)", r"\1", line)
-            # NOT underscore: `_` is emphasis in markdown but it is also in
-            # the middle of every GEECS device name, and "UICT" or
-            # "UCAmp3IRinput" is a worse summary than a stray character.
-            # CommonMark does not treat intra-word `_` as emphasis anyway.
-            line = re.sub(r"[`*~]", "", line).strip()
-            if line:
-                return line
-        return ""

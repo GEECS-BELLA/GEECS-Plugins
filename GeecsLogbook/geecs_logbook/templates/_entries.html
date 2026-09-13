@@ -53,7 +53,7 @@
         {{ template_chip(r.entry, seeds) }}
         <span class="stamp" title="{{ r.entry.created_at.isoformat() }}">{{ r.entry.created_at.astimezone().strftime('%H:%M') }}{% if r.entry.edited_at %} · edited{% if r.entry.edited_by and r.entry.edited_by != r.entry.author %} by {{ r.entry.edited_by }}{% endif %}{% endif %}</span>
         {# Shown only when shut: open, the body says it better. #}
-        <span class="entry-summary">{{ r.entry.summary }}</span>
+        <span class="entry-summary">{{ r.summary }}</span>
         {% if writable %}
         <span class="entry-tools">
           <button class="linkbtn" type="button" data-edit="{{ r.entry.entry_id }}">Edit</button>
