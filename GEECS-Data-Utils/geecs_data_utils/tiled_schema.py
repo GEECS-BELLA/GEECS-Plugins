@@ -449,6 +449,45 @@ def pinned_columns(columns: Sequence[str], start_doc: Mapping[str, Any]) -> list
     return pinned
 
 
+def scan_motors(start_doc: Mapping[str, Any]) -> list[str]:
+    """The ophyd names of the devices this run stepped; empty for a motorless run.
+
+    Reads the **stock bluesky** key ``motors`` — the plural list every
+    ``bluesky.plans`` scan verb puts in its start document — and falls back to
+    the singular ``motor`` that the retired GEECS funnel wrote, so runs from
+    either backend classify the same way.
+
+    This mattered: the native-Bluesky scanner registers the stock verbs, which
+    write ``motors``, while these readers looked only for ``motor``.  Every
+    1D scan taken on the native path therefore classified as ``NOSCAN`` in the
+    data portal, contributed no scan-variable column, and reported
+    ``is_stepped() is False`` — with a perfectly correct ``ScanInfo`` ini
+    sitting beside it saying ``ScanMode = "standard"``.
+
+    Parameters
+    ----------
+    start_doc : mapping
+        The run start document.
+
+    Returns
+    -------
+    list of str
+        One entry per stepped device, in the plan's axis order (outermost
+        first); empty when nothing was stepped.
+    """
+    raw = start_doc.get("motors")
+    if raw is None:
+        raw = start_doc.get("motor")
+    if not raw:
+        return []
+    if isinstance(raw, str):
+        return [raw]
+    try:
+        return [str(m) for m in raw]
+    except TypeError:  # not iterable — a single non-string object
+        return [str(raw)]
+
+
 def scan_variable_columns(
     columns: Sequence[str], start_doc: Mapping[str, Any]
 ) -> list[str]:
@@ -459,8 +498,8 @@ def scan_variable_columns(
     columns : sequence of str
         All event-stream column names.
     start_doc : mapping
-        The run start document; ``motor`` is the scan-device ophyd name
-        (``None`` for statistics collection).
+        The run start document; the stepped devices come from
+        :func:`scan_motors` (``motors``, or the funnel's ``motor``).
 
     Returns
     -------
@@ -469,10 +508,9 @@ def scan_variable_columns(
         for motorless runs.  Multi-axis grids record every axis readback,
         so several columns may return.
     """
-    motor = start_doc.get("motor")
-    if not motor:
+    motors = scan_motors(start_doc)
+    if not motors:
         return []
-    motors = [motor] if isinstance(motor, str) else [str(m) for m in motor]
     matches: list[str] = []
     for column in data_columns(columns):
         if column in motors or any(column.startswith(f"{m}-") for m in motors):
@@ -498,10 +536,10 @@ def scan_mode(start_doc: Mapping[str, Any]) -> str:
     plan_name = str(start_doc.get("plan_name") or "")
     if "adaptive" in plan_name or "optimize" in plan_name:
         return "OPT"
-    motor = start_doc.get("motor")
-    if not motor:
+    motors = scan_motors(start_doc)
+    if not motors:
         return "NOSCAN"
-    if not isinstance(motor, str) and isinstance(motor, Sequence) and len(motor) > 1:
+    if len(motors) > 1:
         return "GRID"
     if start_doc.get("grid_shape") or (
         isinstance(start_doc.get("scan_axes"), Sequence)
@@ -545,6 +583,6 @@ def is_stepped_scan(start_doc: Mapping[str, Any]) -> bool:
     Returns
     -------
     bool
-        True when a motor was moved (``motor`` non-null).
+        True when a motor was stepped (see :func:`scan_motors`).
     """
-    return bool(start_doc.get("motor"))
+    return bool(scan_motors(start_doc))

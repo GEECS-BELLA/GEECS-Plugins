@@ -4,6 +4,26 @@ All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
+
+## [0.31.1] - 2026-09-13
+
+### Fixed
+
+- **Native-path 1D scans classified as `NOSCAN`.**  `tiled_schema.scan_mode`,
+  `scan_variable_columns` and `is_stepped_scan` read the start document's
+  singular `motor` key — what the retired GEECS funnel wrote.  The stock
+  `bluesky.plans` verbs the native-Bluesky scanner registers write **`motors`**
+  (plural, a list), so every scan taken on the native path reported as a
+  motorless run: the wrong mode chip in the data portal, no scan-variable
+  column offered as the X axis, and per-step statistics disabled — all while
+  the run's own `ScanInfo` ini correctly said `ScanMode = "standard"`.
+
+  The three readers now share one `scan_motors()` helper that takes `motors`
+  and falls back to `motor`, so runs from either backend classify the same
+  way.  Found in the portal on 26_0912's Scan018, a `rel_scan` over
+  `U_CompAerotech Position.Axis1` carrying
+  `motors = ['u_compaerotech-position_axis1']`.
+
 ## [0.31.0] - 2026-09-12
 
 Phase 2c of the native-Bluesky rebuild (GEECS-Plugins#807,

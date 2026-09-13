@@ -239,3 +239,73 @@ class TestTimestampColumns:
         assert timestamp_epoch("cam-acq_timestamp") == "labview"
         assert timestamp_epoch("UC_Amp4_IR_input acq_timestamp") == "labview"
         assert timestamp_epoch("cam-MaxCounts") is None
+
+
+class TestSteppedDevicesFromEitherBackend:
+    """The stepped-device key differs between the two GEECS scan backends.
+
+    Stock ``bluesky.plans`` verbs — which the native-Bluesky scanner registers
+    — write ``motors`` (plural, a list). The retired GEECS funnel wrote
+    ``motor`` (singular). These readers looked only for the singular key, so
+    every 1D scan taken on the native path classified as ``NOSCAN``,
+    contributed no scan-variable column, and reported ``is_stepped_scan() is
+    False`` — while its own ``ScanInfo`` ini correctly said
+    ``ScanMode = "standard"``. Found in the data portal on 26_0912's Scan018.
+    """
+
+    # Exactly what Scan018 (a native rel_scan over one axis) carries.
+    NATIVE_1D = {
+        "plan_name": "rel_scan",
+        "motors": ["u_compaerotech-position_axis1"],
+        "num_points": 5,
+        "shots_per_step": 2,
+        "acquisition": "gated",
+    }
+    FUNNEL_1D = {
+        "plan_name": "geecs_step_scan",
+        "motor": "u_compaerotech-position_axis1",
+    }
+    NATIVE_GRID = {
+        "plan_name": "grid_scan",
+        "motors": ["u_s1h-current", "u_s1v-current"],
+    }
+    NATIVE_COUNT = {"plan_name": "count", "num_points": 5}
+
+    def test_a_native_1d_scan_is_not_a_noscan(self):
+        assert tiled_schema.scan_mode(self.NATIVE_1D) == "1D"
+
+    def test_a_funnel_1d_scan_still_works(self):
+        assert tiled_schema.scan_mode(self.FUNNEL_1D) == "1D"
+
+    def test_a_native_grid_is_a_grid(self):
+        assert tiled_schema.scan_mode(self.NATIVE_GRID) == "GRID"
+
+    def test_a_motorless_run_is_still_a_noscan(self):
+        assert tiled_schema.scan_mode(self.NATIVE_COUNT) == "NOSCAN"
+
+    def test_is_stepped_scan_sees_a_native_scan(self):
+        assert tiled_schema.is_stepped_scan(self.NATIVE_1D) is True
+        assert tiled_schema.is_stepped_scan(self.FUNNEL_1D) is True
+        assert tiled_schema.is_stepped_scan(self.NATIVE_COUNT) is False
+
+    def test_the_scanned_axis_column_is_found_for_a_native_scan(self):
+        """Not just the chip: the portal could not identify the X axis either."""
+        columns = [
+            "u_compaerotech-position_axis1",
+            "uc_amp4_ir_input-meancounts",
+            "shot_index",
+        ]
+        assert tiled_schema.scan_variable_columns(columns, self.NATIVE_1D) == [
+            "u_compaerotech-position_axis1"
+        ]
+        assert tiled_schema.scan_variable_columns(columns, self.NATIVE_COUNT) == []
+
+    def test_scan_motors_normalises_both_shapes(self):
+        assert tiled_schema.scan_motors(self.NATIVE_1D) == [
+            "u_compaerotech-position_axis1"
+        ]
+        assert tiled_schema.scan_motors(self.FUNNEL_1D) == [
+            "u_compaerotech-position_axis1"
+        ]
+        assert tiled_schema.scan_motors({}) == []
+        assert tiled_schema.scan_motors({"motors": []}) == []
