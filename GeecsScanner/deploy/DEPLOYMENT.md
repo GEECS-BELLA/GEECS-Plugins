@@ -51,8 +51,8 @@ curl -N localhost:8300/api/events             # status / progress / console even
 
 `readiness` must read `ready`; anything else names the recovery gesture
 (`environment_closed` → the `geecs-qserver-ready` unit; `plans_empty` →
-`qserver permissions reload lists`). `scripts/fleet_status.sh` reads
-`/health` for the fleet picture.
+`qserver permissions reload lists`). `scripts/fleet_status.sh` checks that
+port 8300 is listening; reading `/health` there is a follow-up.
 
 ## Behind the front door
 
