@@ -14,26 +14,32 @@ static file beside the stylesheets, so a host that mounts this package
 already serves it — the portal reaches it at ``/theme/kit.html`` with no
 route of its own.
 
-This package ships stylesheets and small scripts and nothing else. It has
-no runtime dependencies on purpose — anything that can serve a static
-directory can use it, and nothing it serves needs a Python import to work.
+This package ships stylesheets and small scripts, and — behind the ``web``
+extra — the FastAPI glue every surface builds around them
+(:mod:`geecs_web_theme.web`). Without the extra it has no runtime
+dependencies: anything that can serve a static directory can use it, and
+nothing it serves needs a Python import to work.
 
-Usage from a host application::
+A FastAPI host imports the glue rather than writing its own (the portal,
+the logbook, the scanner and the config editor each did, and drifted)::
 
-    from geecs_web_theme import static_dir
-    app.mount("/theme", StaticFiles(directory=str(static_dir())), name="theme")
+    from geecs_web_theme.web import ForwardedPrefixMiddleware, make_templates, mount_theme
+
+    app.add_middleware(ForwardedPrefixMiddleware)   # X-Forwarded-Prefix → root_path
+    mount_theme(app)                                # /theme/…, named "theme"
+    templates = make_templates(TEMPLATES_DIR)       # {{ root }} in every context
 
 then, in a template's ``<head>`` — the boot script NOT deferred, so the
 palette is stamped before first paint; the picker script deferred::
 
-    <script src="/theme/theme-boot.js"></script>
-    <link rel="stylesheet" href="/theme/theme.css">
-    <link rel="stylesheet" href="/theme/kit.css">
-    <script src="/theme/theme.js" defer></script>
-    <script src="/theme/kit.js" defer></script>
+    <script src="{{ root }}/theme/theme-boot.js"></script>
+    <link rel="stylesheet" href="{{ root }}/theme/theme.css">
+    <link rel="stylesheet" href="{{ root }}/theme/kit.css">
+    <script src="{{ root }}/theme/theme.js" defer></script>
+    <script src="{{ root }}/theme/kit.js" defer></script>
 
-Behind a reverse proxy build those from the request's ``root_path``; the
-portal does this with its ``{{ root }}`` idiom.
+A host that is not a FastAPI app serves :func:`static_dir` however it
+serves files and prefixes those URLs itself.
 
 Give ``<body>`` the ``kit`` class so the kit's base rules apply, and put
 the two controls wherever they belong::
@@ -96,6 +102,7 @@ DEFAULT_DENSITY = "comfortable"
 STATES: dict[str, str] = {
     "queued": "Accepted, not started",
     "running": "In progress now",
+    "paused": "Holding between steps; resumes where it stopped",
     "ok": "Finished as intended",
     "degraded": "Finished, but less than asked",
     "failed": "Did not finish",
@@ -107,7 +114,9 @@ STATES: dict[str, str] = {
 #: ``.banner``. ``loading`` and ``empty`` exist on both surfaces today in
 #: private forms; ``error``, ``stale`` and ``denied`` exist on neither, and
 #: a control surface cannot open without the last two — a live value that
-#: silently stops updating is worse than no value.
+#: silently stops updating is worse than no value. ``error`` and ``stale``
+#: take a colour, ``denied`` a dashed edge; ``loading`` and ``empty`` share
+#: the neutral ground on purpose.
 PANE_STATES: dict[str, str] = {
     "loading": "Named, so the reader knows whether to wait",
     "empty": "The query succeeded and matched nothing",

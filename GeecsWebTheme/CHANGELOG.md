@@ -4,6 +4,72 @@ All notable changes to `geecs-web-theme` are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 project adheres to semantic versioning.
 
+## [0.4.0] - 2026-09-13
+
+### Added
+
+- **`geecs_web_theme.web` — the FastAPI glue, written once** (behind the
+  new `web` extra: fastapi + jinja2; the static-only use stays
+  dependency-free). Three surfaces each carried a copy of the same three
+  things, verbatim by intent, and they drifted anyway — the portal computed
+  `root` in Python, the logbook in Jinja, the scanner in a context
+  processor. This module is the one copy: `ForwardedPrefixMiddleware`
+  (the portal's `X-Forwarded-Prefix` → `root_path` middleware, path
+  re-prefixed so a mount named like a route head still routes and
+  trailing-slash redirects keep the prefix), `clean_prefix`, `root_of`,
+  `mount_theme(app)` (the `/theme` mount, named for `url_for`), and
+  `make_templates(dir, globals=, filters=, context_processors=)` (a
+  `Jinja2Templates` with `root` in every context). The portal's prefix
+  tests are re-homed here as the module's own.
+- **`geecs_web_theme.testing` — the template guards as helpers**
+  (standard library only): `bare_url_for_calls` (a `url_for(...)` without
+  `.path` is a mixed-content block behind TLS), `unknown_data_states` (a
+  literal `data-state` the kit does not colour renders a plausible neutral
+  chip), `inline_scripts` + `javascript_syntax_error` (`node --check` over
+  a template's inline scripts, Jinja blanked, JSON payloads skipped) and
+  `node_available`. The logbook and the scanner each wrote these three
+  tests by hand; the next surface writes three one-line tests instead.
+- No consumer changes in this release. The portal, the logbook, the
+  scanner and the analysis config editor (`scan_analysis.config_editor`,
+  which hand-mounts the theme and builds a `root`-less template
+  environment) switch to the shared copies in their own PRs and delete
+  theirs.
+
+## [0.3.0] - 2026-09-13
+
+### Added
+
+- **Live controls** — what a surface that *writes and watches* needs, found
+  by building the web scanner's mock (the arc brief is GEECS-Plugins#869;
+  this is its PR 1) and written in the kit's own idiom so it is not a
+  third dialect:
+  - `.live` — a reading with its label, value (+ unit) and **age**; the
+    surface sets `data-age="stale"` past its threshold and the value says
+    "stale" instead of continuing to look confident. The pane-level `stale`
+    doctrine at value granularity. `.grid.tight` for a row of them.
+  - `.meter` — determinate progress (`.bar` is indeterminate): track, fill,
+    a two-ended label; `data-state` colours the fill by state.
+  - `.field` validation — `aria-invalid="true"` on the control colours it
+    and shows the `.err` slot that follows it (the state is the
+    accessibility attribute, as with `.picklist`); the hint stays, since
+    it often carries the unit; `.req` marks a required label; disabled
+    inputs are styled. Focus was the only state a field had.
+  - `.chip.lg` — the one state a room watches, at a size it can read.
+  - `.tscroll.sticky` — a capped, scrolling table that keeps its header.
+  - `dialog.ack` — rung 3 widened exactly once: a list of tickable
+    preflight questions under one decision, Submit held until all are ticked.
+- **`paused` joins the status words** (`STATES`, chip and dot): a run
+  holding between steps is neither running nor degraded. The Qt console had
+  its own amber pill for it; the kit had no word, so a web surface would
+  have rendered it as one of the other two. Warn wash, no pulse.
+- **`denied` has a rule of its own** on `.state` and `.banner` — a dashed
+  edge on the recessed ground. It was named-but-neutral; ownership refusal
+  in the scanner is its first real use.
+- The reference page demonstrates every addition (a "Live controls" section,
+  a validation specimen, the sticky table, the `denied` banner, the
+  acknowledgement dialog behind "Submit scan…"), and a test pins that it
+  keeps doing so.
+
 ## [0.2.2] - 2026-09-12
 
 ### Fixed

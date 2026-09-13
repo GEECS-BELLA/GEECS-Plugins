@@ -200,11 +200,17 @@ body.kit{
 .kit .grid{display:grid;gap:var(--gap);grid-template-columns:repeat(auto-fit,minmax(280px,1fr))}
 
 /* ---------------------------------------------------------------------
-   Status — six words, one component. Colour is never the only carrier:
+   Status — seven words, one component. Colour is never the only carrier:
    every chip is a dot plus a word, so it survives a colour-vision
    difference, a greyscale print and a forced-colours mode.
 
-   queued | running | ok | degraded | failed | unknown  (+ agent)
+   queued | running | paused | ok | degraded | failed | unknown  (+ agent)
+
+   `paused` arrived with the scanner (0.3.0): a run holding between steps
+   is neither running nor degraded. The Qt console had the word (its own
+   amber pill); the kit did not, so a web surface would have rendered it
+   as one of the two. It takes the warn wash and does NOT pulse — the
+   pulse means "moving".
    --------------------------------------------------------------------- */
 .kit .chip{
   display:inline-flex;align-items:center;gap:6px;
@@ -218,6 +224,7 @@ body.kit{
 }
 .kit .chip[data-state="queued"], .kit .chip[data-state="unknown"]{color:var(--muted);background:var(--surface-2);border-color:var(--rule)}
 .kit .chip[data-state="running"]{color:var(--accent);background:var(--accent-soft);border-color:var(--accent-soft)}
+.kit .chip[data-state="paused"]{color:var(--warn);background:var(--warn-soft);border-color:var(--warn-soft)}
 .kit .chip[data-state="ok"]{color:var(--ok);background:var(--ok-soft);border-color:var(--ok-soft)}
 .kit .chip[data-state="degraded"]{color:var(--warn);background:var(--warn-soft);border-color:var(--warn-soft)}
 .kit .chip[data-state="failed"]{color:var(--crit);background:var(--crit-soft);border-color:var(--crit-soft)}
@@ -240,6 +247,7 @@ body.kit{
 .kit .dot{width:8px;height:8px;border-radius:50%;flex:none;display:inline-block}
 .kit .dot[data-state="queued"], .kit .dot[data-state="unknown"]{background:var(--muted)}
 .kit .dot[data-state="running"]{background:var(--accent)}
+.kit .dot[data-state="paused"]{background:var(--warn)}
 .kit .dot[data-state="ok"]{background:var(--ok)}
 .kit .dot[data-state="degraded"]{background:var(--warn)}
 .kit .dot[data-state="failed"]{background:var(--crit)}
@@ -353,7 +361,10 @@ body.kit{
 
    loading / empty / error / stale / denied. The first two exist on both
    surfaces today in some private form; the last three exist nowhere,
-   and a control surface cannot open without stale and denied.
+   and a control surface cannot open without stale and denied. Loading
+   and empty share the neutral ground on purpose; error and stale take a
+   colour; denied takes an EDGE — dashed, on the recessed ground — because
+   it is not an alarm, it is a door someone else is holding.
    --------------------------------------------------------------------- */
 .kit .state{
   display:flex;flex-direction:column;align-items:center;justify-content:center;
@@ -372,6 +383,8 @@ body.kit{
    look confident. */
 .kit .state[data-state="stale"]{border-color:var(--warn-soft);background:var(--warn-soft)}
 .kit .state[data-state="stale"] .t, .kit .state[data-state="stale"] .m{color:var(--warn)}
+.kit .state[data-state="denied"]{border-style:dashed;background:var(--surface-2)}
+.kit .state[data-state="denied"] .t{color:var(--slate)}
 
 .kit .bar{width:64%;max-width:220px;height:3px;border-radius:2px;background:var(--surface-2);overflow:hidden}
 .kit .bar i{display:block;height:100%;width:38%;border-radius:2px;background:var(--accent)}
@@ -390,6 +403,8 @@ body.kit{
 }
 .kit .banner[data-state="error"]{border-color:var(--crit-soft);background:var(--crit-soft);color:var(--crit)}
 .kit .banner[data-state="stale"]{border-color:var(--warn-soft);background:var(--warn-soft);color:var(--warn)}
+.kit .banner[data-state="denied"]{border-style:dashed;color:var(--slate)}
+.kit .banner[data-state="denied"] strong{color:var(--ink)}
 .kit .banner .spacer{flex:1 1 auto}
 
 /* ---------------------------------------------------------------------
@@ -475,3 +490,88 @@ body.kit{
 .kit dialog p{margin:0;font-size:13px;color:var(--slate)}
 
 /* Rung 4 is a route and needs no CSS — which is the point. */
+
+/* ---------------------------------------------------------------------
+   Live controls (0.3.0). What a surface that WRITES and WATCHES needs and
+   neither read-mostly surface ever forced: the scanner's Now panel and its
+   submit form, found by building its mock. Same rules as everything above
+   — tokens only, .kit-scoped, data-state vocabulary — so nothing here is a
+   third dialect.
+   --------------------------------------------------------------------- */
+
+/* The one state a room watches, at a size the room can read. */
+.kit .chip.lg{font-size:13px;padding:4px 13px}
+.kit .chip.lg::before{width:8px;height:8px}
+
+/* A live reading with its age built in. The pane-level `stale` doctrine at
+   value granularity: every number says how old it is, and past a threshold
+   it says "stale" instead of continuing to look confident. The surface sets
+   data-age="stale" when it decides the reading is too old — the ONE value
+   the attribute takes; a fresh reading carries no data-age at all. */
+.kit .live{display:flex;flex-direction:column;gap:2px;min-width:0}
+.kit .live .k{font-family:var(--ff-mono);font-size:10.5px;letter-spacing:var(--tk);text-transform:uppercase;color:var(--muted)}
+.kit .live .v{font-family:var(--ff-mono);font-variant-numeric:tabular-nums;font-size:20px;font-weight:500;color:var(--ink);line-height:1.15}
+.kit .live .v small{font-size:12px;font-weight:400;color:var(--muted);margin-left:4px}
+.kit .live .age{font-family:var(--ff-mono);font-size:10.5px;color:var(--muted)}
+.kit .live[data-age="stale"] .v{color:var(--warn)}
+.kit .live[data-age="stale"] .age{color:var(--warn);font-weight:600}
+.kit .live[data-age="stale"] .age::before{content:"stale \00b7 "}
+/* A tighter grid for a row of readings; .grid's 280px is a card's width. */
+.kit .grid.tight{grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:var(--gap) 22px}
+
+/* A determinate meter. .bar (above) is indeterminate — "something is
+   happening" — and a scan knows exactly how far along it is. Two-ended
+   label: what is done on the left, what remains on the right. data-state
+   colours the fill by state — paused while it holds, ok/degraded/failed
+   once it ends. */
+.kit .meter{display:flex;flex-direction:column;gap:6px;min-width:0}
+.kit .meter .track{height:6px;border-radius:3px;background:var(--surface-2);overflow:hidden}
+.kit .meter .fill{display:block;height:100%;width:0;border-radius:3px;background:var(--accent)}
+@media (prefers-reduced-motion:no-preference){.kit .meter .fill{transition:width .4s ease}}
+.kit .meter .lbl{display:flex;justify-content:space-between;gap:8px;font-family:var(--ff-mono);font-size:11.5px;font-variant-numeric:tabular-nums;color:var(--slate)}
+.kit .meter[data-state="paused"] .fill{background:var(--warn)}
+.kit .meter[data-state="degraded"] .fill{background:var(--warn)}
+.kit .meter[data-state="failed"] .fill{background:var(--crit)}
+.kit .meter[data-state="ok"] .fill{background:var(--ok)}
+
+/* Validation on .field. Focus was the only state it had; a form that can
+   submit a scan needs invalid, required and disabled — and never by colour
+   alone: the .err slot carries the words. The state is the ACCESSIBILITY
+   attribute, as with .picklist: the surface sets aria-invalid="true" on
+   the control and nothing else, so it cannot be styled-but-unannounced.
+   The .err slot follows the control in the markup and shows only then; the
+   .hint stays — it often carries the unit, which is what the operator
+   needs to fix the value. */
+.kit .field label .req{color:var(--crit);margin-left:2px}
+.kit .field .err{display:none;font-size:11.5px;color:var(--crit)}
+.kit .field input[aria-invalid="true"], .kit .field select[aria-invalid="true"], .kit .field textarea[aria-invalid="true"]{
+  border-color:var(--crit);background:var(--crit-soft);
+}
+.kit .field input[aria-invalid="true"] ~ .err, .kit .field select[aria-invalid="true"] ~ .err, .kit .field textarea[aria-invalid="true"] ~ .err{display:block}
+.kit .field input[disabled], .kit .field select[disabled], .kit .field textarea[disabled]{opacity:.5;background:var(--surface-2);cursor:not-allowed}
+
+/* A live table keeps its header while it scrolls. Opt-in: .tscroll alone
+   stays the plain horizontal guard above. */
+.kit .tscroll.sticky{max-height:320px;overflow:auto}
+.kit .tscroll.sticky th{position:sticky;top:0;background:var(--surface);z-index:1;
+  /* border-collapse paints the th rule on the TABLE, so it scrolls away
+     from the header; the shadow is the rule that travels with it. */
+  box-shadow:inset 0 calc(-1*var(--bw)) var(--rule)}
+
+/* Rung 3, widened once: the acknowledgement. Preflight comes back with N
+   questions, each of which the operator must answer on the record before
+   the scan is queued. That is still ONE decision ("go, knowing these"),
+   so it is still a dialog — but it needs a list of tickable items, which
+   the plain rung 3 forbids. `dialog.ack` admits exactly that form: the
+   checkboxes, and a Submit the surface keeps disabled until all are
+   ticked. No scrolling prose, still two buttons. */
+.kit dialog.ack{max-width:min(560px,92vw)}
+.kit dialog.ack .qs{display:flex;flex-direction:column;gap:6px;margin:0;padding:0;list-style:none}
+.kit dialog.ack .qs label{
+  display:grid;grid-template-columns:18px minmax(0,1fr);gap:10px;align-items:start;
+  padding:9px 11px;border:var(--bw) solid var(--rule);border-radius:var(--r);background:var(--surface-2);
+  font-size:13px;color:var(--ink);cursor:pointer;
+}
+.kit dialog.ack .qs label input{margin:3px 0 0}
+.kit dialog.ack .qs label .m{display:block;font-size:12px;color:var(--muted);margin-top:2px}
+.kit dialog.ack .qs label:has(input:checked){border-color:var(--ok);background:var(--ok-soft)}
