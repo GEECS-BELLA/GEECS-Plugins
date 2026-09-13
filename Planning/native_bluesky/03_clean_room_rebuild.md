@@ -1059,7 +1059,9 @@ and every one of them changed a design choice.
    it baked in as-is; a "sync" button that runs it and updates the
    per-device offsets is the shape he imagines. **Consequence:** §4.F.
 8. **Scope notes.** GEECS-MCP was one-shotted and can be updated later —
-   not a constraint now. The Console follows the client-expansion change.
+   not a constraint now. ~~The Console follows the client-expansion
+   change.~~ Superseded 2026-09-13: the Console is **deleted, not
+   rewired** — its replacement is the web scanner below.
    A service on the worker host that is a browser client of the qserver
    ("the scanner through the browser") is the end point Sam has in mind;
    GEECS-DataPortal is already a FastAPI service on that host speaking to
