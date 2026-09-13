@@ -185,11 +185,11 @@
           </div>
         </div>
         <div class="row">
-          <div class="field" data-invalid="true">
+          <div class="field">
             <label for="k-start">Start <span class="req" aria-hidden="true">*</span></label>
             <input id="k-start" type="text" inputmode="decimal" value="5.0" aria-invalid="true" aria-describedby="k-start-err">
             <span class="hint">psi</span>
-            <span class="err" id="k-start-err">Start is past stop (2.0). Swap them or change the step sign.</span>
+            <span class="err" id="k-start-err">Start is past stop (2.0 psi). Swap them or change the step sign.</span>
           </div>
           <div class="field">
             <label for="k-stop">Stop</label>
@@ -202,9 +202,10 @@
             <span class="hint">strict acquisition only</span>
           </div>
         </div>
-        <p class="dim">Validation is one attribute on the <code>.field</code>:
-          <code>data-invalid="true"</code> shows the <code>.err</code> slot and hides the
-          hint. The words carry the failure; the colour only points at it.</p>
+        <p class="dim">Validation is one attribute on the control:
+          <code>aria-invalid="true"</code> colours it and shows the <code>.err</code> slot
+          that follows it. The hint stays — it carries the unit. The words carry the
+          failure; the colour only points at it.</p>
         <div class="row">
           <button class="btn primary" type="button">Submit scan</button>
           <button class="btn" type="button">Validate</button>
@@ -267,18 +268,19 @@
             <div class="lbl"><span>120 / 180 shots &middot; step 7 of 11</span><span>~60 s left</span></div>
           </div>
           <div class="grid tight">
-            <div class="live" data-age="fresh"><span class="k">trigger box</span><span class="v">SCAN</span><span class="age">0.2 s</span></div>
-            <div class="live" data-age="fresh"><span class="k">U_S1H.current</span><span class="v">1.200<small>A</small></span><span class="age">0.4 s</span></div>
-            <div class="live" data-age="fresh"><span class="k">rate</span><span class="v">1.0<small>Hz</small></span><span class="age">0.4 s</span></div>
+            <div class="live"><span class="k">trigger box</span><span class="v">SCAN</span><span class="age">0.2 s</span></div>
+            <div class="live"><span class="k">U_S1H.current</span><span class="v">1.200<small>A</small></span><span class="age">0.4 s</span></div>
+            <div class="live"><span class="k">rate</span><span class="v">1.0<small>Hz</small></span><span class="age">0.4 s</span></div>
             <div class="live" data-age="stale"><span class="k">U_ICT charge</span><span class="v">187<small>pC</small></span><span class="age">6.1 s</span></div>
           </div>
           <p class="dim"><code>.meter</code> is determinate where <code>.bar</code> is not;
             <code>.live</code> is the <code>stale</code> doctrine at value granularity — the
-            surface sets <code>data-age="stale"</code> past its threshold and the reading
-            says so instead of continuing to look confident.</p>
+            surface sets <code>data-age="stale"</code> past its threshold (the attribute's
+            one value; a fresh reading carries none) and the reading says so instead of
+            continuing to look confident.</p>
         </div>
         <footer><div class="row">
-          <span class="dim">Terminal states colour the fill:</span>
+          <span class="dim">State colours the fill — paused while it holds, then ok / failed:</span>
           <div class="meter" data-state="paused" style="width:120px"><div class="track"><i class="fill" style="width:53%"></i></div></div>
           <div class="meter" data-state="ok" style="width:120px"><div class="track"><i class="fill" style="width:100%"></i></div></div>
           <div class="meter" data-state="failed" style="width:120px"><div class="track"><i class="fill" style="width:37%"></i></div></div>
@@ -289,7 +291,7 @@
         <button class="btn primary" type="button" data-dialog-open="k-ack">Submit scan&hellip;</button>
         <span class="dim"><code>dialog.ack</code> &mdash; rung 3 widened once, for the
           preflight questions an operator must answer on the record before a scan
-          is queued. Try it.</span>
+          is queued. The kit styles the list; the surface wires Submit to the boxes.</span>
       </div>
     </section>
 
@@ -333,7 +335,7 @@
         <button class="btn sm" type="button">Reconnect</button>
       </div>
       <div class="banner" data-state="denied">
-        <span><strong>Scan 048 belongs to tony.</strong> Pause and Stop are held for its owner.</span>
+        <span><strong>Scan 048 belongs to another operator.</strong> Pause and Stop are held for its owner.</span>
         <span class="spacer"></span>
         <button class="btn sm" type="button">Take over&hellip;</button>
       </div>
@@ -457,7 +459,8 @@
         <span class="m">The stack check at stop will flag missing rows rather than fail the scan.</span></span></label></li>
     </ul>
     <p class="dim">Acknowledged checks are stamped <code>continued</code> in the submission record
-      that rides with the run. The surface keeps Submit disabled until every box is ticked.</p>
+      that rides with the run. The surface keeps Submit disabled until every box is ticked
+      (static here: this page ships no wiring).</p>
     <div class="row end">
       <button class="btn" type="button" data-dialog-close autofocus>Cancel</button>
       <button class="btn primary" type="button" data-dialog-close disabled>Submit to queue</button>

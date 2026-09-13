@@ -44,7 +44,7 @@ which is a real `<dialog>`.
 - **Pane states** — `loading · empty · error · stale · denied`.
 - **Live controls** (0.3.0) — `.live` (a reading with its age; `data-age="stale"`
   past a threshold), `.meter` (determinate progress), `.field` validation
-  (`data-invalid`, `.err`, `.req`, disabled), `.chip.lg`, `.tscroll.sticky`,
+  (`aria-invalid` on the control, `.err`, `.req`, disabled), `.chip.lg`, `.tscroll.sticky`,
   and `dialog.ack` — the one widened rung 3, a list of tickable questions.
 - **The overlay ladder** — `details.disc` → `.inspector` → `.drawer` →
   `<dialog>` → a route. Take the lowest rung that fits; the decider is

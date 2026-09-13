@@ -207,9 +207,10 @@ body.kit{
    queued | running | paused | ok | degraded | failed | unknown  (+ agent)
 
    `paused` arrived with the scanner (0.3.0): a run holding between steps
-   is neither running nor degraded, and the console rendered it as one or
-   the other for want of a word. It takes the warn wash and does NOT
-   pulse — the pulse means "moving".
+   is neither running nor degraded. The Qt console had the word (its own
+   amber pill); the kit did not, so a web surface would have rendered it
+   as one of the two. It takes the warn wash and does NOT pulse — the
+   pulse means "moving".
    --------------------------------------------------------------------- */
 .kit .chip{
   display:inline-flex;align-items:center;gap:6px;
@@ -505,7 +506,8 @@ body.kit{
 /* A live reading with its age built in. The pane-level `stale` doctrine at
    value granularity: every number says how old it is, and past a threshold
    it says "stale" instead of continuing to look confident. The surface sets
-   data-age="stale" when it decides the reading is too old. */
+   data-age="stale" when it decides the reading is too old — the ONE value
+   the attribute takes; a fresh reading carries no data-age at all. */
 .kit .live{display:flex;flex-direction:column;gap:2px;min-width:0}
 .kit .live .k{font-family:var(--ff-mono);font-size:10.5px;letter-spacing:var(--tk);text-transform:uppercase;color:var(--muted)}
 .kit .live .v{font-family:var(--ff-mono);font-variant-numeric:tabular-nums;font-size:20px;font-weight:500;color:var(--ink);line-height:1.15}
@@ -520,7 +522,8 @@ body.kit{
 /* A determinate meter. .bar (above) is indeterminate — "something is
    happening" — and a scan knows exactly how far along it is. Two-ended
    label: what is done on the left, what remains on the right. data-state
-   colours the fill at a terminal state. */
+   colours the fill by state — paused while it holds, ok/degraded/failed
+   once it ends. */
 .kit .meter{display:flex;flex-direction:column;gap:6px;min-width:0}
 .kit .meter .track{height:6px;border-radius:3px;background:var(--surface-2);overflow:hidden}
 .kit .meter .fill{display:block;height:100%;width:0;border-radius:3px;background:var(--accent)}
@@ -533,22 +536,27 @@ body.kit{
 
 /* Validation on .field. Focus was the only state it had; a form that can
    submit a scan needs invalid, required and disabled — and never by colour
-   alone: the .err slot carries the words. The surface sets
-   data-invalid="true" on the .field; the .err text is always in the
-   markup and only shows then, so a fix is one attribute. */
+   alone: the .err slot carries the words. The state is the ACCESSIBILITY
+   attribute, as with .picklist: the surface sets aria-invalid="true" on
+   the control and nothing else, so it cannot be styled-but-unannounced.
+   The .err slot follows the control in the markup and shows only then; the
+   .hint stays — it often carries the unit, which is what the operator
+   needs to fix the value. */
 .kit .field label .req{color:var(--crit);margin-left:2px}
 .kit .field .err{display:none;font-size:11.5px;color:var(--crit)}
-.kit .field[data-invalid="true"] input, .kit .field[data-invalid="true"] select, .kit .field[data-invalid="true"] textarea{
+.kit .field input[aria-invalid="true"], .kit .field select[aria-invalid="true"], .kit .field textarea[aria-invalid="true"]{
   border-color:var(--crit);background:var(--crit-soft);
 }
-.kit .field[data-invalid="true"] .err{display:block}
-.kit .field[data-invalid="true"] .hint{display:none}
+.kit .field input[aria-invalid="true"] ~ .err, .kit .field select[aria-invalid="true"] ~ .err, .kit .field textarea[aria-invalid="true"] ~ .err{display:block}
 .kit .field input[disabled], .kit .field select[disabled], .kit .field textarea[disabled]{opacity:.5;background:var(--surface-2);cursor:not-allowed}
 
 /* A live table keeps its header while it scrolls. Opt-in: .tscroll alone
    stays the plain horizontal guard above. */
 .kit .tscroll.sticky{max-height:320px;overflow:auto}
-.kit .tscroll.sticky th{position:sticky;top:0;background:var(--surface);z-index:1}
+.kit .tscroll.sticky th{position:sticky;top:0;background:var(--surface);z-index:1;
+  /* border-collapse paints the th rule on the TABLE, so it scrolls away
+     from the header; the shadow is the rule that travels with it. */
+  box-shadow:inset 0 calc(-1*var(--bw)) var(--rule)}
 
 /* Rung 3, widened once: the acknowledgement. Preflight comes back with N
    questions, each of which the operator must answer on the record before

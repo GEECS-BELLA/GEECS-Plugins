@@ -9,25 +9,28 @@ project adheres to semantic versioning.
 ### Added
 
 - **Live controls** — what a surface that *writes and watches* needs, found
-  by building the web scanner's mock (`Planning/native_bluesky/10_web_scanner.md`,
-  the arc's PR 1) and written in the kit's own idiom so it is not a third
-  dialect:
+  by building the web scanner's mock (the arc brief is GEECS-Plugins#869;
+  this is its PR 1) and written in the kit's own idiom so it is not a
+  third dialect:
   - `.live` — a reading with its label, value (+ unit) and **age**; the
     surface sets `data-age="stale"` past its threshold and the value says
     "stale" instead of continuing to look confident. The pane-level `stale`
     doctrine at value granularity. `.grid.tight` for a row of them.
   - `.meter` — determinate progress (`.bar` is indeterminate): track, fill,
-    a two-ended label; `data-state` colours the fill at a terminal state.
-  - `.field` validation — `data-invalid="true"` on the field shows its
-    `.err` slot and hides the hint; `.req` marks a required label; disabled
+    a two-ended label; `data-state` colours the fill by state.
+  - `.field` validation — `aria-invalid="true"` on the control colours it
+    and shows the `.err` slot that follows it (the state is the
+    accessibility attribute, as with `.picklist`); the hint stays, since
+    it often carries the unit; `.req` marks a required label; disabled
     inputs are styled. Focus was the only state a field had.
   - `.chip.lg` — the one state a room watches, at a size it can read.
   - `.tscroll.sticky` — a capped, scrolling table that keeps its header.
   - `dialog.ack` — rung 3 widened exactly once: a list of tickable
     preflight questions under one decision, Submit held until all are ticked.
 - **`paused` joins the status words** (`STATES`, chip and dot): a run
-  holding between steps is neither running nor degraded, and the console
-  rendered it as one or the other for want of a word. Warn wash, no pulse.
+  holding between steps is neither running nor degraded. The Qt console had
+  its own amber pill for it; the kit had no word, so a web surface would
+  have rendered it as one of the other two. Warn wash, no pulse.
 - **`denied` has a rule of its own** on `.state` and `.banner` — a dashed
   edge on the recessed ground. It was named-but-neutral; ownership refusal
   in the scanner is its first real use.
