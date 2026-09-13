@@ -19,6 +19,30 @@ spread, so nothing was broken.  They narrow with the rep rate: at 5 Hz they
 are ±0.1 s, the same order as the spread, where an uncalibrated offset costs
 rows.  This is what makes faster running safe.
 
+### Hardware-accepted 2026-09-12
+
+Measured on HTU under `HTU-LaserOFF`, 10 shots, over UC_Amp3_IR_input,
+UC_Amp4_IR_input, UC_ModeImager and U_BCaveICT:
+
+| device | offset | scatter |
+|---|---|---|
+| `u_bcaveict` | reference | 0.8 ms |
+| `uc_amp4_ir_input` | +58.9 ms | 0.8 ms |
+| `uc_amp3_ir_input` | +96.0 ms | 1.5 ms |
+| `uc_modeimager` | +160.3 ms | 1.5 ms |
+
+Two independent runs agreed to under 1 ms per device, and Amp3 − Amp4 came
+out 37.0 / 37.1 ms against the 36 ms phase 2c measured independently.  The
+delivery path was proven end to end by `check_shot_sync`, which **failed at
+161.0 ms before** the worker loaded the measurement and **passed at 0.7 ms
+after** — file → resolver → namespace → `drain_offset` → descriptors.  A
+strict scan (Scan022) then carried the measured offsets in its run documents,
+where `geecs_data_utils.shot_join` reads them.
+
+Note for operators: the offset tracks **frame size**, so re-ROI'ing a camera
+invalidates its calibration (UC_ModeImager is un-ROI'd and drains at +160 ms;
+the ROI'd amplifier cameras at +59 / +96 ms).  Re-run after an ROI change.
+
 ### Added
 
 - **`measure_shot_offsets`** (`geecs_bluesky.plans.calibration`), a

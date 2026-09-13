@@ -414,6 +414,34 @@ drive the trigger box while a scan is using it. The DB carries no timeout
 column, so the wait is the documented 1.5 s constant plus a drain margin,
 overridable per call.
 
+**MEASURED ON HARDWARE 2026-09-12** (HTU-LaserOFF, 10 shots, box
+self-triggering with the laser off):
+
+| device | offset | scatter |
+|---|---|---|
+| `u_bcaveict` | reference | 0.8 ms |
+| `uc_amp4_ir_input` | +58.9 ms | 0.8 ms |
+| `uc_amp3_ir_input` | +96.0 ms | 1.5 ms |
+| `uc_modeimager` | +160.3 ms | 1.5 ms |
+
+Two independent 10-shot runs agreed to **under 1 ms** on every device, and
+Amp3 − Amp4 came out 37.0 / 37.1 ms against the **36 ms** phase 2c measured
+for free from a scan's s-file — three independent routes to the same number.
+
+**The set spans 160 ms, not the ~100 ms §11.4 estimated**, and the reason is
+physical (Sam, 2026-09-12): **drain offset tracks frame size.**
+`UC_ModeImager` is a large chip with no ROI, so its frame drains far more
+slowly than Amp3/Amp4, which are significantly ROI'd. That is §11.4's "4 MB
+versus 0.5 MB camera" measured directly — and it carries an operational
+consequence worth stating plainly: **re-ROI'ing a camera invalidates its
+calibration.** Re-run `measure_shot_offsets` after an ROI change, not only
+after a server rebuild.
+
+The scatter measured here (~1 ms) is *not* evidence about the ~10 ms host
+dither: with the laser off and the box self-triggering there is no laser
+jitter in the loop, so this is close to the measurement floor. The dither
+during real running is the larger figure, which is why the averaging exists.
+
 Three things the review of #861 added that are worth not re-deriving:
 
 - **Proving quiet needs a window longer than one trigger period.** There
