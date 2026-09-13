@@ -1,12 +1,21 @@
 # The web scanner: the console as the third web surface — the arc brief
 
-**Status (2026-09-13, end of day):** PRs 1–3 MERGED — GeecsWebTheme 0.3.0 (#870,
-master) and 0.4.0/0.4.1 (#873/#874, the shared web glue `geecs_web_theme.web` +
-`.testing`), GeecsScanner 0.1.0 (#871, service + API + SSE + `--demo`) and 0.2.0
-(#872, the page), all on `feature/web-scanner`, which is synced with master and
-`feature/native-bluesky-plans`. **The page is hardware-verified from a browser:**
-Scan005 (count · 5 · strict · HTU-LaserOFF, UC_Amp4_IR_input, 5/5) and Scan006
-(scan S1H 0 → 0.2 · 3 × 3 · strict, 9/9) of 26_0913. **Next: PR 4** (§4).
+**Status (2026-09-13, late):** PRs 1–4 MERGED — GeecsWebTheme 0.3.0 (#870,
+master) and 0.4.0/0.4.1 (#873/#874, the shared web glue), GeecsScanner
+0.1.0 (#871), 0.2.0 (#872, the page) and **0.3.0 (#876, the rest of the
+mock: move · actions · calibration · add-device and save-as-preset drawers
+· the scan.log tail · portal links, over the shared glue)**, GeecsBluesky
+0.86.0 (`write_preset`, `action_steps`), all on `feature/web-scanner`.
+The page is hardware-verified from a browser for submit/pause/stop
+(Scan005/006 of 26_0913); PR 4's read paths were checked against the real
+worker (the 21-plan action library, the share's `shot_offsets.yaml`, 108
+devices); **its write verbs (move, run_action, the calibration plans, a
+preset written into the share's checkout, a real run's scan.log tail) are
+OWED on hardware** — listed in #876. **Next: PR 5** (§4) — the sync of
+master (GeecsWebTheme 0.5.0, tinycss2 helpers) comes first. Open for
+discussion before PR 5 adds `operators.yaml`: Sam's question on how
+presets / scan variables / trigger profiles / actions should be sourced and
+which config kinds we actually want (2026-09-13).
 
 Drafted 2026-09-13 from a three-way survey (GeecsBluesky on this
 branch, GEECS-Console, the web foundation on master) and a clickable mock
@@ -288,7 +297,7 @@ master → branch sync brings them here before PR 3.
 | 1 ✅ | **GeecsWebTheme 0.3.0** — the kit additions (#870, master, merged 2026-09-13; 0.4.0 #873 added `geecs_web_theme.web` + `.testing`, on the arc branch as 0.4.1) | §3.6 + `kit.html` specimens + tests (`STATES` gains `paused`; the literal-colour walk gains the scanner's paths) | 127+ tests green; `kit.html` shows every addition; contrast test passes for `paused` |
 | 2 ✅ | **GeecsScanner 0.1.0** — service layer + HTTP API (#871, merged 2026-09-13) | package, `service/`, `web/api`, the doc-stream bridge, SSE, `StubQueueClient`-backed tests; unit template, `render_units.sh` line, `site.env` keys, fleet-map row, DEPLOYMENT.md | **headless**: every route exercised against the stub in tests; on the box, `curl` against the real worker: status, configs, preflight of a real preset, `/api/events` streaming during a queued `count` |
 | 3 ✅ | **GeecsScanner 0.2.0** — the page, day one (#872, merged 2026-09-13) | Now, New scan (count / scan / grid_scan), Queue, health chips, the four dialogs, keyboard; template guards | **hardware**: Sam submits a strict `count` and a strict 1D `scan` from a browser on the box; pause/resume/stop each observed once; the s-file matches the console-era shape |
-| 4 | **GeecsScanner 0.3.0** — the rest of the mock | **First, the glue adoption** (from the #871/#872 reviews, now available): add `extras=["web"]` to the `geecs-web-theme` path dep; delete the scanner's copies of `ForwardedPrefixMiddleware` / `_clean_prefix` (web/app.py), `_root` + the `Jinja2Templates` setup (web/pages.py) and the three template guards (tests/test_page.py) in favour of `geecs_web_theme.web` (`ForwardedPrefixMiddleware`, `mount_theme`, `make_templates`, `root_of`) and `geecs_web_theme.testing`; the scanner's own named `/static` mount and `url_for(...).path` stay. Then: Devices · move (`mv`, idle-only), Actions (preview/arm/run; arming never persisted), Calibration (check sync / measure offsets, box-OFF only), Add-device drawer over `/api/devices`, Save-as-preset (writes YAML through the resolver root), the **scan.log tail** (`log` SSE event type; needs the run's folder from the start doc), Today rail → portal run pages | each verb observed once on hardware; a saved preset round-trips through `GET /api/configs/presets/{name}` and submits |
+| 4 ✅ | **GeecsScanner 0.3.0** — the rest of the mock (#876, merged 2026-09-13; GeecsBluesky 0.86.0 alongside) | The glue adoption first (`extras=["web"]`, the scanner's copies deleted, the guards over `geecs_web_theme.testing`). Then: `POST /api/move`, `GET /api/actions` + `/{name}` (the preview over `geecs_bluesky.action_steps.flatten_action_steps`, moved out of the compiler so worker and client share one walk) + `/run`, `GET /api/calibration` + `/check` + `/measure`, `POST /api/configs/presets/{name}` (through `ConfigsRepoResolver.write_preset`), `GET /api/scanlog` + the `log` SSE event (read from the start document's `scan_folder`, never created), `--portal-url` links; **one idle gate** for the four queue items — refused unless idle *and nothing waits*; the panels, the two drawers, scan.log as the default tail | read paths verified against the real worker (21 actions resolve, the stored offsets, 108 devices); **OWED on hardware:** each write verb observed once, a saved preset round-tripping through `GET /api/configs/presets/{name}` and submitting, a real run's scan.log tail from the worker host |
 | 5 | **Front door + operators** | Caddy on the worker host (`/portal`, `/log`, `/scan`), unit + site.env; an **operator registry** — `operators.yaml` in the experiment's configs tree (name, initials, optional role), plus the built-in `guest` — served by `/api/operators`; the chosen operator stored as `geecs.operator` in `theme-boot.js` beside `geecs.theme`, so the scanner's picker **and** the logbook's author field (GeecsLogbook patch: a picklist over the same registry, free text only for guest) read one value; ownership compare in `/api/stop` and `/api/pause` against the operator in the running item's `md["geecs"]` (the manager's `user` is the scanner's one identity); **and the shared web plumbing moves into GeecsWebTheme** — the forwarded-prefix middleware, the `root` context processor and the three template guards, copied verbatim by the portal, the logbook and the scanner (reviews of #871/#872) — as a `fastapi` helper and a `testing` module, once this fourth change makes three copies four | one origin serves all three; theme/density/operator follow between them; the logbook and scanner offer the same names; a foreign running item shows `denied` and needs `force` |
 | 6 | **Delete GEECS-Console** — the closing PR | the package, `console-windows` CI job + its repo variable, docs pages, fleet-map rows, root `CLAUDE.md` row and dependency-graph entry; `git tag` a milestone first | CI green without the job; `docs/` builds; **the branch is now eligible for master** per the 2026-09-12 gate |
 
