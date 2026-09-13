@@ -54,8 +54,8 @@ keyboard), so it sets the vocabulary rather than inheriting a compromise.
 `geecs_web_theme.web` (the `web` extra) is the one copy of what every
 FastAPI surface needs around the theme: `ForwardedPrefixMiddleware`,
 `clean_prefix`, `root_of`, `mount_theme`, `make_templates`. The portal,
-the logbook and the scanner each carried a copy and drifted (three
-mechanisms for `root`). **A new surface imports these; it does not copy
+the logbook, the scanner and the analysis config editor each carried a
+copy and drifted (three mechanisms for `root`, one surface with none). **A new surface imports these; it does not copy
 them.** `geecs_web_theme.testing` is the same for the template guards —
 `bare_url_for_calls`, `unknown_data_states`, `inline_scripts` +
 `javascript_syntax_error` — so a surface's `tests/test_page.py` is three

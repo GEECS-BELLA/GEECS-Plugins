@@ -44,10 +44,14 @@ __all__ = [
     "unknown_data_states",
 ]
 
-_URL_FOR_BARE = re.compile(r"url_for\((?:[^()]|\([^()]*\))*\)(?!\.path)")
+# Two levels of nested parentheses inside the call — ``url_for('a', d=fmt(x))``
+# and ``url_for('a', d=f(g(x)))`` — which is as deep as a template argument
+# gets; a third level is not matched and is documented as the limit.
+_URL_FOR_BARE = re.compile(r"url_for\((?:[^()]|\((?:[^()]|\([^()]*\))*\))*\)(?!\.path)")
 _DATA_STATE = re.compile(r"""data-state=["']([a-z_][\w-]*)["']""")
 _JINJA_COMMENT = re.compile(r"\{#.*?#\}", re.S)
-_JINJA_EXPR = re.compile(r"\{\{.*?\}\}|\{%.*?%\}", re.S)
+_JINJA_OUTPUT = re.compile(r"\{\{.*?\}\}", re.S)
+_JINJA_BLOCK = re.compile(r"\{%.*?%\}", re.S)
 _SCRIPT = re.compile(r"<script(?![^>]*\bsrc=)([^>]*)>(.*?)</script>", re.S | re.I)
 _NON_JS_TYPE = re.compile(r'type\s*=\s*["\'](?!text/javascript|module)')
 
@@ -59,6 +63,10 @@ def _text(source: Union[Path, str]) -> str:
 def bare_url_for_calls(template: Union[Path, str]) -> list[str]:
     """Return every ``url_for(...)`` in *template* not followed by ``.path``.
 
+    Jinja comments are blanked first, so a call mentioned in a ``{# … #}``
+    is not reported. Arguments may nest parentheses two deep
+    (``day=fmt(d)``, ``day=f(g(d))``); a third level is not matched.
+
     Parameters
     ----------
     template : Path or str
@@ -69,7 +77,8 @@ def bare_url_for_calls(template: Union[Path, str]) -> list[str]:
     list of str
         The offending call expressions, in order. Empty means clean.
     """
-    return [m.group(0) for m in _URL_FOR_BARE.finditer(_text(template))]
+    text = _JINJA_COMMENT.sub(" ", _text(template))
+    return [m.group(0) for m in _URL_FOR_BARE.finditer(text)]
 
 
 def unknown_data_states(
@@ -107,8 +116,12 @@ def inline_scripts(template: Union[Path, str]) -> list[str]:
     inside one and swallows the real script after it. A ``<script>`` with a
     non-JavaScript ``type`` (``application/json``) is a data payload, not
     code, and is skipped — judged by the attribute, never by the body.
-    ``{{ … }}`` and ``{% … %}`` become the string literal ``"jinja"`` so
-    the result is the script's shape, not one render of it.
+    ``{{ … }}`` becomes the string literal ``"jinja"`` and ``{% … %}`` an
+    empty statement ``;``, so the result is the script's shape, not one
+    render of it, and both ``{% if x %}f(){% endif %}`` inline and block
+    tags on their own lines still parse. A ``{{ … }}`` inside a
+    double-quoted JavaScript string does not (``""jinja""``); templates
+    hand values to scripts through data attributes or single quotes.
 
     Parameters
     ----------
@@ -126,7 +139,7 @@ def inline_scripts(template: Union[Path, str]) -> list[str]:
     for attrs, body in _SCRIPT.findall(text):
         if not body.strip() or _NON_JS_TYPE.search(attrs):
             continue
-        out.append(_JINJA_EXPR.sub('"jinja"', body))
+        out.append(_JINJA_BLOCK.sub(";", _JINJA_OUTPUT.sub('"jinja"', body)))
     return out
 
 

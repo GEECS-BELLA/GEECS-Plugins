@@ -29,8 +29,11 @@ project adheres to semantic versioning.
   a template's inline scripts, Jinja blanked, JSON payloads skipped) and
   `node_available`. The logbook and the scanner each wrote these three
   tests by hand; the next surface writes three one-line tests instead.
-- No consumer changes in this release. The portal, logbook and scanner
-  switch to the shared copies in their own PRs and delete theirs.
+- No consumer changes in this release. The portal, the logbook, the
+  scanner and the analysis config editor (`scan_analysis.config_editor`,
+  which hand-mounts the theme and builds a `root`-less template
+  environment) switch to the shared copies in their own PRs and delete
+  theirs.
 
 ## [0.3.0] - 2026-09-13
 

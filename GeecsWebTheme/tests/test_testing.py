@@ -19,11 +19,24 @@ def test_bare_url_for_is_found_and_path_form_is_not() -> None:
         "<link href=\"{{ url_for('s', path='a.css').path }}\">"
         "<script src=\"{{ url_for('s', path='a.js') }}\"></script>"
         "{{ url_for('_page', day=fmt(d)) }}"
+        "{{ url_for('_page', day=f(g(d))) }}"
+        "{# {{ url_for('commented', x=1) }} — a comment is not a call #}"
     )
     assert bare_url_for_calls(text) == [
         "url_for('s', path='a.js')",
         "url_for('_page', day=fmt(d))",
+        "url_for('_page', day=f(g(d)))",
     ]
+
+
+def test_bare_url_for_nesting_limit_is_two_levels() -> None:
+    """Three levels of parentheses are NOT matched — the documented limit.
+
+    Pinned so a template that needs deeper nesting fails this test's
+    expectation loudly when someone extends the pattern, rather than the
+    guard quietly changing what it covers.
+    """
+    assert bare_url_for_calls("{{ url_for('a', x=f(g(h(1)))) }}") == []
 
 
 def test_unknown_data_states_against_the_kit_vocabulary() -> None:
@@ -43,7 +56,11 @@ def test_inline_scripts_skip_src_json_and_jinja_comments() -> None:
         "<script>var a = {{ value }}; {% if x %}b(){% endif %}</script>"
         "<script>   </script>"
     )
-    assert inline_scripts(text) == ['var a = "jinja"; "jinja"b()"jinja"']
+    blanked = inline_scripts(text)
+    assert blanked == ['var a = "jinja"; ;b();']
+    if node_available():
+        # "ready for javascript_syntax_error" has to be true of the fixture.
+        assert javascript_syntax_error(blanked[0]) is None
 
 
 @pytest.mark.skipif(not node_available(), reason="node not on the PATH")

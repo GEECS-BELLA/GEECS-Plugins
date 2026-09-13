@@ -192,10 +192,11 @@ GeecsWebTheme        →  (no intra-repo deps — stylesheets, two small
                         every FastAPI surface shares. Everything
                         web-facing depends on it; it depends on nothing
                         in the repo, which is why it is its own package
-                        rather than living inside the portal. Carries BOTH the colour tokens and the
-                        layout kit, so a new surface inherits the shell,
-                        the status words and the overlay ladder instead
-                        of inventing a fourth set)
+                        rather than living inside the portal. Carries
+                        BOTH the colour tokens and the layout kit, so a
+                        new surface inherits the shell, the status words
+                        and the overlay ladder instead of inventing a
+                        fourth set)
 GeecsLogbook         →  GEECS-Data-Utils (ScanPaths only — it reads scan
                         folders and nothing else), GEECS-Schemas (the
                         LogEntry document and its payload union)
