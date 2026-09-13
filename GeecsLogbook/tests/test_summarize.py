@@ -43,6 +43,23 @@ from geecs_logbook.render import summarize
         ("\n\n\nleading blank lines", "leading blank lines"),
         ("", ""),
         ("```\nimport os\n```", ""),
+        # A table's first cell is an ordinary inline token, so it wins unless
+        # cells are skipped — and "Parameter" or "Date" is content-free while
+        # LOOKING like a summary. Both shapes come from the editor's own
+        # headline features: the toolbar's table skeleton and a spreadsheet
+        # paste. A test pinning this existed and was dropped when the
+        # function moved packages; nothing noticed.
+        (
+            "| Parameter | Value |\n|---|---|\n| a | b |\n\nlooked fine",
+            "looked fine",
+        ),
+        ("| Date | Shots |\n|---|---|\n| x | 1 |\n\nprose after", "prose after"),
+        # a note that is one pasted screenshot — the commonest attachment
+        # shape here — must not collapse to an author and a timestamp
+        (
+            "![Screenshot 2026-09-12 at 14.02](attachments/a/b.png)",
+            "Screenshot 2026-09-12 at 14.02",
+        ),
     ],
 )
 def test_summary_of_the_shapes_people_write(body: str, expected: str) -> None:

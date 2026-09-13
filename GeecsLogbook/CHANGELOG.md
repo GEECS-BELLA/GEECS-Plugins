@@ -57,12 +57,39 @@ project adheres to semantic versioning.
   markdown and a single `*` is not emphasis. It now reads markdown-it's
   token stream instead of guessing, so emphasis loses its markers and
   arithmetic keeps its characters.
+- **Close silently published an autosaved entry.** Attaching a file saves a
+  real entry immediately; folding the composer away took its Discard button
+  with it, so the affordance returned, the author concluded nothing was
+  written, and the note was in the log. Close and `Esc` now refuse while the
+  entry is in the store, and name both ways out — refusing without an exit
+  is the Discard bug over again.
+- The summary returned a **table's first cell** (`"Parameter"`, `"Date"` —
+  the toolbar's own table skeleton, and a pasted spreadsheet), which is
+  content-free while looking like a summary; and **nothing at all** for a
+  note that is one pasted screenshot, the commonest attachment shape here.
+  A test pinning the table case existed and was dropped when the function
+  moved packages.
 - Guard holes, each found by mutation: the `<details>`-display rule matched
   only the bare `.entry{…}` form (missing `.panel.scan`, `#logbook .entry`,
   `:not([open])`, descendant and `@media` shapes) and read only one
   stylesheet; the variant-ordering rule never blanked Jinja, so the very
   pairs it was rewritten for — `.entry-agent`/`.entry` and
-  `.avatar-agent`/`.avatar` — were invisible to it.
+  `.avatar-agent`/`.avatar` — were invisible to it. It also recorded each
+  selector's **first** declaration while the cascade is decided by its
+  **last**, and eight selectors in this sheet are declared twice — so a
+  variant placed *between* two copies of its base was still overridden and
+  still passed. And a statement at-rule (`@import …;`, `@layer base;`)
+  erased every rule between it and the next `{`, because the prelude match
+  was not bounded at `;`.
+
+### Known, deliberately not fixed here
+
+- `summarize()` is a **second full markdown parse** per entry: 0.73 ms
+  against `render_markdown`'s 1.18 ms on a 12.6 KB body, so ~60% more
+  markdown work per entry and ~145 ms on a 200-entry month page. One
+  `_md.parse()` feeding both a render and a summarize removes it — a change
+  to `render_markdown`'s shape, which does not belong in a PR that has
+  already grown twice.
 
 ### Removed
 

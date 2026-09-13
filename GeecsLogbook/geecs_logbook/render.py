@@ -152,16 +152,31 @@ def summarize(body_md: str, limit: int = 120) -> str:
     none) and a callout keeps its text but loses its ``[!NOTE]`` marker,
     which the chip beside it already shows.
     """
+    in_table_cell = False
     for token in _md.parse(body_md or ""):
-        if token.type != "inline" or not token.content.strip():
+        # A table cell's contents is an ordinary inline token, so the first
+        # one wins and a summary reads "Parameter" or "Date" — the header of
+        # the toolbar's own table skeleton, or of a pasted spreadsheet.
+        # Content-free, and worse than empty because it looks like a summary.
+        if token.type in {"th_open", "td_open"}:
+            in_table_cell = True
+        elif token.type in {"th_close", "td_close"}:
+            in_table_cell = False
+        if in_table_cell or token.type != "inline" or not token.content.strip():
             continue
         # A line break inside one block is a child token carrying no content,
         # so joining on content alone glues the lines together — a wrapped
         # callout came out as "Jet pressure driftingchecked it".
         text = "".join(
-            " " if child.type in {"softbreak", "hardbreak"} else child.content
+            " "
+            if child.type in {"softbreak", "hardbreak"}
+            # an image's `content` IS its alt text. A note that is one pasted
+            # screenshot — the commonest attachment shape in this editor —
+            # otherwise collapsed to an author and a timestamp, which is the
+            # exact state a summary exists to prevent.
+            else child.content
             for child in (token.children or [])
-            if child.type in {"text", "code_inline", "softbreak", "hardbreak"}
+            if child.type in {"text", "code_inline", "softbreak", "hardbreak", "image"}
         ).strip()
         text = re.sub(r"^\[!\w+\]\s*", "", text)  # a callout's flavour marker
         if text:

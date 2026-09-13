@@ -432,7 +432,28 @@
   function closeComposer(anchor) {
     const host = document.querySelector(`[data-compose-host="${anchor}"]`);
     const row = document.querySelector(`[data-insert="${anchor}"]`);
-    if (host) host.hidden = true;
+    if (!host) return;
+    /* Refuse while the entry is already in the store. Attaching a file
+       autosaves a real entry, so folding the composer away would take its
+       Discard button with it: the affordance comes back, the author
+       reasonably concludes nothing was written, and the note is in the log.
+       A silent publish.
+
+       Refusing without an exit is the Discard-button bug again, so the
+       message names both. Nothing is discarded on the user's behalf —
+       Close stays non-destructive, which is what makes Esc safe to wire. */
+    const form = host.querySelector("form.composer");
+    if (form && form.dataset.entry) {
+      fail(form, {
+        message:
+          "This note was saved when you attached a file. " +
+          "Save it, or Discard to remove it.",
+      });
+      const ta = form.querySelector(".ta");
+      if (ta) ta.focus();
+      return;
+    }
+    host.hidden = true;
     if (row) row.hidden = false;
   }
 

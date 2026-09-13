@@ -104,17 +104,27 @@ def test_a_single_class_variant_is_declared_after_its_base() -> None:
                     if other != name and name.startswith(other + "-"):
                         together.add((f".{name}", f".{other}"))
 
-    css = re.sub(r"/\*.*?\*/", " ", _CSS.read_text(), flags=re.S)
-    first: dict[str, int] = {}
+    css = "\n".join(
+        re.sub(r"/\*.*?\*/", " ", path.read_text(), flags=re.S)
+        for path in (_CSS, _KIT_CSS)
+    )
+    last: dict[str, int] = {}
     for m in re.finditer(r"(?:^|(?<=[};{]))\s*([^{};\s][^{};]*?)\s*\{", css):
         for part in (s.strip() for s in m.group(1).split(",")):
             if re.fullmatch(r"\.[\w-]+", part):
-                first.setdefault(part, m.start(1))
+                # Assign, do not setdefault. Eight single-class selectors in
+                # this sheet are declared TWICE (.entries .avatar .author
+                # .stamp .entry-body .insert .composer .errmsg), and the
+                # cascade is decided by the LAST one. Recording the first
+                # made the guard pass for the wrong reason: a variant placed
+                # BETWEEN two copies of its base is still overridden, and
+                # that was invisible.
+                last[part] = m.start(1)
 
     inverted = [
         (variant, base)
         for variant, base in sorted(together)
-        if variant in first and base in first and first[base] > first[variant]
+        if variant in last and base in last and last[base] > last[variant]
     ]
     assert not inverted, (
         "declared before the rule they vary, and they share an element so "
@@ -170,7 +180,13 @@ def test_no_collapsible_element_is_given_a_display() -> None:
     # rules within, which is why the lookbehind admits `{` too.
     # (Same shape as the anchor bug in the kit's scoping
     # test, which is now three times this session.)
-    css = re.sub(r"@[\w-]+[^{]*\{", "{", css)
+    # Statement at-rules first (`@import …;`, `@layer base;`), then blocks,
+    # and BOTH bounded at `;`. A greedy `[^{]*` crossed semicolons and
+    # newlines, so one `@import` above a rule erased every rule between it
+    # and the next `{` in the file — including the one the guard exists to
+    # find. Neither sheet has one today, which is exactly why it was silent.
+    css = re.sub(r"@[\w-]+[^{;]*;", " ", css)
+    css = re.sub(r"@[\w-]+[^{;]*\{", "{", css)
     offenders = []
     for m in re.finditer(r"(?:^|(?<=[};{]))\s*([^{};\s][^{};]*?)\s*\{([^}]*)\}", css):
         body = m.group(2).replace(" ", "")
@@ -248,3 +264,25 @@ def test_inline_scripts_parse(template: Path) -> None:
             f"{template.name} inline script #{i + 1} does not parse:\n"
             + done.stderr.strip()
         )
+
+
+def test_both_books_share_one_collapse_preference() -> None:
+    """The two Collapse-All blocks agree on their storage key.
+
+    They are deliberately two: the scan log folds scans *and* entries, the
+    ops book only entries, and a third file for ~20 lines is not worth it.
+    But what genuinely couples them is the key — how dense a logbook reads
+    is one preference, not two — and nothing pinned it. This does, without
+    a new module: both name the same key, and neither names another.
+    """
+    keys: set[str] = set()
+    for template in _TEMPLATES:
+        text = re.sub(r"\{#.*?#\}", " ", template.read_text(), flags=re.S)
+        for block in re.findall(
+            r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", text, re.S
+        ):
+            keys |= set(re.findall(r"localStorage\.\w+\(\s*[\"\']([^\"\']+)", block))
+            keys |= {
+                m for m in re.findall(r'(?:const|let|var)\s+KEY\s*=\s*"([^"]+)"', block)
+            }
+    assert keys == {"scanlog.expandAll"}, keys

@@ -33,11 +33,13 @@
 
    Open by default — the notes are what you came to read — and Collapse All
    shuts them. The summary row is the head that was always there plus
-   `entry.summary`, the first line of prose with its markdown stripped, so a
-   shut entry says what it is rather than just who wrote it and when.
+   `r.summary` — `render.summarize()`, which reads the markdown parser's
+   token stream rather than stripping characters, so a shut entry says what
+   it is rather than just who wrote it and when.
 
    Edit/Delete stay in the summary. A click inside a <summary> toggles it,
-   so editor.js calls preventDefault on those. #}
+   so editor.js calls preventDefault on those and opens the entry itself.
+#}
 {% macro entry_article(r, writable, seeds, hay=false) %}
     <details class="entry{% if r.entry.kind.startswith('agent') %} entry-agent{% endif %}" open
              id="entry-{{ r.entry.entry_id }}"
