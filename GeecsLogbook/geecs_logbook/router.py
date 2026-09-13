@@ -31,6 +31,7 @@ from fastapi.templating import Jinja2Templates
 
 from geecs_logbook.attachments import AttachmentStore
 from geecs_logbook.mirror import ATTACHMENTS_DIR
+from geecs_logbook.models import KIT_STATE
 from geecs_logbook.routes import attachments, day, entries, month
 from geecs_logbook.routes._common import TEMPLATES_DIR, Context, initials
 from geecs_logbook.seed_templates import SeedTemplates
@@ -70,6 +71,10 @@ def create_log_router(
     """
     templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
     templates.env.filters["initials"] = initials
+    # A global, not a per-response key: every template that renders a scan
+    # status needs it, and threading it through each context is how one of
+    # them ends up rendering an uncoloured chip.
+    templates.env.globals["kit_state"] = KIT_STATE
 
     store: Optional[NotesStore] = None
     blobs: Optional[AttachmentStore] = None

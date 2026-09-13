@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "geecs-logbook"
-version = "0.6.0"
+version = "0.7.0"
 description = "Scan logbook: a day-document view over scan folders, with human commentary stored beside the data"
 authors = ["GEECS-BELLA"]
 readme = "README.md"
@@ -22,6 +22,11 @@ geecs-data-utils = { path = "../GEECS-Data-Utils", develop = true }
 geecs-schemas = { path = "../GEECS-Schemas", develop = true }
 
 [tool.poetry.group.dev.dependencies]
+# A TEST dependency, not a runtime one: no module under geecs_logbook/
+# imports it. The templates reach the theme's assets through the host's
+# mount ({{ root }}/theme/...), so the package itself needs it only to pin
+# KIT_STATE against the kit's real status vocabulary.
+geecs-web-theme = { path = "../GeecsWebTheme", develop = true }
 pytest = ">=8.0"
 httpx = ">=0.27"
 

@@ -17,6 +17,40 @@ from pydantic import BaseModel, Field
 
 ScanStatus = Literal["success", "failed", "aborted", "incomplete", "unknown"]
 
+#: How a scan status maps onto the kit's shared status vocabulary
+#: (:data:`geecs_web_theme.STATES`), which is what drives the chip colour.
+#:
+#: The mapping is deliberately NOT the identity on two names, and the
+#: reason is in "Status is reported, not inferred" in this package's
+#: CLAUDE.md. ``incomplete`` — an empty ``ScanEndInfo`` — is the most
+#: common state on the real share, so painting it amber painted most of a
+#: day amber; it is an absence of information, which is what the kit's
+#: ``unknown`` means. Our ``unknown`` is the opposite case: something WAS
+#: written and we cannot read it, which earns the amber.
+#:
+#: Nothing is lost where two statuses do share a colour, because the chip
+#: keeps its own *word* — the reader still sees "aborted" or "not
+#: finalised" written on it. Colour carries severity; text carries which.
+#:
+#: ``tests/test_models.py`` pins every value to a real kit state and every
+#: :data:`ScanStatus` to an entry here, so adding a status without deciding
+#: its severity fails rather than rendering an uncoloured chip.
+KIT_STATE: dict[str, str] = {
+    "success": "ok",
+    "failed": "failed",
+    "aborted": "degraded",
+    # NOT degraded. `incomplete` means ScanEndInfo is still empty — the most
+    # common state on the real share (37 of 49 across four sampled days), and
+    # this file's "Status is reported, not inferred" section records that
+    # painting it amber "painted most of a day amber". It is an absence of
+    # information, which is what the kit's `unknown` means.
+    "incomplete": "unknown",
+    # ...and this one IS the suspicious case: a non-empty ScanEndInfo we do
+    # not recognise. Something was written and we cannot read it, which is
+    # worth a colour. This pair is deliberately not the identity mapping.
+    "unknown": "degraded",
+}
+
 
 class ScanSummary(BaseModel):
     """One scan, as its folder describes it.

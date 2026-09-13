@@ -218,6 +218,11 @@ body.kit{
 
 .kit .chip[data-state="running"]::before{animation:kit-pulse 1.6s ease-in-out infinite}
 @keyframes kit-pulse{0%,100%{opacity:1}50%{opacity:.25}}
+/* The one animation that never ends, so the one that most needs an escape.
+   A surface's own reduced-motion rule usually kills `transition` only. */
+@media (prefers-reduced-motion:reduce){
+  .kit .chip::before{animation:none!important}
+}
 
 /* A bare dot for a dense list where the word is the row label beside it.
    Still never alone: give it aria-label or a title. */

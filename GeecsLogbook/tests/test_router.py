@@ -78,7 +78,7 @@ class TestDayPage:
     def test_small_day_opens_expanded(self, client: TestClient) -> None:
         """Under the threshold every scan block starts open."""
         html = client.get("/log/day/2026-09-11").text
-        assert html.count('<details class="card scan"') == 4
+        assert html.count('<details class="panel scan"') == 4
         assert "Collapse all" in html
 
 
@@ -99,7 +99,7 @@ class TestBusyDay:
         """Twenty-five scans render inside one campaign block."""
         html = busy.get("/log/day/2026-09-11").text
         assert html.count('<details class="campaign"') == 1
-        assert html.count('<details class="card scan"') == 25
+        assert html.count('<details class="panel scan"') == 25
 
     def test_rail_lists_campaigns_not_scans(self, busy: TestClient) -> None:
         """The rail shows one row per campaign so it stays scannable."""

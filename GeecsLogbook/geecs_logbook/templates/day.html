@@ -17,11 +17,15 @@
 {% set root = request.scope.get('root_path', '').rstrip('/') %}
 <script src="{{ root }}/theme/theme-boot.js"></script>
 <link rel="stylesheet" href="{{ root }}/theme/theme.css">
+{# kit.css after theme.css: the kit styles THROUGH the theme's tokens and
+   defines none of its own. Every kit rule is scoped to .kit on <body>, so
+   nothing here applies to a page that has not opted in. #}
+<link rel="stylesheet" href="{{ root }}/theme/kit.css">
 {# .path, not the absolute URL url_for returns: behind TLS termination or a
    host-rewriting proxy an absolute http:// URL is a mixed-content block. #}
 <link rel="stylesheet" href="{{ url_for('_static', name='scanlog.css').path }}">
 </head>
-<body>
+<body class="kit">
 
 {% macro fact(label, value) %}
 <div class="fact"><dt>{{ label }}</dt>
@@ -66,7 +70,7 @@
 {% endmacro %}
 
 {% macro scan_block(s, expanded, entries, writable) %}
-  <details class="card scan" id="{{ s.label }}"
+  <details class="panel scan" id="{{ s.label }}"
            data-hay="{{ (s.label ~ ' ' ~ (s.parameter or '') ~ ' ' ~ (s.purpose or '') ~ ' ' ~ s.devices|join(' ')) | lower }}"
            {% if expanded %}open{% endif %}>
     <summary class="scanhead">
@@ -80,7 +84,7 @@
       </span>
       <span class="scanpurpose{% if not s.purpose %} none{% endif %}">
         {{ s.purpose or 'No purpose recorded at submission' }}</span>
-      <span class="chip chip-{{ s.status }}">
+      <span class="chip" data-state="{{ kit_state[s.status] }}">
         {%- if s.status == 'incomplete' -%}
           {{ 'not finalised' if s.has_scan_info else 'no scan info' }}
         {%- else -%}
@@ -124,10 +128,10 @@
 {% set many = summary.scans | length > 20 %}
 
 <div class="topbar">
-  <div class="wrap">
+  <div class="topbar-in">
     <div class="brand">
       <strong>Scan Log</strong>
-      <span class="facility">{{ experiment }}</span>
+      <span class="sub">{{ experiment }}</span>
     </div>
     <label class="searchbox">
       <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor"
@@ -143,17 +147,17 @@
   </div>
 </div>
 
-<div class="wrap shell">
+<div class="shell">
 
   <aside class="rail">
     <section>
       <h4>Go to a day</h4>
       <div class="daypick">
-        <a class="stepday" href="{{ url_for('_day_page', day=prev_day.isoformat()) }}"
+        <a class="stepday" href="{{ url_for('_day_page', day=prev_day.isoformat()).path }}"
            title="Previous day" aria-label="Previous day">&lsaquo;</a>
         <input type="date" id="daypicker" value="{{ summary.day.isoformat() }}"
                aria-label="Jump to a date">
-        <a class="stepday" href="{{ url_for('_day_page', day=next_day.isoformat()) }}"
+        <a class="stepday" href="{{ url_for('_day_page', day=next_day.isoformat()).path }}"
            title="Next day" aria-label="Next day">&rsaquo;</a>
       </div>
       {% if summary.day != today %}
@@ -161,26 +165,28 @@
         Back to today</a>
       {% endif %}
       {{ shared.calendar('day') }}
-      <div class="daylist">
+      <nav class="picklist">
         {% for d in rail_days %}
-        <a class="day{% if d == summary.day %} is-active{% endif %}{% if d > today %} future{% endif %}"
-           href="{{ url_for('_day_page', day=d.isoformat()) }}">
+        <a class="day{% if d > today %} future{% endif %}"
+           {% if d == summary.day %}aria-current="page"{% endif %}
+           href="{{ url_for('_day_page', day=d.isoformat()).path }}">
           <span>{{ d.strftime('%a %d %b') }}</span>
           {% if d == today %}<span class="n">today</span>{% endif %}
         </a>
         {% endfor %}
-      </div>
+      </nav>
     </section>
 
     {% if summary.scans %}
     <section>
       <h4>{{ 'Campaigns' if many else 'Scans' }} ·
         {{ summary.campaigns | length if many else summary.scans | length }}</h4>
-      <div class="scanlist">
+      <nav class="picklist">
         {% if many %}
           {% for c in summary.campaigns %}
           <a class="scanrow" href="#{{ c.scans[0].label }}">
-            <span class="dot dot-{{ 'failed' if c.failed else c.scans[0].status }}"></span>
+            <span class="dot" data-state="{{ kit_state['failed' if c.failed else c.scans[0].status] }}"
+                  aria-hidden="true"></span>
             <span class="id">{{ '%03d' % c.scans[0].number }}</span>
             <span class="lbl">{{ c.parameter or '—' }}</span>
             <span class="count">{{ c.scans | length }}</span>
@@ -189,13 +195,13 @@
         {% else %}
           {% for s in summary.scans %}
           <a class="scanrow" href="#{{ s.label }}">
-            <span class="dot dot-{{ s.status }}"></span>
+            <span class="dot" data-state="{{ kit_state[s.status] }}" aria-hidden="true"></span>
             <span class="id">{{ '%03d' % s.number }}</span>
             <span class="lbl">{{ s.parameter or '—' }}</span>
           </a>
           {% endfor %}
         {% endif %}
-      </div>
+      </nav>
     </section>
     {% endif %}
   </aside>
@@ -232,7 +238,7 @@
     {% endif %}
 
     {% if entries.get('day') or writable %}
-    <section class="card intro">
+    <section class="panel intro">
       <header class="scanhead" style="cursor:default">
         <span class="scanid">Day intro</span>
         <span class="scanpurpose">What today is for, and the machine state going in</span>
@@ -256,7 +262,7 @@
           <span class="campparam">{{ c.parameter or '—' }}</span>
           <span class="camppurpose">{{ c.purpose or 'No purpose recorded' }}</span>
           {% endif %}
-          {% if c.failed %}<span class="chip chip-failed">{{ c.failed }} failed</span>{% endif %}
+          {% if c.failed %}<span class="chip" data-state="failed">{{ c.failed }} failed</span>{% endif %}
         </summary>
         <div class="campbody">
           {% for s in c.scans %}
@@ -343,7 +349,8 @@ document.querySelectorAll(".scanrow").forEach(a => a.addEventListener("click", (
 }));
 </script>
 {{ shared.seeds_json(seeds) }}
-<script src="{{ url_for('_static', name='editor.js') }}" defer></script>
+<script src="{{ url_for('_static', name='editor.js').path }}" defer></script>
+<script src="{{ root }}/theme/kit.js" defer></script>
 <script src="{{ url_for('_static', name='nav.js').path }}" defer></script>
 <script src="{{ root }}/theme/theme.js" defer></script>
 </body>

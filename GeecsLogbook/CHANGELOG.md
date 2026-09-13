@@ -4,6 +4,96 @@ All notable changes to `geecs-logbook` are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 project adheres to semantic versioning.
 
+## [0.7.0] - 2026-09-12
+
+### Changed
+
+- **The logbook adopts the surface kit.** `<body class="kit">` plus
+  `kit.css`, and the page's own copies of the shell, the topbar, the rail,
+  buttons, the selectable lists, the card and the status chips are
+  deleted rather than overridden — `scanlog.css` goes from 359 to 311
+  lines. The rail is the kit's 216 px with one breakpoint at 900 px,
+  replacing the logbook's 228 px and 860 px; scan blocks are `.panel`;
+  the day list and the scan list are both `.picklist`.
+- **One status vocabulary.** The nine `chip-*` / `dot-*` classes are gone.
+  `KIT_STATE` in `models.py` maps each `ScanStatus` onto a kit state, and
+  the chip keeps its own word. The mapping is deliberately not the
+  identity: `incomplete` (an empty `ScanEndInfo`, the most common state on
+  the real share) stays neutral, because painting it amber painted most of
+  a day amber; `unknown` (something was written and we cannot read it) is
+  the case that earns amber. Colour carries severity, text carries which.
+- A **tag is no longer a `.chip`.** It was borrowing the status chip,
+  whose leading dot means *state*, which a tag is not; it gets `.tag`.
+- The active day in the rail is marked with `aria-current="page"` rather
+  than an `is-active` class — the kit keys on the accessibility attribute,
+  which also closes a screen-reader gap the class never covered.
+
+### Fixed
+
+- **Five `url_for(...)` calls had no `.path`**, including both `editor.js`
+  script tags. Starlette returns an ABSOLUTE url built from the request
+  the app saw, so behind TLS termination that is `http://` — a
+  mixed-content block for a `<script src>`, meaning the editor's script
+  silently never loads and the composer stops working, with every test
+  green. Both templates have carried a comment saying to use `.path`
+  since they were written. Pinned by `tests/test_templates.py`.
+
+### Added
+
+- `geecs-web-theme` as a dependency (it has none of its own, so the edge
+  is one-way): the logbook needs its status vocabulary to map onto, and a
+  host mounting this package standalone can now serve the theme from here
+  rather than relying on the portal's mount.
+- `tests/test_models.py` pins `KIT_STATE` — every `ScanStatus` mapped,
+  every target a real kit state, the colour each status had is the colour
+  it keeps, and no failure ever reading as success.
+
+### Fixed (from adversarial review, before merge)
+
+- **`month.html` had not been converted at all.** Its `.card` composer and
+  every day group were left orphaned by the CSS deletion — no background,
+  border, radius or shadow — and their own overrides had been renamed to
+  `.panel.*`, matching nothing. A `git checkout` I used to revert a test
+  mutation had silently discarded the file's edits, and no test asserts the
+  month page's container class.
+- **The Save button in every composer** rendered as a plain neutral button:
+  `_entries.html` and `editor.js` emit `btn btn-sm btn-primary`, and the
+  three-class form was not covered by the rename. `editor.js` had not been
+  touched at all.
+- **`incomplete` and `unknown` had their severities swapped.** This package's
+  CLAUDE.md records that empty `ScanEndInfo` is the most common state on the
+  real share (37 of 49 across four sampled days) and that painting it amber
+  "painted most of a day amber" — yet `incomplete` was mapped to `degraded`,
+  while `unknown`, the genuinely unreadable case, went neutral. Both are now
+  the colour they had, and the test pins the colours rather than merely
+  asserting they are not `ok`.
+- The "today" chip no longer claims `running`, which in the kit carries a
+  permanent pulse — and that pulse had **no reduced-motion escape at all**
+  (GeecsWebTheme 0.2.1 adds one; the logbook's own reduced-motion rule only
+  kills `transition`).
+- A retired template name is no longer a `.chip`: it is not a status, and
+  the kit's chip leads with a dot that means *state* — the same rule this
+  PR applied to tags.
+- `.rail section + section` outlived the shell it belonged to and was
+  double-spacing rail sections against the kit's `gap`.
+- Dead markup dropped: `class="wrap shell"`, and the `daylist` / `scanlist`
+  hooks that existed only for the deleted rule.
+- **`.tag-retired` was declared above `.tag`**, so the base won on source
+  order and the retired-template name rendered accent-coloured — pixel
+  identical to the real tag beside it, which is the exact confusion the
+  class was added to remove. Caught by re-review; a markup assertion cannot
+  see it, so `tests/test_templates.py` now fails when any single-class
+  variant is declared before the rule it varies.
+- Three templates write `data-state` literally rather than through
+  `KIT_STATE`; a typo there renders an uncoloured chip that looks plausible
+  and passes any markup test. Every literal is now pinned against
+  `geecs_web_theme.STATES`.
+- `geecs-web-theme` moved to **dev** dependencies — no module under
+  `geecs_logbook/` imports it, and the templates reach the theme through the
+  host's mount. The root `CLAUDE.md` dependency graph, which claims to be
+  verified against each `pyproject.toml`, now names this edge and the
+  pre-existing `GEECS-Schemas` one it had also been missing.
+
 ## [0.6.0] - 2026-09-12
 
 Navigation polish, and the synchroniser's feed.
