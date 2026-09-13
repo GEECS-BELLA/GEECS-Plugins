@@ -63,6 +63,13 @@ the reviewed mock drew it, on the kit.
 - The scanner's template, script and stylesheet joined GeecsWebTheme's
   literal-colour walk.
 
+### Owed (recorded, not in this release)
+
+- The forwarded-prefix middleware, the `root` context processor and the
+  template guards are verbatim copies of the portal's and the logbook's;
+  they move into GeecsWebTheme in arc PR 5, when the fourth surface makes
+  three copies four (the brief's PR-5 row carries the same line).
+
 ## [0.1.0] - 2026-09-13
 
 The service layer and the HTTP API — PR 2 of the web scanner arc
