@@ -60,9 +60,18 @@ class GatedBox(FakeBox):
     receive a frame (a camera that stopped acquiring).
     """
 
-    def __init__(self, interval: float = 0.05, *, late_edge: bool = True) -> None:
+    def __init__(
+        self,
+        interval: float = 0.05,
+        *,
+        late_edge: bool = True,
+        stamp_step: float = 1.0,
+    ) -> None:
         super().__init__()
         self.interval = interval
+        #: Seconds between consecutive shots' ``acq_timestamp`` values — the
+        #: rep rate the stamps claim, independent of the pacer's wall clock.
+        self.stamp_step = stamp_step
         self.late_edge = (
             late_edge  # an edge in flight when OFF lands (the ~10% case at 1 Hz)
         )
@@ -99,7 +108,7 @@ class GatedBox(FakeBox):
 
     def edge(self) -> None:
         self.edges += 1
-        self.stamp += 1.0
+        self.stamp += self.stamp_step
         for cam in self.cameras:
             if cam.name in self.stall or (cam.name, self.edges) in self.drop:
                 continue

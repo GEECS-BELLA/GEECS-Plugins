@@ -49,13 +49,18 @@ from __future__ import annotations
 
 import logging
 import threading
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from geecs_data_utils.shot_join import SHOTS_STREAM
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    import numpy as np
+
+    from geecs_data_utils.shot_join import FrameColumns
 
 from geecs_bluesky.scan_log import ScanLogFile
 
@@ -65,6 +70,17 @@ Document = Mapping[str, Any]
 
 #: Seconds to wait for the file plugin to finalize a stack before reading it.
 DEFAULT_FINALIZE_TIMEOUT_S = 15.0
+
+#: The streams whose events can be a run's per-shot rows, in preference
+#: order: ``primary`` for a strict run, the per-shot sampler's ``shots`` for
+#: a gated one.  No other stream's events are buffered — ``baseline``'s two
+#: open/close rows are telemetry, not shots.
+ROW_STREAMS = ("primary", SHOTS_STREAM)
+
+#: How many runs' buffers to keep when a run never emits a stop document
+#: (the RunEngine always does, even on an abort, so this is a backstop
+#: against an unbounded process).
+_MAX_OPEN_RUNS = 8
 
 
 class _RunCallback:
@@ -151,6 +167,9 @@ class _Stack:
         datum-only stream, whose rows do not exist).
     width :
         The total number of frames the datums reference.
+    attributed :
+        Whether a datum has yet said which stream owns the stack (a
+        ``StreamResource`` does not name one, so the first datum does).
     """
 
     data_key: str
@@ -158,6 +177,7 @@ class _Stack:
     uri: str
     seq_nums: list[range] = field(default_factory=list)
     width: int = 0
+    attributed: bool = False
 
     @property
     def path(self) -> Path:
@@ -174,7 +194,11 @@ class _RunStreams:
     Attributes
     ----------
     rows :
-        Stream name → sequence number → the event row's data.
+        Stream name → the stream's event rows **in arrival order**, each as
+        ``(sequence number, data)``.  Both orders matter: the s-file takes
+        the rows as they arrived (what the pre-2c writer did, and a partial
+        row is data — ``EVENT_SCHEMA.md``), while the stack check maps a
+        datum's sequence numbers onto rows and so needs them keyed.
     stacks :
         Data key → the stack it references.
     drain_offsets :
@@ -182,14 +206,22 @@ class _RunStreams:
         §11.4; read from the streams' descriptor configuration).
     """
 
-    rows: dict[str, dict[int, dict[str, Any]]] = field(default_factory=dict)
+    rows: dict[str, list[tuple[int, dict[str, Any]]]] = field(default_factory=dict)
     stacks: dict[str, _Stack] = field(default_factory=dict)
     drain_offsets: dict[str, float] = field(default_factory=dict)
 
     def stream_rows(self, stream: str) -> list[dict[str, Any]]:
-        """The event rows of *stream*, in sequence order."""
-        rows = self.rows.get(stream) or {}
-        return [rows[seq] for seq in sorted(rows)]
+        """The event rows of *stream*, in arrival order (the s-file's rows)."""
+        return [data for _seq, data in self.rows.get(stream) or ()]
+
+    def rows_by_seq(self, stream: str) -> dict[int, dict[str, Any]]:
+        """The event rows of *stream* keyed by sequence number, last one winning.
+
+        The RunEngine reuses a sequence number after a rewind, and a datum
+        that names it means the row emitted last — which is what plain
+        assignment in arrival order gives.
+        """
+        return {seq: data for seq, data in self.rows.get(stream) or ()}
 
     def row_stream(self) -> str:
         """The stream the run's per-shot rows are in.
@@ -197,7 +229,7 @@ class _RunStreams:
         ``primary`` when it carried events (strict), else the sampler's
         ``shots`` (gated), else ``""``.
         """
-        for stream in ("primary", SHOTS_STREAM):
+        for stream in ROW_STREAMS:
             if self.rows.get(stream):
                 return stream
         return ""
@@ -227,7 +259,18 @@ class _StreamCallback(_RunCallback):
         self._threads: list[threading.Thread] = []
 
     def on_start(self, start: dict[str, Any]) -> None:
-        """Open the run's buffers."""
+        """Open the run's buffers, evicting any run that never closed."""
+        while len(self._runs) >= _MAX_OPEN_RUNS:
+            stale, _ = self._runs.popitem()  # insertion-ordered: the oldest
+            logger.warning(
+                "%s: run %s never emitted a stop document; its buffers are dropped",
+                type(self).__name__,
+                stale,
+            )
+            self._streams = {k: v for k, v in self._streams.items() if v[0] != stale}
+            self._resources = {
+                k: v for k, v in self._resources.items() if v[0] != stale
+            }
         self._runs[str(start["uid"])] = _RunStreams()
 
     def on_descriptor(self, doc: Document) -> None:
@@ -243,15 +286,17 @@ class _StreamCallback(_RunCallback):
                 run.drain_offsets[str(name)] = float(value)
 
     def on_event(self, doc: Document) -> None:
-        """Buffer an event row under its stream and sequence number."""
+        """Buffer an event row under its stream, in arrival order."""
         owner = self._streams.get(str(doc.get("descriptor")))
         if owner is None:
             return
         run_uid, stream = owner
+        if stream not in ROW_STREAMS:
+            return  # baseline telemetry and monitors are never per-shot rows
         run = self._runs.get(run_uid)
         if run is not None:
-            run.rows.setdefault(stream, {})[int(doc["seq_num"])] = dict(
-                doc.get("data") or {}
+            run.rows.setdefault(stream, []).append(
+                (int(doc["seq_num"]), dict(doc.get("data") or {}))
             )
 
     def on_stream_resource(self, doc: Document) -> None:
@@ -268,8 +313,10 @@ class _StreamCallback(_RunCallback):
         ):
             return
         key = str(doc["data_key"])
-        stream = self._streams.get(str(doc.get("descriptor")), (run_uid, "primary"))[1]
-        run.stacks[key] = _Stack(data_key=key, stream=stream, uri=str(doc["uri"]))
+        # A StreamResource names no descriptor (``event_model``'s schema has no
+        # such field), so every stack starts attributed to ``primary`` and its
+        # first datum — which does carry one — says which stream really owns it.
+        run.stacks[key] = _Stack(data_key=key, stream="primary", uri=str(doc["uri"]))
         self._resources[str(doc["uid"])] = (run_uid, key)
 
     def on_stream_datum(self, doc: Document) -> None:
@@ -282,9 +329,8 @@ class _StreamCallback(_RunCallback):
         stack = run.stacks.get(key) if run is not None else None
         if stack is None:
             return
-        if stack.stream == "primary":
-            # The resource predates its descriptor for a pre-declared stream;
-            # the datum carries the descriptor that actually owns it.
+        if not stack.attributed:
+            stack.attributed = True
             stack.stream = self._streams.get(
                 str(doc.get("descriptor")), (run_uid, stack.stream)
             )[1]
@@ -319,6 +365,7 @@ class _StreamCallback(_RunCallback):
             except Exception:
                 logger.warning("%s failed", name, exc_info=True)
 
+        self._threads = [t for t in self._threads if t.is_alive()]
         thread = threading.Thread(target=guarded, name=name, daemon=True)
         thread.start()
         self._threads.append(thread)
@@ -328,6 +375,36 @@ class _StreamCallback(_RunCallback):
         for thread in list(self._threads):
             thread.join(timeout)
         self._threads = [t for t in self._threads if t.is_alive()]
+
+
+def _await_all_finalized(paths: Sequence[Path], timeout: float) -> list[bool]:
+    """Wait once, for all of *paths*, returning each one's finalized state.
+
+    One shared deadline: a run with several stacks must not pay the timeout
+    per stack.
+    """
+    import time
+
+    deadline = time.monotonic() + timeout
+    done = [False] * len(paths)
+    while True:
+        for index, path in enumerate(paths):
+            if not done[index]:
+                done[index] = _is_finalized(path)
+        if all(done) or time.monotonic() >= deadline:
+            return done
+        time.sleep(0.2)
+
+
+def _is_finalized(path: Path) -> bool:
+    """Whether the plugin has marked the stack at *path* finalized."""
+    from geecs_data_utils.io.scan_stack import open_stack
+
+    try:
+        with open_stack(path) as f:
+            return bool(f.attrs.get("finalized", False))
+    except OSError:
+        return False
 
 
 def await_finalized(path: Path, timeout: float) -> bool:
@@ -351,21 +428,7 @@ def await_finalized(path: Path, timeout: float) -> bool:
     bool
         Whether the file is finalized.
     """
-    import time
-
-    from geecs_data_utils.io.scan_stack import open_stack
-
-    deadline = time.monotonic() + timeout
-    while True:
-        try:
-            with open_stack(path) as f:
-                if bool(f.attrs.get("finalized", False)):
-                    return True
-        except OSError:
-            pass
-        if time.monotonic() >= deadline:
-            return False
-        time.sleep(0.2)
+    return _await_all_finalized([path], timeout)[0]
 
 
 # ---------------------------------------------------------------- ScanInfo
@@ -546,9 +609,8 @@ class SFileCallback(_StreamCallback):
             )
             return
         stacks = run.datum_only_stacks()
-        offset = _clock_drain_offset(start, rows[0], run.drain_offsets)
         if not stacks:
-            self._write(start, rows, (), offset)
+            self._write(start, rows, (), run.drain_offsets)
             return
         logger.info(
             "scan %s: s-file from the %s rows joined to %d stack(s): %s",
@@ -564,7 +626,6 @@ class SFileCallback(_StreamCallback):
             rows,
             stacks,
             dict(run.drain_offsets),
-            offset,
             self.finalize_timeout,
         )
 
@@ -574,19 +635,30 @@ class SFileCallback(_StreamCallback):
         rows: list[dict[str, Any]],
         stacks: list[_Stack],
         drain_offsets: Mapping[str, float],
-        clock_offset: float,
         finalize_timeout: float,
     ) -> None:
         from geecs_data_utils.io.scan_stack import (
             LABVIEW_EPOCH_OFFSET,
             read_stack_attributes,
+            stack_scalar_variables,
         )
         from geecs_data_utils.shot_join import frame_columns_from_attributes
 
+        # One window for every stack, not one each: a gated run with three
+        # cameras whose plugin never finalizes must not hold its s-file for
+        # three timeouts.
+        finalized = {
+            stack.data_key: ready
+            for stack, ready in zip(
+                stacks,
+                _await_all_finalized([s.path for s in stacks], finalize_timeout),
+                strict=True,
+            )
+        }
         frames = []
         for stack in stacks:
             columns = None
-            if not await_finalized(stack.path, finalize_timeout):
+            if not finalized[stack.data_key]:
                 logger.warning(
                     "scan %s: %s not finalized within %.0f s (%s) — its per-frame "
                     "columns are absent from the s-file",
@@ -599,19 +671,34 @@ class SFileCallback(_StreamCallback):
                 columns = frame_columns_from_attributes(
                     stack.data_key,
                     read_stack_attributes(stack.path),
-                    drain_offset=float(drain_offsets.get(stack.data_key, 0.0)),
+                    variables=stack_scalar_variables(stack.path),
                     labview_epoch_offset=LABVIEW_EPOCH_OFFSET,
                 )
-            if columns is not None:
-                frames.append(columns)
-        self._write(start, rows, frames, clock_offset)
+            if columns is None:
+                continue
+            if stack.width and stack.width < len(columns):
+                # Frames the documents do not reference: a non-essential camera
+                # keeps writing between its ``collect`` and its ``unstage``, and
+                # a value in the s-file for a frame Tiled has no datum for would
+                # make the two disagree about the same shot.
+                logger.info(
+                    "scan %s: %s has %d frame(s) on disk and %d referenced by its "
+                    "datums; the join uses the referenced ones",
+                    start.get("scan_number"),
+                    stack.data_key,
+                    len(columns),
+                    stack.width,
+                )
+                columns = columns.truncated(stack.width)
+            frames.append(columns)
+        self._write(start, rows, frames, drain_offsets)
 
     @staticmethod
     def _write(
         start: Mapping[str, Any],
         rows: list[dict[str, Any]],
-        frames: Any,
-        clock_offset: float,
+        frames: "Sequence[FrameColumns]",
+        drain_offsets: Mapping[str, float],
     ) -> None:
         import pandas as pd
         from geecs_data_utils import write_scalar_files
@@ -620,30 +707,12 @@ class SFileCallback(_StreamCallback):
             dict(start),
             pd.DataFrame(rows),
             frames,
-            clock_drain_offset=clock_offset,
+            drain_offsets=drain_offsets,
         )
         if result is None:
             logger.warning(
                 "scan %s: scalar files not written", start.get("scan_number")
             )
-
-
-def _clock_drain_offset(
-    start: Mapping[str, Any],
-    row: Mapping[str, Any],
-    drain_offsets: Mapping[str, float],
-) -> float:
-    """The drain offset of the device whose stamp clocks the rows, seconds.
-
-    Only the worker sees the descriptors, so only the worker can supply
-    this to the join; the offline re-export reads what the catalog kept.
-    """
-    from geecs_data_utils.shot_join import ACQ_TIMESTAMP_SUFFIX, shot_clock_column
-
-    clock = shot_clock_column(start, list(row))
-    if clock is None:
-        return 0.0
-    return float(drain_offsets.get(clock[: -len(ACQ_TIMESTAMP_SUFFIX)], 0.0))
 
 
 # ---------------------------------------------------------------- scan.log
@@ -720,7 +789,7 @@ class StackCheckCallback(_StreamCallback):
         """Check every stack against its documents, off the RunEngine's thread."""
         gated = str(start.get("acquisition") or "") == "gated"
         for stack in run.stacks.values():
-            stream_rows = run.rows.get(stack.stream) or {}
+            stream_rows = run.rows_by_seq(stack.stream)
             column = f"{stack.data_key}-acq_timestamp"
             expected: list[float] | None = None
             shots: _ShotStamps | None = None
@@ -825,25 +894,28 @@ class _ShotStamps:
     ----------
     stamps :
         The rows' clock stamps, LabVIEW epoch, in row order.
-    window :
-        Half-width of the join window, seconds.
+    windows :
+        Per-row half-windows, seconds
+        (``geecs_data_utils.shot_join.row_windows``).
     clock_offset, frame_offset :
         The clock device's and the camera's drain offsets, seconds.
     """
 
-    stamps: Any
-    window: float
+    stamps: Sequence[float]
+    windows: "np.ndarray"
     clock_offset: float = 0.0
     frame_offset: float = 0.0
 
-    def verdict(self, data_key: str, path: Path, frames: Any) -> tuple[str, bool]:
+    def verdict(
+        self, data_key: str, path: Path, frames: "np.ndarray"
+    ) -> tuple[str, bool]:
         """``(message, warning)`` for the stamp comparison of this stack."""
         from geecs_data_utils.shot_join import join_frames_to_shots
 
         join = join_frames_to_shots(
             self.stamps,
             frames,
-            window=self.window,
+            windows=self.windows,
             shot_offset=self.clock_offset,
             frame_offset=self.frame_offset,
         )
@@ -854,9 +926,10 @@ class _ShotStamps:
                 f"shots rows' stamps",
                 False,
             )
+        widest = float(max(self.windows)) if len(self.windows) else 0.0
         return (
             f"{data_key}: {join.matched} of {len(frames)} frame(s) in {path.name} "
-            f"fall on a shots row (±{self.window:.3f} s) — {len(join.orphans)} "
+            f"fall on a shots row (±{widest:.3f} s at most) — {len(join.orphans)} "
             f"orphan(s), {rows - join.matched} shot(s) with no frame",
             True,
         )
@@ -865,10 +938,11 @@ class _ShotStamps:
 def _shot_stamps(
     start: Mapping[str, Any], run: _RunStreams, data_key: str
 ) -> "_ShotStamps | None":
-    """The gated run's shot stamps and join window, or ``None`` without rows."""
+    """The gated run's shot stamps and per-row windows, or ``None`` without rows."""
     from geecs_data_utils.shot_join import (
         DEFAULT_SHOT_PERIOD_S,
-        join_window,
+        clock_device,
+        row_windows,
         shot_clock_column,
     )
 
@@ -882,8 +956,8 @@ def _shot_stamps(
     period = float(start.get("shot_period") or DEFAULT_SHOT_PERIOD_S)
     return _ShotStamps(
         stamps=stamps,
-        window=join_window(stamps, period),
-        clock_offset=_clock_drain_offset(start, rows[0], run.drain_offsets),
+        windows=row_windows(stamps, period),
+        clock_offset=float(run.drain_offsets.get(clock_device(clock), 0.0)),
         frame_offset=float(run.drain_offsets.get(data_key, 0.0)),
     )
 
@@ -909,25 +983,68 @@ def _stack_verdict(start: Mapping[str, Any], message: str, *, warning: bool) -> 
         )
 
 
-def subscribe_scan_outputs(run_engine: Any) -> tuple[int, int, int, int]:
-    """Subscribe the output callbacks; return their tokens.
+@dataclass(frozen=True)
+class ScanOutputs:
+    """The subscribed output callbacks of a RunEngine, and their tokens.
+
+    Returned so a caller can reach the two that finish their work on a
+    thread: :meth:`join` blocks until every pending stack read and s-file
+    write is done, which an orderly shutdown (or a test) needs and a
+    bare subscription token cannot give.
+    """
+
+    stack_check: StackCheckCallback
+    scan_log: ScanLogCallback
+    scan_info: ScanInfoCallback
+    sfile: SFileCallback
+    tokens: tuple[int, int, int, int]
+
+    def join(self, timeout: float | None = None) -> None:
+        """Wait for the pending stack reads and s-file writes."""
+        self.stack_check.join(timeout)
+        self.sfile.join(timeout)
+
+
+def subscribe_scan_outputs(run_engine: Any) -> ScanOutputs:
+    """Subscribe the output callbacks; return them with their tokens.
 
     Order is not load-bearing: the stack check appends its verdict to
     ``scan.log`` itself, after the log callback has closed the file.
+
+    Returns
+    -------
+    ScanOutputs
+        The four callbacks and their subscription tokens.  Iterating it is
+        not the same as the pre-0.85 four-tuple of tokens — read
+        ``.tokens`` for those.
     """
-    return (
-        run_engine.subscribe(StackCheckCallback()),
-        run_engine.subscribe(ScanLogCallback()),
-        run_engine.subscribe(ScanInfoCallback()),
-        run_engine.subscribe(SFileCallback()),
+    stack_check = StackCheckCallback()
+    scan_log = ScanLogCallback()
+    scan_info = ScanInfoCallback()
+    sfile = SFileCallback()
+    return ScanOutputs(
+        stack_check=stack_check,
+        scan_log=scan_log,
+        scan_info=scan_info,
+        sfile=sfile,
+        tokens=(
+            run_engine.subscribe(stack_check),
+            run_engine.subscribe(scan_log),
+            run_engine.subscribe(scan_info),
+            run_engine.subscribe(sfile),
+        ),
     )
 
 
 __all__ = [
+    "DEFAULT_FINALIZE_TIMEOUT_S",
+    "ROW_STREAMS",
     "SFileCallback",
+    "ScanOutputs",
     "ScanInfoCallback",
     "ScanLogCallback",
     "StackCheckCallback",
+    "await_finalized",
     "first_axis",
     "scan_info_lines",
     "scan_parameter",

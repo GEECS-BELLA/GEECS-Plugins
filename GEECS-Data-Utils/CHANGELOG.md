@@ -30,9 +30,12 @@ per-shot values live outside its event rows.
   `<device>-acq_timestamp`, a subscribed scalar becomes
   `<device>-<scalar>`).  `SHOTS_STREAM` lives here too — the stream name is
   a document contract the plan, the callback and the re-export all share.
-- **`tiled_export.join_frame_columns`** and the `frames` /
-  `clock_drain_offset` arguments of `build_legacy_scalar_dataframe` and
-  `write_scalar_files`: the joined columns are appended to the rows before
+- **`tiled_export.join_frame_columns`** and the `frames` / `drain_offsets`
+  arguments of `build_legacy_scalar_dataframe` and
+  `write_scalar_files`: **one** offsets map covers both sides of the join
+  (the clock device's and every source's), so the live path and the
+  re-export cannot correct by different amounts.  The joined columns are
+  appended to the rows before
   the header map renames them, so **one** projection serves both shapes of
   run.  One s-file row per essential shot, always: a frame with no row
   inside the window is an orphan and stays in the stack and in Tiled (Sam,
@@ -40,13 +43,17 @@ per-shot values live outside its event rows.
   row already carries is never overwritten (a strict run's essential camera
   is read per shot and its row is the authority).  Orphans and duplicates
   are logged per source with the window they were measured against.
-- **`tiled_export.read_run_rows` / `read_frame_columns`**: the offline
-  re-export reads a gated run too — the rows from `primary` when it has
-  events and from `shots` otherwise, and the per-frame columns of every
-  table-less stream from its 1-D attribute arrays by name.  A frame stack,
-  the only multi-dimensional part, is never downloaded (the #836 lesson);
-  drain offsets come from the stream's descriptor configuration when the
-  catalog kept it, else `0.0`.
+- **`tiled_export.read_run_rows` / `read_frame_columns` /
+  `read_drain_offsets`**: the offline re-export reads a gated run too — the
+  rows from `primary` when it has events and from `shots` otherwise, and
+  the per-frame columns of every **other** stream from its 1-D attribute
+  arrays by name (the test is "not the row stream", which is exactly what
+  `read_run_rows` decided, so the two cannot disagree about a stream whose
+  table part happens to be empty).  A frame stack, the only
+  multi-dimensional part, is never downloaded (the #836 lesson).  Drain
+  offsets are read once for the whole run from each stream node's
+  descriptor configuration — Tiled keeps it at the top of the node's
+  metadata, and a writer that nests it under `descriptors` is read too.
 
 ### Changed
 

@@ -206,10 +206,14 @@ are `primary`'s events when it has them and the sampler's `shots` events
 otherwise, and every **datum-only** stream's per-frame columns are joined
 onto them by offset-corrected stamp — the join itself is
 `geecs_data_utils.shot_join`, shared with the offline re-export so the two
-cannot drift.  One row per essential shot: a camera's per-frame scalars
-and its own stamp come from its stack under the names a *strict* row uses,
-an orphan frame stays in the stack and in Tiled, a shot without a frame
-reads `NaN`, and a column the row already carries wins.  Such a run's
+cannot drift, and fed **one** drain-offsets map (from the streams'
+descriptor configuration) that covers both sides of every comparison.  One
+row per essential shot: a camera's per-frame scalars and its own stamp come
+from its stack under the names a *strict* row uses, each row takes the
+nearest frame in its own window, an orphan frame stays in the stack and in
+Tiled, a shot without a frame reads `NaN`, and a column the row already
+carries wins.  Frames past what a stream's datums referenced are not s-file
+data.  Such a run's
 s-file is written on a thread (a stack may only be read once the plugin
 finalizes it, which happens at `unstage`, after the stop document); a run
 with no datum-only stream is still written synchronously.

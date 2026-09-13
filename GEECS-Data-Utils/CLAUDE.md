@@ -313,20 +313,23 @@ this package and must never depend on GeecsBluesky or a GUI package).
   evolves, touch this file.
 - **`shot_join`** — the one home of the rule that joins a run's per-frame
   stream columns onto its shot rows (`FrameColumns`,
-  `join_frames_to_shots`, `join_window`, `shot_clock_column`,
+  `join_frames_to_shots`, `row_windows`, `shot_clock_column`,
   `frame_columns_from_attributes`, `SHOTS_STREAM`;
   `Planning/native_bluesky/08_gated_batch.md` §4.5).  Pure arithmetic over
   arrays — no I/O, no Bluesky, no pandas — because two callers must agree
   exactly: the worker's live s-file callback, reading the stacks off the
   share, and `tiled_export`'s offline re-export, reading the same columns
-  back out of Tiled.  Both sides of a comparison are corrected by their
-  device's drain offset first (a shot's cross-device stamps differ by a
-  per-device constant, `03_clean_room_rebuild.md` §11.3/§11.4), and the
-  match window is half the shot period capped at half the closest gap
-  between two rows, so two rows can never contend for one frame.  A frame
-  with no row inside its window is an **orphan**: it stays in the stack and
-  in Tiled and is left out of the s-file — one s-file row per essential
-  shot, always.
+  back out of Tiled.  **One** `drain_offsets` map covers both sides of every
+  comparison (a shot's cross-device stamps differ by a per-device constant,
+  `03_clean_room_rebuild.md` §11.3/§11.4) — correcting only one side shifts
+  the s-file by a row, which is wrong data rather than missing data, so the
+  two sides must never come from two places.  Each row's match window is
+  **its own**: half the shot period, narrowed to half the distance to its
+  closest neighbour and half-open, so no frame can be claimed by two rows
+  and one anomalous pair of row stamps tightens only those two rows.  Each
+  row takes the **nearest** frame in its window.  A frame no row claims is
+  an **orphan**: it stays in the stack and in Tiled and is left out of the
+  s-file — one s-file row per essential shot, always.
 - **`tiled_export`** — the legacy scalar files of a Bluesky run, live
   (`write_scalar_files` from the documents, what the worker calls) or
   offline (`write_scalar_files_from_tiled`).  The rows are `primary`'s

@@ -41,7 +41,18 @@ from tests.ca_mock_helpers import (  # noqa: E402
 )
 from tests.test_claim_scan import FakeClaim  # noqa: E402
 from tests.test_plan_registry import Magnet  # noqa: E402
-from tests.test_strict_plans import WRITES, FakeBox, _camera  # noqa: E402
+from tests.test_gated_plans import (  # noqa: E402
+    _events_from_pages,
+    _magnet,
+    _stream_events,
+)
+from tests.test_strict_plans import (  # noqa: E402
+    WRITES,
+    FakeBox,
+    _attributes_xml,
+    _camera,
+    _plugin_camera,
+)
 
 
 # ---------------------------------------------------------- pure derivations
@@ -555,8 +566,6 @@ def test_a_gated_scan_writes_its_s_file_from_the_shots_rows_and_the_stacks(
     no shot row and stays out of the s-file.
     """
     from geecs_bluesky.devices.ca.snapshot import CaSnapshotReadable
-    from tests.test_gated_plans import _events_from_pages, _magnet, _stream_events
-    from tests.test_strict_plans import _attributes_xml, _plugin_camera
 
     plans, gated_box, sfile = gated_worker
     cameras = []
@@ -638,10 +647,8 @@ def test_a_gated_run_whose_stack_never_finalizes_still_gets_its_s_file(
     RE, gated_worker, tmp_path, caplog
 ):
     """The rows are the bulk of the s-file: a stack that never arrives costs its columns."""
-    from tests.test_gated_plans import _magnet
-    from tests.test_strict_plans import _plugin_camera
-
     plans, gated_box, sfile = gated_worker
+    sfile.finalize_timeout = 0.4  # nothing will ever appear; do not wait 6 s for it
     cam, _ = _plugin_camera(RE, gated_box, "UC_A", tmp_path)
     magnet = _magnet(RE)
     with caplog.at_level(logging.WARNING, logger="geecs_bluesky.callbacks"):
@@ -658,9 +665,6 @@ def test_a_strict_run_with_a_non_essential_camera_joins_its_stack(
     RE, gated_worker, tmp_path
 ):
     """The strict rows stay the primary events; the streamed camera joins by stamp."""
-    from tests.test_gated_plans import _magnet, _stream_events
-    from tests.test_strict_plans import _attributes_xml, _plugin_camera
-
     plans, gated_box, sfile = gated_worker
     essential = _camera(RE, gated_box, "UC_Main")
     streamed, _ = _plugin_camera(RE, gated_box, "UC_B", tmp_path)
@@ -681,18 +685,20 @@ def test_a_strict_run_with_a_non_essential_camera_joins_its_stack(
         e["data"]["uc_main-acq_timestamp"] for e in _stream_events(col, "primary")
     ]
     assert len(stamps) == 2
-    # B streamed the run's edges: a frame for each row plus one between steps
+    # Two frames are referenced by B's datum; the third is one the camera wrote
+    # between its collect and its unstage, which no datum covers — it must not
+    # reach the s-file even though it sits inside a row's window.
     _write_plugin_stack(
         _stack_uri(col, "uc_b"),
-        [stamps[0], (stamps[0] + stamps[1]) / 2, stamps[1]],
-        scalars={"meancounts": [1.0, 7.0, 2.0]},
+        [stamps[0], stamps[1], stamps[1] + 0.2],
+        scalars={"meancounts": [1.0, 2.0, 7.0]},
         device=streamed.name,
     )
     sfile.join(15.0)
     table = pd.read_csv(tmp_path / "analysis" / "s1.txt", sep="\t")
     assert len(table) == 2
     assert list(table["UC_Main acq_timestamp"]) == pytest.approx(stamps)
-    assert list(table["UC_B MeanCounts"]) == [1.0, 2.0]  # the 7.0 frame orphaned
+    assert list(table["UC_B MeanCounts"]) == [1.0, 2.0]  # the unreferenced 7.0 gone
 
 
 def test_stack_check_compares_a_gated_stack_with_the_shots_rows(tmp_path, caplog):
@@ -800,7 +806,251 @@ def test_stack_check_compares_a_gated_stack_with_the_shots_rows(tmp_path, caplog
     orphaned = feed(stack + [stack[-1] + 1.0], rows, "orphan")
     assert orphaned == [
         "scan 9: uc_a: 5 frame(s) in UC_A.h5, 5 referenced by the stream's datums",
-        "scan 9: uc_a: 4 of 5 frame(s) in UC_A.h5 fall on a shots row (±0.500 s) — "
-        "1 orphan(s), 0 shot(s) with no frame",
+        "scan 9: uc_a: 4 of 5 frame(s) in UC_A.h5 fall on a shots row "
+        "(±0.500 s at most) — 1 orphan(s), 0 shot(s) with no frame",
     ]
     assert any(r.levelno == logging.WARNING for r in caplog.records)
+
+
+# ------------------------------- live s-file == offline re-export (2c parity)
+class _Part:
+    """One part of a fake Tiled composite stream node."""
+
+    def __init__(self, value, family: str) -> None:
+        self.value = value
+        self.family = family
+
+    def read(self):
+        """The part's data; a frame stack must never be asked for."""
+        if self.family == "array" and getattr(self.value, "ndim", 1) > 1:
+            raise AssertionError("a frame stack must never be downloaded")
+        return self.value
+
+
+class _Stream:
+    """A fake Tiled stream node: named parts plus the descriptor configuration."""
+
+    def __init__(self, parts: dict, configuration: dict) -> None:
+        self._parts = parts
+        self.metadata = {"configuration": configuration}
+
+    def get_contents(self) -> dict:
+        """Part name → structure family."""
+        return {
+            name: {"attributes": {"structure_family": part.family}}
+            for name, part in self._parts.items()
+        }
+
+    @property
+    def base(self) -> dict:
+        """The parts, by name."""
+        return self._parts
+
+
+class _Run:
+    """A run as Tiled would hold it, assembled from the documents a run emitted."""
+
+    def __init__(self, col, stacks: dict) -> None:
+        import h5py
+        import numpy as np
+
+        from geecs_data_utils.io.scan_stack import ATTRIBUTES_GROUP
+
+        self.metadata = {"start": col.docs["start"][0]}
+        self._streams: dict[str, _Stream] = {}
+        configurations = {
+            d["name"]: d.get("configuration") or {} for d in col.docs["descriptor"]
+        }
+        for name in {d["name"] for d in col.docs["descriptor"]}:
+            parts: dict[str, _Part] = {}
+            rows = _events_from_pages(col, name) + _stream_events(col, name)
+            if rows:
+                parts["internal"] = _Part(
+                    pd.DataFrame([r["data"] for r in rows]), "table"
+                )
+            for data_key, path in stacks.get(name, {}).items():
+                parts[data_key] = _Part(np.zeros((1, 2, 2)), "array")
+                with h5py.File(path, "r") as f:
+                    for attribute in f[ATTRIBUTES_GROUP]:
+                        parts[attribute] = _Part(
+                            np.asarray(f[f"{ATTRIBUTES_GROUP}/{attribute}"][:]), "array"
+                        )
+            self._streams[name] = _Stream(parts, configurations.get(name) or {})
+
+    def __iter__(self):
+        """The stream names."""
+        return iter(self._streams)
+
+    def __getitem__(self, key):
+        """One stream node."""
+        return self._streams[key]
+
+
+def test_the_offline_re_export_reproduces_the_live_s_file_of_a_gated_run(
+    RE, gated_worker, tmp_path
+):
+    """The PR's own contract, as one assertion (review of #858, test gap 7).
+
+    The worker writes the s-file from the documents and the stacks on the
+    share; the re-export reads the same run back and writes it again.  The
+    two tables must be identical — that is what "a re-export checks the live
+    path rather than re-implementing it" has to mean, and it is the single
+    test that catches a side of the join only one path corrects, or a stream
+    the two disagree about.
+    """
+    from geecs_bluesky.devices.ca.snapshot import CaSnapshotReadable
+    from geecs_data_utils.tiled_export import (
+        read_drain_offsets,
+        read_frame_columns,
+        read_run_rows,
+        write_scalar_files,
+    )
+
+    plans, gated_box, sfile = gated_worker
+    # A 5 Hz machine: the rows land 0.2 s apart, so every window is 0.1 s —
+    # tighter than the 0.2 s between the two cameras' drain offsets.  The join
+    # only lands if BOTH sides are corrected, in both paths.
+    gated_box.stamp_step = 0.2
+    cameras = []
+    for name in ("UC_A", "UC_B"):
+        cam, _ = _plugin_camera(RE, gated_box, name, tmp_path)
+        set_mock_value(
+            cam.hdf.nd_attributes_file,
+            _attributes_xml(
+                cam.name,
+                f"{cam.name}-hdf-image-frame_acq_timestamp",
+                f"{cam.name}-hdf-image-meancounts",
+            ),
+        )
+        set_mock_value(cam.drain_offset, 0.22 if name == "UC_A" else 0.02)
+        cameras.append(cam)
+    gauge = CaSnapshotReadable(
+        "U_Gauge", ["Pressure"], experiment="TestExp", name="u_gauge"
+    )
+    connect_mock(RE, gauge)
+    set_mock_value(gauge.pressure, 3e-6)
+    magnet = _magnet(RE)
+    col = DocCollector()
+    RE.subscribe(col)
+    RE(
+        plans["scan"](
+            [*cameras, gauge],
+            magnet,
+            -1.0,
+            1.0,
+            2,
+            shots_per_step=2,
+            acquisition="gated",
+        )
+    )
+    assert col.docs["stop"][-1]["exit_status"] == "success"
+    start = col.docs["start"][0]
+    assert start["shot_clock_column"] == "uc_a-acq_timestamp"
+
+    rows = _events_from_pages(col, "shots")
+    stamps = [r["data"]["uc_a-acq_timestamp"] for r in rows]
+    # each camera's frames carry ITS OWN stamps, 200 ms apart from each other,
+    # so nothing here is the rows' own numbers handed back
+    paths = {}
+    for cam, shift, counts in (
+        (cameras[0], 0.0, [10.0, 20.0, 30.0, 40.0]),
+        (cameras[1], -0.20, [11.0, 21.0, 31.0, 41.0]),
+    ):  # B stamps 200 ms before A for the same shot — its own drain offset
+        path = _stack_uri(col, cam.name)
+        _write_plugin_stack(
+            path,
+            [s + shift for s in stamps],
+            scalars={"meancounts": counts},
+            device=cam.name,
+        )
+        paths[cam.name] = path
+    sfile.join(15.0)
+    live = pd.read_csv(tmp_path / "analysis" / "s1.txt", sep="\t")
+    assert list(live["UC_A MeanCounts"]) == [10.0, 20.0, 30.0, 40.0]
+    assert list(live["UC_B MeanCounts"]) == [11.0, 21.0, 31.0, 41.0]
+
+    # the same run, read back out of a catalog and re-exported
+    run = _Run(col, {"primary": paths})
+    assert read_drain_offsets(run) == {"uc_a": 0.22, "uc_b": 0.02}
+    offline_folder = tmp_path / "offline" / "scans" / "Scan001"
+    offline_folder.mkdir(parents=True)
+    rows_df, row_stream = read_run_rows(run)
+    assert row_stream == "shots"
+    result = write_scalar_files(
+        {**start, "scan_folder": str(offline_folder)},
+        rows_df,
+        read_frame_columns(run, row_stream),
+        drain_offsets=read_drain_offsets(run),
+    )
+    assert result is not None
+    offline = pd.read_csv(result[0], sep="\t")
+    assert list(offline.columns) == list(live.columns)
+    pd.testing.assert_frame_equal(offline, live)
+
+
+def test_a_gated_run_with_a_non_essential_camera_joins_both_stream_shapes(
+    RE, gated_worker, tmp_path
+):
+    """08 §4.3 allows both mechanisms in one run; nothing covered the pair.
+
+    The gated camera's stack is referenced by the datum-only ``primary`` and
+    the streamed camera's by its own ``<name>_stream``: two different stream
+    shapes, one set of ``shots`` rows, one s-file.  The streamed camera sees
+    every edge including the in-flight one after OFF, so it brings a frame
+    the rows have no shot for — dropped, while its per-shot frames join.
+    """
+    plans, gated_box, sfile = gated_worker
+    essential, _ = _plugin_camera(RE, gated_box, "UC_A", tmp_path)
+    streamed, _ = _plugin_camera(RE, gated_box, "UC_B", tmp_path)
+    for cam in (essential, streamed):
+        set_mock_value(
+            cam.hdf.nd_attributes_file,
+            _attributes_xml(
+                cam.name,
+                f"{cam.name}-hdf-image-frame_acq_timestamp",
+                f"{cam.name}-hdf-image-meancounts",
+            ),
+        )
+    col = DocCollector()
+    RE.subscribe(col)
+    RE(plans["count"]([essential], 3, acquisition="gated", non_essential=[streamed]))
+    assert col.docs["stop"][-1]["exit_status"] == "success"
+    assert {d["name"] for d in col.docs["descriptor"]} == {
+        "primary",
+        "shots",
+        "uc_b_stream",
+    }
+    stamps = [r["data"]["uc_a-acq_timestamp"] for r in _events_from_pages(col, "shots")]
+    assert len(stamps) == 3
+    widths = {
+        r["data_key"]: sum(
+            d["indices"]["stop"] - d["indices"]["start"]
+            for d in col.docs["stream_datum"]
+            if d["stream_resource"] == r["uid"]
+        )
+        for r in col.docs["stream_resource"]
+        if r["data_key"] in ("uc_a", "uc_b")
+    }
+    assert widths["uc_a"] == 3  # trimmed to the quota
+    assert widths["uc_b"] >= 3  # every edge the run produced
+    _write_plugin_stack(
+        _stack_uri(col, "uc_a"),
+        stamps,
+        scalars={"meancounts": [10.0, 20.0, 30.0]},
+        device="uc_a",
+    )
+    # B's stack holds exactly what its datum referenced, the trailing edges
+    # included: the first three are the shots, the rest have no row
+    extra = widths["uc_b"] - 3
+    _write_plugin_stack(
+        _stack_uri(col, "uc_b"),
+        [*stamps, *[stamps[-1] + 1.0 * (i + 1) for i in range(extra)]],
+        scalars={"meancounts": [11.0, 21.0, 31.0, *[99.0] * extra]},
+        device="uc_b",
+    )
+    sfile.join(15.0)
+    table = pd.read_csv(tmp_path / "analysis" / "s1.txt", sep="\t")
+    assert len(table) == 3
+    assert list(table["UC_A MeanCounts"]) == [10.0, 20.0, 30.0]
+    assert list(table["UC_B MeanCounts"]) == [11.0, 21.0, 31.0]
+    assert 99.0 not in set(table["UC_B MeanCounts"])

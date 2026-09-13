@@ -144,7 +144,7 @@ def _gated_start() -> dict:
     }
 
 
-def _frames(name: str, stamps: list[float], counts: list[float], offset: float = 0.0):
+def _frames(name: str, stamps: list[float], counts: list[float]):
     import numpy as np
 
     from geecs_data_utils.shot_join import FrameColumns
@@ -156,7 +156,7 @@ def _frames(name: str, stamps: list[float], counts: list[float], offset: float =
             f"{name}-acq_timestamp": np.array(stamps),
             f"{name}-meancounts": np.array(counts),
         },
-        drain_offset=offset,
+        raw_names={f"{name}-meancounts": "MeanCounts"},
     )
 
 
@@ -169,8 +169,10 @@ def test_a_gated_run_joins_its_cameras_onto_the_shots_rows() -> None:
     # A: a frame per shot plus the in-flight edge after OFF (an orphan);
     # B: a second camera 80 ms later, and no frame for shot 3.
     a = _frames("uc_a", [1001.0, 1002.0, 1004.0, 1005.0, 1006.0], [1, 2, 3, 4, 9])
-    b = _frames("uc_b", [1001.08, 1002.08, 1005.08], [11, 12, 14], offset=0.08)
-    df = build_legacy_scalar_dataframe(_gated_start(), _shots_df(), [a, b])
+    b = _frames("uc_b", [1001.08, 1002.08, 1005.08], [11, 12, 14])
+    df = build_legacy_scalar_dataframe(
+        _gated_start(), _shots_df(), [a, b], drain_offsets={"uc_b": 0.08}
+    )
     assert len(df) == 4
     assert list(df["Bin #"]) == [1, 1, 2, 2]
     assert list(df["Shotnumber"]) == [1, 2, 3, 4]
@@ -336,9 +338,13 @@ def test_read_frame_columns_reads_the_attributes_and_not_the_stack() -> None:
     from geecs_data_utils.io.scan_stack import LABVIEW_EPOCH_OFFSET
     from geecs_data_utils.tiled_export import read_frame_columns
 
-    (columns,) = read_frame_columns(_FakeGatedRun(), "shots")
+    run = _FakeGatedRun()
+    (columns,) = read_frame_columns(run, "shots")
     assert columns.object_name == "uc_a"
-    assert columns.drain_offset == 0.05
+    # the offsets come from the run, once, for both sides of the join
+    from geecs_data_utils.tiled_export import read_drain_offsets
+
+    assert read_drain_offsets(run) == {"uc_a": 0.05}
     assert list(columns.stamps)[:2] == [
         1.0 + LABVIEW_EPOCH_OFFSET,
         2.0 + LABVIEW_EPOCH_OFFSET,
@@ -376,3 +382,84 @@ def test_the_offline_re_export_of_a_gated_run_writes_one_row_per_shot(tmp_path) 
     assert len(reloaded) == 4
     assert list(reloaded["UC_A MeanCounts"]) == [1.0, 2.0, 3.0, 4.0]
     assert list(reloaded["Bin #"]) == [1, 1, 2, 2]
+
+
+def test_a_drain_offset_reaches_both_sides_through_write_scalar_files(tmp_path) -> None:
+    """Finding 1 of the #858 review: the clock's offset must be corrected too.
+
+    The clock camera stamps 220 ms after the trigger and the second camera
+    20 ms after it, and the rows sit 300 ms apart, so each window is 150 ms
+    — tighter than that 200 ms difference.  Correct both sides and each row
+    gets its own frame.  Correct only the frame side, which is what an
+    offline re-export did before this, and the s-file is **shifted by one
+    row**: every row carries the next shot's values and the last carries
+    none.  Not missing data — wrong data.
+    """
+    import numpy as np
+
+    from geecs_data_utils.tiled_export import build_legacy_scalar_dataframe
+
+    rows = pd.DataFrame(
+        {
+            "bin_number": [1, 1, 1, 1],
+            # the clock's raw stamps: trigger + 0.22
+            "uc_a-acq_timestamp": [1001.22, 1001.52, 1001.82, 1002.12],
+            "u_gauge-pressure": [1e-6, 1e-6, 1e-6, 1e-6],
+        }
+    )
+    # the second camera's raw stamps for the same four shots: trigger + 0.02
+    b = _frames("uc_b", [1001.02, 1001.32, 1001.62, 1001.92], [11, 12, 13, 14])
+    offsets = {"uc_a": 0.22, "uc_b": 0.02}
+    corrected = build_legacy_scalar_dataframe(
+        _gated_start(), rows, [b], drain_offsets=offsets
+    )
+    assert list(corrected["UC_B MeanCounts"]) == [11, 12, 13, 14]
+    # the clock side left at zero: every frame is 200 ms off its own row and
+    # 100 ms off the NEXT one, so each row steals the following shot's values
+    half_corrected = build_legacy_scalar_dataframe(
+        _gated_start(), rows, [b], drain_offsets={"uc_b": 0.02}
+    )
+    shifted = half_corrected["UC_B MeanCounts"].to_numpy()
+    assert list(shifted[:3]) == [12, 13, 14]
+    assert np.isnan(shifted[3])
+
+
+def test_a_gated_primary_with_an_empty_table_part_still_joins(caplog) -> None:
+    """Finding 2 of the #858 review: the two stream tests must agree.
+
+    ``read_run_rows`` falls through a stream whose table part is *empty*, so
+    ``read_frame_columns`` must not skip that same stream for having one —
+    it used to, and every camera column vanished with no warning at all.
+    """
+    import logging
+
+    import numpy as np
+
+    from geecs_data_utils.tiled_export import read_frame_columns, read_run_rows
+
+    run = _FakeGatedRun()
+    run._streams["primary"]._parts["internal"] = _FakePart(pd.DataFrame(), "table")
+    with caplog.at_level(logging.WARNING):
+        rows, stream = read_run_rows(run)
+    assert stream == "shots" and len(rows) == 4
+    (columns,) = read_frame_columns(run, stream)
+    assert columns.object_name == "uc_a"
+    assert list(columns.columns["uc_a-meancounts"]) == [1.0, 2.0, 3.0, 4.0, 9.0]
+    del np
+
+
+def test_a_column_no_header_names_is_reported_not_silently_dropped(caplog) -> None:
+    """Finding 5 of the #858 review: the drift detector must not be DEBUG."""
+    import logging
+
+    from geecs_data_utils.tiled_export import build_legacy_scalar_dataframe
+
+    drifted = _frames("uc_a", [1001.0, 1002.0, 1004.0, 1005.0], [1, 2, 3, 4])
+    drifted.columns["uc_a-max_counts"] = drifted.columns["uc_a-meancounts"]
+    drifted.raw_names["uc_a-max_counts"] = "Max Counts"
+    with caplog.at_level(logging.WARNING):
+        build_legacy_scalar_dataframe(_gated_start(), _shots_df(), [drifted])
+    assert "no scalar header names" in caplog.text
+    assert "uc_a-max_counts (GEECS 'Max Counts')" in caplog.text
+    # the plugin's own receive stamp is not a drift signal
+    assert "frame_recv_timestamp" not in caplog.text

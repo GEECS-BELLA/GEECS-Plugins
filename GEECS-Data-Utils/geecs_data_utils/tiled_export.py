@@ -38,7 +38,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Mapping, Optional
 
 import numpy as np
 import pandas as pd
@@ -47,8 +47,9 @@ from geecs_data_utils.shot_join import (
     DEFAULT_SHOT_PERIOD_S,
     SHOTS_STREAM,
     FrameColumns,
+    clock_device,
     join_frames_to_shots,
-    join_window,
+    row_windows,
     shot_clock_column,
 )
 from geecs_data_utils.tiled_catalog import read_tiled_config
@@ -76,7 +77,7 @@ def build_legacy_scalar_dataframe(
     primary_df: pd.DataFrame,
     frames: Sequence[FrameColumns] = (),
     *,
-    clock_drain_offset: float = 0.0,
+    drain_offsets: Mapping[str, float] | None = None,
 ) -> pd.DataFrame:
     """Build a legacy-format scalar DataFrame from a run's start doc + rows.
 
@@ -99,9 +100,12 @@ def build_legacy_scalar_dataframe(
         offset-corrected stamp.  A column a row already carries is never
         overwritten — a strict run's essential camera is read per shot, and
         the event row is the authority.
-    clock_drain_offset:
-        The drain offset of the device whose stamp clocks the rows, seconds
-        (the worker reads it from the stream's descriptor configuration).
+    drain_offsets:
+        Object name → its ``drain_offset``, seconds — the clock device's and
+        every frame source's alike, from the streams' descriptor
+        configuration.  **One** map for both sides of the join, so the
+        worker and the offline re-export cannot correct by different
+        amounts; a name it does not carry means ``0.0``.
 
     Returns
     -------
@@ -112,9 +116,7 @@ def build_legacy_scalar_dataframe(
     """
     headers: dict[str, str] = dict(start_doc.get("geecs_scalar_headers") or {})
     rows = (
-        join_frame_columns(
-            start_doc, primary_df, frames, clock_drain_offset=clock_drain_offset
-        )
+        join_frame_columns(start_doc, primary_df, frames, drain_offsets=drain_offsets)
         if len(frames)
         else primary_df
     )
@@ -137,8 +139,44 @@ def build_legacy_scalar_dataframe(
         else:
             logger.debug("geecs_scalar_headers key %r absent from the rows", event_key)
 
+    _warn_unnamed_frame_columns(frames, headers)
     out["Shotnumber"] = range(1, n_rows + 1)
     return out
+
+
+def _warn_unnamed_frame_columns(
+    frames: Sequence[FrameColumns], headers: Mapping[str, str]
+) -> None:
+    """Warn about a joined column no ``geecs_scalar_headers`` key claims.
+
+    The "a gated row carries the same columns as a strict row" promise
+    rests on one mangling (``geecs_core.pv_naming.normalize_component``)
+    producing the same spelling on the gateway's attribute name and on the
+    namespace's event key.  When it does not, the only symptom is a column
+    quietly missing from the s-file — so say so, in the GEECS vocabulary
+    where the source knows it (``FrameColumns.raw_names``).  The plugin's
+    own ``frame_recv_timestamp`` is never an s-file column and is not a
+    drift signal.
+    """
+    for source in frames:
+        unnamed = [
+            key
+            for key in source.columns
+            if key not in headers and not key.endswith("-frame_recv_timestamp")
+        ]
+        if unnamed:
+            logger.warning(
+                "%s: %d per-frame column(s) no scalar header names, left out of the "
+                "s-file: %s",
+                source.object_name,
+                len(unnamed),
+                ", ".join(
+                    f"{key} (GEECS {source.raw_names[key]!r})"
+                    if key in source.raw_names
+                    else key
+                    for key in sorted(unnamed)
+                ),
+            )
 
 
 def join_frame_columns(
@@ -146,7 +184,7 @@ def join_frame_columns(
     rows: pd.DataFrame,
     frames: Sequence[FrameColumns],
     *,
-    clock_drain_offset: float = 0.0,
+    drain_offsets: Mapping[str, float] | None = None,
 ) -> pd.DataFrame:
     """Add each frame source's per-frame columns to *rows*, joined by stamp.
 
@@ -166,8 +204,9 @@ def join_frame_columns(
         The run's row stream (one row per shot).
     frames:
         The datum-only stream sources to join.
-    clock_drain_offset:
-        Drain offset of the clock device, seconds.
+    drain_offsets:
+        Object name → its ``drain_offset``, seconds, for the clock device
+        and every source alike.
 
     Returns
     -------
@@ -184,28 +223,34 @@ def join_frame_columns(
             len(frames),
         )
         return rows
+    offsets = dict(drain_offsets or {})
     shot_stamps = rows[clock].to_numpy(dtype=float)
     period = float(start_doc.get("shot_period") or DEFAULT_SHOT_PERIOD_S)
-    window = join_window(shot_stamps, period)
+    windows = row_windows(shot_stamps, period)
+    clock_offset = float(offsets.get(clock_device(clock), 0.0))
     out = rows.copy()
     for source in frames:
         join = join_frames_to_shots(
             shot_stamps,
             source.stamps,
-            window=window,
-            shot_offset=clock_drain_offset,
-            frame_offset=source.drain_offset,
+            windows=windows,
+            shot_offset=clock_offset,
+            frame_offset=float(offsets.get(source.object_name, 0.0)),
         )
         if join.orphans or join.contested or join.matched != len(rows):
             logger.warning(
-                "%s: %d of %d frame(s) joined to %d row(s) on %s (±%.3f s) — "
-                "%d orphan(s) left out of the s-file, %d duplicate(s) dropped",
+                "%s: %d of %d frame(s) joined to %d row(s) on %s (windows "
+                "±%.3f-%.3f s, drain %+.3f s vs the clock's %+.3f s) — %d orphan(s) "
+                "left out of the s-file, %d duplicate(s) dropped",
                 source.object_name,
                 join.matched,
                 len(source),
                 len(rows),
                 clock,
-                window,
+                float(windows.min()) if windows.size else 0.0,
+                float(windows.max()) if windows.size else 0.0,
+                float(offsets.get(source.object_name, 0.0)),
+                clock_offset,
                 len(join.orphans),
                 len(join.contested),
             )
@@ -294,17 +339,24 @@ def read_run_rows(run: Any) -> tuple[pd.DataFrame, str]:
 
 
 def read_frame_columns(run: Any, row_stream: str) -> list[FrameColumns]:
-    """Per-frame columns of every datum-only stream of a recorded run.
+    """Per-frame columns of every stream of a recorded run except the rows'.
 
-    A stream with no table part carries no events: a gated run's
-    ``primary`` and every non-essential camera's ``<name>_stream``.  Its
-    per-frame attribute columns are 1-D arrays named
-    ``<device>-hdf-<variable>-<suffix>``
-    (``io.scan_stack.parse_attribute_name``), read by name — the frame
-    stack itself, the only multi-dimensional part, is never touched.  The
+    A stream other than the one the rows came from carries no per-shot row
+    of its own: a gated run's ``primary`` and every non-essential camera's
+    ``<name>_stream``.  Its per-frame attribute columns are 1-D arrays
+    named ``<device>-hdf-<variable>-<suffix>``
+    (``io.scan_stack.parse_attribute_name``), read **by name** — the frame
+    stack itself, the only multi-dimensional part, is never touched, and a
+    stream with no such part (``baseline``) contributes nothing.  The
     stamps come back in the stacks' Unix epoch and are converted to the
-    rows' LabVIEW epoch here.  Drain offsets come from the stream's
-    descriptor configuration when the catalog kept it, else ``0.0``.
+    rows' LabVIEW epoch here.
+
+    The test is deliberately "not the row stream" rather than "has no table
+    part": the two must agree with :func:`read_run_rows`, which falls
+    through a stream whose table is *empty*, and a gated ``primary`` that
+    carries an empty table part would otherwise lose every camera column
+    with no warning at all.  Joining a stream that does have rows would be
+    harmless anyway — the row is the authority for a column it carries.
 
     Parameters
     ----------
@@ -329,24 +381,16 @@ def read_frame_columns(run: Any, row_stream: str) -> list[FrameColumns]:
         if stream == row_stream:
             continue
         node = run[stream]
-        contents = node.get_contents()
-        if any(
-            item["attributes"]["structure_family"] == "table"
-            for item in contents.values()
-        ):
-            continue  # an event stream: its own rows carry its columns
-        offsets = _descriptor_drain_offsets(node)
         per_device: dict[str, dict[str, Any]] = {}
-        for part in contents:
+        for part in node.get_contents():
             parsed = parse_attribute_name(str(part))
             if parsed is None:
                 continue  # the frame stack (or a part of another shape)
             per_device.setdefault(parsed[0], {})[str(part)] = node.base[part].read()
-        for device, attributes in per_device.items():
+        for device, attributes in sorted(per_device.items()):
             columns = frame_columns_from_attributes(
                 device,
                 attributes,
-                drain_offset=offsets.get(device, 0.0),
                 labview_epoch_offset=LABVIEW_EPOCH_OFFSET,
             )
             if columns is not None:
@@ -354,8 +398,24 @@ def read_frame_columns(run: Any, row_stream: str) -> list[FrameColumns]:
     return out
 
 
+def read_drain_offsets(run: Any) -> dict[str, float]:
+    """``{object name: drain offset}`` over every stream of a recorded run.
+
+    One map for the whole run, so the clock device's offset is found
+    wherever its stream happens to be — the gap that made an offline
+    re-export correct only one side of the join.
+    """
+    offsets: dict[str, float] = {}
+    for stream in run:
+        try:
+            offsets.update(_descriptor_drain_offsets(run[stream]))
+        except Exception:  # noqa: BLE001 - a stream without usable metadata
+            logger.debug("stream %r has no readable configuration", stream)
+    return offsets
+
+
 def _descriptor_drain_offsets(node: Any) -> dict[str, float]:
-    """``{object name: drain offset}`` from a stream node's descriptor configuration.
+    """``{object name: drain offset}`` from one stream node's descriptor configuration.
 
     A Tiled stream node carries the descriptor's ``configuration`` block at
     the top of its own metadata (verified against the lab catalog,
@@ -381,7 +441,7 @@ def _descriptor_drain_offsets(node: Any) -> dict[str, float]:
 
 
 def _fetch_run(uid: str, tiled_uri: str, tiled_api_key: Optional[str]):
-    """Return ``(start_doc, rows, frames)`` for *uid* from the Tiled catalog."""
+    """Return ``(start_doc, rows, frames, drain_offsets)`` for *uid* from Tiled."""
     try:
         from tiled.client import from_uri
     except ImportError as exc:  # pragma: no cover - exercised only without tiled
@@ -394,7 +454,12 @@ def _fetch_run(uid: str, tiled_uri: str, tiled_api_key: Optional[str]):
     run = client[uid]
     start_doc = dict(run.metadata.get("start") or {})
     rows, row_stream = read_run_rows(run)
-    return start_doc, rows, read_frame_columns(run, row_stream)
+    return (
+        start_doc,
+        rows,
+        read_frame_columns(run, row_stream),
+        read_drain_offsets(run),
+    )
 
 
 def write_scalar_files(
@@ -402,7 +467,7 @@ def write_scalar_files(
     primary_df: pd.DataFrame,
     frames: Sequence[FrameColumns] = (),
     *,
-    clock_drain_offset: float = 0.0,
+    drain_offsets: Mapping[str, float] | None = None,
 ) -> Optional[tuple[Path, Path]]:
     """Write the legacy scalar files for one run from its documents.
 
@@ -418,8 +483,8 @@ def write_scalar_files(
     frames:
         Per-frame columns of the run's datum-only stream sources, joined
         onto the rows by stamp (:func:`join_frame_columns`).
-    clock_drain_offset:
-        Drain offset of the device whose stamp clocks the rows, seconds.
+    drain_offsets:
+        Object name → its ``drain_offset``, seconds (:func:`join_frame_columns`).
 
     Returns
     -------
@@ -434,7 +499,7 @@ def write_scalar_files(
     scan_txt, sfile_txt = paths
 
     df = build_legacy_scalar_dataframe(
-        start_doc, primary_df, frames, clock_drain_offset=clock_drain_offset
+        start_doc, primary_df, frames, drain_offsets=drain_offsets
     )
     if df.empty:
         logger.warning(
@@ -488,5 +553,5 @@ def write_scalar_files_from_tiled(
             "~/.config/geecs_python_api/config.ini [tiled]"
         )
 
-    start_doc, rows, frames = _fetch_run(uid, tiled_uri, tiled_api_key)
-    return write_scalar_files(start_doc, rows, frames)
+    start_doc, rows, frames, offsets = _fetch_run(uid, tiled_uri, tiled_api_key)
+    return write_scalar_files(start_doc, rows, frames, drain_offsets=offsets)
