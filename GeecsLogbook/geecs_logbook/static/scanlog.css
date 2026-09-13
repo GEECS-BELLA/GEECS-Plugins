@@ -32,10 +32,12 @@ svg{display:block;max-width:100%}
 .hdr-actions{display:flex;gap:6px;margin-left:auto}
 /* A tag is not a status — it gets its own chip rather than borrowing the
    kit's, whose leading dot means "state". Same reason .tagchip exists. */
-.tag-retired{background:var(--surface-2);color:var(--muted)}
 .tag{display:inline-block;font-family:var(--ff-mono);font-size:10.5px;font-weight:500;
   letter-spacing:.05em;text-transform:uppercase;padding:2px 7px;border-radius:3px;
   white-space:nowrap;background:var(--accent-soft);color:var(--accent)}
+/* AFTER .tag, not before: both are one class, so source order decides and a
+   variant declared first loses to the base it is meant to vary. */
+.tag-retired{background:var(--surface-2);color:var(--muted)}
 .failstrip{background:var(--crit-soft);border-bottom:1px solid var(--rule-soft);padding:10px 16px}
 .failstrip .flabel{font-family:var(--ff-mono);font-size:10px;letter-spacing:.09em;
   text-transform:uppercase;color:var(--crit);font-weight:600;margin-bottom:4px}

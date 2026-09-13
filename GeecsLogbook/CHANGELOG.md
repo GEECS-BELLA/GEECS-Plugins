@@ -77,6 +77,16 @@ project adheres to semantic versioning.
   double-spacing rail sections against the kit's `gap`.
 - Dead markup dropped: `class="wrap shell"`, and the `daylist` / `scanlist`
   hooks that existed only for the deleted rule.
+- **`.tag-retired` was declared above `.tag`**, so the base won on source
+  order and the retired-template name rendered accent-coloured — pixel
+  identical to the real tag beside it, which is the exact confusion the
+  class was added to remove. Caught by re-review; a markup assertion cannot
+  see it, so `tests/test_templates.py` now fails when any single-class
+  variant is declared before the rule it varies.
+- Three templates write `data-state` literally rather than through
+  `KIT_STATE`; a typo there renders an uncoloured chip that looks plausible
+  and passes any markup test. Every literal is now pinned against
+  `geecs_web_theme.STATES`.
 - `geecs-web-theme` moved to **dev** dependencies — no module under
   `geecs_logbook/` imports it, and the templates reach the theme through the
   host's mount. The root `CLAUDE.md` dependency graph, which claims to be
