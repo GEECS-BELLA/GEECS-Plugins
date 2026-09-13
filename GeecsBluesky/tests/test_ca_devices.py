@@ -197,6 +197,44 @@ async def test_motor_set_completes_on_arrival() -> None:
     assert reading["jet-position"]["value"] == 4.5
 
 
+async def test_motor_arrival_exactly_on_tolerance_counts_as_arrived() -> None:
+    """A readback exactly one tolerance from target resolves, not times out.
+
+    Regression for U_ModeImagerESP Scan034: the stage reached -10.505 against
+    a -10.5 target with tolerance 0.005, but ``abs(-10.505 - -10.5)`` is
+    0.005000000000000782 in binary floating point, so the plain ``<=``
+    comparison polled the full move_timeout and paused the scan.
+    """
+    motor = CaMotor(
+        "U_ModeImagerESP",
+        "Position.Axis 1",
+        experiment="Undulator",
+        name="mode",
+        tolerance=0.005,
+        move_timeout=0.3,
+    )
+    await motor.connect(mock=True)
+    set_mock_value(motor.position, -10.505)
+    assert abs(-10.505 - -10.5) > 0.005  # the representation error is real
+    await asyncio.wait_for(motor.set(-10.5), timeout=2.0)
+
+
+async def test_motor_beyond_tolerance_still_times_out() -> None:
+    """The epsilon is representation slack, not a widened tolerance."""
+    motor = CaMotor(
+        "U_ModeImagerESP",
+        "Position.Axis 1",
+        experiment="Undulator",
+        name="mode",
+        tolerance=0.005,
+        move_timeout=0.3,
+    )
+    await motor.connect(mock=True)
+    set_mock_value(motor.position, -10.51)  # 0.01 out — twice the tolerance
+    with pytest.raises(GeecsMotorTimeoutError):
+        await motor.set(-10.5)
+
+
 async def test_motor_set_times_out_when_stuck() -> None:
     """Readback never converging raises GeecsMotorTimeoutError."""
     motor = CaMotor(
@@ -305,6 +343,19 @@ async def test_confirm_discrete_match_rejects_numeric_looking_near_miss() -> Non
     set_mock_value(device._confirm_readback, "1.04")
     with pytest.raises(GeecsConfirmTimeoutError):
         await device.set("1.0")
+
+
+async def test_confirm_exactly_on_tolerance_counts_as_matched() -> None:
+    """The same on-boundary fix applies to the confirming poll (#820).
+
+    |1.20 - 1.15| is 0.050000000000000044, not 0.05: an EMQ set landing
+    exactly on the 0.05 default must match, not time out.
+    """
+    device = _emq_confirm_device(tolerance=0.05)
+    await device.connect(mock=True)
+    set_mock_value(device._confirm_readback, 1.20)
+    assert abs(1.20 - 1.15) > 0.05  # the representation error is real
+    await asyncio.wait_for(device.set(1.15), timeout=2.0)
 
 
 async def test_snapshot_reads_latest_values() -> None:

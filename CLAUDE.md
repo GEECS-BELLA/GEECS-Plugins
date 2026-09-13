@@ -19,7 +19,9 @@ tooling. Each subdirectory is an independent Python package with its own
 | `GeecsPvaGateway/` | The PVA peer of GeecsCAGateway: distributed pvAccess server on each Windows camera server, exposing that host's GEECS camera images as NTNDArray PVs (gated subscriptions, latest-wins). Images stay off the central CA gateway by design |
 | `GEECS-MCP/` | The general GEECS MCP server for AI agents (OSPREY) — domains as modules, scans first: read tools (status/history/results/config listings/validation) + control verbs (submit with cap/etiquette/acknowledge-loop, ownership-gated stop, clear_queue) over `geecs_bluesky.qs_client` + the resolver + Tiled. Osprey integrates via `profile.yml` — central HTTP (the multi-machine mode) or stdio; see its `deploy/DEPLOYMENT.md` |
 | `GEECS-DataPortal/` | Scan-browsing web service (FastAPI, port 8200 on the worker host), read-only except explicit ScanAnalysis runs from its Analysis tab: day → scan → metadata/scalar plots/images in any browser, over the same `ScanCatalog` layer as the console's scan browser. Arc spec: `Planning/data_portal/` |
-| `LogMaker4GoogleDocs/` | Google Docs/Drive API wrapper for automated experiment logs |
+| `GeecsWebTheme/` | The shared look of every GEECS web surface, in two layers. `theme.css` settles **colour**: three themes (`bella` red/black, `laser` 532 nm green, `plasma` hydrogen Balmer), each light and dark, plus the picker. `kit.css` settles **everything else** — page shell, the three containers by role, one status vocabulary (`queued/running/ok/degraded/failed/unknown` + `agent`), controls, tables, the five pane states (incl. `stale` and `denied`), and the **overlay ladder** (`details` → inspector → drawer → `<dialog>` → route; take the lowest rung that fits). `kit.html` is its reference page, static beside the stylesheets so any host mounting it serves it at `<mount>/kit.html`. No runtime dependencies. Two rules it exists to enforce: surfaces style **through tokens, never with a literal colour**, and every kit rule is scoped to `.kit` so a surface adopts page by page — both pinned by its own tests, which walk the portal's and the editor's templates too. **Read its `CLAUDE.md` before building a new web surface** |
+| `GeecsLogbook/` | The logbook (successor to LogMaker4GoogleDocs): two books in one store — the **scans** book, a day-document view over scan folders, and the **ops** book, routine operations read by month — mounted by the Data Portal at `/log`. A day is a **query**, not a document — no daily job, no template stamping. Derived scan facts are rendered per request and stored nowhere; human commentary lives in the portal's state directory and is mirrored as markdown into `{experiment}/logbook/`, a tree of its own outside the data tree |
+| `LogMaker4GoogleDocs/` | Google Docs/Drive API wrapper for automated experiment logs — being replaced by `GeecsLogbook/` |
 
 Each subpackage has its own `CLAUDE.md` with deep architectural detail.
 
@@ -176,11 +178,37 @@ GEECS-DataPortal     →  GEECS-Data-Utils (tiled extra — the ScanCatalog
                         ephemeral-processing selector over
                         image_analysis.ephemeral's write-free seam, and
                         the Analysis tab's direct ScanAnalyzer runs)
+                        (+ GeecsLogbook, optional via the `log` extra —
+                        the scan logbook mounted at /log by --scan-log),
+                        GeecsWebTheme (the shared palette; the portal is
+                        the host that mounts it at /theme for every
+                        surface inside this app)
+GeecsWebTheme        →  (no deps at all — stylesheets, two small scripts
+                        and a path helper. Everything web-facing depends
+                        on it; it depends on nothing, which is why it is
+                        its own package rather than living inside the
+                        portal. Carries BOTH the colour tokens and the
+                        layout kit, so a new surface inherits the shell,
+                        the status words and the overlay ladder instead
+                        of inventing a fourth set)
+GeecsLogbook         →  GEECS-Data-Utils (ScanPaths only — it reads scan
+                        folders and nothing else), GEECS-Schemas (the
+                        LogEntry document and its payload union)
+                        (+ GeecsWebTheme, dev only — the templates reach
+                        the theme through the HOST's /theme mount, so the
+                        package needs it solely to pin its ScanStatus →
+                        kit-state mapping against the real vocabulary)
+                        — a peer VIEW LAYER of GEECS-DataPortal, which
+                        mounts it at /log behind the portal's `log`
+                        extra. Never imports the portal, ScanAnalysis, or
+                        anything Bluesky
 ScanAnalysis         →  GEECS-Data-Utils, ImageAnalysis, GEECS-Schemas,
                         LogMaker4GoogleDocs (+ fastapi/jinja2/uvicorn via
                         the `editor` extra — scan_analysis.config_editor,
                         the web config editor the portal mounts at /configs
-                        and `scan-config-editor` serves standalone)
+                        and `scan-config-editor` serves standalone;
+                        + GeecsWebTheme via that same extra — the theme
+                        has no dependencies, so the edge is one-way)
 GEECS-MCP            →  GeecsBluesky (qs-client + ca extras — the queue
                         client, preflight, config resolver/listings),
                         GEECS-Data-Utils (tiled extra — results lookup),
@@ -285,7 +313,8 @@ Every package has a `CHANGELOG.md` following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format:
 `GEECS-Data-Utils/`, `ScanAnalysis/`, `ImageAnalysis/`,
 `LogMaker4GoogleDocs/`, `GeecsBluesky/`, `GEECS-Core/`, `GeecsCAGateway/`,
-`GeecsPvaGateway/`, `GEECS-Schemas/`, `GEECS-Console/`.
+`GeecsPvaGateway/`, `GEECS-Schemas/`, `GEECS-Console/`, `GeecsLogbook/`,
+`GeecsWebTheme/`.
 
 Git tags (`geecs-scanner-v0.8.0` style) are cut at **milestones** — a state
 deployed across experiments or one we may need to reproduce (e.g. the
@@ -334,6 +363,7 @@ The rule is pinned by tests:
 - `ImageAnalysis/tests/analyzers/test_magspec_calib.py::TestScanFolderInvariant`
 - `ImageAnalysis/tests/processing/test_array1d_background.py`
 - `GEECS-Data-Utils/tests/test_scan_paths_create_invariant.py`
+- `GeecsLogbook/tests/test_scan_reader.py::TestScanFolderCreationInvariant`
 
 Each package's CLAUDE.md restates this rule with package-specific guidance for
 adding new analyzers/writers.
@@ -385,13 +415,19 @@ revisit. Speculative cleanup is not.
   its contents as reference implementations, and don't prune it
   opportunistically: what's still load-bearing needs the owner's judgment.
 
-- **`LogMaker4GoogleDocs` needs a refactor.** It works in production
-  (Google Doc log uploads) and is optional everywhere, but don't extend it
-  or use it as a style reference until that refactor happens. The
-  per-experiment Google Doc index IDs (`EXPERIMENT_FILE_IDS` in
-  `geecs_data_utils.doc_id_lookup`, LiveWatch's facility dropdown) get
-  their config home in that refactor; the candidates are the configs
-  repo's per-experiment tree or the share INI LogMaker already reads.
+- **`LogMaker4GoogleDocs` is being replaced, not refactored.** It works in
+  production (Google Doc log uploads) and is optional everywhere, but don't
+  extend it or use it as a style reference. Its successor is
+  `GeecsLogbook/`, being built in phases; LogMaker stays in place and
+  untouched until that arc can carry the Google Doc export, at which point
+  it is deleted rather than tidied.
+  The per-experiment Google Doc index IDs (`EXPERIMENT_FILE_IDS` in
+  `geecs_data_utils.doc_id_lookup`, LiveWatch's facility dropdown) were
+  going to get their config home in the refactor that is no longer
+  happening. **They are now unowned**: whichever lands first — the
+  logbook's export phase or a LiveWatch change that needs them — gives them
+  one, in the configs repo's per-experiment tree or the share INI LogMaker
+  already reads. `ScanAnalysis` still hard-depends on LogMaker until then.
 
 If you find yourself adding to this list, consider whether you're capturing
 real institutional knowledge or accumulating procrastination. Both are

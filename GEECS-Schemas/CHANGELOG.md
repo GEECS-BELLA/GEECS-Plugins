@@ -5,6 +5,17 @@ All notable changes to GEECS-Schemas are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.23.1] - 2026-09-13
+
+### Changed
+
+- Merge of `master` (d6f74211) into `feature/native-bluesky-plans`: the
+  two lines below were released in parallel and are listed in version
+  order; a block marked *(master line, parallel release)* reuses a version
+  number the branch also used for a different release.
+- `geecs_schemas.__init__` exports the union: the logbook vocabulary
+  (`LogEntry`, `Book`, …) from master and `ShotOffsets` plus the
+  plan-layer exports from the branch.
 
 ## [0.23.0] - 2026-09-13
 
@@ -76,6 +87,14 @@ the measured shot offsets.
   pattern `AnalysisDiagnostic._refuse_v1_layout` set), so every consumer
   gets the one message and none carries its own guard.
 
+## [0.22.0] - 2026-09-11 (master line, parallel release)
+
+### Added
+
+- `LogEntry.book` (`scans` | `ops`; an ops entry carries no scan anchor —
+  validated) and `LogEntry.tags` (parsed from the body by the logbook at
+  save). `Book` exported.
+
 ## [0.21.0] - 2026-09-10
 
 ### Added
@@ -100,6 +119,22 @@ the measured shot offsets.
   (plan of record §10.5).
 - `convert_optimizer_config` returns the legacy `device_requirements` as
   a `devices: list[PresetDevice]` group instead of a `SaveSet`.
+
+## [0.21.0] - 2026-09-11 (master line, parallel release)
+
+### Added
+
+- `geecs_schemas.log_entry` — `LogEntry`, the shape of one logbook entry
+  (GeecsLogbook writes it, GEECS-MCP will validate agent posts against it,
+  a mirror reader parses it back): an opaque `body_md`, a
+  kind-discriminated optional `payload` (`AnalysisPayload`,
+  `ProblemPayload`), an `Attachment` manifest, `scan`/`after` anchors
+  (neither = a day-level entry; both refused by a validator), `kind`
+  (`note`/`agent_analysis`/`agent_draft`), `status` (`kept`/`draft`),
+  `created_at`/`edited_at`/`edited_by`/`updated_at`/`deleted_at`, and an
+  optimistic-lock `version`. Registered as `log_entry` with a reference
+  example.
+
 
 ## [0.20.0] - 2026-09-08
 

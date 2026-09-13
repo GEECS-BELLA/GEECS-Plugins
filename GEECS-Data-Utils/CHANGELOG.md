@@ -3,6 +3,18 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.31.2] - 2026-09-13
+
+### Changed
+
+- Merge of `master` (d6f74211) into `feature/native-bluesky-plans`: the
+  two lines below were released in parallel and are listed in version
+  order; a block marked *(master line, parallel release)* reuses a version
+  number the branch also used for a different release.
+- `tiled_catalog` / `tiled_export` keep the branch's scalar-table-only
+  reads, the gated s-file join (#858) and the plural `motors` /
+  `plan_pattern` readers (#864); master's #851 backport of #836 carried
+  nothing the branch's versions lacked.
 
 ## [0.31.1] - 2026-09-12
 
@@ -172,6 +184,18 @@ per-shot values live outside its event rows.
   2026) now read as "not captured" — the PNGs beside them remain the
   record.  No converter, by the clean-slate rule.
 
+## [0.27.1] - 2026-09-12
+
+### Fixed
+
+- Backport of #836 to master (it had landed only on
+  `feature/native-bluesky-plans`): the Tiled catalog's `load_run` and the
+  s-file export read the primary stream's **scalar table only**.
+  `run['primary'].read().to_dataframe()` downloaded every array part and
+  outer-joined their dimensions — a two-camera plugin run pulled 14 GB and
+  took the worker host down (#834). Needed on master so the data portal
+  can deploy from master with the logbook (#849) without regressing.
+
 ## [0.27.0] - 2026-09-10
 
 ### Added
@@ -184,6 +208,24 @@ per-shot values live outside its event rows.
   `write_scalar_files_from_tiled` is now the fetch plus that call (the
   offline re-export).  Still a consumer of scan folders — never creates
   one.
+
+## [0.27.0] - 2026-09-11 (master line, parallel release)
+
+### Added
+
+- `scan_paths.read_scan_info_file(path)` — the one implementation of the
+  `[Scan Info]` parse, for callers that already hold the path and do not
+  want to build a `ScanPaths` (a per-scan object costs an `exists()` round
+  trip on a network share and raises on a folder that breaks the naming
+  convention). `ScanPaths.load_scan_info` now delegates to it, so there is
+  a single surface to fix when the format moves. Never raises: a missing,
+  sectionless or unreadable file reads as `{}`.
+- `scan_log_loader.first_log_timestamp(path)` — the timestamp of a scan
+  log's first record, reading only until the first parsable header rather
+  than the whole file. This is the honest answer to "when did this scan
+  run"; a scan folder's mtime is not, since any later pass that writes into
+  the folder moves it (measured over an hour off the real start).
+
 
 ## [0.26.1] - 2026-09-04
 

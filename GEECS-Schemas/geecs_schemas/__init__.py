@@ -39,6 +39,16 @@ from geecs_schemas.derived_channels import (
 )
 from geecs_schemas.experiment_defaults import DefaultActions, ExperimentDefaults
 from geecs_schemas.preset import PlanCall, Preset, PresetDevice
+from geecs_schemas.log_entry import (
+    AnalysisPayload,
+    Attachment,
+    Book,
+    EntryKind,
+    EntryPayload,
+    EntryStatus,
+    LogEntry,
+    ProblemPayload,
+)
 from geecs_schemas.scan_request import (
     AcquisitionMode,
     ActionBindings,
@@ -132,6 +142,15 @@ __all__ = [
     # shot_offsets
     "ShotOffsets",
     "DeviceOffset",
+    # log_entry
+    "LogEntry",
+    "Attachment",
+    "AnalysisPayload",
+    "ProblemPayload",
+    "EntryPayload",
+    "Book",
+    "EntryKind",
+    "EntryStatus",
     "SCHEMA_REGISTRY",
 ]
 
@@ -149,4 +168,5 @@ SCHEMA_REGISTRY: dict[str, type[VersionedSchemaModel]] = {
     "shot_offsets": ShotOffsets,
     "analysis_diagnostic": AnalysisDiagnostic,
     "analysis_group": AnalysisGroup,
+    "log_entry": LogEntry,
 }

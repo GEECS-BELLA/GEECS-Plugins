@@ -130,6 +130,7 @@ nav:
 # we want close to the docs source without surfacing them on the site.
 exclude_docs: |
   CLAUDE.md
+  sites/README.md
   DOCSTRING_SETUP_README.md
   development_guidelines.md
   docstring_templates.md

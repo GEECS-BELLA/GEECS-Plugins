@@ -3,6 +3,18 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.22.0] - 2026-09-11
+
+### Changed
+
+- The editor draws from `geecs_web_theme` (a new dependency of the `editor`
+  extra — it has none of its own, so the dependency is one-way). The
+  standalone app mounts the theme at `/theme` itself; the Data Portal's
+  mount at the same path wins when hosted. The copied fallback palette is
+  gone: a copy is exactly the drift the shared package exists to remove.
+  `create_editor_router(theme_url=)` defaults to `/theme` and the template
+  prefixes it with the request's `root_path` for reverse-proxy mounts.
+
 ## [1.21.0] - 2026-09-08
 
 ### Fixed

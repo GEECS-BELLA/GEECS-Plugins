@@ -4,6 +4,15 @@ All notable changes to GEECS-Console are documented here.  Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is
 semantic.
 
+## [0.32.1] - 2026-09-13
+
+### Changed
+
+- Merge of `master` (d6f74211) into `feature/native-bluesky-plans`: the
+  two lines below were released in parallel and are listed in version
+  order; a block marked *(master line, parallel release)* reuses a version
+  number the branch also used for a different release.
+
 ## [0.32.0] - 2026-09-12
 
 ### Removed
@@ -27,6 +36,20 @@ semantic.
   calls the client's removed funnel verb (`submit_scan`) and refuses at
   runtime against the new worker — the deployed worker stays on `master`
   until PR 3.
+
+## [0.30.1] - 2026-09-12
+
+### Changed
+
+- The `console-windows` CI job (the console suite and the qs_client tests
+  on `windows-latest`) is **off by default**, gated on the repository
+  Actions variable `CI_CONSOLE_WINDOWS` (`true` turns it on from
+  Settings, no commit). The console is not being changed and is slated
+  for retirement; the job added ~5 minutes to every check. It is the
+  console suite's **only** CI leg, so while off the suite is local-only —
+  `scripts/check.sh` still runs it when console files change. The
+  qs_client suite keeps its Ubuntu leg.
+
 
 ## [0.30.0] - 2026-09-04
 

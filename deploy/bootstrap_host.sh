@@ -44,7 +44,7 @@ SITE_ENV="$(cd "$(dirname "$SITE_ENV")" && pwd)/$(basename "$SITE_ENV")"   # abs
 load_site_env "$SITE_ENV"
 check_site_env_consistency
 require_site_keys GEECS_SERVICE_USER GEECS_SERVICE_HOME GEECS_CHECKOUT_ROOT GEECS_POETRY GEECS_REPO_URL \
-    GEECS_TILED_URI GEECS_QSERVER_HOST GEECS_DATA_ROOT
+    GEECS_TILED_URI GEECS_QSERVER_HOST GEECS_DATA_ROOT GEECS_PORTAL_MEMORY_HIGH GEECS_PORTAL_MEMORY_MAX
 require_runtime_keys
 # Read AFTER site.env is loaded (it may set the knob) — the same one
 # render_units.sh honours, so the rendered EnvironmentFile= path and the
@@ -63,7 +63,7 @@ say() { printf '\n== %s\n' "$1"; }
 SERVICES="gateway portal qserver capture mcp"
 clone_of()   { case "$1" in gateway) echo "gateway-checkout";; portal) echo "portal-checkout";; qserver|capture|mcp) echo "qs-checkout";; esac; }
 pkgdir_of()  { case "$1" in gateway) echo "GeecsCAGateway";; portal) echo "GEECS-DataPortal";; qserver|capture) echo "GeecsBluesky";; mcp) echo "GEECS-MCP";; esac; }
-extras_of()  { case "$1" in gateway) echo "";; portal) echo "analysis";; qserver) echo "ca tiled qserver";; capture) echo "ca tiled qserver capture";; mcp) echo "analysis-run";; esac; }
+extras_of()  { case "$1" in gateway) echo "";; portal) echo "analysis log";; qserver) echo "ca tiled qserver";; capture) echo "ca tiled qserver capture";; mcp) echo "analysis-run";; esac; }
 # The queueserver is two units: the manager and the geecs-qserver-ready oneshot
 # that opens its worker environment and asserts the plan list after every
 # (re)start (#793) — enabled together, rendered from the same clone.

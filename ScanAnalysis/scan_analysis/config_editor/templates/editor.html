@@ -4,19 +4,23 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>GEECS analysis config editor</title>
+{% set theme_base = request.scope.get('root_path', '').rstrip('/') ~ theme_url %}
+{# theme-boot.js stamps the palette before first paint (in <head>, not
+   deferred). Every host serves the theme — the portal at /theme, the
+   standalone app from geecs_web_theme itself — so there is no fallback
+   palette copy here to drift. #}
+<script src="{{ theme_base }}/theme-boot.js"></script>
+<link rel="stylesheet" href="{{ theme_base }}/theme.css">
 <link rel="stylesheet" href="static/editor.css">
 <style>
-  :root {
-    --bg: #12161a; --panel: #1a2026; --panel2: #20272e; --line: #2c353d;
-    --ink: #dde4ea; --dim: #8a95a0; --accent: #4cc2b4; --err: #cf5347;
-  }
   * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--ink);
-         font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
-  header { background: var(--panel); border-bottom: 1px solid var(--line);
+  body { margin: 0; background: var(--paper); color: var(--ink);
+         font: 14px/1.5 var(--ff-ui); }
+  header .spacer { margin-left: auto; }
+  header { background: var(--surface); border-bottom: 1px solid var(--rule);
            padding: 0.6rem 1.2rem; display: flex; gap: 1rem; align-items: baseline; }
   header .brand { font-weight: 600; color: var(--accent); }
-  header .sub { color: var(--dim); font-size: 12px; }
+  header .sub { color: var(--muted); font-size: 12px; }
   main { padding: 0.8rem 1.2rem; }
   #editor { height: calc(100vh - 5rem); }
 </style>
@@ -25,6 +29,7 @@
 <header>
   <span class="brand">GEECS analysis configs</span>
   <span class="sub">{% if read_only %}read-only browser{% else %}editor — saves write the configs tree; commit them yourself{% endif %}</span>
+  <span class="spacer"></span><div data-theme-picker></div>
 </header>
 <main>
   <div id="editor"></div>
@@ -40,5 +45,6 @@
     layout: "page",
   });
 </script>
+<script src="{{ theme_base }}/theme.js" defer></script>
 </body>
 </html>

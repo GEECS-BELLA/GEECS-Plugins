@@ -4,6 +4,11 @@ The access-and-contract layer everything else sits on: how you talk to
 GEECS devices, how GEECS is exposed to the wider EPICS ecosystem, and how a
 scan and its data are described.
 
+Want the whole platform on one screen first? The
+**[Data Flow Map](../sites/data_flow/index.html)** draws how devices, the
+gateways, the scan engine, storage and people connect, and where OSPREY plugs
+in. Click any block for what it does, how it works, its status and next steps.
+
 Looking for what is actually *deployed* — which host runs which service,
 on what port, with what health check, and how they all link together?
 Start at the **[Fleet Map](fleet_map.md)**. Deploying the same fleet on a

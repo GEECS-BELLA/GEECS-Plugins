@@ -1,0 +1,308 @@
+{#
+  The day document.
+
+  A day reads top to bottom, one block per scan folder. Every value shown
+  is derived from the share at request time — the logbook stores none of
+  it. Scans collapse individually (native <details>, so keyboard and
+  no-JS both work) and a day with many scans opens collapsed.
+#}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Scan Log — {{ summary.day.strftime('%d %b %Y') }}</title>
+{# theme-boot.js stamps the stored palette before first paint; in <head>,
+   not deferred. Prefixed with the request's root_path so a reverse-proxy
+   mount still resolves. No CDN fonts: the token stacks carry fallbacks. #}
+{% set root = request.scope.get('root_path', '').rstrip('/') %}
+<script src="{{ root }}/theme/theme-boot.js"></script>
+<link rel="stylesheet" href="{{ root }}/theme/theme.css">
+{# kit.css after theme.css: the kit styles THROUGH the theme's tokens and
+   defines none of its own. Every kit rule is scoped to .kit on <body>, so
+   nothing here applies to a page that has not opted in. #}
+<link rel="stylesheet" href="{{ root }}/theme/kit.css">
+{# .path, not the absolute URL url_for returns: behind TLS termination or a
+   host-rewriting proxy an absolute http:// URL is a mixed-content block. #}
+<link rel="stylesheet" href="{{ url_for('_static', name='scanlog.css').path }}">
+</head>
+<body class="kit">
+
+{% macro fact(label, value) %}
+<div class="fact"><dt>{{ label }}</dt>
+  <dd{% if value is none %} class="none"{% endif %}>{{ value if value is not none else '—' }}</dd></div>
+{%- endmacro %}
+
+{% import "_entries.html" as shared %}
+
+{# Entries, then ONE way to add another: an affordance, and a composer
+   folded behind it. Uniform everywhere — a scan, a gap, the day.
+
+   It was not. A gap with no notes hid its composer behind "+ note", while
+   a gap that already had one showed a composer permanently, and the day
+   page carried twenty-two open text boxes nobody asked for. The Close
+   button added for the first case did nothing in the second, because
+   there was no affordance to restore and no host to fold away. #}
+{% macro entries_block(anchor, scan, after, entries, writable, what='note') %}
+  {% set es = entries.get(anchor, []) %}
+  {% if es or writable %}
+  <div class="entries">
+    {% for r in es %}{{ shared.entry_article(r, writable, seeds) }}{% endfor %}
+    {% if writable %}
+    <div class="insert" data-insert="{{ anchor }}">
+      <div class="insert-rule"></div>
+      <button class="insert-btn" type="button">+ {{ what }}</button>
+      <div class="insert-rule"></div>
+    </div>
+    <div hidden data-compose-host="{{ anchor }}">
+      {{ shared.composer(seeds, scan=scan, after=after, anchor=anchor) }}
+    </div>
+    {% endif %}
+  </div>
+  {% endif %}
+{% endmacro %}
+
+{# A note between two scans is just a note. It carries its own timestamp,
+   which is usually out of step with the scans on either side, and that is
+   the point — the day reads as what happened in the order it happened.
+
+   It used to wear a <details class="between"> wrapper announcing "Between
+   scans" and the range it fell in. That was ceremony: where the entry sits
+   already says where it sits, and the wrapper made the same content look
+   like a different kind of thing from the identical note in the ops book. #}
+{# A note between two scans is just a note, and now adds like any other. #}
+{% macro between_block(after, entries, writable, prev_label, next_label) %}
+  {% set anchor = 'after-%04d' % after %}
+  {{ entries_block(anchor, none, after, entries, writable,
+                   'note after ' ~ prev_label) }}
+{% endmacro %}
+
+{% macro scan_block(s, expanded, entries, writable) %}
+  <details class="panel scan" id="{{ s.label }}"
+           {% if expanded %}open{% endif %}>
+    <summary class="scanhead">
+      <span class="twisty" aria-hidden="true"></span>
+      <span class="scanid">{{ s.label }}</span>
+      <span class="scantime{% if s.started_approximate %} approx{% endif %}"
+            {%- if s.started_approximate %} title="Approximate: no scan.log, so this is when ScanInfo was last written"{% endif %}>
+        {%- if s.started -%}
+          {{ '~' if s.started_approximate }}{{ s.started.strftime('%H:%M:%S') }}
+        {%- else -%}&mdash;{%- endif -%}
+      </span>
+      <span class="scanpurpose{% if not s.purpose %} none{% endif %}">
+        {{ s.purpose or 'No purpose recorded at submission' }}</span>
+      <span class="chip" data-state="{{ kit_state[s.status] }}">
+        {%- if s.status == 'incomplete' -%}
+          {{ 'not finalised' if s.has_scan_info else 'no scan info' }}
+        {%- else -%}
+          {{ {'success':'success','failed':'failed',
+              'aborted':'aborted','unknown':'check'}[s.status] }}
+        {%- endif -%}
+      </span>
+    </summary>
+
+    {% if s.failure_reason %}
+    <div class="failstrip">
+      <div class="flabel">
+        Scan {{ 'was aborted' if s.status == 'aborted' else 'ended with an error' }}
+        &mdash; from ScanEndInfo</div>
+      <div class="fmsg">{{ s.failure_reason }}</div>
+    </div>
+    {% endif %}
+
+    <div class="derived">
+      <div class="derived-label">
+        <span>Derived — not stored here</span>
+        <span>{{ s.label }}/ScanInfo{{ s.label }}.ini</span>
+      </div>
+      <dl class="facts">
+        {{ fact('Scan variable', s.parameter) }}
+        {% if s.start is not none and s.end is not none %}
+          {{ fact('Range', '%g → %g' % (s.start, s.end)) }}
+        {% else %}{{ fact('Range', none) }}{% endif %}
+        {{ fact('Step size', '%g' % s.step_size if s.step_size is not none else none) }}
+        {{ fact('Shots per step', s.shots_per_step) }}
+        {{ fact('Plan', s.plan) }}
+        {{ fact('Mode', s.mode) }}
+        {{ fact('Trigger profile', s.trigger_profile) }}
+        {{ fact('Devices', s.devices | join(', ') if s.devices else none) }}
+      </dl>
+    </div>
+    {{ entries_block('scan-%04d' % s.number, s.number, none, entries, writable) }}
+  </details>
+{% endmacro %}
+
+{# Volume only: a long day opens collapsed so it reads as a list.
+   This is a fact about how many scans there are, not a claim about
+   what they were for. #}
+{% set many = summary.scans | length > 20 %}
+
+<div class="topbar">
+  <div class="topbar-in">
+    <div class="brand">
+      <strong>Scan Log</strong>
+      <span class="sub">{{ experiment }}</span>
+    </div>
+    <div data-theme-picker></div>
+    <div data-density-picker></div>
+    <a class="btn booklink" href="{{ month_url }}">Ops book &rarr;</a>
+    <button class="btn" type="button" id="toggle-all"
+            data-expanded="{{ 'false' if many else 'true' }}">
+      {{ 'Expand all' if many else 'Collapse all' }}
+    </button>
+  </div>
+</div>
+
+<div class="shell">
+
+  <aside class="rail">
+    <section>
+      <h4>Go to a day</h4>
+      <div class="daypick">
+        <a class="stepday" href="{{ url_for('_day_page', day=prev_day.isoformat()).path }}"
+           title="Previous day" aria-label="Previous day">&lsaquo;</a>
+        <input type="date" id="daypicker" value="{{ summary.day.isoformat() }}"
+               aria-label="Jump to a date">
+        <a class="stepday" href="{{ url_for('_day_page', day=next_day.isoformat()).path }}"
+           title="Next day" aria-label="Next day">&rsaquo;</a>
+      </div>
+      {% if summary.day != today %}
+      <a class="todaylink" href="{{ url_for('_day_page', day=today.isoformat()).path }}">
+        Back to today</a>
+      {% endif %}
+      {{ shared.calendar('day') }}
+      <nav class="picklist">
+        {% for d in rail_days %}
+        <a class="day{% if d > today %} future{% endif %}"
+           {% if d == summary.day %}aria-current="page"{% endif %}
+           href="{{ url_for('_day_page', day=d.isoformat()).path }}">
+          <span>{{ d.strftime('%a %d %b') }}</span>
+          {% if d == today %}<span class="n">today</span>{% endif %}
+        </a>
+        {% endfor %}
+      </nav>
+    </section>
+
+    {% if summary.scans %}
+    <section>
+      <h4>Scans &middot; {{ summary.scans | length }}</h4>
+      <nav class="picklist">
+        {% for s in summary.scans %}
+          <a class="scanrow" href="#{{ s.label }}">
+            <span class="dot" data-state="{{ kit_state[s.status] }}" aria-hidden="true"></span>
+            <span class="id">{{ '%03d' % s.number }}</span>
+            <span class="lbl">{{ s.parameter or '—' }}</span>
+          </a>
+        {% endfor %}
+      </nav>
+    </section>
+    {% endif %}
+  </aside>
+
+  <main id="logbook" data-api="{{ api_base }}" data-day="{{ summary.day.isoformat() }}" data-book="scans" data-accept="{{ accept }}"
+        data-prev="{{ url_for('_day_page', day=prev_day.isoformat()).path }}"
+        data-next="{{ url_for('_day_page', day=next_day.isoformat()).path }}"
+        data-today="{{ url_for('_day_page', day=today.isoformat()).path }}">
+
+    <div class="dayhead">
+      <div>
+        <h1>{{ summary.day.strftime('%A, %-d %B %Y') }}</h1>
+        <div class="sub">{{ summary.folder }}</div>
+      </div>
+      <div class="daystats">
+        <div>Scans<b>{{ summary.scans | length }}</b></div>
+        {% if writable or entry_count %}<div>Notes<b>{{ entry_count }}</b></div>{% endif %}
+        {% if summary.failed %}<div>Failed<b>{{ summary.failed }}</b></div>{% endif %}
+      </div>
+    </div>
+
+    {% if ops_count %}
+    <a class="opsstrip" href="{{ ops_url }}">
+      <span class="tlabel">Ops book</span>
+      {{ ops_count }} ops note{{ '' if ops_count == 1 else 's' }} today &rarr;
+    </a>
+    {% endif %}
+
+    {% if not summary.exists %}
+      <p class="empty">No <code>scans/</code> directory for this date. Nothing ran,
+      or the share is not mounted where this service expects it.</p>
+    {% elif not summary.scans %}
+      <p class="empty">The day folder exists but holds no scans yet.</p>
+    {% endif %}
+
+    {% if entries.get('day') or writable %}
+    <section class="panel intro">
+      <header class="scanhead" style="cursor:default">
+        <span class="scanid">Day intro</span>
+        <span class="scanpurpose">What today is for, and the machine state going in</span>
+      </header>
+      {{ entries_block('day', none, none, entries, writable) }}
+    </section>
+    {% endif %}
+
+    {% set ns = namespace(prev=0, prev_label='the start of the day') %}
+    {# These are the scans that happened, in the order they happened. The
+       log reports them; it does not group them by what it thinks they were
+       for. Notes fall between them wherever their timestamps put them. #}
+    {% for s in summary.scans %}
+      {{ between_block(ns.prev, entries, writable, ns.prev_label, s.label) }}
+      {{ scan_block(s, not many, entries, writable) }}
+      {% set ns.prev = s.number %}{% set ns.prev_label = s.label %}
+    {% endfor %}
+
+    {% if summary.scans %}
+      {{ between_block(ns.prev, entries, writable, ns.prev_label, 'the end of the day') }}
+    {% endif %}
+    {% if not writable %}
+    <p class="foot">Read-only: no notes store is configured, so this view renders
+    the scan folders and stores nothing.</p>
+    {% endif %}
+  </main>
+</div>
+
+<script>
+"use strict";
+/* Collapse state is a per-viewer convenience, so localStorage is the right
+   home for it — it never needs to reach another viewer or the server. */
+const KEY = "scanlog.expandAll";
+const btn = document.getElementById("toggle-all");
+/* Scans and entries alike. Collapse All means every collapsible thing on
+   the page, which is what it says — an entry that could not be folded
+   while the scan around it could was an accident of history, not a
+   decision. */
+const cards = () => [...document.querySelectorAll("details.scan, details.entry")];
+
+function applyAll(expand){
+  cards().forEach(c => { c.open = expand; });
+  btn.dataset.expanded = String(expand);
+  btn.textContent = expand ? "Collapse all" : "Expand all";
+  try { localStorage.setItem(KEY, String(expand)); } catch (e) {}
+}
+
+try {
+  const saved = localStorage.getItem(KEY);
+  if (saved !== null) applyAll(saved === "true");
+} catch (e) {}
+
+btn.addEventListener("click", () => applyAll(btn.dataset.expanded !== "true"));
+
+/* The picker navigates straight to any date, including ones the quick-link
+   window does not reach. */
+document.getElementById("daypicker").addEventListener("change", ev => {
+  if (ev.target.value) window.location.pathname =
+    window.location.pathname.replace(/[^/]+$/, ev.target.value);
+});
+
+/* Jumping from the rail should reveal what you jumped to. */
+document.querySelectorAll(".scanrow").forEach(a => a.addEventListener("click", () => {
+  const el = document.querySelector(a.getAttribute("href"));
+  if (!el) return;
+  el.open = true;
+}));
+</script>
+{{ shared.seeds_json(seeds) }}
+<script src="{{ url_for('_static', name='editor.js').path }}" defer></script>
+<script src="{{ root }}/theme/kit.js" defer></script>
+<script src="{{ url_for('_static', name='nav.js').path }}" defer></script>
+<script src="{{ root }}/theme/theme.js" defer></script>
+</body>
+</html>

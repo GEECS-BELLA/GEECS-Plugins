@@ -11,6 +11,7 @@ SINGLESHOT put, the worst case for the baseline.
 from __future__ import annotations
 
 import asyncio
+import logging
 import math
 from pathlib import Path
 from typing import Any
@@ -289,10 +290,29 @@ def test_plain_count_is_refused_clearly(RE: RunEngine, box: FakeBox) -> None:
     assert "EXTERNAL_EDGE" in str(info.value)
 
 
+class _RefusedPut(RuntimeError):
+    """A failed CA put's shape: ``aioca.CANothing`` is *falsy* when the put failed.
+
+    Its ``repr`` is the bare error code; only ``str`` carries the PV and the
+    CA message.  A truthy stand-in cannot see the ``exc.__cause__ or exc``
+    bug (#817, caught on hardware 2026-09-10).
+    """
+
+    def __bool__(self) -> bool:
+        return False
+
+    def __repr__(self) -> str:
+        return "_RefusedPut(ECA_BADTYPE)"
+
+
 def test_a_failed_fire_is_not_a_dropped_frame(
-    RE: RunEngine, box: FakeBox, shot_control: ShotControl
+    RE: RunEngine, box: FakeBox, shot_control: ShotControl, caplog
 ) -> None:
-    """Codex review of #811: a refused SINGLESHOT put re-raises; no refire, no extra shot."""
+    """Codex review of #811: a refused SINGLESHOT put re-raises; no refire, no extra shot.
+
+    And #817: the ERROR line names the cause by ``str`` — the PV and the CA
+    message — even though a failed put is falsy.
+    """
     cam = _camera(RE, box, "UC_Cam", shot_timeout=0.5)
 
     class RefusingBox(FakeBox):
@@ -304,7 +324,7 @@ def test_a_failed_fire_is_not_a_dropped_frame(
                 async def put(self, value: str) -> None:
                     if variable == "Trigger.ExecuteSingleShot":
                         outer.fires += 1
-                        raise RuntimeError("GEECS refused the set")
+                        raise _RefusedPut("TestExp:sc2:SP: GEECS refused the set")
                     await inner.put(value)
 
             return Setter()
@@ -313,10 +333,19 @@ def test_a_failed_fire_is_not_a_dropped_frame(
     sc = ShotControl(WRITES, experiment="TestExp", name="sc2", setter_factory=refusing)
     connect_mock(RE, sc)
     RE(bps.mv(sc, "ARMED"))
-    with pytest.raises(FailedStatus) as info:
-        RE(bp.count([cam], num=1, per_shot=geecs_per_shot(sc, max_refires=2)))
-    assert isinstance(info.value.__cause__, RuntimeError)
+    with caplog.at_level(logging.ERROR, logger="geecs_bluesky.plans.strict"):
+        with pytest.raises(FailedStatus) as info:
+            RE(bp.count([cam], num=1, per_shot=geecs_per_shot(sc, max_refires=2)))
+    assert isinstance(info.value.__cause__, _RefusedPut)
     assert refusing.fires == 1  # no refire on a failed fire
+    errors = [
+        r.getMessage()
+        for r in caplog.records
+        if r.name == "geecs_bluesky.plans.strict" and r.levelno == logging.ERROR
+    ]
+    assert len(errors) == 1
+    assert "_RefusedPut: TestExp:sc2:SP: GEECS refused the set" in errors[0]
+    assert "ECA_BADTYPE" not in errors[0]  # str, not repr
 
 
 def _attributes_xml(ophyd_name: str, *names: str) -> str:

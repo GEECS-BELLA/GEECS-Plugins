@@ -205,6 +205,42 @@ def parse_lines(
     return out
 
 
+def first_log_timestamp(scan_log_path: Union[Path, str]) -> Optional[datetime]:
+    """Return the timestamp of a scan log's first record, or ``None``.
+
+    Reads only until the first parsable header rather than the whole file,
+    so a caller iterating a day of scans pays one short read per scan
+    instead of parsing every line of every log.
+
+    This is the honest answer to "when did this scan run". A scan folder's
+    modification time is not: any later pass that writes into the folder
+    (the analysis task queue's ``analysis_status/``, for one) moves it, and
+    it has been observed more than an hour off the real start.
+
+    Parameters
+    ----------
+    scan_log_path : Path or str
+        Filesystem path to the ``scan.log`` file. Need not exist.
+
+    Returns
+    -------
+    datetime or None
+        The first record's timestamp, or ``None`` when the file is
+        missing, empty, or has no parsable header line. Never raises:
+        callers iterating a day must not be taken down by one bad log.
+    """
+    path = Path(scan_log_path)
+    try:
+        with path.open("r", encoding="utf-8", errors="replace") as handle:
+            for line in handle:
+                fields = _parse_header(line)
+                if fields:
+                    return datetime.strptime(fields["ts"], "%Y-%m-%d %H:%M:%S.%f")
+    except (OSError, ValueError):
+        return None
+    return None
+
+
 def parse_scan_log(scan_log_path: Union[Path, str]) -> list[LogEntry]:
     """Parse a `scan.log` file from disk.
 

@@ -83,6 +83,27 @@ def _device_named(devices: Sequence[Any], device_name: str) -> Any | None:
     )
 
 
+def _log_non_frame_failure(exc: FailedStatus) -> None:
+    """ERROR-log a failed status that is *not* a missing frame, naming its cause.
+
+    This line is the scan log's only record of what failed: the
+    ``FailedStatus`` propagates unwrapped and its text is the status repr,
+    so the PV and the CA message live on the cause alone (#817).  ``is not
+    None``, never ``or``: ``aioca.CANothing`` is *falsy* for a failed put,
+    and ``exc.__cause__ or exc`` would select the useless status instead
+    (caught on hardware 2026-09-10).  ``%s`` on the cause, with its type
+    spelled out separately: ``CANothing`` carries the CA message only
+    through ``str`` — its repr is the bare error code.
+    """
+    cause = exc.__cause__ if exc.__cause__ is not None else exc
+    logger.error(
+        "shot failed, but not from a missing frame — another shot cannot "
+        "help, so the failure propagates: %s: %s",
+        type(cause).__name__,
+        cause,
+    )
+
+
 def fire_and_await_shot(devices: Sequence[Any], fire: Callable):
     """Arm the waiters, fire one shot, await every device; return the ones that missed.
 
@@ -130,7 +151,13 @@ def fire_and_await_shot(devices: Sequence[Any], fire: Callable):
     for obj, group in groups.items():
         yield from bps.trigger(obj, group=group, wait=False)
     fire_t0 = time.monotonic()
-    yield from fire()
+    try:
+        yield from fire()
+    except FailedStatus as exc:
+        # The fire is a waited ``mv``, so a refused SINGLESHOT put fails
+        # right here, before any wait — name it, then propagate untouched.
+        _log_non_frame_failure(exc)
+        raise
     fire_done = time.monotonic()
     for obj, group in groups.items():
         for _ in range(2 * len(groups) + 2):
@@ -139,6 +166,7 @@ def fire_and_await_shot(devices: Sequence[Any], fire: Callable):
                 break
             except FailedStatus as exc:
                 if not isinstance(exc.__cause__, GeecsTriggerTimeoutError):
+                    _log_non_frame_failure(exc)
                     raise
         else:  # pragma: no cover - the RunEngine consumes a group per wait
             raise RuntimeError(f"trigger group {group!r} never settled")

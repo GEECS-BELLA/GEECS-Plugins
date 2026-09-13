@@ -313,10 +313,14 @@ def gated_take_reading(
                 cause = failure.__cause__
                 if isinstance(cause, GeecsTriggerTimeoutError):
                     raise cause
+                # ``is not None`` and ``str``, not ``or`` and ``repr``: a
+                # failed CA put (``aioca.CANothing``) is falsy and its repr is
+                # the bare error code — the PV and message are in ``str`` (#817).
+                cause = cause if cause is not None else failure
                 raise GeecsTriggerTimeoutError(
                     getattr(cause, "device_name", None) or "gated batch",
                     shot_timeout,
-                    f"gated batch failed: {cause!r}",
+                    f"gated batch failed: {type(cause).__name__}: {cause}",
                 ) from failure
             if plugin:
                 yield from bps.wait_for([d.truncate_to_quota for d in plugin])
