@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "geecs-scanner"
-version = "0.2.0"
+version = "0.3.0"
 description = "The web scanner console: submit, watch and stop GEECS scans from a browser — a FastAPI service over the queueserver client"
 authors = ["GEECS-BELLA"]
 readme = "README.md"
@@ -20,9 +20,12 @@ geecs-bluesky = { path = "../GeecsBluesky", develop = true, extras = ["qs-client
 # The Preset (the one submission document), ScanVariables (the catalog the
 # variable picker lists, pseudo entries included), SubmissionRecord.
 geecs-schemas = { path = "../GEECS-Schemas", develop = true }
-# The kit and the palettes: mounted at /theme by this process so the page
-# (0.2.0) and the reference page are served from the same origin.
-geecs-web-theme = { path = "../GeecsWebTheme", develop = true }
+# The kit and the palettes, mounted at /theme by this process so the page
+# and the reference page are served from the same origin — and, behind the
+# `web` extra, the FastAPI glue every surface shares (the forwarded-prefix
+# middleware, the /theme mount, the templates factory with `root`) plus the
+# template guards `tests/test_page.py` runs.  Imported, never copied.
+geecs-web-theme = { path = "../GeecsWebTheme", develop = true, extras = ["web"] }
 
 [tool.poetry.group.dev.dependencies]
 pytest = ">=8.0"

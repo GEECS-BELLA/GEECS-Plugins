@@ -10,6 +10,7 @@
   "use strict";
 
   var ROOT = document.body.dataset.root || "";
+  var PORTAL = (document.body.dataset.portal || "").replace(/\/$/, "");
   var $ = function (id) { return document.getElementById(id); };
   var STALE_DOCS_S = 5;      // a running scan whose documents go quiet
   var STALE_MANAGER_S = 4;   // the status poll is every second
@@ -50,7 +51,9 @@
     mode: "scan", acq: "strict",
     consoleSeq: 0, epoch: null,
     formable: true, formableNote: "",
-    pendingPreset: null, pendingAck: []
+    pendingPreset: null, pendingAck: [],
+    devices: [], actions: [], actionName: null, armed: false, calibration: null,
+    tail: "scanlog", logFolder: null, logLines: [], consoleLines: []
   };
 
   var NOTES = {
@@ -115,6 +118,7 @@
     $("btn-resume").hidden = st.re_state !== "paused";
     $("btn-stop").disabled = !running;
     $("btn-clear").disabled = !(st.items_in_queue > 0);
+    renderIdleGates();
     $("lv-manager").textContent = st.re_state || (st.connected ? "?" : "down");
     $("verb-note").textContent = st.re_state === "paused"
       ? "Paused. Resume continues at the next step."
@@ -123,9 +127,23 @@
     updateStartGate();
   }
 
+  function renderDayLink() {
+    var p = S.progress, h = $("recent-h");
+    h.textContent = "";
+    var day = p && p.day;
+    if (!day) { h.textContent = "Recent"; return; }
+    // The last run's day is "today" only until midnight.
+    var now = new Date(), iso = now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0") + "-" + String(now.getDate()).padStart(2, "0");
+    var label = (day === iso ? "Today" : "Last run") + " · " + day;
+    if (PORTAL) {
+      var a = document.createElement("a"); a.href = PORTAL + "/day/" + day; a.textContent = label; a.title = "the day in the Data Portal";
+      h.appendChild(a);
+    } else h.textContent = label;
+  }
   function renderProgress() {
     var p = S.progress;
     if (!p) return;
+    renderDayLink();
     var total = p.planned_total, done = p.shots_done || 0;
     var pct = total ? Math.min(100, Math.round(100 * done / total)) : 0;
     $("meter-fill").style.width = pct + "%";
@@ -223,9 +241,13 @@
     }
     var recent = $("recent");
     recent.textContent = "";
-    q.finished.slice(0, 6).forEach(function (r) {
+    // Scans only: a move, an action or a calibration opens no run and has no
+    // scan number, so it belongs in the queue table, not in "Recent".
+    q.finished.filter(function (r) { return r.scan_numbers && r.scan_numbers.length; }).slice(0, 6).forEach(function (r) {
       var a = document.createElement("a");
-      a.href = "#queue";
+      // The portal's run page is keyed by the run uid the history row carries.
+      a.href = PORTAL && r.run_uids && r.run_uids.length ? PORTAL + "/run/" + encodeURIComponent(r.run_uids[0]) : "#queue";
+      if (a.href.indexOf("#") === -1) a.title = "open in the Data Portal";
       var n = r.scan_numbers && r.scan_numbers.length ? "Scan " + String(r.scan_numbers[0]).padStart(3, "0") : r.plan;
       a.innerHTML = "<span></span><span class=\"dim\"></span>";
       a.firstChild.textContent = n;
@@ -262,24 +284,65 @@
     });
     es.addEventListener("console", function (ev) {
       var line = JSON.parse(ev.data);
-      if (S.epoch !== null && line.epoch !== S.epoch) { $("tail").textContent = ""; }
+      if (S.epoch !== null && line.epoch !== S.epoch) { S.consoleLines = []; }
       S.epoch = line.epoch;
       S.consoleSeq = line.seq;
-      appendTail(line);
+      pushLine(S.consoleLines, { at: line.at, text: line.text });
+      if (S.tail === "manager") appendTail(line);
+    });
+    es.addEventListener("log", function (ev) {
+      var chunk = JSON.parse(ev.data);
+      if (chunk.folder !== S.logFolder) { S.logFolder = chunk.folder; S.logLines = []; if (S.tail === "scanlog") $("tail").textContent = ""; }
+      if (!chunk.available) {
+        $("tail-note").textContent = chunk.detail || "scan.log not readable from this host";
+        return;
+      }
+      $("tail-note").textContent = "";
+      chunk.lines.forEach(function (text) {
+        var line = { at: logStamp(text), text: text };
+        pushLine(S.logLines, line);
+        if (S.tail === "scanlog") appendTail(line);
+      });
     });
     es.onerror = function () {
       setChip($("chip-manager"), K.failed, "manager", "event stream lost; reconnecting");
     };
   }
 
+  function pushLine(buf, line) { buf.push(line); while (buf.length > 300) buf.shift(); }
+  // scan.log lines start "YYYY-MM-DD HH:MM:SS.mmm LEVEL logger [thread] scan=ScanNNN - message":
+  // keep the clock, drop the plumbing.
+  function logStamp(text) {
+    var m = /^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2})/.exec(text);
+    return m ? m[2] : null;
+  }
+  function logBody(text) {
+    var m = /^\S+ \S+ (\w+) \S+ \[[^\]]*\] scan=\S+ - (.*)$/.exec(text);
+    return m ? (m[1] === "INFO" ? "" : m[1] + " ") + m[2] : text;
+  }
+  function renderTail() {
+    var tail = $("tail"); tail.textContent = "";
+    (S.tail === "scanlog" ? S.logLines : S.consoleLines).forEach(appendTail);
+    Array.prototype.forEach.call($("tail-seg").querySelectorAll("button"), function (b) {
+      b.setAttribute("aria-pressed", String(b.dataset.tail === S.tail));
+    });
+    $("tail").dataset.empty = S.tail === "scanlog"
+      ? (S.logFolder ? "scan.log is empty so far." : "No scan.log yet — the run's folder arrives with the start document.")
+      : "No console output yet.";
+  }
+  $("tail-seg").addEventListener("click", function (e) {
+    var b = e.target.closest("button[data-tail]");
+    if (!b) return;
+    S.tail = b.dataset.tail;
+    renderTail();
+  });
   function appendTail(line) {
     var tail = $("tail");
-    var d = new Date(line.at * 1000);
     var ln = document.createElement("div");
-    ln.className = "ln" + (/FAILED|error|refus/i.test(line.text) ? " warn" : "");
+    ln.className = "ln" + (/FAILED|error|refus|WARNING/i.test(line.text) ? " warn" : "");
     var t = document.createElement("span"); t.className = "t";
-    t.textContent = d.toTimeString().slice(0, 8);
-    var body = document.createElement("span"); body.textContent = line.text;
+    t.textContent = typeof line.at === "number" ? new Date(line.at * 1000).toTimeString().slice(0, 8) : (line.at || "");
+    var body = document.createElement("span"); body.textContent = S.tail === "scanlog" ? logBody(line.text) : line.text;
     ln.appendChild(t); ln.appendChild(body);
     tail.appendChild(ln);
     while (tail.children.length > 300) tail.removeChild(tail.firstChild);
@@ -300,17 +363,15 @@
     return Promise.all([
       api("/api/configs/presets"),
       api("/api/scan-variables"),
-      api("/api/configs/trigger_profiles")
+      api("/api/configs/trigger_profiles"),
+      api("/api/devices").catch(function () { return []; }),
+      api("/api/actions").catch(function (e) { return { error: e.message }; }),
+      api("/api/calibration").catch(function (e) { return { stored: false, detail: e.message }; })
     ]).then(function (res) {
       S.presets = res[0].names; S.variables = res[1]; S.triggers = res[2].names;
-      var pl = $("presets"); pl.textContent = "";
-      S.presets.forEach(function (name) {
-        var b = document.createElement("button");
-        b.type = "button"; b.textContent = name; b.dataset.preset = name;
-        b.addEventListener("click", function () { selectPreset(name); });
-        pl.appendChild(b);
-      });
-      $("presets-note").textContent = S.presets.length ? "presets/ in the configs tree" : "No presets in the configs tree.";
+      S.devices = res[3]; S.actions = res[4].error ? [] : res[4]; S.calibration = res[5];
+      renderMoveVars(); renderDeviceList(""); renderActions(res[4].error || null); renderCalibration();
+      renderPresetList();
       ["var1", "var2"].forEach(function (id) {
         var sel = $(id); sel.textContent = "";
         S.variables.forEach(function (v) {
@@ -326,6 +387,18 @@
       if (S.presets.length && !S.presetName) selectPreset(S.presets[0]);
       recalc();
     }).catch(function (e) { showError("Loading configs failed: " + e.message); });
+  }
+
+  function renderPresetList() {
+    var pl = $("presets"); pl.textContent = "";
+    S.presets.forEach(function (name) {
+      var b = document.createElement("button");
+      b.type = "button"; b.textContent = name; b.dataset.preset = name;
+      b.setAttribute("aria-pressed", String(name === S.presetName));
+      b.addEventListener("click", function () { selectPreset(name); });
+      pl.appendChild(b);
+    });
+    $("presets-note").textContent = S.presets.length ? "presets/ in the configs tree" : "No presets in the configs tree.";
   }
 
   function selectPreset(name) {
@@ -373,15 +446,40 @@
     setSelect("trig", doc.trigger_profile || "");
     $("desc").value = doc.description || "";
     var body = $("devs"); body.textContent = "";
-    (doc.devices || []).forEach(function (d) {
-      var tr = document.createElement("tr");
-      tr.appendChild(td(d.device, "id"));
-      tr.appendChild(td(checkbox(d.save_images !== false, "save images for " + d.device)));
-      tr.appendChild(td(checkbox(d.essential !== false, d.device + " essential")));
-      body.appendChild(tr);
-    });
-    if (!(doc.devices || []).length) body.appendChild(td("This preset names no devices.", "dim"));
+    (doc.devices || []).forEach(function (d) { body.appendChild(deviceRow(d.device, d.save_images !== false, d.essential !== false)); });
+    noDevicesNote();
     recalc();
+    renderCalibration();  // the calibration set is this table
+  }
+  function deviceRow(name, saveImages, essential) {
+    var tr = document.createElement("tr");
+    tr.dataset.device = name;
+    tr.appendChild(td(name, "id"));
+    tr.appendChild(td(checkbox(saveImages, "save images for " + name)));
+    tr.appendChild(td(checkbox(essential, name + " essential")));
+    var rm = document.createElement("button");
+    rm.type = "button"; rm.className = "btn sm ghost rm"; rm.textContent = "remove";
+    rm.setAttribute("aria-label", "remove " + name);
+    rm.addEventListener("click", function () { tr.remove(); noDevicesNote(); recalc(); renderCalibration(); });
+    tr.appendChild(td(rm));
+    return tr;
+  }
+  function noDevicesNote() {
+    var body = $("devs");
+    if (!body.querySelector("tr[data-device]")) {
+      body.textContent = "";
+      var tr = document.createElement("tr"), c = td("No devices — add one.", "dim"); c.colSpan = 4; tr.appendChild(c); body.appendChild(tr);
+    } else {
+      Array.prototype.forEach.call(body.querySelectorAll("tr:not([data-device])"), function (tr) { tr.remove(); });
+    }
+  }
+  function tableDevices() {
+    var out = [];
+    Array.prototype.forEach.call($("devs").querySelectorAll("tr[data-device]"), function (tr) {
+      var boxes = tr.querySelectorAll("input[type=checkbox]");
+      out.push({ device: tr.dataset.device, save_images: boxes[0].checked, essential: boxes[1].checked });
+    });
+    return out;
   }
   function checkbox(checked, label) {
     var c = document.createElement("input"); c.type = "checkbox"; c.checked = checked; c.setAttribute("aria-label", label);
@@ -489,6 +587,7 @@
     var busy = !st || !st.connected || st.re_state === "running" || st.re_state === "paused";
     var btn = $("btn-start");
     btn.disabled = busy || !valid || !S.formable;
+    $("btn-save-preset").disabled = !S.presetDoc;
     btn.title = !st ? "waiting for the manager" : !st.connected ? "manager unreachable" : busy ? "a scan is running" : !S.presetDoc ? "pick a preset" : !S.formable ? S.formableNote : !valid ? "fix the form first" : "";
     $("preset-name").textContent = S.presetName ? "preset " + S.presetName + (S.formable ? "" : " · " + S.formableNote) : "";
   }
@@ -513,12 +612,7 @@
       }
     }
     if (S.acq === "strict" && $("period").value !== "") kwargs.shot_period = Number($("period").value);
-    var devices = [];
-    Array.prototype.forEach.call($("devs").querySelectorAll("tr"), function (tr) {
-      var boxes = tr.querySelectorAll("input[type=checkbox]");
-      if (boxes.length !== 2) return;
-      devices.push({ device: tr.firstChild.textContent, save_images: boxes[0].checked, essential: boxes[1].checked });
-    });
+    var devices = tableDevices();
     return {
       name: S.presetName || "adhoc",
       description: $("desc").value.trim(),
@@ -622,6 +716,281 @@
     verb("/api/clear", {}, refreshQueue);
   });
 
+  /* ------------------------------------------------- idle-only items */
+
+  // A move, an action or a calibration is a queue item that runs by itself
+  // as soon as it is added: allowed only while nothing runs or waits.
+  function idle() {
+    var st = S.status;
+    return !!(st && st.connected && st.re_state === "idle" && !(st.items_in_queue > 0));
+  }
+  function idleTitle() {
+    var st = S.status;
+    return !st ? "waiting for the manager" : !st.connected ? "manager unreachable"
+      : st.re_state !== "idle" ? "a plan is " + st.re_state : st.items_in_queue > 0 ? "items wait in the queue" : "";
+  }
+  function renderIdleGates() {
+    var ok = idle(), why = idleTitle();
+    $("btn-move").disabled = !ok || !$("mv-var").value; $("btn-move").title = why;
+    var mvWord = ok ? "idle" : (why || "held");
+    setChip($("mv-chip"), ok ? K.ok : K.unknown, mvWord, why);
+    $("act-arm").disabled = !ok || !S.actionName || !!(currentAction() && currentAction().problem);
+    $("act-run").disabled = !ok || !S.armed;
+    $("act-run").title = why;
+    if (!ok && S.armed) setArmed(false);
+    var twoDevices = tableDevices().length >= 2;
+    $("cal-check").disabled = !ok || !twoDevices; $("cal-measure").disabled = !ok || !twoDevices;
+    $("cal-check").title = $("cal-measure").title = why || (twoDevices ? "" : "needs two devices in the New scan table");
+  }
+  function itemQueued(out) {
+    $("verb-note").textContent = "Queued: " + out.summary;
+    refreshQueue();
+  }
+  function itemRefused(e) {
+    var p = e.payload || {};
+    showError(e.message + (p.items_in_queue ? " (" + p.items_in_queue + " waiting)" : ""));
+  }
+
+  /* ---- devices · move */
+  function renderMoveVars() {
+    var sel = $("mv-var"); sel.textContent = "";
+    S.variables.forEach(function (v) {
+      sel.appendChild(option(v.name, v.name + (v.target ? " · " + v.target : " · pseudo"), !v.scannable, v.reason || v.target || ""));
+    });
+    if (!S.variables.length) sel.appendChild(option("", "no scan variables in the catalog", true));
+    renderIdleGates();
+  }
+  $("mv-var").addEventListener("change", renderIdleGates);
+  $("btn-move").addEventListener("click", function () {
+    var v = Number($("mv-val").value);
+    var bad = $("mv-val").value === "" || !isFinite(v);
+    setInvalid("mv-val", bad);
+    if (bad) return;
+    $("btn-move").disabled = true;
+    post("/api/move", { variable: $("mv-var").value, value: v, operator: operator() })
+      .then(function (out) { $("mv-note").textContent = "Queued: " + out.summary + " (" + out.reference + ")"; refreshQueue(); })
+      .catch(itemRefused).then(renderIdleGates);
+  });
+
+  /* ---- actions */
+  function currentAction() {
+    return S.actions.filter(function (a) { return a.name === S.actionName; })[0] || null;
+  }
+  function setArmed(on) {
+    S.armed = on;
+    var armWord = on ? "armed" : "disarmed";
+    setChip($("act-chip"), on ? K.degraded : K.unknown, armWord);
+    $("act-arm").textContent = on ? "Disarm" : "Arm";
+    $("act-run").disabled = !on || !idle();
+  }
+  function renderActions(problem) {
+    var list = $("actions-list"); list.textContent = "";
+    S.actions.forEach(function (a) {
+      var b = document.createElement("button");
+      b.type = "button"; b.dataset.action = a.name;
+      b.setAttribute("aria-pressed", String(a.name === S.actionName));
+      var n = document.createElement("span"); n.textContent = a.name;
+      var d = document.createElement("span"); d.className = "sub" + (a.problem ? " prob" : "");
+      d.textContent = a.problem ? "cannot run" : a.steps + " step" + (a.steps === 1 ? "" : "s") + (a.nested.length ? " · runs " + a.nested.join(", ") : "");
+      b.appendChild(n); b.appendChild(d);
+      b.title = a.problem || a.description || "";
+      b.addEventListener("click", function () { selectAction(a.name); });
+      list.appendChild(b);
+    });
+    $("actions-note").textContent = problem ? "Action library: " + problem
+      : S.actions.length ? "action_library/actions.yaml · pick one to preview its steps" : "No action plans in the configs tree.";
+    renderIdleGates();
+  }
+  function selectAction(name) {
+    S.actionName = name; setArmed(false);
+    Array.prototype.forEach.call($("actions-list").querySelectorAll("button"), function (b) {
+      b.setAttribute("aria-pressed", String(b.dataset.action === name));
+    });
+    var a = currentAction();
+    $("action-preview-group").hidden = false;
+    $("action-preview-title").textContent = "preview · " + name;
+    var ol = $("action-steps"); ol.textContent = "";
+    if (a && a.problem) {
+      var li = document.createElement("li"); li.className = "prob"; li.textContent = a.problem; ol.appendChild(li);
+      $("action-writes").textContent = "";
+      renderIdleGates();
+      return;
+    }
+    api("/api/actions/" + encodeURIComponent(name)).then(function (d) {
+      if (S.actionName !== name) return;
+      d.steps.forEach(function (st) {
+        var li = document.createElement("li");
+        if (st.do === "set") li.className = "write";
+        li.textContent = st.text;
+        if (st.from_plan) { var f = document.createElement("span"); f.className = "from"; f.textContent = "← " + st.from_plan; li.appendChild(f); }
+        ol.appendChild(li);
+      });
+      $("action-writes").textContent = d.writes + " write" + (d.writes === 1 ? "" : "s") + " · " + d.steps.length + " steps" + (d.description ? " · " + d.description : "");
+      renderIdleGates();
+    }).catch(function (e) { showError("Action " + name + ": " + e.message); });
+  }
+  $("act-arm").addEventListener("click", function () { setArmed(!S.armed); });
+  $("act-run").addEventListener("click", function () {
+    if (!S.armed || !S.actionName) return;
+    var name = S.actionName;
+    setArmed(false);
+    post("/api/actions/" + encodeURIComponent(name) + "/run", { operator: operator() })
+      .then(itemQueued).catch(itemRefused).then(renderIdleGates);
+  });
+
+  /* ---- calibration */
+  function renderCalibration() {
+    var c = S.calibration;
+    var devs = tableDevices().map(function (d) { return d.device; });
+    $("cal-set").textContent = devs.length ? "Over the " + devs.length + " device" + (devs.length === 1 ? "" : "s") + " in the New scan table: " + devs.join(", ") : "Over the devices in the New scan table (none yet).";
+    if (!c) return;
+    if (!c.stored) {
+      setChip($("cal-chip"), K.unknown, "not measured", c.detail || "");
+      $("cal-devices").textContent = "—"; $("cal-when").textContent = c.detail || "no shot_offsets.yaml";
+      $("cal-max").textContent = "—"; $("cal-max-dev").textContent = "";
+    } else {
+      setChip($("cal-chip"), K.ok, "stored", c.path);
+      $("cal-devices").textContent = c.devices.length;
+      $("cal-when").textContent = (c.measured_at ? "measured " + c.measured_at.slice(0, 16).replace("T", " ") : "date unknown") + (c.trigger_profile ? " · " + c.trigger_profile : "");
+      $("cal-max").textContent = c.max_offset_s == null ? "—" : c.max_offset_s.toFixed(3) + " s";
+      $("cal-max-dev").textContent = c.max_offset_device || "";
+    }
+    renderIdleGates();
+  }
+  function calibrationBody() {
+    return {
+      devices: tableDevices().map(function (d) { return d.device; }),
+      trigger_profile: $("trig").value || null,
+      operator: operator()
+    };
+  }
+  $("cal-check").addEventListener("click", function () {
+    post("/api/calibration/check", calibrationBody()).then(itemQueued).catch(itemRefused).then(renderIdleGates);
+  });
+  $("cal-measure").addEventListener("click", function () {
+    var n = parseInt($("cal-shots").value, 10) || 10, write = !!$("cal-write").value;
+    $("dlg-measure-text").textContent = "Drives the trigger box OFF, waits the set quiet, then fires " + n + " single shots and reads every device's timestamp. "
+      + (write ? "The result REPLACES shot_offsets.yaml in the configs tree (a commit is still yours) and reaches the worker at its NEXT environment open, not this session's scans." : "The result is reported only; nothing is written.");
+  });
+  $("do-measure").addEventListener("click", function () {
+    window.GeecsKit.confirm($("dlg-measure")).close();
+    var body = calibrationBody();
+    body.shots = parseInt($("cal-shots").value, 10) || 10;
+    body.write = !!$("cal-write").value;
+    post("/api/calibration/measure", body).then(itemQueued).catch(itemRefused).then(renderIdleGates);
+  });
+  $("devs").addEventListener("change", renderCalibration);
+
+  /* ------------------------------------------------------------ drawers */
+
+  /* ---- add device */
+  function renderDeviceList(q) {
+    var list = $("devlist"); list.textContent = "";
+    var have = {};
+    tableDevices().forEach(function (d) { have[d.device] = true; });
+    var needle = q.trim().toLowerCase();
+    // The manager lists a device and its children (U_S1H, U_S1H.current …);
+    // a preset names devices, so only the bare names are offered.
+    var names = S.devices.filter(function (n) { return n.indexOf(".") === -1 && (!needle || n.toLowerCase().indexOf(needle) !== -1); });
+    names.slice(0, 60).forEach(function (n) {
+      var b = document.createElement("button");
+      b.type = "button";
+      var a = document.createElement("span"); a.textContent = n;
+      var d = document.createElement("span"); d.className = "sub"; d.textContent = have[n] ? "in the table" : "";
+      b.appendChild(a); b.appendChild(d);
+      b.disabled = !!have[n];
+      b.addEventListener("click", function () { addDevice(n); });
+      list.appendChild(b);
+    });
+    $("devq-hint").textContent = S.devices.length
+      ? names.length + " of " + S.devices.filter(function (n) { return n.indexOf(".") === -1; }).length + " devices" + (names.length > 60 ? " · type to narrow" : "")
+      : "the manager's device list is empty or unreachable";
+  }
+  $("devq").addEventListener("input", function () { renderDeviceList($("devq").value); });
+  $("btn-add-device").addEventListener("click", function () { renderDeviceList($("devq").value); setTimeout(function () { $("devq").focus(); }, 50); });
+  function addDevice(name) {
+    noDevicesNote();
+    if (!$("devs").querySelector("tr[data-device]")) $("devs").textContent = "";
+    $("devs").appendChild(deviceRow(name, true, true));
+    noDevicesNote();
+    $("devices-eyebrow").textContent = "devices · " + (S.presetName ? "preset " + S.presetName + " + " : "") + "edited";
+    recalc(); renderCalibration();
+    window.GeecsKit.drawer($("drw-devices")).close();
+  }
+
+  /* ---- save as preset */
+  function yamlScalar(v) {
+    if (v === null || v === undefined) return "null";
+    if (typeof v === "number" || typeof v === "boolean") return String(v);
+    return /^[A-Za-z0-9_][A-Za-z0-9_ .:-]*$/.test(v) && !/^(true|false|null|yes|no|on|off)$/i.test(v) && !/^\d/.test(v) ? v : JSON.stringify(v);
+  }
+  function toYaml(obj, indent) {
+    // Enough YAML for a preset: mappings, lists of scalars, lists of flat
+    // mappings. The server validates and writes the real document; this is
+    // the operator's read-through of what will be saved.
+    var pad = indent || "", out = "";
+    Object.keys(obj).forEach(function (k) {
+      var v = obj[k];
+      if (Array.isArray(v)) {
+        if (!v.length) { out += pad + k + ": []\n"; return; }
+        out += pad + k + ":\n";
+        v.forEach(function (it) {
+          if (it && typeof it === "object" && !Array.isArray(it)) {
+            var keys = Object.keys(it);
+            out += pad + "  - " + keys.map(function (kk) { return kk + ": " + yamlScalar(it[kk]); }).join(", ").replace(/^/, "{") + "}\n";
+          } else out += pad + "  - " + yamlScalar(it) + "\n";
+        });
+      } else if (v && typeof v === "object") {
+        out += pad + k + ":\n" + toYaml(v, pad + "  ");
+      } else out += pad + k + ": " + yamlScalar(v) + "\n";
+    });
+    return out;
+  }
+  function presetForSave() {
+    var preset = buildPreset();
+    preset.name = $("pname").value.trim();
+    preset.description = $("pdesc").value.trim();
+    return preset;
+  }
+  function renderPresetYaml() {
+    var ok = /^[A-Za-z0-9_][A-Za-z0-9_.-]*$/.test($("pname").value.trim());
+    setInvalid("pname", !ok);
+    $("do-save-preset").disabled = !ok;
+    $("preset-yaml").textContent = toYaml(presetForSave());
+  }
+  $("btn-save-preset").addEventListener("click", function () {
+    $("pname").value = S.presetName ? S.presetName : "";
+    $("pdesc").value = $("desc").value.trim() || (S.presetDoc && S.presetDoc.description) || "";
+    $("preset-saved").textContent = "";
+    renderPresetYaml();
+    setTimeout(function () { $("pname").focus(); $("pname").select(); }, 50);
+  });
+  ["pname", "pdesc"].forEach(function (id) { $(id).addEventListener("input", renderPresetYaml); });
+  function savePreset(overwrite) {
+    var preset = presetForSave();
+    post("/api/configs/presets/" + encodeURIComponent(preset.name), { preset: preset, overwrite: overwrite })
+      .then(function (out) {
+        $("preset-saved").textContent = out.message;
+        return api("/api/configs/presets").then(function (r) {
+          S.presets = r.names; S.presetName = out.name; renderPresetList();
+          $("preset-name").textContent = "preset " + out.name;
+        });
+      })
+      .catch(function (e) {
+        if (e.status === 409 && e.payload.exists) {
+          $("dlg-overwrite-name").textContent = preset.name;
+          window.GeecsKit.confirm($("dlg-overwrite")).open();
+          return;
+        }
+        $("preset-saved").textContent = "Not saved: " + e.message + detailOf(e);
+      });
+  }
+  $("do-save-preset").addEventListener("click", function () { savePreset(false); });
+  $("do-overwrite").addEventListener("click", function () {
+    window.GeecsKit.confirm($("dlg-overwrite")).close();
+    savePreset(true);
+  });
+
   /* ------------------------------------------------------------ keyboard */
 
   document.addEventListener("keydown", function (e) {
@@ -640,6 +1009,7 @@
 
   setMode("scan", true);
   setAcq("strict");
+  renderTail();
   loadConfigs();
   refreshQueue();
   api("/api/progress").then(function (p) { S.progress = p; renderProgress(); }).catch(function () { /* the stream will say */ });

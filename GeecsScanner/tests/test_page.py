@@ -1,22 +1,27 @@
 """The page: it renders on the kit, addresses its assets correctly, and its scripts parse.
 
-The three guards are the logbook's (``GeecsLogbook/tests/test_templates.py``),
-adopted verbatim in intent: ``url_for(...)`` always takes ``.path``, every
-literal ``data-state`` is a kit word, and every script — inline or the
-page's own file — parses under ``node --check``.
+The three template guards — ``url_for(...)`` always takes ``.path``, every
+literal ``data-state`` is a kit word, every inline script parses under
+``node --check`` — are ``geecs_web_theme.testing``'s helpers; this file
+only asserts over their findings.  What is the scanner's own stays here:
+the script's ``K`` table of kit words and its ``setChip`` literals, the
+page's own script file parsing, and "every class the page uses is styled".
 """
 
 from __future__ import annotations
 
-import os
 import re
-import shutil
-import subprocess
-import tempfile
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from geecs_web_theme.testing import (
+    bare_url_for_calls,
+    inline_scripts,
+    javascript_syntax_error,
+    node_available,
+    unknown_data_states,
+)
 
 _PKG = Path(__file__).resolve().parents[1] / "geecs_scanner"
 _TEMPLATES = sorted((_PKG / "templates").glob("*.html"))
@@ -48,22 +53,18 @@ def test_page_carries_the_proxy_prefix(client: TestClient) -> None:
 
 @pytest.mark.parametrize("template", _TEMPLATES, ids=lambda p: p.name)
 def test_every_url_for_takes_the_path(template: Path) -> None:
-    text = template.read_text()
-    bare = [
-        m.group(0)
-        for m in re.finditer(r"url_for\((?:[^()]|\([^()]*\))*\)(?!\.path)", text)
-    ]
+    bare = bare_url_for_calls(template)
     assert not bare, f"{template.name}: url_for without .path — {bare[:3]}"
 
 
 def test_every_literal_data_state_is_a_kit_state() -> None:
     from geecs_web_theme import PANE_STATES, STATES
 
+    allowed = (*STATES, *PANE_STATES)
     problems = []
     for template in _TEMPLATES:
-        for m in re.finditer(r'data-state="([a-z_][\w-]*)"', template.read_text()):
-            if m.group(1) not in STATES and m.group(1) not in PANE_STATES:
-                problems.append(f"{template.name}: {m.group(1)}")
+        for value in unknown_data_states(template, allowed):
+            problems.append(f"{template.name}: {value}")
     # the script writes states too: every word lives in its K table, pinned
     # here, and no setChip call may pass a literal instead
     for script in _SCRIPTS:
@@ -87,48 +88,28 @@ def test_every_literal_data_state_is_a_kit_state() -> None:
     assert not problems, f"data-state values the kit does not colour: {problems}"
 
 
-def _node() -> str:
-    node = shutil.which("node")
-    if node is None:  # pragma: no cover - CI and dev machines have it
+def _need_node() -> None:
+    if not node_available():  # pragma: no cover - CI and dev machines have it
         pytest.skip("node not available to parse JavaScript")
-    return node
 
 
 @pytest.mark.parametrize("script", _SCRIPTS, ids=lambda p: p.name)
 def test_static_scripts_parse(script: Path) -> None:
-    done = subprocess.run(
-        [_node(), "--check", str(script)], capture_output=True, text=True
-    )
-    assert done.returncode == 0, f"{script.name} does not parse:\n{done.stderr.strip()}"
+    # The page's own script FILE — the shared helper covers inline blocks.
+    _need_node()
+    problem = javascript_syntax_error(script.read_text())
+    assert problem is None, f"{script.name} does not parse:\n{problem}"
 
 
 @pytest.mark.parametrize("template", _TEMPLATES, ids=lambda p: p.name)
 def test_inline_scripts_parse(template: Path) -> None:
-    text = re.sub(r"\{#.*?#\}", " ", template.read_text(), flags=re.S)
-    blocks = re.findall(r"<script(?![^>]*\bsrc=)([^>]*)>(.*?)</script>", text, re.S)
-    scripts = [
-        body
-        for attrs, body in blocks
-        if body.strip()
-        and not re.search(r'type\s*=\s*"(?!text/javascript|module)', attrs)
-    ]
+    scripts = inline_scripts(template)
     if not scripts:
         pytest.skip("no inline script in this template")
-    node = _node()
+    _need_node()
     for i, block in enumerate(scripts):
-        code = re.sub(r"\{\{.*?\}\}|\{%.*?%\}", '"jinja"', block, flags=re.S)
-        with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as fh:
-            fh.write(code)
-            path = fh.name
-        try:
-            done = subprocess.run(
-                [node, "--check", path], capture_output=True, text=True
-            )
-        finally:
-            os.unlink(path)
-        assert done.returncode == 0, (
-            f"{template.name} inline script #{i + 1}:\n{done.stderr}"
-        )
+        problem = javascript_syntax_error(block)
+        assert problem is None, f"{template.name} inline script #{i + 1}:\n{problem}"
 
 
 def test_page_uses_only_kit_or_page_classes() -> None:

@@ -17,7 +17,14 @@ import uvicorn
 from geecs_scanner import __version__
 
 
-def build_service(*, experiment: str, identity: str, demo: bool, demo_period: float):
+def build_service(
+    *,
+    experiment: str,
+    identity: str,
+    demo: bool,
+    demo_period: float,
+    portal_url: str = "",
+):
     """Assemble the service for real or demo mode."""
     from geecs_scanner.service import ProgressCache, ScannerService
 
@@ -38,6 +45,7 @@ def build_service(*, experiment: str, identity: str, demo: bool, demo_period: fl
             streams=streams,
             preflight=demo_preflight,
             version=__version__,
+            portal_url=portal_url,
         )
     from geecs_bluesky.config_resolver import ConfigsRepoResolver
     from geecs_bluesky.qs_client import make_queue_client
@@ -51,6 +59,7 @@ def build_service(*, experiment: str, identity: str, demo: bool, demo_period: fl
         identity=identity,
         streams=streams,
         version=__version__,
+        portal_url=portal_url,
     )
 
 
@@ -73,6 +82,12 @@ def main() -> None:
         "--root-path",
         default="",
         help="URL prefix behind a reverse proxy (e.g. /scan); X-Forwarded-Prefix overrides per request",
+    )
+    parser.add_argument(
+        "--portal-url",
+        default="",
+        help="the Data Portal's base URL for the run-page links (a site value; "
+        "behind the front door it is the /portal prefix); empty hides them",
     )
     parser.add_argument(
         "--demo",
@@ -99,6 +114,7 @@ def main() -> None:
         identity=args.identity,
         demo=args.demo,
         demo_period=args.demo_period,
+        portal_url=args.portal_url,
     )
     app = create_app(service, root_path=args.root_path)
     uvicorn.run(app, host=args.host, port=args.port, log_level=args.log_level.lower())

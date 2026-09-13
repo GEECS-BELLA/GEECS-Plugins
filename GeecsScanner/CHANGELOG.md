@@ -4,6 +4,75 @@ All notable changes to `geecs-scanner` are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 project adheres to semantic versioning.
 
+## [0.3.0] - unreleased
+
+The rest of the mock — PR 4 of the web scanner arc. Opens with the
+shared-glue adoption the #871/#872 reviews asked for once
+`geecs_web_theme.web` existed, then the panels day one left out.
+
+### Added
+
+- **Idle-only items** — `POST /api/move` (one `mv` queue item; the variable
+  resolved exactly as a scan axis is, through `scan_variable_reference`,
+  pseudo entries refused), `POST /api/actions/{name}/run` (`run_action`),
+  `POST /api/calibration/check` and `/measure` (`check_shot_sync`,
+  `measure_shot_offsets`; at least two devices; `measure` carries `shots`
+  and `write`). All four refuse with 409 `policy_refusal` unless the manager
+  is idle **and nothing waits** — the queue is started, so an item added
+  behind a running or waiting scan would run by itself the moment it ends;
+  the check and the add happen under the one lock.
+- **Actions** — `GET /api/actions` (name, description, flattened step count,
+  nested plan names, or the reason it cannot run) and `GET /api/actions/{name}`,
+  the preview: every concrete step in execution order with the nested plan
+  each was inlined from and the number of hardware writes. The flatten is
+  the scanner's own walk over the schema models (`service/actions.py`) —
+  the worker's compiler is off limits to a client.
+- **Calibration** — `GET /api/calibration`: the stored `shot_offsets.yaml`
+  summarized (reference, when, profile, per-device offsets, the largest).
+- **Save as preset** — `POST /api/configs/presets/{name}` writes
+  `presets/<name>.yaml` through `ConfigsRepoResolver.write_preset`
+  (GeecsBluesky 0.86.0): the URL names the file, an existing preset is
+  refused with 409 `exists` unless `overwrite` is set, the answer names the
+  path so the operator knows what to commit.
+- **The scan.log tail** — a `log` event type on `/api/events` and
+  `GET /api/scanlog?offset=`: `service/scanlog.py` reads
+  `<scan_folder>/scan.log` from the folder the start document names (the
+  worker claimed it; this process reads and never creates), whole lines
+  only, resumable by offset, a new run replayed from the top, an
+  unreadable folder said once. `ProgressOut` gains `scan_folder` and `day`.
+- **The page** — three panels under the queue as the mock drew them:
+  *Devices · move* (variable + value, idle gate), *Actions* (picklist →
+  preview → Arm → Run; arming is never remembered), *Calibration* (the
+  stored offsets, shots + store-the-result fields, Check sync, Measure
+  offsets… behind a dialog that says what will happen); the **Add device**
+  drawer over `/api/devices` (bare device names, the table's rows marked)
+  with a remove control per row; the **Save as preset** drawer showing the
+  YAML it becomes; the tail's `.seg` now toggles **scan.log** (default) and
+  the manager console; the rail's **Recent** links open the portal's run
+  pages (`--portal-url`, a site value; `QueueRow.run_uids`) and its heading
+  the portal's day.
+- `--portal-url` on `geecs-scanner`; `GEECS_SCANNER_EXTRA_ARGS` in
+  `site.env` is where a site sets it.
+
+### Changed
+
+- **The web glue is imported, not copied.** The `geecs-web-theme` path
+  dependency gains `extras = ["web"]`; `web/app.py` uses
+  `geecs_web_theme.web.ForwardedPrefixMiddleware` and `mount_theme`, and
+  `web/pages.py` builds its environment with `make_templates(TEMPLATES_DIR)`
+  (`root` in every context comes from the shared factory). Deleted: the
+  scanner's `ForwardedPrefixMiddleware` + `_clean_prefix`, `_root` + the
+  `Jinja2Templates` setup, and the try/except around the theme mount (the
+  theme has been a hard dependency since 0.1.0). The scanner's named
+  `/static` mount and `url_for(...).path` stay — they are the page's own.
+- `tests/test_page.py`'s three template guards are one-line asserts over
+  `geecs_web_theme.testing` (`bare_url_for_calls`, `unknown_data_states`,
+  `inline_scripts` + `javascript_syntax_error`); the scanner-specific
+  checks (the script's `K` table and `setChip` literals, the page's script
+  file, "every class is styled") stay local. Proven to bite: a planted
+  template with a bare `url_for`, a `data-state="FAILED"` and a broken
+  inline script fails all three.
+
 ## [0.2.0] - 2026-09-13
 
 The page — PR 3 of the web scanner arc. Day one of the console's job, as

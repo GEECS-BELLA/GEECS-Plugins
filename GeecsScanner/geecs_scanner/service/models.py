@@ -42,6 +42,9 @@ class QueueRow(BaseModel):
     item_uid: Optional[str] = None
     position: Optional[int] = None
     scan_numbers: list[int] = Field(default_factory=list)
+    run_uids: list[str] = Field(
+        default_factory=list, description="The runs' uids — the portal's run pages"
+    )
     planned_shots: Optional[int] = None
 
 
@@ -168,6 +171,13 @@ class ProgressOut(BaseModel):
     exit_status: Optional[str] = None
     paused_reason: Optional[str] = None
     updated_at: Optional[float] = None
+    scan_folder: Optional[str] = Field(
+        default=None, description="The run's folder as the start document names it"
+    )
+    day: Optional[str] = Field(
+        default=None,
+        description="The run's day, ISO (from the start document's scan_tag)",
+    )
 
 
 class ConsoleLine(BaseModel):
@@ -186,3 +196,137 @@ class HealthOut(BaseModel):
     manager: bool
     readiness: str
     experiment: str
+
+
+class MoveIn(BaseModel):
+    """The body of ``POST /api/move``: one manual move as an ``mv`` queue item."""
+
+    variable: str = Field(
+        description="A scan-variable catalog name, a Device:Variable, or a device"
+    )
+    value: float
+    operator: Optional[str] = None
+
+
+class ItemOut(BaseModel):
+    """A queued non-scan item: a move, an action, a calibration."""
+
+    item_uid: Optional[str] = None
+    message: str = ""
+    submitted_as: str
+    plan: str
+    summary: str = ""
+    reference: Optional[str] = Field(
+        default=None, description="For a move: the device reference the item carries"
+    )
+
+
+class ActionOut(BaseModel):
+    """One action plan as the picklist shows it."""
+
+    name: str
+    description: str = ""
+    steps: int = Field(description="Concrete steps after nested runs are inlined")
+    nested: list[str] = Field(
+        default_factory=list, description="Plans this one runs by name"
+    )
+    problem: Optional[str] = Field(
+        default=None, description="Why it cannot run (unknown nested plan, a loop)"
+    )
+
+
+class ActionStepOut(BaseModel):
+    """One flattened step of an action plan."""
+
+    do: str
+    device: Optional[str] = None
+    variable: Optional[str] = None
+    value: Optional[Any] = None
+    expected: Optional[Any] = None
+    seconds: Optional[float] = None
+    wait: Optional[bool] = None
+    from_plan: Optional[str] = Field(
+        default=None, description="The nested plan this step was inlined from"
+    )
+    text: str
+
+
+class ActionDetailOut(BaseModel):
+    """``GET /api/actions/{name}``: the preview — what running it would do, in order."""
+
+    name: str
+    description: str = ""
+    steps: list[ActionStepOut]
+    writes: int = Field(description="How many steps write to hardware")
+
+
+class CalibrationDeviceOut(BaseModel):
+    """One device's stored drain offset."""
+
+    name: str
+    offset_s: float
+    scatter_s: Optional[float] = None
+    shots: Optional[int] = None
+    geecs_device: Optional[str] = None
+
+
+class CalibrationOut(BaseModel):
+    """``GET /api/calibration``: the stored shot offsets, summarized."""
+
+    stored: bool
+    path: str = ""
+    detail: str = ""
+    reference: Optional[str] = None
+    measured_at: Optional[str] = None
+    trigger_profile: Optional[str] = None
+    trigger_rate_hz: Optional[float] = None
+    description: str = ""
+    devices: list[CalibrationDeviceOut] = Field(default_factory=list)
+    max_offset_s: Optional[float] = None
+    max_offset_device: Optional[str] = None
+
+
+class CalibrationIn(BaseModel):
+    """The body of the two calibration verbs."""
+
+    devices: list[str] = Field(
+        description="The triggered devices to check or measure (at least two)"
+    )
+    trigger_profile: Optional[str] = None
+    tolerance_s: Optional[float] = Field(
+        default=None, description="check only: widest accepted disagreement"
+    )
+    shots: Optional[int] = Field(default=None, description="measure only")
+    write: bool = Field(
+        default=False, description="measure only: store the result in the configs tree"
+    )
+    operator: Optional[str] = None
+
+
+class SavePresetIn(BaseModel):
+    """The body of ``POST /api/configs/presets/{name}``."""
+
+    preset: dict[str, Any] = Field(description="A geecs_schemas.Preset document")
+    overwrite: bool = False
+
+
+class SavePresetOut(BaseModel):
+    """A written preset."""
+
+    name: str
+    path: str
+    message: str
+
+
+class ScanLogOut(BaseModel):
+    """A chunk of the running (or last) scan's ``scan.log``."""
+
+    available: bool
+    folder: Optional[str] = None
+    offset: int = 0
+    lines: list[str] = Field(default_factory=list)
+    more: bool = Field(
+        default=False, description="The file holds more beyond this chunk"
+    )
+    detail: str = ""
+    scan_number: Optional[int] = None

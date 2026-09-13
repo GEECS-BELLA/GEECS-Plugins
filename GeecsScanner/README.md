@@ -55,7 +55,14 @@ without a worker.
 | `POST /api/preflight` | validate + pre-check a preset; submits nothing |
 | `POST /api/submit` | `{preset, acknowledged[], operator, clear_pending}` → the queued item |
 | `POST /api/pause` · `/resume` · `/stop` · `/clear` | the verbs |
-| `GET /api/events?since=&once=` | the SSE stream |
+| `POST /api/move` | `{variable, value, operator}` → one `mv` queue item; idle-only (409 while a plan runs or anything waits) |
+| `GET /api/actions` · `GET /api/actions/{name}` | the action library; the preview — every step, nested `run` plans inlined |
+| `POST /api/actions/{name}/run` | one `run_action` queue item; idle-only; refused when the preview does not resolve |
+| `GET /api/calibration` | the stored `shot_offsets.yaml`, summarized |
+| `POST /api/calibration/check` · `/measure` | `check_shot_sync` / `measure_shot_offsets` queue items over `{devices[], trigger_profile, tolerance_s | shots, write}`; idle-only |
+| `POST /api/configs/presets/{name}` | `{preset, overwrite}` → writes `presets/<name>.yaml` through the resolver (409 `exists` without `overwrite`) |
+| `GET /api/scanlog?offset=` | the latest run's `scan.log` from the folder the start document names (read-only) |
+| `GET /api/events?since=&once=` | the SSE stream: `status`, `progress`, `log`, `console` |
 
 Errors are `{"error": {"kind", "message", ...}}` with the kind mapped to a
 status: `invalid_request` 400, `not_found` 404, `policy_refusal` 409,

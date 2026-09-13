@@ -18,7 +18,11 @@ deliberately not here):
   the operator has not acknowledged is ``policy_refusal`` carrying
   ``needs_acknowledgement``, and each acknowledged check is stamped
   ``continued`` into the ``SubmissionRecord`` that rides with the run.
-- **Idle-only verbs** (a manual move, an action) refuse while a plan runs.
+- **Idle-only items** (a manual move, an action, a calibration) refuse
+  while a plan runs **or anything waits**: the queue is started, so an
+  item added behind a running or waiting scan would run by itself the
+  moment that scan ends — the surprise GEECS-MCP's ``run_action`` refuses
+  for the same reason.  The check and the add happen under the one lock.
 - **Ownership** (who may stop whose scan) arrives with the operator
   registry (arc PR 5); until then every verb acts and ``force`` is
   recorded but changes nothing.
@@ -36,9 +40,16 @@ from typing import Any, Optional
 
 from geecs_scanner.service.errors import ScannerError
 from geecs_scanner.service.models import (
+    ActionDetailOut,
+    ActionOut,
+    CalibrationDeviceOut,
+    CalibrationIn,
+    CalibrationOut,
     ConfigListOut,
     ConsoleLine,
     HealthOut,
+    ItemOut,
+    MoveIn,
     PlanCallOut,
     PreflightOut,
     PreflightOutcomeOut,
@@ -46,6 +57,9 @@ from geecs_scanner.service.models import (
     ProgressOut,
     QueueOut,
     QueueRow,
+    SavePresetIn,
+    SavePresetOut,
+    ScanLogOut,
     ScanVariableOut,
     StatusOut,
     SubmitIn,
@@ -96,6 +110,8 @@ class ScannerService:
         The pre-submit checks; defaults to
         :func:`geecs_bluesky.qs_client.run_submit_preflight`.  The demo
         backend injects a fast one.
+    portal_url : str, optional
+        The Data Portal's base URL, for the run-page links; empty hides them.
     """
 
     def __init__(
@@ -108,6 +124,7 @@ class ScannerService:
         streams: Optional[ProgressCache] = None,
         preflight: Optional[PreflightFn] = None,
         version: str = "",
+        portal_url: str = "",
     ) -> None:
         self.client = client
         self.resolver = resolver
@@ -115,6 +132,8 @@ class ScannerService:
         self.identity = identity
         self.streams = streams or ProgressCache()
         self.version = version
+        #: Where the Data Portal answers (a site value, injected); "" hides the links.
+        self.portal_url = portal_url.rstrip("/")
         self._preflight = preflight
         self._lock = threading.Lock()
 
@@ -240,6 +259,24 @@ class ScannerService:
         """Console lines newer than *seq*."""
         return self.streams.console_since(seq)
 
+    def scan_log(self, offset: int = 0, folder: Optional[str] = None) -> ScanLogOut:
+        """The latest run's ``scan.log`` from *offset* on (read-only; see :mod:`.scanlog`)."""
+        from geecs_scanner.service.scanlog import read_scan_log
+
+        progress = self.streams.snapshot()
+        folder = folder or progress.scan_folder
+        if not folder:
+            return ScanLogOut(
+                available=False,
+                detail="no run folder yet — it arrives with the start document",
+                scan_number=progress.scan_number,
+            )
+        out = read_scan_log(folder, offset)
+        out.scan_number = (
+            progress.scan_number if folder == progress.scan_folder else None
+        )
+        return out
+
     # ---------------------------------------------------------- submission
 
     def preflight(self, preset_doc: Mapping[str, Any]) -> PreflightOut:
@@ -325,6 +362,191 @@ class ScannerService:
             summary=summary.text,
         )
 
+    # ---------------------------------------------------- idle-only items
+
+    def move(self, body: MoveIn) -> ItemOut:
+        """Queue one manual move — a stock ``mv`` item — while nothing runs or waits.
+
+        *variable* is resolved exactly as a scan axis would be: a catalog
+        name through the experiment's scan-variable catalog (a pseudo
+        entry is refused there), a ``Device:Variable`` or a bare device
+        passed through as the worker's dotted reference.
+        """
+        import math
+
+        from geecs_bluesky.qs_client.presets import scan_variable_reference
+
+        name = body.variable.strip()
+        if not name:
+            raise ScannerError("invalid_request", "pick a variable to move")
+        if not math.isfinite(body.value):
+            raise ScannerError("invalid_request", f"value {body.value!r} is not finite")
+        try:
+            reference = scan_variable_reference(name, self._catalog())
+        except Exception as exc:  # noqa: BLE001 — a GeecsConfigurationError, operator-facing
+            raise ScannerError("invalid_request", str(exc)) from exc
+        out = self._queue_item("mv", [reference, body.value], {}, what="a move")
+        out.reference = reference
+        return out
+
+    def actions(self) -> list[ActionOut]:
+        """The action library as the picklist shows it: name, step count, nested names."""
+        registry = self._action_registry()
+        out: list[ActionOut] = []
+        for name in sorted(registry):
+            plan = registry[name]
+            nested = [str(s.plan) for s in plan.steps if str(s.do) == "run"]
+            try:
+                from geecs_scanner.service.actions import flatten
+
+                steps, problem = len(flatten(name, plan, registry)), None
+            except ScannerError as exc:
+                steps, problem = len(plan.steps), exc.message
+            out.append(
+                ActionOut(
+                    name=name,
+                    description=str(getattr(plan, "description", "") or ""),
+                    steps=steps,
+                    nested=nested,
+                    problem=problem,
+                )
+            )
+        return out
+
+    def action(self, name: str) -> ActionDetailOut:
+        """The preview: every concrete step *name* would run, nested plans inlined."""
+        from geecs_scanner.service.actions import flatten
+
+        registry = self._action_registry()
+        plan = registry.get(name)
+        if plan is None:
+            raise ScannerError(
+                "not_found",
+                f"no action plan {name!r} in the library",
+                actions=sorted(registry),
+            )
+        steps = flatten(name, plan, registry)
+        return ActionDetailOut(
+            name=name,
+            description=str(getattr(plan, "description", "") or ""),
+            steps=steps,
+            writes=sum(1 for s in steps if s.do == "set"),
+        )
+
+    def run_action(self, name: str, body: VerbIn) -> ItemOut:
+        """Queue ``run_action(name)`` while nothing runs or waits; the preview must resolve first."""
+        self.action(name)  # not_found / an unresolvable nested run → refused here
+        if body.force:
+            logger.info("run_action %r forced by %s", name, body.operator or "unknown")
+        return self._queue_item("run_action", [name], {}, what=f"action {name!r}")
+
+    def calibration(self) -> CalibrationOut:
+        """The stored shot offsets (``shot_offsets.yaml``), summarized for the panel."""
+        path = str(getattr(self.resolver, "shot_offsets_path", "") or "")
+        try:
+            stored = self.resolver.resolve_shot_offsets()
+        except Exception as exc:  # noqa: BLE001 — an unreadable file is an honest answer
+            return CalibrationOut(stored=False, path=path, detail=str(exc))
+        if stored is None:
+            return CalibrationOut(
+                stored=False, path=path, detail="no shot offsets measured yet"
+            )
+        devices = [
+            CalibrationDeviceOut(
+                name=n,
+                offset_s=d.offset_s,
+                scatter_s=getattr(d, "scatter_s", None),
+                shots=getattr(d, "shots", None),
+                geecs_device=getattr(d, "geecs_device", None) or None,
+            )
+            for n, d in sorted(stored.devices.items())
+        ]
+        worst = max(devices, key=lambda d: abs(d.offset_s), default=None)
+        return CalibrationOut(
+            stored=True,
+            path=path,
+            reference=stored.reference,
+            measured_at=stored.measured_at,
+            trigger_profile=stored.trigger_profile,
+            trigger_rate_hz=stored.trigger_rate_hz,
+            description=stored.description,
+            devices=devices,
+            max_offset_s=abs(worst.offset_s) if worst else None,
+            max_offset_device=worst.name if worst else None,
+        )
+
+    def calibration_check(self, body: CalibrationIn) -> ItemOut:
+        """Queue ``check_shot_sync`` over *devices* (box OFF, no shot, no run)."""
+        kwargs: dict[str, Any] = {}
+        if body.trigger_profile:
+            kwargs["trigger_profile"] = body.trigger_profile
+        if body.tolerance_s is not None:
+            kwargs["tolerance_s"] = body.tolerance_s
+        return self._queue_item(
+            "check_shot_sync",
+            [self._device_references(body.devices)],
+            kwargs,
+            what="a sync check",
+        )
+
+    def calibration_measure(self, body: CalibrationIn) -> ItemOut:
+        """Queue ``measure_shot_offsets`` over *devices*; ``write`` stores the result."""
+        kwargs: dict[str, Any] = {"write": bool(body.write)}
+        if body.trigger_profile:
+            kwargs["trigger_profile"] = body.trigger_profile
+        if body.shots is not None:
+            if body.shots < 1:
+                raise ScannerError("invalid_request", "shots must be at least 1")
+            kwargs["shots"] = body.shots
+        out = self._queue_item(
+            "measure_shot_offsets",
+            [self._device_references(body.devices)],
+            kwargs,
+            what="an offset measurement",
+        )
+        if body.write:
+            out.message = (out.message + " · " if out.message else "") + (
+                "a written measurement reaches the worker at its next environment "
+                "open, not immediately"
+            )
+        return out
+
+    def save_preset(self, name: str, body: SavePresetIn) -> SavePresetOut:
+        """Write a preset document to the configs tree as ``presets/<name>.yaml``.
+
+        The URL's *name* is the file stem and wins over the document's; the
+        write is the resolver's (one owner of the folder).  Committing the
+        new file is a human act — the answer names the path.
+        """
+        doc = dict(body.preset)
+        doc["name"] = name
+        preset = self._validate_preset(doc)
+        # The 409 is decided here, from the listing, so the page's "replace?"
+        # dialog does not hang on the wording of the resolver's refusal; the
+        # resolver still refuses underneath (the backstop for a race).
+        stem = name
+        while stem.endswith((".yaml", ".yml")):
+            stem = stem.rsplit(".", 1)[0]
+        try:
+            existing = set(self.resolver.list_presets())
+        except Exception:  # noqa: BLE001 — a listing never raises in the real resolver
+            existing = set()
+        if not body.overwrite and stem in existing:
+            raise ScannerError(
+                "policy_refusal",
+                f"preset {stem!r} already exists; replace it or pick another name",
+                exists=True,
+            )
+        try:
+            path = self.resolver.write_preset(preset, overwrite=body.overwrite)
+        except Exception as exc:  # noqa: BLE001 — GeecsConfigurationError, operator-facing
+            raise ScannerError("invalid_request", str(exc)) from exc
+        return SavePresetOut(
+            name=path.stem,
+            path=str(path),
+            message=f"preset {path.stem!r} written to {path} — review and commit it in the configs repo",
+        )
+
     # --------------------------------------------------------------- verbs
 
     def pause(self, body: VerbIn) -> VerbOut:
@@ -394,6 +616,71 @@ class ScannerService:
         except Exception as exc:  # noqa: BLE001 — a GeecsConfigurationError, operator-facing
             raise ScannerError("invalid_request", str(exc)) from exc
 
+    def _queue_item(
+        self, name: str, args: list[Any], kwargs: dict[str, Any], *, what: str
+    ) -> ItemOut:
+        """Add a non-scan item while the manager is idle and nothing waits."""
+        with self._lock:
+            self._require_idle(what)
+            result = self.client.submit_plan(name, args=args, kwargs=kwargs)
+        if not result.ok:
+            raise ScannerError(
+                "manager_unreachable", result.message or f"{what} was refused"
+            )
+        summary = summarize_item({"name": name, "args": args, "kwargs": kwargs})
+        return ItemOut(
+            item_uid=result.item_uid,
+            message=result.message,
+            submitted_as=self.identity,
+            plan=name,
+            summary=summary.text,
+        )
+
+    def _require_idle(self, what: str) -> None:
+        """Refuse *what* unless the manager answers, nothing runs and nothing waits."""
+        snap = self.client.status()
+        if not snap.connected:
+            raise ScannerError(
+                "manager_unreachable", snap.detail or "manager not answering"
+            )
+        if snap.re_state not in (None, "idle"):
+            raise ScannerError(
+                "policy_refusal",
+                f"{what} is idle-only: a plan is {snap.re_state} — wait for it or stop it first",
+                re_state=snap.re_state,
+            )
+        if snap.items_in_queue:
+            raise ScannerError(
+                "policy_refusal",
+                f"{what} is idle-only: {snap.items_in_queue} item(s) wait in the queue "
+                "and it would run right after them — clear the queue first",
+                items_in_queue=snap.items_in_queue,
+            )
+
+    def _action_registry(self) -> dict[str, Any]:
+        try:
+            return dict(self.resolver.action_plan_registry())
+        except Exception as exc:  # noqa: BLE001 — a legacy-dialect file must be seen, not hidden
+            raise ScannerError(
+                "internal_error", f"the action library could not be read: {exc}"
+            ) from exc
+
+    @staticmethod
+    def _device_references(devices: list[str]) -> list[str]:
+        from geecs_bluesky.qs_client.presets import scan_variable_reference
+
+        names = [d.strip() for d in devices if d and d.strip()]
+        if len(names) < 2:
+            raise ScannerError(
+                "invalid_request",
+                "a calibration needs at least two triggered devices — the "
+                "measurement is the spread between them",
+            )
+        try:
+            return [scan_variable_reference(n) for n in names]
+        except Exception as exc:  # noqa: BLE001
+            raise ScannerError("invalid_request", str(exc)) from exc
+
 
 def _row(
     item: dict, state: str, word: str, *, position: Optional[int] = None
@@ -418,6 +705,7 @@ def _history_row(item: dict) -> QueueRow:
     row = _row(item, state, word)
     scan_ids = result.get("scan_ids") or []
     row.scan_numbers = [n for n in (_int(x) for x in scan_ids) if n is not None]
+    row.run_uids = [str(u) for u in (result.get("run_uids") or []) if u]
     msg = str(result.get("msg") or "").strip().splitlines()
     row.detail = msg[0] if msg else row.detail
     return row
