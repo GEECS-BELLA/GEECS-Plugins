@@ -4,6 +4,17 @@ All notable changes to `geecs-scanner` are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 project adheres to semantic versioning.
 
+## [0.5.1] - 2026-09-14
+
+PR 6 of the web scanner arc — GEECS-Console deleted. No code change.
+
+### Changed
+
+- `README.md` / `CLAUDE.md`: the scanner is described as the operator front
+  end (the PySide6 GEECS-Console it replaced is deleted; final state at the
+  tag `geecs-console-v0.32.1-final`), and the deploy note no longer names
+  the dropped Caddy front door — three ports, one bookmark each.
+
 ## [0.5.0] - 2026-09-14
 
 PR 5b of the web scanner arc — the movable panel.

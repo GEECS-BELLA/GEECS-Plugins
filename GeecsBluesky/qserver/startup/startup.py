@@ -163,7 +163,7 @@ globals().update(bind_plans(_profiles, resolver=_resolver, settables=namespace))
 
 # ZMQ document publisher — the GUI progress stream (#648). bluesky documents
 # go to a bluesky-0MQ-proxy (started by launch_re_manager.sh alongside
-# Redis); clients (GEECS-Console) consume them with
+# Redis); clients (GeecsScanner, GEECS-MCP) consume them with
 # bluesky.callbacks.zmq.RemoteDispatcher on the proxy's out port. NOTE the
 # manager's --zmq-publish-console stream is a different thing entirely
 # (captured stdout/stderr text, not documents). Best-effort, same posture

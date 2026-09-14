@@ -2,7 +2,7 @@
 
 The scans domain is the server's first and largest surface: everything an
 agent needs to observe, validate, submit, steer, and stop scans — as a
-client of the queueserver, exactly like the console.
+client of the queueserver, exactly like the web scanner.
 
 Tool classes below follow the [safety model](overview.md#the-safety-model):
 **R** read-only (auto-allow), **Q** queueing (asked/gated), **S** stop
@@ -27,7 +27,8 @@ refusals rather than half-submissions.
 ## Submitting (Q)
 
 `submit_scan` accepts either a saved **preset** by name or a composed
-`ScanRequest` dictionary — the same one submission shape as the console,
+`ScanRequest` dictionary (the funnel contract — the web scanner submits
+presets; the two share the client seam and the preflight, not the shape),
 validated against the schema at the tool boundary. Standing protections,
 all enforced server-side:
 
@@ -35,7 +36,7 @@ all enforced server-side:
   deployment-configurable); optimization runs must state an explicit
   iteration budget.
 - **The acknowledge-warnings loop.** The pre-submit preflight (the same
-  checks the console runs: engine validation, unserved variables, device
+  checks the scanner runs: engine validation, unserved variables, device
   liveness, free-run staleness) can raise *questions*. The server never
   silently continues past one — the submission is refused with the
   question, and the agent must resubmit with an explicit

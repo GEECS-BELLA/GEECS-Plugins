@@ -163,7 +163,7 @@ def get_resolver() -> Any:
 
     Deliberately not cached (unlike the other singletons): the resolver
     caches its scan-variable and action catalogs internally, and config
-    edits mid-session (the console editors write these files during
+    edits mid-session (the files are edited in the configs repo during
     operations) must appear on the next listing call — a cached resolver
     would serve four kinds fresh and two kinds stale forever.
     Construction is lazy and cheap.

@@ -122,7 +122,7 @@ it holds no secrets).
 ### Data share
 
 Mount the production data share before starting the manager. The worker must
-write to the same scan-folder tree used by the console path; otherwise scan
+write to the same scan-folder tree the analysis side reads; otherwise scan
 number claim, ScanInfo creation, native asset references, and s-file export
 will fail or point at the wrong location.
 
@@ -210,7 +210,8 @@ nothing answers on the publish port). Override the ports with
 
 ### Network ports
 
-Client machines (console GUIs) need to reach, on the worker host:
+Queue clients on other hosts (notebooks; the scanner and the MCP run on
+the worker host itself) need to reach, on the worker host:
 
 - **60615** — the RE Manager control socket (`bluesky-queueserver-api`),
 - **60625** — the manager's console-output stream (log tail / failed-move
@@ -224,7 +225,7 @@ though the proxy binds all interfaces; firewall it with the rest.
 ### External subscribers
 
 The document-stream out port (**5568**) is the supported subscription
-point for clients beyond GEECS-Console — the contract OSPREY's bridge and
+point for clients beyond the web scanner — the contract OSPREY's bridge and
 any future live-progress client build on (#727 item 3). What "supported"
 means:
 
@@ -232,8 +233,8 @@ means:
   reach the worker; the proxy is a fan-out, so subscribers never touch
   the manager socket, Redis, or the in port. Add 5568 to the same
   firewall allow rule as 60615/60625; leave 5567 closed. The in-repo
-  subscribers are the reference practice: the console's
-  `geecs_console/app/scan_monitor.py` (`DocumentStreamWorker`),
+  subscribers are the reference practice: the scanner's
+  `geecs_scanner/service/streams.py` (`ProgressCache`),
   and GEECS-MCP's `geecs_mcp/scans/progress_stream.py` (`ProgressCache`)
   — each a `bluesky.callbacks.zmq.RemoteDispatcher` on the `doc_addr`
   that `geecs_bluesky.qs_client` reads from the `[qserver]` section of
@@ -284,7 +285,7 @@ exists and is `idle` — the readiness unit opened it. Nothing to type: if
 `qserver status` shows `worker_environment_exists: False` the readiness
 unit failed, was not installed, or ran fine and the RE worker child died
 later while the manager survived (no systemd event fires for that — the
-unit stays `active (exited)`; the console/MCP preflight refusal is what
+unit stays `active (exited)`; the scanner/MCP preflight refusal is what
 names the gesture); read its journal, fix the cause, and re-run it (the
 same command a fresh clone's first deploy uses):
 

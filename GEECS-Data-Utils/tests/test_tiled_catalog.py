@@ -629,8 +629,8 @@ def test_load_run_reads_the_scalar_table_and_never_the_array_parts() -> None:
 class TestOverviewRowsReadBothBackends:
     """The Overview table must not go blank on a native-path run.
 
-    `metadata_rows` is what both the console scan browser and the portal run
-    page render, and it read the retired funnel's singular `motor` and
+    `metadata_rows` is what the portal run page (and the Qt console's scan
+    browser, until its deletion) renders, and it read the retired funnel's singular `motor` and
     `acquisition_mode` keys. The native scanner writes `motors` and
     `acquisition`, so on a native scan the "Scan variable" row vanished
     entirely and "Mode" lost its strict/gated suffix — on the same page where

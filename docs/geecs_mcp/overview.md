@@ -43,7 +43,7 @@ matter:
   the run's metadata and per-column statistics.
 - "Which save sets and trigger profiles exist for this experiment?" —
   that is the **configs repository**, resolved and validated the same way
-  the console does it.
+  the web scanner does it.
 - "Run the standard analysis on this scan" — that is the **ScanAnalysis
   pipeline** with its task queue and figure outputs.
 
@@ -56,8 +56,8 @@ bounded setpoint writes (see the
 ## Where it sits in the architecture
 
 The server is a **peer client of the queueserver, with the same standing
-as the console** — and never an engine. It submits `ScanRequest`s through
-the same client seam the console uses (`geecs_bluesky.qs_client`),
+as the web scanner** — and never an engine. It submits `ScanRequest`s through
+the same client seam the scanner uses (`geecs_bluesky.qs_client`),
 resolves configs through the same resolver, and reads results from the
 same Tiled catalog. Scan execution stays entirely in the GEECS engine (the
 queueserver worker); the MCP never drives devices shot-by-shot.

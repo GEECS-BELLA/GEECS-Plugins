@@ -271,8 +271,8 @@ def plottable_columns(frame: Any) -> list[str]:
     """Return the columns of *frame* offered as scalar-plot picks.
 
     The ONE pick-list rule shared by the scalar-plotting front-ends
-    (the console scan browser's B4, the data portal) — both consume this
-    helper, so the two cannot drift.  Schema machinery (row
+    (the data portal; the Qt console's scan browser before its deletion)
+    — every consumer takes this helper, so they cannot drift.  Schema machinery (row
     identity + companion columns) is excluded via :func:`data_columns`,
     and plottability is tolerant coercion per the dtype-tolerant
     telemetry contract ("never assume numeric") — an object-typed column

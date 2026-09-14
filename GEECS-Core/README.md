@@ -19,7 +19,8 @@ needs, and nothing else.
 
 Consumers: `GeecsCAGateway` (the CA soft-IOC), `GeecsPvaGateway` (the
 distributed image server), `GeecsBluesky` (DB metadata, naming, exceptions),
-`GEECS-Console`, and end-user scripts (via `client`). See `DESIGN.md` for the
+`GeecsScanner` (`GeecsDb` for its settables list and health), and end-user
+scripts (via `client`). See `DESIGN.md` for the
 layering rules and what does *not* belong here.
 
 ```bash

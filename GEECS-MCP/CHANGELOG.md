@@ -4,6 +4,13 @@ All notable changes to `geecs-mcp` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.8.9] - 2026-09-14
+
+### Changed
+
+- The shot-cap refusal tells the agent to have an operator run the scan
+  "from the scanner page" — GEECS-Console is deleted (web scanner arc PR 6).
+
 ## [0.8.8] - 2026-09-10
 
 ### Changed

@@ -22,7 +22,7 @@ this package; the architecture rules below are its distillation.
   0.21.0) mounts ScanAnalysis' `config_editor` router at `/configs` over
   the `--processing-configs` tree: it writes analysis-config YAML into
   **that tree only** (the share copy of the configs repo, uncommitted —
-  same standing as the console's config writes), never the scans tree
+  same standing as the scanner's preset writes), never the scans tree
   (pinned in `tests/test_config_editor_mount.py`).  Its preview
   renders the *unsaved* document on the scan page's current shot through
   `image_analysis.ephemeral.render_document_ephemeral` — the same
@@ -52,12 +52,13 @@ this package; the architecture rules below are its distillation.
   imports `tiled` directly and never talks to the catalog server except
   through that protocol.  The shared front-end helpers
   (`resolve_scan_folder`, `metadata_rows`, `daily_scan_folder`) come
-  from GEECS-Data-Utils — never re-implement them here (the console
-  scan browser shares them; import-identity is pinned console-side for
-  `resolve_scan_folder` and `metadata_rows`).
+  from GEECS-Data-Utils — never re-implement them here (import identity
+  is pinned in `tests/test_shared_helpers.py` for `resolve_scan_folder`
+  and `metadata_rows`; the pin moved here when the Qt console's scan
+  browser was deleted, 2026-09-14).
 - **Column semantics live in `geecs_data_utils.tiled_schema`.**  The
   plot pick list is `plottable_columns`, coercion is `numeric_series` —
-  shared with the console's B4 so the two front-ends cannot drift.
+  one module so no front end reinterprets a column.
   Never interpret event-schema column names or dtypes in this package.
 - **No build chain.**  Server-rendered Jinja2 templates + minimal inline
   CSS; page behaviour is plain inline JS.  No npm, no CDN assets
@@ -118,7 +119,7 @@ this package; the architecture rules below are its distillation.
   `fastapi.testclient.TestClient` over fake catalogs — no network, no
   data root, no config.ini.  Catalog failures must surface in the page
   (or as 404s), never as 500s or hangs.
-- **Blocking catalog calls are fine here** (unlike the Qt console):
+- **Blocking catalog calls are fine here** (unlike a Qt GUI thread):
   FastAPI runs sync endpoints on a threadpool.  Keep endpoints sync
   unless something genuinely needs async.
 - **Eager WITHIN a scan, lazy ACROSS scans** (owner amendment,

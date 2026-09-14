@@ -1,8 +1,9 @@
 """The GEECS RE Manager client seam — for every queueserver client.
 
-Extracted from GEECS-Console (2026-08-21) because the console is just one
-client of the queue: notebooks and the GEECS MCP submit the same stock
-plan items through the same verbs.  Three modules:
+Extracted from the PySide6 GEECS-Console (2026-08-21; the console itself
+was deleted 2026-09-14) because a GUI is just one client of the queue: the
+web scanner, notebooks and the GEECS MCP submit the same stock plan items
+through the same verbs.  Three modules:
 
 - :mod:`.client` — the :class:`QueueClient` protocol and its
   implementations (:class:`ZmqQueueClient` over the manager's 0MQ control

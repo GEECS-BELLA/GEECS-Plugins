@@ -49,7 +49,6 @@ component, see the [Data Flow Map](../sites/data_flow/index.html).
 ```mermaid
 flowchart TB
     subgraph clients["Operator & analysis machines (Windows / macOS / Linux)"]
-        console["GEECS-Console"]
         phoebus["Phoebus displays"]
         nb["Python / notebooks"]
         osprey["OSPREY agents"]
@@ -87,11 +86,11 @@ flowchart TB
     db -- "served set, limits,<br/>vartypes" --> cagw
 
     cagw -- "CA (scalar PVs, :SP)" --> phoebus
-    cagw -- "CA" --> console
+    cagw -- "CA (readback panel)" --> scanner
     cagw -- "CA (ophyd-async devices)" --> qs
     pvagw -- "pvAccess (NTNDArray)" --> phoebus
 
-    console -- "queue API :60615" --> qs
+    scanner -- "queue API (local)" --> qs
     nb -- "queue API" --> qs
     osprey -- "MCP tools :8100" --> mcp
     mcp -- "queue API (local)" --> qs
@@ -104,7 +103,6 @@ flowchart TB
     devs -- "native file saving" --> nas
 
     tiled -- "HTTP API / web UI" --> browser
-    tiled -- "catalog reads" --> console
     tiled -- "catalog reads" --> nb
     tiled -- "catalog reads" --> portal
     nas -- "SMB mount" --> portal
@@ -112,6 +110,8 @@ flowchart TB
     portal -. "run page → scan card (--logbook-url)" .-> logbook
     nas -- "SMB mount: scan folders read,<br/>logbook/ mirror written" --> logbook
     logbook -- "HTTP :8400" --> browser
+    scanner -- "HTTP :8300" --> browser
+    scanner -. "portal links (--portal-url)" .-> portal
     nas -- "SMB mount" --> nb
 ```
 
@@ -166,7 +166,7 @@ rendered from it, never edited by hand.
     is. `scripts/lab_status.sh` therefore probes the DB with
     `scripts/mysql_probe.py` — a bounded, real handshake — and the shared
     `port_open` in `scripts/lib/net_probes.sh` refuses port 3306.
-    `1129` in a `GeecsDb` error or the console log means the block, not a
+    `1129` in a `GeecsDb` error or a service's journal means the block, not a
     network fault: ask the DB admin for `FLUSH HOSTS` (raising
     `max_connect_errors` server-side is the owner's call). This admonition
     is the one statement of the rule — the probe scripts and the
@@ -315,8 +315,8 @@ transport:
 **Control plane — Channel Access.** The CA gateway is the single scalar
 access layer: it subscribes to every enabled GEECS device over the GEECS
 wire protocol and serves readbacks plus `:SP` setpoints as CA PVs.
-Everything that reads or writes a device value — Phoebus, the console,
-the Bluesky worker's ophyd-async devices — goes through it. The GEECS
+Everything that reads or writes a device value — Phoebus, the scanner's
+readback panel, the Bluesky worker's ophyd-async devices — goes through it. The GEECS
 MySQL DB feeds it the served set (devices, variables, limits, types).
 
 **Image plane — pvAccess.** Live camera frames deliberately bypass the
@@ -325,8 +325,8 @@ host's cameras as NTNDArray PVs (gated subscriptions, latest-wins).
 Viewers connect point-to-point; 2 MB frames never transit the control
 plane.
 
-**Orchestration plane — the queue.** Scans exist as `ScanRequest`s
-submitted to the RE Manager's queue (ZMQ, port 60615). The console,
+**Orchestration plane — the queue.** Scans exist as queue items
+submitted to the RE Manager's queue (ZMQ, port 60615). The scanner,
 notebooks, and the MCP server are all peer clients of the same queue
 API; the worker executes plans against the CA gateway's PVs and streams
 progress on the document (5568) and console-output (60625) ports.

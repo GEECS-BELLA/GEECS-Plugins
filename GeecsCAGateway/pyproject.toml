@@ -18,7 +18,7 @@ geecs-schemas = { path = "../GEECS-Schemas", develop = true }
 pyyaml = "^6.0"
 # The GEECS access layer (UDP/TCP transport, experiment DB, PV naming,
 # exceptions, fake device server) lives in GEECS-Core; this package is the
-# CA server built on it. Library consumers (GeecsBluesky, GEECS-Console)
+# CA server built on it. Library consumers (GeecsBluesky, GeecsScanner)
 # depend on geecs-core directly and consume our PVs as a service — nothing
 # imports this package except GeecsPvaGateway (config helpers).
 geecs-core = { path = "../GEECS-Core", develop = true }

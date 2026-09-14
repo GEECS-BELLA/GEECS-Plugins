@@ -62,7 +62,7 @@ ScanAnalysis, GEECS-Data-Utils, and friends run from it). The second
 installs the git hooks that auto-format code on commit.
 
 Some packages keep their own environment instead — `GeecsBluesky`,
-`GeecsCAGateway`, `GEECS-Console` and others are installed by running
+`GeecsCAGateway`, `GeecsScanner` and others are installed by running
 `poetry install` inside that package's directory. You only need those
 when you work on them; `scripts/check.sh` knows which is which.
 
@@ -129,14 +129,14 @@ What each section is for, and who reads it:
 | `[Paths] GEECS_DATA_LOCAL_BASE_PATH` | The data share as mounted on *this* machine (scan-folder resolution; `scripts/lab_status.sh`'s mount probe) | GEECS-Data-Utils `GeecsPathsConfig`, the fleet scripts |
 | `[Paths] scan_analysis_configs_path` | Analyzer/diagnostic YAMLs in the configs repo | ScanAnalysis, LiveWatch, the config editor |
 | `[Paths] image_analysis_configs_path` | Camera/1D analyzer configs in the configs repo | ImageAnalysis |
-| `[Paths] scanner_config_root_path` | The configs repo root (scanner configs, derived channels, experiment defaults) | GEECS Console, GeecsBluesky, the CA gateway, GEECS-MCP |
+| `[Paths] scanner_config_root_path` | The configs repo root (scanner configs, derived channels, experiment defaults) | GEECS Scanner, GeecsBluesky, the CA gateway, GEECS-MCP |
 | `[Experiment] expt` | Your experiment's GEECS name (e.g. `Undulator`) | Nearly everything |
-| `[Experiment] rep_rate_hz` | Machine rep rate, for shot-count estimates | Scanner/Console |
-| `[tiled] uri`, `[tiled] api_key` | Tiled data-server access (optional) | GeecsBluesky, Scan Browser |
+| `[Experiment] rep_rate_hz` | Machine rep rate, for shot-count estimates | GEECS Scanner, GeecsBluesky |
+| `[tiled] uri`, `[tiled] api_key` | Tiled data-server access (optional) | GeecsBluesky, the Data Portal |
 | `[epics] ca_addr_list` | EPICS client addressing (optional, gateway clients) | GeecsBluesky and other CA clients |
 | `[pva] addr_list` | The camera servers running a PVA image gateway — the deployed fleet (optional). A DB roster host absent here counts as *not deployed*. Any process that imports `geecs_bluesky` exports it (with `file_plugin_addr_list`) into `EPICS_PVA_ADDR_LIST` at import, with `EPICS_PVA_AUTO_ADDR_LIST=YES` unless `[pva] pva_auto_addr_list` says otherwise (an explicit environment variable wins); Phoebus still takes the value by hand in its settings | `geecs-pva-gateway fleet` (the probe `scripts/fleet_status.sh` calls; it searches exactly these hosts), the fleet-screen generator, every GeecsBluesky-importing process's PVA search |
 | `[pva] file_plugin_addr_list` | Of the fleet, the boxes whose gateway serves the file plugin: the worker makes their cameras plugin-backed (HDF5 stacks) and searches them for the `…:hdf1:` PVs. Absent = no plugin-backed camera. On a service host it is rendered from `site.env` (`GEECS_PVA_FILE_PLUGIN_ADDR_LIST`) | GeecsBluesky (the namespace's plugin rule, the PVA address export) |
-| `[qserver] host` | The queueserver worker machine — scans submit to the RE Manager there. Without this section the Console runs but cannot submit scans. Optional per-address overrides: `control_addr` (`tcp://host:60615`), `info_addr` (`tcp://host:60625`), `doc_addr` (`host:5568`) | GEECS Console (queueserver client) |
+| `[qserver] host` | The queueserver worker machine — scans submit to the RE Manager there. Without this section the scanner page opens but cannot reach the manager. Optional per-address overrides: `control_addr` (`tcp://host:60615`), `info_addr` (`tcp://host:60625`), `doc_addr` (`host:5568`) | GEECS Scanner, GEECS-MCP (queueserver clients) |
 
 Database credentials are **not** stored here: tools follow
 `[Paths] geecs_data` to the `Configurations.INI` file on the data share

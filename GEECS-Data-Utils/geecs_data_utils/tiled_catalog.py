@@ -520,8 +520,8 @@ def read_primary_scalars(primary: Any) -> Optional[Any]:
 def resolve_scan_folder(detail: RunDetail, day: date) -> Optional[Path]:
     """Resolve a run's scan folder on disk — strictly read-only.
 
-    Shared by every front-end over the catalog (the console scan
-    browser's Open button, the data portal's resource endpoints).
+    Shared by every front-end over the catalog (the data portal's resource
+    endpoints; the Qt console's scan browser before its deletion).
     Prefers the run's own ``scan_folder`` start-doc path; falls back to
     building the daily ``scans/ScanNNN`` path for the given date via
     :func:`geecs_data_utils.scan_paths.daily_scan_folder` (pure path
@@ -609,8 +609,8 @@ def metadata_rows(detail: RunDetail) -> list[tuple[str, str]]:
     Pure — reads only the already-loaded :class:`RunDetail` (summary +
     start/stop documents), never the catalog.  Rows whose source key is
     absent or empty are omitted, so legacy or aborted runs render a
-    shorter list rather than blank cells.  Shared by the console scan
-    browser (B7 table) and the data portal's run-detail view.
+    shorter list rather than blank cells.  Shared by every front-end's
+    run-detail view (the data portal today).
 
     Parameters
     ----------

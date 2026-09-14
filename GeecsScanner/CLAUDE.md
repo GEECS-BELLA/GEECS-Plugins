@@ -3,7 +3,8 @@
 The web scanner console: a FastAPI service on the worker host that submits,
 watches and stops scans through `geecs_bluesky.qs_client`. The third surface
 on the GEECS surface kit (GeecsWebTheme), a peer of the Data Portal and the
-logbook, and the replacement for GEECS-Console. The arc brief is
+logbook, and the operator front end (it replaced the PySide6 GEECS-Console,
+deleted 2026-09-14). The arc brief is
 `Planning/native_bluesky/10_web_scanner.md` (#869); read it before changing shape.
 
 ## Layout
@@ -64,7 +65,7 @@ deploy/           the unit template + DEPLOYMENT.md
   `geecs_core.db` (the settables list) and `geecs_core.pv_naming` + `aioca`
   (the readback — the scanner reads gateway PVs directly, like the
   preflight does through the client seam). Never the
-  portal, the logbook, the console, GEECS-MCP, or the engine's
+  portal, the logbook, GEECS-MCP, or the engine's
   `plans`/`devices`/`run_engine`/`namespace`. `tests/test_boundaries.py`
   pins this and the absence of facility literals in code.
 - **Errors are the taxonomy.** Raise `ScannerError(kind, message, **extra)`;
@@ -119,4 +120,6 @@ resolves a variable to a device.
 
 The operator registry and ownership (arc PR 5: `operators.yaml`,
 `geecs.operator` in theme-boot, the `denied` banner for a foreign running
-item), the Caddy front door, and the console's deletion (PR 6).
+item) and the Caddy front door (dropped 2026-09-13 — three ports, one
+bookmark each). GEECS-Console itself is gone (PR 6, 2026-09-14; tag
+`geecs-console-v0.32.1-final`).

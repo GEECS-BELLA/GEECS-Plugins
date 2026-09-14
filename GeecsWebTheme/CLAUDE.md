@@ -16,7 +16,7 @@ questions separately, and disagreed on all of them: two rails (`17rem`
 fixed vs `228px` sticky), **zero** lines of shared layout, **fifteen**
 status class names for about five states, three overlay mechanisms — none a
 real `<dialog>`, so the portal's modal had no focus trap and ignored `Esc`.
-The forcing function was the third surface: the console, once web-based, is
+The forcing function was the third surface: the scanner (the web console) is
 the one with the hardest requirements (live values, write actions, hazards,
 keyboard), so it sets the vocabulary rather than inheriting a compromise.
 
@@ -62,8 +62,8 @@ the theme without being on the kit.
 | GEECS-DataPortal | yes | **no** — its own rail, tabs, badges, overlay, a 125-line inline style block and a 971-line inline script | no (own middleware copy) |
 | ScanAnalysis config editor (`/configs`) | yes | no | no |
 
-**Portal onto the kit is deliberately LAST** — after the Qt console is
-deleted and HTU is quiet — because it is the kit's acceptance test: the
+**Portal onto the kit is deliberately LAST** — after the Qt console's
+deletion (done 2026-09-14) and once HTU is quiet — because it is the kit's acceptance test: the
 run page uses plots, tabs and toasts, which the kit does not have yet,
 so that adoption will grow the kit rather than just consume it. Take the
 portal's glue copy (`_ForwardedPrefixMiddleware`, its own `root`
@@ -112,7 +112,7 @@ four on every block is why dense screens go flat.
 ## `.picklist`
 
 A vertical list of selectable things — the rail's navigation, the
-inspector's item list, whatever the console's device list becomes. It is a
+inspector's item list, the scanner's device list. It is a
 **named component, not a location**: the first cut styled `.rail nav`,
 which left the inspector on the reference page rendering native browser
 buttons and guaranteed a third use would need a third rule. Mark the
@@ -124,7 +124,7 @@ attribute, never a class.
 
 `queued · running · paused · ok · degraded · failed · unknown`, plus `agent` — not a
 severity but *who wrote this*, because the logbook already separates what an
-analyzer wrote from what a person wrote and the console will want the same
+analyzer wrote from what a person wrote and the scanner will want the same
 for agent-submitted actions. Colour is never the only carrier: every chip is
 a dot **and** a word.
 

@@ -3,8 +3,8 @@
 The web scanner console: submit, watch and stop GEECS scans from a browser.
 A FastAPI service on the worker host over the queueserver client
 (`geecs_bluesky.qs_client`), the third web surface on the GEECS surface kit
-beside the Data Portal and the logbook, and the replacement for the PySide6
-GEECS-Console. Arc brief: `Planning/native_bluesky/10_web_scanner.md` (#869).
+beside the Data Portal and the logbook, and the operator front end (it
+replaced the PySide6 GEECS-Console, deleted 2026-09-14). Arc brief: `Planning/native_bluesky/10_web_scanner.md` (#869).
 
 ## What it is
 
@@ -72,5 +72,5 @@ status: `invalid_request` 400, `not_found` 404, `policy_refusal` 409,
 
 ## Deploy
 
-Its own process, port 8300, unit `geecs-scanner`, behind the same front
-door as the portal and logbook. See `deploy/DEPLOYMENT.md`.
+Its own process, port 8300, unit `geecs-scanner`, beside the portal (8200)
+and the logbook (8400) — one bookmark each. See `deploy/DEPLOYMENT.md`.

@@ -10,7 +10,6 @@ tooling. Each subdirectory is an independent Python package with its own
 |---|---|
 | `ScanAnalysis/` | Post-scan analysis framework: task queue, YAML config system, scan analyzers |
 | `ImageAnalysis/` | Per-image analysis: pipelines, offline analyzers, config models |
-| `GEECS-Console/` | Greenfield PySide6 operator console (Bluesky/gateway architecture): scan submission, live health/device panels, config editors, Tiled scan browser |
 | `GEECS-Data-Utils/` | Scan path navigation, scalar loading, binning, Parquet database |
 | `GEECS-Schemas/` | Pydantic-only config vocabulary: versioned schemas for every scanner config kind (scan request, save set, scan variables, trigger profile, action plans, derived channels) and for the analysis configs (`geecs_schemas.analysis`: the `AnalysisDiagnostic` v2 document with its kind-discriminated analyzer specs, `AnalysisGroup`) + legacy-YAML converters + the docgen Markdown reference generator. Depends on pydantic alone — importable from anywhere |
 | `GeecsBluesky/` | Bluesky RunEngine backend, being rebuilt as a native Bluesky application (#807, plan of record `Planning/native_bluesky/03_clean_room_rebuild.md`): the queueserver worker (`qserver/` — RE Manager profile exporting the device namespace and the stock `bluesky.plans` verbs), `GeecsNamespace` (every DB device as an ophyd-async noun; acquirers are `GeecsDetector`, a stock `StandardDetector`), `ShotControl` (the trigger box as a Movable/Pausable), the strict `take_reading` (the fire between trigger and wait), the `qs_client` manager client, Tiled integration |
@@ -18,8 +17,8 @@ tooling. Each subdirectory is an independent Python package with its own
 | `GeecsCAGateway/` | The caproto CA gateway serving GEECS devices as PVs (readback + `:SP`) for Phoebus/Archiver/ophyd-async, built on GEECS-Core — see its `PV_CONTRACT.md` (client API contract), `DEPLOYMENT.md`, and `DESIGN.md` |
 | `GeecsPvaGateway/` | The PVA peer of GeecsCAGateway: distributed pvAccess server on each Windows camera server, exposing that host's GEECS camera images as NTNDArray PVs (gated subscriptions, latest-wins). Images stay off the central CA gateway by design |
 | `GEECS-MCP/` | The general GEECS MCP server for AI agents (OSPREY) — domains as modules, scans first: read tools (status/history/results/config listings/validation) + control verbs (submit with cap/etiquette/acknowledge-loop, ownership-gated stop, clear_queue) over `geecs_bluesky.qs_client` + the resolver + Tiled. Osprey integrates via `profile.yml` — central HTTP (the multi-machine mode) or stdio; see its `deploy/DEPLOYMENT.md` |
-| `GeecsScanner/` | The web scanner console (FastAPI, port 8300 on the worker host): submit, watch and stop scans from a browser over `geecs_bluesky.qs_client` — the third surface on the GEECS surface kit and the replacement for GEECS-Console. A service layer (`geecs_scanner.service`: pure Python, every answer a Pydantic model) under a JSON API + an SSE stream that reduces the worker's pickled document stream to JSON; a `--demo` manager for development. Arc brief: `Planning/native_bluesky/10_web_scanner.md` (#869) |
-| `GEECS-DataPortal/` | Scan-browsing web service (FastAPI, port 8200 on the worker host), read-only except explicit ScanAnalysis runs from its Analysis tab: day → scan → metadata/scalar plots/images in any browser, over the same `ScanCatalog` layer as the console's scan browser. Arc spec: `Planning/data_portal/` |
+| `GeecsScanner/` | The web scanner console (FastAPI, port 8300 on the worker host): submit, watch and stop scans from a browser over `geecs_bluesky.qs_client` — the third surface on the GEECS surface kit and the operator front end (it replaced the PySide6 GEECS-Console, deleted 2026-09-14). A service layer (`geecs_scanner.service`: pure Python, every answer a Pydantic model) under a JSON API + an SSE stream that reduces the worker's pickled document stream to JSON; a `--demo` manager for development. Arc brief: `Planning/native_bluesky/10_web_scanner.md` (#869) |
+| `GEECS-DataPortal/` | Scan-browsing web service (FastAPI, port 8200 on the worker host), read-only except explicit ScanAnalysis runs from its Analysis tab: day → scan → metadata/scalar plots/images in any browser, over the `ScanCatalog` layer in GEECS-Data-Utils. Arc spec: `Planning/data_portal/` |
 | `GeecsWebTheme/` | The shared look of every GEECS web surface, in two layers. `theme.css` settles **colour**: three themes (`bella` red/black, `laser` 532 nm green, `plasma` hydrogen Balmer), each light and dark, plus the picker. `kit.css` settles **everything else** — page shell, the three containers by role, one status vocabulary (`queued/running/ok/degraded/failed/unknown` + `agent`), controls, tables, the five pane states (incl. `stale` and `denied`), and the **overlay ladder** (`details` → inspector → drawer → `<dialog>` → route; take the lowest rung that fits). `kit.html` is its reference page, static beside the stylesheets so any host mounting it serves it at `<mount>/kit.html`. No runtime dependencies. Two rules it exists to enforce: surfaces style **through tokens, never with a literal colour**, and every kit rule is scoped to `.kit` so a surface adopts page by page — both pinned by its own tests, which walk the portal's and the editor's templates too. **Read its `CLAUDE.md` before building a new web surface** |
 | `GeecsLogbook/` | The logbook (successor to LogMaker4GoogleDocs): two books in one store — the **scans** book, a day-document view over scan folders, and the **ops** book, routine operations read by month — its own web service (`geecs-logbook`, port 8400, unit + `StateDirectory` of its own; the Data Portal links to it and no longer mounts it). A day is a **query**, not a document — no daily job, no template stamping. Derived scan facts are rendered per request and stored nowhere; human commentary lives in the unit's state directory and is mirrored as markdown into `{experiment}/logbook/`, a tree of its own outside the data tree. Notes cite each other by permalink (`/entry/{id}`), stored relative in the body so no mount prefix ever reaches the record |
 | `LogMaker4GoogleDocs/` | Google Docs/Drive API wrapper for automated experiment logs — being replaced by `GeecsLogbook/` |
@@ -171,9 +170,9 @@ GeecsBluesky         →  GEECS-Data-Utils, GEECS-Core, GEECS-Schemas
                         `qs-client` extra — geecs_bluesky.qs_client, the
                         RE Manager client every queue client uses)
 GEECS-DataPortal     →  GEECS-Data-Utils (tiled extra — the ScanCatalog
-                        seam + the shared browser helpers; a peer VIEW
-                        LAYER of the console's scan browser, one web one
-                        Qt — never imports the console or tiled directly)
+                        seam + the shared browser helpers; the scan
+                        browser of the suite — never imports the scanner
+                        or tiled directly)
                         (+ ImageAnalysis + ScanAnalysis, optional via the
                         `analysis` extra — the Images tab's
                         ephemeral-processing selector over
@@ -219,7 +218,7 @@ GEECS-MCP            →  GeecsBluesky (qs-client + ca extras — the queue
                         GEECS-Data-Utils (tiled extra — results lookup),
                         GEECS-Schemas (ScanRequest validation at the
                         tool boundary) — a peer CLIENT of the
-                        queueserver, same standing as the console;
+                        queueserver, same standing as the scanner;
                         never imports engine internals
 GeecsScanner         →  GeecsBluesky (qs-client + ca extras — the queue
                         client, expand_preset, the preflight, the configs
@@ -227,35 +226,33 @@ GeecsScanner         →  GeecsBluesky (qs-client + ca extras — the queue
                         ScanVariables, SubmissionRecord), GeecsWebTheme
                         (the kit, served at /theme by this process) — a
                         peer CLIENT of the queueserver, same standing as
-                        the console it replaces; never imports the portal,
+                        the console it replaced; never imports the portal,
                         the logbook, GEECS-MCP, or engine internals
-GEECS-Console        →  GeecsBluesky, GEECS-Schemas, GEECS-Data-Utils,
-                        GEECS-Core (GeecsDb for completions/health)
-                        (scan execution is remote: the console submits to
+                        (scan execution is remote: the scanner submits to
                         GeecsBluesky's queueserver worker through
                         geecs_bluesky.qs_client — the `qs-client` extra;
                         the optimization stack's heavy deps install
                         worker-side via GeecsBluesky's `optimize` extra —
-                        the console ships none)
+                        the scanner ships none)
 ```
 
 `GEECS-Core` is the GEECS access library: the UDP/TCP wire protocol, the
 experiment DB, the PV naming contract, and the exception tree. The gateways
-build their servers on it; GeecsBluesky and GEECS-Console import its library
+build their servers on it; GeecsBluesky and GeecsScanner import its library
 parts (`GeecsDb`, `pv_naming`, wire-level exceptions) and consume the CA
 gateway purely as a *service* (the PVs, via stock ophyd-async EPICS
 signals) — nothing imports the gateway's code; the DB variable-type rule
 both gateways and GeecsBluesky share lives in `geecs_core.db.variable_types`.
 
 `GEECS-Data-Utils` is the foundational layer — everything depends on it and it
-depends on nothing else in the repo. `GEECS-Console` sits at the top of the
+depends on nothing else in the repo. `GeecsScanner` sits at the top of the
 DAQ side. `ScanAnalysis` and `ImageAnalysis` are the most actively
 developed analysis packages. `LogMaker4GoogleDocs` is optional everywhere — missing it
 causes silent skips, not errors.
 
 ## How Packages Are Used Together (Typical Analysis Flow)
 
-1. **GEECS-Console** (via **GeecsBluesky**'s scan engine) runs a scan →
+1. **GeecsScanner** (via **GeecsBluesky**'s queueserver worker) runs a scan →
    writes per-shot data files to a date-structured folder on the data server
    (the legacy GEECS-Scanner-GUI — tag `legacy-scanner-final` — wrote the
    same layout)
@@ -292,13 +289,23 @@ equivalent). Resolved by `GeecsPathsConfig` from `~/.config/geecs_python_api/con
 `GEECS-PythonAPI` (legacy TCP device layer) and `GEECS-Scanner-GUI` (legacy
 PyQt5 DAQ front-end) were **deleted from `dev`** at the end of the geecs-core
 arc. Their successors: `geecs_core.client.GeecsDevice` for device
-get/set/subscribe, `GEECS-Console` + `GeecsBluesky` for scans, and
+get/set/subscribe, `GeecsScanner` + `GeecsBluesky` for scans, and
 `geecs_bluesky.optimization` for the Xopt stack. Their final state is
 preserved at the tag `legacy-scanner-final` (the M6 cutover merged the
 vision line into `master`, 2026-08-20); never adopt them in new code. The
 `~/.config/geecs_python_api/config.ini`
 path they named is a permanent fleet contract and deliberately keeps its
 name (see `GEECS-Core/DESIGN.md`).
+
+`GEECS-Console` (the greenfield PySide6 operator console that succeeded
+the Scanner GUI) was **deleted 2026-09-14** as the closing PR of the web
+scanner arc (`Planning/native_bluesky/10_web_scanner.md`): on the native
+Bluesky rebuild its submit path called verbs the rebuilt queue client no
+longer has, and `GeecsScanner` — the web scanner console — is its
+replacement. Its final state is preserved at the tag
+`geecs-console-v0.32.1-final`; never adopt it in new code. The
+`geecs_bluesky.qs_client` seam, the surface kit and the scanner's service
+layer carry everything of it that survived.
 
 ## Release & Versioning
 
@@ -318,7 +325,7 @@ Each package is versioned independently using **semantic versioning**:
 3. Commit `pyproject.toml` and `CHANGELOG.md` together with the code changes
 
 ```bash
-cd GEECS-Console && poetry version minor   # 0.20.2 → 0.21.0
+cd GeecsScanner  && poetry version minor   # 0.5.0 → 0.6.0
 cd GEECS-Core    && poetry version patch   # 0.2.0 → 0.2.1
 ```
 
@@ -326,7 +333,7 @@ Every package has a `CHANGELOG.md` following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format:
 `GEECS-Data-Utils/`, `ScanAnalysis/`, `ImageAnalysis/`,
 `LogMaker4GoogleDocs/`, `GeecsBluesky/`, `GEECS-Core/`, `GeecsCAGateway/`,
-`GeecsPvaGateway/`, `GEECS-Schemas/`, `GEECS-Console/`, `GeecsLogbook/`,
+`GeecsPvaGateway/`, `GEECS-Schemas/`, `GeecsLogbook/`,
 `GeecsWebTheme/`, `GeecsScanner/`.
 
 Git tags (`geecs-scanner-v0.8.0` style) are cut at **milestones** — a state

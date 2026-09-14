@@ -137,9 +137,9 @@ reference before building; each is deliberately small.
    frames. Orientation: `docs/geecs_gateway/image_pvs.md`; authority:
    `GeecsPvaGateway/CLAUDE.md`. Needs the lab network.
 6. **A small single-purpose GUI.** Template: `ScanAnalysis/LiveWatchGUI/`
-   (six files — window, worker thread, log pane). For PySide6/Console
-   work, `GEECS-Console/CLAUDE.md`'s ownership-hazard sections are
-   mandatory reading first.
+   (six files — window, worker thread, log pane). For a web surface,
+   the template is `GeecsScanner/` on the surface kit (`GeecsWebTheme`):
+   a pure-Python service layer under a thin FastAPI + Jinja page.
 7. **A small CLI/report tool**, shaped like `GEECS-LogTriage`
    (Pydantic models → deterministic core → thin CLI; its `CLAUDE.md`
    is the most digestible package doc in the repo).
@@ -147,13 +147,15 @@ reference before building; each is deliberately small.
 ## Neighborhoods
 
 Steer first projects toward the actively developed packages
-(ImageAnalysis, ScanAnalysis, GEECS-Data-Utils, GEECS-Console,
+(ImageAnalysis, ScanAnalysis, GEECS-Data-Utils, GeecsScanner,
 GeecsBluesky, the gateways). Never start a newcomer in — and never cite
 as a style reference — anything on the root `CLAUDE.md` "Known debt"
 list, `extras/` (legacy dump pending pruning), or
 `LogMaker4GoogleDocs` (awaiting refactor). The legacy packages
 (GEECS-PythonAPI, GEECS-Scanner-GUI) were deleted from `dev` 2026-08-20 —
-their successors are `geecs_core.client.GeecsDevice` and GEECS-Console.
+their successors are `geecs_core.client.GeecsDevice` and GeecsScanner (the
+PySide6 GEECS-Console in between was deleted 2026-09-14, tag
+`geecs-console-v0.32.1-final`).
 
 ## Branching and landing work
 
