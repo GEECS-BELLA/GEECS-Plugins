@@ -21,13 +21,13 @@ follow that split; the bottom row is for navigation and troubleshooting.
 
     ---
 
-    Run scans on the beamline with the GEECS Console: compose save sets,
-    drive scans and optimizations through the Bluesky-backed engine, and
-    browse recorded runs — or submit the same scan requests headlessly
+    Run scans on the beamline from a browser with the GEECS Scanner:
+    pick a preset or compose a scan, submit it to the Bluesky queueserver,
+    watch it live, move a device — or submit the same presets headlessly
     from your own scripts.
 
-    [:octicons-arrow-right-24: GEECS Console](geecs_console/overview.md) ·
-    [Running scans](geecs_console/running_scans.md)
+    [:octicons-arrow-right-24: GEECS Scanner](geecs_scanner/overview.md) ·
+    [Running scans](geecs_scanner/overview.md#running-a-scan)
 
 -   :material-chart-areaspline:{ .lg .middle } **Data Analysis**
 
@@ -48,7 +48,7 @@ follow that split; the bottom row is for navigation and troubleshooting.
     suite. Pick this if you already know which piece you're working
     with.
 
-    [:octicons-arrow-right-24: GEECS Console](geecs_console/overview.md) ·
+    [:octicons-arrow-right-24: GEECS Scanner](geecs_scanner/overview.md) ·
     [Image Analysis](image_analysis/overview.md) ·
     [Scan Analysis](scan_analysis/overview.md) ·
     [Data Utils](geecs_data_utils/overview.md) ·
@@ -61,7 +61,7 @@ follow that split; the bottom row is for navigation and troubleshooting.
     Common scan failure modes, the `/triage` skill for diagnosing
     recurring issues, and the architecture deep-dives.
 
-    [:octicons-arrow-right-24: Troubleshooting](geecs_console/troubleshooting.md) ·
+    [:octicons-arrow-right-24: Troubleshooting](geecs_scanner/overview.md#when-something-is-wrong) ·
     [Skills](skills/overview.md)
 
 </div>
@@ -97,9 +97,9 @@ can then load the s-file via Data Utils for ad-hoc exploration.
 
 ## Packages at a glance
 
-**[GEECS Console](geecs_console/overview.md)** — the operator application
-for collecting data: compose save sets, run scans and optimizations through
-the Bluesky-backed engine, monitor live, and browse recorded runs. The
+**[GEECS Scanner](geecs_scanner/overview.md)** — the operator front end
+for collecting data, in a browser: pick or compose a scan, submit it to the
+Bluesky queueserver, watch it live, move devices and run action plans. The
 engine underneath (GeecsBluesky) is equally usable headlessly.
 
 **[Image Analysis](image_analysis/overview.md)** — per-image processing and

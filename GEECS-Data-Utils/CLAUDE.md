@@ -2,7 +2,8 @@
 
 Foundational data layer. Provides scan path navigation, scalar data loading,
 data binning/aggregation, and a queryable Parquet-based scan metadata database.
-Used by ImageAnalysis, ScanAnalysis, GeecsBluesky, and GEECS-Console.
+Used by ImageAnalysis, ScanAnalysis, GeecsBluesky, GeecsScanner and the
+Data Portal.
 
 ## Package Layout
 
@@ -243,7 +244,7 @@ from geecs_data_utils.plotting_utils import plot_binned, plot_binned_multi
 - **ImageAnalysis** — `ScanPaths` to locate device data folders per scan
 - **ScanAnalysis** — `ScanData` for binning scalar data in summary plots;
   `ScanPaths` as the base for scan folder resolution
-- **GeecsBluesky / GEECS-Console** — `ScanPaths` for scan folder
+- **GeecsBluesky / GeecsScanner** — `ScanPaths` for scan folder
   resolution and post-scan file organization (`ScanConfig` / `ScanMode`
   remain here as legacy vocabulary; their engine consumer was deleted
   2026-08-20)
@@ -274,7 +275,7 @@ both sides) — when the writer grows a field, extend `STATUS_FIELDS` +
 
 The Tiled analogue of `ScanPaths`/`ScanData`: day → scan → data over the
 Bluesky runs a GEECS scan records to the lab Tiled server.  Pure and
-Qt-free by design — consumed by the GEECS-Console scan browser today and
+Qt-free by design — consumed by the Data Portal's scan browser today and
 intended for ScanAnalysis Tiled readers later (ScanAnalysis depends on
 this package and must never depend on GeecsBluesky or a GUI package).
 

@@ -116,7 +116,7 @@ root `/` is only a minimal landing page. With
 server moves the key into a cookie and strips the URL. The UI is a generic
 catalog browser (uid-oriented; metadata, tables, array previews, downloads);
 the scan-shaped quick-look workflow (day → Scan NNN → plot columns → drift)
-is the GEECS scan browser's job (GEECS-Console).
+is the Data Portal's job (GEECS-DataPortal).
 
 ### Client machines
 
@@ -140,7 +140,8 @@ api_key = <stable key>
 - Non-scalar device events include save directory and device `acq_timestamp` ✓
 - DG645 shot control arm/disarm per step ✓
 - Catalog readable from any network-connected Python session ✓
-- GUI path complete — `GEECS-Console` submits `ScanRequest`s to the
+- GUI path complete — the operator front end (`GeecsScanner` today;
+  `GEECS-Console` when this was checked) submits to the
   queueserver worker: shot control (trigger profiles) and
   setup/per-step/closeout actions all flow
   through it (the legacy `GEECS-Scanner-GUI` path was deleted with G3) ✓

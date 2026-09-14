@@ -1,25 +1,32 @@
 # The web scanner: the console as the third web surface — the arc brief
 
-**Status (2026-09-13, late):** PRs 1–4 MERGED — GeecsWebTheme 0.3.0 (#870,
-master) and 0.4.0/0.4.1 (#873/#874, the shared web glue), GeecsScanner
-0.1.0 (#871), 0.2.0 (#872, the page) and **0.3.0 (#876, the rest of the
-mock: move · actions · calibration · add-device and save-as-preset drawers
-· the scan.log tail · portal links, over the shared glue)**, GeecsBluesky
-0.86.0 (`write_preset`, `action_steps`), all on `feature/web-scanner`.
-The page is hardware-verified from a browser for submit/pause/stop
-(Scan005/006 of 26_0913); PR 4's read paths were checked against the real
-worker (the 21-plan action library, the share's `shot_offsets.yaml`, 108
-devices); **its write verbs (move, run_action, the calibration plans, a
-preset written into the share's checkout, a real run's scan.log tail) are
-OWED on hardware** — listed in #876. **The scanner is DEPLOYED on the worker host** (2026-09-13 evening, unit `geecs-scanner`, port 8300, `~/qs-checkout` moved to `feature/web-scanner`; PR 4's write verbs were all observed once on hardware the same evening — move, `s1h_exercise`, check/measure, a preset written to the share's checkout and submitted, the scan.log tail from the host; results on #876). **Synced with master** (b9677ca7 — the logbook split #877, the
-tinycss2 CSS guards #875, #878, #885) through #886 and the follow-on merge
-into this branch: GeecsWebTheme 0.6.1, GeecsScanner 0.3.1. **Next: PR 5a,
-then 5b** (§4, re-planned 2026-09-13 late from Sam's notes on the live
-page). The front door (Caddy) is **dropped** and the operator registry moves
-to its own later PR as a GEECS-DB table (#882); Sam's config-sourcing
-question (how presets / scan variables / trigger profiles / actions are
-sourced, and which kinds we want) has its direction in #883 — controls
-configs to the GEECS DB, analysis configs stay YAML (§6).
+**Status (2026-09-14):** PRs 1–5b MERGED; PR 6, the console deletion,
+is this arc's last (#PR6). GeecsWebTheme 0.3.0 (#870, master) and
+0.4.0/0.4.1 (#873/#874, the shared web glue); GeecsScanner 0.1.0 (#871),
+0.2.0 (#872, the page), 0.3.0 (#876, the rest of the mock), 0.3.1 (#887,
+the master sync), **0.4.0 (#889 — layout + freshness: preset and action
+dropdowns with a step preview, the scan-variable catalog stamped by mtime +
+size in GeecsBluesky 0.86.1)** and **0.5.0 (#891 — the movable panel:
+every numeric settable alias-first from GeecsDb through GEECS-Core 0.7.0's
+`numeric_settables` and GEECS-Schemas 0.25.0's `split_device_variable`,
+the readback with age over the gateway's readback PV, never `:SP`)**.
+`feature/web-scanner` was folded into `feature/native-bluesky-plans`
+(#888, 2026-09-13): one long-running branch, the host's `~/qs-checkout` on
+it. **5a and 5b are deployed (scanner 0.5.0 live on the worker host, port
+8300) and hardware-accepted 2026-09-14**: Scan013 through the dropdowns,
+the catalog edit visible without a restart, S1H picked from the 1549-entry
+settables list, moved, and the readback followed with CA agreeing. Design
+iterations noted for later (Sam's call when): the 1549-option settables
+`<select>` wants type-ahead or grouping; currents below 1e-3 render
+exponential (`fmtVal`) and should read `0.0000`; the rail's Today list
+mixes yesterday's scans with today's. **PR 6 deletes GEECS-Console** (tag
+`geecs-console-v0.32.1-final` marks its final state) — with it the branch
+is eligible for master per the 2026-09-12 gate. After it: operators as a
+GEECS-DB table (#882), then the design iterations on the deployed page.
+The front door (Caddy) is **dropped**; Sam's config-sourcing question (how
+presets / scan variables / trigger profiles / actions are sourced, and
+which kinds we want) has its direction in #883 — controls configs to the
+GEECS DB, analysis configs stay YAML (§6).
 
 Drafted 2026-09-13 from a three-way survey (GeecsBluesky on this
 branch, GEECS-Console, the web foundation on master) and a clickable mock
@@ -335,8 +342,8 @@ master → branch sync brings them here before PR 3.
 | 3 ✅ | **GeecsScanner 0.2.0** — the page, day one (#872, merged 2026-09-13) | Now, New scan (count / scan / grid_scan), Queue, health chips, the four dialogs, keyboard; template guards | **hardware**: Sam submits a strict `count` and a strict 1D `scan` from a browser on the box; pause/resume/stop each observed once; the s-file matches the console-era shape |
 | 4 ✅ | **GeecsScanner 0.3.0** — the rest of the mock (#876, merged 2026-09-13; GeecsBluesky 0.86.0 alongside) | The glue adoption first (`extras=["web"]`, the scanner's copies deleted, the guards over `geecs_web_theme.testing`). Then: `POST /api/move`, `GET /api/actions` + `/{name}` (the preview over `geecs_bluesky.action_steps.flatten_action_steps`, moved out of the compiler so worker and client share one walk) + `/run`, `GET /api/calibration` + `/check` + `/measure`, `POST /api/configs/presets/{name}` (through `ConfigsRepoResolver.write_preset`), `GET /api/scanlog` + the `log` SSE event (read from the start document's `scan_folder`, never created), `--portal-url` links; **one idle gate** for the four queue items — refused unless idle *and nothing waits*; the panels, the two drawers, scan.log as the default tail | read paths verified against the real worker (21 actions resolve, the stored offsets, 108 devices); **OWED on hardware:** each write verb observed once, a saved preset round-tripping through `GET /api/configs/presets/{name}` and submitting, a real run's scan.log tail from the worker host |
 | 5a | **GeecsScanner 0.4.0 — layout + freshness** (a GeecsBluesky patch alongside if the worker's resolver caches too; flagged in the PR body) | From Sam's notes on the live page (2026-09-13): the actions panel becomes a `<select>` + step preview + Run (the stacked picklist goes); presets become a `<select>` in New scan and the rail keeps section links only; **freshness** — the scan-variable catalog cache in `config_resolver.py` (`_scan_variables_cache`, process lifetime: the console-era "edit needs a restart") is dropped or mtime-checked, and trigger profiles and action plans are verified to re-read per request in the scanner **and** the worker, fixed where cached. **Outcome (#889):** the catalog is stamped by mtime + size; presets, actions, optimizer configs, shot offsets were already fresh per request on the scanner; action plans are uncached on the worker too; **trigger profiles are materialised once at the worker's environment open** (`TriggerProfiles.from_resolver`) — architecture, documented in the field's hint, not rebuilt live; a preflight check of the profile name against the worker's set is a candidate follow-up | tests: edit a config file → the next request sees it, no restart; **hardware:** one scan from the deployed page through the new dropdowns |
-| 5b | **GeecsScanner 0.5.0 — the movable panel** | The devices panel lists **every settable variable, alias-first, from GeecsDb** (replacing the catalog-only picker behind `/api/move`; scan axes keep the `scan_variables.yaml` catalog until the alias design reaches them — the scan-variable alias design, post-#779: any numeric settable is scannable, aliases come from the DB); a **readback with age** beside the set value, read over the gateway's PVs via aioca (`undulator:u_s1h:current` — the `ca` extra is already a dependency), rendered with the kit's `.live` + age; check the scanner's dependency on geecs-core for the DB read | **hardware:** `mv` S1H from the page and the readback follows, as observed by hand on 2026-09-13 |
-| 6 | **Delete GEECS-Console** — the closing PR | the package, `console-windows` CI job + its repo variable, docs pages, fleet-map rows, root `CLAUDE.md` row and dependency-graph entry; `git tag` a milestone first | CI green without the job; `docs/` builds; **the branch is now eligible for master** per the 2026-09-12 gate |
+| 5b ✅ | **GeecsScanner 0.5.0 — the movable panel** (#891, merged 2026-09-14; GEECS-Core 0.7.0 + GEECS-Schemas 0.25.0 alongside) | The devices panel lists **every settable variable, alias-first, from GeecsDb** (replacing the catalog-only picker behind `/api/move`; scan axes keep the `scan_variables.yaml` catalog until the alias design reaches them — the scan-variable alias design, post-#779: any numeric settable is scannable, aliases come from the DB); a **readback with age** beside the set value, read over the gateway's PVs via aioca (`undulator:u_s1h:current` — the `ca` extra is already a dependency), rendered with the kit's `.live` + age; check the scanner's dependency on geecs-core for the DB read. **Outcome (#891):** `GET /api/settables` lists every numeric settable alias-first (GEECS-Core's `numeric_settables` over `GeecsDb` rows, the `alias` column added to the rows; 1549 entries, 49 aliased on HTU), cached per process; `GET /api/readback` is one aioca `caget` of the gateway's **readback** PV on the app's loop — it reads no DB and takes no lock, and the CA stamp is not liveness; the scanner depends on geecs-core directly. Sam's ruling: the readback is the readback PV, never `:SP` | **hardware:** `mv` S1H from the page and the readback follows, as observed by hand on 2026-09-13. **Accepted 2026-09-14** on scanner 0.5.0: S1H picked from the list, moved to 0, the page read 8.000e-5 A and CA agreed |
+| 6 ✅ | **Delete GEECS-Console** — the closing PR (#PR6, 2026-09-14; tag `geecs-console-v0.32.1-final` on the last commit that carried it) | the package and `docs/geecs_console/`, the `console-windows` CI job (its repo variable was never set — nothing to delete in settings), the mkdocs nav, `scripts/check.sh`, the fleet map's node and edges, the data-flow map's panel (now the scanner's), root `CLAUDE.md` row, dependency-graph entry and a deleted-package note, `CONTRIBUTING.md`, the skills, and every package doc that named the console as the reference client (the scanner is); a new `docs/geecs_scanner/overview.md` takes the console section's place under Acquisition | CI green without the job; `mkdocs build --strict` passes; **the branch is now eligible for master** per the 2026-09-12 gate |
 | *after 6* | **Operators** (#882) — its own isolated PR once the essentials land | the GEECS-DB table, the picklist + pw prompt, required operator, the ScanInfo `Operator` key, the ownership compare in `/api/stop` · `/api/pause` (§2, amended ruling) | the scan log names the operator; a foreign running item shows `denied` and needs `force` |
 
 Each PR gets the `/land` ritual (scope, version + CHANGELOG, tests as CI runs

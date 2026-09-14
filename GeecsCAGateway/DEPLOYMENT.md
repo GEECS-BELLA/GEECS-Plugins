@@ -207,7 +207,7 @@ HTTP, so the monorepo is only required on machines that *submit scans*:
 | Read / write PVs | any CA client — `pip install caproto`, pyepics, EPICS base `caget`, Phoebus | nothing |
 | Live displays | Phoebus (point `EPICS_CA_ADDR_LIST` at the gateway) | nothing |
 | Read scan data | `pip install "tiled[client]"` + the API key | nothing |
-| Submit scans | GEECS-Console / GeecsBluesky | repo checkout + poetry |
+| Submit scans | the GEECS Scanner page (`:8300` on the worker host) / `geecs_bluesky.qs_client` | a browser / repo checkout + poetry |
 
 ### First contact — PVs with nothing but a CA client
 
@@ -294,9 +294,8 @@ The Scanner-GUI backend toggle formerly documented here
 un-launchable, and acquisition mode is declared per scan in the
 `ScanRequest` itself (`acquisition: free_run | strict`) rather than by
 environment variable — a request declares intent. Scans are submitted from
-**GEECS-Console** (the PySide6 operator console) or headless via
-`geecs_bluesky.session.GeecsSession.run(ScanRequest)`. (`master` still carries the
-legacy scanner line and its env toggle.)
+the **GEECS Scanner** web page (`GeecsScanner`) or headless through the
+queue client (`geecs_bluesky.qs_client`).
 
 ### Tiled — reading scan data back
 
@@ -336,7 +335,7 @@ and strips the URL). `GeecsBluesky/TILED_SETUP.md` is the canonical Tiled
 reference — the client recipe as well as server-side state and upgrade
 notes; if this quickstart and that file ever disagree, trust that file.
 The scan-shaped browsing workflow (day → Scan NNN → plot columns) is
-GEECS-Console's scan browser.
+the Data Portal's.
 
 ### Windows notes
 

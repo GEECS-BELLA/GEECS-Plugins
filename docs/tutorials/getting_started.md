@@ -62,7 +62,7 @@ ScanAnalysis, GEECS-Data-Utils, and friends run from it). The second
 installs the git hooks that auto-format code on commit.
 
 Some packages keep their own environment instead — `GeecsBluesky`,
-`GeecsCAGateway`, `GEECS-Console` and others are installed by running
+`GeecsCAGateway`, `GeecsScanner` and others are installed by running
 `poetry install` inside that package's directory. You only need those
 when you work on them; `scripts/check.sh` knows which is which.
 

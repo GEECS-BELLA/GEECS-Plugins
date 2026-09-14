@@ -524,7 +524,7 @@ class BaseOptimizer:
         (auto-generating ``device_requirements`` from the evaluator's
         analyzers), dynamically imports and instantiates the evaluator, and
         returns a fully configured optimizer.  Callers that build the
-        configuration programmatically — e.g. GEECS-Console mapping a
+        configuration programmatically — e.g. a front end mapping a
         schema ``OptimizationSpec`` onto this shape — use this entry point
         directly, with no YAML file involved.
 

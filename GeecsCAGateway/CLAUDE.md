@@ -59,7 +59,7 @@ The access-layer modules this package used to own — `transport/`
 from `geecs_core.*` and layers the CA server on top.
 
 Dependency direction: **nothing imports this package except GeecsPvaGateway**
-(config helpers, e.g. `effective_vartype`). GeecsBluesky and GEECS-Console
+(config helpers, e.g. `effective_vartype`). GeecsBluesky and GeecsScanner
 take the library parts (`GeecsDb`, `pv_naming`, exceptions) from `geecs-core`
 directly and consume this gateway purely as a *service* (the PVs, via stock
 ophyd-async EPICS signals). The gateway also imports `geecs-schemas` for

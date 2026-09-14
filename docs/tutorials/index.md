@@ -44,7 +44,7 @@ than tucked away in their respective package tabs.
 | Joining the team, not sure | [Acquisition](acquisition.md) first, then [Analysis](analysis.md) |
 
 After either tutorial, the per-package documentation
-([GEECS Console](../geecs_console/overview.md),
+([GEECS Scanner](../geecs_scanner/overview.md),
 [Image Analysis](../image_analysis/overview.md),
 [Scan Analysis](../scan_analysis/overview.md)) covers the underlying
 concepts and APIs in depth.

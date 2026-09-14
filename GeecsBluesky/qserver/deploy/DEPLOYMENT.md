@@ -224,7 +224,7 @@ though the proxy binds all interfaces; firewall it with the rest.
 ### External subscribers
 
 The document-stream out port (**5568**) is the supported subscription
-point for clients beyond GEECS-Console — the contract OSPREY's bridge and
+point for clients beyond the web scanner — the contract OSPREY's bridge and
 any future live-progress client build on (#727 item 3). What "supported"
 means:
 
@@ -232,8 +232,8 @@ means:
   reach the worker; the proxy is a fan-out, so subscribers never touch
   the manager socket, Redis, or the in port. Add 5568 to the same
   firewall allow rule as 60615/60625; leave 5567 closed. The in-repo
-  subscribers are the reference practice: the console's
-  `geecs_console/app/scan_monitor.py` (`DocumentStreamWorker`),
+  subscribers are the reference practice: the scanner's
+  `geecs_scanner/service/streams.py` (`ProgressCache`),
   and GEECS-MCP's `geecs_mcp/scans/progress_stream.py` (`ProgressCache`)
   — each a `bluesky.callbacks.zmq.RemoteDispatcher` on the `doc_addr`
   that `geecs_bluesky.qs_client` reads from the `[qserver]` section of

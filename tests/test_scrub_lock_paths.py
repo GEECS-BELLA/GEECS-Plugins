@@ -131,10 +131,11 @@ def test_check_mode_reports_without_writing(fake_repo: Path) -> None:
 
 def test_real_locks_are_clean() -> None:
     """The committed locks carry no checkout path (the #753 state, kept by the hook)."""
-    # The three rewritten by #753 must be in the set, and the glob must see
-    # past them to every package's lock.
+    # The locks rewritten by #753 that still exist (GEECS-Console's went with
+    # the package, 2026-09-14) must be in the set, and the glob must see past
+    # them to every package's lock.
     real_locks = committed_locks()
-    for known in ("poetry.lock", "GEECS-MCP/poetry.lock", "GEECS-Console/poetry.lock"):
+    for known in ("poetry.lock", "GEECS-MCP/poetry.lock", "GeecsBluesky/poetry.lock"):
         assert REPO_ROOT / known in real_locks
     assert len(real_locks) > 3, real_locks
     result = _run("--check", *map(str, real_locks))

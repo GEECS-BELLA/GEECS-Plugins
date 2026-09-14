@@ -136,7 +136,7 @@ svg.has-sel .step:not(.on){opacity:.25}
 </header>
 
 <figure>
-<svg viewBox="0 0 1220 716" role="img" aria-label="Left to right: GEECS LabVIEW devices and cameras feed the CA and PVA gateways, which feed the Bluesky queueserver and capture daemon. Scan requests come from the console or from OSPREY through GEECS-MCP. Results flow down into Tiled and the NAS scan folder, and are read back by the console, Data Portal, notebooks, ScanAnalysis and MCP.">
+<svg viewBox="0 0 1220 716" role="img" aria-label="Left to right: GEECS LabVIEW devices and cameras feed the CA and PVA gateways, which feed the Bluesky queueserver and capture daemon. Scan requests come from the web scanner or from OSPREY through GEECS-MCP. Results flow down into Tiled and the NAS scan folder, and are read back by the Data Portal, notebooks, ScanAnalysis and MCP.">
   <defs>
     <marker id="ah-teal" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="m-teal"/></marker>
     <marker id="ah-amber" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="m-amber"/></marker>
@@ -156,8 +156,8 @@ svg.has-sel .step:not(.on){opacity:.25}
 
   <!-- ===== edges (drawn under nodes) ===== -->
   <!-- live signals: teal -->
-  <path class="e e-teal" d="M470,110 V60 H1050 V110" data-n="ca-gateway console" marker-end="url(#ah-teal)"/>
-  <text data-n="ca-gateway console" class="t-lbl l-teal" x="760" y="53" text-anchor="middle">live PVs over Channel Access · health chips, device panels</text>
+  <path class="e e-teal" d="M470,110 V60 H1050 V110" data-n="ca-gateway scanner" marker-end="url(#ah-teal)"/>
+  <text data-n="ca-gateway scanner" class="t-lbl l-teal" x="760" y="53" text-anchor="middle">live PVs over Channel Access · the readback panel</text>
   <path class="e e-teal" d="M230,140 H290" data-n="devices ca-gateway" marker-end="url(#ah-teal)"/>
   <text data-n="devices ca-gateway" class="t-lbl l-teal" x="260" y="131" text-anchor="middle">UDP / TCP</text>
   <path class="e e-teal" d="M230,370 H290" data-n="cameras pva-gateway" marker-end="url(#ah-teal)"/>
@@ -172,8 +172,8 @@ svg.has-sel .step:not(.on){opacity:.25}
   <text data-n="pva-gateway phoebus" class="t-lbl l-teal" x="403" y="312">images</text>
 
   <!-- scan commands: amber -->
-  <path class="e e-amber" d="M980,110 V88 H690 V110" data-n="console queueserver schemas" marker-end="url(#ah-amber)"/>
-  <text data-n="console queueserver schemas" class="t-lbl l-amber" x="835" y="81" text-anchor="middle">submit a ScanRequest → queue API :60615</text>
+  <path class="e e-amber" d="M980,110 V88 H690 V110" data-n="scanner queueserver schemas" marker-end="url(#ah-amber)"/>
+  <text data-n="scanner queueserver schemas" class="t-lbl l-amber" x="835" y="81" text-anchor="middle">submit a preset → queue API :60615</text>
   <path class="e e-amber" d="M580,170 H500" data-n="queueserver ca-gateway" marker-end="url(#ah-amber)"/>
   <text data-n="queueserver ca-gateway" class="t-lbl l-amber" x="540" y="186" text-anchor="middle">:SP setpoints</text>
   <path class="e e-amber" d="M920,236 H900 V170 H800" data-n="mcp queueserver schemas" marker-end="url(#ah-amber)"/>
@@ -279,11 +279,11 @@ svg.has-sel .step:not(.on){opacity:.25}
     <circle class="st st-developing" cx="720" cy="340" r="4"/>
   </g>
 
-  <g class="n" data-id="console" tabindex="0" role="button" aria-label="GEECS-Console: open details">
+  <g class="n" data-id="scanner" tabindex="0" role="button" aria-label="GEECS Scanner: open details">
     <rect class="node" x="920" y="110" width="260" height="80" rx="6"/>
-    <text class="t-title" x="934" y="132">GEECS-Console</text>
-    <text class="t-sub" x="934" y="150">the operator front end (PySide6)</text>
-    <text class="t-sub" x="934" y="166">submit scans · live health · scan browser</text>
+    <text class="t-title" x="934" y="132">GEECS Scanner</text>
+    <text class="t-sub" x="934" y="150">the operator front end — a web page (:8300)</text>
+    <text class="t-sub" x="934" y="166">submit scans · live progress · move · actions</text>
     <circle class="st st-hardening" cx="1170" cy="120" r="4"/>
   </g>
 
@@ -335,7 +335,7 @@ svg.has-sel .step:not(.on){opacity:.25}
   </g>
 
   <!-- step markers -->
-  <g class="step" data-n="console queueserver schemas"><circle cx="690" cy="99" r="8"/><text x="690" y="102.5">1</text></g>
+  <g class="step" data-n="scanner queueserver schemas"><circle cx="690" cy="99" r="8"/><text x="690" y="102.5">1</text></g>
   <g class="step" data-n="osprey mcp"><circle cx="1050" cy="308" r="8"/><text x="1050" y="311.5">1</text></g>
   <g class="step" data-n="queueserver ca-gateway"><circle cx="540" cy="170" r="8"/><text x="540" y="173.5">2</text></g>
   <g class="step" data-n="queueserver tiled"><circle cx="710" cy="205" r="8"/><text x="710" y="208.5">3</text></g>
@@ -384,11 +384,11 @@ svg.has-sel .step:not(.on){opacity:.25}
 <section>
   <h2>One scan, end to end</h2>
   <ol class="steps">
-    <li><span class="n">1</span><span><b>A request enters the queue.</b> An operator submits from the console, or OSPREY calls a GEECS-MCP tool. Both go through the same queue API to the RE Manager, so the engine cannot tell them apart.</span></li>
+    <li><span class="n">1</span><span><b>A request enters the queue.</b> An operator submits from the scanner page, or OSPREY calls a GEECS-MCP tool. Both go through the same queue API to the RE Manager, so the engine cannot tell them apart.</span></li>
     <li><span class="n">2</span><span><b>The engine drives hardware through PVs.</b> Setpoints are written to <code>:SP</code> PVs on the CA gateway, which relays them to the LabVIEW device over the GEECS wire protocol and mirrors the readbacks.</span></li>
     <li><span class="n">3</span><span><b>Every shot lands in three places.</b> Readings become Bluesky documents in Tiled. The capture daemon pulls images from the PVA gateways into HDF5 stacks. LabVIEW devices keep saving their native per-shot files.</span></li>
     <li><span class="n">4</span><span><b>The engine owns the scan folder.</b> It alone claims <code>ScanNNN</code>, writes ScanInfo and exports the s-file. Analysis code only ever reads that folder.</span></li>
-    <li><span class="n">5</span><span><b>People read it back.</b> Console scan browser, Data Portal and notebooks share one catalog layer over Tiled and the share. MCP answers "what did scan 12 give" from the same place.</span></li>
+    <li><span class="n">5</span><span><b>People read it back.</b> Data Portal and notebooks share one catalog layer over Tiled and the share. MCP answers "what did scan 12 give" from the same place.</span></li>
     <li><span class="n">6</span><span><b>Analysis runs itself.</b> LiveWatch sees the new s-file, ScanAnalysis runs the configured analyzers, LogMaker posts the figures to the experiment Google Doc.</span></li>
   </ol>
 </section>
@@ -398,7 +398,7 @@ svg.has-sel .step:not(.on){opacity:.25}
   <ul class="plain">
     <li><b>One door.</b> OSPREY reaches GEECS only through GEECS-MCP, which runs next to the queueserver and validates every request against the same config truth the worker uses.</li>
     <li><b>Read freely, write through verbs.</b> Read tools cover scan status, history, results and config listings. Control is limited to submit, stop on scans it owns, and clear queue, each with a request cap and an acknowledge loop.</li>
-    <li><b>Same standing as the console.</b> MCP is a peer client of the queueserver, never an engine internal. Anything an agent does shows up in the queue like an operator's scan.</li>
+    <li><b>Same standing as the scanner.</b> MCP is a peer client of the queueserver, never an engine internal. Anything an agent does shows up in the queue like an operator's scan.</li>
     <li><b>Two write paths, one rule.</b> Anything with GEECS semantics, a scan or a stop, goes through MCP verbs. A single setpoint can still be written to an <code>:SP</code> PV by OSPREY's own EPICS write tool, bounded by a limits database extracted from GEECS device limits, the same way any EPICS client would.</li>
   </ul>
   <h2 style="margin-top:22px">Why EPICS in the middle</h2>
@@ -417,7 +417,7 @@ svg.has-sel .step:not(.on){opacity:.25}
     <div class="host"><div class="h">Camera servers</div><div class="ip">Windows · NSSM service</div><p>One PVA image gateway per host, beside the LabVIEW camera devices. Images never transit the central gateway.</p></div>
     <div class="host"><div class="h">Device hosts</div><div class="ip">Windows · LabVIEW</div><p>GEECS devices as always. Nothing installed for this stack; the gateway speaks their existing UDP/TCP protocol.</p></div>
     <div class="host"><div class="h">Data share</div><div class="ip">NAS · SMB</div><p>The scan folder tree. Written by the engine, capture daemon and LabVIEW; read by everyone else.</p></div>
-    <div class="host"><div class="h">Operator machines</div><div class="ip">Windows / macOS / Linux</div><p>GEECS-Console, Phoebus, notebooks, a browser for the portal, OSPREY. All clients, nothing runs unattended here.</p></div>
+    <div class="host"><div class="h">Operator machines</div><div class="ip">Windows / macOS / Linux</div><p>Phoebus, notebooks, a browser for the scanner, the portal and the logbook, OSPREY. All clients, nothing runs unattended here.</p></div>
   </div>
 </section>
 
@@ -461,7 +461,7 @@ const INFO = {
   "how": [
    "LabVIEW devices read their configuration from it at start.",
    "The CA gateway pulls its served set, limits and variable types from it live at startup. The PVA gateways scope their camera set from it the same way.",
-   "The console reads it for completions and health, and the schemas rule is that device facts live here, never repeated in YAML."
+   "The scanner reads it for its settables list and health, and the schemas rule is that device facts live here, never repeated in YAML."
   ],
   "now": "Facility infrastructure owned by GEECS, not by this repository. Access goes through `GeecsDb` in GEECS-Core.",
   "next": [
@@ -564,7 +564,7 @@ const INFO = {
   "status": "hardening",
   "does": "Runs every scan. Clients submit a typed `ScanRequest`; the engine drives hardware through the gateway's PVs, records each shot as Bluesky documents, and owns the scan folder on the NAS.",
   "how": [
-   "A bluesky-queueserver RE Manager whose profile serves one funnel plan, `geecs_scan_request_plan`. Console and MCP are peer clients of the same queue.",
+   "A bluesky-queueserver RE Manager whose profile serves one funnel plan, `geecs_scan_request_plan`. The scanner and MCP are peer clients of the same queue.",
    "Two acquisition modes: free-run time sync, where the first sync device paces and every other device fills its row with a derived shot id; and strict shot control (arm, confirm quiescent, fire, await all). Both emit the same versioned event schema.",
    "Devices are ophyd-async objects over the CA gateway. Redis holds the queue; a doc-stream proxy on port 5568 republishes documents to the capture daemon and any panel."
   ],
@@ -590,7 +590,7 @@ const INFO = {
   "does": "Every run's start document, per-shot events and stop document, searchable over HTTP. This is where 'what did scan 12 record' is answered without opening files.",
   "how": [
    "The RunEngine writes through TiledWriter into the catalog on the central server (port 8000, web UI at /ui).",
-   "One read seam, `ScanCatalog` in GEECS-Data-Utils, serves the console's scan browser, the Data Portal and GEECS-MCP; column semantics live in one schema module so no consumer reinterprets a name.",
+   "One read seam, `ScanCatalog` in GEECS-Data-Utils, serves the Data Portal and GEECS-MCP; column semantics live in one schema module so no consumer reinterprets a name.",
    "After each scan the s-file is exported from Tiled best-effort, which keeps the file-based analysis path fed."
   ],
   "now": "Deployed as a systemd `tiled` service. Scalars and metadata are solid; referenced files are not yet served through it.",
@@ -629,28 +629,27 @@ const INFO = {
    "[Arc spec](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/Planning/data_capture/01_central_pva_capture_scope.md)"
   ]
  },
- "console": {
-  "name": "GEECS-Console",
-  "role": "The operator front end. Greenfield PySide6, replaces GEECS-Scanner-GUI.",
+ "scanner": {
+  "name": "GEECS Scanner",
+  "role": "The operator front end. A web page on the worker host; replaced the PySide6 GEECS-Console (deleted 2026-09-14).",
   "status": "hardening",
-  "does": "Where an operator builds and submits a scan, watches live health and device panels, edits scan configs, and browses results. It owns no engine.",
+  "does": "Where an operator picks or composes a scan, submits it to the queue, watches it live, moves a device, runs an action plan, and checks the shot-offset calibration. It owns no engine.",
   "how": [
-   "One main window of region-scoped widgets builds a `ScanRequest` and submits it to the RE Manager as a queue client.",
-   "Start runs a pre-submit pipeline on background workers: preflight checks, one modal per question, a submission record, then the queue submit.",
-   "Health chips poll the gateway, Tiled and the DB. Live device panels read PVs over Channel Access. The scan browser reads Tiled through the same catalog layer as the Data Portal."
+   "A FastAPI service on port 8300 over `geecs_bluesky.qs_client`: a pure-Python service layer answers every verb as a Pydantic model; a JSON API and a Server-Sent-Events stream sit on top; one Jinja page on the GEECS surface kit renders it.",
+   "The submission document is a preset (device group, plan call, trigger profile). The scanner expands it with the same `expand_preset` every client uses and binds no device itself; preflight questions must be acknowledged before a submit.",
+   "Health chips poll the manager and its readiness. The devices panel lists every numeric settable from the GEECS DB, alias first, and reads the gateway's readback PV over Channel Access — never the setpoint."
   ],
-  "now": "The daily DAQ front end since 2026-08-20. Recent: save-time device and variable validation in the config editors, a queue panel, and an Ops menu that can restart the gateway through its restart PV.",
+  "now": "Deployed on the worker host as `geecs-scanner` and hardware-accepted (2026-09-14): scans, moves and action plans from a browser. The PySide6 console it replaced is gone; its final state is the tag `geecs-console-v0.32.1-final`.",
   "next": [
-   "A config bootstrap and repair dialog for when the configs repo is missing or broken (today the console degrades to empty listings).",
-   "Fix the startup import race that kills the document stream on launch (#778).",
-   "Wire the scan browser into the Ops menu.",
-   "Optimization mode waits on a redesigned hook in the bluesky-adaptive direction and an OptimizationSpec editor."
+   "Operators as a GEECS-DB table: a picklist with a light password, a required operator name that reaches ScanInfo, ownership on stop and pause.",
+   "Design iterations on the deployed page: type-ahead over the settables list, small-value formatting, the rail's Today list.",
+   "Pseudo positioners in the scan-axis picker, the stock plans' other shapes (snake, relative, list), and an Optimize mode when the worker has the plan."
   ],
-  "vision": "The operator's deep tool, while casual data access moves to the browser-based Data Portal.",
+  "vision": "One browser tab that runs the machine, beside the portal that reads it back and the logbook that records the day.",
   "meta": [
-   "[CHANGELOG](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GEECS-Console/CHANGELOG.md)",
-   "[CLAUDE.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GEECS-Console/CLAUDE.md)",
-   "[Feature inventory](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/Planning/cutover_strategy/01_gui_feature_inventory.md)"
+   "[CHANGELOG](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsScanner/CHANGELOG.md)",
+   "[CLAUDE.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsScanner/CLAUDE.md)",
+   "[Arc brief](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/Planning/native_bluesky/10_web_scanner.md)"
   ]
  },
  "mcp": {
@@ -659,7 +658,7 @@ const INFO = {
   "status": "developing",
   "does": "Exposes GEECS to agents as a fixed, reviewable set of tools: read scan status, history, results and config listings; validate a request; submit, stop and clear the queue.",
   "how": [
-   "A client, never an engine. Every tool goes through the same queue client, config resolver and Tiled catalog the console uses, never engine internals.",
+   "A client, never an engine. Every tool goes through the same queue client, config resolver and Tiled catalog the scanner uses, never engine internals.",
    "Runs as a systemd HTTP service on port 8100 next to the queueserver, installed non-editably from the worker's own clone so its config validation matches worker truth exactly. A stdio mode exists for single-machine use.",
    "Control verbs carry etiquette: a submission cap, an acknowledge loop for pre-submit warnings, and stop limited to scans the caller owns. Every queue item is stamped with the client identity."
   ],
@@ -728,16 +727,16 @@ const INFO = {
   "does": "Day, then scan, then metadata, scalar plots and images, with an Analysis tab that can run a configured ScanAnalyzer on demand and, when enabled, the analysis config editor mounted at /configs. Read-only otherwise.",
   "how": [
    "FastAPI with server-rendered templates, no build chain, on port 8200 on the worker host.",
-   "Reads through the same `ScanCatalog` seam as the console's scan browser and reads images from the share. A JSON API mirrors every page so scripts and agents can read what a browser shows.",
+   "Reads through the `ScanCatalog` seam and reads images from the share. A JSON API mirrors every page so scripts and agents can read what a browser shows.",
    "Its two write paths are explicit opt-ins: an analysis run executes one analyzer on a worker thread without joining the file-based analysis queue, and the config editor edits the configs repo checkout the worker reads."
   ],
   "now": "Deployed and verified 2026-09-03. The browsing JSON API landed 2026-09-02 and the config editor drawer on 2026-09-06.",
   "next": [
    "A portal-side cache for full-day listings at a full day's scan count.",
    "Absorb the LabVIEW GEECSplotter features (keep, adapt or drop rulings still pending).",
-   "Out of scope for now: authentication, serving assets through Tiled, replacing the console's browser."
+   "Out of scope for now: authentication, serving assets through Tiled."
   ],
-  "vision": "Casual data access for everyone with no install, the console staying the operator's deep tool.",
+  "vision": "Casual data access for everyone with no install; the scanner stays the operator's tool for running the machine.",
   "meta": [
    "[CHANGELOG](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GEECS-DataPortal/CHANGELOG.md)",
    "[CLAUDE.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GEECS-DataPortal/CLAUDE.md)",
@@ -758,7 +757,7 @@ const INFO = {
   "next": [
    "Nothing structural owed. GEECS-Core stays small on purpose: code belongs there only if every consumer of GEECS devices needs it."
   ],
-  "vision": "One access library beneath the gateways, the engine, the console and end-user scripts, so nobody re-implements the wire protocol or the folder layout.",
+  "vision": "One access library beneath the gateways, the engine, the scanner and end-user scripts, so nobody re-implements the wire protocol or the folder layout.",
   "meta": [
    "[Getting started](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/docs/tutorials/getting_started.md)",
    "[GEECS-Core](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GEECS-Core/CLAUDE.md)",
@@ -773,7 +772,7 @@ const INFO = {
  "how": [
   "Configs are schemas; YAML is just their serialization. The configs repo holds the YAML, this package holds the meaning.",
   "Declare intent, derive mechanics. Device facts such as limits, units and enum choices live in the GEECS DB and are never repeated in YAML. Unknown keys fail loudly (`extra=\"forbid\"`).",
-  "The amber arrows carry instances of these models: a ScanRequest leaves the console or an MCP tool, is validated at the boundary, and is what the funnel plan receives.",
+  "The amber arrows carry instances of these models: a request leaves the scanner or an MCP tool, is validated at the boundary, and is what the funnel plan receives.",
   "A doc generator renders every field description to the reference page and CI fails if a field lacks one, so the documentation cannot drift from the code."
  ],
  "now": "The analysis configs joined the package on 2026-09-08 (the v2 analysis document with kind-discriminated analyzer specs). Scan variables are authored new-schema only as of 2026-09-04; the legacy dialect and its converter were deleted once both experiments' catalogs were regenerated.",

@@ -5,7 +5,7 @@ description: >
   scan slow", "did every shot land", "shots are skipping / landing on every
   other trigger", start-latency questions, or any per-shot acq_timestamp
   cadence analysis of a scan folder. Reads scan.log, the s-file, ScanInfo
-  ini, and optionally Tiled + the console log; needs no hardware. For error
+  ini, and optionally Tiled + the scanner's journal; needs no hardware. For error
   triage ("what went wrong / what errored") use /triage instead.
 ---
 
@@ -34,8 +34,9 @@ distilled version of that session.
 - Optional (on-network): the Tiled run via
   `geecs_data_utils.tiled_catalog.TiledScanCatalog` for column counts and
   telemetry shape.
-- The console log (`~/.config/geecs_console/logs/console.log`) for
-  submission-time context (start latency lives *before* scan.log starts).
+- The scanner service's journal on the worker host (`journalctl -u
+  geecs-scanner`) for submission-time context (start latency lives
+  *before* scan.log starts).
 
 ## Analysis
 

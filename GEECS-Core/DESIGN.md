@@ -38,7 +38,7 @@ geecs_core/
 1. **Dependencies flow strictly downward.** `client` imports `transport` and
    `db`; `transport` and `db` import only the root contracts; nothing in this
    package imports `client`. External consumers (the gateways, GeecsBluesky,
-   GEECS-Console) use layers 1–2 and the contracts; only end-user scripts use
+   GeecsScanner) use layers 1–2 and the contracts; only end-user scripts use
    `client`. A change that wants an upward or sideways import is in the wrong
    place.
 

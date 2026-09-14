@@ -20,8 +20,7 @@ docs site), or launch Claude Code from the repo root and type
   root builds the main dev environment; each package can also be installed
   standalone from its own directory.
 - Some packages need extras for their full test suite:
-  `GeecsBluesky` → `poetry install --extras "ca tiled"`;
-  `GEECS-Console` → set `QT_QPA_PLATFORM=offscreen` for tests.
+  `GeecsBluesky` → `poetry install --extras "ca tiled"`.
 - Install pre-commit hooks once: `poetry run pre-commit install`.
 
 ## Branch topology (post-M6: one mainline)
@@ -138,20 +137,20 @@ Style: NumPy docstrings, type hints on public functions, Pydantic v2
 - The legacy packages (`GEECS-PythonAPI`, `GEECS-Scanner-GUI`) are deleted
   (2026-08-20); their final state is preserved at the tag
   `legacy-scanner-final`. Successors: `geecs_core.client.GeecsDevice` and
-  GEECS-Console.
+  GeecsScanner + GeecsBluesky. The PySide6 `GEECS-Console` that sat between
+  them was deleted 2026-09-14 (final state at the tag `geecs-console-v0.32.1-final`); the web
+  scanner (`GeecsScanner`) is the operator front end.
 
 ## Tests
 
 CI (`.github/workflows/unit-tests.yml`, one Ubuntu job) runs: root
 `tests/`, ImageAnalysis, ScanAnalysis, GEECS-Data-Utils and GEECS-Schemas
-from the **root env**, and GEECS-DataPortal, GEECS-Core, GeecsCAGateway,
-GeecsBluesky (pure unit tests, `qs-client` extra included), GEECS-MCP and
-GeecsPvaGateway each from its **own env**. Not in CI — run locally via
-`scripts/check.sh` when touching them: GEECS-Console (its Windows job
-`console-windows` is off by default since 2026-09-12 — the console is not
-being changed and is slated for retirement; the repository Actions
-variable `CI_CONSOLE_WINDOWS=true` turns it on without a commit) and
-GEECS-LogTriage. Everything is hermetic — no lab network, no hardware.
+from the **root env**, and GeecsWebTheme, GeecsLogbook, GeecsScanner,
+GEECS-DataPortal, GEECS-Core, GeecsCAGateway, GeecsBluesky (pure unit
+tests, `qs-client` extra included), GEECS-MCP and GeecsPvaGateway each
+from its **own env**. Not in CI — run locally via `scripts/check.sh` when
+touching it: GEECS-LogTriage. Everything is hermetic — no lab network, no
+hardware.
 `integration`-marked tests need the lab and are deselected by default;
 never run the top-level hardware scripts without lab access and operator
 coordination.

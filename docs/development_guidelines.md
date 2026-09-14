@@ -70,7 +70,7 @@ pre-commit run --all-files
 interrogate .
 
 # Run specific docstring checks
-pydocstyle geecs_console/
+pydocstyle geecs_scanner/
 
 # Run ruff with docstring rules
 ruff check --select D .
@@ -179,7 +179,7 @@ docs/
 ├── docstring_templates.md      # Templates and examples
 ├── development_guidelines.md   # This file
 ├── installation.md            # General installation
-├── geecs_console/             # GEECS Console docs
+├── geecs_scanner/             # GEECS Scanner docs
 ├── image_analysis/            # Image analysis docs
 └── scan_analysis/             # Scan analysis docs
 ```
