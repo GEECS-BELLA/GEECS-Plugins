@@ -535,6 +535,25 @@ typing-extensions = {version = ">=4.10.0", markers = "python_version < \"3.13\""
 full = ["httpx (>=0.27.0,<0.29.0)", "httpx2 (>=2.0.0)", "itsdangerous", "jinja2", "python-multipart (>=0.0.18)", "pyyaml"]
 
 [[package]]
+name = "tinycss2"
+version = "1.5.1"
+description = "A tiny CSS parser"
+optional = false
+python-versions = ">=3.10"
+groups = ["main", "dev"]
+files = [
+    {file = "tinycss2-1.5.1-py3-none-any.whl", hash = "sha256:3415ba0f5839c062696996998176c4a3751d18b7edaaeeb658c9ce21ec150661"},
+    {file = "tinycss2-1.5.1.tar.gz", hash = "sha256:d339d2b616ba90ccce58da8495a78f46e55d4d25f9fd71dfd526f07e7d53f957"},
+]
+
+[package.dependencies]
+webencodings = ">=0.4"
+
+[package.extras]
+doc = ["furo", "sphinx"]
+test = ["pytest", "ruff"]
+
+[[package]]
 name = "typing-extensions"
 version = "4.16.0"
 description = "Backported and Experimental Type Hints for Python 3.9+"
@@ -561,10 +580,27 @@ files = [
 [package.dependencies]
 typing-extensions = ">=4.15.0"
 
+[[package]]
+name = "webencodings"
+version = "0.6.1"
+description = "Character encoding aliases for legacy web content"
+optional = false
+python-versions = ">=3.10"
+groups = ["main", "dev"]
+files = [
+    {file = "webencodings-0.6.1-py3-none-any.whl", hash = "sha256:7fab6269c8bf237c657876b52058ccb182e861518d1c695c1a9aaa8c1c105d5b"},
+    {file = "webencodings-0.6.1.tar.gz", hash = "sha256:565f9ad031c702dae404e27a099e3e09186a3ab1b9520f06d215502b651fd910"},
+]
+
+[package.extras]
+doc = ["furo", "sphinx"]
+test = ["pytest", "ruff"]
+
 [extras]
+testing = ["tinycss2"]
 web = ["fastapi", "jinja2"]
 
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.11,<3.12"
-content-hash = "4c6157bb98f95853ceb44db944328af938789f66f58698ef588852c51d4e6b41"
+content-hash = "d920fe1b7382f3a6365d28b856422516e8fc401624c9410af64f21073aece150"

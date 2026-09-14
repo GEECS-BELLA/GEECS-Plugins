@@ -4,8 +4,8 @@ Registered only when a store exists. The share is not in the save path —
 :mod:`geecs_logbook.attachments` holds the bytes beside the database, and
 the mirror copies them beside the markdown when it gets to the entry.
 
-``POST /log/api/entries/{id}/attachments``     upload (201; 413/415/422)
-``GET  /log/attachments/{entry_id}/{filename}`` serve
+``POST /api/entries/{id}/attachments``     upload (201; 413/415/422)
+``GET  /attachments/{entry_id}/{filename}`` serve
 """
 
 from __future__ import annotations

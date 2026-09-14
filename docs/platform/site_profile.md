@@ -31,8 +31,8 @@ overwritten — it also holds the hand-entered Tiled key). Client machines
 keep their own `config.ini` exactly as before.
 
 What is **not** a site value: the fleet's port numbers. The fleet map
-fixes them (CA 5064, Tiled 8000, portal 8200, MCP 8100, queueserver
-60615/60625/5568, PVA 5075/5076) and every client assumes them.
+fixes them (CA 5064, Tiled 8000, portal 8200, MCP 8100, logbook 8400,
+queueserver 60615/60625/5568, PVA 5075/5076) and every client assumes them.
 
 ## What `site.env` carries
 
@@ -81,7 +81,7 @@ arguments**. It does not expand in `WorkingDirectory=`, `User=`,
 |---|---|---|
 | `@PLACEHOLDER@` | at render time, by `deploy/render_units.sh` (one `sed`) | `@SERVICE_USER@`, `@SERVICE_HOME@`, `@CHECKOUT_ROOT@`, `@POETRY@`, `@SITE_ENV@`, `@PORTAL_MEMORY_HIGH@`, `@PORTAL_MEMORY_MAX@` |
 | `${VARIABLE}` | at start, by systemd from `site.env` | `--experiment ${GEECS_EXPERIMENT}`, `--doc-addr ${GEECS_QS_DOC_ADDR}`, `--processing-configs "${GEECS_CONFIGS_ROOT}/scan_analysis_configs"` (quoted: substituted as one argument, spaces survive) |
-| `$VARIABLE` (unbraced) | at start, by systemd from `site.env` | `$GEECS_PORTAL_EXTRA_ARGS` — split on whitespace into several arguments; unset adds nothing. For optional flag lists only (the portal's `--config-editor`) |
+| `$VARIABLE` (unbraced) | at start, by systemd from `site.env` | `$GEECS_PORTAL_EXTRA_ARGS`, `$GEECS_LOGBOOK_EXTRA_ARGS` — split on whitespace into several arguments; unset adds nothing. For optional flag lists only (the portal's `--config-editor` and `--logbook-url`) |
 
 Values that services read from the environment directly (the EPICS
 addressing, `TZ`, `QS_EXPERIMENT`) need no hole at all — `EnvironmentFile=`
@@ -94,7 +94,7 @@ delivers them.
 | Clone | Services | Why |
 |---|---|---|
 | `gateway-checkout` | CA gateway | control-room-critical, moves rarely |
-| `portal-checkout` | Data Portal | iterates in days |
+| `portal-checkout` | Data Portal **and** the logbook (its own unit and poetry env inside `GeecsLogbook/`) | iterates in days; the two web viewers ship together — a pull is a deploy of both, so restart both |
 | `qs-checkout` | queueserver worker; also the MCP server's install source | the MCP bakes a non-editable venv (`<root>/geecs-mcp-venv`) from it so a pull never mutates code under the running server |
 
 The root is the site's choice (`GEECS_CHECKOUT_ROOT`): the service
@@ -143,9 +143,9 @@ different pins; re-rendering a unit is part of that service's deploy. A
 clone pinned *before* the templated units exist has no template to
 render: the render refuses it by name ("not a site-profile template")
 rather than passing the old hand-edit unit through — pull that clone
-forward first. The fleet map's bootstrap gotchas (login-shell PATH, CRLF on
-the share-mounted configs checkout, quoting share paths with spaces) are
-baked into the scripts and the example file.
+forward first. The fleet map's bootstrap gotchas (poetry off the service account's
+`PATH`, CRLF on the share-mounted configs checkout, quoting share paths
+with spaces) are baked into the scripts and the example file.
 
 ## Onboarding a second facility
 

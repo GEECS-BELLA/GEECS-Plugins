@@ -10,13 +10,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Ops Book — {{ first.strftime('%B %Y') }}</title>
-{% set root = request.scope.get('root_path', '').rstrip('/') %}
 <script src="{{ root }}/theme/theme-boot.js"></script>
 <link rel="stylesheet" href="{{ root }}/theme/theme.css">
 {# kit.css after theme.css: the kit styles THROUGH the theme's tokens and
    defines none of its own. Every kit rule is scoped to .kit on <body>. #}
 <link rel="stylesheet" href="{{ root }}/theme/kit.css">
-<link rel="stylesheet" href="{{ url_for('_static', name='scanlog.css').path }}">
+<link rel="stylesheet" href="{{ root }}/static/scanlog.css">
 </head>
 <body class="kit">
 {% import "_entries.html" as shared %}
@@ -202,8 +201,8 @@ document.getElementById("q").addEventListener("input", ev => {
   });
 });
 </script>
-<script src="{{ url_for('_static', name='editor.js').path }}" defer></script>
-<script src="{{ url_for('_static', name='nav.js').path }}" defer></script>
+<script src="{{ root }}/static/editor.js" defer></script>
+<script src="{{ root }}/static/nav.js" defer></script>
 <script>
 "use strict";
 /* Collapse All, the ops book's copy. The scan log has had this since
