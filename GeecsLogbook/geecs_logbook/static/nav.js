@@ -211,12 +211,24 @@
        screen for anything taller than the viewport: an open scan block
        with its facts table, a note carrying a figure grid, a day group of
        five. The reader landed mid-content with no idea what they were
-       looking at. */
-    const bar = document.querySelector(".topbar");
-    el.style.scrollMarginTop = ((bar ? bar.getBoundingClientRect().height : 0) + 8) + "px";
-    // The ancestors only just opened, so the layout the browser scrolled
-    // to on load is stale; scroll again now that the target has a place.
-    el.scrollIntoView({ block: "start" });
+       looking at.
+
+       Measured in a frame callback, NOT here. The theme and density
+       pickers ship as empty divs that theme.js and kit.js fill, and those
+       are deferred scripts like this one — so measuring inline reads a bar
+       missing at least one control, which on a narrow window is the
+       difference between one row and two. That put the target back under
+       the bar in exactly the case the measurement exists for. A frame
+       callback runs after every deferred script, with the bar at its
+       final height. */
+    requestAnimationFrame(() => {
+      const bar = document.querySelector(".topbar");
+      el.style.scrollMarginTop =
+        ((bar ? bar.getBoundingClientRect().height : 0) + 8) + "px";
+      // The ancestors only just opened, so the layout the browser scrolled
+      // to on load is stale; scroll again now that the target has a place.
+      el.scrollIntoView({ block: "start" });
+    });
   }
 
   /* Say so when a permalink names a note this page does not draw.
@@ -227,8 +239,16 @@
    * on. Returning silently left the reader at the top of an apparently
    * ordinary day with no hint that the link had landed and missed, which
    * is the kind of small lie this package refuses elsewhere (a chip must
-   * not contradict its card). Only `entry-…` is claimed: another
-   * fragment's absence is somebody else's story to tell.
+   * not contradict its card).
+   *
+   * Which is why the REASON is only given on the book it is true of. The
+   * ops book never touches the share, so "there is no folder for its
+   * scan" is false there — and a page explaining a miss with a cause that
+   * cannot apply is the same small lie, just better dressed. A stale or
+   * hand-edited fragment reaches the month page too.
+   *
+   * Only `entry-…` is claimed: another fragment's absence is somebody
+   * else's story to tell.
    */
   function missingEntry(id) {
     if (!/^entry-/.test(id) || document.querySelector(".revealmiss")) return;
@@ -236,10 +256,11 @@
     if (!main) return;
     const note = document.createElement("p");
     note.className = "empty revealmiss";
-    note.textContent =
-      "That note is not on this page. It exists, but this view draws the " +
-      "scan folders on the share and there is none for the scan it is " +
-      "anchored to.";
+    note.textContent = "That note is not on this page."
+      + (main.dataset.book === "scans"
+        ? " It exists, but this view draws the scan folders on the share"
+          + " and there is none for the scan it is anchored to."
+        : "");
     main.insertBefore(note, main.firstElementChild && main.firstElementChild.nextSibling);
   }
 

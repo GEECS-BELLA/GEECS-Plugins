@@ -315,19 +315,26 @@ script does.
 Two hazards the review of #890 found, both fixed there and both worth not
 reintroducing:
 
-- **A pasted reference is a pending write.** The paste is
-  `preventDefault`-ed and the label needs a fetch, so between the two the
-  textarea holds neither the reference nor the URL. A ⌘↩ in that gap —
-  paste the link, save, the obvious motion — read the body without it and
-  reloaded the pending write away, losing the citation with no error. It
-  registers `form._uploading`, the same latch an attachment upload uses,
-  so `save()` waits.
+- **The reference goes in synchronously; only its label is fetched.** An
+  earlier cut fetched first and wrote nothing until it returned, so a ⌘↩
+  in that gap — paste the link, save, the obvious motion — read the body
+  without the citation and reloaded the pending write away, silently. The
+  first version of the *fix* deferred the write behind a latch, which
+  closed the loss but left the reference writing at the caret offsets
+  remembered at paste time: type while the fetch is in flight and the link
+  splices into the middle of it. Writing immediately removes both, and the
+  label upgrade is applied by finding its own placeholder text rather than
+  by position, so it is safe to lose. **The worst case is a reference that
+  reads `[note]`.** Do not reintroduce a deferred write here; the only
+  thing that defers a textarea write is an upload, which is why one
+  `form._uploading` slot is enough.
 - **The match is on the trailing `entry/<id>` pair, not on `ENTRY_BASE`.**
   Anchoring on this page's own prefix meant a link copied at
   `:8400/entry/<id>` and pasted into a page served under `/log` did not
   match — and the fallback then wrote the absolute URL, host and all, into
   the stored body. That is the one thing this whole design exists to
-  prevent.
+  prevent. It also means the bare stored form pasted out of one note's raw
+  markdown is recognised.
 
 A permalink can also name a note the **scans book cannot draw**: an entry
 anchored to a scan whose folder is not on the share is stored and counted

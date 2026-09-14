@@ -178,64 +178,42 @@
     return m ? `${Number(m[3])} ${MONTHS[Number(m[2]) - 1]}` : iso;
   }
 
-  /** Make `work` something a Save has to wait for.
-   *
-   * Two things write into the textarea after an await — an upload
-   * inserting its attachment link, and a pasted reference resolving its
-   * label — and a Save that reads the body in between persists it without
-   * them. They QUEUE rather than share one slot, and both halves of that
-   * are load-bearing; each fails in a DIFFERENT paste order, which is why
-   * neither is defensive padding:
-   *
-   *   - a writer must not clear the slot itself. Paste a link (slow), then
-   *     a file (fast): the upload finishes first, and clearing the slot on
-   *     its way out leaves the still-pending reference invisible to a Save
-   *     a second later. The reference is lost with no error.
-   *   - clearing must check the slot is still OURS. Paste a file (fast),
-   *     then a link (slow): the upload's tail resolves while the
-   *     reference's tail — the one that superseded it — is pending, and an
-   *     unconditional clear throws that away instead.
-   *
-   * So: the tail of the chain is always the thing to await, and it is only
-   * cleared when it is still the tail. `save()` reads the slot once, so
-   * whatever is current at that moment is what it waits for.
-   */
-  function pending(form, work) {
-    const tail = (form._uploading || Promise.resolve())
-      .catch(() => {})
-      .then(() => work);
-    form._uploading = tail;
-    tail.catch(() => {}).then(() => {
-      if (form._uploading === tail) form._uploading = null;
-    });
-    return tail;
-  }
+  /* A pasted permalink becomes a reference, in two steps that are ordered
+     so nothing can be lost.
 
-  /** Write at a remembered range rather than the live selection. */
-  function writeAt(ta, from, to, text) {
-    ta.setRangeText(text, from, to, "end");
-    ta.focus();
-    ta.dispatchEvent(new Event("input", { bubbles: true }));
-  }
+     The link goes in AT ONCE, complete and working, with a placeholder
+     label. Only the label — cosmetic — is fetched, and it is applied by
+     finding that exact text again rather than by remembering where the
+     caret was. Both properties matter:
 
-  /* The stored link is RELATIVE — `entry/<id>`, never the absolute URL that
+       - nothing is deferred, so a ⌘↩ the instant after pasting (paste the
+         link, save — the obvious motion) saves a working reference. An
+         earlier version waited for the fetch before writing anything, so a
+         save in that gap persisted the body without the citation and
+         reloaded the pending write away, silently.
+       - no remembered offsets, so typing (or an upload's link landing)
+         between the paste and the label cannot splice the reference into
+         the middle of it. If the placeholder is gone — edited, saved and
+         reloaded — the upgrade simply does not apply.
+
+     The worst case is now a reference that reads `[note]` instead of
+     `[demo · 12 Sep]`. It still points at the right note.
+
+     The stored link is RELATIVE — `entry/<id>`, never the absolute URL that
      was pasted. A body must not carry the mount prefix or the host it was
      written on; the renderer swaps in the serving route, exactly as it does
      for an attachment. */
-  function pasteEntryRef(form, id, raw) {
+  function pasteEntryRef(form, id) {
     const ta = form.querySelector(".ta");
-    const from = ta.selectionStart, to = ta.selectionEnd;
-    /* Queued for the same reason an upload is: the paste was
-       preventDefault-ed, so between here and the fetch returning the
-       textarea holds NEITHER the reference nor the URL. A ⌘↩ in that gap —
-       paste the link, save, the obvious human motion — would otherwise
-       read the body without it, PATCH, and reload the pending write away.
-       The citation would vanish with no error. */
-    pending(form, api("GET", `/entries/${id}`)
-      .then((e) => {
-        writeAt(ta, from, to, `[${e.author} \u00b7 ${shortDay(e.day)}](entry/${id})`);
-      })
-      .catch(() => writeAt(ta, from, to, raw)));  // not ours, or gone: paste the text
+    const placeholder = `[note](entry/${id})`;
+    replaceSelection(ta, placeholder);
+    api("GET", `/entries/${id}`).then((e) => {
+      const better = `[${e.author} \u00b7 ${shortDay(e.day)}](entry/${id})`;
+      const at = ta.value.indexOf(placeholder);
+      if (at === -1) return;                    // edited away; leave it alone
+      ta.setRangeText(better, at, at + placeholder.length, "end");
+      ta.dispatchEvent(new Event("input", { bubbles: true }));
+    }).catch(() => {});  // not ours, or gone: the link stands, unlabelled
   }
 
   /** Copy text, on https and on the lab's plain http alike.
@@ -398,7 +376,10 @@
     let done;
     // Kept on the form so a Save that lands mid-upload waits for the link
     // to be inserted and the version to be re-read, instead of racing it.
-    pending(form, new Promise((resolve) => { done = resolve; }));
+    // One slot is enough: an upload is the only thing that defers a write
+    // to the textarea (a pasted reference writes immediately, and only its
+    // label arrives later), so there is never a second one to queue behind.
+    form._uploading = new Promise((resolve) => { done = resolve; });
     try {
       id = await ensureEntry(form);
       for (const file of list) {
@@ -421,7 +402,8 @@
         catch (err) { fail(form, err); }
       }
       form.classList.remove("busy");
-      done();  // pending() clears the latch when this was still the tail
+      form._uploading = null;
+      done();
     }
   }
 
@@ -509,7 +491,7 @@
     // specific thing the clipboard can hold, and a URL is never a table.
     const plain = cd.getData("text/plain");
     const refId = entryIdIn(plain);
-    if (refId) { ev.preventDefault(); pasteEntryRef(form, refId, plain.trim()); return; }
+    if (refId) { ev.preventDefault(); pasteEntryRef(form, refId); return; }
     // A spreadsheet range often arrives as an HTML table AND a bitmap of
     // the same cells (Excel); the table is what was meant.
     const html = cd.getData("text/html");
