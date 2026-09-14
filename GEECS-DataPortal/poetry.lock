@@ -1022,7 +1022,7 @@ url = "../GEECS-Schemas"
 
 [[package]]
 name = "geecs-web-theme"
-version = "0.5.0"
+version = "0.6.0"
 description = "One palette vocabulary for every GEECS web surface: tokens, themes, and the picker"
 optional = false
 python-versions = ">=3.11,<3.12"
@@ -3843,7 +3843,7 @@ files = [
 
 [[package]]
 name = "scananalysis"
-version = "1.22.0"
+version = "1.23.0"
 description = "Modules for performing analyses routines on full scans"
 optional = true
 python-versions = ">=3.11,<3.12"
@@ -3867,7 +3867,7 @@ requests = "^2.28.0"
 watchdog = "^6.0.0"
 
 [package.extras]
-editor = ["fastapi (>=0.110)", "geecs-web-theme @ file:///GEECS-Plugins/GeecsWebTheme", "jinja2 (>=3.1)", "uvicorn (>=0.29)"]
+editor = ["fastapi (>=0.110)", "geecs-web-theme @ file:///GEECS-Plugins/GeecsWebTheme", "jinja2 (>=3.1)"]
 
 [package.source]
 type = "directory"
