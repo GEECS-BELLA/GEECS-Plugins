@@ -4,6 +4,17 @@ All notable changes to `geecs-scanner` are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 project adheres to semantic versioning.
 
+## [0.3.1] - 2026-09-13
+
+### Changed
+
+- Merge of `master` into `feature/web-scanner` (GeecsWebTheme 0.6.1, the
+  tinycss2 CSS guards of #875): the "every class the page uses is styled"
+  test reads the stylesheets through the theme's `classes_used` and
+  `styled_classes` instead of a regex over `.name`; the theme's `testing`
+  extra joins the dev group for it, and `poetry.lock` is relocked against
+  the merged path dependencies. No runtime change.
+
 ## [0.3.0] - unreleased
 
 The rest of the mock — PR 4 of the web scanner arc. Opens with the

@@ -52,6 +52,7 @@ require_runtime_keys
 TEMPLATES=(
     GeecsCAGateway/deploy/geecs-ca-gateway.service
     GEECS-DataPortal/deploy/geecs-data-portal.service
+    GeecsLogbook/deploy/geecs-logbook.service
     GeecsBluesky/qserver/deploy/geecs-qserver.service
     GeecsBluesky/qserver/deploy/geecs-qserver-ready.service
     GeecsBluesky/capture/deploy/geecs-capture.service

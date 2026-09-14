@@ -23,7 +23,7 @@ Usage
 ::
 
     poetry run python scripts/seed_demo_notes.py /tmp/demo-notes.db
-    poetry run geecs-portal --scan-log --notes-db /tmp/demo-notes.db
+    poetry run geecs-logbook --experiment Undulator --notes-db /tmp/demo-notes.db
 
 The scan folders for ``DAY`` must be reachable for the scan-anchored
 entries to appear: an anchor naming a scan the day does not contain is

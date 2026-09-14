@@ -45,15 +45,14 @@ WorkingDirectory=@CHECKOUT_ROOT@/portal-checkout/GEECS-DataPortal
 # it on whitespace and an unset key adds nothing) — the reference profile
 # sets --config-editor there, which mounts the analysis config editor at
 # /configs over that same tree: a WRITE verb (saves YAML into the configs
-# checkout on the share). Leave the key empty on a read-only viewer.
+# checkout on the share), and --logbook-url, the base URL of the logbook
+# service (its own unit, geecs-logbook, port 8400) the run page links to.
+# Leave the editor flag off on a read-only viewer.
 ExecStart=@POETRY@ run geecs-data-portal --experiment ${GEECS_EXPERIMENT} --processing-configs "${GEECS_CONFIGS_ROOT}/scan_analysis_configs" $GEECS_PORTAL_EXTRA_ARGS
-# The logbook's entries (--scan-log): systemd creates
-# /var/lib/geecs-data-portal, owns it to the service user, and exports it
-# as $STATE_DIRECTORY, which the portal takes as the default --notes-db
-# location. Not a site value — the same path on every host — so it lives
-# here rather than in site.env. Back it up: what people wrote exists in
-# this file and in the markdown mirror on the share, nowhere else.
-StateDirectory=geecs-data-portal
+# No StateDirectory: the portal writes nothing durable. The logbook's
+# entries, which lived in /var/lib/geecs-data-portal while the logbook was
+# a router in this process (portal 0.22-0.26), belong to geecs-logbook's
+# own state directory now — GeecsLogbook/deploy/DEPLOYMENT.md has the move.
 # Memory ceiling (#834): the portal shares the box with Tiled, MySQL and
 # the queueserver, and as the largest resident process it was the
 # kernel's first OOM pick. MemoryHigh= throttles and reclaims above the

@@ -67,9 +67,7 @@ jobs:
         # --extras analysis: the Images tab's processing-selector tests
         # (TestProcessingSelector) importorskip image_analysis and would
         # silently skip without it (the #737 CI-red lesson, 2026-09-01).
-        # --extras log: test_scan_log_mount importorskips geecs_logbook and
-        # would silently skip without it (same lesson as #737).
-        run: poetry install --with dev --extras analysis --extras log
+        run: poetry install --with dev --extras analysis
 
       - name: Run GEECS-DataPortal tests
         working-directory: GEECS-DataPortal

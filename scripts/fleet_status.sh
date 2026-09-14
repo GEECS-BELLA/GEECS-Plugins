@@ -40,6 +40,7 @@ set -u  # deliberately not -e: a failed probe is a *finding*, not an error
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PORTAL_PORT=8200       # fleet map: GEECS Data Portal
+LOGBOOK_PORT=8400      # fleet map: GEECS Logbook
 MCP_PORT=8100          # fleet map: GEECS-MCP HTTP mode
 SCANNER_PORT=8300      # fleet map: GEECS Scanner (the web scanner console)
 TCP_TIMEOUT=2          # seconds per port probe / HTTP get
@@ -191,6 +192,24 @@ if [ "$NET_UP" -eq 1 ]; then
         rec "role=Data Portal	state=down"
     fi
 
+    # Logbook — its own process since GeecsLogbook 0.10.0; /health carries
+    # ok + version + whether it takes entries (never touches the share).
+    lh="$(bounded "$TCP_TIMEOUT" curl -s -m "$TCP_TIMEOUT" "http://$PORTAL_HOST:$LOGBOOK_PORT/health")"
+    if [ -n "$lh" ]; then
+        lv="$(printf '%s' "$lh" | sed -nE 's/.*"version": *"([^"]+)".*/\1/p')"
+        lw="$(printf '%s' "$lh" | sed -nE 's/.*"writable": *(true|false).*/\1/p')"
+        if [ "$lw" = "true" ]; then
+            ok "Logbook      $PORTAL_HOST:$LOGBOOK_PORT  geecs-logbook ${lv:-?}  (writable)"
+            rec "role=Logbook	state=ok	version=${lv:-}"
+        else
+            warn "Logbook      $PORTAL_HOST:$LOGBOOK_PORT  geecs-logbook ${lv:-?}  up but READ-ONLY (no notes db — StateDirectory missing?)"
+            rec "role=Logbook	state=ok	version=${lv:-}	note=read-only"
+        fi
+    else
+        bad "Logbook      $PORTAL_HOST:$LOGBOOK_PORT  (no /health answer)"
+        rec "role=Logbook	state=down"
+    fi
+
     # Queueserver — listening is not ready: a manager whose RE worker
     # environment is closed knows zero plans and refuses every submission
     # (#793). Ask it over 0MQ (status + plans_allowed, read-only) when an env
@@ -311,14 +330,15 @@ set -u
 command -v systemctl >/dev/null 2>&1 || { echo "nosystemd"; exit 0; }
 # fleet map ports -> role label (what a listener on that port is)
 role_for_port() { case "$1" in
-    5064) echo "CA gateway";; 8000) echo "Tiled";; 8200) echo "Data Portal";; 8100) echo "GEECS-MCP";; 8300) echo "GEECS Scanner";;
+    5064) echo "CA gateway";; 8000) echo "Tiled";; 8200) echo "Data Portal";; 8400) echo "Logbook";; 8100) echo "GEECS-MCP";; 8300) echo "GEECS Scanner";;
     60615) echo "Queueserver RE Manager";; 5568) echo "Bluesky doc proxy";; *) echo "port $1";; esac; }
 role_for_unit() { case "$1" in
     geecs-ca-gateway*) echo "CA gateway";; tiled*) echo "Tiled";; geecs-data-portal*) echo "Data Portal";;
+    geecs-logbook*) echo "Logbook";;
     geecs-mcp*) echo "GEECS-MCP";; geecs-scanner*) echo "GEECS Scanner";; geecs-qserver-ready*) echo "Queueserver readiness";;
     geecs-qserver*) echo "Queueserver RE Manager";; geecs-capture*) echo "Capture daemon";;
     *) echo "$1";; esac; }
-FLEET_PORTS="5064 8000 8200 8100 8300 60615 5568"
+FLEET_PORTS="5064 8000 8200 8400 8100 8300 60615 5568"
 SEEN=" "
 SEEN_UNITS=" "
 reflog_ts() {  # unix time HEAD last moved (checkout/pull/reset), from the reflog

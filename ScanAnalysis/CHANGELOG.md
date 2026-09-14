@@ -3,6 +3,18 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.23.0] - 2026-09-13
+
+### Removed
+
+- The standalone `scan-config-editor` launcher (`config_editor.app:main`,
+  `create_editor_app`, the console script and `uvicorn` in the `editor`
+  extra). Owner ruling 2026-09-13: the editor stays beside the analysis
+  it configures and the data portal is its one host (`/configs` in a
+  drawer over a scan, or the portal's full-page **edit configs** form);
+  a laptop edits the configs repo in an editor and commits.
+  `create_editor_router` is unchanged.
+
 ## [1.22.0] - 2026-09-11
 
 ### Changed

@@ -4,6 +4,61 @@ All notable changes to `geecs-logbook` are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 project adheres to semantic versioning.
 
+## [0.10.2] - 2026-09-13
+
+### Changed
+
+- `deploy/DEPLOYMENT.md` corrected from the live deploy on the reference
+  host: the backup steps use Python's `sqlite3` module (the `sqlite3` CLI
+  is not installed there and `sudo sqlite3 …` failed as one quiet line
+  while the move went on; the nightly form runs as the service user so
+  no root-owned `-shm` is left beside the live database), the install
+  step reads `GEECS_POETRY` through `deploy/site_env_lib.sh` (`poetry`
+  is not on the service account's login `PATH` either), and the
+  verification compares the source row count against the change feed's
+  `entries` on the new port, tombstones included — a day whose entries
+  were all deleted shows none on its page by design. Records the
+  2026-09-13 deploy.
+
+## [0.10.1] - 2026-09-13
+
+### Changed
+
+- `tests/test_seed_templates.py`'s tone guard reads `scanlog.css` through
+  the theme's parser-based `token_indirection_map` (the theme's `testing`
+  extra, taken in the dev group) instead of a formatting-shaped regex —
+  the #875 lesson applied to the last regex CSS scanner in this package.
+  Mutation-proved: renaming a `.tone-` rule fails it.
+- `CLAUDE.md` records the owner ruling on the two day views: the scan
+  folders are canonical for now (they match the LabVIEW Master Control
+  implementation the lab runs), Tiled expected to become canonical later.
+
+## [0.10.0] - 2026-09-13
+
+### Changed
+
+- **The logbook is its own service.** `geecs-logbook` (console script,
+  `python -m geecs_logbook`) serves one experiment on port 8400 —
+  `--experiment`, `--notes-db` (default `$STATE_DIRECTORY/logbook.db`),
+  `--templates-dir`, `--root-path` — behind its own unit template
+  (`deploy/geecs-logbook.service`, `StateDirectory=geecs-logbook`) with
+  a runbook (`deploy/DEPLOYMENT.md`, including the one-time move of the
+  entries out of `/var/lib/geecs-data-portal`). Until now it was a router
+  inside the Data Portal's process at `/log` — the portal's `MemoryMax=`
+  is meant to kill that process when it runs away, and the write path
+  for what people wrote should not be in it.
+- `app.create_app(experiment, *, base_directory, notes_db, templates_dir,
+  root_path)` replaces `router.create_log_router`; the routes serve at
+  the app's root (`/day/…`, `/month/…`, `/api/…`), with `/health`
+  (version, experiment, writable — never touches the share) for the
+  fleet probe.
+- The shared web glue comes from `geecs_web_theme.web` (the forwarded-
+  prefix middleware, the `/theme` mount, the templates factory that puts
+  `root` in every context); the templates drop their own `root`
+  computation and address the page's assets through a named `/static`
+  mount instead of the `_static` route. `geecs-web-theme` (`web` extra)
+  and `uvicorn` are runtime dependencies now.
+
 ## [0.9.0] - 2026-09-12
 
 ### Added

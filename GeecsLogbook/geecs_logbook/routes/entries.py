@@ -3,13 +3,13 @@
 Registered only when a store exists. Every write goes to the store first
 and the share second; see :mod:`geecs_logbook.mirror` for why that order.
 
-``POST   /log/api/entries``                     create (201)
-``PATCH  /log/api/entries/{id}``                edit the text (409 on conflict)
-``POST   /log/api/entries/{id}/status``         keep or un-keep
-``DELETE /log/api/entries/{id}``                tombstone (204)
-``GET    /log/api/entries/{id}``                one entry
-``GET    /log/api/entries/{id}/history``        its earlier states
-``GET    /log/api/entries?since=``              the change feed: everything
+``POST   /api/entries``                     create (201)
+``PATCH  /api/entries/{id}``                edit the text (409 on conflict)
+``POST   /api/entries/{id}/status``         keep or un-keep
+``DELETE /api/entries/{id}``                tombstone (204)
+``GET    /api/entries/{id}``                one entry
+``GET    /api/entries/{id}/history``        its earlier states
+``GET    /api/entries?since=``              the change feed: everything
                                                 whose ``updated_at`` moved
                                                 after ``since``, tombstones
                                                 included, in change order
