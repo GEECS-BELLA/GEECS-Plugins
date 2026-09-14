@@ -22,7 +22,7 @@ PR 5b of the web scanner arc — the movable panel.
   `aioca.caget` on the app's loop — the service's one async path, which
   takes no lock and reads no DB): value, the units the caller passes, the
   channel's stamp and age. The readback, not the `:SP` echo the Qt console
-  showed as "set". The name is split by GEECS-Schemas 0.24.1's
+  showed as "set". The name is split by GEECS-Schemas 0.25.0's
   `split_device_variable`.
 - **The devices · move panel** lists the settables (the option value is
   the canonical name; the catalog-only picker is gone) and shows the

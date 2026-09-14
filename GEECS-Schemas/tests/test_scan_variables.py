@@ -115,3 +115,17 @@ class TestScanVariables:
                     }
                 }
             )
+
+
+def test_split_device_variable_is_the_public_form_of_the_target_rule() -> None:
+    """First ``:`` separates, both parts stripped and non-empty; anything else is a ValueError."""
+    from geecs_schemas import split_device_variable
+
+    assert split_device_variable(" U_ESP_JetXYZ : Position.Axis 3 ") == (
+        "U_ESP_JetXYZ",
+        "Position.Axis 3",
+    )
+    assert split_device_variable("U_S1H:Current:extra") == ("U_S1H", "Current:extra")
+    for bad in ("U_S1H", ":Current", "U_S1H:", "U_S1H: ", "S1H current"):
+        with pytest.raises(ValueError, match="Device:Variable"):
+            split_device_variable(bad)
