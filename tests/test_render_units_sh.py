@@ -29,6 +29,7 @@ SITE_ENV = REPO_ROOT / "deploy" / "site.env.example"
 TEMPLATES = [
     REPO_ROOT / "GeecsCAGateway/deploy/geecs-ca-gateway.service",
     REPO_ROOT / "GEECS-DataPortal/deploy/geecs-data-portal.service",
+    REPO_ROOT / "GeecsLogbook/deploy/geecs-logbook.service",
     REPO_ROOT / "GeecsBluesky/qserver/deploy/geecs-qserver.service",
     REPO_ROOT / "GeecsBluesky/qserver/deploy/geecs-qserver-ready.service",
     REPO_ROOT / "GeecsBluesky/capture/deploy/geecs-capture.service",
