@@ -7,19 +7,15 @@ from pathlib import Path
 import re
 
 import pytest
-from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from geecs_logbook.router import create_log_router
+from geecs_logbook.app import create_app
 
 
 @pytest.fixture
 def client(share: Path) -> TestClient:
     """Mount the router the way the Data Portal does."""
-    app = FastAPI()
-    app.include_router(
-        create_log_router("Undulator", base_directory=share), prefix="/log"
-    )
+    app = create_app("Undulator", base_directory=share)
     return TestClient(app)
 
 
@@ -28,26 +24,26 @@ class TestDayJson:
 
     def test_returns_the_days_scans(self, client: TestClient) -> None:
         """Every scan folder present appears, in number order."""
-        body = client.get("/log/api/day/2026-09-11").json()
+        body = client.get("/api/day/2026-09-11").json()
         assert [s["number"] for s in body["scans"]] == [1, 6, 31, 40]
         assert body["exists"] is True
 
     def test_carries_status_and_failure_reason(self, client: TestClient) -> None:
         """A failed scan exposes why it failed."""
-        scans = client.get("/log/api/day/2026-09-11").json()["scans"]
+        scans = client.get("/api/day/2026-09-11").json()["scans"]
         failed = next(s for s in scans if s["number"] == 6)
         assert failed["status"] == "failed"
         assert "uc_amp4_ir_input-hdf-capture" in failed["failure_reason"]
 
     def test_empty_day_is_not_an_error(self, client: TestClient) -> None:
         """A date with no scans returns 200 and an empty day."""
-        res = client.get("/log/api/day/2019-01-01")
+        res = client.get("/api/day/2019-01-01")
         assert res.status_code == 200
         assert res.json()["exists"] is False
 
     def test_malformed_date_is_a_400(self, client: TestClient) -> None:
         """A path segment that is not YYYY-MM-DD is the caller's error."""
-        assert client.get("/log/api/day/yesterday").status_code == 400
+        assert client.get("/api/day/yesterday").status_code == 400
 
 
 class TestDayPage:
@@ -55,31 +51,31 @@ class TestDayPage:
 
     def test_renders_each_scan(self, client: TestClient) -> None:
         """Every scan gets a collapsible block anchored by its label."""
-        html = client.get("/log/day/2026-09-11").text
+        html = client.get("/day/2026-09-11").text
         assert 'id="Scan001"' in html
         assert 'id="Scan006"' in html
         assert 'id="Scan031"' in html
 
     def test_shows_the_purpose_from_scan_start_info(self, client: TestClient) -> None:
         """ScanStartInfo is displayed rather than asked for again."""
-        html = client.get("/log/day/2026-09-11").text
+        html = client.get("/day/2026-09-11").text
         assert "807 phase 1 acceptance" in html
 
     def test_shows_the_failure_reason(self, client: TestClient) -> None:
         """The failure strip carries the ScanEndInfo text."""
-        html = client.get("/log/day/2026-09-11").text
+        html = client.get("/day/2026-09-11").text
         assert "Scan ended with an error" in html
         assert "uc_amp4_ir_input-hdf-capture" in html
 
     def test_serves_its_stylesheet(self, client: TestClient) -> None:
         """The mounted static files resolve under the router prefix."""
-        res = client.get("/log/static/scanlog.css")
+        res = client.get("/static/scanlog.css")
         assert res.status_code == 200
         assert "--accent" in res.text
 
     def test_small_day_opens_expanded(self, client: TestClient) -> None:
         """Under the threshold every scan block starts open."""
-        html = client.get("/log/day/2026-09-11").text
+        html = client.get("/day/2026-09-11").text
         assert html.count('<details class="panel scan"') == 4
         assert "Collapse all" in html
 
@@ -97,7 +93,7 @@ class TestHonestChips:
         shot count parsed *from* ScanInfo is a plain contradiction — and it
         hit the most common state on the real share.
         """
-        html = client.get("/log/day/2026-09-11").text
+        html = client.get("/day/2026-09-11").text
         assert "not finalised" in html
         assert "no scan info" in html  # Scan031, which really has none
         assert html.count("not finalised") == 1
@@ -106,21 +102,15 @@ class TestHonestChips:
 
 @pytest.fixture
 def writable(share: Path, tmp_path: Path) -> TestClient:
-    """The router with a notes store, as the portal mounts it with --notes-db."""
-    app = FastAPI()
-    app.include_router(
-        create_log_router(
-            "Undulator", base_directory=share, notes_db=tmp_path / "notes.db"
-        ),
-        prefix="/log",
-    )
+    """The app with a notes store, as the service runs with --notes-db."""
+    app = create_app("Undulator", base_directory=share, notes_db=tmp_path / "notes.db")
     return TestClient(app)
 
 
 def _post(client: TestClient, **body: object) -> dict:
     payload = {"day": "2026-09-11", "author": "S. Barber", "body_md": "hello"}
     payload.update(body)
-    r = client.post("/log/api/entries", json=payload)
+    r = client.post("/api/entries", json=payload)
     assert r.status_code == 201, r.text
     return r.json()
 
@@ -131,7 +121,7 @@ class TestWriteApi:
     def test_read_only_mount_has_no_write_routes(self, client: TestClient) -> None:
         """Without a store the write routes do not exist at all."""
         r = client.post(
-            "/log/api/entries",
+            "/api/entries",
             json={"day": "2026-09-11", "author": "a", "body_md": "x", "scan": 1},
         )
         assert r.status_code in (404, 405)
@@ -141,15 +131,15 @@ class TestWriteApi:
         e = _post(writable)
         assert e["scan"] is None and e["after"] is None
         assert e["updated_at"] == e["created_at"]
-        listed = writable.get("/log/api/day/2026-09-11/entries").json()
+        listed = writable.get("/api/day/2026-09-11/entries").json()
         assert [x["entry_id"] for x in listed] == [e["entry_id"]]
-        page = writable.get("/log/day/2026-09-11").text
+        page = writable.get("/day/2026-09-11").text
         assert "hello" in page
 
     def test_scan_zero_is_not_an_anchor(self, writable: TestClient) -> None:
         """Scans start at 1; 0 is refused rather than silently meaning the day."""
         r = writable.post(
-            "/log/api/entries",
+            "/api/entries",
             json={"day": "2026-09-11", "author": "a", "body_md": "x", "scan": 0},
         )
         assert r.status_code == 422
@@ -157,7 +147,7 @@ class TestWriteApi:
     def test_both_anchors_is_a_422(self, writable: TestClient) -> None:
         """On a scan and after one at once is refused."""
         r = writable.post(
-            "/log/api/entries",
+            "/api/entries",
             json={
                 "day": "2026-09-11",
                 "author": "a",
@@ -171,7 +161,7 @@ class TestWriteApi:
     def test_an_agent_cannot_be_born_kept(self, writable: TestClient) -> None:
         """The draft rule holds at the API, not only in the docs."""
         r = writable.post(
-            "/log/api/entries",
+            "/api/entries",
             json={
                 "day": "2026-09-11",
                 "author": "osprey",
@@ -187,7 +177,7 @@ class TestWriteApi:
         )
         assert e["status"] == "draft"
         kept = writable.post(
-            f"/log/api/entries/{e['entry_id']}/status", json={"status": "kept"}
+            f"/api/entries/{e['entry_id']}/status", json={"status": "kept"}
         ).json()
         assert kept["status"] == "kept" and kept["updated_at"] > e["updated_at"]
 
@@ -197,12 +187,12 @@ class TestWriteApi:
         """A stale version is a 409 with what is there now."""
         e = _post(writable, scan=1)
         first = writable.patch(
-            f"/log/api/entries/{e['entry_id']}",
+            f"/api/entries/{e['entry_id']}",
             json={"body_md": "one", "editor": "a", "expected_version": 1},
         )
         assert first.status_code == 200 and first.json()["version"] == 2
         stale = writable.patch(
-            f"/log/api/entries/{e['entry_id']}",
+            f"/api/entries/{e['entry_id']}",
             json={"body_md": "two", "editor": "b", "expected_version": 1},
         )
         assert stale.status_code == 409
@@ -211,15 +201,15 @@ class TestWriteApi:
     def test_delete_hides_the_entry_everywhere(self, writable: TestClient) -> None:
         """After a delete: 204, then gone from the listing and from every route."""
         e = _post(writable, scan=1)
-        assert writable.delete(f"/log/api/entries/{e['entry_id']}").status_code == 204
-        assert writable.get("/log/api/day/2026-09-11/entries").json() == []
-        assert writable.delete(f"/log/api/entries/{e['entry_id']}").status_code == 404
+        assert writable.delete(f"/api/entries/{e['entry_id']}").status_code == 204
+        assert writable.get("/api/day/2026-09-11/entries").json() == []
+        assert writable.delete(f"/api/entries/{e['entry_id']}").status_code == 404
         again = writable.patch(
-            f"/log/api/entries/{e['entry_id']}",
+            f"/api/entries/{e['entry_id']}",
             json={"body_md": "x", "editor": "a", "expected_version": 2},
         )
         assert again.status_code == 404
-        assert "hello" not in writable.get("/log/day/2026-09-11").text
+        assert "hello" not in writable.get("/day/2026-09-11").text
 
 
 _PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 64
@@ -237,7 +227,7 @@ class TestAttachments:
         ctype: str = "image/png",
     ):
         return client.post(
-            f"/log/api/entries/{entry_id}/attachments",
+            f"/api/entries/{entry_id}/attachments",
             files={"file": (name, data, ctype)},
         )
 
@@ -249,9 +239,9 @@ class TestAttachments:
         body = r.json()
         assert body["link"] == f"attachments/{e['entry_id']}/shot.png"
         assert body["attachment"]["id"] != e["entry_id"]  # its own id
-        got = writable.get(f"/log/attachments/{e['entry_id']}/shot.png")
+        got = writable.get(f"/attachments/{e['entry_id']}/shot.png")
         assert got.status_code == 200 and got.content == _PNG
-        listed = writable.get("/log/api/day/2026-09-11/entries").json()
+        listed = writable.get("/api/day/2026-09-11/entries").json()
         assert [a["filename"] for a in listed[0]["attachments"]] == ["shot.png"]
         assert listed[0]["version"] == 2
 
@@ -264,12 +254,12 @@ class TestAttachments:
         second = self._upload(writable, e["entry_id"], "image.png", _PNG + b"2")
         assert first.json()["link"].endswith("/image.png")
         assert second.json()["link"].endswith("/image-2.png")
-        base = f"/log/attachments/{e['entry_id']}"
+        base = f"/attachments/{e['entry_id']}"
         assert writable.get(f"{base}/image.png").content == _PNG
         assert writable.get(f"{base}/image-2.png").content == _PNG + b"2"
         ids = {
             a["id"]
-            for a in writable.get("/log/api/day/2026-09-11/entries").json()[0][
+            for a in writable.get("/api/day/2026-09-11/entries").json()[0][
                 "attachments"
             ]
         }
@@ -298,7 +288,7 @@ class TestAttachments:
             "..%2F..%2Fshot.png",
             "../../../scans/Scan001/ScanInfoScan001.ini",
         ):
-            r = writable.get(f"/log/attachments/{e['entry_id']}/{bad}")
+            r = writable.get(f"/attachments/{e['entry_id']}/{bad}")
             assert r.status_code == 404, bad
 
     def test_upload_and_serving_work_without_the_share(
@@ -315,26 +305,24 @@ class TestAttachments:
         monkeypatch.setattr(mirror, "logbook_root", no_share)
         r = self._upload(writable, e["entry_id"])
         assert r.status_code == 201, r.text
-        assert (
-            writable.get(f"/log/attachments/{e['entry_id']}/shot.png").content == _PNG
-        )
+        assert writable.get(f"/attachments/{e['entry_id']}/shot.png").content == _PNG
 
     def test_rendered_page_links_to_the_serving_route(
         self, writable: TestClient
     ) -> None:
-        """A body's relative link is rewritten onto /log/attachments/<id>/<file>."""
+        """A body's relative link is rewritten onto /attachments/<id>/<file>."""
         e = _post(writable, scan=1)
         self._upload(writable, e["entry_id"])
         writable.patch(
-            f"/log/api/entries/{e['entry_id']}",
+            f"/api/entries/{e['entry_id']}",
             json={
                 "body_md": f"![s](attachments/{e['entry_id']}/shot.png)",
                 "editor": "a",
                 "expected_version": 2,
             },
         )
-        page = writable.get("/log/day/2026-09-11").text
-        assert f'src="/log/attachments/{e["entry_id"]}/shot.png"' in page
+        page = writable.get("/day/2026-09-11").text
+        assert f'src="/attachments/{e["entry_id"]}/shot.png"' in page
 
 
 class TestBooksTagsHistory:
@@ -343,7 +331,7 @@ class TestBooksTagsHistory:
     def test_ops_entry_is_day_level_only(self, writable: TestClient) -> None:
         """An ops entry with a scan anchor is refused; without one it lands."""
         r = writable.post(
-            "/log/api/entries",
+            "/api/entries",
             json={
                 "day": "2026-09-11",
                 "author": "a",
@@ -362,14 +350,12 @@ class TestBooksTagsHistory:
         """Ops entries do not render on the day document; the API can filter either way."""
         _post(writable, scan=1, body_md="on the scan")
         _post(writable, book="ops", body_md="in the ops book")
-        page = writable.get("/log/day/2026-09-11").text
+        page = writable.get("/day/2026-09-11").text
         assert "on the scan" in page and "in the ops book" not in page
-        both = writable.get("/log/api/day/2026-09-11/entries").json()
-        ops = writable.get("/log/api/day/2026-09-11/entries?book=ops").json()
+        both = writable.get("/api/day/2026-09-11/entries").json()
+        ops = writable.get("/api/day/2026-09-11/entries?book=ops").json()
         assert len(both) == 2 and [x["body_md"] for x in ops] == ["in the ops book"]
-        assert (
-            writable.get("/log/api/day/2026-09-11/entries?book=nope").status_code == 422
-        )
+        assert writable.get("/api/day/2026-09-11/entries?book=nope").status_code == 422
 
     def test_a_mirror_crash_never_fails_the_save(
         self, writable: TestClient, monkeypatch: pytest.MonkeyPatch
@@ -383,7 +369,7 @@ class TestBooksTagsHistory:
         monkeypatch.setattr(mirror, "mirror_one", boom)
         e = _post(writable, scan=1, body_md="still saved")
         assert (
-            writable.get(f"/log/api/entries/{e['entry_id']}").json()["body_md"]
+            writable.get(f"/api/entries/{e['entry_id']}").json()["body_md"]
             == "still saved"
         )
 
@@ -391,10 +377,10 @@ class TestBooksTagsHistory:
         """Tags are parsed at save and re-parsed on edit; the page shows chips."""
         e = _post(writable, scan=1, body_md="#laser tuned; see #jet")
         assert e["tags"] == ["laser", "jet"]
-        page = writable.get("/log/day/2026-09-11").text
+        page = writable.get("/day/2026-09-11").text
         assert "#laser</span>" in page and "#jet</span>" in page
         edited = writable.patch(
-            f"/log/api/entries/{e['entry_id']}",
+            f"/api/entries/{e['entry_id']}",
             json={"body_md": "just #jet now", "editor": "a", "expected_version": 1},
         ).json()
         assert edited["tags"] == ["jet"]
@@ -403,21 +389,19 @@ class TestBooksTagsHistory:
         """Edit, keep, delete: each leaves the state it replaced, oldest first."""
         e = _post(writable, scan=1, body_md="v1")
         writable.patch(
-            f"/log/api/entries/{e['entry_id']}",
+            f"/api/entries/{e['entry_id']}",
             json={"body_md": "v2", "editor": "b", "expected_version": 1},
         )
-        writable.post(
-            f"/log/api/entries/{e['entry_id']}/status", json={"status": "draft"}
-        )
-        writable.delete(f"/log/api/entries/{e['entry_id']}")
-        hist = writable.get(f"/log/api/entries/{e['entry_id']}/history").json()
+        writable.post(f"/api/entries/{e['entry_id']}/status", json={"status": "draft"})
+        writable.delete(f"/api/entries/{e['entry_id']}")
+        hist = writable.get(f"/api/entries/{e['entry_id']}/history").json()
         assert [(h["reason"], h["version"], h["entry"]["body_md"]) for h in hist] == [
             ("edit", 1, "v1"),
             ("status", 2, "v2"),
             ("delete", 3, "v2"),
         ]
         assert hist[2]["entry"]["status"] == "draft"
-        assert writable.get("/log/api/entries/nope/history").status_code == 404
+        assert writable.get("/api/entries/nope/history").status_code == 404
 
 
 class TestEditorHooks:
@@ -427,31 +411,31 @@ class TestEditorHooks:
         self, writable: TestClient
     ) -> None:
         """The editor reads api/day/book off <main id=logbook>; the script is served."""
-        page = writable.get("/log/day/2026-09-11").text
-        assert 'id="logbook"' in page and 'data-api="/log/api"' in page
+        page = writable.get("/day/2026-09-11").text
+        assert 'id="logbook"' in page and 'data-api="/api"' in page
         assert 'data-day="2026-09-11"' in page and 'data-book="scans"' in page
         assert (
             'data-accept="application/pdf,image/gif,image/jpeg,image/png,image/webp"'
             in page
         )
         assert "editor.js" in page
-        js = writable.get("/log/static/editor.js")
+        js = writable.get("/static/editor.js")
         assert js.status_code == 200 and "uploadFiles" in js.text
 
     def test_preview_renders_like_the_page(self, writable: TestClient) -> None:
         """Preview is the same renderer with the same attachment base."""
         r = writable.post(
-            "/log/api/preview",
+            "/api/preview",
             json={"body_md": "> [!TIP]\n> ok\n\n![p](attachments/e/a.png)"},
         )
         assert r.status_code == 200
         html = r.json()["html"]
         assert 'class="callout callout-tip"' in html
-        assert 'src="/log/attachments/e/a.png"' in html
+        assert 'src="/attachments/e/a.png"' in html
 
     def test_preview_needs_a_store(self, client: TestClient) -> None:
         """A read-only logbook has no composer, so no preview."""
-        assert client.post("/log/api/preview", json={"body_md": "x"}).status_code in (
+        assert client.post("/api/preview", json={"body_md": "x"}).status_code in (
             404,
             405,
         )
@@ -510,23 +494,19 @@ class TestLongDay:
     @pytest.fixture
     def busy(self, make_run) -> TestClient:
         """A client over a day of 25 scans — past the 20 threshold."""
-        app = FastAPI()
-        app.include_router(
-            create_log_router("Undulator", base_directory=make_run(25)),
-            prefix="/log",
-        )
+        app = create_app("Undulator", base_directory=make_run(25))
         return TestClient(app)
 
     def test_a_long_day_starts_collapsed(self, busy: TestClient) -> None:
         """No scan block is open, and the button offers to expand."""
-        html = busy.get("/log/day/2026-09-11").text
+        html = busy.get("/day/2026-09-11").text
         assert html.count('<details class="panel scan"') == 25
         assert " open>" not in html
         assert "Expand all" in html
 
     def test_a_short_day_starts_open(self, client: TestClient) -> None:
         """Below the threshold every scan is readable without a click."""
-        html = client.get("/log/day/2026-09-11").text
+        html = client.get("/day/2026-09-11").text
         assert "Collapse all" in html
         assert " open>" in html
 
@@ -538,7 +518,7 @@ class TestLongDay:
         selector string, so a substring check passed for the wrong reason
         and would miss a grouping reintroduced under any other name.
         """
-        html = busy.get("/log/day/2026-09-11").text
+        html = busy.get("/day/2026-09-11").text
         # Structural, not spelling. A class-attribute regex missed two real
         # reintroductions: a grouping that is a <section> rather than a
         # <details> (the obvious next attempt, since the complaint was a
@@ -567,7 +547,7 @@ class TestLongDay:
         So: one row per scan, and the rail's headings are exactly the two
         it is allowed to have.
         """
-        html = busy.get("/log/day/2026-09-11").text
+        html = busy.get("/day/2026-09-11").text
         assert html.count('class="scanrow"') == 25
         headings = {h.strip() for h in re.findall(r"<h4>(.*?)</h4>", html, re.S)}
         assert headings == {"Go to a day", "Scans &middot; 25"}, headings

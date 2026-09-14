@@ -350,8 +350,7 @@ def create_app(
     processing_config_dir: Optional[Path] = None,
     analysis_factory: Optional[analysis_runs.AnalyzerFactory] = None,
     config_editor: bool = False,
-    scan_log: bool = False,
-    notes_db: Optional[Path] = None,
+    logbook_url: str = "",
 ) -> FastAPI:
     """Build the portal application over an injected catalog.
 
@@ -369,10 +368,7 @@ def create_app(
         config resolution (the 03 design doc's finding 7: two
         competing resolution paths exist, so the portal names its
         tree explicitly). The selector also hides itself when
-        ImageAnalysis (the ``analysis`` extra) is not installed. With
-        ``scan_log``, the logbook's seed templates (its type buttons) are
-        read from ``logbook_templates/`` beside this tree — the configs
-        checkout the portal already reads; none when it is not configured.
+        ImageAnalysis (the ``analysis`` extra) is not installed.
     analysis_factory : callable, optional
         ``(analyzer_id, config_dir) -> ScanAnalyzer`` for the analysis
         runs (``/api/run/{uid}/analysis``, the 04 design). ``None``
@@ -385,17 +381,15 @@ def create_app(
     -------
     FastAPI
         The configured application.
-    scan_log : bool, default False
-        Mount the scan logbook (``geecs_logbook``) at ``/log``. Requires
-        ``default_experiment``, since the logbook reads one experiment's
-        share and this package carries no facility default. ``False``
-        leaves ``/log`` unserved.
-    notes_db : Path, optional
-        The SQLite file the logbook keeps its entries in. With it the
-        logbook is **writable** — notes, drafts, attachments — and mirrors
-        each entry as markdown into the day's ``logbook/`` folder on the
-        share (a sibling of ``scans/``; never inside it). Without it the
-        logbook is the read-only day view. Ignored unless ``scan_log``.
+    logbook_url : str, optional
+        The logbook's base URL — its own service since GeecsLogbook
+        0.10.0 (port 8400; the portal no longer mounts it). The run page
+        links each scan to its card there. An absolute URL is used as
+        given; a path (``/log``, the front door's route) is same-origin
+        and carries this app's own mount prefix. Empty (the default)
+        shows no link. The link is built for runs of
+        ``default_experiment`` alone — the logbook serves one
+        experiment's share and scan numbers restart per experiment.
     config_editor : bool, default False
         Mount the analysis config editor (``scan_analysis.config_editor``)
         at ``/configs`` over the same ``processing_config_dir`` tree, with a
@@ -432,9 +426,9 @@ def create_app(
     app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 
     # The shared palette every GEECS web surface draws from. Mounted here
-    # because the portal is the host: the config editor and the scan
-    # logbook are routers inside this app, so one mount serves all three
-    # and a viewer's choice follows them between pages.
+    # because the portal is the host: the config editor is a router inside
+    # this app, so one mount serves both and a viewer's choice follows
+    # them between pages.
     from geecs_web_theme import static_dir as _theme_dir
 
     app.mount("/theme", StaticFiles(directory=str(_theme_dir())), name="theme")
@@ -443,7 +437,7 @@ def create_app(
     # 2026-08-29 — lazy stays the rule ACROSS scans only).
     data_cache = ShotDataCache()
     config_editor_enabled = False  # set when the editor router mounts (below)
-    scan_log_enabled = False  # set when the logbook router mounts (below)
+    logbook_base = logbook_url.rstrip("/")
 
     def _logbook_url(
         request: Request, detail: RunDetail, run_day: Optional[date]
@@ -451,19 +445,26 @@ def create_app(
         """The run's entry in the scan logbook, or "" when there is none to link.
 
         The logbook's day page anchors each scan card by its folder name
-        (``#Scan012``); the portal knows the mount prefix and the day, so
-        the link is built here without importing the logbook — a peer
-        view layer, reached by URL like any other page. The logbook is
-        mounted for the default experiment alone, and scan numbers
-        restart daily per experiment, so a run from another experiment
-        gets no link rather than a wrong one.
+        (``#Scan012``); the portal knows the logbook's base URL and the
+        day, so the link is built here without importing the logbook — a
+        peer view layer in its own process, reached by URL like any other
+        page. A path-shaped base (``/log``) is same-origin and takes this
+        app's own prefix; an absolute one is used verbatim. The logbook
+        serves the default experiment alone, and scan numbers restart
+        daily per experiment, so a run from another experiment gets no
+        link rather than a wrong one.
         """
         summary = detail.summary
-        if not (scan_log_enabled and run_day and summary.scan_number):
+        if not (logbook_base and run_day and summary.scan_number):
             return ""
-        if summary.experiment and summary.experiment != default_experiment:
+        if summary.experiment != default_experiment:
             return ""
-        return f"{_root(request)}/log/day/{run_day.isoformat()}#Scan{summary.scan_number:03d}"
+        base = (
+            _root(request) + logbook_base
+            if logbook_base.startswith("/")
+            else logbook_base
+        )
+        return f"{base}/day/{run_day.isoformat()}#Scan{summary.scan_number:03d}"
 
     def _load_run(uid: str):
         """Load one run, mapping failures to honest HTTP status codes.
@@ -1934,40 +1935,5 @@ def create_app(
                 prefix="/configs",
             )
             config_editor_enabled = True
-
-    if scan_log:
-        if not default_experiment:
-            logger.warning(
-                "scan log requested but no default experiment; not mounting /log"
-            )
-        else:
-            try:
-                from geecs_logbook import create_log_router
-                from geecs_logbook.seed_templates import TEMPLATES_DIRNAME
-            except ImportError as exc:  # the log extra is not installed
-                logger.warning("scan log requested but not installed: %s", exc)
-            else:
-                # Type buttons are markdown files in the configs checkout,
-                # a sibling of the analysis tree: one checkout, one flag.
-                templates_dir = (
-                    Path(processing_config_dir).parent / TEMPLATES_DIRNAME
-                    if processing_config_dir
-                    else None
-                )
-                app.include_router(
-                    create_log_router(
-                        default_experiment,
-                        notes_db=notes_db,
-                        templates_dir=templates_dir,
-                    ),
-                    prefix="/log",
-                )
-                scan_log_enabled = True
-                logger.info(
-                    "scan log mounted at /log for %s (%s; templates %s)",
-                    default_experiment,
-                    f"entries in {notes_db}" if notes_db else "read-only",
-                    templates_dir or "none",
-                )
 
     return app

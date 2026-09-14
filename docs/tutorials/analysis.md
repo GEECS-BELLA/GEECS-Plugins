@@ -53,12 +53,10 @@ to its **Analysis** tab and click **edit** next to the diagnostic. The editor
 opens in a drawer over the scan page, with a **preview** of that diagnostic
 rendered on the drawer's device and shot.
 
-There is also a standalone page — the portal's **edit configs** link, or on a
-laptop with a clone of the configs repo:
-
-```bash
-poetry run scan-config-editor --configs /path/to/GEECS-Plugins-Configs/scan_analysis_configs
-```
+There is also a full-page form — the portal's **edit configs** link — for
+working through several diagnostics without a scan open. (On a laptop with
+a clone of the configs repo, edit the YAML in your editor and commit; there
+is no standalone editor process.)
 
 Either way the form is generated from the diagnostic schema, so every field
 carries its description. The key sections of a diagnostic:

@@ -8,7 +8,7 @@
 #   deploy/bootstrap_host.sh SITE_ENV [--ref REF] [--only svc,svc] [--dry-run] [--no-install]
 #
 #   --ref REF      git ref to check out in each clone (default: master)
-#   --only LIST    comma-separated subset of: gateway,portal,qserver,capture,mcp
+#   --only LIST    comma-separated subset of: gateway,portal,logbook,qserver,capture,mcp
 #                  (re-stages only these: the staging dir's units are cleared first,
 #                  so the printed install line covers exactly this run)
 #   --no-install   clone/fetch only; skip poetry/pip installs
@@ -60,14 +60,16 @@ say() { printf '\n== %s\n' "$1"; }
 # and co-versioning are a requirement of the capture design); the MCP
 # server is baked from qs-checkout into its own venv (config-truth parity
 # with the worker, without a shared working tree under a running service).
-SERVICES="gateway portal qserver capture mcp"
-clone_of()   { case "$1" in gateway) echo "gateway-checkout";; portal) echo "portal-checkout";; qserver|capture|mcp) echo "qs-checkout";; esac; }
-pkgdir_of()  { case "$1" in gateway) echo "GeecsCAGateway";; portal) echo "GEECS-DataPortal";; qserver|capture) echo "GeecsBluesky";; mcp) echo "GEECS-MCP";; esac; }
-extras_of()  { case "$1" in gateway) echo "";; portal) echo "analysis log";; qserver) echo "ca tiled qserver";; capture) echo "ca tiled qserver capture";; mcp) echo "analysis-run";; esac; }
+# The logbook shares portal-checkout (the two web viewers, restarted
+# together after a pull) with its own poetry env inside GeecsLogbook/.
+SERVICES="gateway portal logbook qserver capture mcp"
+clone_of()   { case "$1" in gateway) echo "gateway-checkout";; portal|logbook) echo "portal-checkout";; qserver|capture|mcp) echo "qs-checkout";; esac; }
+pkgdir_of()  { case "$1" in gateway) echo "GeecsCAGateway";; portal) echo "GEECS-DataPortal";; logbook) echo "GeecsLogbook";; qserver|capture) echo "GeecsBluesky";; mcp) echo "GEECS-MCP";; esac; }
+extras_of()  { case "$1" in gateway) echo "";; portal) echo "analysis";; logbook) echo "";; qserver) echo "ca tiled qserver";; capture) echo "ca tiled qserver capture";; mcp) echo "analysis-run";; esac; }
 # The queueserver is two units: the manager and the geecs-qserver-ready oneshot
 # that opens its worker environment and asserts the plan list after every
 # (re)start (#793) — enabled together, rendered from the same clone.
-units_of()   { case "$1" in gateway) echo "geecs-ca-gateway";; portal) echo "geecs-data-portal";; qserver) echo "geecs-qserver geecs-qserver-ready";; capture) echo "geecs-capture";; mcp) echo "geecs-mcp";; esac; }
+units_of()   { case "$1" in gateway) echo "geecs-ca-gateway";; portal) echo "geecs-data-portal";; logbook) echo "geecs-logbook";; qserver) echo "geecs-qserver geecs-qserver-ready";; capture) echo "geecs-capture";; mcp) echo "geecs-mcp";; esac; }
 wanted()     { [ -z "$ONLY" ] || case ",$ONLY," in *",$1,"*) return 0;; *) return 1;; esac; }
 
 say "site '${GEECS_SITE:-?}' experiment '$GEECS_EXPERIMENT' — ref $REF — root $GEECS_CHECKOUT_ROOT"
@@ -230,6 +232,7 @@ say "units (each rendered from ITS service's clone, to a staging dir)"
 STAGE="$GEECS_CHECKOUT_ROOT/deploy-staging"
 templates_of() { case "$1" in
     gateway) echo "GeecsCAGateway/deploy/geecs-ca-gateway.service";; portal) echo "GEECS-DataPortal/deploy/geecs-data-portal.service";;
+    logbook) echo "GeecsLogbook/deploy/geecs-logbook.service";;
     qserver) echo "GeecsBluesky/qserver/deploy/geecs-qserver.service GeecsBluesky/qserver/deploy/geecs-qserver-ready.service";;
     capture) echo "GeecsBluesky/capture/deploy/geecs-capture.service";;
     mcp) echo "GEECS-MCP/deploy/geecs-mcp.service";; esac; }

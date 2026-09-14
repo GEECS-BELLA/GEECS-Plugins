@@ -96,6 +96,19 @@ class ForwardedPrefixMiddleware:
     authoritative for where it mounted us); a client faking it only
     rewrites its own page's links.
 
+    **Two proxy shapes, one setting each — not interchangeable.** A
+    *prefix-stripping* proxy (nginx ``proxy_pass …/``, Caddy
+    ``handle_path``) forwards the bare path and must send this header. A
+    *prefix-preserving* proxy (forwards ``/portal/run/…`` as is, sends no
+    header) is what ``FastAPI(root_path=…)`` / ``--root-path`` is for:
+    the app then expects the prefixed upstream path — Starlette's plain
+    routes still answer unprefixed, but a ``Mount`` (``/static``,
+    ``/theme``) resolves files against its own prefixed ``root_path`` and
+    answers the prefixed path **only**. So ``--root-path`` is not a
+    fallback for a stripping proxy that omits the header: that pairing
+    serves the HTML and loses every stylesheet and script (a styleless
+    page, not a 404). Verified on the logbook and the portal, 2026-09-13.
+
     The path is re-prefixed too (the ASGI-canonical shape: ``path``
     includes ``root_path``). Starlette's router strips ``root_path`` from
     the FRONT of ``path`` wherever it happens to match, so the

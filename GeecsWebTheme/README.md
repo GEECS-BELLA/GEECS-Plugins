@@ -107,10 +107,12 @@ mount_theme(app)                                # /theme/…, named "theme" for 
 templates = make_templates(TEMPLATES_DIR)       # {{ root }} in every context
 ```
 
-`geecs_web_theme.testing` (standard library only) carries the three
-template guards every surface's test suite runs: `bare_url_for_calls`,
-`unknown_data_states`, and `inline_scripts` + `javascript_syntax_error`
-(`node --check`).
+`geecs_web_theme.testing` carries the guards every surface's test suite
+runs: `bare_url_for_calls`, `unknown_data_states`, `inline_scripts` +
+`javascript_syntax_error` (`node --check`) — standard library only — and,
+behind the `testing` extra (tinycss2), the CSS side: `classes_used` +
+`styled_classes` for "every class on the page is styled", plus the
+parser-based helpers this package's own colour and vocabulary guards use.
 
 ## No runtime dependencies without the extra
 
