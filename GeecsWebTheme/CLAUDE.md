@@ -49,6 +49,28 @@ keyboard), so it sets the vocabulary rather than inheriting a compromise.
   `window.GEECS_THEME` rather than carrying a copy, and the Python
   constants are pinned to it by test.
 
+## Adoption status (owner rulings, 2026-09-13)
+
+Theme = paint (tokens, palettes, picker); kit = furniture (shell,
+containers, status words, controls, overlay ladder). A surface can be on
+the theme without being on the kit.
+
+| Surface | Theme | Kit | Glue (`geecs_web_theme.web`) |
+|---|---|---|---|
+| GeecsLogbook | yes | yes | yes (0.10.0) |
+| GeecsScanner (web console, its branch) | yes | yes | yes |
+| GEECS-DataPortal | yes | **no** — its own rail, tabs, badges, overlay, a 125-line inline style block and a 971-line inline script | no (own middleware copy) |
+| ScanAnalysis config editor (`/configs`) | yes | no | no |
+
+**Portal onto the kit is deliberately LAST** — after the Qt console is
+deleted and HTU is quiet — because it is the kit's acceptance test: the
+run page uses plots, tabs and toasts, which the kit does not have yet,
+so that adoption will grow the kit rather than just consume it. Take the
+portal's glue copy (`_ForwardedPrefixMiddleware`, its own `root`
+context processor) out in the same change. The config editor follows the
+portal (it is a router inside it); it never gets a kit pass of its own.
+Do not start either early to "tidy up".
+
 ## The FastAPI glue and the template guards
 
 `geecs_web_theme.web` (the `web` extra) is the one copy of what every
@@ -165,8 +187,12 @@ purpose: the `[hidden]` ordering check and the per-component specimen list.
 Remaining edges:
 
 - The `web` and `testing` extras are separate on purpose: a consumer's
-  test suite takes `testing` (tinycss2) only if it uses a CSS helper; the
-  HTML guards need nothing.
+  test suite takes `testing` (tinycss2) only if it uses a CSS helper. A
+  package that already takes the theme at runtime with `web` re-declares
+  the same path dependency in its dev group with `extras = ["testing"]`
+  (the logbook does; Poetry merges the groups and installs tinycss2 for
+  dev only). The HTML guards need nothing; the version floor has one
+  owner, this extra.
 - Adding a spacing token means adding it to `_DENSITY_TOKENS` in the test,
   or the density block that forgot it will not fail.
 - `js_colour_literals` judges string literals only: a colour built by

@@ -3,6 +3,17 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.27.1] - 2026-09-13
+
+### Changed
+
+- `DEPLOYMENT.md` § Behind a reverse proxy no longer calls `--root-path`
+  the mode "for a proxy that cannot send" `X-Forwarded-Prefix`: it is the
+  prefix-preserving mode, and pairing it with a stripping proxy loses
+  every stylesheet and script (the mounts answer prefixed paths only).
+  Docs only; the behaviour is unchanged and the rule now lives in
+  `geecs_web_theme.web`.
+
 ## [0.27.0] - 2026-09-13
 
 ### Removed

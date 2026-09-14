@@ -139,3 +139,26 @@ def test_css_helpers_name_the_missing_extra(monkeypatch: pytest.MonkeyPatch) -> 
     monkeypatch.setattr(builtins, "__import__", no_tinycss2)
     with pytest.raises(RuntimeError, match="geecs-web-theme\\[testing\\]"):
         testing.colour_literals("a{color:#fff}")
+
+
+def test_token_indirection_map_reads_structure_not_formatting() -> None:
+    """One ``var(--x)`` per local token, whatever the spacing; lists split."""
+    from geecs_web_theme.testing import token_indirection_map
+
+    css = """
+    .tone-ok{--tone:var(--ok)}
+    .tone-warn , .other { --tone : var( --warn ) ; color: var(--tone) }
+    /* two vars is a computation, not an indirection */
+    .tone-bad { --tone: var(--a) var(--b) }
+    .tone-none { --tone: red }
+    /* one function, but not var(): a computation over a token, not an indirection */
+    .tone-mix { --tone: color-mix(in srgb, var(--ok), white) }
+    @media (min-width: 40em) { .tone-deep { --tone: var(--deep) } }
+    """
+    got = token_indirection_map(css)
+    assert got == {
+        ".tone-ok": {"--tone": "--ok"},
+        ".tone-warn": {"--tone": "--warn"},
+        ".other": {"--tone": "--warn"},
+        ".tone-deep": {"--tone": "--deep"},
+    }

@@ -164,10 +164,13 @@ The config editor (the Qt `ConfigFileGUI` it replaced was deleted in
   preview pane (a `preview` button renders the edited document on the
   host's shot; `auto` re-renders per edit, remembered in localStorage).
   No build chain, no library — the portal's doctrine.
-- **Hosts.** `scan-config-editor --configs <tree>` serves it standalone
-  (a laptop clone of the configs repo; commit yourself). The data portal
-  mounts it at `/configs` with the preview of the **unsaved** document
-  on the scan page's current shot (`GEECS-DataPortal/CLAUDE.md`).
+- **Host.** The data portal mounts it at `/configs` with the preview of
+  the **unsaved** document on the scan page's current shot
+  (`GEECS-DataPortal/CLAUDE.md`); its **edit configs** link is the
+  full-page form. It is the one host: the standalone
+  `scan-config-editor` launcher was removed (owner ruling 2026-09-13 —
+  the editor stays beside the analysis it configures, and a laptop edits
+  the configs repo in an editor and commits).
 
 Adding a field to a schema model is all an editor change needs: the form
 is generated. Adding an analyzer kind (a spec in GEECS-Schemas + a registry

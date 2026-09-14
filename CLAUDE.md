@@ -208,10 +208,10 @@ GeecsLogbook         →  GEECS-Data-Utils (ScanPaths only — it reads scan
                         imports the portal, ScanAnalysis, or anything
                         Bluesky
 ScanAnalysis         →  GEECS-Data-Utils, ImageAnalysis, GEECS-Schemas,
-                        LogMaker4GoogleDocs (+ fastapi/jinja2/uvicorn via
-                        the `editor` extra — scan_analysis.config_editor,
-                        the web config editor the portal mounts at /configs
-                        and `scan-config-editor` serves standalone;
+                        LogMaker4GoogleDocs (+ fastapi/jinja2 via the
+                        `editor` extra — scan_analysis.config_editor,
+                        the web config editor router the portal mounts
+                        at /configs, its one host;
                         + GeecsWebTheme via that same extra — the theme
                         has no dependencies, so the edge is one-way)
 GEECS-MCP            →  GeecsBluesky (qs-client + ca extras — the queue

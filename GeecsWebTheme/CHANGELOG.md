@@ -4,6 +4,31 @@ All notable changes to `geecs-web-theme` are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 project adheres to semantic versioning.
 
+## [0.6.0] - 2026-09-13
+
+### Added
+
+- `testing.token_indirection_map(css)` — `{selector: {--local: --target}}`
+  for every token set to exactly one `var(--x)`, read structurally (any
+  spacing, comma lists split). The structural form of
+  `token_indirections`; the logbook's `.tone-` guard is its first
+  consumer.
+
+### Changed
+
+- `ForwardedPrefixMiddleware`'s docstring is the one-copy home for the
+  proxy rule every surface's runbook points at: a prefix-stripping proxy
+  sends `X-Forwarded-Prefix`; a prefix-preserving proxy is what
+  `--root-path` is for — and the two are not interchangeable, because
+  under a static `root_path` the `/static` and `/theme` mounts answer at
+  the prefixed path only (a stripping proxy without the header serves a
+  styleless page, not a 404). Found by the Codex review of #877 on the
+  logbook; verified on the portal too.
+- The `testing` extra's note spells out how a consumer that already takes
+  the theme at runtime (`web`) also takes `testing` for its tests: the
+  same path dependency re-declared in the dev group with
+  `extras = ["testing"]`. One version floor, one owner.
+
 ## [0.5.0] - 2026-09-13
 
 ### Changed
