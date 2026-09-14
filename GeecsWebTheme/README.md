@@ -34,7 +34,7 @@ which is a real `<dialog>`.
   edges; controls belonging to the panel around them), `.well` (recessed;
   output the reader did not write).
 - **`.picklist`** — a vertical list of selectable things: the rail's
-  navigation, the inspector's item list, the console's device list. The
+  navigation, the inspector's item list, the scanner's device list. The
   current item is marked with `aria-current="page"` or
   `aria-pressed="true"` — the state is the accessibility attribute, never
   a class, so it cannot be styled-but-unannounced.

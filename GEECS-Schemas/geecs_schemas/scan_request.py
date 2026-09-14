@@ -577,7 +577,7 @@ class PreflightOutcome(SchemaModel):
 class SubmissionRecord(SchemaModel):
     """Who submitted this request, when, and what the pre-submit checks said.
 
-    Filled in by the submitting client (the console, a script, an agent) at
+    Filled in by the submitting client (a front end, a script, an agent) at
     the moment the request is queued — not written by hand.  Since format
     v2 this record is **not part of the request document**: it travels
     beside the request (a separate plan parameter) — server-stamped

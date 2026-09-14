@@ -466,17 +466,17 @@ class ConfigsRepoResolver:
 
         Not cached: the worker holds one resolver for its lifetime and
         ``run_action`` resolves through it, so a plan edited in
-        ``actions.yaml`` (the Console's action-library editor writes it)
-        must be what the next queue item runs.  One small YAML per item.
+        ``actions.yaml`` (edited by hand in the configs repo since the
+        console's editor went) must be what the next queue item runs.  One small YAML per item.
         """
         path = self._root / self.ACTION_FOLDER / "actions.yaml"
         document = self._load_yaml(path, "action library", "actions")
         if not document:
             # An empty file (a fresh experiment's placeholder) is an empty
-            # library, as the Console's store reads it.  ``_load_yaml`` maps
-            # YAML ``None`` to ``{}``, so a literal ``{}`` reads the same way
-            # here (the Console's store rejects that one — a file no writer
-            # produces; its ``save_library`` writes ``plans: {}``).
+            # library, as the former console's store read it.  ``_load_yaml``
+            # maps YAML ``None`` to ``{}``, so a literal ``{}`` reads the same
+            # way here (that store rejected the literal — a file no writer
+            # produces; its ``save_library`` wrote ``plans: {}``).
             return ActionPlanLibrary(plans={})
         # A legacy 'actions:' document is refused by the schema itself
         # (ActionPlanLibrary's before-validator names the regeneration).

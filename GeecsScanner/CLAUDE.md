@@ -65,7 +65,7 @@ deploy/           the unit template + DEPLOYMENT.md
   `geecs_core.db` (the settables list) and `geecs_core.pv_naming` + `aioca`
   (the readback — the scanner reads gateway PVs directly, like the
   preflight does through the client seam). Never the
-  portal, the logbook, the console, GEECS-MCP, or the engine's
+  portal, the logbook, GEECS-MCP, or the engine's
   `plans`/`devices`/`run_engine`/`namespace`. `tests/test_boundaries.py`
   pins this and the absence of facility literals in code.
 - **Errors are the taxonomy.** Raise `ScannerError(kind, message, **extra)`;

@@ -112,7 +112,7 @@ four on every block is why dense screens go flat.
 ## `.picklist`
 
 A vertical list of selectable things — the rail's navigation, the
-inspector's item list, whatever the console's device list becomes. It is a
+inspector's item list, the scanner's device list. It is a
 **named component, not a location**: the first cut styled `.rail nav`,
 which left the inspector on the reference page rendering native browser
 buttons and guaranteed a third use would need a third rule. Mark the
@@ -124,7 +124,7 @@ attribute, never a class.
 
 `queued · running · paused · ok · degraded · failed · unknown`, plus `agent` — not a
 severity but *who wrote this*, because the logbook already separates what an
-analyzer wrote from what a person wrote and the console will want the same
+analyzer wrote from what a person wrote and the scanner will want the same
 for agent-submitted actions. Colour is never the only carrier: every chip is
 a dot **and** a word.
 
