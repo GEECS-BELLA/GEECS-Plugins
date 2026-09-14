@@ -277,6 +277,7 @@ def test_get_device_variables_type_only_inherits_type_defaults(monkeypatch) -> N
         "choices": None,
         "tolerance": 0.05,
         "description": "",
+        "alias": "",
     }
     assert sorted(result[0]) == sorted(result[1]) == sorted(result[2])
     assert result[1]["choices"] == "on,off"
@@ -431,6 +432,7 @@ def test_get_experiment_device_variables_batches_metadata(monkeypatch) -> None:
         "choices": None,
         "tolerance": 0.05,
         "description": "",
+        "alias": "",
     }
     assert result["U_A"][1]["choices"] == "on,off"
     assert result["U_B"][0]["settable"] is False
@@ -468,6 +470,53 @@ def test_get_experiment_device_variables_resolves_instance_overrides(
 
     assert result["U_B"][0]["settable"] is True  # untouched inheritance
     assert result["U_C"][0]["name"] == "Special"  # instance-only device served
+
+
+def test_get_experiment_device_variables_reads_the_instance_alias(monkeypatch) -> None:
+    """The per-instance ``variable.alias`` rides the row; both SELECTs ask for it."""
+    queries: list = []
+    type_rows = [
+        (
+            "U_Jet",
+            1,
+            "Position.Axis 3",
+            "mm",
+            None,
+            None,
+            "yes",
+            "numeric",
+            None,
+            None,
+            None,
+            None,
+        ),
+    ]
+    instance_rows = [
+        # v.device, id, name, units, min, max, set, variabletype, choices, tol, description, alias
+        (
+            "U_Jet",
+            1,
+            "Position.Axis 3",
+            "mm",
+            "-5",
+            "5",
+            "yes",
+            "numeric",
+            None,
+            None,
+            "jet z",
+            " Jet_Z (mm) ",
+        ),
+    ]
+    _patch_query_sequence(monkeypatch, [type_rows, instance_rows], queries)
+    result = GeecsDb.get_experiment_device_variables("Undulator")
+    assert result["U_Jet"][0]["alias"] == "Jet_Z (mm)"
+    assert all("alias" in q for q, _ in queries)
+    # a type row without an instance override reads as unaliased, not as None
+    _patch_query_sequence(monkeypatch, [type_rows, []], [])
+    assert (
+        GeecsDb.get_experiment_device_variables("Undulator")["U_Jet"][0]["alias"] == ""
+    )
 
 
 def test_get_all_experiment_variables_groups_and_dedupes(monkeypatch) -> None:

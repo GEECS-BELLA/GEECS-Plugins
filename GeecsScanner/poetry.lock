@@ -908,7 +908,7 @@ url = "../GeecsBluesky"
 
 [[package]]
 name = "geecs-core"
-version = "0.6.0"
+version = "0.6.1"
 description = "The GEECS access library: UDP/TCP wire protocol, experiment database, PV naming contract, exceptions, the wire-protocol test double, and the entry-level GeecsDevice client"
 optional = false
 python-versions = ">=3.11,<3.12"
@@ -4089,4 +4089,4 @@ files = [
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.11,<3.12"
-content-hash = "359fca9d993277c4b31b9a53ee07a0b63063c89add97af2bdff2d28676d500a0"
+content-hash = "f063c9108be9a1f116100e4902deecc238b98329d4a8ee0bd0223656a8c9dfe0"

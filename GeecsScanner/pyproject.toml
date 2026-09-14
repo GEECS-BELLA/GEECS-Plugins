@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "geecs-scanner"
-version = "0.4.0"
+version = "0.5.0"
 description = "The web scanner console: submit, watch and stop GEECS scans from a browser — a FastAPI service over the queueserver client"
 authors = ["GEECS-BELLA"]
 readme = "README.md"
@@ -20,6 +20,10 @@ geecs-bluesky = { path = "../GeecsBluesky", develop = true, extras = ["qs-client
 # The Preset (the one submission document), ScanVariables (the catalog the
 # variable picker lists, pseudo entries included), SubmissionRecord.
 geecs-schemas = { path = "../GEECS-Schemas", develop = true }
+# GeecsDb (the movable panel's settables list, alias-first) and pv_naming
+# (the readback PV) — declared directly rather than ridden as a transitive
+# of geecs-bluesky, the convention the console set.
+geecs-core = { path = "../GEECS-Core", develop = true }
 # The kit and the palettes, mounted at /theme by this process so the page
 # and the reference page are served from the same origin — and, behind the
 # `web` extra, the FastAPI glue every surface shares (the forwarded-prefix

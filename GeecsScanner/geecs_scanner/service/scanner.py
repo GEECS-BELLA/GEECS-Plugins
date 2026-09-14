@@ -57,10 +57,12 @@ from geecs_scanner.service.models import (
     ProgressOut,
     QueueOut,
     QueueRow,
+    ReadbackOut,
     SavePresetIn,
     SavePresetOut,
     ScanLogOut,
     ScanVariableOut,
+    SettablesOut,
     StatusOut,
     SubmitIn,
     SubmitOut,
@@ -112,6 +114,12 @@ class ScannerService:
         backend injects a fast one.
     portal_url : str, optional
         The Data Portal's base URL, for the run-page links; empty hides them.
+    settables : SettablesSource, optional
+        The movable panel's list of numeric settables; defaults to the
+        GEECS DB (:class:`~geecs_scanner.service.settables.DbSettables`).
+    readback : ReadbackSource, optional
+        Where a variable's live value comes from; defaults to the CA
+        gateway (:class:`~geecs_scanner.service.readback.CaReadback`).
     """
 
     def __init__(
@@ -125,6 +133,8 @@ class ScannerService:
         preflight: Optional[PreflightFn] = None,
         version: str = "",
         portal_url: str = "",
+        settables: Any = None,
+        readback: Any = None,
     ) -> None:
         self.client = client
         self.resolver = resolver
@@ -135,7 +145,35 @@ class ScannerService:
         #: Where the Data Portal answers (a site value, injected); "" hides the links.
         self.portal_url = portal_url.rstrip("/")
         self._preflight = preflight
+        self._settables = settables
+        self._readback = readback
         self._lock = threading.Lock()
+
+    # ----------------------------------------------------- settables + readback
+
+    def settables(self) -> SettablesOut:
+        """Every numeric settable of the experiment, alias-first (the movable panel's list)."""
+        if self._settables is None:
+            from geecs_scanner.service.settables import DbSettables
+
+            self._settables = DbSettables(self.experiment)
+        return self._settables.settables()
+
+    async def readback(self, variable: str) -> ReadbackOut:
+        """The live value of one ``Device:Variable`` — the readback, not the setpoint."""
+        from geecs_scanner.service.readback import parse_device_variable
+
+        device, var = parse_device_variable(variable)
+        units = ""
+        for s in self.settables().items:
+            if s.device == device and s.variable == var:
+                units = s.units
+                break
+        if self._readback is None:
+            from geecs_scanner.service.readback import CaReadback
+
+            self._readback = CaReadback(self.experiment)
+        return await self._readback.read(device, var, units=units)
 
     # ------------------------------------------------------------- reads
 

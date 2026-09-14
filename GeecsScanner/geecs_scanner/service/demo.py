@@ -745,3 +745,75 @@ class DemoQueueClient:
         # The manager keeps going: the next waiting item starts at once.
         if self._queue:
             self._start_next()
+
+
+class DemoSettables:
+    """A fixed alias-first list over the demo devices (mirrors the demo catalog)."""
+
+    def settables(self) -> Any:
+        """Two aliased and two unaliased numeric settables; a string and a read-only row are dropped."""
+        from geecs_scanner.service.models import SettablesOut
+        from geecs_scanner.service.settables import build_settables
+
+        def row(
+            name, alias="", units="", lo=None, hi=None, settable=True, vartype="numeric"
+        ):
+            return {
+                "name": name,
+                "alias": alias,
+                "units": units,
+                "min": lo,
+                "max": hi,
+                "settable": settable,
+                "variabletype": vartype,
+                "choices": None,
+            }
+
+        rows = {  # the same DB row shape the real source reads, through the same sort
+            "U_Hexapod": [
+                row("xpos", "Hexapod X", "mm", -10, 10),
+                row("ypos", "", "mm"),
+                row("state", vartype="string"),
+            ],
+            "U_S1H": [
+                row("current", "S1H current", "A", -5, 5),
+                row("readback", settable=False),
+            ],
+            "U_HP_Daq": [row("Jet pressure", "", "psi")],
+        }
+        return SettablesOut(items=build_settables(rows), source="demo")
+
+
+class DemoReadback:
+    """The last value the fake manager moved a variable to (0 before any move), stamped now."""
+
+    def __init__(
+        self, manager: DemoQueueClient, *, clock: Callable[[], float] = time.time
+    ) -> None:
+        self._manager = manager
+        self._clock = clock
+
+    async def read(self, device: str, variable: str, *, units: str = "") -> Any:
+        """The value of the last finished ``mv`` naming this variable, else 0."""
+        from geecs_bluesky.utils import device_reference
+
+        from geecs_scanner.service.models import ReadbackOut
+
+        reference = device_reference(device, variable)
+        value = 0.0
+        for item in self._manager.history_items():  # oldest first
+            args = list(getattr(item, "args", None) or item.get("args") or [])
+            if getattr(item, "name", None) == "mv" or item.get("name") == "mv":
+                for i in range(0, len(args) - 1, 2):
+                    if args[i] == reference:
+                        value = float(args[i + 1])
+        now = self._clock()
+        return ReadbackOut(
+            variable=f"{device}:{variable}",
+            pv=f"demo:{reference}",
+            ok=True,
+            value=value,
+            units=units,
+            timestamp=now,
+            age_s=0.0,
+        )

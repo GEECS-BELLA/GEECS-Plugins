@@ -4,6 +4,19 @@ All notable changes to `geecs-core` are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and semantic versioning.
 
 
+## [0.6.1] - 2026-09-13
+
+### Added
+
+- `GeecsDb.get_device_variables` / `get_experiment_device_variables` rows
+  carry **`alias`** — the per-instance `variable.alias` the DB curates as
+  the operator-facing short name (`""` when none; the type table's column
+  rides along but is unpopulated in practice). First reader: the web
+  scanner's movable panel, which lists every numeric settable alias-first
+  and shows the alias beside the canonical `Device:Variable`, never
+  instead of it (the request stores the canonical name, so a rename in
+  the DB breaks nothing).
+
 ## [0.6.0] - 2026-09-12
 
 ### Added
