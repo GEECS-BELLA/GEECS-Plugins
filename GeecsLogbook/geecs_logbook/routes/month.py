@@ -31,6 +31,7 @@ from geecs_logbook.routes._common import (
     Context,
     RenderedEntry,
     api_base,
+    entry_base,
     month_last_day,
     month_step,
     month_url,
@@ -139,6 +140,11 @@ def register(router: APIRouter, ctx: Context) -> None:
                 "today_url": month_url(request, today, anchor=True),
                 "writable": ctx.writable,
                 "api_base": api_base(request),
+                # The permalink prefix, for the entry tools and for editor.js
+                # to recognise a pasted link. Empty without a store: the
+                # route is registered with the write verbs, and a read-only
+                # logbook draws neither the tools nor a composer.
+                "permalink": entry_base(request) if ctx.writable else "",
                 "accept": ",".join(sorted(ATTACHMENT_TYPES)),
                 "seeds": ctx.page_seeds(BOOK),
             },

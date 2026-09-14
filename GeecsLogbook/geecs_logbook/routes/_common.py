@@ -126,10 +126,11 @@ class Context:
         if self.store is None:
             return []
         base = attachment_base(request)
+        refs = entry_base(request)
         return [
             RenderedEntry(
                 e,
-                render_markdown(e.body_md, attachment_base=base),
+                render_markdown(e.body_md, attachment_base=base, entry_base=refs),
                 summarize(e.body_md),
             )
             for e in entries
@@ -227,6 +228,17 @@ def attachment_base(request: Request) -> str:
     """
     full = request.url_for("_attachment", entry_id="X", filename="Y").path
     return full[: -len("/X/Y")]
+
+
+def entry_base(request: Request) -> str:
+    """The permalink prefix a body's relative ``entry/<id>`` links map onto.
+
+    Built from the route's own URL, like :func:`attachment_base`, so a
+    cross-reference is right under any mount prefix. The route exists only
+    where a store does, which is also the only place a body is rendered.
+    """
+    full = request.url_for("_permalink", entry_id="X").path
+    return full[: -len("/X")]
 
 
 def api_base(request: Request) -> str:

@@ -218,13 +218,130 @@ becomes a markdown table (a text-only paste must have a consistent
 column count and a non-empty first header cell — tab-indented prose is
 not a table, and a cross-tab with a blank corner from a text-only source
 is pasted as text; spreadsheet apps supply the HTML form, which has no
-such rule). A brand-new entry has no id until saved, so
+such rule). A pasted **permalink** is the third:
+it becomes a labelled reference to that note (see "References between
+notes"). A brand-new entry has no id until saved, so
 the first attachment saves it first ("autosaved", with Discard); Save is
 then an edit. The page hands the script its facts through
 `<main id="logbook" data-api data-day data-book>` and the type prefills
 through one JSON block; nothing is templated into the script. A form on
 a page with no single day (the month page) carries its own `.when` date
 input. It sets no colours (the theme guard's rule).
+
+**Every composer folds, in both books, on one contract** — three
+attributes `editor.js` implements once:
+
+| Attribute | On |
+|---|---|
+| `data-open-composer="X"` | anything that opens composer X |
+| `data-compose-host="X"` | the hidden element holding it |
+| `data-insert="X"` | an affordance row that folds away while X is open — optional |
+
+Close folds without discarding (the form stays in the DOM with its text),
+which is what makes Esc safe to wire to it, and it *refuses* while the
+entry is already in the store — attaching a file autosaves one, so folding
+the composer away would take its Discard button with it and silently
+publish. The ops book had none of this until 0.11.0: its single composer
+was wedged open at the top of the month, so there was nothing for Close to
+fold and the button was never drawn.
+
+The two books' affordances differ, deliberately. On the day page the rule
+row **is** the position — the note lands between those two scans. The ops
+book's composer has no position; it takes a date, which is what makes one
+composer enough for a whole month, so its opener sits in the "New note"
+heading beside the other actions and a day heading's "+ note" points it at
+that day. Revealing, dating, focusing and scrolling all happen in
+`editor.js` so they cannot come apart: they were two listeners on one
+button, and the scroll ran while the composer was still hidden.
+Pinned by `tests/test_composer_fold.py`.
+
+## References between notes
+
+A logbook whose notes cannot cite each other makes the reader carry the
+connection — "the clock change is written up somewhere in last Saturday".
+Three things have to hold, and they are separate.
+
+**One name.** `GET /entry/{id}` redirects to whichever page draws the
+entry — the day page for the scans book, the month page for the ops book —
+anchored at `#entry-<id>`. A reader citing a note should not have to know
+which book it is in, and the name survives a change of page shape. A
+tombstone is a 404 like any other missing entry; the history endpoint is
+where a deleted entry is still readable.
+
+**A relative stored form.** A body holds `entry/<id>` and nothing else;
+`render.render_markdown(entry_base=…)` swaps in the serving route at draw
+time and marks the link `class="entryref"`. Same rule as an attachment,
+for the same reason: the mount prefix and the host are deployment facts
+and must never reach a stored body. Unlike an attachment link it does
+*not* resolve in the mirrored markdown — it names a row, and only the
+service can turn that into a page. Off-site it reads as a dead relative
+link rather than as a wrong one; that is the honest failure, and it is the
+price of not baking a URL into the record.
+
+The rewrite is keyed on the **id's alphabet**, not on the word `entry`, so
+an ordinary relative link that happens to sit under that prefix is left
+exactly as the author wrote it.
+
+**Arrival.** Everything on these pages folds — an entry is a `<details>`,
+so is the scan block around it, and Collapse All is a stored per-viewer
+preference — so a permalink routinely points *into* something shut, where
+the browser scrolls to nothing and the reader sees the top of a day.
+`nav.js` opens the target's ancestors, aligns it under the sticky topbar
+(whose height it measures — the bar wraps on a narrow window) and lets
+`:target` mark it. It runs on load and on `hashchange`, and beats the
+Collapse All preference because that is applied by an inline script while
+this file is deferred.
+
+The composer's half is a paste: a pasted permalink is fetched and becomes
+`[author · 12 Sep](entry/<id>)`. The label's date is spelled out from the
+`YYYY-MM-DD` rather than handed to `toLocaleDateString`, which answers in
+the viewer's locale ("Sep 12" beside the page's own "12 Sep") and in some
+ICU versions abbreviates September to "Sept" — every other date on these
+pages is `%-d %b`, rendered server-side. The pasted URL's **host is not
+checked**: the same logbook is reached as a bare IP, as a name, and
+through the front door's prefix, and a link copied on one is pasted on
+another all the time. What validates the reference is the fetch that
+follows — an id that is not here comes back 404 and the text is pasted
+unchanged.
+
+Copying runs on plain `http://`, which is the lab's own address and not a
+secure context, so `navigator.clipboard` does not exist there; the Link
+tool falls back to a selection copy rather than failing silently (giving
+focus back afterwards — the tools are `opacity:0` until `:focus-within`,
+so a keyboard user would otherwise watch the flash at opacity zero and
+lose their place in the tab order). It is an `<a>` carrying the real URL,
+so right-click "copy link address" and ⌘-click keep working whatever the
+script does.
+
+Two hazards the review of #890 found, both fixed there and both worth not
+reintroducing:
+
+- **The reference goes in synchronously; only its label is fetched.** An
+  earlier cut fetched first and wrote nothing until it returned, so a ⌘↩
+  in that gap — paste the link, save, the obvious motion — read the body
+  without the citation and reloaded the pending write away, silently. The
+  first version of the *fix* deferred the write behind a latch, which
+  closed the loss but left the reference writing at the caret offsets
+  remembered at paste time: type while the fetch is in flight and the link
+  splices into the middle of it. Writing immediately removes both, and the
+  label upgrade is applied by finding its own placeholder text rather than
+  by position, so it is safe to lose. **The worst case is a reference that
+  reads `[note]`.** Do not reintroduce a deferred write here; the only
+  thing that defers a textarea write is an upload, which is why one
+  `form._uploading` slot is enough.
+- **The match is on the trailing `entry/<id>` pair, not on `ENTRY_BASE`.**
+  Anchoring on this page's own prefix meant a link copied at
+  `:8400/entry/<id>` and pasted into a page served under `/log` did not
+  match — and the fallback then wrote the absolute URL, host and all, into
+  the stored body. That is the one thing this whole design exists to
+  prevent. It also means the bare stored form pasted out of one note's raw
+  markdown is recognised.
+
+A permalink can also name a note the **scans book cannot draw**: an entry
+anchored to a scan whose folder is not on the share is stored and counted
+but has no block to hang on. `reveal()` says so rather than leaving the
+reader at the top of an apparently ordinary day.
+Pinned by `tests/test_crosslinks.py`.
 
 ## Status is reported, not inferred
 
@@ -339,6 +456,10 @@ is where that is tracked.
 | The scan index | A month-partitioned redevelopment of `geecs_data_utils.scans_database` with an `update(day)` entry point, the portal as its writer. Parked by the owner (2026-09-11) until the two books are live. |
 | `EntryCreate` (the write shape) lives in `routes/entries.py`, `LogEntry` (the stored shape) in `geecs_schemas` | An agent posts the create shape, so it belongs beside `LogEntry` for GEECS-MCP to validate. Moves with the agent-verbs phase, which is its first second consumer. |
 | A third private atomic-write helper (`_fs.replace_with`; `scan_analysis.config_store` and `task_queue` have their own) and `logbook_root` re-deriving the daily folder | Fold into the `ScanPaths`/`ScanData` review, #839 — same home, same issue. |
+| One home for the entry-id alphabet | The store mints `uuid4().hex[:12]`; `render._ENTRY_REF` and `editor.js`'s `ENTRY_ID` each re-declare it, and `LogEntry.entry_id` carries no `pattern` (unlike `day`). A pattern in `geecs_schemas` is the real home, but it is a cross-package change for a UX fix. Until then `tests/test_crosslinks.py::TestTheIdAlphabetHasNotDrifted` ties both matchers to a freshly minted id, so a change to the minting fails loudly instead of silently breaking paste-recognition and reference-marking. Raised in the review of #890. |
+| Copy-on-plain-http, twice | `editor.js`'s `copyText` and the portal's `run.html` `copyPlotImage` both work around the absent `navigator.clipboard` on an http host. They are not mergeable as they stand (text into a control's own label vs an image blob into a corner toast), and `GeecsWebTheme/CLAUDE.md` makes the **third** surface the forcing function. When the web console needs a copy button, `kit.js` is the home — not a third copy. Raised in the review of #890. |
+| Whether the topbar measurement must wait for the pickers | `reveal()` measures `.topbar` inline. The review of #890 argued it must wait, because kit.js and theme.js build the theme and density pickers on `DOMContentLoaded` — correct about the ordering. Measured cold at a fragment, at 1380px and at 560px (two rows), inline and deferred place the target identically, so the deferral was deleted. The reviewer's narrower point stands unsettled: the pickers add ~200px of width, so there is in principle a band between those two widths where the static bar fits one row and the full bar needs two, and inside it an inline measure would be a row short. Settle it with a width sweep on the month page (both pickers unbuilt there) comparing the bar's height with and without them, not by adding the deferral back on reasoning. Raised in the review of #890. |
+| Backlinks — "notes that link here" | A reference is a link inside an opaque body, so the reverse direction needs an index of what points where, maintained at every save and edit. Worth it once people are citing enough to lose track; not for the handful the feature starts with. The forward link is the half that carries the value. |
 | Which template "started" an entry when several buttons were pressed | The last one pressed is recorded. Provenance only; nothing reads it back but the chip. |
 | `scan_reader.month_folder` / `days_with_folders` are a third copy of the share-layout walk (`.parent` chains up from `get_daily_scan_folder`; a `YY_MMDD` parser beside `ScanPaths.get_scan_tag`'s and `scans_database.builder`'s `strptime("%y_%m%d")`), after `mirror.logbook_root` and `read_day` | The layout has one builder in `geecs_data_utils.scan_paths` and should have one reader there (`day_folder_date(name)`, `list_day_folders(month)`), which is exactly #839's brief. Recorded on #839 at the review of #844; not lifted here so the logbook keeps depending on `ScanPaths` alone. |
 | `seed_templates.parse_template` is the package's first front-matter reader, while `mirror.render` is its writer | One reader, one writer, different shapes today (the template header has no lists). When the mirror *reader* lands (off-site/rebuild, deferred above), extract one `parse_front_matter` beside `mirror` and point both at it — not before there is a second caller. Waived in the review of #842. |

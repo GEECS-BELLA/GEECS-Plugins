@@ -47,16 +47,12 @@
   {% set es = entries.get(anchor, []) %}
   {% if es or writable %}
   <div class="entries">
-    {% for r in es %}{{ shared.entry_article(r, writable, seeds) }}{% endfor %}
+    {% for r in es %}{{ shared.entry_article(r, writable, seeds, permalink=permalink) }}{% endfor %}
     {% if writable %}
-    <div class="insert" data-insert="{{ anchor }}">
-      <div class="insert-rule"></div>
-      <button class="insert-btn" type="button">+ {{ what }}</button>
-      <div class="insert-rule"></div>
-    </div>
-    <div hidden data-compose-host="{{ anchor }}">
+    {{ shared.insert_row(anchor, what) }}
+    {% call shared.compose_host(anchor) %}
       {{ shared.composer(seeds, scan=scan, after=after, anchor=anchor) }}
-    </div>
+    {% endcall %}
     {% endif %}
   </div>
   {% endif %}
@@ -200,6 +196,7 @@
   </aside>
 
   <main id="logbook" data-api="{{ api_base }}" data-day="{{ summary.day.isoformat() }}" data-book="scans" data-accept="{{ accept }}"
+        data-entry-base="{{ permalink }}"
         data-prev="{{ url_for('_day_page', day=prev_day.isoformat()).path }}"
         data-next="{{ url_for('_day_page', day=next_day.isoformat()).path }}"
         data-today="{{ url_for('_day_page', day=today.isoformat()).path }}">
@@ -293,7 +290,11 @@ document.getElementById("daypicker").addEventListener("change", ev => {
     window.location.pathname.replace(/[^/]+$/, ev.target.value);
 });
 
-/* Jumping from the rail should reveal what you jumped to. */
+/* Jumping from the rail should reveal what you jumped to.
+   nav.js's reveal() now does this for any fragment, on load and on
+   hashchange — but not for a click on the row you are ALREADY at, which
+   changes no hash and fires no event. That case is the whole remaining
+   job of this handler; it is not dead code, it is the gap. */
 document.querySelectorAll(".scanrow").forEach(a => a.addEventListener("click", () => {
   const el = document.querySelector(a.getAttribute("href"));
   if (!el) return;

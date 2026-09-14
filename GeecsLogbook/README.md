@@ -9,6 +9,11 @@ The logbook: two books in one store, its own web service (port 8400).
 - **Ops** — `/month/2026-09`, routine operations read by month, from
   the notes store alone (never the share), with tag filters.
 
+Notes cite each other: every entry's **Link** tool copies its permalink
+(`/entry/{id}`, which resolves to whichever page draws it), and pasting
+one into a composer writes a labelled reference. Bodies store the
+relative form, so no mount prefix or host reaches the record.
+
 Type buttons on every composer come from `logbook_templates/*.md` in the
 configs checkout — see `examples/logbook_templates/README.md`.
 

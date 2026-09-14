@@ -14,10 +14,19 @@ Three things happen here, in this order:
    through — an agent writes into the same field a human does.
 2. **Sanitize** with ``nh3``. Belt and braces over (1): even if the parser
    grew a hole, nothing script-shaped reaches the page.
-3. **Rewrite attachment links.** The stored body says
+3. **Rewrite relative references.** The stored body says
    ``![trace](attachments/e7f2/jet.png)`` — relative, so the markdown file
    on the share resolves offline. The page needs the serving route, so the
-   prefix is swapped at render time and never written back.
+   prefix is swapped at render time and never written back. A reference to
+   another entry, ``[the jet note](entry/9f3a2b1c4d5e)``, is rewritten the
+   same way, for the same reason: the mount prefix is a deployment fact
+   and must never reach a stored body.
+
+   The two differ in one respect, said plainly: an attachment link resolves
+   in the mirrored markdown, because the file is sitting beside it. An
+   entry reference does not — it names a row, and only the service can turn
+   that into a page. Off-site, it reads as a dead relative link rather than
+   as a wrong one.
 
 Callouts (``> [!WARNING]``) are recognised after sanitizing: the marker is
 plain text that survives (2), so no allowlist has to be widened to carry a
@@ -60,6 +69,11 @@ _CALLOUT = re.compile(
 #: Attachment references as the store writes them.
 _ATTACHMENT_REF = re.compile(r'(src|href)="attachments/')
 
+#: A reference to another entry, as the composer writes them. Anchored to
+#: the id's alphabet (``uuid4().hex[:12]``) so an ordinary relative link to
+#: a page that happens to live under ``entry/`` is left alone.
+_ENTRY_REF = re.compile(r'<a href="entry/([0-9a-f]{6,64})"')
+
 #: Two or more images in a row, each its own paragraph — what a run of
 #: pasted screenshots or published figures renders as. They become one
 #: grid, the plot-table LogMaker's ``gdoc_slot`` numbering used to fake:
@@ -68,7 +82,12 @@ _IMAGE_RUN = re.compile(r"(?:<p>\s*<img\b[^>]*>\s*</p>\s*){2,}")
 _IMAGE = re.compile(r"<img\b[^>]*>")
 
 
-def render_markdown(body_md: str, *, attachment_base: str | None = None) -> str:
+def render_markdown(
+    body_md: str,
+    *,
+    attachment_base: str | None = None,
+    entry_base: str | None = None,
+) -> str:
     """Render an entry body to safe HTML.
 
     Parameters
@@ -80,6 +99,12 @@ def render_markdown(body_md: str, *, attachment_base: str | None = None) -> str:
         relative ``attachments/<entry_id>/<file>`` reference becomes
         ``/log/attachments/<entry_id>/<file>``. When absent
         they are left relative, which is what an offline export wants.
+    entry_base : str, optional
+        The permalink route, e.g. ``/log/entry``; a relative
+        ``entry/<entry_id>`` link becomes ``/log/entry/<entry_id>`` and
+        is marked ``class="entryref"`` so the page can draw it as the
+        cross-reference it is. Absent, such a link is left exactly as the
+        author wrote it.
 
     Returns
     -------
@@ -95,6 +120,11 @@ def render_markdown(body_md: str, *, attachment_base: str | None = None) -> str:
     if attachment_base:
         base = attachment_base.rstrip("/")
         clean = _ATTACHMENT_REF.sub(rf'\1="{html.escape(base)}/', clean)
+    if entry_base:
+        base = entry_base.rstrip("/")
+        clean = _ENTRY_REF.sub(
+            rf'<a class="entryref" href="{html.escape(base)}/\1"', clean
+        )
     return clean
 
 

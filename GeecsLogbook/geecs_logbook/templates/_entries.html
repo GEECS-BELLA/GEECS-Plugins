@@ -40,7 +40,7 @@
    Edit/Delete stay in the summary. A click inside a <summary> toggles it,
    so editor.js calls preventDefault on those and opens the entry itself.
 #}
-{% macro entry_article(r, writable, seeds, hay=false) %}
+{% macro entry_article(r, writable, seeds, hay=false, permalink=none) %}
     <details class="entry{% if r.entry.kind.startswith('agent') %} entry-agent{% endif %}" open
              id="entry-{{ r.entry.entry_id }}"
              data-entry="{{ r.entry.entry_id }}" data-version="{{ r.entry.version }}"
@@ -58,6 +58,17 @@
         <span class="entry-summary">{{ r.summary }}</span>
         {% if writable %}
         <span class="entry-tools">
+          {# An <a>, not a button: the permalink IS a URL, so right-click
+             "copy link address", middle-click and ⌘-click all work without
+             this page implementing any of them. The click handler copies
+             instead of navigating, which is what a reader wanting to cite
+             the note actually means — and on plain http (the lab's own
+             address) navigator.clipboard does not exist, so editor.js
+             falls back rather than failing silently. #}
+          {% if permalink %}
+          <a class="linkbtn" href="{{ permalink }}/{{ r.entry.entry_id }}"
+             data-permalink title="Copy a link to this note">Link</a>
+          {% endif %}
           <button class="linkbtn" type="button" data-edit="{{ r.entry.entry_id }}">Edit</button>
           <button class="linkbtn" type="button" data-del="{{ r.entry.entry_id }}">Delete</button>
         </span>
@@ -107,12 +118,11 @@
           {% if caller %}{{ caller() }}{% endif %}
           <input class="who" placeholder="Your name" required aria-label="Your name">
           <button class="btn sm primary" type="submit">Save</button>
-          {# Only the between-scan composer can be closed: the day-level and
-             scan-level ones are part of the document, always there. This one
-             was opened by "+ note after …" and had no way back — an abandoned
-             one stayed on screen until the page was reloaded. Closing is
-             non-destructive: the form stays in the DOM, so anything typed is
-             still there if it is reopened. #}
+          {# Every composer folded behind an affordance can be closed again,
+             in both books — the ops book's single composer used to be wedged
+             open with no way back, which is the asymmetry this pairs up.
+             Closing is non-destructive: the form stays in the DOM, so
+             anything typed is still there if it is reopened. #}
           {% if anchor %}
           <button class="btn sm" type="button" data-close-composer="{{ anchor }}">Close</button>
           {% endif %}
@@ -120,6 +130,44 @@
         </div>
       </div>
     </form>
+{% endmacro %}
+
+{#
+  A composer, folded away until asked for — the pattern both books use.
+
+  It started on the day page, where a composer per scan and per gap meant
+  twenty-two open text boxes nobody asked for. The ops book kept a single
+  composer wedged open at the top of the month instead, so the one control
+  people liked — Close, which folds an abandoned note away without
+  discarding it — did not exist there.
+
+  Both books now meet one contract, which editor.js implements once:
+
+    `data-open-composer="X"`   a button that opens composer X, anywhere
+    `data-compose-host="X"`    the hidden element holding it
+    `data-insert="X"`          an affordance row that folds itself away
+                               while X is open — optional
+
+  The two macros are split because the affordance differs and should. On
+  the day page the rule row IS the position: it sits where the note will
+  land, between these two scans. The ops book's composer has no position —
+  it takes a date — so its opener belongs in a heading beside the other
+  actions, and a rule row there would imply a place the note is not going.
+#}
+{% macro compose_host(anchor) %}
+  <div hidden data-compose-host="{{ anchor }}">
+    {{ caller() }}
+  </div>
+{% endmacro %}
+
+{# The day page's positional affordance. `what` names it: "+ note",
+   "+ note after Scan007". #}
+{% macro insert_row(anchor, what='note') %}
+  <div class="insert" data-insert="{{ anchor }}">
+    <div class="insert-rule"></div>
+    <button class="insert-btn" type="button" data-open-composer="{{ anchor }}">+ {{ what }}</button>
+    <div class="insert-rule"></div>
+  </div>
 {% endmacro %}
 
 {# The prefills, once per page, for editor.js — JSON so a body can hold
