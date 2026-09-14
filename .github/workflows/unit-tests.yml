@@ -54,6 +54,14 @@ jobs:
         working-directory: GeecsLogbook
         run: poetry run pytest tests --tb=short -q
 
+      - name: Install GeecsScanner dependencies
+        working-directory: GeecsScanner
+        run: poetry install --with dev
+
+      - name: Run GeecsScanner tests
+        working-directory: GeecsScanner
+        run: poetry run pytest tests --tb=short -q
+
       - name: Install GEECS-DataPortal dependencies
         working-directory: GEECS-DataPortal
         # --extras analysis: the Images tab's processing-selector tests

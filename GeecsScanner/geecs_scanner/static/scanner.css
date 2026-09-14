@@ -1,0 +1,53 @@
+/* GEECS Scanner — page-only classes.
+ *
+ * Everything structural comes from the kit (kit.css); every colour from the
+ * theme's tokens. This file adds the few things that are this page's own —
+ * the Now panel's head, the axis grid, the device table's checkboxes, the
+ * tail — and re-skins no kit class. GeecsWebTheme's literal-colour walk
+ * covers this file. */
+
+.kit .brand .exp{font-family:var(--ff-mono);font-size:12px;font-weight:500;color:var(--accent);letter-spacing:0;text-transform:none}
+.kit .health{display:flex;gap:6px;flex-wrap:wrap}
+.kit .who{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted)}
+.kit .who input{font:inherit;font-size:12.5px;height:26px;padding:0 8px;width:11ch;border:var(--bw) solid var(--rule);border-radius:var(--r);background:var(--surface);color:var(--ink)}
+.kit .rail-note{font-size:11.5px;margin:6px 0 0}
+.kit .rail .recent a{justify-content:space-between}
+.kit .rail .recent .dim{font-family:var(--ff-mono);font-size:11px}
+
+.kit .note{font-size:12px}
+.kit .footnote{font-size:12px;color:var(--muted);margin:0}
+.kit .nowhead{display:flex;flex-wrap:wrap;align-items:center;gap:10px 14px}
+.kit .nowhead .scan{font-size:22px;font-weight:600;letter-spacing:-.01em}
+.kit .planline{font-family:var(--ff-mono);font-size:13px;color:var(--slate);word-break:break-word}
+.kit .q-by{font-size:12px;color:var(--muted)}
+.kit .tail{max-height:170px;overflow:auto;font-size:11.5px;line-height:1.5}
+.kit .tail .ln{display:flex;gap:10px;white-space:pre-wrap}
+.kit .tail .ln .t{color:var(--muted);flex:none;font-variant-numeric:tabular-nums}
+.kit .tail .ln.warn{color:var(--warn)}
+.kit .tail:empty::before{content:attr(data-empty);color:var(--muted)}
+
+.kit .axes{display:grid;gap:var(--gap);grid-template-columns:minmax(0,1.6fr) repeat(3,minmax(0,1fr))}
+@media (max-width:640px){.kit .axes{grid-template-columns:1fr 1fr}}
+.kit .fields{display:grid;gap:var(--gap);grid-template-columns:repeat(auto-fit,minmax(170px,1fr))}
+.kit .fields .field.wide{grid-column:1/-1}
+.kit .mode-note{font-size:12.5px;color:var(--muted);margin:0}
+.kit .devtable td, .kit .devtable th{padding-block:5px}
+.kit .devtable input[type="checkbox"]{width:15px;height:15px;margin:0;vertical-align:middle}
+.kit .est{font-family:var(--ff-mono);font-size:12.5px;color:var(--slate);font-variant-numeric:tabular-nums}
+.kit .est b{color:var(--ink)}
+
+.kit .devtable .rm{opacity:.35}
+.kit .devtable tr:hover .rm, .kit .devtable .rm:focus-visible{opacity:1}
+.kit .steps{margin:0;padding:0 0 0 1.6em;font-size:12px;line-height:1.6}
+.kit .steps li{margin:0}
+.kit .steps li .from{color:var(--muted);margin-left:6px}
+.kit .steps li.write{color:var(--ink)}
+.kit #preset-yaml{font-size:11.5px;line-height:1.5;white-space:pre}
+/* The three side-by-side panels stretch to one height; the footer stays at the bottom. */
+.kit .trio > .panel{display:flex;flex-direction:column}
+.kit .trio > .panel > .body{flex:1}
+/* Secondary text on a picklist row (step count, "in the table") that must stay readable on the selected row. */
+.kit .picklist .sub{color:var(--muted);font-size:12px;text-align:right}
+.kit .picklist [aria-pressed="true"] .sub{color:inherit;opacity:.85}
+.kit .picklist .sub.prob{color:var(--warn)}
+.kit .rail h4 a{color:inherit}

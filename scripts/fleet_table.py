@@ -25,6 +25,7 @@ ROLE_ORDER = [
     "Bluesky doc proxy",
     "Capture daemon",
     "GEECS-MCP",
+    "GEECS Scanner",
     "Redis",
     "PVA image gateways",
 ]

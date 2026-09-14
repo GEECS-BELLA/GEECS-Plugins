@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import tempfile
 from pathlib import Path
 from typing import Protocol, runtime_checkable
@@ -42,10 +43,73 @@ from geecs_schemas.convert import convert_shot_control
 
 logger = logging.getLogger(__name__)
 
+#: A preset file stem: a plain name, no path separators, no leading dot.
+_PRESET_STEM = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.-]*")
+
 
 # ---------------------------------------------------------------------------
 # ConfigResolver protocol
 # ---------------------------------------------------------------------------
+
+
+def _write_yaml_atomically(path: Path, document: dict) -> None:
+    """Write *document* as YAML to *path*: temp file beside it, fsync, ``os.replace``.
+
+    The one write primitive of this module (``write_shot_offsets``,
+    ``write_preset``): a reader — the worker reopening its environment,
+    another host's resolver, the scanner listing presets — never sees a
+    half-written file, a failure part-way leaves the previous document
+    intact and no temporary behind, and the destination's mode is kept
+    (0644 for a new file) so the shared checkout stays readable to
+    whoever reviews and commits the change.
+    """
+    payload = yaml.safe_dump(document, sort_keys=False)
+    # The destination's mode, or the default a normal umask would give:
+    # NamedTemporaryFile creates 0600 and os.replace keeps the temp
+    # inode's mode, so without this one write makes the file unreadable
+    # to the operator who has to review and commit it, to git run as
+    # anyone else, and to another host's resolver.
+    try:
+        mode = path.stat().st_mode & 0o777
+    except OSError:
+        mode = 0o644
+    temporary: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            "w",
+            dir=path.parent,
+            prefix=f".{path.stem}-",
+            suffix=".tmp",
+            delete=False,
+        ) as handle:
+            temporary = Path(handle.name)
+            handle.write(payload)
+            handle.flush()
+            # Durability before the rename: without it a crash can leave
+            # a zero-length file where a calibration used to be.
+            os.fsync(handle.fileno())
+        try:
+            os.chmod(temporary, mode)
+        except OSError:
+            # The configs repo usually lives on the data share, and CIFS
+            # mounts reject chmod unless mounted with unix extensions.
+            # A mode we could not set is cosmetic; losing the ten shots
+            # this document cost is not, so never fail the write for it.
+            logger.warning(
+                "could not set the mode of %s (the share may not support "
+                "it) — the file is written, but check it is readable by "
+                "whoever has to review and commit it",
+                path,
+                exc_info=True,
+            )
+        os.replace(temporary, path)
+        temporary = None
+    finally:
+        # Covers the write and the chmod as well as the replace: a full
+        # or disconnected share fails in `handle.write`, and a leftover
+        # dot-file in a git working tree is somebody's next puzzle.
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
 
 
 @runtime_checkable
@@ -240,6 +304,71 @@ class ConfigsRepoResolver:
         path = self._named_yaml_path(self.PRESET_FOLDER, stem)
         document = self._load_yaml(path, "preset", name)
         return Preset.model_validate(document)
+
+    def preset_path(self, name: str) -> Path:
+        """The file preset *name* lives in (``presets/<name>.yaml`` or its ``.yml`` twin)."""
+        return self._named_yaml_path(self.PRESET_FOLDER, self._strip_yaml_suffix(name))
+
+    def write_preset(self, preset: Preset, *, overwrite: bool = False) -> Path:
+        """Save *preset* as ``presets/<preset.name>.yaml``; the file round-trips through :meth:`resolve_preset`.
+
+        The scanner's "Save as preset" writes here (the Qt console's
+        ``PresetStore`` was the previous writer; this keeps the folder one
+        owner).  Atomic like :meth:`write_shot_offsets`, same mode rules,
+        same "the configs repo is a git checkout — committing is a human
+        act" contract: the path is returned so the caller can say which
+        file now differs from the tree.
+
+        Parameters
+        ----------
+        preset : Preset
+            The validated document.  Its ``name`` is the file stem and must
+            be a plain file name: letters, digits, ``_``, ``-`` and ``.``
+            (no separators, no leading dot).  A ``.yaml`` / ``.yml`` suffix
+            is stripped — the stem is the preset's name in the document too.
+        overwrite : bool, default False
+            Replace an existing preset of that name.  Off by default so a
+            typo in the name cannot silently replace a curated preset.
+
+        Raises
+        ------
+        GeecsConfigurationError
+            A name that is not a file stem, the experiment folder missing
+            (never created here — see :meth:`write_shot_offsets`), or an
+            existing preset without *overwrite*.
+        """
+        name = preset.name
+        while name != self._strip_yaml_suffix(name):
+            name = self._strip_yaml_suffix(name)
+        if name != preset.name:
+            # ``jet.yaml`` is the file, ``jet`` the preset: the document's
+            # name must be what ``list_presets`` says and ``resolve_preset``
+            # is asked for.
+            preset = preset.model_copy(update={"name": name})
+        if not _PRESET_STEM.fullmatch(name):
+            raise GeecsConfigurationError(
+                f"preset name {name!r} is not a file name: use letters, digits, "
+                "'_', '-' and '.', no separators"
+            )
+        folder = self._root / self.PRESET_FOLDER
+        if not self._root.is_dir():
+            raise GeecsConfigurationError(
+                f"cannot write preset {name!r} for experiment {self._experiment!r}: "
+                f"no configs folder at {self._root} (check the configs root and "
+                "that the share is mounted)"
+            )
+        path = self.preset_path(name)
+        if path.exists() and not overwrite:
+            raise GeecsConfigurationError(
+                f"preset {name!r} already exists at {path}; pass overwrite=True "
+                "to replace it"
+            )
+        # The presets folder itself may be absent in a fresh experiment; the
+        # experiment folder above it is the thing never created here.
+        folder.mkdir(exist_ok=True)
+        _write_yaml_atomically(path, preset.model_dump(mode="json"))
+        logger.info("preset %r written to %s", name, path)
+        return path
 
     def list_optimizer_configs(self) -> list[str]:
         """Optimizer-config names (``OptimizationSpec`` documents; sorted; ``[]`` if none)."""
@@ -446,52 +575,6 @@ class ConfigsRepoResolver:
                 f"no configs folder at {path.parent} (check the configs root "
                 "and that the share is mounted)"
             )
-        payload = yaml.safe_dump(offsets.model_dump(), sort_keys=False)
-        # The destination's mode, or the default a normal umask would give:
-        # NamedTemporaryFile creates 0600 and os.replace keeps the temp
-        # inode's mode, so without this one write makes the file unreadable
-        # to the operator who has to review and commit it, to git run as
-        # anyone else, and to another host's resolver.
-        try:
-            mode = path.stat().st_mode & 0o777
-        except OSError:
-            mode = 0o644
-        temporary: Path | None = None
-        try:
-            with tempfile.NamedTemporaryFile(
-                "w",
-                dir=path.parent,
-                prefix=f".{path.stem}-",
-                suffix=".tmp",
-                delete=False,
-            ) as handle:
-                temporary = Path(handle.name)
-                handle.write(payload)
-                handle.flush()
-                # Durability before the rename: without it a crash can leave
-                # a zero-length file where a calibration used to be.
-                os.fsync(handle.fileno())
-            try:
-                os.chmod(temporary, mode)
-            except OSError:
-                # The configs repo usually lives on the data share, and CIFS
-                # mounts reject chmod unless mounted with unix extensions.
-                # A mode we could not set is cosmetic; losing the ten shots
-                # this document cost is not, so never fail the write for it.
-                logger.warning(
-                    "could not set the mode of %s (the share may not support "
-                    "it) — the file is written, but check it is readable by "
-                    "whoever has to review and commit it",
-                    path,
-                    exc_info=True,
-                )
-            os.replace(temporary, path)
-            temporary = None
-        finally:
-            # Covers the write and the chmod as well as the replace: a full
-            # or disconnected share fails in `handle.write`, and a leftover
-            # dot-file in a git working tree is somebody's next puzzle.
-            if temporary is not None:
-                temporary.unlink(missing_ok=True)
+        _write_yaml_atomically(path, offsets.model_dump())
         logger.info("shot offsets written to %s", path)
         return path

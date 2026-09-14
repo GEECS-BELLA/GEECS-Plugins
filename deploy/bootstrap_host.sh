@@ -62,14 +62,14 @@ say() { printf '\n== %s\n' "$1"; }
 # with the worker, without a shared working tree under a running service).
 # The logbook shares portal-checkout (the two web viewers, restarted
 # together after a pull) with its own poetry env inside GeecsLogbook/.
-SERVICES="gateway portal logbook qserver capture mcp"
-clone_of()   { case "$1" in gateway) echo "gateway-checkout";; portal|logbook) echo "portal-checkout";; qserver|capture|mcp) echo "qs-checkout";; esac; }
-pkgdir_of()  { case "$1" in gateway) echo "GeecsCAGateway";; portal) echo "GEECS-DataPortal";; logbook) echo "GeecsLogbook";; qserver|capture) echo "GeecsBluesky";; mcp) echo "GEECS-MCP";; esac; }
-extras_of()  { case "$1" in gateway) echo "";; portal) echo "analysis";; logbook) echo "";; qserver) echo "ca tiled qserver";; capture) echo "ca tiled qserver capture";; mcp) echo "analysis-run";; esac; }
+SERVICES="gateway portal logbook qserver capture mcp scanner"
+clone_of()   { case "$1" in gateway) echo "gateway-checkout";; portal|logbook) echo "portal-checkout";; qserver|capture|mcp|scanner) echo "qs-checkout";; esac; }
+pkgdir_of()  { case "$1" in gateway) echo "GeecsCAGateway";; portal) echo "GEECS-DataPortal";; logbook) echo "GeecsLogbook";; qserver|capture) echo "GeecsBluesky";; mcp) echo "GEECS-MCP";; scanner) echo "GeecsScanner";; esac; }
+extras_of()  { case "$1" in gateway) echo "";; portal) echo "analysis";; logbook) echo "";; qserver) echo "ca tiled qserver";; capture) echo "ca tiled qserver capture";; mcp) echo "analysis-run";; scanner) echo "";; esac; }
 # The queueserver is two units: the manager and the geecs-qserver-ready oneshot
 # that opens its worker environment and asserts the plan list after every
 # (re)start (#793) — enabled together, rendered from the same clone.
-units_of()   { case "$1" in gateway) echo "geecs-ca-gateway";; portal) echo "geecs-data-portal";; logbook) echo "geecs-logbook";; qserver) echo "geecs-qserver geecs-qserver-ready";; capture) echo "geecs-capture";; mcp) echo "geecs-mcp";; esac; }
+units_of()   { case "$1" in gateway) echo "geecs-ca-gateway";; portal) echo "geecs-data-portal";; logbook) echo "geecs-logbook";; qserver) echo "geecs-qserver geecs-qserver-ready";; capture) echo "geecs-capture";; mcp) echo "geecs-mcp";; scanner) echo "geecs-scanner";; esac; }
 wanted()     { [ -z "$ONLY" ] || case ",$ONLY," in *",$1,"*) return 0;; *) return 1;; esac; }
 
 say "site '${GEECS_SITE:-?}' experiment '$GEECS_EXPERIMENT' — ref $REF — root $GEECS_CHECKOUT_ROOT"
@@ -235,7 +235,8 @@ templates_of() { case "$1" in
     logbook) echo "GeecsLogbook/deploy/geecs-logbook.service";;
     qserver) echo "GeecsBluesky/qserver/deploy/geecs-qserver.service GeecsBluesky/qserver/deploy/geecs-qserver-ready.service";;
     capture) echo "GeecsBluesky/capture/deploy/geecs-capture.service";;
-    mcp) echo "GEECS-MCP/deploy/geecs-mcp.service";; esac; }
+    mcp) echo "GEECS-MCP/deploy/geecs-mcp.service";;
+    scanner) echo "GeecsScanner/deploy/geecs-scanner.service";; esac; }
 TEMPLATE_PATHS=()
 # Services whose clone predates the templated units: no unit is rendered or
 # enabled for them (pulling that clone forward is a deploy of that service,
