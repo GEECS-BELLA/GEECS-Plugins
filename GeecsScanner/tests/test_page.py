@@ -17,9 +17,11 @@ import pytest
 from fastapi.testclient import TestClient
 from geecs_web_theme.testing import (
     bare_url_for_calls,
+    classes_used,
     inline_scripts,
     javascript_syntax_error,
     node_available,
+    styled_classes,
     unknown_data_states,
 )
 
@@ -118,15 +120,11 @@ def test_page_uses_only_kit_or_page_classes() -> None:
 
     used: set[str] = set()
     for template in _TEMPLATES:
-        for attr in re.finditer(r'class="([^"]+)"', template.read_text()):
-            used |= set(attr.group(1).split())
-    styled = set(
-        re.findall(
-            r"\.([A-Za-z][\w-]*)",
-            Path(kit_css()).read_text()
-            + Path(theme_css()).read_text()
-            + (_PKG / "static" / "scanner.css").read_text(),
-        )
+        used |= classes_used(template)
+    styled = styled_classes(
+        Path(kit_css()).read_text(),
+        Path(theme_css()).read_text(),
+        (_PKG / "static" / "scanner.css").read_text(),
     )
     missing = sorted(used - styled)
     assert not missing, f"console.html uses {missing} but nothing styles them"

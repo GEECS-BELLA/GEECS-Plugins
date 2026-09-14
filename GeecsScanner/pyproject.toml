@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "geecs-scanner"
-version = "0.3.0"
+version = "0.3.1"
 description = "The web scanner console: submit, watch and stop GEECS scans from a browser — a FastAPI service over the queueserver client"
 authors = ["GEECS-BELLA"]
 readme = "README.md"
@@ -30,6 +30,10 @@ geecs-web-theme = { path = "../GeecsWebTheme", develop = true, extras = ["web"] 
 [tool.poetry.group.dev.dependencies]
 pytest = ">=8.0"
 httpx = ">=0.27"
+# The theme's CSS helpers (tinycss2) for the "every class is styled" guard:
+# the runtime dependency above re-declared with the `testing` extra, the
+# form GeecsWebTheme's CHANGELOG 0.6.0 prescribes — one floor, one owner.
+geecs-web-theme = { path = "../GeecsWebTheme", develop = true, extras = ["testing"] }
 
 [tool.poetry.scripts]
 geecs-scanner = "geecs_scanner.__main__:main"
