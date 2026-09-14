@@ -4,6 +4,52 @@ All notable changes to `geecs-logbook` are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 project adheres to semantic versioning.
 
+## [0.11.0] - 2026-09-13
+
+### Added
+
+- **A note can cite another note.** Every entry's tools carry a **Link**
+  that copies its permalink, `GET /entry/{id}` — one name for a note
+  whichever book it is in, redirecting to the day page or the month page
+  and anchored at the entry. Paste such a link into any composer and it
+  becomes a labelled reference (`[author · 12 Sep](entry/<id>)`) which
+  renders as a marked cross-reference chip. What a body **stores** is
+  relative — `entry/<id>`, never the mount prefix or the host it was
+  written on — and `render.render_markdown(entry_base=…)` swaps in the
+  serving route, exactly as it already does for an attachment. Unlike an
+  attachment link it does not resolve in the mirrored markdown: it names a
+  row, and only the service can turn that into a page.
+- Arriving from a permalink now **opens what is folded around the target**
+  (`nav.js`). An entry is a `<details>`, so is the scan block around it,
+  and Collapse All is a stored preference — so a link into the scans book
+  routinely pointed inside something shut, where the browser scrolled to
+  nothing. The target is opened, centred and outlined (`:target`).
+- Copying works on the lab's plain `http://` address, where
+  `navigator.clipboard` does not exist: the Link tool falls back to a
+  selection copy rather than failing silently. It is an `<a>` carrying the
+  real URL, so right-click "copy link address" and ⌘-click still behave.
+
+### Changed
+
+- **The ops book's composer folds away, and can be closed.** It was wedged
+  open at the top of the month — the one composer the book has, so there
+  was nothing for Close to fold and the button was never drawn, while the
+  scan log had had it since composers became per-scan. Both books now meet
+  one contract that `editor.js` implements once: `data-open-composer` on
+  anything that opens a composer, `data-compose-host` on the hidden
+  element holding it, and the day page's positional `data-insert` rule
+  row. Closing stays non-destructive — the form keeps its text — which is
+  what makes Esc safe to press.
+- "+ note" on an ops day heading now opens the composer as well as dating
+  it. Revealing, setting the date, focusing and scrolling all happen in
+  `editor.js`, so they cannot come apart: they were two listeners on the
+  same button, and the scroll ran while the composer was still hidden.
+- The ops book's opener moved into its "New note" heading rather than
+  taking a rule row. A rule row on the day page *is* the position — the
+  note lands between those two scans; the ops book's single composer takes
+  a date instead, so a rule row there would imply a place the note is not
+  going.
+
 ## [0.10.2] - 2026-09-13
 
 ### Changed

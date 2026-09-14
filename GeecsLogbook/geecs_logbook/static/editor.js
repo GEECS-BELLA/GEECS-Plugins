@@ -18,6 +18,8 @@
  *     stub;
  *   - paste a spreadsheet range (tab-separated, or an HTML table): it
  *     becomes a markdown table;
+ *   - paste a link to another note (the Link button on any entry copies
+ *     one): it becomes a labelled reference to that note;
  *   - Preview, rendered by the server exactly as the page will show it;
  *   - type buttons: a template's prefill lands in the textarea and the
  *     entry records which template it started from;
@@ -34,6 +36,9 @@
   const DAY = host.dataset.day;
   const BOOK = host.dataset.book || "scans";
   const ACCEPT = (host.dataset.accept || "image/png,image/jpeg,image/gif,image/webp,application/pdf").split(",");
+  /* Where this service's permalinks live, e.g. "/log/entry". Empty on a
+     read-only logbook, which has neither the route nor a composer. */
+  const ENTRY_BASE = host.dataset.entryBase || "";
   const AUTHOR_KEY = "geecs.author";
   const SEEDS = (() => {
     const el = document.getElementById("logbook-seeds");
@@ -121,6 +126,106 @@
     const lead = before.length === 0 || before.endsWith("\n\n") ? "" : before.endsWith("\n") ? "\n" : "\n\n";
     if (select) replaceSelection(ta, lead + text + "\n", lead.length, lead.length + text.length);
     else replaceSelection(ta, lead + text + "\n");
+  }
+
+  // -------------------------------------------------- cross-references
+
+  const escapeRe = (t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  /* An entry id is `uuid4().hex[:12]`; the bound is loose so a longer id
+     would still be recognised, and narrow enough that an ordinary link to
+     a page under `entry/` is not mistaken for one. */
+  const ENTRY_ID = "[0-9a-f]{6,64}";
+
+  /** The note a pasted URL names, or null — a permalink or a page anchor.
+   *
+   * The host is deliberately not checked: the same logbook is reached as
+   * a bare IP, as a name, and through the front door's prefix, and a link
+   * copied on one of those is pasted on another all the time. What
+   * validates the reference is the fetch that follows — an id that is not
+   * here comes back 404 and the text is pasted unchanged.
+   */
+  function entryIdIn(text) {
+    if (!ENTRY_BASE) return null;
+    const t = (text || "").trim();
+    if (!t || /\s/.test(t)) return null;  // one URL, not prose that mentions one
+    let url;
+    try { url = new URL(t, window.location.href); } catch (e) { return null; }
+    const direct = new RegExp(`^${escapeRe(ENTRY_BASE)}/(${ENTRY_ID})$`).exec(url.pathname);
+    if (direct) return direct[1];
+    const anchored = new RegExp(`^#entry-(${ENTRY_ID})$`).exec(url.hash);
+    return anchored ? anchored[1] : null;
+  }
+
+  const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+  /** "2026-09-12" as "12 Sep" — the format the pages already use.
+   *
+   * Spelled out rather than handed to toLocaleDateString, which answers in
+   * the viewer's locale ("Sep 12" beside the page's own "12 Sep") and in
+   * some ICU versions abbreviates September to "Sept". The pages render
+   * every other date server-side as `%-d %b`; a label written here has to
+   * match it, not a browser setting. Parsing the string also avoids Date,
+   * which reads a bare ISO day in the local zone.
+   */
+  function shortDay(iso) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || "");
+    return m ? `${Number(m[3])} ${MONTHS[Number(m[2]) - 1]}` : iso;
+  }
+
+  /** Write at a remembered range rather than the live selection. */
+  function writeAt(ta, from, to, text) {
+    ta.setRangeText(text, from, to, "end");
+    ta.focus();
+    ta.dispatchEvent(new Event("input", { bubbles: true }));
+  }
+
+  /* The stored link is RELATIVE — `entry/<id>`, never the absolute URL that
+     was pasted. A body must not carry the mount prefix or the host it was
+     written on; the renderer swaps in the serving route, exactly as it does
+     for an attachment. */
+  function pasteEntryRef(form, id, raw) {
+    const ta = form.querySelector(".ta");
+    const from = ta.selectionStart, to = ta.selectionEnd;
+    api("GET", `/entries/${id}`).then((e) => {
+      writeAt(ta, from, to, `[${e.author} \u00b7 ${shortDay(e.day)}](entry/${id})`);
+    }).catch(() => writeAt(ta, from, to, raw));  // not ours, or gone: paste the text
+  }
+
+  /** Copy text, on https and on the lab's plain http alike.
+   *
+   * `navigator.clipboard` does not exist outside a secure context, and the
+   * logbook is served over http at an IP — so the deprecated path is the
+   * one that actually runs in the lab, not a legacy fallback.
+   */
+  async function copyText(text) {
+    try {
+      if (window.isSecureContext && navigator.clipboard) {
+        await navigator.clipboard.writeText(text);
+        return true;
+      }
+    } catch (e) { /* fall through to the selection copy */ }
+    try {
+      const box = document.createElement("textarea");
+      box.value = text;
+      box.setAttribute("readonly", "");
+      box.style.position = "fixed";
+      box.style.top = "-1000px";
+      document.body.appendChild(box);
+      box.select();
+      const ok = document.execCommand("copy");
+      box.remove();
+      return ok;
+    } catch (e) { return false; }
+  }
+
+  /** Say what happened, in the control itself, then put its label back. */
+  function flash(el, text) {
+    if (el.dataset.flashing === "1") return;
+    el.dataset.flashing = "1";
+    const was = el.textContent;
+    el.textContent = text;
+    setTimeout(() => { el.textContent = was; el.dataset.flashing = ""; }, 1200);
   }
 
   // ------------------------------------------------------- tables
@@ -348,6 +453,11 @@
   function onPaste(form, ev) {
     const cd = ev.clipboardData; if (!cd) return;
     const ta = form.querySelector(".ta");
+    // Before anything else: a bare link to another note is the most
+    // specific thing the clipboard can hold, and a URL is never a table.
+    const plain = cd.getData("text/plain");
+    const refId = entryIdIn(plain);
+    if (refId) { ev.preventDefault(); pasteEntryRef(form, refId, plain.trim()); return; }
     // A spreadsheet range often arrives as an HTML table AND a bitmap of
     // the same cells (Excel); the table is what was meant.
     const html = cd.getData("text/html");
@@ -425,6 +535,37 @@
   function errorTarget(el) {
     const entry = el.closest("[data-entry]");
     return (entry && entry.querySelector(".entry-main")) || entry;
+  }
+
+  /* Reveal a named composer and fold its affordance away.
+   *
+   * One implementation for both books. The day page's affordance sits in
+   * the flow where the note will land; the ops book's "+ note" sits in a
+   * day heading and points the page's single composer at that day, so the
+   * opener may carry a `data-compose-day`. Doing all of it here is what
+   * keeps the order right — reveal, set the day, focus, then scroll — which
+   * two listeners on the same button could not guarantee between them.
+   */
+  function openComposer(anchor, opener) {
+    const hostEl = document.querySelector(`[data-compose-host="${anchor}"]`);
+    if (!hostEl) return;
+    const row = document.querySelector(`[data-insert="${anchor}"]`);
+    hostEl.hidden = false;
+    if (row) row.hidden = true;
+    const form = hostEl.querySelector("form.composer");
+    const day = opener && opener.dataset.composeDay;
+    if (form && day) {
+      const when = form.querySelector(".when");
+      // An autosaved entry already has its day (the editor disables the
+      // picker); leave it and let the author see the date it is on.
+      if (when && !when.disabled) when.value = day;
+    }
+    const ta = hostEl.querySelector(".ta");
+    // preventScroll, then scroll deliberately: focus() alone jumps the
+    // composer to wherever the browser likes, and on the month page it is
+    // a screen away from the button that opened it.
+    if (ta) ta.focus({ preventScroll: true });
+    hostEl.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }
 
   /* Fold a composer away and put its affordance back. Nothing is
@@ -512,6 +653,17 @@
   // ------------------------------------------ entry buttons on the page
 
   document.addEventListener("click", async (ev) => {
+    /* The permalink is an <a>, so a modified click keeps its native
+       meaning — open in a tab, open in a window. A plain click copies it,
+       which is what citing a note means, and preventDefault also stops the
+       <summary> it lives in from toggling the entry shut. */
+    const perma = ev.target.closest && ev.target.closest("[data-permalink]");
+    if (perma) {
+      if (ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey) return;
+      ev.preventDefault();
+      flash(perma, (await copyText(perma.href)) ? "Copied" : "Copy failed");
+      return;
+    }
     const b = ev.target.closest("button"); if (!b) return;
     /* An entry's head is a <summary>, and any click inside one toggles the
        <details>. The tools live there on purpose — you should be able to
@@ -523,13 +675,8 @@
       closeComposer(b.dataset.closeComposer);
       return;
     }
-    if (b.closest("[data-insert]")) {
-      const after = b.closest("[data-insert]").dataset.insert;
-      const hostEl = document.querySelector(`[data-compose-host="${after}"]`);
-      if (hostEl) {
-        hostEl.hidden = false; b.closest("[data-insert]").hidden = true;
-        const ta = hostEl.querySelector(".ta"); if (ta) ta.focus();
-      }
+    if (b.dataset.openComposer !== undefined) {
+      openComposer(b.dataset.openComposer, b);
       return;
     }
     if (b.dataset.keep) {

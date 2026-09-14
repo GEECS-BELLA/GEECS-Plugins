@@ -15,6 +15,9 @@
  *   - Keys: ← / → step to the previous / next day (or month), t goes to
  *     today. Ignored while typing in a field, and while any composer
  *     holds unsaved text — a shortcut must never discard a note.
+ *   - Reveal: a link that lands on #entry-<id> (or #ScanNNN, or a day
+ *     group) opens whatever is folded around it and marks it, so a
+ *     cross-reference between notes arrives at something visible.
  *   - Prefetch: resting on a day or month link (250 ms — a pass over the
  *     rail's fifteen links prefetches nothing) adds a <link rel="prefetch">,
  *     so the click that follows is served warm. The browser may reuse a
@@ -176,6 +179,38 @@
     ev.preventDefault();
     window.location.href = url;
   });
+
+  // -------------------------------------------------------------- reveal
+
+  /* Land on what a fragment names.
+   *
+   * Everything on these pages folds: an entry is a <details>, so is a scan
+   * block, and Collapse All is a stored per-viewer preference — so a
+   * permalink to a note routinely points INTO something shut, where the
+   * browser scrolls to nothing and the reader sees the top of a day.
+   * Opening the ancestors first is the whole job; `:target` does the
+   * marking in CSS.
+   *
+   * This runs after the pages' own inline scripts (they are inline, this
+   * file is deferred), which is what makes it beat the Collapse All
+   * preference rather than lose to it.
+   */
+  function reveal() {
+    const id = window.location.hash.slice(1);
+    if (!id) return;
+    let el;
+    try { el = document.getElementById(decodeURIComponent(id)); } catch (e) { el = null; }
+    if (!el) return;
+    for (let n = el; n; n = n.parentElement) {
+      if (n.tagName === "DETAILS") n.open = true;
+    }
+    // The ancestors only just opened, so the layout the browser scrolled
+    // to on load is stale; scroll again now that the target has a place.
+    el.scrollIntoView({ block: "center" });
+  }
+
+  reveal();
+  window.addEventListener("hashchange", reveal);
 
   // ------------------------------------------------------------ prefetch
 

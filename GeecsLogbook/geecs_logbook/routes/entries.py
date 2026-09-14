@@ -13,6 +13,8 @@ and the share second; see :mod:`geecs_logbook.mirror` for why that order.
                                                 whose ``updated_at`` moved
                                                 after ``since``, tombstones
                                                 included, in change order
+``GET    /entry/{id}``                      the permalink: 302 to whichever
+                                                page holds it, anchored
 """
 
 from __future__ import annotations
@@ -21,11 +23,12 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request, Response
+from fastapi.responses import RedirectResponse
 from geecs_schemas.log_entry import Book, EntryKind, EntryStatus, LogEntry
 from pydantic import BaseModel, Field
 
 from geecs_logbook.render import render_markdown
-from geecs_logbook.routes._common import Context, attachment_base
+from geecs_logbook.routes._common import Context, attachment_base, entry_base
 from geecs_logbook.store import ConflictError
 
 
@@ -102,12 +105,37 @@ def register(router: APIRouter, ctx: Context) -> None:
     store = ctx.store
     assert store is not None
 
+    @router.get("/entry/{entry_id}", response_class=RedirectResponse)
+    def _permalink(request: Request, entry_id: str) -> RedirectResponse:
+        """Redirect to the page that holds this entry, at the entry itself.
+
+        One name for one note, independent of which book it is in and
+        which page shape that book uses — the scans book renders a day,
+        the ops book renders a month, and a reader citing a note should
+        not have to know which. It is also what the composer stores: a
+        body says ``entry/<id>`` and nothing else, so a cross-reference
+        survives a change of page shape and carries no mount prefix.
+
+        A tombstoned entry is a 404 like any other missing one. The
+        history endpoint is where a deleted entry is still readable.
+        """
+        entry = store.get(entry_id)
+        if entry is None:
+            raise HTTPException(status_code=404, detail="no such entry")
+        if entry.book == "ops":
+            page = request.url_for("_month_page", month=entry.day[:7]).path
+        else:
+            page = request.url_for("_day_page", day=entry.day).path
+        return RedirectResponse(url=f"{page}#entry-{entry.entry_id}")
+
     @router.post("/api/preview")
     def _preview(request: Request, body: PreviewRequest) -> dict:
         """Render a body as the page will, for the composer's preview."""
         return {
             "html": render_markdown(
-                body.body_md, attachment_base=attachment_base(request)
+                body.body_md,
+                attachment_base=attachment_base(request),
+                entry_base=entry_base(request),
             )
         }
 
