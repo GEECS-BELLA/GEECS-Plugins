@@ -51,8 +51,9 @@ def main() -> None:
         default="",
         help=(
             "URL prefix the logbook is mounted under behind a PREFIX-PRESERVING "
-            "reverse proxy (e.g. /log): the app then answers the prefixed "
-            "upstream paths only. A proxy that strips the prefix must send "
+            "reverse proxy (e.g. /log): the page links prefixed assets and "
+            "the /static and /theme mounts answer at the prefixed path only. "
+            "A proxy that strips the prefix must send "
             "X-Forwarded-Prefix instead, which overrides this per request"
         ),
     )

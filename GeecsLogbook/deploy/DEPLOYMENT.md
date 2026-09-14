@@ -154,12 +154,13 @@ Two proxy shapes, one flag each — they are not interchangeable:
   `geecs_web_theme.web` adopts the header per request, and every link,
   form, fetch base and asset URL on the page carries `/log`. No flag.
 - **A prefix-preserving proxy** (one that forwards `/log/day/…` as is and
-  sends no header) needs `--root-path /log`: the app then expects the
-  prefixed upstream path and answers `/log/static/…`, `/log/day/…` — and
-  **only** those; `/static/nav.js` on the upstream port is a 404 with the
-  flag set. So the flag is not a fallback for a stripping proxy that
-  omits the header: that combination serves the HTML and loses every
-  stylesheet and script.
+  sends no header) needs `--root-path /log`: the page then links
+  `/log/static/…` and `/log/theme/…`, and the **mounted assets** answer at
+  the prefixed path **only** — `/static/nav.js` on the upstream port is a
+  404 with the flag set. The page routes (`/day/…`, `/health`) answer
+  either way, which is why the flag is not a fallback for a stripping
+  proxy that omits the header: that combination serves the HTML and
+  loses every stylesheet and script, rather than failing loudly.
 
 When the header is present it wins over the flag. Nothing in the page is
 absolute.

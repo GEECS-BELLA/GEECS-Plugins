@@ -88,8 +88,10 @@ def create_app(
     root_path : str, optional
         The URL prefix the service is mounted under behind a
         **prefix-preserving** reverse proxy (one forwarding ``/log/day/…``
-        as is): the app then routes the prefixed upstream paths only. A
-        prefix-stripping proxy must send ``X-Forwarded-Prefix`` instead,
+        as is): the page links prefixed assets and the ``/static`` and
+        ``/theme`` mounts answer at the prefixed path only (plain routes
+        answer either way). A prefix-stripping proxy must send
+        ``X-Forwarded-Prefix`` instead,
         which overrides this per request.
 
     Returns
