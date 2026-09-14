@@ -117,11 +117,13 @@ All tools are configured in `pyproject.toml`:
 
 ## Package-Specific Guidelines
 
-### GEECS Console
-- Document GUI components and their interactions
-- Include examples of programmatic usage
-- Note threading considerations for GUI operations
-- Document configuration file formats
+### GEECS Scanner
+- Keep the service layer (`geecs_scanner.service`) documented as the
+  tested surface; every answer is a Pydantic model
+- Document each route's answer and its error kinds
+- Note what runs on the app's event loop (the readback) versus the
+  threadpool (every blocking client call)
+- Document configuration file formats the resolver reads
 
 ### Image Analysis
 - Document image processing algorithms clearly
@@ -135,8 +137,9 @@ All tools are configured in `pyproject.toml`:
 - Provide examples with realistic scan data
 - Document data format requirements
 
-### GEECS Python API
-- Document device interfaces thoroughly
+### GEECS-Core
+- Document device interfaces thoroughly (`geecs_core.client.GeecsDevice`
+  is the successor of the deleted GEECS-PythonAPI)
 - Include connection and error handling examples
 - Document timing and synchronization requirements
 - Provide troubleshooting guidance

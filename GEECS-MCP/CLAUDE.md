@@ -210,5 +210,5 @@ geecs_mcp/
 patched on `runtime`; no manager, no Tiled, no configs repo.  The
 registration test asserts every `tool_names.READ_TOOLS` entry is on the
 server.  Live verification rides the phasing checklists in the planning
-doc (v0: listings match the console's dropdowns, status agrees with the
-console's pill, a known scan number resolves from the archive).
+doc (v0: listings match the scanner page's dropdowns, status agrees with
+its Now chip, a known scan number resolves from the archive).
