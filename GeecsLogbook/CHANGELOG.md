@@ -9,10 +9,10 @@ project adheres to semantic versioning.
 ### Changed
 
 - `tests/test_seed_templates.py`'s tone guard reads `scanlog.css` through
-  the theme's parser-based `token_indirection_map` (the theme's `testing` extra, taken in the dev group)
-  instead of a formatting-shaped regex — the #875 lesson applied to the
-  last regex CSS scanner in this package. Mutation-proved: renaming a
-  `.tone-` rule fails it.
+  the theme's parser-based `token_indirection_map` (the theme's `testing`
+  extra, taken in the dev group) instead of a formatting-shaped regex —
+  the #875 lesson applied to the last regex CSS scanner in this package.
+  Mutation-proved: renaming a `.tone-` rule fails it.
 - `CLAUDE.md` records the owner ruling on the two day views: the scan
   folders are canonical for now (they match the LabVIEW Master Control
   implementation the lab runs), Tiled expected to become canonical later.
