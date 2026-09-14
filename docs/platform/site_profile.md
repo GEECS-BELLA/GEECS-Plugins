@@ -139,9 +139,9 @@ different pins; re-rendering a unit is part of that service's deploy. A
 clone pinned *before* the templated units exist has no template to
 render: the render refuses it by name ("not a site-profile template")
 rather than passing the old hand-edit unit through — pull that clone
-forward first. The fleet map's bootstrap gotchas (login-shell PATH, CRLF on
-the share-mounted configs checkout, quoting share paths with spaces) are
-baked into the scripts and the example file.
+forward first. The fleet map's bootstrap gotchas (poetry off the service account's
+`PATH`, CRLF on the share-mounted configs checkout, quoting share paths
+with spaces) are baked into the scripts and the example file.
 
 ## Onboarding a second facility
 

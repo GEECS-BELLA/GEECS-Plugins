@@ -8,6 +8,7 @@
 #
 # Upgrade:
 #   git -C <checkout> pull && (cd GeecsLogbook && poetry install) && sudo systemctl restart geecs-logbook
+#   (poetry not on PATH as the service account? use "$GEECS_POETRY" from site.env — DEPLOYMENT.md § Install)
 #
 # See DEPLOYMENT.md (this directory).
 
