@@ -11,7 +11,7 @@ The page is hardware-verified from a browser for submit/pause/stop
 worker (the 21-plan action library, the share's `shot_offsets.yaml`, 108
 devices); **its write verbs (move, run_action, the calibration plans, a
 preset written into the share's checkout, a real run's scan.log tail) are
-OWED on hardware** — listed in #876. **Next: PR 5** (§4) — the sync of
+OWED on hardware** — listed in #876. **The scanner is DEPLOYED on the worker host** (2026-09-13 evening, unit `geecs-scanner`, port 8300, `~/qs-checkout` moved to `feature/web-scanner`; PR 4's write verbs were all observed once on hardware the same evening — move, `s1h_exercise`, check/measure, a preset written to the share's checkout and submitted, the scan.log tail from the host; results on #876). **Next: PR 5** (§4) — the sync of
 master (GeecsWebTheme 0.5.0, tinycss2 helpers) comes first. Open for
 discussion before PR 5 adds `operators.yaml`: Sam's question on how
 presets / scan variables / trigger profiles / actions should be sourced and
