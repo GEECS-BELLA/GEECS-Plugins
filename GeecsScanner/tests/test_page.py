@@ -128,3 +128,12 @@ def test_page_uses_only_kit_or_page_classes() -> None:
     )
     missing = sorted(used - styled)
     assert not missing, f"console.html uses {missing} but nothing styles them"
+
+
+def test_presets_and_actions_are_dropdowns(client: TestClient) -> None:
+    """PR 5a: the rail's preset picklist and the actions picklist became selects."""
+    html = client.get("/").text
+    assert '<select id="preset">' in html and '<select id="action">' in html
+    assert 'id="presets"' not in html and 'id="actions-list"' not in html
+    # the preview the action dropdown drives is still there
+    assert 'id="action-steps"' in html

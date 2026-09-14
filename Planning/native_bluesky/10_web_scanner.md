@@ -321,8 +321,9 @@ is its own small PR against `kit.html`, not an inline style.
 
 ## 4. Sequencing — the PRs, each with its own acceptance
 
-All land into `feature/web-scanner` (the arc branch off
-`feature/native-bluesky-plans`) **except PR 1**, which targets master: GeecsWebTheme has no Bluesky dependency, its additions are additive,
+All land into `feature/native-bluesky-plans` — the one long-running
+branch since #888 folded `feature/web-scanner` into it (2026-09-13) —
+**except PR 1**, which targeted master: GeecsWebTheme has no Bluesky dependency, its additions are additive,
 and the portal and logbook on master can use them at once. One more
 master → branch sync brings them here before PR 3.
 

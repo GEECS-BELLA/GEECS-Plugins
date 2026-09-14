@@ -390,22 +390,17 @@
   }
 
   function renderPresetList() {
-    var pl = $("presets"); pl.textContent = "";
-    S.presets.forEach(function (name) {
-      var b = document.createElement("button");
-      b.type = "button"; b.textContent = name; b.dataset.preset = name;
-      b.setAttribute("aria-pressed", String(name === S.presetName));
-      b.addEventListener("click", function () { selectPreset(name); });
-      pl.appendChild(b);
-    });
-    $("presets-note").textContent = S.presets.length ? "presets/ in the configs tree" : "No presets in the configs tree.";
+    var sel = $("preset"); sel.textContent = "";
+    if (!S.presets.length) sel.appendChild(option("", "no presets in the configs tree", true));
+    S.presets.forEach(function (name) { sel.appendChild(option(name, name)); });
+    if (S.presetName) sel.value = S.presetName;
+    $("presets-note").textContent = S.presets.length ? "presets/ in the configs tree · seeds the form below" : "No presets in the configs tree.";
   }
+  $("preset").addEventListener("change", function () { if (this.value) selectPreset(this.value); });
 
   function selectPreset(name) {
-    S.presetName = name;  // claimed now, so a slower default cannot override the click
-    Array.prototype.forEach.call($("presets").querySelectorAll("button"), function (b) {
-      b.setAttribute("aria-pressed", String(b.dataset.preset === name));
-    });
+    S.presetName = name;  // claimed now, so a slower default cannot override the pick
+    $("preset").value = name;
     api("/api/configs/presets/" + encodeURIComponent(name)).then(function (doc) {
       if (S.presetName !== name) return;  // a later click won
       S.presetDoc = doc;
@@ -784,28 +779,27 @@
     $("act-run").disabled = !on || !idle();
   }
   function renderActions(problem) {
-    var list = $("actions-list"); list.textContent = "";
+    var sel = $("action"); sel.textContent = "";
+    sel.appendChild(option("", S.actions.length ? "— pick an action —" : "no action plans in the configs tree", !S.actions.length));
     S.actions.forEach(function (a) {
-      var b = document.createElement("button");
-      b.type = "button"; b.dataset.action = a.name;
-      b.setAttribute("aria-pressed", String(a.name === S.actionName));
-      var n = document.createElement("span"); n.textContent = a.name;
-      var d = document.createElement("span"); d.className = "sub" + (a.problem ? " prob" : "");
-      d.textContent = a.problem ? "cannot run" : a.steps + " step" + (a.steps === 1 ? "" : "s") + (a.nested.length ? " · runs " + a.nested.join(", ") : "");
-      b.appendChild(n); b.appendChild(d);
-      b.title = a.problem || a.description || "";
-      b.addEventListener("click", function () { selectAction(a.name); });
-      list.appendChild(b);
+      // A plan that cannot run stays pickable: the preview shows why.
+      var label = a.name + " · " + (a.problem ? "cannot run" : a.steps + " step" + (a.steps === 1 ? "" : "s") + (a.nested.length ? " · runs " + a.nested.join(", ") : ""));
+      sel.appendChild(option(a.name, label, false, a.problem || a.description || ""));
     });
+    if (S.actionName) sel.value = S.actionName;
     $("actions-note").textContent = problem ? "Action library: " + problem
       : S.actions.length ? "action_library/actions.yaml · pick one to preview its steps" : "No action plans in the configs tree.";
     renderIdleGates();
   }
+  $("action").addEventListener("change", function () {
+    if (this.value) { selectAction(this.value); return; }
+    S.actionName = null; setArmed(false);
+    $("action-preview-group").hidden = true;
+    renderIdleGates();
+  });
   function selectAction(name) {
     S.actionName = name; setArmed(false);
-    Array.prototype.forEach.call($("actions-list").querySelectorAll("button"), function (b) {
-      b.setAttribute("aria-pressed", String(b.dataset.action === name));
-    });
+    $("action").value = name;
     var a = currentAction();
     $("action-preview-group").hidden = false;
     $("action-preview-title").textContent = "preview · " + name;
