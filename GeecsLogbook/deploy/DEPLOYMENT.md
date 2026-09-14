@@ -101,12 +101,15 @@ move once, with both services stopped:
 sudo systemctl stop geecs-data-portal
 # back up first — the database and the uploads are the only copies on the host
 sudo sqlite3 /var/lib/geecs-data-portal/logbook.db ".backup /var/lib/geecs-data-portal/logbook.db.pre-split"
-sudo systemctl enable --now geecs-logbook      # creates /var/lib/geecs-logbook (owner: the service user)
-sudo systemctl stop geecs-logbook
-sudo mv /var/lib/geecs-data-portal/logbook.db  /var/lib/geecs-logbook/
+sudo install -d -o <service user> -g <service user> /var/lib/geecs-logbook
+# logbook.db* — the glob matters: the store runs SQLite in WAL mode, and a
+# portal that last died by MemoryMax= (the case this split exists for) has
+# committed entries only in logbook.db-wal until the next checkpoint. The
+# .backup above is WAL-aware; a bare mv of logbook.db is not.
+sudo mv /var/lib/geecs-data-portal/logbook.db* /var/lib/geecs-logbook/
 sudo mv /var/lib/geecs-data-portal/attachments /var/lib/geecs-logbook/
 sudo chown -R <service user>: /var/lib/geecs-logbook
-sudo systemctl start geecs-logbook
+sudo systemctl enable --now geecs-logbook      # StateDirectory= adopts the existing directory
 curl -s http://localhost:8400/health            # "writable": true
 # in a browser: /day/<today> shows the entries; an attachment link serves
 sudo systemctl start geecs-data-portal          # on its re-rendered unit (no StateDirectory)

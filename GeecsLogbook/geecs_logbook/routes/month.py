@@ -76,12 +76,15 @@ def register(router: APIRouter, ctx: Context) -> None:
         )
 
     @router.get("/month/today", response_class=RedirectResponse)
-    def _this_month() -> RedirectResponse:
-        """Redirect to this month's page, at today's day group."""
+    def _this_month(request: Request) -> RedirectResponse:
+        """Redirect to this month's page, at today's day group.
+
+        Absolute under the request's prefix, like the day redirects: a
+        relative Location is right only when the browser's URL ends in a
+        slash.
+        """
         today = date.today()
-        return RedirectResponse(
-            url=f"{today.strftime('%Y-%m')}#day-{today.isoformat()}"
-        )
+        return RedirectResponse(url=month_url(request, today, anchor=True))
 
     @router.get("/month/{month}", response_class=HTMLResponse)
     def _month_page(

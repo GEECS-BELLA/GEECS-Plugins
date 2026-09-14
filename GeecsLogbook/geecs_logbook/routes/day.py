@@ -19,6 +19,7 @@ from typing import Optional
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from geecs_schemas.log_entry import Book, LogEntry
+from geecs_web_theme.web import root_of
 
 from geecs_logbook.models import DaySummary
 from geecs_logbook.routes.attachments import ATTACHMENT_TYPES
@@ -45,14 +46,24 @@ def register(router: APIRouter, ctx: Context) -> None:
         return out
 
     @router.get("/", response_class=RedirectResponse)
-    def _today() -> RedirectResponse:
-        """Redirect to today's log."""
-        return RedirectResponse(url=f"day/{date.today().isoformat()}")
+    def _today(request: Request) -> RedirectResponse:
+        """Redirect to today's log.
+
+        An absolute Location under the request's prefix, not ``day/…``: a
+        relative one resolves against the browser's URL, which is right
+        for ``/log/`` and wrong for ``/log`` (what a person types) — that
+        one landed at the front door's root.
+        """
+        return RedirectResponse(
+            url=f"{root_of(request)}/day/{date.today().isoformat()}"
+        )
 
     @router.get("/today", response_class=RedirectResponse)
-    def _today_named() -> RedirectResponse:
+    def _today_named(request: Request) -> RedirectResponse:
         """Redirect to today's log — a name a bookmark or a link can use."""
-        return RedirectResponse(url=f"day/{date.today().isoformat()}")
+        return RedirectResponse(
+            url=f"{root_of(request)}/day/{date.today().isoformat()}"
+        )
 
     @router.get("/day/{day}", response_class=HTMLResponse)
     def _day_page(request: Request, day: str) -> HTMLResponse:

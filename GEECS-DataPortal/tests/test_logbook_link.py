@@ -82,3 +82,20 @@ class TestRunPageLink:
         """No experiment named means no way to know whose logbook it is."""
         client = TestClient(create_app(FakeCatalog(), logbook_url="/log"))
         assert client.get(f"/api/run/{_UID}").json()["logbook"] is None
+
+    def test_absent_for_a_run_with_no_experiment_recorded(self) -> None:
+        """A start doc without ``experiment`` is not known to be ours: no link.
+
+        The old mount linked such a run (its gate skipped an empty
+        experiment); the logbook serves one experiment's share, and an
+        unknown one is not that. Pinned so the tightening is a choice.
+        """
+        catalog = FakeCatalog()
+        detail = catalog.details[_UID]
+        catalog.details[_UID] = dataclasses.replace(
+            detail, summary=dataclasses.replace(detail.summary, experiment="")
+        )
+        client = TestClient(
+            create_app(catalog, default_experiment="Undulator", logbook_url="/log")
+        )
+        assert client.get(f"/api/run/{_UID}").json()["logbook"] is None

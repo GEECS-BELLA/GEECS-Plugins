@@ -169,14 +169,14 @@ class TestTodayNames:
     def test_log_today_redirects_to_the_day(self, app: TestClient) -> None:
         res = app.get("/today", follow_redirects=False)
         assert res.status_code == 307
-        assert res.headers["location"] == f"day/{date.today().isoformat()}"
+        assert res.headers["location"] == f"/day/{date.today().isoformat()}"
 
     def test_month_today_lands_on_todays_group(self, app: TestClient) -> None:
         res = app.get("/month/today", follow_redirects=False)
         today = date.today()
         assert res.status_code == 307
         assert res.headers["location"] == (
-            f"{today.strftime('%Y-%m')}#day-{today.isoformat()}"
+            f"/month/{today.strftime('%Y-%m')}#day-{today.isoformat()}"
         )
 
 
@@ -278,3 +278,86 @@ class TestChangeFeed:
             "/api/entries", params={"since": "2000-01-01T00:00:00+00:00"}
         )
         assert res.status_code == 404
+
+
+class TestProxyPrefix:
+    """Every URL the pages emit carries the proxy's mount prefix.
+
+    Deployed, the logbook sits at ``/log`` behind the front door, which
+    strips the prefix and names it in ``X-Forwarded-Prefix``. Until this
+    class every test ran at the root — where a template that dropped
+    ``root`` renders exactly what the tests assert (Jinja prints an
+    undefined name as ""), and the deployed page 404s on its own
+    stylesheet with the suite green. These assertions are the oracle:
+    the ``/log/…`` forms a real proxied request produced.
+    """
+
+    _HDR = {"X-Forwarded-Prefix": "/log"}
+
+    def test_day_page_assets_links_and_api_base(self, app: TestClient) -> None:
+        html = app.get("/day/2026-09-11", headers=self._HDR).text
+        for needle in (
+            'src="/log/theme/theme-boot.js"',
+            'href="/log/theme/theme.css"',
+            'href="/log/static/scanlog.css"',
+            'src="/log/static/editor.js"',
+            'src="/log/static/nav.js"',
+            'data-prev="/log/day/2026-09-10"',
+            'data-next="/log/day/2026-09-12"',
+            'data-api="/log/api"',
+            'href="/log/month/2026-09"',
+        ):
+            assert needle in html, needle
+        assert 'href="/static/' not in html and 'href="/theme/' not in html
+
+    def test_month_page_assets_and_links(self, app: TestClient) -> None:
+        html = app.get("/month/2026-09", headers=self._HDR).text
+        for needle in (
+            'href="/log/theme/kit.css"',
+            'href="/log/static/scanlog.css"',
+            'data-prev="/log/month/2026-08"',
+            'data-api="/log/api"',
+            'href="/log/day/',
+        ):
+            assert needle in html, needle
+
+    def test_redirects_are_absolute_under_the_prefix(self, app: TestClient) -> None:
+        """``/log`` (no trailing slash) must not land at the front door's root."""
+        today = date.today()
+        for path, target in (
+            ("/", f"/log/day/{today.isoformat()}"),
+            ("/today", f"/log/day/{today.isoformat()}"),
+            (
+                "/month/today",
+                f"/log/month/{today.strftime('%Y-%m')}#day-{today.isoformat()}",
+            ),
+        ):
+            res = app.get(path, headers=self._HDR, follow_redirects=False)
+            assert res.status_code == 307 and res.headers["location"] == target, path
+
+    def test_attachment_links_are_rendered_under_the_prefix(
+        self, app: TestClient
+    ) -> None:
+        """An uploaded image's ``src`` points at the prefixed serving route."""
+        entry_id = app.post(
+            "/api/entries",
+            json={"day": "2026-09-11", "author": "S. Barber", "body_md": "figure"},
+        ).json()["entry_id"]
+        png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 32
+        up = app.post(
+            f"/api/entries/{entry_id}/attachments",
+            files={"file": ("shot.png", png, "image/png")},
+        )
+        assert up.status_code == 201, up.text
+        current = app.get(f"/api/entries/{entry_id}").json()
+        edit = app.patch(
+            f"/api/entries/{entry_id}",
+            json={
+                "editor": "S. Barber",
+                "body_md": f"figure\n\n![shot]({up.json()['link']})",
+                "expected_version": current["version"],
+            },
+        )
+        assert edit.status_code == 200, edit.text
+        html = app.get("/day/2026-09-11", headers=self._HDR).text
+        assert f'src="/log/attachments/{entry_id}/shot.png"' in html
