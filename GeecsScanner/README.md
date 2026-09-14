@@ -55,6 +55,8 @@ without a worker.
 | `POST /api/preflight` | validate + pre-check a preset; submits nothing |
 | `POST /api/submit` | `{preset, acknowledged[], operator, clear_pending}` → the queued item |
 | `POST /api/pause` · `/resume` · `/stop` · `/clear` | the verbs |
+| `GET /api/settables` | every numeric settable of the experiment from the GEECS DB, aliased first; the value is the canonical `Device:Variable` |
+| `GET /api/readback?variable=&units=` | one live reading of the gateway's **readback** PV (never `:SP`): value, stamp, age; `ok: false` when the gateway does not answer |
 | `POST /api/move` | `{variable, value, operator}` → one `mv` queue item; idle-only (409 while a plan runs or anything waits) |
 | `GET /api/actions` · `GET /api/actions/{name}` | the action library; the preview — every step, nested `run` plans inlined |
 | `POST /api/actions/{name}/run` | one `run_action` queue item; idle-only; refused when the preview does not resolve |

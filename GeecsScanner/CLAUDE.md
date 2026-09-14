@@ -19,6 +19,8 @@ geecs_scanner/
     errors.py     ScannerError(kind, message, **extra); kind → HTTP status in one table
     actions.py    the action-plan preview: flatten nested runs over the schema models
     scanlog.py    read the run's scan.log from the folder the start document names
+    settables.py  the movable panel's list: GEECS-Core's numeric_settables over GeecsDb rows, cached per process
+    readback.py   one aioca caget of the gateway's readback PV (geecs_core.pv_naming) — the service's one async path
   web/
     app.py        create_app (the process) and create_scanner_router (the same as a router)
     pages.py      GET / — the page (make_templates from geecs_web_theme.web: `root` in every context)
@@ -52,10 +54,16 @@ deploy/           the unit template + DEPLOYMENT.md
   is recorded and changes nothing.
 - **One client, one lock, blocking calls.** Every service method holds the
   lock around its client calls; the web layer runs them on the threadpool.
+  The one exception is `readback`, `async` on the app's loop (aioca is
+  async): it takes no lock and reads no DB, because `/api/events` shares
+  that loop — anything blocking there freezes every viewer's stream.
   The stream consumer threads are daemons that are never stopped (a zmq
   socket touched from another thread can abort the process).
 - **Imports.** `geecs_bluesky.qs_client`, `geecs_bluesky.config_resolver`,
-  `geecs_bluesky.plan_names`, `geecs_schemas`, `geecs_web_theme`. Never the
+  `geecs_bluesky.plan_names`, `geecs_schemas`, `geecs_web_theme`,
+  `geecs_core.db` (the settables list) and `geecs_core.pv_naming` + `aioca`
+  (the readback — the scanner reads gateway PVs directly, like the
+  preflight does through the client seam). Never the
   portal, the logbook, the console, GEECS-MCP, or the engine's
   `plans`/`devices`/`run_engine`/`namespace`. `tests/test_boundaries.py`
   pins this and the absence of facility literals in code.

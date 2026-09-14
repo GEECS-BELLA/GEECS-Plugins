@@ -794,7 +794,8 @@
   function pollReadback(force) {
     var name = S.readbackVar;
     if (!name || (document.hidden && force !== true)) return;
-    api("/api/readback?variable=" + encodeURIComponent(name)).then(function (r) {
+    var s = settableFor(name);
+    api("/api/readback?variable=" + encodeURIComponent(name) + (s && s.units ? "&units=" + encodeURIComponent(s.units) : "")).then(function (r) {
       if (S.readbackVar !== name) return;
       var v = $("mv-rb"); v.textContent = "";
       if (r.ok && r.value != null) {

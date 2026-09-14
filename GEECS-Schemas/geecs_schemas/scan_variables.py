@@ -65,13 +65,29 @@ def _validate_target(value: str) -> str:
     ValueError
         If the string has no ``:`` separator or an empty device/variable part.
     """
+    split_device_variable(value)
+    return value
+
+
+def split_device_variable(value: str) -> tuple[str, str]:
+    """Split a canonical ``Device:Variable`` into its two parts, stripped.
+
+    The one place the repo spells the rule: the first ``:`` separates the
+    device from the variable (variable names may carry dots and spaces —
+    ``U_ESP_JetXYZ:Position.Axis 3``), and neither part may be empty.
+
+    Raises
+    ------
+    ValueError
+        If the string has no ``:`` separator or an empty device/variable part.
+    """
     device, sep, variable = value.partition(":")
     if not sep or not device.strip() or not variable.strip():
         raise ValueError(
             f"Target {value!r} must look like 'Device:Variable', e.g. "
             "'U_ESP_JetXYZ:Position.Axis 3'."
         )
-    return value
+    return device.strip(), variable.strip()
 
 
 def _validate_optional_target(value: Optional[str]) -> Optional[str]:

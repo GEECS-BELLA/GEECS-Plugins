@@ -5,9 +5,12 @@ as the request (GeecsCAGateway ``PV_CONTRACT.md``).  The movable panel
 shows the readback: the setpoint echo the Qt console displayed as "set" is
 deliberately not what this reads.  Names come from
 :func:`geecs_core.pv_naming.pv_name`; the read is one ``aioca.caget`` on
-the web app's own event loop (one loop for the process — aioca keeps a
-channel cache per loop).  ``EPICS_CA_ADDR_LIST`` is exported by
-``geecs_bluesky`` at import, which the real backend imports at startup.
+the web app's own event loop — the service's one ``async`` path, and it
+must stay free of blocking calls (no DB, no lock) because ``/api/events``
+shares that loop.  aioca keeps a channel cache per loop, so this loop's
+channels are separate from the preflight's daemon-thread loop; both work.
+``EPICS_CA_ADDR_LIST`` is exported by ``geecs_bluesky`` at import, which
+the real backend imports at startup.
 """
 
 from __future__ import annotations
@@ -30,11 +33,15 @@ class ReadbackSource(Protocol):
 
 
 def parse_device_variable(name: str) -> tuple[str, str]:
-    """Split a canonical ``Device:Variable``; refuse anything else."""
-    device, sep, variable = name.strip().partition(":")
-    if not sep or not device.strip() or not variable.strip():
-        raise ScannerError("invalid_request", f"{name!r} is not a Device:Variable name")
-    return device.strip(), variable.strip()
+    """Split a canonical ``Device:Variable`` (the schema's rule); refuse anything else."""
+    from geecs_schemas import split_device_variable
+
+    try:
+        return split_device_variable(name.strip())
+    except ValueError as exc:
+        raise ScannerError(
+            "invalid_request", f"{name!r} is not a Device:Variable name"
+        ) from exc
 
 
 class CaReadback:
@@ -65,11 +72,12 @@ class CaReadback:
         except (TypeError, ValueError):
             out.detail = f"{pv}: not a number ({result!r})"
             return out
+        # The CA metadata stamp: the gateway's last update of the channel (a
+        # channel it has never updated carries its creation time, so the age
+        # reads as gateway uptime — liveness is the device's CONNECTED PV,
+        # not this stamp).
         stamp = float(getattr(result, "timestamp", 0.0) or 0.0)
-        if stamp > 0:
-            out.timestamp = stamp
-            out.age_s = max(0.0, time.time() - stamp)
-        else:
-            out.detail = "never updated"  # the contract's non-positive timestamp
+        out.timestamp = stamp or None
+        out.age_s = max(0.0, time.time() - stamp) if stamp else None
         out.ok = True
         return out

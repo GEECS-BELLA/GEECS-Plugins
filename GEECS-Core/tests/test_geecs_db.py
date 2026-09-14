@@ -391,6 +391,20 @@ def test_instance_description_flows_through(monkeypatch) -> None:
     assert result[0]["description"] == "S1H steering current"
 
 
+def test_get_device_variables_reads_the_instance_alias(monkeypatch) -> None:
+    """The single-device query asks for and maps ``variable.alias`` too."""
+    queries: list = []
+    type_rows = [
+        (11, "Current", "A", "-5", "5", "yes", "numeric", None, "0.05", None, None)
+    ]
+    instance_rows = [
+        (11, "Current", "A", "-5", "5", "yes", "numeric", None, "0.05", "", " S1H (A) ")
+    ]
+    _patch_query_sequence(monkeypatch, [type_rows, instance_rows], queries)
+    assert GeecsDb.get_device_variables("U_S1H")[0]["alias"] == "S1H (A)"
+    assert all("alias" in q for q, _ in queries)
+
+
 def test_type_only_description_defaults_empty(monkeypatch) -> None:
     """With no instance row, description is empty (type table has no such column)."""
     type_rows = [

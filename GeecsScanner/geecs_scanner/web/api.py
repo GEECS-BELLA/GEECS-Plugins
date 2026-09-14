@@ -140,10 +140,12 @@ def register(router: APIRouter, service: ScannerService) -> None:
         return service.settables()
 
     @router.get("/api/readback", response_model=ReadbackOut)
-    async def readback(variable: str, response: Response) -> ReadbackOut:
+    async def readback(
+        variable: str, response: Response, units: str = ""
+    ) -> ReadbackOut:
         """One live reading of ``Device:Variable`` over the gateway — the readback, not ``:SP``."""
         response.headers.update(_NO_CACHE)
-        return await service.readback(variable)
+        return await service.readback(variable, units=units)
 
     @router.post("/api/move", response_model=ItemOut)
     def move(body: MoveIn) -> ItemOut:

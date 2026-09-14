@@ -4,9 +4,17 @@ All notable changes to `geecs-core` are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and semantic versioning.
 
 
-## [0.6.1] - 2026-09-13
+## [0.7.0] - 2026-09-14
 
 ### Added
+
+- `db.settables`: `numeric_settables(rows_by_device)` → `NumericSettable`
+  rows — the one filter (`settable` and `effective_vartype == numeric`)
+  and the one order (aliased first, alphabetical by alias, then the rest
+  by canonical `Device:Variable`) every movable picker shows. Pure logic
+  over `get_experiment_device_variables` rows, placed beside
+  `variable_types` so the web scanner, the scan MCP and later pickers
+  import one list instead of each sorting their own.
 
 - `GeecsDb.get_device_variables` / `get_experiment_device_variables` rows
   carry **`alias`** — the per-instance `variable.alias` the DB curates as

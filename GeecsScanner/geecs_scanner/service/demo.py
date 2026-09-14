@@ -795,11 +795,11 @@ class DemoReadback:
 
     async def read(self, device: str, variable: str, *, units: str = "") -> Any:
         """The value of the last finished ``mv`` naming this variable, else 0."""
-        from geecs_bluesky.utils import device_reference
+        from geecs_bluesky.qs_client.presets import scan_variable_reference
 
         from geecs_scanner.service.models import ReadbackOut
 
-        reference = device_reference(device, variable)
+        reference = scan_variable_reference(f"{device}:{variable}", {})
         value = 0.0
         for item in self._manager.history_items():  # oldest first
             args = list(getattr(item, "args", None) or item.get("args") or [])

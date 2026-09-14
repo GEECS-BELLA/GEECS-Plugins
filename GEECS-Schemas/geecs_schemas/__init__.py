@@ -74,6 +74,7 @@ from geecs_schemas.scan_variables import (
     ScanVariable,
     ScanVariables,
     ScanVariableSpec,
+    split_device_variable,
 )
 from geecs_schemas.trigger_profile import (
     TriggerProfile,
@@ -110,6 +111,7 @@ __all__ = [
     "PlanCall",
     # scan_variables
     "ScanVariables",
+    "split_device_variable",
     "ScanVariable",
     "ScanVariableSpec",
     "PseudoScanVariable",

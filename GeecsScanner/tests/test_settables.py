@@ -23,42 +23,19 @@ def _row(name, *, settable=True, vartype="numeric", choices=None, alias="", unit
     }
 
 
-def test_build_keeps_numeric_settables_only() -> None:
+def test_build_wraps_the_core_list_as_the_api_model() -> None:
     rows = {
-        "U_A": [
-            _row("Current", alias="", units="A"),
-            _row("Readback", settable=False),
-            _row("Enable", vartype="choice", choices="on,off"),
-            _row("Label", vartype="string"),
-            _row("Image", vartype="", choices="image"),
-            _row("Gap", vartype="", choices=None),  # blank type, no options → numeric
-        ],
-    }
-    names = [s.name for s in build_settables(rows)]
-    assert names == ["U_A:Current", "U_A:Gap"]
-
-
-def test_build_lists_aliased_first_then_canonical_order() -> None:
-    rows = {
-        "U_Zaber": [_row("Position", alias="Zed stage")],
-        "U_Jet": [_row("Position.Axis 3", alias="Jet_Z (mm)"), _row("Position.Axis 1")],
+        "U_Jet": [_row("Position.Axis 3", alias="Jet_Z (mm)", units="mm")],
         "U_S1H": [_row("Current")],
-        "U_EMQ1": [_row("Current")],
     }
     out = build_settables(rows)
-    assert [s.alias or s.name for s in out] == [
-        "Jet_Z (mm)",
-        "Zed stage",  # aliased, alphabetical by alias
-        "U_EMQ1:Current",
-        "U_Jet:Position.Axis 1",
-        "U_S1H:Current",  # the rest by canonical name
+    assert [(o.alias, o.name) for o in out] == [
+        ("Jet_Z (mm)", "U_Jet:Position.Axis 3"),
+        ("", "U_S1H:Current"),
     ]
-    jet = out[0]
-    assert (jet.device, jet.variable, jet.name) == (
-        "U_Jet",
-        "Position.Axis 3",
-        "U_Jet:Position.Axis 3",
-    )
+    assert (
+        out[0].model_dump()["units"] == "mm"
+    )  # the filter and order themselves: GEECS-Core tests
 
 
 def test_parse_device_variable_refuses_anything_but_device_colon_variable() -> None:
@@ -82,7 +59,9 @@ def test_settables_route_lists_the_demo_devices_alias_first(client: TestClient) 
 
 
 def test_readback_follows_a_move_and_carries_units(client: TestClient, manager) -> None:
-    before = client.get("/api/readback", params={"variable": "U_S1H:current"}).json()
+    before = client.get(
+        "/api/readback", params={"variable": "U_S1H:current", "units": "A"}
+    ).json()
     assert before["ok"] is True and before["value"] == 0.0 and before["units"] == "A"
     assert before["age_s"] == 0.0 and before["variable"] == "U_S1H:current"
     r = client.post("/api/move", json={"variable": "U_S1H:current", "value": 1.5})

@@ -11,16 +11,19 @@ PR 5b of the web scanner arc — the movable panel.
 ### Added
 
 - **`GET /api/settables`** — every numeric settable of the experiment from
-  the GEECS DB (`GeecsDb.get_experiment_device_variables`, GEECS-Core
-  0.6.1's `alias`), **aliased variables first** (alphabetical by alias),
-  then the rest by canonical `Device:Variable`; each row carries the alias
-  beside the canonical name, never instead of it. Read once per process
-  and kept — a DB roster change restarts the CA gateway anyway; a failed
-  read is not cached.
-- **`GET /api/readback?variable=Device:Variable`** — one live reading over
-  the CA gateway's readback PV (`geecs_core.pv_naming`, one `aioca.caget`
-  on the app's loop): value, units, the reading's own stamp and age. The
-  readback, not the `:SP` echo the Qt console showed as "set".
+  the GEECS DB (`GeecsDb.get_experiment_device_variables` with GEECS-Core
+  0.7.0's `alias`, ordered by its `numeric_settables`): **aliased
+  variables first** (alphabetical by alias), then the rest by canonical
+  `Device:Variable`; each row carries the alias beside the canonical name,
+  never instead of it. Read once per process and kept — a DB roster change
+  restarts the CA gateway anyway; a failed read is reported, not cached.
+- **`GET /api/readback?variable=Device:Variable&units=`** — one live
+  reading over the CA gateway's readback PV (`geecs_core.pv_naming`, one
+  `aioca.caget` on the app's loop — the service's one async path, which
+  takes no lock and reads no DB): value, the units the caller passes, the
+  channel's stamp and age. The readback, not the `:SP` echo the Qt console
+  showed as "set". The name is split by GEECS-Schemas 0.24.1's
+  `split_device_variable`.
 - **The devices · move panel** lists the settables (the option value is
   the canonical name; the catalog-only picker is gone) and shows the
   picked variable's readback with its age in the kit's live-value row,

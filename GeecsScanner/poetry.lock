@@ -908,7 +908,7 @@ url = "../GeecsBluesky"
 
 [[package]]
 name = "geecs-core"
-version = "0.6.1"
+version = "0.7.0"
 description = "The GEECS access library: UDP/TCP wire protocol, experiment database, PV naming contract, exceptions, the wire-protocol test double, and the entry-level GeecsDevice client"
 optional = false
 python-versions = ">=3.11,<3.12"
@@ -957,7 +957,7 @@ url = "../GEECS-Data-Utils"
 
 [[package]]
 name = "geecs-schemas"
-version = "0.24.0"
+version = "0.24.1"
 description = "Versioned Pydantic schemas for GEECS scanner configs (scan requests, save sets, scan variables, trigger profiles, action plans) plus legacy-YAML converters."
 optional = false
 python-versions = ">=3.11,<3.12"

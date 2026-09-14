@@ -159,16 +159,16 @@ class ScannerService:
             self._settables = DbSettables(self.experiment)
         return self._settables.settables()
 
-    async def readback(self, variable: str) -> ReadbackOut:
-        """The live value of one ``Device:Variable`` — the readback, not the setpoint."""
+    async def readback(self, variable: str, *, units: str = "") -> ReadbackOut:
+        """The live value of one ``Device:Variable`` — the readback, not the setpoint.
+
+        The service's one ``async`` method: it runs on the web app's event
+        loop with ``/api/events``, so it takes no lock and reads no DB —
+        *units* come from the caller (the page has them from ``/api/settables``).
+        """
         from geecs_scanner.service.readback import parse_device_variable
 
         device, var = parse_device_variable(variable)
-        units = ""
-        for s in self.settables().items:
-            if s.device == device and s.variable == var:
-                units = s.units
-                break
         if self._readback is None:
             from geecs_scanner.service.readback import CaReadback
 
