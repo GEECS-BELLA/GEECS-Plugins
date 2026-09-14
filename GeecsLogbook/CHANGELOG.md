@@ -4,6 +4,104 @@ All notable changes to `geecs-logbook` are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 project adheres to semantic versioning.
 
+## [0.11.0] - 2026-09-13
+
+### Added
+
+- **A note can cite another note.** Every entry's tools carry a **Link**
+  that copies its permalink, `GET /entry/{id}` — one name for a note
+  whichever book it is in, redirecting to the day page or the month page
+  and anchored at the entry. Paste such a link into any composer and it
+  becomes a labelled reference (`[author · 12 Sep](entry/<id>)`) which
+  renders as a marked cross-reference chip. The reference is written at
+  once and only its label is fetched, so a save the instant after pasting
+  still stores a working link. What a body **stores** is
+  relative — `entry/<id>`, never the mount prefix or the host it was
+  written on — and `render.render_markdown(entry_base=…)` swaps in the
+  serving route, exactly as it already does for an attachment. Unlike an
+  attachment link it does not resolve in the mirrored markdown: it names a
+  row, and only the service can turn that into a page.
+- Arriving from a permalink now **opens what is folded around the target**
+  (`nav.js`). An entry is a `<details>`, so is the scan block around it,
+  and Collapse All is a stored preference — so a link into the scans book
+  routinely pointed inside something shut, where the browser scrolled to
+  nothing. The target is opened, aligned under the sticky topbar and
+  outlined (`:target`).
+- Copying works on the lab's plain `http://` address, where
+  `navigator.clipboard` does not exist: the Link tool falls back to a
+  selection copy rather than failing silently. It is an `<a>` carrying the
+  real URL, so right-click "copy link address" and ⌘-click still behave.
+
+### Fixed
+
+From the adversarial review of #890, all found before the feature shipped:
+
+- **A Save landing between a pasted reference and its label would drop the
+  citation.** The paste is `preventDefault`-ed and the label needed a
+  fetch, so in that gap the textarea held neither the reference nor the
+  URL; ⌘↩ there — paste the link, save — persisted the body without it and
+  reloaded the pending write away, silently. The reference now goes in
+  **at once**, complete and working, with a placeholder label; only the
+  label is fetched, and it is applied by finding that exact text again
+  rather than by remembering where the caret was. Nothing is deferred, so
+  there is no gap to lose a citation in — and typing between the paste and
+  the label can no longer splice the reference into the middle of what was
+  typed. Worst case is a reference reading `[note]`; it still points at
+  the right note.
+- **A permalink pasted across mount prefixes wrote the host into the
+  body.** The match was anchored on the page's own `entry_base`, so a link
+  copied at `:8400/entry/<id>` and pasted into a page served under `/log`
+  did not match — and the fallback pasted the absolute URL, host and all,
+  into the stored body. It now matches the trailing `entry/<id>` pair; the
+  fetch that follows is what validates the id — and when it 404s the
+  pasted text is put back verbatim, which is the safety valve that makes
+  matching any host at any depth safe: a permalink to a deleted entry or
+  to another experiment's logbook is handed back untouched rather than
+  replaced by a dead internal reference. As a consequence the bare stored
+  form (`entry/<id>`, copied out of one note's raw markdown) is recognised
+  too.
+- **Arriving at a target taller than the viewport hid its heading.**
+  `scrollIntoView({block:"center"})` put the middle of an open scan block
+  or a long note at the middle of the screen, leaving the reader
+  mid-content. Now top-aligned under the sticky topbar, whose height is
+  measured rather than assumed (it wraps on a narrow window). This also
+  affects the pre-existing `#ScanNNN` and day-group anchors.
+- **A permalink to a note the scans book cannot draw now says so.** An
+  entry anchored to a scan whose folder is not on the share is stored and
+  counted but has no block to hang on; the reader used to land at the top
+  of an apparently ordinary day with no explanation. The *reason* is given
+  only in the scans book, where it is true — the ops book never reads the
+  share, and explaining a miss there with a cause that cannot apply is the
+  same small lie in better clothes.
+- **The plain-`http` copy fallback stole focus.** It selects a scratch
+  textarea, so a keyboard user who tabbed to Link and pressed Enter
+  watched the "Copied" flash at `opacity:0` (the tools show on
+  `:focus-within`) and lost their place in the tab order.
+- The permalink's docstring said 302; `RedirectResponse` sends **307**.
+  Corrected, and the test now pins the value the route actually sends
+  instead of accepting any of three.
+
+### Changed
+
+- **The ops book's composer folds away, and can be closed.** It was wedged
+  open at the top of the month — the one composer the book has, so there
+  was nothing for Close to fold and the button was never drawn, while the
+  scan log had had it since composers became per-scan. Both books now meet
+  one contract that `editor.js` implements once: `data-open-composer` on
+  anything that opens a composer, `data-compose-host` on the hidden
+  element holding it, and the day page's positional `data-insert` rule
+  row. Closing stays non-destructive — the form keeps its text — which is
+  what makes Esc safe to press.
+- "+ note" on an ops day heading now opens the composer as well as dating
+  it. Revealing, setting the date, focusing and scrolling all happen in
+  `editor.js`, so they cannot come apart: they were two listeners on the
+  same button, and the scroll ran while the composer was still hidden.
+- The ops book's opener moved into its "New note" heading rather than
+  taking a rule row. A rule row on the day page *is* the position — the
+  note lands between those two scans; the ops book's single composer takes
+  a date instead, so a rule row there would imply a place the note is not
+  going.
+
 ## [0.10.2] - 2026-09-13
 
 ### Changed
