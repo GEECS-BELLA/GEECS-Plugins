@@ -399,9 +399,9 @@ class ConfigsRepoResolver:
     def _scan_variables_catalog(self) -> ScanVariables:
         """Load the experiment's scan-variable catalog, cached until the file changes.
 
-        The resolver lives as long as its process (the scanner's, the
-        worker's environment), so a lifetime cache made every catalog edit
-        wait for a restart.  A ``stat`` per call (the parse only on a
+        The resolver lives as long as its process (the web scanner's — the
+        catalog's only runtime reader), so a lifetime cache made every
+        catalog edit wait for a restart.  A ``stat`` per call (the parse only on a
         miss) keeps the cost away from the hot paths — preflight, submit,
         move — while an edited file, new mtime or size, is re-read on the
         next call.  Accepted blind spot, shared with the portal's config
