@@ -19,10 +19,14 @@ back into this table.
     site-profile cutover of the interim services host (PR #792 updated
     this table the same day). Amended **2026-09-12** for the portal row
     only: the logbook went live at `/log` on the same unit and the
-    portal's memory ceiling was installed (#849, #851); no other row was
-    re-observed that day. The four repo-managed Linux services — CA
-    gateway, queueserver worker, GEECS-MCP HTTP, Data Portal — run as
-    **system** units rendered from the host's `site.env`
+    portal's memory ceiling was installed (#849, #851); amended
+    **2026-09-13** for the logbook split — its own unit and port (8400,
+    GeecsLogbook 0.10.0 / portal 0.27.0), the portal row loses the
+    logbook and its `StateDirectory`; **deployed live the same evening**
+    (logbook 0.10.1 / portal 0.27.1 on the host, entries moved to
+    `/var/lib/geecs-logbook`); no other row was re-observed that day. The five repo-managed Linux services — CA
+    gateway, queueserver worker, GEECS-MCP HTTP, Data Portal, Logbook —
+    run as **system** units rendered from the host's `site.env`
     ([Site Profile](site_profile.md)), from the per-service-family clones
     named in [one clone per service](#one-clone-per-service) (with its two
     stated exceptions), all at `master` on that date. Also running: the
@@ -61,7 +65,8 @@ flowchart TB
     subgraph worker["Worker-side services (today: the central server itself; move to the services server)"]
         qs["Queueserver stack<br/>RE Manager :60615 / :60625<br/>doc stream :5568<br/>Redis (loopback)"]
         mcp["GEECS-MCP server<br/>:8100 (HTTP mode)"]
-        portal["GEECS Data Portal + logbook<br/>:8200 (GEECS-DataPortal, /log = GeecsLogbook)"]
+        portal["GEECS Data Portal<br/>:8200 (GEECS-DataPortal)"]
+        logbook["GEECS Logbook<br/>:8400 (GeecsLogbook)"]
         scanner["GEECS Scanner<br/>:8300 (GeecsScanner — the web scanner console)"]
     end
 
@@ -104,6 +109,9 @@ flowchart TB
     tiled -- "catalog reads" --> portal
     nas -- "SMB mount" --> portal
     portal -- "HTTP :8200" --> browser
+    portal -. "run page → scan card (--logbook-url)" .-> logbook
+    nas -- "SMB mount: scan folders read,<br/>logbook/ mirror written" --> logbook
+    logbook -- "HTTP :8400" --> browser
     nas -- "SMB mount" --> nb
 ```
 
@@ -135,7 +143,8 @@ rendered from it, never edited by hand.
 | Tiled catalog | 192.168.6.14 | — (pip install + `~/tiled/config.yml`) | HTTP 8000 | systemd `tiled` | `GET /api/v1/`; web UI at `/ui` | [GeecsBluesky/TILED_SETUP.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsBluesky/TILED_SETUP.md) |
 | Queueserver worker (RE Manager + Redis + doc proxy) | 192.168.6.14 (interim: the gateway's box, until the services server) | `<root>/qs-checkout` | ZMQ 60615 (control), 60625 (console stream), 5568 (documents); Redis loopback-only | systemd `geecs-qserver` + `geecs-qserver-ready` (oneshot: opens the worker environment and asserts the plan list after every manager start) | `qserver status` from any client env — **ready** means the worker environment exists (`worker_environment_exists` true) *and* the allowed-plan list is non-empty; a running unit with a closed environment refuses every plan (`scripts/fleet_status.sh` reports both, #793) | [GeecsBluesky/qserver/deploy/DEPLOYMENT.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsBluesky/qserver/deploy/DEPLOYMENT.md) |
 | GEECS-MCP server (HTTP mode) | 192.168.6.14 (co-located with the worker by design; stdio mode remains available per machine) | baked non-editably from the **worker's** clone `<root>/qs-checkout` into `<root>/geecs-mcp-venv` (config-truth parity, by design) | HTTP 8100 (`/mcp`) | systemd `geecs-mcp` | tool call `scan_status` from an agent | [GEECS-MCP/deploy/DEPLOYMENT.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GEECS-MCP/deploy/DEPLOYMENT.md) |
-| GEECS Data Portal (GEECS-DataPortal) — hosts the logbook (GeecsLogbook) at `/log` since 2026-09-12; entries in the unit's `StateDirectory` (`/var/lib/geecs-data-portal`), mirrored to `<experiment>/logbook/` on the share; memory ceiling from `site.env` | 192.168.6.14 (interim; moves with the services-server consolidation) | `<root>/portal-checkout` | HTTP 8200 | systemd `geecs-data-portal` | `GET /health` (catalog probe); any day page in a browser; `GET /log/` → 307 to today | [GEECS-DataPortal/DEPLOYMENT.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GEECS-DataPortal/DEPLOYMENT.md) § The scan logbook |
+| GEECS Data Portal (GEECS-DataPortal) — memory ceiling from `site.env`; links to the logbook (`--logbook-url`), no longer hosts it | 192.168.6.14 (interim; moves with the services-server consolidation) | `<root>/portal-checkout` | HTTP 8200 | systemd `geecs-data-portal` | `GET /health` (catalog probe); any day page in a browser | [GEECS-DataPortal/DEPLOYMENT.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GEECS-DataPortal/DEPLOYMENT.md) |
+| GEECS Logbook (GeecsLogbook) — the scans book over scan folders + the ops book; its own process since 2026-09-13 (before: a router in the portal at `/log`). Entries in the unit's `StateDirectory` (`/var/lib/geecs-logbook`: `logbook.db` + `attachments/`, **the irreplaceable part — back it up**), mirrored to `<experiment>/logbook/` on the share | 192.168.6.14 (with the portal; moves with it) | `<root>/portal-checkout` (the portal's clone, own poetry env in `GeecsLogbook/` — a pull there is a deploy of both; restart both) | HTTP 8400 | systemd `geecs-logbook` | `GET /health` → `ok`, `version`, `writable` (true on a deployed host); `GET /` → 307 to today | [GeecsLogbook/deploy/DEPLOYMENT.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsLogbook/deploy/DEPLOYMENT.md) |
 | GEECS Scanner (GeecsScanner) — the web scanner console: submit / watch / stop scans from a browser, over `geecs_bluesky.qs_client`; runs from the **worker's** checkout so it submits against the plan surface that checkout defines | worker host (co-located with the RE Manager) | `<root>/qs-checkout` | HTTP 8300 | systemd `geecs-scanner` | `GET /health` (`readiness` must read `ready`); `GET /api/status` | [GeecsScanner/deploy/DEPLOYMENT.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsScanner/deploy/DEPLOYMENT.md) |
 | PVA image gateways (GeecsPvaGateway) | each deployed camera server — the roster is the DB (endpoints hosting the experiment's image devices: 11 for Undulator on 2026-09-04), the deployed set is `config.ini [pva] addr_list` (9); the other 2 hosts are *not deployed* (cameras only nominally, no instance installed) and show as such on the screen and in `scripts/fleet_status.sh` | — (installs from the lab's shared "Active Version" clone on the data share; per host only a baked venv — **the share clone's checked-out commit is the fleet pin**) | pvAccess TCP 5075 / UDP 5076 | NSSM service `GeecsPvaGateway` (auto-start, pull-on-restart) | fleet status Phoebus screen (`deploy/fleet_status_undulator.bob`, generated per experiment by `deploy/gen_fleet_status.py`) | [GeecsPvaGateway/DEPLOYMENT.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsPvaGateway/DEPLOYMENT.md) |
 | GEECS MySQL DB | 192.168.6.14 | — | 3306 | LabVIEW/GEECS infrastructure (not managed by this repo) | `scripts/lab_status.sh` (a handshake-completing probe — never a bare TCP connect, see below); any `GeecsDb` client connect | — |
@@ -228,7 +237,13 @@ they are not re-learned when the script is read in a hurry:
    `site.env`; the Tiled API key is entered by hand.
 4. Non-login shells (plain `ssh host 'cmd'`, systemd) don't have
    `~/.local/bin` on `PATH` — the units carry Poetry's absolute path
-   (`GEECS_POETRY`), and remote commands use `bash -lc`.
+   (`GEECS_POETRY`). On the reference host the **service account's**
+   login shell does not add it either (`ssh <host> 'bash -lc "command -v
+   poetry"'` as that account → not found, 2026-09-13), so a hand-run or
+   remote command that must not depend on the account's dotfiles reads
+   `GEECS_POETRY` from `site.env` (the logbook runbook shows the form via
+   `deploy/site_env_lib.sh`); an interactive session where `poetry`
+   resolves can keep using it.
 5. A GEECS-Plugins-Configs checkout consumed from the data share is
    typically Windows-authored (CRLF): set `core.autocrlf true` on that
    checkout before pulling from Linux, or every file reads as locally
@@ -251,7 +266,7 @@ every step reversible. Two shapes — whether the gateway and Tiled
 follow is decided at the migration (the planned-additions paragraph
 under [The picture](#the-picture)):
 
-- **Only the worker family moves** (queueserver, MCP, portal);
+- **Only the worker family moves** (queueserver, MCP, portal, logbook);
   the CA gateway, Tiled and the DB stay on the gateway's box. Bring the
   units up on the new host in the order below, verify, then stop them on
   the old box. Client side: `[qserver] host` in every `config.ini`, the
@@ -281,7 +296,7 @@ scan running:
 2. **`geecs-qserver`** (it pulls in `geecs-qserver-ready`); `qserver
    status` (readiness, not just the port) is the check.
 3. **`geecs-mcp`** from a venv baked on the new host, then
-   **`geecs-data-portal`**.
+   **`geecs-data-portal`**, **`geecs-logbook`**.
 4. `scripts/fleet_status.sh` from a client pointed at the new host: every
    row systemd, clean clone, matching versions, nothing UNMANAGED. Then
    stop and disable the old box's units, and rewrite this page's table to

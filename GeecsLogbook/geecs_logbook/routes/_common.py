@@ -1,11 +1,11 @@
 """What every route module shares: the mounted context and small helpers.
 
-The router is assembled from modules (day, month, entries, attachments)
+The app is assembled from modules (day, month, entries, attachments)
 that each take a :class:`Context` and register their routes on an
-``APIRouter``. The context carries the things ``create_log_router`` was
-given, the stores it built from them, and the operations more than one
-module needs: reading a day off the share, rendering a list of entries,
-and mirroring an entry.
+``APIRouter``. The context carries the things ``create_app`` was given,
+the stores it built from them, and the operations more than one module
+needs: reading a day off the share, rendering a list of entries, and
+mirroring an entry.
 """
 
 from __future__ import annotations
@@ -57,7 +57,7 @@ class RenderedEntry:
 
 @dataclass
 class Context:
-    """Everything the route modules need, built once by ``create_log_router``.
+    """Everything the route modules need, built once by ``create_app``.
 
     Attributes
     ----------
@@ -230,7 +230,7 @@ def attachment_base(request: Request) -> str:
 
 
 def api_base(request: Request) -> str:
-    """``/log/api`` under whatever prefix the host mounted us at."""
+    """``/api`` under whatever prefix the proxy mounted us at."""
     probe = request.url_for("_entries_json", day="0000-00-00").path
     return probe[: -len("/day/0000-00-00/entries")]
 

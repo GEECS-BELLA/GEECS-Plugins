@@ -24,7 +24,7 @@ content was injected into a human document by string-matching headings.
 
 ## A day is a query, not a document
 
-`/log/day/2026-09-11` lists whatever `ScanNNN` folders exist at request time.
+`/day/2026-09-11` lists whatever `ScanNNN` folders exist at request time.
 Nothing creates a log; no template is stamped; no daily job runs. A scan
 appears because its folder does.
 
@@ -147,7 +147,7 @@ only thing that reads it, and only to draw it — plus the tag scan.
 
 ## The ops book reads by month, from the store alone
 
-`/log/month/2026-09` is the other book: every `ops` entry in the month,
+`/month/2026-09` is the other book: every `ops` entry in the month,
 grouped by day, newest day first, with the tag chips as URL filters
 (`?tag=laser`) and one composer that takes a date. It reads **only the
 database** — `NotesStore.query`, one call — and never the share, which is
@@ -186,7 +186,7 @@ the rail offers fifteen of them; the dwell is what keeps a pass over the
 rail from prefetching them all. The trade-off, stated: the pages send no
 freshness headers, and Chrome may reuse a prefetched document for a few
 minutes without asking, so a scan that landed between the hover and the
-click appears on the next reload. `/log/today` and `/log/month/today`
+click appears on the next reload. `/today` and `/month/today`
 are the bookmarkable names.
 
 ## The change feed
@@ -332,12 +332,12 @@ is where that is tracked.
 | Item | Why |
 |---|---|
 | `ScanSummary` vs `scans_database.entries.ScanMetadata` overlap | Same reasoning: consolidating means adopting the model layer under review. Revisit with the ScanPaths issue above. |
-| Two day views — the portal's `/day/` (Tiled runs) and `/log/day/` (scan folders) — can disagree | A scan Tiled never received appears in one; a folder predating the catalog appears in the other. Needs an owner ruling on which is canonical, not an implementation choice. |
+| Two day views — the portal's `/day/` (Tiled runs) and the logbook's `/day/` (scan folders) — can disagree | A scan Tiled never received appears in one; a folder predating the catalog appears in the other. **Owner ruling (2026-09-13): the scan folders are canonical for now** — that matches the LabVIEW Master Control implementation the lab runs today. The folders are not downstream of Tiled: the s-file, `ScanInfo` and the per-device files are written from the same RunEngine document stream Tiled records (and by the device servers), which is exactly why the two views can differ. Tiled is expected to become canonical later; when it does, this row is where the logbook's reader changes. Until then a disagreement is resolved in the folders' favour, never by writing one. |
 | Package name vs `geecs_data_utils.scan_log_loader` and `GEECS-LogTriage`, which read `scan.log` | This package is about the *logbook*, not `scan.log`, and `scan_reader` now imports `scan_log_loader`. Renaming costs one commit today and more later. |
 | Separating "running" from "aborted" from churn, for folders with no ScanInfo | Open, not impossible — `scan.log` is in every such folder. Add a `running` status when it is done. |
 | Off-site reading | The mirror tree is one folder, so a text-only `git push` of it to a private repository is cheap whenever wanted; the Google Doc exporter (blocked on credential rotation) is the route that carries images. Neither is needed for a functional logbook. |
 | The scan index | A month-partitioned redevelopment of `geecs_data_utils.scans_database` with an `update(day)` entry point, the portal as its writer. Parked by the owner (2026-09-11) until the two books are live. |
-| `EntryCreate` (the write shape) lives in the router, `LogEntry` (the stored shape) in `geecs_schemas` | An agent posts the create shape, so it belongs beside `LogEntry` for GEECS-MCP to validate. Moves with the agent-verbs phase, which is its first second consumer. |
+| `EntryCreate` (the write shape) lives in `routes/entries.py`, `LogEntry` (the stored shape) in `geecs_schemas` | An agent posts the create shape, so it belongs beside `LogEntry` for GEECS-MCP to validate. Moves with the agent-verbs phase, which is its first second consumer. |
 | A third private atomic-write helper (`_fs.replace_with`; `scan_analysis.config_store` and `task_queue` have their own) and `logbook_root` re-deriving the daily folder | Fold into the `ScanPaths`/`ScanData` review, #839 — same home, same issue. |
 | Which template "started" an entry when several buttons were pressed | The last one pressed is recorded. Provenance only; nothing reads it back but the chip. |
 | `scan_reader.month_folder` / `days_with_folders` are a third copy of the share-layout walk (`.parent` chains up from `get_daily_scan_folder`; a `YY_MMDD` parser beside `ScanPaths.get_scan_tag`'s and `scans_database.builder`'s `strptime("%y_%m%d")`), after `mirror.logbook_root` and `read_day` | The layout has one builder in `geecs_data_utils.scan_paths` and should have one reader there (`day_folder_date(name)`, `list_day_folders(month)`), which is exactly #839's brief. Recorded on #839 at the review of #844; not lifted here so the logbook keeps depending on `ScanPaths` alone. |
@@ -345,20 +345,31 @@ is where that is tracked.
 
 ## Deployment
 
-No service, port, or unit of its own. GEECS-DataPortal mounts it:
+Its own service since 0.10.0: `geecs-logbook` (the console script →
+`__main__.main`) serves one experiment on port **8400** behind the unit
+template `deploy/geecs-logbook.service`, with the entries in systemd's
+`StateDirectory` (`/var/lib/geecs-logbook`). `deploy/DEPLOYMENT.md` is
+the runbook — install, the one-time move of the entries out of the
+portal's state directory, the proxy prefix, troubleshooting. Before
+0.10.0 it was a router the Data Portal mounted at `/log`; that mount and
+the portal's `log` extra are gone, and the portal only *links* here
+(`--logbook-url`).
 
-```python
-app.include_router(create_log_router(experiment), prefix="/log")
-```
+`app.create_app(experiment, *, base_directory, notes_db, templates_dir,
+root_path)` is the one entry point. It takes the shared web glue from
+`geecs_web_theme.web` — the forwarded-prefix middleware, the `/theme`
+mount, the templates factory that puts `root` in every context — never a
+copy; the routes live in `routes/` (`day`, `month`, `entries`,
+`attachments`, one module per concern) and register on one router the
+app includes at its root. The templates address every asset and link
+root-relatively (`{{ root }}/static/…`, `url_for(...).path`), so the
+service works at root and under `/log` at the front door alike.
 
-behind the portal's `log` extra and its `--scan-log` flag. It rides the
-portal's existing checkout and systemd unit. `--notes-db` names the SQLite
-file (the portal defaults it to systemd's `StateDirectory`); uploads go
-to `attachments/` beside it. Without a store the router has no write
-routes at all. `templates_dir` names the seed-template directory (the
-portal derives it from its configs tree). The routes live in `routes/`
-— `day`, `month`, `entries`, `attachments`, one module per concern — and
-`router.create_log_router` only assembles them.
+`--notes-db` names the SQLite file (default `$STATE_DIRECTORY/logbook.db`
+under systemd); uploads go to `attachments/` beside it. Without a store
+the app has no write routes at all. `--templates-dir` names the
+seed-template directory (the unit points it at `logbook_templates/` at
+the top of the configs checkout).
 
-`create_log_router` takes the experiment explicitly — this package carries no
+`create_app` takes the experiment explicitly — this package carries no
 facility default, per the "facility values have one home" invariant.

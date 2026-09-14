@@ -1,11 +1,13 @@
 """The scans book: the day document and its JSON peers.
 
-``GET /log/``                         redirect to today
-``GET /log/today``                    the same, as a bookmarkable name
-``GET /log/static/{name}``            the page's own assets
-``GET /log/day/{day}``                the day document
-``GET /log/api/day/{day}``            the derived half (scan folders) as JSON
-``GET /log/api/day/{day}/entries``    the commentary half as JSON (both books)
+``GET /``                         redirect to today
+``GET /today``                    the same, as a bookmarkable name
+``GET /day/{day}``                the day document
+``GET /api/day/{day}``            the derived half (scan folders) as JSON
+``GET /api/day/{day}/entries``    the commentary half as JSON (both books)
+
+The page's own assets are the app's named ``/static`` mount
+(:func:`geecs_logbook.app.create_app`), not a route here.
 """
 
 from __future__ import annotations
@@ -14,14 +16,14 @@ from datetime import date, timedelta
 
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
+from fastapi import APIRouter, Request
+from fastapi.responses import HTMLResponse, RedirectResponse
 from geecs_schemas.log_entry import Book, LogEntry
+from geecs_web_theme.web import root_of
 
 from geecs_logbook.models import DaySummary
 from geecs_logbook.routes.attachments import ATTACHMENT_TYPES
 from geecs_logbook.routes._common import (
-    STATIC_DIR,
     Context,
     RenderedEntry,
     api_base,
@@ -44,31 +46,24 @@ def register(router: APIRouter, ctx: Context) -> None:
         return out
 
     @router.get("/", response_class=RedirectResponse)
-    def _today() -> RedirectResponse:
-        """Redirect to today's log."""
-        return RedirectResponse(url=f"day/{date.today().isoformat()}")
+    def _today(request: Request) -> RedirectResponse:
+        """Redirect to today's log.
+
+        An absolute Location under the request's prefix, not ``day/…``: a
+        relative one resolves against the browser's URL, which is right
+        for ``/log/`` and wrong for ``/log`` (what a person types) — that
+        one landed at the front door's root.
+        """
+        return RedirectResponse(
+            url=f"{root_of(request)}/day/{date.today().isoformat()}"
+        )
 
     @router.get("/today", response_class=RedirectResponse)
-    def _today_named() -> RedirectResponse:
+    def _today_named(request: Request) -> RedirectResponse:
         """Redirect to today's log — a name a bookmark or a link can use."""
-        return RedirectResponse(url=f"day/{date.today().isoformat()}")
-
-    @router.get("/static/{name}")
-    def _static(name: str) -> FileResponse:
-        """Serve the page's own assets.
-
-        A plain route rather than ``router.mount(StaticFiles(...))``:
-        ``Mount`` is a ``BaseRoute``, not a ``Route``, and
-        ``APIRouter.include_router`` drops it silently on the FastAPI
-        versions this package's floor allows — the stylesheet would 404
-        and ``url_for`` would raise, with CI green because the lock pins a
-        newer release. ``scan_analysis.config_editor`` solved it this way
-        first; this follows it.
-        """
-        target = (STATIC_DIR / name).resolve()
-        if target.parent != STATIC_DIR.resolve() or not target.is_file():
-            raise HTTPException(status_code=404, detail=f"no such asset: {name}")
-        return FileResponse(target)
+        return RedirectResponse(
+            url=f"{root_of(request)}/day/{date.today().isoformat()}"
+        )
 
     @router.get("/day/{day}", response_class=HTMLResponse)
     def _day_page(request: Request, day: str) -> HTMLResponse:

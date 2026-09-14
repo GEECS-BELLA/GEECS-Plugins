@@ -3,6 +3,46 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.27.2] - 2026-09-13
+
+### Changed
+
+- Merge of `master` (b9677ca7) into `feature/native-bluesky-plans`: the
+  portal code is master's 0.27.1 (the logbook split, #877; the
+  `--root-path` doc correction, #878) plus the branch's file-plugin
+  attribute rename (#829); `poetry.lock` relocked against the merged path
+  dependencies (geecs-data-utils 0.32.0, geecs-schemas 0.24.0).
+
+## [0.27.1] - 2026-09-13
+
+### Changed
+
+- `DEPLOYMENT.md` § Behind a reverse proxy no longer calls `--root-path`
+  the mode "for a proxy that cannot send" `X-Forwarded-Prefix`: it is the
+  prefix-preserving mode, and pairing it with a stripping proxy loses
+  every stylesheet and script (the mounts answer prefixed paths only).
+  Docs only; the behaviour is unchanged and the rule now lives in
+  `geecs_web_theme.web`.
+
+## [0.27.0] - 2026-09-13
+
+### Removed
+
+- **The logbook mount.** `--scan-log`, `--notes-db`, the `log` extra and
+  the `/log` router are gone: the logbook is its own service (GeecsLogbook
+  0.10.0, unit `geecs-logbook`, port 8400, its own `StateDirectory`). The
+  portal's unit drops `StateDirectory=geecs-data-portal`; the entries a
+  host kept there move once, per `GeecsLogbook/deploy/DEPLOYMENT.md`. A
+  `site.env` still passing `--scan-log` fails at start — deliberately.
+
+### Changed
+
+- The run page's link to a scan's logbook card is built from
+  **`--logbook-url`**, the logbook's base: an absolute URL verbatim, a
+  path (`/log`, the front door's route) same-origin with the portal's own
+  prefix; empty shows no link. `GET /api/run/{uid}`'s `logbook` field is
+  the same URL.
+
 ## [0.26.1] - 2026-09-13
 
 ### Changed

@@ -4,6 +4,77 @@ All notable changes to `geecs-web-theme` are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 project adheres to semantic versioning.
 
+## [0.6.1] - 2026-09-13
+
+### Changed
+
+- Merge of `master` into `feature/web-scanner`: the 0.4.1 surface addition
+  below (GeecsScanner's `console.html`, `scanner.css`, `scanner.js` in
+  `_SURFACES`) now runs over the tinycss2 guards of 0.5.0.
+
+## [0.6.0] - 2026-09-13
+
+### Added
+
+- `testing.token_indirection_map(css)` — `{selector: {--local: --target}}`
+  for every token set to exactly one `var(--x)`, read structurally (any
+  spacing, comma lists split). The structural form of
+  `token_indirections`; the logbook's `.tone-` guard is its first
+  consumer.
+
+### Changed
+
+- `ForwardedPrefixMiddleware`'s docstring is the one-copy home for the
+  proxy rule every surface's runbook points at: a prefix-stripping proxy
+  sends `X-Forwarded-Prefix`; a prefix-preserving proxy is what
+  `--root-path` is for — and the two are not interchangeable, because
+  under a static `root_path` the `/static` and `/theme` mounts answer at
+  the prefixed path only (a stripping proxy without the header serves a
+  styleless page, not a 404). Found by the Codex review of #877 on the
+  logbook; verified on the portal too.
+- The `testing` extra's note spells out how a consumer that already takes
+  the theme at runtime (`web`) also takes `testing` for its tests: the
+  same path dependency re-declared in the dev group with
+  `extras = ["testing"]`. One version floor, one owner.
+
+## [0.5.0] - 2026-09-13
+
+### Changed
+
+- **The CSS guards read stylesheets through tinycss2, not regular
+  expressions.** `tests/test_no_literal_colours.py` is rewritten over new
+  parser-based helpers in `geecs_web_theme.testing` (`css_rules`,
+  `rule_selectors`, `colour_literals`, `html_style_sources`,
+  `js_colour_literals`, `referenced_tokens`, `defined_tokens`,
+  `styled_classes`, `attribute_selector_values`, `classes_used`); HTML is
+  read with the standard library's parser. Comments, `@media` blocks,
+  nested braces and quoted strings are structure before a check looks at
+  them, so each check reads like the rule it enforces and a wrong check
+  fails loudly instead of matching nothing — the six regex scanners this
+  replaces each had a silent hole found by review. 703 lines → ~430, and
+  every kept guard was proven to bite by breaking a real file (a literal
+  in `kit.css`, in a `style=` attribute, in an inline-script string; an
+  unknown status styled; an unscoped rule; an unstyled class on the
+  reference page; an undefined token; a palette missing a token; a token
+  introduced by the kit; an emptied density block).
+- **Pruned.** Kept: no literal colours; every referenced token defined and
+  every palette complete; the kit introduces no token; the vocabularies
+  agree across Python, `theme-boot.js` and the CSS; every kit rule scoped
+  to `.kit`; the reference page shows only what the kit styles. Deleted:
+  the `[hidden]` ordering check (a one-time bug, now a comment beside the
+  rule), the per-component specimen list for the reference page (a
+  maintenance list, not an invariant), and the probe cases that pinned
+  holes in the old regexes.
+- The allowlist is now by **selector** (`.themepick .sw`, `img.plot`,
+  `.ce-preview img`), each with its reason, instead of by line substring.
+
+### Added
+
+- The `testing` extra (tinycss2) for consumers whose test suite uses a CSS
+  helper — the scanner's "every class on the page is styled" check becomes
+  `classes_used(template) - styled_classes(kit, theme, own_css)`. The HTML
+  guards still need nothing.
+
 ## [0.4.1] - 2026-09-13
 
 ### Changed
