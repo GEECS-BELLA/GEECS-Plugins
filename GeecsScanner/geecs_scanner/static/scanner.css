@@ -10,7 +10,6 @@
 .kit .health{display:flex;gap:6px;flex-wrap:wrap}
 .kit .who{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted)}
 .kit .who input{font:inherit;font-size:12.5px;height:26px;padding:0 8px;width:11ch;border:var(--bw) solid var(--rule);border-radius:var(--r);background:var(--surface);color:var(--ink)}
-.kit .rail-note{font-size:11.5px;margin:6px 0 0}
 .kit .rail .recent a{justify-content:space-between}
 .kit .rail .recent .dim{font-family:var(--ff-mono);font-size:11px}
 
@@ -49,5 +48,5 @@
 /* Secondary text on a picklist row (step count, "in the table") that must stay readable on the selected row. */
 .kit .picklist .sub{color:var(--muted);font-size:12px;text-align:right}
 .kit .picklist [aria-pressed="true"] .sub{color:inherit;opacity:.85}
-.kit .picklist .sub.prob{color:var(--warn)}
+.kit .steps li.prob{color:var(--warn)}
 .kit .rail h4 a{color:inherit}

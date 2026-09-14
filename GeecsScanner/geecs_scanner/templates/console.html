@@ -53,11 +53,6 @@
       </nav>
     </div>
     <div>
-      <h4>Presets</h4>
-      <nav class="picklist" id="presets" aria-label="Presets"></nav>
-      <p class="dim rail-note" id="presets-note">Loading…</p>
-    </div>
-    <div>
       <h4 id="recent-h">Recent</h4>
       <nav class="picklist recent" id="recent" aria-label="Recent scans"></nav>
     </div>
@@ -139,6 +134,9 @@
         </div>
       </header>
       <div class="body">
+        <div class="fields">
+          <div class="field wide"><label for="preset">preset</label><select id="preset"></select><span class="hint" id="presets-note">Loading presets…</span></div>
+        </div>
         <p class="mode-note" id="mode-note"></p>
 
         <div class="group" id="axis1">
@@ -167,7 +165,7 @@
 
         <div class="fields">
           <div class="field"><label for="shots">shots per step</label><input id="shots" type="number" min="1" step="1" value="10"><span class="hint" id="shots-hint">shots_per_step</span><span class="err" id="err-shots">At least one shot.</span></div>
-          <div class="field"><label for="trig">trigger profile</label><select id="trig"></select><span class="hint">shot_control_configurations/</span></div>
+          <div class="field"><label for="trig">trigger profile</label><select id="trig"></select><span class="hint">shot_control_configurations/ · the worker learns new or edited profiles at its next environment open; a scan naming one before that is refused there</span></div>
           <div class="field"><label for="period">shot period</label><input id="period" type="number" min="0" step="any" placeholder="auto"><span class="hint">strict only · seconds · blank = as fast as the box allows</span></div>
           <div class="field wide"><label for="desc">description</label><input id="desc" placeholder="what this scan is for"><span class="hint">goes to ScanInfo and the logbook entry</span></div>
         </div>
@@ -181,7 +179,7 @@
           <div class="tscroll">
             <table class="devtable">
               <thead><tr><th>device</th><th>save images</th><th>essential</th><th></th></tr></thead>
-              <tbody id="devs"><tr><td class="dim" colspan="4">Pick a preset in the rail.</td></tr></tbody>
+              <tbody id="devs"><tr><td class="dim" colspan="4">Pick a preset above.</td></tr></tbody>
             </table>
           </div>
           <span class="dim note">Not essential + no images is refused at expansion. A gated run needs at least one essential triggered device.</span>
@@ -247,8 +245,9 @@
           <span class="chip" data-state="unknown" id="act-chip">disarmed</span>
         </header>
         <div class="body">
-          <nav class="picklist" id="actions-list" aria-label="Action plans"></nav>
-          <p class="dim note" id="actions-note">Loading the action library…</p>
+          <div class="fields">
+            <div class="field wide"><label for="action">action plan</label><select id="action"></select><span class="hint" id="actions-note">Loading the action library…</span></div>
+          </div>
           <div class="group" id="action-preview-group" hidden>
             <div class="row">
               <span class="eyebrow" id="action-preview-title">preview</span>

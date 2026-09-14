@@ -4,6 +4,24 @@ All notable changes to `geecs-scanner` are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 project adheres to semantic versioning.
 
+## [0.4.0] - 2026-09-13
+
+PR 5a of the web scanner arc — layout and freshness, from Sam's notes on the
+deployed page (2026-09-13).
+
+### Changed
+
+- **Presets are a dropdown in New scan**, first field of the form it seeds;
+  the rail keeps its section links and the Recent list. The rail's preset
+  picklist showed too much.
+- **Actions are a dropdown** with the step preview and Arm / Run under it;
+  the stacked picklist (one row per plan, step counts beside) is gone. A
+  plan that cannot run stays pickable so the preview can say why.
+- The trigger-profile hint says when an edit reaches the worker (its next
+  environment open) — the one config kind the worker materialises at
+  startup; everything else is read fresh per request (GeecsBluesky 0.86.1
+  makes the scan-variable catalog follow the file too).
+
 ## [0.3.1] - 2026-09-13
 
 ### Changed

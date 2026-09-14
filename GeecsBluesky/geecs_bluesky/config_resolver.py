@@ -202,7 +202,8 @@ class ConfigsRepoResolver:
         self._experiments_root = (
             Path(experiments_root) if experiments_root is not None else None
         )
-        self._scan_variables_cache: ScanVariables | None = None
+        # (mtime_ns, size) of the catalog file the cached document came from.
+        self._scan_variables_cache: tuple[tuple[int, int], ScanVariables] | None = None
 
     @property
     def _root(self) -> Path:
@@ -396,18 +397,34 @@ class ConfigsRepoResolver:
         return profile
 
     def _scan_variables_catalog(self) -> ScanVariables:
-        """Load (and cache) the experiment's scan-variable catalog."""
-        if self._scan_variables_cache is not None:
-            return self._scan_variables_cache
+        """Load the experiment's scan-variable catalog, cached until the file changes.
+
+        The resolver lives as long as its process (the web scanner's — the
+        catalog's only runtime reader), so a lifetime cache made every
+        catalog edit wait for a restart.  A ``stat`` per call (the parse only on a
+        miss) keeps the cost away from the hot paths — preflight, submit,
+        move — while an edited file, new mtime or size, is re-read on the
+        next call.  Accepted blind spot, shared with the portal's config
+        fingerprint: a same-length edit saved within one mtime tick of
+        the previous read (SMB shares tick at 1–2 s) is served stale until
+        the next tick or byte-count change.
+        """
         path = self._root / self.SCAN_VARIABLES_FOLDER / "scan_variables.yaml"
-        if not path.exists():
+        try:
+            st = path.stat()
+        except (FileNotFoundError, NotADirectoryError):
+            # ``Path.exists`` read both as "missing"; keep that message.
             raise GeecsConfigurationError(
                 f"no scan-variable catalog for experiment "
                 f"{self._experiment!r}: expected {path}"
-            )
+            ) from None
+        stamp = (st.st_mtime_ns, st.st_size)
+        cached = self._scan_variables_cache
+        if cached is not None and cached[0] == stamp:
+            return cached[1]
         document = self._load_yaml(path, "scan variables", "catalog")
         catalog = ScanVariables.model_validate(document)
-        self._scan_variables_cache = catalog
+        self._scan_variables_cache = (stamp, catalog)
         return catalog
 
     def scan_variable_catalog(self) -> ScanVariables:
@@ -416,8 +433,8 @@ class ConfigsRepoResolver:
         The whole :class:`~geecs_schemas.scan_variables.ScanVariables`
         document — consumers list names or branch on each spec's shape
         (plain vs pseudo).  Promoted from the private cache method for
-        GEECS-Console's movable panel (its CLAUDE.md carried the debt note);
-        cached per resolver, like every other catalog here.
+        the console's movable panel; cached per resolver until the file's
+        mtime or size changes (the other kinds are re-read on every call).
 
         Raises
         ------
