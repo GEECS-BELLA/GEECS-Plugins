@@ -62,6 +62,11 @@ cd <root>/portal-checkout
 ( . deploy/site_env_lib.sh; load_site_env /etc/geecs/site.env; cd GeecsLogbook && "$GEECS_POETRY" install )
 ```
 
+Bash, not `sh`: the parser uses `printf -v`. Nothing pins the service
+account's shell, so drive it remotely as
+`ssh <host> 'bash -c "cd ~/portal-checkout && ( . deploy/… )"'` rather
+than relying on the account's login shell being bash.
+
 `site.env` carries the absolute poetry path the units use
 (`GEECS_POETRY`), read here through the repo's own `site.env` parser
 (quotes and whitespace handled). On the reference host that is the only
@@ -107,8 +112,7 @@ sudo install -d -o <service user> -g <service user> /var/backups/geecs-logbook
 sudo -u <service user> python3 -c "import sqlite3; s=sqlite3.connect('/var/lib/geecs-logbook/logbook.db'); d=sqlite3.connect('/var/backups/geecs-logbook/logbook.db.$(date +%F)'); s.backup(d); d.close()"
 ```
 
-The
-markdown mirror on the share is the second copy of what people wrote,
+The markdown mirror on the share is the second copy of what people wrote,
 legible without any of this running. Running the logbook by hand (no
 systemd) gives a read-only logbook unless you pass `--notes-db`
 explicitly; its directory must already exist.
