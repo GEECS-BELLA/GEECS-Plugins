@@ -6,7 +6,13 @@ import pytest
 from fastapi.testclient import TestClient
 
 from geecs_scanner.service import ProgressCache, ScannerService
-from geecs_scanner.service.demo import DemoQueueClient, DemoResolver, demo_preflight
+from geecs_scanner.service.demo import (
+    DemoQueueClient,
+    DemoReadback,
+    DemoResolver,
+    DemoSettables,
+    demo_preflight,
+)
 from geecs_scanner.web import create_app
 
 
@@ -32,6 +38,8 @@ def service(manager: DemoQueueClient, streams: ProgressCache) -> ScannerService:
         streams=streams,
         preflight=demo_preflight,
         version="0.0.0+test",
+        settables=DemoSettables(),
+        readback=DemoReadback(manager),
     )
 
 

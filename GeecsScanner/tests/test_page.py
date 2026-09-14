@@ -137,3 +137,11 @@ def test_presets_and_actions_are_dropdowns(client: TestClient) -> None:
     assert 'id="presets"' not in html and 'id="actions-list"' not in html
     # the preview the action dropdown drives is still there
     assert 'id="action-steps"' in html
+
+
+def test_move_panel_carries_the_kit_live_row(client: TestClient) -> None:
+    """PR 5b: the picked variable's readback sits in a kit .live row, hidden until a pick."""
+    html = client.get("/").text
+    assert '<div class="live" id="mv-live" hidden>' in html
+    for span in ('id="mv-k"', 'id="mv-rb"', 'id="mv-age"'):
+        assert span in html

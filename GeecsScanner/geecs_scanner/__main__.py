@@ -32,7 +32,9 @@ def build_service(
     if demo:
         from geecs_scanner.service.demo import (
             DemoQueueClient,
+            DemoReadback,
             DemoResolver,
+            DemoSettables,
             demo_preflight,
         )
 
@@ -46,6 +48,8 @@ def build_service(
             preflight=demo_preflight,
             version=__version__,
             portal_url=portal_url,
+            settables=DemoSettables(),
+            readback=DemoReadback(client),
         )
     from geecs_bluesky.config_resolver import ConfigsRepoResolver
     from geecs_bluesky.qs_client import make_queue_client

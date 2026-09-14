@@ -5,6 +5,15 @@ All notable changes to GEECS-Schemas are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.25.0] - 2026-09-14
+
+### Added
+
+- `split_device_variable(value)` → `(device, variable)`: the public form
+  of the `Device:Variable` rule the target validator applies (first `:`
+  separates, neither part empty). The web scanner's readback route uses
+  it instead of a third private copy; `_validate_target` calls it too.
+
 ## [0.24.0] - 2026-09-13
 
 ### Changed

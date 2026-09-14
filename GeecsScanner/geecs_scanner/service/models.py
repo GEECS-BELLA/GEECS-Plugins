@@ -330,3 +330,44 @@ class ScanLogOut(BaseModel):
     )
     detail: str = ""
     scan_number: Optional[int] = None
+
+
+class SettableOut(BaseModel):
+    """One numeric settable as the movable panel lists it."""
+
+    name: str = Field(
+        description="The canonical Device:Variable — what a request stores"
+    )
+    device: str
+    variable: str
+    alias: str = Field(
+        default="", description="The DB's curated short name; empty when none"
+    )
+    units: str = ""
+    min: Optional[float] = None
+    max: Optional[float] = None
+
+
+class SettablesOut(BaseModel):
+    """Every numeric settable of the experiment, aliased ones first."""
+
+    items: list[SettableOut] = Field(default_factory=list)
+    source: str = Field(description="db or demo")
+    detail: str = Field(default="", description="Why the list is empty, when it is")
+
+
+class ReadbackOut(BaseModel):
+    """One reading of a device variable over the gateway."""
+
+    variable: str
+    pv: str = ""
+    ok: bool = False
+    value: Optional[float] = None
+    units: str = ""
+    timestamp: Optional[float] = Field(
+        default=None, description="The reading's own stamp, epoch seconds"
+    )
+    age_s: Optional[float] = Field(
+        default=None, description="Now minus the reading's stamp"
+    )
+    detail: str = ""

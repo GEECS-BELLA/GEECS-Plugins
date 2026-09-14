@@ -226,8 +226,9 @@
           <span class="chip" data-state="unknown" id="mv-chip">idle only</span>
         </header>
         <div class="body">
+          <div class="live" id="mv-live" hidden><span class="k" id="mv-k">—</span><span class="v" id="mv-rb">—</span><span class="age" id="mv-age"></span></div>
           <div class="fields">
-            <div class="field"><label for="mv-var">variable</label><select id="mv-var"></select><span class="hint" id="mv-hint">catalog name → device:variable</span></div>
+            <div class="field"><label for="mv-var">variable</label><select id="mv-var"></select><span class="hint" id="mv-hint">every numeric settable, alias first · from the GEECS DB</span></div>
             <div class="field"><label for="mv-val">set to</label><input id="mv-val" type="number" step="any" placeholder="value"><span class="hint">&nbsp;</span><span class="err" id="err-mv-val">Enter a number.</span></div>
           </div>
           <div class="row">
@@ -236,7 +237,7 @@
             <button class="btn" type="button" id="btn-move" disabled>Move</button>
           </div>
         </div>
-        <footer class="eyebrow">resolved as a scan axis would be · pseudo variables refused</footer>
+        <footer class="eyebrow">readback = what the device reports over the gateway, not the setpoint · the request stores the canonical Device:Variable</footer>
       </section>
 
       <section id="actions" class="panel" aria-labelledby="a-h">

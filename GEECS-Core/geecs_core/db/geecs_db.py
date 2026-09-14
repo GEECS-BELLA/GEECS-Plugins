@@ -166,14 +166,18 @@ def _variable_row_to_meta(row: tuple) -> dict:
     """Map a ``devicetype_variable`` or ``variable`` (+ ``choice``) row onto the metadata dict.
 
     Row order: name, units, min, max, set, variabletype, choices, tolerance,
-    description — the shared SELECT column order (after the leading id/link
-    column) of :meth:`GeecsDb.get_device_variables` and
+    description, alias — the shared SELECT column order (after the leading
+    id/link column) of :meth:`GeecsDb.get_device_variables` and
     :meth:`GeecsDb.get_experiment_device_variables`.  Both the type-default
     table (``devicetype_variable``) and the per-instance table (``variable``)
     carry the same columns, so one mapper serves both.  ``description`` exists
     only on ``variable`` — the type query selects ``NULL`` in that slot, so a
     description is a purely per-instance fact (which the wholesale inheritance
-    already implies).
+    already implies).  ``alias`` is the operator-facing short name (the DB
+    curates it per instance — ``U_ESP_JetXYZ:Position.Axis 3`` → ``Jet_Z
+    (mm)``; the type table's column is unpopulated in practice); clients list
+    aliased variables first and show the alias beside the canonical
+    ``Device:Variable`` name, never instead of it.
     """
     return {
         "name": row[0],
@@ -185,6 +189,7 @@ def _variable_row_to_meta(row: tuple) -> dict:
         "choices": row[6],
         "tolerance": _num(row[7]),
         "description": (row[8] or "").strip() if len(row) > 8 else "",
+        "alias": (row[9] or "").strip() if len(row) > 9 else "",
     }
 
 
@@ -496,7 +501,9 @@ class GeecsDb:
         ``settable`` (bool), ``variabletype`` (``"numeric"``, ``"choice"``,
         ``"string"``, ``"path"``, ``"image"``, ``"1darray"``, …), ``choices``
         (comma-separated option string from the ``choice`` table for ``choice``
-        variables, else ``None``), and ``tolerance`` (numeric, or ``None``).
+        variables, else ``None``), ``tolerance`` (numeric, or ``None``),
+        ``description`` and ``alias`` (the curated short name; ``""`` when
+        none).
 
         Metadata resolves the capability inheritance chain: type defaults come
         from ``devicetype_variable``; a per-instance row in ``variable``
@@ -505,7 +512,7 @@ class GeecsDb:
         with _cursor() as cur:
             cur.execute(
                 "SELECT dtv.id, dtv.name, dtv.units, dtv.min, dtv.max, dtv.`set`, "
-                "dtv.variabletype, c.choices, dtv.tolerance, NULL "
+                "dtv.variabletype, c.choices, dtv.tolerance, NULL, dtv.alias "
                 "FROM devicetype_variable dtv "
                 "JOIN device d ON d.devicetype = dtv.devicetype "
                 "LEFT JOIN choice c ON c.id = dtv.choice_id "
@@ -515,7 +522,8 @@ class GeecsDb:
             type_rows = cur.fetchall()
             cur.execute(
                 "SELECT v.devicetype_variable_id, v.name, v.units, v.min, v.max, "
-                "v.`set`, v.variabletype, c.choices, v.tolerance, v.description "
+                "v.`set`, v.variabletype, c.choices, v.tolerance, v.description, "
+                "v.alias "
                 "FROM variable v "
                 "LEFT JOIN choice c ON c.id = v.choice_id "
                 "WHERE v.device = %s ORDER BY v.name",
@@ -610,7 +618,7 @@ class GeecsDb:
         with _cursor() as cur:
             type_query = (
                 "SELECT d.name, dtv.id, dtv.name, dtv.units, dtv.min, dtv.max, "
-                "dtv.`set`, dtv.variabletype, c.choices, dtv.tolerance, NULL "
+                "dtv.`set`, dtv.variabletype, c.choices, dtv.tolerance, NULL, dtv.alias "
                 "FROM (SELECT DISTINCT ed.device FROM expt_device ed "
                 "      WHERE ed.expt = %s{enabled}) sel "
                 "JOIN device d ON d.name = sel.device "
@@ -623,7 +631,7 @@ class GeecsDb:
             instance_query = (
                 "SELECT v.device, v.devicetype_variable_id, v.name, v.units, "
                 "v.min, v.max, v.`set`, v.variabletype, c.choices, v.tolerance, "
-                "v.description "
+                "v.description, v.alias "
                 "FROM (SELECT DISTINCT ed.device FROM expt_device ed "
                 "      WHERE ed.expt = %s{enabled}) sel "
                 "JOIN variable v ON v.device = sel.device "

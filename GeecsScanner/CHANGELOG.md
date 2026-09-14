@@ -4,6 +4,39 @@ All notable changes to `geecs-scanner` are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 project adheres to semantic versioning.
 
+## [0.5.0] - 2026-09-14
+
+PR 5b of the web scanner arc — the movable panel.
+
+### Added
+
+- **`GET /api/settables`** — every numeric settable of the experiment from
+  the GEECS DB (`GeecsDb.get_experiment_device_variables` with GEECS-Core
+  0.7.0's `alias`, ordered by its `numeric_settables`): **aliased
+  variables first** (alphabetical by alias), then the rest by canonical
+  `Device:Variable`; each row carries the alias beside the canonical name,
+  never instead of it. Read once per process and kept — a DB roster change
+  restarts the CA gateway anyway; a failed read is reported, not cached.
+- **`GET /api/readback?variable=Device:Variable&units=`** — one live
+  reading over the CA gateway's readback PV (`geecs_core.pv_naming`, one
+  `aioca.caget` on the app's loop — the service's one async path, which
+  takes no lock and reads no DB): value, the units the caller passes, the
+  channel's stamp and age. The readback, not the `:SP` echo the Qt console
+  showed as "set". The name is split by GEECS-Schemas 0.25.0's
+  `split_device_variable`.
+- **The devices · move panel** lists the settables (the option value is
+  the canonical name; the catalog-only picker is gone) and shows the
+  picked variable's readback with its age in the kit's live-value row,
+  polled once a second while a variable is picked; a gateway that does not
+  answer reads as `stale`.
+- Demo backend: a fixed alias-first list and a readback that follows the
+  fake manager's moves.
+
+### Changed
+
+- `geecs-core` is a direct dependency (it was a transitive of
+  geecs-bluesky), the console's stated convention.
+
 ## [0.4.0] - 2026-09-13
 
 PR 5a of the web scanner arc — layout and freshness, from Sam's notes on the

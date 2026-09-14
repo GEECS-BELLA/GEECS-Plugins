@@ -53,6 +53,7 @@
     formable: true, formableNote: "",
     pendingPreset: null, pendingAck: [],
     devices: [], actions: [], actionName: null, armed: false, calibration: null,
+    settables: [], settablesNote: "", readbackVar: null, readbackTimer: null,
     tail: "scanlog", logFolder: null, logLines: [], consoleLines: []
   };
 
@@ -366,10 +367,12 @@
       api("/api/configs/trigger_profiles"),
       api("/api/devices").catch(function () { return []; }),
       api("/api/actions").catch(function (e) { return { error: e.message }; }),
-      api("/api/calibration").catch(function (e) { return { stored: false, detail: e.message }; })
+      api("/api/calibration").catch(function (e) { return { stored: false, detail: e.message }; }),
+      api("/api/settables").catch(function (e) { return { items: [], source: "?", detail: e.message }; })
     ]).then(function (res) {
       S.presets = res[0].names; S.variables = res[1]; S.triggers = res[2].names;
       S.devices = res[3]; S.actions = res[4].error ? [] : res[4]; S.calibration = res[5];
+      S.settables = res[6].items || []; S.settablesNote = res[6].detail || "";
       renderMoveVars(); renderDeviceList(""); renderActions(res[4].error || null); renderCalibration();
       renderPresetList();
       ["var1", "var2"].forEach(function (id) {
@@ -747,15 +750,68 @@
   }
 
   /* ---- devices · move */
+  // The list is every numeric settable of the experiment, aliased ones first
+  // (the DB's curated short names); the option VALUE is always the canonical
+  // Device:Variable — what the request stores. The readback beside it is the
+  // gateway's readback PV, never the :SP echo.
+  function settableFor(name) {
+    return S.settables.filter(function (s) { return s.name === name; })[0] || null;
+  }
   function renderMoveVars() {
     var sel = $("mv-var"); sel.textContent = "";
-    S.variables.forEach(function (v) {
-      sel.appendChild(option(v.name, v.name + (v.target ? " · " + v.target : " · pseudo"), !v.scannable, v.reason || v.target || ""));
+    if (S.settables.length) sel.appendChild(option("", "— pick a variable —"));
+    S.settables.forEach(function (s) {
+      var label = (s.alias ? s.alias + " · " : "") + s.name + (s.units ? " (" + s.units + ")" : "");
+      sel.appendChild(option(s.name, label, false, s.alias ? s.name : ""));
     });
-    if (!S.variables.length) sel.appendChild(option("", "no scan variables in the catalog", true));
+    if (!S.settables.length) sel.appendChild(option("", S.settablesNote ? "settables unavailable" : "no numeric settables", true));
+    var aliased = S.settables.filter(function (s) { return s.alias; }).length;
+    $("mv-hint").textContent = S.settablesNote ? S.settablesNote
+      : S.settables.length + " numeric settables · " + aliased + " aliased, listed first · from the GEECS DB";
+    watchReadback(sel.value);
     renderIdleGates();
   }
-  $("mv-var").addEventListener("change", renderIdleGates);
+  function fmtVal(x) {
+    var a = Math.abs(x);
+    if (a !== 0 && (a >= 1e5 || a < 1e-3)) return x.toExponential(3);
+    return x.toFixed(a >= 100 ? 2 : a >= 1 ? 3 : 4);
+  }
+  function watchReadback(name) {
+    S.readbackVar = name || null;
+    if (S.readbackTimer) { clearInterval(S.readbackTimer); S.readbackTimer = null; }
+    var live = $("mv-live");
+    if (!name) { live.hidden = true; return; }
+    var s = settableFor(name);
+    $("mv-k").textContent = s && s.alias ? s.alias + " · " + name : name;
+    $("mv-rb").textContent = "—"; $("mv-age").textContent = "reading…"; live.removeAttribute("data-age");
+    live.hidden = false;
+    pollReadback(true);
+    S.readbackTimer = setInterval(pollReadback, 1000);
+  }
+  // The ticker skips a hidden tab (no point polling a page nobody sees); the
+  // first read after a pick and the return to the tab always read.
+  document.addEventListener("visibilitychange", function () { if (!document.hidden) pollReadback(true); });
+  function pollReadback(force) {
+    var name = S.readbackVar;
+    if (!name || (document.hidden && force !== true)) return;
+    var s = settableFor(name);
+    api("/api/readback?variable=" + encodeURIComponent(name) + (s && s.units ? "&units=" + encodeURIComponent(s.units) : "")).then(function (r) {
+      if (S.readbackVar !== name) return;
+      var v = $("mv-rb"); v.textContent = "";
+      if (r.ok && r.value != null) {
+        v.appendChild(document.createTextNode(fmtVal(r.value)));
+        if (r.units) { var u = document.createElement("small"); u.textContent = r.units; v.appendChild(u); }
+      } else { v.textContent = "—"; }
+      $("mv-age").textContent = r.age_s != null ? fmtAge(r.age_s) : (r.detail || "no reading");
+      // stale = the gateway did not answer; a quiet device with an old stamp is
+      // still a reading, and the age says how old.
+      if (r.ok) $("mv-live").removeAttribute("data-age"); else $("mv-live").setAttribute("data-age", "stale");
+    }).catch(function (e) {
+      if (S.readbackVar !== name) return;
+      $("mv-rb").textContent = "—"; $("mv-age").textContent = e.message; $("mv-live").setAttribute("data-age", "stale");
+    });
+  }
+  $("mv-var").addEventListener("change", function () { watchReadback(this.value); renderIdleGates(); });
   $("btn-move").addEventListener("click", function () {
     var v = Number($("mv-val").value);
     var bad = $("mv-val").value === "" || !isFinite(v);
