@@ -10,9 +10,9 @@ mkdocs:
 
 python:
   install:
-    # geecs-bluesky is importable for mkdocstrings pages that reach into
-    # it; its intra-repo path deps resolve relative to the checkout, same
-    # as the local docs env.
+    # geecs-bluesky brings geecs-core (docs/geecs_core/api/client.md is an
+    # mkdocstrings page) and geecs-data-utils in as path deps, resolved
+    # relative to the checkout, same as the local docs env.
     - method: pip
       path: GeecsBluesky
     - method: pip

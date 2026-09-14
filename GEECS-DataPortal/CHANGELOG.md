@@ -3,6 +3,20 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.27.3] - 2026-09-14
+
+### Added
+
+- `tests/test_shared_helpers.py` pins by identity that the portal's
+  `resolve_scan_folder` and `metadata_rows` are GEECS-Data-Utils' shared
+  implementations. The pin lived in the Qt console's suite until that
+  package was deleted (web scanner arc PR 6).
+
+### Changed
+
+- `CLAUDE.md` / `DEPLOYMENT.md` no longer describe the portal relative to
+  the deleted GEECS-Console.
+
 ## [0.27.2] - 2026-09-13
 
 ### Changed

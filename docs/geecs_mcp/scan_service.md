@@ -27,7 +27,8 @@ refusals rather than half-submissions.
 ## Submitting (Q)
 
 `submit_scan` accepts either a saved **preset** by name or a composed
-`ScanRequest` dictionary — the same one submission shape as the web scanner,
+`ScanRequest` dictionary (the funnel contract — the web scanner submits
+presets; the two share the client seam and the preflight, not the shape),
 validated against the schema at the tool boundary. Standing protections,
 all enforced server-side:
 

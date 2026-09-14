@@ -768,7 +768,7 @@ const INFO = {
  "name": "GEECS-Schemas",
  "role": "The typed vocabulary for describing a scan and an analysis. Pydantic only, importable from anywhere.",
  "status": "hardening",
- "does": "Defines, as versioned Pydantic models, every config kind the platform runs on: the ScanRequest itself, save sets, scan variables, trigger profiles, action plans, derived channels, and now the analysis configs. Console, MCP, engine, portal, ScanAnalysis and the docs generator all import the same models, so they cannot disagree about what a scan is.",
+ "does": "Defines, as versioned Pydantic models, every config kind the platform runs on: the ScanRequest itself, save sets, scan variables, trigger profiles, action plans, derived channels, and now the analysis configs. Scanner, MCP, engine, portal, ScanAnalysis and the docs generator all import the same models, so they cannot disagree about what a scan is.",
  "how": [
   "Configs are schemas; YAML is just their serialization. The configs repo holds the YAML, this package holds the meaning.",
   "Declare intent, derive mechanics. Device facts such as limits, units and enum choices live in the GEECS DB and are never repeated in YAML. Unknown keys fail loudly (`extra=\"forbid\"`).",

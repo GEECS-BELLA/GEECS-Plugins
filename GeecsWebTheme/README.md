@@ -1,7 +1,7 @@
 # GeecsWebTheme
 
 The shared look of every GEECS web surface — the Data Portal, the scan
-logbook, the analysis config editor, and the console once it is web-based.
+logbook, the analysis config editor, and the scanner (the web console).
 
 Two layers, because they answer two different questions.
 

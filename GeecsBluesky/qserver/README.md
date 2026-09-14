@@ -100,7 +100,7 @@ dispatcher.subscribe(lambda name, doc: ...)
 dispatcher.start()  # blocking — run it in a background thread
 ```
 
-The subscription contract for clients beyond the console — firewall,
+The subscription contract for clients beyond the web scanner — firewall,
 wire format, late joiners, transport posture, stability — is
 `deploy/DEPLOYMENT.md` § "External subscribers".
 
@@ -120,9 +120,8 @@ ordering and queue provenance for free; an action plan is a `run_action`
 item.  The `function_execute` verbs of the retired funnel
 (`geecs_move_variable`, `geecs_describe_action`, `geecs_run_action_plan`)
 are gone with it (#807 phase 1); a step preview is client-side
-(`plans.action_compiler.flatten_action_steps`).  The Console's actions
-menu still calls the funnel's submitter verb until its rewire (§10.5 of
-the plan of record).
+(`plans.action_compiler.flatten_action_steps`); the web scanner's actions
+panel queues `run_action` items over it.
 
 ## Troubleshooting
 
@@ -136,11 +135,11 @@ the plan of record).
   manager this way — bluesky-queueserver never opens the environment on
   its own. Fix: `systemctl restart geecs-qserver-ready` (or
   `geecs-qserver-ensure-ready` / `qserver environment open` by hand); the
-  console's `worker_ready` preflight names this state instead of relaying
+  scanner's `worker_ready` preflight names this state instead of relaying
   the manager string (GEECS-Plugins#793). The same state without any unit
   failing: the RE worker *child* died while the manager survived — no
   systemd event fires, `geecs-qserver-ready` stays `active (exited)` from
-  its last successful run, and only the console/MCP preflight refusal
+  its last successful run, and only the scanner/MCP preflight refusal
   names the gesture (`systemctl restart geecs-qserver-ready`).
 - **Allowed plans empty while the manager is idle with its environment
   open** (`worker_environment_exists: True`, `re_state: idle`,

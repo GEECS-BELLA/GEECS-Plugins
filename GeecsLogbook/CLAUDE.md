@@ -234,7 +234,7 @@ input. It sets no colours (the theme guard's rule).
 |---|---|
 | `success` | `ScanEndInfo = "success"` |
 | `failed` | starts with `fail` — the reason is surfaced verbatim |
-| `aborted` | starts with `abort` — `RE.abort()`, Ctrl-C, or the queueserver stop the console and GEECS-MCP expose; reason surfaced the same way |
+| `aborted` | starts with `abort` — `RE.abort()`, Ctrl-C, or the queueserver stop the scanner and GEECS-MCP expose; reason surfaced the same way |
 | `incomplete` | no `ScanInfo`, **or** `ScanEndInfo` still empty |
 | `unknown` | a non-empty `ScanEndInfo` we do not recognise |
 

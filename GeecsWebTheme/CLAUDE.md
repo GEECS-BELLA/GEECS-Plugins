@@ -16,7 +16,7 @@ questions separately, and disagreed on all of them: two rails (`17rem`
 fixed vs `228px` sticky), **zero** lines of shared layout, **fifteen**
 status class names for about five states, three overlay mechanisms — none a
 real `<dialog>`, so the portal's modal had no focus trap and ignored `Esc`.
-The forcing function was the third surface: the console, once web-based, is
+The forcing function was the third surface: the scanner (the web console) is
 the one with the hardest requirements (live values, write actions, hazards,
 keyboard), so it sets the vocabulary rather than inheriting a compromise.
 
@@ -62,8 +62,8 @@ the theme without being on the kit.
 | GEECS-DataPortal | yes | **no** — its own rail, tabs, badges, overlay, a 125-line inline style block and a 971-line inline script | no (own middleware copy) |
 | ScanAnalysis config editor (`/configs`) | yes | no | no |
 
-**Portal onto the kit is deliberately LAST** — after the Qt console is
-deleted and HTU is quiet — because it is the kit's acceptance test: the
+**Portal onto the kit is deliberately LAST** — after the Qt console's
+deletion (done 2026-09-14) and once HTU is quiet — because it is the kit's acceptance test: the
 run page uses plots, tabs and toasts, which the kit does not have yet,
 so that adoption will grow the kit rather than just consume it. Take the
 portal's glue copy (`_ForwardedPrefixMiddleware`, its own `root`

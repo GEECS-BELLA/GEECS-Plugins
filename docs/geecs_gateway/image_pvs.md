@@ -124,7 +124,7 @@ endpoints, minus hosts where no instance was installed; see
 `GeecsPvaGateway/DEPLOYMENT.md` §Client access).  Any process that imports
 `geecs_bluesky` exports it, together with `[pva] file_plugin_addr_list`,
 into `EPICS_PVA_ADDR_LIST` at import (broadcast search stays on; an
-explicit environment variable wins) — the worker, the Console and the
+explicit environment variable wins) — the worker, the scanner and the
 MCP server included; Phoebus and other non-Python clients still take the
 value by hand.  The fleet tooling reads the key itself. The CA variables
 (`EPICS_CA_*`) belong to the scalar gateway and are unaffected — a client

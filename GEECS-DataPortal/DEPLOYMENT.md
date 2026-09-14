@@ -233,11 +233,11 @@ does) mounts the analysis config editor at `/configs` and puts an **edit**
 button on the Analysis tab. A read-only viewer leaves the key empty — a
 site.env choice, never a hand-edit of the rendered unit. It is a write verb: saves
 land in the `--processing-configs` tree — the share copy of the configs
-repo — uncommitted, exactly like the console's config writes; someone
+repo — uncommitted, exactly like the scanner's preset writes; someone
 still commits them. It needs the `analysis` extra (ScanAnalysis brings the
 editor router; its `editor` extra — fastapi, jinja2 — is satisfied by the
 portal's own dependencies). Turn it on where operators are expected to
 tune diagnostics from the browser; leave it off on a read-only mount. It
-carries no authentication beyond the lab network, like the console's
-config writes — `DELETE` removes a file from the share checkout (git
+carries no authentication beyond the lab network, like the scanner's
+preset writes — `DELETE` removes a file from the share checkout (git
 restores it, nothing else does).

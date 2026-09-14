@@ -40,40 +40,51 @@ whether the worker's document stream is being heard.
 
 - **Now** — the running scan: state, the claimed scan number, progress
   against the planned shots, and a live tail of the scan's own `scan.log`
-  (the manager's console text sits behind a toggle).
+  (the manager's console text sits behind a toggle). **Pause**, **Resume**
+  and **Stop scan…** live here and act on the running item.
 - **New scan** — the form. Start from a **preset** (a saved scan document
-  from the experiment's configs repository, in a dropdown) or compose a
-  `count` (N shots at a fixed configuration), a 1D `scan` (one variable,
-  start → stop → steps, shots per step) or a `grid_scan` (two variables,
-  outer product). Pick the trigger profile, then **Preflight** checks the
-  request without submitting anything; **Submit** queues it. The current
-  form can be saved back as a preset.
-- **Queue** — the running item, what waits behind it, and recent history.
-  Pause, resume and stop act on the running item; clear empties what
-  waits. The page refuses a second waiting item unless you say so.
+  from the experiment's configs repository, in a dropdown) or compose one:
+  the shape is **No-scan** (N shots at a fixed configuration), **1D** (one
+  variable, start → stop → steps, shots per step), **Grid** (two
+  variables, outer product) or **Background** (a no-scan tagged as a
+  reference); **Optimize** is greyed out until the worker has an
+  optimization plan. Acquisition is **strict** (fire between trigger and
+  wait, one row per shot) or **gated** (the trigger box in SCAN, cameras
+  count a batch). Pick the trigger profile, then press **Start** — see
+  [Running a scan](#running-a-scan) for what Start does. The current form
+  can be saved back as a preset (**Save as preset…**).
+- **Queue** — the running item, what waits behind it, and recent history;
+  **Clear** empties what waits. The page refuses a second waiting item
+  unless you say so.
 - **Devices · move** — every numeric settable variable of the experiment,
   alias first, straight from the GEECS database. Pick one and the page
   shows its live **readback** (the gateway's readback PV, never the
   setpoint) with the reading's age; enter a value and **Move** queues a
-  single move. Moves run only while the queue is idle.
+  single move. Moves run only while the queue is idle — the panel's chip
+  says `idle`, `a plan is running` or `items wait in the queue`.
 - **Actions** — the experiment's action library: pick a plan, preview
-  every step (nested plans inlined), run it. Idle only.
-- **Calibration** — the stored per-device shot offsets, with a check and a
-  measure verb over a chosen device set and trigger profile. Idle only.
+  every step (nested plans inlined), **Arm**, then **Run**. Arming is never
+  remembered — it is asked for on every run. Idle only.
+- **Calibration** — the stored per-device shot offsets, with **Check** and
+  **Measure** verbs over the devices in the New scan table and the chosen
+  trigger profile. Idle only.
 
 ## Running a scan
 
 1. Pick a preset in **New scan**, or compose a scan and pick a trigger
    profile.
-2. Press **Preflight**. Refusals (an unknown name, a variable no device
-   serves, a worker that is not ready) come back as text; warnings come
-   back as *questions* — stale cameras, a trigger that looks off — and a
-   submit is refused until every question is acknowledged. The
-   acknowledgements are stamped into the run's metadata.
-3. Press **Submit**. The item lands in the queue and, when the worker is
-   idle, runs; **Now** follows it shot by shot.
-4. **Stop** aborts at the next safe point and restores the trigger to its
-   standby state. An aborted scan's folder is kept, never deleted.
+2. Press **Start**. The page first runs the pre-submit **preflight**.
+   Refusals (an unknown name, a variable no device serves, a worker that
+   is not ready) come back as text and nothing is queued. Warnings come
+   back as *questions* — stale cameras, a trigger that looks off — in a
+   dialog; nothing is queued until every question is acknowledged and you
+   press **Submit to queue**. The acknowledgements are stamped into the
+   run's metadata. A clean preflight queues the item at once — Start is
+   not a dry run (the dry run is the API's `POST /api/preflight`).
+3. The item lands in the queue and, when the worker is idle, runs; **Now**
+   follows it shot by shot.
+4. **Stop scan…** aborts at the next safe point and restores the trigger
+   to its standby state. An aborted scan's folder is kept, never deleted.
 
 The preset *is* the submission document (`geecs_schemas.Preset`: a device
 group, a plan call, a trigger profile). The scanner expands it with the
@@ -107,8 +118,9 @@ The column contract is `GeecsBluesky/EVENT_SCHEMA.md` in the repository.
   fix (the readiness unit reopens it); the page cannot do it.
 - **`doc stream` chip down while a scan runs** — the page still shows the
   queue's state, but no shot-by-shot progress. Scans are unaffected.
-- **Move, Actions and Calibration read "idle only"** — a plan is running
-  or an item waits; they open again when the queue is idle.
+- **Move, Actions and Calibration are held** — the move chip reads
+  `a plan is running` or `items wait in the queue`; they open again when
+  the queue is idle.
 - **The scan folder is missing data** — start at the scan's `scan.log`
   (the **Now** tail, or the file in the scan folder) and the repository's
   `/triage` skill.

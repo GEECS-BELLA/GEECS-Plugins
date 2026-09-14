@@ -299,8 +299,8 @@ this package and must never depend on GeecsBluesky or a GUI package).
   shared front-end helpers `resolve_scan_folder` (RunDetail → existing
   scan folder, strictly read-only — the scan-folder invariant's
   tree-untouched pin lives in this package's suite) and `metadata_rows`
-  (pure RunDetail → display rows), consumed by both the console scan
-  browser and the data portal; their daily-path fallback is
+  (pure RunDetail → display rows), consumed by the data portal (and by
+  the Qt console's scan browser until its deletion, 2026-09-14); their daily-path fallback is
   `scan_paths.daily_scan_folder`, the offline-first (None, never raise,
   never create) module-level companion to
   `ScanPaths.get_daily_scan_folder`.

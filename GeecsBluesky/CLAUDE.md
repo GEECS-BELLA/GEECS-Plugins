@@ -23,9 +23,10 @@ Hardware-accepted (`tests/test_phase1_hardware.py`,
 `Planning/native_bluesky/05_phase1_acceptance.md` M4–M7; the file plugin
 in `07_806_acceptance.md`); the worker runs the feature branch at the
 #823 merge and nine camera-server gateways serve the plugin
-(`03_clean_room_rebuild.md` §2).  The Console and GEECS-MCP are rewired
-once, when the foundation is stable — not per step (their submit paths
-call the removed funnel verbs meanwhile).  Per-shot budget: ~7 ms of
+(`03_clean_room_rebuild.md` §2).  GEECS-MCP is rewired once, when the
+foundation is stable — not per step (its submit path calls the removed
+funnel verbs meanwhile); the Console was deleted instead (2026-09-14) and
+GeecsScanner, the web scanner, submits presets.  Per-shot budget: ~7 ms of
 plan-layer work; the camera exposure sets the margin at 1 Hz — strict
 single-shot is not the 1 Hz mode, phase 2's gated batch is
 (`08_gated_batch.md`, designed 2026-09-11).

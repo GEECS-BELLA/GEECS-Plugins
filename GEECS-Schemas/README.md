@@ -81,7 +81,7 @@ independently:
 | Kind (registry key) | Model | Replaces |
 |---|---|---|
 | `preset` | `Preset` | save elements (`save_devices/*.yaml`) + scan presets (`scan_presets/*.yaml`): the device group (`device`, `save_images`) plus the stock plan call — a saved queue item (GEECS-Plugins#807, PR 2) |
-| `scan_request` | `ScanRequest` | `ScanConfig`, GUI submission state (the Console / MCP funnel contract until they are rewired onto presets) |
+| `scan_request` | `ScanRequest` | `ScanConfig`, GUI submission state (the MCP's funnel contract until it is rewired onto presets; the web scanner submits presets) |
 | `scan_variables` | `ScanVariables` | `scan_devices.yaml` + `composite_variables.yaml` — retired 2026-09: catalogs are authored new-schema only, there is no converter |
 | `trigger_profile` | `TriggerProfile` | shot-control configs (one profile per operating condition); states are machine states holding *ordered, multi-device* write lists |
 | `action_plan` | `ActionPlan` | one entry of the action library |

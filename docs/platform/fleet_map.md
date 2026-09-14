@@ -325,8 +325,8 @@ host's cameras as NTNDArray PVs (gated subscriptions, latest-wins).
 Viewers connect point-to-point; 2 MB frames never transit the control
 plane.
 
-**Orchestration plane — the queue.** Scans exist as `ScanRequest`s
-submitted to the RE Manager's queue (ZMQ, port 60615). The console,
+**Orchestration plane — the queue.** Scans exist as queue items
+submitted to the RE Manager's queue (ZMQ, port 60615). The scanner,
 notebooks, and the MCP server are all peer clients of the same queue
 API; the worker executes plans against the CA gateway's PVs and streams
 progress on the document (5568) and console-output (60625) ports.

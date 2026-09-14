@@ -70,7 +70,7 @@ follow that split; the bottom row is for navigation and troubleshooting.
 
 ```mermaid
 flowchart LR
-    Console[GEECS Console<br/>PySide6 operator GUI]
+    Scanner[GEECS Scanner<br/>web scanner console]
     Engine[GeecsBluesky<br/>RunEngine scan core]
     Core[GEECS-Core<br/>transport + DB + GeecsDevice]
     GW[CA/PVA Gateways<br/>GEECS as EPICS PVs]
@@ -79,7 +79,7 @@ flowchart LR
     DU[Data Utils<br/>paths + s-files]
     GDoc[LogMaker<br/>e-log upload]
 
-    Console --> Engine
+    Scanner --> Engine
     Engine -->|CA service| GW
     GW --> Core
     Engine --> DU
@@ -89,7 +89,7 @@ flowchart LR
     IA -.->|optional, via Array2DScanAnalyzer| SA
 ```
 
-A typical workflow: the GEECS Console runs a scan that writes a folder to
+A typical workflow: the GEECS Scanner runs a scan that writes a folder to
 the data server (and a structured run to the Tiled catalog). Scan Analysis (live or offline) reads that folder, runs
 configured Image Analysis analyzers across the shots, renders summary
 figures, and appends derived scalars back to the s-file. A separate notebook

@@ -116,7 +116,7 @@ def _submit_scan_impl(
             "policy_refusal",
             f"{shots} planned shots exceeds the agent cap of {cap} "
             "([mcp] max_shots) — shrink the scan or have an operator "
-            "run it from the console",
+            "run it from the scanner page",
         )
 
     # -- queue etiquette: one scan in flight, never clear implicitly --------
