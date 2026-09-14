@@ -725,7 +725,7 @@ url = "../GEECS-Schemas"
 
 [[package]]
 name = "geecs-web-theme"
-version = "0.5.1"
+version = "0.6.0"
 description = "One palette vocabulary for every GEECS web surface: tokens, themes, and the picker"
 optional = true
 python-versions = ">=3.11,<3.12"

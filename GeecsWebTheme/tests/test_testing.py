@@ -151,6 +151,8 @@ def test_token_indirection_map_reads_structure_not_formatting() -> None:
     /* two vars is a computation, not an indirection */
     .tone-bad { --tone: var(--a) var(--b) }
     .tone-none { --tone: red }
+    /* one function, but not var(): a computation over a token, not an indirection */
+    .tone-mix { --tone: color-mix(in srgb, var(--ok), white) }
     @media (min-width: 40em) { .tone-deep { --tone: var(--deep) } }
     """
     got = token_indirection_map(css)

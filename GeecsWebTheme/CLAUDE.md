@@ -187,11 +187,12 @@ purpose: the `[hidden]` ordering check and the per-component specimen list.
 Remaining edges:
 
 - The `web` and `testing` extras are separate on purpose: a consumer's
-  test suite takes `testing` (tinycss2) only if it uses a CSS helper —
-  or, when the package already depends on the theme at runtime with the
-  `web` extra (the logbook), pins `tinycss2` directly in its dev group,
-  since Poetry cannot re-declare that dependency with more extras in a
-  group. The HTML guards need nothing.
+  test suite takes `testing` (tinycss2) only if it uses a CSS helper. A
+  package that already takes the theme at runtime with `web` re-declares
+  the same path dependency in its dev group with `extras = ["testing"]`
+  (the logbook does; Poetry merges the groups and installs tinycss2 for
+  dev only). The HTML guards need nothing; the version floor has one
+  owner, this extra.
 - Adding a spacing token means adding it to `_DENSITY_TOKENS` in the test,
   or the density block that forgot it will not fail.
 - `js_colour_literals` judges string literals only: a colour built by

@@ -24,9 +24,10 @@ project adheres to semantic versioning.
   the prefixed path only (a stripping proxy without the header serves a
   styleless page, not a 404). Found by the Codex review of #877 on the
   logbook; verified on the portal too.
-- The `testing` extra's note now also blesses a consumer pinning
-  `tinycss2` directly in its dev group (this package's own dev group does
-  the same) — one floor, two spellings, either is fine.
+- The `testing` extra's note spells out how a consumer that already takes
+  the theme at runtime (`web`) also takes `testing` for its tests: the
+  same path dependency re-declared in the dev group with
+  `extras = ["testing"]`. One version floor, one owner.
 
 ## [0.5.0] - 2026-09-13
 
