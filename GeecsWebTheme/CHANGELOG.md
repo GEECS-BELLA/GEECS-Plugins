@@ -4,7 +4,15 @@ All notable changes to `geecs-web-theme` are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 project adheres to semantic versioning.
 
-## [0.5.1] - 2026-09-13
+## [0.6.0] - 2026-09-13
+
+### Added
+
+- `testing.token_indirection_map(css)` — `{selector: {--local: --target}}`
+  for every token set to exactly one `var(--x)`, read structurally (any
+  spacing, comma lists split). The structural form of
+  `token_indirections`; the logbook's `.tone-` guard is its first
+  consumer.
 
 ### Changed
 
@@ -16,6 +24,9 @@ project adheres to semantic versioning.
   the prefixed path only (a stripping proxy without the header serves a
   styleless page, not a 404). Found by the Codex review of #877 on the
   logbook; verified on the portal too.
+- The `testing` extra's note now also blesses a consumer pinning
+  `tinycss2` directly in its dev group (this package's own dev group does
+  the same) — one floor, two spellings, either is fine.
 
 ## [0.5.0] - 2026-09-13
 

@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "geecs-web-theme"
-version = "0.5.1"
+version = "0.6.0"
 description = "One palette vocabulary for every GEECS web surface: tokens, themes, and the picker"
 authors = ["GEECS-BELLA"]
 readme = "README.md"
@@ -20,7 +20,9 @@ jinja2 = { version = ">=3.1", optional = true }
 # The `testing` extra: the CSS guards in geecs_web_theme.testing read
 # stylesheets through a real parser. A consumer's test suite that uses
 # them (the "every class on the page is styled" check) takes this extra
-# in its dev group; the HTML guards need nothing.
+# in its dev group — or pins tinycss2 there directly, as this package's
+# own dev group does (Poetry cannot re-declare a runtime path dependency
+# with more extras in a group); the HTML guards need nothing.
 tinycss2 = { version = ">=1.3", optional = true }
 
 [tool.poetry.extras]

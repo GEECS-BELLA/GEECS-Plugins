@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 import time
 from pathlib import Path
 
@@ -170,22 +169,17 @@ def test_every_tone_has_a_css_rule() -> None:
     A tone without a ``.tone-<name>`` rule would render with no colour at
     all; a rule without a tone would be dead. Both directions are pinned.
     """
-    from geecs_web_theme.testing import css_rules
+    from geecs_web_theme.testing import token_indirection_map
 
-    # Through the parser, not a regex: a rule written `.tone-ok { --tone:
-    # var(--ok) }` (spaces, a newline, a comment) is the same rule, and a
+    # Through the parser, not a regex: `.tone-ok { --tone: var( --ok ) }`
+    # with any spacing, a comment, or a comma list is the same rule, and a
     # regex shaped for one formatting passes silently when the file is
-    # reformatted — the #875 lesson.
-    rules: dict[str, str] = {}
-    for selector, declarations in css_rules(CSS.read_text()):
-        m = re.fullmatch(r"\.tone-([\w-]+)", selector.strip())
-        if m is None:
-            continue
-        for name, value in declarations:
-            if name == "--tone":
-                text = "".join(t.serialize() for t in value).strip()
-                var = re.fullmatch(r"var\(--([\w-]+)\)", text)
-                assert var, f".tone-{m.group(1)} sets --tone to {text!r}, not a token"
-                rules[m.group(1)] = var.group(1)
+    # reformatted — the #875 lesson. The map is the theme's helper, so the
+    # next surface with a `.tone-` vocabulary reuses it.
+    rules = {
+        selector[len(".tone-") :]: tokens["--tone"]
+        for selector, tokens in token_indirection_map(CSS.read_text()).items()
+        if selector.startswith(".tone-") and "--tone" in tokens
+    }
     assert set(rules) == set(TONES)
-    assert all(name == token for name, token in rules.items())
+    assert all(f"--{name}" == token for name, token in rules.items())

@@ -62,6 +62,7 @@ __all__ = [
     "selector_parts",
     "styled_classes",
     "token_indirections",
+    "token_indirection_map",
     "unknown_data_states",
 ]
 
@@ -645,6 +646,38 @@ def token_indirections(css: str) -> set[str]:
                 and real[0].lower_name == "var"
             ):
                 out.add(name)
+    return out
+
+
+def token_indirection_map(css: str) -> dict[str, dict[str, str]]:
+    """Return ``{selector: {--local: --target}}`` for every one-``var`` token.
+
+    The structural form of :func:`token_indirections`: for each rule whose
+    declaration sets a ``--token`` to exactly one ``var(--x)`` (whitespace
+    around and inside the parentheses ignored), the local name maps to
+    the target token's name. Selector lists are split on their top-level
+    commas, so ``.tone-ok, .foo { --tone: var(--ok) }`` yields both parts.
+    A surface with a closed vocabulary of indirections (the logbook's
+    ``.tone-<name>{--tone:var(--<name>)}``) pins it against this map
+    instead of a formatting-shaped regex.
+    """
+    out: dict[str, dict[str, str]] = {}
+    for selector, decls in css_rules(css):
+        for name, value in decls:
+            if not name.startswith("--"):
+                continue
+            real = [v for v in value if v.type != "whitespace"]
+            if not (
+                len(real) == 1
+                and real[0].type == "function"
+                and real[0].lower_name == "var"
+            ):
+                continue
+            target = next((a for a in real[0].arguments if a.type == "ident"), None)
+            if target is None:
+                continue
+            for part in selector_parts(selector):
+                out.setdefault(part, {})[name] = target.value
     return out
 
 

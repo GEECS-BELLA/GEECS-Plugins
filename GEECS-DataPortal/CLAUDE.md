@@ -158,6 +158,14 @@ tests/
   test_logbook_link.py   # the run page's link to the logbook service; /log is not served here
 ```
 
+**Canonical day view (owner ruling 2026-09-13):** this package's `/day/`
+is the Tiled catalog's list of runs; the logbook's `/day/` is the scan
+folders on the share. When they disagree, **the folders are canonical for
+now** (parity with LabVIEW Master Control) — Tiled is expected to take
+over later, and the ruling and its consequences live in
+`GeecsLogbook/CLAUDE.md`'s deferred-items table. Do not rule the other
+way here.
+
 Routes: `/` (redirect to today) · `/day/{iso}` (run list; `?experiment=`)
 · `/run/{uid}` (the scan page: rail + Overview/Plot/Images/Analysis tabs
 — Analysis only when runs are possible, see below;

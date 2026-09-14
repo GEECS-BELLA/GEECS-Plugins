@@ -55,9 +55,11 @@ def main() -> None:
         "--root-path",
         default="",
         help=(
-            "URL prefix the portal is mounted under behind a reverse proxy "
-            "(e.g. /portal); a proxy-sent X-Forwarded-Prefix header "
-            "overrides this per request"
+            "URL prefix the portal is mounted under behind a PREFIX-PRESERVING "
+            "reverse proxy (e.g. /portal): the /static and /theme mounts then "
+            "answer at the prefixed path only. A proxy that strips the prefix "
+            "must send X-Forwarded-Prefix instead, which overrides this per "
+            "request (DEPLOYMENT.md § Behind a reverse proxy)"
         ),
     )
     parser.add_argument(
