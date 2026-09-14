@@ -251,6 +251,23 @@ details.scan[open] > .scanhead .twisty{transform:rotate(45deg)}
 .typebtn:hover,.typebtn.is-on{background:color-mix(in srgb,var(--tone) 14%,transparent);border-color:var(--tone)}
 .typebtn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 
+/* ---- cross-references between notes ----
+   render.py marks a rewritten `entry/<id>` link with this class, so it
+   reads as a reference to another note rather than as an outbound link.
+   The arrow is the whole signal; the rest is a link. */
+.entry-body a.entryref{color:var(--accent);text-decoration:none;
+  background:var(--accent-soft);border-radius:3px;padding:1px 6px 1px 4px;
+  white-space:nowrap}
+.entry-body a.entryref::before{content:"\2197";font-size:.85em;margin-right:4px;opacity:.75}
+.entry-body a.entryref:hover{text-decoration:underline}
+
+/* Arriving from a permalink. nav.js opens whatever was folded around the
+   target; this is what says "here". Scoped to the two things a fragment
+   can name, so an ordinary :target (a scan block) is not restyled. */
+.entry:target,.daygroup:target{outline:2px solid var(--accent);outline-offset:1px;
+  border-radius:var(--r)}
+.entry:target{background:var(--accent-soft)}
+
 /* ---- the two books: cross-links ---- */
 .booklink{text-decoration:none}
 .opsstrip{display:flex;align-items:center;gap:10px;padding:8px 14px;border:1px solid var(--rule);

@@ -22,6 +22,11 @@ this deployment moves or changes.
 - `/month/YYYY-MM` — the **ops book**: day-level notes read by month,
   from the database alone (it never touches the share, so it stays fast
   when the share is slow). `/month/today` names this month.
+- `/entry/{id}` — a note's **permalink**: redirects to whichever page
+  draws it, anchored at the entry, so a note can be cited without the
+  citer knowing which book it is in. The Link tool on every entry copies
+  one; pasting one into a composer writes a reference. Present only where
+  a store is configured.
 - `/api/…` — the same as JSON, plus the entry write verbs and
   `GET /api/entries?since=`, the change feed for synchronisers.
 - `/health` — `{"ok", "version", "experiment", "writable"}`; it never

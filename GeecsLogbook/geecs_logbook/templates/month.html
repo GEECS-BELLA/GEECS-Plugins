@@ -90,6 +90,7 @@
   </aside>
 
   <main id="logbook" data-api="{{ api_base }}" data-book="ops" data-accept="{{ accept }}"
+        data-entry-base="{{ permalink }}"
         data-month="{{ first.strftime('%Y-%m') }}"
         data-prev="{{ url_for('_month_page', month=prev_month.strftime('%Y-%m')).path }}"
         data-next="{{ url_for('_month_page', month=next_month.strftime('%Y-%m')).path }}"
@@ -111,17 +112,28 @@
       &middot; <a href="{{ month_path }}">show all</a></p>
     {% endif %}
 
+    {# Folded behind its affordance, like every composer in the scan log.
+       It was wedged open at the top of the month — the one composer the
+       book has, so there was nothing for Close to fold and the button was
+       not drawn. The date picker is what keeps ONE composer enough for a
+       whole month (the day heading's "+ note" sets it), which is why this
+       book does not grow a composer per day group. #}
     {% if writable %}
     <section class="panel compose">
       <header class="scanhead">
         <span class="scanid">New note</span>
         <span class="scanpurpose">Something about the day &mdash; not a scan. Pick a type or just write.</span>
+        <span class="hdr-actions">
+          <button class="insert-btn" type="button" data-open-composer="ops">+ note</button>
+        </span>
       </header>
       <div class="entries">
-        {% call shared.composer(seeds, day=compose_day.isoformat(), rows=4,
-                                placeholder='What happened? Markdown works; #tags are read from the text.') %}
-          <input type="date" class="when" value="{{ compose_day.isoformat() }}" required
-                 aria-label="Which day this note is about">
+        {% call shared.compose_host('ops') %}
+          {% call shared.composer(seeds, day=compose_day.isoformat(), rows=4, anchor='ops',
+                                  placeholder='What happened? Markdown works; #tags are read from the text.') %}
+            <input type="date" class="when" value="{{ compose_day.isoformat() }}" required
+                   aria-label="Which day this note is about">
+          {% endcall %}
         {% endcall %}
       </div>
     </section>
@@ -143,13 +155,17 @@
         <span class="scanpurpose">{{ rs | length }} note{{ '' if rs | length == 1 else 's' }}</span>
         <span class="hdr-actions">
           {% if writable %}
-          <button class="linkbtn" type="button" data-compose-day="{{ d.isoformat() }}">+ note</button>
+          {# Points the page's one composer at this day and opens it —
+             editor.js does both, so the order (reveal, then set the date,
+             then focus) cannot come apart across two listeners. #}
+          <button class="linkbtn" type="button" data-open-composer="ops"
+                  data-compose-day="{{ d.isoformat() }}">+ note</button>
           {% endif %}
           <a class="linkbtn daylink" href="{{ url_for('_day_page', day=d.isoformat()).path }}">scan log &rarr;</a>
         </span>
       </header>
       <div class="entries">
-        {% for r in rs %}{{ shared.entry_article(r, writable, seeds, hay=true) }}{% endfor %}
+        {% for r in rs %}{{ shared.entry_article(r, writable, seeds, hay=true, permalink=permalink) }}{% endfor %}
       </div>
     </section>
     {% endfor %}
@@ -173,18 +189,6 @@ document.getElementById("monthpicker").addEventListener("change", ev => {
     window.location.href = url.toString();
   }
 });
-
-/* "+ note" on a day points the one composer at that day. */
-document.querySelectorAll("[data-compose-day]").forEach(b => b.addEventListener("click", () => {
-  const form = document.querySelector("form.composer");
-  if (!form) return;
-  const when = form.querySelector(".when");
-  // An autosaved entry already has its day (the editor disables the
-  // picker); leave it and let the author see the date it is on.
-  if (when && !when.disabled) when.value = b.dataset.composeDay;
-  form.scrollIntoView({ block: "start", behavior: "smooth" });
-  form.querySelector(".ta").focus();
-}));
 
 /* Filter hides entries, and a day whose entries are all hidden. */
 document.getElementById("q").addEventListener("input", ev => {

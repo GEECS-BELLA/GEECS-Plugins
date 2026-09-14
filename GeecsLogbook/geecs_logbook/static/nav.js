@@ -15,6 +15,9 @@
  *   - Keys: ← / → step to the previous / next day (or month), t goes to
  *     today. Ignored while typing in a field, and while any composer
  *     holds unsaved text — a shortcut must never discard a note.
+ *   - Reveal: a link that lands on #entry-<id> (or #ScanNNN, or a day
+ *     group) opens whatever is folded around it and marks it, so a
+ *     cross-reference between notes arrives at something visible.
  *   - Prefetch: resting on a day or month link (250 ms — a pass over the
  *     rail's fifteen links prefetches nothing) adds a <link rel="prefetch">,
  *     so the click that follows is served warm. The browser may reuse a
@@ -176,6 +179,96 @@
     ev.preventDefault();
     window.location.href = url;
   });
+
+  // -------------------------------------------------------------- reveal
+
+  /* Land on what a fragment names.
+   *
+   * Everything on these pages folds: an entry is a <details>, so is a scan
+   * block, and Collapse All is a stored per-viewer preference — so a
+   * permalink to a note routinely points INTO something shut, where the
+   * browser scrolls to nothing and the reader sees the top of a day.
+   * Opening the ancestors first is the whole job; `:target` does the
+   * marking in CSS.
+   *
+   * This runs after the pages' own inline scripts (they are inline, this
+   * file is deferred), which is what makes it beat the Collapse All
+   * preference rather than lose to it.
+   */
+  function reveal() {
+    const id = window.location.hash.slice(1);
+    if (!id) return;
+    let el;
+    try { el = document.getElementById(decodeURIComponent(id)); } catch (e) { el = null; }
+    if (!el) return missingEntry(id);
+    for (let n = el; n; n = n.parentElement) {
+      if (n.tagName === "DETAILS") n.open = true;
+    }
+    /* Top-aligned, under the sticky topbar — measured rather than guessed,
+       because the bar wraps to two rows on a narrow window. `center` put
+       the MIDDLE of the target at the middle of the viewport, which reads
+       fine for a one-line note and pushes the heading off the top of the
+       screen for anything taller than the viewport: an open scan block
+       with its facts table, a note carrying a figure grid, a day group of
+       five. The reader landed mid-content with no idea what they were
+       looking at.
+
+       Measured inline, and that was checked rather than assumed. The
+       review of #890 argued it must be deferred: the theme and density
+       pickers ship as empty divs that kit.js and theme.js fill on
+       DOMContentLoaded, so measuring during a deferred script reads a bar
+       missing controls. The reasoning is right about the ordering and
+       wrong about the consequence — those controls are not the bar's
+       tallest element, so its height is the same with and without them.
+       Cold-loaded straight at a fragment, at 1380px and at 560px where the
+       bar wraps to two rows, the inline measure and a
+       DOMContentLoaded-plus-frame measure put the target in the same place
+       (at 560px the inline one reads 2px LARGER, not smaller). So the
+       deferral bought nothing and is not here. If a future control does
+       change the bar's height, this is the line to revisit. */
+    const bar = document.querySelector(".topbar");
+    el.style.scrollMarginTop =
+      ((bar ? bar.getBoundingClientRect().height : 0) + 8) + "px";
+    // The ancestors only just opened, so the layout the browser scrolled
+    // to on load is stale; scroll again now that the target has a place.
+    el.scrollIntoView({ block: "start" });
+  }
+
+  /* Say so when a permalink names a note this page does not draw.
+   *
+   * The scans book renders entries from the SHARE's scan folders, so a
+   * note anchored to a scan whose folder is not there is stored, counted
+   * in "Notes N", and never drawn — the day page has no block to hang it
+   * on. Returning silently left the reader at the top of an apparently
+   * ordinary day with no hint that the link had landed and missed, which
+   * is the kind of small lie this package refuses elsewhere (a chip must
+   * not contradict its card).
+   *
+   * Which is why the REASON is only given on the book it is true of. The
+   * ops book never touches the share, so "there is no folder for its
+   * scan" is false there — and a page explaining a miss with a cause that
+   * cannot apply is the same small lie, just better dressed. A stale or
+   * hand-edited fragment reaches the month page too.
+   *
+   * Only `entry-…` is claimed: another fragment's absence is somebody
+   * else's story to tell.
+   */
+  function missingEntry(id) {
+    if (!/^entry-/.test(id) || document.querySelector(".revealmiss")) return;
+    const main = document.getElementById("logbook");
+    if (!main) return;
+    const note = document.createElement("p");
+    note.className = "empty revealmiss";
+    note.textContent = "That note is not on this page."
+      + (main.dataset.book === "scans"
+        ? " It exists, but this view draws the scan folders on the share"
+          + " and there is none for the scan it is anchored to."
+        : "");
+    main.insertBefore(note, main.firstElementChild && main.firstElementChild.nextSibling);
+  }
+
+  reveal();
+  window.addEventListener("hashchange", reveal);
 
   // ------------------------------------------------------------ prefetch
 
