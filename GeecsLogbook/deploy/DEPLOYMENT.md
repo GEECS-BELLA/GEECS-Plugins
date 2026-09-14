@@ -146,10 +146,23 @@ plain.
 
 ## Behind a reverse proxy
 
-The app honours `X-Forwarded-Prefix` per request (`geecs_web_theme.web`'s
-middleware) and `--root-path` as the static fallback, so `proxy /log →
-localhost:8400` works with every link, form and fetch carrying the
-prefix. Nothing in the page is absolute.
+Two proxy shapes, one flag each — they are not interchangeable:
+
+- **A prefix-stripping proxy** (Caddy `handle_path /log/*`, nginx
+  `location /log/ { proxy_pass http://…:8400/; }`) forwards `/day/…` and
+  must send `X-Forwarded-Prefix: /log`. The middleware from
+  `geecs_web_theme.web` adopts the header per request, and every link,
+  form, fetch base and asset URL on the page carries `/log`. No flag.
+- **A prefix-preserving proxy** (one that forwards `/log/day/…` as is and
+  sends no header) needs `--root-path /log`: the app then expects the
+  prefixed upstream path and answers `/log/static/…`, `/log/day/…` — and
+  **only** those; `/static/nav.js` on the upstream port is a 404 with the
+  flag set. So the flag is not a fallback for a stripping proxy that
+  omits the header: that combination serves the HTML and loses every
+  stylesheet and script.
+
+When the header is present it wins over the flag. Nothing in the page is
+absolute.
 
 ## Health and troubleshooting
 

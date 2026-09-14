@@ -50,9 +50,10 @@ def main() -> None:
         "--root-path",
         default="",
         help=(
-            "URL prefix the logbook is mounted under behind a reverse proxy "
-            "(e.g. /log); a proxy-sent X-Forwarded-Prefix header overrides "
-            "this per request"
+            "URL prefix the logbook is mounted under behind a PREFIX-PRESERVING "
+            "reverse proxy (e.g. /log): the app then answers the prefixed "
+            "upstream paths only. A proxy that strips the prefix must send "
+            "X-Forwarded-Prefix instead, which overrides this per request"
         ),
     )
     parser.add_argument("--log-level", default="INFO", help="Python logging level")

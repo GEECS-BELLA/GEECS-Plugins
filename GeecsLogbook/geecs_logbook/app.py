@@ -86,9 +86,11 @@ def create_app(
         ``logbook_templates/`` at the top of the configs checkout. Without
         it composers are plain.
     root_path : str, optional
-        The URL prefix the service is mounted under behind a reverse proxy
-        (``/log`` at the fleet's front door). A proxy-sent
-        ``X-Forwarded-Prefix`` header overrides it per request.
+        The URL prefix the service is mounted under behind a
+        **prefix-preserving** reverse proxy (one forwarding ``/log/day/…``
+        as is): the app then routes the prefixed upstream paths only. A
+        prefix-stripping proxy must send ``X-Forwarded-Prefix`` instead,
+        which overrides this per request.
 
     Returns
     -------

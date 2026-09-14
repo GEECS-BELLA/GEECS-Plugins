@@ -36,8 +36,10 @@ WorkingDirectory=@CHECKOUT_ROOT@/portal-checkout/GeecsLogbook
 # one argument. Site-chosen flags come from GEECS_LOGBOOK_EXTRA_ARGS in
 # site.env (unquoted: systemd splits it on whitespace and an unset key adds
 # nothing) — e.g. --notes-db PATH to keep the entries somewhere other than
-# the state directory below, or --root-path /log behind a proxy that does
-# not send X-Forwarded-Prefix.
+# the state directory below, or --root-path /log behind a proxy that
+# forwards the FULL path (prefix-preserving) and sends no
+# X-Forwarded-Prefix; a prefix-stripping proxy must send that header
+# instead (DEPLOYMENT.md § Behind a reverse proxy).
 ExecStart=@POETRY@ run geecs-logbook --experiment ${GEECS_EXPERIMENT} --port 8400 --templates-dir "${GEECS_CONFIGS_ROOT}/logbook_templates" $GEECS_LOGBOOK_EXTRA_ARGS
 # The entries: systemd creates /var/lib/geecs-logbook, owns it to the
 # service user, and exports it as $STATE_DIRECTORY, which the logbook takes
