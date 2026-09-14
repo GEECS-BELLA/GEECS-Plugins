@@ -4,6 +4,19 @@ All notable changes to `geecs-logbook` are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 project adheres to semantic versioning.
 
+## [0.10.2] - 2026-09-13
+
+### Changed
+
+- `deploy/DEPLOYMENT.md` corrected from the live deploy on the reference
+  host: the backup steps use Python's `sqlite3` module (the `sqlite3` CLI
+  is not installed there and `sudo sqlite3 …` failed as one quiet line
+  while the move went on), the install step reads `GEECS_POETRY` from
+  `site.env` (`poetry` is not on the login `PATH` either), and the
+  verification counts rows through the change feed, tombstones included
+  — a day whose entries were all deleted shows none on its page by
+  design. Records the 2026-09-13 deploy.
+
 ## [0.10.1] - 2026-09-13
 
 ### Changed

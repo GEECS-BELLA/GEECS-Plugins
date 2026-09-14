@@ -22,8 +22,9 @@ back into this table.
     portal's memory ceiling was installed (#849, #851); amended
     **2026-09-13** for the logbook split — its own unit and port (8400,
     GeecsLogbook 0.10.0 / portal 0.27.0), the portal row loses the
-    logbook and its `StateDirectory`; no other row was
-    re-observed that day. The five repo-managed Linux services — CA
+    logbook and its `StateDirectory`; **deployed live the same evening**
+    (logbook 0.10.1 / portal 0.27.1 on the host, entries moved to
+    `/var/lib/geecs-logbook`); no other row was re-observed that day. The five repo-managed Linux services — CA
     gateway, queueserver worker, capture daemon, GEECS-MCP HTTP, Data
     Portal — run as **system** units rendered from the host's `site.env`
     ([Site Profile](site_profile.md)), from the per-service-family clones
@@ -238,9 +239,12 @@ they are not re-learned when the script is read in a hurry:
    feeds every service (CA address, Tiled URI/key, data-share path,
    qserver address, config-repo paths). The bootstrap renders it from
    `site.env`; the Tiled API key is entered by hand.
-4. Non-login shells (plain `ssh host 'cmd'`, systemd) don't have
-   `~/.local/bin` on `PATH` — the units carry Poetry's absolute path
-   (`GEECS_POETRY`), and remote commands use `bash -lc`.
+4. `poetry` is not on the service account's `PATH` in non-login shells
+   (plain `ssh host 'cmd'`, systemd) — **and not in a login shell either
+   on the reference host** (`bash -lc poetry` → command not found,
+   observed 2026-09-13). The units carry Poetry's absolute path
+   (`GEECS_POETRY`); any hand-run or remote command should read that key
+   from `site.env` rather than rely on `bash -lc`.
 5. A GEECS-Plugins-Configs checkout consumed from the data share is
    typically Windows-authored (CRLF): set `core.autocrlf true` on that
    checkout before pulling from Linux, or every file reads as locally
@@ -252,6 +256,11 @@ they are not re-learned when the script is read in a hurry:
    then `scripts/fleet_status.sh` from a client — every row should read
    systemd / clean clone / matching versions. Update this page's table
    in the same PR.
+8. The `sqlite3` CLI is not installed on the reference host. A runbook
+   step written as `sudo sqlite3 … ".backup …"` fails as one quiet line
+   while the commands after it keep running; the logbook runbook's
+   backup steps use Python's `sqlite3` module instead, which every host
+   has.
 
 ### Moving the services to another host
 
