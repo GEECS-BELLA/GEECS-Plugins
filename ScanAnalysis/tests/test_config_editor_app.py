@@ -10,7 +10,7 @@ import yaml
 fastapi = pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient  # noqa: E402
 
-from scan_analysis.config_editor import create_editor_app, create_editor_router  # noqa: E402
+from scan_analysis.config_editor import create_editor_router  # noqa: E402
 from scan_analysis.config_store import ConfigStore  # noqa: E402
 
 
@@ -35,9 +35,16 @@ def tree(tmp_path: Path) -> Path:
     return tmp_path
 
 
+def _host(tree: Path) -> TestClient:
+    """The editor router on a bare app, the way the portal hosts it."""
+    app = fastapi.FastAPI()
+    app.include_router(create_editor_router(ConfigStore(tree)))
+    return TestClient(app)
+
+
 @pytest.fixture
 def client(tree):
-    return TestClient(create_editor_app(tree))
+    return _host(tree)
 
 
 class TestPagesAndStatic:
@@ -55,7 +62,7 @@ class TestPagesAndStatic:
     def test_a_malformed_file_never_takes_the_editor_down(self, tree):
         """A tab-indented file is an invalid entry in the listing and an invalid document on read."""
         (tree / "analyzers" / "HTU" / "Tabbed.yaml").write_text("name: T\n\tx: 1\n")
-        client = TestClient(create_editor_app(tree))
+        client = _host(tree)
         listing = client.get("/api/list")
         assert listing.status_code == 200
         bad = [a for a in listing.json()["analyzers"] if a["id"] == "Tabbed"]

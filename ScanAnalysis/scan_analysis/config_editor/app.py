@@ -1,13 +1,13 @@
 """FastAPI surface of the config editor: JSON API + the editor page + its two static assets.
 
-Everything is relative to the router's mount, so it works at ``/`` (the
-standalone host) and under ``/configs`` behind the portal's reverse-proxy
-prefix alike: the page computes its API base from its own URL, and no
-absolute portal URL is written here.
+Everything is relative to the router's mount, so it works under
+``/configs`` behind the portal's reverse-proxy prefix (its one host) and
+on a bare app in tests alike: the page computes its API base from its own
+URL, and no absolute portal URL is written here.
 
 API (under the mount)::
 
-    GET  /                          the editor page (standalone chrome)
+    GET  /                          the editor page (the portal's full-page form)
     GET  /static/editor.js|.css     the editor assets (the portal includes them too)
     GET  /api/list                  analyzers + groups (validity, summary), namespaces, git pending
     GET  /api/schema/{kind}         JSON Schema for kind = analyzer | group
@@ -25,13 +25,11 @@ for a config problem.
 
 from __future__ import annotations
 
-import argparse
 import logging
-import sys
 from pathlib import Path
 from typing import Any, Callable, Mapping, Optional
 
-from fastapi import APIRouter, Body, FastAPI, HTTPException, Query, Request, Response
+from fastapi import APIRouter, Body, HTTPException, Query, Request, Response
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 
@@ -44,7 +42,7 @@ from scan_analysis.config_store import (
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["PreviewFn", "create_editor_app", "create_editor_router", "main"]
+__all__ = ["PreviewFn", "create_editor_router"]
 
 _HERE = Path(__file__).resolve().parent
 _STATIC = _HERE / "static"
@@ -88,8 +86,7 @@ def create_editor_router(
         Serve the browser and validation but refuse writes (405).
     theme_url : str, default "/theme"
         Where the host serves ``geecs_web_theme`` — the Data Portal mounts
-        it at ``/theme``, and so does :func:`create_editor_app` for the
-        standalone case. The template prefixes it with the request's
+        it at ``/theme``. The template prefixes it with the request's
         ``root_path`` so a reverse-proxy mount still resolves. There is no
         fallback palette: every host serves the theme, and a copied palette
         is exactly the drift the shared package exists to remove.
@@ -227,63 +224,3 @@ def create_editor_router(
         )
 
     return router
-
-
-def create_editor_app(root: Path, *, read_only: bool = False) -> FastAPI:
-    """The standalone host: the editor at ``/`` over one configs tree, no preview."""
-    from fastapi.staticfiles import StaticFiles
-    from geecs_web_theme import static_dir
-
-    app = FastAPI(title="GEECS analysis config editor", docs_url=None, redoc_url=None)
-    # The shared palette. GeecsWebTheme has no dependencies, so the editor
-    # can serve it itself standalone; hosted in the portal, the portal's
-    # mount at the same path wins.
-    app.mount("/theme", StaticFiles(directory=str(static_dir())), name="theme")
-    app.include_router(create_editor_router(ConfigStore(root), read_only=read_only))
-    return app
-
-
-def _default_root() -> Optional[Path]:
-    try:
-        from geecs_data_utils import ScanPaths
-
-        root = ScanPaths.paths_config.scan_analysis_configs_path
-    except Exception:  # noqa: BLE001 — no config.ini is a normal standalone case
-        return None
-    return Path(root) if root else None
-
-
-def main(argv: Optional[list[str]] = None) -> int:
-    """``scan-config-editor``: serve the editor standalone."""
-    parser = argparse.ArgumentParser(
-        description="Serve the GEECS analysis config editor over a scan_analysis_configs tree."
-    )
-    parser.add_argument(
-        "--configs",
-        type=Path,
-        default=None,
-        help="the scan_analysis_configs root (default: config.ini scan_analysis_configs_path)",
-    )
-    parser.add_argument("--host", default="127.0.0.1")
-    parser.add_argument("--port", type=int, default=8210)
-    parser.add_argument("--read-only", action="store_true")
-    args = parser.parse_args(argv)
-    root = args.configs or _default_root()
-    if root is None or not (root / "analyzers").is_dir():
-        parser.error(
-            "--configs must name a tree with an analyzers/ folder (or set config.ini)"
-        )
-    import uvicorn
-
-    logging.basicConfig(level=logging.INFO)
-    logger.info("config editor over %s at http://%s:%d/", root, args.host, args.port)
-    uvicorn.run(
-        create_editor_app(root, read_only=args.read_only),
-        host=args.host,
-        port=args.port,
-    )
-    return 0
-
-
-if __name__ == "__main__":
-    sys.exit(main())

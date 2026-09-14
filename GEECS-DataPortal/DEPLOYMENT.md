@@ -146,17 +146,30 @@ location /portal/ {
 
 The header is per-request and needs no portal-side config; any mount
 name works, including ones that collide with portal route heads
-(`/run`, `/api`, …). For a proxy that cannot send it, start the
-service with a static prefix instead: `geecs-data-portal --root-path
-/portal` (the header, when present, wins) — in that fallback mode
-avoid mount names that collide with a portal route head, and know that
-trailing-slash redirects drop the prefix (Starlette builds them from
-the un-prefixed path; the header mode re-prefixes the path and has
-neither limitation). Malformed header values (not root-absolute, `//`,
+(`/run`, `/api`, …). Malformed header values (not root-absolute, `//`,
 whitespace, query/fragment characters) are ignored rather than
-propagated into page links. The header is a strip-style contract: a
-proxy that does **not** strip the prefix must not send it (the symptom
-of that misconfiguration is loud — every page 404s).
+propagated into page links.
+
+Two proxy shapes, one setting each — they are **not interchangeable**
+(the rule lives in `geecs_web_theme.web`'s middleware docstring):
+
+- **Prefix-stripping** (the nginx block above; Caddy `handle_path`):
+  forwards `/run/…` and sends the header. No flag.
+- **Prefix-preserving** (forwards `/portal/run/…` as is, sends no
+  header): start the service with `geecs-data-portal --root-path
+  /portal`. The page then links `/portal/static/…`, and the mounted
+  assets (`/static`, `/theme`) answer at the prefixed path **only** —
+  plain routes answer either way, which is why the wrong pairing fails
+  quietly: a stripping proxy without the header serves the HTML and
+  loses every stylesheet and script. In this mode also avoid mount names
+  that collide with a portal route head, and know that trailing-slash
+  redirects drop the prefix (Starlette builds them from the un-prefixed
+  path; the header mode re-prefixes the path and has neither
+  limitation).
+
+The header, when present, wins over the flag. A proxy that does **not**
+strip the prefix must not send it (the symptom of that misconfiguration
+is loud — every page 404s).
 
 For a panel health LED, probe `GET /health` — 200 always (the JSON
 `ok` field reports the catalog probe, so a down Tiled shows as a

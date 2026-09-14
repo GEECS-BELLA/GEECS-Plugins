@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "geecs-logbook"
-version = "0.10.0"
+version = "0.10.1"
 description = "Scan logbook: a day-document view over scan folders, with human commentary stored beside the data"
 authors = ["GEECS-BELLA"]
 readme = "README.md"
@@ -31,6 +31,9 @@ geecs-web-theme = { path = "../GeecsWebTheme", develop = true, extras = ["web"] 
 [tool.poetry.group.dev.dependencies]
 pytest = ">=8.0"
 httpx = ">=0.27"
+# tests/test_seed_templates.py reads scanlog.css through the theme's
+# parser-based guards (geecs_web_theme.testing), which need tinycss2.
+tinycss2 = ">=1.3"
 
 [tool.poetry.scripts]
 geecs-logbook = "geecs_logbook.__main__:main"

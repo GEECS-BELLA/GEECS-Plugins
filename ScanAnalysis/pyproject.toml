@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "scananalysis"
-version = "1.22.0"
+version = "1.23.0"
 description = "Modules for performing analyses routines on full scans"
 authors = ["Christopher Doss <CEDoss@lbl.gov>", "Sam Barber <sbarber@lbl.gov"]
 readme = "README.md"
@@ -27,22 +27,20 @@ h5py = "^3.8.0"
 watchdog = "^6.0.0"
 requests = "^2.28.0"
 
-# the web config editor (scan_analysis.config_editor) — optional: the portal
-# mounts it, `scan-config-editor` serves it standalone
+# the web config editor (scan_analysis.config_editor) — optional: a router
+# the data portal mounts at /configs (its one host since the standalone
+# launcher was removed)
 fastapi = { version = ">=0.110", optional = true }
-uvicorn = { version = ">=0.29", optional = true }
 jinja2 = { version = ">=3.1", optional = true }
 geecs-web-theme = { path = "../GeecsWebTheme", develop = true, optional = true }
 
 [tool.poetry.extras]
-editor = ["fastapi", "uvicorn", "jinja2", "geecs-web-theme"]
+editor = ["fastapi", "jinja2", "geecs-web-theme"]
 
 [tool.poetry.group.dev.dependencies]
 pytest = ">=7.4"
 httpx = ">=0.27"   # fastapi TestClient for the editor tests
 
-[tool.poetry.scripts]
-scan-config-editor = "scan_analysis.config_editor.app:main"
 
 [build-system]
 requires = ["poetry-core"]

@@ -4,6 +4,19 @@ All notable changes to `geecs-web-theme` are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 project adheres to semantic versioning.
 
+## [0.5.1] - 2026-09-13
+
+### Changed
+
+- `ForwardedPrefixMiddleware`'s docstring is the one-copy home for the
+  proxy rule every surface's runbook points at: a prefix-stripping proxy
+  sends `X-Forwarded-Prefix`; a prefix-preserving proxy is what
+  `--root-path` is for — and the two are not interchangeable, because
+  under a static `root_path` the `/static` and `/theme` mounts answer at
+  the prefixed path only (a stripping proxy without the header serves a
+  styleless page, not a 404). Found by the Codex review of #877 on the
+  logbook; verified on the portal too.
+
 ## [0.5.0] - 2026-09-13
 
 ### Changed

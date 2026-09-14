@@ -170,8 +170,22 @@ def test_every_tone_has_a_css_rule() -> None:
     A tone without a ``.tone-<name>`` rule would render with no colour at
     all; a rule without a tone would be dead. Both directions are pinned.
     """
-    rules = set(
-        re.findall(r"\.tone-([\w-]+)\s*\{--tone:var\(--([\w-]+)\)\}", CSS.read_text())
-    )
-    assert {name for name, _ in rules} == set(TONES)
-    assert all(name == token for name, token in rules)
+    from geecs_web_theme.testing import css_rules
+
+    # Through the parser, not a regex: a rule written `.tone-ok { --tone:
+    # var(--ok) }` (spaces, a newline, a comment) is the same rule, and a
+    # regex shaped for one formatting passes silently when the file is
+    # reformatted — the #875 lesson.
+    rules: dict[str, str] = {}
+    for selector, declarations in css_rules(CSS.read_text()):
+        m = re.fullmatch(r"\.tone-([\w-]+)", selector.strip())
+        if m is None:
+            continue
+        for name, value in declarations:
+            if name == "--tone":
+                text = "".join(t.serialize() for t in value).strip()
+                var = re.fullmatch(r"var\(--([\w-]+)\)", text)
+                assert var, f".tone-{m.group(1)} sets --tone to {text!r}, not a token"
+                rules[m.group(1)] = var.group(1)
+    assert set(rules) == set(TONES)
+    assert all(name == token for name, token in rules.items())
