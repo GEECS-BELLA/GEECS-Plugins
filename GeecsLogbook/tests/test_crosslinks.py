@@ -16,6 +16,7 @@ and each is pinned here:
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
@@ -106,7 +107,10 @@ class TestPermalink:
     def test_a_scans_entry_lands_on_its_day_page(self, app: TestClient) -> None:
         entry = _entry(app, book="scans", scan=1)
         r = app.get(f"/entry/{entry['entry_id']}", follow_redirects=False)
-        assert r.status_code in (302, 303, 307)
+        # The number the route actually sends, not a set of plausible ones:
+        # a hedged assertion cannot catch a docstring that names a different
+        # status, which is how a client ends up asserting the wrong one.
+        assert r.status_code == 307
         assert r.headers["location"] == (f"/day/2026-09-11#entry-{entry['entry_id']}")
 
     def test_an_ops_entry_lands_on_its_month_page(self, app: TestClient) -> None:
@@ -164,3 +168,35 @@ class TestPagesOfferTheLink:
         pasted permalink is pasted as a bare URL instead of a reference."""
         for page in ("/day/2026-09-11", "/month/2026-09"):
             assert 'data-entry-base="/entry"' in app.get(page).text
+
+
+class TestTheIdAlphabetHasNotDrifted:
+    """The store MINTS ids; the renderer and the editor each match them.
+
+    Three independent declarations of one alphabet, and two of them fail
+    *silently* if the minting ever changes — the composer would stop
+    recognising pasted links and the renderer would stop marking
+    references, with every other test still green. These tie both matchers
+    to a freshly minted id rather than to a hand-written example, so the
+    generator is the thing under test.
+    """
+
+    def test_the_renderer_matches_a_freshly_minted_id(self, app: TestClient) -> None:
+        real = _entry(app, book="ops")["entry_id"]
+        out = render_markdown(f"[x](entry/{real})", entry_base="/entry")
+        assert f'href="/entry/{real}"' in out and 'class="entryref"' in out
+
+    def test_the_editor_matches_a_freshly_minted_id(self, app: TestClient) -> None:
+        """`editor.js` carries its own copy; read it rather than trust it."""
+        real = _entry(app, book="ops")["entry_id"]
+        script = (
+            Path(__file__).resolve().parents[1]
+            / "geecs_logbook"
+            / "static"
+            / "editor.js"
+        ).read_text()
+        declared = re.search(r'const ENTRY_ID = "([^"]+)"', script)
+        assert declared, "editor.js no longer declares ENTRY_ID"
+        assert re.fullmatch(declared.group(1), real), (
+            f"editor.js would not recognise a link to {real}"
+        )

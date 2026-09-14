@@ -130,7 +130,6 @@
 
   // -------------------------------------------------- cross-references
 
-  const escapeRe = (t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   /* An entry id is `uuid4().hex[:12]`; the bound is loose so a longer id
      would still be recognised, and narrow enough that an ordinary link to
      a page under `entry/` is not mistaken for one. */
@@ -138,11 +137,17 @@
 
   /** The note a pasted URL names, or null — a permalink or a page anchor.
    *
-   * The host is deliberately not checked: the same logbook is reached as
-   * a bare IP, as a name, and through the front door's prefix, and a link
-   * copied on one of those is pasted on another all the time. What
-   * validates the reference is the fetch that follows — an id that is not
-   * here comes back 404 and the text is pasted unchanged.
+   * Matched on the TRAILING `entry/<id>` pair, not on this page's own
+   * `ENTRY_BASE`. Neither the host nor the mount prefix is checked, and
+   * for one reason: the same logbook is reached as a bare IP, as a name,
+   * and through the front door's prefix, so a link copied at
+   * `:8400/entry/<id>` is pasted into a page served under `/log` all the
+   * time. Anchoring on the full prefix made exactly that paste fail to
+   * match — and the fallback then wrote the absolute URL, host and all,
+   * into the stored body, which is the one thing a body must never carry.
+   *
+   * What validates the reference is the fetch that follows: an id that is
+   * not here comes back 404 and the text is pasted unchanged.
    */
   function entryIdIn(text) {
     if (!ENTRY_BASE) return null;
@@ -150,7 +155,7 @@
     if (!t || /\s/.test(t)) return null;  // one URL, not prose that mentions one
     let url;
     try { url = new URL(t, window.location.href); } catch (e) { return null; }
-    const direct = new RegExp(`^${escapeRe(ENTRY_BASE)}/(${ENTRY_ID})$`).exec(url.pathname);
+    const direct = new RegExp(`(?:^|/)entry/(${ENTRY_ID})$`).exec(url.pathname);
     if (direct) return direct[1];
     const anchored = new RegExp(`^#entry-(${ENTRY_ID})$`).exec(url.hash);
     return anchored ? anchored[1] : null;
@@ -173,6 +178,39 @@
     return m ? `${Number(m[3])} ${MONTHS[Number(m[2]) - 1]}` : iso;
   }
 
+  /** Make `work` something a Save has to wait for.
+   *
+   * Two things write into the textarea after an await — an upload
+   * inserting its attachment link, and a pasted reference resolving its
+   * label — and a Save that reads the body in between persists it without
+   * them. They QUEUE rather than share one slot, and both halves of that
+   * are load-bearing; each fails in a DIFFERENT paste order, which is why
+   * neither is defensive padding:
+   *
+   *   - a writer must not clear the slot itself. Paste a link (slow), then
+   *     a file (fast): the upload finishes first, and clearing the slot on
+   *     its way out leaves the still-pending reference invisible to a Save
+   *     a second later. The reference is lost with no error.
+   *   - clearing must check the slot is still OURS. Paste a file (fast),
+   *     then a link (slow): the upload's tail resolves while the
+   *     reference's tail — the one that superseded it — is pending, and an
+   *     unconditional clear throws that away instead.
+   *
+   * So: the tail of the chain is always the thing to await, and it is only
+   * cleared when it is still the tail. `save()` reads the slot once, so
+   * whatever is current at that moment is what it waits for.
+   */
+  function pending(form, work) {
+    const tail = (form._uploading || Promise.resolve())
+      .catch(() => {})
+      .then(() => work);
+    form._uploading = tail;
+    tail.catch(() => {}).then(() => {
+      if (form._uploading === tail) form._uploading = null;
+    });
+    return tail;
+  }
+
   /** Write at a remembered range rather than the live selection. */
   function writeAt(ta, from, to, text) {
     ta.setRangeText(text, from, to, "end");
@@ -187,9 +225,17 @@
   function pasteEntryRef(form, id, raw) {
     const ta = form.querySelector(".ta");
     const from = ta.selectionStart, to = ta.selectionEnd;
-    api("GET", `/entries/${id}`).then((e) => {
-      writeAt(ta, from, to, `[${e.author} \u00b7 ${shortDay(e.day)}](entry/${id})`);
-    }).catch(() => writeAt(ta, from, to, raw));  // not ours, or gone: paste the text
+    /* Queued for the same reason an upload is: the paste was
+       preventDefault-ed, so between here and the fetch returning the
+       textarea holds NEITHER the reference nor the URL. A ⌘↩ in that gap —
+       paste the link, save, the obvious human motion — would otherwise
+       read the body without it, PATCH, and reload the pending write away.
+       The citation would vanish with no error. */
+    pending(form, api("GET", `/entries/${id}`)
+      .then((e) => {
+        writeAt(ta, from, to, `[${e.author} \u00b7 ${shortDay(e.day)}](entry/${id})`);
+      })
+      .catch(() => writeAt(ta, from, to, raw)));  // not ours, or gone: paste the text
   }
 
   /** Copy text, on https and on the lab's plain http alike.
@@ -206,6 +252,12 @@
       }
     } catch (e) { /* fall through to the selection copy */ }
     try {
+      /* Selecting the scratch box takes focus. Give it back: the tools are
+         `opacity:0` until :hover or :focus-within, so a keyboard user who
+         tabbed to Link and pressed Enter would otherwise watch the
+         "Copied" flash at opacity zero AND lose their place in the tab
+         order. This is the branch that runs in the lab, not a legacy one. */
+      const had = document.activeElement;
       const box = document.createElement("textarea");
       box.value = text;
       box.setAttribute("readonly", "");
@@ -215,6 +267,7 @@
       box.select();
       const ok = document.execCommand("copy");
       box.remove();
+      if (had && had.focus) had.focus({ preventScroll: true });
       return ok;
     } catch (e) { return false; }
   }
@@ -345,7 +398,7 @@
     let done;
     // Kept on the form so a Save that lands mid-upload waits for the link
     // to be inserted and the version to be re-read, instead of racing it.
-    form._uploading = new Promise((resolve) => { done = resolve; });
+    pending(form, new Promise((resolve) => { done = resolve; }));
     try {
       id = await ensureEntry(form);
       for (const file of list) {
@@ -368,8 +421,7 @@
         catch (err) { fail(form, err); }
       }
       form.classList.remove("busy");
-      form._uploading = null;
-      done();
+      done();  // pending() clears the latch when this was still the tail
     }
   }
 

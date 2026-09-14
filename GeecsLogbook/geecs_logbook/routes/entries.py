@@ -13,7 +13,7 @@ and the share second; see :mod:`geecs_logbook.mirror` for why that order.
                                                 whose ``updated_at`` moved
                                                 after ``since``, tombstones
                                                 included, in change order
-``GET    /entry/{id}``                      the permalink: 302 to whichever
+``GET    /entry/{id}``                      the permalink: 307 to whichever
                                                 page holds it, anchored
 """
 
@@ -118,6 +118,12 @@ def register(router: APIRouter, ctx: Context) -> None:
 
         A tombstoned entry is a 404 like any other missing one. The
         history endpoint is where a deleted entry is still readable.
+
+        The redirect is a 307 — ``RedirectResponse``'s default, and what
+        every other redirect here already sends. On a GET that is the same
+        thing a 302 would do; the number is stated because a docstring
+        naming a status code the route does not send is how a client ends
+        up asserting the wrong one.
         """
         entry = store.get(entry_id)
         if entry is None:

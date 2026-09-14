@@ -290,7 +290,11 @@ document.getElementById("daypicker").addEventListener("change", ev => {
     window.location.pathname.replace(/[^/]+$/, ev.target.value);
 });
 
-/* Jumping from the rail should reveal what you jumped to. */
+/* Jumping from the rail should reveal what you jumped to.
+   nav.js's reveal() now does this for any fragment, on load and on
+   hashchange — but not for a click on the row you are ALREADY at, which
+   changes no hash and fires no event. That case is the whole remaining
+   job of this handler; it is not dead code, it is the gap. */
 document.querySelectorAll(".scanrow").forEach(a => a.addEventListener("click", () => {
   const el = document.querySelector(a.getAttribute("href"));
   if (!el) return;

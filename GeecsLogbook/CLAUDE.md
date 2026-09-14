@@ -305,9 +305,34 @@ unchanged.
 
 Copying runs on plain `http://`, which is the lab's own address and not a
 secure context, so `navigator.clipboard` does not exist there; the Link
-tool falls back to a selection copy rather than failing silently. It is an
-`<a>` carrying the real URL, so right-click "copy link address" and
-⌘-click keep working whatever the script does.
+tool falls back to a selection copy rather than failing silently (giving
+focus back afterwards — the tools are `opacity:0` until `:focus-within`,
+so a keyboard user would otherwise watch the flash at opacity zero and
+lose their place in the tab order). It is an `<a>` carrying the real URL,
+so right-click "copy link address" and ⌘-click keep working whatever the
+script does.
+
+Two hazards the review of #890 found, both fixed there and both worth not
+reintroducing:
+
+- **A pasted reference is a pending write.** The paste is
+  `preventDefault`-ed and the label needs a fetch, so between the two the
+  textarea holds neither the reference nor the URL. A ⌘↩ in that gap —
+  paste the link, save, the obvious motion — read the body without it and
+  reloaded the pending write away, losing the citation with no error. It
+  registers `form._uploading`, the same latch an attachment upload uses,
+  so `save()` waits.
+- **The match is on the trailing `entry/<id>` pair, not on `ENTRY_BASE`.**
+  Anchoring on this page's own prefix meant a link copied at
+  `:8400/entry/<id>` and pasted into a page served under `/log` did not
+  match — and the fallback then wrote the absolute URL, host and all, into
+  the stored body. That is the one thing this whole design exists to
+  prevent.
+
+A permalink can also name a note the **scans book cannot draw**: an entry
+anchored to a scan whose folder is not on the share is stored and counted
+but has no block to hang on. `reveal()` says so rather than leaving the
+reader at the top of an apparently ordinary day.
 Pinned by `tests/test_crosslinks.py`.
 
 ## Status is reported, not inferred
@@ -423,6 +448,8 @@ is where that is tracked.
 | The scan index | A month-partitioned redevelopment of `geecs_data_utils.scans_database` with an `update(day)` entry point, the portal as its writer. Parked by the owner (2026-09-11) until the two books are live. |
 | `EntryCreate` (the write shape) lives in `routes/entries.py`, `LogEntry` (the stored shape) in `geecs_schemas` | An agent posts the create shape, so it belongs beside `LogEntry` for GEECS-MCP to validate. Moves with the agent-verbs phase, which is its first second consumer. |
 | A third private atomic-write helper (`_fs.replace_with`; `scan_analysis.config_store` and `task_queue` have their own) and `logbook_root` re-deriving the daily folder | Fold into the `ScanPaths`/`ScanData` review, #839 — same home, same issue. |
+| One home for the entry-id alphabet | The store mints `uuid4().hex[:12]`; `render._ENTRY_REF` and `editor.js`'s `ENTRY_ID` each re-declare it, and `LogEntry.entry_id` carries no `pattern` (unlike `day`). A pattern in `geecs_schemas` is the real home, but it is a cross-package change for a UX fix. Until then `tests/test_crosslinks.py::TestTheIdAlphabetHasNotDrifted` ties both matchers to a freshly minted id, so a change to the minting fails loudly instead of silently breaking paste-recognition and reference-marking. Raised in the review of #890. |
+| Copy-on-plain-http, twice | `editor.js`'s `copyText` and the portal's `run.html` `copyPlotImage` both work around the absent `navigator.clipboard` on an http host. They are not mergeable as they stand (text into a control's own label vs an image blob into a corner toast), and `GeecsWebTheme/CLAUDE.md` makes the **third** surface the forcing function. When the web console needs a copy button, `kit.js` is the home — not a third copy. Raised in the review of #890. |
 | Backlinks — "notes that link here" | A reference is a link inside an opaque body, so the reverse direction needs an index of what points where, maintained at every save and edit. Worth it once people are citing enough to lose track; not for the handful the feature starts with. The forward link is the half that carries the value. |
 | Which template "started" an entry when several buttons were pressed | The last one pressed is recorded. Provenance only; nothing reads it back but the chip. |
 | `scan_reader.month_folder` / `days_with_folders` are a third copy of the share-layout walk (`.parent` chains up from `get_daily_scan_folder`; a `YY_MMDD` parser beside `ScanPaths.get_scan_tag`'s and `scans_database.builder`'s `strptime("%y_%m%d")`), after `mirror.logbook_root` and `read_day` | The layout has one builder in `geecs_data_utils.scan_paths` and should have one reader there (`day_folder_date(name)`, `list_day_folders(month)`), which is exactly #839's brief. Recorded on #839 at the review of #844; not lifted here so the logbook keeps depending on `ScanPaths` alone. |

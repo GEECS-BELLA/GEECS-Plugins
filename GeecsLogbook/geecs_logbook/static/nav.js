@@ -200,13 +200,47 @@
     if (!id) return;
     let el;
     try { el = document.getElementById(decodeURIComponent(id)); } catch (e) { el = null; }
-    if (!el) return;
+    if (!el) return missingEntry(id);
     for (let n = el; n; n = n.parentElement) {
       if (n.tagName === "DETAILS") n.open = true;
     }
+    /* Top-aligned, under the sticky topbar — measured rather than guessed,
+       because the bar wraps to two rows on a narrow window. `center` put
+       the MIDDLE of the target at the middle of the viewport, which reads
+       fine for a one-line note and pushes the heading off the top of the
+       screen for anything taller than the viewport: an open scan block
+       with its facts table, a note carrying a figure grid, a day group of
+       five. The reader landed mid-content with no idea what they were
+       looking at. */
+    const bar = document.querySelector(".topbar");
+    el.style.scrollMarginTop = ((bar ? bar.getBoundingClientRect().height : 0) + 8) + "px";
     // The ancestors only just opened, so the layout the browser scrolled
     // to on load is stale; scroll again now that the target has a place.
-    el.scrollIntoView({ block: "center" });
+    el.scrollIntoView({ block: "start" });
+  }
+
+  /* Say so when a permalink names a note this page does not draw.
+   *
+   * The scans book renders entries from the SHARE's scan folders, so a
+   * note anchored to a scan whose folder is not there is stored, counted
+   * in "Notes N", and never drawn — the day page has no block to hang it
+   * on. Returning silently left the reader at the top of an apparently
+   * ordinary day with no hint that the link had landed and missed, which
+   * is the kind of small lie this package refuses elsewhere (a chip must
+   * not contradict its card). Only `entry-…` is claimed: another
+   * fragment's absence is somebody else's story to tell.
+   */
+  function missingEntry(id) {
+    if (!/^entry-/.test(id) || document.querySelector(".revealmiss")) return;
+    const main = document.getElementById("logbook");
+    if (!main) return;
+    const note = document.createElement("p");
+    note.className = "empty revealmiss";
+    note.textContent =
+      "That note is not on this page. It exists, but this view draws the " +
+      "scan folders on the share and there is none for the scan it is " +
+      "anchored to.";
+    main.insertBefore(note, main.firstElementChild && main.firstElementChild.nextSibling);
   }
 
   reveal();

@@ -29,6 +29,41 @@ project adheres to semantic versioning.
   selection copy rather than failing silently. It is an `<a>` carrying the
   real URL, so right-click "copy link address" and ⌘-click still behave.
 
+### Fixed
+
+From the adversarial review of #890, all found before the feature shipped:
+
+- **A Save landing between a pasted reference and its label would drop the
+  citation.** The paste is `preventDefault`-ed and the label needs a fetch,
+  so in that gap the textarea held neither the reference nor the URL; ⌘↩
+  there — paste the link, save — persisted the body without it and
+  reloaded the pending write away, silently. Both writers into the
+  textarea (an upload's attachment link, a pasted reference) now queue on
+  one latch that `save()` waits for.
+- **A permalink pasted across mount prefixes wrote the host into the
+  body.** The match was anchored on the page's own `entry_base`, so a link
+  copied at `:8400/entry/<id>` and pasted into a page served under `/log`
+  did not match — and the fallback pasted the absolute URL, host and all,
+  into the stored body. It now matches the trailing `entry/<id>` pair; the
+  fetch that follows is what validates the id.
+- **Arriving at a target taller than the viewport hid its heading.**
+  `scrollIntoView({block:"center"})` put the middle of an open scan block
+  or a long note at the middle of the screen, leaving the reader
+  mid-content. Now top-aligned under the sticky topbar, whose height is
+  measured rather than assumed (it wraps on a narrow window). This also
+  affects the pre-existing `#ScanNNN` and day-group anchors.
+- **A permalink to a note the scans book cannot draw now says so.** An
+  entry anchored to a scan whose folder is not on the share is stored and
+  counted but has no block to hang on; the reader used to land at the top
+  of an apparently ordinary day with no explanation.
+- **The plain-`http` copy fallback stole focus.** It selects a scratch
+  textarea, so a keyboard user who tabbed to Link and pressed Enter
+  watched the "Copied" flash at `opacity:0` (the tools show on
+  `:focus-within`) and lost their place in the tab order.
+- The permalink's docstring said 302; `RedirectResponse` sends **307**.
+  Corrected, and the test now pins the value the route actually sends
+  instead of accepting any of three.
+
 ### Changed
 
 - **The ops book's composer folds away, and can be closed.** It was wedged
