@@ -401,14 +401,19 @@ class ConfigsRepoResolver:
 
         The resolver lives as long as its process (the scanner's, the
         worker's environment), so a lifetime cache made every catalog edit
-        wait for a restart.  One ``stat`` per call keeps the parse cost
-        away from the hot paths (preflight, submit, move) while an edited
-        file — new mtime or size — is re-read on the next call.
+        wait for a restart.  A ``stat`` per call (the parse only on a
+        miss) keeps the cost away from the hot paths — preflight, submit,
+        move — while an edited file, new mtime or size, is re-read on the
+        next call.  Accepted blind spot, shared with the portal's config
+        fingerprint: a same-length edit saved within one mtime tick of
+        the previous read (SMB shares tick at 1–2 s) is served stale until
+        the next tick or byte-count change.
         """
         path = self._root / self.SCAN_VARIABLES_FOLDER / "scan_variables.yaml"
         try:
             st = path.stat()
-        except FileNotFoundError:
+        except (FileNotFoundError, NotADirectoryError):
+            # ``Path.exists`` read both as "missing"; keep that message.
             raise GeecsConfigurationError(
                 f"no scan-variable catalog for experiment "
                 f"{self._experiment!r}: expected {path}"

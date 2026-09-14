@@ -11,11 +11,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `ConfigsRepoResolver`'s scan-variable catalog is cached **until the file
   changes** (mtime + size, one `stat` per call) instead of for the
   resolver's lifetime. The resolver lives as long as its process — the web
-  scanner's, or the worker's environment — so an edited
-  `scan_variables.yaml` used to be invisible to preflight, submit and move
-  until a restart (the console-era "edit needs a restart"). Every other
-  config kind was already re-read per call; the worker's trigger profiles
-  are still materialised once at environment open, by design.
+  scanner's (the catalog's only runtime reader; the worker binds `mv` to
+  its namespace and never opens it) — so an edited `scan_variables.yaml`
+  used to be invisible to preflight, submit and move until a restart (the
+  console-era "edit needs a restart"). Every other config kind was already
+  re-read per call; the worker's trigger profiles are still materialised
+  once at environment open, by design.
 
 ## [0.86.0] - 2026-09-13
 
