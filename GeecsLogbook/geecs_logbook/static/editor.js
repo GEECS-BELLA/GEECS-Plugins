@@ -164,6 +164,25 @@
   const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
                   "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
+  /** An author's name, safe to sit inside a markdown link label.
+   *
+   * `author` is free text — the store takes any 120 characters — and it
+   * goes straight into `[...]`. An UNBALANCED `]` is what actually breaks
+   * it: CommonMark balances brackets, so "Smith [PhD]" parses fine, but
+   * "Smith] PhD" ends the label early and the whole thing renders as
+   * literal text beside a dead link, and "a]b[c" silently mislabels the
+   * chip. A backslash escapes whatever follows it. These are names people
+   * type, not attacks.
+   *
+   * Whitespace collapses for the same reason `cell()` collapses it in a
+   * table: a label is one line by construction. The escape is idempotent
+   * and cannot produce the placeholder below, which the upgrade's
+   * `indexOf` depends on.
+   */
+  function mdLabel(text) {
+    return String(text).replace(/[\\[\]]/g, "\\$&").replace(/\s+/g, " ").trim();
+  }
+
   /** "2026-09-12" as "12 Sep" — the format the pages already use.
    *
    * Spelled out rather than handed to toLocaleDateString, which answers in
@@ -178,13 +197,13 @@
     return m ? `${Number(m[3])} ${MONTHS[Number(m[2]) - 1]}` : iso;
   }
 
-  /* A pasted permalink becomes a reference, in two steps that are ordered
-     so nothing can be lost.
+  /* A pasted permalink becomes a reference, in two steps ordered so that
+     nothing the author had is lost.
 
      The link goes in AT ONCE, complete and working, with a placeholder
-     label. Only the label — cosmetic — is fetched, and it is applied by
-     finding that exact text again rather than by remembering where the
-     caret was. Both properties matter:
+     label. Only the label — cosmetic — is fetched, and every later write
+     finds that exact placeholder again rather than remembering where the
+     caret was. Three properties fall out, and each replaced a defect:
 
        - nothing is deferred, so a ⌘↩ the instant after pasting (paste the
          link, save — the obvious motion) saves a working reference. An
@@ -195,25 +214,40 @@
          between the paste and the label cannot splice the reference into
          the middle of it. If the placeholder is gone — edited, saved and
          reloaded — the upgrade simply does not apply.
+       - the caret is PRESERVED, not moved to the end. The visible
+         placeholder invites the author to carry on typing, and yanking
+         the caret backwards a round trip later is the same interruption
+         this shape exists to remove. (`replaceSelection`'s own "end" is
+         right: that one IS the paste.)
 
-     The worst case is now a reference that reads `[note]` instead of
-     `[demo · 12 Sep]`. It still points at the right note.
+     A 404 puts the pasted text back verbatim. That is the safety valve for
+     matching `entry/<id>` on any host at any depth: a permalink to a
+     deleted entry, one from another experiment's logbook, or any foreign
+     URL whose path happens to end that way is handed back untouched rather
+     than replaced by a dead internal reference. A network error is the
+     benign case — the id is fine and `[note]` is the right answer — so the
+     placeholder stands.
+
+     The worst case is therefore a reference that reads `[note]`. It still
+     points at the right note.
 
      The stored link is RELATIVE — `entry/<id>`, never the absolute URL that
      was pasted. A body must not carry the mount prefix or the host it was
      written on; the renderer swaps in the serving route, exactly as it does
      for an attachment. */
-  function pasteEntryRef(form, id) {
+  function pasteEntryRef(form, id, raw) {
     const ta = form.querySelector(".ta");
     const placeholder = `[note](entry/${id})`;
     replaceSelection(ta, placeholder);
-    api("GET", `/entries/${id}`).then((e) => {
-      const better = `[${e.author} \u00b7 ${shortDay(e.day)}](entry/${id})`;
+    const swap = (text) => {
       const at = ta.value.indexOf(placeholder);
-      if (at === -1) return;                    // edited away; leave it alone
-      ta.setRangeText(better, at, at + placeholder.length, "end");
+      if (at === -1) return;  // edited away; leave whatever is there alone
+      ta.setRangeText(text, at, at + placeholder.length);  // "preserve"
       ta.dispatchEvent(new Event("input", { bubbles: true }));
-    }).catch(() => {});  // not ours, or gone: the link stands, unlabelled
+    };
+    api("GET", `/entries/${id}`)
+      .then((e) => swap(`[${mdLabel(e.author)} \u00b7 ${shortDay(e.day)}](entry/${id})`))
+      .catch((err) => { if (err.status === 404) swap(raw); });  // not ours
   }
 
   /** Copy text, on https and on the lab's plain http alike.
@@ -491,7 +525,7 @@
     // specific thing the clipboard can hold, and a URL is never a table.
     const plain = cd.getData("text/plain");
     const refId = entryIdIn(plain);
-    if (refId) { ev.preventDefault(); pasteEntryRef(form, refId); return; }
+    if (refId) { ev.preventDefault(); pasteEntryRef(form, refId, plain.trim()); return; }
     // A spreadsheet range often arrives as an HTML table AND a bitmap of
     // the same cells (Excel); the table is what was meant.
     const html = cd.getData("text/html");
@@ -526,7 +560,7 @@
     form.dataset.saving = "1";
     form.querySelectorAll("button[type=submit],[data-discard]").forEach((b) => { b.disabled = true; });
     try {
-      if (form._uploading) await form._uploading; // let a paste finish landing first
+      if (form._uploading) await form._uploading; // let a pasted FILE finish uploading
       await action();
     }
     finally {

@@ -213,22 +213,25 @@
        five. The reader landed mid-content with no idea what they were
        looking at.
 
-       Measured in a frame callback, NOT here. The theme and density
-       pickers ship as empty divs that theme.js and kit.js fill, and those
-       are deferred scripts like this one — so measuring inline reads a bar
-       missing at least one control, which on a narrow window is the
-       difference between one row and two. That put the target back under
-       the bar in exactly the case the measurement exists for. A frame
-       callback runs after every deferred script, with the bar at its
-       final height. */
-    requestAnimationFrame(() => {
-      const bar = document.querySelector(".topbar");
-      el.style.scrollMarginTop =
-        ((bar ? bar.getBoundingClientRect().height : 0) + 8) + "px";
-      // The ancestors only just opened, so the layout the browser scrolled
-      // to on load is stale; scroll again now that the target has a place.
-      el.scrollIntoView({ block: "start" });
-    });
+       Measured inline, and that was checked rather than assumed. The
+       review of #890 argued it must be deferred: the theme and density
+       pickers ship as empty divs that kit.js and theme.js fill on
+       DOMContentLoaded, so measuring during a deferred script reads a bar
+       missing controls. The reasoning is right about the ordering and
+       wrong about the consequence — those controls are not the bar's
+       tallest element, so its height is the same with and without them.
+       Cold-loaded straight at a fragment, at 1380px and at 560px where the
+       bar wraps to two rows, the inline measure and a
+       DOMContentLoaded-plus-frame measure put the target in the same place
+       (at 560px the inline one reads 2px LARGER, not smaller). So the
+       deferral bought nothing and is not here. If a future control does
+       change the bar's height, this is the line to revisit. */
+    const bar = document.querySelector(".topbar");
+    el.style.scrollMarginTop =
+      ((bar ? bar.getBoundingClientRect().height : 0) + 8) + "px";
+    // The ancestors only just opened, so the layout the browser scrolled
+    // to on load is stale; scroll again now that the target has a place.
+    el.scrollIntoView({ block: "start" });
   }
 
   /* Say so when a permalink names a note this page does not draw.

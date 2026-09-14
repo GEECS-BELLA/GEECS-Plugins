@@ -60,9 +60,7 @@ From the adversarial review of #890, all found before the feature shipped:
   `scrollIntoView({block:"center"})` put the middle of an open scan block
   or a long note at the middle of the screen, leaving the reader
   mid-content. Now top-aligned under the sticky topbar, whose height is
-  measured rather than assumed (it wraps on a narrow window) — in a frame
-  callback, because the theme and density pickers are built by deferred
-  scripts and measuring inline reads a bar that is missing them. This also
+  measured rather than assumed (it wraps on a narrow window). This also
   affects the pre-existing `#ScanNNN` and day-group anchors.
 - **A permalink to a note the scans book cannot draw now says so.** An
   entry anchored to a scan whose folder is not on the share is stored and
