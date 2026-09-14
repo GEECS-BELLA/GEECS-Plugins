@@ -1,1 +1,1 @@
-"""Route modules, each registering onto the one router ``create_log_router`` builds."""
+"""Route modules, each registering onto the one router ``create_app`` includes."""

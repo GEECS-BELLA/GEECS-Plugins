@@ -3,6 +3,25 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.27.0] - 2026-09-13
+
+### Removed
+
+- **The logbook mount.** `--scan-log`, `--notes-db`, the `log` extra and
+  the `/log` router are gone: the logbook is its own service (GeecsLogbook
+  0.10.0, unit `geecs-logbook`, port 8400, its own `StateDirectory`). The
+  portal's unit drops `StateDirectory=geecs-data-portal`; the entries a
+  host kept there move once, per `GeecsLogbook/deploy/DEPLOYMENT.md`. A
+  `site.env` still passing `--scan-log` fails at start — deliberately.
+
+### Changed
+
+- The run page's link to a scan's logbook card is built from
+  **`--logbook-url`**, the logbook's base: an absolute URL verbatim, a
+  path (`/log`, the front door's route) same-origin with the portal's own
+  prefix; empty shows no link. `GET /api/run/{uid}`'s `logbook` field is
+  the same URL.
+
 ## [0.26.0] - 2026-09-12
 
 ### Added
