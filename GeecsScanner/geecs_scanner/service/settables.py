@@ -1,13 +1,8 @@
 """Every numeric settable of the experiment, alias-first — the movable panel's list.
 
-The scan-variable catalog (``scan_variables.yaml``) keeps only what has no
-free equivalent: pseudo axes, ``confirm`` overlays, setpoint opt-outs.  Any
-numeric settable ``Device:Variable`` is movable, and the shorthand comes
-from the DB, not a config: the per-instance ``variable.alias`` the DB
-curates.  The list shows aliased variables first (alphabetical by alias),
-then every remaining numeric settable by canonical name; each row carries
-the alias *beside* the canonical ``Device:Variable``, never instead of it —
-the request stores the canonical name, so a rename in the DB breaks nothing.
+The filter and the order live in GEECS-Core (:func:`geecs_core.db.numeric_settables`,
+one list for every picker); this module only fetches the rows from the DB
+and wraps them as the API's model.
 
 The DB roster is read once per process and kept: devices and their
 settables change with a DB edit, and the CA gateway that serves them is
@@ -38,56 +33,20 @@ class SettablesSource(Protocol):
 def build_settables(
     rows_by_device: Mapping[str, Sequence[Mapping[str, Any]]],
 ) -> list[SettableOut]:
-    """Keep the numeric settables of every device and order them alias-first.
+    """The core's alias-first numeric settables, as the API's model."""
+    from dataclasses import asdict
 
-    Parameters
-    ----------
-    rows_by_device : mapping
-        ``{device: [variable metadata, ...]}`` as
-        :meth:`geecs_core.db.GeecsDb.get_experiment_device_variables`
-        returns it — each row a dict with ``name``, ``settable``,
-        ``variabletype``, ``choices``, ``units``, ``min``, ``max``, ``alias``.
-    """
-    from geecs_core.db.variable_types import effective_vartype
+    from geecs_core.db import numeric_settables
 
-    out: list[SettableOut] = []
-    for device, rows in rows_by_device.items():
-        for row in rows:
-            if not row.get("settable"):
-                continue
-            if (
-                effective_vartype(row.get("variabletype"), row.get("choices"))
-                != "numeric"
-            ):
-                continue
-            variable = str(row.get("name") or "").strip()
-            if not variable:
-                continue
-            out.append(
-                SettableOut(
-                    name=f"{device}:{variable}",
-                    device=device,
-                    variable=variable,
-                    alias=str(row.get("alias") or "").strip(),
-                    units=str(row.get("units") or "").strip(),
-                    min=row.get("min"),
-                    max=row.get("max"),
-                )
-            )
-    # aliased first, alphabetical by alias; then the rest by canonical name
-    out.sort(
-        key=lambda s: (0, s.alias.lower(), s.name.lower())
-        if s.alias
-        else (1, s.name.lower(), "")
-    )
-    return out
+    return [SettableOut(**asdict(row)) for row in numeric_settables(rows_by_device)]
 
 
 class DbSettables:
     """The experiment's numeric settables from the GEECS DB, read once and kept."""
 
-    def __init__(self, experiment: str) -> None:
+    def __init__(self, experiment: str, *, db: Any = None) -> None:
         self._experiment = experiment
+        self._db = db  # the GeecsDb class; tests inject a double
         self._cache: list[SettableOut] | None = None
         self._lock = threading.Lock()
 
@@ -97,9 +56,12 @@ class DbSettables:
             if self._cache is not None:
                 return SettablesOut(items=self._cache, source="db")
             try:
-                from geecs_core.db import GeecsDb
+                db = self._db
+                if db is None:
+                    from geecs_core.db import GeecsDb
 
-                rows = GeecsDb.get_experiment_device_variables(self._experiment)
+                    db = GeecsDb
+                rows = db.get_experiment_device_variables(self._experiment)
                 items = build_settables(rows)
             except Exception as exc:  # noqa: BLE001 — the DB is a remote service; say so, retry next time
                 logger.warning("settables unavailable from the GEECS DB: %s", exc)
