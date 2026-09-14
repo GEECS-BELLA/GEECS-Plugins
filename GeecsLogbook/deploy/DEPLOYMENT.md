@@ -95,12 +95,15 @@ route exists.
 
 A host that ran the logbook inside the portal (portal 0.22–0.26,
 `--scan-log`) has the entries in `/var/lib/geecs-data-portal/`. They
-move once, with both services stopped:
+move once, with both services stopped — the logbook too, if the Install
+section above already started it on an empty state directory:
 
 ```bash
 sudo systemctl stop geecs-data-portal
-# back up first — the database and the uploads are the only copies on the host
-sudo sqlite3 /var/lib/geecs-data-portal/logbook.db ".backup /var/lib/geecs-data-portal/logbook.db.pre-split"
+sudo systemctl stop geecs-logbook 2>/dev/null || true   # not yet installed is fine
+# back up first — the database and the uploads are the only copies on the host.
+# Outside both state directories, so the glob below cannot sweep it along.
+sudo sqlite3 /var/lib/geecs-data-portal/logbook.db ".backup /var/backups/logbook.db.pre-split"
 sudo install -d -o <service user> -g <service user> /var/lib/geecs-logbook
 # logbook.db* — the glob matters: the store runs SQLite in WAL mode, and a
 # portal that last died by MemoryMax= (the case this split exists for) has
@@ -115,8 +118,9 @@ curl -s http://localhost:8400/health            # "writable": true
 sudo systemctl start geecs-data-portal          # on its re-rendered unit (no StateDirectory)
 ```
 
-The `.pre-split` backup and the now-empty `/var/lib/geecs-data-portal`
-can go once the entries are seen on the new port. The mirror on the
+The backup in `/var/backups/` and the now-empty
+`/var/lib/geecs-data-portal` can go once the entries are seen on the new
+port. The mirror on the
 share is untouched by the move — the sync on the next day view finds
 nothing owed.
 
