@@ -242,7 +242,27 @@
     const swap = (text) => {
       const at = ta.value.indexOf(placeholder);
       if (at === -1) return;  // edited away; leave whatever is there alone
-      ta.setRangeText(text, at, at + placeholder.length);  // "preserve"
+      const oldEnd = at + placeholder.length;
+      const from = ta.selectionStart, to = ta.selectionEnd;
+      ta.setRangeText(text, at, oldEnd);  // "preserve"
+      /* Neither of setRangeText's modes is right on its own here, so the
+         caret is fixed up explicitly.
+
+         "end" parks it after the reference, which is wrong for someone who
+         kept typing — their next keystrokes jump backwards. "preserve"
+         handles that case and breaks the commoner one: the spec moves a
+         selection that starts AFTER the replaced range, but the caret left
+         by the paste sits exactly AT its end, which collapses to the
+         START. Measured, that is worse than a misplaced caret — the
+         selection ends up spanning the reference, so the next keystroke
+         REPLACES it and the link is gone ("see [demo · 12 Sep](entry/…)"
+         + typing " next" gave "see  next"). `>= oldEnd` treats "at the
+         end" as "after the end", which is what a caret sitting there
+         means. */
+      if (from >= oldEnd) {
+        const shift = text.length - placeholder.length;
+        ta.setSelectionRange(from + shift, to + shift);
+      }
       ta.dispatchEvent(new Event("input", { bubbles: true }));
     };
     api("GET", `/entries/${id}`)

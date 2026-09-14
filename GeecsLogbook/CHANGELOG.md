@@ -53,9 +53,13 @@ From the adversarial review of #890, all found before the feature shipped:
   copied at `:8400/entry/<id>` and pasted into a page served under `/log`
   did not match — and the fallback pasted the absolute URL, host and all,
   into the stored body. It now matches the trailing `entry/<id>` pair; the
-  fetch that follows is what validates the id. As a consequence the bare
-  stored form (`entry/<id>`, copied out of one note's raw markdown) is
-  recognised too.
+  fetch that follows is what validates the id — and when it 404s the
+  pasted text is put back verbatim, which is the safety valve that makes
+  matching any host at any depth safe: a permalink to a deleted entry or
+  to another experiment's logbook is handed back untouched rather than
+  replaced by a dead internal reference. As a consequence the bare stored
+  form (`entry/<id>`, copied out of one note's raw markdown) is recognised
+  too.
 - **Arriving at a target taller than the viewport hid its heading.**
   `scrollIntoView({block:"center"})` put the middle of an open scan block
   or a long note at the middle of the screen, leaving the reader
