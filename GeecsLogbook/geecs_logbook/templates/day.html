@@ -12,18 +12,19 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Scan Log — {{ summary.day.strftime('%d %b %Y') }}</title>
 {# theme-boot.js stamps the stored palette before first paint; in <head>,
-   not deferred. Prefixed with the request's root_path so a reverse-proxy
-   mount still resolves. No CDN fonts: the token stacks carry fallbacks. #}
-{% set root = request.scope.get('root_path', '').rstrip('/') %}
+   not deferred. `root` is the request's mount prefix (the templates
+   factory puts it in every context) so a reverse-proxy mount still
+   resolves. No CDN fonts: the token stacks carry fallbacks. #}
 <script src="{{ root }}/theme/theme-boot.js"></script>
 <link rel="stylesheet" href="{{ root }}/theme/theme.css">
 {# kit.css after theme.css: the kit styles THROUGH the theme's tokens and
    defines none of its own. Every kit rule is scoped to .kit on <body>, so
    nothing here applies to a page that has not opted in. #}
 <link rel="stylesheet" href="{{ root }}/theme/kit.css">
-{# .path, not the absolute URL url_for returns: behind TLS termination or a
-   host-rewriting proxy an absolute http:// URL is a mixed-content block. #}
-<link rel="stylesheet" href="{{ url_for('_static', name='scanlog.css').path }}">
+{# Root-relative paths, never the absolute URL url_for returns: behind TLS
+   termination or a host-rewriting proxy an absolute http:// URL is a
+   mixed-content block. #}
+<link rel="stylesheet" href="{{ root }}/static/scanlog.css">
 </head>
 <body class="kit">
 
@@ -300,9 +301,9 @@ document.querySelectorAll(".scanrow").forEach(a => a.addEventListener("click", (
 }));
 </script>
 {{ shared.seeds_json(seeds) }}
-<script src="{{ url_for('_static', name='editor.js').path }}" defer></script>
+<script src="{{ root }}/static/editor.js" defer></script>
 <script src="{{ root }}/theme/kit.js" defer></script>
-<script src="{{ url_for('_static', name='nav.js').path }}" defer></script>
+<script src="{{ root }}/static/nav.js" defer></script>
 <script src="{{ root }}/theme/theme.js" defer></script>
 </body>
 </html>

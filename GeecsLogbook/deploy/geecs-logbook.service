@@ -1,0 +1,61 @@
+# GEECS Logbook — systemd unit TEMPLATE.
+#
+# Do not copy this file to /etc/systemd/system by hand. Render it from the
+# host's site.env with `deploy/render_units.sh` (or `deploy/bootstrap_host.sh`)
+# — see docs/platform/site_profile.md. @PLACEHOLDER@ holes are filled at render
+# time (paths + identity); ${VARIABLE} values come from site.env at start via
+# EnvironmentFile= (valid only in command arguments).
+#
+# Upgrade:
+#   git -C <checkout> pull && (cd GeecsLogbook && poetry install) && sudo systemctl restart geecs-logbook
+#
+# See DEPLOYMENT.md (this directory).
+
+[Unit]
+Description=GEECS Logbook (the scans book over scan folders + the ops book)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=@SERVICE_USER@
+# Poetry resolves its cache/venvs under $HOME; systemd does not always set it.
+Environment=HOME=@SERVICE_HOME@
+# The host's site profile: GEECS_EXPERIMENT and TZ. Daily folders (YY_MMDD)
+# are named by the scanner host's LOCAL date and the logbook resolves days
+# the same way — site.env's TZ keeps a UTC-defaulted server from filing an
+# evening's scans under tomorrow.
+EnvironmentFile=@SITE_ENV@
+# The logbook shares the portal's clone (portal-checkout) with its own
+# poetry environment inside GeecsLogbook/ — one clone for the two web
+# viewers, restarted together after a pull; see DEPLOYMENT.md § Install.
+WorkingDirectory=@CHECKOUT_ROOT@/portal-checkout/GeecsLogbook
+# The type buttons on every composer are *.md seed templates in the configs
+# repo on the data share (a site value: GEECS_CONFIGS_ROOT in site.env). The
+# quotes matter — share paths carry spaces; systemd substitutes "${VAR}" as
+# one argument. Site-chosen flags come from GEECS_LOGBOOK_EXTRA_ARGS in
+# site.env (unquoted: systemd splits it on whitespace and an unset key adds
+# nothing) — e.g. --notes-db PATH to keep the entries somewhere other than
+# the state directory below, or --root-path /log behind a proxy that does
+# not send X-Forwarded-Prefix.
+ExecStart=@POETRY@ run geecs-logbook --experiment ${GEECS_EXPERIMENT} --port 8400 --templates-dir "${GEECS_CONFIGS_ROOT}/logbook_templates" $GEECS_LOGBOOK_EXTRA_ARGS
+# The entries: systemd creates /var/lib/geecs-logbook, owns it to the
+# service user, and exports it as $STATE_DIRECTORY, which the logbook takes
+# as the default --notes-db location. Not a site value — the same path on
+# every host — so it lives here rather than in site.env. Back it up: what
+# people wrote exists in this directory (logbook.db + attachments/) and in
+# the markdown mirror on the share, nowhere else.
+StateDirectory=geecs-logbook
+# No memory ceiling on purpose: the logbook is a small process (SQLite,
+# Jinja, a folder listing) and the write path for irreplaceable text. The
+# portal carries MemoryHigh/Max because it is the box's largest resident
+# process and *should* be the first to go; this service is why the two
+# are no longer one process.
+Restart=on-failure
+RestartSec=5
+# A save is a SQLite write and a small file copy — milliseconds. systemd's
+# default stop timeout (90 s) is already generous; nothing here runs long.
+SyslogIdentifier=geecs-logbook
+
+[Install]
+WantedBy=multi-user.target

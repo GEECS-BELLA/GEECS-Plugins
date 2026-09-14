@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import argparse
 import logging
-import os
 from pathlib import Path
 
 import matplotlib
@@ -62,31 +61,17 @@ def main() -> None:
         ),
     )
     parser.add_argument(
-        "--scan-log",
-        action="store_true",
+        "--logbook-url",
+        default="",
         help=(
-            "mount the scan logbook at /log (requires the `log` extra and --experiment)"
-        ),
-    )
-    parser.add_argument(
-        "--notes-db",
-        default=None,
-        help=(
-            "SQLite file for the logbook's entries; makes /log writable "
-            "(a WRITE verb: rows here, markdown mirrored into each day's "
-            "logbook/ folder on the share). Default: logbook.db under "
-            "systemd's $STATE_DIRECTORY when set, else none — a read-only "
-            "logbook. Its directory must already exist."
+            "the logbook's base URL for the run page's link to a scan's card "
+            "(a site value: http://<host>:8400 until the front door routes "
+            "/log to it, then /log — a path is same-origin and carries the "
+            "portal's own prefix). Empty hides the link; the portal never "
+            "mounts the logbook"
         ),
     )
     args = parser.parse_args()
-
-    notes_db: Path | None = Path(args.notes_db) if args.notes_db else None
-    if notes_db is None and os.environ.get("STATE_DIRECTORY"):
-        # StateDirectory= in the unit: systemd creates it and sets this
-        # variable, so a deployed portal has somewhere durable to write
-        # without any site value in code or the unit template.
-        notes_db = Path(os.environ["STATE_DIRECTORY"].split(":")[0]) / "logbook.db"
 
     logging.basicConfig(
         level=args.log_level.upper(),
@@ -110,8 +95,7 @@ def main() -> None:
             Path(args.processing_configs) if args.processing_configs else None
         ),
         config_editor=args.config_editor,
-        scan_log=args.scan_log,
-        notes_db=notes_db,
+        logbook_url=args.logbook_url,
     )
     uvicorn.run(
         app,

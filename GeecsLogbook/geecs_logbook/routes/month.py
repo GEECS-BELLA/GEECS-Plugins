@@ -1,9 +1,9 @@
 """The ops book: a month of day-level entries, read from the store alone.
 
-``GET /log/month/today``                     redirect to this month, at today
-``GET /log/month/{YYYY-MM}``                 the month page (``?tag=`` filters)
-``GET /log/api/month/{YYYY-MM}/entries``     the month's entries as JSON
-``GET /log/api/month/{YYYY-MM}/days``        calendar marks: which days have
+``GET /month/today``                     redirect to this month, at today
+``GET /month/{YYYY-MM}``                 the month page (``?tag=`` filters)
+``GET /api/month/{YYYY-MM}/entries``     the month's entries as JSON
+``GET /api/month/{YYYY-MM}/days``        calendar marks: which days have
                                              notes (the store) and a day
                                              folder (one listing of the share)
 

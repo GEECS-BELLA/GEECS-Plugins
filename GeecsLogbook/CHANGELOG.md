@@ -4,6 +4,32 @@ All notable changes to `geecs-logbook` are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 project adheres to semantic versioning.
 
+## [0.10.0] - 2026-09-13
+
+### Changed
+
+- **The logbook is its own service.** `geecs-logbook` (console script,
+  `python -m geecs_logbook`) serves one experiment on port 8400 —
+  `--experiment`, `--notes-db` (default `$STATE_DIRECTORY/logbook.db`),
+  `--templates-dir`, `--root-path` — behind its own unit template
+  (`deploy/geecs-logbook.service`, `StateDirectory=geecs-logbook`) with
+  a runbook (`deploy/DEPLOYMENT.md`, including the one-time move of the
+  entries out of `/var/lib/geecs-data-portal`). Until now it was a router
+  inside the Data Portal's process at `/log` — the portal's `MemoryMax=`
+  is meant to kill that process when it runs away, and the write path
+  for what people wrote should not be in it.
+- `app.create_app(experiment, *, base_directory, notes_db, templates_dir,
+  root_path)` replaces `router.create_log_router`; the routes serve at
+  the app's root (`/day/…`, `/month/…`, `/api/…`), with `/health`
+  (version, experiment, writable — never touches the share) for the
+  fleet probe.
+- The shared web glue comes from `geecs_web_theme.web` (the forwarded-
+  prefix middleware, the `/theme` mount, the templates factory that puts
+  `root` in every context); the templates drop their own `root`
+  computation and address the page's assets through a named `/static`
+  mount instead of the `_static` route. `geecs-web-theme` (`web` extra)
+  and `uvicorn` are runtime dependencies now.
+
 ## [0.9.0] - 2026-09-12
 
 ### Added

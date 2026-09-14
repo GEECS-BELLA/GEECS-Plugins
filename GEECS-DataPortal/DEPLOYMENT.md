@@ -66,7 +66,7 @@ checks pass.
 ```bash
 cd <root>/portal-checkout/GEECS-DataPortal
 poetry env use python3.11
-poetry install --extras analysis --extras log
+poetry install --extras analysis
 ```
 
 The `analysis` extra installs ImageAnalysis for the Images tab's
@@ -166,7 +166,7 @@ degraded catalog, not a dead portal).
 
 ```bash
 cd <root>/portal-checkout && git pull      # the portal's clone only — never another service's
-cd GEECS-DataPortal && poetry install --extras analysis --extras log
+cd GEECS-DataPortal && poetry install --extras analysis
 sudo systemctl restart geecs-data-portal
 ```
 
@@ -187,76 +187,29 @@ The fleet-map page (`docs/platform/fleet_map.md`) carries the
 service's row — host, port, health check — and must be updated in the
 same PR when this deployment moves or changes.
 
-## The scan logbook (`--scan-log`)
+## The logbook link (`--logbook-url`)
 
-Off by default. `--scan-log` mounts `geecs_logbook` at `/log`: a
-day-document view over scan **folders** — `/log/day/2026-09-11` lists
-whatever `ScanNNN` directories exist for that date, reading each
-`ScanInfoScanNNN.ini` at request time. There is no daily job and nothing
-to create; a scan appears because its folder does.
+The logbook is **its own service** (GeecsLogbook 0.10.0: unit
+`geecs-logbook`, port 8400, entries in `/var/lib/geecs-logbook`; runbook
+`GeecsLogbook/deploy/DEPLOYMENT.md`). The portal no longer mounts it —
+`/log` on the portal's port is nobody's route — and knows it only as a
+URL: `--logbook-url` is the logbook's base, and the run page links each
+scan to its card there (`<base>/day/YYYY-MM-DD#ScanNNN`; `GET
+/api/run/{uid}` carries the same URL as `logbook`). An absolute URL
+(`http://<host>:8400`) is used as given; a path (`/log`, once the fleet's
+front door routes it to the logbook) is same-origin and carries the
+portal's own proxy prefix. Without the flag there is no link. Set it on
+the host through `GEECS_PORTAL_EXTRA_ARGS` in `site.env`. The link is
+built for runs of `--experiment` alone: the logbook serves one
+experiment's share and scan numbers restart per experiment.
 
-The scan *record* is rendered from the folders and stored nowhere. What
-people **write** — notes on a scan, between scans, or about the day;
-agent drafts; pasted screenshots — goes to the SQLite file named by
-`--notes-db` and an `attachments/` directory beside it, and each entry is
-mirrored as a markdown file (plus its attachments) into
-`{experiment}/logbook/Y2026/09-Sep/26_0911/…` on the share — a tree the
-logbook owns, with the data tree's date shape but outside it. It never
-enters `scans/` and never creates a scan folder (pinned in
-`GeecsLogbook/tests/test_mirror.py` and
-`tests/test_scan_reader.py::TestScanFolderCreationInvariant`). The
-database is written first, so a save never fails because the share is
-slow or unmounted; the files follow when they can (a sync runs on day
-views, at most once a minute). Deleting an entry leaves a tombstone row,
-keeps its history, and removes the mirrored file.
-
-The store uses SQLite's JSON functions (`json_insert`), present in the
-interpreter's bundled SQLite from 3.31 on — any Python 3.11 build, and the
-system library on Ubuntu 22.04 or later.
-
-Without `--notes-db` the logbook is the read-only day view and no entry
-route exists. The unit template sets `StateDirectory=geecs-data-portal`,
-so systemd creates `/var/lib/geecs-data-portal` and the portal defaults
-`--notes-db` to `logbook.db` there — no path in `site.env`. **That
-directory is everything irreplaceable** — the database, its history, and
-every uploaded file; back it up as one unit (a nightly `sqlite3
-logbook.db ".backup …"` plus an rsync of `attachments/`). Note what
-that means on upgrade: **a host already running `--scan-log` becomes
-writable at its next restart** with the re-rendered unit, with no
-`site.env` change; a site that wants the read-only view keeps the old
-rendered unit or renders without `StateDirectory`. The markdown mirror on the share is the second copy of what people
-wrote, legible without any of this running. Running the portal by hand (no systemd) gives a read-only
-logbook unless you pass `--notes-db` explicitly; its directory must
-already exist.
-
-Two requirements, or it warn-and-skips rather than serving a broken page:
-
-- the **`log` extra** — `poetry install --extras analysis --extras log`.
-  Without it the import fails and the mount is skipped with a warning.
-- **`--experiment`** — the logbook reads one experiment's share and carries
-  no facility default, so `create_log_router` takes it explicitly.
-
-Set it on the host through `GEECS_PORTAL_EXTRA_ARGS` in `site.env`
-alongside `--config-editor`; `deploy/bootstrap_host.sh` already installs
-the extra for the portal service.
-
-**Two books.** `/log/day/…` is the scans book; `/log/month/2026-09` is
-the ops book — day-level notes read by month, from the database alone
-(it never touches the share, so it stays fast when the share is slow).
-
-**Type buttons** on every composer are seed templates: `*.md` files in
-`logbook_templates/` at the top of the configs checkout — the parent of
-the `--processing-configs` tree, so the same `GEECS_CONFIGS_ROOT` serves
-both. Copy `GeecsLogbook/examples/logbook_templates/` there to start
-(commit it to the configs repo); each file's header names its label,
-colour (a theme token name), book and order, and its body is the
-prefill. Adding a file adds a button within a minute, no restart. Without
-the directory the composers are plain.
-
-Reading a day of ~100 scans off a VPN-mounted share takes a few seconds
-cold and milliseconds thereafter — per-scan summaries are cached on the
-ScanInfo file's own mtime and size, so a scan finalised in place is still
-picked up. A slow first load on a cold share is expected, not a fault.
+**Upgrading a host that ran `--scan-log`** (portal 0.22–0.26): the flag
+and the `log` extra are gone, so the old `GEECS_PORTAL_EXTRA_ARGS` value
+fails argument parsing at start — replace `--scan-log` with `--logbook-url
+…` in `site.env`, re-render the unit (it no longer declares a
+`StateDirectory`), and move the entries out of
+`/var/lib/geecs-data-portal` per the logbook runbook **before** starting
+the portal on the new unit.
 
 ## The config editor (`--config-editor`)
 

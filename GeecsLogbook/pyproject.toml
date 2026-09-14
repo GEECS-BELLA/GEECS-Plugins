@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "geecs-logbook"
-version = "0.9.0"
+version = "0.10.0"
 description = "Scan logbook: a day-document view over scan folders, with human commentary stored beside the data"
 authors = ["GEECS-BELLA"]
 readme = "README.md"
@@ -9,6 +9,7 @@ packages = [{ include = "geecs_logbook" }]
 [tool.poetry.dependencies]
 python = ">=3.11,<3.12"
 fastapi = ">=0.110"
+uvicorn = ">=0.29"
 jinja2 = ">=3.1"
 pydantic = ">=2.7"
 # Rendering entries. markdown-it-py is CommonMark-compliant with a plugin
@@ -20,15 +21,19 @@ nh3 = ">=0.2"
 python-multipart = ">=0.0.9"
 geecs-data-utils = { path = "../GEECS-Data-Utils", develop = true }
 geecs-schemas = { path = "../GEECS-Schemas", develop = true }
+# The theme and the kit, mounted at /theme by THIS process (the logbook is
+# its own service since 0.10.0) — and, behind the `web` extra, the FastAPI
+# glue every surface shares: the forwarded-prefix middleware, the /theme
+# mount and the templates factory that puts `root` in every context.
+# Imported, never copied.
+geecs-web-theme = { path = "../GeecsWebTheme", develop = true, extras = ["web"] }
 
 [tool.poetry.group.dev.dependencies]
-# A TEST dependency, not a runtime one: no module under geecs_logbook/
-# imports it. The templates reach the theme's assets through the host's
-# mount ({{ root }}/theme/...), so the package itself needs it only to pin
-# KIT_STATE against the kit's real status vocabulary.
-geecs-web-theme = { path = "../GeecsWebTheme", develop = true }
 pytest = ">=8.0"
 httpx = ">=0.27"
+
+[tool.poetry.scripts]
+geecs-logbook = "geecs_logbook.__main__:main"
 
 [build-system]
 requires = ["poetry-core"]
