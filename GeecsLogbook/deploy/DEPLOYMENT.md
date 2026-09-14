@@ -58,9 +58,23 @@ whose code on disk has moved on). `deploy/bootstrap_host.sh` does the
 clone and the install; by hand:
 
 ```bash
-cd <root>/portal-checkout/GeecsLogbook
-poetry install            # fastapi, uvicorn, the theme's web extra, the path deps
+cd <root>/portal-checkout
+( . deploy/site_env_lib.sh; load_site_env /etc/geecs/site.env; cd GeecsLogbook && "$GEECS_POETRY" install )
 ```
+
+Bash, not `sh`: the parser uses `printf -v`. Nothing pins the service
+account's shell, so drive it remotely as
+`ssh <host> 'bash -c "cd ~/portal-checkout && ( . deploy/… )"'` rather
+than relying on the account's login shell being bash.
+
+`site.env` carries the absolute poetry path the units use
+(`GEECS_POETRY`), read here through the repo's own `site.env` parser
+(quotes and whitespace handled). On the reference host that is the only
+form that works **as the service account**: `poetry` is not on its
+`PATH` in a non-login shell, and its login shell (`bash -lc`) does not
+add it either (observed as that account, 2026-09-13). The bare `poetry
+install` in the unit header and the sibling runbooks assumes a shell
+where it resolves; when yours does not, this is the fallback.
 
 Render and install the unit from the host's `site.env`:
 
@@ -82,8 +96,23 @@ The unit sets `StateDirectory=geecs-logbook`: systemd creates
 defaults `--notes-db` to `logbook.db` there — no path in `site.env`.
 **That directory is everything irreplaceable** — the database, its
 history, and every uploaded file; back it up as one unit (a nightly
-`sqlite3 logbook.db ".backup …"` plus an rsync of `attachments/`). The
-markdown mirror on the share is the second copy of what people wrote,
+WAL-aware copy of the database plus an rsync of `attachments/`). The
+WAL-aware copy is `sqlite3 logbook.db ".backup …"` where the `sqlite3`
+CLI exists — **the reference host does not have it**, and a missing
+binary under `sudo` fails as one quiet line in a run of commands. The
+form that always works is the interpreter every host has — run **as the
+service user**, never as root: the store opens a connection per
+operation and closes it, so between requests there is no `-shm` file,
+and a root-run backup would create one owned by root that the next save
+cannot open read-write. One-time setup of a destination the service user
+owns, then the nightly line:
+
+```bash
+sudo install -d -o <service user> -g <service user> /var/backups/geecs-logbook
+sudo -u <service user> python3 -c "import sqlite3; s=sqlite3.connect('/var/lib/geecs-logbook/logbook.db'); d=sqlite3.connect('/var/backups/geecs-logbook/logbook.db.$(date +%F)'); s.backup(d); d.close()"
+```
+
+The markdown mirror on the share is the second copy of what people wrote,
 legible without any of this running. Running the logbook by hand (no
 systemd) gives a read-only logbook unless you pass `--notes-db`
 explicitly; its directory must already exist.
@@ -103,7 +132,12 @@ sudo systemctl stop geecs-data-portal
 sudo systemctl stop geecs-logbook 2>/dev/null || true   # not yet installed is fine
 # back up first — the database and the uploads are the only copies on the host.
 # Outside both state directories, so the glob below cannot sweep it along.
-sudo sqlite3 /var/lib/geecs-data-portal/logbook.db ".backup /var/backups/logbook.db.pre-split"
+# python, not the sqlite3 CLI: the CLI is not installed on the reference host
+# and `sudo sqlite3 …` then fails quietly while the mv below still runs.
+# (root is fine HERE: both services are stopped and chown -R follows below)
+sudo python3 -c "import sqlite3; s=sqlite3.connect('/var/lib/geecs-data-portal/logbook.db'); d=sqlite3.connect('/var/backups/logbook.db.pre-split'); s.backup(d); d.close(); print('backup written;', s.execute('select count(*) from entries').fetchone()[0], 'rows in the source')"
+sudo cp -a /var/lib/geecs-data-portal/attachments /var/backups/logbook-attachments.pre-split
+ls -la /var/backups/logbook*                    # BOTH exist before going on
 sudo install -d -o <service user> -g <service user> /var/lib/geecs-logbook
 # logbook.db* — the glob matters: the store runs SQLite in WAL mode, and a
 # portal that last died by MemoryMax= (the case this split exists for) has
@@ -114,13 +148,23 @@ sudo mv /var/lib/geecs-data-portal/attachments /var/lib/geecs-logbook/
 sudo chown -R <service user>: /var/lib/geecs-logbook
 sudo systemctl enable --now geecs-logbook      # StateDirectory= adopts the existing directory
 curl -s http://localhost:8400/health            # "writable": true
-# in a browser: /day/<today> shows the entries; an attachment link serves
+# the count that proves the move: the change feed lists every row, tombstones
+# included, in pages of 500 — it must equal the source count printed above,
+# with next_cursor null (else page on). A day whose entries were all deleted
+# shows NONE on its page — by design — so the page is not the check.
+curl -s 'http://localhost:8400/api/entries?since=2000-01-01T00:00:00%2B00:00' | python3 -c 'import json,sys; d=json.load(sys.stdin); print(len(d["entries"]), "rows on the new port; next_cursor =", d["next_cursor"])'
+# in a browser: /day/<a day with live entries> shows them; an attachment link serves
 sudo systemctl start geecs-data-portal          # on its re-rendered unit (no StateDirectory)
 ```
 
-The backup in `/var/backups/` and the now-empty
-`/var/lib/geecs-data-portal` can go once the entries are seen on the new
-port. The mirror on the
+Done on the reference host 2026-09-13 (portal 0.27.1, logbook 0.10.1):
+6 rows in the source, 6 on the new port, all of them tombstones, so the
+day page was rightly empty and the feed count was the check that
+mattered.
+
+The backups in `/var/backups/` and the now-empty
+`/var/lib/geecs-data-portal` (`sudo rmdir` — it refuses if anything is
+still there) can go once the entries are seen on the new port. The mirror on the
 share is untouched by the move — the sync on the next day view finds
 nothing owed.
 
