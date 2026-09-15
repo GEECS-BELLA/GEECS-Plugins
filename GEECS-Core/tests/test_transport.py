@@ -6,6 +6,7 @@ All tests run against ``FakeGeecsServer`` on localhost — no real hardware requ
 import asyncio
 import logging
 import struct
+from fractions import Fraction
 
 import pytest
 
@@ -79,14 +80,18 @@ class TestUdpClient:
                     real_sendto(data, addr)
 
                 transport.sendto = capture  # type: ignore[method-assign]
-                for value in (40854.24625, 40966.0, 1e-05, -0.001):
+                # Fraction stands in for numpy float scalars (numpy is not a
+                # transport dependency): any non-integral numbers.Real takes
+                # the same formatter, not str() with its exponent notation.
+                for value in (40854.24625, 40966.0, 1e-05, -0.001, Fraction(1, 100000)):
                     await client.set("Position (mm)", value)
-                    assert fake_device.variables["Position (mm)"] == value
+                    assert fake_device.variables["Position (mm)"] == float(value)
         assert [b.decode() for b in sent] == [
             "setPosition (mm)>>40854.24625",
             "setPosition (mm)>>40966.0",
             "setPosition (mm)>>0.00001",
             "setPosition (mm)>>-0.001",
+            "setPosition (mm)>>0.00001",
         ]
 
     async def test_set_integer(self, fake_device: FakeGeecsDevice) -> None:

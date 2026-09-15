@@ -24,6 +24,7 @@ from __future__ import annotations
 import asyncio
 import errno
 import logging
+import numbers
 import socket
 from typing import Any, Callable
 
@@ -329,8 +330,13 @@ class GeecsUdpClient:
         """Send a set command and return the confirmed value from the exe response."""
         if isinstance(value, bool):
             cmd = f"set{variable}>>{int(value)}"
-        elif isinstance(value, float):
-            cmd = f"set{variable}>>{format_float(value)}"
+        elif isinstance(value, numbers.Real) and not isinstance(
+            value, numbers.Integral
+        ):
+            # Every non-integral real (float, numpy float32/64, Fraction, ...)
+            # takes the one wire formatter; str(np.float32(1e-5)) would
+            # otherwise leak exponent notation and a representation tail.
+            cmd = f"set{variable}>>{format_float(float(value))}"
         else:
             cmd = f"set{variable}>>{value}"
         return await self._exchange(

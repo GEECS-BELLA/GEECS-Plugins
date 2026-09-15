@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 
-import math
 import random
 
 import pytest
@@ -149,4 +148,3 @@ class TestFormatFloat:
                 assert "e" not in text and "E" not in text, (value, text)
                 assert "." in text
                 assert float(text) == value
-                assert math.isfinite(value)

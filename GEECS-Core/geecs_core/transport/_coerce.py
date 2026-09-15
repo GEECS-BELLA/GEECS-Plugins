@@ -42,7 +42,7 @@ def format_float(value: float) -> str:
     ``repr``, unchanged from before.
     """
     text = repr(float(value))
-    if "e" not in text or not math.isfinite(value):
+    if "e" not in text:  # also inf/nan: repr carries no exponent marker
         return text
     # repr chose exponent form (|value| < 1e-4 or >= 1e16): expand the same
     # shortest digits — Decimal(text) is exact — into plain positional form.
