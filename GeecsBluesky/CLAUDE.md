@@ -166,7 +166,38 @@ qserver/                    # the worker: launcher, startup profile, permissions
   readbacks, per-component tolerance) fails the scan when a component
   moved under it; a relative `forward` is pinned `f(0) = 0` at build.
   `build_pseudo(name, spec, resolve)` is the one constructor from a
-  catalog entry.  Brief: `Planning/native_bluesky/09_pseudo_transform.md`.
+  catalog entry.
+- **Pseudo positioner rulings** (the owner's, 2026-09-14/15; the arc #904
+  and its brief are done — do not reopen):
+  - A bump is a *deviation from today's alignment*, not a position:
+    `mode: relative` zeroes the components' user offsets at every stage,
+    so `scan` and `rel_scan` over it coincide (readback 0 at stage) and the
+    end of the scan restores the baselines. Inverting a bump through one
+    magnet and `rel_scan`-ing would snap the other onto the formula's
+    absolute relation at the first step (the `U_S4H` restore incident
+    class) — never.
+  - **No reference component, no `reference:` field.** Each transform
+    defines its inverse over all its components (affine: the identity
+    target where one exists, else the first non-constant; otherwise the
+    catalog's `inverse`); the disagreement check carries the weight, and
+    its allowance includes what the inverse propagates. Least-squares was
+    rejected.
+  - Disagreement *after this pseudo moved its components* fails the scan;
+    before the first move a plain pseudo warns and snaps, a relative one
+    fails (its deviations were just zeroed). A restore that failed or was
+    skipped (halt) makes the next `stage()` refuse; `mv <pseudo> 0`,
+    unstaged, is the recovery and the only move that skips the check.
+  - The catalog carries the relations (targets, `forward` expressions,
+    `inverse` for non-linear ones, a `description` with the geometry and
+    assumptions behind a bump's coefficients); the maths is Python.
+    Geometry-derived coefficients and magnet calibration are the
+    physicists' job — never build them into the transforms.
+  - Vocabulary is the frameworks': pseudo positioner, user offset (EPICS
+    `.OFF`, ophyd `set_current_position`). The operator-facing
+    set-as-aligned / persistence / display of the offset is an additive
+    follow-on arc, not this one.
+  - Hardware-accepted 2026-09-15 (Scans 5–9 of 26_0915: bump, aborted bump
+    with restore, `rel_scan` over a plain pseudo, R56 on the chicane).
 
 ## The scan path (§4.B)
 

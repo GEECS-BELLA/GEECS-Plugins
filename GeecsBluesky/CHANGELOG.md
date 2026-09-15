@@ -4,6 +4,27 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.91.1] - 2026-09-15
+
+### Fixed
+
+- **The pseudo positioner's lifecycle lines are visible again** (#915):
+  `make_run_engine` sets the `geecs_bluesky` logger to INFO, so
+  `baselines captured (components zeroed)` at stage, `restoring
+  baselines` at unstage and a manual `mv`'s moves reach the worker's
+  journal even though they happen outside the run, where the root logger
+  sits at WARNING (the scan log lowers it only for the run's duration).
+- **A scan point at exactly 0 is an ordinary, checked step** (#915): the
+  agreement-check bypass for the recovery gesture (`mv <pseudo> 0` after a
+  failed or skipped restore) now applies only while the pseudo is not
+  staged; Scan005 of 26_0915 had taken it mid-scan.
+
+### Changed
+
+- The pseudo arc's brief (`Planning/native_bluesky/09_pseudo_transform.md`)
+  is deleted per the Planning rule; its rulings live in `CLAUDE.md`
+  ("Pseudo positioner rulings") and the `pseudo.py` module docstring.
+
 ## [0.91.0] - 2026-09-15
 
 ### Added

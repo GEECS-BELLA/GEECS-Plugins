@@ -5,7 +5,7 @@ mock readbacks follow their ``:SP`` puts (GEECS's native convergence
 stand-in), the pseudo is built from a catalog document through
 :func:`build_pseudo` exactly as the namespace will build it, and scans are
 driven through a real RunEngine so stage → move → unstage happens the way
-the stock plans do it.  Pins ``09_pseudo_transform.md`` §3: zeroing at
+the stock plans do it.  Pins the pseudo positioner rulings (``GeecsBluesky/CLAUDE.md``): zeroing at
 stage, the derived readback, the disagreement check's fail/warn split, the
 restore at unstage (end of scan and abort), and the build-time refusals.
 """
@@ -610,3 +610,19 @@ def test_pseudo_connect_connects_its_components():
         pseudo.readback.get_value(), RE._loop
     ).result(10)
     assert value == 0.0
+
+
+def test_a_scan_point_at_zero_is_an_ordinary_checked_step(bench):
+    """Only the unstaged recovery move bypasses the agreement check (#915)."""
+    bump = bench.build("ALine_e_beam_angle_offset_x")
+    bench.place(U_S3H=0.35, U_S4H=-0.099)
+
+    def plan():
+        yield from bps.stage(bump, wait=True)
+        yield from bps.mv(bump, 0.1)
+        bench.place(U_S4H=-0.5)  # a hand move mid-scan
+        yield from bps.mv(bump, 0.0)  # the point at 0 must still be checked
+
+    with pytest.raises(FailedStatus) as info:
+        bench.RE(plan())
+    assert isinstance(info.value.__cause__, PseudoComponentsDisagreeError)

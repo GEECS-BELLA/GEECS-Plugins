@@ -29,7 +29,7 @@ pseudo positioners (:mod:`geecs_bluesky.devices.ca.pseudo`), whose
 ``mode: relative`` entries zero their components' offsets at scan start
 (:meth:`CaSettable.set_current_position`, ophyd's spelling).  An
 operator-facing "set current position as zero" with persistence is the
-follow-on arc (`09_pseudo_transform.md` §3).
+follow-on arc (``GeecsBluesky/CLAUDE.md``, the pseudo positioner rulings).
 """
 
 from __future__ import annotations

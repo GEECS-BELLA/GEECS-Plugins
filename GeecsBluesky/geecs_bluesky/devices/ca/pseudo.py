@@ -23,7 +23,7 @@ the catalog's ``inverse`` otherwise (``R56_at_100MeV``).  A
 signals produces the readback child, and the parameters of the transform
 are the components' **user offsets** (:attr:`CaSettable.offset`).
 
-Two kinds of entry, one class (``09_pseudo_transform.md`` §3):
+Two kinds of entry, one class (the rulings are in ``GeecsBluesky/CLAUDE.md``):
 
 - a **plain pseudo positioner** (the catalog's ``mode: absolute``) reads its
   components in the *dial* frame — the offsets are wired as zeros.  Its
@@ -250,6 +250,7 @@ class CaPseudoPositioner(StandardReadable):
         self._zeroed = False  # relative: offsets captured by this pseudo
         self._moved = False  # this pseudo has moved its components since stage
         self._restore_pending = False  # staged, and the baselines not yet put back
+        self._staged = False  # between stage() and unstage(): a scan is driving us
         #: ``{"Device:Variable": dial setting}`` of the last completed set
         #: (``None`` until one succeeds) — operator feedback for manual moves.
         self.last_commanded: dict[str, float] | None = None
@@ -331,6 +332,7 @@ class CaPseudoPositioner(StandardReadable):
             await self._zero_components()
             self._restore_pending = True
         self._moved = False
+        self._staged = True
         await super().stage().task
 
     @AsyncStatus.wrap
@@ -353,6 +355,7 @@ class CaPseudoPositioner(StandardReadable):
                 self._restore_pending = False
         finally:
             self._moved = False
+            self._staged = False
             await super().unstage().task
 
     async def _restore_baselines(self) -> None:
@@ -485,12 +488,18 @@ class CaPseudoPositioner(StandardReadable):
         if self._relative and not self._zeroed:
             # Unstaged caller (a manual mv): today's positions are the baseline.
             await self._zero_components()
-        restoring = self._relative and self._restore_pending and value == 0.0
+        restoring = (
+            self._relative
+            and self._restore_pending
+            and not self._staged  # a scan point at 0 is an ordinary step
+            and value == 0.0
+        )
         if restoring:
-            # The recovery gesture after a partial restore: the components
-            # disagree by construction (one is back, one is not) and the
-            # move sends each to its own captured baseline — safe without
-            # the agreement check, which would otherwise refuse the cure.
+            # The recovery gesture (an unstaged ``mv <pseudo> 0``) after a
+            # partial restore: the components disagree by construction (one
+            # is back, one is not) and the move sends each to its own
+            # captured baseline — safe without the agreement check, which
+            # would otherwise refuse the cure.
             logger.info("%s: restoring the owed baselines", self.name)
         else:
             await self._check_agreement(fail=self._relative or self._moved)
