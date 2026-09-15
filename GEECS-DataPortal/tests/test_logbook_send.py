@@ -18,8 +18,10 @@ import pytest
 from fastapi.testclient import TestClient
 
 from geecs_portal import logbook_send
+from geecs_data_utils.tiled_catalog import RunDetail, summary_from_metadata
+
 from geecs_portal.app import create_app
-from test_app import FakeCatalog
+from test_app import FakeCatalog, _detail
 
 _UID = "uid-002"  # TEST_DAY, Scan 002 in the fake catalog
 _BASE = "http://logbook.example:8400"
@@ -52,6 +54,9 @@ class FakeLogbook:
         #: Every PATCH attempt, 409s included — the retry loop would
         #: otherwise heal a stale-version bug into an invisible one.
         self.patch_attempts = 0
+        #: Answer a GET without ``body_md`` / with a null one (skew).
+        self.drop_body_md = False
+        self.null_body_md = False
 
     def handler(self, request: httpx.Request) -> httpx.Response:
         path = request.url.path
@@ -89,7 +94,12 @@ class FakeLogbook:
                     },
                 )
             if request.method == "GET":
-                return httpx.Response(200, json=entry)
+                served = dict(entry)
+                if self.drop_body_md:
+                    served.pop("body_md")
+                elif self.null_body_md:
+                    served["body_md"] = None
+                return httpx.Response(200, json=served)
             if request.method == "PATCH":
                 body = json.loads(request.content)
                 self.patch_attempts += 1
@@ -595,3 +605,115 @@ class TestTheSendTouchesNoShare:
         # ...and the guard is meaningful: the run PAGE does resolve one.
         client.get(f"/run/{_UID}")
         assert calls
+
+
+class TestAnAppendNeverErasesText:
+    """The read half of a read-modify-write may not silently default.
+
+    This is the one place the module can destroy something: the PATCH
+    replaces the whole body, and its safety argument is that the body it
+    sends is the body it just read. A missing ``body_md`` that arrives
+    as ``""`` makes that argument false.
+    """
+
+    def test_an_entry_with_no_body_is_appended_to_normally(self) -> None:
+        """An empty body is legitimate — created with no source_url."""
+        book = FakeLogbook()
+        first = _send(book, source_url="")
+        _send(book, entry_id=first.entry_id, caption="second")
+        body = book.only_entry()["body_md"]
+        assert body.count("![") == 2
+
+    def test_a_reply_without_body_md_refuses_rather_than_overwriting(self) -> None:
+        """Skew must stop the write, not complete it with an empty body."""
+        book = FakeLogbook()
+        first = _send(book)
+        prose = "the jet was misaligned for shots 4-9"
+        book.entries[first.entry_id]["body_md"] += f"\n\n{prose}\n"
+        book.drop_body_md = True
+        with pytest.raises(logbook_send.LogbookRefused) as caught:
+            _send(book, entry_id=first.entry_id, caption="second")
+        assert caught.value.status == 502
+        # The sentence is still there: nothing was written at all.
+        assert prose in book.entries[first.entry_id]["body_md"]
+
+    def test_a_non_text_body_md_refuses_rather_than_stringifying_it(self) -> None:
+        """``str(None)`` would write the word "None" over someone's note."""
+        book = FakeLogbook()
+        first = _send(book)
+        book.null_body_md = True
+        with pytest.raises(logbook_send.LogbookRefused) as caught:
+            _send(book, entry_id=first.entry_id)
+        assert caught.value.status == 502
+        assert "None" not in book.entries[first.entry_id]["body_md"]
+
+
+class TestTheDayParamSurvivesTheSend:
+    """A run with no usable start time resolves its day from ``?day=`` alone.
+
+    The page renders such a run with the button showing, because the
+    page itself was loaded with the param. A send that drops it resolves
+    no day, fails the gate, and 404s every time — a button that is
+    always visible and never works.
+    """
+
+    @staticmethod
+    def _catalog_with_a_timeless_run() -> FakeCatalog:
+        catalog = FakeCatalog()
+        detail = _detail(7)
+        detail.start_doc["time"] = 0
+        catalog.details["uid-007"] = RunDetail(
+            summary=summary_from_metadata(
+                detail.start_doc["uid"], detail.start_doc, None
+            ),
+            start_doc=detail.start_doc,
+            stop_doc=None,
+            data=detail.data,
+        )
+        return catalog
+
+    def test_the_page_offers_the_button_and_the_send_then_works(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        stub = _StubSend()
+        monkeypatch.setattr(logbook_send, "send_plot", stub)
+        client = TestClient(
+            create_app(
+                self._catalog_with_a_timeless_run(),
+                default_experiment="Undulator",
+                logbook_url="http://logbook.example:8400",
+            )
+        )
+        day = "2026-07-12"
+        assert (
+            "const LOGBOOK_SEND = true;" in client.get(f"/run/uid-007?day={day}").text
+        )
+        body = {"author": "Ada", "image": _DATA_URL, "caption": "y vs shot"}
+        assert (
+            client.post(f"/api/run/uid-007/logbook?day={day}", json=body).status_code
+            == 201
+        )
+        assert stub.calls[0]["day"] == day
+
+    def test_without_the_day_there_is_nothing_to_join(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """What the page would produce if its fetch dropped the param."""
+        stub = _StubSend()
+        monkeypatch.setattr(logbook_send, "send_plot", stub)
+        client = TestClient(
+            create_app(
+                self._catalog_with_a_timeless_run(),
+                default_experiment="Undulator",
+                logbook_url="http://logbook.example:8400",
+            )
+        )
+        body = {"author": "Ada", "image": _DATA_URL, "caption": "y vs shot"}
+        assert client.post("/api/run/uid-007/logbook", json=body).status_code == 404
+        assert not stub.calls
+
+    def test_the_page_fetch_carries_the_day(self) -> None:
+        """The template is the only place this can be got wrong."""
+        page = _client().get(f"/run/{_UID}").text
+        send = page[page.index("/api/run/${UID}/logbook") :][:400]
+        assert 'searchParams.set("day", DAY)' in send

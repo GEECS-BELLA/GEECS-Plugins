@@ -604,7 +604,13 @@ async function confirmSendToLogbook() {
       width: d.width > 0 ? d.width : SEND_WIDTH,
       height: d.height > 0 ? d.height : SEND_HEIGHT,
     });
-    const res = await fetch(`${ROOT}/api/run/${UID}/logbook`, {
+    // DAY like every other /api/run call: a run whose start doc has no
+    // usable time resolves its day ONLY from this param, and the page
+    // itself was rendered with it — dropping it here would show the
+    // button and then 404 every send.
+    const send = new URL(`${ROOT}/api/run/${UID}/logbook`, location.origin);
+    if (DAY) send.searchParams.set("day", DAY);
+    const res = await fetch(send, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({

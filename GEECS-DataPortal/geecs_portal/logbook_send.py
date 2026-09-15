@@ -387,10 +387,23 @@ def _append_image(
     """
     for attempt in (1, 2):
         current = _checked(http.get(f"{base}/api/entries/{entry_id}"))
+        # `_field`, never `.get(…, "")`: this is the read half of a
+        # read-modify-write, and a default would turn "the body did not
+        # come back" into "the body is empty" — which the PATCH below
+        # then makes true, erasing whatever someone had written.  An
+        # entry legitimately HAS an empty body (one created with no
+        # source_url), and that arrives as a present key, so nothing is
+        # lost by demanding the key.  Missing or not a string is skew,
+        # and skew must stop the write rather than complete it.
+        body_md = _field(current, "body_md")
+        if not isinstance(body_md, str):
+            raise LogbookRefused(
+                502, "the logbook reply's 'body_md' is not text; refusing to overwrite"
+            )
         patch = http.patch(
             f"{base}/api/entries/{entry_id}",
             json={
-                "body_md": appended_body(str(current.get("body_md", "")), block),
+                "body_md": appended_body(body_md, block),
                 "editor": author,
                 "expected_version": _field(current, "version"),
             },

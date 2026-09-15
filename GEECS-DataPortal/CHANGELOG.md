@@ -52,7 +52,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   request rather than forwarded to be refused there.
 
   Sending resolves the run's **day only** — never a scan folder — so a
-  logbook write does not stat the SMB share.
+  logbook write does not stat the SMB share. The page passes `?day=`
+  like every other `/api/run` call: a run whose start document has no
+  usable time resolves its day from that param alone, and dropping it
+  would show the button and 404 every send.
+
+  The append reads the entry's body before rewriting it, and that read
+  demands `body_md` rather than defaulting it. A default would turn "the
+  body did not come back" into "the body is empty", and the PATCH that
+  follows would make it so — erasing whatever had been written. Missing
+  or non-text is 502 and no write at all.
 
   Sending requires an **absolute** `--logbook-url`; a path-shaped base
   describes the browser's front door and names no host this process can
