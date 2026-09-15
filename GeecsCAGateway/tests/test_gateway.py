@@ -992,13 +992,14 @@ class _RecordingUdp:
 
 
 async def test_setpoint_write_uses_move_budget_timeout() -> None:
-    """A blocking set gets the >= 30 s move budget, not the short get default.
+    """A blocking set waits minutes for its exe reply, not the short get default.
 
-    Pins review finding #7: CaMotor (GeecsBluesky ``devices/ca/motor.py``,
-    ``_DEFAULT_MOVE_TIMEOUT = 30.0``) promises "a slow axis is not a dead one".
-    The gateway's set exchange must not undercut that budget by timing out a
-    legitimate 10-30 s GEECS blocking set (e.g. a slow stage move) — that
-    failed the caput and aborted the scan even though the hardware finished.
+    Pins review finding #7 and issue #906: GEECS sets block until the device
+    reports convergence and only the device knows how long that takes — a
+    19 mm ModeImager stage move answered ``no error`` at 32 s (Scan009 of
+    26_0914), which the former 30 s budget failed and then discarded as a
+    stale datagram. The ceiling is minutes: past it a legitimate reply is
+    dropped unread, and a dead device fails at the ACK stage regardless.
     """
     gw = GeecsCaGateway(_config("127.0.0.1", 1))
     udp = _RecordingUdp(device_name=DEVICE)
@@ -1011,7 +1012,12 @@ async def test_setpoint_write_uses_move_budget_timeout() -> None:
     assert variable == "Position"
     assert value == pytest.approx(4.2)
     assert timeout == pytest.approx(gw._set_timeout)
-    assert gw._set_timeout >= 30.0  # CaMotor's move budget — do not undercut
+    # Longer than any client's own wait: the #906 design gives GeecsBluesky's
+    # CaMotor a 300 s hard ceiling on its reply wait (companion PR; the shipped
+    # constant is still 30 s), and a reply discarded here never reaches a
+    # client still waiting for it. Not imported — the gateway has no
+    # dependency on the worker; the number is the contract (PV_CONTRACT §2).
+    assert gw._set_timeout > 300.0
 
 
 async def test_set_timeout_is_configurable() -> None:
@@ -1041,6 +1047,154 @@ async def test_get_uses_standard_exe_timeout() -> None:
 
     assert recorded == [pytest.approx(_EXE_TIMEOUT)]
     assert _EXE_TIMEOUT < 30.0  # gets stay snappy — a 10 s get IS a dead device
+
+
+# --- the exe-reply ceiling, driven end to end with a hand-fed device ---------
+#
+# The real GeecsUdpClient with fake transports: the test plays the device,
+# delivering the two replies of a GEECS set by hand — the ACK on the command
+# port, then the exe reply on cmd_port + 1 — while a virtual clock moves the
+# loop past the old 30 s budget without sleeping for it.
+
+_DEVICE_ADDR = ("127.0.0.1", 50000)
+
+
+class _FakeUdpTransport:
+    """Records ``sendto`` instead of sending — no socket involved."""
+
+    def __init__(self) -> None:
+        self.sent: list[tuple[bytes, object]] = []
+
+    def sendto(self, data: bytes, addr: object = None) -> None:
+        self.sent.append((data, addr))
+
+    def close(self) -> None:
+        pass
+
+
+def _hand_fed_udp(device_name: str):
+    """A ``GeecsUdpClient`` whose device replies are injected by the test."""
+    from geecs_core.transport.udp_client import GeecsUdpClient, _Oneshot
+
+    client = GeecsUdpClient("127.0.0.1", 1, device_name=device_name)
+    client._cmd_transport = _FakeUdpTransport()  # type: ignore[assignment]
+    client._exe_transport = _FakeUdpTransport()  # type: ignore[assignment]
+    client._cmd_proto = _Oneshot()
+    client._exe_proto = _Oneshot()
+    return client
+
+
+async def _wait_for_command(client, count: int) -> None:
+    """Spin the loop until the client has sent *count* UDP commands."""
+    transport = client._cmd_transport
+    for _ in range(100):
+        if len(transport.sent) >= count:
+            return
+        await asyncio.sleep(0)
+    raise AssertionError(f"client never sent command #{count}")
+
+
+async def _ack(client) -> None:
+    """Play the device's first reply (the command ACK) and let the client arm its exe wait.
+
+    The yields matter: the client schedules the exe-reply timer only after it
+    has consumed the ACK, and it must do so *before* the virtual clock moves,
+    or the timer is armed against an already-shifted clock and never ages.
+    """
+    client._cmd_proto.datagram_received(b"accepted", _DEVICE_ADDR)
+    for _ in range(10):
+        await asyncio.sleep(0)
+
+
+class _VirtualClock:
+    """Shift ``loop.time()`` forward so ``wait_for`` deadlines age instantly.
+
+    ``asyncio.wait_for`` schedules its timeout against ``loop.time()`` and the
+    loop fires due timers on its next iteration, so advancing the clock and
+    yielding a few times is equivalent to that much wall time passing —
+    without the test actually taking 32 s.
+    """
+
+    def __init__(self, loop: asyncio.AbstractEventLoop, monkeypatch) -> None:
+        real_time = loop.time
+        self._offset = 0.0
+        monkeypatch.setattr(loop, "time", lambda: real_time() + self._offset)
+
+    async def advance(self, seconds: float) -> None:
+        self._offset += seconds
+        for _ in range(10):  # let due timers fire and their cancellations land
+            await asyncio.sleep(0)
+
+
+async def test_acknowledged_set_replying_after_30s_completes_the_put(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Scan009 of 26_0914 (#906): an ACKed set whose exe reply lands at 32 s completes.
+
+    The device ACKs at once (it is alive) and answers ``no error`` 32 s later
+    (the stage took that long). Under the old 30 s budget the put had already
+    failed and the reply was discarded as stale — see the twin test below.
+    Under the minutes-long ceiling the put is still waiting and completes.
+    """
+    gw = GeecsCaGateway(_config("127.0.0.1", 1))
+    udp = _hand_fed_udp(DEVICE)
+    gw._udp[DEVICE] = udp
+    clock = _VirtualClock(asyncio.get_running_loop(), monkeypatch)
+    sp = gw.pvdb[f"{DEVICE_PV}:position:SP"]
+
+    put = asyncio.create_task(sp.write(-25.0))
+    await _wait_for_command(udp, 1)
+    await _ack(udp)  # reply 1: the device is alive and took the command
+
+    await clock.advance(32.0)  # the old 30 s budget has elapsed ...
+    assert not put.done(), "an acknowledged set must still be waiting at 32 s"
+
+    udp._exe_proto.datagram_received(  # reply 2: the device's verdict
+        f"{DEVICE}>>Position>>-25.0>>no error,".encode(), _DEVICE_ADDR
+    )
+    await asyncio.wait_for(put, 1.0)
+
+    assert sp.value == pytest.approx(-25.0)  # stored: the put succeeded
+    assert sp.alarm.severity == AlarmSeverity.NO_ALARM
+
+
+async def test_reply_past_the_ceiling_is_the_only_stale_discard(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The Scan009 failure, reproduced with the old 30 s budget re-applied.
+
+    Proves the twin above bites (the same 32 s reply fails the put under a
+    30 s ceiling) and pins that the transport's "no exchange in flight"
+    discard is reachable only *after* the ceiling: the exe future stays armed
+    for the whole wait, so nothing short of the ceiling drops a reply.
+    """
+    from geecs_core.exceptions import GeecsConnectionError
+
+    gw = GeecsCaGateway(_config("127.0.0.1", 1), set_timeout_s=30.0)
+    udp = _hand_fed_udp(DEVICE)
+    gw._udp[DEVICE] = udp
+    clock = _VirtualClock(asyncio.get_running_loop(), monkeypatch)
+    sp = gw.pvdb[f"{DEVICE_PV}:position:SP"]
+    caplog.set_level(logging.WARNING, logger="geecs_core.transport.udp_client")
+
+    put = asyncio.create_task(sp.write(-25.0))
+    await _wait_for_command(udp, 1)
+    await _ack(udp)
+
+    await clock.advance(29.0)  # under the ceiling: the exe future is still armed
+    assert not put.done()
+    armed = udp._exe_proto._future
+    assert armed is not None and not armed.done(), "a reply now would be accepted"
+
+    await clock.advance(3.0)  # 32 s: past the 30 s ceiling
+    with pytest.raises(GeecsConnectionError, match="no exe response within 30"):
+        await put
+    assert sp.value == pytest.approx(0.0)  # failed put leaves :SP unstored
+
+    udp._exe_proto.datagram_received(  # the late `no error` — dropped unread
+        f"{DEVICE}>>Position>>-25.0>>no error,".encode(), _DEVICE_ADDR
+    )
+    assert "no exchange in flight" in caplog.text
 
 
 async def test_one_device_bind_failure_does_not_abort_startup(

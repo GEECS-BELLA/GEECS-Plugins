@@ -21,7 +21,7 @@ from pathlib import Path
 
 from .config import GatewayConfig
 from .derived import default_derived_channels_path, load_derived_channels
-from .gateway import GeecsCaGateway
+from .gateway import _SET_REPLY_CEILING_S, GeecsCaGateway
 
 logger = logging.getLogger("geecs_ca_gateway")
 
@@ -42,6 +42,19 @@ class _QuietMissingVariables(logging.Filter):
 
     def filter(self, record: logging.LogRecord) -> bool:  # noqa: A003
         return "missing variable(s)" not in record.getMessage()
+
+
+def _positive_seconds(text: str) -> float:
+    """Argparse type for ``--set-timeout``: a strictly positive number of seconds."""
+    try:
+        value = float(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"not a number: {text!r}") from None
+    if not value > 0:
+        raise argparse.ArgumentTypeError(
+            f"must be > 0 seconds (a ceiling of {text} fails every put after its ACK)"
+        )
+    return value
 
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -89,6 +102,19 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Log the transport's 'missing variable(s)' notices (quiet by default).",
     )
     parser.add_argument(
+        "--set-timeout",
+        type=_positive_seconds,
+        default=_SET_REPLY_CEILING_S,
+        metavar="SECONDS",
+        help=(
+            "Ceiling on waiting for a device's reply to a :SP put (default "
+            f"{_SET_REPLY_CEILING_S:g} s). GEECS sets block until the device "
+            "reports convergence, so this must outlast the slowest legitimate "
+            "move and every CA client's own put wait; a dead device fails at "
+            "the ACK stage regardless."
+        ),
+    )
+    parser.add_argument(
         "--log-level",
         default="INFO",
         help="Logging level (default INFO).",
@@ -116,6 +142,7 @@ async def _run(
     enabled_only: bool,
     include_settable: bool,
     derived_channels_path: Path | None = None,
+    set_timeout_s: float = _SET_REPLY_CEILING_S,
 ) -> bool:
     config = GatewayConfig.from_geecs_experiment(
         experiment,
@@ -134,7 +161,11 @@ async def _run(
             len(config.derived_channels),
             path,
         )
-    gateway = GeecsCaGateway(config, endpoint_resolver=_db_endpoint_resolver)
+    gateway = GeecsCaGateway(
+        config,
+        set_timeout_s=set_timeout_s,
+        endpoint_resolver=_db_endpoint_resolver,
+    )
     logger.info(
         "serving %d PV(s) across %d device(s) for experiment %r",
         len(gateway.pvdb),
@@ -164,6 +195,7 @@ def main(argv: list[str] | None = None) -> None:
                 enabled_only=not args.include_disabled,
                 include_settable=not args.no_settable,
                 derived_channels_path=args.derived_channels,
+                set_timeout_s=args.set_timeout,
             )
         )
     except KeyboardInterrupt:

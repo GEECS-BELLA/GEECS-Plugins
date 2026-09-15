@@ -57,15 +57,38 @@ _LABVIEW_EPOCH_OFFSET = 2_082_844_800
 # Sentinel for "no value written yet" in the deadband cache.
 _UNSET = object()
 
-# Default budget (seconds) for a *setpoint* UDP exchange. GEECS sets are
-# blocking — the exe response arrives only once the device reports the set
-# converged (or failed) — so a slow-but-healthy axis can legitimately take tens
-# of seconds. This must not undercut the motor-side move contract: CaMotor in
-# GeecsBluesky (geecs_bluesky/devices/ca/motor.py, `_DEFAULT_MOVE_TIMEOUT`)
-# gives the CA put its full 30 s move budget, on the principle that "a slow
-# axis is not a dead one". Gets keep the shorter GeecsUdpClient default — a
-# read that takes 10 s *is* a dead device.
-_SET_EXE_TIMEOUT = 30.0
+# Ceiling (seconds) on waiting for the *executed* reply of a setpoint UDP
+# exchange. A GEECS set has two device replies, and this bounds only the
+# second:
+#   1. the command ACK on the command port — `GeecsUdpClient._ACK_TIMEOUT`
+#      (1.5 s), UNCHANGED: a dead device (no ACK) or a refusing one (ACK not
+#      `accepted`) still fails the `:SP` put in ~1.5 s;
+#   2. the exe reply on cmd_port + 1 — the device's verdict on the move, sent
+#      only once the set converged (or failed). Only the device knows how long
+#      that takes: a 19 mm ModeImager stage move answered `no error` at 32 s
+#      (Scan009 of 26_0914, issue #906), which the former 30 s budget failed
+#      and then discarded as a stale datagram.
+# So this is NOT a liveness signal — liveness is settled by the ACK, and the
+# exe reply's own status carries the verdict — it is only the point past which
+# an acknowledged, still-executing move's reply would be dropped unread.
+# It must therefore be LONGER THAN ANY CLIENT'S OWN WAIT: the CA client, not
+# the gateway, decides how long to wait for a put, and a reply the gateway has
+# already discarded can never reach a client still waiting for it. The #906
+# design of record gives GeecsBluesky's CaMotor a 300 s hard ceiling on its
+# reply wait (bounded by readback progress; its companion PR — the shipped
+# `_DEFAULT_MOVE_TIMEOUT` is still 30 s); twice that keeps the order with
+# margin. The caproto put is async, so waiting costs the CA server nothing —
+# but the UDP client serialises exchanges per device (GEECS devices take one
+# command at a time), so an ACKed set whose reply never comes holds THAT
+# device's setpoint channel for the ceiling: later `:SP` puts to the device
+# queue behind it and fail at their own client budgets (where the device
+# itself would have rejected them at once). A reply lost on the wire, or a
+# device that ACKs and then never replies, turns that into a ceiling-long
+# stall for the device's sets — its readbacks are unaffected. Gets keep the shorter
+# GeecsUdpClient default — a read that takes 10 s *is* a dead device.
+# Overridable per host with `--set-timeout` — keep it above every client's
+# wait.
+_SET_REPLY_CEILING_S = 600.0
 
 _ALARM_SEVERITY = {
     AlarmSeverityName.MINOR: AlarmSeverity.MINOR_ALARM,
@@ -145,10 +168,12 @@ class GeecsCaGateway:
     reconnect_min_s, reconnect_max_s : float
         Backoff bounds for the subscription reconnect loop.
     set_timeout_s : float
-        Budget (seconds) for the UDP exe response of a *setpoint* write. GEECS
-        sets block until convergence, so this must cover the slowest legitimate
-        move; the default matches CaMotor's 30 s move budget in GeecsBluesky
-        (see ``_SET_EXE_TIMEOUT``). Gets are unaffected.
+        Ceiling (seconds) on waiting for the UDP exe reply of a *setpoint*
+        write. GEECS sets block until convergence and only the device knows
+        how long that takes, so this is minutes by default — past it a late
+        reply is dropped as stale and the put fails, so it must outlast the
+        slowest legitimate move (see ``_SET_REPLY_CEILING_S``). Gets are
+        unaffected.
     endpoint_resolver : callable, optional
         ``device_name -> (host, port) | None`` — re-queried (off-loop, with a
         timeout) once a device's reconnect backoff hits its ceiling, so a
@@ -165,7 +190,7 @@ class GeecsCaGateway:
         *,
         reconnect_min_s: float = 0.5,
         reconnect_max_s: float = 30.0,
-        set_timeout_s: float = _SET_EXE_TIMEOUT,
+        set_timeout_s: float = _SET_REPLY_CEILING_S,
         endpoint_resolver: Callable[[str], tuple[str, int] | None] | None = None,
     ) -> None:
         self.config = config
@@ -385,10 +410,11 @@ class GeecsCaGateway:
     def _make_setter(self, device_name: str, geecs_var: str):
         """Return an async setter closure that forwards a value over UDP.
 
-        The set exchange gets the (longer) ``set_timeout_s`` budget rather than
-        the client's default exe timeout: GEECS sets block until the device
-        reports convergence, and a legitimate slow move (~10-30 s stage travel)
-        must not be failed as a dead connection mid-flight.
+        The set exchange gets the (much longer) ``set_timeout_s`` ceiling rather
+        than the client's default exe timeout: GEECS sets block until the device
+        reports convergence, and a legitimate slow move (a 19 mm stage travel
+        answered at 32 s, #906) must not be failed as a dead connection
+        mid-flight — its reply would then be discarded unread as stale.
 
         Any failure is recorded on the device's ``LAST_SET_ERROR`` PV before it
         propagates (and fails the caput) — put-completion is invisible to
