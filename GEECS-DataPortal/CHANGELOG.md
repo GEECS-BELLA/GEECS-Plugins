@@ -3,6 +3,74 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.28.0] - 2026-09-15
+
+### Added
+
+- **Send a plot to the scan's log entry** — a Plot-tab modebar button
+  that puts the rendered figure into this scan's entry in the logbook,
+  and the portal's third write verb (`POST /api/run/{uid}/logbook`,
+  `geecs_portal/logbook_send.py`; owner ruling 2026-09-15).
+
+  It exists because the clipboard cannot work on the deployed portal:
+  browsers expose clipboard *image* writes on secure contexts only, and
+  the service is plain HTTP. This path does not care about the page's
+  origin — the browser hands the PNG to the portal and the portal talks
+  to the logbook **server-to-server**, which also means the logbook needs
+  no CORS headers and the portal still never imports it.
+
+  One send is four calls: create the scan's entry (the logbook stores an
+  attachment only against an entry), upload the PNG, re-read the version
+  the upload moved, and patch the body with the image paragraph. Two
+  shapes are load-bearing rather than incidental:
+
+  - Images are **appended to one entry per scan**, because consecutive
+    image paragraphs are what the logbook's renderer turns into a figure
+    grid — the layout LogMaker's `gdoc_slot` numbering used to fake. The
+    page remembers the entry it made (per scan, in the browser) and
+    offers "a new entry" when that is not what you want; an entry that
+    has since been deleted starts a fresh one rather than failing.
+  - The **portal link sits above the images**, not between them: a
+    paragraph in the middle of the run would split the grid. Because the
+    Plot tab's whole state is in its URL, that link restores the exact
+    analysis, not just the scan.
+
+  A conflict (someone saving the entry mid-send) is re-read and retried
+  once — safe precisely because this is an append, never a replace.
+  Failures land as themselves: an unreachable logbook is 503, its own
+  verdicts on our payload (409/413/415) pass through, anything else is
+  502 so a peer's 500 never reads as the portal's.
+
+  Sending requires an **absolute** `--logbook-url`; a path-shaped base
+  describes the browser's front door and names no host this process can
+  dial, so it links but does not send and the button is hidden
+  (`logbook_send` in the run page and `GET /api/run/{uid}`).
+
+  Sent plots render at a **fixed 720×460** unless an explicit display
+  width/height says otherwise. The note scales the bitmap into its
+  column, so apparent text size is export width ÷ column width: a wide
+  export in a three-up grid has unreadable axis labels, and a narrow one
+  reads well. `httpx` moves from a dev dependency to a runtime one — the
+  one call this process makes out of itself.
+
+### Fixed
+
+- **Copy plot to clipboard** stops looking broken. On the plain-HTTP
+  deployment `navigator.clipboard` does not exist, so the button's
+  documented download fallback fired every time with a note that said
+  only "copy failed". The fallback stays — nothing page-side can put a
+  bitmap on an http origin's clipboard, since `execCommand("copy")`
+  carries text alone — but it is now legible: the modebar tooltip reads
+  "Download plot PNG — clipboard copy needs an https or localhost page"
+  when the API is absent, and a real failure names the error
+  (`NotAllowedError` is almost always an unfocused window). The send
+  button above is the answer for the deployed path.
+- The clipboard write no longer loses the click's **user activation**:
+  the PNG is rendered *inside* the `ClipboardItem` as a promise value
+  rather than awaited before the write. Safari expires the gesture
+  across an await and rejects the write that follows, so copy failed
+  there even on a secure page. Chrome accepts either shape.
+
 ## [0.27.1] - 2026-09-13
 
 ### Changed

@@ -194,11 +194,33 @@ without the processing selector.)
 | Day pages load, images 404 | share not mounted (or moved) at `geecs_data_local_base_path`; a 404 on one shot with others fine is the exact-match rule working (that device missed the shot) |
 | Slow day listings | measure `list_runs` against the catalog first — the fix is a portal-side cache, not a schema change (scope doc, open questions) |
 | Unit crash-loops at start | `status` shows **217/USER** — the installed unit is a pre-profile file (or a copy from an old staging run) with the generic `User=`; the clone it came from predates the templated units — pull it forward, re-render with `deploy/render_units.sh`, reinstall (site profile page). Wrong absolute Poetry path in `ExecStart` (`status` shows 203/EXEC); env installed by a different account than `User=` (empty venv — reinstall as the service account); or port 8200 already taken. A down Tiled does **not** exit the service — that shows up as the `/health` row above |
+| Plot tab: **Copy plot to clipboard downloads a PNG instead** | The portal is served over plain `http://`, and every browser gates clipboard *image* writes on a secure context, so `navigator.clipboard` does not exist on the page — the button says so in its tooltip and its note, and degrades to the 2× download. No page-side workaround exists (the legacy `execCommand` copy carries text only). To get a real bitmap copy, reach the portal from a secure origin — see **Clipboard copy and the secure-context rule** below |
 | Evening scans 404 (or resolve oddly) while daytime scans work | host timezone differs from the scanner hosts' — daily folders are named by the scanner's local date. `site.env` sets `TZ`; keep it matching the lab's zone |
 
 The fleet-map page (`docs/platform/fleet_map.md`) carries the
 service's row — host, port, health check — and must be updated in the
 same PR when this deployment moves or changes.
+
+## Getting a plot out of the Plot tab
+
+Two buttons on the plot's modebar, and they are not interchangeable.
+
+**Send plot to this scan's log entry** is the one that works on the
+deployed portal. The browser hands the PNG to the portal and the portal
+calls the logbook's own API server-to-server, so nothing depends on the
+page's origin and the logbook needs no CORS headers. It requires an
+**absolute** `--logbook-url` (`http://<host>:8400`): the portal has to
+dial the logbook itself, and a path-shaped base (`/log`) describes the
+browser's front door, not an address this process can reach. With a path
+base the run page still links to the logbook, but the send button is
+hidden — `GET /api/run/{uid}` reports this as `logbook_send`.
+
+**Copy plot to clipboard** only works when the page is a *secure
+context* — `https://`, or a `localhost` host. Browsers expose the
+clipboard-image API nowhere else, so on the plain-HTTP deployment
+`navigator.clipboard` does not exist, the button's tooltip says it will
+download, and it downloads the 2× PNG. There is no page-side workaround:
+the legacy `execCommand("copy")` path carries text only.
 
 ## The logbook link (`--logbook-url`)
 
@@ -215,6 +237,14 @@ portal's own proxy prefix. Without the flag there is no link. Set it on
 the host through `GEECS_PORTAL_EXTRA_ARGS` in `site.env`. The link is
 built for runs of `--experiment` alone: the logbook serves one
 experiment's share and scan numbers restart per experiment.
+
+Since portal 0.28.0 the same flag also enables **sending a plot** to a
+scan's entry (`POST /api/run/{uid}/logbook`, the Plot tab's modebar) —
+the portal's third write verb, and the only one that leaves this
+process. Sending needs the absolute form of the URL, for the reason in
+§ Getting a plot out of the Plot tab. The portal writes as whoever the
+browser named, and the logbook's 20 MiB attachment cap applies (the
+portal refuses over 8 MiB first, with its own message).
 
 **Upgrading a host that ran `--scan-log`** (portal 0.22–0.26): the flag
 and the `log` extra are gone, so the old `GEECS_PORTAL_EXTRA_ARGS` value
