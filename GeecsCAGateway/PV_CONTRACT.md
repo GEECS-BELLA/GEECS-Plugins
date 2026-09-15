@@ -239,9 +239,10 @@ GEECS device  <--blocking UDP set-----------  setpoint PV   (caput :SP)
   per device** (GEECS devices take one command at a time): an acknowledged
   set whose reply never arrives holds that device's setpoint channel for the
   ceiling, and later `:SP` puts to the same device queue behind it and fail
-  at their own client budgets. That mirrors the device's one-command rule
-  while it is still executing; only a reply lost on the wire turns it into a
-  ceiling-long stall. Gets keep the transport's short 10 s default: a read
+  at their own client budgets (the device itself would have rejected them at
+  once, in ~1.5 s). A reply lost on the wire, or a device that ACKs and then
+  never replies, turns that into a ceiling-long stall for the device's sets —
+  its readbacks are unaffected. Gets keep the transport's short 10 s default: a read
   that takes 10 s *is* a dead device.
 - The setpoint PV reflects the last *successfully forwarded* put, not the
   device readback. Read state from the readback PV; the `:SP` value is the

@@ -81,9 +81,10 @@ _UNSET = object()
 # but the UDP client serialises exchanges per device (GEECS devices take one
 # command at a time), so an ACKed set whose reply never comes holds THAT
 # device's setpoint channel for the ceiling: later `:SP` puts to the device
-# queue behind it and fail at their own client budgets. That mirrors the
-# device's own one-command rule while it is still executing; only a reply
-# lost on the wire turns it into a 10-minute stall. Gets keep the shorter
+# queue behind it and fail at their own client budgets (where the device
+# itself would have rejected them at once). A reply lost on the wire, or a
+# device that ACKs and then never replies, turns that into a ceiling-long
+# stall for the device's sets — its readbacks are unaffected. Gets keep the shorter
 # GeecsUdpClient default — a read that takes 10 s *is* a dead device.
 # Overridable per host with `--set-timeout` — keep it above every client's
 # wait.
