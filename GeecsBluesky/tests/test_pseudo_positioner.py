@@ -574,6 +574,9 @@ def test_failed_restore_refuses_the_next_stage_until_moved_back_to_zero(bench):
     assert "'U_S4H:Current': -0.099" in str(info.value.__cause__)
 
     refuse_baseline["on"] = False
+    # S3H is back at its baseline, S4H is not: the components disagree by
+    # construction, and the recovery gesture must not be refused for it
+    assert bench.dial("U_S3H") == pytest.approx(0.35)
     bench.RE(
         bps.mv(bump, 0.0)
     )  # the recovery gesture: the offsets still hold the baselines
