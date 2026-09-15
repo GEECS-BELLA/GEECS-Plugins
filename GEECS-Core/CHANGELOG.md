@@ -3,6 +3,27 @@
 All notable changes to `geecs-core` are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and semantic versioning.
 
+## [0.4.1] - 2026-09-14
+
+### Fixed
+
+- **Float sets transmit the caller's digits, not a `%.12f` expansion**
+  (issue #819). `GeecsUdpClient.set` formatted every float with `%.12f`,
+  which at 12 decimals exposes the binary representation — 86% of
+  five-decimal values in `U_CompAeroTech`'s working range grew such a
+  tail, `40854.24625` going out as `40854.246249999997` — and LabVIEW's
+  `Is Value a number.vi` rejected that string as "not a number"
+  (reproduced on hardware; not every tail is rejected, but the fix
+  removes them all). Every non-integral real (Python floats, numpy float
+  scalars, ...) now renders via the new
+  `transport._coerce.format_float`: the shortest round-trip decimal
+  (`40854.24625`, `40966.0`, `0.00001`), never truncated to a fixed
+  number of decimals (a `%.1f` would zero the `0.001` tolerances and
+  `1e-05` minima in the DB), and never exponent notation (expanded to a
+  plain decimal, which LabVIEW parses). One formatter for every float
+  set to every device — the CA gateway and `GeecsDevice` forward values
+  unformatted.
+
 ## [0.4.0] - 2026-08-27
 
 ### Added
