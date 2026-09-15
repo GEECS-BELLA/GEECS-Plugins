@@ -4,6 +4,11 @@ The demo manager never had the bug (it appends and starts only when
 idle), so this runs the REAL client's add-then-start sequence
 (``ZmqQueueClient``) over a stub manager API that is mid-plan: the queue
 is started, ``queue_start`` answers *busy*, and the item must stay queued.
+
+Deliberately cross-package: the client's own suite pins the
+``SubmitResult``; this pins that the scanner's submit route answers 200
+over it — the end-to-end shape #905 was reported as.  A client refactor
+that moves the ``_api`` injection point moves this test with it.
 """
 
 from __future__ import annotations

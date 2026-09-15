@@ -146,9 +146,11 @@ def test_start_gate_needs_a_valid_form_not_a_loaded_preset() -> None:
     The gate reads form validity only: neither ``recalc`` (which computes
     it) nor ``updateStartGate`` (which applies it) may consult the loaded
     preset document.  Then the gate itself runs under node over a stub
-    DOM: an idle manager, a valid form, no preset ever loaded → Start
-    enabled with no hover excuse, Save as preset enabled, the provenance
-    note empty.
+    DOM with a valid form and no preset ever loaded: an idle manager →
+    Start enabled with no hover excuse, Save as preset enabled, the
+    provenance note empty; a RUNNING plan → still enabled, the next scan
+    queues behind it (#905); a PAUSED plan → disabled, since an item
+    added then would be removed by the client.
     """
     script = (_PKG / "static" / "scanner.js").read_text()
     recalc, gate = (
@@ -163,20 +165,26 @@ def test_start_gate_needs_a_valid_form_not_a_loaded_preset() -> None:
         [
             "var els = {};",
             'function $(id) { return els[id] || (els[id] = { disabled: true, title: "x", textContent: "x" }); }',
-            'var S = { status: { connected: true, re_state: "idle" }, formable: true, formableNote: "",',
-            "          presetDoc: null, presetName: null };",
+            'var S = { status: null, formable: true, formableNote: "", presetDoc: null, presetName: null };',
             "var valid = true;",
             f"function updateStartGate() {{\n{gate}\n}}",
-            "updateStartGate();",
-            'console.log(JSON.stringify({ start: $("btn-start").disabled, title: $("btn-start").title,',
-            '  save: $("btn-save-preset").disabled, note: $("preset-name").textContent }));',
+            "var out = {};",
+            '["idle", "running", "paused"].forEach(function (re) {',
+            "  els = {}; S.status = { connected: true, re_state: re }; updateStartGate();",
+            '  out[re] = { start: $("btn-start").disabled, title: $("btn-start").title,',
+            '    save: $("btn-save-preset").disabled, note: $("preset-name").textContent };',
+            "});",
+            "console.log(JSON.stringify(out));",
         ]
     )
     out = subprocess.run(
         ["node", "-"], input=harness, capture_output=True, text=True, check=True
     )
     got = json.loads(out.stdout)
-    assert got == {"start": False, "title": "", "save": False, "note": ""}, got
+    enabled = {"start": False, "title": "", "save": False, "note": ""}
+    assert got["idle"] == enabled, got
+    assert got["running"] == enabled, got
+    assert got["paused"]["start"] is True and "paused" in got["paused"]["title"], got
 
 
 def test_presets_and_actions_are_dropdowns(client: TestClient) -> None:

@@ -14,9 +14,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   *RE Manager is busy* and the client treated it as a start refusal —
   removing the item again and reporting "nothing will run", so no front
   end could queue the next scan while one ran. A busy answer with the
-  manager `executing_queue` is now the success it is (`queued behind the
-  running item`, `item_uid` set); the item is removed only when the queue
-  is genuinely stopped and cannot be started (the #653 path, unchanged).
+  manager's queue started (`executing_queue`, or `starting_queue` in the
+  window before the worker takes the first item) is now the success it is
+  (`queued behind the running item`, `item_uid` set); the item is removed
+  only when the queue is genuinely stopped and cannot be started (the
+  #653 path, unchanged).
   Pinned in `tests/qs_client/test_queue_client.py::TestQueueStartFailure`.
 
 ## [0.87.0] - 2026-09-14

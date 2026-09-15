@@ -586,11 +586,14 @@
 
   function updateStartGate() {
     var st = S.status;
-    var busy = !st || !st.connected || st.re_state === "running" || st.re_state === "paused";
+    // A running plan does not close the gate: the next scan queues behind
+    // it (#905). A paused one does — the client removes an item added
+    // then, so Start waits for resume or stop.
+    var busy = !st || !st.connected || st.re_state === "paused";
     var btn = $("btn-start");
     btn.disabled = busy || !valid || !S.formable;
     $("btn-save-preset").disabled = !valid;
-    btn.title = !st ? "waiting for the manager" : !st.connected ? "manager unreachable" : busy ? "a scan is running" : !S.formable ? S.formableNote : !valid ? "fix the form first" : "";
+    btn.title = !st ? "waiting for the manager" : !st.connected ? "manager unreachable" : busy ? "a scan is paused — resume or stop it first" : !S.formable ? S.formableNote : !valid ? "fix the form first" : "";
     $("preset-name").textContent = S.presetName ? "preset " + S.presetName + (S.formable ? "" : " · " + S.formableNote) : "";
   }
 

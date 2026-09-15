@@ -185,9 +185,10 @@ class ReadinessVerdict:
 #: created: not ready *yet*, and not a state any recovery gesture should
 #: interrupt (restarting the readiness unit kills the open in flight).
 _OPENING_MANAGER_STATE = "creating_environment"
-#: The manager mid-queue: ``queue_start`` answers busy, an added item waits
-#: behind the running one and runs on its own (#905).
-_EXECUTING_MANAGER_STATE = "executing_queue"
+#: The manager with its queue started — taking the first item or running
+#: one: ``queue_start`` answers busy, an added item waits behind and runs
+#: on its own (#905).
+_QUEUE_STARTED_MANAGER_STATES = ("starting_queue", "executing_queue")
 _OPENING_ENV_STATE = "initializing"
 
 
@@ -630,8 +631,9 @@ class ZmqQueueClient:
         sits queued and runs later on its own — the item is best-effort
         removed, and when even that fails the message says exactly what
         remains queued.  The one start refusal that is not a failure: the
-        manager is ``executing_queue`` (a plan runs, the queue is started),
-        so the item waits behind it and the add is the success (#905).
+        manager's queue is already started (``starting_queue`` or
+        ``executing_queue``), so the item waits behind the running one and
+        the add is the success (#905).
         """
         from bluesky_queueserver_api import BPlan
 
@@ -659,11 +661,13 @@ class ZmqQueueClient:
         try:
             api.queue_start()
         except Exception as exc:
-            # A plan already running answers "RE Manager is busy": the queue
-            # IS started and the item waits behind the running one — the
-            # queued-next the caller asked for, not a refusal (#905).  Only a
-            # queue that is genuinely stopped gets the item removed again.
-            if self.status().manager_state == _EXECUTING_MANAGER_STATE:
+            # A started queue answers "RE Manager is busy": the item waits
+            # behind the running one — the queued-next the caller asked for,
+            # not a refusal (#905).  Only a queue that is genuinely stopped
+            # gets the item removed again.  The state is a second request: a
+            # plan that ends in between lands on the removal path below,
+            # whose messages still say what remains queued.
+            if self.status().manager_state in _QUEUE_STARTED_MANAGER_STATES:
                 return SubmitResult(
                     ok=True, message="queued behind the running item", item_uid=item_uid
                 )

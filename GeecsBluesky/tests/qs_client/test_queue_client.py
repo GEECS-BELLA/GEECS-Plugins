@@ -369,8 +369,11 @@ class TestQueueStartFailure:
         assert "REMAINS queued" in result.message
         assert result.item_uid == "uid-1"
 
-    def test_busy_while_a_plan_runs_means_queued_behind_it(self):
-        """#905: a running plan answers busy to queue_start; the item waits behind it."""
+    @pytest.mark.parametrize("manager_state", ["executing_queue", "starting_queue"])
+    def test_busy_while_the_queue_is_started_means_queued_behind_it(
+        self, manager_state
+    ):
+        """#905: a started queue answers busy to queue_start; the item waits behind it."""
         fake = _FakeManagerAPI()
         removed: list[str] = []
         fake.queue_start = lambda: (_ for _ in ()).throw(
@@ -384,7 +387,7 @@ class TestQueueStartFailure:
         fake.status_payloads = [
             {
                 "re_state": "running",
-                "manager_state": "executing_queue",
+                "manager_state": manager_state,
                 "worker_environment_exists": True,
                 "items_in_queue": 1,
                 "running_item_uid": "run-1",

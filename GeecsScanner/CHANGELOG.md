@@ -24,9 +24,12 @@ Two gates that refused what the queue and the form are for (#900, #905).
 - **A submit while a plan runs is queued behind it** (#905). The real
   client's add-then-start answered *RE Manager is busy* to `queue_start`
   and removed the item again; that refusal now reads as success when the
-  manager is `executing_queue` (the fix is `geecs-bluesky` 0.87.1's, the
-  one client every queue front end shares). The idle-only gate for a
-  move, an action and the calibration plans is untouched.
+  manager's queue is started (the fix is `geecs-bluesky` 0.87.1's, the
+  one client every queue front end shares), and the page's Start gate no
+  longer closes on a running plan — the next scan queues behind it; a
+  *paused* plan still closes it ("resume or stop it first"), since an
+  item added then would be removed. The idle-only gate for a move, an
+  action and the calibration plans is untouched.
   `tests/test_submit_while_running.py` runs the real `ZmqQueueClient`
   over a stub manager mid-plan through `POST /api/submit` → 200, the item
   stays queued.
