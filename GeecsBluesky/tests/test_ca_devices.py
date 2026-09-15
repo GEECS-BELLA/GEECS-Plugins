@@ -420,8 +420,8 @@ async def test_motor_rejected_command_fails_at_once_not_after_grace_plus_stall()
 
     The GEECS set's first reply is the command ACK (GEECS-Core's 1.5 s
     window): no ACK, a rejection (``is not a number``, an unknown
-    variable) or a dead device's write failure fails the gateway put within
-    ~2 s.  The stall grace must neither swallow nor delay it — only a put
+    variable) or a dead device's write failure fails the gateway put inside
+    it.  The stall grace must neither swallow nor delay it — only a put
     still pending past the ACK window is "waiting for the device".
     """
     motor = _slow_stage()
@@ -521,6 +521,57 @@ async def test_motor_ceiling_fails_the_put_while_still_moving() -> None:
     creep.cancel()
     assert 1.5 <= elapsed < 1.5 + 0.4
     set_mock_put_proceeds(motor._setpoint, True)
+
+
+async def test_motor_nan_readback_after_the_reply_is_bounded() -> None:
+    """A readback the stall rule cannot see (NaN) fails after the confirm budget.
+
+    The device replied ``no error``; the stream then reads NaN — never
+    within tolerance, and ``NaN != anchor`` must not count as progress.
+    Without the post-reply bound the loop waited forever (review of #909).
+    """
+    motor = _slow_stage()
+    await motor.connect(mock=True)
+    set_mock_value(motor.position, float("nan"))
+
+    loop = asyncio.get_running_loop()
+    t0 = loop.time()
+    with pytest.raises(GeecsMotorTimeoutError) as info:
+        await asyncio.wait_for(motor.set(-24.0), timeout=5.0)
+    elapsed = loop.time() - t0
+    assert _GRACE + _STALL <= elapsed < _GRACE + _STALL + 0.6
+    assert info.value.replied is True
+
+
+async def test_motor_ripple_wider_than_tolerance_after_the_reply_is_bounded() -> None:
+    """A readback flapping by more than the tolerance is not endless progress.
+
+    The device replied ``no error``; the readback then flips between two
+    values 4× the tolerance apart, never at the target.  The post-reply
+    confirm budget (grace + stall from the reply) ends it.
+    """
+    motor = _slow_stage()
+    await motor.connect(mock=True)
+    set_mock_value(motor.position, 0.0)
+
+    async def ripple() -> None:
+        i = 0
+        while True:
+            await asyncio.sleep(0.13)
+            i += 1
+            set_mock_value(motor.position, 0.02 * (i % 2))
+
+    loop = asyncio.get_running_loop()
+    task = asyncio.ensure_future(ripple())
+    t0 = loop.time()
+    try:
+        with pytest.raises(GeecsMotorTimeoutError) as info:
+            await asyncio.wait_for(motor.set(-24.0), timeout=5.0)
+    finally:
+        task.cancel()
+    elapsed = loop.time() - t0
+    assert _GRACE + _STALL <= elapsed < _GRACE + _STALL + 0.6
+    assert info.value.replied is True
 
 
 async def test_motor_stall_after_progress_still_fails() -> None:

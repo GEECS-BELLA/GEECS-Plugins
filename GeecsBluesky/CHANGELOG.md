@@ -31,6 +31,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   gateway that never answered). Failure path unchanged otherwise: a
   failed put propagates as the #868 ERROR line, no pause-and-retry.
   `GeecsMotorTimeoutError` gains `replied` and says which phase stalled.
+  After the reply the confirm is bounded outright (grace + stall from the
+  reply) and a NaN readback never counts as progress, so a readback the
+  stall rule cannot see as stalled — a NaN, a ripple wider than the DB
+  tolerance — fails the move instead of holding the scan forever (review
+  of #909). `within_tolerance` (motor.py) is the one tolerance test;
+  `CaConfirmSettable`'s analog match now calls it.
   Pinned on mocks: a `no error` reply at "45 s" with the readback
   advancing completes; a silent device with a stalled readback fails at
   grace+stall naming the PV; an error reply fails at once even while the

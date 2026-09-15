@@ -44,6 +44,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import sys
 
 from ophyd_async.core import AsyncStatus
@@ -99,6 +100,20 @@ DEFAULT_TOLERANCE = 0.005
 # ~4e4). Four ULPs of the larger operand covers the subtraction plus the
 # comparison with room to spare, and stays far below any real tolerance.
 ULP_SLACK = 4 * sys.float_info.epsilon
+
+
+def within_tolerance(current: float, target: float, tolerance: float) -> bool:
+    """Whether *current* is within *tolerance* of *target*, ULP slack included.
+
+    The one tolerance test — the motor's arrival and stall checks and
+    :class:`~geecs_bluesky.devices.ca.confirm.CaConfirmSettable`'s analog
+    match share it.  A non-finite *current* (a NaN readback) is never
+    within tolerance of anything.
+    """
+    if not math.isfinite(current):
+        return False
+    slack = ULP_SLACK * max(abs(current), abs(target))
+    return abs(current - target) <= tolerance + slack
 
 
 class CaMotor(CaSettable):
@@ -181,18 +196,13 @@ class CaMotor(CaSettable):
         )
         return AsyncStatus(self._set_logged(value))
 
-    def _within(self, current: float, value: float) -> bool:
-        """Whether *current* is within tolerance of *value* (ULP slack included)."""
-        slack = ULP_SLACK * max(abs(current), abs(value))
-        return abs(current - value) <= self._tolerance + slack
-
     async def _set_and_wait(self, value: float) -> None:
         """Put the setpoint; wait for the device's reply under the stall rule; confirm.
 
         The put (the wait for the GEECS UDP reply through the gateway) runs
         as a task beside a readback poll.  The reply is the verdict: a put
-        that fails — a rejected or unanswered command ACK (within the
-        gateway's ~2 s ACK window) or an error executed-reply — propagates
+        that fails — a rejected or unanswered command ACK (GEECS-Core's
+        1.5 s ACK window) or an error executed-reply — propagates
         the moment the put task finishes, never delayed by the grace; a put
         that completes (``no error``) hands over to the readback confirm.
         The poll only decides whether waiting is still reasonable (the
@@ -201,7 +211,11 @@ class CaMotor(CaSettable):
         ``progress_grace``, not at the target) fails the move with
         :class:`GeecsMotorTimeoutError` naming the PV, the target and the
         current position; at ``reply_wait`` with no reply a readback at
-        the target completes the move as a lost reply.
+        the target completes the move as a lost reply.  After the reply
+        the confirm is bounded outright: ``progress_grace + stall_timeout``
+        from the reply, so a readback the stall rule cannot see as stalled
+        (a NaN, a ripple wider than the tolerance) fails the move instead
+        of holding the scan forever.
         """
         loop = asyncio.get_running_loop()
         position = getattr(self, self._readback_attr_name)
@@ -215,12 +229,14 @@ class CaMotor(CaSettable):
             # progress — whichever is later.
             stalled_since = started + self._progress_grace
             replied = False
+            replied_at = 0.0
             while True:
-                if put.done():
+                if put.done() and not replied:
                     put.result()  # an error reply / a refusal raises here
                     replied = True
+                    replied_at = loop.time()
                 current = float(await position.get_value())
-                at_target = self._within(current, value)
+                at_target = within_tolerance(current, value, self._tolerance)
                 now = loop.time()
                 if at_target and not replied and now - started >= self._reply_wait:
                     # The stream's arrival and the reply can land in either
@@ -229,6 +245,7 @@ class CaMotor(CaSettable):
                     if put.done():
                         put.result()
                         replied = True
+                        replied_at = now
                 if at_target and replied:
                     logger.debug(
                         "%s: arrived at %.6g (target=%.6g, tol=%.4g)",
@@ -250,12 +267,28 @@ class CaMotor(CaSettable):
                         self._setpoint_pv,
                     )
                     break
-                if at_target or not self._within(current, anchor):
+                confirm_budget = self._progress_grace + self._stall_timeout
+                if replied and now - replied_at >= confirm_budget:
+                    # The device said converged; the readback never agreed.
+                    raise GeecsMotorTimeoutError(
+                        self._geecs_device_name,
+                        self._variable,
+                        target=value,
+                        current=current,
+                        timeout=confirm_budget,
+                        replied=True,
+                    )
+                moved = math.isfinite(current) and not within_tolerance(
+                    current, anchor, self._tolerance
+                )
+                if at_target or moved:
                     # Progress (or sitting at the target, which is never a
                     # stall): re-anchor and restart the stall clock.
                     anchor = current
                     stalled_since = max(now, started + self._progress_grace)
                 elif now - stalled_since >= self._stall_timeout:
+                    if put.done() and not replied:
+                        put.result()  # a reply that landed this tick is the verdict
                     raise GeecsMotorTimeoutError(
                         self._geecs_device_name,
                         self._variable,
@@ -268,6 +301,8 @@ class CaMotor(CaSettable):
         finally:
             if not put.done():
                 put.cancel()
+            elif not put.cancelled():
+                put.exception()  # retrieved: never "exception was never retrieved"
 
         if self._settle_time > 0:
             await asyncio.sleep(self._settle_time)
