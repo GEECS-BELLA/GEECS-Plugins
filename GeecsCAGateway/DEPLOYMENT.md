@@ -27,6 +27,7 @@ Actual CLI flags (`geecs_ca_gateway/__main__.py`):
 | `--include-disabled` | off | Include devices not `enabled` in the experiment |
 | `--derived-channels PATH` | configs-repo convention if present | Load a geecs-schemas YAML/JSON derived-channel overlay and expose computed read-only numeric PVs |
 | `--show-missing` | off | Keep the transport's "missing variable(s)" notices (quiet by default — subscribed-but-idle variables are normal for monitoring) |
+| `--set-timeout SECONDS` | `600` | Ceiling on waiting for a device's *executed* reply to a `:SP` put (`PV_CONTRACT.md` §2, #906). Must stay above every CA client's own put wait; the 1.5 s command-ACK budget is separate and fixed. Per-host override: append it to the unit's `ExecStart` |
 | `--log-level LEVEL` | `INFO` | Python logging level |
 
 Startup is fault-tolerant per device: unreachable devices are not fatal (their

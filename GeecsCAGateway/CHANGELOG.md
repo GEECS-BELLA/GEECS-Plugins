@@ -3,6 +3,58 @@
 All notable changes to `geecs-ca-gateway` are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and semantic versioning.
 
+
+## [0.21.1] - 2026-09-15
+
+### Changed
+
+- Merge of `master` (c81a106b) into `feature/native-bluesky-plans`: the
+  two lines were released in parallel and are listed below in version
+  order. Master's 0.21.0 (#908 — the `:SP` put waits up to
+  `_SET_REPLY_CEILING_S` = 600 s for the device's executed reply, the
+  `--set-timeout` flag, the 1.5 s command-ACK budget unchanged) is now on
+  this line beside the branch's 0.20.3/0.20.4. The gateway host runs
+  master's 0.21.0; nothing branch-side changed.
+## [0.21.0] - 2026-09-15 *(master line, parallel release)*
+
+### Changed
+
+- **A `:SP` put waits minutes, not 30 s, for the device's executed reply**
+  (issue #906). A GEECS set has two device replies: the command ACK on the
+  command port (`GeecsUdpClient._ACK_TIMEOUT`, 1.5 s — **unchanged**, so a
+  dead device that never ACKs or a refusing one still fails the put in
+  ~1.5 s) and the *executed* reply on cmd_port + 1, the device's verdict
+  sent only once the set converged or failed. Only that second wait is
+  raised: `_SET_EXE_TIMEOUT = 30.0` is now `_SET_REPLY_CEILING_S = 600.0`
+  (the `GeecsCaGateway(set_timeout_s=…)` default). The old budget sat on a
+  slow stage's normal range — Scan009 of 26_0914's 19 mm ModeImager move
+  answered `no error` at 32 s, so the gateway failed the put at 30 s and
+  then discarded the device's clean reply as a stale datagram. The ceiling
+  is not a liveness signal (the ACK settles that) but the point past which
+  an acknowledged, still-executing move's reply would be dropped unread,
+  so it is **longer than any client's own wait**: the CA client bounds
+  that (the #906 design gives GeecsBluesky's `CaMotor` a 300 s hard
+  ceiling on its reply wait, bounded by readback progress — its companion
+  PR; the shipped constant is still 30 s), and a reply the gateway has
+  discarded can never reach a client still waiting for it — 600 s is twice
+  that ceiling. The async caproto put costs the CA server nothing while
+  waiting; the per-device UDP lock means an acknowledged set whose reply
+  never arrives holds that device's setpoint channel for the ceiling
+  (documented in `PV_CONTRACT.md` §2). How an error reply is classified is
+  untouched: the device's verdict, `no error` or an error, still decides
+  the put.
+- `--set-timeout` rejects `0`/negative values; documented in
+  `DEPLOYMENT.md`'s flag table and `docs/geecs_gateway/client_overview.md`.
+- New CLI flag `--set-timeout SECONDS` overrides the ceiling per host
+  (`python -m geecs_ca_gateway --experiment X --set-timeout 600`); it
+  reaches the gateway through `_run(set_timeout_s=…)`.
+- `PV_CONTRACT.md` §2 (Setpoints) and its test map updated; pinned by
+  `test_gateway.py::test_acknowledged_set_replying_after_30s_completes_the_put`
+  (an ACKed set answered at 32 s completes under a virtual clock) and
+  `::test_reply_past_the_ceiling_is_the_only_stale_discard` (the same reply
+  under a 30 s ceiling reproduces the Scan009 failure, and the transport's
+  "no exchange in flight" discard is reachable only past the ceiling).
+
 ## [0.20.4] - 2026-09-11
 
 ### Changed

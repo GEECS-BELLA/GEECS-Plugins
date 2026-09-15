@@ -8,6 +8,7 @@ import pytest
 
 from geecs_ca_gateway.__main__ import _parse_args
 from geecs_ca_gateway.config import GatewayConfig
+from geecs_ca_gateway.gateway import _SET_REPLY_CEILING_S
 
 
 def test_defaults() -> None:
@@ -18,6 +19,7 @@ def test_defaults() -> None:
     assert args.include_disabled is False
     assert args.derived_channels is None
     assert args.show_missing is False
+    assert args.set_timeout == pytest.approx(_SET_REPLY_CEILING_S)
 
 
 def test_flags() -> None:
@@ -34,6 +36,17 @@ def test_derived_channels_path_flag() -> None:
     """A derived-channel overlay path is parsed for startup loading."""
     args = _parse_args(["--experiment", "X", "--derived-channels", "derived.yaml"])
     assert args.derived_channels == Path("derived.yaml")
+
+
+def test_set_timeout_flag() -> None:
+    """``--set-timeout`` overrides the exe-reply ceiling per host (#906)."""
+    args = _parse_args(["--experiment", "X", "--set-timeout", "900"])
+    assert args.set_timeout == pytest.approx(
+        900.0
+    )  # not the default — a dropped flag would show
+    for bad in ("0", "-5", "soon"):
+        with pytest.raises(SystemExit):
+            _parse_args(["--experiment", "X", "--set-timeout", bad])
 
 
 def test_experiment_required() -> None:
@@ -69,9 +82,18 @@ def test_main_returns_normally_without_restart(monkeypatch) -> None:
 
     monkeypatch.setattr(entry, "_run", fake_run)
     entry.main(
-        ["--experiment", "X", "--derived-channels", "derived.yaml", "--show-missing"]
+        [
+            "--experiment",
+            "X",
+            "--derived-channels",
+            "derived.yaml",
+            "--show-missing",
+            "--set-timeout",
+            "900",
+        ]
     )  # no exception
     assert seen["derived_channels_path"] == Path("derived.yaml")
+    assert seen["set_timeout_s"] == pytest.approx(900.0)  # not the default
 
 
 async def test_run_loads_default_derived_channels_from_configs_repo(
@@ -137,3 +159,5 @@ derived_channels:
     # dropping the kwarg from _run would silently disable re-resolve in
     # production while every gateway-level test injects its own resolver.
     assert seen["init_kwargs"]["endpoint_resolver"] is entry._db_endpoint_resolver
+    # The CLI's exe-reply ceiling reaches the gateway (default when unset).
+    assert seen["init_kwargs"]["set_timeout_s"] == pytest.approx(_SET_REPLY_CEILING_S)

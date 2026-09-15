@@ -60,7 +60,9 @@ silent clobber.
 - **Setpoints (`…:SP`)** forward the value to the device over GEECS's *blocking*
   UDP set before storing it locally, so **put-completion means GEECS
   convergence** — `caput -c` / ophyd-async `set().wait()` block for the physical
-  move (30 s default budget). A failed set raises and leaves the `:SP` PV
+  move (the device's reply is awaited for up to 600 s by default — minutes,
+  because only the device knows how long a move takes; a dead device still
+  fails at the 1.5 s command ACK). A failed set raises and leaves the `:SP` PV
   unchanged. Read state from the readback PV; the `:SP` value is the last
   *commanded* value, not the device readback.
 
