@@ -480,6 +480,23 @@ async def test_motor_refused_put_and_timeout_are_logged_with_the_pv(caplog) -> N
     assert f"({pv}): GeecsMotorTimeoutError:" in line
 
 
+async def test_confirm_settable_refused_put_is_logged_with_the_pv(caplog) -> None:
+    """CaConfirmSettable routes through the same seam (its confirm poll is Layer 2)."""
+    dev = _emq_confirm_device(timeout=0.3)
+    await dev.connect(mock=True)
+    pv = "undulator:u_emqtripletbipolar:current_limit_ch1:SP"
+
+    def refuse(value, **kwargs):
+        raise _RefusedPut(f"{pv}: Channel write request failed")
+
+    callback_on_mock_put(dev._setpoint, refuse)
+    with caplog.at_level(logging.ERROR, logger="geecs_bluesky.devices.ca"):
+        with pytest.raises(_RefusedPut):
+            await dev.set(1.0)
+    (line,) = _error_lines(caplog)
+    assert f"({pv}): _RefusedPut: {pv}: Channel write request failed" in line
+
+
 async def test_a_successful_set_logs_no_error(caplog) -> None:
     dev = CaSettable("U_S1H", "Current", experiment="Undulator", name="cur")
     await dev.connect(mock=True)

@@ -125,6 +125,7 @@ from geecs_bluesky.plans.gated import (
     shot_clock,
 )
 from geecs_bluesky.plans.strict import (
+    geecs_name,
     geecs_per_shot,
     geecs_per_step,
     name_failed_status,
@@ -283,9 +284,10 @@ def liveness_gate(shot_control: Any, devices: Sequence[Any]):
         signal = getattr(obj, "connected_status", None)
         if signal is None:
             continue
-        name = getattr(obj, "_geecs_device_name", None) or getattr(obj, "name", None)
-        signals.setdefault(str(name), signal)
-    down = yield from read_disconnected(signals)
+        signals.setdefault(geecs_name(obj), signal)
+    # An unreadable CONNECTED before a run is abnormal (the gateway serves
+    # it for every DB device) and cost the connect timeout: say so.
+    down = yield from read_disconnected(signals, unreadable_level=logging.WARNING)
     if down:
         names = ", ".join(down)
         raise GeecsDeviceDownError(

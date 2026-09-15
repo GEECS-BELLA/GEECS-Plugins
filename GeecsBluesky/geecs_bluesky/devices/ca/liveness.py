@@ -19,7 +19,9 @@ read live.
   :mod:`geecs_bluesky.plans.strict`).  A typed ``str`` signal has no
   enum edge to trip over.
 
-``aioca`` is imported lazily on first use (the ``ca`` extra).
+``aioca`` (the ``ca`` extra) and ``bluesky.plan_stubs`` are both imported
+lazily on first use: the client preflight imports this module and must
+stay light.
 """
 
 from __future__ import annotations
@@ -27,8 +29,6 @@ from __future__ import annotations
 import logging
 from collections.abc import Mapping
 from typing import Any, Iterable
-
-import bluesky.plan_stubs as bps
 
 from geecs_bluesky.devices.ca._pv import GATEWAY_DISCONNECTED
 
@@ -39,19 +39,26 @@ logger = logging.getLogger(__name__)
 DEFAULT_PROBE_TIMEOUT_S = 2.0
 
 
-def read_disconnected(signals: Mapping[str, Any]):
+def read_disconnected(
+    signals: Mapping[str, Any], *, unreadable_level: int = logging.DEBUG
+):
     """Plan: the names whose ``CONNECTED`` signal reads ``Disconnected``, in input order.
 
     One ``bps.rd`` per signal.  Fail-open per signal: a read that raises is
-    logged at DEBUG and counts as live — the gateway serves ``CONNECTED``
-    for every DB device, so an unreadable one is a transport question, not
-    a liveness verdict.
+    logged at *unreadable_level* and counts as live — the gateway serves
+    ``CONNECTED`` for every DB device, so an unreadable one is a transport
+    question (a device added to the DB after the gateway started, a
+    gateway going away), not a liveness verdict.
 
     Parameters
     ----------
     signals :
         GEECS device name → its ``connected_status`` signal (a ``str``
         ``SignalR`` on the gateway's ``CONNECTED`` PV).
+    unreadable_level :
+        Log level for a read that raises: the run's gate passes WARNING
+        (abnormal before a run, and it cost the connect timeout); the
+        mid-scan refire gate keeps DEBUG.
 
     Yields
     ------
@@ -62,15 +69,20 @@ def read_disconnected(signals: Mapping[str, Any]):
     list of str
         The devices confirmed down.
     """
+    import bluesky.plan_stubs as bps  # deferred: keep the client seam light
+
     down: list[str] = []
     for device, signal in signals.items():
         try:
             value = yield from bps.rd(signal)
-        except Exception:
-            logger.debug(
-                "CONNECTED read failed for %s; assuming live (fail-open)",
+        except Exception as exc:
+            logger.log(
+                unreadable_level,
+                "CONNECTED read failed for %s (%s: %s); assuming live (fail-open)",
                 device,
-                exc_info=True,
+                type(exc).__name__,
+                exc,
+                exc_info=unreadable_level < logging.WARNING,
             )
             continue
         if value == GATEWAY_DISCONNECTED:

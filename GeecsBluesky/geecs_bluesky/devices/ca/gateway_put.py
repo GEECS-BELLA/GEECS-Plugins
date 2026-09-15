@@ -152,7 +152,7 @@ class GatewaySetpointPut:
         conventions.
     timeout : float, optional
         Default per-put budget in seconds.  ``None`` (signal transport only)
-        defers to the signal's own default.
+        means ophyd-async's ``DEFAULT_TIMEOUT`` (10 s).
     name : str
         Movable name (Bluesky logging / message repr).
     mock : bool

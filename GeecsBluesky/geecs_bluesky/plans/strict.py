@@ -60,6 +60,14 @@ def _confirmed_down(devices: Sequence[Any], device_name: str):
     return bool(down)
 
 
+def geecs_name(obj: Any) -> str:
+    """The GEECS device name of a plan object: its own, its owner's, else its ophyd name."""
+    name = getattr(obj, "_geecs_device_name", None)
+    if name is None:
+        name = getattr(getattr(obj, "_owner", None), "_geecs_device_name", None)
+    return str(name if name is not None else getattr(obj, "name", obj))
+
+
 def _device_named(devices: Sequence[Any], device_name: str) -> Any | None:
     return next(
         (
@@ -91,7 +99,8 @@ def name_failed_status(plan: Any):
     try:
         return (yield from plan)
     except FailedStatus as exc:
-        exc.args = (failure_cause_text(exc),)
+        if exc.__cause__ is not None:  # a cause-less status keeps its own text
+            exc.args = (failure_cause_text(exc),)
         raise
 
 
@@ -189,9 +198,7 @@ def fire_and_await_shot(devices: Sequence[Any], fire: Callable):
         )
     missed = [obj for obj in triggerables if getattr(obj, "missed_shot", False)]
     for obj in missed:
-        device_name = getattr(obj, "_geecs_device_name", None) or getattr(
-            getattr(obj, "_owner", None), "_geecs_device_name", obj.name
-        )
+        device_name = geecs_name(obj)
         down = yield from _confirmed_down(devices, device_name)
         if down:
             raise GeecsDeviceDownError(

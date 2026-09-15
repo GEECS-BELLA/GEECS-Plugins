@@ -166,6 +166,10 @@ re-fires the whole event up to `max_refires` times; a device whose
 `CONNECTED` PV reads Disconnected raises `GeecsDeviceDownError` instead.
 Any other failed status (a refused fire) re-raises untouched — a refire
 must never issue an extra physical shot.
+  Phase-0 numbers: 1 Hz strict on a
+count; every other edge on a scan with a motor move, because the fire put
+(~200 ms) plus the move overruns the ~550 ms budget between stamp arrival
+and the next edge (M1/M2) — the plan layer recovers it, not `take_reading`.
 
 **Before the bracket's first move** every bound plan runs the liveness
 gate (`plans/registry.py::liveness_gate`, #852): one `CONNECTED` read for
@@ -183,10 +187,7 @@ the GEECS hooks (`plans/strict.py::name_failed_status`), inside the
 stock `run_wrapper` that writes `str(exc)` into the stop document, so
 `ScanEndInfo` and the portal read `CANothing: <pv>: …` rather than
 `<AsyncStatus …>` (#868, #894); the settables log a failed set at ERROR
-with the `:SP` PV before the status fails (`CaSettable._set_logged`).  Phase-0 numbers: 1 Hz strict on a
-count; every other edge on a scan with a motor move, because the fire put
-(~200 ms) plus the move overruns the ~550 ms budget between stamp arrival
-and the next edge (M1/M2) — the plan layer recovers it, not `take_reading`.
+with the `:SP` PV before the status fails (`CaSettable._set_logged`).
 
 **Gated** (`plans/gated.py`, phase 2b, `08_gated_batch.md` §4.2 / §4.7):
 each run bracketed OFF → STANDBY; per step the box free-runs in SCAN while
@@ -365,12 +366,16 @@ the RunEngine loop threads a test leaves behind (#812).
   (§11.2); it belongs in the once-run calibration or a preflight.
 - Treat monitor silence as liveness — the gateway posts no timeout events
   (M1); `CONNECTED` is the signal.
-- Put through `signal.set()` on a typed `:SP` signal — go through
+- Put through `signal.set()` on a typed CA signal — go through
   `GatewaySetpointPut`. ophyd-async 0.19.3's `SignalW.set` runs the put
   inside a stamina/tenacity retry context whose outcome travels through
   a `concurrent.futures.Future`, and the stdlib re-raises only
   `if self._exception:` — a failed `aioca.CANothing` is *falsy*, so a
-  refused put came back as success (found pinning #868).
+  refused put came back as success (found pinning #868). Known
+  exceptions still on `signal.set()`, owed with the upstream report: the
+  detector's `save` / `localsavingpath` puts (`LvNativeFileDataLogic`)
+  and the HDF plugin's signals (`GeecsHdfIO`, the stock `ADHDFDataLogic`
+  puts) — a refused one reads as success there today.
 - Import anything from `geecs_scanner` (deleted 2026-08-20; pinned by
   `tests/test_dependency_direction.py`) or hold on to a funnel idiom
   because "we already built it" (§9).

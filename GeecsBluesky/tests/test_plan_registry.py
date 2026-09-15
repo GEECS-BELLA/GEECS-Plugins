@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import inspect
+import logging
 
 import pytest
 
@@ -412,7 +413,9 @@ def test_a_live_set_passes_the_gate_and_the_box_is_then_armed(
     assert box.fires == 1
 
 
-def test_an_unreadable_liveness_pv_is_fail_open(RE, box, profiles, monkeypatch) -> None:
+def test_an_unreadable_liveness_pv_is_fail_open_and_warns(
+    RE, box, profiles, monkeypatch, caplog
+) -> None:
     """A read that raises is not a verdict (the gateway serves CONNECTED for every device)."""
     cam = _camera(RE, box, "UC_Cam")
     sc = profiles.resolve(None)
@@ -422,8 +425,14 @@ def test_an_unreadable_liveness_pv_is_fail_open(RE, box, profiles, monkeypatch) 
 
     monkeypatch.setattr(sc.liveness_signals["DG"], "read", boom)
     count = bind_plans(profiles)["count"]
-    RE(count([cam], 1))
+    with caplog.at_level(logging.WARNING, logger="geecs_bluesky.devices.ca.liveness"):
+        RE(count([cam], 1))
     assert box.fires == 1
+    (record,) = [r for r in caplog.records if "CONNECTED read failed" in r.message]
+    assert (
+        record.levelno == logging.WARNING
+        and "OSError: CA timeout" in record.getMessage()
+    )
 
 
 # ------------------------------------------- the failure's name (#868/#894)
@@ -467,6 +476,19 @@ def test_a_refused_manual_move_names_its_cause(RE, profiles) -> None:
     with pytest.raises(FailedStatus) as info:
         RE(bind_plans(profiles)["mv"](magnet.current, 0.5))
     assert str(info.value) == f"_RefusedPut: {text}"
+
+
+def test_name_failed_status_leaves_a_cause_less_status_alone(RE) -> None:
+    """Applied twice (hook + bracket): a status with no cause keeps its own text."""
+    from geecs_bluesky.plans.strict import name_failed_status
+
+    def failing():
+        yield from bps.null()
+        raise FailedStatus("<AsyncStatus …, done>")
+
+    with pytest.raises(FailedStatus) as info:
+        RE(name_failed_status(name_failed_status(failing())))
+    assert str(info.value) == "<AsyncStatus …, done>"
 
 
 def test_failure_cause_text_carries_the_causes_notes() -> None:
