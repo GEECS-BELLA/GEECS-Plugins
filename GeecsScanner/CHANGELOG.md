@@ -4,6 +4,36 @@ All notable changes to `geecs-scanner` are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 project adheres to semantic versioning.
 
+## [0.7.0] - 2026-09-15
+
+Two gates that refused what the queue and the form are for (#900, #905).
+
+### Fixed
+
+- **A scan composed from scratch can Start** (#900). `recalc` no longer
+  folds "a preset was loaded" into the form's validity and
+  `updateStartGate` no longer asks for one: Start needs a valid form
+  (shots, the axes) and an idle, reachable manager — a configs tree with
+  no presets submits from the page, and the `preset <name>` provenance
+  note simply stays empty. `buildPreset` already built the document from
+  the form (`adhoc`, an empty device list scans with the readbacks only,
+  per the schema); the demo's first-preset default is unchanged.
+  **Judgment call:** *Save as preset…* now follows the same rule —
+  enabled by a valid form, not a loaded preset — since compose-then-save
+  is the workflow #900 describes.
+- **A submit while a plan runs is queued behind it** (#905). The real
+  client's add-then-start answered *RE Manager is busy* to `queue_start`
+  and removed the item again; that refusal now reads as success when the
+  manager's queue is started (the fix is `geecs-bluesky` 0.87.1's, the
+  one client every queue front end shares), and the page's Start gate no
+  longer closes on a running plan — the next scan queues behind it; a
+  *paused* plan still closes it ("resume or stop it first"), since an
+  item added then would be removed. The idle-only gate for a move, an
+  action and the calibration plans is untouched.
+  `tests/test_submit_while_running.py` runs the real `ZmqQueueClient`
+  over a stub manager mid-plan through `POST /api/submit` → 200, the item
+  stays queued.
+
 ## [0.6.0] - 2026-09-14
 
 The New scan form after a day of scans (#895, #896): shorter, and it opens
