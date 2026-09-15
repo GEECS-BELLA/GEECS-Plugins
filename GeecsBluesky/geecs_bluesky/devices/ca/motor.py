@@ -107,10 +107,10 @@ def within_tolerance(current: float, target: float, tolerance: float) -> bool:
 
     The one tolerance test — the motor's arrival and stall checks and
     :class:`~geecs_bluesky.devices.ca.confirm.CaConfirmSettable`'s analog
-    match share it.  A non-finite *current* (a NaN readback) is never
-    within tolerance of anything.
+    match share it.  A non-finite value on either side (a NaN readback, a
+    NaN anchor) is never within tolerance of anything.
     """
-    if not math.isfinite(current):
+    if not (math.isfinite(current) and math.isfinite(target)):
         return False
     slack = ULP_SLACK * max(abs(current), abs(target))
     return abs(current - target) <= tolerance + slack
@@ -222,9 +222,11 @@ class CaMotor(CaSettable):
         put = asyncio.ensure_future(self._put.put(value, timeout=self._reply_ceiling))
         try:
             started = loop.time()
-            anchor = float(
-                await position.get_value()
-            )  # last position counted as progress
+            # The last position counted as progress; a non-finite readback
+            # is never adopted (a NaN anchor would compare as "moved" on
+            # every tick), so the first *finite* readback becomes the
+            # anchor — adopted, not counted as progress.
+            anchor: float | None = None
             # The stall clock starts when the grace ends, or at the last
             # progress — whichever is later.
             stalled_since = started + self._progress_grace
@@ -278,9 +280,12 @@ class CaMotor(CaSettable):
                         timeout=confirm_budget,
                         replied=True,
                     )
-                moved = math.isfinite(current) and not within_tolerance(
-                    current, anchor, self._tolerance
-                )
+                if not math.isfinite(current):
+                    moved = False  # a NaN readback is neither progress nor an anchor
+                elif anchor is None:
+                    anchor, moved = current, False  # the first finite readback
+                else:
+                    moved = not within_tolerance(current, anchor, self._tolerance)
                 if at_target or moved:
                     # Progress (or sitting at the target, which is never a
                     # stall): re-anchor and restart the stall clock.

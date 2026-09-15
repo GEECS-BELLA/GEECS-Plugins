@@ -574,6 +574,53 @@ async def test_motor_ripple_wider_than_tolerance_after_the_reply_is_bounded() ->
     assert info.value.replied is True
 
 
+async def test_motor_nan_first_readback_then_stalled_fails_at_grace_plus_stall(
+    caplog,
+) -> None:
+    """A NaN *first* readback is never the anchor (Codex review of #909).
+
+    The stream reads NaN at the put, then — past the grace — a fixed finite
+    value short of the target; the device never replies.  The first finite
+    readback is adopted as the anchor without counting as progress, so the
+    failure lands at grace+stall from the put, not stall from the readback's
+    arrival (and never later than that: a NaN anchor compared as "moved").
+    """
+    motor = _slow_stage()
+    await motor.connect(mock=True)
+    set_mock_value(motor.position, float("nan"))
+    set_mock_put_proceeds(motor._setpoint, False)  # never answers
+
+    async def stream() -> None:
+        await asyncio.sleep(1.0)  # past the grace (0.5 s)
+        set_mock_value(motor.position, -6.0)  # finite, short of -24, and fixed
+
+    loop = asyncio.get_running_loop()
+    task = asyncio.ensure_future(stream())
+    t0 = loop.time()
+    with caplog.at_level(logging.ERROR, logger="geecs_bluesky.devices.ca"):
+        with pytest.raises(GeecsMotorTimeoutError) as info:
+            await asyncio.wait_for(motor.set(-24.0), timeout=4.0)
+    elapsed = loop.time() - t0
+    await task
+    assert _GRACE + _STALL <= elapsed < _GRACE + _STALL + 0.3  # not 1.0 + stall
+    assert (info.value.current, info.value.replied) == (-6.0, False)
+    (line,) = _error_lines(caplog)
+    assert f"({_PV})" in line
+    set_mock_put_proceeds(motor._setpoint, True)
+
+
+def test_within_tolerance_rejects_a_non_finite_target_too() -> None:
+    """Neither side of the comparison may be NaN/inf."""
+    from geecs_bluesky.devices.ca.motor import within_tolerance
+
+    nan, inf = float("nan"), float("inf")
+    assert within_tolerance(1.0, 1.0, 0.0)
+    assert not within_tolerance(nan, 1.0, 1.0)
+    assert not within_tolerance(1.0, nan, 1.0)
+    assert not within_tolerance(nan, nan, 1.0)
+    assert not within_tolerance(inf, inf, 1.0)
+
+
 async def test_motor_stall_after_progress_still_fails() -> None:
     """Progress resets the stall clock; a stage that then stops is caught.
 
