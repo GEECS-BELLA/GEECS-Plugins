@@ -11,6 +11,7 @@ page's own script file parsing, and "every class the page uses is styled".
 from __future__ import annotations
 
 import re
+from html.parser import HTMLParser
 from pathlib import Path
 
 import pytest
@@ -167,10 +168,41 @@ def test_form_starts_at_the_mode_segment(client: TestClient) -> None:
         assert piece in footer, piece
 
 
+def _hint_texts(html: str) -> list[str]:
+    """The inner text of every ``span.hint`` — through the stdlib parser, not a regex."""
+
+    class Hints(HTMLParser):
+        def __init__(self) -> None:
+            super().__init__()
+            self.texts: list[str] = []
+            self._depth = 0
+
+        def handle_starttag(
+            self, tag: str, attrs: list[tuple[str, str | None]]
+        ) -> None:
+            if self._depth:
+                self._depth += 1
+            elif tag == "span" and "hint" in (dict(attrs).get("class") or "").split():
+                self._depth = 1
+                self.texts.append("")
+
+        def handle_endtag(self, tag: str) -> None:
+            if self._depth:
+                self._depth -= 1
+
+        def handle_data(self, data: str) -> None:
+            if self._depth:
+                self.texts[-1] += data
+
+    p = Hints()
+    p.feed(html)
+    return p.texts
+
+
 def test_hints_carry_state_or_a_unit_never_prose(client: TestClient) -> None:
     """#895: the static explanatory hints are gone; the computed ones and the unit stay."""
     html = client.get("/").text
-    hints = " | ".join(re.findall(r'<span class="hint"[^>]*>(.*?)</span>', html))
+    hints = " | ".join(_hint_texts(html))
     for prose in (
         "catalog name",
         "seeds the form below",

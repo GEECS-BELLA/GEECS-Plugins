@@ -46,7 +46,7 @@
     status: null, statusAt: 0,
     progress: null,
     queue: null,
-    presets: [], presetName: null, presetDoc: null,
+    presets: [], presetName: null, presetDoc: null, loadedName: null,
     variables: [], triggers: [],
     mode: "scan", acq: "strict",
     consoleSeq: 0, epoch: null,
@@ -404,14 +404,14 @@
     S.presetName = name;  // claimed now, so a slower default cannot override the pick
     api("/api/configs/presets/" + encodeURIComponent(name)).then(function (doc) {
       if (S.presetName !== name) return;  // a later click won
-      S.presetDoc = doc;
+      S.presetDoc = doc; S.loadedName = name;  // the LISTING name: a document's inner name need not match its file
       $("preset-name").textContent = "preset " + name;
       $("devices-eyebrow").textContent = "devices · preset " + name;
       fillFormFromPreset(doc);
     }).catch(function (e) {
       // The claim above is provenance only once the document arrived: a
       // preset deleted since the listing must not stamp its name on the form.
-      if (S.presetName === name) { S.presetName = S.presetDoc ? S.presetDoc.name : null; recalc(); }
+      if (S.presetName === name) { S.presetName = S.loadedName; recalc(); }
       showError("Preset " + name + ": " + e.message);
     });
   }
