@@ -168,7 +168,7 @@ async def test_signal_transport_puts_through_the_mock_seam() -> None:
 
 
 async def test_signal_transport_bounds_the_put_by_the_move_budget() -> None:
-    """A per-put timeout bounds the backend put (CaMotor's move_timeout)."""
+    """A per-put timeout bounds the backend put (CaMotor's reply ceiling)."""
     signal = _setpoint_signal()
     await signal.connect(mock=True)
     set_mock_put_proceeds(signal, False)  # the gateway never completes the set

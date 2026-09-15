@@ -4,6 +4,41 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.88.0] - 2026-09-15
+
+### Changed
+
+- **`CaMotor` waits for the device's reply; no client-side cap on a move**
+  (#906, the worker half — the CA gateway's `set_timeout_s` is the sibling
+  PR). The GEECS set's executed reply is the verdict: `no error`
+  completes the move (then the readback-to-tolerance confirm as before);
+  an error reply — the device's own check-values timeout included, a
+  device setting adjusted in LabVIEW and never overridden here — or a
+  put refused inside the command-ACK window fails it the moment it lands,
+  never delayed by the grace. `_DEFAULT_MOVE_TIMEOUT` (30 s: it fired on
+  Scan009 of 26_0914, a 19 mm move the device completed at 32 s) and the
+  `move_timeout` keyword are gone; three named bounds replace them, each a
+  constructor keyword with a module default: `REPLY_WAIT` (90 s — the
+  hexapod answers a finished move slowly; a readback within tolerance of
+  the target at the threshold with no reply completes the move as a lost
+  reply, logged at WARNING with the `:SP` PV; a readback still moving
+  keeps waiting), `PROGRESS_GRACE` (5 s) + `STALL_TIMEOUT` (10 s — the
+  readback stall rule, the only client-side timeout left: past the grace,
+  no movement beyond the tolerance for 10 s while short of the target
+  fails the move with `GeecsMotorTimeoutError` naming the PV, target and
+  current, before or after `REPLY_WAIT`; a readback sitting at the target
+  is never a stall), and `REPLY_CEILING` (300 s — the put's hard bound; a
+  gateway that never answered). Failure path unchanged otherwise: a
+  failed put propagates as the #868 ERROR line, no pause-and-retry.
+  `GeecsMotorTimeoutError` gains `replied` and says which phase stalled.
+  Pinned on mocks: a `no error` reply at "45 s" with the readback
+  advancing completes; a silent device with a stalled readback fails at
+  grace+stall naming the PV; an error reply fails at once even while the
+  stage is moving; a rejected put fails within one poll tick; continuous
+  progress past `REPLY_WAIT` keeps waiting; the lost-reply completion;
+  the ceiling; progress resetting the stall clock — each shown to fail
+  under the corresponding break of the code.
+
 ## [0.87.1] - 2026-09-15
 
 ### Fixed
