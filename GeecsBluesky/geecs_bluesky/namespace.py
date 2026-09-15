@@ -81,6 +81,7 @@ from geecs_bluesky.devices.detector import GeecsDetector
 from geecs_bluesky.devices.hdf_plugin import PluginPathProvider
 from geecs_bluesky.devices.hdf_plugin import file_plugin_hosts as _hosts_from_config
 from geecs_bluesky.exceptions import GeecsConfigurationError
+from geecs_bluesky.plan_names import GEECS_PLAN_NAMES
 from geecs_bluesky.utils import identifier_name, safe_name, settable_attribute
 
 logger = logging.getLogger(__name__)
@@ -611,15 +612,35 @@ class GeecsNamespace:
         expand to the device children directly).
         """
         bound: list[str] = []
+        reserved = {*GEECS_PLAN_NAMES, "RE"}  # the profile binds these after us
         for friendly, spec in catalog.items():
             if getattr(spec, "kind", None) != "pseudo":
                 continue
             ns_name = identifier_name(friendly)
             try:
-                if ns_name in self._devices:
+                if ns_name in reserved:
                     raise GeecsConfigurationError(
-                        f"the name {ns_name!r} is already bound to "
-                        f"{self._devices[ns_name]._geecs_device_name!r}"
+                        f"the name {ns_name!r} is a plan name (or the RunEngine) "
+                        "in the worker namespace — rename the catalog entry"
+                    )
+                # Case-insensitively, like the lookups: a key differing from a
+                # device only by case would share its ophyd name and event keys.
+                clash = self._devices.get(ns_name) or self._by_geecs_name.get(
+                    friendly.lower()
+                )
+                if clash is None:
+                    clash = next(
+                        (
+                            d
+                            for d in self._devices.values()
+                            if d.name == safe_name(friendly)
+                        ),
+                        None,
+                    )
+                if clash is not None:
+                    raise GeecsConfigurationError(
+                        f"the name {friendly!r} is already bound to "
+                        f"{clash._geecs_device_name!r}"
                     )
                 pseudo = build_pseudo(
                     friendly, spec, self._settable_for, tolerance=self._db_tolerance

@@ -603,3 +603,63 @@ def test_add_pseudos_skips_a_broken_entry_loudly_and_keeps_the_rest(caplog) -> N
     )
     assert any("'U_S1H' not registered" in m and "already bound" in m for m in messages)
     assert ns["U_S1H"].current is ns.variable("U_S1H", "Current")  # the device survived
+
+
+def test_add_pseudos_refuses_case_clashes_and_plan_names(caplog) -> None:
+    ns = GeecsNamespace(_magnet_roster(), file_plugin_hosts=None)
+    with caplog.at_level("ERROR", logger="geecs_bluesky.namespace"):
+        bound = ns.add_pseudos(_catalog(u_s1h=BUMP, count=BUMP, RE=BUMP, bump=BUMP))
+    assert bound == ["bump"]
+    messages = [r.getMessage() for r in caplog.records]
+    assert any(
+        "'u_s1h' not registered" in m and "already bound to 'U_S1H'" in m
+        for m in messages
+    )
+    assert any("'count' not registered" in m and "plan name" in m for m in messages)
+    assert any("'RE' not registered" in m and "plan name" in m for m in messages)
+    assert ns.get_settable("u_s1h", "Current") is ns["U_S1H"].current  # lookups intact
+
+
+def test_namespace_pseudo_scans_through_connect_on_demand() -> None:
+    """A pseudo touched by a plan connects its own components: the telemetry
+    connect at environment open may have left one out (run_engine.install_telemetry
+    drops members that fail to connect)."""
+    import bluesky.plan_stubs as bps
+    import bluesky.plans as bp
+    from bluesky import RunEngine
+
+    from ophyd_async.core import callback_on_mock_put, set_mock_value
+
+    from geecs_bluesky.preprocessors import install_connect_on_demand
+
+    ns = GeecsNamespace(_magnet_roster(), file_plugin_hosts=None)
+    ns.add_pseudos(_catalog(ALine_e_beam_angle_offset_x=BUMP))
+    bump = ns["ALine_e_beam_angle_offset_x"]
+    RE = RunEngine()
+    install_connect_on_demand(RE, mock=True)  # nothing connected up front
+    values: list[float] = []
+
+    def plan():
+        # stage() reads the components' readbacks: it only works because the
+        # pseudo's connect brought its components along
+        yield from bps.stage(bump, wait=True)
+        for comp in bump._components:  # mock backends exist now: readbacks follow puts
+            readback = getattr(comp, comp._readback_attr_name)
+            callback_on_mock_put(
+                comp._setpoint,
+                lambda value, *, readback=readback, **kw: set_mock_value(
+                    readback, value
+                ),
+            )
+        yield from bps.unstage(bump, wait=True)
+        yield from bp.scan([], bump, -1.0, 1.0, 3)
+
+    RE(
+        plan(),
+        lambda name, doc: values.append(
+            doc["data"]["aline_e_beam_angle_offset_x-readback"]
+        )
+        if name == "event"
+        else None,
+    )
+    assert values == pytest.approx([-1.0, 0.0, 1.0])
