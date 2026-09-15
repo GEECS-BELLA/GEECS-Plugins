@@ -29,8 +29,8 @@
 @media (max-width:640px){.kit .axes{grid-template-columns:1fr 1fr}}
 .kit .fields{display:grid;gap:var(--gap);grid-template-columns:repeat(auto-fit,minmax(170px,1fr))}
 .kit .fields .field.wide{grid-column:1/-1}
-/* The preset picker: a compact verb ("Load preset…"), sized like the topbar's operator box, not a form field. */
-.kit select.preset-load{font:inherit;font-size:12.5px;height:26px;padding:0 6px;max-width:24ch;border:var(--bw) solid var(--rule);border-radius:var(--r);background:var(--surface);color:var(--ink)}
+/* The preset picker: a verb ("Load preset…") in the footer row, the kit's row height like the buttons beside it, not a form field. */
+.kit select.preset-load{font:inherit;font-size:12.5px;height:var(--row-h);padding:0 8px;max-width:24ch;border:var(--bw) solid var(--rule);border-radius:var(--r);background:var(--surface);color:var(--ink)}
 .kit select.preset-load:disabled{opacity:.5;cursor:not-allowed}
 .kit .devtable td, .kit .devtable th{padding-block:5px}
 .kit .devtable input[type="checkbox"]{width:15px;height:15px;margin:0;vertical-align:middle}

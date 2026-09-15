@@ -408,7 +408,12 @@
       $("preset-name").textContent = "preset " + name;
       $("devices-eyebrow").textContent = "devices · preset " + name;
       fillFormFromPreset(doc);
-    }).catch(function (e) { showError("Preset " + name + ": " + e.message); });
+    }).catch(function (e) {
+      // The claim above is provenance only once the document arrived: a
+      // preset deleted since the listing must not stamp its name on the form.
+      if (S.presetName === name) { S.presetName = S.presetDoc ? S.presetDoc.name : null; recalc(); }
+      showError("Preset " + name + ": " + e.message);
+    });
   }
 
   // The shapes the form can express. Anything else is shown, not guessed:
@@ -583,7 +588,7 @@
     var btn = $("btn-start");
     btn.disabled = busy || !valid || !S.formable;
     $("btn-save-preset").disabled = !S.presetDoc;
-    btn.title = !st ? "waiting for the manager" : !st.connected ? "manager unreachable" : busy ? "a scan is running" : !S.presetDoc ? "pick a preset" : !S.formable ? S.formableNote : !valid ? "fix the form first" : "";
+    btn.title = !st ? "waiting for the manager" : !st.connected ? "manager unreachable" : busy ? "a scan is running" : !S.presetDoc ? "load a preset" : !S.formable ? S.formableNote : !valid ? "fix the form first" : "";
     $("preset-name").textContent = S.presetName ? "preset " + S.presetName + (S.formable ? "" : " · " + S.formableNote) : "";
   }
 

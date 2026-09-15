@@ -27,8 +27,11 @@ on the mode choice.
   `.err` slots, `shots-hint` (`num` vs `shots_per_step`), `seconds` under
   the shot period, the device search's live count, and every
   load-failure / empty-listing note.
-- The empty device table reads "No devices — load a preset or add one."
-  ("Pick a preset above." pointed at a row that no longer exists).
+- The empty device table reads "No devices — add one." in the template too
+  ("Pick a preset above." pointed at a row that no longer exists; the
+  script already used that wording). The trigger-profile field keeps its
+  environment-open gotcha as hover text (`title`). A preset whose load
+  fails no longer leaves its name as the form's provenance.
 
 ## [0.5.1] - 2026-09-14
 

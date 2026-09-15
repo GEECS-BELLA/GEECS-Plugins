@@ -170,18 +170,19 @@ def test_form_starts_at_the_mode_segment(client: TestClient) -> None:
 def test_hints_carry_state_or_a_unit_never_prose(client: TestClient) -> None:
     """#895: the static explanatory hints are gone; the computed ones and the unit stay."""
     html = client.get("/").text
+    hints = " | ".join(re.findall(r'<span class="hint"[^>]*>(.*?)</span>', html))
     for prose in (
         "catalog name",
         "seeds the form below",
         "stepped inside each axis-1 point",
-        "shot_control_configurations/",
+        "shot_control_configurations/",  # survives only as the field's hover text
         "goes to ScanInfo",
         "measure only",
         "one YAML under presets/",
         "names the manager resolves",
-        'id="mode-note"',
     ):
-        assert prose not in html, prose
+        assert prose not in hints, prose
+    assert 'id="mode-note"' not in html
     script = (_PKG / "static" / "scanner.js").read_text()
     for prose in (
         "var NOTES",
@@ -200,5 +201,6 @@ def test_hints_carry_state_or_a_unit_never_prose(client: TestClient) -> None:
         'id="mv-hint"',
         'id="devq-hint"',
         '<span class="hint">seconds</span>',
+        "Loading presets…",
     ):
         assert kept in html, kept
