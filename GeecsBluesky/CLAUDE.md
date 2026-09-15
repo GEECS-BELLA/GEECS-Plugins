@@ -184,9 +184,18 @@ qserver/                    # the worker: launcher, startup profile, permissions
     rejected.
   - Disagreement *after this pseudo moved its components* fails the scan;
     before the first move a plain pseudo warns and snaps, a relative one
-    fails (its deviations were just zeroed). A restore that failed or was
-    skipped (halt) makes the next `stage()` refuse; `mv <pseudo> 0`,
-    unstaged, is the recovery and the only move that skips the check.
+    fails (its deviations were just zeroed). The restore runs at unstage
+    on every exit path — end, abort, halt (the RunEngine sweeps leftover
+    staged objects; on a halt without awaiting, so a failure there shows
+    only in the journal). A restore that *failed* makes the next
+    `stage()` refuse; `mv <pseudo> 0`, unstaged, is the recovery, the
+    only move that skips the check, and the only thing that clears the
+    owed restore (a staged scan point at 0 does not).
+  - Two meanings of "relative", kept apart: the *scan choice*
+    (`rel_scan`, about the current readback — any movable, R56 included)
+    and the *definition* (the catalog's `mode: relative`: the value is a
+    deviation with no absolute meaning — the bumps). R56 can be
+    `rel_scan`ned but has no relative definition; a bump is the mirror.
   - The catalog carries the relations (targets, `forward` expressions,
     `inverse` for non-linear ones, a `description` with the geometry and
     assumptions behind a bump's coefficients); the maths is Python.
@@ -195,7 +204,11 @@ qserver/                    # the worker: launcher, startup profile, permissions
   - Vocabulary is the frameworks': pseudo positioner, user offset (EPICS
     `.OFF`, ophyd `set_current_position`). The operator-facing
     set-as-aligned / persistence / display of the offset is an additive
-    follow-on arc, not this one.
+    follow-on arc, not this one. Precedent for that arc, so it is not
+    re-derived: spec gave every motor a user offset regardless of
+    hardware; Sardana has `Offset`/`Sign` on every pool motor with pseudo
+    motors on top; EPICS confined the idea to the motor record and
+    bluesky/ophyd never added a generic layer.
   - Hardware-accepted 2026-09-15 (Scans 5–9 of 26_0915: bump, aborted bump
     with restore, `rel_scan` over a plain pseudo, R56 on the chicane).
 

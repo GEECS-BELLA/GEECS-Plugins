@@ -16,8 +16,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   sits at WARNING (the scan log lowers it only for the run's duration).
 - **A scan point at exactly 0 is an ordinary, checked step** (#915): the
   agreement-check bypass for the recovery gesture (`mv <pseudo> 0` after a
-  failed or skipped restore) now applies only while the pseudo is not
-  staged; Scan005 of 26_0915 had taken it mid-scan.
+  failed restore) applies only while the pseudo is not staged, and only
+  that unstaged move clears the owed restore — a staged scan through 0
+  had cleared it too, leaving the next `stage()` free to bake a leftover
+  bump into the baseline after a failed restore (review of #918).
+  Scan005 of 26_0915 had taken the bypass mid-scan.
+- Docs: a `halt` does **not** skip unstage — the RunEngine sweeps every
+  leftover staged object on every exit path (without awaiting it on a
+  halt), so the restore runs there too and a failure in it is visible
+  only in the journal; the recovery gesture is for a *failed* restore.
 
 ### Changed
 

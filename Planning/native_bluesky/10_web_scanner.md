@@ -368,7 +368,7 @@ for #879 / #880.
 
 ## 5. Doors kept open — pseudo positioners and optimization
 
-Both are owed on this branch (the pseudo arc #904, done 2026-09-15; `03` §8 "optimization
+Both were owed on this branch (the pseudo arc #904 landed 2026-09-15; `03` §8 "optimization
 is broken until it is re-glued to the native scan path in its own phase").
 The scanner must not make either harder. Concretely:
 

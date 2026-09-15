@@ -626,3 +626,38 @@ def test_a_scan_point_at_zero_is_an_ordinary_checked_step(bench):
     with pytest.raises(FailedStatus) as info:
         bench.RE(plan())
     assert isinstance(info.value.__cause__, PseudoComponentsDisagreeError)
+
+
+def test_a_scan_through_zero_still_owes_its_restore(bench):
+    """A staged point at 0 must not clear the owed restore (review of #918)."""
+    from geecs_bluesky.exceptions import PseudoRestorePendingError
+
+    bump = bench.build("ALine_e_beam_angle_offset_x")
+    bench.place(U_S3H=0.35, U_S4H=-0.099)
+    s4h = bench.components["U_S4H:Current"]
+    refuse_baseline = {"on": True}
+
+    def _refuse_at_baseline(value):
+        if refuse_baseline["on"] and abs(value - (-0.099)) < 1e-9:
+            raise RuntimeError("LabVIEW: set refused")
+        set_mock_value(s4h.position, value)
+
+    bench.overrides["U_S4H:Current"] = _refuse_at_baseline
+    # -0.1, 0.0, 0.1: the middle point puts S4H at exactly its baseline, which
+    # is not a refusal we want here, so refuse only from the last point on
+    refuse_baseline["on"] = False
+
+    def arm_after_last_point(value):
+        set_mock_value(bench.components["U_S3H:Current"].position, value)
+        if abs(value - 0.35 - 0.1) < 1e-9:
+            refuse_baseline["on"] = True  # the restore is next
+
+    bench.overrides["U_S3H:Current"] = arm_after_last_point
+
+    with pytest.raises(FailedStatus):
+        bench.RE(bp.scan([], bump, -0.1, 0.1, 3))  # the restore at unstage fails on S4H
+    assert bench.dial("U_S4H") == pytest.approx(-0.299)  # left bumped
+
+    with pytest.raises(FailedStatus) as info:
+        bench.RE(bps.stage(bump, wait=True))
+    assert isinstance(info.value.__cause__, PseudoRestorePendingError)

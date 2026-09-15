@@ -36,10 +36,12 @@ Two kinds of entry, one class (the rulings are in ``GeecsBluesky/CLAUDE.md``):
   is a **deviation from today's alignment** — the steering bumps.  The
   readback is 0 by construction before the first step, ``set(0)`` puts the
   components back (every relative ``forward`` is pinned ``f(0) = 0`` at
-  build), and ``unstage()`` restores the captured baselines — end of scan
-  and abort alike (a ``halt`` skips unstage by bluesky contract).  A
-  restore that failed or never ran leaves the pseudo **owing** its
-  components their baselines: the next ``stage()`` refuses
+  build), and ``unstage()`` restores the captured baselines — end of scan,
+  abort and halt alike (the RunEngine unstages every leftover staged
+  object on every exit path; on a ``halt`` it does not wait for the
+  status, so a restore that fails there surfaces only in the journal).
+  A restore that failed leaves the pseudo **owing** its components their
+  baselines: the next ``stage()`` refuses
   (:class:`~geecs_bluesky.exceptions.PseudoRestorePendingError`) rather
   than zero with the leftover bump baked in, and ``mv <pseudo> 0`` — the
   offsets still hold the true baselines — puts them back and clears it.
@@ -314,9 +316,8 @@ class CaPseudoPositioner(StandardReadable):
     async def stage(self) -> None:
         """Stage the readback; a relative pseudo zeroes its components first.
 
-        Refused while a previous scan's restore is still owed (it failed,
-        or a ``halt`` skipped unstage): zeroing now would make the
-        leftover bump the new baseline.
+        Refused while a previous scan's restore is still owed (it failed):
+        zeroing now would make the leftover bump the new baseline.
         """
         if self._relative:
             if self._restore_pending:
@@ -339,9 +340,10 @@ class CaPseudoPositioner(StandardReadable):
     async def unstage(self) -> None:
         """Unstage; a relative pseudo puts its components back at their baselines.
 
-        Runs at the end of a scan and on abort alike (the stock plans'
-        ``stage_wrapper`` unstages as a finalize; a ``halt`` skips it by
-        bluesky contract).  The restore is formula-independent — each
+        Runs at the end of a scan, on abort and on halt (the stock plans'
+        ``stage_wrapper`` unstages as a finalize, and the RunEngine sweeps
+        every leftover staged object on exit — without awaiting it on a
+        ``halt``).  The restore is formula-independent — each
         component goes to the dial position it had when zeroed — and rides
         the components' own ``set()``, so a failed restore fails the plan
         visibly (each component ERROR-logs its own refused put).
@@ -529,9 +531,10 @@ class CaPseudoPositioner(StandardReadable):
             [(comp, dials[k]) for comp, k in zip(self._components, self._keys)]
         )
         self.last_commanded = commanded
-        if self._relative and value == 0.0:
-            # Back at the baselines: nothing is owed any more (the recovery
-            # gesture after a failed or skipped restore).
+        if restoring:
+            # Back at the baselines: nothing is owed any more.  Only the
+            # unstaged recovery move clears this — a staged scan point at 0
+            # still owes its restore at unstage (review of #918).
             self._restore_pending = False
 
 

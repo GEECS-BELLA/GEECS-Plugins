@@ -97,14 +97,6 @@ def make_run_engine(
         ``context_managers=[]`` (no SIGINT handler: the worker runs the RE
         off the main thread), interruptions recorded.
     """
-    # The package's own INFO lines are the operational record of a device
-    # lifecycle that happens *outside* the run — a pseudo positioner's
-    # baselines captured at stage and restored at unstage, a manual mv —
-    # and the root logger sits at WARNING there (the scan log lowers it to
-    # INFO only for the run's duration, #915).  A logger level is checked
-    # once, at the emitting logger, so this reaches the root's handlers
-    # whatever the root's level is.
-    logging.getLogger("geecs_bluesky").setLevel(logging.INFO)
     RE = RunEngine(context_managers=[])
     RE.record_interruptions = True
     if tiled:

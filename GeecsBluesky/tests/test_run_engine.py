@@ -63,13 +63,3 @@ def test_install_telemetry_returns_the_installed_list():
 def test_claim_needs_the_experiment():
     with pytest.raises(ValueError, match="experiment"):
         make_run_engine(claim=True)
-
-
-def test_make_run_engine_lets_the_package_speak_at_info() -> None:
-    """Stage/unstage lifecycle lines happen outside a run, where the root is at WARNING (#915)."""
-    import logging
-
-    pkg = logging.getLogger("geecs_bluesky")
-    pkg.setLevel(logging.NOTSET)
-    make_run_engine(mock=True)
-    assert pkg.level == logging.INFO

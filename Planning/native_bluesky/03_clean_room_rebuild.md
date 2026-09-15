@@ -678,8 +678,8 @@ the least-verified component while the scan path waited.
 Executed as #904 (PRs #912, #913, #914; hardware-accepted the same day) and
 its brief deleted per the Planning rule. What it settled lives in
 `GeecsBluesky/CLAUDE.md` ("Pseudo positioner rulings") and the
-`devices/ca/pseudo.py` module docstring; what it left open is #915
-(observability nits) and #916 (`confirm` entries as nouns).
+`devices/ca/pseudo.py` module docstring; what it left open is #916
+(`confirm` entries as nouns).
 
 **On #809:** do not merge. Nothing from it is deployed; its two open P1s
 need no fix if it does not ship. Close it with a pointer here once this

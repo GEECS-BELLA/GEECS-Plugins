@@ -346,5 +346,9 @@ def test_startup_exports_the_device_namespace_and_installs_connect_last(
     from geecs_bluesky.devices.ca.motor import CaMotor
 
     assert isinstance(ns["UC_TestCam"].exposure, CaMotor)
+    # the package speaks at INFO outside runs (stage/unstage lifecycle lines, #915)
+    import logging
+
+    assert logging.getLogger("geecs_bluesky").level == logging.INFO
     funcs = [getattr(p, "func", p) for p in ns["RE"].preprocessors]
     assert funcs[-1] is connect_on_demand and funcs.count(connect_on_demand) == 1
