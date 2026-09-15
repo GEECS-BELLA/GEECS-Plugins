@@ -85,7 +85,7 @@ the dead save-set concept. **The scanner does not use `ScanRequest`.**
 | the document stream is **pickled Python** ("non-Python subscribers not offered today", qserver DEPLOYMENT.md) | a server-side `RemoteDispatcher` → JSON → **SSE** bridge; the repo's web tier has no live transport precedent (the portal polls) |
 | blocking, synchronous client | every handler runs the client on a threadpool, behind one lock, one client per process |
 | no optimization plan (Xopt core only; `OptimizationSpec` and `list_optimizer_configs` exist with nothing behind them) | Optimize is a **greyed** mode with a tooltip; §5 keeps the door open |
-| no pseudo axes (`expand_preset` refuses `kind: pseudo`; `09_pseudo_transform.md`) | pseudo entries listed **disabled** in the variable picker; §5 |
+| no pseudo axes (`expand_preset` refuses `kind: pseudo`; the pseudo arc #904) | pseudo entries listed **disabled** in the variable picker; §5 — *flipped by #913, 2026-09-15* |
 | no per-item queue remove, no environment open on the client | clear-all is the recovery verb (Sam: "clear all is fine for now"); environment open stays the readiness unit's job |
 
 **GEECS-MCP is inspiration, not canon** (Sam, 2026-09-13: "spun up super fast").
@@ -368,7 +368,7 @@ for #879 / #880.
 
 ## 5. Doors kept open — pseudo positioners and optimization
 
-Both are owed on this branch (`09_pseudo_transform.md`; `03` §8 "optimization
+Both were owed on this branch (the pseudo arc #904 landed 2026-09-15; `03` §8 "optimization
 is broken until it is re-glued to the native scan path in its own phase").
 The scanner must not make either harder. Concretely:
 

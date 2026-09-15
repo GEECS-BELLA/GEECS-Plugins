@@ -336,6 +336,11 @@ def test_startup_exports_the_device_namespace_and_installs_connect_last(
     monkeypatch.setattr(
         ConfigsRepoResolver, "scan_variable_catalog", lambda self: catalog
     )
+    import logging
+
+    logging.getLogger("geecs_bluesky").setLevel(
+        logging.NOTSET
+    )  # the profile must set it
     ns = runpy.run_path(str(STARTUP_PATH), run_name="__not_main__")
     assert "U_S1H" in ns and "U_S1H" in ns["__all__"]
     assert ns["U_S1H"].current.name == "u_s1h-current"
@@ -346,5 +351,7 @@ def test_startup_exports_the_device_namespace_and_installs_connect_last(
     from geecs_bluesky.devices.ca.motor import CaMotor
 
     assert isinstance(ns["UC_TestCam"].exposure, CaMotor)
+    # the package speaks at INFO outside runs (stage/unstage lifecycle lines, #915)
+    assert logging.getLogger("geecs_bluesky").level == logging.INFO
     funcs = [getattr(p, "func", p) for p in ns["RE"].preprocessors]
     assert funcs[-1] is connect_on_demand and funcs.count(connect_on_demand) == 1

@@ -23,7 +23,7 @@ the catalog's ``inverse`` otherwise (``R56_at_100MeV``).  A
 signals produces the readback child, and the parameters of the transform
 are the components' **user offsets** (:attr:`CaSettable.offset`).
 
-Two kinds of entry, one class (``09_pseudo_transform.md`` §3):
+Two kinds of entry, one class (the rulings are in ``GeecsBluesky/CLAUDE.md``):
 
 - a **plain pseudo positioner** (the catalog's ``mode: absolute``) reads its
   components in the *dial* frame — the offsets are wired as zeros.  Its
@@ -36,10 +36,12 @@ Two kinds of entry, one class (``09_pseudo_transform.md`` §3):
   is a **deviation from today's alignment** — the steering bumps.  The
   readback is 0 by construction before the first step, ``set(0)`` puts the
   components back (every relative ``forward`` is pinned ``f(0) = 0`` at
-  build), and ``unstage()`` restores the captured baselines — end of scan
-  and abort alike (a ``halt`` skips unstage by bluesky contract).  A
-  restore that failed or never ran leaves the pseudo **owing** its
-  components their baselines: the next ``stage()`` refuses
+  build), and ``unstage()`` restores the captured baselines — end of scan,
+  abort and halt alike (the RunEngine unstages every leftover staged
+  object on every exit path; on a ``halt`` it does not wait for the
+  status, so a restore that fails there surfaces only in the journal).
+  A restore that failed leaves the pseudo **owing** its components their
+  baselines: the next ``stage()`` refuses
   (:class:`~geecs_bluesky.exceptions.PseudoRestorePendingError`) rather
   than zero with the leftover bump baked in, and ``mv <pseudo> 0`` — the
   offsets still hold the true baselines — puts them back and clears it.
@@ -250,6 +252,7 @@ class CaPseudoPositioner(StandardReadable):
         self._zeroed = False  # relative: offsets captured by this pseudo
         self._moved = False  # this pseudo has moved its components since stage
         self._restore_pending = False  # staged, and the baselines not yet put back
+        self._staged = False  # between stage() and unstage(): a scan is driving us
         #: ``{"Device:Variable": dial setting}`` of the last completed set
         #: (``None`` until one succeeds) — operator feedback for manual moves.
         self.last_commanded: dict[str, float] | None = None
@@ -313,9 +316,8 @@ class CaPseudoPositioner(StandardReadable):
     async def stage(self) -> None:
         """Stage the readback; a relative pseudo zeroes its components first.
 
-        Refused while a previous scan's restore is still owed (it failed,
-        or a ``halt`` skipped unstage): zeroing now would make the
-        leftover bump the new baseline.
+        Refused while a previous scan's restore is still owed (it failed):
+        zeroing now would make the leftover bump the new baseline.
         """
         if self._relative:
             if self._restore_pending:
@@ -329,17 +331,22 @@ class CaPseudoPositioner(StandardReadable):
                     "pseudo to 0 (mv …, 0) to put the components back, then scan"
                 )
             await self._zero_components()
-            self._restore_pending = True
+            self._restore_pending = True  # owed from here on, whatever follows
         self._moved = False
         await super().stage().task
+        # Only a completed stage marks us staged: a parent stage that failed
+        # after the zeroing leaves the restore owed and the pseudo unstaged,
+        # so the unstaged ``mv <pseudo> 0`` recovery is recognised as such.
+        self._staged = True
 
     @AsyncStatus.wrap
     async def unstage(self) -> None:
         """Unstage; a relative pseudo puts its components back at their baselines.
 
-        Runs at the end of a scan and on abort alike (the stock plans'
-        ``stage_wrapper`` unstages as a finalize; a ``halt`` skips it by
-        bluesky contract).  The restore is formula-independent — each
+        Runs at the end of a scan, on abort and on halt (the stock plans'
+        ``stage_wrapper`` unstages as a finalize, and the RunEngine sweeps
+        every leftover staged object on exit — without awaiting it on a
+        ``halt``).  The restore is formula-independent — each
         component goes to the dial position it had when zeroed — and rides
         the components' own ``set()``, so a failed restore fails the plan
         visibly (each component ERROR-logs its own refused put).
@@ -353,6 +360,7 @@ class CaPseudoPositioner(StandardReadable):
                 self._restore_pending = False
         finally:
             self._moved = False
+            self._staged = False
             await super().unstage().task
 
     async def _restore_baselines(self) -> None:
@@ -485,12 +493,18 @@ class CaPseudoPositioner(StandardReadable):
         if self._relative and not self._zeroed:
             # Unstaged caller (a manual mv): today's positions are the baseline.
             await self._zero_components()
-        restoring = self._relative and self._restore_pending and value == 0.0
+        restoring = (
+            self._relative
+            and self._restore_pending
+            and not self._staged  # a scan point at 0 is an ordinary step
+            and value == 0.0
+        )
         if restoring:
-            # The recovery gesture after a partial restore: the components
-            # disagree by construction (one is back, one is not) and the
-            # move sends each to its own captured baseline — safe without
-            # the agreement check, which would otherwise refuse the cure.
+            # The recovery gesture (an unstaged ``mv <pseudo> 0``) after a
+            # partial restore: the components disagree by construction (one
+            # is back, one is not) and the move sends each to its own
+            # captured baseline — safe without the agreement check, which
+            # would otherwise refuse the cure.
             logger.info("%s: restoring the owed baselines", self.name)
         else:
             await self._check_agreement(fail=self._relative or self._moved)
@@ -520,9 +534,10 @@ class CaPseudoPositioner(StandardReadable):
             [(comp, dials[k]) for comp, k in zip(self._components, self._keys)]
         )
         self.last_commanded = commanded
-        if self._relative and value == 0.0:
-            # Back at the baselines: nothing is owed any more (the recovery
-            # gesture after a failed or skipped restore).
+        if restoring:
+            # Back at the baselines: nothing is owed any more.  Only the
+            # unstaged recovery move clears this — a staged scan point at 0
+            # still owes its restore at unstage (review of #918).
             self._restore_pending = False
 
 

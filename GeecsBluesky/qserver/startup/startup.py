@@ -157,6 +157,15 @@ else:
     _telemetry = namespace.telemetry()
     _profiles = TriggerProfiles.from_resolver(_resolver, experiment=_experiment)
 
+# The package's own INFO lines are the operational record of what happens
+# *outside* a run — a pseudo positioner's baselines captured at stage and
+# restored at unstage, a manual mv's moves — and the worker's root logger
+# sits at WARNING there (the scan log lowers it to INFO only for the run's
+# duration, #915).  A level is checked once, at the emitting logger, so
+# this reaches the journal whatever the root's level is.  Process policy,
+# so it lives here, not in make_run_engine.
+logging.getLogger("geecs_bluesky").setLevel(logging.INFO)
+
 # The manager's --keep-re contract needs a top-level `RE` in this module's
 # namespace.  tiled=True: the [tiled] config mechanism
 # (geecs_bluesky.tiled_integration.subscribe_tiled) subscribes a TiledWriter

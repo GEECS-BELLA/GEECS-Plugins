@@ -673,61 +673,13 @@ the least-verified component while the scan path waited.
    `drain_offset` from it. Pseudo scan variables were *considered* for this
    phase and deliberately split out: see "The pseudo arc" below.
 
-### The pseudo arc (split out of phase 3, 2026-09-13)
+### The pseudo arc (split out of phase 3, 2026-09-13) — DONE 2026-09-15
 
-**Full brief: `09_pseudo_transform.md`** — the corpus table, the Transform
-survey, the suggested order, and the open question. Summary below.
-
-Pseudo (composite) scan variables — one scanned number fanned out to
-several targets by a formula — **cannot be scanned at all on this branch**:
-`presets.py` refuses a `kind: pseudo` axis and the namespace builds no noun
-for one. Sam confirmed they are scanned regularly on HTU, so this is a lost
-capability and a merge-gate item, not a nicety.
-
-It was going to ride with phase 3 as #855 (`CaPseudoMovable.locate()`).
-Surveying it first changed the answer, and the survey is recorded here so a
-later session does not redo it:
-
-- **ophyd-async has the native mechanism**: `Transform` +
-  `DerivedSignalFactory` (`ophyd_async.core`, 0.19.3, already installed).
-  A `Transform` subclass declares `derived_to_raw` (our `forward`) *and*
-  `raw_to_derived` — the **inverse**, which the pseudo arc has been
-  deferring since #600. The product is a plain `SignalRW`, so it reads,
-  locates and moves through stock machinery.
-- **#855 as filed is the wrong fix.** Its hard case is "an absolute
-  pseudo's readback is NaN before its first set, so `rel_scan` moves to
-  NaN + offset". A derived signal computes the readback from the component
-  motors' live readbacks, so it is always defined and `locate()` is free.
-  Hand-rolling `locate()` onto `CaPseudoMovable` would build something the
-  Transform migration then deletes.
-- **`mode: relative` may be a workaround for the missing inverse.** 11 of
-  the 13 Undulator corpus entries are `relative`, carried by hand-rolled
-  baseline capture (`_capture_baselines`) and a custom
-  `restore_baselines_plan`. With a real readback, "relative" is just
-  `rel_scan` over the pseudo — stock bluesky, stock restore. The whole
-  mode split is then a candidate for deletion.
-- **The corpus is nearly all affine.** 13 pseudos, 26 target formulas: 24
-  are `a*x + b` (`composite_var * -2`, `(composite_var-41000) * 14/1000 -
-  20`), so one `AffineTransform` reading `a`/`b` from the catalog covers
-  them with a free inverse. The other two are
-  `±sqrt(100**2 * composite_var / 560968.636)` (`R56_at_100MeV`),
-  invertible in a line.
-- **YAML is not load-bearing here** (Sam, 2026-09-13: "there is literally
-  no reason to stick to that"). The shape to aim at: the catalog keeps
-  declaring *which* pseudos exist and their coefficients — operators edit
-  that without a deploy — while the maths is a `Transform` subclass,
-  `AffineTransform` for 24 of 26.
-- **The open physics question, which is Sam's**: reading a pseudo back is
-  **over-determined**. `ALine_e_beam_angle_offset_x` drives S3H ×1 and S4H
-  ×−2; two raw values, one derived number. `raw_to_derived` needs a rule
-  for which raw defines it, and an answer for when the components have
-  drifted out of the formula's relation. Per pseudo, and not something to
-  guess.
-
-Also still deferred from `01_device_namespace.md`: the catalog's
-`kind: motor` opt-in (landed with the pseudo arc, GeecsBluesky 0.91.0),
-`confirm` entries as nouns (still open), and the axis expansion. Those
-belong with the pseudo arc, not with calibration.
+Executed as #904 (PRs #912, #913, #914; hardware-accepted the same day) and
+its brief deleted per the Planning rule. What it settled lives in
+`GeecsBluesky/CLAUDE.md` ("Pseudo positioner rulings") and the
+`devices/ca/pseudo.py` module docstring; what it left open is #916
+(`confirm` entries as nouns).
 
 **On #809:** do not merge. Nothing from it is deployed; its two open P1s
 need no fix if it does not ship. Close it with a pointer here once this

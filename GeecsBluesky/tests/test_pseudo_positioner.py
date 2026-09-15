@@ -5,7 +5,7 @@ mock readbacks follow their ``:SP`` puts (GEECS's native convergence
 stand-in), the pseudo is built from a catalog document through
 :func:`build_pseudo` exactly as the namespace will build it, and scans are
 driven through a real RunEngine so stage → move → unstage happens the way
-the stock plans do it.  Pins ``09_pseudo_transform.md`` §3: zeroing at
+the stock plans do it.  Pins the pseudo positioner rulings (``GeecsBluesky/CLAUDE.md``): zeroing at
 stage, the derived readback, the disagreement check's fail/warn split, the
 restore at unstage (end of scan and abort), and the build-time refusals.
 """
@@ -610,3 +610,84 @@ def test_pseudo_connect_connects_its_components():
         pseudo.readback.get_value(), RE._loop
     ).result(10)
     assert value == 0.0
+
+
+def test_a_scan_point_at_zero_is_an_ordinary_checked_step(bench):
+    """Only the unstaged recovery move bypasses the agreement check (#915)."""
+    bump = bench.build("ALine_e_beam_angle_offset_x")
+    bench.place(U_S3H=0.35, U_S4H=-0.099)
+
+    def plan():
+        yield from bps.stage(bump, wait=True)
+        yield from bps.mv(bump, 0.1)
+        bench.place(U_S4H=-0.5)  # a hand move mid-scan
+        yield from bps.mv(bump, 0.0)  # the point at 0 must still be checked
+
+    with pytest.raises(FailedStatus) as info:
+        bench.RE(plan())
+    assert isinstance(info.value.__cause__, PseudoComponentsDisagreeError)
+
+
+def test_a_scan_through_zero_still_owes_its_restore(bench):
+    """A staged point at 0 must not clear the owed restore (review of #918)."""
+    from geecs_bluesky.exceptions import PseudoRestorePendingError
+
+    bump = bench.build("ALine_e_beam_angle_offset_x")
+    bench.place(U_S3H=0.35, U_S4H=-0.099)
+    s4h = bench.components["U_S4H:Current"]
+    refuse_baseline = {"on": True}
+
+    def _refuse_at_baseline(value):
+        if refuse_baseline["on"] and abs(value - (-0.099)) < 1e-9:
+            raise RuntimeError("LabVIEW: set refused")
+        set_mock_value(s4h.position, value)
+
+    bench.overrides["U_S4H:Current"] = _refuse_at_baseline
+    # -0.1, 0.0, 0.1: the middle point puts S4H at exactly its baseline, which
+    # is not a refusal we want here, so refuse only from the last point on
+    refuse_baseline["on"] = False
+
+    def arm_after_last_point(value):
+        set_mock_value(bench.components["U_S3H:Current"].position, value)
+        if abs(value - 0.35 - 0.1) < 1e-9:
+            refuse_baseline["on"] = True  # the restore is next
+
+    bench.overrides["U_S3H:Current"] = arm_after_last_point
+
+    with pytest.raises(FailedStatus):
+        bench.RE(bp.scan([], bump, -0.1, 0.1, 3))  # the restore at unstage fails on S4H
+    assert bench.dial("U_S4H") == pytest.approx(-0.299)  # left bumped
+
+    with pytest.raises(FailedStatus) as info:
+        bench.RE(bps.stage(bump, wait=True))
+    assert isinstance(info.value.__cause__, PseudoRestorePendingError)
+
+
+def test_a_parent_stage_failure_after_zeroing_leaves_the_recovery_open(
+    bench, monkeypatch
+):
+    """The owed restore survives, the pseudo is not marked staged, and mv 0 recovers."""
+    from ophyd_async.core import StandardReadable
+
+    from geecs_bluesky.devices.ca.pseudo import CaPseudoPositioner
+
+    bump = bench.build("ALine_e_beam_angle_offset_x")
+    bench.place(U_S3H=0.35, U_S4H=-0.099)
+
+    parent_stage = StandardReadable.stage
+
+    def failing_stage(self):
+        if isinstance(self, CaPseudoPositioner):
+            raise RuntimeError("readable stage failed")
+        return parent_stage(self)
+
+    monkeypatch.setattr(StandardReadable, "stage", failing_stage)
+    with pytest.raises(FailedStatus, match="readable stage failed"):
+        bench.RE(bps.stage(bump, wait=True))
+    assert bump._staged is False and bump._restore_pending is True
+    monkeypatch.setattr(StandardReadable, "stage", parent_stage)
+
+    bench.RE(bps.mv(bump, 0.0))  # the recovery gesture is recognised
+    assert bump._restore_pending is False
+    bench.RE(bp.scan([], bump, -0.1, 0.1, 3))  # and the next scan is allowed
+    assert bench.dial("U_S4H") == pytest.approx(-0.099)
