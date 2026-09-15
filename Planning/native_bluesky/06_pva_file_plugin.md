@@ -141,7 +141,12 @@ the 8 s wait failed the first `prepare`.  The arm now takes the geometry
 from the last frame the gateway already decoded for the variable (the
 worker keeps it beside its latest-wins slot) and completes at once; the
 push-wait below is only the fallback for a variable the gateway has never
-decoded.  Not the DB's ROI variables (they are set only when someone
+decoded — which is every camera after each gateway restart (the service
+restarts with the camera server; nothing holds an image monitor in normal
+operation) until its first session receives a push, so the first scan of a
+restart cycle whose first step is a long move still fails this way; a
+monitor on the image PV for one gating round-trip in STANDBY seeds the
+held frame (the #852 preflight's natural job).  Not the DB's ROI variables (they are set only when someone
 sets them, and an over-wide request silently falls back to the chip).
 With it, `NumCaptured_RBV = 0` is posted at `Capture=1` before
 `Capture_RBV` flips (GEECS-Plugins#853; the stock logic baselines on it).

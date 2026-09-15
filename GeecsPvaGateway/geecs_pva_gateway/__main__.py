@@ -18,19 +18,6 @@ from geecs_pva_gateway.config import PvaGatewayConfig
 from geecs_pva_gateway.server import RESTART_EXIT_CODE, GeecsPvaGateway, __version__
 
 
-def _db_endpoint_resolver(device_name: str) -> tuple[str, int]:
-    """``GeecsDb.find_device`` behind a light import: the supervisors' re-resolve.
-
-    Passed to the gateway as its ``endpoint_resolver`` (#854): a watched
-    device that stays unreachable is re-asked of the DB at the backoff
-    ceiling, so a camera app started after this gateway on another port is
-    found without a restart.
-    """
-    from geecs_core.db.geecs_db import GeecsDb
-
-    return GeecsDb.find_device(device_name)
-
-
 def main(argv: list[str] | None = None) -> int:
     """Entry point for the ``geecs-pva-gateway`` console script."""
     args_in = sys.argv[1:] if argv is None else argv
@@ -89,7 +76,12 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 1
 
-    gateway = GeecsPvaGateway(config, endpoint_resolver=_db_endpoint_resolver)
+    # The supervisors' endpoint re-resolve (#854): a watched device that stays
+    # unreachable is re-asked of the DB at the backoff ceiling.  GeecsDb is
+    # already imported by the config build above.
+    from geecs_core.db.geecs_db import GeecsDb
+
+    gateway = GeecsPvaGateway(config, endpoint_resolver=GeecsDb.find_device)
     if args.list:
         for name in gateway.pv_names:
             print(name)

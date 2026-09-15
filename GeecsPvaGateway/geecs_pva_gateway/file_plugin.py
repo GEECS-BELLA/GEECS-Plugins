@@ -16,7 +16,9 @@ frame stamped before now — the late-frame guard of a refire), and
 
 Threads: puts arrive on p4p worker threads and frames on the gateway's
 event loop; both only enqueue.  One writer thread owns every piece of
-session state and the file handle, so nothing is shared.
+session state and the file handle.  The one thing read across threads is
+the worker's held frame (``last_frame``): a reference the loop replaces
+and the writer reads once at arm — never mutated, so no lock.
 
 Session semantics (§4 of the design):
 
@@ -30,8 +32,12 @@ Session semantics (§4 of the design):
   through a long first move pushes nothing, and waiting for a push there
   failed the run's first prepare).  Only a variable the gateway has never
   decoded waits for its first push, ``ARM_TIMEOUT_S`` at most; a camera
-  that pushes nothing then fails the put naming the device.  The held
-  frame is never written: the stale watermark is stamped at the arm.
+  that pushes nothing then fails the put naming the device.  Never-decoded
+  is every camera after each gateway restart (the service restarts with
+  the camera server; nothing holds an image monitor in normal operation)
+  until its first session receives a push — a monitor on the image PV for
+  one gating round-trip in STANDBY seeds the held frame.  The held frame
+  is never written: the stale watermark is stamped at the arm.
 - A frame is written iff its stamp is unseen this session (LabVIEW
   re-pushes its last frame with an unchanged stamp when idle) and not
   older than the stale watermark set at ``Capture=1`` (and moved by

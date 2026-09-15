@@ -25,8 +25,9 @@ from p4p.nt import NTEnum, NTNDArray, NTScalar
 from p4p.server import Server
 from p4p.server.thread import SharedPV
 
-from geecs_pva_gateway.config import CONNECTED_SUFFIX, instance_pv_prefix
+from geecs_pva_gateway.config import instance_pv_prefix
 from geecs_core.db.variable_types import TIMESTAMP_LADDER
+from geecs_core.pv_naming import CONNECTED_SUFFIX
 from geecs_core.transport.tcp_subscriber import GeecsTcpSubscriber
 from geecs_data_utils.io import decode_imaq_image_string
 
@@ -90,7 +91,8 @@ def _connected_value(nt: NTEnum, state: str):
     opened with, and every ``NTEnum()`` instance mints its own.
     """
     value = nt.wrap(
-        {"index": CONNECTED_STATES.index(state), "choices": list(CONNECTED_STATES)}
+        {"index": CONNECTED_STATES.index(state), "choices": list(CONNECTED_STATES)},
+        timestamp=time.time(),
     )
     # Set (mark) the alarm fields on every post: p4p posts marked fields only,
     # so a MAJOR left from Disconnected would otherwise outlive the state.

@@ -124,7 +124,9 @@ tests/
   the held frame is never written); only a never-decoded variable waits
   for its first push, `ARM_TIMEOUT_S` at most (#894 — waiting for a push
   on a box ARMED through a long first move failed the run's first
-  prepare); frames are deduped on `acq_timestamp` and
+  prepare; never-decoded is every camera after each gateway restart until
+  its first session gets a push — an image monitor held for one gating
+  round-trip in STANDBY seeds it); frames are deduped on `acq_timestamp` and
   stale-filtered against a watermark set at `Capture=1` and moved by
   `Rewind` (the refire guard: truncate to N, drop older-stamped
   arrivals); `NumCaptured_RBV` posts after each frame is on disk;

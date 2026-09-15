@@ -18,9 +18,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   (`_CameraWorker._last_frame`, handed to the plugin as `last_frame`);
   `_capture_on` posts the geometry from it and completes the put at once.
   The held frame is never written (the stale watermark is stamped at the
-  arm, as before).  Only a variable the gateway has never decoded (a
-  fresh gateway, a camera that never acquired) still waits for its first
-  push and fails naming the device after `ARM_TIMEOUT_S`.  Not read from
+  arm, as before).  Only a variable the gateway has never decoded still
+  waits for its first push and fails naming the device after
+  `ARM_TIMEOUT_S`.  That state recurs, not just on a "fresh gateway": the
+  service restarts with the camera server's scheduled Windows restart and
+  nothing holds a monitor on an image PV in normal operation, so after
+  every restart cycle each camera is never-decoded until its first plugin
+  session receives a push — the first scan of the cycle whose first step
+  is a long move still fails as Scan002 did (accepted on #894 as the
+  edge; the frequency is stated here so the ruling rests on it).  A
+  monitor on the image PV for one gating round-trip while the box is in
+  STANDBY seeds the held frame — the natural job of the #852 preflight.
+  Not read from
   the DB's ROI variables (maintainer's ruling: the decoded frame is the
   only truth).  One property moves with it: a stack that cannot be opened
   no longer fails the arming put (there is no arming frame to open on) —
