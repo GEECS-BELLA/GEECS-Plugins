@@ -4,6 +4,17 @@ All notable changes to `geecs-core` are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and semantic versioning.
 
 
+## [0.8.0] - 2026-09-14
+
+### Added
+
+- `pv_naming.CONNECTED_SUFFIX` / `connected_pv(experiment, device,
+  variable)` — the PVA gateway's per-image-variable subscription-state PV
+  (`<image PV>:connected`, GeecsPvaGateway 0.10.0, GEECS-Plugins#854),
+  minted beside `HDF_PLUGIN_SUFFIX` for the same reason: the server and
+  a worker-side reader (the submit preflight's liveness gate) both take
+  it from here, so the two sides cannot drift.
+
 ## [0.7.0] - 2026-09-14
 
 ### Added

@@ -4,6 +4,73 @@ All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
+## [0.10.0] - 2026-09-14
+
+### Fixed
+
+- **File plugin: `Capture=1` arms on the frame the gateway already holds**
+  (GEECS-Plugins#894).  The arm needs *a* decoded frame of the variable
+  for the stream geometry, not a fresh push — and a box ARMED through a
+  long first move pushes nothing, so waiting `ARM_TIMEOUT_S` for one
+  failed the run's first `prepare` (Scan002 of 26_0914: a 26 s move, then
+  `hdf-capture didn't match True in 10.0s`).  The worker's latest-wins
+  slot now remembers the last decoded frame per variable
+  (`_CameraWorker._last_frame`, handed to the plugin as `last_frame`);
+  `_capture_on` posts the geometry from it and completes the put at once.
+  The held frame is never written (the stale watermark is stamped at the
+  arm, as before).  Only a variable the gateway has never decoded still
+  waits for its first push and fails naming the device after
+  `ARM_TIMEOUT_S`.  That state recurs, not just on a "fresh gateway": the
+  service restarts with the camera server's scheduled Windows restart and
+  nothing holds a monitor on an image PV in normal operation, so after
+  every restart cycle each camera is never-decoded until its first plugin
+  session receives a push — the first scan of the cycle whose first step
+  is a long move still fails as Scan002 did (accepted on #894 as the
+  edge; the frequency is stated here so the ruling rests on it).  A
+  monitor on the image PV for one gating round-trip while the box is in
+  STANDBY seeds the held frame — the natural job of the #852 preflight.
+  Not read from
+  the DB's ROI variables (maintainer's ruling: the decoded frame is the
+  only truth).  One property moves with it: a stack that cannot be opened
+  no longer fails the arming put (there is no arming frame to open on) —
+  the first fresh frame's open failure sets `WriteStatus` /
+  `WriteMessage` and the count never advances, so the worker's shot
+  timeout names the camera.
+- **File plugin: `NumCaptured_RBV = 0` is posted at `Capture=1`, before
+  `Capture_RBV` flips** (GEECS-Plugins#853) — areaDetector's semantics,
+  which the stock `ADHDFDataLogic` baselines `collections_written` on
+  right after the arm; the previous session's count still there made the
+  first batch of a gated run count from *N*.  `ArrayCounter(_RBV)`,
+  `UniqueId_RBV` and `FullFileName_RBV` are zeroed with it.  The worker's
+  `GeecsDetector.zero_count` guard stays for gateways rolled before this.
+
+### Added
+
+- **`<image PV>:connected` per image variable** (GEECS-Plugins#854): the
+  state of this gateway's GEECS subscription for the variable — `Idle`
+  (gated off: nobody watching, nothing known), `Disconnected` (a watcher
+  holds it and the device is unreachable or dropped; MAJOR alarm) or
+  `Connected` — so a camera app started after its gateway shows as the
+  gap it is instead of failing the scan's first arm.  A preflight that
+  holds a monitor on the image PV for one gating round-trip reads the
+  verdict here.  Per variable because the subscriptions are; never the
+  bare `<device>:connected` the CA gateway serves for its own.
+- **Endpoint re-resolve at the backoff ceiling** (GEECS-Plugins#854): a
+  watched variable whose device stays unreachable is re-asked of the DB
+  (`GeecsDb.find_device`, off-loop, 10 s budget, every 10th ceiling
+  cycle — the CA gateway's `endpoint_resolver` idiom) and redialed on a
+  moved port, so a device app that came up on another port after this
+  gateway started is found without a restart.  An endpoint that moved off
+  this host is logged, not adopted (the served set is host-scoped; a
+  restart re-scopes it).  Owed from #854: a re-subscribe when a *live*
+  subscription goes quiet past a threshold — #894 shows ≥ 26 s of
+  legitimate silence inside a capture session, so the threshold and
+  whether it may fire mid-session need a ruling first; a dead peer is
+  still the socket keepalive's to detect (~1 min).
+
+Deploy = pull the share clone and `:restart` each box (no launcher
+change, no new dependency).
+
 ## [0.9.0] - 2026-09-12
 
 ### Added

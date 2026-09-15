@@ -76,7 +76,12 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 1
 
-    gateway = GeecsPvaGateway(config)
+    # The supervisors' endpoint re-resolve (#854): a watched device that stays
+    # unreachable is re-asked of the DB at the backoff ceiling.  GeecsDb is
+    # already imported by the config build above.
+    from geecs_core.db.geecs_db import GeecsDb
+
+    gateway = GeecsPvaGateway(config, endpoint_resolver=GeecsDb.find_device)
     if args.list:
         for name in gateway.pv_names:
             print(name)

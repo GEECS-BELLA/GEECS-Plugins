@@ -5,8 +5,11 @@ variable's GEECS TCP subscription starts with its first PVA client and stops
 with its last, so an unwatched variable costs the LabVIEW device nothing —
 each watched variable holds its own subscription connection. Decode runs off
 the event loop; delivery is latest-wins (a stalled consumer drops stale
-frames, never backlogs). Instance identity PVs (`version`, `heartbeat`)
-support fleet monitoring.
+frames, never backlogs). Each variable's ``:connected`` PV shows the state
+of that subscription (Idle / Disconnected / Connected), and a watched device
+that stays unreachable is re-resolved from the DB at the backoff ceiling
+(#854). Instance identity PVs (`version`, `heartbeat`) support fleet
+monitoring.
 """
 
 from __future__ import annotations
@@ -15,14 +18,16 @@ import asyncio
 import logging
 import socket
 import time
+from collections.abc import Callable
 
 import numpy as np
-from p4p.nt import NTNDArray, NTScalar
+from p4p.nt import NTEnum, NTNDArray, NTScalar
 from p4p.server import Server
 from p4p.server.thread import SharedPV
 
 from geecs_pva_gateway.config import instance_pv_prefix
 from geecs_core.db.variable_types import TIMESTAMP_LADDER
+from geecs_core.pv_naming import CONNECTED_SUFFIX
 from geecs_core.transport.tcp_subscriber import GeecsTcpSubscriber
 from geecs_data_utils.io import decode_imaq_image_string
 
@@ -38,6 +43,19 @@ _TIMESTAMP_VARS = TIMESTAMP_LADDER  # the one ladder (geecs_core.db.variable_typ
 _RECONNECT_MIN_S = 0.5
 _RECONNECT_MAX_S = 30.0
 _HEARTBEAT_PERIOD_S = 5.0
+#: Budget for one off-loop DB endpoint lookup, and the ceiling cycles between
+#: two of them for a device that stays down — the CA gateway's numbers
+#: (``GeecsCaGateway._ENDPOINT_RESOLVE_*``): a blip never pays a DB query, a
+#: device left off overnight never holds a MySQL churn open.
+_ENDPOINT_RESOLVE_TIMEOUT_S = 10.0
+_ENDPOINT_RESOLVE_HOLDOFF_CYCLES = 10
+
+#: The ``:connected`` states, in enum index order.  ``Idle``: the subscription
+#: is gated off (no watcher; nothing is known).  ``Disconnected``: a watcher
+#: holds it and the device is unreachable or dropped (MAJOR alarm, as the CA
+#: gateway's ``:connected``).  ``Connected``: the subscription is live.
+CONNECTED_STATES = ("Idle", "Disconnected", "Connected")
+CONNECTED_IDLE, CONNECTED_DOWN, CONNECTED_UP = CONNECTED_STATES
 
 # Process exit code meaning "restart requested via the :restart PV" — the
 # service manager relaunches, which re-resolves DB config and (with the
@@ -64,6 +82,24 @@ def _frame_timestamp(update: dict) -> float:
             if converted > 0:
                 return converted
     return time.time()
+
+
+def _connected_value(nt: NTEnum, state: str):
+    """The value of one ``:connected`` state (alarm MAJOR when down).
+
+    Wrapped by the PV's own *nt*: p4p posts only the exact type the PV was
+    opened with, and every ``NTEnum()`` instance mints its own.
+    """
+    value = nt.wrap(
+        {"index": CONNECTED_STATES.index(state), "choices": list(CONNECTED_STATES)},
+        timestamp=time.time(),
+    )
+    # Set (mark) the alarm fields on every post: p4p posts marked fields only,
+    # so a MAJOR left from Disconnected would otherwise outlive the state.
+    down = state == CONNECTED_DOWN
+    value["alarm.severity"] = 2 if down else 0  # MAJOR while unreachable
+    value["alarm.message"] = "device unreachable" if down else ""
+    return value
 
 
 class _Gate:
@@ -93,11 +129,36 @@ class _RestartHandler:
 
 
 class _CameraWorker:
-    """One camera device: per-variable PVs, gated + supervised subscriptions."""
+    """One camera device: per-variable PVs, gated + supervised subscriptions.
 
-    def __init__(self, spec: CameraSpec, loop: asyncio.AbstractEventLoop) -> None:
+    Parameters
+    ----------
+    spec :
+        The camera and its endpoint from the DB.
+    loop :
+        The gateway's event loop.
+    endpoint_resolver :
+        ``device -> (host, port)``, re-queried off-loop once a watched
+        variable's reconnect backoff sits at its ceiling, so a device app
+        that came up on another port after this gateway started is found
+        without a restart (#854; the CA gateway's ``endpoint_resolver``).
+        A resolved endpoint on another host is *not* adopted — the served
+        set is host-scoped — only logged.  ``None`` keeps the startup
+        endpoint forever.
+    """
+
+    def __init__(
+        self,
+        spec: CameraSpec,
+        loop: asyncio.AbstractEventLoop,
+        endpoint_resolver: Callable[[str], tuple[str, int]] | None = None,
+    ) -> None:
         self._spec = spec
         self._loop = loop
+        self._endpoint_resolver = endpoint_resolver
+        # The last decoded frame per variable: the file plugin arms on it
+        # (#894).  Written by _publish on the loop, read on the writer thread.
+        self._last_frame: dict[str, np.ndarray] = {}
         self._pvs: dict[str, SharedPV] = {
             var: SharedPV(
                 handler=_Gate(self, var),
@@ -106,6 +167,16 @@ class _CameraWorker:
             )
             for var in spec.image_variables
         }
+        self._connected_nt: dict[str, NTEnum] = {
+            var: NTEnum() for var in spec.image_variables
+        }
+        self._connected: dict[str, SharedPV] = {
+            var: SharedPV(nt=nt, initial=_connected_value(nt, CONNECTED_IDLE))
+            for var, nt in self._connected_nt.items()
+        }
+        self._connected_state: dict[str, str] = dict.fromkeys(
+            spec.image_variables, CONNECTED_IDLE
+        )
         self._clients: dict[str, int] = dict.fromkeys(spec.image_variables, 0)
         # The file plugin (#806): one per image variable, a second consumer
         # of the push frame that holds the subscription like a client does.
@@ -119,6 +190,7 @@ class _CameraWorker:
                     retain=self.retain,
                     release=self.release,
                     scalar_variables=spec.scalar_variables,
+                    last_frame=lambda v=var: self._last_frame.get(v),
                 )
                 for var in spec.image_variables
             }
@@ -145,6 +217,10 @@ class _CameraWorker:
         entries = [
             (self._spec.pv_name_for(var), var, pv) for var, pv in self._pvs.items()
         ]
+        entries.extend(
+            (self._spec.connected_pv_for(var), f"{var}{CONNECTED_SUFFIX}", pv)
+            for var, pv in self._connected.items()
+        )
         for plugin in self._plugins.values():
             entries.extend(plugin.provider_entries())
         return entries
@@ -212,43 +288,116 @@ class _CameraWorker:
             names.extend(s for s in self._spec.scalar_variables if s not in names)
         return names
 
+    def _set_connected(self, var: str, state: str) -> None:
+        """Post the variable's ``:connected`` state when it changes (event loop)."""
+        if self._connected_state[var] == state:
+            return
+        self._connected_state[var] = state
+        self._connected[var].post(_connected_value(self._connected_nt[var], state))
+
+    async def _resolve_endpoint(self) -> tuple[str, int] | None:
+        """Re-query the device's endpoint off-loop; ``None`` keeps the old one."""
+        assert self._endpoint_resolver is not None
+        try:
+            host, port = await asyncio.wait_for(
+                asyncio.to_thread(self._endpoint_resolver, self._spec.device),
+                timeout=_ENDPOINT_RESOLVE_TIMEOUT_S,
+            )
+            return str(host).strip(), int(port)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - DB down: keep the last endpoint
+            logger.warning(
+                "%s: endpoint re-resolve failed (%s); keeping the last endpoint",
+                self._spec.device,
+                exc,
+            )
+            return None
+
     async def _run(self, var: str) -> None:
-        """Keep one variable's subscription alive; reconnect on socket drops."""
+        """Keep one variable's subscription alive; reconnect on socket drops.
+
+        Silence is not a drop (a box ARMED through a long move pushes
+        nothing, #894; a dead peer is the socket's keepalive to detect).
+        Once the reconnect backoff sits at its ceiling the outage is not a
+        blip: the endpoint is re-asked of the DB every
+        ``_ENDPOINT_RESOLVE_HOLDOFF_CYCLES``-th cycle, so a device app that
+        came up on another port after this gateway started is redialed
+        there instead of found only by a gateway restart (#854).
+        """
         backoff = _RECONNECT_MIN_S
-        while True:
-            subscriber = GeecsTcpSubscriber(self._spec.host, self._spec.port)
-            try:
-                await subscriber.connect()
-                await subscriber.subscribe(
-                    self.subscription_variables(var),
-                    lambda update: self._on_frame(var, update),
-                    text_variables={var},
-                )
-                backoff = _RECONNECT_MIN_S
-                await subscriber.wait_disconnected()
-                logger.warning(
-                    "subscription to %s %s (%s:%s) dropped; reconnecting",
-                    self._spec.device,
-                    var,
-                    self._spec.host,
-                    self._spec.port,
-                )
-            except asyncio.CancelledError:
+        host, port = self._spec.host, self._spec.port
+        resolve_holdoff = 0
+        try:
+            while True:
+                subscriber = GeecsTcpSubscriber(host, port)
+                try:
+                    await subscriber.connect()
+                    await subscriber.subscribe(
+                        self.subscription_variables(var),
+                        lambda update: self._on_frame(var, update),
+                        text_variables={var},
+                    )
+                    self._set_connected(var, CONNECTED_UP)
+                    backoff = _RECONNECT_MIN_S
+                    resolve_holdoff = 0
+                    await subscriber.wait_disconnected()
+                    logger.warning(
+                        "subscription to %s %s (%s:%s) dropped; reconnecting",
+                        self._spec.device,
+                        var,
+                        host,
+                        port,
+                    )
+                except asyncio.CancelledError:
+                    await subscriber.close()
+                    raise
+                except Exception:
+                    logger.warning(
+                        "connect/subscribe to %s %s (%s:%s) failed; retry in %.1fs",
+                        self._spec.device,
+                        var,
+                        host,
+                        port,
+                        backoff,
+                        exc_info=True,
+                    )
                 await subscriber.close()
-                raise
-            except Exception:
-                logger.warning(
-                    "connect/subscribe to %s %s (%s:%s) failed; retry in %.1fs",
-                    self._spec.device,
-                    var,
-                    self._spec.host,
-                    self._spec.port,
-                    backoff,
-                    exc_info=True,
-                )
-            await subscriber.close()
-            await asyncio.sleep(backoff)
-            backoff = min(backoff * 2, _RECONNECT_MAX_S)
+                self._set_connected(var, CONNECTED_DOWN)
+                if self._endpoint_resolver is not None and backoff >= _RECONNECT_MAX_S:
+                    if resolve_holdoff > 0:
+                        resolve_holdoff -= 1
+                    else:
+                        resolve_holdoff = _ENDPOINT_RESOLVE_HOLDOFF_CYCLES
+                        resolved = await self._resolve_endpoint()
+                        if resolved is not None and resolved != (host, port):
+                            if resolved[0] != self._spec.host:
+                                logger.warning(
+                                    "%s: endpoint moved off this host to %s:%s (DB "
+                                    "re-resolve); keeping %s:%s — the served set "
+                                    "is re-scoped by a restart",
+                                    self._spec.device,
+                                    *resolved,
+                                    host,
+                                    port,
+                                )
+                            else:
+                                logger.warning(
+                                    "%s: endpoint moved %s:%s -> %s:%s (DB "
+                                    "re-resolve); redialing there",
+                                    self._spec.device,
+                                    host,
+                                    port,
+                                    *resolved,
+                                )
+                                host, port = resolved
+                                backoff = _RECONNECT_MIN_S  # dial it promptly
+                                resolve_holdoff = 0
+                await asyncio.sleep(backoff)
+                backoff = min(backoff * 2, _RECONNECT_MAX_S)
+        finally:
+            # Gated off (or the gateway stopping): nothing is known any more.
+            self._set_connected(var, CONNECTED_IDLE)
 
     # -- frame pipeline ----------------------------------------------------
 
@@ -282,6 +431,7 @@ class _CameraWorker:
                     image = await self._loop.run_in_executor(
                         None, decode_imaq_image_string, blob
                     )
+                    self._last_frame[var] = image
                     self._pvs[var].post(image, timestamp=ts)
                 except Exception:
                     logger.warning(
@@ -298,8 +448,14 @@ class _CameraWorker:
 class GeecsPvaGateway:
     """Serve a :class:`PvaGatewayConfig`'s cameras as NTNDArray PVs."""
 
-    def __init__(self, config: PvaGatewayConfig) -> None:
+    def __init__(
+        self,
+        config: PvaGatewayConfig,
+        *,
+        endpoint_resolver: Callable[[str], tuple[str, int]] | None = None,
+    ) -> None:
         self._config = config
+        self._endpoint_resolver = endpoint_resolver
         self._workers: list[_CameraWorker] = []
         self._server: Server | None = None
         self._restart_event: asyncio.Event | None = None
@@ -332,7 +488,10 @@ class GeecsPvaGateway:
     async def run(self, *, isolate: bool = False) -> None:
         """Serve until cancelled. ``isolate`` sandboxes ports for tests."""
         loop = asyncio.get_running_loop()
-        self._workers = [_CameraWorker(spec, loop) for spec in self._config.cameras]
+        self._workers = [
+            _CameraWorker(spec, loop, self._endpoint_resolver)
+            for spec in self._config.cameras
+        ]
 
         # PV naming is lossy (normalization), so guard against two variables
         # landing on one name — within a camera or across cameras — since

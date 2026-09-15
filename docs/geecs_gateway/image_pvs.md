@@ -70,6 +70,21 @@ is generated per experiment from the DB roster
 (`GeecsPvaGateway/deploy/gen_fleet_status.py --experiment X` →
 `fleet_status_<x>.bob`; HTU's `fleet_status_undulator.bob` is committed).
 
+Each image variable also has a **subscription-state PV** (GeecsPvaGateway
+0.10.0):
+
+```
+[experiment:]device:variable:connected   Idle | Disconnected | Connected
+```
+
+`Idle` means gated off — nobody is watching, so nothing is known.
+`Disconnected` (MAJOR alarm) means a watcher holds the subscription and the
+device is unreachable or dropped; `Connected` means it is live. To get the
+verdict for an idle camera, hold a monitor on its image PV for one gating
+round-trip (~1–2 s) and read this. It is the PVA gateway's own subscription
+state — distinct from the CA gateway's `[experiment:]device:connected`,
+which reports *that* gateway's subscription.
+
 ## Reading images
 
 **Phoebus**: add an *Image* widget and set its PV to

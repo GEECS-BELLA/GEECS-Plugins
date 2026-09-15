@@ -305,6 +305,14 @@ Parity against the native PNGs, per scan, while dual-write lasts:
 | `{exp}:pvagateway:{host}:version` | Installed package version (fleet skew check) |
 | `{exp}:pvagateway:{host}:heartbeat` | Counter, +1 per 5 s (liveness) |
 | `{exp}:pvagateway:{host}:restart` | Write 1 → clean exit 86 → NSSM relaunch |
+| `{exp}:{device}:{variable}:connected` | Per image variable (0.10.0, #854): this gateway's GEECS subscription state — `Idle` (gated off: nobody watching, nothing known), `Disconnected` (a watcher holds it and the device is unreachable; MAJOR alarm) or `Connected`. To get the verdict for an idle camera, hold a monitor on its image PV for one gating round-trip (~1–2 s) and read this |
+
+A camera app started **after** its gateway (the boot-order gap, #854)
+reads `Disconnected` while watched, and since 0.10.0 a device that came
+up on another port is redialed there once the reconnect backoff reaches
+its ceiling (the DB is re-asked every ~5 min per down device) — no
+gateway restart needed for that case. A restart is still what re-scopes
+the served set (a device added to the DB, or moved to another host).
 
 `{host}` is the served endpoint IP, normalized (`192.168.6.100` →
 `192_168_6_100`).

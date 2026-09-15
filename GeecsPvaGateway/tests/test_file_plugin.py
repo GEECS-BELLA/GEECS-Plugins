@@ -13,6 +13,7 @@ import asyncio
 import contextlib
 import os
 import struct
+import threading
 import time
 from pathlib import Path, PurePath
 
@@ -261,6 +262,22 @@ async def test_stock_adhdf_data_logic_drives_the_plugin(tmp_path, monkeypatch):
         assert datum["indices"] == {"start": 0, "stop": 2}
         await logic.stop()
         assert await hdf.capture.get_value() is False
+        # The next run's prepare, with nothing pushed since (a box ARMED
+        # through a long first move, #894): the arm completes on the frame
+        # the gateway holds instead of waiting ARM_TIMEOUT_S for a push, and
+        # the count the stock logic baselines on reads 0, not the 2 of the
+        # closed session (#853).
+        run_dir2 = tmp_path / "Scan002" / "UC_TestCam"
+        run_dir2.mkdir(parents=True)
+        logic.path_provider = StaticPathProvider(
+            lambda _=None: "UC_TestCam", directory_path=run_dir2
+        )
+        provider2 = await asyncio.wait_for(logic.prepare_unbounded("cam"), 3.0)
+        assert await provider2.collections_written_signal.get_value() == 0
+        keys2 = await provider2.make_datakeys(1)
+        assert keys2["cam"]["shape"] == [1, *IMG.shape]
+        await logic.stop()
+        assert list(run_dir2.iterdir()) == []  # the held frame was never written
     finally:
         await _shutdown(task)
         await cam.stop()
@@ -362,8 +379,72 @@ async def test_session_semantics_over_raw_pva(tmp_path):
             assert f.attrs["frames_written"] == 4
             assert f.attrs["finalized"]
 
-        # A fresh arming frame whose stack cannot be opened: the put fails
-        # with the reason, the session is gone and the subscription released.
+        # From here on the gateway holds a decoded frame of the variable (the
+        # session above decoded every push), so Capture=1 arms on it (#894).
+
+        # The #894 shape: a watcher holds the subscription, the camera pushes
+        # nothing (a box ARMED through a long first move), and the last frame
+        # it did push has a new geometry.  Capture=1 completes at once on the
+        # held frame, with its geometry — and the readbacks of the last
+        # session (3 frames) read 0 before Capture_RBV flips (#853).
+        assert int(await get("NumCaptured_RBV")) == 3
+        bigger = (np.arange(5 * 7) % 100).astype("<u2").reshape(5, 7)
+        got_bigger = threading.Event()
+        # Its own Context: p4p caches channels per Context, so the watcher's
+        # retain is released (and the gating below observable) on wctx.close().
+        wctx = Context("pva", conf=gateway.conf(), useenv=False)
+        watcher = wctx.monitor(
+            PREFIX[: -len(PLUGIN_SUFFIX)],
+            lambda v: got_bigger.set() if v.shape == bigger.shape else None,
+        )
+        try:
+            await _wait_until(lambda: cam.connections == 1)
+            cam.push(bigger, time.time() - 5.0)
+            await loop.run_in_executor(None, got_bigger.wait, 10)
+            assert got_bigger.is_set()
+            held = tmp_path / "Scan006" / "UC_TestCam"
+            held.mkdir(parents=True)
+            await put("FilePath", str(held) + os.sep)
+            posts: list[tuple[str, object]] = []
+            real_post = plugin._post
+
+            def spy(suffix, value):
+                posts.append((suffix, value))
+                real_post(suffix, value)
+
+            plugin._post = spy
+            started = time.monotonic()
+            try:
+                await put("Capture", True)
+            finally:
+                plugin._post = real_post
+            assert time.monotonic() - started < 2.0  # no ARM_TIMEOUT_S wait
+            assert bool(await get("Capture_RBV")) is True
+            assert int(await get("ArraySizeX_RBV")) == 7
+            assert int(await get("ArraySizeY_RBV")) == 5
+            assert int(await get("NumCaptured_RBV")) == 0
+            assert posts.index(("NumCaptured_RBV", 0)) < posts.index(
+                ("Capture_RBV", True)
+            )
+            assert cam.connections == 1  # watcher + plugin: one subscription
+            # The held frame is never written: the first fresh push is frame 0.
+            cam.push(bigger + 1, time.time())
+            await _wait_until(lambda: plugin.value("NumCaptured_RBV") == 1)
+            await put("Capture", False)
+            with h5py.File(held / "UC_TestCam.h5", "r") as f:
+                assert f[FRAMES_DATASET].shape == (1, 5, 7)
+                np.testing.assert_array_equal(f[FRAMES_DATASET][0], bigger + 1)
+                assert f.attrs["frames_written"] == 1
+        finally:
+            watcher.close()
+            wctx.close()
+        await asyncio.wait_for(cam.disconnected.wait(), 10)
+        assert cam.connections == 0
+
+        # A stack that cannot be opened: the arm completes (the geometry is
+        # known), the first fresh frame fails to open the stack — WriteStatus
+        # carries the reason and the count never advances (the worker's shot
+        # timeout then names the camera); no file, nothing leaks.
         broken = tmp_path / "Scan005" / "UC_TestCam"
         broken.mkdir(parents=True)
         await put("FilePath", str(broken) + os.sep)
@@ -373,31 +454,19 @@ async def test_session_semantics_over_raw_pva(tmp_path):
             raise OSError("share refused the create")
 
         plugin._open_file = refuse
-        cam.push(IMG, time.time())  # fresh: would be written
-        with pytest.raises(Exception, match="share refused"):
+        try:
             await put("Capture", True)
-        plugin._open_file = real_open
-        assert bool(await get("Capture_RBV")) is False
-        assert not plugin.capturing
-        await asyncio.wait_for(cam.disconnected.wait(), 10)
-        assert cam.connections == 0
-        assert list(broken.iterdir()) == []
-
-        # Two Capture=1 puts racing during arming: one session, one
-        # subscription, released once at Capture=0.
-        again = tmp_path / "Scan004" / "UC_TestCam"
-        again.mkdir(parents=True)
-        await put("FilePath", str(again) + os.sep)
-        first = loop.run_in_executor(None, lambda: ctx.put(PREFIX + "Capture", True))
-        second = loop.run_in_executor(None, lambda: ctx.put(PREFIX + "Capture", True))
-        await asyncio.sleep(0.3)
-        cam.push(IMG, time.time() - 5.0)  # the arming frame
-        await asyncio.gather(first, second)
-        assert bool(await get("Capture_RBV")) is True
-        assert cam.connections == 1
+            assert bool(await get("Capture_RBV")) is True
+            cam.push(IMG, time.time())  # fresh: the first frame to write
+            await _wait_until(lambda: plugin.value("WriteStatus") == "Write Error")
+            assert "share refused" in str(await get("WriteMessage"))
+            assert plugin.value("NumCaptured_RBV") == 0
+        finally:
+            plugin._open_file = real_open
         await put("Capture", False)
         await asyncio.wait_for(cam.disconnected.wait(), 10)
         assert cam.connections == 0
+        assert list(broken.iterdir()) == []
 
         # A session that accepts nothing leaves no file.
         empty = tmp_path / "Scan003" / "UC_TestCam"
@@ -408,16 +477,64 @@ async def test_session_semantics_over_raw_pva(tmp_path):
         await asyncio.sleep(0.3)
         await put("Capture", False)
         assert list(empty.iterdir()) == []
+        await asyncio.wait_for(cam.disconnected.wait(), 10)
 
-        # A camera that pushes nothing fails the capture put, loudly.
-        file_plugin.ARM_TIMEOUT_S = 0.5
-        try:
-            with pytest.raises(Exception, match="no frame"):
-                await put("Capture", True)
-        finally:
-            file_plugin.ARM_TIMEOUT_S = 8.0
-        assert bool(await get("Capture_RBV")) is False
     finally:
+        ctx.close()
+        await _shutdown(task)
+        await cam.stop()
+
+
+@pytest.mark.timeout(60)
+async def test_never_seen_variable_waits_for_the_first_push(tmp_path):
+    """A fresh gateway holds no frame: Capture=1 arms on the first push, or fails naming the device (the #894 fallback)."""
+    cam = StampedCamera()
+    await cam.start()
+    gateway, task = await _start_gateway(cam)
+    ctx = Context("pva", conf=gateway.conf(), useenv=False)
+    loop = asyncio.get_running_loop()
+
+    async def put(suffix: str, value) -> None:
+        await loop.run_in_executor(None, lambda: ctx.put(PREFIX + suffix, value))
+
+    async def get(suffix: str):
+        return await loop.run_in_executor(None, lambda: ctx.get(PREFIX + suffix))
+
+    run_dir = tmp_path / "Scan001" / "UC_TestCam"
+    run_dir.mkdir(parents=True)
+    try:
+        await put("FilePath", str(run_dir) + os.sep)
+        await put("FileName", "UC_TestCam")
+        # Nothing pushed, ever: the put fails within the timeout, naming the
+        # device, and the subscription it retained is released.
+        file_plugin.ARM_TIMEOUT_S = 0.5
+        started = time.monotonic()
+        with pytest.raises(Exception, match="no frame from UC_TestCam image"):
+            await put("Capture", True)
+        assert time.monotonic() - started < 5.0
+        assert bool(await get("Capture_RBV")) is False
+        await asyncio.wait_for(cam.disconnected.wait(), 10)
+        assert cam.connections == 0
+
+        # Two Capture=1 puts racing during the wait, then the first push (a
+        # stale idle re-push): one session, one subscription, the geometry
+        # from that frame, nothing written; released once at Capture=0.
+        file_plugin.ARM_TIMEOUT_S = 4.0
+        first = loop.run_in_executor(None, lambda: ctx.put(PREFIX + "Capture", True))
+        second = loop.run_in_executor(None, lambda: ctx.put(PREFIX + "Capture", True))
+        await asyncio.sleep(0.2)
+        cam.push(IMG, time.time() - 5.0)
+        await asyncio.gather(first, second)
+        assert bool(await get("Capture_RBV")) is True
+        assert int(await get("ArraySizeX_RBV")) == IMG.shape[1]
+        assert int(await get("NumCaptured_RBV")) == 0
+        assert cam.connections == 1
+        await put("Capture", False)
+        await asyncio.wait_for(cam.disconnected.wait(), 10)
+        assert cam.connections == 0
+        assert list(run_dir.iterdir()) == []
+    finally:
+        file_plugin.ARM_TIMEOUT_S = 8.0
         ctx.close()
         await _shutdown(task)
         await cam.stop()
@@ -434,7 +551,8 @@ def test_no_plugin_without_h5py(monkeypatch):
     worker = _CameraWorker(spec, asyncio.new_event_loop())
     assert worker.plugins == {}
     assert [name for name, _, _ in worker.provider_entries()] == [
-        "testexp:uc_testcam:image"
+        "testexp:uc_testcam:image",
+        "testexp:uc_testcam:image:connected",
     ]
 
 

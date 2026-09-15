@@ -18,7 +18,7 @@ from geecs_core.db.variable_types import (  # noqa: F401 - image_variables re-ex
     image_variables,
     scalar_attribute_variables,
 )
-from geecs_core.pv_naming import normalize_component, pv_name
+from geecs_core.pv_naming import connected_pv, normalize_component, pv_name
 from geecs_core.transport.udp_client import detect_local_ip
 
 logger = logging.getLogger(__name__)
@@ -67,6 +67,16 @@ class CameraSpec(BaseModel):
     def pv_name_for(self, variable: str) -> str:
         """Full PV name for one image variable, minted by the shared contract."""
         return pv_name(self.experiment, self.device, variable)
+
+    def connected_pv_for(self, variable: str) -> str:
+        """The variable's subscription-state PV (``geecs_core.pv_naming.connected_pv``).
+
+        ``Idle`` (gated off: nobody watching, nothing known) / ``Disconnected``
+        (watched and unreachable — the boot-order gap of GEECS-Plugins#854,
+        visible here instead of at the scan's first arm; MAJOR alarm) /
+        ``Connected``.
+        """
+        return connected_pv(self.experiment, self.device, variable)
 
 
 class PvaGatewayConfig(BaseModel):
