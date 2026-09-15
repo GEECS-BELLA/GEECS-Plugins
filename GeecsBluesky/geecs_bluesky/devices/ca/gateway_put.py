@@ -196,7 +196,7 @@ class GatewaySetpointPut:
             The value to write; ``coerce`` is applied first.
         timeout : float, optional
             Per-put override of the constructor's budget (e.g. a motor's
-            ``move_timeout`` — a slow axis is not a dead one).
+            ``reply_ceiling`` — minutes: a slow axis is not a dead one).
         """
         wire = self._coerce(value) if self._coerce is not None else value
         budget = self._timeout if timeout is None else timeout

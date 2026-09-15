@@ -19,6 +19,7 @@ pytest.importorskip("aioca")  # CA backend needs the `ca` extra
 from ophyd_async.core import (  # noqa: E402
     callback_on_mock_put,
     get_mock_put,
+    set_mock_put_proceeds,
     set_mock_value,
 )
 
@@ -216,7 +217,8 @@ async def test_motor_arrival_exactly_on_tolerance_counts_as_arrived() -> None:
         experiment="Undulator",
         name="mode",
         tolerance=0.005,
-        move_timeout=0.3,
+        progress_grace=0.1,
+        stall_timeout=0.2,
     )
     await motor.connect(mock=True)
     set_mock_value(motor.position, -10.505)
@@ -232,7 +234,8 @@ async def test_motor_beyond_tolerance_still_times_out() -> None:
         experiment="Undulator",
         name="mode",
         tolerance=0.005,
-        move_timeout=0.3,
+        progress_grace=0.1,
+        stall_timeout=0.2,
     )
     await motor.connect(mock=True)
     set_mock_value(motor.position, -10.51)  # 0.01 out — twice the tolerance
@@ -241,18 +244,405 @@ async def test_motor_beyond_tolerance_still_times_out() -> None:
 
 
 async def test_motor_set_times_out_when_stuck() -> None:
-    """Readback never converging raises GeecsMotorTimeoutError."""
+    """A ``no error`` reply whose readback never converges: the stall rule fires.
+
+    The mock put completes at once (the reply); the readback then sits out
+    of tolerance, so the confirm stalls and names the phase.
+    """
     motor = CaMotor(
         "U_ESP_JetXYZ",
         "Position.Axis 1",
         experiment="Undulator",
         name="jet",
-        move_timeout=0.3,
+        progress_grace=0.1,
+        stall_timeout=0.2,
     )
     await motor.connect(mock=True)
     set_mock_value(motor.position, 0.0)  # stuck far from target
-    with pytest.raises(GeecsMotorTimeoutError):
+    with pytest.raises(GeecsMotorTimeoutError) as info:
         await motor.set(4.5)
+    assert info.value.replied is True
+    assert "after the device replied" in str(info.value)
+
+
+# --------------------------------------------------------------------------
+# The device's reply is the verdict; the readback stall rule is the only
+# client-side timeout (GEECS-Plugins#906)
+# --------------------------------------------------------------------------
+#
+# Timings run at 1/10 scale: PROGRESS_GRACE 5 s -> 0.5 s, STALL_TIMEOUT
+# 10 s -> 1.0 s, REPLY_WAIT 90 s -> 9 s, so a reply "at 45 s" arrives at
+# 4.5 s and the old 30 s cap would sit at 3.0 s.  The reply ceiling keeps
+# its real default unless a test is about it.
+
+_SCALE = 0.1
+_GRACE = 5.0 * _SCALE
+_STALL = 10.0 * _SCALE
+_REPLY_WAIT = 90.0 * _SCALE
+_OLD_CAP = 30.0 * _SCALE
+_PV = "undulator:u_modeimageresp:position_axis_1:SP"
+
+
+def _slow_stage(**overrides) -> CaMotor:
+    kwargs = dict(
+        device="U_ModeImagerESP",
+        variable="Position.Axis 1",
+        experiment="Undulator",
+        name="mode",
+        tolerance=0.005,
+        progress_grace=_GRACE,
+        stall_timeout=_STALL,
+        reply_wait=_REPLY_WAIT,
+    )
+    kwargs.update(overrides)
+    return CaMotor(**kwargs)
+
+
+async def _creep(motor: CaMotor, start: float, target: float, duration: float) -> None:
+    """Advance the mock readback from *start* to *target* over *duration* s.
+
+    One step per 0.1 s; every step exceeds the tolerance, so each is progress.
+    """
+    steps = max(int(duration / 0.1), 1)
+    for i in range(1, steps + 1):
+        await asyncio.sleep(duration / steps)
+        set_mock_value(motor.position, start + (target - start) * i / steps)
+
+
+def _warning_lines(caplog) -> list[str]:
+    return [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+
+
+def test_reply_wait_defaults_are_named_bounds_not_a_cap() -> None:
+    """The constants: 90 s reply wait, 5 s grace, 10 s stall, 300 s ceiling."""
+    from geecs_bluesky.devices.ca import motor as motor_module
+
+    assert motor_module.REPLY_WAIT == 90.0
+    assert motor_module.PROGRESS_GRACE == 5.0
+    assert motor_module.STALL_TIMEOUT == 10.0
+    assert motor_module.REPLY_CEILING == 300.0
+    assert not hasattr(motor_module, "_DEFAULT_MOVE_TIMEOUT")
+
+
+async def test_motor_waits_past_the_old_cap_for_a_late_no_error_reply(caplog) -> None:
+    """(a) A ``no error`` reply at "45 s" with the readback advancing completes.
+
+    Scan009 of 26_0914: a 19 mm move the device completed at 32 s, killed by
+    a 30 s client cap.  Here the readback creeps -5 → -24 the whole time and
+    the reply lands at 4.5 s scaled — 1.5× the old cap, inside the reply
+    wait: the reply path, no lost-reply warning.
+    """
+    motor = _slow_stage()
+    await motor.connect(mock=True)
+    set_mock_value(motor.position, -5.0)
+    set_mock_put_proceeds(motor._setpoint, False)  # the reply is pending
+
+    async def device() -> None:
+        await _creep(motor, -5.0, -24.0, 4.5)
+        set_mock_put_proceeds(motor._setpoint, True)  # ">>no error" at 45 s
+
+    loop = asyncio.get_running_loop()
+    task = asyncio.ensure_future(device())
+    t0 = loop.time()
+    with caplog.at_level(logging.WARNING, logger="geecs_bluesky.devices.ca"):
+        await asyncio.wait_for(motor.set(-24.0), timeout=8.0)
+    elapsed = loop.time() - t0
+    await task
+    assert _OLD_CAP < 4.5 <= elapsed < _REPLY_WAIT
+    assert await motor.position.get_value() == pytest.approx(-24.0)
+    assert _warning_lines(caplog) == []
+
+
+async def test_motor_never_answered_fails_at_grace_plus_stall_naming_the_pv(
+    caplog,
+) -> None:
+    """(b) No reply, readback stalled: GeecsMotorTimeoutError at ~grace+stall.
+
+    The one client-side timeout left.  The device's ERROR line names the
+    ``:SP`` PV; the exception names the device, the target and the current.
+    """
+    motor = _slow_stage()
+    await motor.connect(mock=True)
+    set_mock_value(motor.position, -5.0)
+    set_mock_put_proceeds(motor._setpoint, False)  # never answers
+
+    loop = asyncio.get_running_loop()
+    t0 = loop.time()
+    with caplog.at_level(logging.ERROR, logger="geecs_bluesky.devices.ca"):
+        with pytest.raises(GeecsMotorTimeoutError) as info:
+            await asyncio.wait_for(motor.set(-24.0), timeout=5.0)
+    elapsed = loop.time() - t0
+    assert _GRACE + _STALL <= elapsed < _GRACE + _STALL + 0.6
+    exc = info.value
+    assert (exc.device_name, exc.variable) == ("U_ModeImagerESP", "Position.Axis 1")
+    assert (exc.target, exc.current, exc.replied) == (-24.0, -5.0, False)
+    assert "with no reply from the device" in str(exc)
+    (line,) = _error_lines(caplog)
+    assert f"({_PV})" in line
+    assert "GeecsMotorTimeoutError: U_ModeImagerESP/Position.Axis 1" in line
+    set_mock_put_proceeds(motor._setpoint, True)  # release the cancelled put
+
+
+async def test_motor_error_reply_fails_at_once_even_while_advancing() -> None:
+    """(c) An error reply is the verdict: the move fails the moment it lands.
+
+    The readback is advancing (progress keeps the stall rule quiet), the
+    device answers with its check-values error — a device-side timeout,
+    adjusted in LabVIEW, never overridden here — and the put's failure
+    propagates untouched, before the grace has even elapsed.
+    """
+    motor = _slow_stage()
+    await motor.connect(mock=True)
+    set_mock_value(motor.position, -5.0)
+    refusal = _RefusedPut(
+        f"{_PV}: Error occurred during check values - Position.Axis 1 was not "
+        "change acording to the command. actual value= -6.485000"
+    )
+
+    async def error_reply(value, **kwargs):
+        await _creep(motor, -5.0, -6.5, 0.3)  # the stage is moving ...
+        raise refusal  # ... and then the device's check-values error lands
+
+    callback_on_mock_put(motor._setpoint, error_reply)
+    loop = asyncio.get_running_loop()
+    t0 = loop.time()
+    with pytest.raises(_RefusedPut) as info:
+        await asyncio.wait_for(motor.set(-24.0), timeout=3.0)
+    elapsed = loop.time() - t0
+    assert info.value is refusal
+    assert 0.3 <= elapsed < _GRACE  # at the reply, not the grace nor the stall
+
+
+async def test_motor_rejected_command_fails_at_once_not_after_grace_plus_stall() -> (
+    None
+):
+    """A put that fails inside the ACK window is a hard failure at once.
+
+    The GEECS set's first reply is the command ACK (GEECS-Core's 1.5 s
+    window): no ACK, a rejection (``is not a number``, an unknown
+    variable) or a dead device's write failure fails the gateway put inside
+    it.  The stall grace must neither swallow nor delay it — only a put
+    still pending past the ACK window is "waiting for the device".
+    """
+    motor = _slow_stage()
+    await motor.connect(mock=True)
+    set_mock_value(motor.position, -5.0)  # and it never moves
+    rejection = _RefusedPut(f"{_PV}: Channel write request failed")
+
+    def reject(value, **kwargs):
+        raise rejection
+
+    callback_on_mock_put(motor._setpoint, reject)
+    loop = asyncio.get_running_loop()
+    t0 = loop.time()
+    with pytest.raises(_RefusedPut) as info:
+        await asyncio.wait_for(motor.set(-24.0), timeout=3.0)
+    elapsed = loop.time() - t0
+    assert info.value is rejection
+    assert not isinstance(info.value, GeecsMotorTimeoutError)
+    assert elapsed < 0.3  # one poll tick, not grace (0.5) + stall (1.0)
+
+
+async def test_motor_keeps_waiting_past_reply_wait_while_advancing(caplog) -> None:
+    """(d) Slow but continuous progress with no reply is not a failure.
+
+    Every step exceeds the tolerance, so every stall window sees progress;
+    the wait crosses ``reply_wait`` (1 s here) with the stage still short
+    of the target — keep waiting for the reply — and completes when the
+    reply lands at 4 s, past the old cap: the reply path, no warning.
+    """
+    motor = _slow_stage(reply_wait=1.0)
+    await motor.connect(mock=True)
+    set_mock_value(motor.position, -5.0)
+    set_mock_put_proceeds(motor._setpoint, False)
+
+    async def device() -> None:
+        # The natural order: the stream shows the arrival, the reply lands a
+        # loop turn later — past reply_wait that must still be the reply
+        # path (a reply landing at the threshold wins), not a lost reply.
+        await _creep(motor, -5.0, -24.0, 4.0)
+        set_mock_put_proceeds(motor._setpoint, True)
+
+    loop = asyncio.get_running_loop()
+    task = asyncio.ensure_future(device())
+    t0 = loop.time()
+    with caplog.at_level(logging.WARNING, logger="geecs_bluesky.devices.ca"):
+        await asyncio.wait_for(motor.set(-24.0), timeout=7.0)
+    elapsed = loop.time() - t0
+    await task
+    assert elapsed >= 4.0 > _OLD_CAP
+    assert _warning_lines(caplog) == []
+
+
+async def test_motor_lost_reply_completes_at_reply_wait_when_at_target(caplog) -> None:
+    """(e) No reply ever, readback at the target before ``reply_wait``: complete.
+
+    The stage arrives at 0.8 s and sits there — never a stall — and the
+    move completes at ``reply_wait`` (2 s here) with the WARNING naming
+    the PV.
+    """
+    motor = _slow_stage(reply_wait=2.0)
+    await motor.connect(mock=True)
+    set_mock_value(motor.position, -5.0)
+    set_mock_put_proceeds(motor._setpoint, False)  # the reply is lost
+
+    loop = asyncio.get_running_loop()
+    creep = asyncio.ensure_future(_creep(motor, -5.0, -24.0, 0.8))
+    t0 = loop.time()
+    with caplog.at_level(logging.WARNING, logger="geecs_bluesky.devices.ca"):
+        await asyncio.wait_for(motor.set(-24.0), timeout=5.0)
+    elapsed = loop.time() - t0
+    await creep
+    assert 2.0 <= elapsed < 2.0 + 0.4
+    (line,) = _warning_lines(caplog)
+    assert "no reply from the device within 2 s" in line
+    assert "treating the move as complete" in line
+    assert f"({_PV})" in line
+    set_mock_put_proceeds(motor._setpoint, True)  # release the cancelled put
+
+
+async def test_motor_ceiling_fails_the_put_while_still_moving() -> None:
+    """(f) Past ``reply_wait``, still moving, no reply: the ceiling ends it.
+
+    The put's own timeout names the PV; the readback (short of the target
+    at the ceiling) never completed the move.
+    """
+    motor = _slow_stage(reply_wait=0.5, reply_ceiling=1.5)
+    await motor.connect(mock=True)
+    set_mock_value(motor.position, -5.0)
+    set_mock_put_proceeds(motor._setpoint, False)
+
+    loop = asyncio.get_running_loop()
+    creep = asyncio.ensure_future(_creep(motor, -5.0, -24.0, 3.0))
+    t0 = loop.time()
+    with pytest.raises(TimeoutError, match="position_axis_1:SP.*1.5 s"):
+        await asyncio.wait_for(motor.set(-24.0), timeout=4.0)
+    elapsed = loop.time() - t0
+    creep.cancel()
+    assert 1.5 <= elapsed < 1.5 + 0.4
+    set_mock_put_proceeds(motor._setpoint, True)
+
+
+async def test_motor_nan_readback_after_the_reply_is_bounded() -> None:
+    """A readback the stall rule cannot see (NaN) fails after the confirm budget.
+
+    The device replied ``no error``; the stream then reads NaN — never
+    within tolerance, and ``NaN != anchor`` must not count as progress.
+    Without the post-reply bound the loop waited forever (review of #909).
+    """
+    motor = _slow_stage()
+    await motor.connect(mock=True)
+    set_mock_value(motor.position, float("nan"))
+
+    loop = asyncio.get_running_loop()
+    t0 = loop.time()
+    with pytest.raises(GeecsMotorTimeoutError) as info:
+        await asyncio.wait_for(motor.set(-24.0), timeout=5.0)
+    elapsed = loop.time() - t0
+    assert _GRACE + _STALL <= elapsed < _GRACE + _STALL + 0.6
+    assert info.value.replied is True
+
+
+async def test_motor_ripple_wider_than_tolerance_after_the_reply_is_bounded() -> None:
+    """A readback flapping by more than the tolerance is not endless progress.
+
+    The device replied ``no error``; the readback then flips between two
+    values 4× the tolerance apart, never at the target.  The post-reply
+    confirm budget (grace + stall from the reply) ends it.
+    """
+    motor = _slow_stage()
+    await motor.connect(mock=True)
+    set_mock_value(motor.position, 0.0)
+
+    async def ripple() -> None:
+        i = 0
+        while True:
+            await asyncio.sleep(0.13)
+            i += 1
+            set_mock_value(motor.position, 0.02 * (i % 2))
+
+    loop = asyncio.get_running_loop()
+    task = asyncio.ensure_future(ripple())
+    t0 = loop.time()
+    try:
+        with pytest.raises(GeecsMotorTimeoutError) as info:
+            await asyncio.wait_for(motor.set(-24.0), timeout=5.0)
+    finally:
+        task.cancel()
+    elapsed = loop.time() - t0
+    assert _GRACE + _STALL <= elapsed < _GRACE + _STALL + 0.6
+    assert info.value.replied is True
+
+
+async def test_motor_nan_first_readback_then_stalled_fails_at_grace_plus_stall(
+    caplog,
+) -> None:
+    """A NaN *first* readback is never the anchor (Codex review of #909).
+
+    The stream reads NaN at the put, then — past the grace — a fixed finite
+    value short of the target; the device never replies.  The first finite
+    readback is adopted as the anchor without counting as progress, so the
+    failure lands at grace+stall from the put, not stall from the readback's
+    arrival (and never later than that: a NaN anchor compared as "moved").
+    """
+    motor = _slow_stage()
+    await motor.connect(mock=True)
+    set_mock_value(motor.position, float("nan"))
+    set_mock_put_proceeds(motor._setpoint, False)  # never answers
+
+    async def stream() -> None:
+        await asyncio.sleep(1.0)  # past the grace (0.5 s)
+        set_mock_value(motor.position, -6.0)  # finite, short of -24, and fixed
+
+    loop = asyncio.get_running_loop()
+    task = asyncio.ensure_future(stream())
+    t0 = loop.time()
+    with caplog.at_level(logging.ERROR, logger="geecs_bluesky.devices.ca"):
+        with pytest.raises(GeecsMotorTimeoutError) as info:
+            await asyncio.wait_for(motor.set(-24.0), timeout=4.0)
+    elapsed = loop.time() - t0
+    await task
+    assert _GRACE + _STALL <= elapsed < _GRACE + _STALL + 0.3  # not 1.0 + stall
+    assert (info.value.current, info.value.replied) == (-6.0, False)
+    (line,) = _error_lines(caplog)
+    assert f"({_PV})" in line
+    set_mock_put_proceeds(motor._setpoint, True)
+
+
+def test_within_tolerance_rejects_a_non_finite_target_too() -> None:
+    """Neither side of the comparison may be NaN/inf."""
+    from geecs_bluesky.devices.ca.motor import within_tolerance
+
+    nan, inf = float("nan"), float("inf")
+    assert within_tolerance(1.0, 1.0, 0.0)
+    assert not within_tolerance(nan, 1.0, 1.0)
+    assert not within_tolerance(1.0, nan, 1.0)
+    assert not within_tolerance(nan, nan, 1.0)
+    assert not within_tolerance(inf, inf, 1.0)
+
+
+async def test_motor_stall_after_progress_still_fails() -> None:
+    """Progress resets the stall clock; a stage that then stops is caught.
+
+    Creep for 0.8 s (past the grace), then stop short with no reply: the
+    failure lands ~one stall window after the last step, not grace+stall
+    from t0.
+    """
+    motor = _slow_stage()
+    await motor.connect(mock=True)
+    set_mock_value(motor.position, -5.0)
+    set_mock_put_proceeds(motor._setpoint, False)
+
+    loop = asyncio.get_running_loop()
+    creep = asyncio.ensure_future(_creep(motor, -5.0, -8.0, 0.8))
+    t0 = loop.time()
+    with pytest.raises(GeecsMotorTimeoutError) as info:
+        await asyncio.wait_for(motor.set(-24.0), timeout=5.0)
+    elapsed = loop.time() - t0
+    await creep
+    assert 0.8 + _STALL <= elapsed < 0.8 + _STALL + 0.6
+    assert info.value.current == pytest.approx(-8.0)
+    set_mock_put_proceeds(motor._setpoint, True)
 
 
 # --------------------------------------------------------------------------
@@ -455,7 +845,8 @@ async def test_motor_refused_put_and_timeout_are_logged_with_the_pv(caplog) -> N
         "Position.Axis 1",
         experiment="Undulator",
         name="jet",
-        move_timeout=0.3,
+        progress_grace=0.1,
+        stall_timeout=0.2,
     )
     await motor.connect(mock=True)
     pv = "undulator:u_esp_jetxyz:position_axis_1:SP"

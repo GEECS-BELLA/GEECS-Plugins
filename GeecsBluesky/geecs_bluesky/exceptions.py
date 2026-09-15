@@ -83,12 +83,18 @@ class GeecsTriggerTimeoutError(GeecsError):
 
 
 class GeecsMotorTimeoutError(GeecsError):
-    """Motor did not reach the target position within ``move_timeout``.
+    """The readback stalled while the move was pending — the stall rule (#906).
 
     Raised by :class:`~geecs_bluesky.devices.ca.motor.CaMotor` when the
-    position polling loop expires.  Possible causes: stage stall, mechanical
-    obstruction, wrong tolerance, or very long move.  Do not auto-retry —
-    a stalled stage may need operator intervention.
+    streamed position has not moved by more than the tolerance for
+    ``stall_timeout`` seconds (after the progress grace) without reaching
+    the target: before the device's reply, the sanity bound for a device
+    that never answers; after a ``no error`` reply, the readback confirm
+    that never converged.  A move the device is still working on — the
+    readback advancing — never raises this; only a stalled axis does.
+    Possible causes: stage stall, mechanical obstruction, wrong tolerance, a
+    device that stopped answering.  Do not auto-retry — a stalled stage may
+    need operator intervention.
     """
 
     def __init__(
@@ -98,15 +104,20 @@ class GeecsMotorTimeoutError(GeecsError):
         target: float,
         current: float,
         timeout: float,
+        replied: bool = False,
     ) -> None:
         self.device_name = device_name
         self.variable = variable
         self.target = target
         self.current = current
         self.timeout = timeout
+        self.replied = replied
+        phase = (
+            "after the device replied" if replied else "with no reply from the device"
+        )
         super().__init__(
             f"{device_name}/{variable}: position {current} did not reach "
-            f"{target} within {timeout:.1f}s"
+            f"{target} — readback stalled for {timeout:.1f}s {phase}"
         )
 
 
