@@ -231,6 +231,24 @@ if [ "$MODE" = "lint" ]; then
 fi
 
 # --- Test suites ----------------------------------------------------------------
+# Mirrors CI's GeecsBluesky step: the mock-CA layer (every module behind
+# importorskip("aioca")) must RUN, not skip — a skip means the env lacks the
+# `ca` extra (#866; /env-doctor has the install line). The -m expression
+# replaces pyproject's addopts filter, hence the explicit `not hardware`.
+# `set -o pipefail` above keeps pytest's exit code through the tee.
+run_bluesky_suite() {
+    local report
+    report="$(mktemp)"
+    poetry run pytest tests -m "not integration and not fake_server and not hardware" --tb=short -q -rs | tee "$report" \
+        || { rm -f "$report"; return 1; }
+    if grep -E "could not import '(aioca|p4p)'" "$report"; then
+        rm -f "$report"
+        echo "check.sh: GeecsBluesky's mock-CA tests skipped — install the ca extra (see /env-doctor)" >&2
+        return 1
+    fi
+    rm -f "$report"
+}
+
 run_suite() {
     case "$1" in
         root-tests)
@@ -240,7 +258,7 @@ run_suite() {
         ImageAnalysis|ScanAnalysis|GEECS-Data-Utils|GEECS-Schemas)
             poetry run pytest "$1/tests" -m "not integration and not gui" --tb=short -q ;;
         GeecsBluesky)
-            (cd GeecsBluesky && poetry run pytest tests -m "not integration and not fake_server and not hardware" --tb=short -q --durations=10) ;;
+            (cd GeecsBluesky && run_bluesky_suite) ;;
         GeecsCAGateway|GeecsPvaGateway|GEECS-Core|GEECS-DataPortal|GEECS-LogTriage|GEECS-MCP|GeecsLogbook|GeecsScanner|GeecsWebTheme)
             (cd "$1" && poetry run pytest tests --tb=short -q) ;;
         *)
