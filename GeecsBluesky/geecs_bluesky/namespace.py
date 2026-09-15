@@ -673,7 +673,13 @@ class GeecsNamespace:
         return self.get_settable(device, variable)
 
     def _db_tolerance(self, target: str) -> float | None:
-        """The DB ``tolerance`` of a ``"Device:Variable"`` target (``None`` when unset)."""
+        """The DB ``tolerance`` of a ``"Device:Variable"`` target (``None`` when unset).
+
+        Read from the roster row on purpose, not from the bound child's
+        ``_tolerance``: a catalog ``kind: motor`` opt-in binds a ``CaMotor``
+        with the class default where the DB says 0, and the pseudo's
+        agreement fallback must stay the DB fact, not inherit that guess.
+        """
         device, _, variable = target.partition(":")
         for dev, rows in self.roster.variables.items():
             if dev.lower() != device.lower():
