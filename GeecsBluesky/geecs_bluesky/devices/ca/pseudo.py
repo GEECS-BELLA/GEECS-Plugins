@@ -485,7 +485,15 @@ class CaPseudoPositioner(StandardReadable):
         if self._relative and not self._zeroed:
             # Unstaged caller (a manual mv): today's positions are the baseline.
             await self._zero_components()
-        await self._check_agreement(fail=self._relative or self._moved)
+        restoring = self._relative and self._restore_pending and value == 0.0
+        if restoring:
+            # The recovery gesture after a partial restore: the components
+            # disagree by construction (one is back, one is not) and the
+            # move sends each to its own captured baseline — safe without
+            # the agreement check, which would otherwise refuse the cure.
+            logger.info("%s: restoring the owed baselines", self.name)
+        else:
+            await self._check_agreement(fail=self._relative or self._moved)
         transform = await self._factory.transform()
         try:
             dials = transform.derived_to_raw(value=value)
