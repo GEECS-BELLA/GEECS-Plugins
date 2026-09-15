@@ -134,6 +134,19 @@ livetime + deadtime + 10 s), **then** calls the acquire logic's
 
 ### 2.3 `Capture=1` completes when the plugin has seen a frame
 
+**Amended 2026-09-14 (GEECS-Plugins#894, GeecsPvaGateway 0.10.0):** the
+"idle re-push is enough" assumption below is false for any run whose
+first step is a long move — a box ARMED through 26 s pushed nothing, and
+the 8 s wait failed the first `prepare`.  The arm now takes the geometry
+from the last frame the gateway already decoded for the variable (the
+worker keeps it beside its latest-wins slot) and completes at once; the
+push-wait below is only the fallback for a variable the gateway has never
+decoded.  Not the DB's ROI variables (they are set only when someone
+sets them, and an over-wide request silently falls back to the chip).
+With it, `NumCaptured_RBV = 0` is posted at `Capture=1` before
+`Capture_RBV` flips (GEECS-Plugins#853; the stock logic baselines on it).
+The paragraph below is kept as the original reasoning.
+
 `ADHDFDataLogic.prepare_unbounded` reads the frame geometry
 (`ArraySizeX/Y/Z_RBV`, `DataType_RBV`, `ColorMode_RBV`) right after
 `set_and_wait_for_value(capture, True)` to describe the stream resource.

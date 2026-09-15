@@ -20,11 +20,18 @@ session state and the file handle, so nothing is shared.
 
 Session semantics (§4 of the design):
 
-- ``Capture=1`` validates the parameters, retains the variable's GEECS
+- ``Capture=1`` validates the parameters, zeroes the session readbacks
+  (``NumCaptured_RBV`` first of all: the stock data logic baselines on it
+  right after the arm, GEECS-Plugins#853), retains the variable's GEECS
   subscription (the same refcount a PVA client holds), and completes the
-  put only once one frame has been decoded — that is where the geometry
-  the stream resource describes comes from; LabVIEW's 1 Hz idle re-push
-  is enough.  A camera that pushes nothing fails the put.
+  put at once when the gateway already holds a decoded frame of the
+  variable — the geometry the stream resource describes needs *a* frame
+  of the right shape, not a fresh push (GEECS-Plugins#894: a box ARMED
+  through a long first move pushes nothing, and waiting for a push there
+  failed the run's first prepare).  Only a variable the gateway has never
+  decoded waits for its first push, ``ARM_TIMEOUT_S`` at most; a camera
+  that pushes nothing then fails the put naming the device.  The held
+  frame is never written: the stale watermark is stamped at the arm.
 - A frame is written iff its stamp is unseen this session (LabVIEW
   re-pushes its last frame with an unchanged stamp when idle) and not
   older than the stale watermark set at ``Capture=1`` (and moved by
@@ -177,8 +184,9 @@ ATTRIBUTE_CHUNK = 16384
 #: Seconds a frame may be stamped before the watermark and still count as
 #: fresh (clock skew between the camera server and the stamp's domain time).
 STALE_MARGIN_S = 0.1
-#: How long ``Capture=1`` waits for the first frame before failing the put
-#: (below ophyd-async's 10 s default put timeout).
+#: How long ``Capture=1`` waits for the first push of a variable the gateway
+#: has never decoded before failing the put (below ophyd-async's 10 s default
+#: put timeout).  A variable with a held frame never waits (#894).
 ARM_TIMEOUT_S = 8.0
 #: Raw blobs the writer may fall behind by before intake counts drops.
 QUEUE_DEPTH = 64
@@ -388,6 +396,12 @@ class HdfFilePlugin:
     scalar_variables :
         The device's subscribed scalars, written per frame as ``DOUBLE``
         attributes after the two stamps (``CameraSpec.scalar_variables``).
+    last_frame :
+        Returns the last frame the gateway decoded for this variable (its
+        latest-wins slot), or ``None`` when it has never decoded one.
+        ``Capture=1`` takes the stream geometry from it and completes at
+        once (#894); without it, or when it returns ``None``, the arm waits
+        for the first push.  Called on the writer thread.
     """
 
     def __init__(
@@ -399,12 +413,14 @@ class HdfFilePlugin:
         retain: Callable[[str], None],
         release: Callable[[str], None],
         scalar_variables: Sequence[str] = (),
+        last_frame: Callable[[], np.ndarray | None] | None = None,
     ) -> None:
         self.device = device
         self.variable = variable
         self.experiment = experiment
         self.prefix = hdf_plugin_prefix(experiment, device, variable)
         self.scalar_variables = tuple(scalar_variables)
+        self._last_frame: Callable[[], np.ndarray | None] = last_frame or (lambda: None)
         self.attributes = attribute_names(device, variable, self.scalar_variables)
         if len(set(self.attributes)) != len(self.attributes):
             # Two scalars normalizing to one name would write one dataset
@@ -560,7 +576,25 @@ class HdfFilePlugin:
         self._post("WriteStatus", "Write Error")
         self._post("WriteMessage", message[:255])
 
+    def _reset_session_readbacks(self) -> None:
+        """Zero the per-session readbacks at ``Capture=1`` (areaDetector semantics).
+
+        ``NumCaptured_RBV`` posts before ``Capture_RBV`` can flip: the stock
+        ``ADHDFDataLogic`` baselines ``collections_written`` on it right
+        after the arm, and the previous session's count still there made the
+        first batch of a gated run count from *N* (GEECS-Plugins#853).
+        """
+        for suffix in (
+            "NumCaptured_RBV",
+            "ArrayCounter",
+            "ArrayCounter_RBV",
+            "UniqueId_RBV",
+        ):
+            self._post(suffix, 0)
+        self._post("FullFileName_RBV", "")
+
     def _capture_on(self, op: Any) -> None:
+        """Open a session: validate, zero the readbacks, retain, arm (#853, #894)."""
         if self._session is not None:
             op.done()  # idempotent: the stock logic may repeat the put
             return
@@ -599,9 +633,29 @@ class HdfFilePlugin:
             frames_per_chunk=max(1, int(self.value("NumFramesChunks"))),
             compression=self.value("Compression"),
         )
+        # The readbacks start clean before anything can observe the arm: a
+        # client that baselines NumCaptured_RBV on the Capture_RBV edge must
+        # read 0, never the previous session's count (#853).
+        self._reset_session_readbacks()
         self._retain(self.variable)
-        # Arm: the geometry the worker describes the stream with comes from
-        # the first decoded frame — LabVIEW's idle re-push is enough.
+        held = self._last_frame()
+        if held is not None:
+            # The gateway already holds a decoded frame of this variable:
+            # that is all the geometry the stream resource needs (#894).
+            # The frame itself is never written — it predates the watermark.
+            self._post_geometry(held)
+            self._session = session
+            self._post("Capture_RBV", True)
+            op.done()
+            logger.info(
+                "%s %s: capturing → %s (armed on the held frame)",
+                self.device,
+                self.variable,
+                directory,
+            )
+            return
+        # Never decoded: arm on the first push — LabVIEW's idle re-push at
+        # best, nothing at all from a box ARMED with no edges (#894).
         deadline = time.monotonic() + ARM_TIMEOUT_S
         while True:
             try:

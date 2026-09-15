@@ -39,6 +39,17 @@ def local_ip_addresses(probe_target: str | None = None) -> set[str]:
     return addresses
 
 
+#: Suffix of the per-variable subscription-state PV (``<image PV>:connected``):
+#: the state of this gateway's GEECS subscription for that image variable —
+#: ``Idle`` (gated off: nobody is watching, so nothing is known),
+#: ``Disconnected`` (a watcher holds it and the device is unreachable — the
+#: boot-order gap of GEECS-Plugins#854, visible here instead of at the
+#: scan's first arm; MAJOR alarm) or ``Connected``.  Per variable because the
+#: subscriptions are; never the bare ``<device>:connected`` the CA gateway
+#: serves for *its* subscription.
+CONNECTED_SUFFIX = ":connected"
+
+
 def instance_pv_prefix(experiment: str, host: str) -> str:
     """Prefix of one instance's identity PVs (``version``/``heartbeat``/``restart``).
 
@@ -67,6 +78,10 @@ class CameraSpec(BaseModel):
     def pv_name_for(self, variable: str) -> str:
         """Full PV name for one image variable, minted by the shared contract."""
         return pv_name(self.experiment, self.device, variable)
+
+    def connected_pv_for(self, variable: str) -> str:
+        """The variable's subscription-state PV (:data:`CONNECTED_SUFFIX`)."""
+        return self.pv_name_for(variable) + CONNECTED_SUFFIX
 
 
 class PvaGatewayConfig(BaseModel):
