@@ -261,7 +261,14 @@ def test_relative_component_moved_under_the_scan_fails_before_moving_anything(be
     cause = info.value.__cause__
     assert isinstance(cause, PseudoComponentsDisagreeError)
     assert "U_S4H:Current reads -0.5" in str(cause)
-    assert bench.journal == []  # nothing was moved
+    # The step itself never moved anything; the only puts that may follow
+    # are the RE's abort-time unstage restoring the baselines.
+    moves = {(t, round(v, 6)) for t, v in bench.journal}
+    assert ("U_S3H:Current", 0.55) not in moves and (
+        "U_S4H:Current",
+        -0.499,
+    ) not in moves
+    assert moves <= {("U_S3H:Current", 0.35), ("U_S4H:Current", -0.099)}
 
 
 def test_relative_disagreement_within_tolerance_is_not_a_disagreement(bench):
