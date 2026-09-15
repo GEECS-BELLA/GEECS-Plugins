@@ -53,7 +53,8 @@ geecs_bluesky/
   devices/shot_control.py   # ShotControl — the trigger box: Movable over the
                             #   profile's states, Pausable; CaPutSetter + the writes
   devices/ca/               # scalar devices + settable children: CaSnapshotReadable,
-                            #   CaSettable, CaMotor, CaConfirmSettable, CaPseudoMovable,
+                            #   CaSettable (+ the user offset), CaMotor, CaConfirmSettable,
+                            #   CaPseudoPositioner (a catalog pseudo as a pseudo positioner),
                             #   gateway_put, oneshot, liveness
   plans/strict.py           # geecs_take_reading (the fire between trigger and wait),
                             #   geecs_per_step (shots_per_step + bin_number), geecs_per_shot
@@ -136,10 +137,30 @@ qserver/                    # the worker: launcher, startup profile, permissions
 - The scalar devices and children keep their contracts: `CaMotor` (readback
   convergence within the DB tolerance, no `stop()` — GEECS has no universal
   abort), `CaConfirmSettable` (writes one variable, confirms on another),
-  `CaPseudoMovable` (composite axis via `forward_expr`; relative mode
-  captures baselines at `stage`), `CaSnapshotReadable` (async readbacks
-  sampled per row).  Every CA signal carries an explicit `ca://` source
-  (`devices/ca/_pv.py` — transport by import luck is the trap).
+  `CaSnapshotReadable` (async readbacks sampled per row).  Every CA signal
+  carries an explicit `ca://` source (`devices/ca/_pv.py` — transport by
+  import luck is the trap).
+- **Every settable carries a user offset** (`CaSettable.offset`, a soft
+  signal; `set_current_position(p)` redefines the user frame, ophyd's
+  spelling — EPICS `.OFF`, `user = dial + offset`).  The raw GEECS value is
+  the dial; `set`/`read`/`locate` stay in it.  Only the pseudo positioners
+  consume the offset today; set-as-aligned + persistence + display for
+  operators is the additive follow-on arc.
+- **`CaPseudoPositioner`** (`devices/ca/pseudo.py`) — a catalog
+  `kind: pseudo` entry as an ophyd-async `Transform` under a
+  `DerivedSignalFactory`: `forward` formulas out, the inverse back (derived
+  by `forward_expr.affine_coefficients` for `a*x + b`, else the entry's
+  `inverse`), the components' offsets as parameters, moves through the
+  components' own `set()`.  Two kinds, one class, frameworks' words only
+  (never "absolute pseudo"): a *plain pseudo positioner* (`mode:
+  absolute` — dial frame, R56) and a pseudo positioner over components
+  *zeroed at stage* (`mode: relative` — the steering bumps: readback 0 by
+  construction, `unstage` restores the baselines on success and abort).
+  The **disagreement check** (`forward(inverse(readbacks))` vs the
+  readbacks, per-component tolerance) fails the scan when a component
+  moved under it; a relative `forward` is pinned `f(0) = 0` at build.
+  `build_pseudo(name, spec, resolve)` is the one constructor from a
+  catalog entry.  Brief: `Planning/native_bluesky/09_pseudo_transform.md`.
 
 ## The scan path (§4.B)
 

@@ -10,7 +10,7 @@ for the trigger box.
 from .ca import (
     CaConfirmSettable,
     CaMotor,
-    CaPseudoMovable,
+    CaPseudoPositioner,
     CaSettable,
     CaSnapshotReadable,
 )
@@ -20,7 +20,7 @@ from .shot_control import ShotControl
 __all__ = [
     "CaConfirmSettable",
     "CaMotor",
-    "CaPseudoMovable",
+    "CaPseudoPositioner",
     "CaSettable",
     "CaSnapshotReadable",
     "GeecsDetector",

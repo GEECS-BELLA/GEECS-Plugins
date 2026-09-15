@@ -129,3 +129,34 @@ def test_split_device_variable_is_the_public_form_of_the_target_rule() -> None:
     for bad in ("U_S1H", ":Current", "U_S1H:", "U_S1H: ", "S1H current"):
         with pytest.raises(ValueError, match="Device:Variable"):
             split_device_variable(bad)
+
+
+def test_description_and_inverse_round_trip() -> None:
+    from geecs_schemas.scan_variables import ScanVariables
+
+    catalog = ScanVariables.model_validate(
+        {
+            "schema_version": 1,
+            "variables": {
+                "S3H": {
+                    "target": "U_S3H:Current",
+                    "kind": "motor",
+                    "description": "ALine steering",
+                },
+                "R56_at_100MeV": {
+                    "kind": "pseudo",
+                    "mode": "absolute",
+                    "description": "chicane R56 at 100 MeV",
+                    "targets": [
+                        {"target": "U_ChicaneInner:Current", "forward": "sqrt(x)"}
+                    ],
+                    "inverse": "U_ChicaneInner**2",
+                },
+            },
+        }
+    )
+    assert catalog.variables["S3H"].description == "ALine steering"
+    pseudo = catalog.variables["R56_at_100MeV"]
+    assert pseudo.description == "chicane R56 at 100 MeV"
+    assert pseudo.inverse == "U_ChicaneInner**2"
+    assert ScanVariables.model_validate(catalog.model_dump(mode="json")) == catalog
