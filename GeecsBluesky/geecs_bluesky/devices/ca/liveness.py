@@ -1,28 +1,81 @@
-"""The one out-of-plan CONNECTED liveness probe.
+"""The CONNECTED liveness reads — one verdict rule, out of plan and in plan.
 
 ``CONNECTED`` is the authoritative liveness signal (the gateway serves
 every DB device's data PVs whether or not the device is up, so CA-connect
-success never implies liveness), and reading it correctly has one sharp
-edge worth keeping in exactly one place: the PV is a **DBR_ENUM**, so the
-read must pass ``datatype=str`` — a native read returns the integer index,
-which can never match the ``"Disconnected"`` choice string.
+success never implies liveness).  Two readers, one rule — **fail-open**:
+only the exact ``"Disconnected"`` choice string is a verdict; an
+unreadable PV, a missing signal or a mock backend's ``""`` default all
+read live.
 
-Consumers: the client-side pre-submit preflight
-(:mod:`geecs_bluesky.qs_client.submit_preflight`) and the worker's
-client-side pre-submit liveness check (:mod:`geecs_bluesky.qs_client.submit_preflight`).
-In-plan liveness reads on *built* devices go through their
-``connected_status`` signal instead (the refire gate in :mod:`geecs_bluesky.plans.strict`).
+- :func:`probe_disconnected` — the out-of-plan probe over device *names*
+  (the client-side pre-submit preflight,
+  :mod:`geecs_bluesky.qs_client.submit_preflight`).  Its sharp edge is
+  kept here in exactly one place: the PV is a **DBR_ENUM**, so the read
+  must pass ``datatype=str`` — a native read returns the integer index,
+  which can never match the choice string.
+- :func:`read_disconnected` — the in-plan read over *built* devices'
+  ``connected_status`` signals (the run's liveness gate before its first
+  move, :mod:`geecs_bluesky.plans.registry`; the strict refire gate,
+  :mod:`geecs_bluesky.plans.strict`).  A typed ``str`` signal has no
+  enum edge to trip over.
 
 ``aioca`` is imported lazily on first use (the ``ca`` extra).
 """
 
 from __future__ import annotations
 
-from typing import Iterable
+import logging
+from collections.abc import Mapping
+from typing import Any, Iterable
+
+import bluesky.plan_stubs as bps
+
+from geecs_bluesky.devices.ca._pv import GATEWAY_DISCONNECTED
+
+logger = logging.getLogger(__name__)
 
 #: CA read budget for one probe batch (seconds) — concurrent, so N dead
 #: PVs cost one budget, not N.
 DEFAULT_PROBE_TIMEOUT_S = 2.0
+
+
+def read_disconnected(signals: Mapping[str, Any]):
+    """Plan: the names whose ``CONNECTED`` signal reads ``Disconnected``, in input order.
+
+    One ``bps.rd`` per signal.  Fail-open per signal: a read that raises is
+    logged at DEBUG and counts as live — the gateway serves ``CONNECTED``
+    for every DB device, so an unreadable one is a transport question, not
+    a liveness verdict.
+
+    Parameters
+    ----------
+    signals :
+        GEECS device name → its ``connected_status`` signal (a ``str``
+        ``SignalR`` on the gateway's ``CONNECTED`` PV).
+
+    Yields
+    ------
+    Bluesky messages.
+
+    Returns
+    -------
+    list of str
+        The devices confirmed down.
+    """
+    down: list[str] = []
+    for device, signal in signals.items():
+        try:
+            value = yield from bps.rd(signal)
+        except Exception:
+            logger.debug(
+                "CONNECTED read failed for %s; assuming live (fail-open)",
+                device,
+                exc_info=True,
+            )
+            continue
+        if value == GATEWAY_DISCONNECTED:
+            down.append(device)
+    return down
 
 
 def probe_disconnected(

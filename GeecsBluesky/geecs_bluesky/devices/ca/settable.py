@@ -11,6 +11,14 @@ tolerance) or failure — a plain CaSettable already waits.
 :class:`~geecs_bluesky.devices.ca.motor.CaMotor` adds an independent
 readback-tolerance poll on top; the decoupled set-X-confirm-Y case is
 :class:`~geecs_bluesky.devices.ca.confirm.CaConfirmSettable`.
+
+A set that fails is **logged at ERROR by the device**, naming the ``:SP``
+PV and the cause by ``str`` (:meth:`CaSettable._set_logged`, shared by
+the subclasses) before the status fails: the ``FailedStatus`` the
+RunEngine throws into the plan carries only the status repr, and the
+engine's own ``Run aborted`` traceback lands in the journal after the
+scan log has closed — so without this line a refused motor put left no
+PV name in the scan folder (GEECS-Plugins#868).
 """
 
 from __future__ import annotations
@@ -23,7 +31,8 @@ from ophyd_async.core import AsyncStatus, StandardReadable
 from ophyd_async.epics.core import epics_signal_r, epics_signal_rw
 
 from geecs_bluesky.devices.ca._pv import ca_pv, setpoint_pv
-from geecs_bluesky.devices.ca.gateway_put import GatewaySetpointPut
+from geecs_bluesky.devices.ca.gateway_put import GatewaySetpointPut, bare_pv
+from geecs_bluesky.exceptions import failure_cause_text
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +77,7 @@ class CaSettable(StandardReadable):
         readback_pv = ca_pv(experiment, device, variable)
         # Setpoint is not a child readable (no feedback loop): set() writes it,
         # read() reflects the streamed readback instead.
+        self._setpoint_pv = bare_pv(setpoint_pv(readback_pv))  # for the log
         self._setpoint = epics_signal_rw(datatype, setpoint_pv(readback_pv))
         # Layer-1 puts ride the shared gateway-put primitive (the one owner
         # of addressing/coercion/timeout policy); the typed signal stays the
@@ -98,7 +108,30 @@ class CaSettable(StandardReadable):
         Implements :class:`bluesky.protocols.Movable`.
         """
         logger.info("%s: setting %s → %s", self.name, self._variable, value)
-        return AsyncStatus(self._set_and_wait(value))
+        return AsyncStatus(self._set_logged(value))
+
+    async def _set_logged(self, value: float) -> None:
+        """Run :meth:`_set_and_wait`; on failure, ERROR-log the PV and the cause first.
+
+        The one place a failed set is named for the scan log
+        (GEECS-Plugins#868): the cause by ``str`` through the shared
+        :func:`~geecs_bluesky.exceptions.failure_cause_text` — a refused
+        ``aioca.CANothing`` is falsy and carries the CA message only
+        through ``str``.  The exception then propagates untouched into
+        the status.
+        """
+        try:
+            await self._set_and_wait(value)
+        except Exception as exc:
+            logger.error(
+                "%s: set %s → %s failed (%s): %s",
+                self.name,
+                self._variable,
+                value,
+                self._setpoint_pv,
+                failure_cause_text(exc),
+            )
+            raise
 
     async def locate(self) -> Location:
         """Where the device is: the streamed readback, as both fields.

@@ -45,8 +45,12 @@ Checks, in order (names are the ``PreflightOutcome.check`` vocabulary):
   LabVIEW-native camera has ``save`` but no ``hdf``); and a gated run
   needs at least one essential *triggered* device (an ``acq_timestamp``
   child), camera or scalar — "nothing counts shots; use strict" otherwise.
-- ``gateway_liveness`` — one CA read of each preset device's ``CONNECTED``
-  PV; only the exact ``"Disconnected"`` reading counts as down
+- ``gateway_liveness`` — one CA read of the ``CONNECTED`` PV of each
+  preset device **and of each device the trigger profile writes** (the
+  preset's profile, else the experiment default — resolved through the
+  configs repo, so the question names a dead DG645 too, GEECS-Plugins#852;
+  an unresolvable profile is logged and the preset's devices are probed
+  alone); only the exact ``"Disconnected"`` reading counts as down
   (fail-open).
 
 Every heavy dependency (``aioca``) is imported lazily inside functions —
@@ -100,6 +104,7 @@ def run_submit_preflight(
     *,
     client: Any | None = None,
     catalog: Optional[Mapping[str, Any]] = None,
+    resolver: Any | None = None,
 ) -> PreflightReport:
     """Run every pre-submit check; return findings for the client to render.
 
@@ -122,6 +127,11 @@ def run_submit_preflight(
     catalog : mapping, optional
         The experiment's scan-variable catalog (name → spec), for catalog
         names in the plan arguments.
+    resolver : ConfigsRepoResolver-like, optional
+        Resolves the trigger profile whose devices join the liveness list
+        (``resolve_trigger_profile`` / ``resolve_experiment_defaults``).
+        ``None`` builds the experiment's configs-repo resolver from the
+        shared config for the duration of the check.
 
     Returns
     -------
@@ -151,6 +161,9 @@ def run_submit_preflight(
 
     # -- gateway liveness ----------------------------------------------------
     devices = [d.device for d in getattr(preset, "devices", ())]
+    for device in _trigger_profile_devices(preset, experiment, resolver):
+        if device not in devices:
+            devices.append(device)
     if devices:
         try:
             _check_liveness(report, devices, experiment)
@@ -159,6 +172,47 @@ def run_submit_preflight(
             report.outcomes.append(("gateway_liveness", "skipped", str(exc)))
 
     return report
+
+
+def _make_default_resolver(experiment: str) -> Any:
+    """Build the check's own configs-repo resolver (a seam tests patch)."""
+    from geecs_bluesky.config_resolver import ConfigsRepoResolver
+
+    return ConfigsRepoResolver(experiment)
+
+
+def _trigger_profile_devices(preset: Any, experiment: str, resolver: Any) -> list[str]:
+    """The devices the submission's trigger profile writes — the box, for the liveness list.
+
+    The preset's ``trigger_profile``, else the experiment default's; the
+    profile's devices are read off the same adapter the worker's
+    ``ShotControl`` is built from
+    (:func:`~geecs_bluesky.devices.shot_control.trigger_writes_from_profile`),
+    so the two lists cannot drift.  Fail-open: no profile, or one that
+    cannot be resolved here, logs a warning and contributes nothing — the
+    worker names a missing profile itself when the item runs.
+    """
+    try:
+        if resolver is None:
+            resolver = _make_default_resolver(experiment)
+        name = getattr(preset, "trigger_profile", None)
+        if not name:
+            defaults = resolver.resolve_experiment_defaults()
+            name = getattr(defaults, "trigger_profile", None)
+        if not name:
+            return []
+        from geecs_bluesky.devices.shot_control import trigger_writes_from_profile
+
+        profile = resolver.resolve_trigger_profile(name)
+        return list(trigger_writes_from_profile(profile).devices)
+    except Exception as exc:
+        logger.warning(
+            "liveness preflight: trigger profile devices not resolved (%s: %s); "
+            "probing the preset's devices only",
+            type(exc).__name__,
+            exc,
+        )
+        return []
 
 
 def _make_default_client(experiment: str) -> Any:
@@ -341,9 +395,9 @@ def _check_liveness(
             check="gateway_liveness",
             title="Devices disconnected",
             message=(
-                f"The gateway reports these preset devices as "
-                f"Disconnected: {names}. A strict scan aborts on the first "
-                "shot they miss. Continue anyway?"
+                f"The gateway reports these devices of the scan as "
+                f"Disconnected: {names}. The worker refuses the run before "
+                "its first move while any of them is down. Continue anyway?"
             ),
         )
     )

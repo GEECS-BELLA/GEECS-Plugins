@@ -68,6 +68,12 @@ class CaSnapshotReadable(StandardReadable):
                         ca_pv(experiment, device, var),
                     ),
                 )
+        # The gateway's per-device liveness PV: never an event column, read
+        # once by the run's liveness gate (GEECS-Plugins#852) — a scalar-only
+        # device's readbacks are served stale whether or not it is up.
+        self.connected_status = epics_signal_r(
+            str, ca_pv(experiment, device, "CONNECTED")
+        )
         # The scalars-only view every namespace device carries (``X.scalars``
         # in a plan's detector list, a preset's ``save_images: false``): for a
         # scalar-only device it reads exactly what the device reads.

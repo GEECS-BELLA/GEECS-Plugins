@@ -252,10 +252,14 @@ def test_an_aborted_scan_still_gets_its_rows(RE, box, worker, tmp_path):
         RE(plans["scan"]([cam], magnet.current, -1.0, 1.0, 4))
     folder = tmp_path / "scans" / "Scan001"
     info = read_scan_info(folder / "ScanInfoScan001.ini")
-    assert info["ScanEndInfo"].startswith("fail")
+    # The reason is the cause, not the status repr (GEECS-Plugins#868).
+    assert info["ScanEndInfo"] == "fail: RuntimeError: boom"
     sfile = pd.read_csv(tmp_path / "analysis" / "s1.txt", sep="\t")
     assert len(sfile) == 2
-    assert "finished (fail)" in (folder / "scan.log").read_text()
+    log = (folder / "scan.log").read_text()
+    assert "finished (fail): RuntimeError: boom" in log
+    # The device named its PV at ERROR before the status failed.
+    assert "failed (testexp:u_s1h:current:SP): RuntimeError: boom" in log
 
 
 def test_callbacks_never_raise_into_the_run(RE, box, worker, tmp_path, caplog):

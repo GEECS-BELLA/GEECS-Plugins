@@ -11,12 +11,16 @@ pytest.importorskip("aioca")
 import bluesky.plan_stubs as bps  # noqa: E402
 import bluesky.plans as bp  # noqa: E402
 from bluesky import RunEngine  # noqa: E402
-from bluesky.utils import is_plan  # noqa: E402
-from ophyd_async.core import Device, set_mock_value  # noqa: E402
+from bluesky.utils import FailedStatus, is_plan  # noqa: E402
+from ophyd_async.core import Device, callback_on_mock_put, set_mock_value  # noqa: E402
 
 from geecs_bluesky.devices.ca import CaMotor  # noqa: E402
 from geecs_bluesky.devices.shot_control import ShotControl  # noqa: E402
-from geecs_bluesky.exceptions import GeecsConfigurationError  # noqa: E402
+from geecs_bluesky.exceptions import (  # noqa: E402
+    GeecsConfigurationError,
+    GeecsDeviceDownError,
+    failure_cause_text,
+)
 from geecs_bluesky.plan_names import GEECS_PLAN_NAMES, NON_SCAN_PLAN_NAMES  # noqa: E402
 from geecs_bluesky.plans.registry import (  # noqa: E402
     EXCLUDED_STOCK_PLANS,
@@ -26,7 +30,7 @@ from geecs_bluesky.plans.registry import (  # noqa: E402
     strict_plan,
 )
 from tests.ca_mock_helpers import DocCollector, connect_mock, follow_setpoint  # noqa: E402
-from tests.test_strict_plans import WRITES, FakeBox, _camera  # noqa: E402
+from tests.test_strict_plans import WRITES, FakeBox, _RefusedPut, _camera  # noqa: E402
 
 
 class Magnet(Device):
@@ -339,3 +343,108 @@ def test_scalars_view_yields_to_the_owners_scanned_child(RE, box, profiles):
     follow_setpoint(other)
     assert not magnet.scalars.covers(other) and magnet.scalars.covers(magnet.current)
     assert cam.scalars.covers(cam.acq_timestamp) and cam.scalars.covers(cam.meancounts)
+
+
+# ------------------------------------------------- the liveness gate (#852)
+def test_a_dead_box_refuses_the_run_before_any_move(RE, box, profiles) -> None:
+    """The profile's device reads Disconnected: refused, nothing driven, nothing opened."""
+    cam = _camera(RE, box, "UC_Cam")
+    sc = profiles.resolve(None)
+    set_mock_value(sc.liveness_signals["DG"], "Disconnected")
+    col = DocCollector()
+    RE.subscribe(col)
+    count = bind_plans(profiles)["count"]
+    with pytest.raises(GeecsDeviceDownError, match="DG") as info:
+        RE(count([cam], 1))
+    assert info.value.device_name == "DG"
+    assert box.puts == [] and box.fires == 0  # the box was never driven
+    assert col.docs["start"] == []  # no open_run → nothing claimed
+
+
+def test_every_dead_device_of_the_scan_is_named(RE, box, profiles) -> None:
+    """A detector, a scalars view and a non-essential device: all in one refusal."""
+    a = _camera(RE, box, "UC_A")
+    b = _camera(RE, box, "UC_B")
+    c = _camera(RE, box, "UC_C")
+    live = _camera(RE, box, "UC_Live")
+    for cam in (a, b, c):
+        set_mock_value(cam.connected_status, "Disconnected")
+    col = DocCollector()
+    RE.subscribe(col)
+    count = bind_plans(profiles)["count"]
+    with pytest.raises(GeecsDeviceDownError) as info:
+        RE(count([a, b.scalars, live], 1, non_essential=[c]))
+    message = str(info.value)
+    assert "UC_A, UC_B, UC_C" in message and "UC_Live" not in message
+    assert "nothing claimed" in message
+    assert box.puts == [] and col.docs["start"] == []
+
+
+def test_a_live_set_passes_the_gate_and_the_box_is_then_armed(
+    RE, box, profiles
+) -> None:
+    """The gate reads but never drives: the first put is still the bracket's ARMED."""
+    cam = _camera(RE, box, "UC_Cam")
+    set_mock_value(cam.connected_status, "Connected")
+    count = bind_plans(profiles)["count"]
+    RE(count([cam], 1))
+    assert box.puts[0] == ("DG", "Trigger.Source", "single")
+    assert box.fires == 1
+
+
+def test_an_unreadable_liveness_pv_is_fail_open(RE, box, profiles, monkeypatch) -> None:
+    """A read that raises is not a verdict (the gateway serves CONNECTED for every device)."""
+    cam = _camera(RE, box, "UC_Cam")
+    sc = profiles.resolve(None)
+
+    async def boom():
+        raise OSError("CA timeout")
+
+    monkeypatch.setattr(sc.liveness_signals["DG"], "read", boom)
+    count = bind_plans(profiles)["count"]
+    RE(count([cam], 1))
+    assert box.fires == 1
+
+
+# ------------------------------------------- the failure's name (#868/#894)
+def test_a_refused_move_inside_the_run_names_its_cause(RE, box, profiles) -> None:
+    """The stop document's reason is the cause by ``str``, not ``<AsyncStatus …>``.
+
+    The cause is falsy and its repr is the bare code (the ``aioca.CANothing``
+    shape): only ``str`` carries the PV.
+    """
+    cam = _camera(RE, box, "UC_Cam")
+    magnet = Magnet()
+    connect_mock(RE, magnet)
+    text = "testexp:u_s1h:current:SP: Virtual circuit disconnect"
+
+    def refuse(value, **kwargs):
+        raise _RefusedPut(text)
+
+    callback_on_mock_put(magnet.current._setpoint, refuse)
+    col = DocCollector()
+    RE.subscribe(col)
+    scan = bind_plans(profiles)["scan"]
+    with pytest.raises(FailedStatus) as info:
+        RE(scan([cam], magnet.current, -1.0, 1.0, 3))
+    assert isinstance(info.value.__cause__, _RefusedPut)
+    assert str(info.value) == f"_RefusedPut: {text}"
+    (stop,) = col.docs["stop"]
+    assert stop["exit_status"] == "fail"
+    assert stop["reason"] == f"_RefusedPut: {text}"
+
+
+def test_failure_cause_text_carries_the_causes_notes() -> None:
+    """A note a device attached (the file plugin's WriteMessage, #894) is rendered."""
+    cause = TimeoutError("uc_cam-hdf-capture didn't match True in 10.0s")
+    cause.add_note("file plugin uc_cam-hdf: no frame from UC_Cam image within 8 s")
+    failed = FailedStatus(
+        "<AsyncStatus, task: <coroutine>, errored: TimeoutError(...)>"
+    )
+    failed.__cause__ = cause
+    assert failure_cause_text(failed) == (
+        "TimeoutError: uc_cam-hdf-capture didn't match True in 10.0s "
+        "(file plugin uc_cam-hdf: no frame from UC_Cam image within 8 s)"
+    )
+    bare = _RefusedPut("pv:SP: refused")
+    assert failure_cause_text(bare) == "_RefusedPut: pv:SP: refused"

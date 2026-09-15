@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
 from geecs_bluesky.plan_names import GEECS_PLAN_NAMES
@@ -12,7 +14,9 @@ from geecs_bluesky.qs_client.submit_preflight import (
     build_submission_record,
     run_submit_preflight,
 )
+from geecs_bluesky.exceptions import GeecsConfigurationError
 from geecs_schemas import Preset
+from geecs_schemas.trigger_profile import TriggerProfile
 
 
 class _FakeQueueClient:
@@ -85,7 +89,53 @@ def engine(monkeypatch):
     monkeypatch.setattr(
         submit_preflight, "_make_default_client", lambda experiment: _FakeQueueClient()
     )
+    # No configs repo behind the default resolver: no default profile, so the
+    # liveness list is the preset's devices alone unless a test says otherwise.
+    monkeypatch.setattr(
+        submit_preflight, "_make_default_resolver", lambda experiment: _FakeResolver()
+    )
     return reads
+
+
+class _FakeResolver:
+    """A configs-repo resolver double: named trigger profiles + the defaults."""
+
+    def __init__(self, profiles=None, default=None):
+        self._profiles = dict(profiles or {})
+        self._default = default
+
+    def resolve_experiment_defaults(self):
+        if self._default is None:
+            return None
+        return SimpleNamespace(trigger_profile=self._default)
+
+    def resolve_trigger_profile(self, name):
+        try:
+            return self._profiles[name]
+        except KeyError:
+            raise GeecsConfigurationError(
+                f"trigger profile {name!r} not found"
+            ) from None
+
+
+def _profile(
+    name: str = "HTU-Test", device: str = "U_DG645_ShotControl"
+) -> TriggerProfile:
+    return TriggerProfile.model_validate(
+        {
+            "name": name,
+            "states": {
+                "ARMED": [
+                    {"device": device, "variable": "Trigger.Source", "value": "single"}
+                ],
+                "STANDBY": [
+                    {"device": device, "variable": "Trigger.Source", "value": "edges"},
+                    {"device": "U_Shutter", "variable": "State", "value": "open"},
+                ],
+                "SINGLESHOT": [{"device": device, "variable": "Fire", "value": "on"}],
+            },
+        }
+    )
 
 
 class TestRunSubmitPreflight:
@@ -128,6 +178,76 @@ class TestRunSubmitPreflight:
             ("validate", "passed", ""),
             ("worker_ready", "passed", ""),
         ]
+
+
+class TestTriggerProfileLiveness:
+    """GEECS-Plugins#852 part 2: the box's devices are on the liveness list."""
+
+    @staticmethod
+    def _probed(monkeypatch) -> list[list[str]]:
+        calls: list[list[str]] = []
+
+        def probe(experiment, device_names, *, timeout):
+            calls.append(list(device_names))
+            return list(device_names)  # everything down: the question names all
+
+        monkeypatch.setattr(
+            "geecs_bluesky.devices.ca.liveness.probe_disconnected", probe
+        )
+        return calls
+
+    def test_the_presets_profile_devices_join_the_list(self, engine, monkeypatch):
+        calls = self._probed(monkeypatch)
+        resolver = _FakeResolver({"HTU-LaserOFF": _profile("HTU-LaserOFF")})
+        report = run_submit_preflight(
+            _preset(trigger_profile="HTU-LaserOFF"), "Undulator", resolver=resolver
+        )
+        # Every device the profile writes, after the preset's, no duplicates.
+        assert calls == [["UC_Cam1", "UC_Cam2", "U_DG645_ShotControl", "U_Shutter"]]
+        (question,) = [q for q in report.questions if q.check == "gateway_liveness"]
+        assert "U_DG645_ShotControl" in question.message
+
+    def test_the_experiment_default_profile_is_used_when_the_preset_names_none(
+        self, engine, monkeypatch
+    ):
+        calls = self._probed(monkeypatch)
+        resolver = _FakeResolver({"HTU-Test": _profile()}, default="HTU-Test")
+        run_submit_preflight(_preset(), "Undulator", resolver=resolver)
+        assert calls == [["UC_Cam1", "UC_Cam2", "U_DG645_ShotControl", "U_Shutter"]]
+
+    def test_a_device_less_preset_still_probes_the_box(self, engine, monkeypatch):
+        calls = self._probed(monkeypatch)
+        resolver = _FakeResolver({"HTU-Test": _profile()}, default="HTU-Test")
+        report = run_submit_preflight(
+            _preset(devices=[]), "Undulator", resolver=resolver
+        )
+        assert calls == [["U_DG645_ShotControl", "U_Shutter"]]
+        assert [q.check for q in report.questions] == ["gateway_liveness"]
+
+    def test_an_unresolvable_profile_is_fail_open(self, engine, monkeypatch, caplog):
+        calls = self._probed(monkeypatch)
+        resolver = _FakeResolver({})  # the named profile does not exist here
+        with caplog.at_level("WARNING", logger="geecs_bluesky.qs_client"):
+            report = run_submit_preflight(
+                _preset(trigger_profile="HTU-Missing"), "Undulator", resolver=resolver
+            )
+        assert calls == [["UC_Cam1", "UC_Cam2"]]  # the preset's devices alone
+        assert report.refusal is None
+        assert any("HTU-Missing" in r.message for r in caplog.records)
+
+    def test_the_default_resolver_seam_is_used_when_none_is_given(
+        self, engine, monkeypatch
+    ):
+        calls = self._probed(monkeypatch)
+        monkeypatch.setattr(
+            submit_preflight,
+            "_make_default_resolver",
+            lambda experiment: _FakeResolver(
+                {"HTU-Test": _profile()}, default="HTU-Test"
+            ),
+        )
+        run_submit_preflight(_preset(), "Undulator")
+        assert calls == [["UC_Cam1", "UC_Cam2", "U_DG645_ShotControl", "U_Shutter"]]
 
 
 class TestWorkerReady:
