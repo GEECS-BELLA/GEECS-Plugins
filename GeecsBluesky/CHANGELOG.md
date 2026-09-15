@@ -41,8 +41,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   #894): `name_failed_status` (in `plans/strict`) gives a `FailedStatus`
   its cause's text as it passes the GEECS hooks — inside the stock plan,
   before `run_wrapper` renders `str(exc)` into the stop document — and
-  again around the run bracket for a failure outside the run. Type,
-  cause and traceback are untouched. `ScanEndInfo` and the portal now read
+  again around the run bracket for a failure outside the run, and around
+  the registered `mv` (a manual move's queue-item report reads its cause
+  too). Type, cause and traceback are untouched. `ScanEndInfo` and the portal now read
   `CANothing: <pv>: <CA message>` instead of `<AsyncStatus …>`, and
   `scan.log`'s last line carries the reason beside the exit status.
 

@@ -19,9 +19,7 @@ read live.
   :mod:`geecs_bluesky.plans.strict`).  A typed ``str`` signal has no
   enum edge to trip over.
 
-``aioca`` (the ``ca`` extra) and ``bluesky.plan_stubs`` are both imported
-lazily on first use: the client preflight imports this module and must
-stay light.
+``aioca`` is imported lazily on first use (the ``ca`` extra).
 """
 
 from __future__ import annotations
@@ -29,6 +27,8 @@ from __future__ import annotations
 import logging
 from collections.abc import Mapping
 from typing import Any, Iterable
+
+import bluesky.plan_stubs as bps
 
 from geecs_bluesky.devices.ca._pv import GATEWAY_DISCONNECTED
 
@@ -69,8 +69,6 @@ def read_disconnected(
     list of str
         The devices confirmed down.
     """
-    import bluesky.plan_stubs as bps  # deferred: keep the client seam light
-
     down: list[str] = []
     for device, signal in signals.items():
         try:
