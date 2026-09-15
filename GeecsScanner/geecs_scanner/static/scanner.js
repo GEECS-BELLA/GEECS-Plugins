@@ -1022,7 +1022,7 @@
       .then(function (out) {
         $("preset-saved").textContent = out.message;
         return api("/api/configs/presets").then(function (r) {
-          S.presets = r.names; S.presetName = out.name; renderPresetList();
+          S.presets = r.names; S.presetName = out.name; S.loadedName = out.name; renderPresetList();
           $("preset-name").textContent = "preset " + out.name;
         });
       })
