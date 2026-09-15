@@ -21,12 +21,18 @@ All notable changes to `geecs-ca-gateway` are documented here, following
   is not a liveness signal (the ACK settles that) but the point past which
   an acknowledged, still-executing move's reply would be dropped unread,
   so it is **longer than any client's own wait**: the CA client bounds
-  that (GeecsBluesky's `CaMotor`: 90 s for the reply, by readback
-  progress, under a 300 s hard ceiling), and a reply the gateway has
+  that (the #906 design gives GeecsBluesky's `CaMotor` a 300 s hard
+  ceiling on its reply wait, bounded by readback progress — its companion
+  PR; the shipped constant is still 30 s), and a reply the gateway has
   discarded can never reach a client still waiting for it — 600 s is twice
-  the worker's ceiling. The async caproto put costs nothing while waiting.
-  How an error reply is classified is untouched: the device's verdict,
-  `no error` or an error, still decides the put.
+  that ceiling. The async caproto put costs the CA server nothing while
+  waiting; the per-device UDP lock means an acknowledged set whose reply
+  never arrives holds that device's setpoint channel for the ceiling
+  (documented in `PV_CONTRACT.md` §2). How an error reply is classified is
+  untouched: the device's verdict, `no error` or an error, still decides
+  the put.
+- `--set-timeout` rejects `0`/negative values; documented in
+  `DEPLOYMENT.md`'s flag table and `docs/geecs_gateway/client_overview.md`.
 - New CLI flag `--set-timeout SECONDS` overrides the ceiling per host
   (`python -m geecs_ca_gateway --experiment X --set-timeout 600`); it
   reaches the gateway through `_run(set_timeout_s=…)`.

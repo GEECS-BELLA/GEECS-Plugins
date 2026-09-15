@@ -40,8 +40,13 @@ def test_derived_channels_path_flag() -> None:
 
 def test_set_timeout_flag() -> None:
     """``--set-timeout`` overrides the exe-reply ceiling per host (#906)."""
-    args = _parse_args(["--experiment", "X", "--set-timeout", "600"])
-    assert args.set_timeout == pytest.approx(600.0)
+    args = _parse_args(["--experiment", "X", "--set-timeout", "900"])
+    assert args.set_timeout == pytest.approx(
+        900.0
+    )  # not the default — a dropped flag would show
+    for bad in ("0", "-5", "soon"):
+        with pytest.raises(SystemExit):
+            _parse_args(["--experiment", "X", "--set-timeout", bad])
 
 
 def test_experiment_required() -> None:
@@ -84,11 +89,11 @@ def test_main_returns_normally_without_restart(monkeypatch) -> None:
             "derived.yaml",
             "--show-missing",
             "--set-timeout",
-            "600",
+            "900",
         ]
     )  # no exception
     assert seen["derived_channels_path"] == Path("derived.yaml")
-    assert seen["set_timeout_s"] == pytest.approx(600.0)
+    assert seen["set_timeout_s"] == pytest.approx(900.0)  # not the default
 
 
 async def test_run_loads_default_derived_channels_from_configs_repo(

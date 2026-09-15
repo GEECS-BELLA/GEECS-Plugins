@@ -44,6 +44,19 @@ class _QuietMissingVariables(logging.Filter):
         return "missing variable(s)" not in record.getMessage()
 
 
+def _positive_seconds(text: str) -> float:
+    """Argparse type for ``--set-timeout``: a strictly positive number of seconds."""
+    try:
+        value = float(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"not a number: {text!r}") from None
+    if not value > 0:
+        raise argparse.ArgumentTypeError(
+            f"must be > 0 seconds (a ceiling of {text} fails every put after its ACK)"
+        )
+    return value
+
+
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         prog="geecs-ca-gateway",
@@ -90,14 +103,15 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--set-timeout",
-        type=float,
+        type=_positive_seconds,
         default=_SET_REPLY_CEILING_S,
         metavar="SECONDS",
         help=(
             "Ceiling on waiting for a device's reply to a :SP put (default "
             f"{_SET_REPLY_CEILING_S:g} s). GEECS sets block until the device "
             "reports convergence, so this must outlast the slowest legitimate "
-            "move; a dead device fails at the ACK stage regardless."
+            "move and every CA client's own put wait; a dead device fails at "
+            "the ACK stage regardless."
         ),
     )
     parser.add_argument(

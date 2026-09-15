@@ -1012,9 +1012,10 @@ async def test_setpoint_write_uses_move_budget_timeout() -> None:
     assert variable == "Position"
     assert value == pytest.approx(4.2)
     assert timeout == pytest.approx(gw._set_timeout)
-    # Longer than any client's own wait: GeecsBluesky's CaMotor waits under a
-    # 300 s hard ceiling, and a reply discarded here never reaches a client
-    # still waiting for it (#906). Not imported — the gateway has no
+    # Longer than any client's own wait: the #906 design gives GeecsBluesky's
+    # CaMotor a 300 s hard ceiling on its reply wait (companion PR; the shipped
+    # constant is still 30 s), and a reply discarded here never reaches a
+    # client still waiting for it. Not imported — the gateway has no
     # dependency on the worker; the number is the contract (PV_CONTRACT §2).
     assert gw._set_timeout > 300.0
 
@@ -1180,9 +1181,10 @@ async def test_reply_past_the_ceiling_is_the_only_stale_discard(
     await _wait_for_command(udp, 1)
     await _ack(udp)
 
-    await clock.advance(29.0)  # under the ceiling: still armed, nothing dropped
+    await clock.advance(29.0)  # under the ceiling: the exe future is still armed
     assert not put.done()
-    assert "no exchange in flight" not in caplog.text
+    armed = udp._exe_proto._future
+    assert armed is not None and not armed.done(), "a reply now would be accepted"
 
     await clock.advance(3.0)  # 32 s: past the 30 s ceiling
     with pytest.raises(GeecsConnectionError, match="no exe response within 30"):

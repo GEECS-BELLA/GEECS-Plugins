@@ -230,12 +230,19 @@ GEECS device  <--blocking UDP set-----------  setpoint PV   (caput :SP)
   the former 30 s budget failed and then discarded as stale), so the ceiling
   is minutes, not a liveness signal: the put waits for the device's reply and
   the reply's own status decides. **The ceiling is longer than any client's
-  own wait** — the CA client bounds that (GeecsBluesky's `CaMotor`: 90 s for
-  the reply, by readback progress, under a 300 s hard ceiling), and a reply
-  the gateway has discarded can never reach a client still waiting for it;
-  keep any `--set-timeout` override above every client's wait. The async put
-  costs the gateway nothing while it waits. Gets keep the transport's short
-  10 s default: a read that takes 10 s *is* a dead device.
+  own wait** — the CA client bounds that (the #906 design of record gives
+  GeecsBluesky's `CaMotor` a 300 s hard ceiling on its reply wait, bounded by
+  readback progress; today's shipped constant is 30 s), and a reply the
+  gateway has discarded can never reach a client still waiting for it; keep
+  any `--set-timeout` override above every client's wait. The async put
+  costs the CA server nothing while it waits, but **exchanges are serialised
+  per device** (GEECS devices take one command at a time): an acknowledged
+  set whose reply never arrives holds that device's setpoint channel for the
+  ceiling, and later `:SP` puts to the same device queue behind it and fail
+  at their own client budgets. That mirrors the device's one-command rule
+  while it is still executing; only a reply lost on the wire turns it into a
+  ceiling-long stall. Gets keep the transport's short 10 s default: a read
+  that takes 10 s *is* a dead device.
 - The setpoint PV reflects the last *successfully forwarded* put, not the
   device readback. Read state from the readback PV; the `:SP` value is the
   commanded value.

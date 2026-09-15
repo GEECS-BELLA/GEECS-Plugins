@@ -72,14 +72,21 @@ _UNSET = object()
 # exe reply's own status carries the verdict — it is only the point past which
 # an acknowledged, still-executing move's reply would be dropped unread.
 # It must therefore be LONGER THAN ANY CLIENT'S OWN WAIT: the CA client, not
-# the gateway, decides how long to wait for a put (CaMotor in GeecsBluesky
-# waits 90 s for the reply, bounded by readback progress, under a 300 s hard
-# ceiling), and a reply the gateway has already discarded can never reach a
-# client still waiting for it. Twice the worker's ceiling keeps that order
-# with margin. Waiting costs the gateway nothing: the caproto put is async.
-# Gets keep the shorter GeecsUdpClient default — a read that takes 10 s *is*
-# a dead device. Overridable per host with `--set-timeout` — keep it above
-# every client's wait.
+# the gateway, decides how long to wait for a put, and a reply the gateway has
+# already discarded can never reach a client still waiting for it. The #906
+# design of record gives GeecsBluesky's CaMotor a 300 s hard ceiling on its
+# reply wait (bounded by readback progress; its companion PR — the shipped
+# `_DEFAULT_MOVE_TIMEOUT` is still 30 s); twice that keeps the order with
+# margin. The caproto put is async, so waiting costs the CA server nothing —
+# but the UDP client serialises exchanges per device (GEECS devices take one
+# command at a time), so an ACKed set whose reply never comes holds THAT
+# device's setpoint channel for the ceiling: later `:SP` puts to the device
+# queue behind it and fail at their own client budgets. That mirrors the
+# device's own one-command rule while it is still executing; only a reply
+# lost on the wire turns it into a 10-minute stall. Gets keep the shorter
+# GeecsUdpClient default — a read that takes 10 s *is* a dead device.
+# Overridable per host with `--set-timeout` — keep it above every client's
+# wait.
 _SET_REPLY_CEILING_S = 600.0
 
 _ALARM_SEVERITY = {
