@@ -26,7 +26,7 @@ class each GEECS device is** and **what hangs off it**:
 |---|---|---|
 | acquires per shot (`looks_triggerable`) | `CaGenericDetector(device, subscribed_vars, datatypes=…)` | shot monitor + `trigger()`, shot-ID columns, save controls, asset docs — all already there |
 | anything else | `CaSnapshotReadable(device, subscribed_vars, datatypes=…)` | one sample per row |
-| each served **settable** variable | attached child: `CaMotor` if the DB gives a **positive** tolerance (readback convergence), else `CaSettable` | `bps.mv(U_S1H.current, 0.5)` moves with GEECS semantics; ophyd-async registers and names a child attached after construction |
+| each served **settable** variable | attached child: `CaMotor` if the DB gives a **positive** tolerance (readback convergence) or the catalog says `kind: motor` (class default tolerance, warned — 0.91.0), else `CaSettable` | `bps.mv(U_S1H.current, 0.5)` moves with GEECS semantics; ophyd-async registers and names a child attached after construction |
 
 Rules the namespace applies come from their existing homes, never
 restated:
@@ -138,7 +138,9 @@ device) and its tests.
   `kind: motor` target that exists in the DB carries one; `0`/NULL means a
   plain setpoint — exposure-like numerics never echo within a tolerance);
   catalog `kind: motor` opt-in, `confirm` and `pseudo` entries become
-  namespace nouns in phase 3 with the axis expansion.
+  namespace nouns in phase 3 with the axis expansion. *(The pseudo arc,
+  2026-09-15: pseudo nouns landed with `add_pseudos`, the `kind: motor`
+  opt-in with `motor_targets`; `confirm` nouns still open.)*
 - The variable-type rule moved to GEECS-Core **unchanged**; the 18
   Undulator rows with `variabletype='numeric'` and an option list are a DB
   fix (`variabletype='choice'`) so gateway and clients flip together.

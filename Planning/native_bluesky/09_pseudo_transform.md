@@ -13,7 +13,7 @@ the compiler stays and the software reads `a`/`b` off the expression's AST
 instead of the catalog carrying coefficients. Step 3 is PR #913 (0.90.0:
 `GeecsNamespace.add_pseudos`, the startup profile calls it, the preset
 expansion stops refusing `kind: pseudo`; the web scanner picker flips with
-it, #879).
+it, #879). Step 5 (`kind: motor` opt-in) is the PR after it (0.91.0).
 
 **Why it is a merge-gate item.** Composite variables are scanned regularly on
 HTU (Sam, 2026-09-13), and **they cannot be scanned at all on this branch**:

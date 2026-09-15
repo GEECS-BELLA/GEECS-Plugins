@@ -129,7 +129,9 @@ qserver/                    # the worker: launcher, startup profile, permissions
   with `native_save` iff the DB lists `save` and `localsavingpath` (the
   detector then owns those two; they are never scan-settable children);
   otherwise `CaSnapshotReadable`.  Every served settable is a Movable child
-  (`U_S1H.current`: `CaMotor` with a DB tolerance, else `CaSettable`), and
+  (`U_S1H.current`: `CaMotor` with a DB tolerance or a catalog `kind: motor`
+  opt-in — the latter at the class default tolerance, WARNED for DB
+  curation — else `CaSettable`), and
   a subscribed settable's readback is a column of its parent.  Namespace
   bindings keep GEECS spelling (`U_S1H`); ophyd names and event keys are
   `safe_name` (lowercase, one lossy encoding shared with the gateway's PV

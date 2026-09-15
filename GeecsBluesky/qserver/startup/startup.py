@@ -55,7 +55,7 @@ import os
 import geecs_bluesky  # noqa: F401
 
 from geecs_bluesky.config_resolver import ConfigsRepoResolver
-from geecs_bluesky.namespace import GeecsNamespace
+from geecs_bluesky.namespace import GeecsNamespace, motor_targets
 from geecs_bluesky.plan_names import GEECS_PLAN_NAMES
 from geecs_bluesky.plans.claim_scan import GeecsScanPathProvider
 from geecs_bluesky.plans.registry import TriggerProfiles, bind_plans
@@ -127,6 +127,21 @@ else:
             exc_info=True,
         )
         _offsets = None
+    # The scan-variable catalog, read once for two things: which plain
+    # targets it declares `kind: motor` (bound as CaMotor even where the DB
+    # tolerance is 0) and its pseudo entries as nouns of their own (the
+    # pseudo arc, #904).  Best-effort like the shot offsets: an unreadable
+    # catalog costs the opt-ins and the pseudos, not the worker.
+    try:
+        _catalog = _resolver.scan_variable_catalog().variables
+    except Exception:
+        logger.warning(
+            "scan-variable catalog not loaded — no pseudo scan variable is "
+            "registered and no 'kind: motor' opt-in applies; fix the document "
+            "and reopen the environment",
+            exc_info=True,
+        )
+        _catalog = {}
     namespace = GeecsNamespace.from_experiment(
         _experiment,
         path_provider=_path_provider,
@@ -135,18 +150,9 @@ else:
             if _offsets is not None
             else None
         ),
+        motor_targets=motor_targets(_catalog),
     )
-    # The scan-variable catalog's pseudo entries as nouns of their own
-    # (the pseudo arc, #904).  Best-effort like the shot offsets: an
-    # unreadable catalog costs the pseudos, not the worker.
-    try:
-        namespace.add_pseudos(_resolver.scan_variable_catalog().variables)
-    except Exception:
-        logger.warning(
-            "scan-variable catalog not loaded — no pseudo scan variable is "
-            "registered; fix the document and reopen the environment",
-            exc_info=True,
-        )
+    namespace.add_pseudos(_catalog)
     _DEVICE_NAMES = namespace.export_into(globals())
     _telemetry = namespace.telemetry()
     _profiles = TriggerProfiles.from_resolver(_resolver, experiment=_experiment)

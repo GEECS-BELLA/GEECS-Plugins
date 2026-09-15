@@ -84,9 +84,14 @@ REPLY_CEILING = 300.0
 _POLL_INTERVAL = 0.1
 
 #: Move-completion tolerance of a bare ``CaMotor(...)`` — tests and ad-hoc
-#: devices.  In a scan the motor comes from ``GeecsNamespace``, which passes
-#: the variable's positive DB ``tolerance``; a non-positive one binds a plain
-#: setpoint (``CaSettable``), so this default is never used for a DB device.
+#: devices — **and of a catalog ``kind: motor`` opt-in whose DB tolerance is
+#: 0/NULL** (the steering magnets, GEECS-Plugins#780): ``GeecsNamespace``
+#: passes a positive DB ``tolerance`` where the DB has one, this default
+#: where the catalog asks for a motor and the DB says nothing (WARNED at
+#: build, naming the row to curate); a non-positive tolerance with no
+#: opt-in binds a plain setpoint (``CaSettable``).  5 mA on a supply, 5 µm
+#: on a stage — the pseudo positioner's agreement fallback
+#: (``pseudo.DEFAULT_AGREEMENT_TOLERANCE``) sits above it on purpose.
 DEFAULT_TOLERANCE = 0.005
 
 # Binary floating point puts an exactly-on-tolerance arrival a few ULPs *over*

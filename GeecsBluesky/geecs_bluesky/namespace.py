@@ -21,8 +21,9 @@ device layer (``Planning/native_bluesky/01a_device_layer_audit.md``):
   :class:`~geecs_bluesky.devices.ca.snapshot.CaSnapshotReadable`;
 * each served **settable** variable is attached to that object as a child
   Movable — :class:`~geecs_bluesky.devices.ca.motor.CaMotor` when the DB
-  gives it a tolerance (readback convergence), else
-  :class:`~geecs_bluesky.devices.ca.settable.CaSettable` — so
+  gives it a tolerance (readback convergence) **or the scan-variable
+  catalog opts it in** (a plain entry with ``kind: motor``; ``motor_targets``
+  at build), else :class:`~geecs_bluesky.devices.ca.settable.CaSettable` — so
   ``bps.mv(U_S1H.Current, 0.5)`` moves with the GEECS semantics those
   classes already implement.
 
@@ -57,7 +58,7 @@ from __future__ import annotations
 
 import logging
 import re
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -73,7 +74,7 @@ from geecs_core.db.variable_types import (
 )
 
 from geecs_bluesky.db_runtime import GeecsDbDeviceTypes, GeecsDbServedSetProvider
-from geecs_bluesky.devices.ca.motor import CaMotor
+from geecs_bluesky.devices.ca.motor import DEFAULT_TOLERANCE, CaMotor
 from geecs_bluesky.devices.ca.pseudo import CaPseudoPositioner, build_pseudo
 from geecs_bluesky.devices.ca.settable import CaSettable
 from geecs_bluesky.devices.ca.snapshot import CaSnapshotReadable
@@ -175,6 +176,21 @@ def python_type(row: Mapping[str, Any]) -> type | None:
 
 
 # -------------------------------------------------------------------- roster
+def motor_targets(catalog: Mapping[str, Any]) -> set[str]:
+    """The ``"Device:Variable"`` targets a scan-variable catalog declares ``kind: motor``.
+
+    *catalog* is the catalog's ``variables`` mapping.  Plain entries only —
+    a pseudo's components take whatever the namespace bound for them
+    (per-component kind is a later addition).  Lower-cased, the spelling
+    :meth:`GeecsNamespace._movable` compares against.
+    """
+    return {
+        str(spec.target).lower()
+        for spec in catalog.values()
+        if getattr(spec, "kind", None) == "motor" and getattr(spec, "target", None)
+    }
+
+
 @dataclass(frozen=True)
 class DeviceRoster:
     """What the GEECS DB says about one experiment's devices.
@@ -313,6 +329,12 @@ class GeecsNamespace:
         device the mapping does not name keeps ``0.0`` — what every device
         carried before the calibration existed.  Read once at build: a
         re-measurement reaches the worker when its environment is reopened.
+    motor_targets :
+        ``"Device:Variable"`` targets the scan-variable catalog declares
+        ``kind: motor`` (:func:`motor_targets`): each binds a ``CaMotor``
+        even where the DB tolerance is ``0``/NULL — with the class default
+        tolerance and a WARNING naming the DB row to curate (#780).  The
+        catalog never *downgrades*: a DB tolerance still binds a motor.
     """
 
     def __init__(
@@ -322,10 +344,13 @@ class GeecsNamespace:
         path_provider: PathProvider | None = None,
         file_plugin_hosts: set[str] | None | object = _HOSTS_FROM_CONFIG,
         drain_offsets: Mapping[str, float] | None = None,
+        motor_targets: Iterable[str] | None = None,
     ) -> None:
         self.experiment = roster.experiment
         self.roster = roster
         self._path_provider = path_provider
+        self._motor_targets: set[str] = {t.lower() for t in (motor_targets or ())}
+        self._bound_motors: set[str] = set()  # "device:variable" bound as CaMotor
         hosts = (
             _hosts_from_config()
             if file_plugin_hosts is _HOSTS_FROM_CONFIG
@@ -378,6 +403,24 @@ class GeecsNamespace:
                 ", ".join(sorted(skipped)),
             )
         self._log_drain_offsets(detectors)
+        self._log_unhonoured_motor_targets()
+
+    def _log_unhonoured_motor_targets(self) -> None:
+        """Warn about catalog ``kind: motor`` targets no motor was bound for.
+
+        Same reason as the drain offsets: the failure is silent downstream —
+        a target the gateway does not serve, a typo, a non-numeric or
+        read-only row — scans as whatever was bound (or refuses at
+        preflight) while the operator assumes the catalog's word was kept.
+        """
+        unhonoured = sorted(self._motor_targets - self._bound_motors)
+        if unhonoured:
+            logger.warning(
+                "device namespace: %d catalog 'kind: motor' target(s) bound no "
+                "motor (not served, not settable, not numeric, or misspelled): %s",
+                len(unhonoured),
+                ", ".join(unhonoured),
+            )
 
     def _log_drain_offsets(self, detectors: Sequence[Any]) -> None:
         """Say what the calibration did — including the names it could not place.
@@ -426,6 +469,7 @@ class GeecsNamespace:
         path_provider: PathProvider | None = None,
         file_plugin_hosts: set[str] | None | object = _HOSTS_FROM_CONFIG,
         drain_offsets: Mapping[str, float] | None = None,
+        motor_targets: Iterable[str] | None = None,
     ) -> GeecsNamespace:
         """Build from the GEECS DB (loud on failure)."""
         return cls(
@@ -433,6 +477,7 @@ class GeecsNamespace:
             path_provider=path_provider,
             file_plugin_hosts=file_plugin_hosts,
             drain_offsets=drain_offsets,
+            motor_targets=motor_targets,
         )
 
     # ------------------------------------------------------------------ build
@@ -576,20 +621,36 @@ class GeecsNamespace:
             return attr + "_"
         return attr
 
-    @staticmethod
     def _movable(
-        device: str, var: str, row: Mapping[str, Any], py: type, experiment: str
+        self, device: str, var: str, row: Mapping[str, Any], py: type, experiment: str
     ) -> Any:
-        """One served settable → ``CaMotor`` (DB tolerance) or ``CaSettable``."""
+        """One served settable → ``CaMotor`` (DB tolerance or catalog opt-in) or ``CaSettable``."""
         tolerance = row.get("tolerance")
         if py is float and tolerance is not None and float(tolerance) > 0:
             # A positive DB tolerance means "confirm the readback converged".
-            # 0 / NULL → a plain setpoint: many numeric settables (exposure,
-            # command-like values) never echo within a tolerance, and the
-            # catalog's `kind: motor` opt-in arrives with the axes in phase 3.
+            self._bound_motors.add(f"{device}:{var}".lower())
             return CaMotor(
                 device, var, experiment=experiment, tolerance=float(tolerance)
             )
+        if py is float and f"{device}:{var}".lower() in self._motor_targets:
+            # The catalog says this is a real positioner but the DB carries
+            # no tolerance to confirm with (#780): confirm within the class
+            # default and say which row to curate.
+            logger.warning(
+                "device namespace: %s:%s is a catalog 'kind: motor' but its DB "
+                "tolerance is %s — bound as a motor with the default tolerance "
+                "%g (set the DB tolerance to make it the device's own)",
+                device,
+                var,
+                tolerance,
+                DEFAULT_TOLERANCE,
+            )
+            self._bound_motors.add(f"{device}:{var}".lower())
+            return CaMotor(
+                device, var, experiment=experiment, tolerance=DEFAULT_TOLERANCE
+            )
+        # 0 / NULL and not opted in → a plain setpoint: many numeric settables
+        # (exposure, command-like values) never echo within a tolerance.
         return CaSettable(device, var, experiment=experiment, datatype=py)
 
     # -------------------------------------------------------------- pseudos

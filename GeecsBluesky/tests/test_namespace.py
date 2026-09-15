@@ -26,6 +26,7 @@ from geecs_bluesky.namespace import (
     GeecsNamespace,
     identifier_name,
     looks_triggerable,
+    motor_targets,
     python_type,
 )
 
@@ -663,3 +664,65 @@ def test_namespace_pseudo_scans_through_connect_on_demand() -> None:
         else None,
     )
     assert values == pytest.approx([-1.0, 0.0, 1.0])
+
+
+# -------------------------------------------------------- kind: motor opt-in
+
+
+def test_motor_targets_reads_plain_kind_motor_entries_only() -> None:
+    catalog = _catalog(
+        S3H={"target": "U_S3H:Current", "kind": "motor"},
+        Gas={"target": "U_HP_Daq:AnalogOutput.Channel 1", "kind": "setpoint"},
+        Default={"target": "U_S4H:Current"},  # kind defaults to setpoint
+        bump=BUMP,  # a pseudo's components are not opted in here
+    )
+    assert motor_targets(catalog) == {"u_s3h:current"}
+
+
+def test_catalog_kind_motor_binds_a_motor_where_the_db_tolerance_is_zero(
+    caplog,
+) -> None:
+    from geecs_bluesky.devices.ca.motor import DEFAULT_TOLERANCE
+
+    with caplog.at_level("WARNING", logger="geecs_bluesky.namespace"):
+        ns = GeecsNamespace(
+            _magnet_roster(), file_plugin_hosts=None, motor_targets={"U_S3H:Current"}
+        )
+    s3h = ns.variable("U_S3H", "Current")
+    assert isinstance(s3h, CaMotor) and s3h._tolerance == DEFAULT_TOLERANCE
+    assert any(
+        "U_S3H:Current is a catalog 'kind: motor' but its DB tolerance is 0.0"
+        in r.getMessage()
+        for r in caplog.records
+    )
+    # a DB tolerance still wins its own value; an un-opted 0 stays a plain setpoint
+    assert isinstance(ns.variable("U_S4H", "Current"), CaMotor)
+    assert ns.variable("U_S4H", "Current")._tolerance == 0.02
+    plain = GeecsNamespace(_magnet_roster(), file_plugin_hosts=None)
+    assert type(plain.variable("U_S3H", "Current")) is CaSettable
+
+
+def test_unhonoured_kind_motor_targets_are_warned_about(caplog) -> None:
+    with caplog.at_level("WARNING", logger="geecs_bluesky.namespace"):
+        GeecsNamespace(
+            _magnet_roster(),
+            file_plugin_hosts=None,
+            motor_targets={
+                "U_S3H:Curent",
+                "U_Nope:Current",
+                "U_S3H:Voltage",
+                "U_S4H:Current",
+            },
+        )
+    lines = [
+        r.getMessage() for r in caplog.records if "bound no motor" in r.getMessage()
+    ]
+    assert len(lines) == 1
+    assert "u_s3h:curent" in lines[0] and "u_nope:current" in lines[0]
+    assert "u_s3h:voltage" in lines[0]  # served but read-only
+    assert "u_s4h:current" not in lines[0]  # honoured (DB tolerance)
+
+
+def test_catalog_kind_setpoint_never_downgrades_a_db_motor() -> None:
+    ns = GeecsNamespace(_magnet_roster(), file_plugin_hosts=None, motor_targets=set())
+    assert isinstance(ns.variable("U_S1H", "Current"), CaMotor)
