@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 
-from geecs_core.transport._coerce import coerce_scalar
+import random
+
+import pytest
+
+from geecs_core.transport._coerce import coerce_scalar, format_float
 
 
 class TestCoerceScalar:
@@ -72,3 +76,75 @@ class TestCoerceScalar:
         # Both should pass through as strings (non-finite)
         assert isinstance(result_1, str)
         assert isinstance(result_2, str)
+
+
+class TestFormatFloat:
+    """Outbound float formatting for set commands (issue #819).
+
+    The wire string must carry exactly the digits the caller asked for — no
+    binary-representation tail, no truncation, no exponent notation.
+    """
+
+    @pytest.mark.parametrize(
+        ("value", "expected"),
+        [
+            # The issue's table: %.12f sent 40854.246249999997 etc.
+            (40854.24625, "40854.24625"),
+            (40865.8875, "40865.8875"),
+            (40966.0, "40966.0"),
+            # Small magnitudes a fixed-decimals format would zero (the DB's
+            # tightest tolerance and minimum found so far, and smaller).
+            (0.001, "0.001"),
+            (1e-05, "0.00001"),
+            (1e-07, "0.0000001"),
+            (2.5e-05, "0.000025"),
+            # Large magnitudes where repr switches to exponent form.
+            (1e16, "10000000000000000.0"),
+            (1.5e17, "150000000000000000.0"),
+            (123456789.123456789, "123456789.12345679"),
+            # Integers-as-floats keep a decimal point, as %.12f did.
+            (1.0, "1.0"),
+            (0.0, "0.0"),
+            (-0.0, "-0.0"),
+            # Negatives, both ranges.
+            (-40854.24625, "-40854.24625"),
+            (-1e-07, "-0.0000001"),
+            (-0.001, "-0.001"),
+        ],
+    )
+    def test_shortest_round_trip_plain_decimal(
+        self, value: float, expected: str
+    ) -> None:
+        text = format_float(value)
+        assert text == expected
+        assert float(text) == value  # exact round trip, not approx
+
+    def test_non_finite_pass_through(self) -> None:
+        """inf/nan render as before (%.12f gave the same tokens)."""
+        assert format_float(float("inf")) == "inf"
+        assert format_float(float("-inf")) == "-inf"
+        assert format_float(float("nan")) == "nan"
+
+    def test_five_decimal_working_range_has_no_representation_tail(self) -> None:
+        """The issue's measurement: 86% of five-decimal values in the
+        Aerotech's working range grew a garbage tail under %.12f. The
+        shortest form never does — at most the five decimals asked for, and
+        an exact round trip — over a seeded sample of that range.
+        """
+        rng = random.Random(819)
+        for _ in range(20_000):
+            value = round(rng.uniform(40_000, 41_000), 5)
+            text = format_float(value)
+            assert "e" not in text
+            assert float(text) == value
+            decimals = text.split(".")[1]
+            assert len(decimals) <= 5, (value, text)
+
+    def test_never_exponent_notation_across_magnitudes(self) -> None:
+        for exp in range(-12, 20):
+            for mantissa in (1.0, 1.5, 7.25, -3.125):
+                value = mantissa * 10.0**exp
+                text = format_float(value)
+                assert "e" not in text and "E" not in text, (value, text)
+                assert "." in text
+                assert float(text) == value

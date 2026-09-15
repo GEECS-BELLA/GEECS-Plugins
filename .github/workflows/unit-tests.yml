@@ -100,11 +100,34 @@ jobs:
         # would silently skip without it (review finding, 2026-08-21).
         # --extras qs-client: tests/qs_client/test_queue_client.py
         # importorskips bluesky_queueserver_api the same way.
-        run: poetry install --with dev --extras qserver --extras qs-client
+        # --extras ca: the mock-CA layer — every module behind
+        # importorskip("aioca"), i.e. the device, shot-control, session, and
+        # plan tests — skipped wholesale without it, so a green check said
+        # nothing about that code (#866). aioca ships wheels (epicscorelibs
+        # bundles libca), no system EPICS needed.
+        # --extras tiled: the Tiled *client* only (tiled[client]); the #829
+        # regression pin in tests/test_strict_plans.py drives bluesky's
+        # RunNormalizer, which imports tiled, and a real pin must run, not
+        # skip (the #866 lesson). Found by the first branch CI run with ca.
+        run: poetry install --with dev --extras qserver --extras qs-client --extras ca --extras tiled
 
       - name: Run GeecsBluesky pure unit tests
         working-directory: GeecsBluesky
-        run: poetry run pytest tests -m "not integration and not fake_server and not hardware" --tb=short -q --durations=10
+        # The -m expression REPLACES pyproject's addopts marker filter, so
+        # `not hardware` must be spelled here: with the ca extra installed,
+        # importorskip("aioca") no longer keeps hardware-marked modules out.
+        # `shell: bash` runs with `-eo pipefail`, so the tee cannot mask
+        # pytest's exit code. -rs lists every skip with its reason; the grep
+        # turns an importorskip("aioca"/"p4p") skip — the extra missing or
+        # broken on the runner — into a failure instead of a silent skip.
+        # scripts/check.sh's GeecsBluesky runner mirrors this step.
+        shell: bash
+        run: |
+          poetry run pytest tests -m "not integration and not fake_server and not hardware" --tb=short -q -rs | tee pytest-report.txt
+          if grep -E "could not import '(aioca|p4p)'" pytest-report.txt; then
+            echo "::error::GeecsBluesky's mock-CA tests skipped: the ca extra is missing or broken on the runner (#866)"
+            exit 1
+          fi
 
       - name: Install GEECS-MCP dependencies
         working-directory: GEECS-MCP
