@@ -725,9 +725,9 @@ later session does not redo it:
   guess.
 
 Also still deferred from `01_device_namespace.md`: the catalog's
-`kind: motor` opt-in (today motor-vs-settable comes from the DB tolerance
-alone and the catalog is ignored), `confirm` entries as nouns, and the axis
-expansion. Those belong with the pseudo arc, not with calibration.
+`kind: motor` opt-in (landed with the pseudo arc, GeecsBluesky 0.91.0),
+`confirm` entries as nouns (still open), and the axis expansion. Those
+belong with the pseudo arc, not with calibration.
 
 **On #809:** do not merge. Nothing from it is deployed; its two open P1s
 need no fix if it does not ship. Close it with a pointer here once this

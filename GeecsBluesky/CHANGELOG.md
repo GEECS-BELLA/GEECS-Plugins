@@ -19,7 +19,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   tolerance still binds a motor with its own value. `namespace.motor_targets(catalog)`
   reads the opt-ins; `GeecsNamespace(..., motor_targets=…)` /
   `from_experiment(..., motor_targets=…)` take them; the startup profile
-  reads the catalog once for the opt-ins and the pseudo nouns.
+  reads the catalog once for the opt-ins and the pseudo nouns. An opt-in
+  no motor was bound for (unserved, read-only, non-numeric, misspelled) is
+  WARNed at build, like a stale drain offset. **Event keys:** an opted-in
+  variable's readback column is a motor's (`u_s3h-current-position`, was
+  `u_s3h-current-readback`) — both suffixes are in `EVENT_SCHEMA.md`, the
+  s-file header (`U_S3H Current`) is unchanged. Two literals now stand in
+  for the missing DB fact on such a magnet — the move confirm
+  (`DEFAULT_TOLERANCE`, 0.005) and the pseudo agreement fallback
+  (`DEFAULT_AGREEMENT_TOLERANCE`, 0.01); #780's curation retires both.
 
 ## [0.90.0] - 2026-09-15
 

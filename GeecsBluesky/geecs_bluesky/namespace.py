@@ -350,6 +350,7 @@ class GeecsNamespace:
         self.roster = roster
         self._path_provider = path_provider
         self._motor_targets: set[str] = {t.lower() for t in (motor_targets or ())}
+        self._bound_motors: set[str] = set()  # "device:variable" bound as CaMotor
         hosts = (
             _hosts_from_config()
             if file_plugin_hosts is _HOSTS_FROM_CONFIG
@@ -402,6 +403,24 @@ class GeecsNamespace:
                 ", ".join(sorted(skipped)),
             )
         self._log_drain_offsets(detectors)
+        self._log_unhonoured_motor_targets()
+
+    def _log_unhonoured_motor_targets(self) -> None:
+        """Warn about catalog ``kind: motor`` targets no motor was bound for.
+
+        Same reason as the drain offsets: the failure is silent downstream —
+        a target the gateway does not serve, a typo, a non-numeric or
+        read-only row — scans as whatever was bound (or refuses at
+        preflight) while the operator assumes the catalog's word was kept.
+        """
+        unhonoured = sorted(self._motor_targets - self._bound_motors)
+        if unhonoured:
+            logger.warning(
+                "device namespace: %d catalog 'kind: motor' target(s) bound no "
+                "motor (not served, not settable, not numeric, or misspelled): %s",
+                len(unhonoured),
+                ", ".join(unhonoured),
+            )
 
     def _log_drain_offsets(self, detectors: Sequence[Any]) -> None:
         """Say what the calibration did — including the names it could not place.
@@ -609,6 +628,7 @@ class GeecsNamespace:
         tolerance = row.get("tolerance")
         if py is float and tolerance is not None and float(tolerance) > 0:
             # A positive DB tolerance means "confirm the readback converged".
+            self._bound_motors.add(f"{device}:{var}".lower())
             return CaMotor(
                 device, var, experiment=experiment, tolerance=float(tolerance)
             )
@@ -625,6 +645,7 @@ class GeecsNamespace:
                 tolerance,
                 DEFAULT_TOLERANCE,
             )
+            self._bound_motors.add(f"{device}:{var}".lower())
             return CaMotor(
                 device, var, experiment=experiment, tolerance=DEFAULT_TOLERANCE
             )

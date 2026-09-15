@@ -702,6 +702,27 @@ def test_catalog_kind_motor_binds_a_motor_where_the_db_tolerance_is_zero(
     assert type(plain.variable("U_S3H", "Current")) is CaSettable
 
 
+def test_unhonoured_kind_motor_targets_are_warned_about(caplog) -> None:
+    with caplog.at_level("WARNING", logger="geecs_bluesky.namespace"):
+        GeecsNamespace(
+            _magnet_roster(),
+            file_plugin_hosts=None,
+            motor_targets={
+                "U_S3H:Curent",
+                "U_Nope:Current",
+                "U_S3H:Voltage",
+                "U_S4H:Current",
+            },
+        )
+    lines = [
+        r.getMessage() for r in caplog.records if "bound no motor" in r.getMessage()
+    ]
+    assert len(lines) == 1
+    assert "u_s3h:curent" in lines[0] and "u_nope:current" in lines[0]
+    assert "u_s3h:voltage" in lines[0]  # served but read-only
+    assert "u_s4h:current" not in lines[0]  # honoured (DB tolerance)
+
+
 def test_catalog_kind_setpoint_never_downgrades_a_db_motor() -> None:
     ns = GeecsNamespace(_magnet_roster(), file_plugin_hosts=None, motor_targets=set())
     assert isinstance(ns.variable("U_S1H", "Current"), CaMotor)

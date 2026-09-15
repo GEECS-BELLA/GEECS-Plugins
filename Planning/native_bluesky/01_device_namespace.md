@@ -26,7 +26,7 @@ class each GEECS device is** and **what hangs off it**:
 |---|---|---|
 | acquires per shot (`looks_triggerable`) | `CaGenericDetector(device, subscribed_vars, datatypes=…)` | shot monitor + `trigger()`, shot-ID columns, save controls, asset docs — all already there |
 | anything else | `CaSnapshotReadable(device, subscribed_vars, datatypes=…)` | one sample per row |
-| each served **settable** variable | attached child: `CaMotor` if the DB gives a **positive** tolerance (readback convergence), else `CaSettable` | `bps.mv(U_S1H.current, 0.5)` moves with GEECS semantics; ophyd-async registers and names a child attached after construction |
+| each served **settable** variable | attached child: `CaMotor` if the DB gives a **positive** tolerance (readback convergence) or the catalog says `kind: motor` (class default tolerance, warned — 0.91.0), else `CaSettable` | `bps.mv(U_S1H.current, 0.5)` moves with GEECS semantics; ophyd-async registers and names a child attached after construction |
 
 Rules the namespace applies come from their existing homes, never
 restated:
