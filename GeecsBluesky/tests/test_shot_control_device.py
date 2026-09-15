@@ -5,15 +5,20 @@ from __future__ import annotations
 import asyncio
 
 import pytest
-from bluesky import RunEngine
-from bluesky.plan_stubs import mv
-from geecs_schemas.trigger_profile import TriggerState
 
-from geecs_bluesky.devices.ca._pv import ca_pv
-from geecs_bluesky.devices.shot_control import ShotControl
-from geecs_bluesky.exceptions import GeecsConfigurationError
-from geecs_bluesky.models.shot_control import ShotControlWrites
-from tests.ca_mock_helpers import connect_mock
+# The box carries its devices' CONNECTED signals (#852): building one needs
+# the CA transport, like every other CA-device suite (the `ca` extra).
+pytest.importorskip("aioca")
+
+from bluesky import RunEngine  # noqa: E402
+from bluesky.plan_stubs import mv  # noqa: E402
+from geecs_schemas.trigger_profile import TriggerState  # noqa: E402
+
+from geecs_bluesky.devices.ca._pv import ca_pv  # noqa: E402
+from geecs_bluesky.devices.shot_control import ShotControl  # noqa: E402
+from geecs_bluesky.exceptions import GeecsConfigurationError  # noqa: E402
+from geecs_bluesky.models.shot_control import ShotControlWrites  # noqa: E402
+from tests.ca_mock_helpers import connect_mock  # noqa: E402
 
 WRITES = ShotControlWrites(
     name="htu_test",
