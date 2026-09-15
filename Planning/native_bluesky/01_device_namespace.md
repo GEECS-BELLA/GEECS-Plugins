@@ -138,7 +138,9 @@ device) and its tests.
   `kind: motor` target that exists in the DB carries one; `0`/NULL means a
   plain setpoint — exposure-like numerics never echo within a tolerance);
   catalog `kind: motor` opt-in, `confirm` and `pseudo` entries become
-  namespace nouns in phase 3 with the axis expansion.
+  namespace nouns in phase 3 with the axis expansion. *(The pseudo arc,
+  2026-09-15: pseudo nouns landed with `add_pseudos`, the `kind: motor`
+  opt-in with `motor_targets`; `confirm` nouns still open.)*
 - The variable-type rule moved to GEECS-Core **unchanged**; the 18
   Undulator rows with `variabletype='numeric'` and an option list are a DB
   fix (`variabletype='choice'`) so gateway and clients flip together.

@@ -287,6 +287,7 @@ def _make_roster():
             "UC_TestCam": [
                 {**_ROW, "name": "trigger", "settable": True, "choices": "on,off"},
                 {**_ROW, "name": "MeanCounts"},
+                {**_ROW, "name": "exposure", "settable": True, "tolerance": 0.0},
             ],
             "U_S1H": [
                 {**_ROW, "name": "Current", "settable": True, "tolerance": 0.05},
@@ -310,7 +311,11 @@ def test_startup_exports_the_device_namespace_and_installs_connect_last(
     monkeypatch.setattr(
         GeecsNamespace,
         "from_experiment",
-        classmethod(lambda cls, exp, **kw: cls(_make_roster())),
+        classmethod(
+            lambda cls, exp, **kw: cls(
+                _make_roster(), motor_targets=kw.get("motor_targets")
+            )
+        ),
     )
     from geecs_bluesky.config_resolver import ConfigsRepoResolver
     from geecs_schemas.scan_variables import ScanVariables
@@ -323,7 +328,8 @@ def test_startup_exports_the_device_namespace_and_installs_connect_last(
                     "kind": "pseudo",
                     "mode": "absolute",
                     "targets": [{"target": "U_S1H:Current", "forward": "x * 2"}],
-                }
+                },
+                "Exposure": {"target": "UC_TestCam:exposure", "kind": "motor"},
             },
         }
     )
@@ -336,5 +342,9 @@ def test_startup_exports_the_device_namespace_and_installs_connect_last(
     # the catalog's pseudo is a noun of its own, over the bound child
     assert "S1H_twice" in ns and "S1H_twice" in ns["__all__"]
     assert ns["S1H_twice"]._components[0] is ns["U_S1H"].current
+    # the catalog's kind: motor opt-in reached the build (DB tolerance 0 → CaMotor)
+    from geecs_bluesky.devices.ca.motor import CaMotor
+
+    assert isinstance(ns["UC_TestCam"].exposure, CaMotor)
     funcs = [getattr(p, "func", p) for p in ns["RE"].preprocessors]
     assert funcs[-1] is connect_on_demand and funcs.count(connect_on_demand) == 1

@@ -4,6 +4,23 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.91.0] - 2026-09-15
+
+### Added
+
+- **The scan-variable catalog's `kind: motor` opt-in** (the pseudo arc
+  #904, build step 5; `01_device_namespace.md`'s deferred item). A plain
+  catalog entry declaring `kind: motor` binds its target as a `CaMotor`
+  even where the DB tolerance is `0`/NULL — the corpus marks the steering
+  magnets `kind: motor` and #780 says their DB tolerance is 0, so they
+  were plain setpoints with no convergence confirmation. Such a motor
+  confirms within the class default tolerance and the build WARNS naming
+  the DB row to curate. The catalog never downgrades: a positive DB
+  tolerance still binds a motor with its own value. `namespace.motor_targets(catalog)`
+  reads the opt-ins; `GeecsNamespace(..., motor_targets=…)` /
+  `from_experiment(..., motor_targets=…)` take them; the startup profile
+  reads the catalog once for the opt-ins and the pseudo nouns.
+
 ## [0.90.0] - 2026-09-15
 
 ### Added
