@@ -100,12 +100,19 @@ class Bench:
         self.RE = run_engine
         self.journal: list[tuple[str, float]] = []
         self.components: dict[str, CaMotor] = {}
+        #: target → a stand-in for the device's response to a put (a test's
+        #: refusal, a slow arrival); the default lands the readback on the value.
+        self.overrides: dict = {}
         for target in TARGETS:
             device, variable = target.split(":")
             motor = CaMotor(device, variable, tolerance=0.005, name=device.lower())
             connect_mock(run_engine, motor)
 
             def _follow(value, *, motor=motor, target=target, **kwargs):
+                override = self.overrides.get(target)
+                if override is not None:
+                    override(value)
+                    return
                 self.journal.append((target, value))
                 set_mock_value(motor.position, value)
 
@@ -486,3 +493,117 @@ def test_affine_inverse_reads_the_identity_component(bench, caplog):
         location = bench.run(jet.locate())
     assert location["readback"] == pytest.approx(12.0)
     assert "U_ProbeCamStage:Position reads 20, formula says 13.5 at 12" in caplog.text
+
+
+# ------------------------------------------------ review of #912: the fixes
+
+
+def test_agreement_allows_what_the_inverse_propagates(bench):
+    """Each motor settles inside its own tolerance; S4H's prediction carries S3H's
+    settle error ×2, so a check in S4H's bare tolerance would false-trip."""
+    bump = bench.build("ALine_e_beam_angle_offset_x", tolerance=lambda t: 0.005)
+    for target in ("U_S3H:Current", "U_S4H:Current"):
+        motor = bench.components[target]
+
+        def _settle_short(value, *, motor=motor):
+            set_mock_value(motor.position, value + 0.004)  # inside 0.005, every time
+
+        bench.overrides[target] = _settle_short
+    bench.place(U_S3H=0.35, U_S4H=-0.099)
+
+    def plan():
+        yield from bps.stage(bump, wait=True)
+        yield from bps.mv(bump, 0.1)
+        yield from bps.mv(bump, 0.2)  # would raise with a bare per-component tolerance
+        yield from bps.unstage(bump, wait=True)
+
+    bench.RE(plan())
+
+
+def test_partial_failure_waits_for_the_other_component_before_failing(bench):
+    bump = bench.build("ALine_e_beam_angle_offset_x")
+    bench.place(U_S3H=0.35, U_S4H=-0.099)
+    s4h = bench.components["U_S4H:Current"]
+    order: list[str] = []
+
+    def _refuse(value):
+        order.append("s3h refused")
+        raise RuntimeError("LabVIEW: set refused")
+
+    def _slow_arrival(value):
+        async def land():
+            await asyncio.sleep(0.3)
+            order.append("s4h landed")
+            set_mock_value(s4h.position, value)
+
+        asyncio.get_running_loop().create_task(land())
+
+    bench.overrides["U_S3H:Current"] = _refuse
+    bench.overrides["U_S4H:Current"] = _slow_arrival
+
+    with pytest.raises(FailedStatus) as info:
+        bench.RE(bps.mv(bump, 0.1))
+    assert "set refused" in str(info.value.__cause__)
+    # the status failed only after S4H's move completed — no second put on a busy device
+    assert order == ["s3h refused", "s4h landed"]
+    assert bump._moved is True
+
+
+def test_failed_restore_refuses_the_next_stage_until_moved_back_to_zero(bench):
+    from geecs_bluesky.exceptions import PseudoRestorePendingError
+
+    bump = bench.build("ALine_e_beam_angle_offset_x")
+    bench.place(U_S3H=0.35, U_S4H=-0.099)
+    s4h = bench.components["U_S4H:Current"]
+    refuse_baseline = {"on": True}
+
+    def _refuse_at_baseline(value):
+        if refuse_baseline["on"] and abs(value - (-0.099)) < 1e-9:
+            raise RuntimeError("LabVIEW: set refused")
+        set_mock_value(s4h.position, value)
+
+    bench.overrides["U_S4H:Current"] = _refuse_at_baseline
+
+    with pytest.raises(FailedStatus):
+        bench.RE(bp.scan([], bump, 0.05, 0.1, 2))  # the restore at unstage fails on S4H
+    assert bench.dial("U_S4H") == pytest.approx(-0.299)  # left bumped
+
+    with pytest.raises(FailedStatus) as info:
+        bench.RE(bps.stage(bump, wait=True))  # would bake the bump into the baseline
+    assert isinstance(info.value.__cause__, PseudoRestorePendingError)
+    assert "'U_S4H:Current': -0.099" in str(info.value.__cause__)
+
+    refuse_baseline["on"] = False
+    bench.RE(
+        bps.mv(bump, 0.0)
+    )  # the recovery gesture: the offsets still hold the baselines
+    assert bench.dial("U_S3H") == pytest.approx(0.35)
+    assert bench.dial("U_S4H") == pytest.approx(-0.099)
+    bench.RE(bp.scan([], bump, -0.1, 0.1, 3))  # and the next scan is allowed again
+    assert bench.dial("U_S4H") == pytest.approx(-0.099)
+
+
+def test_affine_inverse_skips_a_constant_component():
+    from geecs_bluesky.devices.ca.pseudo import affine_inverse
+
+    inverse = affine_inverse(["probe", "jet"], [(0.0, 8.5), (2.0, 0.0)])
+    assert inverse({"probe": 8.5, "jet": 6.0}) == pytest.approx(3.0)
+    with pytest.raises(GeecsConfigurationError, match="every forward is a constant"):
+        affine_inverse(["probe"], [(0.0, 8.5)])
+
+
+def test_pseudo_connect_connects_its_components():
+    RE = RunEngine()
+    s3h = CaMotor("U_S3H", "Current", name="u_s3h")
+    s4h = CaMotor("U_S4H", "Current", name="u_s4h")
+    comps = {"U_S3H:Current": s3h, "U_S4H:Current": s4h}
+    pseudo = build_pseudo(
+        "ALine_e_beam_angle_offset_x",
+        CATALOG["ALine_e_beam_angle_offset_x"],
+        comps.__getitem__,
+    )
+    connect_mock(RE, pseudo)  # the components were never connected by anyone else
+    value = asyncio.run_coroutine_threadsafe(
+        pseudo.readback.get_value(), RE._loop
+    ).result(10)
+    assert value == 0.0

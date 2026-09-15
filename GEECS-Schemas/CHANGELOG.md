@@ -17,8 +17,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - `PseudoScanVariable.inverse` is now consumed: the scanned number as a
-  formula of the components' positions (device names as symbols, or the
-  full target with non-letters replaced by `_`), required when a
+  formula of the components' positions (a device name when only one
+  target uses it, or always the full target with non-alphanumerics
+  replaced by `_`), required when a
   `forward` is not linear in the scanned value; linear relations are
   inverted by the engine. The field description and the module docstring
   say so (the previous text — "from the first target's readback", never

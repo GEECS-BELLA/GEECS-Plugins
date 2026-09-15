@@ -104,9 +104,12 @@ What survives, and what the migration changes:
   corpus is pure linear (`a*x`, no constant term — see the table), so
   `set(0)` through the inverse puts the captured baselines back exactly.
   `restore_baselines_plan`'s formula-independent restore (owner request
-  2026-07-22) can therefore be replaced by a stock end-of-scan set-to-zero
-  — **but pin `f(0) = 0` at catalog-load time** for any relative entry, so a
-  future `a*x + b` relative formula is refused rather than restored wrong.
+  2026-07-22) therefore survives as `unstage()` putting each component
+  back at its captured dial baseline (formula-independent, on success and
+  abort) — **and `f(0) = 0` is pinned at build time** for any relative
+  entry, so `set(0)` is the same restore (the recovery gesture after a
+  failed or skipped one) and a future `a*x + b` relative formula is refused
+  rather than restored wrong. *(As built, 2026-09-15.)*
 
 ### The corpus is nearly all affine, and it names its own reference
 
@@ -317,11 +320,13 @@ calibration:
    fixtures. No hardware, no namespace.
 3. Pseudos as namespace nouns; `presets.py` stops refusing them.
 4. Delete what the inverse makes redundant: the `absolute`/`relative` branch
-   in `_target_values`, `restore_baselines_plan` (replaced by set-to-zero
-   through the inverse, with `f(0) = 0` pinned at load — §2), and most of
-   `forward_expr.py`. **Not** the baseline capture — it stays as transform
-   parameters. The repo rule is that the modernising PR deletes the old path
-   in the same change.
+   in `_target_values`, `restore_baselines_plan` (the restore moved into
+   `unstage()`, with `f(0) = 0` pinned at build — §2). **Not** the baseline
+   capture — it stays as transform parameters — and, as built, **not**
+   `forward_expr.py`: the catalog keeps its `forward` expressions (§6), so
+   the compiler stays and grows the affine walk + the inverse compiler.
+   The repo rule is that the modernising PR deletes the old path in the
+   same change. *(Done in step 2, 2026-09-15.)*
 5. `kind: motor` opt-in.
 6. **Hardware acceptance:** a pseudo scan on the native path. None has ever
    run — the 2b acceptance (2026-09-12) exercised only direct settables
@@ -390,8 +395,9 @@ async def check_agreement(pseudo, comps, tol):  # same for both cases, inverse-a
     if bad and entry.mode == "relative": raise ScanAborted(...)   # fail
     if bad: log.warning(...)                                        # plain pseudo: warn
 
-# bump: stage zeroes the components (readback 0 by construction), scan, set(0) restores
-# — also on abort, before unstage (July ruling; the one path that protects the magnets)
+# bump: stage zeroes the components (readback 0 by construction), scan, unstage restores
+# — on success and abort alike (July ruling; the one path that protects the magnets);
+# a failed/skipped restore makes the next stage refuse until `mv <pseudo> 0` (as built)
 # R56: an ordinary movable — bp.scan and bp.rel_scan both work, rel_scan via the inverse
 ```
 

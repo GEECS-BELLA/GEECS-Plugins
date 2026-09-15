@@ -38,11 +38,28 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `PseudoComponentsDisagreeError` — the **disagreement check**:
   `forward(inverse(readbacks))` against what the components read, per
   component within its tolerance (its DB tolerance, else
-  `DEFAULT_AGREEMENT_TOLERANCE` = 0.01 in the component's units, #780).
-  Off the formula *after this pseudo has moved them* fails the scan
-  before anything moves; before the first move a plain pseudo positioner
-  warns and snaps (today's behaviour), a relative one fails (its
-  deviations were just zeroed).
+  `DEFAULT_AGREEMENT_TOLERANCE` = 0.01 in the component's units, #780)
+  **plus what the inverse propagates** — the components the inverse reads
+  settle inside their own tolerances, and that error reaches every other
+  prediction through the relation (×2 on an angle bump's S4H), so the
+  allowance is the component's tolerance plus how far its prediction
+  moves under the inverse's own uncertainty (review of #912).  Off the
+  formula *after this pseudo has moved them* fails the scan before
+  anything moves; before the first move a plain pseudo positioner warns
+  and snaps (today's behaviour), a relative one fails (its deviations were
+  just zeroed).
+- `PseudoRestorePendingError` — a relative pseudo whose restore failed or
+  never ran (a `halt` skips unstage) still owes its components their
+  baselines: the next `stage()` refuses, naming them, rather than zero
+  with the leftover bump baked in; `mv <pseudo> 0` (the offsets still
+  hold the baselines) puts them back and clears it (review of #912).
+- A component move that fails waits for the **other** components to
+  finish before the pseudo's status fails, so the restore never puts to a
+  device whose move is still in progress; the pseudo's `connect()` also
+  connects its components (they are another device's children, and a
+  derived signal's connect assumes its inputs are connected) so a pseudo
+  touched on demand works even when the telemetry connect at environment
+  open left a component out (review of #912).
 
 ### Changed
 

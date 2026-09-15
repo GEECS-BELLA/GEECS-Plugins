@@ -264,9 +264,10 @@ class PseudoScanVariable(SchemaModel):
         None,
         description=(
             "Formula recovering the scanned number from the components' "
-            "positions, using each component's device name (or its full "
-            "target with non-letters replaced by '_', e.g. "
-            "'U_ESP302_02_Position_Axis_3'): e.g. "
+            "positions. Name a component by its device name when only one "
+            "target uses that device ('U_ChicaneInner'), or always by its "
+            "full target with every non-alphanumeric character replaced by "
+            "'_' ('U_ESP302_02_Position_Axis_3'): e.g. "
             "'560968.636 * U_ChicaneInner**2 / 100**2'. Required when a "
             "'forward' is not linear in the scanned value; leave unset for "
             "linear relations, which the software inverts itself."

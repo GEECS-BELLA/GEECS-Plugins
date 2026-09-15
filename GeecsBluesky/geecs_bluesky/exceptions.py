@@ -31,6 +31,7 @@ __all__ = [
     "GeecsConfigurationError",
     "GeecsDeviceDownError",
     "PseudoComponentsDisagreeError",
+    "PseudoRestorePendingError",
     "ActionCheckFailedError",
     "ActionPlanNotFoundError",
     "ActionPlanCycleError",
@@ -173,6 +174,17 @@ class PseudoComponentsDisagreeError(GeecsError):
     moved under the scan (a hand move, another plan).  Fails the scan
     rather than moving the other components onto a formula the operator
     did not command (paired steering magnets are the incident class).
+    """
+
+
+class PseudoRestorePendingError(GeecsError):
+    """A relative pseudo positioner still owes its components their baselines.
+
+    Raised by ``stage()`` when the previous scan's restore did not complete
+    — it failed (a refused put) or never ran (a ``halt`` skips unstage) —
+    so zeroing now would bake the leftover bump into the next baseline.
+    The components' offsets still hold the true baselines: ``mv <pseudo> 0``
+    puts them back and clears the condition.
     """
 
 

@@ -37,12 +37,22 @@ Two kinds of entry, one class (``09_pseudo_transform.md`` §3):
   readback is 0 by construction before the first step, ``set(0)`` puts the
   components back (every relative ``forward`` is pinned ``f(0) = 0`` at
   build), and ``unstage()`` restores the captured baselines — end of scan
-  and abort alike (a ``halt`` skips unstage by bluesky contract).
+  and abort alike (a ``halt`` skips unstage by bluesky contract).  A
+  restore that failed or never ran leaves the pseudo **owing** its
+  components their baselines: the next ``stage()`` refuses
+  (:class:`~geecs_bluesky.exceptions.PseudoRestorePendingError`) rather
+  than zero with the leftover bump baked in, and ``mv <pseudo> 0`` — the
+  offsets still hold the true baselines — puts them back and clears it.
 
 **The disagreement check** carries the weight of the over-determined
 readback: ``forward(inverse(readbacks))`` is compared with what the
-components actually read, per component, within its tolerance.  When they
-agree every inverse choice gives the same value.  When they disagree
+components actually read, per component, within its tolerance **plus what
+the inverse propagates**: the components the inverse reads sit within
+their own tolerances too, and that error reaches every other component's
+prediction scaled by the relation (×2 on the S4H of an angle bump), so the
+allowance is each component's tolerance plus how far its prediction moves
+when the value shifts by the inverse's own uncertainty.  When they agree
+every inverse choice gives the same value.  When they disagree
 *after this pseudo has moved them* the scan **fails**
 (:class:`~geecs_bluesky.exceptions.PseudoComponentsDisagreeError`) — a
 component moved under the scan, and moving the others onto the formula is
@@ -61,6 +71,7 @@ from typing import Any, ClassVar
 
 from bluesky.protocols import Location
 from ophyd_async.core import (
+    DEFAULT_TIMEOUT,
     AsyncStatus,
     DerivedSignalFactory,
     StandardReadable,
@@ -73,6 +84,7 @@ from geecs_bluesky.devices.ca.settable import CaSettable
 from geecs_bluesky.exceptions import (
     GeecsConfigurationError,
     PseudoComponentsDisagreeError,
+    PseudoRestorePendingError,
 )
 from geecs_bluesky.forward_expr import (
     CompiledForward,
@@ -153,14 +165,15 @@ def affine_inverse(
     components agree every choice gives the same value.
     """
     index = next(
-        (i for i, (a, b) in enumerate(coefficients) if a == 1.0 and b == 0.0), 0
+        (i for i, (a, b) in enumerate(coefficients) if a == 1.0 and b == 0.0),
+        next((i for i, (a, _) in enumerate(coefficients) if a != 0.0), None),
     )
-    key, (a, b) = keys[index], coefficients[index]
-    if a == 0.0:
+    if index is None:
         raise GeecsConfigurationError(
-            f"component {key!r} does not depend on the scanned value (forward is "
-            f"the constant {b}) — it cannot define the inverse"
+            "no component depends on the scanned value (every forward is a "
+            "constant) — nothing can define the inverse"
         )
+    key, (a, b) = keys[index], coefficients[index]
 
     def inverse(user: Mapping[str, float]) -> float:
         return (float(user[key]) - b) / a
@@ -236,6 +249,7 @@ class CaPseudoPositioner(StandardReadable):
         super().__init__(name=name)
         self._zeroed = False  # relative: offsets captured by this pseudo
         self._moved = False  # this pseudo has moved its components since stage
+        self._restore_pending = False  # staged, and the baselines not yet put back
         #: ``{"Device:Variable": dial setting}`` of the last completed set
         #: (``None`` until one succeeds) — operator feedback for manual moves.
         self.last_commanded: dict[str, float] | None = None
@@ -249,6 +263,34 @@ class CaPseudoPositioner(StandardReadable):
     def relative(self) -> bool:
         """Whether the components are read in their user frame, zeroed at stage."""
         return self._relative
+
+    async def connect(
+        self,
+        mock: Any = False,
+        timeout: float = DEFAULT_TIMEOUT,
+        force_reconnect: bool = False,
+    ) -> None:
+        """Connect the readback and the components it derives from.
+
+        The components are another device's children (never re-parented
+        here) and a derived signal's own connect assumes its inputs are
+        connected — so a pseudo touched on demand (``connect_on_demand``)
+        connects them itself.  A real connect is cached by ophyd-async; a
+        mock one is not, so a component already carrying a mock keeps it
+        (re-mocking would drop the callbacks a test registered on it).
+        """
+        await asyncio.gather(
+            super().connect(
+                mock=mock, timeout=timeout, force_reconnect=force_reconnect
+            ),
+            *(
+                comp.connect(
+                    mock=mock, timeout=timeout, force_reconnect=force_reconnect
+                )
+                for comp in self._components
+                if not (mock and comp._mock is not None and not force_reconnect)
+            ),
+        )
 
     # --------------------------------------------------------------- frame
     async def _zero_components(self) -> None:
@@ -269,9 +311,25 @@ class CaPseudoPositioner(StandardReadable):
 
     @AsyncStatus.wrap
     async def stage(self) -> None:
-        """Stage the readback; a relative pseudo zeroes its components first."""
+        """Stage the readback; a relative pseudo zeroes its components first.
+
+        Refused while a previous scan's restore is still owed (it failed,
+        or a ``halt`` skipped unstage): zeroing now would make the
+        leftover bump the new baseline.
+        """
         if self._relative:
+            if self._restore_pending:
+                offsets = await asyncio.gather(
+                    *(comp.offset.get_value() for comp in self._components)
+                )
+                held = {t: -float(o) for t, o in zip(self._targets, offsets)}
+                raise PseudoRestorePendingError(
+                    f"{self._variable_name}: the previous scan's restore did not "
+                    f"complete — the baselines still owed are {held}. Move the "
+                    "pseudo to 0 (mv …, 0) to put the components back, then scan"
+                )
             await self._zero_components()
+            self._restore_pending = True
         self._moved = False
         await super().stage().task
 
@@ -289,8 +347,11 @@ class CaPseudoPositioner(StandardReadable):
         try:
             if self._relative and self._zeroed:
                 await self._restore_baselines()
+                # Only a completed restore releases the frame: after a failed
+                # one the offsets still hold the baselines and set(0) restores.
+                self._zeroed = False
+                self._restore_pending = False
         finally:
-            self._zeroed = False
             self._moved = False
             await super().unstage().task
 
@@ -304,9 +365,7 @@ class CaPseudoPositioner(StandardReadable):
             self.name,
             dict(zip(self._targets, baselines)),
         )
-        await asyncio.gather(
-            *(comp.set(b) for comp, b in zip(self._components, baselines))
-        )
+        await _move_all([(comp, b) for comp, b in zip(self._components, baselines)])
         self.last_commanded = dict(zip(self._targets, baselines))
 
     # ------------------------------------------------------------ position
@@ -330,10 +389,11 @@ class CaPseudoPositioner(StandardReadable):
         dials = await self._read_dials()
         value = transform.raw_to_derived(**dials)["value"]
         predicted = transform.derived_to_raw(value=value)
+        allowance = self._allowance(transform, dials, value, predicted)
         off = {
             target: (dials[key], predicted[key])
-            for target, key, tol in zip(self._targets, self._keys, self._tolerances)
-            if not within_tolerance(dials[key], predicted[key], tol)
+            for target, key in zip(self._targets, self._keys)
+            if not within_tolerance(dials[key], predicted[key], allowance[key])
         }
         if not off:
             return value
@@ -353,6 +413,48 @@ class CaPseudoPositioner(StandardReadable):
             detail,
         )
         return value
+
+    def _allowance(
+        self,
+        transform: PseudoTransform,
+        dials: Mapping[str, float],
+        value: float,
+        predicted: Mapping[str, float],
+    ) -> dict[str, float]:
+        """Per component: its tolerance plus what the inverse's own uncertainty adds.
+
+        The components the inverse reads sit within *their* tolerances, so
+        the value is uncertain by however much shifting each of them by its
+        tolerance moves the inverse; every prediction then moves by that
+        value shift through its own ``forward``.  For an angle bump read
+        through S3H this is S4H's tolerance plus twice S3H's.  Evaluated
+        numerically so it holds for any transform, not only the affine.
+        """
+        spread = 0.0
+        for key, tol in zip(self._keys, self._tolerances):
+            for sign in (1.0, -1.0):
+                shifted = dict(dials)
+                shifted[key] = dials[key] + sign * tol
+                try:
+                    v = transform.raw_to_derived(**shifted)["value"]
+                except GeecsConfigurationError:
+                    continue
+                if math.isfinite(v):
+                    spread = max(spread, abs(v - value))
+        allowance: dict[str, float] = {}
+        for key, tol in zip(self._keys, self._tolerances):
+            moved = 0.0
+            for sign in (1.0, -1.0):
+                try:
+                    shifted_prediction = transform.derived_to_raw(
+                        value=value + sign * spread
+                    )[key]
+                except GeecsConfigurationError:
+                    continue
+                if math.isfinite(shifted_prediction):
+                    moved = max(moved, abs(shifted_prediction - predicted[key]))
+            allowance[key] = tol + moved
+        return allowance
 
     async def locate(self) -> Location:
         """Where the pseudo is — the inverse over the components' readbacks, both fields.
@@ -405,11 +507,31 @@ class CaPseudoPositioner(StandardReadable):
             )
         commanded = {t: dials[k] for t, k in zip(self._targets, self._keys)}
         logger.info("%s: %s → %s", self.name, value, commanded)
-        await asyncio.gather(
-            *(comp.set(dials[k]) for comp, k in zip(self._components, self._keys))
+        self._moved = True  # commanded, whether or not every component arrives
+        await _move_all(
+            [(comp, dials[k]) for comp, k in zip(self._components, self._keys)]
         )
-        self._moved = True
         self.last_commanded = commanded
+        if self._relative and value == 0.0:
+            # Back at the baselines: nothing is owed any more (the recovery
+            # gesture after a failed or skipped restore).
+            self._restore_pending = False
+
+
+async def _move_all(moves: Sequence[tuple[CaSettable, float]]) -> None:
+    """Set every component concurrently; wait for **all**, then raise the first failure.
+
+    A bare ``gather`` raises on the first failed component while the
+    others are still moving, and a restore issued on top of a move in
+    progress is a second GEECS blocking set on a busy device — the
+    incident class the restore exists to prevent.
+    """
+    results = await asyncio.gather(
+        *(comp.set(target) for comp, target in moves), return_exceptions=True
+    )
+    failures = [r for r in results if isinstance(r, BaseException)]
+    if failures:
+        raise failures[0]
 
 
 # ------------------------------------------------------------------ build
@@ -540,17 +662,25 @@ def _check_inverse(
     inverse: Callable[[Mapping[str, float]], float],
 ) -> None:
     """A supplied ``inverse`` must undo ``forward`` at a probe value, or the entry is refused."""
-    for probe in (1.0, 2.5):
+    checked = 0
+    for probe in (1.0, 2.5, -1.0):
         try:
             user = {k: f(probe) for k, f in zip(keys, forwards)}
             back = inverse(user)
         except GeecsConfigurationError:
             continue  # outside the relation's domain at this probe
+        checked += 1
         if not math.isclose(back, probe, rel_tol=1e-9, abs_tol=1e-9):
             raise GeecsConfigurationError(
                 f"pseudo {variable_name!r}: 'inverse' does not undo 'forward' — at "
                 f"{probe} the forwards give {user} and the inverse returns {back}"
             )
+    if not checked:
+        logger.warning(
+            "pseudo %r: 'inverse' could not be checked against 'forward' (the "
+            "relation's domain excludes every probe value); it is taken on trust",
+            variable_name,
+        )
 
 
 __all__ = [

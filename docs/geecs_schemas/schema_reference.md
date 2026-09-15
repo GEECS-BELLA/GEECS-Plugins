@@ -240,7 +240,7 @@ A friendly name that moves several devices together from one number.
 | `targets` | `list[PseudoComponent]` | yes | — | The devices this variable moves, each with its own formula. |
 | `mode` | `CompositeMode` | yes | — | 'absolute' = each device goes exactly where its formula says. 'relative' = each device is offset from where it was when the scan started. |
 | `description` | `str (optional)` | no | None | Free text for the people who edit this file — for a steering bump, the geometry and assumptions behind the coefficients (drift lengths, equal kick per ampere), so the numbers can be audited later. |
-| `inverse` | `str (optional)` | no | None | Formula recovering the scanned number from the components' positions, using each component's device name (or its full target with non-letters replaced by '_', e.g. 'U_ESP302_02_Position_Axis_3'): e.g. '560968.636 * U_ChicaneInner**2 / 100**2'. Required when a 'forward' is not linear in the scanned value; leave unset for linear relations, which the software inverts itself. |
+| `inverse` | `str (optional)` | no | None | Formula recovering the scanned number from the components' positions. Name a component by its device name when only one target uses that device ('U_ChicaneInner'), or always by its full target with every non-alphanumeric character replaced by '_' ('U_ESP302_02_Position_Axis_3'): e.g. '560968.636 * U_ChicaneInner**2 / 100**2'. Required when a 'forward' is not linear in the scanned value; leave unset for linear relations, which the software inverts itself. |
 
 ### PseudoComponent
 
