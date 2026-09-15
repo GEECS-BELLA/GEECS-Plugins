@@ -415,6 +415,39 @@
 </div>
 
 <!-- images display popup: colormap + percentile window -->
+{% if logbook_send %}
+<div class="overlay" id="modal-sendlog" onclick="if(event.target===this)closeModals()">
+  <div class="modal" style="width:min(460px,94vw);">
+    <h3>Send plot to the scan log</h3>
+    <div id="sl-form">
+      <div class="setrow"><label>your name</label>
+        <input id="sl-author" placeholder="who is logging this"></div>
+      <div class="setrow"><label>caption</label>
+        <input id="sl-caption"></div>
+      <div class="setrow" id="sl-targetrow" hidden><label>add to</label>
+        <select id="sl-target">
+          <option value="same">the entry this page already made</option>
+          <option value="new">a new entry</option>
+        </select></div>
+      <p class="dim" style="font-size:11px;">The plot goes to this scan's card in the logbook as a
+      PNG, with a link back to this exact view. Plots added to the same entry lay themselves out
+      as a figure grid.</p>
+      <div class="btnrow">
+        <button class="act" onclick="closeModals()">Cancel</button>
+        <button class="apply" id="sl-send" onclick="confirmSendToLogbook()">Send</button>
+      </div>
+    </div>
+    <div id="sl-done" hidden>
+      <p id="sl-doneword">Sent.</p>
+      <div class="btnrow">
+        <button class="act" onclick="closeModals()">Close</button>
+        <a class="apply" id="sl-open" href="#" target="_blank" rel="noopener">Open the entry ↗</a>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+
 <div class="overlay" id="modal-imgdisplay" onclick="if(event.target===this)closeModals()">
   <div class="modal">
     <h3>Image display</h3>
@@ -466,21 +499,150 @@ const MSIZE_DEFAULT = {{ msize_default | tojson }};
 // tools (annotate directly on the plot; shapes are editable/erasable).
 const EXPORT_SCALE = 2;  // crisp paste targets — one knob for every export path
 
+// A real bitmap reaches the clipboard ONLY through the async Clipboard
+// API, and browsers gate that on a secure context.  There is no fallback
+// worth writing: the legacy execCommand("copy") path does run on http,
+// but setData() carries text/plain and text/html only — image/* is
+// dropped — and the logbook composer uploads what arrives as a clipboard
+// FILE, so an <img src="data:…"> flavour would not paste there either.
+// So on an http lab host the button downloads, and says why.
+const CLIPBOARD_OK = !!(navigator.clipboard && window.ClipboardItem);
+
 async function copyPlotImage(gd) {
-  // Copy-paste is how plots travel around the lab.  The async
-  // Clipboard API needs a secure context (https or localhost) — on
-  // plain http lab hosts it is absent — and some browsers expire the
-  // click gesture across the awaits; either way degrade to the PNG
-  // download rather than failing silently.
-  const url = await Plotly.toImage(gd, { format: "png", scale: EXPORT_SCALE });
+  // Copy-paste is how plots travel around the lab.
+  if (!CLIPBOARD_OK) {
+    downloadPlotImage(gd);
+    flashNote(window.isSecureContext
+      ? "this browser has no clipboard API — downloaded PNG instead"
+      : "clipboard needs an https or localhost page — downloaded PNG instead");
+    return;
+  }
   try {
-    if (!navigator.clipboard || !window.ClipboardItem) throw new Error("no clipboard API");
-    const blob = await (await fetch(url)).blob();
-    await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+    // The PNG is rendered INSIDE the ClipboardItem, not awaited before it:
+    // Safari expires the click's user activation across an await and
+    // rejects a write that arrives after it, while a promise VALUE keeps
+    // the write attached to the gesture.  Chrome accepts either shape.
+    const png = Plotly.toImage(gd, { format: "png", scale: EXPORT_SCALE })
+      .then((url) => fetch(url))
+      .then((res) => res.blob());
+    await navigator.clipboard.write([new ClipboardItem({ "image/png": png })]);
     flashNote("copied to clipboard");
   } catch (err) {
-    Plotly.downloadImage(gd, { format: "png", scale: EXPORT_SCALE, filename: "geecs-plot" });
-    flashNote("copy failed — downloaded PNG instead");
+    // Name the error: "NotAllowedError" here is almost always the window
+    // having lost focus, which is a different fix from a missing API.
+    downloadPlotImage(gd);
+    flashNote("copy failed (" + (err && err.name || "error") + ") — downloaded PNG instead");
+  }
+}
+
+function downloadPlotImage(gd) {
+  Plotly.downloadImage(gd, { format: "png", scale: EXPORT_SCALE, filename: "geecs-plot" });
+}
+
+// ---- sending a plot to the scan logbook
+// The route out of here that does NOT depend on the page's origin: the
+// browser hands the PNG to the portal and the portal talks to the
+// logbook server-to-server, so this works on the plain-http deployment
+// where the clipboard cannot.
+const LOGBOOK_SEND = {{ logbook_send | tojson }};
+// A sent plot is rendered at a FIXED size rather than at whatever the
+// window happens to be. The note scales the bitmap into its column, so
+// the text's apparent size is export-width ÷ column-width: a 1200px-wide
+// plot in a three-up figure grid has unreadable axis labels, and a
+// narrow one reads fine. An explicit display width/height still wins —
+// that is the user saying they meant it.
+const SEND_WIDTH = 720, SEND_HEIGHT = 460;
+const AUTHOR_KEY = "geecs-portal:author";
+const ENTRY_KEY = "geecs-portal:logentry:" + UID;
+
+/** localStorage, treated as a convenience that may not be there. */
+function remembered(key) {
+  try { return localStorage.getItem(key) || ""; } catch (err) { return ""; }
+}
+function remember(key, value) {
+  try { localStorage.setItem(key, value); } catch (err) { /* private window */ }
+}
+
+/** What the plot shows, for the alt text of the image in the note. */
+function plotCaption() {
+  const ys = S.y.map(prettyName).join(", ");
+  if (!ys) return "plot";
+  const x = prettyName(S.x || DEFAULT_X || "shot");
+  return `${ys} vs ${x}${S.view === "binned" ? " (binned)" : ""}`;
+}
+
+function openSendToLogbook() {
+  const form = document.getElementById("sl-form");
+  const done = document.getElementById("sl-done");
+  form.hidden = false; done.hidden = true;
+  document.getElementById("sl-author").value = remembered(AUTHOR_KEY);
+  document.getElementById("sl-caption").value = plotCaption();
+  // The choice only exists once this page has an entry to add to.
+  const row = document.getElementById("sl-targetrow");
+  row.hidden = !remembered(ENTRY_KEY);
+  if (!row.hidden) document.getElementById("sl-target").value = "same";
+  closeModals();
+  document.getElementById("modal-sendlog").classList.add("on");
+  document.getElementById(remembered(AUTHOR_KEY) ? "sl-send" : "sl-author").focus();
+}
+
+async function confirmSendToLogbook() {
+  const author = document.getElementById("sl-author").value.trim();
+  if (!author) { document.getElementById("sl-author").focus(); return; }
+  const btn = document.getElementById("sl-send");
+  const target = document.getElementById("sl-targetrow").hidden
+    ? "new" : document.getElementById("sl-target").value;
+  btn.disabled = true;
+  btn.textContent = "sending…";
+  try {
+    const d = dispCfg();
+    // getElementById, not plotHost(): that one CLEARS the div when a
+    // message is in it, which is not what reading a plot should do.
+    const image = await Plotly.toImage(document.getElementById("plotdiv"), {
+      format: "png",
+      scale: EXPORT_SCALE,
+      width: d.width > 0 ? d.width : SEND_WIDTH,
+      height: d.height > 0 ? d.height : SEND_HEIGHT,
+    });
+    // DAY like every other /api/run call: a run whose start doc has no
+    // usable time resolves its day ONLY from this param, and the page
+    // itself was rendered with it — dropping it here would show the
+    // button and then 404 every send.
+    const send = new URL(`${ROOT}/api/run/${UID}/logbook`, location.origin);
+    if (DAY) send.searchParams.set("day", DAY);
+    const res = await fetch(send, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        author,
+        image,
+        caption: document.getElementById("sl-caption").value,
+        source_url: location.href,
+        entry: target === "same" ? remembered(ENTRY_KEY) : "",
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || res.statusText);
+    remember(AUTHOR_KEY, author);
+    remember(ENTRY_KEY, data.entry_id);
+    // Open the entry, because the words are written there — but a popup
+    // blocker may refuse a window this far past the click, so the link
+    // is shown either way rather than the send looking like it vanished.
+    const opened = window.open(data.url, "_blank", "noopener");
+    if (opened) { closeModals(); }
+    else {
+      document.getElementById("sl-form").hidden = true;
+      document.getElementById("sl-done").hidden = false;
+      document.getElementById("sl-open").href = data.url;
+    }
+    document.getElementById("sl-doneword").textContent =
+      data.appended ? "Added to this scan's log entry." : "New log entry created for this scan.";
+    flashNote(data.appended ? "added to the scan log entry" : "scan log entry created");
+  } catch (err) {
+    flashNote("could not send: " + (err && err.message || "unknown error"));
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Send";
   }
 }
 
@@ -514,14 +676,24 @@ const PLOT_CONFIG = {
     "drawline", "drawopenpath", "drawrect", "drawcircle", "eraseshape",
     {
       name: "copyimage",
-      title: "Copy plot to clipboard (PNG)",
+      title: CLIPBOARD_OK
+        ? "Copy plot to clipboard (PNG)"
+        : "Download plot PNG — clipboard copy needs an https or localhost page",
       icon: {  // material content_copy, 24×24 viewBox
         width: 24, height: 24,
         path: "M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z",
       },
       click: copyPlotImage,
     },
-  ],
+  ].concat(LOGBOOK_SEND ? [{
+    name: "sendtolog",
+    title: "Send plot to this scan's log entry",
+    icon: {  // material description (a page with lines), 24×24 viewBox
+      width: 24, height: 24,
+      path: "M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z",
+    },
+    click: openSendToLogbook,
+  }] : []),
 };
 // Traces and layout are authored SERVER-SIDE (geecs_portal/figures.py)
 // and arrive as the /api response's `figure` — the palette is injected

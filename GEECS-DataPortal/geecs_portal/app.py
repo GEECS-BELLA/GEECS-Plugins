@@ -45,6 +45,7 @@ from fastapi.responses import (
 )
 from fastapi.templating import Jinja2Templates
 from matplotlib.figure import Figure
+from pydantic import BaseModel, Field
 from starlette.requests import Request
 from starlette.staticfiles import StaticFiles
 
@@ -64,7 +65,7 @@ from geecs_data_utils.tiled_catalog import (
 
 from geecs_data_utils.scan_paths import ScanPaths
 
-from geecs_portal import analysis, analysis_runs, figures, resources
+from geecs_portal import analysis, analysis_runs, figures, logbook_send, resources
 from geecs_portal.cache import ShotDataCache
 
 logger = logging.getLogger(__name__)
@@ -343,6 +344,33 @@ class _DiagInfo:
         )
 
 
+class PlotToLogbook(BaseModel):
+    """One rendered plot on its way to the scan logbook.
+
+    The image arrives as a data URL rather than as multipart form data:
+    the page already holds one (``Plotly.toImage`` returns it) and form
+    parsing would pull in ``python-multipart``, which this package does
+    not otherwise need. Base64 costs a third in size, which a plot PNG
+    can afford.
+    """
+
+    #: The logbook requires a name on every entry and invents none.
+    #: ``\S`` because a blank one survives ``min_length`` and is then the
+    #: logbook's 422 — our malformed request arriving as the peer's fault.
+    author: str = Field(min_length=1, max_length=120, pattern=r"\S")
+    #: ``data:image/png;base64,…`` — the only form accepted.
+    image: str = Field(max_length=12_000_000)
+    #: Alt text: what the plot shows.
+    caption: str = Field("", max_length=300)
+    #: The portal URL that made it — the page state IS the analysis.
+    source_url: str = Field("", max_length=4_000)
+    #: Append to this entry when the page already made one for the scan.
+    #: Anchored to the logbook's id alphabet (``uuid4().hex[:12]``): the
+    #: value becomes a path segment in the URLs we build, and a ``/`` or a
+    #: ``..`` in it would address some other route under that base.
+    entry: str = Field("", max_length=64, pattern=r"^[0-9a-f]*$")
+
+
 def create_app(
     catalog: ScanCatalog,
     *,
@@ -465,6 +493,26 @@ def create_app(
             else logbook_base
         )
         return f"{base}/day/{run_day.isoformat()}#Scan{summary.scan_number:03d}"
+
+    #: Sending needs an address the PORTAL can reach, not one the browser
+    #: can: the call is server-to-server (``geecs_portal.logbook_send``),
+    #: which is what keeps it working on a plain-HTTP page and keeps CORS
+    #: out of the logbook.  A path-shaped ``--logbook-url`` is a fact about
+    #: the browser's front door and names no host this process can dial, so
+    #: it links but does not send, and the page hides the button.
+    logbook_send_base = (
+        logbook_base if logbook_base.startswith(("http://", "https://")) else ""
+    )
+
+    def _logbook_sendable(detail, run_day) -> bool:
+        """Whether this run can receive a plot — the link's rule, plus an address."""
+        summary = detail.summary
+        return bool(
+            logbook_send_base
+            and run_day
+            and summary.scan_number
+            and summary.experiment == default_experiment
+        )
 
     def _load_run(uid: str):
         """Load one run, mapping failures to honest HTTP status codes.
@@ -1205,6 +1253,69 @@ def create_app(
             raise HTTPException(status_code=503, detail=str(exc)) from exc
         return JSONResponse(job.to_json(), status_code=202)
 
+    @app.post("/api/run/{uid}/logbook", status_code=201)
+    def run_logbook_send(
+        uid: str, payload: PlotToLogbook, day: str = ""
+    ) -> JSONResponse:
+        """Put one rendered plot into this scan's entry in the logbook.
+
+        The portal's **third** write verb (after the analysis runs and the
+        config editor) and, like them, an explicit act: nothing is sent
+        that a person did not click.  It writes to the logbook's own
+        service through that service's public API, and touches neither the
+        scans tree nor any portal state.
+
+        Ladder: no absolute ``--logbook-url`` / not this experiment / no
+        scan number or day → 404 (there is no entry for it to join) · a
+        malformed image → 400 · the logbook unreachable → 503 · the
+        logbook refusing → its own status for the verdicts that are about
+        this payload (409/413/415), else 502.
+        """
+        detail = _load_run(uid)
+        # _run_day, not _resolved_folder: the folder is not wanted, and
+        # resolving one stats the SMB share.  A logbook write touches the
+        # scans mount not at all.
+        run_day = _run_day(detail, day)
+        if not _logbook_sendable(detail, run_day):
+            raise HTTPException(
+                status_code=404, detail="no logbook entry this scan could join"
+            )
+        scan = detail.summary.scan_number
+        try:
+            png = logbook_send.decode_png_data_url(payload.image)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        try:
+            result = logbook_send.send_plot(
+                base_url=logbook_send_base,
+                day=run_day.isoformat(),
+                scan=scan,
+                author=payload.author.strip(),
+                png=png,
+                caption=payload.caption,
+                source_url=payload.source_url,
+                entry_id=payload.entry or None,
+                filename=f"scan{scan:03d}-plot.png",
+            )
+        except ValueError as exc:  # the image itself: too big, or empty
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except logbook_send.LogbookUnreachable as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        except logbook_send.LogbookRefused as exc:
+            # 409/413/415 are verdicts on what we sent and mean the same
+            # to our caller; anything else is the peer's own trouble, and
+            # a peer's 500 must not read as ours.
+            status = exc.status if exc.status in (409, 413, 415) else 502
+            raise HTTPException(status_code=status, detail=exc.detail) from exc
+        return JSONResponse(
+            {
+                "entry_id": result.entry_id,
+                "appended": result.appended,
+                "url": f"{logbook_send_base}/entry/{result.entry_id}",
+            },
+            status_code=201,
+        )
+
     @app.get("/run/{uid}/artifact")
     def run_artifact(uid: str, path: str, day: str = "") -> FileResponse:
         """Serve one file a run produced, from the scan's analysis folder only.
@@ -1400,6 +1511,7 @@ def create_app(
             "analysis_enabled": _analysis_enabled_for(folder),
             "config_editor": config_editor_enabled,
             "logbook": _logbook_url(request, detail, run_day) or None,
+            "logbook_send": _logbook_sendable(detail, run_day),
             "page": f"{_root(request)}/run/{uid}",
             "portal_version": _portal_version(),
         }
@@ -1623,6 +1735,7 @@ def create_app(
                 "day_runs": day_runs,
                 "scan_number": detail.summary.scan_number or 0,
                 "logbook_url": _logbook_url(request, detail, run_day),
+                "logbook_send": _logbook_sendable(detail, run_day),
                 "prev_day": (
                     (run_day - timedelta(days=1)).isoformat() if run_day else ""
                 ),
