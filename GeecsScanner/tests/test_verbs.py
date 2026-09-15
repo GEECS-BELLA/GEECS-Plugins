@@ -37,15 +37,16 @@ def test_move_resolves_the_catalog_name_and_runs_as_an_mv_item(
     assert client.get("/api/progress").json()["scan_number"] is None
 
 
-def test_move_accepts_device_colon_variable_and_refuses_pseudo(
-    client: TestClient,
+def test_move_accepts_device_colon_variable_and_a_pseudo(
+    client: TestClient, manager: DemoQueueClient
 ) -> None:
     r = client.post("/api/move", json={"variable": "U_Hexapod:xpos", "value": 2})
     assert r.status_code == 200 and r.json()["reference"] == "U_Hexapod.xpos"
-    client.post("/api/clear")
+    manager.step()  # the fake worker finishes the move
+    # a pseudo moves as its namespace noun (a manual bump)
     r = client.post("/api/move", json={"variable": "Gas jet 2-axis", "value": 0})
-    assert r.status_code == 400
-    assert "pseudo" in r.json()["error"]["message"]
+    assert r.status_code == 200 and r.json()["reference"] == "gas_jet_2_axis"
+    manager.step()
     r = client.post("/api/move", json={"variable": "  ", "value": 0})
     assert r.status_code == 400
 

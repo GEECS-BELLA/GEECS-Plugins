@@ -10,8 +10,8 @@ replaced the PySide6 GEECS-Console, deleted 2026-09-14). Arc brief: `Planning/na
 
 - **`geecs_scanner.service`** — pure Python over the injected client and
   configs resolver. `ScannerService` answers status, queue, history, config
-  listings, the scan-variable catalog (pseudo entries listed, not
-  scannable), preflight, submit (every preflight question acknowledged, the
+  listings, the scan-variable catalog (pseudo entries scannable, as
+  namespace nouns), preflight, submit (every preflight question acknowledged, the
   `SubmissionRecord` stamped into the run metadata), pause/resume/stop,
   clear. `ProgressCache` reduces the worker's pickled document stream and
   the manager's console text to one small picture.

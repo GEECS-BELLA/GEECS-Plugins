@@ -251,7 +251,11 @@ class ScannerService:
         return ConfigListOut(kind=kind, names=names, experiment=self.experiment)
 
     def scan_variables(self) -> list[ScanVariableOut]:
-        """The catalog as the variable picker lists it — pseudo entries included, disabled."""
+        """The catalog as the variable picker lists it — pseudo entries scannable too.
+
+        A pseudo entry has no single ``target`` (the worker binds it as a
+        noun of its own, GEECS-Plugins#879); the picker shows its kind.
+        """
         catalog = self._catalog()
         out: list[ScanVariableOut] = []
         for name, spec in sorted(catalog.items()):
@@ -262,13 +266,6 @@ class ScannerService:
                     name=name,
                     kind=kind,
                     target=None if pseudo else str(getattr(spec, "target", "") or ""),
-                    scannable=not pseudo,
-                    reason=(
-                        "pseudo axes are not scannable through the namespace yet "
-                        "(the pseudo arc, 09_pseudo_transform.md)"
-                        if pseudo
-                        else None
-                    ),
                 )
             )
         return out
@@ -407,8 +404,8 @@ class ScannerService:
 
         *variable* is resolved exactly as a scan axis would be: a catalog
         name through the experiment's scan-variable catalog (a pseudo
-        entry is refused there), a ``Device:Variable`` or a bare device
-        passed through as the worker's dotted reference.
+        entry becomes its own namespace noun), a ``Device:Variable`` or a
+        bare device passed through as the worker's dotted reference.
         """
         import math
 

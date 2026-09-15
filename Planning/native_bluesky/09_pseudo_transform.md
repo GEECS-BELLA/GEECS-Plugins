@@ -10,7 +10,10 @@ rather than repeating it. **Build log:** §5 step 2 landed 2026-09-15
 deleted). One deviation from §2's sketch, on purpose: `forward_expr.py` is
 *not* retired — the catalog keeps its `forward` expressions (§6's YAML), so
 the compiler stays and the software reads `a`/`b` off the expression's AST
-instead of the catalog carrying coefficients.
+instead of the catalog carrying coefficients. Step 3 is PR #913 (0.90.0:
+`GeecsNamespace.add_pseudos`, the startup profile calls it, the preset
+expansion stops refusing `kind: pseudo`; the web scanner picker flips with
+it, #879).
 
 **Why it is a merge-gate item.** Composite variables are scanned regularly on
 HTU (Sam, 2026-09-13), and **they cannot be scanned at all on this branch**:

@@ -26,6 +26,15 @@ device layer (``Planning/native_bluesky/01a_device_layer_audit.md``):
   ``bps.mv(U_S1H.Current, 0.5)`` moves with the GEECS semantics those
   classes already implement.
 
+A scan-variable catalog ``kind: pseudo`` entry becomes a noun of its own
+(:meth:`GeecsNamespace.add_pseudos`, called by the startup profile after the
+roster is built): a
+:class:`~geecs_bluesky.devices.ca.pseudo.CaPseudoPositioner` over the
+settable children the roster already bound, under the catalog's friendly
+name as an identifier (``ALine_e_beam_angle_offset_x``) — so
+``scan([...], ALine_e_beam_angle_offset_x, -0.1, 0.1, 5)`` is a stock plan
+over a namespace noun like any other.
+
 What each object *reads* is the DB's subscribed (``get='yes'``) list — what
 GEECS itself logs — resolved by the same
 :class:`~geecs_core.db.scalar_policy.GeecsDbScalarPolicy` the file plugin
@@ -65,12 +74,14 @@ from geecs_core.db.variable_types import (
 
 from geecs_bluesky.db_runtime import GeecsDbDeviceTypes, GeecsDbServedSetProvider
 from geecs_bluesky.devices.ca.motor import CaMotor
+from geecs_bluesky.devices.ca.pseudo import CaPseudoPositioner, build_pseudo
 from geecs_bluesky.devices.ca.settable import CaSettable
 from geecs_bluesky.devices.ca.snapshot import CaSnapshotReadable
 from geecs_bluesky.devices.detector import GeecsDetector
 from geecs_bluesky.devices.hdf_plugin import PluginPathProvider
 from geecs_bluesky.devices.hdf_plugin import file_plugin_hosts as _hosts_from_config
 from geecs_bluesky.exceptions import GeecsConfigurationError
+from geecs_bluesky.plan_names import GEECS_PLAN_NAMES
 from geecs_bluesky.utils import identifier_name, safe_name, settable_attribute
 
 logger = logging.getLogger(__name__)
@@ -581,6 +592,104 @@ class GeecsNamespace:
             )
         return CaSettable(device, var, experiment=experiment, datatype=py)
 
+    # -------------------------------------------------------------- pseudos
+    def add_pseudos(self, catalog: Mapping[str, Any]) -> list[str]:
+        """Bind every ``kind: pseudo`` entry of *catalog* as a namespace noun.
+
+        *catalog* is the scan-variable catalog's ``variables`` mapping
+        (friendly name → spec).  Each pseudo is built by
+        :func:`~geecs_bluesky.devices.ca.pseudo.build_pseudo` over the
+        Movable children this namespace already holds for its targets,
+        with each target's DB tolerance as its agreement tolerance, and
+        bound under :func:`identifier_name` of the friendly name.
+
+        Returns the bindings made.  **An entry that cannot be built is
+        logged at ERROR and skipped** — a formula that does not compile, a
+        target the gateway does not serve, a name that collides with a
+        device — so one bad catalog line never keeps the worker from
+        opening; the submit preflight then reports the missing reference
+        before anything is claimed.  Plain entries are ignored here (they
+        expand to the device children directly).
+        """
+        bound: list[str] = []
+        reserved = {*GEECS_PLAN_NAMES, "RE"}  # the profile binds these after us
+        for friendly, spec in catalog.items():
+            if getattr(spec, "kind", None) != "pseudo":
+                continue
+            ns_name = identifier_name(friendly)
+            try:
+                if ns_name in reserved:
+                    raise GeecsConfigurationError(
+                        f"the name {ns_name!r} is a plan name (or the RunEngine) "
+                        "in the worker namespace — rename the catalog entry"
+                    )
+                # Case-insensitively, like the lookups: a key differing from a
+                # device only by case would share its ophyd name and event keys.
+                clash = self._devices.get(ns_name) or self._by_geecs_name.get(
+                    friendly.lower()
+                )
+                if clash is None:
+                    clash = next(
+                        (
+                            d
+                            for d in self._devices.values()
+                            if d.name == safe_name(friendly)
+                        ),
+                        None,
+                    )
+                if clash is not None:
+                    raise GeecsConfigurationError(
+                        f"the name {friendly!r} is already bound to "
+                        f"{clash._geecs_device_name!r}"
+                    )
+                pseudo = build_pseudo(
+                    friendly, spec, self._settable_for, tolerance=self._db_tolerance
+                )
+            except (GeecsConfigurationError, TypeError, ValueError) as exc:
+                # TypeError/ValueError: the derived-signal factory refusing a
+                # non-float component (an enum settable in a pseudo).
+                logger.error(
+                    "device namespace: pseudo scan variable %r not registered: %s",
+                    friendly,
+                    exc,
+                )
+                continue
+            pseudo._geecs_device_name = friendly  # the lookup/clash vocabulary
+            pseudo._geecs_namespace_member = True  # connect_on_demand's marker
+            self._devices[ns_name] = pseudo
+            self._by_geecs_name[friendly.lower()] = pseudo
+            bound.append(ns_name)
+        if bound:
+            logger.info(
+                "device namespace: %d pseudo scan variable(s) registered: %s",
+                len(bound),
+                ", ".join(bound),
+            )
+        return bound
+
+    def _settable_for(self, target: str) -> Any:
+        """The Movable child for a ``"Device:Variable"`` pseudo target (loud when absent)."""
+        device, _, variable = target.partition(":")
+        return self.get_settable(device, variable)
+
+    def _db_tolerance(self, target: str) -> float | None:
+        """The DB ``tolerance`` of a ``"Device:Variable"`` target (``None`` when unset).
+
+        Read from the roster row on purpose, not from the bound child's
+        ``_tolerance``: a catalog ``kind: motor`` opt-in binds a ``CaMotor``
+        with the class default where the DB says 0, and the pseudo's
+        agreement fallback must stay the DB fact, not inherit that guess.
+        """
+        device, _, variable = target.partition(":")
+        for dev, rows in self.roster.variables.items():
+            if dev.lower() != device.lower():
+                continue
+            for row in rows:
+                if str(row["name"]).lower() == variable.lower():
+                    tolerance = row.get("tolerance")
+                    return None if tolerance is None else float(tolerance)
+        return None
+
     # ---------------------------------------------------------------- lookups
     @property
     def devices(self) -> Mapping[str, Any]:
@@ -673,6 +782,8 @@ class GeecsNamespace:
         for dev in self._devices.values():
             if isinstance(dev, GeecsDetector):
                 objects.extend(dev._scalar_signals())
+            elif isinstance(dev, CaPseudoPositioner):
+                continue  # derived from components the baseline already carries
             else:
                 objects.append(dev)
         return objects

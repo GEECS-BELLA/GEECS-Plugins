@@ -133,7 +133,11 @@ qserver/                    # the worker: launcher, startup profile, permissions
   a subscribed settable's readback is a column of its parent.  Namespace
   bindings keep GEECS spelling (`U_S1H`); ophyd names and event keys are
   `safe_name` (lowercase, one lossy encoding shared with the gateway's PV
-  naming).  Collisions raise.
+  naming).  Collisions raise.  `add_pseudos(catalog.variables)` (the
+  startup profile, after the roster) binds every catalog `kind: pseudo`
+  as a `CaPseudoPositioner` over those same children under its catalog
+  name (`ALine_e_beam_angle_offset_x`) — a bad entry is ERROR-logged and
+  skipped, never fatal to environment open.
 - The scalar devices and children keep their contracts: `CaMotor` (readback
   convergence within the DB tolerance, no `stop()` — GEECS has no universal
   abort), `CaConfirmSettable` (writes one variable, confirms on another),

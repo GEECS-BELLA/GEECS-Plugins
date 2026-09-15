@@ -4,6 +4,33 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.90.0] - 2026-09-15
+
+### Added
+
+- **Pseudo scan variables are namespace nouns** (the pseudo arc #904,
+  build step 3). `GeecsNamespace.add_pseudos(catalog.variables)` — called
+  by the startup profile after the roster is built, best-effort like the
+  shot offsets — binds every `kind: pseudo` entry as a
+  `CaPseudoPositioner` over the Movable children the roster already
+  holds for its targets (one object per component, so the user offset
+  the bump zeroes is the child's own), under the catalog name as an
+  identifier (`ALine_e_beam_angle_offset_x`), each target's DB tolerance
+  as its agreement tolerance. An entry that cannot be built — a formula
+  that does not compile, an unserved target, a name colliding with a
+  device — is logged at ERROR and skipped; the worker still opens and the
+  submit preflight reports the missing reference. Pseudos stay out of
+  the telemetry baseline (their components are already in it).
+
+### Changed
+
+- `qs_client.presets`: a catalog pseudo expands to its namespace binding
+  (`scan_variable_reference("ALine_e_beam_angle_offset_x", catalog)` →
+  `"ALine_e_beam_angle_offset_x"`) and is recorded as a reference the
+  preflight checks against the device tree — the "pseudo axes are not
+  scannable through the namespace yet (phase 3)" refusal is gone. The
+  branch can scan composites again.
+
 ## [0.89.0] - 2026-09-15
 
 ### Added

@@ -66,8 +66,8 @@ def test_scan_variable_reference_from_pair_and_catalog() -> None:
         scan_variable_reference("EMQ1 Current", CATALOG)
         == "U_EMQTripletBipolar.current_limit_ch1"
     )
-    with pytest.raises(GeecsConfigurationError, match="pseudo"):
-        scan_variable_reference("JetZ_with_probe", CATALOG)
+    # a pseudo is its own namespace noun under the catalog name
+    assert scan_variable_reference("JetZ_with_probe", CATALOG) == "JetZ_with_probe"
 
 
 def test_expand_builds_the_stock_plan_item() -> None:
@@ -103,16 +103,20 @@ def test_count_preset_and_pair_spelled_variables() -> None:
     assert item.kwargs["md"]["background"] is True
 
 
-def test_expand_refuses_no_plan_unknown_plan_and_pseudo() -> None:
+def test_expand_refuses_no_plan_and_unknown_plan() -> None:
     with pytest.raises(GeecsConfigurationError, match="no plan call"):
         expand_preset(_preset(plan=None))
     with pytest.raises(GeecsConfigurationError, match="scan verb"):
         expand_preset(_preset(plan={"name": "tune_centroid"}))
-    with pytest.raises(GeecsConfigurationError, match="pseudo"):
-        expand_preset(
-            _preset(plan={"name": "scan", "args": ["JetZ_with_probe", 1, 2, 3]}),
-            catalog=CATALOG,
-        )
+
+
+def test_expand_a_pseudo_axis_to_its_namespace_noun() -> None:
+    item = expand_preset(
+        _preset(plan={"name": "scan", "args": ["JetZ_with_probe", 1, 2, 3]}),
+        catalog=CATALOG,
+    )
+    assert item.args[1:] == ["JetZ_with_probe", 1, 2, 3]
+    assert "JetZ_with_probe" in item.references  # the preflight checks it exists
 
 
 def test_expansion_records_its_references_and_leaves_literal_strings_alone() -> None:

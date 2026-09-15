@@ -19,7 +19,7 @@ Checks, in order (names are the ``PreflightOutcome.check`` vocabulary):
 
 - ``validate`` — the preset expands into a queue item
   (:func:`~geecs_bluesky.qs_client.presets.expand_preset`: it has a plan
-  call, the plan is one the worker registers, no pseudo scan variable).
+  call, the plan is one the worker registers).
   A failure is a hard refusal, never a question.
 - ``worker_ready`` — is the execution surface actually ready (#793): the
   manager answers, its worker environment is open, the plan this
