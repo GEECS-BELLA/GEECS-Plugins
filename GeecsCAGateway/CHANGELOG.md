@@ -3,6 +3,40 @@
 All notable changes to `geecs-ca-gateway` are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and semantic versioning.
 
+## [0.21.0] - 2026-09-15
+
+### Changed
+
+- **A `:SP` put waits minutes, not 30 s, for the device's executed reply**
+  (issue #906). A GEECS set has two device replies: the command ACK on the
+  command port (`GeecsUdpClient._ACK_TIMEOUT`, 1.5 s — **unchanged**, so a
+  dead device that never ACKs or a refusing one still fails the put in
+  ~1.5 s) and the *executed* reply on cmd_port + 1, the device's verdict
+  sent only once the set converged or failed. Only that second wait is
+  raised: `_SET_EXE_TIMEOUT = 30.0` is now `_SET_REPLY_CEILING_S = 600.0`
+  (the `GeecsCaGateway(set_timeout_s=…)` default). The old budget sat on a
+  slow stage's normal range — Scan009 of 26_0914's 19 mm ModeImager move
+  answered `no error` at 32 s, so the gateway failed the put at 30 s and
+  then discarded the device's clean reply as a stale datagram. The ceiling
+  is not a liveness signal (the ACK settles that) but the point past which
+  an acknowledged, still-executing move's reply would be dropped unread,
+  so it is **longer than any client's own wait**: the CA client bounds
+  that (GeecsBluesky's `CaMotor`: 90 s for the reply, by readback
+  progress, under a 300 s hard ceiling), and a reply the gateway has
+  discarded can never reach a client still waiting for it — 600 s is twice
+  the worker's ceiling. The async caproto put costs nothing while waiting.
+  How an error reply is classified is untouched: the device's verdict,
+  `no error` or an error, still decides the put.
+- New CLI flag `--set-timeout SECONDS` overrides the ceiling per host
+  (`python -m geecs_ca_gateway --experiment X --set-timeout 600`); it
+  reaches the gateway through `_run(set_timeout_s=…)`.
+- `PV_CONTRACT.md` §2 (Setpoints) and its test map updated; pinned by
+  `test_gateway.py::test_acknowledged_set_replying_after_30s_completes_the_put`
+  (an ACKed set answered at 32 s completes under a virtual clock) and
+  `::test_reply_past_the_ceiling_is_the_only_stale_discard` (the same reply
+  under a 30 s ceiling reproduces the Scan009 failure, and the transport's
+  "no exchange in flight" discard is reachable only past the ceiling).
+
 ## [0.20.2] - 2026-09-04
 
 ### Fixed

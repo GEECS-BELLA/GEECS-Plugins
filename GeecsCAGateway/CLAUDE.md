@@ -79,8 +79,11 @@ One asyncio event loop runs everything:
   guard: exact DB duplicates are tolerated, genuine collisions raise.
 - **Per-device UDP client** (`GeecsUdpClient`) handles sets/gets: send command,
   await ACK on the cmd socket, await exe reply on cmd_port+1. One in-flight
-  exchange per device (lock). Setpoint puts get a 30 s budget (CaMotor's move
-  contract — GEECS sets block until convergence); gets keep 10 s.
+  exchange per device (lock). A set has two replies: the ACK (1.5 s — a dead
+  device fails here) and the exe reply, the device's verdict once the set
+  converged; setpoint puts wait minutes for that reply (`_SET_REPLY_CEILING_S`,
+  `--set-timeout`; a 19 mm stage move answered at 32 s, #906) — past the
+  ceiling a reply is dropped unread as stale. Gets keep 10 s.
 - **Per-device TCP subscriber** (`GeecsTcpSubscriber`) sends `Wait>>var1,var2`
   (4-byte big-endian length framing) and receives ~1–5 Hz push frames. Each
   device's subscription runs under a **supervisor** that reconnects with

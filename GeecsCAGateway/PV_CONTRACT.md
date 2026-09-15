@@ -220,11 +220,22 @@ GEECS device  <--blocking UDP set-----------  setpoint PV   (caput :SP)
   only in the CA client library's asynchronous exception handler and the
   alarm/error PVs above. This is Channel Access protocol semantics, not a
   gateway limitation.
-- **Set timeout: 30 s default, configurable** (`GeecsCaGateway(set_timeout_s=…)`).
-  This deliberately matches `CaMotor._DEFAULT_MOVE_TIMEOUT` (30 s) in
-  GeecsBluesky — "a slow axis is not a dead one". A legitimate 10–30 s stage
-  move must not be failed mid-flight. Gets keep the transport's short 10 s
-  default: a read that takes 10 s *is* a dead device.
+- **Set reply ceiling: 600 s default, configurable** (`GeecsCaGateway(set_timeout_s=…)`,
+  CLI `--set-timeout SECONDS`). A GEECS set has two device replies and the
+  ceiling bounds only the second: the command **ACK** (1.5 s, unchanged —
+  a dead or refusing device still fails the put in ~1.5 s) and the
+  **executed** reply, the device's verdict, sent only once the move
+  converged or failed. Only the device knows how long that takes (a 19 mm
+  stage move answered `no error` at 32 s — Scan009 of 26_0914, #906 — which
+  the former 30 s budget failed and then discarded as stale), so the ceiling
+  is minutes, not a liveness signal: the put waits for the device's reply and
+  the reply's own status decides. **The ceiling is longer than any client's
+  own wait** — the CA client bounds that (GeecsBluesky's `CaMotor`: 90 s for
+  the reply, by readback progress, under a 300 s hard ceiling), and a reply
+  the gateway has discarded can never reach a client still waiting for it;
+  keep any `--set-timeout` override above every client's wait. The async put
+  costs the gateway nothing while it waits. Gets keep the transport's short
+  10 s default: a read that takes 10 s *is* a dead device.
 - The setpoint PV reflects the last *successfully forwarded* put, not the
   device readback. Read state from the readback PV; the `:SP` value is the
   commanded value.
@@ -677,7 +688,7 @@ that branch and are part of this contract's target behavior.
 | Failed set alarms `:SP` WRITE/INVALID, success clears; pre-forward client errors don't alarm | `test_pv_contract.py::test_setpoint_put_failure_stamps_write_invalid_alarm`, `::test_client_value_error_does_not_alarm_setpoint` |
 | Failure alarm published, transition-only; clear rides the value publish | `test_pv_contract.py::test_failed_set_alarm_is_published_on_transition_only` |
 | Out-of-range set end-to-end: ACK accepted + exe error ⇒ put fails, alarm, sticky `LAST_SET_ERROR`; PV only on settable devices | `test_gateway.py::test_out_of_range_set_fails_put_alarms_sp_and_records_error`, `::test_last_set_error_pv_exists_only_for_settable_devices` |
-| 30 s configurable set budget; 10 s get budget | `test_gateway.py::test_setpoint_write_uses_move_budget_timeout`, `::test_set_timeout_is_configurable`, `::test_get_uses_standard_exe_timeout` |
+| Minutes-long configurable set reply ceiling (an ACKed set answered at 32 s completes; a reply is dropped as stale only past the ceiling); 10 s get budget | `test_gateway.py::test_setpoint_write_uses_move_budget_timeout`, `::test_set_timeout_is_configurable`, `::test_acknowledged_set_replying_after_30s_completes_the_put`, `::test_reply_past_the_ceiling_is_the_only_stale_discard`, `::test_get_uses_standard_exe_timeout`; `test_entrypoint.py::test_set_timeout_flag` |
 | Timestamp ladder, LabVIEW→Unix, implausible rejected | `test_gateway.py::test_extract_timestamp_converts_labview_to_unix`, `::test_extract_timestamp_ladder_prefers_first_present`, `::test_extract_timestamp_none_when_absent_or_implausible`; `test_config_from_db.py::test_timestamp_ladder_default_prefers_acq_then_sys` |
 | PV stamped with device time; timestamp PVs carry raw LabVIEW value | `test_gateway.py::test_pv_timestamp_from_systimestamp`, `::test_timestamp_vars_exposed_as_pvs_with_raw_value` |
 | `0.0` pre-acquisition placeholder | `test_pv_contract.py::test_float_readback_initializes_to_zero_placeholder` |
