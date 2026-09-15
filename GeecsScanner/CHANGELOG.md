@@ -4,6 +4,32 @@ All notable changes to `geecs-scanner` are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 project adheres to semantic versioning.
 
+## [0.6.0] - 2026-09-14
+
+The New scan form after a day of scans (#895, #896): shorter, and it opens
+on the mode choice.
+
+### Changed
+
+- **The preset picker leaves the headline row** (#896). It is a compact
+  "Load preset…" select in the form's footer beside "Save as preset…" —
+  load, the `preset <name>` provenance note, save and Start in one row,
+  the header keeps its two segments, and the body opens on axis 1. The
+  picker is a verb: it snaps back to "Load preset…" after a load, so the
+  same preset can be reloaded over an edited form; the note carries which
+  preset seeded the form. How a preset seeds the form (`formShape`,
+  `fillFormFromPreset`, the demo's first-preset default) is unchanged.
+- **The static explanatory hints are gone** (#895): the prose under the
+  preset, variable, trigger-profile, description, calibration and drawer
+  controls, the per-mode `mode-note` paragraph and its `NOTES` table, and
+  the success-case prose of `presets-note`, `actions-note` and `mv-hint`.
+  What stays is state or a unit: the point count and direction, the
+  `.err` slots, `shots-hint` (`num` vs `shots_per_step`), `seconds` under
+  the shot period, the device search's live count, and every
+  load-failure / empty-listing note.
+- The empty device table reads "No devices — load a preset or add one."
+  ("Pick a preset above." pointed at a row that no longer exists).
+
 ## [0.5.1] - 2026-09-14
 
 PR 6 of the web scanner arc — GEECS-Console deleted. No code change.

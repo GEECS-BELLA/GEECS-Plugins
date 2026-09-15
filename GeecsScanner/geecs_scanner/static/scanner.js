@@ -57,13 +57,6 @@
     tail: "scanlog", logFolder: null, logLines: [], consoleLines: []
   };
 
-  var NOTES = {
-    noscan: "A count: no axis, the shots below at the current position. The old console's No-scan.",
-    scan: "A 1D scan: one variable stepped from start to stop, shots-per-step at each. Free-run in the old console is gated here; strict is the default.",
-    grid: "A grid_scan: axis 2 steps inside every axis-1 point. Steps multiply.",
-    background: "A count flagged background in the preset, so analysis knows these are darks."
-  };
-
   /* ------------------------------------------------------------- errors */
 
   function showError(text) {
@@ -392,18 +385,23 @@
     }).catch(function (e) { showError("Loading configs failed: " + e.message); });
   }
 
+  // The picker is a verb, not the form's state: it reads "Load preset…" and
+  // snaps back after a load, so the same preset can be reloaded over an
+  // edited form; #preset-name in the footer is the provenance.
   function renderPresetList() {
     var sel = $("preset"); sel.textContent = "";
-    if (!S.presets.length) sel.appendChild(option("", "no presets in the configs tree", true));
+    sel.appendChild(option("", "Load preset…"));
     S.presets.forEach(function (name) { sel.appendChild(option(name, name)); });
-    if (S.presetName) sel.value = S.presetName;
-    $("presets-note").textContent = S.presets.length ? "presets/ in the configs tree · seeds the form below" : "No presets in the configs tree.";
+    sel.disabled = !S.presets.length;
+    $("presets-note").textContent = S.presets.length ? "" : "No presets in the configs tree.";
   }
-  $("preset").addEventListener("change", function () { if (this.value) selectPreset(this.value); });
+  $("preset").addEventListener("change", function () {
+    var name = this.value; this.value = "";
+    if (name) selectPreset(name);
+  });
 
   function selectPreset(name) {
     S.presetName = name;  // claimed now, so a slower default cannot override the pick
-    $("preset").value = name;
     api("/api/configs/presets/" + encodeURIComponent(name)).then(function (doc) {
       if (S.presetName !== name) return;  // a later click won
       S.presetDoc = doc;
@@ -506,7 +504,6 @@
     var count = mode === "noscan" || mode === "background";
     $("axis1").hidden = count;
     $("axis2").hidden = mode !== "grid";
-    $("mode-note").textContent = NOTES[mode] || "";
     $("shots-hint").textContent = count ? "num — the shots of the count" : "shots_per_step";
     if (!silent) recalc();
   }
@@ -765,9 +762,7 @@
       sel.appendChild(option(s.name, label, false, s.alias ? s.name : ""));
     });
     if (!S.settables.length) sel.appendChild(option("", S.settablesNote ? "settables unavailable" : "no numeric settables", true));
-    var aliased = S.settables.filter(function (s) { return s.alias; }).length;
-    $("mv-hint").textContent = S.settablesNote ? S.settablesNote
-      : S.settables.length + " numeric settables · " + aliased + " aliased, listed first · from the GEECS DB";
+    $("mv-hint").textContent = S.settablesNote || "";
     watchReadback(sel.value);
     renderIdleGates();
   }
@@ -844,7 +839,7 @@
     });
     if (S.actionName) sel.value = S.actionName;
     $("actions-note").textContent = problem ? "Action library: " + problem
-      : S.actions.length ? "action_library/actions.yaml · pick one to preview its steps" : "No action plans in the configs tree.";
+      : S.actions.length ? "" : "No action plans in the configs tree.";
     renderIdleGates();
   }
   $("action").addEventListener("change", function () {

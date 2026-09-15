@@ -133,7 +133,7 @@ def test_page_uses_only_kit_or_page_classes() -> None:
 def test_presets_and_actions_are_dropdowns(client: TestClient) -> None:
     """PR 5a: the rail's preset picklist and the actions picklist became selects."""
     html = client.get("/").text
-    assert '<select id="preset">' in html and '<select id="action">' in html
+    assert '<select id="preset"' in html and '<select id="action">' in html
     assert 'id="presets"' not in html and 'id="actions-list"' not in html
     # the preview the action dropdown drives is still there
     assert 'id="action-steps"' in html
@@ -145,3 +145,60 @@ def test_move_panel_carries_the_kit_live_row(client: TestClient) -> None:
     assert '<div class="live" id="mv-live" hidden>' in html
     for span in ('id="mv-k"', 'id="mv-rb"', 'id="mv-age"'):
         assert span in html
+
+
+def test_form_starts_at_the_mode_segment(client: TestClient) -> None:
+    """#896: the preset picker is optional, so it lives in the footer beside Save as preset;
+
+    the panel's body opens on axis 1 with no control ahead of it, and the
+    provenance note stays in the same row as the picker.
+    """
+    html = client.get("/").text
+    sub = html[html.index('id="submit"') : html.index('id="queue"')]
+    body = sub[sub.index('<div class="body">') : sub.index('id="axis1"')]
+    assert "<select" not in body and "<input" not in body, body
+    footer = sub[sub.index("<footer>") :]
+    for piece in (
+        '<select id="preset"',
+        'id="presets-note"',
+        'id="preset-name"',
+        'id="btn-save-preset"',
+    ):
+        assert piece in footer, piece
+
+
+def test_hints_carry_state_or_a_unit_never_prose(client: TestClient) -> None:
+    """#895: the static explanatory hints are gone; the computed ones and the unit stay."""
+    html = client.get("/").text
+    for prose in (
+        "catalog name",
+        "seeds the form below",
+        "stepped inside each axis-1 point",
+        "shot_control_configurations/",
+        "goes to ScanInfo",
+        "measure only",
+        "one YAML under presets/",
+        "names the manager resolves",
+        'id="mode-note"',
+    ):
+        assert prose not in html, prose
+    script = (_PKG / "static" / "scanner.js").read_text()
+    for prose in (
+        "var NOTES",
+        "mode-note",
+        "seeds the form below",
+        "pick one to preview",
+        "listed first",
+    ):
+        assert prose not in script, prose
+    for kept in (
+        'id="pts1"',
+        'id="pts2"',
+        'id="shots-hint"',
+        'id="presets-note"',
+        'id="actions-note"',
+        'id="mv-hint"',
+        'id="devq-hint"',
+        '<span class="hint">seconds</span>',
+    ):
+        assert kept in html, kept
