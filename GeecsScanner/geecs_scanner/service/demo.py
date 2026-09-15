@@ -11,7 +11,7 @@ worker would (start / descriptor / event / stop) into a
 and the page behave exactly as they will against the worker.
 
 :class:`DemoResolver` holds three real :class:`geecs_schemas.Preset`
-documents, a scan-variable catalog with a pseudo entry (listed, refused,
+documents, a scan-variable catalog with a pseudo entry (listed, scannable,
 as on the real branch), trigger profiles and optimizer-config names.
 
 :func:`demo_preflight` validates by the real :func:`expand_preset` and
@@ -432,8 +432,14 @@ class DemoQueueClient:
         return list(GEECS_PLAN_NAMES)
 
     def allowed_device_names(self) -> list[str]:
-        """The demo devices and their common children."""
-        names: list[str] = []
+        """The demo devices and their common children, plus the catalog's pseudo nouns."""
+        from geecs_bluesky.utils import identifier_name
+
+        names: list[str] = [
+            identifier_name(name)
+            for name, spec in DemoResolver().scan_variable_catalog().variables.items()
+            if getattr(spec, "kind", None) == "pseudo"
+        ]
         for d in _DEMO_DEVICES:
             names += [
                 d,

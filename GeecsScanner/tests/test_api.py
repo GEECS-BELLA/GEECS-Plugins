@@ -42,13 +42,13 @@ def test_config_listings(client: TestClient) -> None:
     assert "presets" in r.json()["error"]["kinds"]
 
 
-def test_scan_variables_list_pseudo_as_not_scannable(client: TestClient) -> None:
+def test_scan_variables_list_pseudo_as_scannable(client: TestClient) -> None:
     rows = {v["name"]: v for v in client.get("/api/scan-variables").json()}
     assert rows["Jet pressure"]["scannable"] is True
     assert rows["Jet pressure"]["target"] == "U_HP_Daq:Jet pressure"
     pseudo = rows["Gas jet 2-axis"]
-    assert pseudo["kind"] == "pseudo" and pseudo["scannable"] is False
-    assert "pseudo" in pseudo["reason"]
+    assert pseudo["kind"] == "pseudo" and pseudo["scannable"] is True
+    assert pseudo["target"] is None and pseudo["reason"] is None
 
 
 def test_preset_document_and_devices(client: TestClient) -> None:
@@ -74,11 +74,13 @@ def test_preflight_expands_and_asks(client: TestClient, preset_doc: dict) -> Non
     assert "7 steps" in out["summary"] and "strict" in out["summary"]
 
 
-def test_preflight_refuses_a_pseudo_axis(client: TestClient, preset_doc: dict) -> None:
+def test_preflight_accepts_a_pseudo_axis_as_its_namespace_noun(
+    client: TestClient, preset_doc: dict
+) -> None:
     preset_doc["plan"]["args"][0] = "Gas jet 2-axis"
     out = client.post("/api/preflight", json=preset_doc).json()
-    assert out["refusal"] and "pseudo" in out["refusal"]
-    assert out["plan"] is None
+    assert out["refusal"] is None
+    assert out["plan"]["args"][1] == "gas_jet_2_axis"  # the worker's binding
 
 
 def test_submit_requires_every_acknowledgement(

@@ -45,9 +45,11 @@ deploy/           the unit template + DEPLOYMENT.md
   names any allowed plan. There is no mode enum in the API — an optimize
   plan, when it exists on the worker, is one more name and one more form
   section, not an API change (brief §5).
-- **The catalog lists pseudo entries** with `scannable: false` and the
-  refusal text. When the pseudo arc lands, the flag flips; nothing else in
-  the API moves.
+- **The catalog lists pseudo entries as scannable** (#879, the pseudo arc
+  #904): a pseudo has no single `target`, the worker binds it as a
+  namespace noun under its catalog name and `expand_preset` resolves it;
+  the page never binds variable → device. `ScanVariableOut.scannable` /
+  `reason` stay in the model for the next kind the worker cannot take.
 - **Operator policy, not agent policy.** No shot cap, no "refuse if
   anything is queued" — those are GEECS-MCP's posture. Preflight questions
   must be acknowledged; that is the one gate. Ownership (who may stop whose

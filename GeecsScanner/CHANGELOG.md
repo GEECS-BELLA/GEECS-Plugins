@@ -4,6 +4,20 @@ All notable changes to `geecs-scanner` are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 project adheres to semantic versioning.
 
+## [0.8.0] - 2026-09-15
+
+### Changed
+
+- **Pseudo scan variables are scannable from the picker** (#879, closes
+  it): `GET /api/scan-variables` lists a `kind: pseudo` entry with
+  `scannable: true` (no `target` — the worker binds it as a namespace
+  noun under its catalog name, GeecsBluesky 0.90.0), preflight and
+  submit expand it through `expand_preset` like any axis, and
+  `POST /api/move` moves one (a manual bump: today's positions become the
+  baseline, `0` moves nothing). The page changes nowhere else. The demo
+  manager's device tree carries the demo catalog's pseudo noun so the
+  preflight's reference check passes in `--demo`.
+
 ## [0.7.0] - 2026-09-15
 
 Two gates that refused what the queue and the form are for (#900, #905).
