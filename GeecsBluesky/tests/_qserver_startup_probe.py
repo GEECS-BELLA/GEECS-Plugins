@@ -105,7 +105,8 @@ def main() -> None:
     for name in GEECS_PLAN_NAMES:
         plan = ns[name]
         if name == "mv":
-            if plan is not bps.mv:
+            # The stock stub with its failure named (registry._mv_named).
+            if getattr(plan, "__wrapped__", plan) is not bps.mv:
                 _fail("ns['mv'] is not bluesky's mv")
                 return
             continue

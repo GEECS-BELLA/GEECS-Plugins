@@ -33,7 +33,34 @@ __all__ = [
     "ActionCheckFailedError",
     "ActionPlanNotFoundError",
     "ActionPlanCycleError",
+    "failure_cause_text",
 ]
+
+
+def failure_cause_text(exc: BaseException) -> str:
+    """``"Type: text"`` for what actually failed — the cause by ``str``, plus its notes.
+
+    The one rendering of a failure for the scan log and the stop document.
+    A ``bluesky.utils.FailedStatus``'s own text is the status repr, so what
+    failed lives on the cause alone; a bare exception (a device logging
+    its own refused put) is its own cause.  Two rules, both caught on
+    hardware:
+
+    - ``is not None``, never ``or``: ``aioca.CANothing`` is *falsy* for a
+      failed put, and ``exc.__cause__ or exc`` would select the useless
+      status instead (2026-09-10, GEECS-Plugins#817).
+    - ``str``, never ``repr``: ``CANothing`` carries the PV name and the CA
+      message only through ``str`` — its repr is the bare error code; and
+      the notes a device attaches (PEP 678 ``add_note`` — the file plugin's
+      ``WriteMessage`` on a failed prepare, GEECS-Plugins#894) are not part
+      of either.
+    """
+    cause = exc.__cause__ if exc.__cause__ is not None else exc
+    text = f"{type(cause).__name__}: {cause}"
+    notes = [str(n) for n in (getattr(cause, "__notes__", None) or ()) if str(n)]
+    if notes:
+        text += " (" + "; ".join(notes) + ")"
+    return text
 
 
 # ---------------------------------------------------------------------------
@@ -130,10 +157,12 @@ class GeecsDeviceDownError(GeecsError):
 
     ``CONNECTED`` is the authoritative liveness signal — CA-connect success
     never implies device liveness (PV_CONTRACT.md §1/§5; rationale in
-    ``GeecsBluesky/CLAUDE.md``).  Raised by
+    ``GeecsBluesky/CLAUDE.md``).  Raised by the bound plans' liveness gate
+    (:func:`~geecs_bluesky.plans.registry.liveness_gate`) before a run's
+    first move when the gateway reports any of its devices down, and by
     :func:`~geecs_bluesky.plans.strict.fire_and_await_shot` when a
     no-frame device turns out to be disconnected mid-scan.  The message is
-    operator-facing.
+    operator-facing; ``device_name`` is the first device named.
     """
 
     def __init__(self, message: str, device_name: str | None = None) -> None:

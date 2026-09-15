@@ -5,14 +5,20 @@ from __future__ import annotations
 import asyncio
 
 import pytest
-from bluesky import RunEngine
-from bluesky.plan_stubs import mv
-from geecs_schemas.trigger_profile import TriggerState
 
-from geecs_bluesky.devices.shot_control import ShotControl
-from geecs_bluesky.exceptions import GeecsConfigurationError
-from geecs_bluesky.models.shot_control import ShotControlWrites
-from tests.ca_mock_helpers import connect_mock
+# The box carries its devices' CONNECTED signals (#852): building one needs
+# the CA transport, like every other CA-device suite (the `ca` extra).
+pytest.importorskip("aioca")
+
+from bluesky import RunEngine  # noqa: E402
+from bluesky.plan_stubs import mv  # noqa: E402
+from geecs_schemas.trigger_profile import TriggerState  # noqa: E402
+
+from geecs_bluesky.devices.ca._pv import ca_pv  # noqa: E402
+from geecs_bluesky.devices.shot_control import ShotControl  # noqa: E402
+from geecs_bluesky.exceptions import GeecsConfigurationError  # noqa: E402
+from geecs_bluesky.models.shot_control import ShotControlWrites  # noqa: E402
+from tests.ca_mock_helpers import connect_mock  # noqa: E402
 
 WRITES = ShotControlWrites(
     name="htu_test",
@@ -225,3 +231,34 @@ def test_standing_state_has_one_source(
     assert _run(RE, lambda: shot_control.state.get_value()) == "SCAN"
     RE(mv(shot_control, "SINGLESHOT"))
     assert shot_control.standing_state == "SCAN"
+
+
+def test_liveness_signals_cover_every_profile_device_and_are_never_columns(
+    RE: RunEngine, shot_control: ShotControl
+) -> None:
+    """GEECS-Plugins#852: one CONNECTED signal per device the profile writes."""
+    assert list(shot_control.liveness_signals) == ["DG"]
+    signal = shot_control.liveness_signals["DG"]
+    expected = ca_pv("TestExp", "DG", "CONNECTED").removeprefix("ca://")
+    assert signal.source.endswith(expected)
+    assert _run(RE, lambda: shot_control.read()) == {}
+    assert list(_run(RE, lambda: shot_control.describe_configuration())) == [
+        "shot_control-state"
+    ]
+
+
+def test_liveness_signals_follow_a_multi_device_profile(RE: RunEngine) -> None:
+    sc = ShotControl(
+        ShotControlWrites(
+            name="two",
+            states={
+                "ARMED": [("DG", "Source", "single"), ("Shutter", "State", "open")],
+                "STANDBY": [("DG", "Source", "edges")],
+            },
+        ),
+        experiment="TestExp",
+        name="sc",
+        setter_factory=Recorder,
+    )
+    connect_mock(RE, sc)
+    assert list(sc.liveness_signals) == ["DG", "Shutter"]

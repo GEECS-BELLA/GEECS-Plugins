@@ -112,7 +112,7 @@ class CaMotor(CaSettable):
             value,
             self._tolerance,
         )
-        return AsyncStatus(self._set_and_wait(value))
+        return AsyncStatus(self._set_logged(value))
 
     async def _set_and_wait(self, value: float) -> None:
         """Put the setpoint (blocks through GEECS convergence), then confirm.

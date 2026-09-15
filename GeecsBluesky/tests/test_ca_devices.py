@@ -10,12 +10,17 @@ acquirer (``GeecsDetector``) has its own file, ``test_geecs_detector.py``.
 from __future__ import annotations
 
 import asyncio
+import logging
 
 import pytest
 
 pytest.importorskip("aioca")  # CA backend needs the `ca` extra
 
-from ophyd_async.core import get_mock_put, set_mock_value  # noqa: E402
+from ophyd_async.core import (  # noqa: E402
+    callback_on_mock_put,
+    get_mock_put,
+    set_mock_value,
+)
 
 from geecs_bluesky.devices.ca import (  # noqa: E402
     CaConfirmSettable,
@@ -398,3 +403,115 @@ def test_ca_motor_locates_by_its_readback_so_relative_plans_work() -> None:
     RE(bp.rel_scan([], motor, -20, 20, 5))
     puts = [c.args[0] for c in get_mock_put(motor._setpoint).call_args_list]
     assert puts == [41322.0, 41332.0, 41342.0, 41352.0, 41362.0, 41342.0]
+
+
+# --------------------------------------------------------------------------
+# A failed set names its PV in the log (GEECS-Plugins#868)
+# --------------------------------------------------------------------------
+
+
+class _RefusedPut(RuntimeError):
+    """The shape of a failed ``aioca.CANothing``: falsy, repr = the bare code.
+
+    Only ``str`` carries the PV and the CA message; a truthy stand-in could
+    not catch an ``exc.__cause__ or exc`` selection (#817's bug).
+    """
+
+    def __bool__(self) -> bool:
+        return False
+
+    def __repr__(self) -> str:
+        return "_RefusedPut(ECA_DISCONN)"
+
+
+def _error_lines(caplog) -> list[str]:
+    return [r.getMessage() for r in caplog.records if r.levelno == logging.ERROR]
+
+
+async def test_settable_refused_put_is_logged_with_the_pv_and_the_cause(
+    caplog,
+) -> None:
+    """The device's ERROR line: the ``:SP`` PV and the falsy cause by ``str``."""
+    dev = CaSettable("U_S1H", "Current", experiment="Undulator", name="cur")
+    await dev.connect(mock=True)
+
+    def refuse(value, **kwargs):
+        raise _RefusedPut("undulator:u_s1h:current:SP: Virtual circuit disconnect")
+
+    callback_on_mock_put(dev._setpoint, refuse)
+    with caplog.at_level(logging.ERROR, logger="geecs_bluesky.devices.ca"):
+        with pytest.raises(_RefusedPut):
+            await dev.set(0.5)
+    (line,) = _error_lines(caplog)
+    assert "cur: set Current → 0.5 failed (undulator:u_s1h:current:SP)" in line
+    assert "_RefusedPut: undulator:u_s1h:current:SP: Virtual circuit disconnect" in line
+    assert "ECA_DISCONN" not in line  # the repr, never
+
+
+async def test_motor_refused_put_and_timeout_are_logged_with_the_pv(caplog) -> None:
+    """CaMotor shares the seam: the Layer-1 put and the Layer-2 timeout both name the PV."""
+    motor = CaMotor(
+        "U_ESP_JetXYZ",
+        "Position.Axis 1",
+        experiment="Undulator",
+        name="jet",
+        move_timeout=0.3,
+    )
+    await motor.connect(mock=True)
+    pv = "undulator:u_esp_jetxyz:position_axis_1:SP"
+
+    def refuse(value, **kwargs):
+        raise _RefusedPut(f"{pv}: no ACK within 1.5s")
+
+    callback_on_mock_put(motor._setpoint, refuse)
+    with caplog.at_level(logging.ERROR, logger="geecs_bluesky.devices.ca"):
+        with pytest.raises(_RefusedPut):
+            await motor.set(4.5)
+    (line,) = _error_lines(caplog)
+    assert f"({pv}): _RefusedPut: {pv}: no ACK within 1.5s" in line
+
+    caplog.clear()
+    callback_on_mock_put(motor._setpoint, lambda value, **kwargs: None)
+    set_mock_value(motor.position, 0.0)  # stuck far from target
+    with caplog.at_level(logging.ERROR, logger="geecs_bluesky.devices.ca"):
+        with pytest.raises(GeecsMotorTimeoutError):
+            await motor.set(4.5)
+    (line,) = _error_lines(caplog)
+    assert f"({pv}): GeecsMotorTimeoutError:" in line
+
+
+async def test_confirm_settable_refused_put_is_logged_with_the_pv(caplog) -> None:
+    """CaConfirmSettable routes through the same seam (its confirm poll is Layer 2)."""
+    dev = _emq_confirm_device(timeout=0.3)
+    await dev.connect(mock=True)
+    pv = "undulator:u_emqtripletbipolar:current_limit_ch1:SP"
+
+    def refuse(value, **kwargs):
+        raise _RefusedPut(f"{pv}: Channel write request failed")
+
+    callback_on_mock_put(dev._setpoint, refuse)
+    with caplog.at_level(logging.ERROR, logger="geecs_bluesky.devices.ca"):
+        with pytest.raises(_RefusedPut):
+            await dev.set(1.0)
+    (line,) = _error_lines(caplog)
+    assert f"({pv}): _RefusedPut: {pv}: Channel write request failed" in line
+
+
+async def test_a_successful_set_logs_no_error(caplog) -> None:
+    dev = CaSettable("U_S1H", "Current", experiment="Undulator", name="cur")
+    await dev.connect(mock=True)
+    with caplog.at_level(logging.ERROR, logger="geecs_bluesky.devices.ca"):
+        await dev.set(0.5)
+    assert _error_lines(caplog) == []
+
+
+async def test_snapshot_carries_the_liveness_pv_but_never_reads_it() -> None:
+    """A scalar-only device's CONNECTED signal is for the liveness gate, not a column."""
+    gauge = CaSnapshotReadable(
+        "U_Gauge", ["Pressure"], experiment="Undulator", name="g"
+    )
+    await gauge.connect(mock=True)
+    expected = ca_pv("Undulator", "U_Gauge", "CONNECTED").removeprefix("ca://")
+    assert gauge.connected_status.source.endswith(expected)
+    set_mock_value(gauge.connected_status, "Disconnected")
+    assert set(await gauge.read()) == {"g-pressure"}

@@ -529,11 +529,6 @@ class GeecsDetectorScalars(ScalarsView):
     _owner: GeecsDetector
 
     @property
-    def connected_status(self) -> SignalR[str]:
-        """The parent's gateway liveness PV (the refire gate reads it)."""
-        return self._owner.connected_status
-
-    @property
     def missed_shot(self) -> bool:
         """Whether the parent's last awaited shot never arrived."""
         return self._owner._acquire.missed

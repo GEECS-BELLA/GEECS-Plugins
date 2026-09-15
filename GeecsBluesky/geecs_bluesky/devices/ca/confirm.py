@@ -139,9 +139,9 @@ class CaConfirmSettable(CaSettable):
             self._confirm_variable,
             self._tolerance,
         )
-        return AsyncStatus(self._set_and_confirm(value))
+        return AsyncStatus(self._set_logged(value))
 
-    async def _set_and_confirm(self, value: float) -> None:
+    async def _set_and_wait(self, value: float) -> None:
         """Put the setpoint (Layer 1), then poll the confirming variable."""
         loop = asyncio.get_running_loop()
 

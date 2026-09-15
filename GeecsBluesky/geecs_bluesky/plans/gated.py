@@ -95,8 +95,12 @@ from geecs_bluesky.devices.detector import (
     gated_trigger_info,
 )
 from geecs_bluesky.devices.sampler import ShotSampler
-from geecs_bluesky.exceptions import GeecsConfigurationError, GeecsTriggerTimeoutError
-from geecs_bluesky.plans.strict import BinCounter, failure_cause_text
+from geecs_bluesky.exceptions import (
+    GeecsConfigurationError,
+    GeecsTriggerTimeoutError,
+    failure_cause_text,
+)
+from geecs_bluesky.plans.strict import BinCounter, name_failed_status
 
 logger = logging.getLogger(__name__)
 
@@ -351,7 +355,7 @@ def gated_per_shot(shot_control: Any, **kwargs: Any) -> Callable[..., Any]:
         body = take_reading([*detectors, bins], quota)
         # Not rewindable: a resume must not replay the batch's messages —
         # the plan retakes the step itself (module docstring, Pause).
-        return (yield from rewindable_wrapper(body, False))
+        return (yield from name_failed_status(rewindable_wrapper(body, False)))
 
     per_shot.__name__ = per_shot.__qualname__ = "gated_per_shot"
     return per_shot
@@ -372,14 +376,17 @@ def gated_per_step(
     take_reading = gated_take_reading(shot_control, **kwargs)
     bins = BinCounter()
 
-    def per_step(
-        detectors: Sequence[Any], step: Any, pos_cache: Any, take_reading_: Any = None
-    ):
+    def one_step(detectors: Sequence[Any], step: Any, pos_cache: Any):
         motors = list(step.keys())
         yield from bps.move_per_step(step, pos_cache)
         bins.value += 1
         body = take_reading([*detectors, *motors, bins], shots_per_step)
         return (yield from rewindable_wrapper(body, False))
+
+    def per_step(
+        detectors: Sequence[Any], step: Any, pos_cache: Any, take_reading_: Any = None
+    ):
+        return (yield from name_failed_status(one_step(detectors, step, pos_cache)))
 
     per_step.__name__ = per_step.__qualname__ = "gated_per_step"
     return per_step

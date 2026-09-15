@@ -29,10 +29,14 @@ from bluesky.utils import FailedStatus, all_safe_rewind, separate_devices, short
 from geecs_schemas.trigger_profile import TriggerState
 from ophyd_async.core import StandardDetector
 
-from geecs_bluesky.devices.ca._pv import GATEWAY_DISCONNECTED
 from geecs_bluesky.devices.ca._view import ScalarsView
+from geecs_bluesky.devices.ca.liveness import read_disconnected
 from geecs_bluesky.devices.detector import STRICT_TRIGGER_INFO
-from geecs_bluesky.exceptions import GeecsDeviceDownError, GeecsTriggerTimeoutError
+from geecs_bluesky.exceptions import (
+    GeecsDeviceDownError,
+    GeecsTriggerTimeoutError,
+    failure_cause_text,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -42,33 +46,26 @@ def _confirmed_down(devices: Sequence[Any], device_name: str):
 
     Tells the two causes of a no-frame timeout apart: a dropped frame (the
     device is live, re-firing recovers) and a device whose TCP stream to
-    the gateway died mid-scan (re-firing cannot help).  **Fail-open**: no
-    matching device, no ``connected_status`` child, or a failed read all
-    return ``False``; only the exact ``Disconnected`` choice string is a
-    verdict, so a mock backend's ``""`` default reads live.
+    the gateway died mid-scan (re-firing cannot help).  The read and its
+    verdict rule are :func:`~geecs_bluesky.devices.ca.liveness.read_disconnected`
+    — **fail-open**: no matching device, no ``connected_status`` child, or
+    a failed read all return ``False``; only the exact ``Disconnected``
+    choice string is a verdict, so a mock backend's ``""`` default reads
+    live.
     """
-    device = next(
-        (
-            obj
-            for obj in devices
-            if device_name
-            in (getattr(obj, "_geecs_device_name", None), getattr(obj, "name", None))
-        ),
-        None,
-    )
-    signal = getattr(device, "connected_status", None)
+    signal = getattr(_device_named(devices, device_name), "connected_status", None)
     if signal is None:
         return False
-    try:
-        value = yield from bps.rd(signal)
-    except Exception:
-        logger.debug(
-            "CONNECTED read failed for %s; assuming live (fail-open)",
-            device_name,
-            exc_info=True,
-        )
-        return False
-    return value == GATEWAY_DISCONNECTED
+    down = yield from read_disconnected({device_name: signal})
+    return bool(down)
+
+
+def geecs_name(obj: Any) -> str:
+    """The GEECS device name of a plan object: its own, its owner's, else its ophyd name."""
+    name = getattr(obj, "_geecs_device_name", None)
+    if name is None:
+        name = getattr(getattr(obj, "_owner", None), "_geecs_device_name", None)
+    return str(name if name is not None else getattr(obj, "name", obj))
 
 
 def _device_named(devices: Sequence[Any], device_name: str) -> Any | None:
@@ -83,25 +80,36 @@ def _device_named(devices: Sequence[Any], device_name: str) -> Any | None:
     )
 
 
-def failure_cause_text(exc: FailedStatus) -> str:
-    """``"Type: text"`` for a failed status's cause — the PV and the CA message.
+def name_failed_status(plan: Any):
+    """Plan wrapper: a ``FailedStatus`` escaping *plan* reads as its cause.
 
-    A ``FailedStatus``'s own text is the status repr, so what failed lives on
-    the cause alone.  ``is not None``, never ``or``: ``aioca.CANothing`` is
-    *falsy* for a failed put, and ``exc.__cause__ or exc`` would select the
-    useless status instead (caught on hardware 2026-09-10, #817).  ``str``,
-    never ``repr``: ``CANothing`` carries the CA message only through
-    ``str`` — its repr is the bare error code.
+    The stock ``run_wrapper`` writes ``str(exc)`` into the stop document's
+    ``reason`` as the exception passes it, and a ``FailedStatus``'s own text
+    is the status repr — which for a *falsy* cause (a refused
+    ``aioca.CANothing``) is not even ``errored: …`` but ``done``.  So a
+    refused put or a failed prepare reached the portal as ``<AsyncStatus …>``
+    (GEECS-Plugins#868, #894).  The exception's text is replaced with the
+    shared rendering (:func:`~geecs_bluesky.exceptions.failure_cause_text`:
+    the cause by ``str`` plus its notes) as it passes; type, cause and
+    traceback are untouched, so every ``except FailedStatus`` upstream still
+    matches.  Idempotent, so the GEECS hooks (inside ``run_wrapper``, for the
+    stop document) and the bound plan (outside it, for the manager's report
+    of a failure before or after the run) can both apply it.
     """
-    cause = exc.__cause__ if exc.__cause__ is not None else exc
-    return f"{type(cause).__name__}: {cause}"
+    try:
+        return (yield from plan)
+    except FailedStatus as exc:
+        if exc.__cause__ is not None:  # a cause-less status keeps its own text
+            exc.args = (failure_cause_text(exc),)
+        raise
 
 
 def _log_non_frame_failure(exc: FailedStatus) -> None:
     """ERROR-log a failed status that is *not* a missing frame, naming its cause.
 
-    This line is the scan log's only record of what failed: the
-    ``FailedStatus`` propagates unwrapped (#817).
+    This line is the scan log's record of what failed at the fire: the
+    ``FailedStatus`` propagates unwrapped (#817), rendered by the shared
+    :func:`~geecs_bluesky.exceptions.failure_cause_text`.
     """
     logger.error(
         "shot failed, but not from a missing frame — another shot cannot "
@@ -190,9 +198,7 @@ def fire_and_await_shot(devices: Sequence[Any], fire: Callable):
         )
     missed = [obj for obj in triggerables if getattr(obj, "missed_shot", False)]
     for obj in missed:
-        device_name = getattr(obj, "_geecs_device_name", None) or getattr(
-            getattr(obj, "_owner", None), "_geecs_device_name", obj.name
-        )
+        device_name = geecs_name(obj)
         down = yield from _confirmed_down(devices, device_name)
         if down:
             raise GeecsDeviceDownError(
@@ -426,7 +432,7 @@ def geecs_per_shot(shot_control: Any, **kwargs: Any) -> Callable[..., Any]:
     bins.value = 1
 
     def per_shot(detectors: Sequence[Any], take_reading_: Any = None):
-        return (yield from take_reading([*detectors, bins]))
+        return (yield from name_failed_status(take_reading([*detectors, bins])))
 
     per_shot.__name__ = per_shot.__qualname__ = "geecs_per_shot"
     return per_shot
@@ -455,14 +461,17 @@ def geecs_per_step(
     take_reading = geecs_take_reading(shot_control, **kwargs)
     bins = BinCounter()
 
-    def per_step(
-        detectors: Sequence[Any], step: Any, pos_cache: Any, take_reading_: Any = None
-    ):
+    def one_step(detectors: Sequence[Any], step: Any, pos_cache: Any):
         motors = list(step.keys())
         yield from bps.move_per_step(step, pos_cache)
         bins.value += 1
         for _ in range(shots_per_step):
             yield from take_reading([*detectors, *motors, bins])
+
+    def per_step(
+        detectors: Sequence[Any], step: Any, pos_cache: Any, take_reading_: Any = None
+    ):
+        return (yield from name_failed_status(one_step(detectors, step, pos_cache)))
 
     per_step.__name__ = per_step.__qualname__ = "geecs_per_step"
     return per_step

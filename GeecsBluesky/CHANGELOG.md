@@ -4,6 +4,62 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.87.0] - 2026-09-14
+
+### Added
+
+- **Worker-side liveness gate before the run's first move** (#852): every
+  bound plan reads the gateway's `CONNECTED` PV once for the trigger
+  profile's device(s), every listed detector (a scalars view counts as
+  its owner) and every non-essential device, *before* the bracket drives
+  the box and before `open_run` claims a scan number. Any device the
+  gateway reports `Disconnected` refuses the run with
+  `GeecsDeviceDownError` naming every dead one — nothing driven, nothing
+  claimed, no folder. Every submission path passes through it (a preset,
+  a bare stock plan item, a script), unlike the client preflight.
+  `ShotControl` now carries one `CONNECTED` signal per device its profile
+  writes (`liveness_signals`, never a column); `CaSnapshotReadable` gains
+  `connected_status` like the detectors. `devices/ca/liveness.py` owns
+  the in-plan reader (`read_disconnected`) beside the out-of-plan probe —
+  one fail-open verdict rule; the strict refire gate uses it too.
+- **The preflight's liveness list includes the trigger profile's devices**
+  (#852): `run_submit_preflight` resolves the preset's `trigger_profile`
+  (else the experiment default) through the configs repo — a new
+  `resolver=` keyword, or the experiment's `ConfigsRepoResolver` built for
+  the check — and probes the box's devices with the preset's, so the
+  "Devices disconnected" question names a dead DG645 too. A profile that
+  cannot be resolved is logged and the preset's devices are probed alone.
+- **A failed set names its PV in the scan log** (#868, the move-side half
+  of #817): `CaSettable`, `CaMotor` and `CaConfirmSettable` log the
+  refused put — or the readback / confirm timeout — at ERROR with the
+  `:SP` PV and the cause by `str` (`_set_logged`, the one seam) before the
+  status fails. `failure_cause_text` moved to `geecs_bluesky.exceptions`
+  (importable below the plans) and now renders the cause's PEP 678 notes
+  too, so the file plugin's `WriteMessage` on a failed prepare (#894)
+  travels with the reason.
+- **The stop document's reason is the cause, not the status repr** (#868,
+  #894): `name_failed_status` (in `plans/strict`) gives a `FailedStatus`
+  its cause's text as it passes the GEECS hooks — inside the stock plan,
+  before `run_wrapper` renders `str(exc)` into the stop document — and
+  again around the run bracket for a failure outside the run, and around
+  the registered `mv` (a manual move's queue-item report reads its cause
+  too). Type, cause and traceback are untouched. `ScanEndInfo` and the portal now read
+  `CANothing: <pv>: <CA message>` instead of `<AsyncStatus …>`, and
+  `scan.log`'s last line carries the reason beside the exit status.
+
+### Fixed
+
+- **A refused CA put through the typed-signal transport read as success**
+  (found pinning #868): ophyd-async 0.19.3's `SignalW.set` runs the put
+  inside a stamina/tenacity retry context whose outcome travels through a
+  `concurrent.futures.Future`, and the stdlib re-raises a stored
+  exception only `if self._exception:` — a failed `aioca.CANothing`
+  defines `__bool__` as `ok`, so the refusal was swallowed. A refused
+  motor put then surfaced only as the readback timeout; a refused plain
+  setpoint not at all. `GatewaySetpointPut`'s signal transport now awaits
+  the connected backend's put directly, with the same bounded wait (the
+  mock seam is unchanged). Pinned with a real `aioca.CANothing`.
+
 ## [0.86.1] - 2026-09-13
 
 ### Changed

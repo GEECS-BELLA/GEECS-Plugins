@@ -36,6 +36,29 @@ All ride in the start document beside the stock ``plan_args``
 (``non_essential`` as the devices' names, plus ``shot_clock`` — the
 device whose stamp counted a gated run's shots).
 
+Two things a bound plan does around the stock one
+-------------------------------------------------
+- **The liveness gate** (:func:`liveness_gate`, GEECS-Plugins#852): before
+  the run bracket's first move — so before the box is driven and before
+  ``open_run`` claims a scan number — one ``CONNECTED`` read for the
+  trigger profile's device(s), every listed detector and every
+  non-essential device; a device the gateway reports ``Disconnected``
+  refuses the run with :exc:`~geecs_bluesky.exceptions.GeecsDeviceDownError`
+  naming every dead one.  Every submission path passes through it (a
+  preset, a bare stock plan item, a script), unlike the client preflight.
+  The plan-of-record rule against reading quiescence in a scan step
+  (``03`` §11.2) does not apply: this is the liveness PV, the doctrine's
+  own signal, read once per run.
+- **The failure's name**
+  (:func:`~geecs_bluesky.plans.strict.name_failed_status`,
+  GEECS-Plugins#868): a ``FailedStatus`` is given its cause's ``str`` (and
+  notes) as its text as it passes the GEECS hooks — inside the stock
+  plan, before ``run_wrapper`` renders ``str(exc)`` into the stop
+  document — and once more around the bracket for a failure outside the
+  run (the bracket's own move, a non-essential prepare).  The stop
+  document's ``reason`` — what the portal and ``ScanEndInfo`` show — then
+  reads ``CANothing: <pv>: <CA message>`` instead of ``<AsyncStatus …>``.
+
 Which stock plans
 -----------------
 Every ``bluesky.plans`` verb exposing the hook that a queue item can
@@ -69,9 +92,10 @@ which is exactly why they are queue items and never steps inside a scan
 
 from __future__ import annotations
 
+import functools
 import inspect
 import logging
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from inspect import Parameter
 from typing import Any
 
@@ -79,8 +103,9 @@ import bluesky.plan_stubs as bps
 import bluesky.plans as bp
 from geecs_schemas.trigger_profile import TriggerState
 
+from geecs_bluesky.devices.ca.liveness import read_disconnected
 from geecs_bluesky.devices.shot_control import ShotControl
-from geecs_bluesky.exceptions import GeecsConfigurationError
+from geecs_bluesky.exceptions import GeecsConfigurationError, GeecsDeviceDownError
 from geecs_bluesky.plan_names import (
     ACQUISITION_MODES,
     GEECS_PLAN_NAMES,
@@ -99,7 +124,12 @@ from geecs_bluesky.plans.gated import (
     run_bracket,
     shot_clock,
 )
-from geecs_bluesky.plans.strict import geecs_per_shot, geecs_per_step
+from geecs_bluesky.plans.strict import (
+    geecs_name,
+    geecs_per_shot,
+    geecs_per_step,
+    name_failed_status,
+)
 from geecs_bluesky.utils import safe_name
 
 logger = logging.getLogger(__name__)
@@ -230,6 +260,44 @@ class TriggerProfiles:
             ) from None
 
 
+def liveness_gate(shot_control: Any, devices: Sequence[Any]):
+    """Plan: refuse the run if the gateway reports any of its devices Disconnected.
+
+    One ``CONNECTED`` read each for the trigger box's device(s)
+    (:attr:`~geecs_bluesky.devices.shot_control.ShotControl.liveness_signals`)
+    and every device in *devices* that carries a ``connected_status``
+    signal (a detector, its scalars view, a scalar-only device); a device
+    without one is not judged.  The verdict rule is the shared
+    :func:`~geecs_bluesky.devices.ca.liveness.read_disconnected` —
+    fail-open, only the exact ``Disconnected`` string counts.
+
+    Runs before the bracket's first move and before ``open_run``: nothing
+    is driven and nothing is claimed for a run this refuses.
+
+    Raises
+    ------
+    GeecsDeviceDownError
+        Naming every device reported down.
+    """
+    signals: dict[str, Any] = dict(getattr(shot_control, "liveness_signals", {}))
+    for obj in devices:
+        signal = getattr(obj, "connected_status", None)
+        if signal is None:
+            continue
+        signals.setdefault(geecs_name(obj), signal)
+    # An unreadable CONNECTED before a run is abnormal (the gateway serves
+    # it for every DB device) and cost the connect timeout: say so.
+    down = yield from read_disconnected(signals, unreadable_level=logging.WARNING)
+    if down:
+        names = ", ".join(down)
+        raise GeecsDeviceDownError(
+            f"the gateway reports {names} DISCONNECTED — the run was refused "
+            "before the trigger box was driven (nothing claimed, no scan "
+            "folder). Check the GEECS device(s), then resubmit.",
+            device_name=down[0],
+        )
+
+
 def strict_plan(
     stock: Callable[..., Any], profiles: TriggerProfiles
 ) -> Callable[..., Any]:
@@ -342,7 +410,14 @@ def strict_plan(
             kwargs[hook] = geecs_per_shot(shot_control, shot_period=shot_period)
         inner = non_essential_wrapper(stock(*args, md=md, **kwargs), non_essential)
         opening = TriggerState.OFF if acquisition == "gated" else TriggerState.ARMED
-        return (yield from run_bracket(inner, shot_control, opening))
+        # Before the first move, before the claim (#852).
+        yield from liveness_gate(shot_control, [*detectors, *non_essential])
+        # A failure outside the stock plan's run_wrapper (the bracket's own
+        # move, a non-essential prepare) is named here; one inside it is
+        # named by the hook, before run_wrapper writes the stop document.
+        return (
+            yield from name_failed_status(run_bracket(inner, shot_control, opening))
+        )
 
     # The stock ``*args`` annotations are informational (``list_scan`` even
     # annotates each element as a ``(motor, points)`` tuple while taking
@@ -437,6 +512,12 @@ def _geecs_doc(stock: Callable[..., Any], hook: str) -> str:
     )
 
 
+@functools.wraps(bps.mv)
+def _mv_named(*args: Any, **kwargs: Any):
+    """The stock ``mv`` stub with a failure's name (#868): the manager's report of a refused manual move reads its cause, not ``<AsyncStatus …>``."""
+    return (yield from name_failed_status(bps.mv(*args, **kwargs)))
+
+
 def bind_plans(
     profiles: TriggerProfiles,
     *,
@@ -446,14 +527,15 @@ def bind_plans(
     """Every name in :data:`GEECS_PLAN_NAMES` → the plan the worker registers.
 
     The scan verbs come back bound through :func:`strict_plan`; ``mv`` is
-    the stock stub (a manual move as a queue item, nothing strict about it);
+    the stock stub (a manual move as a queue item, nothing strict about it)
+    with its failure named (:func:`_mv_named`);
     ``run_action`` is :func:`run_action_plan` over *resolver* and
     *settables* (the namespace).
     """
     bound: dict[str, Callable[..., Any]] = {}
     for name in GEECS_PLAN_NAMES:
         if name == "mv":
-            bound[name] = bps.mv
+            bound[name] = _mv_named
         elif name == "run_action":
             bound[name] = run_action_plan(resolver, settables)
         elif name == "measure_shot_offsets":
@@ -471,6 +553,7 @@ __all__ = [
     "EXCLUDED_STOCK_PLANS",
     "TriggerProfiles",
     "bind_plans",
+    "liveness_gate",
     "stock_plans_with_hook",
     "strict_plan",
 ]

@@ -21,6 +21,12 @@ One device, the protocols Bluesky already has for it
   pause, and out of ``resume()`` lands after the RunEngine has already
   rewound — failures are logged loudly instead.
 
+The box's devices carry the gateway's ``CONNECTED`` liveness PV as one
+``str`` signal each (:attr:`ShotControl.liveness_signals`) — never a
+column, read once by the run's liveness gate before the first move
+(GEECS-Plugins#852): a dead DG645 is named before the box is driven,
+instead of surfacing as a bare put error.
+
 The writes go through one cached gateway ``:SP`` put per distinct
 ``(device, variable)`` target (:class:`~geecs_bluesky.devices.ca.gateway_put.CaPutSetter` — the hardware-proven
 stringified-wire convention); each state's list replays in declared order,
@@ -40,14 +46,18 @@ from typing import Any, Callable
 from geecs_schemas.trigger_profile import TriggerProfile, TriggerState
 from ophyd_async.core import (
     AsyncStatus,
+    SignalR,
     StandardReadable,
     StandardReadableFormat,
     soft_signal_r_and_setter,
 )
+from ophyd_async.epics.core import epics_signal_r
 
+from geecs_bluesky.devices.ca._pv import ca_pv
 from geecs_bluesky.devices.ca.gateway_put import CaPutSetter
 from geecs_bluesky.exceptions import GeecsConfigurationError
 from geecs_bluesky.models.shot_control import QUIESCE_FROM, ShotControlWrites
+from geecs_bluesky.utils import safe_name
 from geecs_core.pv_naming import pv_name, setpoint_pv
 
 logger = logging.getLogger(__name__)
@@ -158,6 +168,14 @@ class ShotControl(StandardReadable):
                 ordered.append((setters[key], value))
             if ordered:
                 self._transitions[state_name] = ordered
+        # The gateway's per-device liveness PV for every device the profile
+        # writes: a plain child (connected with the device, never read into
+        # an event), keyed by GEECS device name for the liveness gate.
+        self._liveness: dict[str, SignalR[str]] = {}
+        for device in writes.devices:
+            signal = epics_signal_r(str, ca_pv(experiment, device, "CONNECTED"))
+            setattr(self, f"connected_{safe_name(device)}", signal)
+            self._liveness[device] = signal
         #: The last *standing* state driven — never the momentary SINGLESHOT
         #: fire (recording it would make a later re-assert refire a shot).
         self._standing: str | None = None
@@ -184,6 +202,11 @@ class ShotControl(StandardReadable):
     def profile_name(self) -> str:
         """The adapted profile's name (log/error messages)."""
         return self._writes.name
+
+    @property
+    def liveness_signals(self) -> dict[str, SignalR[str]]:
+        """GEECS device name → its ``CONNECTED`` signal, for every device the profile writes."""
+        return dict(self._liveness)
 
     def defines(self, state: str | TriggerState) -> bool:
         """Whether the profile writes anything for *state* (``False`` for unknown names)."""

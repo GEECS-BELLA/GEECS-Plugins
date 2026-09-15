@@ -735,8 +735,12 @@ class ScanLogCallback(_RunCallback):
         self._log.open(int(number), str(folder))
 
     def on_stop(self, start: dict[str, Any], stop: Document) -> None:
-        """Close the file with the run's outcome."""
-        self._log.close(note=f"finished ({stop.get('exit_status', '?')})")
+        """Close the file with the run's outcome — and its reason, when it has one."""
+        note = f"finished ({stop.get('exit_status', '?')})"
+        reason = str(stop.get("reason") or "")
+        if reason:
+            note += f": {reason}"
+        self._log.close(note=note)
 
 
 # ------------------------------------------------------------- stack check
