@@ -33,7 +33,7 @@ from geecs_core.exceptions import (
     GeecsConnectionError,
 )
 
-from ._coerce import coerce_scalar
+from ._coerce import coerce_scalar, format_float
 
 logger = logging.getLogger(__name__)
 
@@ -330,7 +330,7 @@ class GeecsUdpClient:
         if isinstance(value, bool):
             cmd = f"set{variable}>>{int(value)}"
         elif isinstance(value, float):
-            cmd = f"set{variable}>>{value:.12f}"
+            cmd = f"set{variable}>>{format_float(value)}"
         else:
             cmd = f"set{variable}>>{value}"
         return await self._exchange(

@@ -57,6 +57,38 @@ class TestUdpClient:
                 value = await client.get("Position (mm)")
                 assert value == pytest.approx(7.5)
 
+    async def test_set_float_transmits_shortest_decimal(
+        self, fake_device: FakeGeecsDevice
+    ) -> None:
+        """The datagram carries the caller's digits, not a %.12f expansion.
+
+        Pins issue #819 at the wire: ``%.12f`` sent ``40854.246249999997`` for
+        ``40854.24625`` and LabVIEW rejected it as not a number. The fake
+        server cannot see the difference (``float()`` of either string is the
+        same double), so the sent bytes are captured on the cmd transport.
+        """
+        sent: list[bytes] = []
+        async with FakeGeecsServer(fake_device) as srv:
+            async with GeecsUdpClient(srv.host, srv.port) as client:
+                transport = client._cmd_transport
+                assert transport is not None
+                real_sendto = transport.sendto
+
+                def capture(data: bytes, addr: object = None) -> None:
+                    sent.append(bytes(data))
+                    real_sendto(data, addr)
+
+                transport.sendto = capture  # type: ignore[method-assign]
+                for value in (40854.24625, 40966.0, 1e-05, -0.001):
+                    await client.set("Position (mm)", value)
+                    assert fake_device.variables["Position (mm)"] == value
+        assert [b.decode() for b in sent] == [
+            "setPosition (mm)>>40854.24625",
+            "setPosition (mm)>>40966.0",
+            "setPosition (mm)>>0.00001",
+            "setPosition (mm)>>-0.001",
+        ]
+
     async def test_set_integer(self, fake_device: FakeGeecsDevice) -> None:
         async with FakeGeecsServer(fake_device) as srv:
             async with GeecsUdpClient(srv.host, srv.port) as client:
