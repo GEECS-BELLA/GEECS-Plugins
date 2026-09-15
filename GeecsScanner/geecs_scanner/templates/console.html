@@ -134,21 +134,15 @@
         </div>
       </header>
       <div class="body">
-        <div class="fields">
-          <div class="field wide"><label for="preset">preset</label><select id="preset"></select><span class="hint" id="presets-note">Loading presets…</span></div>
-        </div>
-        <p class="mode-note" id="mode-note"></p>
-
         <div class="group" id="axis1">
           <span class="eyebrow">axis 1</span>
           <div class="axes">
             <div class="field">
               <label for="var1">variable <span class="req" aria-hidden="true">*</span></label>
               <select id="var1"></select>
-              <span class="hint" id="var1-hint">catalog name → device:variable</span>
             </div>
-            <div class="field"><label for="start1">start</label><input id="start1" type="number" step="any" value="0"><span class="hint">&nbsp;</span></div>
-            <div class="field"><label for="stop1">stop</label><input id="stop1" type="number" step="any" value="1"><span class="hint">&nbsp;</span></div>
+            <div class="field"><label for="start1">start</label><input id="start1" type="number" step="any" value="0"></div>
+            <div class="field"><label for="stop1">stop</label><input id="stop1" type="number" step="any" value="1"></div>
             <div class="field"><label for="step1">step</label><input id="step1" type="number" step="any" value="0.1"><span class="hint" id="pts1">11 points</span><span class="err" id="err-step1">Step must be a positive number.</span></div>
           </div>
         </div>
@@ -156,18 +150,18 @@
         <div class="group" id="axis2" hidden>
           <span class="eyebrow">axis 2 · inner</span>
           <div class="axes">
-            <div class="field"><label for="var2">variable <span class="req" aria-hidden="true">*</span></label><select id="var2"></select><span class="hint">stepped inside each axis-1 point</span></div>
-            <div class="field"><label for="start2">start</label><input id="start2" type="number" step="any" value="0"><span class="hint">&nbsp;</span></div>
-            <div class="field"><label for="stop2">stop</label><input id="stop2" type="number" step="any" value="1"><span class="hint">&nbsp;</span></div>
+            <div class="field"><label for="var2">variable <span class="req" aria-hidden="true">*</span></label><select id="var2"></select></div>
+            <div class="field"><label for="start2">start</label><input id="start2" type="number" step="any" value="0"></div>
+            <div class="field"><label for="stop2">stop</label><input id="stop2" type="number" step="any" value="1"></div>
             <div class="field"><label for="step2">step</label><input id="step2" type="number" step="any" value="0.5"><span class="hint" id="pts2">3 points</span><span class="err" id="err-step2">Step must be a positive number.</span></div>
           </div>
         </div>
 
         <div class="fields">
           <div class="field"><label for="shots">shots per step</label><input id="shots" type="number" min="1" step="1" value="10"><span class="hint" id="shots-hint">shots_per_step</span><span class="err" id="err-shots">At least one shot.</span></div>
-          <div class="field"><label for="trig">trigger profile</label><select id="trig"></select><span class="hint">shot_control_configurations/ · the worker learns new or edited profiles at its next environment open; a scan naming one before that is refused there</span></div>
-          <div class="field"><label for="period">shot period</label><input id="period" type="number" min="0" step="any" placeholder="auto"><span class="hint">strict only · seconds · blank = as fast as the box allows</span></div>
-          <div class="field wide"><label for="desc">description</label><input id="desc" placeholder="what this scan is for"><span class="hint">goes to ScanInfo and the logbook entry</span></div>
+          <div class="field"><label for="trig">trigger profile</label><select id="trig" title="shot_control_configurations/ · the worker learns new or edited profiles at its next environment open; a scan naming one before that is refused there"></select></div>
+          <div class="field"><label for="period">shot period</label><input id="period" type="number" min="0" step="any" placeholder="auto"><span class="hint">seconds</span></div>
+          <div class="field wide"><label for="desc">description</label><input id="desc" placeholder="what this scan is for"></div>
         </div>
 
         <div class="group">
@@ -179,7 +173,7 @@
           <div class="tscroll">
             <table class="devtable">
               <thead><tr><th>device</th><th>save images</th><th>essential</th><th></th></tr></thead>
-              <tbody id="devs"><tr><td class="dim" colspan="4">Pick a preset above.</td></tr></tbody>
+              <tbody id="devs"><tr><td class="dim" colspan="4">No devices — add one.</td></tr></tbody>
             </table>
           </div>
           <span class="dim note">Not essential + no images is refused at expansion. A gated run needs at least one essential triggered device.</span>
@@ -190,6 +184,8 @@
           <span class="est" id="est">—</span>
           <span class="spacer"></span>
           <span class="dim note" id="preset-name"></span>
+          <span class="dim note" id="presets-note"></span>
+          <select id="preset" class="preset-load" aria-label="Load a preset"><option value="" disabled selected>Loading presets…</option></select>
           <button class="btn" type="button" data-drawer-open="drw-preset" id="btn-save-preset" disabled>Save as preset…</button>
           <button class="btn primary" type="button" id="btn-start" disabled>Start</button>
         </div>
@@ -228,8 +224,8 @@
         <div class="body">
           <div class="live" id="mv-live" hidden><span class="k" id="mv-k">—</span><span class="v" id="mv-rb">—</span><span class="age" id="mv-age"></span></div>
           <div class="fields">
-            <div class="field"><label for="mv-var">variable</label><select id="mv-var"></select><span class="hint" id="mv-hint">every numeric settable, alias first · from the GEECS DB</span></div>
-            <div class="field"><label for="mv-val">set to</label><input id="mv-val" type="number" step="any" placeholder="value"><span class="hint">&nbsp;</span><span class="err" id="err-mv-val">Enter a number.</span></div>
+            <div class="field"><label for="mv-var">variable</label><select id="mv-var"></select><span class="hint" id="mv-hint"></span></div>
+            <div class="field"><label for="mv-val">set to</label><input id="mv-val" type="number" step="any" placeholder="value"><span class="err" id="err-mv-val">Enter a number.</span></div>
           </div>
           <div class="row">
             <span class="dim note" id="mv-note">A move is an <code>mv</code> queue item: it runs only while nothing runs or waits.</span>
@@ -279,8 +275,8 @@
             <div class="live"><span class="k">max offset</span><span class="v" id="cal-max">—</span><span class="age" id="cal-max-dev"></span></div>
           </div>
           <div class="fields">
-            <div class="field"><label for="cal-shots">shots to average</label><input id="cal-shots" type="number" min="1" step="1" value="10"><span class="hint">measure only</span></div>
-            <div class="field"><label for="cal-write">store the result</label><select id="cal-write"><option value="">report only</option><option value="1">write shot_offsets.yaml</option></select><span class="hint">a written file needs a commit, and reaches the worker at its next environment open</span></div>
+            <div class="field"><label for="cal-shots">shots to average</label><input id="cal-shots" type="number" min="1" step="1" value="10"></div>
+            <div class="field"><label for="cal-write">store the result</label><select id="cal-write"><option value="">report only</option><option value="1">write shot_offsets.yaml</option></select></div>
           </div>
           <p class="dim note" id="cal-set">Over the devices in the New scan table.</p>
         </div>
@@ -309,7 +305,7 @@
     <button class="btn sm ghost" type="button" data-drawer-close>Close</button>
   </header>
   <div class="body">
-    <div class="field"><label for="devq">search</label><input id="devq" placeholder="UC_… or U_…" autocomplete="off"><span class="hint" id="devq-hint">names the manager resolves against the worker namespace</span></div>
+    <div class="field"><label for="devq">search</label><input id="devq" placeholder="UC_… or U_…" autocomplete="off"><span class="hint" id="devq-hint"></span></div>
     <nav class="picklist" id="devlist" aria-label="Devices"></nav>
     <span class="dim note">A device the gateway does not serve does not appear. Added rows save images and are essential until you say otherwise.</span>
   </div>
@@ -321,7 +317,7 @@
     <button class="btn sm ghost" type="button" data-drawer-close>Close</button>
   </header>
   <div class="body">
-    <div class="field"><label for="pname">name</label><input id="pname" placeholder="my_scan" autocomplete="off"><span class="hint">one YAML under presets/ in the configs repo</span><span class="err" id="err-pname">Letters, digits, _ - . only.</span></div>
+    <div class="field"><label for="pname">name</label><input id="pname" placeholder="my_scan" autocomplete="off"><span class="err" id="err-pname">Letters, digits, _ - . only.</span></div>
     <div class="field"><label for="pdesc">description</label><textarea id="pdesc" rows="2"></textarea></div>
     <div class="well"><pre id="preset-yaml"></pre></div>
     <p class="dim note" id="preset-saved"></p>
