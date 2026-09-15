@@ -181,8 +181,10 @@ GEECS-DataPortal     →  GEECS-Data-Utils (tiled extra — the ScanCatalog
                         GeecsWebTheme (the shared palette; the portal
                         mounts it at /theme for itself and the config
                         editor inside this app). Never imports GeecsLogbook
-                        — the logbook is a peer service the run page
-                        links to by URL (--logbook-url)
+                        — the logbook is a peer service reached over HTTP
+                        alone (--logbook-url): the run page links to it,
+                        and the Plot tab POSTs a rendered plot into the
+                        scan's entry through its public API
 GeecsWebTheme        →  (no intra-repo deps — stylesheets, two small
                         scripts and a path helper; fastapi + jinja2 only
                         via the `web` extra, for geecs_web_theme.web, the

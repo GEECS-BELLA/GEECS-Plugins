@@ -473,8 +473,18 @@ template `deploy/geecs-logbook.service`, with the entries in systemd's
 the runbook — install, the one-time move of the entries out of the
 portal's state directory, the proxy prefix, troubleshooting. Before
 0.10.0 it was a router the Data Portal mounted at `/log`; that mount and
-the portal's `log` extra are gone, and the portal only *links* here
-(`--logbook-url`).
+the portal's `log` extra are gone, and the portal now reaches this
+service over HTTP alone (`--logbook-url`) — it links to a scan's card,
+and since portal 0.28.0 it also **writes**: the Plot tab's "send plot to
+this scan's log entry" creates an entry, uploads the PNG and patches the
+image into the body, through the public verbs in `routes/entries.py` and
+`routes/attachments.py` (`GEECS-DataPortal/geecs_portal/logbook_send.py`,
+`tests/test_logbook_send.py` there). It is an ordinary API client — no
+import edge, no special casing — and two of this package's own rules are
+what shape it: an attachment needs an entry to exist first, and
+`render.py`'s `_IMAGE_RUN` grids only *consecutive* image paragraphs, so
+the sender appends and keeps its link above them. Changing either is a
+change to that caller.
 
 `app.create_app(experiment, *, base_directory, notes_db, templates_dir,
 root_path)` is the one entry point. It takes the shared web glue from

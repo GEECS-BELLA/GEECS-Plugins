@@ -8,16 +8,18 @@ this package; the architecture rules below are its distillation.
 
 ## Architecture rules
 
-- **Read-only, except explicit analysis runs and the config editor**
-  (charter amendments: owner rulings 2026-09-01 —
-  `Planning/data_portal/04_analysis_run_design.md` — and 2026-09-06).
-  The portal itself has no write verbs: no annotations.  Two
-  exceptions, both explicit opt-ins.  (The scan logbook was a third,
-  0.22–0.26: a router mounted at `/log` behind a `log` extra.  Since
-  GeecsLogbook 0.10.0 it is **its own service** on port 8400 and the
-  portal only links to it — `--logbook-url`, the base the run page's
-  "log" link is built from, `tests/test_logbook_link.py`; `/log` on the
-  portal is nobody's route.)  **The config
+- **Read-only, except explicit analysis runs, the config editor, and
+  sending a plot to the logbook** (charter amendments: owner rulings
+  2026-09-01 — `Planning/data_portal/04_analysis_run_design.md` —
+  2026-09-06, and 2026-09-15).
+  The portal itself has no write verbs: no annotations.  Three
+  exceptions, all explicit opt-ins.  (A MOUNTED scan logbook was a
+  fourth, 0.22–0.26: a router at `/log` behind a `log` extra.  Since
+  GeecsLogbook 0.10.0 it is **its own service** on port 8400 and this
+  package only reaches it over HTTP — `--logbook-url` is the base the
+  run page's "log" link is built from and the plot send posts to
+  (`tests/test_logbook_link.py`, `tests/test_logbook_send.py`); `/log`
+  on the portal is nobody's route.)  **The config
   editor** (`--config-editor`,
   0.21.0) mounts ScanAnalysis' `config_editor` router at `/configs` over
   the `--processing-configs` tree: it writes analysis-config YAML into
@@ -47,6 +49,32 @@ this package; the architecture rules below are its distillation.
   are enabled (`DEPLOYMENT.md`).  The run verb is unauthenticated on
   the lab network, same standing as the MCP verb — accepted: outputs
   are regenerable and the share is internal.
+  The third is `POST /api/run/{uid}/logbook` (0.28.0, owner ruling
+  2026-09-15): the Plot tab's "send plot to this scan's log entry"
+  button, `geecs_portal/logbook_send.py`.  It writes to **the logbook's
+  own service**, over that service's public API — create the scan's
+  entry, upload the PNG, append the image paragraph — and to nothing
+  else: not the scans tree, not the analysis tree, not portal state.
+  The portal still never imports GeecsLogbook; the edge is three URLs.
+  It exists because clipboard *image* writes are a secure-context
+  privilege and the deployment is plain HTTP, so "copy the plot" cannot
+  work there and this can.  Two shapes follow from the logbook's own
+  design and must not be "simplified": images are APPENDED to one entry
+  rather than each making their own (consecutive image paragraphs are
+  what its renderer turns into a figure grid — the layout LogMaker's
+  `gdoc_slot` numbering used to fake), and the portal link goes on the
+  line ABOVE the images, because a paragraph between two images splits
+  that run.  Which entry is remembered **per browser**
+  (`localStorage`), not asked of the logbook, so two people plotting the
+  same scan from two machines get two entries and no grid — accepted,
+  because the alternative (find this scan's entry through
+  `GET /api/day/{day}/entries`) would append a plot into whatever note
+  an operator happened to be writing.  Do not upgrade the doc to claim
+  "one entry per scan" without changing that.
+  Sending needs an **absolute** `--logbook-url`: the call is
+  server-to-server, and a path-shaped base names the browser's front
+  door, not a host this process can dial (it links but cannot send —
+  `logbook_send` in the page context and the run JSON).
 - **The ScanCatalog seam.**  `create_app(catalog)` takes any
   `geecs_data_utils.tiled_catalog.ScanCatalog`; this package never
   imports `tiled` directly and never talks to the catalog server except
@@ -143,6 +171,8 @@ geecs_portal/
   analysis_runs.py  # analysis runs: AnalysisRunner (one worker thread,
                  #   one job per scan, thread-scoped log capture), the
                  #   ScanAnalysis factory seam, artifact containment
+  logbook_send.py   # the four-call conversation that puts a rendered
+                 #   plot into a scan's logbook entry (HTTP only)
   figures.py     # server-side Plot-tab figure authoring (plotly.py):
                  #   palette, base layout, multi-axis ladder, display
   resources.py   # (folder, device, shot) → PNG bytes / tiered refusal
@@ -157,6 +187,8 @@ tests/
   test_resources.py  # tmp scan trees: gallery routes + tier ladder + union
   test_analysis_runs.py  # the run ladder over an injected fake analyzer
   test_logbook_link.py   # the run page's link to the logbook service; /log is not served here
+  test_logbook_send.py   # the send: the conversation (fake logbook over an
+                         #   httpx transport) and the route's gate ladder
 ```
 
 **Canonical day view (owner ruling 2026-09-13):** this package's `/day/`
