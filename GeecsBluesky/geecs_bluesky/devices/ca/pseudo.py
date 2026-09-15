@@ -331,10 +331,13 @@ class CaPseudoPositioner(StandardReadable):
                     "pseudo to 0 (mv …, 0) to put the components back, then scan"
                 )
             await self._zero_components()
-            self._restore_pending = True
+            self._restore_pending = True  # owed from here on, whatever follows
         self._moved = False
-        self._staged = True
         await super().stage().task
+        # Only a completed stage marks us staged: a parent stage that failed
+        # after the zeroing leaves the restore owed and the pseudo unstaged,
+        # so the unstaged ``mv <pseudo> 0`` recovery is recognised as such.
+        self._staged = True
 
     @AsyncStatus.wrap
     async def unstage(self) -> None:
