@@ -36,6 +36,17 @@ class ScalarsView(Device):
     def _column_headers(self) -> dict[str, str]:
         return self._owner._column_headers
 
+    @property
+    def connected_status(self) -> Any | None:
+        """The owner's gateway liveness PV (``None`` for an owner without one).
+
+        Read by the run's liveness gate and the strict refire gate: a
+        ``.scalars`` view of a dead device must be named like the device
+        (found on hardware 2026-09-14 — a scalar-only device's view was
+        invisible to the gate while only the detector's view proxied it).
+        """
+        return getattr(self._owner, "connected_status", None)
+
     async def connect(
         self,
         mock: Any = False,

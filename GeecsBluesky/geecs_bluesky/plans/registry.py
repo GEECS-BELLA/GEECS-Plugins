@@ -92,6 +92,7 @@ which is exactly why they are queue items and never steps inside a scan
 
 from __future__ import annotations
 
+import functools
 import inspect
 import logging
 from collections.abc import Callable, Iterator, Mapping, Sequence
@@ -509,6 +510,12 @@ def _geecs_doc(stock: Callable[..., Any], hook: str) -> str:
     )
 
 
+@functools.wraps(bps.mv)
+def _mv_named(*args: Any, **kwargs: Any):
+    """The stock ``mv`` stub with a failure's name (#868): the manager's report of a refused manual move reads its cause, not ``<AsyncStatus …>``."""
+    return (yield from name_failed_status(bps.mv(*args, **kwargs)))
+
+
 def bind_plans(
     profiles: TriggerProfiles,
     *,
@@ -518,14 +525,15 @@ def bind_plans(
     """Every name in :data:`GEECS_PLAN_NAMES` → the plan the worker registers.
 
     The scan verbs come back bound through :func:`strict_plan`; ``mv`` is
-    the stock stub (a manual move as a queue item, nothing strict about it);
+    the stock stub (a manual move as a queue item, nothing strict about it)
+    with its failure named (:func:`_mv_named`);
     ``run_action`` is :func:`run_action_plan` over *resolver* and
     *settables* (the namespace).
     """
     bound: dict[str, Callable[..., Any]] = {}
     for name in GEECS_PLAN_NAMES:
         if name == "mv":
-            bound[name] = bps.mv
+            bound[name] = _mv_named
         elif name == "run_action":
             bound[name] = run_action_plan(resolver, settables)
         elif name == "measure_shot_offsets":

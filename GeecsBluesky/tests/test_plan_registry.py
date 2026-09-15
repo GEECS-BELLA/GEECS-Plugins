@@ -67,7 +67,9 @@ def test_plan_names_are_every_expressible_stock_plan_with_the_hook() -> None:
 def test_bound_plans_keep_the_stock_signature_minus_the_hook(profiles) -> None:
     bound = bind_plans(profiles)
     assert set(bound) == set(GEECS_PLAN_NAMES)
-    assert bound["mv"] is bps.mv
+    assert bound["mv"].__wrapped__ is bps.mv  # the stock stub, its failure named
+    assert inspect.signature(bound["mv"]) == inspect.signature(bps.mv)
+    assert bound["mv"].__name__ == "mv"
     assert list(inspect.signature(bound["run_action"]).parameters) == ["name"]
     for name in GEECS_PLAN_NAMES:
         if name in NON_SCAN_PLAN_NAMES:
@@ -380,6 +382,24 @@ def test_every_dead_device_of_the_scan_is_named(RE, box, profiles) -> None:
     assert box.puts == [] and col.docs["start"] == []
 
 
+def test_a_dead_scalar_only_device_is_named_through_its_scalars_view(
+    RE, box, profiles
+) -> None:
+    """Found on hardware: ``U_VS1H.scalars`` (a CaSnapshotReadable's view) must be judged."""
+    from geecs_bluesky.devices.ca import CaSnapshotReadable
+
+    cam = _camera(RE, box, "UC_Cam")
+    magnet = CaSnapshotReadable(
+        "U_VS1H", ["Current"], experiment="TestExp", name="u_vs1h"
+    )
+    connect_mock(RE, magnet)
+    set_mock_value(magnet.connected_status, "Disconnected")
+    count = bind_plans(profiles)["count"]
+    with pytest.raises(GeecsDeviceDownError, match="U_VS1H"):
+        RE(count([cam, magnet.scalars], 1))
+    assert box.puts == []
+
+
 def test_a_live_set_passes_the_gate_and_the_box_is_then_armed(
     RE, box, profiles
 ) -> None:
@@ -432,6 +452,21 @@ def test_a_refused_move_inside_the_run_names_its_cause(RE, box, profiles) -> Non
     (stop,) = col.docs["stop"]
     assert stop["exit_status"] == "fail"
     assert stop["reason"] == f"_RefusedPut: {text}"
+
+
+def test_a_refused_manual_move_names_its_cause(RE, profiles) -> None:
+    """The registered ``mv`` (a queue item, no run): the manager's report reads the cause."""
+    magnet = Magnet()
+    connect_mock(RE, magnet)
+    text = "testexp:u_s1h:current:SP: Channel write request failed"
+
+    def refuse(value, **kwargs):
+        raise _RefusedPut(text)
+
+    callback_on_mock_put(magnet.current._setpoint, refuse)
+    with pytest.raises(FailedStatus) as info:
+        RE(bind_plans(profiles)["mv"](magnet.current, 0.5))
+    assert str(info.value) == f"_RefusedPut: {text}"
 
 
 def test_failure_cause_text_carries_the_causes_notes() -> None:
