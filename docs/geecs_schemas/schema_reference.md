@@ -227,6 +227,7 @@ A friendly name for one device variable you can scan.
 |---|---|---|---|---|
 | `target` | `str` | yes | — | The device variable this name moves, written as 'Device:Variable', e.g. 'U_ESP_JetXYZ:Position.Axis 3'. |
 | `kind` | `'motor' \| 'setpoint'` | no | 'setpoint' | 'setpoint' = write the value and wait for the device to accept it (the default). 'motor' = additionally poll the readback until the device reports it arrived — use for real positioners. |
+| `description` | `str (optional)` | no | None | Free text for the people who edit this file: what the variable is for, units, anything the name does not say. |
 | `confirm` | `str (optional)` | no | None | Optional 'Device:Variable' that *measures* the result when it differs from the variable being set — e.g. set a supply's current limit but confirm on its measured current. Leave unset when the set variable is also the readback (the common case). Declared but not yet enforced by the engine in v1. |
 
 ### PseudoScanVariable
@@ -238,7 +239,8 @@ A friendly name that moves several devices together from one number.
 | `kind` | `'pseudo'` | yes | — | Variable type. 'pseudo' moves several devices from one number. |
 | `targets` | `list[PseudoComponent]` | yes | — | The devices this variable moves, each with its own formula. |
 | `mode` | `CompositeMode` | yes | — | 'absolute' = each device goes exactly where its formula says. 'relative' = each device is offset from where it was when the scan started. |
-| `inverse` | `str (optional)` | no | None | Optional formula recovering the scanned number from the first target's readback. Leave unset if you don't need a readback for this variable. |
+| `description` | `str (optional)` | no | None | Free text for the people who edit this file — for a steering bump, the geometry and assumptions behind the coefficients (drift lengths, equal kick per ampere), so the numbers can be audited later. |
+| `inverse` | `str (optional)` | no | None | Formula recovering the scanned number from the components' positions, using each component's device name (or its full target with non-letters replaced by '_', e.g. 'U_ESP302_02_Position_Axis_3'): e.g. '560968.636 * U_ChicaneInner**2 / 100**2'. Required when a 'forward' is not linear in the scanned value; leave unset for linear relations, which the software inverts itself. |
 
 ### PseudoComponent
 

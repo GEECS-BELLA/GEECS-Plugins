@@ -19,6 +19,17 @@ RunEngine throws into the plan carries only the status repr, and the
 engine's own ``Run aborted`` traceback lands in the journal after the
 scan log has closed — so without this line a refused motor put left no
 PV name in the scan folder (GEECS-Plugins#868).
+
+Every settable also carries a **user offset** (:attr:`CaSettable.offset`,
+a soft signal): the EPICS motor record's user/dial split (``.OFF``,
+``user = dial + offset``) held in software, because a GEECS variable has
+no offset field — the raw GEECS value is the dial.  ``set()``, ``read()``
+and ``locate()`` stay in the dial frame; the offset is consumed by the
+pseudo positioners (:mod:`geecs_bluesky.devices.ca.pseudo`), whose
+``mode: relative`` entries zero their components' offsets at scan start
+(:meth:`CaSettable.set_current_position`, ophyd's spelling).  An
+operator-facing "set current position as zero" with persistence is the
+follow-on arc (`09_pseudo_transform.md` §3).
 """
 
 from __future__ import annotations
@@ -27,7 +38,7 @@ import asyncio
 import logging
 
 from bluesky.protocols import Location
-from ophyd_async.core import AsyncStatus, StandardReadable
+from ophyd_async.core import AsyncStatus, StandardReadable, soft_signal_r_and_setter
 from ophyd_async.epics.core import epics_signal_r, epics_signal_rw
 
 from geecs_bluesky.devices.ca._pv import ca_pv, setpoint_pv
@@ -86,6 +97,12 @@ class CaSettable(StandardReadable):
         self._put = GatewaySetpointPut(signal=self._setpoint, timeout=None)
         with self.add_children_as_readables():
             setattr(self, _readback_attr, epics_signal_r(datatype, readback_pv))
+        #: The user offset (``user = dial + offset``, EPICS ``.OFF``); ``0.0``
+        #: until :meth:`set_current_position` moves it.  Not a readable: the
+        #: event column stays the raw (dial) readback.
+        self.offset, self._set_offset = soft_signal_r_and_setter(
+            float, initial_value=0.0
+        )
         super().__init__(name=name)
         self._readback_attr_name = _readback_attr
         self._geecs_device_name = device
@@ -132,6 +149,26 @@ class CaSettable(StandardReadable):
                 failure_cause_text(exc),
             )
             raise
+
+    async def set_current_position(self, position: float) -> None:
+        """Redefine the user frame so the current readback reads *position*.
+
+        ophyd's ``PositionerBase.set_current_position`` / the EPICS motor
+        record's ``.SET`` mode: nothing moves; :attr:`offset` becomes
+        ``position − readback``.  ``set_current_position(0.0)`` is "zero
+        here" — what a relative pseudo positioner does to each component
+        at stage.
+        """
+        readback = getattr(self, self._readback_attr_name)
+        current = float(await readback.get_value())
+        self._set_offset(float(position) - current)
+        logger.info(
+            "%s: user frame set: %s reads %s here (offset %s)",
+            self.name,
+            self._variable,
+            position,
+            float(position) - current,
+        )
 
     async def locate(self) -> Location:
         """Where the device is: the streamed readback, as both fields.

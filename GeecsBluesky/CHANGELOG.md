@@ -4,6 +4,68 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.89.0] - 2026-09-15
+
+### Added
+
+- **Every settable carries a user offset.** `CaSettable.offset` (and so
+  `CaMotor`, `CaConfirmSettable`): a soft signal, `0.0` until
+  `set_current_position(position)` redefines the user frame (ophyd's
+  spelling; the EPICS motor record's `.OFF`, `user = dial + offset`) —
+  nothing moves, the raw GEECS value stays the dial, `set()`/`read()`/
+  `locate()` stay in the dial frame. The primitive the pseudo positioners
+  consume; an operator-facing set-as-aligned with persistence is the
+  follow-on arc (`09_pseudo_transform.md` §3).
+- **`CaPseudoPositioner`** (`devices/ca/pseudo.py`) — a catalog
+  `kind: pseudo` entry as a pseudo positioner: an ophyd-async `Transform`
+  (`derived_to_raw` = the catalog `forward`s, `raw_to_derived` = the
+  inverse) under a `DerivedSignalFactory` over the components' readback
+  signals, the components' offsets as the transform's parameters. The
+  readback is derived from the components' live readbacks — defined
+  before any set, after a restart, after a hand move — so `locate()` is
+  real (#855's case). Component moves go through each component's own
+  `set()` (a `CaMotor` waits for the device's reply under its stall rule;
+  #910: no put budget of this class's own). `build_pseudo(name, spec,
+  resolve)` builds one from a `PseudoScanVariable`, every formula checked
+  at build: a relative `forward` must be `0` at `0` (`set(0)` restores), a
+  non-affine `forward` needs the entry's `inverse`, a supplied `inverse`
+  must undo the `forward`s at a probe value.
+- `forward_expr.affine_coefficients(expression)` — exact `(a, b)` for a
+  `forward` that is `a*x + b` in any spelling (a symbolic walk over the
+  whitelisted AST; 24 of the corpus's 26 formulas), so the software
+  inverts linear relations itself; `compile_inverse(expression, symbols)`
+  for the physicist-supplied inverse of the rest.
+- `PseudoComponentsDisagreeError` — the **disagreement check**:
+  `forward(inverse(readbacks))` against what the components read, per
+  component within its tolerance (its DB tolerance, else
+  `DEFAULT_AGREEMENT_TOLERANCE` = 0.01 in the component's units, #780).
+  Off the formula *after this pseudo has moved them* fails the scan
+  before anything moves; before the first move a plain pseudo positioner
+  warns and snaps (today's behaviour), a relative one fails (its
+  deviations were just zeroed).
+
+### Changed
+
+- **`mode: relative` = components zeroed at stage** (§3 of the brief,
+  ruled 2026-09-14): `stage()` calls `set_current_position(0.0)` on every
+  component (lazily on the first `set()`/`locate()` for an unstaged
+  caller — a manual `mv`), the readback is 0 by construction, each step
+  moves every component by its own formula from its baseline, and
+  `unstage()` puts the components back at their captured baselines — end
+  of scan and abort alike (a `halt` skips unstage by bluesky contract),
+  formula-independent, riding the components' `set()` so a failed restore
+  fails the plan visibly. `scan` and `rel_scan` over a bump are the same
+  scan (rel_scan locates 0 after stage). `mode: absolute` is a plain
+  pseudo positioner: components read in the dial frame, ends where the
+  last step left it, `rel_scan` puts it back through the inverse.
+
+### Removed
+
+- `CaPseudoMovable` — its `absolute`/`relative` branch, the per-pseudo
+  baseline capture, `restore_baselines_plan` and the direct
+  `GatewaySetpointPut` fan-out (nothing on this branch built one; the
+  positioner above replaces it in the same change).
+
 ## [0.88.0] - 2026-09-15
 
 ### Changed

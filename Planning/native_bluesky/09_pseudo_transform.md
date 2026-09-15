@@ -1,10 +1,16 @@
 # Pseudo scan variables on the native path: the design brief
 
-**Status:** design settled, not started. Split out of phase 3 on 2026-09-13
+**Status:** building (arc issue #904). Split out of phase 3 on 2026-09-13
 (`03` §8, "The pseudo arc"). The open question in §3 was **ruled on by Sam on
 2026-09-14** (see §3); a session can start on §5 without re-deriving it. This
 document exists so the session that builds it starts from the survey below
-rather than repeating it.
+rather than repeating it. **Build log:** §5 step 2 landed 2026-09-15
+(GeecsBluesky 0.89.0: `CaSettable.offset`, `CaPseudoPositioner` +
+`build_pseudo`, `affine_coefficients`/`compile_inverse`; `CaPseudoMovable`
+deleted). One deviation from §2's sketch, on purpose: `forward_expr.py` is
+*not* retired — the catalog keeps its `forward` expressions (§6's YAML), so
+the compiler stays and the software reads `a`/`b` off the expression's AST
+instead of the catalog carrying coefficients.
 
 **Why it is a merge-gate item.** Composite variables are scanned regularly on
 HTU (Sam, 2026-09-13), and **they cannot be scanned at all on this branch**:

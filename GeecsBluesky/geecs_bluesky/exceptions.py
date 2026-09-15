@@ -30,6 +30,7 @@ __all__ = [
     "GeecsConfirmTimeoutError",
     "GeecsConfigurationError",
     "GeecsDeviceDownError",
+    "PseudoComponentsDisagreeError",
     "ActionCheckFailedError",
     "ActionPlanNotFoundError",
     "ActionPlanCycleError",
@@ -161,6 +162,18 @@ class GeecsConfirmTimeoutError(GeecsError):
 
 class GeecsConfigurationError(GeecsError):
     """Runtime configuration is incomplete or inconsistent."""
+
+
+class PseudoComponentsDisagreeError(GeecsError):
+    """A pseudo positioner's components do not sit on its formula.
+
+    Raised by :class:`~geecs_bluesky.devices.ca.pseudo.CaPseudoPositioner`
+    when ``forward(inverse(readbacks))`` disagrees with what the components
+    actually read by more than each component's tolerance — a component
+    moved under the scan (a hand move, another plan).  Fails the scan
+    rather than moving the other components onto a formula the operator
+    did not command (paired steering magnets are the incident class).
+    """
 
 
 class GeecsDeviceDownError(GeecsError):
