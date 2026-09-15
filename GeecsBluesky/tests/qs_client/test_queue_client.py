@@ -369,6 +369,48 @@ class TestQueueStartFailure:
         assert "REMAINS queued" in result.message
         assert result.item_uid == "uid-1"
 
+    def test_busy_while_a_plan_runs_means_queued_behind_it(self):
+        """#905: a running plan answers busy to queue_start; the item waits behind it."""
+        fake = _FakeManagerAPI()
+        removed: list[str] = []
+        fake.queue_start = lambda: (_ for _ in ()).throw(
+            RuntimeError("Request failed: RE Manager is busy.")
+        )
+
+        def item_remove(*, uid=None, pos=None):
+            removed.append(uid)
+
+        fake.item_remove = item_remove
+        fake.status_payloads = [
+            {
+                "re_state": "running",
+                "manager_state": "executing_queue",
+                "worker_environment_exists": True,
+                "items_in_queue": 1,
+                "running_item_uid": "run-1",
+            }
+        ]
+        result = _client(fake).submit_plan("count", args=[["UC_Cam"], 1])
+        assert result.ok and result.item_uid == "uid-1", result
+        assert "behind the running item" in result.message
+        assert removed == [], "the queued-next item must stay queued"
+
+    def test_busy_with_a_stopped_queue_still_removes_the_item(self):
+        """The refusal path survives #905: busy + manager idle = nothing will run."""
+        fake = _FakeManagerAPI()
+        removed: list[str] = []
+        fake.queue_start = lambda: (_ for _ in ()).throw(
+            RuntimeError("Request failed: RE Manager is busy.")
+        )
+
+        def item_remove(*, uid=None, pos=None):
+            removed.append(uid)
+
+        fake.item_remove = item_remove
+        fake.status_payloads = [{"re_state": "idle", "manager_state": "idle"}]
+        result = _client(fake).submit_plan("count", args=[["UC_Cam"], 1])
+        assert not result.ok and removed == ["uid-1"]
+
 
 class TestPlanListAndClose:
     """#793 part 2 plumbing: the plan-list read verb and connection release."""

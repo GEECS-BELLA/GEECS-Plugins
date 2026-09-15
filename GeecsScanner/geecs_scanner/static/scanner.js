@@ -578,7 +578,9 @@
     $("est").innerHTML = count
       ? "<b>" + shots + "</b> shots" + time
       : "<b>" + steps + "</b> step" + (steps === 1 ? "" : "s") + " × <b>" + shots + "</b> shots = <b>" + total + "</b> shots" + time;
-    valid = ok && !!S.presetDoc;
+    // The form is the document: a preset only seeds it, so Start (and
+    // Save as preset) need a valid form, never a loaded preset (#900).
+    valid = ok;
     updateStartGate();
   }
 
@@ -587,8 +589,8 @@
     var busy = !st || !st.connected || st.re_state === "running" || st.re_state === "paused";
     var btn = $("btn-start");
     btn.disabled = busy || !valid || !S.formable;
-    $("btn-save-preset").disabled = !S.presetDoc;
-    btn.title = !st ? "waiting for the manager" : !st.connected ? "manager unreachable" : busy ? "a scan is running" : !S.presetDoc ? "load a preset" : !S.formable ? S.formableNote : !valid ? "fix the form first" : "";
+    $("btn-save-preset").disabled = !valid;
+    btn.title = !st ? "waiting for the manager" : !st.connected ? "manager unreachable" : busy ? "a scan is running" : !S.formable ? S.formableNote : !valid ? "fix the form first" : "";
     $("preset-name").textContent = S.presetName ? "preset " + S.presetName + (S.formable ? "" : " · " + S.formableNote) : "";
   }
 

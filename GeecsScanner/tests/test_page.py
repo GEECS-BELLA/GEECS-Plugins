@@ -10,7 +10,9 @@ page's own script file parsing, and "every class the page uses is styled".
 
 from __future__ import annotations
 
+import json
 import re
+import subprocess
 from html.parser import HTMLParser
 from pathlib import Path
 
@@ -129,6 +131,52 @@ def test_page_uses_only_kit_or_page_classes() -> None:
     )
     missing = sorted(used - styled)
     assert not missing, f"console.html uses {missing} but nothing styles them"
+
+
+def _script_function(script: str, name: str) -> str:
+    """The body of one top-level ``function name() {...}`` of the page's IIFE."""
+    m = re.search(rf"\n  function {name}\(\) \{{\n(.*?)\n  \}}\n", script, re.S)
+    assert m, f"scanner.js: no function {name}()"
+    return m.group(1)
+
+
+def test_start_gate_needs_a_valid_form_not_a_loaded_preset() -> None:
+    """#900: presets are optional — a scan composed from scratch can Start.
+
+    The gate reads form validity only: neither ``recalc`` (which computes
+    it) nor ``updateStartGate`` (which applies it) may consult the loaded
+    preset document.  Then the gate itself runs under node over a stub
+    DOM: an idle manager, a valid form, no preset ever loaded → Start
+    enabled with no hover excuse, Save as preset enabled, the provenance
+    note empty.
+    """
+    script = (_PKG / "static" / "scanner.js").read_text()
+    recalc, gate = (
+        _script_function(script, "recalc"),
+        _script_function(script, "updateStartGate"),
+    )
+    assert "presetDoc" not in recalc, "the form's validity must not depend on a preset"
+    assert "presetDoc" not in gate, "the Start gate must not depend on a preset"
+    assert "load a preset" not in script
+    _need_node()
+    harness = "\n".join(
+        [
+            "var els = {};",
+            'function $(id) { return els[id] || (els[id] = { disabled: true, title: "x", textContent: "x" }); }',
+            'var S = { status: { connected: true, re_state: "idle" }, formable: true, formableNote: "",',
+            "          presetDoc: null, presetName: null };",
+            "var valid = true;",
+            f"function updateStartGate() {{\n{gate}\n}}",
+            "updateStartGate();",
+            'console.log(JSON.stringify({ start: $("btn-start").disabled, title: $("btn-start").title,',
+            '  save: $("btn-save-preset").disabled, note: $("preset-name").textContent }));',
+        ]
+    )
+    out = subprocess.run(
+        ["node", "-"], input=harness, capture_output=True, text=True, check=True
+    )
+    got = json.loads(out.stdout)
+    assert got == {"start": False, "title": "", "save": False, "note": ""}, got
 
 
 def test_presets_and_actions_are_dropdowns(client: TestClient) -> None:

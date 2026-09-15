@@ -4,6 +4,21 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.87.1] - 2026-09-15
+
+### Fixed
+
+- **`qs_client`: a submit while a plan runs is queued behind it** (#905).
+  `ZmqQueueClient._submit_item` adds the item and then calls
+  `queue_start`; while the manager is `executing_queue` that call answers
+  *RE Manager is busy* and the client treated it as a start refusal —
+  removing the item again and reporting "nothing will run", so no front
+  end could queue the next scan while one ran. A busy answer with the
+  manager `executing_queue` is now the success it is (`queued behind the
+  running item`, `item_uid` set); the item is removed only when the queue
+  is genuinely stopped and cannot be started (the #653 path, unchanged).
+  Pinned in `tests/qs_client/test_queue_client.py::TestQueueStartFailure`.
+
 ## [0.87.0] - 2026-09-14
 
 ### Added
