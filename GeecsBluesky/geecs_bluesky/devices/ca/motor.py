@@ -289,6 +289,7 @@ class CaMotor(CaSettable):
                 elif now - stalled_since >= self._stall_timeout:
                     if put.done() and not replied:
                         put.result()  # a reply that landed this tick is the verdict
+                        replied = True
                     raise GeecsMotorTimeoutError(
                         self._geecs_device_name,
                         self._variable,
