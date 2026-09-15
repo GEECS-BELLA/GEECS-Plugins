@@ -105,7 +105,11 @@ jobs:
         # plan tests — skipped wholesale without it, so a green check said
         # nothing about that code (#866). aioca ships wheels (epicscorelibs
         # bundles libca), no system EPICS needed.
-        run: poetry install --with dev --extras qserver --extras qs-client --extras ca
+        # --extras tiled: the Tiled *client* only (tiled[client]); the #829
+        # regression pin in tests/test_strict_plans.py drives bluesky's
+        # RunNormalizer, which imports tiled, and a real pin must run, not
+        # skip (the #866 lesson). Found by the first branch CI run with ca.
+        run: poetry install --with dev --extras qserver --extras qs-client --extras ca --extras tiled
 
       - name: Run GeecsBluesky pure unit tests
         working-directory: GeecsBluesky
