@@ -36,12 +36,18 @@ to upload until an entry exists (``POST /api/entries/{id}/attachments``
 
 Why append rather than replace
 ------------------------------
-A second plot sent to the same scan joins the first *in one entry*: the
-logbook's renderer turns two or more images in a row into a figure grid
-(``geecs_logbook.render``), which is the layout that used to be faked by
-LogMaker's ``gdoc_slot`` numbering. So the body grows by one image
-paragraph per send, and the portal link stays on the first line where it
-does not break the run of images. A 409 means someone was editing the
+A second plot sent **from the same browser** joins the first *in one
+entry*: the logbook's renderer turns two or more images in a row into a
+figure grid (``geecs_logbook.render``), which is the layout that used to
+be faked by LogMaker's ``gdoc_slot`` numbering. So the body grows by one
+image paragraph per send, and the portal link stays on the first line
+where it does not break the run of images.
+
+"From the same browser", not "for the same scan": the entry to append to
+is whatever the caller passes as ``entry_id``, which the page remembers
+in ``localStorage``. Nothing here asks the logbook which entry a scan
+already has — see this package's ``CLAUDE.md`` for why that was rejected
+rather than overlooked. A 409 means someone was editing the
 entry between (3) and (4); the append is re-read and retried once, which
 is safe precisely because it is an append and never a replace.
 """
