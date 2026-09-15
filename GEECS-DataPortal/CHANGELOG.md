@@ -24,12 +24,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   the upload moved, and patch the body with the image paragraph. Two
   shapes are load-bearing rather than incidental:
 
-  - Images are **appended to one entry per scan**, because consecutive
-    image paragraphs are what the logbook's renderer turns into a figure
-    grid — the layout LogMaker's `gdoc_slot` numbering used to fake. The
-    page remembers the entry it made (per scan, in the browser) and
-    offers "a new entry" when that is not what you want; an entry that
-    has since been deleted starts a fresh one rather than failing.
+  - Images are **appended to one entry**, not one entry each, because
+    consecutive image paragraphs are what the logbook's renderer turns
+    into a figure grid — the layout LogMaker's `gdoc_slot` numbering
+    used to fake. Which entry is remembered **per browser**, not asked
+    of the logbook, so two people plotting the same scan from two
+    machines get two entries — accepted, because finding "this scan's
+    entry" would append a plot into whatever note an operator happened
+    to be writing. The page offers "a new entry" when appending is not
+    what you want, and an entry deleted in the meantime starts a fresh
+    one rather than failing.
   - The **portal link sits above the images**, not between them: a
     paragraph in the middle of the run would split the grid. Because the
     Plot tab's whole state is in its URL, that link restores the exact
@@ -37,14 +41,26 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
   A conflict (someone saving the entry mid-send) is re-read and retried
   once — safe precisely because this is an append, never a replace.
-  Failures land as themselves: an unreachable logbook is 503, its own
-  verdicts on our payload (409/413/415) pass through, anything else is
-  502 so a peer's 500 never reads as the portal's.
+  Failures land as themselves: a malformed image is 400, an unreachable
+  logbook 503, the logbook's own verdicts on our payload (409/413/415)
+  pass through, and anything else is 502 — including a success that is
+  not JSON (a wrong port, a proxy maintenance page) and a reply missing
+  a key it used to carry (version skew between two services on separate
+  release cadences), neither of which may surface as "bad image" or as a
+  portal traceback. A blank author, and an entry id that is not the
+  logbook's `[0-9a-f]` id shape, are refused here as our own malformed
+  request rather than forwarded to be refused there.
+
+  Sending resolves the run's **day only** — never a scan folder — so a
+  logbook write does not stat the SMB share.
 
   Sending requires an **absolute** `--logbook-url`; a path-shaped base
   describes the browser's front door and names no host this process can
   dial, so it links but does not send and the button is hidden
-  (`logbook_send` in the run page and `GET /api/run/{uid}`).
+  (`logbook_send` in the run page and `GET /api/run/{uid}`). That one
+  URL serves both the portal process and operators' browsers, so
+  `http://localhost:8400` passes every gate and then hands operators a
+  dead link — name the host.
 
   Sent plots render at a **fixed 720×460** unless an explicit display
   width/height says otherwise. The note scales the bitmap into its

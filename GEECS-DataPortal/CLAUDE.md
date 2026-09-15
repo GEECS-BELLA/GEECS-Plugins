@@ -59,11 +59,18 @@ this package; the architecture rules below are its distillation.
   It exists because clipboard *image* writes are a secure-context
   privilege and the deployment is plain HTTP, so "copy the plot" cannot
   work there and this can.  Two shapes follow from the logbook's own
-  design and must not be "simplified": the image is appended to ONE
-  entry per scan (consecutive image paragraphs are what its renderer
-  turns into a figure grid — the layout LogMaker's `gdoc_slot`
-  numbering used to fake), and the portal link goes on the line ABOVE
-  the images, because a paragraph between two images splits that run.
+  design and must not be "simplified": images are APPENDED to one entry
+  rather than each making their own (consecutive image paragraphs are
+  what its renderer turns into a figure grid — the layout LogMaker's
+  `gdoc_slot` numbering used to fake), and the portal link goes on the
+  line ABOVE the images, because a paragraph between two images splits
+  that run.  Which entry is remembered **per browser**
+  (`localStorage`), not asked of the logbook, so two people plotting the
+  same scan from two machines get two entries and no grid — accepted,
+  because the alternative (find this scan's entry through
+  `GET /api/day/{day}/entries`) would append a plot into whatever note
+  an operator happened to be writing.  Do not upgrade the doc to claim
+  "one entry per scan" without changing that.
   Sending needs an **absolute** `--logbook-url`: the call is
   server-to-server, and a path-shaped base names the browser's front
   door, not a host this process can dial (it links but cannot send —

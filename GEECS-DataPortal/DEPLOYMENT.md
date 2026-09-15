@@ -215,6 +215,12 @@ browser's front door, not an address this process can reach. With a path
 base the run page still links to the logbook, but the send button is
 hidden — `GET /api/run/{uid}` reports this as `logbook_send`.
 
+That one URL serves **both** audiences, so it must be reachable from the
+portal process *and* from operators' browsers. `http://localhost:8400`
+satisfies the send gate on a single-host deployment and passes every
+test, then hands every operator a dead scan-card link and a dead "open
+the entry" button after a successful send. Name the host.
+
 **Copy plot to clipboard** only works when the page is a *secure
 context* — `https://`, or a `localhost` host. Browsers expose the
 clipboard-image API nowhere else, so on the plain-HTTP deployment

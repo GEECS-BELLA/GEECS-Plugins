@@ -49,6 +49,9 @@ class FakeLogbook:
         self.conflicts = 0
         #: Entry ids that answer 404 to an upload (deleted under us).
         self.gone: set[str] = set()
+        #: Every PATCH attempt, 409s included — the retry loop would
+        #: otherwise heal a stale-version bug into an invisible one.
+        self.patch_attempts = 0
 
     def handler(self, request: httpx.Request) -> httpx.Response:
         path = request.url.path
@@ -89,6 +92,7 @@ class FakeLogbook:
                 return httpx.Response(200, json=entry)
             if request.method == "PATCH":
                 body = json.loads(request.content)
+                self.patch_attempts += 1
                 if self.conflicts:
                     self.conflicts -= 1
                     return httpx.Response(409, json={"detail": "version moved"})
@@ -208,9 +212,16 @@ class TestSendCreates:
         assert book.only_entry()["body_md"].startswith("![jet_pressure")
 
     def test_the_patch_uses_the_version_from_after_the_upload(self) -> None:
-        """Reading the version before uploading would 409 — the fake checks."""
+        """The upload moves the version, so a value read before it is stale.
+
+        Asserting on the RESULT would not catch this: the retry re-reads
+        and the second attempt succeeds, so a stale-version bug heals
+        itself into a body that looks right. The wasted attempt is the
+        only evidence, so that is what is asserted.
+        """
         book = FakeLogbook()
-        _send(book)  # the fake rejects a stale expected_version outright
+        _send(book)
+        assert book.patch_attempts == 1
         assert book.only_entry()["body_md"].count("![") == 1
 
 
@@ -483,3 +494,104 @@ class TestReadOnlyDoctrineUnchanged:
         # The conversation is entirely URL-addressed: no filesystem path
         # is ever handed to it.
         assert "folder" not in stub.calls[0]
+
+
+class TestPeerTroubleIsNotOurs:
+    """A logbook that answers oddly must not read as a bad request."""
+
+    def test_a_success_that_is_not_json_is_a_bad_gateway(self) -> None:
+        """A wrong port or a proxy maintenance page answers 200 text/html."""
+
+        def html(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, text="<html>maintenance</html>")
+
+        with httpx.Client(transport=httpx.MockTransport(html)) as client:
+            with pytest.raises(logbook_send.LogbookRefused) as caught:
+                logbook_send.send_plot(
+                    base_url=_BASE,
+                    day="2026-07-12",
+                    scan=2,
+                    author="Ada",
+                    png=_PNG,
+                    caption="c",
+                    client=client,
+                )
+        assert caught.value.status == 502
+
+    def test_a_reply_missing_a_key_is_a_bad_gateway(self) -> None:
+        """Version skew between two services on separate release cadences."""
+
+        def terse(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(201, json={"id": "e1"})  # no entry_id
+
+        with httpx.Client(transport=httpx.MockTransport(terse)) as client:
+            with pytest.raises(logbook_send.LogbookRefused) as caught:
+                logbook_send.send_plot(
+                    base_url=_BASE,
+                    day="2026-07-12",
+                    scan=2,
+                    author="Ada",
+                    png=_PNG,
+                    caption="c",
+                    client=client,
+                )
+        assert caught.value.status == 502
+        assert "entry_id" in caught.value.detail
+
+
+class TestRouteRejectsOurOwnMalformedRequests:
+    """What the peer would refuse is refused here, as ours."""
+
+    def test_a_blank_author_is_a_bad_request_not_a_bad_gateway(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Stripped to nothing, it is the logbook's 422 — but our mistake."""
+        stub = _StubSend()
+        monkeypatch.setattr(logbook_send, "send_plot", stub)
+        assert _post(_client(), author="   ").status_code == 422
+        assert not stub.calls
+
+    def test_an_entry_id_cannot_carry_a_path_segment(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """It becomes a path segment in the URLs the sender builds."""
+        stub = _StubSend()
+        monkeypatch.setattr(logbook_send, "send_plot", stub)
+        assert _post(_client(), entry="../../api/entries").status_code == 422
+        assert _post(_client(), entry="e1/attachments").status_code == 422
+        assert not stub.calls
+
+    def test_a_non_json_peer_reply_does_not_read_as_a_bad_image(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The decode and the conversation no longer share one ValueError arm."""
+        monkeypatch.setattr(
+            logbook_send,
+            "send_plot",
+            _StubSend(error=logbook_send.LogbookRefused(502, "not JSON")),
+        )
+        assert _post(_client()).status_code == 502
+
+
+class TestTheSendTouchesNoShare:
+    """A logbook write has no business stat-ing the scans mount."""
+
+    def test_no_scan_folder_is_resolved(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """``resolve_scan_folder`` does is_dir() probes over SMB."""
+        monkeypatch.setattr(logbook_send, "send_plot", _StubSend())
+        import geecs_portal.app as app_module
+
+        calls: list = []
+        real = app_module.resolve_scan_folder
+
+        def spy(*args, **kwargs):
+            calls.append(args)
+            return real(*args, **kwargs)
+
+        monkeypatch.setattr(app_module, "resolve_scan_folder", spy)
+        client = _client()
+        assert _post(client).status_code == 201
+        assert calls == []
+        # ...and the guard is meaningful: the run PAGE does resolve one.
+        client.get(f"/run/{_UID}")
+        assert calls

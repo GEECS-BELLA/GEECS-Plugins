@@ -355,7 +355,9 @@ class PlotToLogbook(BaseModel):
     """
 
     #: The logbook requires a name on every entry and invents none.
-    author: str = Field(min_length=1, max_length=120)
+    #: ``\S`` because a blank one survives ``min_length`` and is then the
+    #: logbook's 422 — our malformed request arriving as the peer's fault.
+    author: str = Field(min_length=1, max_length=120, pattern=r"\S")
     #: ``data:image/png;base64,…`` — the only form accepted.
     image: str = Field(max_length=12_000_000)
     #: Alt text: what the plot shows.
@@ -363,7 +365,10 @@ class PlotToLogbook(BaseModel):
     #: The portal URL that made it — the page state IS the analysis.
     source_url: str = Field("", max_length=4_000)
     #: Append to this entry when the page already made one for the scan.
-    entry: str = Field("", max_length=64)
+    #: Anchored to the logbook's id alphabet (``uuid4().hex[:12]``): the
+    #: value becomes a path segment in the URLs we build, and a ``/`` or a
+    #: ``..`` in it would address some other route under that base.
+    entry: str = Field("", max_length=64, pattern=r"^[0-9a-f]*$")
 
 
 def create_app(
@@ -1267,7 +1272,10 @@ def create_app(
         this payload (409/413/415), else 502.
         """
         detail = _load_run(uid)
-        run_day, _ = _resolved_folder(detail, day)
+        # _run_day, not _resolved_folder: the folder is not wanted, and
+        # resolving one stats the SMB share.  A logbook write touches the
+        # scans mount not at all.
+        run_day = _run_day(detail, day)
         if not _logbook_sendable(detail, run_day):
             raise HTTPException(
                 status_code=404, detail="no logbook entry this scan could join"
@@ -1275,6 +1283,9 @@ def create_app(
         scan = detail.summary.scan_number
         try:
             png = logbook_send.decode_png_data_url(payload.image)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        try:
             result = logbook_send.send_plot(
                 base_url=logbook_send_base,
                 day=run_day.isoformat(),
@@ -1286,7 +1297,7 @@ def create_app(
                 entry_id=payload.entry or None,
                 filename=f"scan{scan:03d}-plot.png",
             )
-        except ValueError as exc:
+        except ValueError as exc:  # the image itself: too big, or empty
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except logbook_send.LogbookUnreachable as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc

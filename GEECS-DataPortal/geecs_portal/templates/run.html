@@ -596,7 +596,9 @@ async function confirmSendToLogbook() {
   btn.textContent = "sending…";
   try {
     const d = dispCfg();
-    const image = await Plotly.toImage(plotHost(), {
+    // getElementById, not plotHost(): that one CLEARS the div when a
+    // message is in it, which is not what reading a plot should do.
+    const image = await Plotly.toImage(document.getElementById("plotdiv"), {
       format: "png",
       scale: EXPORT_SCALE,
       width: d.width > 0 ? d.width : SEND_WIDTH,

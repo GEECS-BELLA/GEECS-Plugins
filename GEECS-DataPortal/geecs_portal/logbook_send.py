@@ -120,10 +120,38 @@ def _detail_of(response: httpx.Response) -> str:
 
 
 def _checked(response: httpx.Response) -> dict:
-    """The decoded body of a 2xx reply, or :class:`LogbookRefused`."""
+    """The decoded body of a 2xx reply, or :class:`LogbookRefused`.
+
+    A success that is not JSON is the peer's trouble, not the caller's:
+    ``--logbook-url`` pointing at a front door or the wrong service gets
+    an HTML maintenance page with a 200 on it, and letting
+    ``json.JSONDecodeError`` (a ``ValueError``) escape would surface that
+    to the user as "the image is malformed".
+    """
     if response.status_code >= 400:
         raise LogbookRefused(response.status_code, _detail_of(response))
-    return response.json()
+    try:
+        body = response.json()
+    except ValueError as exc:
+        raise LogbookRefused(
+            502, f"the logbook answered {response.status_code} but not JSON"
+        ) from exc
+    if not isinstance(body, dict):
+        raise LogbookRefused(502, "the logbook answered with an unexpected shape")
+    return body
+
+
+def _field(body: dict, key: str) -> object:
+    """One expected key of a reply, or :class:`LogbookRefused`.
+
+    Portal and logbook are separate services on separate release
+    cadences, and the fleet has run them from different branches. A
+    reply missing a key it used to carry is version skew — a 502, not a
+    ``KeyError`` traceback out of a portal request thread.
+    """
+    if key not in body:
+        raise LogbookRefused(502, f"the logbook reply carries no {key!r}")
+    return body[key]
 
 
 #: What the Plot tab hands over: ``Plotly.toImage`` returns exactly this
@@ -277,7 +305,7 @@ def _create_entry(
             },
         )
     )
-    return str(created["entry_id"])
+    return str(_field(created, "entry_id"))
 
 
 def _send(
@@ -330,7 +358,7 @@ def _send(
             filename=filename,
         )
 
-    link = str(uploaded["link"])
+    link = str(_field(uploaded, "link"))
     _append_image(
         http,
         base=base,
@@ -356,9 +384,9 @@ def _append_image(
         patch = http.patch(
             f"{base}/api/entries/{entry_id}",
             json={
-                "body_md": appended_body(current.get("body_md", ""), block),
+                "body_md": appended_body(str(current.get("body_md", "")), block),
                 "editor": author,
-                "expected_version": current["version"],
+                "expected_version": _field(current, "version"),
             },
         )
         if patch.status_code != 409:
