@@ -489,3 +489,117 @@ def test_an_offset_naming_no_detector_warns_rather_than_failing(caplog) -> None:
         "uc_camera_that_left" in record.message and "stale" in record.message
         for record in caplog.records
     )
+
+
+# ------------------------------------------------------------------ pseudos
+
+
+def _catalog(**entries):
+    from geecs_schemas.scan_variables import ScanVariables
+
+    return ScanVariables.model_validate(
+        {"schema_version": 1, "variables": entries}
+    ).variables
+
+
+def _magnet_roster() -> DeviceRoster:
+    return DeviceRoster(
+        experiment="TestExp",
+        variables={
+            "U_S3H": [row("Current", settable=True, tolerance=0.0), row("Voltage")],
+            "U_S4H": [row("Current", settable=True, tolerance=0.02)],
+            "U_S1H": [row("Current", settable=True, tolerance=0.05)],
+        },
+        types={"U_S3H": "Magnet PS", "U_S4H": "Magnet PS", "U_S1H": "Magnet PS"},
+        subscribed={
+            "U_S3H": ["Current", "Voltage"],
+            "U_S4H": ["Current"],
+            "U_S1H": ["Current"],
+        },
+    )
+
+
+BUMP = {
+    "kind": "pseudo",
+    "mode": "relative",
+    "targets": [
+        {"target": "U_S3H:Current", "forward": "x"},
+        {"target": "U_S4H:Current", "forward": "x * -2"},
+    ],
+}
+
+
+def test_add_pseudos_binds_catalog_pseudos_over_the_bound_children() -> None:
+    from geecs_bluesky.devices.ca.pseudo import (
+        DEFAULT_AGREEMENT_TOLERANCE,
+        CaPseudoPositioner,
+    )
+
+    ns = GeecsNamespace(_magnet_roster(), file_plugin_hosts=None)
+    bound = ns.add_pseudos(
+        _catalog(
+            ALine_e_beam_angle_offset_x=BUMP,
+            S3H={"target": "U_S3H:Current", "kind": "motor"},  # plain: ignored here
+        )
+    )
+    assert bound == ["ALine_e_beam_angle_offset_x"]
+    pseudo = ns["ALine_e_beam_angle_offset_x"]
+    assert isinstance(pseudo, CaPseudoPositioner)
+    assert pseudo.name == "aline_e_beam_angle_offset_x"
+    assert pseudo.relative is True
+    # the components ARE the roster's Movable children (one object, one offset)
+    assert pseudo._components[0] is ns.variable("U_S3H", "Current")
+    assert pseudo._components[1] is ns.variable("U_S4H", "Current")
+    # agreement tolerance: the DB tolerance where set, the default where 0
+    assert pseudo._tolerances == [DEFAULT_AGREEMENT_TOLERANCE, 0.02]
+    assert pseudo._geecs_namespace_member is True
+    assert (
+        "ALine_e_beam_angle_offset_x" in ns
+        and ns["aline_e_beam_angle_offset_x"] is pseudo
+    )
+    # exported like a device; not in the telemetry baseline (its components are)
+    exported: dict = {}
+    assert "ALine_e_beam_angle_offset_x" in ns.export_into(exported)
+    assert pseudo not in ns.telemetry()
+
+
+def test_add_pseudos_skips_a_broken_entry_loudly_and_keeps_the_rest(caplog) -> None:
+    ns = GeecsNamespace(_magnet_roster(), file_plugin_hosts=None)
+    with caplog.at_level("ERROR", logger="geecs_bluesky.namespace"):
+        bound = ns.add_pseudos(
+            _catalog(
+                unserved={
+                    "kind": "pseudo",
+                    "mode": "absolute",
+                    "targets": [{"target": "U_Nope:Current", "forward": "x"}],
+                },
+                not_settable={
+                    "kind": "pseudo",
+                    "mode": "absolute",
+                    "targets": [{"target": "U_S3H:Voltage", "forward": "x"}],
+                },
+                bad_relative={
+                    "kind": "pseudo",
+                    "mode": "relative",
+                    "targets": [{"target": "U_S3H:Current", "forward": "x + 1"}],
+                },
+                U_S1H={  # collides with a device binding
+                    "kind": "pseudo",
+                    "mode": "absolute",
+                    "targets": [{"target": "U_S3H:Current", "forward": "x"}],
+                },
+                good=BUMP,
+            )
+        )
+    assert bound == ["good"]
+    assert "unserved" not in ns and "good" in ns
+    messages = [r.getMessage() for r in caplog.records]
+    assert any("'unserved' not registered" in m and "U_Nope" in m for m in messages)
+    assert any(
+        "'not_settable' not registered" in m and "not settable" in m for m in messages
+    )
+    assert any(
+        "'bad_relative' not registered" in m and "not 0 at 0" in m for m in messages
+    )
+    assert any("'U_S1H' not registered" in m and "already bound" in m for m in messages)
+    assert ns["U_S1H"].current is ns.variable("U_S1H", "Current")  # the device survived

@@ -136,6 +136,17 @@ else:
             else None
         ),
     )
+    # The scan-variable catalog's pseudo entries as nouns of their own
+    # (the pseudo arc, #904).  Best-effort like the shot offsets: an
+    # unreadable catalog costs the pseudos, not the worker.
+    try:
+        namespace.add_pseudos(_resolver.scan_variable_catalog().variables)
+    except Exception:
+        logger.warning(
+            "scan-variable catalog not loaded — no pseudo scan variable is "
+            "registered; fix the document and reopen the environment",
+            exc_info=True,
+        )
     _DEVICE_NAMES = namespace.export_into(globals())
     _telemetry = namespace.telemetry()
     _profiles = TriggerProfiles.from_resolver(_resolver, experiment=_experiment)

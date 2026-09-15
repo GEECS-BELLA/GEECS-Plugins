@@ -30,10 +30,12 @@ resolved scan variables — never a literal string argument such as an enum
 value) and the pre-submit preflight checks exactly those against the
 manager's device tree
 (:func:`~geecs_bluesky.qs_client.submit_preflight.run_submit_preflight`) —
-the typo fails at preflight, not at queue-front.  Pseudo scan variables
-(``kind: pseudo``) have no namespace noun yet (phase 3): expanding one is
-refused here, and so is a preset whose plan is not a scan verb (``mv``
-and ``run_action`` are queue items of their own — ``submit_plan("mv", …)``,
+the typo fails at preflight, not at queue-front.  A pseudo scan variable
+(``kind: pseudo``) is a namespace noun of its own under its catalog name
+(``GeecsNamespace.add_pseudos``), so it expands to that binding —
+``ALine_e_beam_angle_offset_x`` — and the preflight checks it like any
+device.  A preset whose plan is not a scan verb is refused (``mv`` and
+``run_action`` are queue items of their own — ``submit_plan("mv", …)``,
 ``submit_plan("run_action", ["name"])`` — never a preset).
 """
 
@@ -49,7 +51,7 @@ from geecs_bluesky.plan_names import (
     GEECS_PLAN_NAMES,
     NON_SCAN_PLAN_NAMES,
 )
-from geecs_bluesky.utils import device_reference
+from geecs_bluesky.utils import device_reference, identifier_name
 
 
 #: The plans a preset may name: the scan verbs.  ``mv`` and ``run_action``
@@ -84,20 +86,14 @@ def scan_variable_reference(
 
     *target* is ``"Device:Variable"`` or a name from the experiment's
     scan-variable catalog (``catalog``: name → ``ScanVariableSpec``); a
-    plain device name passes through as the device itself.
-
-    Raises
-    ------
-    GeecsConfigurationError
-        A catalog pseudo variable (no namespace noun until phase 3).
+    plain device name passes through as the device itself.  A catalog
+    pseudo is its own namespace noun: the reference is the catalog name
+    as an identifier (the namespace's :func:`identifier_name` rule).
     """
     spec = (catalog or {}).get(target)
     if spec is not None:
         if getattr(spec, "kind", None) == "pseudo":
-            raise GeecsConfigurationError(
-                f"scan variable {target!r} is a pseudo variable — pseudo axes are "
-                "not scannable through the namespace yet (phase 3)"
-            )
+            return identifier_name(target)
         target = str(spec.target)
     device, sep, variable = target.partition(":")
     return device_reference(device, variable if sep else None)
@@ -124,8 +120,7 @@ def expand_preset(
     Raises
     ------
     GeecsConfigurationError
-        No plan call, a plan that is not a scan verb the worker registers,
-        or a pseudo scan variable.
+        No plan call, or a plan that is not a scan verb the worker registers.
     """
     plan = preset.plan
     if plan is None:

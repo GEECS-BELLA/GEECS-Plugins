@@ -312,8 +312,29 @@ def test_startup_exports_the_device_namespace_and_installs_connect_last(
         "from_experiment",
         classmethod(lambda cls, exp, **kw: cls(_make_roster())),
     )
+    from geecs_bluesky.config_resolver import ConfigsRepoResolver
+    from geecs_schemas.scan_variables import ScanVariables
+
+    catalog = ScanVariables.model_validate(
+        {
+            "schema_version": 1,
+            "variables": {
+                "S1H_twice": {
+                    "kind": "pseudo",
+                    "mode": "absolute",
+                    "targets": [{"target": "U_S1H:Current", "forward": "x * 2"}],
+                }
+            },
+        }
+    )
+    monkeypatch.setattr(
+        ConfigsRepoResolver, "scan_variable_catalog", lambda self: catalog
+    )
     ns = runpy.run_path(str(STARTUP_PATH), run_name="__not_main__")
     assert "U_S1H" in ns and "U_S1H" in ns["__all__"]
     assert ns["U_S1H"].current.name == "u_s1h-current"
+    # the catalog's pseudo is a noun of its own, over the bound child
+    assert "S1H_twice" in ns and "S1H_twice" in ns["__all__"]
+    assert ns["S1H_twice"]._components[0] is ns["U_S1H"].current
     funcs = [getattr(p, "func", p) for p in ns["RE"].preprocessors]
     assert funcs[-1] is connect_on_demand and funcs.count(connect_on_demand) == 1
