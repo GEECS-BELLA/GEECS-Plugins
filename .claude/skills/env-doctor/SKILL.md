@@ -45,7 +45,7 @@ diagnose the package the current task is about.
 
    | Package | Install for full test suite |
    |---|---|
-   | `GeecsBluesky` | `poetry install --extras "ca tiled qserver"` |
+   | `GeecsBluesky` | `poetry install --extras "ca tiled qserver qs-client optimize"` |
    | `GeecsCAGateway` | `poetry install` (path-deps geecs-core) |
    | `GEECS-Core` | `poetry install` (self-contained) |
    | `GEECS-LogTriage` | `poetry install` |
