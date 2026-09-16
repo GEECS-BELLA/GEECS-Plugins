@@ -124,6 +124,10 @@ def summarize_item(item: dict) -> ItemSummary:
             num = _int(kwargs.get("num", rest[0] if rest else 1)) or 1
             steps, sps = 1, num
             summary.text = f"count · {num} shots"
+        elif name == "optimize":
+            steps = _int(kwargs.get("max_iterations"))
+            summary.acquisition = "strict"
+            summary.text = f"optimize · {kwargs.get('optimizer_config', '?')} · ≤ {steps or '?'} iterations"
         elif name in _TRIPLET_VERBS:
             num = _int(kwargs.get("num")) if "num" in kwargs else None
             body = rest

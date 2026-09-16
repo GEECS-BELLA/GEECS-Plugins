@@ -12,7 +12,6 @@ import pytest
 
 from geecs_schemas.convert import (
     SchemaConversionError,
-    convert_optimizer_config,
     convert_shot_control,
 )
 
@@ -62,53 +61,5 @@ class TestTriggerProfiles:
         with pytest.raises(SchemaConversionError, match="BLASTOFF"):
             convert_shot_control(
                 {"device": "D", "variables": {"V": {"BLASTOFF": "1"}}},
-                name="bad",
-            )
-
-
-class TestOptimizerConfigs:
-    def test_hexapod_alignment_converts(self):
-        conversion = convert_optimizer_config(
-            FIXTURES / "optimizer_configs/hexapod_alignment.yaml"
-        )
-        spec = conversion.optimization
-        assert spec.variables == {"U_Hexapod:ypos": (17.0, 19.0)}
-        assert spec.objectives == {"f": "MINIMIZE"}
-        assert spec.evaluator.class_name == "MaxCountsEvaluator"
-        assert conversion.devices == []
-        assert_matches_golden(
-            spec.model_dump(mode="json"), "hexapod_optimization_spec.json"
-        )
-
-    def test_bax_overrides_become_generator_options(self):
-        conversion = convert_optimizer_config(
-            FIXTURES / "optimizer_configs/bax_alignment_S1H.yaml"
-        )
-        spec = conversion.optimization
-        assert spec.objectives == {}
-        assert spec.observables == ["x_CoM"]
-        assert spec.generator.name == "multipoint_bax_alignment_l2"
-        assert spec.generator.options["probe_nominal"] == 1.5
-
-    def test_device_requirements_preserved_as_a_device_group(self):
-        conversion = convert_optimizer_config(
-            FIXTURES / "optimizer_configs/hi_res_mag_cam_max_counts.yaml"
-        )
-        devices = {d.device for d in conversion.devices}
-        assert devices == {"UC_HiResMagCam", "U_BCaveICT", "U_BCaveMagSpec"}
-        assert any("device_requirements" in n for n in conversion.notes)
-
-    def test_mismatched_overrides_fail_loudly(self):
-        with pytest.raises(SchemaConversionError, match="do not match"):
-            convert_optimizer_config(
-                {
-                    "vocs": {
-                        "variables": {"A:B": [0, 1]},
-                        "objectives": {"f": "MINIMIZE"},
-                    },
-                    "evaluator": {"module": "m", "class": "C"},
-                    "generator": {"name": "bayes_default"},
-                    "xopt_config_overrides": {"some_other_generator": {}},
-                },
                 name="bad",
             )

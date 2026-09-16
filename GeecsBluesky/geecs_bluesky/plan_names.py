@@ -45,6 +45,9 @@ CALIBRATION_PLAN_NAMES: tuple[str, ...] = (
     "check_shot_sync",
 )
 
+#: Native scan plans that open runs but have no stock Bluesky counterpart.
+NATIVE_SCAN_PLAN_NAMES: tuple[str, ...] = ("optimize",)
+
 #: Every plan the worker registers: the stock ``bluesky.plans`` scan verbs
 #: (absolute and relative) bound strict, plus :data:`NON_SCAN_PLAN_NAMES`.
 GEECS_PLAN_NAMES: tuple[str, ...] = (
@@ -66,6 +69,7 @@ GEECS_PLAN_NAMES: tuple[str, ...] = (
     "spiral_square",
     "rel_spiral_square",
     "x2x_scan",
+    *NATIVE_SCAN_PLAN_NAMES,
     *NON_SCAN_PLAN_NAMES,
 )
 
@@ -79,4 +83,5 @@ __all__ = [
     "CALIBRATION_PLAN_NAMES",
     "GEECS_PLAN_NAMES",
     "NON_SCAN_PLAN_NAMES",
+    "NATIVE_SCAN_PLAN_NAMES",
 ]

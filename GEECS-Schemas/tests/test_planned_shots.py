@@ -68,24 +68,6 @@ def test_planned_shots_grid_is_the_outer_product():
     assert request.planned_shots() == request.n_steps() * 2  # one derivation
 
 
-def test_planned_shots_optimize_requires_explicit_iterations():
-    spec = {
-        "variables": {"x": (0.0, 1.0)},
-        "objectives": {"y": "MAXIMIZE"},
-        "evaluator": {"module": "m", "class_name": "C"},
-        "generator": {"name": "random"},
-    }
-    without = _request(mode="optimize", optimization=spec, save_sets=[])
-    assert without.planned_shots() is None
-    with_iters = _request(
-        mode="optimize",
-        optimization={**spec, "max_iterations": 7},
-        save_sets=[],
-        shots_per_step=3,
-    )
-    assert with_iters.planned_shots() == 21
-
-
 def test_pathological_grid_request_counts_fast():
     request = _request(
         mode="step",

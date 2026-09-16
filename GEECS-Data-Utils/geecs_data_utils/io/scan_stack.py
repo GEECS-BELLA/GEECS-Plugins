@@ -38,14 +38,16 @@ from typing import Mapping, TypeVar
 import h5py
 import numpy as np
 
-logger = logging.getLogger(__name__)
-
-_T = TypeVar("_T")
-
 # LabVIEW timestamps count from 1904-01-01; Unix from 1970-01-01. The stack
 # stores Unix seconds (the PVA timestamp); GEECS s-files and native filenames
 # carry LabVIEW seconds. lv = unix + OFFSET.
+# File-format constant owned here independently of Core's wire-format constant.
+# Keep the data layer installable without the hardware access library.
 LABVIEW_EPOCH_OFFSET = 2_082_844_800
+
+logger = logging.getLogger(__name__)
+
+_T = TypeVar("_T")
 
 #: The frame stack, ``(N, H, W)`` — areaDetector's NDFileHDF5 dataset path.
 FRAMES_DATASET = "/entry/data/data"

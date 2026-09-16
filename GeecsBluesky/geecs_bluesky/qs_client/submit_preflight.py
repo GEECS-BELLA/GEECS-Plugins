@@ -144,7 +144,8 @@ def run_submit_preflight(
     try:
         from geecs_bluesky.qs_client.presets import expand_preset
 
-        item = expand_preset(preset, catalog=catalog)
+        resolver = resolver or _make_default_resolver(experiment)
+        item = expand_preset(preset, catalog=catalog, resolver=resolver)
         report.outcomes.append(("validate", "passed", ""))
     except Exception as exc:
         report.refusal = str(exc)
@@ -160,7 +161,7 @@ def run_submit_preflight(
         return report
 
     # -- gateway liveness ----------------------------------------------------
-    devices = [d.device for d in getattr(preset, "devices", ())]
+    devices = list(item.devices)
     for device in _trigger_profile_devices(preset, experiment, resolver):
         if device not in devices:
             devices.append(device)

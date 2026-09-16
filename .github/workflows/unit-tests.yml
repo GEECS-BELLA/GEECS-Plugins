@@ -109,7 +109,9 @@ jobs:
         # regression pin in tests/test_strict_plans.py drives bluesky's
         # RunNormalizer, which imports tiled, and a real pin must run, not
         # skip (the #866 lesson). Found by the first branch CI run with ca.
-        run: poetry install --with dev --extras qserver --extras qs-client --extras ca --extras tiled
+        # --extras optimize: exercise the native ask/tell plan and live measurement
+        # compiler with the real Xopt/GEST generators, not an import skip.
+        run: poetry install --with dev --extras qserver --extras qs-client --extras ca --extras tiled --extras optimize
 
       - name: Run GeecsBluesky pure unit tests
         working-directory: GeecsBluesky

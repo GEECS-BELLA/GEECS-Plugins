@@ -20,6 +20,9 @@ from geecs_scanner.service.models import (
     HealthOut,
     ItemOut,
     MoveIn,
+    OptimizationOut,
+    OptimizerConfigOut,
+    SetBestIn,
     PreflightOut,
     ProgressOut,
     QueueOut,
@@ -77,6 +80,23 @@ def register(router: APIRouter, service: ScannerService) -> None:
         """Names of one config kind: presets, trigger_profiles, scan_variables, actions, optimizer_configs."""
         response.headers.update(_NO_CACHE)
         return service.list_configs(kind)
+
+    @router.get(
+        "/api/configs/optimizer_configs/{name}", response_model=OptimizerConfigOut
+    )
+    def optimizer_config(name: str) -> OptimizerConfigOut:
+        """The selected optimizer document and required devices."""
+        return service.optimizer_config(name)
+
+    @router.get("/api/optimization", response_model=OptimizationOut)
+    def optimization() -> OptimizationOut:
+        """Latest optimization iteration, also carried over SSE."""
+        return service.optimization()
+
+    @router.post("/api/optimization/best", response_model=ItemOut)
+    def set_best(body: SetBestIn) -> ItemOut:
+        """Move to the completed run's recorded best physical positions."""
+        return service.set_optimization_best(body)
 
     @router.get("/api/configs/presets/{name}")
     def preset(name: str, response: Response) -> dict[str, Any]:

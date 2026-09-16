@@ -25,7 +25,6 @@ Notes
 The factory supports the following predefined generators:
 - "random": Random sampling generator
 - "bayes_default": Expected improvement Bayesian optimization
-- "bayes_cheetah": Cheetah-based Bayesian optimization (requires cheetah package)
 - "multipoint_bax_alignment": Multipoint BAX alignment (requires configuration overrides)
 
 New generators can be added by extending the PREDEFINED_GENERATORS dictionary
@@ -74,7 +73,6 @@ PREDEFINED_GENERATORS: dict[str, Callable[[VOCS, Dict[str, Any]], Any]] = {
         gp_constructor=StandardModelConstructor(use_low_noise_prior=False),
         beta=overrides.get("beta", 10.0),
     ),
-    "bayes_cheetah": lambda vocs, overrides: _load_cheetah_generator(vocs),
     "bayes_turbo_standard": lambda vocs, overrides: _make_bayes_turbo(vocs),
     # TuRBO trust region wrapped around UCB instead of EI. UCB stays peaked
     # under high observation noise where EI flattens; TuRBO localises the
@@ -143,7 +141,6 @@ def build_generator_from_config(config: Dict[str, Any], vocs: VOCS):
     - "bayes_ucb_explore": UCB with a high default ``beta`` (10.0) so the
       acquisition is dominated by σ — practical "pure exploration" on a
       single-objective VOCS
-    - "bayes_cheetah": Cheetah-based Bayesian optimization (requires cheetah)
     - "bayes_turbo_standard": EI within a TuRBO trust region
     - "bayes_turbo_ucb": UCB within a TuRBO trust region (configurable ``beta``)
     - "multipoint_bax_alignment": Multipoint BAX alignment with custom overrides
@@ -279,49 +276,3 @@ def _make_bayes_turbo_ucb(
         beta=beta,
         turbo_controller=turbo,
     )
-
-
-def _load_cheetah_generator(vocs):
-    """
-    Load Cheetah-based Bayesian optimization generator.
-
-    Attempts to import and instantiate a Cheetah-based generator for
-    Bayesian optimization. This is a specialized generator that may
-    provide enhanced performance for certain optimization problems.
-
-    Parameters
-    ----------
-    vocs : VOCS
-        Variables, Objectives, and Constraints Specification for the
-        optimization problem.
-
-    Returns
-    -------
-    Generator
-        Cheetah-based Bayesian optimization generator instance.
-
-    Raises
-    ------
-    ImportError
-        If the cheetah package or its dependencies are not installed
-        or cannot be imported.
-
-    Notes
-    -----
-    This function requires the 'cheetah' package and its dependencies
-    to be properly installed. The actual generator implementation is
-    imported from a separate module that handles Cheetah integration.
-
-    The import path suggests this may be part of a larger GEECS data
-    acquisition system with specialized optimization capabilities.
-    """
-    try:
-        from geecs_data_acquisition.optimization.generators.cheetah_generator import (
-            get_cheetah_generator,
-        )
-
-        return get_cheetah_generator(vocs)
-    except ImportError as e:
-        raise ImportError(
-            "Could not load 'bayes_cheetah' generator. Make sure 'cheetah' and dependencies are installed."
-        ) from e

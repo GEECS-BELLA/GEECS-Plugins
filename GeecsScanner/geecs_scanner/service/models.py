@@ -63,6 +63,7 @@ class ConfigListOut(BaseModel):
     kind: str
     names: list[str]
     experiment: str
+    unavailable: dict[str, str] = Field(default_factory=dict)
 
 
 class ScanVariableOut(BaseModel):
@@ -371,3 +372,44 @@ class ReadbackOut(BaseModel):
         default=None, description="Now minus the reading's stamp"
     )
     detail: str = ""
+
+
+class OptimizationOut(BaseModel):
+    """Latest adaptive iteration; missing or nonfinite values are null."""
+
+    run_uid: Optional[str] = None
+    config: Optional[str] = None
+    iteration: int = 0
+    max_iterations: Optional[int] = None
+    proposal: dict[str, Optional[float]] = Field(default_factory=dict)
+    measured: dict[str, Optional[float]] = Field(default_factory=dict)
+    outputs: dict[str, Optional[float]] = Field(default_factory=dict)
+    valid_shots: dict[str, Optional[float]] = Field(default_factory=dict)
+    best: dict[str, Optional[float]] = Field(default_factory=dict)
+    best_moves: dict[str, Optional[float]] = Field(default_factory=dict)
+    objectives: list[str] = Field(default_factory=list)
+    finished: bool = False
+    scan_number: Optional[int] = None
+    started_at: Optional[float] = None
+    completed_at: Optional[float] = None
+    expires_at: Optional[float] = None
+    exit_status: Optional[str] = None
+    invalidated_reason: Optional[str] = None
+    expired: bool = False
+
+
+class SetBestIn(BaseModel):
+    """Identify the observed run whose best physical settings should be applied."""
+
+    run_uid: str
+    operator: Optional[str] = None
+
+
+class OptimizerConfigOut(BaseModel):
+    """Config document, required device names and run defaults for the form."""
+
+    name: str
+    document: dict[str, Any]  # The registered OptimizerConfig's JSON representation.
+    required_devices: list[str]
+    shots_per_step: int
+    max_iterations: Optional[int] = None

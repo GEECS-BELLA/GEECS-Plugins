@@ -226,3 +226,15 @@ def test_stack_attributes_read_and_parse(tmp_path) -> None:
         f.attrs["scalar_attributes"] = ["uc_old-hdf-image-x"]
     assert stack_scalar_variables(older) == {}
     assert set(read_stack_attributes(older)) == {"acq_timestamp", "recv_timestamp"}
+
+
+def test_file_epoch_matches_utc_epoch_difference():
+    from datetime import datetime, timezone
+
+    assert (
+        LABVIEW_EPOCH_OFFSET
+        == (
+            datetime(1970, 1, 1, tzinfo=timezone.utc)
+            - datetime(1904, 1, 1, tzinfo=timezone.utc)
+        ).total_seconds()
+    )

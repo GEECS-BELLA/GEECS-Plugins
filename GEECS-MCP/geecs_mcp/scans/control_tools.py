@@ -104,13 +104,6 @@ def _submit_scan_impl(
     # (review finding: the old expanding count made the guard the crash).
     cap = runtime.max_shots()
     shots = validated.planned_shots()
-    if shots is None:
-        return errors.make_error(
-            "policy_refusal",
-            "optimize submissions need an explicit max_iterations (without "
-            "one the engine applies its own default budget; the agent cap "
-            f"of {cap} shots needs the number stated up front)",
-        )
     if shots > cap:
         return errors.make_error(
             "policy_refusal",
@@ -220,7 +213,8 @@ async def submit_scan(
     Preflight warnings return as ``needs_acknowledgement`` — show them to
     the human, then resubmit naming each acknowledged check; the answers
     are recorded in the run's provenance. Planned shots are capped
-    (default 1,000); optimize submissions need an explicit max_iterations.
+    (default 1,000). Legacy optimize ScanRequests are retired; use the scanner
+    Optimize mode for native optimization.
     """
     return await _run_guarded(
         _submit_scan_impl, request, preset, description, acknowledge_warnings

@@ -17,10 +17,6 @@ they migrate (vision doc §4) so a flag day is never needed.
 """
 
 from geecs_schemas.convert._common import SchemaConversionError
-from geecs_schemas.convert.optimizer_configs import (
-    OptimizerConversion,
-    convert_optimizer_config,
-)
 from geecs_schemas.convert.trigger_profiles import (
     convert_shot_control,
 )
@@ -28,6 +24,4 @@ from geecs_schemas.convert.trigger_profiles import (
 __all__ = [
     "SchemaConversionError",
     "convert_shot_control",
-    "convert_optimizer_config",
-    "OptimizerConversion",
 ]

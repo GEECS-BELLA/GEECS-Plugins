@@ -5,6 +5,27 @@ All notable changes to GEECS-Schemas are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.28.2] - 2026-09-16
+
+### Fixed
+
+- Require all six native optimizer keepers in corpus rollout acceptance; remove retired optimize-mode prose from ScanRequest and regenerate the public artifacts.
+
+## [0.28.1] - 2026-09-16
+
+### Fixed
+
+- Drop null legacy optimization fields on ordinary scans, remove the retired optimize mode from the published ScanRequest contract, and report an unmigrated optimizer corpus as a pending integration skip.
+
+## [0.28.0] - 2026-09-16
+
+Version 0.27.0 was an unreleased draft milestone; its analyzer declarations
+shipped together with the native optimization schema in 0.28.0.
+
+### Changed
+
+- Add OptimizerConfig v1 using GEST VOCS directly, ordered derived expressions and diagnostic/signal measurements. Declare analyzer scalar outputs; permit exact dotted symbols in the shared restricted expression core. Retire OptimizationSpec and the evaluator converter; regenerate schema artifacts and keeper examples.
+
 ## [0.26.0] - 2026-09-15
 
 ### Added

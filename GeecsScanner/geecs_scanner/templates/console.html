@@ -114,6 +114,14 @@
           <div class="well tail" id="tail" aria-live="polite"></div>
         </div>
       </div>
+      <div class="body group" id="optimization-live" hidden>
+        <div class="row"><span class="eyebrow" id="optimization-iteration"></span></div>
+        <div class="tscroll"><table><thead><tr><th>Variable / output</th><th>Latest</th><th>Best</th></tr></thead><tbody id="optimization-values"></tbody></table></div>
+        <div class="row"><span class="dim note" id="optimization-shots"></span></div>
+        <div class="tscroll"><table><caption>Recorded physical targets for Set to best</caption><thead><tr><th>Device variable</th><th>Target</th></tr></thead><tbody id="optimization-targets"></tbody></table></div>
+        <div class="row"><button class="btn" type="button" id="btn-set-best" disabled>Set to best</button>
+        <span class="dim note">Relative variables return to their starting positions. Set to best applies the recorded physical settings.</span></div>
+      </div>
       <footer class="eyebrow" id="now-foot">state from the manager every second · shots from the document stream · two narrations, never reconciled</footer>
     </section>
 
@@ -126,7 +134,7 @@
           <button type="button" data-mode="scan" aria-pressed="true">1D</button>
           <button type="button" data-mode="grid">Grid</button>
           <button type="button" data-mode="background">Background</button>
-          <button type="button" data-mode="optimize" aria-disabled="true" title="No optimization plan on the worker yet">Optimize</button>
+          <button type="button" data-mode="optimize" aria-pressed="false" disabled title="No compatible optimizer configs available">Optimize</button>
         </div>
         <div class="seg" role="group" aria-label="Acquisition" id="acq">
           <button type="button" data-acq="strict" aria-pressed="true" title="Fire between trigger and wait; one row per shot">strict</button>
@@ -134,6 +142,13 @@
         </div>
       </header>
       <div class="body">
+        <div class="well" id="optimizer-availability" role="status" hidden></div>
+        <div class="group" id="optimizer-form" hidden>
+          <div class="field"><label for="optimizer-config">optimizer config</label><select id="optimizer-config"><option value="">Choose an optimizer…</option></select></div>
+          <div class="field"><label for="iterations">iterations</label><input id="iterations" type="number" min="1" step="1" value="10"><span class="err" id="err-iterations">At least one iteration.</span></div>
+          <div class="field"><span class="hint" id="optimizer-note">Choose a config to see its required devices.</span></div>
+        </div>
+
         <div class="group" id="axis1">
           <span class="eyebrow">axis 1</span>
           <div class="axes">
@@ -329,6 +344,15 @@
 </aside>
 
 {# ============================ DIALOGS ============================ #}
+<dialog id="dlg-set-best" aria-labelledby="dlg-set-best-title">
+  <div class="body">
+    <h4 id="dlg-set-best-title">Apply these physical settings?</h4>
+    <p id="dlg-set-best-text"></p>
+    <p>This queues a move. Check its result in the queue; the recorded targets remain visible if the move fails.</p>
+    <div class="row end"><button class="btn" type="button" data-dialog-close autofocus>Cancel</button><button class="btn primary" type="button" id="do-set-best">Queue move</button></div>
+  </div>
+</dialog>
+
 <dialog id="dlg-stop" aria-labelledby="dlg-stop-title">
   <div class="body">
     <h4 id="dlg-stop-title">Stop <span id="dlg-stop-scan">the running scan</span>?</h4>

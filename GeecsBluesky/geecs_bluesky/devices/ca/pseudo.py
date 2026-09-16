@@ -267,6 +267,26 @@ class CaPseudoPositioner(StandardReadable):
         """Whether the components are read in their user frame, zeroed at stage."""
         return self._relative
 
+    @property
+    def component_targets(self) -> tuple[str, ...]:
+        """Physical Device:Variable targets defining this pseudo positioner."""
+        return tuple(self._targets)
+
+    async def targets_for(self, value: float) -> dict[str, float]:
+        """Resolve a pseudo value into dial positions using the current staged frame.
+
+        Capturing these positions during an optimization makes a later Set to
+        best independent of any subsequent relative-pseudo re-zeroing.
+        """
+        transform = await self._factory.transform()
+        dials = transform.derived_to_raw(value=float(value))
+        positions = {
+            target: float(dials[key]) for target, key in zip(self._targets, self._keys)
+        }
+        if not all(math.isfinite(v) for v in positions.values()):
+            raise ValueError(f"{self._variable_name}: non-finite component positions")
+        return positions
+
     async def connect(
         self,
         mock: Any = False,

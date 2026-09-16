@@ -110,6 +110,11 @@ class CaSettable(StandardReadable):
         self._settle_time = settle_time
 
     @property
+    def reading_key(self) -> str:
+        """Event column containing this movable's numeric readback."""
+        return getattr(self, self._readback_attr_name).name
+
+    @property
     def _column_headers(self) -> dict[str, str]:
         """Readback event key → its legacy ``Device Variable`` header (the s-file).
 

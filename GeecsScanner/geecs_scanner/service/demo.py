@@ -162,8 +162,28 @@ class DemoResolver:
         return ["standard_1hz", "no_gas", "hexapod_slow"]
 
     def list_optimizer_configs(self) -> list[str]:
-        """Optimizer-config names (listed; nothing submits one yet)."""
+        """Available demonstration optimizers."""
         return ["xopt_beam_charge"]
+
+    def optimizer_config_listing(self) -> tuple[list[str], dict[str, str]]:
+        """Available demo names, with no unavailable documents."""
+        return self.list_optimizer_configs(), {}
+
+    def resolve_optimizer_config(self, name: str):
+        """A scalar-only example with no analysis dependency."""
+        from geecs_schemas import OptimizerConfig
+
+        if name not in self.list_optimizer_configs():
+            raise KeyError(name)
+        return OptimizerConfig(
+            vocs={
+                "variables": {"U_S1H:Current": [-1, 1]},
+                "objectives": {"charge": "MAXIMIZE"},
+            },
+            measurements={"charge": {"signal": "U_BCaveICT:Python Results.Charge"}},
+            generator={"name": "random"},
+            run={"shots_per_step": 5, "max_iterations": 10},
+        )
 
     def write_preset(self, preset: Any, *, overwrite: bool = False) -> Path:
         """Keep *preset* in memory under its name; the path is where the real one would go."""
@@ -314,7 +334,12 @@ class DemoResolver:
 
 
 def demo_preflight(
-    preset: Any, experiment: str, *, client: Any = None, catalog: Any = None
+    preset: Any,
+    experiment: str,
+    *,
+    client: Any = None,
+    catalog: Any = None,
+    resolver: Any = None,
 ) -> Any:
     """Validate by the real expansion; ask one fixed question."""
     from geecs_bluesky.qs_client import (
@@ -325,7 +350,7 @@ def demo_preflight(
 
     report = PreflightReport()
     try:
-        expand_preset(preset, catalog=catalog)
+        expand_preset(preset, catalog=catalog, resolver=resolver or DemoResolver())
         report.outcomes.append(("validate", "passed", ""))
     except Exception as exc:  # noqa: BLE001 — the refusal text is the message
         report.refusal = str(exc)
@@ -502,11 +527,12 @@ class DemoQueueClient:
         catalog: Optional[Mapping[str, Any]] = None,
         md: Optional[Mapping[str, Any]] = None,
         clear_pending: bool = False,
+        resolver: Any | None = None,
     ) -> Any:
         """Expand with the real expansion, then queue."""
         from geecs_bluesky.qs_client import expand_preset
 
-        item = expand_preset(preset, catalog=catalog, md=md)
+        item = expand_preset(preset, catalog=catalog, md=md, resolver=resolver)
         return self.submit_plan(
             item.name, args=item.args, kwargs=item.kwargs, clear_pending=clear_pending
         )
@@ -596,6 +622,25 @@ class DemoQueueClient:
                 self._scan_log(f"shot {self._shots}/{self._total} acquired")
             if boundary:
                 step = self._shots // self._per_step
+                if self._running["name"] == "optimize":
+                    value = 1.0 - 1.0 / (step + 1)
+                    self.streams.on_document(
+                        "event",
+                        {
+                            "descriptor": self._desc_uid + "-opt",
+                            "seq_num": step,
+                            "data": {
+                                "iteration": step,
+                                "output:charge": value,
+                                "best:charge": value,
+                                "best:U_S1H:Current": 0.25,
+                                "best_move:U_S1H:Current": 0.25,
+                                "proposal:U_S1H:Current": 0.25,
+                                "measured:U_S1H:Current": 0.25,
+                                "n_valid_shots:charge": self._per_step,
+                            },
+                        },
+                    )
                 self.streams.push_console_line(
                     f"step {step}/{max(1, self._total // self._per_step)} · {self._per_step} shots"
                 )
@@ -670,6 +715,14 @@ class DemoQueueClient:
                     "number": self._scan_number,
                 },
                 "plan_name": item["name"],
+                "optimizer_config": item["kwargs"].get("optimizer_config"),
+                "max_iterations": item["kwargs"].get("max_iterations"),
+                "optimization_objectives": ["charge"]
+                if item["name"] == "optimize"
+                else [],
+                "optimization_move_targets": ["U_S1H:Current"]
+                if item["name"] == "optimize"
+                else [],
                 "num_points": self._total if is_count else summary.steps,
                 "shots_per_step": 1 if is_count else self._per_step,
                 "time": self._clock(),
@@ -680,6 +733,15 @@ class DemoQueueClient:
             "descriptor",
             {"uid": self._desc_uid, "run_start": self._run_uid, "name": "primary"},
         )
+        if item["name"] == "optimize":
+            self.streams.on_document(
+                "descriptor",
+                {
+                    "uid": self._desc_uid + "-opt",
+                    "run_start": self._run_uid,
+                    "name": "optimization",
+                },
+            )
         self.streams.push_console_line(
             f"Scan {self._scan_number:03d} claimed · {summary.text} · submitted by {item['user']}"
         )

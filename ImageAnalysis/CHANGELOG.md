@@ -3,6 +3,12 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.3.0] - 2026-09-16
+
+### Changed
+
+- Pin analyzer scalar declarations against synthetic in-memory executions, including setting-dependent beam and spectral-phase outputs. Vendor-dependent and legacy non-result analyzers carry explicit skip reasons.
+
 ## [2.2.0] — 2026-09-08
 
 ### Removed

@@ -4,6 +4,12 @@ All notable changes to `geecs-mcp` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.8.10] - 2026-09-16
+
+### Fixed
+
+- Document and enforce retirement of legacy optimize ScanRequests while preserving plain scans with a null optimization field. Remove obsolete unbounded-optimization cap guidance. Refreshed locks include the existing CA extra’s PVA dependencies.
+
 ## [0.8.9] - 2026-09-14
 
 ### Changed

@@ -34,6 +34,7 @@ from geecs_schemas import (
     ActionPlanLibrary,
     ExperimentDefaults,
     Preset,
+    OptimizerConfig,
     ScanVariables,
     ScanVariableSpec,
     ShotOffsets,
@@ -169,9 +170,8 @@ class ConfigsRepoResolver:
       2026-09, GEECS-Plugins#779)
     - ``action_library/actions.yaml`` — the action-plan library (new
       schema only; the legacy ``actions:`` dialect is refused)
-    - ``optimizer_configs/<name>.yaml`` — listed (for clients) but not
-      resolved here: ``OptimizationSpec`` documents validated by their
-      consumers.
+    - ``optimizer_configs/<name>.yaml`` — validated native ``OptimizerConfig``
+      documents, read fresh for each request.
 
     A trigger profile whose top level carries ``schema_version`` is
     loaded as the new schema; anything else goes through the legacy
@@ -254,10 +254,13 @@ class ConfigsRepoResolver:
     # Listings (folder scans — no YAML parsing, never raise)
     # ------------------------------------------------------------------
 
-    def _list_folder(self, folder: str) -> list[str]:
+    def _list_folder(self, folder: str, *, strict: bool = False) -> list[str]:
         """Sorted YAML stems of one config folder; ``[]`` when anything is missing.
 
-        Never raises — an unresolvable configs root, a missing experiment
+        With ``strict=True``, unresolved/missing experiment roots and I/O
+        errors propagate so clients can explain an unavailable library. A
+        missing kind folder within an existing experiment still reads empty.
+        By default, never raises — an unresolvable configs root, a missing experiment
         folder, a missing kind folder, or an I/O failure mid-scan (an SMB
         visibility blip on a mounted configs share, a permissions problem)
         all read as an empty listing: clients render "nothing available",
@@ -265,7 +268,10 @@ class ConfigsRepoResolver:
         resolution/validation can still refuse it.
         """
         try:
-            path = self._root / folder
+            root = self._root
+            if strict:
+                root.stat()
+            path = root / folder
             if not path.is_dir():
                 return []
             return sorted(
@@ -273,7 +279,9 @@ class ConfigsRepoResolver:
                 for entry in path.iterdir()
                 if entry.suffix in (".yaml", ".yml")
             )
-        except Exception:  # root unresolvable / I/O failure — empty, never raise
+        except Exception:  # Root resolution and directory traversal can both fail.
+            if strict:
+                raise
             logger.debug(
                 "config listing failed for %s (read as empty)", folder, exc_info=True
             )
@@ -371,9 +379,70 @@ class ConfigsRepoResolver:
         logger.info("preset %r written to %s", name, path)
         return path
 
+    @property
+    def analysis_config_dir(self) -> Path:
+        """The shared Scan/ImageAnalysis config root, independent of scanner configs."""
+        from geecs_data_utils.config_roots import scan_analysis_config
+
+        root = scan_analysis_config.base_dir
+        if root is None:
+            raise GeecsConfigurationError(
+                "set SCAN_ANALYSIS_CONFIG_DIR or [Paths] scan_analysis_configs_path"
+            )
+        return root
+
+    def optimizer_config_path(self, name: str) -> Path:
+        """Path used to resolve an optimizer and its relative seed dumps."""
+        stem = self._strip_yaml_suffix(name)
+        if not stem or stem in (".", "..") or any(c in stem for c in ("/", "\\")):
+            raise GeecsConfigurationError("optimizer config must be a file stem")
+        return self._named_yaml_path(self.OPTIMIZER_FOLDER, stem)
+
+    def resolve_optimizer_config(self, name: str) -> OptimizerConfig:
+        """Load and validate the native optimizer document fresh for each request."""
+        path = self.optimizer_config_path(name)
+        try:
+            return OptimizerConfig.model_validate(
+                self._load_yaml(path, "optimizer config", name)
+            )
+        except (ValueError, OSError, yaml.YAMLError) as exc:
+            raise GeecsConfigurationError(f"optimizer config {name!r}: {exc}") from exc
+
+    def diagnostic_device(self, stem: str) -> str:
+        """Resolve a diagnostic's device without importing the analysis runtime."""
+        from geecs_schemas.analysis import AnalysisDiagnostic
+
+        if not stem or stem in (".", "..") or any(c in stem for c in ("/", "\\")):
+            raise GeecsConfigurationError("diagnostic must be a file stem")
+        paths = [
+            p
+            for p in (self.analysis_config_dir / "analyzers").rglob("*")
+            if p.suffix in (".yaml", ".yml") and p.stem == stem
+        ]
+        if len(paths) != 1:
+            raise GeecsConfigurationError(
+                f"diagnostic {stem!r}: expected one document, found {len(paths)}"
+            )
+        return AnalysisDiagnostic.model_validate(
+            self._load_yaml(paths[0], "diagnostic", stem)
+        ).name
+
     def list_optimizer_configs(self) -> list[str]:
-        """Optimizer-config names (``OptimizationSpec`` documents; sorted; ``[]`` if none)."""
-        return self._list_folder(self.OPTIMIZER_FOLDER)
+        """Optimizer-config names (``OptimizerConfig`` documents; sorted; ``[]`` if none)."""
+        return self.optimizer_config_listing()[0]
+
+    def optimizer_config_listing(self) -> tuple[list[str], dict[str, str]]:
+        """Return usable names and unavailable names mapped to validation reasons."""
+        available = []
+        unavailable = {}
+        for name in self._list_folder(self.OPTIMIZER_FOLDER, strict=True):
+            try:
+                self.resolve_optimizer_config(name)
+            except GeecsConfigurationError as exc:
+                unavailable[name] = str(exc)
+            else:
+                available.append(name)
+        return available, unavailable
 
     def resolve_trigger_profile(self, name: str) -> TriggerProfile:
         """Load the trigger profile *name* (new schema, else converted).

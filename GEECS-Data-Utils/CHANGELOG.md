@@ -3,6 +3,18 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.32.2] - 2026-09-16
+
+### Fixed
+
+- Restore the independent file-format epoch constant and remove the Core/MySQL installation dependency introduced during PR review. Pin the no-intra-repo-dependencies boundary in tests.
+
+## [0.32.1] - 2026-09-16
+
+### Fixed
+
+- Re-export the shared Core LabVIEW epoch constant from the existing scan_stack API, adding a downward dependency on GEECS-Core so live and offline timestamp conversion share one definition.
+
 ## [0.32.0] - 2026-09-13
 
 ### Changed

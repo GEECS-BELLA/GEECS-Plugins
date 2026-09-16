@@ -4,6 +4,12 @@ All notable changes to `geecs-core` are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and semantic versioning.
 
 
+## [0.8.2] - 2026-09-16
+
+### Changed
+
+- Publish the shared LabVIEW-to-Unix epoch offset for PVA timestamps and native optimizer frame joins.
+
 ## [0.8.1] - 2026-09-14
 
 ### Changed

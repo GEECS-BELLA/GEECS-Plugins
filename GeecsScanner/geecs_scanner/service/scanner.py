@@ -50,6 +50,9 @@ from geecs_scanner.service.models import (
     HealthOut,
     ItemOut,
     MoveIn,
+    OptimizationOut,
+    OptimizerConfigOut,
+    SetBestIn,
     PlanCallOut,
     PreflightOut,
     PreflightOutcomeOut,
@@ -237,6 +240,14 @@ class ScannerService:
                 "not_found", f"no config kind {kind!r}", kinds=sorted(CONFIG_KINDS)
             )
         try:
+            if kind == "optimizer_configs":
+                names, unavailable = self.resolver.optimizer_config_listing()
+                return ConfigListOut(
+                    kind=kind,
+                    names=names,
+                    unavailable=unavailable,
+                    experiment=self.experiment,
+                )
             result = getattr(self.resolver, method)()
         except Exception as exc:  # noqa: BLE001 — a missing tree is an honest answer
             raise ScannerError(
@@ -369,7 +380,11 @@ class ScannerService:
             md["geecs"]["operator"] = body.operator
         with self._lock:
             result = self.client.submit_preset(
-                preset, catalog=catalog, md=md, clear_pending=body.clear_pending
+                preset,
+                catalog=catalog,
+                md=md,
+                clear_pending=body.clear_pending,
+                resolver=self.resolver,
             )
         if not result.ok:
             if result.pending_items:
@@ -398,6 +413,86 @@ class ScannerService:
         )
 
     # ---------------------------------------------------- idle-only items
+
+    def optimizer_config(self, name: str) -> OptimizerConfigOut:
+        """Read one optimizer and its required devices through the resolver."""
+        from geecs_schemas import optimizer_required_devices
+        from geecs_schemas.optimizer_config import DiagnosticMeasurement
+
+        try:
+            cfg = self.resolver.resolve_optimizer_config(name)
+            diagnostics = {
+                m.diagnostic: self.resolver.diagnostic_device(m.diagnostic)
+                for m in cfg.measurements.values()
+                if isinstance(m, DiagnosticMeasurement)
+            }
+            return OptimizerConfigOut(
+                name=name,
+                document=cfg.model_dump(mode="json"),
+                required_devices=sorted(optimizer_required_devices(cfg, diagnostics)),
+                shots_per_step=cfg.run.shots_per_step,
+                max_iterations=cfg.run.max_iterations,
+            )
+        except Exception as exc:
+            raise ScannerError("invalid_request", str(exc)) from exc
+
+    def optimization(self) -> OptimizationOut:
+        """The latest observed optimization iteration."""
+        return self.streams.optimization()
+
+    def set_optimization_best(self, body: SetBestIn) -> ItemOut:
+        """Queue the recorded best physical positions after a run has finished."""
+        from geecs_bluesky.qs_client.presets import scan_variable_reference
+
+        with self._lock:
+            self._require_idle("Set to best")
+            result = self.optimization()
+            if result.run_uid != body.run_uid:
+                raise ScannerError(
+                    "policy_refusal", "the selected optimization is not the latest run"
+                )
+            if not result.finished or result.exit_status != "success":
+                raise ScannerError(
+                    "policy_refusal", "optimization must have completed successfully"
+                )
+            if result.expired or result.invalidated_reason:
+                raise ScannerError(
+                    "policy_refusal",
+                    result.invalidated_reason or "the best-move offer has expired",
+                )
+            if not result.best_moves or any(
+                v is None for v in result.best_moves.values()
+            ):
+                raise ScannerError(
+                    "policy_refusal", "this run has no feasible best point"
+                )
+            args = [
+                item
+                for name, value in result.best_moves.items()
+                for item in (scan_variable_reference(name), value)
+            ]
+            logger.info(
+                "Set to best requested by %s for run %s: %s",
+                body.operator or self.identity,
+                body.run_uid,
+                result.best_moves,
+            )
+            queued = self.client.submit_plan("mv", args=args, kwargs={})
+            if queued.ok:
+                self.streams.invalidate_optimization(
+                    "best-settings move was queued; check its result before making another move"
+                )
+        if not queued.ok:
+            raise ScannerError(
+                "manager_unreachable", queued.message or "Set to best was refused"
+            )
+        return ItemOut(
+            item_uid=queued.item_uid,
+            message=queued.message,
+            submitted_as=self.identity,
+            plan="mv",
+            summary="Set to best",
+        )
 
     def move(self, body: MoveIn) -> ItemOut:
         """Queue one manual move — a stock ``mv`` item — while nothing runs or waits.
@@ -618,14 +713,13 @@ class ScannerService:
             logger.warning("scan-variable catalog unavailable: %s", exc)
             return {}
 
-    @staticmethod
-    def _validate_preset(doc: Mapping[str, Any]) -> Any:
+    def _validate_preset(self, doc: Mapping[str, Any]) -> Any:
         from pydantic import ValidationError
 
         from geecs_schemas import Preset
 
         try:
-            return Preset.model_validate(dict(doc))
+            preset = Preset.model_validate(dict(doc))
         except ValidationError as exc:
             raise ScannerError(
                 "invalid_request",
@@ -636,18 +730,25 @@ class ScannerService:
                 ],
             ) from exc
 
+        return preset
+
     def _run_preflight(self, preset: Any, catalog: Mapping[str, Any]) -> Any:
         fn = self._preflight or _default_preflight()
         # No lock: the preflight reads the manager and the gateway itself
         # (a couple of seconds of CA reads); a status poll must not wait on it.
-        return fn(preset, self.experiment, client=self.client, catalog=catalog)
+        return fn(
+            preset,
+            self.experiment,
+            client=self.client,
+            catalog=catalog,
+            resolver=self.resolver,
+        )
 
-    @staticmethod
-    def _expand(preset: Any, catalog: Mapping[str, Any]) -> Any:
+    def _expand(self, preset: Any, catalog: Mapping[str, Any]) -> Any:
         from geecs_bluesky.qs_client import expand_preset
 
         try:
-            return expand_preset(preset, catalog=catalog)
+            return expand_preset(preset, catalog=catalog, resolver=self.resolver)
         except Exception as exc:  # noqa: BLE001 — a GeecsConfigurationError, operator-facing
             raise ScannerError("invalid_request", str(exc)) from exc
 
@@ -658,6 +759,10 @@ class ScannerService:
         with self._lock:
             self._require_idle(what)
             result = self.client.submit_plan(name, args=args, kwargs=kwargs)
+            if result.ok and name in ("mv", "run_action"):
+                self.streams.invalidate_optimization(
+                    "hardware changed after this optimization"
+                )
         if not result.ok:
             raise ScannerError(
                 "manager_unreachable", result.message or f"{what} was refused"

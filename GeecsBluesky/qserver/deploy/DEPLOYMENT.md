@@ -60,7 +60,7 @@ failure):
 sudo -u geecs -i
 cd <root>/qs-checkout/GeecsBluesky
 poetry env use python3.11
-poetry install --extras "ca tiled qserver"
+poetry install --extras "ca tiled qserver optimize"
 ```
 
 The `qserver` extra is the queueserver dependency bundle. If that extra has
@@ -96,10 +96,9 @@ At minimum, verify that the service account's config resolves:
 - the GEECS data root on the mounted data share,
 - the scanner configs repository,
 - the scan-analysis configs path (`[Paths] scan_analysis_configs_path`) —
-  required by optimize-mode requests whose evaluator uses `analyzers`
-  (`BaseOptimizerConfig` refuses those without it; analyzer-free optimize
-  requests and every other mode run fine, so the gap surfaces only on the
-  first analyzer-based optimize submission),
+  required by optimizer configs with diagnostic measurements. The native
+  measurement compiler resolves their documents under `analyzers/` before
+  claiming a scan; scalar-only optimization does not need this path,
 - database credentials through the normal `Configurations.INI` chain,
 - Tiled connection details when Tiled publishing is enabled,
 - optional `[epics] ca_addr_list` if the unit-level `EPICS_CA_ADDR_LIST`
@@ -313,3 +312,36 @@ After the environment is open, submit only the smoke-test queue items approved
 for the current startup profile. Do not use a deployment host to discover
 machine-control behavior ad hoc; the manager is the production execution
 surface once this service is enabled.
+
+
+## Native optimization acceptance
+
+Install the worker's `optimize` extra alongside `ca tiled qserver`. The scanner
+needs no ImageAnalysis, Xopt or Torch dependency. The worker warms numerical
+imports on the profile thread before readiness. The PVA monitor must receive an initial image
+within five seconds before the plan arms or claims a scan; verify the host's
+PVA address configuration. Frame acquisition uses live arrays, never the
+partly-written scan files, with the camera timestamp joined within 1 ms.
+
+Copy the six v1 keeper documents from GEECS-Schemas' optimizer fixtures to
+the configs repository only after the schema change lands. Keep the two
+HiResMagCam legacy documents with a `# LEGACY` header until their diagnostic
+exists; remove ebeam_source_opt, hexapod_alignment and multi_device_example.
+Validate diagnostics on the worker before an operator day. No deployed
+configs were changed by the implementation branch. The resolver lists only
+schema-valid native configs; the scanner disables Optimize when that list is
+empty. An unmigrated legacy corpus therefore offers no broken choices.
+
+**Beam-free smoke test passed:** Scan010 of 26_0915 ran
+`bax_alignment_simulation`, 3 iterations × 2 HTU-NoGas shots, and restored both
+original magnet setpoints. Scalar files and Xopt dump passed. The resulting
+Tiled column-encoding fix passed a hardware-free replay; the original live
+Tiled entry is partial. Evidence and remaining limits are recorded in
+`Planning/native_bluesky/12_optimization_implementation.md`.
+
+**OWED hardware acceptance:** run TopViewMax with
+beam, 5 shots × 10 iterations; require five valid frames per iteration,
+compare the objective with saved PNGs after the run, and record RSS before
+and after. Finally submit TopViewMax from the scanner, observe live iteration
+and best values, and exercise Set to best once while idle. Relative-pseudo
+acceptance must show restoration followed by the explicit physical best move.

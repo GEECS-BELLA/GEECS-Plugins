@@ -9,7 +9,7 @@ import pytest
 h5py = pytest.importorskip("h5py")
 np = pytest.importorskip("numpy")
 
-from geecs_data_utils.io.scan_stack import LABVIEW_EPOCH_OFFSET  # noqa: E402
+from geecs_core.db.variable_types import LABVIEW_EPOCH_OFFSET  # noqa: E402
 
 from geecs_pva_gateway.diff import diff_device_dir, main  # noqa: E402
 

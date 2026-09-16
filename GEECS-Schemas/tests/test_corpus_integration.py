@@ -3,8 +3,9 @@
 The corpus walk (``TestFullCorpus``) is marked ``integration``: it auto-skips
 when the sibling ``GEECS-Plugins-Configs`` checkout is absent (e.g. in CI).
 Locally this is the proof that the converters cover the real world, file by
-file, with zero skips beyond the documented empty/deviceless shot-control
-configs (which legitimately convert to "no trigger profile").
+file. Empty/deviceless shot-control configs legitimately convert to "no
+trigger profile". Retired optimizer dialects are excluded while their separate
+corpus migration is pending; every deployed native optimizer is validated.
 
 Corpus layout (regenerated 2026-09-10, GEECS-Plugins#807 phase 1 PR 2)::
 
@@ -18,6 +19,7 @@ Corpus layout (regenerated 2026-09-10, GEECS-Plugins#807 phase 1 PR 2)::
 """
 
 import os
+import sys
 from pathlib import Path
 
 import pytest
@@ -25,7 +27,6 @@ import yaml
 
 from geecs_schemas import ActionPlanLibrary, Preset, ScanVariables
 from geecs_schemas.convert import (
-    convert_optimizer_config,
     convert_shot_control,
 )
 
@@ -132,11 +133,50 @@ class TestFullCorpus:
         assert set(libraries) >= {"Undulator", "Thomson"}
         assert libraries["Undulator"].plans
 
-    def test_every_optimizer_config_converts(self):
-        converted = 0
+    def test_every_optimizer_config_validates(self):
+        from geecs_schemas import OptimizerConfig
+
+        validated = 0
         for experiment in experiments():
             for path in sorted(experiment.glob("optimizer_configs/*.yaml")):
-                conversion = convert_optimizer_config(path)
-                assert conversion.optimization.variables, path
-                converted += 1
-        assert converted >= 11
+                text = path.read_text()
+                if text.startswith("# LEGACY"):
+                    continue
+                document = yaml.safe_load(text)
+                if isinstance(document, dict) and (
+                    "evaluator" in document or "device_requirements" in document
+                ):
+                    continue  # Retired dialect: unavailable to the resolver/UI.
+                config = OptimizerConfig.model_validate(document)
+                assert config.vocs.variables, path
+                validated += 1
+        assert validated >= 6, (
+            f"optimizer corpus migration incomplete: {validated} native configs; "
+            "deploy all six keepers before rollout acceptance"
+        )
+
+
+@pytest.mark.parametrize("native_count", [0, 1, 5, 6])
+def test_optimizer_rollout_requires_all_keepers(tmp_path, monkeypatch, native_count):
+    """Exercise the real corpus walk against absent, partial and complete rollouts."""
+    from geecs_schemas import OptimizerConfig
+
+    folder = tmp_path / "scanner_configs/experiments/Test/optimizer_configs"
+    folder.mkdir(parents=True)
+    (folder / "old.yaml").write_text("evaluator: {}")
+    document = OptimizerConfig(
+        vocs={
+            "variables": {"Motor:Current": [-1, 1]},
+            "objectives": {"score": "MINIMIZE"},
+        },
+        measurements={"score": {"signal": "Meter:Value"}},
+        generator={"name": "random"},
+    ).model_dump(mode="json")
+    for index in range(native_count):
+        (folder / f"native{index}.yaml").write_text(yaml.safe_dump(document))
+    monkeypatch.setattr(sys.modules[__name__], "CONFIGS", tmp_path)
+    if native_count < 6:
+        with pytest.raises(AssertionError, match=f"incomplete: {native_count} native"):
+            TestFullCorpus().test_every_optimizer_config_validates()
+    else:
+        TestFullCorpus().test_every_optimizer_config_validates()

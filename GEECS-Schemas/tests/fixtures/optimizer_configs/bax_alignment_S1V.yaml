@@ -1,0 +1,36 @@
+schema_version: 1
+vocs:
+  variables:
+    U_S1V:Current:
+    - 2.5
+    - 4.5
+    U_EMQTripletBipolar:Current_Limit.Ch1:
+    - 1.2
+    - 1.7
+  observables: &id001
+  - aline.y_CoM
+measurements:
+  aline:
+    diagnostic: UC_ALineEBeam3
+    frames: per_bin
+generator:
+  name: multipoint_bax_alignment_l2
+  options:
+    control_names:
+    - U_S1V:Current
+    measurement_name: U_EMQTripletBipolar:Current_Limit.Ch1
+    observable_names: *id001
+    probe_nominal: 1.5
+    probe_grid_absolute:
+    - -0.2
+    - 0.0
+    - 0.2
+    n_control_mesh: 21
+    mesh_measurement: true
+    n_measurement_mesh: 5
+    n_monte_carlo_samples: 32
+    use_low_noise_prior: false
+run:
+  on_finish: best
+  shots_per_step: 5
+  max_iterations: 30

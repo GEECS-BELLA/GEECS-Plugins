@@ -229,3 +229,18 @@ if _doc_publish_addr.upper() != "OFF":
         )
 
 __all__ = ["RE", *GEECS_PLAN_NAMES, *_DEVICE_NAMES]
+
+
+# Import on the profile thread before readiness; concurrent numerical imports
+# can deadlock Python's module locks (the #778 incident).
+def _warm_optimizer():
+    try:
+        import xopt  # noqa: F401
+        import torch  # noqa: F401
+    except ImportError:
+        pass  # Worker installed without the optimize extra.
+    except Exception:
+        logging.getLogger(__name__).exception("optimizer warm import failed")
+
+
+_warm_optimizer()

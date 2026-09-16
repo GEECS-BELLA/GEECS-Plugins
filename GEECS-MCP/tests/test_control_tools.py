@@ -204,41 +204,11 @@ def test_submit_enforces_the_shot_cap(wired, monkeypatch):
     assert wired.submitted == []
 
 
-def _valid_optimization_spec(**overrides) -> dict:
-    """A minimal schema-VALID OptimizationSpec (review finding: the old
-    fake was invalid on three counts, so the policy branch was never
-    genuinely pinned)."""
-    spec = {
-        "variables": {"jet_z": (0.0, 1.0)},
-        "objectives": {"counts": "MAXIMIZE"},
-        "evaluator": {"module": "geecs.eval", "class_name": "CountsEval"},
-        "generator": {"name": "random"},
-    }
-    spec.update(overrides)
-    return spec
-
-
-def test_submit_optimize_without_iterations_refused(wired):
-    optimize = dict(
-        GOOD_REQUEST, mode="optimize", optimization=_valid_optimization_spec()
-    )
+def test_submit_legacy_optimize_refused(wired):
+    optimize = dict(GOOD_REQUEST, mode="optimize", optimization={})
     result = _load(control_tools._submit_scan_impl(optimize, None, None, None))
-    assert result["error_kind"] == "policy_refusal"
-    assert "max_iterations" in result["message"]
-    assert wired.submitted == []
-
-
-def test_submit_optimize_with_iterations_counts_against_cap(wired, monkeypatch):
-    monkeypatch.setattr(runtime, "max_shots", lambda: 100)
-    optimize = dict(
-        GOOD_REQUEST,
-        mode="optimize",
-        optimization=_valid_optimization_spec(max_iterations=30),
-        shots_per_step=5,
-    )
-    result = _load(control_tools._submit_scan_impl(optimize, None, None, None))
-    assert result["error_kind"] == "policy_refusal"
-    assert "150" in result["message"]
+    assert result["error_kind"] == "invalid_request"
+    assert "legacy optimization requests are retired" in result["message"]
     assert wired.submitted == []
 
 

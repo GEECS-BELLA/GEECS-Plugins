@@ -125,3 +125,25 @@ The operator registry and ownership (arc PR 5: `operators.yaml`,
 item) and the Caddy front door (dropped 2026-09-13 — three ports, one
 bookmark each). GEECS-Console itself is gone (PR 6, 2026-09-14; tag
 `geecs-console-v0.32.1-final`).
+
+
+## Optimize mode
+
+The form selects an `OptimizerConfig` by ID; shared `prepare_optimizer_preset`
+resolves defaults and required devices before both preflight and submission.
+Saved presets retain the authored devices/kwargs; expansion happens only for
+preflight/submission through the shared client seam.
+Expanded required devices have `essential=True` and `save_images=True` even
+when an authored table row says otherwise. ProgressCache reduces the worker's `optimization` stream; NaN
+becomes null for JSON. Set to best takes a run UID, rejects stale/incomplete
+runs, unsuccessful runs, offers older than 15 minutes, and offers invalidated
+by a service-submitted move/action. It records the requesting operator and
+submits recorded physical targets as one idle-only `mv`. The panel shows the
+scan, completion time and exit status. Out-of-band gateway writes are not
+observed by this cache; Set to best remains an explicit operator action. The scanner
+never reconstructs pseudo offsets or imports the analysis runtime.
+
+Optimizer listings expose unavailable names and reasons as well as usable names;
+listing errors are displayed even when Optimize is disabled. Recorded physical
+best targets remain visible after an offer is invalidated. Set to best confirms
+the targets before queueing; queue acceptance is never described as completion.

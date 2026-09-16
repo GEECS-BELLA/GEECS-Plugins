@@ -536,6 +536,10 @@ def bind_plans(
     for name in GEECS_PLAN_NAMES:
         if name == "mv":
             bound[name] = _mv_named
+        elif name == "optimize":
+            from .optimize import optimize_plan
+
+            bound[name] = optimize_plan(profiles, resolver, settables)
         elif name == "run_action":
             bound[name] = run_action_plan(resolver, settables)
         elif name == "measure_shot_offsets":

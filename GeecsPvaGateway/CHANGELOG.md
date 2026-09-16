@@ -4,6 +4,12 @@ All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
+## [0.10.1] - 2026-09-16
+
+### Changed
+
+- Import the shared LabVIEW epoch offset from GEECS-Core; timestamp conversion behavior is unchanged.
+
 ## [0.10.0] - 2026-09-14
 
 ### Fixed

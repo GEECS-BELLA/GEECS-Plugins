@@ -81,11 +81,23 @@ geecs_bluesky/
   devices/hdf_plugin.py     # the file plugin's worker side (#806): GeecsHdfIO (+Rewind),
                             #   PluginPathProvider (two paths per folder), file_plugin_hosts
   assets/                   # the geecs:// PNG asset registry — goes with PNG retirement (#738)
-  optimization/             # the Xopt core; not runnable until re-glued (option B)
+  optimization/             # native Xopt ask/tell, live PVA frames, measurement compiler
 qserver/                    # the worker: launcher, startup profile, permissions, deploy/
 ```
 
 ## Devices (§4.A)
+
+The bound `optimize` plan in `plans/optimize.py` runs strict acquisition in
+one run, with one bin per iteration. `OptimizerConfig` lives in GEECS-Schemas
+and embeds GEST's VOCS; Xopt and ImageAnalysis load only inside the worker's
+optional optimize path. Validation and frame subscriptions precede the scan
+claim. Measurements use actual readbacks and timestamp-matched live frames.
+The `optimization` stream and JSON config provenance follow `EVENT_SCHEMA.md`.
+Optimizer expansion takes the same configs resolver in preflight and
+`submit_preset`; saving a preset validates its authored document without expansion.
+Analysis diagnostics resolve through Data Utils' shared config-root manager.
+Relative pseudos restore on unstage; the scanner's explicit Set to best uses
+the recorded physical targets, not a relative coordinate after its zero moved.
 
 - **`GeecsDetector`** (`devices/detector.py`) — one GEECS acquirer as a
   `StandardDetector` composed of the three ophyd-async 0.19 logics:
@@ -450,3 +462,9 @@ the RunEngine loop threads a test leaves behind (#812).
 - Import anything from `geecs_scanner` (deleted 2026-08-20; pinned by
   `tests/test_dependency_direction.py`) or hold on to a funnel idiom
   because "we already built it" (§9).
+
+Optimizer listings retain validation errors through `optimizer_config_listing()`;
+the names-only listing delegates to it. The epoch equality test lives here because
+this package already depends on Core and Data Utils. Those foundational packages
+keep independent constants for their wire/file formats, with no dependency edge
+between them.

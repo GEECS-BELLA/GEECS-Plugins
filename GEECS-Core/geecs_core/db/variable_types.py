@@ -24,9 +24,14 @@ gateway's config module to know a variable's type.
 
 from __future__ import annotations
 
+# Raw GEECS acquisition stamps use the LabVIEW (1904) epoch.
+
+
 import logging
 from collections.abc import Callable, Sequence
 from typing import Literal
+
+LABVIEW_EPOCH_OFFSET = 2_082_844_800
 
 logger = logging.getLogger(__name__)
 

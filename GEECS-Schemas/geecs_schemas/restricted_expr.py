@@ -70,6 +70,28 @@ def _is_boolean_expression(node: ast.AST) -> bool:
     )
 
 
+def _dotted_name(node: ast.AST) -> str | None:
+    """Flatten a name-only attribute chain without evaluating any attributes."""
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        parent = _dotted_name(node.value)
+        return f"{parent}.{node.attr}" if parent else None
+    return None
+
+
+class _DottedSymbols(ast.NodeTransformer):
+    """Replace already-validated dotted symbols by collision-free locals."""
+
+    def __init__(self, names: Mapping[str, str]) -> None:
+        self.names = names
+
+    def visit_Attribute(self, node: ast.Attribute) -> ast.AST:
+        return ast.copy_location(
+            ast.Name(id=self.names[_dotted_name(node)], ctx=ast.Load()), node
+        )
+
+
 def _validate(
     node: ast.AST, symbols: AbstractSet[str], whitelist: ExpressionWhitelist
 ) -> None:
@@ -93,6 +115,8 @@ def _validate(
     elif isinstance(node, ast.Constant):
         if not isinstance(node.value, (int, float)):
             raise ExpressionWhitelistError(f"literal {node.value!r} is not a number")
+    elif isinstance(node, ast.Attribute) and _dotted_name(node) in symbols:
+        pass  # A literal symbol, never Python attribute access.
     elif isinstance(node, ast.Name):
         if node.id not in symbols and node.id not in whitelist.constants:
             raise ExpressionWhitelistError(f"unknown name {node.id!r}")
@@ -130,6 +154,7 @@ class CompiledExpression:
     is_boolean: bool
     _code: CodeType = field(repr=False)
     _whitelist: ExpressionWhitelist = field(repr=False)
+    _dotted: Mapping[str, str] = field(default_factory=dict, repr=False)
 
     def evaluate(self, values: Mapping[str, Any]) -> Any:
         """Evaluate with *values* bound to the symbol names; return the raw result.
@@ -142,6 +167,13 @@ class CompiledExpression:
         namespace.update(self._whitelist.functions)
         namespace.update(self._whitelist.constants)
         namespace.update(values)
+        namespace.update(
+            {
+                alias: values[name]
+                for name, alias in self._dotted.items()
+                if name in values
+            }
+        )
         return eval(  # noqa: S307 — AST-whitelisted at compile time
             self._code, {"__builtins__": {}}, namespace
         )
@@ -180,9 +212,21 @@ def compile_expression(
     except SyntaxError as exc:
         raise ExpressionWhitelistError(f"syntax error ({exc.msg})") from exc
     _validate(tree, symbols, whitelist)
+    occupied = set(symbols) | set(whitelist.functions) | set(whitelist.constants)
+    dotted = {}
+    for node in ast.walk(tree):
+        name = _dotted_name(node) if isinstance(node, ast.Attribute) else None
+        if name in symbols and name not in dotted:
+            alias = "_geecs_symbol_" + str(len(dotted))
+            while alias in occupied:
+                alias += "_"
+            occupied.add(alias)
+            dotted[name] = alias
+    tree = ast.fix_missing_locations(_DottedSymbols(dotted).visit(tree))
     return CompiledExpression(
         source=expression,
         is_boolean=_is_boolean_expression(tree.body),
         _code=compile(tree, filename, "eval"),
         _whitelist=whitelist,
+        _dotted=dotted,
     )

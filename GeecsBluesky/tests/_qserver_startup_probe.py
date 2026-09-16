@@ -127,7 +127,7 @@ def main() -> None:
                 _fail(f"ns[{name!r}] is not the calibration plan")
                 return
             continue
-        if plan is getattr(bp, name) or plan.__name__ != name:
+        if (hasattr(bp, name) and plan is getattr(bp, name)) or plan.__name__ != name:
             _fail(f"ns[{name!r}] is not the strict-bound {name}")
             return
         if (

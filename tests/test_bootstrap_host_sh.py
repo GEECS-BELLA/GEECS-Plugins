@@ -171,3 +171,18 @@ def test_a_systemctl_that_fails_hard_does_not_abort_the_bootstrap(
     assert r.returncode == 0, r.stdout + r.stderr
     assert "redis-server.service is absent" in r.stdout
     assert "root steps" in r.stdout
+
+
+def test_qserver_bootstrap_installs_optimizer():
+    function = next(
+        line
+        for line in BOOTSTRAP.read_text().splitlines()
+        if line.startswith("extras_of()")
+    )
+    result = subprocess.run(
+        ["bash", "-c", function + "\nextras_of qserver"],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert set(result.stdout.split()) >= {"ca", "tiled", "qserver", "optimize"}
