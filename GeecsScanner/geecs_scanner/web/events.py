@@ -82,6 +82,7 @@ def register(router: APIRouter, service: ScannerService) -> None:
 
         async def gen() -> AsyncIterator[str]:
             last_progress: str | None = None
+            last_optimization: str | None = None
             epoch = service.streams.epoch
             cursor = _resume_from(request, since, epoch)
             log_folder: str | None = None
@@ -101,6 +102,11 @@ def register(router: APIRouter, service: ScannerService) -> None:
                     last_progress = p
                     last_sent = time.monotonic()
                     yield _frame("progress", progress.model_dump())
+                optimization = service.optimization()
+                encoded = optimization.model_dump_json()
+                if encoded != last_optimization:
+                    last_optimization = encoded
+                    yield _frame("optimization", optimization.model_dump())
                 if progress.scan_folder and progress.scan_folder != log_folder:
                     log_folder, log_offset, log_said_missing = (
                         progress.scan_folder,

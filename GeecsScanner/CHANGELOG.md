@@ -4,6 +4,12 @@ All notable changes to `geecs-scanner` are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 project adheres to semantic versioning.
 
+## [0.9.0] - 2026-09-16
+
+### Changed
+
+- Enable Optimize mode with config selection, strict acquisition, locked required devices, finite iteration budgets and live output/best values. Add a run-bound, idle-only Set to best action using recorded physical settings. Extend the demo and SSE bridge without numerical worker dependencies.
+
 ## [0.8.0] - 2026-09-15
 
 ### Changed

@@ -1,0 +1,22 @@
+schema_version: 1
+vocs:
+  variables:
+    U_ESP_JetXYZ:Position.Axis 1:
+    - 3
+    - 6
+  objectives:
+    topview.image_total: MAXIMIZE
+  observables:
+  - topview.x_CoM
+  - topview.y_CoM
+  - topview.image_peak_value
+measurements:
+  topview:
+    diagnostic: UC_TopView
+    frames: per_bin
+generator:
+  name: bayes_turbo_standard
+run:
+  on_finish: best
+  shots_per_step: 5
+  max_iterations: 30

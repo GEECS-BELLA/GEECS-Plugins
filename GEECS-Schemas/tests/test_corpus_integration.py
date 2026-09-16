@@ -25,7 +25,6 @@ import yaml
 
 from geecs_schemas import ActionPlanLibrary, Preset, ScanVariables
 from geecs_schemas.convert import (
-    convert_optimizer_config,
     convert_shot_control,
 )
 
@@ -132,11 +131,16 @@ class TestFullCorpus:
         assert set(libraries) >= {"Undulator", "Thomson"}
         assert libraries["Undulator"].plans
 
-    def test_every_optimizer_config_converts(self):
-        converted = 0
+    def test_every_optimizer_config_validates(self):
+        from geecs_schemas import OptimizerConfig
+
+        validated = 0
         for experiment in experiments():
             for path in sorted(experiment.glob("optimizer_configs/*.yaml")):
-                conversion = convert_optimizer_config(path)
-                assert conversion.optimization.variables, path
-                converted += 1
-        assert converted >= 11
+                text = path.read_text()
+                if text.startswith("# LEGACY"):
+                    continue
+                config = OptimizerConfig.model_validate(yaml.safe_load(text))
+                assert config.vocs.variables, path
+                validated += 1
+        assert validated >= 6

@@ -6,6 +6,96 @@
 
 # GEECS config schema reference
 
+## `optimizer_config`
+
+### OptimizerConfig
+
+An optimization: search space, live measurements, derived outputs and generator.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `schema_version` | `int` | no | 1 | Format version of this config file. Leave at 1 — tools update this automatically when the file format changes. |
+| `vocs` | `VOCS` | yes | — | GEST variables, objectives, constraints, constants and observables; compact input and typed canonical output are accepted. |
+| `measurements` | `dict[str, SignalMeasurement \| DiagnosticMeasurement]` | yes | — | Named live scalar or diagnostic measurements. |
+| `derived` | `dict[str, str \| PythonDerived]` | no | empty | Expressions or worker callables, in dependency order. |
+| `generator` | `OptimizerGenerator` | yes | — | The generator recipe used to propose positions. |
+| `run` | `OptimizationRun` | no | OptimizationRun(on_finish='best', seed_dumps=[], shots_per_step=5, max_iterations=None) | Run defaults and finish policy. |
+
+Example:
+
+```yaml
+schema_version: 1
+vocs:
+  variables: {"Motor:Current": [-1, 1]}
+  objectives: {camera.image_total: MAXIMIZE}
+measurements:
+  camera: {diagnostic: ExampleCamera, frames: per_bin}
+generator: {name: bayes_turbo_standard}
+run: {shots_per_step: 5, max_iterations: 20}
+```
+
+### VOCS
+
+Variables, Objectives, Constraints, and other Settings (VOCS) data structure to describe optimization problems.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `variables` | `VariableDict` | yes | — | variable names with bounds or discrete sets |
+| `objectives` | `ObjectiveDict` | no | {} | objective names with type of objective |
+| `constraints` | `ConstraintDict` | no | {} | constraint names with a list of constraint type and value |
+| `constants` | `ConstantDict` | no | {} | constant names and values passed to evaluate function |
+| `observables` | `ObservableDict` | no | {} | observables tracked alongside objectives and constraints |
+
+### SignalMeasurement
+
+A subscribed scalar in the shot reading.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `reduce` | `'mean' \| 'median' \| 'min' \| 'max' \| 'sum' \| 'std'` | no | 'mean' | Reduction of valid per-shot scalar values. |
+| `min_shots` | `int` | no | 1 | Minimum valid shots needed for a finite measurement. |
+| `signal` | `str` | yes | — | Device:Variable to read on every shot. |
+
+### DiagnosticMeasurement
+
+A diagnostic document applied to live frames.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `reduce` | `'mean' \| 'median' \| 'min' \| 'max' \| 'sum' \| 'std'` | no | 'mean' | Reduction of valid per-shot scalar values. |
+| `min_shots` | `int` | no | 1 | Minimum valid shots needed for a finite measurement. |
+| `diagnostic` | `str` | yes | — | Diagnostic document ID (file stem). |
+| `frames` | `'per_bin' \| 'per_shot'` | no | 'per_bin' | Analyze the mean frame, or analyze each frame before reducing scalars. |
+| `overrides` | `dict[str, JsonValue]` | no | empty | Processing/analyzer overrides deep-merged into the diagnostic. |
+
+### PythonDerived
+
+Worker callable over the reduced scalars, for non-expressible objectives.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `python` | `str` | yes | — | Importable module:function accepting a scalar mapping and returning a float. |
+
+### OptimizerGenerator
+
+Generator recipe and its algorithm-specific settings.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `name` | `str` | yes | — | Worker generator recipe name. |
+| `options` | `dict[str, JsonValue]` | no | empty | Recipe-specific options validated by the worker before opening a run. |
+
+### OptimizationRun
+
+Run defaults; queue-item arguments may override the iteration and shot budgets.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `on_finish` | `'best' \| 'hold'` | no | 'best' | Move to the best feasible observation, or hold; no best restores initial positions. Relative pseudos always restore on unstage. |
+| `seed_dumps` | `list[str]` | no | empty | Previous xopt_dump.yaml files; relative paths resolve beside this config. |
+| `shots_per_step` | `int` | no | 5 | Successful strict acquisitions per iteration. |
+| `max_iterations` | `int (optional)` | no | None | Iteration limit; required here or in the submitted plan arguments. |
+
 ## `preset`
 
 ### Preset
@@ -75,7 +165,6 @@ One complete scan, ready to submit: what to do, what to save, how to trigger.
 | `actions` | `ActionBindings` | no | ActionBindings(setup=[], per_step=[], closeout=[]) | Named action plans to run before the scan (setup), between steps (per_step), and after it (closeout). |
 | `description` | `str` | no | '' | Free-text note about this scan; it ends up in the scan's metadata and the experiment log. |
 | `background` | `bool` | no | False | Mark this scan's data as background/calibration shots so analysis can find them later. |
-| `optimization` | `OptimizationSpec (optional)` | no | None | The optimization problem definition. Required for (and only allowed with) mode 'optimize'. |
 
 Example:
 
@@ -152,41 +241,6 @@ Which named action plans run around (and inside) the scan.
 | `setup` | `list[str]` | no | empty | Plans to run once before the scan starts. |
 | `per_step` | `list[str]` | no | empty | Plans to run between scan steps — after each move, before the shots at that position. |
 | `closeout` | `list[str]` | no | empty | Plans to run once after the scan finishes (even on abort). |
-
-### OptimizationSpec
-
-The optimization problem: what to vary, within what limits, to improve what.
-
-| Field | Type | Required | Default | What it does |
-|---|---|---|---|---|
-| `variables` | `dict[str, tuple[float, float]]` | yes | — | What the optimizer may move and how far, as 'variable name: [lowest, highest]'. Names may be scan-variable names or 'Device:Variable' strings. |
-| `objectives` | `dict[str, str]` | no | empty | What counts as better, as 'objective name: MINIMIZE' or 'objective name: MAXIMIZE'. May be empty for algorithms that only model observables (BAX). |
-| `observables` | `list[str]` | no | empty | Extra measured quantities the algorithm should track without optimizing them, e.g. ['x_CoM']. |
-| `constraints` | `dict[str, tuple[str, float]]` | no | empty | Hard limits on measured quantities, as 'name: [LESS_THAN or GREATER_THAN, value]'. Usually empty. |
-| `evaluator` | `EvaluatorSpec` | yes | — | The analysis code that scores each iteration. |
-| `generator` | `GeneratorSpec` | yes | — | The algorithm that proposes the next settings. |
-| `max_iterations` | `int (optional)` | no | None | Stop after this many optimization iterations. Leave unset to run until stopped by hand. |
-| `seed_dump_files` | `list[str]` | no | empty | Optional earlier results (ECS dump files) used to warm-start the optimizer. Usually empty. |
-| `move_to_best_on_finish` | `bool` | no | False | After the optimization ends, drive the variables back to the best settings found. |
-
-### EvaluatorSpec
-
-Which analysis code turns raw shots into the number being optimized.
-
-| Field | Type | Required | Default | What it does |
-|---|---|---|---|---|
-| `module` | `str` | yes | — | Python import path of the evaluator module, e.g. 'geecs_bluesky.optimization.evaluators.beam_sum_counts_evaluator'. |
-| `class_name` | `str` | yes | — | Name of the evaluator class inside that module. |
-| `kwargs` | `dict` | no | empty | Settings passed to the evaluator when it is created — e.g. which diagnostics/analyzers it should read. Free-form: each evaluator documents its own options. |
-
-### GeneratorSpec
-
-Which optimization algorithm proposes the next settings.
-
-| Field | Type | Required | Default | What it does |
-|---|---|---|---|---|
-| `name` | `str` | yes | — | Name of the optimization algorithm, e.g. 'bayes_default', 'random', or 'multipoint_bax_alignment_l2'. |
-| `options` | `dict` | no | empty | Algorithm-specific tuning options. Free-form: each generator documents its own options (legacy 'xopt_config_overrides'). |
 
 ## `scan_variables`
 

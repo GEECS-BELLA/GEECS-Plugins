@@ -335,9 +335,7 @@ def make_multipoint_bax_alignment(vocs: VOCS, overrides: Dict) -> BaxGenerator:
     optimization target is the virtual objective computed by the algorithm, so
     ``BaxGenerator`` requires ``n_objectives == 0``.
     """
-    cfg = MultipointProbeConfig.model_validate(
-        overrides.get("multipoint_bax_alignment", {})
-    )
+    cfg = MultipointProbeConfig.model_validate(overrides)
     algorithm = MultipointProbeAlgorithm(vocs, cfg, slope_virtual_objective)
     generator = BaxGenerator(
         vocs=vocs,
@@ -355,9 +353,7 @@ def make_multipoint_bax_alignment_l2(vocs: VOCS, overrides: Dict) -> BaxGenerato
     Requires an observables-only VOCS (no objectives); see
     :func:`make_multipoint_bax_alignment`.
     """
-    cfg = MultipointProbeConfig.model_validate(
-        overrides.get("multipoint_bax_alignment_l2", {})
-    )
+    cfg = MultipointProbeConfig.model_validate(overrides)
     algorithm = MultipointProbeAlgorithm(vocs, cfg, l2_slope_virtual_objective)
     generator = BaxGenerator(
         vocs=vocs,

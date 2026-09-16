@@ -8,7 +8,7 @@ dialects still in use (``geecs_schemas.convert``; scan variables, presets
 and action libraries have none, GEECS-Plugins#779 / #807) and a Markdown
 reference generator (``geecs_schemas.docgen``).
 
-It depends on Pydantic only, so anything — engine, GUI, scripts, docs
+It depends on Pydantic and GEST (the lightweight VOCS model), so anything — engine, GUI, scripts, docs
 tooling — can import it without dragging in hardware or analysis stacks.
 """
 
@@ -53,9 +53,6 @@ from geecs_schemas.scan_request import (
     AcquisitionMode,
     ActionBindings,
     CaptureSettings,
-    EvaluatorSpec,
-    GeneratorSpec,
-    OptimizationSpec,
     PositionList,
     PositionRange,
     Positions,
@@ -95,9 +92,6 @@ __all__ = [
     "ScanAxis",
     "PositionList",
     "Positions",
-    "OptimizationSpec",
-    "EvaluatorSpec",
-    "GeneratorSpec",
     "SubmissionRecord",
     "PreflightOutcome",
     "PreflightCheckResult",
@@ -154,11 +148,16 @@ __all__ = [
     "EntryKind",
     "EntryStatus",
     "SCHEMA_REGISTRY",
+    "OptimizerConfig",
+    "optimizer_required_devices",
 ]
 
 # kind → top-level document model, for generic tooling (loaders, editors,
 # docgen). Keys are the canonical config-kind identifiers.
+from .optimizer_config import OptimizerConfig, optimizer_required_devices
+
 SCHEMA_REGISTRY: dict[str, type[VersionedSchemaModel]] = {
+    "optimizer_config": OptimizerConfig,
     "preset": Preset,
     "scan_request": ScanRequest,
     "scan_variables": ScanVariables,

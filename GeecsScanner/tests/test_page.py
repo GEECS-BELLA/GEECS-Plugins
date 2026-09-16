@@ -207,12 +207,12 @@ def test_move_panel_carries_the_kit_live_row(client: TestClient) -> None:
 def test_form_starts_at_the_mode_segment(client: TestClient) -> None:
     """#896: the preset picker is optional, so it lives in the footer beside Save as preset;
 
-    the panel's body opens on axis 1 with no control ahead of it, and the
+    the panel's body opens on its mode-specific controls, and the
     provenance note stays in the same row as the picker.
     """
     html = client.get("/").text
     sub = html[html.index('id="submit"') : html.index('id="queue"')]
-    body = sub[sub.index('<div class="body">') : sub.index('id="axis1"')]
+    body = sub[sub.index('<div class="body">') : sub.index('id="optimizer-form"')]
     assert "<select" not in body and "<input" not in body, body
     footer = sub[sub.index("<footer>") :]
     for piece in (

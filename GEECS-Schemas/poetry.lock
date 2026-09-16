@@ -26,6 +26,21 @@ files = [
 ]
 
 [[package]]
+name = "gest-api"
+version = "0.1"
+description = "A standard for generating test points and exchanging variables, objectives, and constraints in optimization problems"
+optional = false
+python-versions = ">=3.10"
+groups = ["main"]
+files = [
+    {file = "gest_api-0.1-py3-none-any.whl", hash = "sha256:8dad05c867c631e84bdd559acad030b0a5a2a2930f82ef7ec6f3e7bd655187b3"},
+    {file = "gest_api-0.1.tar.gz", hash = "sha256:c5712721072fab8fdef7e976d4140db99729245f34ff36eefc0737c5197d25a8"},
+]
+
+[package.dependencies]
+pydantic = "*"
+
+[[package]]
 name = "iniconfig"
 version = "2.3.0"
 description = "brain-dead simple config-ini parsing"
@@ -370,4 +385,4 @@ typing-extensions = ">=4.12.0"
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.11,<3.12"
-content-hash = "110c606d762838adda88f789d83876d5ff72ce7af20ea4dfc26daee4947614ed"
+content-hash = "bb73f10ffb1d88993cd51232be31a2aec573a8c4cb0dc7f1109639bf4d7a1d35"

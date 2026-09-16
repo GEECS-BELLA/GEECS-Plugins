@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "geecs-schemas"
-version = "0.26.0"
+version = "0.28.0"
 description = "Versioned Pydantic schemas for GEECS scanner configs (scan requests, save sets, scan variables, trigger profiles, action plans) plus legacy-YAML converters."
 authors = ["Sam Barber <sbarber@lbl.gov>"]
 readme = "README.md"
@@ -25,8 +25,9 @@ classifiers = [
 [tool.poetry.dependencies]
 python = ">=3.11,<3.12"
 # The whole point of this package is to be importable from anywhere —
-# engine, GUI, scripts, docs tooling — so it depends on pydantic ONLY.
+# engine, GUI, scripts, docs tooling — GEST adds only Pydantic.
 pydantic = "^2.0"
+gest-api = ">=0.1,<0.2"
 
 [tool.poetry.group.dev.dependencies]
 pytest = ">=7.0"

@@ -44,7 +44,7 @@
 
   var S = {
     status: null, statusAt: 0,
-    progress: null,
+    progress: null, optimization: null, optimizer: null, optimizerRequest: 0,
     queue: null,
     presets: [], presetName: null, presetDoc: null, loadedName: null,
     variables: [], triggers: [],
@@ -138,6 +138,7 @@
     var p = S.progress;
     if (!p) return;
     renderDayLink();
+    renderOptimization();
     var total = p.planned_total, done = p.shots_done || 0;
     var pct = total ? Math.min(100, Math.round(100 * done / total)) : 0;
     $("meter-fill").style.width = pct + "%";
@@ -155,7 +156,7 @@
     $("lv-shots").textContent = done;
     $("lv-planned").textContent = total == null ? "—" : total;
     $("ag-planned").textContent = total == null ? (p.scan_number ? "not in the start document" : "") : "";
-    $("meter-l").textContent = total ? done + " / " + total + " shots" : (done ? done + " shots" : "—");
+    $("meter-l").textContent = total ? done + " / " + (p.plan_name === "optimize" ? "≤ " : "") + total + " shots" : (done ? done + " shots" : "—");
     var right = "";
     if (st.re_state === "paused") right = "paused at shot " + done;
     else if (p.state === "running" && total) right = Math.max(0, total - done) + " shots left";
@@ -269,6 +270,7 @@
       var key = [S.status.re_state, S.status.items_in_queue, S.status.running_item_uid].join("|");
       if (key !== lastKey) { lastKey = key; refreshQueue(); }
     });
+    es.addEventListener("optimization", function (e) { S.optimization = JSON.parse(e.data); renderOptimization(); });
     es.addEventListener("progress", function (ev) {
       var p = JSON.parse(ev.data);
       var finished = S.progress && S.progress.state !== p.state && (p.state === "done" || p.state === "aborted");
@@ -361,10 +363,14 @@
       api("/api/devices").catch(function () { return []; }),
       api("/api/actions").catch(function (e) { return { error: e.message }; }),
       api("/api/calibration").catch(function (e) { return { stored: false, detail: e.message }; }),
-      api("/api/settables").catch(function (e) { return { items: [], source: "?", detail: e.message }; })
+      api("/api/settables").catch(function (e) { return { items: [], source: "?", detail: e.message }; }),
+      api("/api/configs/optimizer_configs").catch(function () { return { names: [] }; })
     ]).then(function (res) {
       S.presets = res[0].names; S.variables = res[1]; S.triggers = res[2].names;
       S.devices = res[3]; S.actions = res[4].error ? [] : res[4]; S.calibration = res[5];
+      var optimizers = $("optimizer-config");
+      optimizers.textContent = ""; optimizers.appendChild(option("", "Choose an optimizer…"));
+      res[7].names.forEach(function (n) { optimizers.appendChild(option(n, n)); });
       S.settables = res[6].items || []; S.settablesNote = res[6].detail || "";
       renderMoveVars(); renderDeviceList(""); renderActions(res[4].error || null); renderCalibration();
       renderPresetList();
@@ -420,6 +426,7 @@
   // a preset that runs list_scan must not be resubmitted as a scan.
   function formShape(plan) {
     var args = plan.args || [];
+    if (plan.name === "optimize" && args.length === 0) return "optimize";
     if (plan.name === "count" && args.length === 0) return "count";
     if (plan.name === "scan" && args.length === 4) return "scan";
     if (plan.name === "grid_scan" && args.length === 8) return "grid";
@@ -449,6 +456,10 @@
     var body = $("devs"); body.textContent = "";
     (doc.devices || []).forEach(function (d) { body.appendChild(deviceRow(d.device, d.save_images !== false, d.essential !== false)); });
     noDevicesNote();
+    if (mode === "optimize") {
+      setSelect("optimizer-config", kw.optimizer_config || "");
+      loadOptimizer(kw);
+    }
     recalc();
     renderCalibration();  // the calibration set is this table
   }
@@ -507,7 +518,11 @@
       b.setAttribute("aria-pressed", String(b.dataset.mode === mode));
     });
     var count = mode === "noscan" || mode === "background";
-    $("axis1").hidden = count;
+    $("axis1").hidden = count || mode === "optimize";
+    $("optimizer-form").hidden = mode !== "optimize";
+    $("acq").hidden = mode === "optimize";
+    if (mode === "optimize") setAcq("strict");
+    lockOptimizerDevices();
     $("axis2").hidden = mode !== "grid";
     $("shots-hint").textContent = count ? "num — the shots of the count" : "shots_per_step";
     if (!silent) recalc();
@@ -529,7 +544,7 @@
     var b = e.target.closest("button[data-acq]");
     if (b) setAcq(b.dataset.acq);
   });
-  ["start1", "stop1", "step1", "start2", "stop2", "step2", "shots", "period"].forEach(function (id) {
+  ["start1", "stop1", "step1", "start2", "stop2", "step2", "shots", "period", "iterations"].forEach(function (id) {
     $(id).addEventListener("input", recalc);
   });
 
@@ -568,7 +583,12 @@
     var badShots = !(shots >= 1);
     setInvalid("shots", badShots);
     var ok = !badShots, steps = 1;
-    if (!count) {
+    if (S.mode === "optimize") {
+      steps = Number($("iterations").value);
+      var iterationsOk = Number.isInteger(steps) && steps >= 1;
+      setInvalid("iterations", !iterationsOk);
+      ok = ok && iterationsOk && !!S.optimizer;
+    } else if (!count) {
       var a1 = axis(1); ok = ok && a1.ok; steps = a1.num || 0;
       if (S.mode === "grid") { var a2 = axis(2); ok = ok && a2.ok; steps *= (a2.num || 0); }
     }
@@ -577,7 +597,7 @@
     var time = period ? " · ~<b>" + fmtSecs(total * period) + "</b> at " + period + " s/shot" : "";
     $("est").innerHTML = count
       ? "<b>" + shots + "</b> shots" + time
-      : "<b>" + steps + "</b> step" + (steps === 1 ? "" : "s") + " × <b>" + shots + "</b> shots = <b>" + total + "</b> shots" + time;
+      : (S.mode === "optimize" ? "≤ " : "") + "<b>" + steps + "</b> " + (S.mode === "optimize" ? "iteration" : "step") + (steps === 1 ? "" : "s") + " × <b>" + shots + "</b> shots = <b>" + total + "</b> shots" + time;
     // The form is the document: a preset only seeds it, so Start (and
     // Save as preset) need a valid form, never a loaded preset (#900).
     valid = ok;
@@ -603,7 +623,10 @@
     var shots = parseInt($("shots").value, 10);
     var kwargs = { acquisition: S.acq };
     var plan;
-    if (count) {
+    if (S.mode === "optimize") {
+      kwargs = { optimizer_config: $("optimizer-config").value, max_iterations: Number($("iterations").value), shots_per_step: shots };
+      plan = { name: "optimize", args: [], kwargs: kwargs };
+    } else if (count) {
       kwargs.num = shots;
       plan = { name: "count", args: [], kwargs: kwargs };
     } else {
@@ -629,6 +652,80 @@
       plan: plan
     };
   }
+
+  function lockOptimizerDevices() {
+    var required = S.mode === "optimize" && S.optimizer ? S.optimizer.required_devices : [];
+    var body = $("devs");
+    Array.prototype.forEach.call(body.querySelectorAll("tr[data-device]"), function (tr) {
+      var needed = required.some(function (name) { return name.toLowerCase() === tr.dataset.device.toLowerCase(); });
+      var boxes = tr.querySelectorAll("input[type=checkbox]");
+      if (needed && !tr.dataset.optimizerRequired) {
+        tr.dataset.previousSave = boxes[0].checked; tr.dataset.previousEssential = boxes[1].checked;
+        tr.dataset.optimizerRequired = "true";
+      } else if (!needed && tr.dataset.optimizerRequired) {
+        if (tr.dataset.optimizerAdded) { tr.remove(); return; }
+        boxes[0].checked = tr.dataset.previousSave === "true";
+        boxes[1].checked = tr.dataset.previousEssential === "true";
+        delete tr.dataset.optimizerRequired;
+      }
+      Array.prototype.forEach.call(boxes, function (box) { box.disabled = needed; if (needed) box.checked = true; });
+      var button = tr.querySelector("button"); button.disabled = needed;
+      button.textContent = needed ? "required" : "remove";
+    });
+    required.forEach(function (name) {
+      var exists = [].some.call(body.querySelectorAll("tr[data-device]"), function (tr) { return tr.dataset.device.toLowerCase() === name.toLowerCase(); });
+      if (!exists) {
+        var tr = deviceRow(name, true, true); tr.dataset.optimizerAdded = "true";
+        body.appendChild(tr);
+        tr.dataset.optimizerRequired = "true";
+        Array.prototype.forEach.call(tr.querySelectorAll("input, button"), function (control) { control.disabled = true; });
+        tr.querySelector("button").textContent = "required";
+      }
+    });
+    noDevicesNote(); renderCalibration();
+  }
+
+  function loadOptimizer(overrides) {
+    var name = $("optimizer-config").value, request = ++S.optimizerRequest;
+    S.optimizer = null; lockOptimizerDevices(); recalc();
+    $("optimizer-note").textContent = name ? "Loading optimizer…" : "Choose a config to see its required devices.";
+    if (!name) return;
+    api("/api/configs/optimizer_configs/" + encodeURIComponent(name)).then(function (config) {
+      if (request !== S.optimizerRequest) return;
+      S.optimizer = config;
+      $("shots").value = overrides && overrides.shots_per_step || config.shots_per_step;
+      $("iterations").value = overrides && overrides.max_iterations || config.max_iterations || "";
+      $("optimizer-note").textContent = "Required: " + config.required_devices.join(", ") + ". Strict acquisition.";
+      lockOptimizerDevices(); recalc();
+    }).catch(function (e) {
+      if (request !== S.optimizerRequest) return;
+      $("optimizer-note").textContent = e.message; recalc();
+    });
+  }
+  $("optimizer-config").addEventListener("change", function () { loadOptimizer(); });
+
+  function renderOptimization() {
+    var o = S.optimization, st = S.status || {};
+    $("optimization-live").hidden = !o || !o.run_uid;
+    if (!o || !o.run_uid) return;
+    $("optimization-iteration").textContent = o.config + " · iteration " + o.iteration + " / " + (o.max_iterations || "—");
+    var body = $("optimization-values"); body.textContent = "";
+    var values = Object.assign({}, o.measured, o.outputs);
+    Object.keys(values).forEach(function (name) {
+      var tr = document.createElement("tr");
+      tr.appendChild(td(name)); tr.appendChild(td(values[name] == null ? "unavailable" : values[name].toPrecision(5)));
+      tr.appendChild(td(o.best[name] == null ? "—" : o.best[name].toPrecision(5))); body.appendChild(tr);
+    });
+    $("optimization-shots").textContent = Object.keys(o.valid_shots).map(function (name) { return name + ": " + o.valid_shots[name] + " valid shots"; }).join(" · ");
+    var moves = Object.values(o.best_moves);
+    $("btn-set-best").disabled = !st.connected || st.re_state !== "idle" || st.items_in_queue > 0 || !o.finished || !moves.length || moves.some(function (v) { return v == null; });
+    $("btn-set-best").title = moves.length ? Object.keys(o.best_moves).map(function (n) { return n + " = " + o.best_moves[n]; }).join(", ") : "No feasible best point";
+  }
+  $("btn-set-best").addEventListener("click", function () {
+    if (!S.optimization) return;
+    this.disabled = true;
+    post("/api/optimization/best", { run_uid: S.optimization.run_uid }).then(function () { refreshQueue(); }).catch(function (e) { showError(e.message); renderOptimization(); });
+  });
 
   /* --------------------------------------------------------- submission */
 

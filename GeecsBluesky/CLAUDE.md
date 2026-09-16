@@ -81,11 +81,20 @@ geecs_bluesky/
   devices/hdf_plugin.py     # the file plugin's worker side (#806): GeecsHdfIO (+Rewind),
                             #   PluginPathProvider (two paths per folder), file_plugin_hosts
   assets/                   # the geecs:// PNG asset registry — goes with PNG retirement (#738)
-  optimization/             # the Xopt core; not runnable until re-glued (option B)
+  optimization/             # native Xopt ask/tell, live PVA frames, measurement compiler
 qserver/                    # the worker: launcher, startup profile, permissions, deploy/
 ```
 
 ## Devices (§4.A)
+
+The bound `optimize` plan in `plans/optimize.py` runs strict acquisition in
+one run, with one bin per iteration. `OptimizerConfig` lives in GEECS-Schemas
+and embeds GEST's VOCS; Xopt and ImageAnalysis load only inside the worker's
+optional optimize path. Validation and frame subscriptions precede the scan
+claim. Measurements use actual readbacks and timestamp-matched live frames.
+The `optimization` stream and JSON config provenance follow `EVENT_SCHEMA.md`.
+Relative pseudos restore on unstage; the scanner's explicit Set to best uses
+the recorded physical targets, not a relative coordinate after its zero moved.
 
 - **`GeecsDetector`** (`devices/detector.py`) — one GEECS acquirer as a
   `StandardDetector` composed of the three ophyd-async 0.19 logics:

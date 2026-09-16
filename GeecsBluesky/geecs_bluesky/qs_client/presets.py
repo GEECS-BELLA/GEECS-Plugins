@@ -43,7 +43,11 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from geecs_schemas import Preset
+    from geecs_bluesky.config_resolver import ConfigsRepoResolver
 
 from geecs_bluesky.exceptions import GeecsConfigurationError
 from geecs_bluesky.plan_names import (
@@ -59,7 +63,7 @@ from geecs_bluesky.utils import device_reference, identifier_name
 #: 0.0])``, ``submit_plan("run_action", ["Amp4_DUMP_HP"])``), never a
 #: preset — neither takes a detector list.
 PRESET_PLAN_NAMES: tuple[str, ...] = tuple(
-    n for n in GEECS_PLAN_NAMES if n not in NON_SCAN_PLAN_NAMES
+    n for n in GEECS_PLAN_NAMES if n not in NON_SCAN_PLAN_NAMES or n == "optimize"
 )
 
 
@@ -99,11 +103,67 @@ def scan_variable_reference(
     return device_reference(device, variable if sep else None)
 
 
+def merge_required_devices(preset: Preset, required_devices: frozenset[str]) -> Preset:
+    """Copy a preset with optimizer-required devices saved and essential."""
+    from geecs_schemas import PresetDevice
+
+    if preset.plan is None or preset.plan.name != "optimize":
+        return preset
+    required = {name.casefold(): name for name in required_devices}
+    devices = [
+        d.model_copy(update={"essential": True, "save_images": True})
+        if d.device.casefold() in required
+        else d
+        for d in preset.devices
+    ]
+    present = {d.device.casefold() for d in devices}
+    devices.extend(
+        PresetDevice(device=name, essential=True, save_images=True)
+        for key, name in sorted(required.items())
+        if key not in present
+    )
+    return preset.model_copy(update={"devices": devices})
+
+
+def prepare_optimizer_preset(preset: Preset, resolver: ConfigsRepoResolver) -> Preset:
+    """Resolve optimizer defaults and merge its devices before client preflight."""
+    from geecs_schemas import optimizer_required_devices
+    from geecs_schemas.optimizer_config import DiagnosticMeasurement
+
+    if preset.plan is None or preset.plan.name != "optimize":
+        return preset
+    kwargs = dict(preset.plan.kwargs)
+    name = kwargs.get("optimizer_config")
+    if not isinstance(name, str) or not name:
+        raise GeecsConfigurationError("choose an optimizer config")
+    cfg = resolver.resolve_optimizer_config(name)
+    diagnostic_devices = {
+        m.diagnostic: resolver.diagnostic_device(m.diagnostic)
+        for m in cfg.measurements.values()
+        if isinstance(m, DiagnosticMeasurement)
+    }
+    preset = merge_required_devices(
+        preset, optimizer_required_devices(cfg, diagnostic_devices)
+    )
+    if kwargs.pop("acquisition", "strict") != "strict":
+        raise GeecsConfigurationError("optimization requires strict acquisition")
+    kwargs.setdefault("shots_per_step", cfg.run.shots_per_step)
+    kwargs.setdefault("max_iterations", cfg.run.max_iterations)
+    for key in ("shots_per_step", "max_iterations"):
+        value = kwargs[key]
+        if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+            raise GeecsConfigurationError(f"{key} must be a positive integer")
+    return preset.model_copy(
+        update={"plan": preset.plan.model_copy(update={"kwargs": kwargs})}
+    )
+
+
 def expand_preset(
     preset: Any,
     *,
     catalog: Mapping[str, Any] | None = None,
     md: Mapping[str, Any] | None = None,
+    required_devices: frozenset[str] = frozenset(),
 ) -> QueueItem:
     """The queue item a preset submits.
 
@@ -141,7 +201,8 @@ def expand_preset(
         )
     detectors: list[str] = []
     non_essential: list[str] = []
-    for d in preset.devices:
+    devices = merge_required_devices(preset, required_devices).devices
+    for d in devices:
         essential = getattr(d, "essential", True)
         if essential:
             detectors.append(

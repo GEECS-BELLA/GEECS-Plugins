@@ -15,6 +15,7 @@ monitoring.
 from __future__ import annotations
 
 import asyncio
+from geecs_core.db.variable_types import LABVIEW_EPOCH_OFFSET as _LABVIEW_EPOCH_OFFSET
 import logging
 import socket
 import time
@@ -38,7 +39,7 @@ from geecs_pva_gateway.file_plugin import HdfFilePlugin
 logger = logging.getLogger(__name__)
 
 # LabVIEW epoch (1904) -> Unix epoch (1970), same ladder as the CA gateway.
-_LABVIEW_EPOCH_OFFSET = 2_082_844_800
+
 _TIMESTAMP_VARS = TIMESTAMP_LADDER  # the one ladder (geecs_core.db.variable_types)
 _RECONNECT_MIN_S = 0.5
 _RECONNECT_MAX_S = 30.0

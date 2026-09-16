@@ -96,10 +96,9 @@ At minimum, verify that the service account's config resolves:
 - the GEECS data root on the mounted data share,
 - the scanner configs repository,
 - the scan-analysis configs path (`[Paths] scan_analysis_configs_path`) —
-  required by optimize-mode requests whose evaluator uses `analyzers`
-  (`BaseOptimizerConfig` refuses those without it; analyzer-free optimize
-  requests and every other mode run fine, so the gap surfaces only on the
-  first analyzer-based optimize submission),
+  required by optimizer configs with diagnostic measurements. The native
+  measurement compiler resolves their documents under `analyzers/` before
+  claiming a scan; scalar-only optimization does not need this path,
 - database credentials through the normal `Configurations.INI` chain,
 - Tiled connection details when Tiled publishing is enabled,
 - optional `[epics] ca_addr_list` if the unit-level `EPICS_CA_ADDR_LIST`
@@ -313,3 +312,29 @@ After the environment is open, submit only the smoke-test queue items approved
 for the current startup profile. Do not use a deployment host to discover
 machine-control behavior ad hoc; the manager is the production execution
 surface once this service is enabled.
+
+
+## Native optimization acceptance
+
+Install the worker's `optimize` extra alongside `ca tiled qserver`. The scanner
+needs no ImageAnalysis, Xopt or Torch dependency. The worker warms numerical
+imports in a daemon thread. The PVA monitor must receive an initial image
+within five seconds before the plan arms or claims a scan; verify the host's
+PVA address configuration. Frame acquisition uses live arrays, never the
+partly-written scan files, with the camera timestamp joined within 1 ms.
+
+Copy the six v1 keeper documents from GEECS-Schemas' optimizer fixtures to
+the configs repository only after the schema change lands. Keep the two
+HiResMagCam legacy documents with a `# LEGACY` header until their diagnostic
+exists; remove ebeam_source_opt, hexapod_alignment and multi_device_example.
+Validate diagnostics on the worker before an operator day. No deployed
+configs were changed by the implementation branch.
+
+**OWED hardware acceptance, in order:** run `bax_alignment_simulation` with
+an operator present, real magnet moves and no beam, verify ARMED strict
+shots, restore, primary rows and xopt_dump.yaml. Then run TopViewMax with
+beam, 5 shots × 10 iterations; require five valid frames per iteration,
+compare the objective with saved PNGs after the run, and record RSS before
+and after. Finally submit TopViewMax from the scanner, observe live iteration
+and best values, and exercise Set to best once while idle. Relative-pseudo
+acceptance must show restoration followed by the explicit physical best move.

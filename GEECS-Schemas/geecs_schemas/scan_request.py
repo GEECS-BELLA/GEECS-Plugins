@@ -368,162 +368,6 @@ class CaptureSettings(SchemaModel):
         return value
 
 
-class EvaluatorSpec(SchemaModel):
-    """Which analysis code turns raw shots into the number being optimized.
-
-    Points at the Python evaluator class and carries its configuration.
-    """
-
-    module: str = Field(
-        description=(
-            "Python import path of the evaluator module, e.g. "
-            "'geecs_bluesky.optimization.evaluators.beam_sum_counts_evaluator'."
-        )
-    )
-    class_name: str = Field(
-        alias="class",
-        description="Name of the evaluator class inside that module.",
-    )
-    kwargs: dict = Field(
-        default_factory=dict,
-        description=(
-            "Settings passed to the evaluator when it is created — e.g. "
-            "which diagnostics/analyzers it should read. Free-form: each "
-            "evaluator documents its own options."
-        ),
-    )
-
-    model_config = SchemaModel.model_config | {"populate_by_name": True}
-
-
-class GeneratorSpec(SchemaModel):
-    """Which optimization algorithm proposes the next settings.
-
-    Names the generator and carries its algorithm-specific options.
-    """
-
-    name: str = Field(
-        description=(
-            "Name of the optimization algorithm, e.g. 'bayes_default', "
-            "'random', or 'multipoint_bax_alignment_l2'."
-        )
-    )
-    options: dict = Field(
-        default_factory=dict,
-        description=(
-            "Algorithm-specific tuning options. Free-form: each generator "
-            "documents its own options (legacy 'xopt_config_overrides')."
-        ),
-    )
-
-
-class OptimizationSpec(SchemaModel):
-    """The optimization problem: what to vary, within what limits, to improve what.
-
-    Only used when the scan's mode is ``optimize``.  Lists the variables the
-    optimizer may move (with their allowed ranges), what is being minimized
-    or maximized, and which algorithm drives the search.
-
-    Notes
-    -----
-    Mirrors what the legacy optimizer YAML (``BaseOptimizerConfig`` +
-    Xopt VOCS) could express: objectives may be empty for BAX-style
-    generators that model ``observables`` only; ``constraints`` follow the
-    VOCS ``[bound_type, value]`` form.
-    """
-
-    variables: dict[str, tuple[float, float]] = Field(
-        min_length=1,
-        description=(
-            "What the optimizer may move and how far, as "
-            "'variable name: [lowest, highest]'. Names may be scan-variable "
-            "names or 'Device:Variable' strings."
-        ),
-    )
-    objectives: dict[str, str] = Field(
-        default_factory=dict,
-        description=(
-            "What counts as better, as 'objective name: MINIMIZE' or "
-            "'objective name: MAXIMIZE'. May be empty for algorithms that "
-            "only model observables (BAX)."
-        ),
-    )
-    observables: list[str] = Field(
-        default_factory=list,
-        description=(
-            "Extra measured quantities the algorithm should track without "
-            "optimizing them, e.g. ['x_CoM']."
-        ),
-    )
-    constraints: dict[str, tuple[str, float]] = Field(
-        default_factory=dict,
-        description=(
-            "Hard limits on measured quantities, as "
-            "'name: [LESS_THAN or GREATER_THAN, value]'. Usually empty."
-        ),
-    )
-    evaluator: EvaluatorSpec = Field(
-        description="The analysis code that scores each iteration."
-    )
-    generator: GeneratorSpec = Field(
-        description="The algorithm that proposes the next settings."
-    )
-    max_iterations: Optional[int] = Field(
-        None,
-        ge=1,
-        description=(
-            "Stop after this many optimization iterations. Leave unset to "
-            "run until stopped by hand."
-        ),
-    )
-    seed_dump_files: list[str] = Field(
-        default_factory=list,
-        description=(
-            "Optional earlier results (ECS dump files) used to warm-start "
-            "the optimizer. Usually empty."
-        ),
-    )
-    move_to_best_on_finish: bool = Field(
-        False,
-        description=(
-            "After the optimization ends, drive the variables back to the "
-            "best settings found."
-        ),
-    )
-
-    @model_validator(mode="after")
-    def _check_directions(self) -> "OptimizationSpec":
-        """Normalize and validate objective directions and constraint bounds.
-
-        Returns
-        -------
-        OptimizationSpec
-            The validated model with directions upper-cased.
-
-        Raises
-        ------
-        ValueError
-            If an objective direction or constraint bound type is unknown.
-        """
-        normalized = {}
-        for name, direction in self.objectives.items():
-            upper = direction.upper()
-            if upper not in ("MINIMIZE", "MAXIMIZE"):
-                raise ValueError(
-                    f"Objective {name!r} has direction {direction!r}; "
-                    "expected 'MINIMIZE' or 'MAXIMIZE'."
-                )
-            normalized[name] = upper
-        self.objectives = normalized
-        for name, (bound, _value) in self.constraints.items():
-            if bound.upper() not in ("LESS_THAN", "GREATER_THAN"):
-                raise ValueError(
-                    f"Constraint {name!r} has bound type {bound!r}; "
-                    "expected 'LESS_THAN' or 'GREATER_THAN'."
-                )
-        return self
-
-
 class PreflightCheckResult(str, Enum):
     """How one pre-submit check ended.
 
@@ -722,13 +566,6 @@ class ScanRequest(VersionedSchemaModel):
             "analysis can find them later."
         ),
     )
-    optimization: Optional[OptimizationSpec] = Field(
-        None,
-        description=(
-            "The optimization problem definition. Required for (and only "
-            "allowed with) mode 'optimize'."
-        ),
-    )
 
     @model_validator(mode="before")
     @classmethod
@@ -765,6 +602,10 @@ class ScanRequest(VersionedSchemaModel):
         """
         if not isinstance(data, dict):
             return data
+        if data.get("mode") == "optimize" or "optimization" in data:
+            raise ValueError(
+                "legacy optimization requests are retired; use an optimize Preset with OptimizerConfig v1 (Planning/native_bluesky/11_optimization.md)"
+            )
         flat = [key for key in _V1_CAPTURE_FIELDS if key in data]
         stale_version = stale_schema_version(data, 3)
         capture = data.get("capture")
@@ -837,14 +678,6 @@ class ScanRequest(VersionedSchemaModel):
                 f"{self.mode.value!r}. (An 'optimize' scan declares its "
                 "variables inside the 'optimization' block.)"
             )
-        if self.mode is ScanRequestMode.OPTIMIZE:
-            if self.optimization is None:
-                raise ValueError(
-                    "An 'optimize' scan needs the 'optimization' block "
-                    "(variables, evaluator, generator)."
-                )
-        elif self.optimization is not None:
-            raise ValueError("'optimization' is only allowed when mode is 'optimize'.")
         return self
 
     def grid_shape(self) -> tuple[int, ...]:
@@ -892,10 +725,4 @@ class ScanRequest(VersionedSchemaModel):
         int or None
             The planned shot total, or ``None`` for an open budget.
         """
-        if self.mode is ScanRequestMode.OPTIMIZE:
-            spec = self.optimization
-            iterations = spec.max_iterations if spec is not None else None
-            if not iterations:
-                return None
-            return int(iterations) * int(self.capture.shots_per_step)
         return self.n_steps() * int(self.capture.shots_per_step)

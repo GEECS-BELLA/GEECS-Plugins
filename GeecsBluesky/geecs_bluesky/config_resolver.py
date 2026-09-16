@@ -34,6 +34,7 @@ from geecs_schemas import (
     ActionPlanLibrary,
     ExperimentDefaults,
     Preset,
+    OptimizerConfig,
     ScanVariables,
     ScanVariableSpec,
     ShotOffsets,
@@ -169,9 +170,8 @@ class ConfigsRepoResolver:
       2026-09, GEECS-Plugins#779)
     - ``action_library/actions.yaml`` — the action-plan library (new
       schema only; the legacy ``actions:`` dialect is refused)
-    - ``optimizer_configs/<name>.yaml`` — listed (for clients) but not
-      resolved here: ``OptimizationSpec`` documents validated by their
-      consumers.
+    - ``optimizer_configs/<name>.yaml`` — validated native ``OptimizerConfig``
+      documents, read fresh for each request.
 
     A trigger profile whose top level carries ``schema_version`` is
     loaded as the new schema; anything else goes through the legacy
@@ -371,8 +371,49 @@ class ConfigsRepoResolver:
         logger.info("preset %r written to %s", name, path)
         return path
 
+    @property
+    def analysis_config_dir(self) -> Path:
+        """Analysis-config tree beside scanner_configs in the same configs repository."""
+        return self._root.parents[2] / "scan_analysis_configs"
+
+    def optimizer_config_path(self, name: str) -> Path:
+        """Path used to resolve an optimizer and its relative seed dumps."""
+        stem = self._strip_yaml_suffix(name)
+        if not stem or stem in (".", "..") or any(c in stem for c in ("/", "\\")):
+            raise GeecsConfigurationError("optimizer config must be a file stem")
+        return self._named_yaml_path(self.OPTIMIZER_FOLDER, stem)
+
+    def resolve_optimizer_config(self, name: str) -> OptimizerConfig:
+        """Load and validate the native optimizer document fresh for each request."""
+        path = self.optimizer_config_path(name)
+        try:
+            return OptimizerConfig.model_validate(
+                self._load_yaml(path, "optimizer config", name)
+            )
+        except ValueError as exc:
+            raise GeecsConfigurationError(f"optimizer config {name!r}: {exc}") from exc
+
+    def diagnostic_device(self, stem: str) -> str:
+        """Resolve a diagnostic's device without importing the analysis runtime."""
+        from geecs_schemas.analysis import AnalysisDiagnostic
+
+        if not stem or stem in (".", "..") or any(c in stem for c in ("/", "\\")):
+            raise GeecsConfigurationError("diagnostic must be a file stem")
+        paths = [
+            p
+            for p in (self.analysis_config_dir / "analyzers").rglob("*")
+            if p.suffix in (".yaml", ".yml") and p.stem == stem
+        ]
+        if len(paths) != 1:
+            raise GeecsConfigurationError(
+                f"diagnostic {stem!r}: expected one document, found {len(paths)}"
+            )
+        return AnalysisDiagnostic.model_validate(
+            self._load_yaml(paths[0], "diagnostic", stem)
+        ).name
+
     def list_optimizer_configs(self) -> list[str]:
-        """Optimizer-config names (``OptimizationSpec`` documents; sorted; ``[]`` if none)."""
+        """Optimizer-config names (``OptimizerConfig`` documents; sorted; ``[]`` if none)."""
         return self._list_folder(self.OPTIMIZER_FOLDER)
 
     def resolve_trigger_profile(self, name: str) -> TriggerProfile:

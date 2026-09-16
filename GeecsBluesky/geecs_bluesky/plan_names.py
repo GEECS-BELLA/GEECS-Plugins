@@ -29,6 +29,7 @@ from __future__ import annotations
 #: and write no data, so a preset — which describes a *scan* — still cannot
 #: express them.
 NON_SCAN_PLAN_NAMES: tuple[str, ...] = (
+    "optimize",
     "mv",
     "run_action",
     "measure_shot_offsets",

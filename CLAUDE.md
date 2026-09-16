@@ -11,7 +11,7 @@ tooling. Each subdirectory is an independent Python package with its own
 | `ScanAnalysis/` | Post-scan analysis framework: task queue, YAML config system, scan analyzers |
 | `ImageAnalysis/` | Per-image analysis: pipelines, offline analyzers, config models |
 | `GEECS-Data-Utils/` | Scan path navigation, scalar loading, binning, Parquet database |
-| `GEECS-Schemas/` | Pydantic-only config vocabulary: versioned schemas for every scanner config kind (scan request, save set, scan variables, trigger profile, action plans, derived channels) and for the analysis configs (`geecs_schemas.analysis`: the `AnalysisDiagnostic` v2 document with its kind-discriminated analyzer specs, `AnalysisGroup`) + legacy-YAML converters + the docgen Markdown reference generator. Depends on pydantic alone — importable from anywhere |
+| `GEECS-Schemas/` | Lightweight Pydantic/GEST config vocabulary: versioned schemas for every scanner config kind (scan request, save set, scan variables, trigger profile, action plans, derived channels) and for the analysis configs (`geecs_schemas.analysis`: the `AnalysisDiagnostic` v2 document with its kind-discriminated analyzer specs, `AnalysisGroup`) + legacy-YAML converters + the docgen Markdown reference generator. Depends on Pydantic and gest-api (VOCS) — importable without Xopt or analysis |
 | `GeecsBluesky/` | Bluesky RunEngine backend, being rebuilt as a native Bluesky application (#807, plan of record `Planning/native_bluesky/03_clean_room_rebuild.md`): the queueserver worker (`qserver/` — RE Manager profile exporting the device namespace and the stock `bluesky.plans` verbs), `GeecsNamespace` (every DB device as an ophyd-async noun; acquirers are `GeecsDetector`, a stock `StandardDetector`), `ShotControl` (the trigger box as a Movable/Pausable), the strict `take_reading` (the fire between trigger and wait), the `qs_client` manager client, Tiled integration |
 | `GEECS-Core/` | The GEECS access **library**: UDP/TCP wire protocol (`transport/`), experiment DB (`db/GeecsDb`), PV naming contract, the one `GeecsError` tree, and the `FakeGeecsServer` test double — extracted from GeecsCAGateway 2026-08-20; see its `DESIGN.md` for the layering rules — plus the thin synchronous `GeecsDevice` client (`client/`), the successor to GEECS-PythonAPI's device objects |
 | `GeecsCAGateway/` | The caproto CA gateway serving GEECS devices as PVs (readback + `:SP`) for Phoebus/Archiver/ophyd-async, built on GEECS-Core — see its `PV_CONTRACT.md` (client API contract), `DEPLOYMENT.md`, and `DESIGN.md` |
@@ -149,7 +149,7 @@ against each package's `[tool.poetry.dependencies]` (intra-repo path deps).
 ```
 GEECS-Data-Utils     →  (no intra-repo deps — foundational data layer)
 LogMaker4GoogleDocs  →  (no intra-repo deps — pure Google API wrapper)
-GEECS-Schemas        →  (no intra-repo deps — pydantic-only config vocabulary)
+GEECS-Schemas        →  (no intra-repo deps — Pydantic/GEST config vocabulary)
 
 ImageAnalysis        →  GEECS-Data-Utils, GEECS-Schemas (the analysis-config
                         documents and processing models it consumes)
@@ -163,8 +163,8 @@ GeecsPvaGateway      →  GEECS-Core (transport, DB, pv_naming, the DB
                         — the distributed PVA image server on the camera
                         servers
 GeecsBluesky         →  GEECS-Data-Utils, GEECS-Core, GEECS-Schemas
-                        (+ ScanAnalysis/ImageAnalysis/xopt, optional via the
-                        `optimize` extra — the relocated Xopt/evaluator
+                        (+ ImageAnalysis/xopt, optional via the
+                        `optimize` extra — the native ask/tell and live measurement
                         stack in geecs_bluesky.optimization;
                         + bluesky-queueserver-api, optional via the
                         `qs-client` extra — geecs_bluesky.qs_client, the

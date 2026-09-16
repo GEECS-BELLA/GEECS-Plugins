@@ -26,13 +26,15 @@ picture unavailable with a reason; the manager poll stays authoritative.
 from __future__ import annotations
 
 import logging
+import math
 import threading
 import time
+from urllib.parse import unquote
 from collections import deque
 from collections.abc import Callable
 from typing import Any, Optional
 
-from geecs_scanner.service.models import ConsoleLine, ProgressOut
+from geecs_scanner.service.models import ConsoleLine, ProgressOut, OptimizationOut
 
 logger = logging.getLogger("geecs_scanner.streams")
 
@@ -66,6 +68,8 @@ class ProgressCache:
         self._detail = "stream cache not started"
         self._state: dict[str, Any] = {}
         self._rows: set[str] = set()
+        self._optimization = OptimizationOut()
+        self._optimization_streams: set[str] = set()
         self._console: deque[ConsoleLine] = deque(maxlen=_CONSOLE_KEEP)
         self._seq = 0
         #: Distinguishes this process's sequence numbers from a restarted
@@ -87,6 +91,11 @@ class ProgressCache:
                 available=self._available, detail=self._detail, **self._state
             )
 
+    def optimization(self) -> OptimizationOut:
+        """Copy the latest optimization record under the stream lock."""
+        with self._lock:
+            return self._optimization.model_copy(deep=True)
+
     def console_since(self, seq: int, limit: int = 200) -> list[ConsoleLine]:
         """Console lines with ``seq`` greater than *seq*, oldest first."""
         with self._lock:
@@ -107,6 +116,18 @@ class ProgressCache:
             now = self._clock()
             if name == "start":
                 self._rows = set()
+                self._optimization_streams = set()
+                self._optimization = OptimizationOut()
+                if doc.get("plan_name") == "optimize":
+                    self._optimization = OptimizationOut(
+                        run_uid=doc.get("uid"),
+                        config=doc.get("optimizer_config"),
+                        max_iterations=doc.get("max_iterations"),
+                        objectives=doc.get("optimization_objectives", []),
+                        best_moves=dict.fromkeys(
+                            doc.get("optimization_move_targets", [])
+                        ),
+                    )
                 num_points = doc.get("num_points") or doc.get("max_iterations")
                 shots = doc.get("shots_per_step")
                 total: Optional[int] = None
@@ -143,7 +164,29 @@ class ProgressCache:
             elif name == "descriptor":
                 if doc.get("name") in ROW_STREAMS and doc.get("uid"):
                     self._rows.add(str(doc["uid"]))
+                if doc.get("name") == "optimization" and doc.get("uid"):
+                    self._optimization_streams.add(str(doc["uid"]))
             elif name == "event":
+                if str(doc.get("descriptor")) in self._optimization_streams:
+                    data = doc.get("data", {})
+                    self._optimization.iteration = _as_int(data.get("iteration")) or 0
+                    for field, prefix in (
+                        ("proposal", "proposal:"),
+                        ("measured", "measured:"),
+                        ("outputs", "output:"),
+                        ("valid_shots", "n_valid_shots:"),
+                        ("best", "best:"),
+                        ("best_moves", "best_move:"),
+                    ):
+                        setattr(
+                            self._optimization,
+                            field,
+                            {
+                                unquote(key[len(prefix) :]): _finite(value)
+                                for key, value in data.items()
+                                if key.startswith(prefix)
+                            },
+                        )
                 if str(doc.get("descriptor")) in self._rows:
                     seq = _as_int(doc.get("seq_num")) or 0
                     self._state["shots_done"] = max(
@@ -157,6 +200,7 @@ class ProgressCache:
                         self._state["paused_reason"] = None
                     self._state["updated_at"] = now
             elif name == "stop":
+                self._optimization.finished = bool(self._optimization.run_uid)
                 status = str(doc.get("exit_status") or "")
                 self._state["exit_status"] = status
                 self._state["state"] = "done" if status == "success" else "aborted"
@@ -261,4 +305,12 @@ def _as_int(value: Any) -> Optional[int]:
     try:
         return int(value)
     except (TypeError, ValueError):
+        return None
+
+
+def _finite(value: object) -> float | None:
+    try:
+        number = float(value)
+        return number if math.isfinite(number) else None
+    except (TypeError, ValueError, OverflowError):
         return None

@@ -51,6 +51,16 @@ REFERENCE_PAGE = Path("docs/geecs_schemas/schema_reference.md")
 # model's reference section. Kept here (not in docstrings) so examples can
 # be longer than a docstring comfortably allows.
 EXAMPLES: dict[str, str] = {
+    "optimizer_config": """\
+schema_version: 1
+vocs:
+  variables: {"Motor:Current": [-1, 1]}
+  objectives: {camera.image_total: MAXIMIZE}
+measurements:
+  camera: {diagnostic: ExampleCamera, frames: per_bin}
+generator: {name: bayes_turbo_standard}
+run: {shots_per_step: 5, max_iterations: 20}
+""",
     "scan_request": """\
 schema_version: 3
 mode: step

@@ -1004,7 +1004,7 @@ url = "../GEECS-Data-Utils"
 
 [[package]]
 name = "geecs-schemas"
-version = "0.26.0"
+version = "0.28.0"
 description = "Versioned Pydantic schemas for GEECS scanner configs (scan requests, save sets, scan variables, trigger profiles, action plans) plus legacy-YAML converters."
 optional = true
 python-versions = ">=3.11,<3.12"
@@ -1014,6 +1014,7 @@ files = []
 develop = true
 
 [package.dependencies]
+gest-api = ">=0.1,<0.2"
 pydantic = "^2.0"
 
 [package.source]
@@ -1037,6 +1038,22 @@ web = ["fastapi (>=0.110)", "jinja2 (>=3.1)"]
 [package.source]
 type = "directory"
 url = "../GeecsWebTheme"
+
+[[package]]
+name = "gest-api"
+version = "0.1"
+description = "A standard for generating test points and exchanging variables, objectives, and constraints in optimization problems"
+optional = true
+python-versions = ">=3.10"
+groups = ["main"]
+markers = "extra == \"analysis\""
+files = [
+    {file = "gest_api-0.1-py3-none-any.whl", hash = "sha256:8dad05c867c631e84bdd559acad030b0a5a2a2930f82ef7ec6f3e7bd655187b3"},
+    {file = "gest_api-0.1.tar.gz", hash = "sha256:c5712721072fab8fdef7e976d4140db99729245f34ff36eefc0737c5197d25a8"},
+]
+
+[package.dependencies]
+pydantic = "*"
 
 [[package]]
 name = "google-api-core"
@@ -1359,7 +1376,7 @@ all = ["coverage (>=7.10.0)", "hypothesis (>=6.141.1)", "mypy (>=1.11.2)", "pyte
 
 [[package]]
 name = "imageanalysis"
-version = "2.2.0"
+version = "2.3.0"
 description = "Central sub-repository for online and offline analysis of BELLA exeriments' images."
 optional = true
 python-versions = ">=3.11,<3.12"

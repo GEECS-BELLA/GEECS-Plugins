@@ -11,10 +11,8 @@ regenerated as presets once, #807; the action libraries were regenerated
 as `ActionPlanLibrary` documents once, 0.22.0).
 
 **Configs are schemas; YAML is just serialization.** This package is the
-schema layer of the target architecture. It depends on **pydantic
-only**, so the engine, the GUI, scripts, and docs tooling can all import the
-same models without dragging in hardware or analysis stacks. Nothing imports
-it yet — it lands first, consumers migrate to it converter-first.
+schema layer of the target architecture. It depends on **Pydantic and gest-api**, so the engine, the GUI, scripts, and docs tooling can all import the
+same models without dragging in hardware or analysis stacks. The runtime VOCS model is GEST’s own model; Xopt and analysis stay worker-side.
 
 ## Design principles
 
@@ -96,8 +94,7 @@ models for generic tooling.
 Supporting models: `ScanAxis` (a step scan sweeps one axis or several — a
 multi-axis request is an outer-product grid, first axis outermost/slowest;
 schema-side only in M1), `PositionRange` / `PositionList`, `ActionBindings`
-(setup / **per_step** / closeout slots), `OptimizationSpec` (+
-`EvaluatorSpec`, `GeneratorSpec` — covers the legacy Xopt VOCS surface),
+(setup / **per_step** / closeout slots), `OptimizerConfig` (GEST VOCS, measurements and derived outputs),
 `PresetDevice` / `PlanCall` (the preset's device group — `device`,
 `save_images` — and its stock plan call), `ScanVariable` /
 `PseudoScanVariable`, `TriggerWrite` / `TriggerState`, `DefaultActions`, and
@@ -129,15 +126,13 @@ what could not be mapped — nothing is dropped silently.
 ```python
 from geecs_schemas.convert import (
     convert_shot_control,
-    convert_optimizer_config,
 )
 
 # Shot control → TriggerProfile (one profile per operating condition)
 profile = convert_shot_control("shot_control_configurations/HTU-Normal.yaml")
 profile.writes_for("SCAN")
 
-# Optimizer config → OptimizationSpec (+ device_requirements as a device group)
-opt = convert_optimizer_config("optimizer_configs/hexapod_alignment.yaml")
+# Optimizers are authored directly as OptimizerConfig v1; the legacy evaluator dialect is retired.
 ```
 
 ## Generated reference docs
@@ -158,3 +153,21 @@ The suite is hermetic (fixtures + golden files under `tests/`). The
 additional `integration`-marked test walks the sibling
 `GEECS-Plugins-Configs` checkout and converts **every** real config file; it
 auto-skips when that checkout is absent.
+
+
+## Native optimizer documents
+
+`OptimizerConfig` v1 embeds `gest_api.vocs.VOCS` directly. Authors may spell
+bounds as `[lo, hi]`; GEST serializes its typed form. The schema package pins
+GEST 0.1 to match the worker's validated Xopt release. JSON Schema metadata
+covers this field because GEST 0.1's custom mapping types lack schema hooks.
+`measurements` selects live signals or camera diagnostics, and `derived`
+contains arithmetic expressions (including `camera.image_total`) or an
+explicit `python: module:function` callable. Expressions use exact registered
+symbols; attribute access is never executed. Python callables are trusted
+worker code and receive the reduced measurement mapping.
+
+The six keeper examples are in `tests/fixtures/optimizer_configs/`.
+Legacy evaluator/device-requirements documents are refused with a migration
+reference. `ScanRequest` no longer accepts optimization; use an `optimize`
+preset with an `optimizer_config` ID. The MCP submission migration is #727.

@@ -1,0 +1,347 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "DiagnosticMeasurement": {
+      "additionalProperties": false,
+      "description": "A diagnostic document applied to live frames.",
+      "properties": {
+        "reduce": {
+          "default": "mean",
+          "description": "Reduction of valid per-shot scalar values.",
+          "enum": [
+            "mean",
+            "median",
+            "min",
+            "max",
+            "sum",
+            "std"
+          ],
+          "title": "Reduce",
+          "type": "string"
+        },
+        "min_shots": {
+          "default": 1,
+          "description": "Minimum valid shots needed for a finite measurement.",
+          "minimum": 1,
+          "title": "Min Shots",
+          "type": "integer"
+        },
+        "diagnostic": {
+          "description": "Diagnostic document ID (file stem).",
+          "minLength": 1,
+          "title": "Diagnostic",
+          "type": "string"
+        },
+        "frames": {
+          "default": "per_bin",
+          "description": "Analyze the mean frame, or analyze each frame before reducing scalars.",
+          "enum": [
+            "per_bin",
+            "per_shot"
+          ],
+          "title": "Frames",
+          "type": "string"
+        },
+        "overrides": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "description": "Processing/analyzer overrides deep-merged into the diagnostic.",
+          "title": "Overrides",
+          "type": "object"
+        }
+      },
+      "required": [
+        "diagnostic"
+      ],
+      "title": "DiagnosticMeasurement",
+      "type": "object"
+    },
+    "JsonValue": {},
+    "OptimizationRun": {
+      "additionalProperties": false,
+      "description": "Run defaults; queue-item arguments may override the iteration and shot budgets.",
+      "properties": {
+        "on_finish": {
+          "default": "best",
+          "description": "Move to the best feasible observation, or hold; no best restores initial positions. Relative pseudos always restore on unstage.",
+          "enum": [
+            "best",
+            "hold"
+          ],
+          "title": "On Finish",
+          "type": "string"
+        },
+        "seed_dumps": {
+          "description": "Previous xopt_dump.yaml files; relative paths resolve beside this config.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Seed Dumps",
+          "type": "array"
+        },
+        "shots_per_step": {
+          "default": 5,
+          "description": "Successful strict acquisitions per iteration.",
+          "minimum": 1,
+          "title": "Shots Per Step",
+          "type": "integer"
+        },
+        "max_iterations": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Iteration limit; required here or in the submitted plan arguments.",
+          "title": "Max Iterations"
+        }
+      },
+      "title": "OptimizationRun",
+      "type": "object"
+    },
+    "OptimizerGenerator": {
+      "additionalProperties": false,
+      "description": "Generator recipe and its algorithm-specific settings.",
+      "properties": {
+        "name": {
+          "description": "Worker generator recipe name.",
+          "title": "Name",
+          "type": "string"
+        },
+        "options": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "description": "Recipe-specific options validated by the worker before opening a run.",
+          "title": "Options",
+          "type": "object"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "OptimizerGenerator",
+      "type": "object"
+    },
+    "PythonDerived": {
+      "additionalProperties": false,
+      "description": "Worker callable over the reduced scalars, for non-expressible objectives.",
+      "properties": {
+        "python": {
+          "description": "Importable module:function accepting a scalar mapping and returning a float.",
+          "pattern": "^[A-Za-z_]\\w*(?:\\.[A-Za-z_]\\w*)*:[A-Za-z_]\\w*$",
+          "title": "Python",
+          "type": "string"
+        }
+      },
+      "required": [
+        "python"
+      ],
+      "title": "PythonDerived",
+      "type": "object"
+    },
+    "SignalMeasurement": {
+      "additionalProperties": false,
+      "description": "A subscribed scalar in the shot reading.",
+      "properties": {
+        "reduce": {
+          "default": "mean",
+          "description": "Reduction of valid per-shot scalar values.",
+          "enum": [
+            "mean",
+            "median",
+            "min",
+            "max",
+            "sum",
+            "std"
+          ],
+          "title": "Reduce",
+          "type": "string"
+        },
+        "min_shots": {
+          "default": 1,
+          "description": "Minimum valid shots needed for a finite measurement.",
+          "minimum": 1,
+          "title": "Min Shots",
+          "type": "integer"
+        },
+        "signal": {
+          "description": "Device:Variable to read on every shot.",
+          "title": "Signal",
+          "type": "string"
+        }
+      },
+      "required": [
+        "signal"
+      ],
+      "title": "SignalMeasurement",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "An optimization: search space, live measurements, derived outputs and generator.",
+  "properties": {
+    "schema_version": {
+      "default": 1,
+      "description": "Format version of this config file. Leave at 1 \u2014 tools update this automatically when the file format changes.",
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "vocs": {
+      "additionalProperties": false,
+      "description": "GEST variables, objectives, constraints, constants and observables; compact input and typed canonical output are accepted.",
+      "properties": {
+        "variables": {
+          "additionalProperties": {
+            "oneOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "maxItems": 2,
+                "minItems": 2,
+                "type": "array"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "type": {
+                    "const": "ContinuousVariable"
+                  },
+                  "domain": {
+                    "items": {
+                      "type": "number"
+                    },
+                    "maxItems": 2,
+                    "minItems": 2,
+                    "type": "array"
+                  },
+                  "dtype": {},
+                  "default_value": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "type",
+                  "domain"
+                ],
+                "type": "object"
+              }
+            ]
+          },
+          "minProperties": 1,
+          "type": "object"
+        },
+        "objectives": {
+          "additionalProperties": {
+            "oneOf": [
+              {
+                "enum": [
+                  "MINIMIZE",
+                  "MAXIMIZE"
+                ]
+              },
+              {
+                "type": "object"
+              }
+            ]
+          },
+          "type": "object"
+        },
+        "observables": {
+          "oneOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "object"
+            }
+          ]
+        },
+        "constraints": {
+          "additionalProperties": {
+            "oneOf": [
+              {
+                "maxItems": 2,
+                "minItems": 2,
+                "type": "array"
+              },
+              {
+                "type": "object"
+              }
+            ]
+          },
+          "type": "object"
+        },
+        "constants": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "type": "object"
+        }
+      },
+      "required": [
+        "variables"
+      ],
+      "type": "object"
+    },
+    "measurements": {
+      "additionalProperties": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/SignalMeasurement"
+          },
+          {
+            "$ref": "#/$defs/DiagnosticMeasurement"
+          }
+        ]
+      },
+      "description": "Named live scalar or diagnostic measurements.",
+      "minProperties": 1,
+      "title": "Measurements",
+      "type": "object"
+    },
+    "derived": {
+      "additionalProperties": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "$ref": "#/$defs/PythonDerived"
+          }
+        ]
+      },
+      "description": "Expressions or worker callables, in dependency order.",
+      "title": "Derived",
+      "type": "object"
+    },
+    "generator": {
+      "$ref": "#/$defs/OptimizerGenerator",
+      "description": "The generator recipe used to propose positions."
+    },
+    "run": {
+      "$ref": "#/$defs/OptimizationRun",
+      "description": "Run defaults and finish policy."
+    }
+  },
+  "required": [
+    "vocs",
+    "measurements",
+    "generator"
+  ],
+  "title": "OptimizerConfig",
+  "type": "object"
+}

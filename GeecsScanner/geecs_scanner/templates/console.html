@@ -114,6 +114,13 @@
           <div class="well tail" id="tail" aria-live="polite"></div>
         </div>
       </div>
+      <div class="body group" id="optimization-live" hidden>
+        <div class="row"><span class="eyebrow" id="optimization-iteration"></span></div>
+        <div class="tscroll"><table><thead><tr><th>Variable / output</th><th>Latest</th><th>Best</th></tr></thead><tbody id="optimization-values"></tbody></table></div>
+        <div class="row"><span class="dim note" id="optimization-shots"></span></div>
+        <div class="row"><button class="btn" type="button" id="btn-set-best" disabled>Set to best</button>
+        <span class="dim note">Relative variables return to their starting positions. Set to best applies the recorded physical settings.</span></div>
+      </div>
       <footer class="eyebrow" id="now-foot">state from the manager every second · shots from the document stream · two narrations, never reconciled</footer>
     </section>
 
@@ -126,7 +133,7 @@
           <button type="button" data-mode="scan" aria-pressed="true">1D</button>
           <button type="button" data-mode="grid">Grid</button>
           <button type="button" data-mode="background">Background</button>
-          <button type="button" data-mode="optimize" aria-disabled="true" title="No optimization plan on the worker yet">Optimize</button>
+          <button type="button" data-mode="optimize" aria-pressed="false">Optimize</button>
         </div>
         <div class="seg" role="group" aria-label="Acquisition" id="acq">
           <button type="button" data-acq="strict" aria-pressed="true" title="Fire between trigger and wait; one row per shot">strict</button>
@@ -134,6 +141,12 @@
         </div>
       </header>
       <div class="body">
+        <div class="group" id="optimizer-form" hidden>
+          <div class="field"><label for="optimizer-config">optimizer config</label><select id="optimizer-config"><option value="">Choose an optimizer…</option></select></div>
+          <div class="field"><label for="iterations">iterations</label><input id="iterations" type="number" min="1" step="1" value="10"><span class="err" id="err-iterations">At least one iteration.</span></div>
+          <p class="hint" id="optimizer-note">Choose a config to see its required devices.</p>
+        </div>
+
         <div class="group" id="axis1">
           <span class="eyebrow">axis 1</span>
           <div class="axes">

@@ -12,7 +12,6 @@ import yaml
 
 from geecs_schemas import ActionPlanLibrary
 from geecs_schemas.convert import (
-    convert_optimizer_config,
     convert_shot_control,
 )
 
@@ -40,14 +39,6 @@ def main() -> None:
     write(
         "amp4_dump_hp_plan.json",
         library.plans["Amp4_DUMP_HP"].model_dump(mode="json"),
-    )
-
-    optimizer = convert_optimizer_config(
-        FIXTURES / "optimizer_configs/hexapod_alignment.yaml"
-    )
-    write(
-        "hexapod_optimization_spec.json",
-        optimizer.optimization.model_dump(mode="json"),
     )
 
 

@@ -125,3 +125,14 @@ The operator registry and ownership (arc PR 5: `operators.yaml`,
 item) and the Caddy front door (dropped 2026-09-13 — three ports, one
 bookmark each). GEECS-Console itself is gone (PR 6, 2026-09-14; tag
 `geecs-console-v0.32.1-final`).
+
+
+## Optimize mode
+
+The form selects an `OptimizerConfig` by ID; shared `prepare_optimizer_preset`
+resolves defaults and required devices before both preflight and submission.
+Required devices are saved and essential even when an existing table row says
+otherwise. ProgressCache reduces the worker's `optimization` stream; NaN
+becomes null for JSON. Set to best takes a run UID, rejects stale/incomplete
+runs, and submits recorded physical targets as one idle-only `mv`. The scanner
+never reconstructs pseudo offsets or imports the analysis runtime.

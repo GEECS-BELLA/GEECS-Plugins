@@ -1,1 +1,1 @@
-"""Xopt-backed optimization stack (relocated from geecs_scanner 2026-08-20)."""
+"""Native optimization: live measurements, bounded frame joins and Xopt ask/tell."""

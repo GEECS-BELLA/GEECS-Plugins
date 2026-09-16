@@ -33,7 +33,6 @@ from geecs_schemas.analysis import AnalysisDiagnostic, AnalysisGroup
 from geecs_schemas.scan_request import (
     ActionBindings,
     CaptureSettings,
-    OptimizationSpec,
     ScanAxis,
     ScanRequest,
 )
@@ -49,12 +48,14 @@ from geecs_schemas.scan_request import (
 #: ``scan_axis`` objects), ``geecs_optimize_plan(optimization, capture,
 #: actions=...)`` — a generic client grafts one artifact per plan
 #: parameter.
+from .optimizer_config import OptimizerConfig
+
 EXPORTED_SCHEMAS: dict[str, type[BaseModel]] = {
+    "optimizer_config": OptimizerConfig,
     "scan_request": ScanRequest,
     "capture_settings": CaptureSettings,
     "action_bindings": ActionBindings,
     "scan_axis": ScanAxis,
-    "optimization_spec": OptimizationSpec,
     # The analysis-config documents (0.19.0): what the web config editor
     # renders its forms from, one variant per analyzer kind.
     "analysis_diagnostic": AnalysisDiagnostic,

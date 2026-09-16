@@ -4,6 +4,12 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.92.0] - 2026-09-16
+
+### Changed
+
+- Add the native strict optimize plan, live PVA frame joins, measurement compilation, Xopt ask/tell and iteration events. Preserve failed observations without training on them; cold-start unseeded models. Resolve optimizer defaults and required devices before preflight. Record physical best targets for relative pseudos, which restore on unstage. Retire legacy evaluator/config classes and ScanAnalysis optimization dependency.
+
 ## [0.91.1] - 2026-09-15
 
 ### Fixed

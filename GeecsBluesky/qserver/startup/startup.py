@@ -49,6 +49,7 @@ from __future__ import annotations
 
 import logging
 import os
+import threading as _threading
 
 # Must import geecs_bluesky before anything that could pull in aioca — see
 # the module docstring above.
@@ -229,3 +230,17 @@ if _doc_publish_addr.upper() != "OFF":
         )
 
 __all__ = ["RE", *GEECS_PLAN_NAMES, *_DEVICE_NAMES]
+
+
+# Warm the optional numerical stack without delaying worker readiness.
+def _warm_optimizer():
+    try:
+        import xopt  # noqa: F401
+        import torch  # noqa: F401
+    except ImportError:
+        pass  # Worker installed without the optimize extra.
+    except Exception:
+        logging.getLogger(__name__).exception("optimizer warm import failed")
+
+
+_threading.Thread(target=_warm_optimizer, name="optimizer-import", daemon=True).start()

@@ -116,3 +116,36 @@ offline re-export (`geecs_data_utils.write_scalar_files_from_tiled`) read.
 Both take their rows from `primary` when it has events and from `shots`
 otherwise, and both run the same join, so a re-export checks the live path
 rather than re-implementing it.
+
+
+## Native optimization
+
+`plan_name: optimize` opens one run. `primary` stays one row per strict shot;
+`bin_number` is the one-based adaptive iteration. Start metadata adds
+`optimizer_config`, `max_iterations`, `optimization_variables`,
+`optimization_objectives`, `optimization_move_targets`, and the resolved
+`OptimizerConfig` as JSON text under `geecs.optimizer_json` (provenance only).
+Bluesky forbids dots and slashes in document keys at any depth; event name
+components escape `%`, `.`, `/` as `%25`, `%2E`, `%2F` respectively. The
+scanner decodes names for display; the complete config retains its original
+names in JSON text.
+
+The fixed `optimization` stream emits once per evaluated iteration, all
+numeric columns: `iteration`, `proposal:<variable>`, `measured:<variable>`,
+`output:<measurement-or-derived-name>`, `n_valid_shots:<measurement>`,
+`best:<variable-or-objective>`, and `best_move:<Device:Variable>`.
+Missing/failed measurements and absent best points are NaN; the scanner
+serializes these as JSON null. `best_move` records physical positions while
+relative pseudos still have their staged offsets. Relative pseudos restore
+on unstage; the operator can later submit these physical positions through
+Set to best. Observables-only BAX and multiobjective problems have no single
+best point, so `on_finish: best` restores initial positions instead.
+
+Acquisition is rewindable up to the bin's evaluation boundary. An immediate
+pause during acquisition replays the acquired part of the bin; only the
+latest complete quota feeds evaluation. Evaluation and Xopt tell are not
+replayed. Deferred pause lands at the next iteration checkpoint. Failed
+measurement rows stay in the Xopt dump with `xopt_error: true` and are excluded
+from model fitting. The dump is written before run close into the folder
+from the emitted start document, including abort cleanup after an in-flight
+calculation has finished.

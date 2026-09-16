@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "geecs-bluesky"
-version = "0.91.1"
+version = "0.92.0"
 description = "Bluesky / ophyd-async bridge for the GEECS control system"
 authors = ["Sam Barber <sbarber@lbl.gov>"]
 readme = "README.md"
@@ -41,17 +41,10 @@ tiled = {version = ">=0.2", extras = ["client"], optional = true}
 # epicscorelibs, so no system EPICS base is required.
 aioca = { version = ">=1.7", optional = true }
 
-# Optimization: XoptSuggester (optimize.py) plus the whole config-driven
-# Xopt/evaluator stack (geecs_bluesky/optimization/, relocated here from
-# geecs_scanner.optimization — the queueserver worker's home for it). Heavy
-# (xopt pulls torch/botorch); the built-in RandomSuggester needs nothing.
+# Native optimization: live ImageAnalysis measurements and Xopt ask/tell.
+# Heavy numerical dependencies install on the worker via the optimize extra.
 xopt = { version = "^3.1", optional = true }
-# gest-api rides with xopt but is imported directly (vocs_utils) — declared.
-gest-api = { version = ">=0.1", optional = true }
-# The evaluators wrap ScanAnalysis analyzers (create_scan_analyzer) and
-# ImageAnalysis diagnostics (load_diagnostic) — optimize-extra only; the
-# core engine never imports either.
-scananalysis = { path = "../ScanAnalysis", develop = true, optional = true }
+gest-api = { version = ">=0.1,<0.2", optional = true }
 
 # The queueserver worker (GeecsBluesky/qserver/) — RE Manager itself, not a
 # runtime import of geecs_bluesky. Pinned to the release validated by the
@@ -77,7 +70,7 @@ p4p = { version = ">=4.1", optional = true }
 [tool.poetry.extras]
 tiled = ["tiled"]
 ca = ["aioca", "p4p"]
-optimize = ["xopt", "gest-api", "scananalysis", "imageanalysis"]
+optimize = ["xopt", "gest-api", "imageanalysis"]
 qserver = ["bluesky-queueserver"]
 qs-client = ["bluesky-queueserver-api"]
 
