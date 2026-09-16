@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from geecs_data_utils import tiled_schema
 
 COLUMNS = [
@@ -390,3 +392,21 @@ class TestScanMotorsShapes:
     def test_a_non_iterable_does_not_raise(self):
         """The old code raised on this; the helper is the tolerant reader."""
         assert tiled_schema.scan_motors({"motor": 3}) == ["3"]
+
+
+@pytest.mark.parametrize(
+    "trajectory, expected",
+    [
+        ({"kind": "axes", "combine": "zip"}, "1D"),
+        ({"kind": "axes", "combine": "product"}, "GRID"),
+        ({"kind": "spiral"}, "1D"),
+        ({"kind": "x2x"}, "1D"),
+    ],
+)
+def test_sweep_classification_uses_combination_not_motor_count(trajectory, expected):
+    start = {
+        "plan_name": "sweep",
+        "motors": ["a", "b", "c", "d", "e"],
+        "sweep": {"trajectory": trajectory},
+    }
+    assert tiled_schema.scan_mode(start) == expected

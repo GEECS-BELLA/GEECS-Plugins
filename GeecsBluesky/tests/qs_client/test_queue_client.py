@@ -258,15 +258,36 @@ class TestZmqQueueClient:
                 "name": "p",
                 "trigger_profile": "HTU-NoGas",
                 "devices": [{"device": "UC_Cam"}],
-                "plan": {"name": "scan", "args": ["U_S1H:Current", -1, 1, 5]},
+                "plan": {
+                    "name": "sweep",
+                    "kwargs": {
+                        "sweep": {
+                            "trajectory": {
+                                "kind": "axes",
+                                "axes": [
+                                    {
+                                        "kind": "range",
+                                        "axis": "U_S1H:Current",
+                                        "start": -1,
+                                        "stop": 1,
+                                        "num": 5,
+                                    }
+                                ],
+                            }
+                        }
+                    },
+                },
             }
         )
         fake = _FakeManagerAPI()
         result = _client(fake).submit_preset(preset, md={"geecs": {"submission": {}}})
         assert result.ok
         added = next(c[1] for c in fake.calls if c[0] == "item_add")
-        assert added["name"] == "scan"
-        assert added["args"] == [["UC_Cam"], "U_S1H.current", -1, 1, 5]
+        assert added["name"] == "sweep"
+        assert added["args"] == [["UC_Cam"]]
+        assert (
+            added["kwargs"]["sweep"]["trajectory"]["axes"][0]["axis"] == "U_S1H.current"
+        )
         assert added["kwargs"]["trigger_profile"] == "HTU-NoGas"
         assert added["kwargs"]["md"]["geecs"] == {"submission": {}, "preset": "p"}
 

@@ -115,7 +115,7 @@ def test_missing_plan_is_not_ready_and_names_it() -> None:
         ensure_ready(manager, timeout_s=30, log=lambda s: None)
     message = str(excinfo.value)
     assert "count" in message
-    assert "rel_list_grid_scan" in message
+    assert "sweep" in message
     assert "mv" not in message.split("(listed")[0]
     assert "permissions file" in message
     assert "user_group='primary'" in message
@@ -221,7 +221,7 @@ def test_restore_refused_is_not_ready_and_keeps_the_verdict() -> None:
     with pytest.raises(NotReady) as excinfo:
         ensure_ready(manager, timeout_s=30, log=lambda s: None)
     message = str(excinfo.value)
-    assert "does not list" in message and "rel_list_grid_scan" in message
+    assert "does not list" in message and "sweep" in message
     assert "restore from disk failed" in message and "Queue is locked" in message
     assert [m for m, _ in manager.calls].count("plans_allowed") == 1
 

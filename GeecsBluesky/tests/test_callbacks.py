@@ -160,7 +160,23 @@ def box() -> FakeBox:
 
 
 @pytest.fixture
-def worker(RE, box, tmp_path):
+def axes_namespace():
+    return {}
+
+
+def range_payload(num):
+    return {
+        "trajectory": {
+            "kind": "axes",
+            "axes": [
+                {"kind": "range", "axis": "Motor", "start": -1, "stop": 1, "num": num}
+            ],
+        }
+    }
+
+
+@pytest.fixture
+def worker(RE, box, tmp_path, axes_namespace):
     """A RunEngine wired like the worker: claim + headers + the three outputs."""
     claim = FakeClaim(tmp_path)
     provider = GeecsScanPathProvider()
@@ -177,24 +193,24 @@ def worker(RE, box, tmp_path):
     sc = ShotControl(WRITES, experiment="TestExp", name="htu", setter_factory=box)
     connect_mock(RE, sc)
     profiles = TriggerProfiles({"HTU-Test": sc}, default="HTU-Test")
-    return bind_plans(profiles), claim, provider
+    return bind_plans(profiles, settables=axes_namespace), claim, provider
 
 
-def test_a_strict_scan_leaves_every_legacy_file(RE, box, worker, tmp_path):
+def test_a_strict_scan_leaves_every_legacy_file(
+    RE, box, worker, tmp_path, axes_namespace
+):
     plans, claim, provider = worker
     # A native-saving camera on the RUN provider: its files go to the
     # claimed folder's device directory, through the detector's lifecycle.
     cam = _camera(RE, box, "UC_Cam", provider=provider)
     magnet = Magnet()
+    axes_namespace["Motor"] = magnet.current
     connect_mock(RE, magnet)
     follow_setpoint(magnet.current)
     RE(
-        plans["scan"](
+        plans["sweep"](
             [cam],
-            magnet.current,
-            -1.0,
-            1.0,
-            3,
+            sweep=range_payload(3),
             shots_per_step=2,
             md={"description": "s1h"},
         )
@@ -234,10 +250,11 @@ def test_a_strict_scan_leaves_every_legacy_file(RE, box, worker, tmp_path):
     assert claim.claimed == [1]
 
 
-def test_an_aborted_scan_still_gets_its_rows(RE, box, worker, tmp_path):
+def test_an_aborted_scan_still_gets_its_rows(RE, box, worker, tmp_path, axes_namespace):
     plans, _, _ = worker
     cam = _camera(RE, box, "UC_Cam")
     magnet = Magnet()
+    axes_namespace["Motor"] = magnet.current
     connect_mock(RE, magnet)
     calls = {"n": 0}
 
@@ -249,7 +266,7 @@ def test_an_aborted_scan_still_gets_its_rows(RE, box, worker, tmp_path):
 
     callback_on_mock_put(magnet.current._setpoint, follow_then_fail)
     with pytest.raises(FailedStatus):
-        RE(plans["scan"]([cam], magnet.current, -1.0, 1.0, 4))
+        RE(plans["sweep"]([cam], sweep=range_payload(4)))
     folder = tmp_path / "scans" / "Scan001"
     info = read_scan_info(folder / "ScanInfoScan001.ini")
     # The reason is the cause, not the status repr (GEECS-Plugins#868).
@@ -526,7 +543,7 @@ def _stack_uri(col, data_key: str) -> Path:
 
 
 @pytest.fixture
-def gated_worker(RE, tmp_path, monkeypatch):
+def gated_worker(RE, tmp_path, monkeypatch, axes_namespace):
     """A RunEngine wired like the worker for a gated run, with the s-file callback."""
     from geecs_bluesky.plans import gated as gated_module
     from tests.test_gated_plans import GATED_WRITES, GatedBox
@@ -553,11 +570,11 @@ def gated_worker(RE, tmp_path, monkeypatch):
     RE.subscribe(ScanInfoCallback())
     RE.subscribe(sfile)
     profiles = TriggerProfiles({"HTU-Test": sc}, default="HTU-Test")
-    return bind_plans(profiles), gated_box, sfile
+    return bind_plans(profiles, settables=axes_namespace), gated_box, sfile
 
 
 def test_a_gated_scan_writes_its_s_file_from_the_shots_rows_and_the_stacks(
-    RE, gated_worker, tmp_path
+    RE, gated_worker, tmp_path, axes_namespace
 ):
     """Phase 2c: one row per essential shot, the cameras' columns out of their stacks.
 
@@ -590,15 +607,13 @@ def test_a_gated_scan_writes_its_s_file_from_the_shots_rows_and_the_stacks(
     connect_mock(RE, gauge)
     set_mock_value(gauge.pressure, 2e-6)
     magnet = _magnet(RE)
+    axes_namespace["Motor"] = magnet
     col = DocCollector()
     RE.subscribe(col)
     RE(
-        plans["scan"](
+        plans["sweep"](
             [*cameras, gauge],
-            magnet,
-            -1.0,
-            1.0,
-            2,
+            sweep=range_payload(2),
             shots_per_step=2,
             acquisition="gated",
         )
@@ -648,15 +663,16 @@ def test_a_gated_scan_writes_its_s_file_from_the_shots_rows_and_the_stacks(
 
 
 def test_a_gated_run_whose_stack_never_finalizes_still_gets_its_s_file(
-    RE, gated_worker, tmp_path, caplog
+    RE, gated_worker, tmp_path, caplog, axes_namespace
 ):
     """The rows are the bulk of the s-file: a stack that never arrives costs its columns."""
     plans, gated_box, sfile = gated_worker
     sfile.finalize_timeout = 0.4  # nothing will ever appear; do not wait 6 s for it
     cam, _ = _plugin_camera(RE, gated_box, "UC_A", tmp_path)
     magnet = _magnet(RE)
+    axes_namespace["Motor"] = magnet
     with caplog.at_level(logging.WARNING, logger="geecs_bluesky.callbacks"):
-        RE(plans["scan"]([cam], magnet, -1.0, 1.0, 2, acquisition="gated"))
+        RE(plans["sweep"]([cam], sweep=range_payload(2), acquisition="gated"))
         sfile.join(15.0)
     assert "not finalized within" in caplog.text
     table = pd.read_csv(tmp_path / "analysis" / "s1.txt", sep="\t")
@@ -666,7 +682,7 @@ def test_a_gated_run_whose_stack_never_finalizes_still_gets_its_s_file(
 
 
 def test_a_strict_run_with_a_non_essential_camera_joins_its_stack(
-    RE, gated_worker, tmp_path
+    RE, gated_worker, tmp_path, axes_namespace
 ):
     """The strict rows stay the primary events; the streamed camera joins by stamp."""
     plans, gated_box, sfile = gated_worker
@@ -681,9 +697,10 @@ def test_a_strict_run_with_a_non_essential_camera_joins_its_stack(
         ),
     )
     magnet = _magnet(RE)
+    axes_namespace["Motor"] = magnet
     col = DocCollector()
     RE.subscribe(col)
-    RE(plans["scan"]([essential], magnet, -1.0, 1.0, 2, non_essential=[streamed]))
+    RE(plans["sweep"]([essential], sweep=range_payload(2), non_essential=[streamed]))
     assert col.docs["stop"][-1]["exit_status"] == "success"
     stamps = [
         e["data"]["uc_main-acq_timestamp"] for e in _stream_events(col, "primary")
@@ -891,7 +908,7 @@ class _Run:
 
 
 def test_the_offline_re_export_reproduces_the_live_s_file_of_a_gated_run(
-    RE, gated_worker, tmp_path
+    RE, gated_worker, tmp_path, axes_namespace
 ):
     """The PR's own contract, as one assertion (review of #858, test gap 7).
 
@@ -934,15 +951,13 @@ def test_the_offline_re_export_reproduces_the_live_s_file_of_a_gated_run(
     connect_mock(RE, gauge)
     set_mock_value(gauge.pressure, 3e-6)
     magnet = _magnet(RE)
+    axes_namespace["Motor"] = magnet
     col = DocCollector()
     RE.subscribe(col)
     RE(
-        plans["scan"](
+        plans["sweep"](
             [*cameras, gauge],
-            magnet,
-            -1.0,
-            1.0,
-            2,
+            sweep=range_payload(2),
             shots_per_step=2,
             acquisition="gated",
         )

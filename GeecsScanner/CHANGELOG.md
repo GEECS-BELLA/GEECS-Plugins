@@ -4,6 +4,12 @@ All notable changes to `geecs-scanner` are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 project adheres to semantic versioning.
 
+## [0.10.0] - 2026-09-16
+
+### Changed
+
+- Adapt the existing range/grid form and demo preset to submit Sweep payloads; summarize Sweep queue items and retain historical stock item summaries. The full composer follows separately.
+
 ## [0.9.2] - 2026-09-16
 
 ### Fixed

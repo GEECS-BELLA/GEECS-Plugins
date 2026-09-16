@@ -4,6 +4,12 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.94.0] - 2026-09-16
+
+### Changed
+
+- Register sweep and retire all moving stock scan verbs. Reuse scan_nd and shared strict/gated acquisition; validate JSON before box motion, expand axis references once, and restore relative axes before close/unstage. Record the executed Sweep and first-axis projection. Hardware acceptance remains owed.
+
 ## [0.93.0] - 2026-09-16
 
 ### Added

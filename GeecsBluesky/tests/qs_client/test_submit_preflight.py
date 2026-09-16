@@ -277,9 +277,29 @@ class TestWorkerReady:
         assert "count" in report.refusal and "mv" in report.refusal
 
     def test_the_presets_own_plan_is_what_is_expected(self, engine, monkeypatch):
-        fake = _FakeQueueClient(plans=["scan"])
+        fake = _FakeQueueClient(plans=["sweep"])
         monkeypatch.setattr(submit_preflight, "_make_default_client", lambda e: fake)
-        preset = _preset(plan={"name": "scan", "args": ["U_S1H:Current", 0, 1, 2]})
+        preset = _preset(
+            plan={
+                "name": "sweep",
+                "kwargs": {
+                    "sweep": {
+                        "trajectory": {
+                            "kind": "axes",
+                            "axes": [
+                                {
+                                    "kind": "range",
+                                    "axis": "U_S1H:Current",
+                                    "start": 0,
+                                    "stop": 1,
+                                    "num": 2,
+                                }
+                            ],
+                        }
+                    }
+                },
+            }
+        )
         report = run_submit_preflight(preset, "Undulator")
         assert report.refusal is None
         assert ("worker_ready", "passed", "") in report.outcomes
@@ -292,7 +312,25 @@ class TestWorkerReady:
                 {"device": "UC_Cam1"},
                 {"device": "UC_Typo", "save_images": False},
             ],
-            plan={"name": "scan", "args": ["U_S1H:Current", 0, 1, 2]},
+            plan={
+                "name": "sweep",
+                "kwargs": {
+                    "sweep": {
+                        "trajectory": {
+                            "kind": "axes",
+                            "axes": [
+                                {
+                                    "kind": "range",
+                                    "axis": "U_S1H:Current",
+                                    "start": 0,
+                                    "stop": 1,
+                                    "num": 2,
+                                }
+                            ],
+                        }
+                    }
+                },
+            },
             trigger_profile="HTU-Normal",
         )
         report = run_submit_preflight(preset, "Undulator")

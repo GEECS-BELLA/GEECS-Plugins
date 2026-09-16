@@ -537,6 +537,16 @@ def scan_mode(start_doc: Mapping[str, Any]) -> str:
     motors = scan_motors(start_doc)
     if not motors:
         return "NOSCAN"
+    if plan_name == "sweep":
+        payload = start_doc.get("sweep")
+        trajectory = payload.get("trajectory") if isinstance(payload, Mapping) else None
+        if isinstance(trajectory, Mapping):
+            return (
+                "GRID"
+                if trajectory.get("kind") == "axes"
+                and trajectory.get("combine") == "product"
+                else "1D"
+            )
     # `plan_pattern` is the stock bluesky discriminator and the only reliable
     # one: `scan`/`rel_scan`/`list_scan` move N motors along ONE correlated
     # trajectory (`inner_product`, `inner_list_product`) and are 1D however

@@ -35,6 +35,33 @@ adds (phase 1 PR 2):
 Every run the worker opens claims a scan number; a run without one is not a
 GEECS scan.
 
+## Predetermined moving scans: `sweep`
+
+The public moving plan is `sweep`; `count` remains motionless and `optimize`
+is adaptive. A sweep start carries `sweep`, the validated JSON Sweep payload
+with expanded namespace bindings. This is execution metadata, distinct from
+`geecs` provenance. Relative coordinates in this payload remain offsets from
+the readback after staging; events contain actual readbacks. Relative axes
+restore before the run closes and before unstage; a failed restore fails the
+run. A process kill or loss of hardware communication cannot guarantee reset.
+
+`motors` preserves authored axis order; `num_points` is the full trajectory
+length, with `num_intervals = num_points - 1`. `shape` is the per-axis lengths
+for an axes/product grid, otherwise one trajectory dimension. `snaking`
+records grid traversal; `extents` gives each axis's numeric bounds in its
+requested frame. `hints.dimensions` groups correlated axes into one dimension.
+`shots_per_step` retains the acquisition meaning above.
+
+`sweep_first_axis` is `[start, end, first_increment]`, the legacy ScanInfo
+projection: the first axis's spacing list for axes sweeps, otherwise its
+ordered pattern points. Repeated values are retained; a singleton's increment
+is zero. It is a lossy projection, not a recipe for replaying a nonuniform or
+multidimensional scan. Relative projections are offsets, as for old rel_scan.
+
+Data Utils classifies axes/product as GRID, every other moving trajectory as
+1D regardless of axis count. It retains stock `plan_pattern` and older funnel
+readers for historical runs. No existing event column changes meaning.
+
 ## Descriptor: configuration
 
 Every `GeecsDetector` records its drain offset

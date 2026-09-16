@@ -1,6 +1,6 @@
 # Scan composer and the Sweep payload
 
-**Status: design settled with the owner, 2026-09-16; foundation in progress.**
+**Status: foundation #921 reviewed; execution and complete UI in development.**
 Build from `feature/native-bluesky-plans` after optimization #920, merged as
 `05c0fc23`. The owner reports optimization hardware acceptance, including live
 optimization runs. That acceptance does not cover the sweep plan cutover.
@@ -238,7 +238,10 @@ is a later refinement if the real screen review shows it is needed.
 
 ## 7. Delivery process
 
-Each PR branches from and targets `feature/native-bluesky-plans` and follows
+The owner approved a linear stack on `feature/native-bluesky-plans`: #921
+foundation → execution cutover → combined preview API and composer. Build the
+complete app for local review before requiring merges; retarget children before
+deleting parent branches. Every PR follows
 root CLAUDE.md and `/land`: scoped changes, package version bumps/changelogs,
 CI-shaped checks, `scripts/commit.sh`, independent adversarial review and
 hardware verification/OWED section. No direct commits to an integration
@@ -247,8 +250,8 @@ branch in this repository. The owner merges the feature-targeted PRs.
 1. Models, shared numerical expansion, parity tests and this decision record.
 2. Worker/client/metadata cutover, deletion of old moving verbs, its own
    hardware session and coordinated preset corpus update.
-3. Hardware-free preview API and bounded response handling.
-4. Kit-based inline composer and owner visual review.
+3. Hardware-free preview API with bounded response handling, kit-based inline
+   composer, and owner review in the actual running app.
 
 The former PR 0 “submit any preset unchanged” patch is not a prerequisite:
 proceed directly with the foundation now that #920 has merged. Preserve

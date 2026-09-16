@@ -1,93 +1,9 @@
-"""The registration table: stock plan names with the GEECS ``take_reading`` pre-bound.
+"""Register Count, Sweep, Optimize and utility plans over the worker namespace.
 
-The worker registers the stock ``bluesky.plans`` verbs under their own
-names (``count``, ``scan``, ``list_scan`` …, :data:`~geecs_bluesky.plan_names.GEECS_PLAN_NAMES`)
-with the one GEECS difference bound in: the ``per_step`` / ``per_shot``
-hook — strict (:mod:`geecs_bluesky.plans.strict`: the trigger box fired
-between trigger and wait, one row per shot) or gated
-(:mod:`geecs_bluesky.plans.gated`: the box free-runs while the
-plugin-backed cameras count a batch; one datum per camera per step and
-one ``shots`` event per shot).  A queue item naming ``scan`` with
-namespace devices therefore runs a complete GEECS scan; the plan's
-arguments are the scan's one description (plan of record §4.D, §10.5).
-
-What a bound plan keeps and what it adds
-----------------------------------------
-The stock parameters are kept verbatim — positions, ``num``,
-``snake_axes``, ``md`` — minus the ``per_step`` / ``per_shot`` hook (a
-callable no queue item can carry).  Keyword-only GEECS parameters are
-appended, because each is a fact of *this* scan and belongs in its
-description rather than in a side channel:
-
-- ``trigger_profile`` — which trigger profile drives the box (the
-  experiment's default when omitted).  The bound plan brackets the run
-  through that profile's :class:`ShotControl`: ``ARMED → … → STANDBY``
-  strict, ``OFF → … → STANDBY`` gated.
-- ``shots_per_step`` (scan verbs only) — rows per position; ``count``'s
-  ``num`` already is the shot count.
-- ``acquisition`` — ``"strict"`` (default) or ``"gated"``: which
-  ``take_reading`` the hook binds (``08_gated_batch.md`` §4.1).
-- ``non_essential`` — detectors streamed for the run's duration in their
-  own streams, never waited on (§4.3); names resolve like ``detectors``.
-- ``shot_period`` — the strict rep-rate throttle, seconds between fires
-  (GEECS-Plugins#840); refused with ``gated`` (the box free-runs there).
-
-All ride in the start document beside the stock ``plan_args``
-(``non_essential`` as the devices' names, plus ``shot_clock`` — the
-device whose stamp counted a gated run's shots).
-
-Two things a bound plan does around the stock one
--------------------------------------------------
-- **The liveness gate** (:func:`liveness_gate`, GEECS-Plugins#852): before
-  the run bracket's first move — so before the box is driven and before
-  ``open_run`` claims a scan number — one ``CONNECTED`` read for the
-  trigger profile's device(s), every listed detector and every
-  non-essential device; a device the gateway reports ``Disconnected``
-  refuses the run with :exc:`~geecs_bluesky.exceptions.GeecsDeviceDownError`
-  naming every dead one.  Every submission path passes through it (a
-  preset, a bare stock plan item, a script), unlike the client preflight.
-  The plan-of-record rule against reading quiescence in a scan step
-  (``03`` §11.2) does not apply: this is the liveness PV, the doctrine's
-  own signal, read once per run.
-- **The failure's name**
-  (:func:`~geecs_bluesky.plans.strict.name_failed_status`,
-  GEECS-Plugins#868): a ``FailedStatus`` is given its cause's ``str`` (and
-  notes) as its text as it passes the GEECS hooks — inside the stock
-  plan, before ``run_wrapper`` renders ``str(exc)`` into the stop
-  document — and once more around the bracket for a failure outside the
-  run (the bracket's own move, a non-essential prepare).  The stop
-  document's ``reason`` — what the portal and ``ScanEndInfo`` show — then
-  reads ``CANothing: <pv>: <CA message>`` instead of ``<AsyncStatus …>``.
-
-Which stock plans
------------------
-Every ``bluesky.plans`` verb exposing the hook that a queue item can
-express: the deprecated aliases (``relative_scan`` for ``rel_scan`` …) and
-``scan_nd`` (a ``Cycler`` argument) are left out.
-:data:`~geecs_bluesky.plan_names.GEECS_PLAN_NAMES` pins the list for the
-import-light readers; ``tests/test_plan_registry.py`` asserts the two agree.
-
-The non-scan queue items
-------------------------
-``mv`` is the stock stub — a manual move as a queue item.  ``run_action``
-(:func:`~geecs_bluesky.plans.action_compiler.run_action_plan`) runs a named
-plan from the experiment's action library (``actions.yaml``): the steps compile to plain stubs
-(:mod:`geecs_bluesky.plans.action_compiler`) over the device namespace,
-which hands out each ``(device, variable)`` as the settable child or the
-readable signal it already is — no run is opened, so nothing is claimed
-and no file is written.  Neither takes a detector list, so a preset cannot
-name them.
-
-``measure_shot_offsets`` and ``check_shot_sync``
-(:mod:`geecs_bluesky.plans.calibration`) are the two once-run shot-offset
-plans of plan of record §4.F: the calibration that measures each device's
-edge-to-stamp latency, and the preflight that says whether the stored
-measurement still holds.  They *do* take a detector list, but no positions
-— they open no run, claim no scan number and write no scan data, so a
-preset (which describes a scan) still cannot express them.  Both drive the
-trigger box OFF and cost at least the longest device timeout in the set,
-which is exactly why they are queue items and never steps inside a scan
-(§11.2).
+The acquisition binder supplies strict/gated hooks, the liveness gate,
+trigger bracket, non-essential streaming and shot throttling. Count uses
+stock Bluesky count; Sweep delegates traversal to scan_nd. Moving stock
+verbs remain implementation details, never public queue entries.
 """
 
 from __future__ import annotations
@@ -134,42 +50,7 @@ from geecs_bluesky.utils import safe_name
 
 logger = logging.getLogger(__name__)
 
-#: Stock plans with the hook that are **not** registered: deprecated aliases
-#: of the ``rel_*`` verbs, and ``scan_nd`` whose ``cycler`` no queue item
-#: can carry.
-EXCLUDED_STOCK_PLANS: frozenset[str] = frozenset(
-    {
-        "scan_nd",
-        "inner_product_scan",
-        "outer_product_scan",
-        "relative_inner_product_scan",
-        "relative_outer_product_scan",
-        "relative_scan",
-        "relative_list_scan",
-        "relative_log_scan",
-        "relative_spiral",
-        "relative_spiral_fermat",
-    }
-)
-
 _HOOKS = ("per_step", "per_shot")
-
-
-def stock_plans_with_hook() -> dict[str, str]:
-    """Every ``bluesky.plans`` verb exposing ``per_step`` or ``per_shot`` → its hook."""
-    found: dict[str, str] = {}
-    for name in dir(bp):
-        obj = getattr(bp, name)
-        if name.startswith("_") or not inspect.isfunction(obj):
-            continue
-        try:
-            params = inspect.signature(obj).parameters
-        except (TypeError, ValueError):
-            continue
-        for hook in _HOOKS:
-            if hook in params:
-                found[name] = hook
-    return found
 
 
 class TriggerProfiles:
@@ -536,6 +417,10 @@ def bind_plans(
     for name in GEECS_PLAN_NAMES:
         if name == "mv":
             bound[name] = _mv_named
+        elif name == "sweep":
+            from .sweep import sweep_plan
+
+            bound[name] = strict_plan(sweep_plan(settables), profiles)
         elif name == "optimize":
             from .optimize import optimize_plan
 
@@ -554,10 +439,8 @@ def bind_plans(
 
 __all__ = [
     "ACQUISITION_MODES",
-    "EXCLUDED_STOCK_PLANS",
     "TriggerProfiles",
     "bind_plans",
     "liveness_gate",
-    "stock_plans_with_hook",
     "strict_plan",
 ]

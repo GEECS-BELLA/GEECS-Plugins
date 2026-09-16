@@ -90,9 +90,25 @@ def demo_presets() -> list[Any]:
                     {"device": "U_ICT", "save_images": False, "essential": True},
                 ],
                 "plan": {
-                    "name": "scan",
-                    "args": ["Jet pressure", 2.0, 5.0, 7],
-                    "kwargs": {"shots_per_step": 10, "acquisition": "strict"},
+                    "name": "sweep",
+                    "kwargs": {
+                        "shots_per_step": 10,
+                        "acquisition": "strict",
+                        "sweep": {
+                            "trajectory": {
+                                "kind": "axes",
+                                "axes": [
+                                    {
+                                        "kind": "range",
+                                        "axis": "Jet pressure",
+                                        "start": 2,
+                                        "stop": 5,
+                                        "num": 7,
+                                    }
+                                ],
+                            }
+                        },
+                    },
                 },
             }
         ),

@@ -226,30 +226,27 @@ the recorded physical targets, not a relative coordinate after its zero moved.
 
 ## The scan path (§4.B)
 
-### Sweep foundation (not yet a registered plan)
+### Sweep execution (2026-09-16 cutover; hardware acceptance owed)
 
-`geecs_schemas.Sweep` describes predetermined moving trajectories;
-`geecs_bluesky.trajectory` is the hardware-free expansion seam shared by
-the future scanner preview and `sweep` plan. It imports NumPy and Bluesky's
-`plan_patterns`, never the namespace or devices. `axis_positions` expands
-range/list/log spacing; `sweep_to_cycler(sweep, resolve)` composes the stock
-patterns and maps their keys to inert names or resolved movables. It never
-reads or moves them. Relative values remain offsets; baseline capture and
-restore belong to the execution plan, after the appropriate staging.
+The public scan taxonomy is `count`, `sweep`, `optimize`; moving stock verbs
+are no longer registered. This supersedes the phase-1 stock-roster descriptions
+above. `geecs_schemas.Sweep` carries the JSON trajectory; client expansion
+resolves catalog/Device:Variable names once and records references for preflight.
+The worker resolves only expanded bindings against its existing namespace.
+`trajectory.sweep_to_cycler` remains the one pure numerical implementation.
 
-Axis sweeps allow any axis count >= 1, require equal lengths when zipped,
-and retain every supplied list value in order. Patterns are typed variants
-inside `Sweep`, including x2x's fixed relative, half-range-Y semantics.
-Count remains a separate plan. This foundation changes no registrations;
-the planned moving-stock-verb cutover is a separate hardware-accepted PR.
-The arc decisions and accepted layout are in
-`Planning/native_bluesky/12_scan_composer.md` until that arc completes.
+`plans/sweep.py` validates and expands before the acquisition bracket moves
+the box. It uses stock `scan_nd` through `stub_wrapper`, with relative/reset
+preprocessors inside run_wrapper and stage_wrapper: baseline capture happens
+after stage, reset before close and unstage. A reset failure fails the run.
+Never put reset_positions_wrapper outside scan_nd's staging lifecycle.
+The validated payload and ordered metadata follow `EVENT_SCHEMA.md`; old
+run readers remain for history. Count retains its distinct noscan metadata.
 
 ### Deployed acquisition
 
-Two modes, one keyword (`acquisition`, default `strict`), both the stock
-plans with a GEECS `per_step` / `per_shot`, registered under the stock
-names by `plans/registry.py` — the stock parameters minus the hook, plus
+Two modes, one keyword (`acquisition`, default `strict`), using a GEECS
+`per_step` / `per_shot` bound by `plans/registry.py` — the stock parameters minus the hook, plus
 `trigger_profile`, `shots_per_step`, `acquisition`, `non_essential` and
 `shot_period` (keyword-only; all ride in the start document).
 
