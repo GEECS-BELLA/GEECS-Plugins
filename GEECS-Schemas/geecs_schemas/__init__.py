@@ -64,6 +64,19 @@ from geecs_schemas.scan_request import (
     SubmissionRecord,
 )
 from geecs_schemas.shot_offsets import DeviceOffset, ShotOffsets
+from geecs_schemas.sweep import (
+    AxisSweep,
+    FermatSpiralSweep,
+    ListAxis,
+    LogAxis,
+    RangeAxis,
+    RelativeSweepAxis,
+    SpiralSweep,
+    SquareSpiralSweep,
+    Sweep,
+    SweepAxis,
+    X2XSweep,
+)
 from geecs_schemas.scan_variables import (
     CompositeMode,
     PseudoComponent,
@@ -150,6 +163,18 @@ __all__ = [
     "SCHEMA_REGISTRY",
     "OptimizerConfig",
     "optimizer_required_devices",
+    # sweep payload (nested in a plan call, not a standalone config document)
+    "Sweep",
+    "SweepAxis",
+    "RelativeSweepAxis",
+    "AxisSweep",
+    "RangeAxis",
+    "ListAxis",
+    "LogAxis",
+    "SpiralSweep",
+    "FermatSpiralSweep",
+    "SquareSpiralSweep",
+    "X2XSweep",
 ]
 
 # kind → top-level document model, for generic tooling (loaders, editors,

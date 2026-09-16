@@ -5,6 +5,18 @@ All notable changes to GEECS-Schemas are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.29.0] - 2026-09-16
+
+### Added
+
+- `Sweep`: a typed payload for predetermined moving scans, with one-to-many
+  range/list/log axes, correlated or grid combination, snake traversal and
+  per-axis relative flags. Correlated point counts must agree; lists retain
+  their ordering and repeated positions. Count remains separate.
+- Typed spiral, Fermat spiral, square spiral and relative x2x trajectories.
+  Validation and cheap step counts need no numerical or hardware imports;
+  Bluesky expansion belongs to GeecsBluesky. No existing schema changes shape.
+
 ## [0.28.2] - 2026-09-16
 
 ### Fixed

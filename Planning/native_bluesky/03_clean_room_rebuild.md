@@ -318,6 +318,24 @@ again; the baseline stream carries the same values at a cost of two rows.
 
 ### D. Clients
 
+**Direction amendment, owner-approved 2026-09-16:** the scan composer arc
+(`12_scan_composer.md`) replaces the moving stock-verb roster with one
+`sweep` plan taking a typed trajectory payload, including the spiral/x2x
+patterns. `count` remains distinct for motionless acquisition; `optimize`
+(#920, merged) is the adaptive plan. The utility plans remain. This preserves
+the two rules above: the plan arguments are still the one description, and
+devices still own their lifecycle. The client resolves axis references once;
+the worker constructs the cycler through the shared hardware-free trajectory
+module and delegates execution to stock `scan_nd`. Relative baseline capture
+and restoration remain execution concerns, not schema or browser mathematics.
+
+The stock-plan contract below describes the **currently deployed** moving
+plans until the composer arc's separate cutover PR deletes those registrations
+and migrates client expansion and metadata readers together. The foundation
+PR changes no registrations. Historical metadata decoding stays available;
+the cutover requires its own hardware acceptance. The full payload, UI and
+delivery decisions live in `12_scan_composer.md` while that arc is active.
+
 A client expands a **preset** into a stock plan item — every
 `bluesky.plans` verb with a `per_step` / `per_shot` hook that a queue item
 can express (`plan_names.GEECS_PLAN_NAMES`: `count`, `scan`, `list_scan`,
