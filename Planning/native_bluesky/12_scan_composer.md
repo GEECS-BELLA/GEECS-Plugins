@@ -259,11 +259,52 @@ Implementation branches: `codex/scan-composer-foundation` →
 contains the complete app, runnable with `poetry run geecs-scanner --demo`
 from GeecsScanner. Demo uses the production UI and shared Python trajectory
 expansion with simulated acquisition; it is not hardware acceptance. The
-deployed configs corpus has not been migrated yet; coordinate it with the
-execution cutover and preserve optimization configs.
+deployed configs corpus has not been migrated yet. Deployment is blocked on
+the coordinated corpus cutover below; preserve optimization configs.
+
+### Cutover gate for the deployed preset corpus
+
+The reviewed configs baseline is `GEECS-Plugins-Configs@ad4e595`. Its active
+Undulator preset corpus has eight `scan` plans and five `count` plans. Convert
+the eight moving presets to `sweep` in the same maintenance window as the
+worker and web scanner; do not deploy either half independently. The owner
+has authorized direct configs-main commits, but that is not permission to
+change the live corpus ahead of the compatible worker. No compatibility
+fallback should submit deleted worker verbs.
+
+| Preset file | Positions | Shots per position |
+|---|---:|---:|
+| `00_focuscan.yaml` | 17 | 10 |
+| `EMQ1_1DScan.yaml` | 6 | 20 |
+| `EMQ2_1DScan.yaml` | 4 | 25 |
+| `HP Compressor - E beam.yaml` | 17 | 15 |
+| `HP CompressorAndFoucs.yaml` | 41 | 5 |
+| `HP-AllDiagnostics.yaml` | 13 | 15 |
+| `low power mode imager.yaml` | 16 | 3 |
+| `stretcher MI scan.yaml` | 6 | 3 |
+
+For each, replace `plan.name: scan` and its four positional arguments
+`[axis, start, stop, num]` with `plan.name: sweep`, `args: []`, and
+`kwargs.sweep.trajectory: {kind: axes, axes: [{kind: range, axis, start,
+stop, num}]}`. Preserve every other keyword, capture device, trigger profile,
+description and background flag. The prepared migration was validated against
+the Sweep/Preset schemas and the original ordered linear positions, including
+descending ranges; all non-plan bytes remain unchanged.
+
+At cutover, stop new submissions and drain the queue; record worker, scanner
+and configs revisions together. Recheck the corpus against any changes since
+the baseline, apply and commit the eight conversions, and update worker and
+scanner before reopening submissions. Verify all eight are editable, their
+preflights succeed with the configured aliases, the five count presets still
+load, and optimization configs are unchanged. Complete #922's separate live
+hardware session before accepting the cutover. Roll back the three revisions
+together if acceptance fails. This gate remains **OWED** until those observed
+results are recorded; a successful demo or unit suite does not satisfy it.
 
 The former PR 0 “submit any preset unchanged” patch is not a prerequisite:
 proceed directly with the foundation now that #920 has merged. Preserve
-valid preset submission when replacing the form, independent of editability.
+valid deployed preset submission through the coordinated migration above.
+Unsupported or malformed documents remain visibly refused instead of being
+submitted under retired plan names or guessed from a previous form.
 Delete this planning directory at arc completion after transferring durable
 contracts into package CLAUDE.md files and published documentation.

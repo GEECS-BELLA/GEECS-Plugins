@@ -160,13 +160,25 @@ New scan starts unconfigured and selects Count / Sweep / Optimize. Sweep
 expands inline into Axis Sweeps / Patterns. The browser builds typed inputs
 and only draws coordinates returned by `POST /api/trajectory`; it never
 implements spacing or pattern geometry. The service uses the shared Bluesky
-trajectory module in a disposable process: 256 KiB input, 250,000 expanded
-coordinates, 256 MiB RSS and eight seconds, two previews concurrently. These
+trajectory module: raw request bodies are limited to 256 KiB before parsing,
+with at most 250,000 expanded coordinates and two concurrent previews. Axis
+sweeps with at most eight axes and X2X expand on the threadpool; all spirals
+and larger axis sets use a disposable process with 256 MiB RSS and eight
+seconds. Exact output counts do not bound square-spiral or high-axis Cycler
+construction time. The service package imports lazily so the child does not
+load the queue client or execute its module twice. These
 are interactive computation budgets, not shot limits. Responses sample at
 most 2,000 positions / 10,000 coordinates and disclose sampling; submitted
 payloads always retain the full original trajectory. Relative previews are
 offsets; execution captures the staged baseline. Stale requests cannot replace
-newer form state. Capture controls remain shared outside the trajectory tabs.
+newer form state. Superseded fetches are aborted, disconnected requests cancel
+their child, and busy previews retry twice before showing a manual retry.
+Preview is optional: Start still runs normal preflight validation, and Save
+validates the nested Sweep schema without requiring numerical expansion.
+Capture controls remain shared outside the trajectory tabs; background is
+Count-only. A malformed preset clears the old trajectory, loads its own
+capture fields, and disables both Start and Save with an explanation. The
+points table is materialized only while its disclosure is open.
 
 `sweep-composer.js` owns editing and numeric list parsing; `trajectory-view.js`
 only renders server results and can be reused independently of the form.

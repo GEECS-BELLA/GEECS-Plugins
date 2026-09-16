@@ -32,10 +32,17 @@
     var steps = data.indices.map(function (i) { return i + 1; });
     data.axes.forEach(function (a) { plots.appendChild(chart(a.axis + (a.relative ? " · offsets" : " · absolute"), steps, a.positions, "Step", a.axis)); });
     if (data.axes.length === 2) { var x = data.axes[0], y = data.axes[1]; plots.appendChild(chart("X–Y trajectory · " + x.axis + " / " + y.axis, x.positions, y.positions, x.axis, y.axis)); }
-    tableRoot.replaceChildren(); var table = el("table"), head = el("thead"), row = el("tr"); row.appendChild(el("th", "Step"));
+    tableRoot.replaceChildren();
+    var disclosure = tableRoot.closest("details"), built = false;
+    function buildTable() {
+    if (!disclosure.open || built) return;
+    built = true;
+    var table = el("table"), head = el("thead"), row = el("tr"); row.appendChild(el("th", "Step"));
     data.axes.forEach(function (a) { row.appendChild(el("th", a.axis + (a.relative ? " (offset)" : ""))); }); head.appendChild(row); table.appendChild(head);
     var body = el("tbody"); data.indices.forEach(function (step, i) { var r = el("tr"); r.appendChild(el("td", String(step + 1))); data.axes.forEach(function (a) { r.appendChild(el("td", String(a.positions[i]))); }); body.appendChild(r); });
     table.appendChild(body); tableRoot.appendChild(table);
+    }
+    disclosure.ontoggle = buildTable; buildTable();
   }
   window.GEECS_TRAJECTORY = {render: render};
 }());

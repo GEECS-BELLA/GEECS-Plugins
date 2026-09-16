@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import math
 import subprocess
 import sys
@@ -11,7 +12,7 @@ import time
 
 import psutil
 from geecs_schemas import Sweep
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from .errors import ScannerError
 
@@ -21,6 +22,7 @@ MAX_RESPONSE_VALUES = 10_000
 MAX_RSS = 256 * 1024 * 1024
 TIMEOUT = 8.0
 _SLOTS = threading.BoundedSemaphore(2)
+_LOG = logging.getLogger(__name__)
 
 
 class TrajectoryAxisOut(BaseModel):
@@ -40,7 +42,7 @@ class TrajectoryOut(BaseModel):
     sampled: bool
 
 
-def preview(sweep: Sweep) -> TrajectoryOut:
+def preview(sweep: Sweep, cancelled: threading.Event | None = None) -> TrajectoryOut:
     """Expand without consulting a worker, namespace, catalog or gateway.
 
     Curved patterns have no algebraic size; run upstream's geometry in a
@@ -62,6 +64,18 @@ def preview(sweep: Sweep) -> TrajectoryOut:
     if not _SLOTS.acquire(blocking=False):
         raise ScannerError("policy_refusal", "Preview is busy; try again shortly.")
     try:
+        if sweep.trajectory.kind == "x2x" or (
+            sweep.trajectory.kind == "axes" and len(sweep.axis_references()) <= 8
+        ):
+            # The exact coordinate budget bounds these allocations before
+            # expansion. Square spirals also stay isolated: long thin grids
+            # can cost far more work than their final coordinate count. Large
+            # axis counts also incur recursive Cycler composition costs; the
+            # threshold selects isolation, it does not prohibit those sweeps.
+            try:
+                return _expand(sweep)
+            except (ValueError, ArithmeticError) as exc:
+                raise ScannerError("invalid_request", str(exc)) from exc
         with subprocess.Popen(
             [sys.executable, "-m", "geecs_scanner.service.trajectory"],
             stdin=subprocess.PIPE,
@@ -74,6 +88,10 @@ def preview(sweep: Sweep) -> TrajectoryOut:
             try:
                 pending = encoded
                 while True:
+                    if cancelled is not None and cancelled.is_set():
+                        raise ScannerError(
+                            "invalid_request", "Trajectory preview cancelled."
+                        )
                     try:
                         output, error = child.communicate(input=pending, timeout=0.05)
                         break
@@ -82,7 +100,7 @@ def preview(sweep: Sweep) -> TrajectoryOut:
                         if time.monotonic() >= deadline:
                             raise ScannerError(
                                 "invalid_request",
-                                "Pattern exceeded the preview time budget. Use a larger radial step or fewer points.",
+                                "Trajectory preview timed out. Retry when the server is less busy, or reduce the point count.",
                             )
                         try:
                             if monitor.memory_info().rss > MAX_RSS:
@@ -97,15 +115,27 @@ def preview(sweep: Sweep) -> TrajectoryOut:
                     child.kill()
                 child.communicate()
             if child.returncode:
+                _LOG.error(
+                    "Trajectory child exited %s: %s", child.returncode, error.strip()
+                )
                 raise ScannerError(
                     "invalid_request",
-                    "Trajectory calculation failed: "
-                    + (error.strip()[-400:] or "preview process stopped"),
+                    "Trajectory calculation failed. Retry the preview; details are in the server log.",
                 )
-            result = json.loads(output)
+            try:
+                result = json.loads(output)
+                if not isinstance(result, dict):
+                    raise ValueError("Expected a response object")
+                if "error" not in result:
+                    return TrajectoryOut.model_validate(result)
+            except (ValueError, ValidationError) as exc:
+                _LOG.exception("Invalid trajectory child response")
+                raise ScannerError(
+                    "invalid_request",
+                    "Trajectory calculation returned an invalid response. Retry the preview.",
+                ) from exc
             if "error" in result:
                 raise ScannerError("invalid_request", result["error"])
-            return TrajectoryOut.model_validate(result)
     finally:
         _SLOTS.release()
 

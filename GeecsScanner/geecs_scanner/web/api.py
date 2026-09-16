@@ -7,10 +7,16 @@ FastAPI runs a ``def`` route on its threadpool.  Listing answers are
 
 from __future__ import annotations
 
+import asyncio
+import json
+import threading
+from contextlib import suppress
 from typing import Any
 
-from fastapi import APIRouter, Response
+from fastapi import APIRouter, Request, Response
+from starlette.concurrency import run_in_threadpool
 
+from geecs_scanner.service.errors import ScannerError
 from geecs_scanner.service.models import (
     ActionDetailOut,
     ActionOut,
@@ -39,7 +45,7 @@ from geecs_scanner.service.models import (
     VerbOut,
 )
 from geecs_scanner.service.scanner import ScannerService
-from geecs_scanner.service.trajectory import TrajectoryOut
+from geecs_scanner.service.trajectory import MAX_INPUT_BYTES, TrajectoryOut
 
 _NO_CACHE = {"Cache-Control": "no-cache"}
 
@@ -53,9 +59,49 @@ def register(router: APIRouter, service: ScannerService) -> None:
         return service.health()
 
     @router.post("/api/trajectory", response_model=TrajectoryOut)
-    def trajectory(payload: dict[str, object]) -> TrajectoryOut:
-        """Preview a trajectory using only its typed inputs."""
-        return service.trajectory(payload)
+    async def trajectory(request: Request) -> TrajectoryOut:
+        """Bound the raw body before JSON parsing or Sweep validation."""
+        too_large = "Trajectory input exceeds the 256 KiB preview budget."
+        length = request.headers.get("content-length")
+        if length is not None:
+            try:
+                size = int(length)
+            except ValueError as exc:
+                raise ScannerError(
+                    "invalid_request", "Invalid Content-Length."
+                ) from exc
+            if size < 0:
+                raise ScannerError("invalid_request", "Invalid Content-Length.")
+            if size > MAX_INPUT_BYTES:
+                raise ScannerError("invalid_request", too_large)
+        body = bytearray()
+        async for chunk in request.stream():
+            if len(body) + len(chunk) > MAX_INPUT_BYTES:
+                raise ScannerError("invalid_request", too_large)
+            body.extend(chunk)
+        try:
+            payload = json.loads(body)
+        except (ValueError, UnicodeError) as exc:
+            raise ScannerError(
+                "invalid_request", "Trajectory input must be valid JSON."
+            ) from exc
+        if not isinstance(payload, dict):
+            raise ScannerError("invalid_request", "Trajectory input must be an object.")
+        cancelled = threading.Event()
+
+        async def watch_disconnect() -> None:
+            while not await request.is_disconnected():
+                await asyncio.sleep(0.05)
+            cancelled.set()
+
+        watcher = asyncio.create_task(watch_disconnect())
+        try:
+            return await run_in_threadpool(service.trajectory, payload, cancelled)
+        finally:
+            cancelled.set()
+            watcher.cancel()
+            with suppress(asyncio.CancelledError):
+                await watcher
 
     @router.get("/api/status", response_model=StatusOut)
     def status(response: Response) -> StatusOut:

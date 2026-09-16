@@ -439,3 +439,83 @@ console.log(JSON.stringify({loaded, saved, cleared: $("trig").value}));
     assert "trigger_profile" not in kwargs
     assert kwargs["custom_option"] == 42
     assert kwargs["sweep"]["trajectory"]["axes"][0] == axis
+
+
+def test_malformed_preset_replaces_capture_fields_but_cannot_start_or_save():
+    from .test_composer import run_js
+
+    source = (_PKG / "static/scanner.js").read_text()
+    functions = "\n".join(
+        "function "
+        + name
+        + "("
+        + args
+        + ") {\n"
+        + _script_function(source, name)
+        + "\n}"
+        for name, args in [
+            ("formShape", "plan"),
+            ("fillFormFromPreset", "doc"),
+            ("recalc", ""),
+            ("updateStartGate", ""),
+        ]
+    )
+    result = run_js(
+        functions
+        + r"""
+const $=id=>root.querySelector('#'+id);
+var S={status:{connected:true,re_state:'idle'},formable:true}, valid=false;
+function setMode(mode) {S.mode=mode;} function setAcq(acq) {S.acq=acq;}
+function setSelect(id,v) {$(id).value=v;} function setInvalid() {} function fmtSecs() {return '';}
+function noDevicesNote() {} function renderCalibration() {} function showError() {}
+function deviceRow(name) {const row=new Element('tr');row.textContent=name;return row;}
+const composer=window.GEECS_SWEEP.create(root,()=>Promise.resolve(sample),recalc);
+let cases=[];
+for (const bad of [undefined,{trajectory:{kind:'unknown'}},{trajectory:{kind:'axes',axes:[{kind:'list',axis:'A',positions:42}]}}]) {
+ $('devs').replaceChildren();
+ fillFormFromPreset({devices:[{device:'Old'}],plan:{name:'sweep',kwargs:{sweep:good,shots_per_step:3}}});
+ const pending=$('btn-start').disabled; await tick(); const before=$('btn-start').disabled;
+ // Simulate DOM textContent clearing, which the real browser performs.
+ $('devs').replaceChildren();
+ fillFormFromPreset({devices:[{device:'New'}],plan:{name:'sweep',kwargs:{sweep:bad,shots_per_step:7}}});
+ cases.push({pending,before,start:$('btn-start').disabled,save:$('btn-save-preset').disabled,shots:$('shots').value,device:$('devs').children[0].textContent,result:composer.result()});
+}
+console.log(JSON.stringify(cases));
+"""
+    )
+    assert (
+        result
+        == [
+            {
+                "pending": False,
+                "before": False,
+                "start": True,
+                "save": True,
+                "shots": 7,
+                "device": "New",
+                "result": None,
+            }
+        ]
+        * 3
+    )
+
+
+@pytest.mark.parametrize("mode", ["count", "sweep", "optimize"])
+def test_background_count_flag_does_not_follow_mode_change(mode):
+    _need_node()
+    source = (_PKG / "static/scanner.js").read_text()
+    harness = (
+        r"""
+var S={mode:MODE,acq:'strict',presetDoc:{background:true,plan:{name:'count',kwargs:{num:3}}}};
+function $(id) {return {value:id==='shots'?'3':'',checked:true};}
+function tableDevices() {return [];}
+var composer={value(){return {trajectory:{kind:'axes',axes:[]}};}};
+""".replace("MODE", json.dumps(mode))
+        + "function buildPreset(){\n"
+        + _script_function(source, "buildPreset")
+        + "\n}\nconsole.log(JSON.stringify(buildPreset()));"
+    )
+    result = subprocess.run(
+        ["node", "-"], input=harness, text=True, capture_output=True, check=True
+    )
+    assert json.loads(result.stdout)["background"] is (mode == "count")

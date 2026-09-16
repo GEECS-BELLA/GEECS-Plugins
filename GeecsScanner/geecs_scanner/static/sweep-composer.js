@@ -27,7 +27,7 @@
     var axes = [{axis: "", kind: "range", relative: false, start: 0, stop: 1, num: 11}],
         tab = "axes", combine = "zip", snake = false, kind = "spiral",
         pair = [{axis: "", relative: false}, {axis: "", relative: false}],
-        params = {}, result = null, current = null, generation = 0, timer;
+        params = {}, result = null, current = null, generation = 0, timer, controller;
     var $ = function (id) { return root.querySelector("#" + id); };
     var patterns = {
       spiral: [["x_center", "X center", 0], ["y_center", "Y center", 0], ["x_range", "X width", 10], ["y_range", "Y width", 10], ["dr", "Radial step", 1], ["nth", "First-ring points", 16, true], ["dr_y", "Y radial step (optional)", ""], ["tilt", "Tilt (radians)", 0]],
@@ -110,8 +110,21 @@
       }
       return {trajectory: t};
     }
+    function invalidate() {
+      ++generation; clearTimeout(timer); if (controller) controller.abort(); result = null; current = null;
+      $("sweep-plots").replaceChildren(); $("sweep-table").replaceChildren();
+      $("sweep-table").closest("details").ontoggle = null;
+      $("sweep-payload").textContent = "";
+    }
+    function reset() {
+      invalidate(); tab = "axes"; combine = "zip"; snake = false; kind = "spiral"; params = {};
+      axes = [{axis: "", kind: "range", relative: false, start: 0, stop: 1, num: 11}];
+      pair = [{axis: "", relative: false}, {axis: "", relative: false}]; render();
+      $("sweep-message").textContent = "Choose a variable to compose a trajectory.";
+      $("sweep-preview-note").textContent = "No preview available.";
+    }
     function update() {
-      var request = ++generation; clearTimeout(timer); result = null; current = null;
+      invalidate(); var request = generation, retries = 0;
       $("sweep-preview-note").textContent = "Preview is out of date.";
       try { current = build(); $("sweep-payload").textContent = JSON.stringify(current, null, 2); }
       catch (e) { $("sweep-message").textContent = e.message; changed(); return; }
@@ -119,13 +132,22 @@
       var sent = current;
       function requestPreview() {
         if (request !== generation) return;
-        api(sent).then(function (data) {
+        controller = new AbortController();
+        api(sent, controller.signal).then(function (data) {
           if (request !== generation) return;
           result = data; $("sweep-message").textContent = data.total_steps + " positions · " + data.axes.length + (data.axes.length === 1 ? " axis" : " axes");
           $("sweep-preview-note").textContent = (data.sampled ? "Sampled preview: " + data.indices.length + " of " + data.total_steps + " positions. " : "All positions shown. ") + "Relative axes show offsets; the starting readback is captured when the run begins.";
           window.GEECS_TRAJECTORY.render($("sweep-plots"), $("sweep-table"), data);
           changed();
-        }).catch(function (e) { if (request !== generation) return; if (e.status === 409) { timer = setTimeout(requestPreview, 500); return; } $("sweep-message").textContent = e.message; changed(); });
+        }).catch(function (e) {
+          if (request !== generation || e.name === "AbortError") return;
+          if (e.status === 409 && retries < 2) {
+            retries++; $("sweep-message").textContent = "Preview queue busy; retrying (" + retries + "/2)…";
+            timer = setTimeout(requestPreview, 500); return;
+          }
+          $("sweep-message").textContent = e.status === 409 ? "Preview queue busy. Use Refresh preview to try again." : e.message;
+          $("sweep-preview-note").textContent = "Preview unavailable. Start still runs the normal preflight validation."; changed();
+        });
       }
       timer = setTimeout(requestPreview, 300);
     }
@@ -144,6 +166,7 @@
       var b = e.target.closest("button"); if (!b) return;
       if (b.dataset.sweepTab) tab = b.dataset.sweepTab;
       else if (b.hasAttribute("data-remove")) axes.splice(Number(b.dataset.remove), 1);
+      else if (b.id === "sweep-refresh") { update(); return; }
       else if (b.id === "sweep-add-axis") axes.push({axis: "", kind: "range", relative: false, start: 0, stop: 1, num: 11});
       else return;
       render(); update();
@@ -156,8 +179,24 @@
       value: build,
       result: function () { return result; },
       refresh: update,
+      reset: reset,
       variables: function (items) { var list = $("sweep-variables"); list.replaceChildren(); items.forEach(function (v) { list.appendChild(node("option", {value: v.name}, v.alias || v.target || "")); }); },
-      load: function (payload) { var t = JSON.parse(JSON.stringify(payload.trajectory)); if (t.kind === "axes") { tab = "axes"; axes = t.axes; axes.forEach(function (a) { if (a.kind === "list") a.positions = a.positions.join(", "); }); combine = t.combine || "zip"; snake = !!t.snake; } else { tab = "patterns"; kind = t.kind; pair = [t.x, t.y]; params = t; } render(); update(); }
+      load: function (payload) {
+        reset();
+        try {
+          if (!payload || !payload.trajectory) throw new Error("Missing Sweep trajectory.");
+          var t = JSON.parse(JSON.stringify(payload.trajectory));
+          function reference(a) { return a && typeof a.axis === "string"; }
+          if (t.kind === "axes") {
+            if (!Array.isArray(t.axes) || !t.axes.length || !t.axes.every(function (a) { return reference(a) && ["range", "list", "log"].indexOf(a.kind) >= 0 && (a.kind !== "list" || Array.isArray(a.positions)); })) throw new Error("Invalid Sweep axes or position list.");
+            axes = t.axes; axes.forEach(function (a) { if (a.kind === "list") a.positions = a.positions.join(", "); }); combine = t.combine || "zip"; snake = !!t.snake;
+          } else {
+            if (!Object.prototype.hasOwnProperty.call(patterns, t.kind) || !reference(t.x) || !reference(t.y)) throw new Error("Unsupported or incomplete Sweep pattern.");
+            tab = "patterns"; kind = t.kind; pair = [t.x, t.y]; params = t;
+          }
+          render(); update();
+        } catch (e) { reset(); throw e; }
+      }
     };
   }
   window.GEECS_SWEEP = {create: create, parseList: parseList};

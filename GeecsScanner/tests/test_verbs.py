@@ -240,3 +240,41 @@ def test_save_preset_refuses_an_invalid_document(
     r = client.post("/api/configs/presets/.yaml", json={"preset": preset_doc})
     assert r.status_code == 400 and "not a file name" in r.json()["error"]["message"]
     assert "" not in client.get("/api/configs/presets").json()["names"]
+
+
+def test_save_cannot_overwrite_with_schema_invalid_sweep(client, preset_doc):
+    original = client.get("/api/configs/presets/jet_pressure_sweep").json()
+    preset_doc["plan"] = {
+        "name": "sweep",
+        "kwargs": {
+            "sweep": {
+                "trajectory": {
+                    "kind": "axes",
+                    "axes": [
+                        {"kind": "list", "axis": "A", "positions": [1, 2]},
+                        {"kind": "list", "axis": "B", "positions": [1, 2, 3]},
+                    ],
+                }
+            }
+        },
+    }
+    response = client.post(
+        "/api/configs/presets/jet_pressure_sweep",
+        json={"preset": preset_doc, "overwrite": True},
+    )
+    assert response.status_code == 400
+    assert "equal point counts" in str(response.json())
+    assert client.get("/api/configs/presets/jet_pressure_sweep").json() == original
+
+
+def test_save_valid_sweep_does_not_require_preview(client, preset_doc, monkeypatch):
+    from geecs_scanner.service import trajectory
+
+    def no_preview(*a, **kw):
+        raise AssertionError("saving must not need a numerical preview")
+
+    monkeypatch.setattr(trajectory, "preview", no_preview)
+    response = client.post(
+        "/api/configs/presets/no_preview", json={"preset": preset_doc}
+    )
+    assert response.status_code == 200, response.text

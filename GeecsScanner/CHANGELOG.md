@@ -23,6 +23,12 @@ project adheres to semantic versioning.
   fixed two-axis form and its browser-side point-count arithmetic. Preserve
   optimization controls and unedited plan keywords through preset editing.
 
+### Fixed
+
+- Fail closed on malformed Sweep presets, validate nested trajectories before saving, and prevent hidden background-count metadata from following a mode change.
+- Bound raw preview requests before parsing, keep expensive patterns and large axis sets isolated, cancel obsolete previews, and bound busy retries. Preview failures no longer block normal submission preflight; routine axis previews avoid cold subprocess imports.
+- Report child failures through readable errors with diagnostics in server logs, build the points table on disclosure, and skip Node tests when Node is unavailable.
+
 ## [0.10.0] - 2026-09-16
 
 ### Changed

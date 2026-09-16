@@ -57,8 +57,8 @@
     tail: "scanlog", logFolder: null, logLines: [], consoleLines: []
   };
 
-  var composer = window.GEECS_SWEEP.create($("sweep-composer"), function (payload) {
-    return post("/api/trajectory", payload);
+  var composer = window.GEECS_SWEEP.create($("sweep-composer"), function (payload, signal) {
+    return api("/api/trajectory", {method: "POST", headers: {"content-type": "application/json"}, body: JSON.stringify(payload), signal: signal});
   }, recalc);
 
   /* ------------------------------------------------------------- errors */
@@ -432,6 +432,7 @@
 
   function formShape(plan) {
     if ((plan.args || []).length) return null;
+    if (plan.name === "sweep" && !(plan.kwargs && plan.kwargs.sweep && plan.kwargs.sweep.trajectory)) return null;
     return ["count", "sweep", "optimize"].indexOf(plan.name) >= 0 ? plan.name : null;
   }
 
@@ -443,7 +444,10 @@
     setMode(shape || "", true);
     setAcq(kw.acquisition || "strict");
     $("background").checked = !!doc.background;
-    if (shape === "sweep") composer.load(kw.sweep);
+    if (shape === "sweep") {
+      try { composer.load(kw.sweep); }
+      catch (e) { S.formable = false; S.formableNote = "Cannot load Sweep preset: " + e.message; showError(S.formableNote); }
+    } else composer.reset();
     $("shots").value = shape === "count" ? (kw.num || 1) : (kw.shots_per_step || 1);
     $("period").value = kw.shot_period != null ? kw.shot_period : "";
     var trigger = Object.prototype.hasOwnProperty.call(kw, "trigger_profile") ? kw.trigger_profile : doc.trigger_profile;
@@ -556,7 +560,8 @@
       setInvalid("iterations", !iterationsOk);
       ok = ok && iterationsOk && !!S.optimizer;
     } else if (S.mode === "sweep") {
-      var preview = composer.result(); ok = ok && !!preview; steps = preview ? preview.total_steps : 0;
+      try { composer.value(); } catch (e) { ok = false; }
+      var preview = composer.result(); steps = preview ? preview.total_steps : 0;
     }
     var total = count ? shots : steps * shots;
     var period = S.acq === "strict" && $("period").value !== "" ? Number($("period").value) : null;
@@ -569,7 +574,7 @@
     // The form is the document: a preset only seeds it, so Start (and
     // Save as preset) need a valid form, never a loaded preset (#900).
     if (!S.mode) $("est").textContent = "Choose Count, Sweep or Optimize.";
-    else if (S.mode === "sweep" && !composer.result()) $("est").textContent = "Complete the trajectory to continue.";
+    else if (S.mode === "sweep" && !composer.result()) $("est").textContent = ok ? "Shot estimate unavailable until preview completes. Start runs preflight validation." : "Complete the trajectory to continue.";
     valid = ok;
     updateStartGate();
   }
@@ -582,7 +587,7 @@
     var busy = !st || !st.connected || st.re_state === "paused";
     var btn = $("btn-start");
     btn.disabled = busy || !valid || !S.formable;
-    $("btn-save-preset").disabled = !valid;
+    $("btn-save-preset").disabled = !valid || !S.formable;
     btn.title = !st ? "waiting for the manager" : !st.connected ? "manager unreachable" : busy ? "a scan is paused — resume or stop it first" : !S.formable ? S.formableNote : !valid ? "fix the form first" : "";
     $("preset-name").textContent = S.presetName ? "preset " + S.presetName + (S.formable ? "" : " · " + S.formableNote) : "";
   }
@@ -604,7 +609,7 @@
     if (S.acq === "strict" && $("period").value !== "") kwargs.shot_period = Number($("period").value);
     else delete kwargs.shot_period;
     return {name: S.presetName || "adhoc", description: $("desc").value.trim(), trigger_profile: $("trig").value || null,
-      background: name === "count" ? $("background").checked : !!doc.background,
+      background: name === "count" && $("background").checked,
       devices: tableDevices(), plan: {name: name, args: [], kwargs: kwargs}};
   }
 
