@@ -254,10 +254,13 @@ class ConfigsRepoResolver:
     # Listings (folder scans — no YAML parsing, never raise)
     # ------------------------------------------------------------------
 
-    def _list_folder(self, folder: str) -> list[str]:
+    def _list_folder(self, folder: str, *, strict: bool = False) -> list[str]:
         """Sorted YAML stems of one config folder; ``[]`` when anything is missing.
 
-        Never raises — an unresolvable configs root, a missing experiment
+        With ``strict=True``, unresolved/missing experiment roots and I/O
+        errors propagate so clients can explain an unavailable library. A
+        missing kind folder within an existing experiment still reads empty.
+        By default, never raises — an unresolvable configs root, a missing experiment
         folder, a missing kind folder, or an I/O failure mid-scan (an SMB
         visibility blip on a mounted configs share, a permissions problem)
         all read as an empty listing: clients render "nothing available",
@@ -265,7 +268,10 @@ class ConfigsRepoResolver:
         resolution/validation can still refuse it.
         """
         try:
-            path = self._root / folder
+            root = self._root
+            if strict:
+                root.stat()
+            path = root / folder
             if not path.is_dir():
                 return []
             return sorted(
@@ -273,7 +279,9 @@ class ConfigsRepoResolver:
                 for entry in path.iterdir()
                 if entry.suffix in (".yaml", ".yml")
             )
-        except Exception:  # root unresolvable / I/O failure — empty, never raise
+        except Exception:  # Root resolution and directory traversal can both fail.
+            if strict:
+                raise
             logger.debug(
                 "config listing failed for %s (read as empty)", folder, exc_info=True
             )
@@ -421,15 +429,20 @@ class ConfigsRepoResolver:
 
     def list_optimizer_configs(self) -> list[str]:
         """Optimizer-config names (``OptimizerConfig`` documents; sorted; ``[]`` if none)."""
+        return self.optimizer_config_listing()[0]
+
+    def optimizer_config_listing(self) -> tuple[list[str], dict[str, str]]:
+        """Return usable names and unavailable names mapped to validation reasons."""
         available = []
-        for name in self._list_folder(self.OPTIMIZER_FOLDER):
+        unavailable = {}
+        for name in self._list_folder(self.OPTIMIZER_FOLDER, strict=True):
             try:
                 self.resolve_optimizer_config(name)
             except GeecsConfigurationError as exc:
-                logger.warning("optimizer config %r is unavailable: %s", name, exc)
+                unavailable[name] = str(exc)
             else:
                 available.append(name)
-        return available
+        return available, unavailable
 
     def resolve_trigger_profile(self, name: str) -> TriggerProfile:
         """Load the trigger profile *name* (new schema, else converted).

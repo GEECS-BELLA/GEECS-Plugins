@@ -240,6 +240,14 @@ class ScannerService:
                 "not_found", f"no config kind {kind!r}", kinds=sorted(CONFIG_KINDS)
             )
         try:
+            if kind == "optimizer_configs":
+                names, unavailable = self.resolver.optimizer_config_listing()
+                return ConfigListOut(
+                    kind=kind,
+                    names=names,
+                    unavailable=unavailable,
+                    experiment=self.experiment,
+                )
             result = getattr(self.resolver, method)()
         except Exception as exc:  # noqa: BLE001 — a missing tree is an honest answer
             raise ScannerError(
@@ -472,7 +480,7 @@ class ScannerService:
             queued = self.client.submit_plan("mv", args=args, kwargs={})
             if queued.ok:
                 self.streams.invalidate_optimization(
-                    "best settings have already been applied"
+                    "best-settings move was queued; check its result before making another move"
                 )
         if not queued.ok:
             raise ScannerError(

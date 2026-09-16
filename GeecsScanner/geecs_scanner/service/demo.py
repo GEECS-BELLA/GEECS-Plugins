@@ -165,6 +165,10 @@ class DemoResolver:
         """Available demonstration optimizers."""
         return ["xopt_beam_charge"]
 
+    def optimizer_config_listing(self) -> tuple[list[str], dict[str, str]]:
+        """Available demo names, with no unavailable documents."""
+        return self.list_optimizer_configs(), {}
+
     def resolve_optimizer_config(self, name: str):
         """A scalar-only example with no analysis dependency."""
         from geecs_schemas import OptimizerConfig

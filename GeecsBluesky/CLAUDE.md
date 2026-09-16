@@ -462,3 +462,9 @@ the RunEngine loop threads a test leaves behind (#812).
 - Import anything from `geecs_scanner` (deleted 2026-08-20; pinned by
   `tests/test_dependency_direction.py`) or hold on to a funnel idiom
   because "we already built it" (§9).
+
+Optimizer listings retain validation errors through `optimizer_config_listing()`;
+the names-only listing delegates to it. The epoch equality test lives here because
+this package already depends on Core and Data Utils. Those foundational packages
+keep independent constants for their wire/file formats, with no dependency edge
+between them.

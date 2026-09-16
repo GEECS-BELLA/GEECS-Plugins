@@ -3,7 +3,7 @@
 Versioned Pydantic models for every GEECS scanner config — presets (the
 saved scan: device group + plan call), scan requests, scan variables,
 trigger profiles, and action plans — plus converters from the legacy YAML
-dialects still in use (shot control, optimizer configs).
+dialects still in use (shot control).
 Scan-variable catalogs, presets and action libraries have no converter:
 they are authored new-schema only (the legacy scan-device pair was retired
 2026-09, GEECS-Plugins#779; the save elements and scan presets were

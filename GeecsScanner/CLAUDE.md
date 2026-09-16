@@ -142,3 +142,8 @@ submits recorded physical targets as one idle-only `mv`. The panel shows the
 scan, completion time and exit status. Out-of-band gateway writes are not
 observed by this cache; Set to best remains an explicit operator action. The scanner
 never reconstructs pseudo offsets or imports the analysis runtime.
+
+Optimizer listings expose unavailable names and reasons as well as usable names;
+listing errors are displayed even when Optimize is disabled. Recorded physical
+best targets remain visible after an offer is invalidated. Set to best confirms
+the targets before queueing; queue acceptance is never described as completion.

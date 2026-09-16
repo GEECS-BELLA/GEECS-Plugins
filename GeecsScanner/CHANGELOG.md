@@ -4,6 +4,12 @@ All notable changes to `geecs-scanner` are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 project adheres to semantic versioning.
 
+## [0.9.2] - 2026-09-16
+
+### Fixed
+
+- Show unavailable optimizer configs and listing failures; render exact physical best targets persistently and confirm before queuing a best move. Distinguish queue acceptance from move completion.
+
 ## [0.9.1] - 2026-09-16
 
 ### Fixed

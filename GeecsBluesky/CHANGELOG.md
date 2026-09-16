@@ -4,6 +4,12 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.92.2] - 2026-09-16
+
+### Fixed
+
+- Expose unavailable optimizer names with validation reasons; pin agreement between the independent wire and file epoch constants in a package that already depends on both.
+
 ## [0.92.1] - 2026-09-16
 
 ### Fixed

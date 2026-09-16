@@ -351,9 +351,10 @@ this package and must never depend on GeecsBluesky or a GUI package).
 Tests are hermetic (`tests/test_tiled_*.py`) — fake client objects that
 quack like Tiled search results; no network, no real catalog.
 
-The acquisition epoch offset is defined once in `geecs_core.db.variable_types`.
-`io.scan_stack.LABVIEW_EPOCH_OFFSET` remains a public re-export for existing
-callers. Data Utils depends downward on Core; Core never depends on this package.
+Data Utils has no intra-repo dependencies. `io.scan_stack.LABVIEW_EPOCH_OFFSET`
+is a file-format constant, deliberately independent of Core's wire-format
+constant. GeecsBluesky (which already depends on both) pins their equality;
+sharing this integer does not justify an access-library dependency here.
 
 ## Key Dependency
 

@@ -716,8 +716,9 @@ not a PR gate), then the HiResMagCam pair once its diagnostic exists.
   (`topview.x_CoM`) is the namespacing. Do not import ScanAnalysis to get
   the prefix back.
 - **Two epochs.** The reading's `acq_timestamp` is raw LabVIEW; the frame's
-  `value.timestamp` is Unix. One constant, one home (GEECS-Core), both
-  sides import it. Join by equality within 1 ms, never "nearest".
+  `value.timestamp` is Unix. The DAQ consumers import GEECS-Core's epoch
+  constant; Data Utils keeps an independent file-format constant and gains
+  no dependency on Core. A Bluesky test pins their equality. Join by equality within 1 ms, never "nearest".
 - **The frame may land after the reading.** CA and PVA are separate paths
   from separate hosts. `await_frames` with a bounded timeout after the
   bin's last shot; never block the RE thread — the thread pool + `bps.sleep`

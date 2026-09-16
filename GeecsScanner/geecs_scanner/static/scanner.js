@@ -355,6 +355,18 @@
     return o;
   }
 
+  function renderOptimizerAvailability(listing) {
+      var optimizeButton = document.querySelector('[data-mode="optimize"]');
+      optimizeButton.disabled = !listing.names.length;
+      optimizeButton.title = listing.detail || (listing.names.length ? "" : "No compatible optimizer configs available");
+      var unavailable = listing.unavailable || {};
+      var availability = $("optimizer-availability");
+      var issues = Object.keys(unavailable).map(function (n) { return n + ": " + unavailable[n]; });
+      availability.textContent = listing.detail ? "Unable to load optimizer configs: " + listing.detail :
+        (issues.length ? "Unavailable optimizer configs — " + issues.join("; ") : optimizeButton.title);
+      availability.hidden = !availability.textContent;
+  }
+
   function loadConfigs() {
     return Promise.all([
       api("/api/configs/presets"),
@@ -364,16 +376,14 @@
       api("/api/actions").catch(function (e) { return { error: e.message }; }),
       api("/api/calibration").catch(function (e) { return { stored: false, detail: e.message }; }),
       api("/api/settables").catch(function (e) { return { items: [], source: "?", detail: e.message }; }),
-      api("/api/configs/optimizer_configs").catch(function () { return { names: [] }; })
+      api("/api/configs/optimizer_configs").catch(function (e) { return { names: [], detail: e.message }; })
     ]).then(function (res) {
       S.presets = res[0].names; S.variables = res[1]; S.triggers = res[2].names;
       S.devices = res[3]; S.actions = res[4].error ? [] : res[4]; S.calibration = res[5];
       var optimizers = $("optimizer-config");
       optimizers.textContent = ""; optimizers.appendChild(option("", "Choose an optimizer…"));
       res[7].names.forEach(function (n) { optimizers.appendChild(option(n, n)); });
-      var optimizeButton = document.querySelector('[data-mode="optimize"]');
-      optimizeButton.disabled = !res[7].names.length;
-      optimizeButton.title = res[7].names.length ? "" : "No compatible optimizer configs available";
+      renderOptimizerAvailability(res[7]);
       S.settables = res[6].items || []; S.settablesNote = res[6].detail || "";
       renderMoveVars(); renderDeviceList(""); renderActions(res[4].error || null); renderCalibration();
       renderPresetList();
@@ -720,14 +730,29 @@
       tr.appendChild(td(o.best[name] == null ? "—" : o.best[name].toPrecision(5))); body.appendChild(tr);
     });
     $("optimization-shots").textContent = Object.keys(o.valid_shots).map(function (name) { return name + ": " + o.valid_shots[name] + " valid shots"; }).join(" · ");
+    var targets = $("optimization-targets"); targets.textContent = "";
+    Object.keys(o.best_moves).forEach(function (name) {
+      var row = document.createElement("tr"); row.appendChild(td(name));
+      row.appendChild(td(o.best_moves[name] == null ? "unavailable" : String(o.best_moves[name])));
+      targets.appendChild(row);
+    });
     var moves = Object.values(o.best_moves);
     $("btn-set-best").disabled = !st.connected || st.re_state !== "idle" || st.items_in_queue > 0 || !o.finished || o.exit_status !== "success" || o.expired || !!o.invalidated_reason || !moves.length || moves.some(function (v) { return v == null; });
     $("btn-set-best").title = moves.length ? Object.keys(o.best_moves).map(function (n) { return n + " = " + o.best_moves[n]; }).join(", ") : "No feasible best point";
   }
   $("btn-set-best").addEventListener("click", function () {
     if (!S.optimization) return;
-    this.disabled = true;
-    post("/api/optimization/best", { run_uid: S.optimization.run_uid, operator: operator() }).then(function () { refreshQueue(); }).catch(function (e) { showError(e.message); renderOptimization(); });
+    var dialog = $("dlg-set-best"); dialog.dataset.runUid = S.optimization.run_uid;
+    $("dlg-set-best-text").textContent = Object.keys(S.optimization.best_moves).map(function (name) {
+      return name + " = " + S.optimization.best_moves[name];
+    }).join("; ");
+    window.GeecsKit.confirm(dialog).open();
+  });
+  $("do-set-best").addEventListener("click", function () {
+    var uid = $("dlg-set-best").dataset.runUid;
+    window.GeecsKit.confirm($("dlg-set-best")).close();
+    $("btn-set-best").disabled = true;
+    post("/api/optimization/best", { run_uid: uid, operator: operator() }).then(function () { refreshQueue(); }).catch(function (e) { showError(e.message); renderOptimization(); });
   });
 
   /* --------------------------------------------------------- submission */

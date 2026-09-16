@@ -118,6 +118,7 @@
         <div class="row"><span class="eyebrow" id="optimization-iteration"></span></div>
         <div class="tscroll"><table><thead><tr><th>Variable / output</th><th>Latest</th><th>Best</th></tr></thead><tbody id="optimization-values"></tbody></table></div>
         <div class="row"><span class="dim note" id="optimization-shots"></span></div>
+        <div class="tscroll"><table><caption>Recorded physical targets for Set to best</caption><thead><tr><th>Device variable</th><th>Target</th></tr></thead><tbody id="optimization-targets"></tbody></table></div>
         <div class="row"><button class="btn" type="button" id="btn-set-best" disabled>Set to best</button>
         <span class="dim note">Relative variables return to their starting positions. Set to best applies the recorded physical settings.</span></div>
       </div>
@@ -141,6 +142,7 @@
         </div>
       </header>
       <div class="body">
+        <div class="well" id="optimizer-availability" role="status" hidden></div>
         <div class="group" id="optimizer-form" hidden>
           <div class="field"><label for="optimizer-config">optimizer config</label><select id="optimizer-config"><option value="">Choose an optimizer…</option></select></div>
           <div class="field"><label for="iterations">iterations</label><input id="iterations" type="number" min="1" step="1" value="10"><span class="err" id="err-iterations">At least one iteration.</span></div>
@@ -342,6 +344,15 @@
 </aside>
 
 {# ============================ DIALOGS ============================ #}
+<dialog id="dlg-set-best" aria-labelledby="dlg-set-best-title">
+  <div class="body">
+    <h4 id="dlg-set-best-title">Apply these physical settings?</h4>
+    <p id="dlg-set-best-text"></p>
+    <p>This queues a move. Check its result in the queue; the recorded targets remain visible if the move fails.</p>
+    <div class="row end"><button class="btn" type="button" data-dialog-close autofocus>Cancel</button><button class="btn primary" type="button" id="do-set-best">Queue move</button></div>
+  </div>
+</dialog>
+
 <dialog id="dlg-stop" aria-labelledby="dlg-stop-title">
   <div class="body">
     <h4 id="dlg-stop-title">Stop <span id="dlg-stop-scan">the running scan</span>?</h4>

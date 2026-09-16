@@ -63,6 +63,7 @@ class ConfigListOut(BaseModel):
     kind: str
     names: list[str]
     experiment: str
+    unavailable: dict[str, str] = Field(default_factory=dict)
 
 
 class ScanVariableOut(BaseModel):

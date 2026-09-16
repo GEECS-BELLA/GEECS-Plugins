@@ -112,19 +112,45 @@ non-mutating preset saves, plan classification, role constants, epoch ownership,
 and stale documentation. Numerical warm-up now happens synchronously before
 readiness. GEST remains a direct dependency under the owner's explicit approval.
 The corpus is still a separate rollout: no native documents means Optimize is
-disabled, and the corpus integration check reports a migration-pending skip.
+disabled, and the corpus integration check requires all six keepers (the temporary
+migration-pending skip was removed in the second review follow-up).
 
 Follow-up verification: **3,391 passed across 15 suites**. The first full run
 applied formatting fixes and exposed the portal environment's missing newly
 declared Core dependency; installing its updated lock and rerunning passed
 all **305** portal tests. Lint passed after the formatting pass. The real
-optimizer corpus reports **one migration-pending skip**, not rollout acceptance.
+optimizer corpus then reported **one migration-pending skip**, not rollout acceptance;
+that weakened check is corrected below.
 A fresh-context reviewer found malformed YAML could suppress valid neighboring
 configs; after that fix it reported no surviving code findings.
 
 Set to best now requires success, expires after **15 minutes** (a revisitable
 judgment call), and is invalidated by subsequent scanner-submitted moves/actions.
-Direct gateway writes remain outside the cache's observations. Epoch ownership
-adds a documented Data Utils → Core dependency, including Core's MySQL connector
-installation dependency; the timestamp import itself performs no network I/O.
+Direct gateway writes remain outside the cache's observations. The initial epoch
+fix added a Data Utils → Core dependency; that architectural mistake is reverted
+in the second review follow-up below.
 No hardware was contacted during this review follow-up.
+
+## Second review follow-up
+
+The Data Utils → Core edge introduced in the first follow-up was wrong and is
+removed. Data Utils again has no intra-repo dependency; it owns its file-format
+epoch literal independently of Core's wire-format literal. Their equality is
+pinned in Bluesky, which already consumes both. Root and Core design rules are
+restored, and dependency/import tests prevent reintroducing the edge.
+
+Corpus acceptance again fails when fewer than six native keepers are deployed;
+the real unmigrated corpus remains an explicitly failed rollout gate. Listings
+now expose excluded names and reasons, including legacy files, and the scanner
+shows server errors rather than presenting them as an empty library. Physical
+best targets stay visible after queue acceptance and are confirmed before the
+move; acceptance is labelled queued, never applied. ScanRequest's generated
+prose now agrees with its two supported modes.
+
+Second follow-up verification: **3,407 passed across 15 suites**, with full
+repository lint passing. The real optimizer corpus check separately fails at
+**0/6**, as the restored acceptance gate requires. Offline browser verification
+confirmed visible unavailable-config reasons, exact physical targets, Cancel
+focus in the confirmation dialog, and target persistence after queue acceptance.
+The independent reviewer verified both follow-up fixes and reported no surviving
+findings. No hardware was contacted.

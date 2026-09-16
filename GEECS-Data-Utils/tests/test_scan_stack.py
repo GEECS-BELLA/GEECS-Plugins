@@ -228,7 +228,13 @@ def test_stack_attributes_read_and_parse(tmp_path) -> None:
     assert set(read_stack_attributes(older)) == {"acq_timestamp", "recv_timestamp"}
 
 
-def test_epoch_export_is_the_core_contract():
-    from geecs_core.db.variable_types import LABVIEW_EPOCH_OFFSET as core_epoch
+def test_file_epoch_matches_utc_epoch_difference():
+    from datetime import datetime, timezone
 
-    assert LABVIEW_EPOCH_OFFSET is core_epoch
+    assert (
+        LABVIEW_EPOCH_OFFSET
+        == (
+            datetime(1970, 1, 1, tzinfo=timezone.utc)
+            - datetime(1904, 1, 1, tzinfo=timezone.utc)
+        ).total_seconds()
+    )

@@ -55,6 +55,12 @@ def test_listing_hides_retired_and_invalid_configs(tmp_path):
         yaml.safe_dump(_config().model_dump(mode="json"))
     )
     assert resolver.list_optimizer_configs() == ["native"]
+    names, unavailable = resolver.optimizer_config_listing()
+    assert names == ["native"]
+    assert set(unavailable) == {"old", "broken", "malformed"}
+    assert "legacy optimizer config is not loadable" in unavailable["old"]
+    assert "vocs" in unavailable["broken"]
+    assert "expected" in unavailable["malformed"]
 
 
 def test_expansion_preflight_and_submission_share_optimizer_resolution(monkeypatch):
@@ -98,3 +104,30 @@ def test_expansion_preflight_and_submission_share_optimizer_resolution(monkeypat
         is None
     )
     assert observed["devices"] == ["Meter"]
+
+
+@pytest.mark.parametrize("failure", ["unconfigured", "missing", "unreadable"])
+def test_optimizer_listing_preserves_root_and_io_failures(
+    tmp_path, monkeypatch, failure
+):
+    from pathlib import Path
+
+    resolver = ConfigsRepoResolver("Test", tmp_path)
+    if failure == "unconfigured":
+        resolver = ConfigsRepoResolver("Test")
+
+        def unconfigured():
+            raise RuntimeError("unconfigured")
+
+        monkeypatch.setattr(
+            "geecs_bluesky.config_resolver.scanner_configs_base", unconfigured
+        )
+    elif failure == "unreadable":
+        (tmp_path / "Test/optimizer_configs").mkdir(parents=True)
+
+        def unreadable(self):
+            raise PermissionError("configs tree inaccessible")
+
+        monkeypatch.setattr(Path, "iterdir", unreadable)
+    with pytest.raises((RuntimeError, FileNotFoundError, PermissionError)):
+        resolver.optimizer_config_listing()

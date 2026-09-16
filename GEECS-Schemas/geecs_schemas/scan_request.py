@@ -473,7 +473,7 @@ _TRIGGER_VARIANT_REMEDY = (
 class ScanRequest(VersionedSchemaModel):
     """One complete scan, ready to submit: what to do, what to save, how to trigger.
 
-    Fill in the mode (sweep / stand still / optimize), the axis (or axes) to
+    Fill in the mode (sweep / stand still), the axis (or axes) to
     sweep, how many shots per position, and the names of the save sets,
     trigger profile, and action plans to use.  Saving a request you like
     *is* a preset.
@@ -520,8 +520,7 @@ class ScanRequest(VersionedSchemaModel):
     mode: ScanRequestMode = Field(
         description=(
             "What kind of scan: 'step' sweeps one or more axes, 'noscan' "
-            "collects shots without moving anything, 'optimize' lets an "
-            "algorithm pick the settings."
+            "collects shots without moving anything."
         )
     )
     axes: list[ScanAxis] = Field(
@@ -530,7 +529,7 @@ class ScanRequest(VersionedSchemaModel):
             "For step scans: what to sweep. One entry is a simple 1-D scan; "
             "several entries form a grid visiting every combination, with "
             "the first axis as the outermost (slowest) loop and the last as "
-            "the innermost (fastest). Leave empty for noscan and optimize."
+            "the innermost (fastest). Leave empty for noscan."
         ),
     )
     capture: CaptureSettings = Field(

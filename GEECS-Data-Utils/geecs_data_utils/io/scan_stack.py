@@ -41,7 +41,9 @@ import numpy as np
 # LabVIEW timestamps count from 1904-01-01; Unix from 1970-01-01. The stack
 # stores Unix seconds (the PVA timestamp); GEECS s-files and native filenames
 # carry LabVIEW seconds. lv = unix + OFFSET.
-from geecs_core.db.variable_types import LABVIEW_EPOCH_OFFSET as LABVIEW_EPOCH_OFFSET
+# File-format constant owned here independently of Core's wire-format constant.
+# Keep the data layer installable without the hardware access library.
+LABVIEW_EPOCH_OFFSET = 2_082_844_800
 
 logger = logging.getLogger(__name__)
 

@@ -174,3 +174,41 @@ def test_saving_optimizer_draft_does_not_resolve_or_merge(
     assert (
         not captured[0].devices[0].essential and not captured[0].devices[0].save_images
     )
+
+
+def test_optimizer_listing_exposes_unavailable_reasons(client, service, monkeypatch):
+    monkeypatch.setattr(
+        service.resolver,
+        "optimizer_config_listing",
+        lambda: (
+            ["working"],
+            {"broken": "vocs field required", "legacy": "retired dialect"},
+        ),
+    )
+    response = client.get("/api/configs/optimizer_configs")
+    assert response.status_code == 200
+    assert response.json()["names"] == ["working"]
+    assert response.json()["unavailable"] == {
+        "broken": "vocs field required",
+        "legacy": "retired dialect",
+    }
+
+
+def test_optimizer_listing_failure_is_not_an_empty_success(
+    client, service, monkeypatch
+):
+    def unreadable():
+        raise OSError("configs tree inaccessible")
+
+    monkeypatch.setattr(service.resolver, "optimizer_config_listing", unreadable)
+    response = client.get("/api/configs/optimizer_configs")
+    assert response.status_code == 500
+    assert "configs tree inaccessible" in response.text
+
+
+def test_best_targets_remain_available_after_queue_acceptance(service, completed_best):
+    service.set_optimization_best(SetBestIn(run_uid="run"))
+    result = service.optimization()
+    assert result.best_moves == {"U_S1H:Current": 0.25, "U_S2H:Current": -0.5}
+    assert "queued" in result.invalidated_reason
+    assert "applied" not in result.invalidated_reason

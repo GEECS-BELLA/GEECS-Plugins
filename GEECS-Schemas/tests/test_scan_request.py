@@ -441,3 +441,10 @@ def test_published_modes_exclude_retired_optimization():
         "step",
         "noscan",
     }
+
+
+def test_published_scan_request_prose_excludes_retired_mode():
+    schema = ScanRequest.model_json_schema()
+    assert "optimize" not in schema["description"]
+    for field in ("mode", "axes"):
+        assert "optimize" not in schema["properties"][field]["description"]

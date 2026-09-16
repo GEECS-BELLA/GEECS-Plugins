@@ -135,7 +135,7 @@ def test_page_uses_only_kit_or_page_classes() -> None:
 
 def _script_function(script: str, name: str) -> str:
     """The body of one top-level ``function name() {...}`` of the page's IIFE."""
-    m = re.search(rf"\n  function {name}\(\) \{{\n(.*?)\n  \}}\n", script, re.S)
+    m = re.search(rf"\n  function {name}\([^)]*\) \{{\n(.*?)\n  \}}\n", script, re.S)
     assert m, f"scanner.js: no function {name}()"
     return m.group(1)
 
@@ -292,3 +292,81 @@ def test_hints_carry_state_or_a_unit_never_prose(client: TestClient) -> None:
         "Loading presets…",
     ):
         assert kept in html, kept
+
+
+def test_optimizer_availability_preserves_failures_and_exclusions():
+    _need_node()
+    body = _script_function(
+        (_PKG / "static/scanner.js").read_text(), "renderOptimizerAvailability"
+    )
+    harness = (
+        """
+var els = {}, button = {};
+function $(id) { return els[id] || (els[id] = {}); }
+var document = { querySelector: () => button };
+"""
+        + f"function render(listing) {{\n{body}\n}}"
+        + """
+var result = [];
+[
+ {names: [], detail: "server unreachable"},
+ {names: ["good"], unavailable: {broken: "vocs missing", legacy: "retired dialect"}},
+ {names: [], unavailable: {legacy: "retired dialect"}},
+ {names: ["good"], unavailable: {}}
+].forEach(listing => {
+ render(listing);
+ result.push({disabled: button.disabled, text: $("optimizer-availability").textContent, hidden: $("optimizer-availability").hidden});
+});
+console.log(JSON.stringify(result));
+"""
+    )
+    result = subprocess.run(
+        ["node", "-"], input=harness, text=True, capture_output=True, check=True
+    )
+    error, partial, legacy, healthy = json.loads(result.stdout)
+    assert error["disabled"] and "server unreachable" in error["text"]
+    assert "No compatible" not in error["text"]
+    assert not partial["disabled"] and "broken: vocs missing" in partial["text"]
+    assert "legacy: retired dialect" in partial["text"]
+    assert legacy["disabled"] and not legacy["hidden"]
+    assert healthy["hidden"] and not healthy["disabled"]
+
+
+def test_physical_best_targets_stay_visible_after_move_is_queued():
+    _need_node()
+    body = _script_function(
+        (_PKG / "static/scanner.js").read_text(), "renderOptimization"
+    )
+    harness = (
+        """
+var els = {};
+function el() { return {children: [], appendChild(child) {this.children.push(child);},
+ set textContent(value) {this.text = value; this.children = [];}}; }
+function $(id) { return els[id] || (els[id] = el()); }
+function td(value) { return {text: value}; }
+var document = {createElement: el};
+var S = {status: {connected: true, re_state: "idle", items_in_queue: 0}, optimization: {
+ run_uid: "run", config: "test", iteration: 1, max_iterations: 1, exit_status: "success", finished: true,
+ measured: {bump: 0}, outputs: {}, best: {bump: 999}, valid_shots: {},
+ best_moves: {"Motor1:Current": 0.123456789, "Motor2:Current": -0.5}
+}};
+"""
+        + f"function renderOptimization() {{\n{body}\n}}"
+        + """
+renderOptimization();
+var before = $("optimization-targets").children.map(row => row.children.map(cell => cell.text));
+S.optimization.invalidated_reason = "best-settings move was queued";
+renderOptimization();
+console.log(JSON.stringify({before, after: $("optimization-targets").children.map(row => row.children.map(cell => cell.text)), disabled: $("btn-set-best").disabled}));
+"""
+    )
+    result = subprocess.run(
+        ["node", "-"], input=harness, text=True, capture_output=True, check=True
+    )
+    state = json.loads(result.stdout)
+    assert (
+        state["before"]
+        == state["after"]
+        == [["Motor1:Current", "0.123456789"], ["Motor2:Current", "-0.5"]]
+    )
+    assert state["disabled"]
