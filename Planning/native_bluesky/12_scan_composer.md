@@ -1,6 +1,7 @@
 # Scan composer and the Sweep payload
 
-**Status: foundation #921 reviewed; execution and complete UI in development.**
+**Status: foundation #921 reviewed; execution and complete UI implemented for
+review. Hardware cutover and owner acceptance remain owed.**
 Build from `feature/native-bluesky-plans` after optimization #920, merged as
 `05c0fc23`. The owner reports optimization hardware acceptance, including live
 optimization runs. That acceptance does not cover the sweep plan cutover.
@@ -188,7 +189,7 @@ curved patterns require a separate bounded-expansion strategy. Large previews
 must clearly disclose any sampling; execution must never silently truncate.
 This is an engineering requirement, not an operator shot cap.
 
-## 6. Inline composer (PR 4)
+## 6. Inline composer (combined with preview in delivery PR 3)
 
 Design references:
 
@@ -252,6 +253,14 @@ branch in this repository. The owner merges the feature-targeted PRs.
    hardware session and coordinated preset corpus update.
 3. Hardware-free preview API with bounded response handling, kit-based inline
    composer, and owner review in the actual running app.
+
+Implementation branches: `codex/scan-composer-foundation` →
+`codex/scan-composer-execution` → `codex/scan-composer-ui`. The last branch
+contains the complete app, runnable with `poetry run geecs-scanner --demo`
+from GeecsScanner. Demo uses the production UI and shared Python trajectory
+expansion with simulated acquisition; it is not hardware acceptance. The
+deployed configs corpus has not been migrated yet; coordinate it with the
+execution cutover and preserve optimization configs.
 
 The former PR 0 “submit any preset unchanged” patch is not a prerequisite:
 proceed directly with the foundation now that #920 has merged. Preserve

@@ -39,6 +39,7 @@ from collections.abc import Callable, Mapping
 from typing import Any, Optional
 
 from geecs_scanner.service.errors import ScannerError
+from geecs_scanner.service.trajectory import TrajectoryOut
 from geecs_scanner.service.models import (
     ActionDetailOut,
     ActionOut,
@@ -198,6 +199,25 @@ class ScannerService:
             experiment=self.experiment,
             identity=self.identity,
         )
+
+    def trajectory(self, payload: dict[str, object]) -> TrajectoryOut:
+        """Calculate display coordinates without a manager or gateway call."""
+        from geecs_schemas import Sweep
+        from pydantic import ValidationError
+
+        from .trajectory import preview
+
+        try:
+            sweep = Sweep.model_validate(payload)
+        except ValidationError as exc:
+            messages = [
+                ".".join(map(str, error["loc"]))
+                + ": "
+                + error["msg"].removeprefix("Value error, ")
+                for error in exc.errors(include_url=False, include_input=False)
+            ]
+            raise ScannerError("invalid_request", "; ".join(messages)) from exc
+        return preview(sweep)
 
     def health(self) -> HealthOut:
         """Liveness + the manager probe + version."""

@@ -39,6 +39,7 @@ from geecs_scanner.service.models import (
     VerbOut,
 )
 from geecs_scanner.service.scanner import ScannerService
+from geecs_scanner.service.trajectory import TrajectoryOut
 
 _NO_CACHE = {"Cache-Control": "no-cache"}
 
@@ -50,6 +51,11 @@ def register(router: APIRouter, service: ScannerService) -> None:
     def health() -> HealthOut:
         """Liveness + the manager probe + version (the fleet-map check)."""
         return service.health()
+
+    @router.post("/api/trajectory", response_model=TrajectoryOut)
+    def trajectory(payload: dict[str, object]) -> TrajectoryOut:
+        """Preview a trajectory using only its typed inputs."""
+        return service.trajectory(payload)
 
     @router.get("/api/status", response_model=StatusOut)
     def status(response: Response) -> StatusOut:

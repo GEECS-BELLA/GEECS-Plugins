@@ -74,6 +74,8 @@ def test_every_literal_data_state_is_a_kit_state() -> None:
     # here, and no setChip call may pass a literal instead
     for script in _SCRIPTS:
         text = script.read_text()
+        if "setChip(" not in text and not re.search(r"\bK\.", text):
+            continue
         k = re.search(r"var K = \{([^}]*)\}", text)
         assert k, f"{script.name}: no K table of kit words"
         for m in re.finditer(r'"([a-z_]+)"', k.group(1)):
@@ -281,8 +283,7 @@ def test_hints_carry_state_or_a_unit_never_prose(client: TestClient) -> None:
     ):
         assert prose not in script, prose
     for kept in (
-        'id="pts1"',
-        'id="pts2"',
+        'id="sweep-message"',
         'id="shots-hint"',
         'id="presets-note"',
         'id="actions-note"',
@@ -370,3 +371,59 @@ console.log(JSON.stringify({before, after: $("optimization-targets").children.ma
         == [["Motor1:Current", "0.123456789"], ["Motor2:Current", "-0.5"]]
     )
     assert state["disabled"]
+
+
+def test_preset_trigger_control_overrides_hidden_kwarg_and_keeps_other_options():
+    _need_node()
+    source = (_PKG / "static/scanner.js").read_text()
+    functions = "\n".join(
+        "function "
+        + name
+        + "("
+        + args
+        + ") {\n"
+        + _script_function(source, name)
+        + "\n}"
+        for name, args in [
+            ("fillFormFromPreset", "doc"),
+            ("buildPreset", ""),
+            ("formShape", "plan"),
+        ]
+    )
+    harness = (
+        r"""
+var els = {};
+function $(id) { return els[id] || (els[id] = {value: "", appendChild() {}}); }
+var S = {}, composer = {load(v) {this.v = v;}, value() {return this.v;}};
+function setMode(mode) {S.mode = mode;}
+function setAcq(acq) {S.acq = acq;}
+function setSelect(id, value) {$(id).value = value;}
+function noDevicesNote() {} function recalc() {} function renderCalibration() {}
+function tableDevices() {return [];}
+"""
+        + functions
+        + r"""
+S.presetDoc = {trigger_profile: "top-level", devices: [], plan: {name: "sweep", args: [], kwargs: {
+ trigger_profile: "effective", shots_per_step: 3, custom_option: 42,
+ sweep: {trajectory: {kind: "axes", axes: [{kind: "list", axis: "A", positions: [3, 1, 3]}]}}
+}}};
+fillFormFromPreset(S.presetDoc);
+var loaded = $("trig").value;
+$("trig").value = "edited";
+var saved = buildPreset();
+S.presetDoc.plan.kwargs.trigger_profile = null;
+fillFormFromPreset(S.presetDoc);
+console.log(JSON.stringify({loaded, saved, cleared: $("trig").value}));
+"""
+    )
+    result = subprocess.run(
+        ["node", "-"], input=harness, text=True, capture_output=True, check=True
+    )
+    state = json.loads(result.stdout)
+    assert state["loaded"] == "effective"
+    assert state["saved"]["trigger_profile"] == "edited"
+    assert state["cleared"] == ""
+    kwargs = state["saved"]["plan"]["kwargs"]
+    assert "trigger_profile" not in kwargs
+    assert kwargs["custom_option"] == 42
+    assert kwargs["sweep"]["trajectory"]["axes"][0]["positions"] == [3, 1, 3]

@@ -48,7 +48,7 @@
     queue: null,
     presets: [], presetName: null, presetDoc: null, loadedName: null,
     variables: [], triggers: [],
-    mode: "scan", acq: "strict",
+    mode: "", acq: "strict",
     consoleSeq: 0, epoch: null,
     formable: true, formableNote: "",
     pendingPreset: null, pendingAck: [],
@@ -56,6 +56,10 @@
     settables: [], settablesNote: "", readbackVar: null, readbackTimer: null,
     tail: "scanlog", logFolder: null, logLines: [], consoleLines: []
   };
+
+  var composer = window.GEECS_SWEEP.create($("sweep-composer"), function (payload) {
+    return post("/api/trajectory", payload);
+  }, recalc);
 
   /* ------------------------------------------------------------- errors */
 
@@ -387,19 +391,10 @@
       S.settables = res[6].items || []; S.settablesNote = res[6].detail || "";
       renderMoveVars(); renderDeviceList(""); renderActions(res[4].error || null); renderCalibration();
       renderPresetList();
-      ["var1", "var2"].forEach(function (id) {
-        var sel = $(id); sel.textContent = "";
-        S.variables.forEach(function (v) {
-          sel.appendChild(option(v.name, v.name + (v.target ? " · " + v.target : " · pseudo"), !v.scannable, v.reason || v.target || ""));
-        });
-        if (!S.variables.length) sel.appendChild(option("", "no scan variables in the catalog", true));
-      });
+      composer.variables(S.variables.filter(function (v) { return v.scannable; }).concat(S.settables));
       var tr = $("trig"); tr.textContent = "";
       tr.appendChild(option("", "— none —"));
       S.triggers.forEach(function (n) { tr.appendChild(option(n, n)); });
-      // Default to the first preset only if the operator has not already
-      // picked one while the listing was loading.
-      if (S.presets.length && !S.presetName) selectPreset(S.presets[0]);
       recalc();
     }).catch(function (e) { showError("Loading configs failed: " + e.message); });
   }
@@ -435,53 +430,29 @@
     });
   }
 
-  // The shapes the form can express. Anything else is shown, not guessed:
-  // a preset that runs list_scan must not be resubmitted as a scan.
   function formShape(plan) {
-    var args = plan.args || [];
-    if (plan.name === "optimize" && args.length === 0) return "optimize";
-    if (plan.name === "count" && args.length === 0) return "count";
-    var t = plan.kwargs && plan.kwargs.sweep && plan.kwargs.sweep.trajectory;
-    if (plan.name === "sweep" && args.length === 0 && t && t.kind === "axes" && !t.snake &&
-        t.axes.every(function (a) { return a.kind === "range" && !a.relative && a.num > 1; })) {
-      if (t.axes.length === 1) return "scan";
-      if (t.axes.length === 2 && t.combine === "product") return "grid";
-    }
-    return null;
+    if ((plan.args || []).length) return null;
+    return ["count", "sweep", "optimize"].indexOf(plan.name) >= 0 ? plan.name : null;
   }
 
   function fillFormFromPreset(doc) {
-    var plan = doc.plan || { name: "count", args: [], kwargs: {} };
-    var kw = plan.kwargs || {}, args = plan.args || [];
-    var shape = formShape(plan);
-    if (plan.name === "sweep" && (shape === "scan" || shape === "grid")) {
-      args = [].concat.apply([], kw.sweep.trajectory.axes.map(function (a) { return [a.axis, a.start, a.stop, a.num]; }));
-    }
+    var plan = doc.plan || {name: "count", args: [], kwargs: {}};
+    var kw = plan.kwargs || {}, shape = formShape(plan);
     S.formable = shape !== null;
-    S.formableNote = S.formable ? "" : "this preset runs " + plan.name + " with " + args.length + " argument(s); no form for it yet";
-    var mode = shape === "count" ? (doc.background ? "background" : "noscan") : (shape || "scan");
-    setMode(mode, true);
+    S.formableNote = S.formable ? "" : "Retired or unsupported preset plan: " + plan.name;
+    setMode(shape || "", true);
     setAcq(kw.acquisition || "strict");
-    if (shape === "scan" && args.length >= 4) {
-      setSelect("var1", args[0]); $("start1").value = args[1]; $("stop1").value = args[2];
-      $("step1").value = stepFor(args[1], args[2], args[3]);
-    } else if (shape === "grid" && args.length >= 8) {
-      setSelect("var1", args[0]); $("start1").value = args[1]; $("stop1").value = args[2]; $("step1").value = stepFor(args[1], args[2], args[3]);
-      setSelect("var2", args[4]); $("start2").value = args[5]; $("stop2").value = args[6]; $("step2").value = stepFor(args[5], args[6], args[7]);
-    }
-    $("shots").value = plan.name === "count" ? (kw.num || 1) : (kw.shots_per_step || 1);
+    $("background").checked = !!doc.background;
+    if (shape === "sweep") composer.load(kw.sweep);
+    $("shots").value = shape === "count" ? (kw.num || 1) : (kw.shots_per_step || 1);
     $("period").value = kw.shot_period != null ? kw.shot_period : "";
-    setSelect("trig", doc.trigger_profile || "");
-    $("desc").value = doc.description || "";
+    var trigger = Object.prototype.hasOwnProperty.call(kw, "trigger_profile") ? kw.trigger_profile : doc.trigger_profile;
+    setSelect("trig", trigger || ""); $("desc").value = doc.description || "";
     var body = $("devs"); body.textContent = "";
     (doc.devices || []).forEach(function (d) { body.appendChild(deviceRow(d.device, d.save_images !== false, d.essential !== false)); });
     noDevicesNote();
-    if (mode === "optimize") {
-      setSelect("optimizer-config", kw.optimizer_config || "");
-      loadOptimizer(kw);
-    }
-    recalc();
-    renderCalibration();  // the calibration set is this table
+    if (shape === "optimize") { setSelect("optimizer-config", kw.optimizer_config || ""); loadOptimizer(kw); }
+    recalc(); renderCalibration();
   }
   function deviceRow(name, saveImages, essential) {
     var tr = document.createElement("tr");
@@ -524,12 +495,6 @@
     }
     sel.value = String(value);
   }
-  function stepFor(start, stop, num) {
-    var n = Number(num);
-    if (!(n > 1)) return 0;
-    return Math.abs((Number(stop) - Number(start)) / (n - 1));
-  }
-
   /* --------------------------------------------------------------- form */
 
   function setMode(mode, silent) {
@@ -537,13 +502,14 @@
     Array.prototype.forEach.call($("mode").querySelectorAll("button"), function (b) {
       b.setAttribute("aria-pressed", String(b.dataset.mode === mode));
     });
-    var count = mode === "noscan" || mode === "background";
-    $("axis1").hidden = count || mode === "optimize";
+    var count = mode === "count";
+    $("sweep-composer").hidden = mode !== "sweep";
+    $("count-options").hidden = !count;
     $("optimizer-form").hidden = mode !== "optimize";
     $("acq").hidden = mode === "optimize";
     if (mode === "optimize") setAcq("strict");
     lockOptimizerDevices();
-    $("axis2").hidden = mode !== "grid";
+    if (!silent) S.formable = true;
     $("shots-hint").textContent = count ? "num — the shots of the count" : "shots_per_step";
     if (!silent) recalc();
   }
@@ -564,7 +530,7 @@
     var b = e.target.closest("button[data-acq]");
     if (b) setAcq(b.dataset.acq);
   });
-  ["start1", "stop1", "step1", "start2", "stop2", "step2", "shots", "period", "iterations"].forEach(function (id) {
+  ["shots", "period", "iterations"].forEach(function (id) {
     $(id).addEventListener("input", recalc);
   });
 
@@ -572,54 +538,38 @@
     var m = Math.floor(secs / 60), s = Math.round(secs % 60);
     return (m ? m + " min " : "") + s + " s";
   }
-  function points(a, b, s) {
-    if (!(s > 0)) return 0;
-    return Math.floor(Math.abs(b - a) / s + 1e-9) + 1;
-  }
   function setInvalid(id, bad) {
     var el = $(id);
     if (bad) el.setAttribute("aria-invalid", "true"); else el.removeAttribute("aria-invalid");
   }
 
-  function axis(n) {
-    // A descending range is a scan like any other (the focus scan runs
-    // -18 → -26); only the step has to be positive.
-    var a = Number($("start" + n).value), b = Number($("stop" + n).value), s = Number($("step" + n).value);
-    var badStep = !(s > 0);
-    setInvalid("step" + n, badStep);
-    var pts = badStep ? 0 : points(a, b, s);
-    // The plan takes a point COUNT; when the step does not divide the range
-    // the effective step differs from the one typed, so say so.
-    var eff = pts > 1 ? Math.abs(b - a) / (pts - 1) : 0;
-    var effNote = pts > 1 && Math.abs(eff - s) > 1e-9 ? " · effective step " + Number(eff.toFixed(6)) : "";
-    $("pts" + n).textContent = pts ? pts + " point" + (pts === 1 ? "" : "s") + (a > b ? " · descending" : "") + effNote : "—";
-    return { variable: $("var" + n).value, start: a, stop: b, num: pts, ok: !badStep && !!$("var" + n).value };
-  }
-
   var valid = false;
   function recalc() {
-    var count = S.mode === "noscan" || S.mode === "background";
-    var shots = parseInt($("shots").value, 10);
-    var badShots = !(shots >= 1);
+    var count = S.mode === "count";
+    var shots = Number($("shots").value);
+    var badShots = !Number.isInteger(shots) || shots < 1;
     setInvalid("shots", badShots);
-    var ok = !badShots, steps = 1;
+    var ok = !badShots && !!S.mode, steps = 1;
     if (S.mode === "optimize") {
       steps = Number($("iterations").value);
       var iterationsOk = Number.isInteger(steps) && steps >= 1;
       setInvalid("iterations", !iterationsOk);
       ok = ok && iterationsOk && !!S.optimizer;
-    } else if (!count) {
-      var a1 = axis(1); ok = ok && a1.ok; steps = a1.num || 0;
-      if (S.mode === "grid") { var a2 = axis(2); ok = ok && a2.ok; steps *= (a2.num || 0); }
+    } else if (S.mode === "sweep") {
+      var preview = composer.result(); ok = ok && !!preview; steps = preview ? preview.total_steps : 0;
     }
     var total = count ? shots : steps * shots;
     var period = S.acq === "strict" && $("period").value !== "" ? Number($("period").value) : null;
+    var periodOk = period === null || (Number.isFinite(period) && period > 0);
+    setInvalid("period", !periodOk); ok = ok && periodOk;
     var time = period ? " · ~<b>" + fmtSecs(total * period) + "</b> at " + period + " s/shot" : "";
     $("est").innerHTML = count
       ? "<b>" + shots + "</b> shots" + time
       : (S.mode === "optimize" ? "≤ " : "") + "<b>" + steps + "</b> " + (S.mode === "optimize" ? "iteration" : "step") + (steps === 1 ? "" : "s") + " × <b>" + shots + "</b> shots = <b>" + total + "</b> shots" + time;
     // The form is the document: a preset only seeds it, so Start (and
     // Save as preset) need a valid form, never a loaded preset (#900).
+    if (!S.mode) $("est").textContent = "Choose Count, Sweep or Optimize.";
+    else if (S.mode === "sweep" && !composer.result()) $("est").textContent = "Complete the trajectory to continue.";
     valid = ok;
     updateStartGate();
   }
@@ -638,37 +588,24 @@
   }
 
   function buildPreset() {
-    var doc = S.presetDoc || {};
-    var count = S.mode === "noscan" || S.mode === "background";
-    var shots = parseInt($("shots").value, 10);
-    var kwargs = { acquisition: S.acq };
-    var plan;
-    if (S.mode === "optimize") {
-      kwargs = { optimizer_config: $("optimizer-config").value, max_iterations: Number($("iterations").value), shots_per_step: shots };
-      plan = { name: "optimize", args: [], kwargs: kwargs };
-    } else if (count) {
-      kwargs.num = shots;
-      plan = { name: "count", args: [], kwargs: kwargs };
+    var doc = S.presetDoc || {}, previous = doc.plan || {}, name = S.mode;
+    var kwargs = previous.name === name ? Object.assign({}, previous.kwargs || {}) : {};
+    // The visible selector owns this value. Older presets may put it in
+    // kwargs, which expand_preset otherwise gives precedence over the field.
+    delete kwargs.trigger_profile;
+    var shots = Number($("shots").value);
+    if (name === "optimize") {
+      kwargs.optimizer_config = $("optimizer-config").value; kwargs.max_iterations = Number($("iterations").value); kwargs.shots_per_step = shots;
     } else {
-      kwargs.shots_per_step = shots;
-      var axes = [axis(1)];
-      if (S.mode === "grid") axes.push(axis(2));
-      kwargs.sweep = { trajectory: { kind: "axes", combine: S.mode === "grid" ? "product" : "zip", snake: false,
-        axes: axes.map(function (a) { return { kind: "range", axis: a.variable, start: a.start, stop: a.stop, num: a.num, relative: false }; }) } };
-      plan = { name: "sweep", args: [], kwargs: kwargs };
+      kwargs.acquisition = S.acq;
+      if (name === "count") kwargs.num = shots;
+      else { kwargs.shots_per_step = shots; kwargs.sweep = composer.value(); }
     }
     if (S.acq === "strict" && $("period").value !== "") kwargs.shot_period = Number($("period").value);
-    var devices = tableDevices();
-    return {
-      name: S.presetName || "adhoc",
-      description: $("desc").value.trim(),
-      trigger_profile: $("trig").value || null,
-      // A background flag on the preset survives a mode change; the
-      // Background mode sets it for a count.
-      background: S.mode === "background" || (S.mode !== "noscan" && !!doc.background),
-      devices: devices,
-      plan: plan
-    };
+    else delete kwargs.shot_period;
+    return {name: S.presetName || "adhoc", description: $("desc").value.trim(), trigger_profile: $("trig").value || null,
+      background: name === "count" ? $("background").checked : !!doc.background,
+      devices: tableDevices(), plan: {name: name, args: [], kwargs: kwargs}};
   }
 
   function lockOptimizerDevices() {
@@ -1186,13 +1123,14 @@
       window.GeecsKit.confirm($("dlg-stop")).open();
     } else if (e.key === "n" || e.key === "N") {
       $("submit").scrollIntoView({ behavior: "smooth", block: "start" });
-      $("var1").focus();
+      var variable = $("sweep-composer").querySelector("input[data-field=axis]");
+      if (variable && S.mode === "sweep") variable.focus();
     }
   });
 
   /* ---------------------------------------------------------------- boot */
 
-  setMode("scan", true);
+  setMode("", true);
   setAcq("strict");
   renderTail();
   loadConfigs();

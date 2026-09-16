@@ -25,8 +25,6 @@
 .kit .tail .ln.warn{color:var(--warn)}
 .kit .tail:empty::before{content:attr(data-empty);color:var(--muted)}
 
-.kit .axes{display:grid;gap:var(--gap);grid-template-columns:minmax(0,1.6fr) repeat(3,minmax(0,1fr))}
-@media (max-width:640px){.kit .axes{grid-template-columns:1fr 1fr}}
 .kit .fields{display:grid;gap:var(--gap);grid-template-columns:repeat(auto-fit,minmax(170px,1fr))}
 .kit .fields .field.wide{grid-column:1/-1}
 /* The preset picker: a verb ("Load preset…") in the footer row, the kit's row height like the buttons beside it, not a form field. */
@@ -52,3 +50,31 @@
 .kit .picklist [aria-pressed="true"] .sub{color:inherit;opacity:.85}
 .kit .steps li.prob{color:var(--warn)}
 .kit .rail h4 a{color:inherit}
+
+/* Scanner-specific inline trajectory editor and read-only plot layout. */
+.kit .sweep-layout { display:grid; grid-template-columns:11rem minmax(0,1fr); gap:calc(var(--gap) * 1.5); align-items:start; }
+.kit .sweep-axis { margin-bottom:var(--gap); }
+.kit .sweep-axis-fields { display:grid; grid-template-columns:minmax(12rem,1.7fr) minmax(8rem,1fr) repeat(3,minmax(4.2rem,.65fr)); gap:calc(var(--gap) * .65); }
+.kit .sweep-axis-fields textarea { min-height:3rem; resize:vertical; }
+.kit .sweep-axis-fields .field:has(textarea) { grid-column:span 3; }
+.kit .sweep-plots { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,18rem),1fr)); gap:var(--gap); }
+.kit .trajectory-chart { margin:0; padding:calc(var(--gap) * .65); min-width:0; max-width:34rem; }
+.kit .trajectory-chart figcaption { overflow-wrap:anywhere; font-weight:600; }
+.kit .trajectory-chart svg { width:100%; display:block; }
+.kit .trajectory-chart text { fill:var(--muted); font-size:11px; }
+.kit .trajectory-grid { stroke:var(--rule); stroke-width:1; }
+.kit .trajectory-path { fill:none; stroke:var(--accent); stroke-width:1.5; }
+.kit .trajectory-dot { fill:var(--accent); }
+@media(max-width:1000px) {
+  .kit .sweep-layout { grid-template-columns:1fr; }
+  .kit .sweep-axis-fields { grid-template-columns:repeat(3,minmax(0,1fr)); }
+  .kit .sweep-axis-fields .field:first-child { grid-column:span 2; }
+}
+
+.kit .sweep-axis[data-pattern="true"] .sweep-axis-fields { grid-template-columns:1fr; }
+
+.kit .sweep-axis-fields .field { min-width:0; }
+.kit .sweep-axis-fields input, .kit .sweep-axis-fields select, .kit .sweep-axis-fields textarea { min-width:0; width:100%; box-sizing:border-box; }
+.kit #sweep-composer > .row { margin-bottom:var(--gap); }
+.kit #submit { scroll-margin-top:5rem; }
+@media(max-width:600px) { .kit #submit { scroll-margin-top:13rem; } }

@@ -22,13 +22,16 @@ geecs_scanner/
     scanlog.py    read the run's scan.log from the folder the start document names
     settables.py  the movable panel's list: GEECS-Core's numeric_settables over GeecsDb rows, cached per process
     readback.py   one aioca caget of the gateway's readback PV (geecs_core.pv_naming) — the service's one async path
+    trajectory.py isolated hardware-free preview over shared Bluesky expansion
   web/
     app.py        create_app (the process) and create_scanner_router (the same as a router)
     pages.py      GET / — the page (make_templates from geecs_web_theme.web: `root` in every context)
     api.py        one route per verb, three lines each
     events.py     GET /api/events — SSE: status, progress, log (scan.log), console
   templates/console.html   the page; the kit's vocabulary, page-only classes from static/
-  static/scanner.js        the page's one script: API + EventSource + form → Preset
+  static/scanner.js        API + EventSource + capture/form → Preset
+  static/sweep-composer.js trajectory editing → Sweep payload
+  static/trajectory-view.js draws returned coordinates only
   static/scanner.css       page-only classes; never re-skins a kit class
   __main__.py     geecs-scanner: --experiment | --demo, --port 8300, --root-path, --portal-url
 deploy/           the unit template + DEPLOYMENT.md
@@ -57,13 +60,16 @@ deploy/           the unit template + DEPLOYMENT.md
   is recorded and changes nothing.
 - **One client, one lock, blocking calls.** Every service method holds the
   lock around its client calls; the web layer runs them on the threadpool.
-  The one exception is `readback`, `async` on the app's loop (aioca is
+  `readback` is `async` on the app's loop (aioca is
   async): it takes no lock and reads no DB, because `/api/events` shares
   that loop — anything blocking there freezes every viewer's stream.
   The stream consumer threads are daemons that are never stopped (a zmq
-  socket touched from another thread can abort the process).
+  socket touched from another thread can abort the process). The numerical
+  trajectory preview takes no client lock: it has its own process/concurrency
+  budgets and never calls the manager.
 - **Imports.** `geecs_bluesky.qs_client`, `geecs_bluesky.config_resolver`,
-  `geecs_bluesky.plan_names`, `geecs_schemas`, `geecs_web_theme`,
+  `geecs_bluesky.plan_names`, `geecs_bluesky.trajectory` (hardware-free
+  numerical expansion only), `geecs_schemas`, `geecs_web_theme`,
   `geecs_core.db` (the settables list) and `geecs_core.pv_naming` + `aioca`
   (the readback — the scanner reads gateway PVs directly, like the
   preflight does through the client seam). Never the
@@ -147,3 +153,24 @@ Optimizer listings expose unavailable names and reasons as well as usable names;
 listing errors are displayed even when Optimize is disabled. Recorded physical
 best targets remain visible after an offer is invalidated. Set to best confirms
 the targets before queueing; queue acceptance is never described as completion.
+
+## Inline Sweep composer
+
+New scan starts unconfigured and selects Count / Sweep / Optimize. Sweep
+expands inline into Axis Sweeps / Patterns. The browser builds typed inputs
+and only draws coordinates returned by `POST /api/trajectory`; it never
+implements spacing or pattern geometry. The service uses the shared Bluesky
+trajectory module in a disposable process: 256 KiB input, 250,000 expanded
+coordinates, 256 MiB RSS and eight seconds, two previews concurrently. These
+are interactive computation budgets, not shot limits. Responses sample at
+most 2,000 positions / 10,000 coordinates and disclose sampling; submitted
+payloads always retain the full original trajectory. Relative previews are
+offsets; execution captures the staged baseline. Stale requests cannot replace
+newer form state. Capture controls remain shared outside the trajectory tabs.
+
+`sweep-composer.js` owns editing and numeric list parsing; `trajectory-view.js`
+only renders server results and can be reused independently of the form.
+Lists accept numeric comma/tab/space/newline values, preserving repeats. There
+is no axis-count ceiling or evaluator. Presets seed the form; no preset is
+automatically selected. Optimize retains its existing required-device and
+Set to best controls.
