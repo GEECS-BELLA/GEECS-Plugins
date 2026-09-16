@@ -370,3 +370,58 @@ console.log(JSON.stringify({before, after: $("optimization-targets").children.ma
         == [["Motor1:Current", "0.123456789"], ["Motor2:Current", "-0.5"]]
     )
     assert state["disabled"]
+
+
+def test_single_position_range_round_trips_through_compatibility_form():
+    _need_node()
+    script = (_PKG / "static/scanner.js").read_text()
+    functions = "\n".join(
+        "function "
+        + name
+        + "("
+        + args
+        + ") {\n"
+        + _script_function(script, name)
+        + "\n}"
+        for name, args in [
+            ("formShape", "plan"),
+            ("fillFormFromPreset", "doc"),
+            ("stepFor", "start,stop,num"),
+            ("points", "a,b,s"),
+        ]
+    )
+    harness = (
+        """
+var els = {}, S = {};
+function $(id) {return els[id] || (els[id] = {value: "", appendChild() {}});}
+function setSelect(id,v) {$(id).value = v;} function setMode() {} function setAcq() {}
+function noDevicesNote() {} function recalc() {} function renderCalibration() {}
+"""
+        + functions
+        + """
+var result = [2,5].map(stop => {
+ var axis = {kind: "range", axis: "M", start: 2, stop: stop, num: points(2,stop,10)};
+ var plan = {name: "sweep", kwargs: {sweep: {trajectory: {kind: "axes", axes: [axis]}}}};
+ fillFormFromPreset({plan: plan});
+ return {shape: formShape(plan), formable: S.formable, start: $("start1").value, stop: $("stop1").value, step: $("step1").value, count: points(Number($("start1").value),Number($("stop1").value),Number($("step1").value))};
+});
+console.log(JSON.stringify(result));
+"""
+    )
+    result = subprocess.run(
+        ["node", "-"], input=harness, text=True, capture_output=True, check=True
+    )
+    assert (
+        json.loads(result.stdout)
+        == [
+            {
+                "shape": "scan",
+                "formable": True,
+                "start": 2,
+                "stop": 2,
+                "step": 1,
+                "count": 1,
+            }
+        ]
+        * 2
+    )

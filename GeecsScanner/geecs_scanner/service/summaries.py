@@ -133,10 +133,16 @@ def summarize_item(item: dict) -> ItemSummary:
 
             payload = Sweep.model_validate(kwargs.get("sweep"))
             steps = payload.n_steps()
-            axes = [
-                a.axis + (" (relative)" if a.relative else "")
-                for a in payload.axis_references()
-            ]
+            for a in payload.axis_references():
+                label = a.axis + (" (relative)" if a.relative else "")
+                kind = getattr(a, "kind", None)
+                if kind == "range":
+                    label = _axis(label, a.start, a.stop)
+                elif kind == "list":
+                    label += f" [{len(a.positions)} pts]"
+                elif kind == "log":
+                    label += f" 10^{_fmt(a.start_exp)} → 10^{_fmt(a.stop_exp)}"
+                axes.append(label)
             sps = sps or 1
         elif name in _TRIPLET_VERBS:
             num = _int(kwargs.get("num")) if "num" in kwargs else None

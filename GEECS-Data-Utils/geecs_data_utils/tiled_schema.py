@@ -545,6 +545,7 @@ def scan_mode(start_doc: Mapping[str, Any]) -> str:
                 "GRID"
                 if trajectory.get("kind") == "axes"
                 and trajectory.get("combine") == "product"
+                and len(trajectory.get("axes") or []) > 1
                 else "1D"
             )
     # `plan_pattern` is the stock bluesky discriminator and the only reliable

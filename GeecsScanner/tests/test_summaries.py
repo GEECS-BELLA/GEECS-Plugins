@@ -105,3 +105,28 @@ def test_non_scan_items_and_unknown_shapes_never_raise() -> None:
 )
 def test_exit_words(status, expected) -> None:
     assert exit_word(status) == expected
+
+
+@pytest.mark.parametrize(
+    "spec,expected",
+    [
+        ({"kind": "range", "start": 2, "stop": 5, "num": 7}, "sweep M 2 → 5 · 7 steps"),
+        ({"kind": "range", "start": 9, "stop": 1, "num": 7}, "sweep M 9 → 1 · 7 steps"),
+        ({"kind": "list", "positions": [2, 1, 2]}, "sweep M [3 pts] · 3 steps"),
+        (
+            {"kind": "log", "start_exp": -2, "stop_exp": 1, "num": 4, "relative": True},
+            "sweep M (relative) 10^-2 → 10^1 · 4 steps",
+        ),
+    ],
+)
+def test_sweep_summary_retains_axis_range_or_list_count(spec, expected):
+    summary = summarize_item(
+        _item(
+            "sweep",
+            [[]],
+            sweep={"trajectory": {"kind": "axes", "axes": [{"axis": "M", **spec}]}},
+            shots_per_step=2,
+        )
+    )
+    assert summary.text.startswith(expected)
+    assert summary.planned_shots == summary.steps * 2

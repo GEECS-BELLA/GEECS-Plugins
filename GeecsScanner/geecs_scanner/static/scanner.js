@@ -443,7 +443,7 @@
     if (plan.name === "count" && args.length === 0) return "count";
     var t = plan.kwargs && plan.kwargs.sweep && plan.kwargs.sweep.trajectory;
     if (plan.name === "sweep" && args.length === 0 && t && t.kind === "axes" && !t.snake &&
-        t.axes.every(function (a) { return a.kind === "range" && !a.relative && a.num > 1; })) {
+        t.axes.every(function (a) { return a.kind === "range" && !a.relative && ((a.num > 1 && a.start !== a.stop) || a.num === 1); })) {
       if (t.axes.length === 1) return "scan";
       if (t.axes.length === 2 && t.combine === "product") return "grid";
     }
@@ -455,10 +455,12 @@
     var kw = plan.kwargs || {}, args = plan.args || [];
     var shape = formShape(plan);
     if (plan.name === "sweep" && (shape === "scan" || shape === "grid")) {
-      args = [].concat.apply([], kw.sweep.trajectory.axes.map(function (a) { return [a.axis, a.start, a.stop, a.num]; }));
+      // A one-point range visits only start; collapse its unused stop for
+      // this temporary step-based form so reloading preserves that one move.
+      args = [].concat.apply([], kw.sweep.trajectory.axes.map(function (a) { return [a.axis, a.start, a.num === 1 ? a.start : a.stop, a.num]; }));
     }
     S.formable = shape !== null;
-    S.formableNote = S.formable ? "" : "this preset runs " + plan.name + " with " + args.length + " argument(s); no form for it yet";
+    S.formableNote = S.formable ? "" : plan.name === "sweep" ? "this Sweep trajectory needs the full composer; this form supports absolute linear ranges" : "this preset runs " + plan.name + " with " + args.length + " argument(s); no form for it yet";
     var mode = shape === "count" ? (doc.background ? "background" : "noscan") : (shape || "scan");
     setMode(mode, true);
     setAcq(kw.acquisition || "strict");
@@ -526,7 +528,7 @@
   }
   function stepFor(start, stop, num) {
     var n = Number(num);
-    if (!(n > 1)) return 0;
+    if (!(n > 1)) return 1;
     return Math.abs((Number(stop) - Number(start)) / (n - 1));
   }
 

@@ -475,3 +475,32 @@ class TestPlanListAndClose:
         with pytest.raises(RuntimeError, match="no queueserver configured"):
             stub.allowed_plan_names()
         stub.close()
+
+
+@pytest.mark.parametrize("failure", ["missing", "unequal", "alias"])
+def test_invalid_sweep_returns_submit_refusal_before_manager_calls(failure):
+    from geecs_schemas import Preset, ScanVariables
+
+    axes = [
+        {"kind": "list", "axis": "alias", "positions": [1, 2]},
+        {"kind": "list", "axis": "Other:Current", "positions": [3, 4]},
+    ]
+    if failure == "unequal":
+        axes[1]["positions"].append(5)
+    if failure == "alias":
+        axes[1]["axis"] = "Motor:Current"
+    kwargs = (
+        {}
+        if failure == "missing"
+        else {"sweep": {"trajectory": {"kind": "axes", "axes": axes}}}
+    )
+    preset = Preset.model_validate(
+        {"name": "bad-sweep", "plan": {"name": "sweep", "kwargs": kwargs}}
+    )
+    catalog = ScanVariables.model_validate(
+        {"variables": {"alias": {"kind": "setpoint", "target": "Motor:Current"}}}
+    ).variables
+    fake = _FakeManagerAPI()
+    result = _client(fake).submit_preset(preset, catalog=catalog)
+    assert not result.ok and "invalid sweep" in result.message
+    assert fake.calls == []

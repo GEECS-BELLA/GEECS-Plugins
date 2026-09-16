@@ -9,6 +9,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Changed
 
 - Register sweep and retire all moving stock scan verbs. Reuse scan_nd and shared strict/gated acquisition; validate JSON before box motion, expand axis references once, and restore relative axes before close/unstage. Record the executed Sweep and first-axis projection. Hardware acceptance remains owed.
+- Return malformed Sweep and alias-collision errors through the public client's configuration-refusal result. Record one snaking flag per motor without implying uniform, single-event grid cells.
 
 ## [0.93.0] - 2026-09-16
 

@@ -62,6 +62,9 @@ def sweep_plan(namespace: Mapping[str, Any]) -> Callable:
             [(f, "primary") for f in fields] if grid else [(sum(fields, []), "primary")]
         )
         metadata = dict(md or {})
+        hints = {"dimensions": dimensions} if all(fields) else {}
+        # No rectilinear hint: LiveGrid assumes uniform axes and one primary
+        # event per cell. Lists/logs and shots_per_step do not promise either.
         metadata.update(
             plan_name="sweep",
             sweep=payload.model_dump(mode="json"),
@@ -76,8 +79,10 @@ def sweep_plan(namespace: Mapping[str, Any]) -> Callable:
             num_intervals=len(trajectory) - 1,
             shape=shape,
             extents=[[min(points[m]), max(points[m])] for m in motors],
-            snaking=[False, *([spec.snake] * (len(motors) - 1))] if grid else [False],
-            hints={"dimensions": dimensions} if all(fields) else {},
+            snaking=[False, *([spec.snake] * (len(motors) - 1))]
+            if grid
+            else [False] * len(motors),
+            hints=hints,
         )
         # Retain Bluesky's traversal and hook invocation. Own the lifecycle so
         # reset happens in the staged coordinate frame, before close_run. An

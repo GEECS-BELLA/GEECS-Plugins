@@ -9,6 +9,7 @@ project adheres to semantic versioning.
 ### Changed
 
 - Adapt the existing range/grid form and demo preset to submit Sweep payloads; summarize Sweep queue items and retain historical stock item summaries. The full composer follows separately.
+- Preserve single-position range presets through the compatibility form and show Sweep ranges, logarithmic exponents and list counts in queue summaries.
 
 ## [0.9.2] - 2026-09-16
 

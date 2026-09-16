@@ -398,7 +398,15 @@ class TestScanMotorsShapes:
     "trajectory, expected",
     [
         ({"kind": "axes", "combine": "zip"}, "1D"),
-        ({"kind": "axes", "combine": "product"}, "GRID"),
+        (
+            {
+                "kind": "axes",
+                "combine": "product",
+                "axes": [{"axis": "a"}, {"axis": "b"}],
+            },
+            "GRID",
+        ),
+        ({"kind": "axes", "combine": "product", "axes": [{"axis": "a"}]}, "1D"),
         ({"kind": "spiral"}, "1D"),
         ({"kind": "x2x"}, "1D"),
     ],
