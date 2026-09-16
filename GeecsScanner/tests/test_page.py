@@ -373,7 +373,15 @@ console.log(JSON.stringify({before, after: $("optimization-targets").children.ma
     assert state["disabled"]
 
 
-def test_preset_trigger_control_overrides_hidden_kwarg_and_keeps_other_options():
+@pytest.mark.parametrize(
+    "axis",
+    [
+        {"kind": "list", "axis": "A", "positions": [3, 1, 3]},
+        {"kind": "range", "axis": "A", "start": 2, "stop": 2, "num": 1},
+        {"kind": "range", "axis": "A", "start": 2, "stop": 5, "num": 1},
+    ],
+)
+def test_preset_trigger_control_overrides_hidden_kwarg_and_keeps_other_options(axis):
     _need_node()
     source = (_PKG / "static/scanner.js").read_text()
     functions = "\n".join(
@@ -405,7 +413,7 @@ function tableDevices() {return [];}
         + r"""
 S.presetDoc = {trigger_profile: "top-level", devices: [], plan: {name: "sweep", args: [], kwargs: {
  trigger_profile: "effective", shots_per_step: 3, custom_option: 42,
- sweep: {trajectory: {kind: "axes", axes: [{kind: "list", axis: "A", positions: [3, 1, 3]}]}}
+ sweep: {trajectory: {kind: "axes", axes: [AXIS_PAYLOAD]}}
 }}};
 fillFormFromPreset(S.presetDoc);
 var loaded = $("trig").value;
@@ -417,7 +425,11 @@ console.log(JSON.stringify({loaded, saved, cleared: $("trig").value}));
 """
     )
     result = subprocess.run(
-        ["node", "-"], input=harness, text=True, capture_output=True, check=True
+        ["node", "-"],
+        input=harness.replace("AXIS_PAYLOAD", json.dumps(axis)),
+        text=True,
+        capture_output=True,
+        check=True,
     )
     state = json.loads(result.stdout)
     assert state["loaded"] == "effective"
@@ -426,4 +438,4 @@ console.log(JSON.stringify({loaded, saved, cleared: $("trig").value}));
     kwargs = state["saved"]["plan"]["kwargs"]
     assert "trigger_profile" not in kwargs
     assert kwargs["custom_option"] == 42
-    assert kwargs["sweep"]["trajectory"]["axes"][0]["positions"] == [3, 1, 3]
+    assert kwargs["sweep"]["trajectory"]["axes"][0] == axis

@@ -41,6 +41,17 @@ def test_five_axes_use_shared_python_coordinates(client):
     assert all(a["positions"] == [-1, 0, 1] for a in result["axes"])
 
 
+@pytest.mark.parametrize("stop", [2, 5])
+def test_single_position_range_visits_only_start(client, stop):
+    body = payload(count=1)
+    body["trajectory"]["axes"][0].update(start=2, stop=stop)
+    response = client.post("/api/trajectory", json=body)
+    assert response.status_code == 200, response.text
+    result = response.json()
+    assert result["total_steps"] == 1
+    assert result["axes"][0]["positions"] == [2]
+
+
 def test_lists_preserve_repeats_and_reject_unequal_lengths(client):
     body = {
         "trajectory": {

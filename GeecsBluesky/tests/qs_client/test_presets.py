@@ -159,7 +159,7 @@ def test_alias_collision_is_rejected():
             "positions": [1, 2, 3, 4, 5, 6],
         }
     )
-    with pytest.raises(ValueError, match="only once"):
+    with pytest.raises(GeecsConfigurationError, match="only once"):
         expand_preset(_preset(plan=call), catalog=CATALOG)
 
 
@@ -208,3 +208,23 @@ def test_non_essential_scalars_only_and_bad_acquisition_are_refused() -> None:
         expand_preset(
             _preset(plan={"name": "count", "kwargs": {"acquisition": "sloppy"}})
         )
+
+
+def test_generic_reference_resolution_preserves_literal_strings():
+    from geecs_bluesky.qs_client.presets import _resolve
+
+    references = []
+    result = [
+        _resolve(value, CATALOG, references)
+        for value in ["U_S1H:Enable_Output", ["on", "off"], "EMQ1 Current", "on"]
+    ]
+    assert result == [
+        "U_S1H.enable_output",
+        ["on", "off"],
+        "U_EMQTripletBipolar.current_limit_ch1",
+        "on",
+    ]
+    assert references == [
+        "U_S1H.enable_output",
+        "U_EMQTripletBipolar.current_limit_ch1",
+    ]

@@ -246,7 +246,9 @@ run readers remain for history. Count retains its distinct noscan metadata.
 ### Deployed acquisition
 
 Two modes, one keyword (`acquisition`, default `strict`), using a GEECS
-`per_step` / `per_shot` bound by `plans/registry.py` — the stock parameters minus the hook, plus
+`per_step` / `per_shot` bound by `plans/registry.py`. Count retains its stock
+parameters; Sweep takes the validated trajectory payload; Optimize takes its
+optimizer config. The acquisition binder adds
 `trigger_profile`, `shots_per_step`, `acquisition`, `non_essential` and
 `shot_period` (keyword-only; all ride in the start document).
 

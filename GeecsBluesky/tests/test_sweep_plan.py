@@ -164,3 +164,62 @@ def test_manager_preserves_nested_axis_strings(RE, box, profiles):
     )
     assert result["args"][0] == [x.current]
     assert result["kwargs"]["sweep"] == payload()
+
+
+@pytest.mark.parametrize("kind", ["zip", "product", "x2x", "spiral"])
+def test_motion_metadata_keeps_axis_flags_and_grid_hints(kind):
+    body = payload(False)
+    if kind in {"zip", "product"}:
+        body["trajectory"].update(combine=kind, snake=kind == "product")
+    else:
+        params = (
+            {"start": -1, "stop": 1, "num": 3}
+            if kind == "x2x"
+            else {
+                "x_center": 0,
+                "y_center": 0,
+                "x_range": 2,
+                "y_range": 2,
+                "dr": 1,
+                "nth": 4,
+            }
+        )
+        body["trajectory"] = {
+            "kind": kind,
+            "x": {"axis": "X.current", "relative": True},
+            "y": {"axis": "Y.current", "relative": True},
+            **params,
+        }
+    engine = RunEngine()
+    x, y = setup_axes(engine)
+    col = DocCollector()
+    engine.subscribe(col)
+    engine(sweep_plan({"X": x, "Y": y})([], sweep=body))
+    start = col.docs["start"][0]
+    assert len(start["snaking"]) == len(start["motors"]) == 2
+    assert start["snaking"] == [False, kind == "product"]
+    assert "gridding" not in start["hints"]
+    if kind == "product":
+        assert start["shape"] == [2, 2]
+    else:
+        assert start["shape"] == [start["num_points"]]
+
+
+def test_multishot_nonuniform_grid_does_not_claim_livegrid_layout(RE, box, profiles):
+    x, y = setup_axes(RE)
+    body = payload(False)
+    body["trajectory"].update(combine="product", snake=True)
+    body["trajectory"]["axes"][0]["positions"] = [1, 3, 8]
+    body["trajectory"]["axes"][1]["positions"] = [4, 2]
+    col = DocCollector()
+    RE.subscribe(col)
+    RE(
+        bind_plans(profiles, settables={"X": x, "Y": y})["sweep"](
+            [], sweep=body, shots_per_step=2
+        )
+    )
+    start = col.docs["start"][0]
+    assert start["shape"] == [3, 2]
+    assert start["snaking"] == [False, True]
+    assert len(col.primary_events()) == 12
+    assert "gridding" not in start["hints"]
