@@ -4,6 +4,19 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.93.0] - 2026-09-16
+
+### Added
+
+- Hardware-free `trajectory.axis_positions` / `sweep_to_cycler`, the shared
+  numerical expansion for future sweep execution and scanner preview.
+  NumPy supplies range/log spacing; stock Bluesky patterns supply ordered
+  trajectories, including mixed grids, snake traversal and typed spirals.
+  Duplicate resolved axes and unrepresentable positions are refused.
+- Foundation parity tests for one-to-five axes and typed patterns. Relative
+  coordinates remain offsets in this layer; no registered plan or deployed
+  acquisition behavior changes in this release.
+
 ## [0.92.2] - 2026-09-16
 
 ### Fixed
