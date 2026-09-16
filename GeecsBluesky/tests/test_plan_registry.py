@@ -28,10 +28,8 @@ from geecs_bluesky.plan_names import (
     NATIVE_SCAN_PLAN_NAMES,
 )  # noqa: E402
 from geecs_bluesky.plans.registry import (  # noqa: E402
-    EXCLUDED_STOCK_PLANS,
     TriggerProfiles,
     bind_plans,
-    stock_plans_with_hook,
     strict_plan,
 )
 from tests.ca_mock_helpers import DocCollector, connect_mock, follow_setpoint  # noqa: E402
@@ -62,13 +60,19 @@ def profiles(RE: RunEngine, box: FakeBox) -> TriggerProfiles:
 
 
 # ---------------------------------------------------------------- the table
-def test_plan_names_are_every_expressible_stock_plan_with_the_hook() -> None:
-    """GEECS_PLAN_NAMES (import-light) pins the derivation the registry uses."""
-    derived = set(stock_plans_with_hook()) - EXCLUDED_STOCK_PLANS
-    assert derived == set(GEECS_PLAN_NAMES) - set(NON_SCAN_PLAN_NAMES) - set(
-        NATIVE_SCAN_PLAN_NAMES
-    )
-    assert EXCLUDED_STOCK_PLANS <= set(stock_plans_with_hook())
+def test_plan_names_are_the_three_scan_choices_and_utilities() -> None:
+    assert set(GEECS_PLAN_NAMES) == {"count", "sweep", "optimize", *NON_SCAN_PLAN_NAMES}
+
+
+def payload(axis="U_S1H.current", start=-1.0, stop=1.0, num=3, **extra):
+    return {
+        "trajectory": {
+            "kind": "axes",
+            "axes": [
+                dict(kind="range", axis=axis, start=start, stop=stop, num=num, **extra)
+            ],
+        }
+    }
 
 
 def test_bound_plans_keep_the_stock_signature_minus_the_hook(profiles) -> None:
@@ -153,9 +157,7 @@ def test_queue_items_validate_against_the_bound_plans(RE, box, profiles) -> None
     items = [
         ("count", [["UC_Cam"], 3], {"trigger_profile": "HTU-Test"}),
         ("count", [["UC_Cam.scalars"]], {"num": 2}),
-        ("scan", [["UC_Cam"], "U_S1H.current", -1, 1, 5], {"shots_per_step": 4}),
-        ("list_scan", [["UC_Cam"], "U_S1H.current", [0.0, 0.5]], {}),
-        ("rel_grid_scan", [["UC_Cam"], "U_S1H.current", -1, 1, 3], {}),
+        ("sweep", [["UC_Cam"]], {"sweep": payload(), "shots_per_step": 4}),
         ("run_action", ["Amp4_DUMP_HP"], {}),
     ]
     for name, args, kwargs in items:
@@ -188,8 +190,8 @@ def test_bound_scan_runs_strict_with_shots_per_step_and_bins(RE, box, profiles):
     follow_setpoint(magnet.current)
     col = DocCollector()
     RE.subscribe(col)
-    scan = bind_plans(profiles)["scan"]
-    RE(scan([cam], magnet.current, -1.0, 1.0, 3, shots_per_step=2))
+    scan = bind_plans(profiles, settables={"U_S1H": magnet})["sweep"]
+    RE(scan([cam], sweep=payload(), shots_per_step=2))
     events = col.primary_events()
     assert box.fires == 6 and len(events) == 6
     assert [e["data"]["bin_number"] for e in events] == [1, 1, 2, 2, 3, 3]
@@ -197,7 +199,7 @@ def test_bound_scan_runs_strict_with_shots_per_step_and_bins(RE, box, profiles):
         [-1.0, -1.0, 0.0, 0.0, 1.0, 1.0]
     )
     start = col.docs["start"][0]
-    assert start["plan_name"] == "scan"
+    assert start["plan_name"] == "sweep"
     assert start["trigger_profile"] == "HTU-Test" and start["shots_per_step"] == 2
     assert start["num_points"] == 3
     # ARMED before the run, STANDBY after it — through the profile's device.
@@ -331,9 +333,13 @@ def test_scalars_view_yields_to_the_owners_scanned_child(RE, box, profiles):
     follow_setpoint(cam.exposure)
     col = DocCollector()
     RE.subscribe(col)
-    scan = bind_plans(profiles)["scan"]
-    RE(scan([magnet.scalars], magnet.current, -1.0, 1.0, 3))
-    RE(scan([cam.scalars], cam.exposure, 1.0, 3.0, 3))
+    scan = bind_plans(profiles, settables={"U_S1H": magnet})["sweep"]
+    RE(scan([magnet.scalars], sweep=payload()))
+    RE(
+        bind_plans(profiles, settables={"UC_Cam": cam})["sweep"](
+            [cam.scalars], sweep=payload("UC_Cam.exposure", 1, 3, 3)
+        )
+    )
     events = col.primary_events()
     assert len(events) == 6 and box.fires == 6
     assert [e["data"]["u_s1h-current-position"] for e in events[:3]] == pytest.approx(
@@ -459,9 +465,9 @@ def test_a_refused_move_inside_the_run_names_its_cause(RE, box, profiles) -> Non
     callback_on_mock_put(magnet.current._setpoint, refuse)
     col = DocCollector()
     RE.subscribe(col)
-    scan = bind_plans(profiles)["scan"]
+    scan = bind_plans(profiles, settables={"U_S1H": magnet})["sweep"]
     with pytest.raises(FailedStatus) as info:
-        RE(scan([cam], magnet.current, -1.0, 1.0, 3))
+        RE(scan([cam], sweep=payload()))
     assert isinstance(info.value.__cause__, _RefusedPut)
     assert str(info.value) == f"_RefusedPut: {text}"
     (stop,) = col.docs["stop"]

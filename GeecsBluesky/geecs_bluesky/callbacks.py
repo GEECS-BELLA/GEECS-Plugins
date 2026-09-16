@@ -461,6 +461,13 @@ def first_axis(start: Mapping[str, Any]) -> tuple[float, float, float]:
     ``log_scan``), then ``extents`` + ``shape``; zeros for a motionless run
     or an unknown shape.  A relative plan's values are its offsets.
     """
+    if start.get("plan_name") == "sweep":
+        projection = start.get("sweep_first_axis")
+        if isinstance(projection, (list, tuple)) and len(projection) == 3:
+            try:
+                return tuple(float(v) for v in projection)
+            except (TypeError, ValueError):
+                pass
     pattern = start.get("plan_pattern")
     pargs: Mapping[str, Any] = start.get("plan_pattern_args") or {}
     args = list(pargs.get("args") or [])

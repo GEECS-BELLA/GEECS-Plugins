@@ -53,7 +53,7 @@ def test_scan_variables_list_pseudo_as_scannable(client: TestClient) -> None:
 
 def test_preset_document_and_devices(client: TestClient) -> None:
     doc = client.get("/api/configs/presets/jet_pressure_sweep").json()
-    assert doc["plan"]["name"] == "scan"
+    assert doc["plan"]["name"] == "sweep"
     assert client.get("/api/configs/presets/nope").status_code == 404
     devices = client.get("/api/devices").json()
     assert "UC_ALineEBeam3" in devices and "U_S1H.current" in devices
@@ -63,11 +63,16 @@ def test_preflight_expands_and_asks(client: TestClient, preset_doc: dict) -> Non
     out = client.post("/api/preflight", json=preset_doc).json()
     assert out["refusal"] is None
     assert [q["check"] for q in out["questions"]] == ["gateway_liveness"]
-    assert out["plan"]["name"] == "scan"
+    assert out["plan"]["name"] == "sweep"
     # the catalog name became a namespace reference (expand_preset's spelling
     # of U_HP_Daq:Jet pressure); the scanner bound nothing itself
-    assert out["plan"]["args"][1].startswith("U_HP_Daq.")
-    assert out["plan"]["args"][1] in out["plan"]["references"]
+    assert out["plan"]["kwargs"]["sweep"]["trajectory"]["axes"][0]["axis"].startswith(
+        "U_HP_Daq."
+    )
+    assert (
+        out["plan"]["kwargs"]["sweep"]["trajectory"]["axes"][0]["axis"]
+        in out["plan"]["references"]
+    )
     assert out["plan"]["args"][0] == ["UC_ALineEBeam3", "U_ICT.scalars"]
     assert out["plan"]["kwargs"]["non_essential"] == ["UC_TC_Phosphor"]
     assert out["planned_shots"] == 70
@@ -77,10 +82,15 @@ def test_preflight_expands_and_asks(client: TestClient, preset_doc: dict) -> Non
 def test_preflight_accepts_a_pseudo_axis_as_its_namespace_noun(
     client: TestClient, preset_doc: dict
 ) -> None:
-    preset_doc["plan"]["args"][0] = "Gas jet 2-axis"
+    preset_doc["plan"]["kwargs"]["sweep"]["trajectory"]["axes"][0]["axis"] = (
+        "Gas jet 2-axis"
+    )
     out = client.post("/api/preflight", json=preset_doc).json()
     assert out["refusal"] is None
-    assert out["plan"]["args"][1] == "gas_jet_2_axis"  # the worker's binding
+    assert (
+        out["plan"]["kwargs"]["sweep"]["trajectory"]["axes"][0]["axis"]
+        == "gas_jet_2_axis"
+    )  # the worker's binding
 
 
 def test_submit_requires_every_acknowledgement(
@@ -119,7 +129,7 @@ def test_submit_then_run_pause_resume_stop(
 
     q = client.get("/api/queue").json()
     assert (
-        q["running"]["plan"] == "scan" and q["running"]["user"] == "geecs-scanner test"
+        q["running"]["plan"] == "sweep" and q["running"]["user"] == "geecs-scanner test"
     )
     assert q["running"]["state"] == "running" and q["summary"].startswith("Running")
     assert client.get("/api/status").json()["re_state"] == "running"

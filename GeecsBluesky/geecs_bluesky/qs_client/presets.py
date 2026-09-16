@@ -234,6 +234,30 @@ def expand_preset(
     references: list[str] = [*detectors, *non_essential]
     args = [_resolve(a, catalog, references) for a in plan.args]
     kwargs = {k: _resolve(v, catalog, references) for k, v in plan.kwargs.items()}
+    if plan.name == "sweep":
+        from geecs_schemas import Sweep
+        from pydantic import ValidationError
+
+        if args:
+            raise GeecsConfigurationError("sweep takes its trajectory in kwargs.sweep")
+        try:
+            payload = Sweep.model_validate(kwargs.get("sweep"))
+            for axis in payload.axis_references():
+                if (
+                    ":" in axis.axis
+                    or (catalog and axis.axis in catalog)
+                    or "." not in axis.axis
+                ):
+                    axis.axis = scan_variable_reference(axis.axis, catalog)
+                references.append(axis.axis)
+            # Two catalog entries may resolve to one axis.
+            kwargs["sweep"] = Sweep.model_validate(payload.model_dump()).model_dump(
+                mode="json"
+            )
+        except ValidationError as exc:
+            raise GeecsConfigurationError(
+                f"preset {preset.name!r}: invalid sweep: {exc}"
+            ) from exc
     acquisition = kwargs.get("acquisition", "strict")
     if acquisition not in ACQUISITION_MODES:
         raise GeecsConfigurationError(

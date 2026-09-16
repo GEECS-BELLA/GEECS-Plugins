@@ -128,6 +128,22 @@ def summarize_item(item: dict) -> ItemSummary:
             steps = _int(kwargs.get("max_iterations"))
             summary.acquisition = "strict"
             summary.text = f"optimize · {kwargs.get('optimizer_config', '?')} · ≤ {steps or '?'} iterations"
+        elif name == "sweep":
+            from geecs_schemas import Sweep
+
+            payload = Sweep.model_validate(kwargs.get("sweep"))
+            steps = payload.n_steps()
+            for a in payload.axis_references():
+                label = a.axis + (" (relative)" if a.relative else "")
+                kind = getattr(a, "kind", None)
+                if kind == "range":
+                    label = _axis(label, a.start, a.stop)
+                elif kind == "list":
+                    label += f" [{len(a.positions)} pts]"
+                elif kind == "log":
+                    label += f" 10^{_fmt(a.start_exp)} → 10^{_fmt(a.stop_exp)}"
+                axes.append(label)
+            sps = sps or 1
         elif name in _TRIPLET_VERBS:
             num = _int(kwargs.get("num")) if "num" in kwargs else None
             body = rest

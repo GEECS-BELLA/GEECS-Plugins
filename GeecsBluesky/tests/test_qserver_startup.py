@@ -166,16 +166,35 @@ def test_stock_plans_pass_manager_validation_over_namespace_devices(
     )
     ns = runpy.run_path(str(STARTUP_PATH), run_name="__not_main__")
     plans, devices, *_ = existing_plans_and_devices_from_nspace(nspace=ns)
-    assert {"count", "scan", "mv"} <= set(plans)
+    assert {"count", "sweep", "mv"} <= set(plans)
     assert "UC_TestCam" in devices and "U_S1H" in devices
-    for name, args in (
-        ("count", [["UC_TestCam"], 3]),
-        ("scan", [["UC_TestCam"], "U_S1H.current", -1, 1, 5]),
-        ("mv", ["U_S1H.current", 0.0]),
+    for name, args, kwargs in (
+        ("count", [["UC_TestCam"], 3], {}),
+        (
+            "sweep",
+            [["UC_TestCam"]],
+            {
+                "sweep": {
+                    "trajectory": {
+                        "kind": "axes",
+                        "axes": [
+                            {
+                                "kind": "range",
+                                "axis": "U_S1H.current",
+                                "start": -1,
+                                "stop": 1,
+                                "num": 5,
+                            }
+                        ],
+                    }
+                }
+            },
+        ),
+        ("mv", ["U_S1H.current", 0.0], {}),
     ):
         processed = _process_plan(ns[name], existing_devices={}, existing_plans={})
         ok, msg = validate_plan(
-            {"name": name, "args": args, "item_type": "plan"},
+            {"name": name, "args": args, "kwargs": kwargs, "item_type": "plan"},
             allowed_plans={name: processed},
             allowed_devices=devices,
         )

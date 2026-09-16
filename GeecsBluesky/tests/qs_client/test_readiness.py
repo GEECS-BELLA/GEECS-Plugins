@@ -35,7 +35,7 @@ OPENING = QueueStatus(
 )
 PLANS = {name: {"name": name} for name in GEECS_PLAN_NAMES}
 #: The plan a client asks about — any registered one; `scan` stands in.
-SCAN_PLAN = "scan"
+SCAN_PLAN = "sweep"
 
 
 class TestReadinessVerdict:
@@ -101,7 +101,7 @@ class TestReadinessVerdict:
         assert "listed: mv" in verdict.detail
         # several expected: every missing one is named
         verdict = readiness_verdict(UP, {"mv": {}}, GEECS_PLAN_NAMES)
-        assert "rel_list_grid_scan" in verdict.detail
+        assert "sweep" in verdict.detail
         assert "mv" not in verdict.detail.split("(listed")[0]
 
     def test_precedence_unreachable_before_opening_before_closed_before_plans(

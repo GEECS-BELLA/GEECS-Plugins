@@ -441,8 +441,12 @@
     var args = plan.args || [];
     if (plan.name === "optimize" && args.length === 0) return "optimize";
     if (plan.name === "count" && args.length === 0) return "count";
-    if (plan.name === "scan" && args.length === 4) return "scan";
-    if (plan.name === "grid_scan" && args.length === 8) return "grid";
+    var t = plan.kwargs && plan.kwargs.sweep && plan.kwargs.sweep.trajectory;
+    if (plan.name === "sweep" && args.length === 0 && t && t.kind === "axes" && !t.snake &&
+        t.axes.every(function (a) { return a.kind === "range" && !a.relative && ((a.num > 1 && a.start !== a.stop) || a.num === 1); })) {
+      if (t.axes.length === 1) return "scan";
+      if (t.axes.length === 2 && t.combine === "product") return "grid";
+    }
     return null;
   }
 
@@ -450,15 +454,20 @@
     var plan = doc.plan || { name: "count", args: [], kwargs: {} };
     var kw = plan.kwargs || {}, args = plan.args || [];
     var shape = formShape(plan);
+    if (plan.name === "sweep" && (shape === "scan" || shape === "grid")) {
+      // A one-point range visits only start; collapse its unused stop for
+      // this temporary step-based form so reloading preserves that one move.
+      args = [].concat.apply([], kw.sweep.trajectory.axes.map(function (a) { return [a.axis, a.start, a.num === 1 ? a.start : a.stop, a.num]; }));
+    }
     S.formable = shape !== null;
-    S.formableNote = S.formable ? "" : "this preset runs " + plan.name + " with " + args.length + " argument(s); no form for it yet";
+    S.formableNote = S.formable ? "" : plan.name === "sweep" ? "this Sweep trajectory needs the full composer; this form supports absolute linear ranges" : "this preset runs " + plan.name + " with " + args.length + " argument(s); no form for it yet";
     var mode = shape === "count" ? (doc.background ? "background" : "noscan") : (shape || "scan");
     setMode(mode, true);
     setAcq(kw.acquisition || "strict");
-    if (plan.name === "scan" && args.length >= 4) {
+    if (shape === "scan" && args.length >= 4) {
       setSelect("var1", args[0]); $("start1").value = args[1]; $("stop1").value = args[2];
       $("step1").value = stepFor(args[1], args[2], args[3]);
-    } else if (plan.name === "grid_scan" && args.length >= 8) {
+    } else if (shape === "grid" && args.length >= 8) {
       setSelect("var1", args[0]); $("start1").value = args[1]; $("stop1").value = args[2]; $("step1").value = stepFor(args[1], args[2], args[3]);
       setSelect("var2", args[4]); $("start2").value = args[5]; $("stop2").value = args[6]; $("step2").value = stepFor(args[5], args[6], args[7]);
     }
@@ -519,7 +528,7 @@
   }
   function stepFor(start, stop, num) {
     var n = Number(num);
-    if (!(n > 1)) return 0;
+    if (!(n > 1)) return 1;
     return Math.abs((Number(stop) - Number(start)) / (n - 1));
   }
 
@@ -644,13 +653,11 @@
       plan = { name: "count", args: [], kwargs: kwargs };
     } else {
       kwargs.shots_per_step = shots;
-      var a1 = axis(1);
-      if (S.mode === "grid") {
-        var a2 = axis(2);
-        plan = { name: "grid_scan", args: [a1.variable, a1.start, a1.stop, a1.num, a2.variable, a2.start, a2.stop, a2.num], kwargs: kwargs };
-      } else {
-        plan = { name: "scan", args: [a1.variable, a1.start, a1.stop, a1.num], kwargs: kwargs };
-      }
+      var axes = [axis(1)];
+      if (S.mode === "grid") axes.push(axis(2));
+      kwargs.sweep = { trajectory: { kind: "axes", combine: S.mode === "grid" ? "product" : "zip", snake: false,
+        axes: axes.map(function (a) { return { kind: "range", axis: a.variable, start: a.start, stop: a.stop, num: a.num, relative: false }; }) } };
+      plan = { name: "sweep", args: [], kwargs: kwargs };
     }
     if (S.acq === "strict" && $("period").value !== "") kwargs.shot_period = Number($("period").value);
     var devices = tableDevices();

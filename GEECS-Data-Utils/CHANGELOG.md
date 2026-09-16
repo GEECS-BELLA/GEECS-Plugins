@@ -3,6 +3,12 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.33.0] - 2026-09-16
+
+### Changed
+
+- Classify new Sweep runs from structured trajectory metadata: multi-axis Cartesian products are GRID; single-axis products, correlated and patterned trajectories are 1D. Preserve historical decoding.
+
 ## [0.32.2] - 2026-09-16
 
 ### Fixed

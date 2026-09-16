@@ -5,8 +5,7 @@ bluesky-queueserver RE Manager, plus the startup profile itself
 (`startup/startup.py`) that turns the launched manager into a runnable GEECS
 worker: it builds the module-level `RE` the manager keeps alive across
 queue items (Tiled + s-file callbacks subscribed), exports every device of
-the experiment as a noun (`GeecsNamespace`) and registers the stock
-`bluesky.plans` verbs over them (`geecs_bluesky.plan_names.GEECS_PLAN_NAMES`).
+the experiment as a noun (`GeecsNamespace`) and registers count, sweep, optimize and utilities over them (`geecs_bluesky.plan_names.GEECS_PLAN_NAMES`).
 See `startup/startup.py`'s module docstring for the import-order and
 experiment-resolution contracts, and
 `Planning/native_bluesky/03_clean_room_rebuild.md` for where the rebuild
@@ -57,12 +56,12 @@ geecs-qserver-ensure-ready     # opens the environment if closed, waits for idle
 adds the plan-list assertion. Under systemd the `geecs-qserver-ready`
 oneshot runs it after every manager start — `deploy/DEPLOYMENT.md` § 2.)
 
-Once the environment is open, the stock plans are registered over the
+Once the environment is open, the public plans are registered over the
 namespace devices — a queue item names a plan and its devices by name:
 
 ```bash
 qserver queue add plan '{"name": "count", "args": [["U_S1H"], 3], "item_type": "plan"}'
-qserver queue add plan '{"name": "scan", "args": [["U_S1H"], "U_S1H.current", -1, 1, 5], "item_type": "plan"}'
+qserver queue add plan '{"name": "sweep", "args": [["U_S1H"]], "kwargs": {"sweep": {"trajectory": {"kind": "axes", "axes": [{"kind": "range", "axis": "U_S1H.current", "start": -1, "stop": 1, "num": 5}]}}}, "item_type": "plan"}'
 qserver queue add plan '{"name": "mv", "args": ["U_S1H.current", 0.0], "item_type": "plan"}'
 qserver queue add plan '{"name": "run_action", "args": ["Amp4_DUMP_HP"], "item_type": "plan"}'
 qserver queue start

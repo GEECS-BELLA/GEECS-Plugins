@@ -27,6 +27,21 @@ CATALOG = ScanVariables.model_validate(
 ).variables
 
 
+def sweep_call(axis="EMQ1 Current", positions=None):
+    spec = {
+        "kind": "list",
+        "axis": axis,
+        "positions": positions or [1.2, 1.3, 1.4, 1.5, 1.6, 1.7],
+    }
+    return {
+        "name": "sweep",
+        "kwargs": {
+            "sweep": {"trajectory": {"kind": "axes", "axes": [spec]}},
+            "shots_per_step": 20,
+        },
+    }
+
+
 def _preset(**overrides) -> Preset:
     base = {
         "name": "emq1",
@@ -37,11 +52,7 @@ def _preset(**overrides) -> Preset:
             {"device": "UC_VisaEBeam1", "save_images": False},
             {"device": "U_BCaveICT", "save_images": False},
         ],
-        "plan": {
-            "name": "scan",
-            "args": ["EMQ1 Current", 1.2, 1.7, 6],
-            "kwargs": {"shots_per_step": 20},
-        },
+        "plan": sweep_call(),
     }
     base.update(overrides)
     return Preset.model_validate(base)
@@ -74,14 +85,14 @@ def test_expand_builds_the_stock_plan_item() -> None:
     item = expand_preset(
         _preset(), catalog=CATALOG, md={"geecs": {"submission": {"client": "c"}}}
     )
-    assert item.name == "scan"
+    assert item.name == "sweep"
     assert item.args == [
         ["UC_ALineEBeam3", "UC_VisaEBeam1.scalars", "U_BCaveICT.scalars"],
-        "U_EMQTripletBipolar.current_limit_ch1",
-        1.2,
-        1.7,
-        6,
     ]
+    assert (
+        item.kwargs["sweep"]["trajectory"]["axes"][0]["axis"]
+        == "U_EMQTripletBipolar.current_limit_ch1"
+    )
     assert item.kwargs["shots_per_step"] == 20
     assert item.kwargs["trigger_profile"] == "HTU-Normal"
     assert item.kwargs["md"] == {
@@ -95,10 +106,15 @@ def test_count_preset_and_pair_spelled_variables() -> None:
     preset = _preset(
         trigger_profile=None,
         background=True,
-        plan={"name": "list_scan", "args": ["U_S1H:Current", [0, 0.5, 1.0]]},
+        plan=sweep_call("U_S1H:Current", [0, 0.5, 1.0]),
     )
     item = expand_preset(preset)
-    assert item.args[1] == "U_S1H.current" and item.args[2] == [0, 0.5, 1.0]
+    assert item.kwargs["sweep"]["trajectory"]["axes"][0] == {
+        "kind": "list",
+        "axis": "U_S1H.current",
+        "positions": [0, 0.5, 1],
+        "relative": False,
+    }
     assert "trigger_profile" not in item.kwargs
     assert item.kwargs["md"]["background"] is True
 
@@ -112,31 +128,39 @@ def test_expand_refuses_no_plan_and_unknown_plan() -> None:
 
 def test_expand_a_pseudo_axis_to_its_namespace_noun() -> None:
     item = expand_preset(
-        _preset(plan={"name": "scan", "args": ["JetZ_with_probe", 1, 2, 3]}),
+        _preset(plan=sweep_call("JetZ_with_probe", [1, 2, 3])),
         catalog=CATALOG,
     )
-    assert item.args[1:] == ["JetZ_with_probe", 1, 2, 3]
+    assert item.kwargs["sweep"]["trajectory"]["axes"][0]["axis"] == "JetZ_with_probe"
     assert "JetZ_with_probe" in item.references  # the preflight checks it exists
 
 
-def test_expansion_records_its_references_and_leaves_literal_strings_alone() -> None:
-    preset = _preset(
-        plan={"name": "list_scan", "args": ["U_S1H:Enable_Output", ["on", "off"]]},
+def test_expansion_records_axis_references_and_preserves_order():
+    item = expand_preset(_preset(plan=sweep_call("U_S1H.current", [2, 1, 2])))
+    axis = item.kwargs["sweep"]["trajectory"]["axes"][0]
+    assert axis["positions"] == [2, 1, 2]
+    assert item.references[-1] == axis["axis"] == "U_S1H.current"
+
+
+@pytest.mark.parametrize(
+    "name", ["scan", "rel_scan", "grid_scan", "list_scan", "spiral"]
+)
+def test_moving_stock_presets_are_retired(name):
+    with pytest.raises(GeecsConfigurationError, match="scan verb"):
+        expand_preset(_preset(plan={"name": name}))
+
+
+def test_alias_collision_is_rejected():
+    call = sweep_call()
+    call["kwargs"]["sweep"]["trajectory"]["axes"].append(
+        {
+            "kind": "list",
+            "axis": "U_EMQTripletBipolar:Current_Limit.Ch1",
+            "positions": [1, 2, 3, 4, 5, 6],
+        }
     )
-    item = expand_preset(preset)
-    assert item.args == [
-        ["UC_ALineEBeam3", "UC_VisaEBeam1.scalars", "U_BCaveICT.scalars"],
-        "U_S1H.enable_output",
-        ["on", "off"],
-    ]
-    assert item.references == [
-        "UC_ALineEBeam3",
-        "UC_VisaEBeam1.scalars",
-        "U_BCaveICT.scalars",
-        "U_S1H.enable_output",
-    ]
-    catalog_item = expand_preset(_preset(), catalog=CATALOG)
-    assert catalog_item.references[-1] == "U_EMQTripletBipolar.current_limit_ch1"
+    with pytest.raises(GeecsConfigurationError, match="only once"):
+        expand_preset(_preset(plan=call), catalog=CATALOG)
 
 
 def test_a_preset_cannot_name_mv() -> None:
@@ -184,3 +208,23 @@ def test_non_essential_scalars_only_and_bad_acquisition_are_refused() -> None:
         expand_preset(
             _preset(plan={"name": "count", "kwargs": {"acquisition": "sloppy"}})
         )
+
+
+def test_generic_reference_resolution_preserves_literal_strings():
+    from geecs_bluesky.qs_client.presets import _resolve
+
+    references = []
+    result = [
+        _resolve(value, CATALOG, references)
+        for value in ["U_S1H:Enable_Output", ["on", "off"], "EMQ1 Current", "on"]
+    ]
+    assert result == [
+        "U_S1H.enable_output",
+        ["on", "off"],
+        "U_EMQTripletBipolar.current_limit_ch1",
+        "on",
+    ]
+    assert references == [
+        "U_S1H.enable_output",
+        "U_EMQTripletBipolar.current_limit_ch1",
+    ]
