@@ -4,6 +4,31 @@ All notable changes to `geecs-scanner` are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 project adheres to semantic versioning.
 
+## [0.11.0] - 2026-09-16
+
+### Added
+
+- Inline Count / Sweep / Optimize composer using the shared surface kit.
+  Axis Sweeps supports one-to-many mixed range/list/log axes, correlated or
+  grid traversal, snake and per-axis relative offsets. Patterns includes
+  spiral, square spiral, Fermat spiral and X2X. Capture controls stay shared.
+- Hardware-free trajectory preview API with isolated time/memory budgets,
+  explicit sampling, per-axis plots, XY for two axes, and table/payload
+  disclosures. All numerical expansion uses the shared Python trajectory
+  module; browser code only edits inputs and draws returned coordinates.
+
+### Changed
+
+- Start fresh forms unconfigured; presets seed editable controls. Remove the
+  fixed two-axis form and its browser-side point-count arithmetic. Preserve
+  optimization controls and unedited plan keywords through preset editing.
+
+### Fixed
+
+- Fail closed on malformed Sweep presets, validate nested trajectories before saving, and prevent hidden background-count metadata from following a mode change.
+- Bound raw preview requests before parsing, keep expensive patterns and large axis sets isolated, cancel obsolete previews, and bound busy retries. Preview failures no longer block normal submission preflight; routine axis previews avoid cold subprocess imports.
+- Report child failures through readable errors with diagnostics in server logs, build the points table on disclosure, and skip Node tests when Node is unavailable.
+
 ## [0.10.0] - 2026-09-16
 
 ### Changed

@@ -6,8 +6,18 @@ returns a Pydantic model or raises :class:`ScannerError`.  The web layer
 is three lines per route over it; tests drive it directly.
 """
 
-from geecs_scanner.service.errors import ScannerError
-from geecs_scanner.service.scanner import ScannerService
-from geecs_scanner.service.streams import ProgressCache
-
 __all__ = ["ProgressCache", "ScannerError", "ScannerService"]
+
+
+def __getattr__(name: str):
+    """Keep the disposable trajectory process independent of the queue client."""
+    from importlib import import_module
+
+    modules = {
+        "ProgressCache": "streams",
+        "ScannerError": "errors",
+        "ScannerService": "scanner",
+    }
+    if name in modules:
+        return getattr(import_module(f"{__name__}.{modules[name]}"), name)
+    raise AttributeError(name)

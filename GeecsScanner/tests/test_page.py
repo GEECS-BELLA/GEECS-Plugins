@@ -74,6 +74,8 @@ def test_every_literal_data_state_is_a_kit_state() -> None:
     # here, and no setChip call may pass a literal instead
     for script in _SCRIPTS:
         text = script.read_text()
+        if "setChip(" not in text and not re.search(r"\bK\.", text):
+            continue
         k = re.search(r"var K = \{([^}]*)\}", text)
         assert k, f"{script.name}: no K table of kit words"
         for m in re.finditer(r'"([a-z_]+)"', k.group(1)):
@@ -281,8 +283,7 @@ def test_hints_carry_state_or_a_unit_never_prose(client: TestClient) -> None:
     ):
         assert prose not in script, prose
     for kept in (
-        'id="pts1"',
-        'id="pts2"',
+        'id="sweep-message"',
         'id="shots-hint"',
         'id="presets-note"',
         'id="actions-note"',
@@ -372,56 +373,149 @@ console.log(JSON.stringify({before, after: $("optimization-targets").children.ma
     assert state["disabled"]
 
 
-def test_single_position_range_round_trips_through_compatibility_form():
+@pytest.mark.parametrize(
+    "axis",
+    [
+        {"kind": "list", "axis": "A", "positions": [3, 1, 3]},
+        {"kind": "range", "axis": "A", "start": 2, "stop": 2, "num": 1},
+        {"kind": "range", "axis": "A", "start": 2, "stop": 5, "num": 1},
+    ],
+)
+def test_preset_trigger_control_overrides_hidden_kwarg_and_keeps_other_options(axis):
     _need_node()
-    script = (_PKG / "static/scanner.js").read_text()
+    source = (_PKG / "static/scanner.js").read_text()
     functions = "\n".join(
         "function "
         + name
         + "("
         + args
         + ") {\n"
-        + _script_function(script, name)
+        + _script_function(source, name)
+        + "\n}"
+        for name, args in [
+            ("fillFormFromPreset", "doc"),
+            ("buildPreset", ""),
+            ("formShape", "plan"),
+        ]
+    )
+    harness = (
+        r"""
+var els = {};
+function $(id) { return els[id] || (els[id] = {value: "", appendChild() {}}); }
+var S = {}, composer = {load(v) {this.v = v;}, value() {return this.v;}};
+function setMode(mode) {S.mode = mode;}
+function setAcq(acq) {S.acq = acq;}
+function setSelect(id, value) {$(id).value = value;}
+function noDevicesNote() {} function recalc() {} function renderCalibration() {}
+function tableDevices() {return [];}
+"""
+        + functions
+        + r"""
+S.presetDoc = {trigger_profile: "top-level", devices: [], plan: {name: "sweep", args: [], kwargs: {
+ trigger_profile: "effective", shots_per_step: 3, custom_option: 42,
+ sweep: {trajectory: {kind: "axes", axes: [AXIS_PAYLOAD]}}
+}}};
+fillFormFromPreset(S.presetDoc);
+var loaded = $("trig").value;
+$("trig").value = "edited";
+var saved = buildPreset();
+S.presetDoc.plan.kwargs.trigger_profile = null;
+fillFormFromPreset(S.presetDoc);
+console.log(JSON.stringify({loaded, saved, cleared: $("trig").value}));
+"""
+    )
+    result = subprocess.run(
+        ["node", "-"],
+        input=harness.replace("AXIS_PAYLOAD", json.dumps(axis)),
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    state = json.loads(result.stdout)
+    assert state["loaded"] == "effective"
+    assert state["saved"]["trigger_profile"] == "edited"
+    assert state["cleared"] == ""
+    kwargs = state["saved"]["plan"]["kwargs"]
+    assert "trigger_profile" not in kwargs
+    assert kwargs["custom_option"] == 42
+    assert kwargs["sweep"]["trajectory"]["axes"][0] == axis
+
+
+def test_malformed_preset_replaces_capture_fields_but_cannot_start_or_save():
+    from .test_composer import run_js
+
+    source = (_PKG / "static/scanner.js").read_text()
+    functions = "\n".join(
+        "function "
+        + name
+        + "("
+        + args
+        + ") {\n"
+        + _script_function(source, name)
         + "\n}"
         for name, args in [
             ("formShape", "plan"),
             ("fillFormFromPreset", "doc"),
-            ("stepFor", "start,stop,num"),
-            ("points", "a,b,s"),
+            ("recalc", ""),
+            ("updateStartGate", ""),
         ]
     )
+    result = run_js(
+        functions
+        + r"""
+const $=id=>root.querySelector('#'+id);
+var S={status:{connected:true,re_state:'idle'},formable:true}, valid=false;
+function setMode(mode) {S.mode=mode;} function setAcq(acq) {S.acq=acq;}
+function setSelect(id,v) {$(id).value=v;} function setInvalid() {} function fmtSecs() {return '';}
+function noDevicesNote() {} function renderCalibration() {} function showError() {}
+function deviceRow(name) {const row=new Element('tr');row.textContent=name;return row;}
+const composer=window.GEECS_SWEEP.create(root,()=>Promise.resolve(sample),recalc);
+let cases=[];
+for (const bad of [undefined,{trajectory:{kind:'unknown'}},{trajectory:{kind:'axes',axes:[{kind:'list',axis:'A',positions:42}]}}]) {
+ $('devs').replaceChildren();
+ fillFormFromPreset({devices:[{device:'Old'}],plan:{name:'sweep',kwargs:{sweep:good,shots_per_step:3}}});
+ const pending=$('btn-start').disabled; await tick(); const before=$('btn-start').disabled;
+ // Simulate DOM textContent clearing, which the real browser performs.
+ $('devs').replaceChildren();
+ fillFormFromPreset({devices:[{device:'New'}],plan:{name:'sweep',kwargs:{sweep:bad,shots_per_step:7}}});
+ cases.push({pending,before,start:$('btn-start').disabled,save:$('btn-save-preset').disabled,shots:$('shots').value,device:$('devs').children[0].textContent,result:composer.result()});
+}
+console.log(JSON.stringify(cases));
+"""
+    )
+    assert (
+        result
+        == [
+            {
+                "pending": False,
+                "before": False,
+                "start": True,
+                "save": True,
+                "shots": 7,
+                "device": "New",
+                "result": None,
+            }
+        ]
+        * 3
+    )
+
+
+@pytest.mark.parametrize("mode", ["count", "sweep", "optimize"])
+def test_background_count_flag_does_not_follow_mode_change(mode):
+    _need_node()
+    source = (_PKG / "static/scanner.js").read_text()
     harness = (
-        """
-var els = {}, S = {};
-function $(id) {return els[id] || (els[id] = {value: "", appendChild() {}});}
-function setSelect(id,v) {$(id).value = v;} function setMode() {} function setAcq() {}
-function noDevicesNote() {} function recalc() {} function renderCalibration() {}
-"""
-        + functions
-        + """
-var result = [2,5].map(stop => {
- var axis = {kind: "range", axis: "M", start: 2, stop: stop, num: points(2,stop,10)};
- var plan = {name: "sweep", kwargs: {sweep: {trajectory: {kind: "axes", axes: [axis]}}}};
- fillFormFromPreset({plan: plan});
- return {shape: formShape(plan), formable: S.formable, start: $("start1").value, stop: $("stop1").value, step: $("step1").value, count: points(Number($("start1").value),Number($("stop1").value),Number($("step1").value))};
-});
-console.log(JSON.stringify(result));
-"""
+        r"""
+var S={mode:MODE,acq:'strict',presetDoc:{background:true,plan:{name:'count',kwargs:{num:3}}}};
+function $(id) {return {value:id==='shots'?'3':'',checked:true};}
+function tableDevices() {return [];}
+var composer={value(){return {trajectory:{kind:'axes',axes:[]}};}};
+""".replace("MODE", json.dumps(mode))
+        + "function buildPreset(){\n"
+        + _script_function(source, "buildPreset")
+        + "\n}\nconsole.log(JSON.stringify(buildPreset()));"
     )
     result = subprocess.run(
         ["node", "-"], input=harness, text=True, capture_output=True, check=True
     )
-    assert (
-        json.loads(result.stdout)
-        == [
-            {
-                "shape": "scan",
-                "formable": True,
-                "start": 2,
-                "stop": 2,
-                "step": 1,
-                "count": 1,
-            }
-        ]
-        * 2
-    )
+    assert json.loads(result.stdout)["background"] is (mode == "count")

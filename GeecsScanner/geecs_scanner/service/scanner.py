@@ -39,6 +39,7 @@ from collections.abc import Callable, Mapping
 from typing import Any, Optional
 
 from geecs_scanner.service.errors import ScannerError
+from geecs_scanner.service.trajectory import TrajectoryOut
 from geecs_scanner.service.models import (
     ActionDetailOut,
     ActionOut,
@@ -198,6 +199,27 @@ class ScannerService:
             experiment=self.experiment,
             identity=self.identity,
         )
+
+    def trajectory(
+        self, payload: dict[str, object], cancelled: threading.Event | None = None
+    ) -> TrajectoryOut:
+        """Calculate display coordinates without a manager or gateway call."""
+        from geecs_schemas import Sweep
+        from pydantic import ValidationError
+
+        from .trajectory import preview
+
+        try:
+            sweep = Sweep.model_validate(payload)
+        except ValidationError as exc:
+            messages = [
+                ".".join(map(str, error["loc"]))
+                + ": "
+                + error["msg"].removeprefix("Value error, ")
+                for error in exc.errors(include_url=False, include_input=False)
+            ]
+            raise ScannerError("invalid_request", "; ".join(messages)) from exc
+        return preview(sweep, cancelled)
 
     def health(self) -> HealthOut:
         """Liveness + the manager probe + version."""
@@ -716,10 +738,19 @@ class ScannerService:
     def _validate_preset(self, doc: Mapping[str, Any]) -> Any:
         from pydantic import ValidationError
 
-        from geecs_schemas import Preset
+        from geecs_schemas import Preset, Sweep
 
         try:
             preset = Preset.model_validate(dict(doc))
+            if preset.plan is not None and preset.plan.name == "sweep":
+                if preset.plan.args:
+                    raise ScannerError(
+                        "invalid_request",
+                        "Sweep takes its trajectory in kwargs.sweep, without positional arguments.",
+                    )
+                # Save also uses this path. Schema validation must not depend
+                # on a successful (optional, resource-bounded) preview.
+                Sweep.model_validate(preset.plan.kwargs.get("sweep"))
         except ValidationError as exc:
             raise ScannerError(
                 "invalid_request",
