@@ -60,7 +60,7 @@ failure):
 sudo -u geecs -i
 cd <root>/qs-checkout/GeecsBluesky
 poetry env use python3.11
-poetry install --extras "ca tiled qserver"
+poetry install --extras "ca tiled qserver optimize"
 ```
 
 The `qserver` extra is the queueserver dependency bundle. If that extra has
@@ -318,7 +318,7 @@ surface once this service is enabled.
 
 Install the worker's `optimize` extra alongside `ca tiled qserver`. The scanner
 needs no ImageAnalysis, Xopt or Torch dependency. The worker warms numerical
-imports in a daemon thread. The PVA monitor must receive an initial image
+imports on the profile thread before readiness. The PVA monitor must receive an initial image
 within five seconds before the plan arms or claims a scan; verify the host's
 PVA address configuration. Frame acquisition uses live arrays, never the
 partly-written scan files, with the camera timestamp joined within 1 ms.
@@ -328,7 +328,9 @@ the configs repository only after the schema change lands. Keep the two
 HiResMagCam legacy documents with a `# LEGACY` header until their diagnostic
 exists; remove ebeam_source_opt, hexapod_alignment and multi_device_example.
 Validate diagnostics on the worker before an operator day. No deployed
-configs were changed by the implementation branch.
+configs were changed by the implementation branch. The resolver lists only
+schema-valid native configs; the scanner disables Optimize when that list is
+empty. An unmigrated legacy corpus therefore offers no broken choices.
 
 **Beam-free smoke test passed:** Scan010 of 26_0915 ran
 `bax_alignment_simulation`, 3 iterations × 2 HTU-NoGas shots, and restored both

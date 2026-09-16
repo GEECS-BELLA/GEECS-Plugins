@@ -4,6 +4,12 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.92.1] - 2026-09-16
+
+### Fixed
+
+- Resolve optimizer presets identically in expansion, preflight and direct submission; honor the shared analysis config root; list only valid native configs. Install optimize in worker bootstrap, warm numerical imports before readiness, classify optimize as a native scan and share event role names. Use the Core epoch contract throughout.
+
 ## [0.92.0] - 2026-09-16
 
 ### Changed

@@ -226,3 +226,9 @@ def test_stack_attributes_read_and_parse(tmp_path) -> None:
         f.attrs["scalar_attributes"] = ["uc_old-hdf-image-x"]
     assert stack_scalar_variables(older) == {}
     assert set(read_stack_attributes(older)) == {"acq_timestamp", "recv_timestamp"}
+
+
+def test_epoch_export_is_the_core_contract():
+    from geecs_core.db.variable_types import LABVIEW_EPOCH_OFFSET as core_epoch
+
+    assert LABVIEW_EPOCH_OFFSET is core_epoch

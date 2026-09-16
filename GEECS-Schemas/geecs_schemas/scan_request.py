@@ -81,13 +81,10 @@ class ScanRequestMode(str, Enum):
         of shots at each.
     NOSCAN : str
         Don't move anything — just collect shots for statistics.
-    OPTIMIZE : str
-        Let an optimizer choose the next settings each iteration.
     """
 
     STEP = "step"
     NOSCAN = "noscan"
-    OPTIMIZE = "optimize"
 
 
 class AcquisitionMode(str, Enum):
@@ -602,10 +599,13 @@ class ScanRequest(VersionedSchemaModel):
         """
         if not isinstance(data, dict):
             return data
-        if data.get("mode") == "optimize" or "optimization" in data:
+        if data.get("mode") == "optimize" or data.get("optimization") is not None:
             raise ValueError(
-                "legacy optimization requests are retired; use an optimize Preset with OptimizerConfig v1 (Planning/native_bluesky/11_optimization.md)"
+                "legacy optimization requests are retired; use the scanner's Optimize "
+                "mode or submit an optimize Preset with OptimizerConfig v1"
             )
+        if "optimization" in data:
+            data = {key: value for key, value in data.items() if key != "optimization"}
         flat = [key for key in _V1_CAPTURE_FIELDS if key in data]
         stale_version = stale_schema_version(data, 3)
         capture = data.get("capture")
@@ -674,9 +674,7 @@ class ScanRequest(VersionedSchemaModel):
                 seen.add(axis.variable)
         elif self.axes:
             raise ValueError(
-                f"'axes' only applies to 'step' scans, not "
-                f"{self.mode.value!r}. (An 'optimize' scan declares its "
-                "variables inside the 'optimization' block.)"
+                f"'axes' only applies to 'step' scans, not {self.mode.value!r}."
             )
         return self
 
@@ -686,7 +684,7 @@ class ScanRequest(VersionedSchemaModel):
         Returns
         -------
         tuple of int
-            One count per axis, in list order (empty for noscan/optimize).
+            One count per axis, in list order (empty for noscan).
         """
         # n_positions, never len(to_values()): the shape must be computable
         # without materializing a possibly-huge range (size guards call
@@ -707,22 +705,10 @@ class ScanRequest(VersionedSchemaModel):
             total *= count
         return total
 
-    def planned_shots(self) -> int | None:
-        """Total planned shots, or ``None`` when the request cannot say.
+    def planned_shots(self) -> int:
+        """Return the finite shot budget without materializing axis positions.
 
-        THE one scan-size derivation (consolidating the console's and the
-        GEECS MCP's former private counters): step/noscan =
-        ``n_steps() × shots_per_step`` (noscan is one motionless bin);
-        optimize = ``max_iterations × shots_per_step``, or ``None`` when
-        ``max_iterations`` is unset (the engine then applies its own
-        default budget — a size guard that needs a number should require
-        the field explicitly).  Never materializes positions
-        (:meth:`PositionRange.n_positions`), so it is safe on arbitrary
-        agent-composed input.
-
-        Returns
-        -------
-        int or None
-            The planned shot total, or ``None`` for an open budget.
+        Both step and noscan requests use ``n_steps() × shots_per_step``;
+        noscan has one motionless bin.
         """
         return self.n_steps() * int(self.capture.shots_per_step)

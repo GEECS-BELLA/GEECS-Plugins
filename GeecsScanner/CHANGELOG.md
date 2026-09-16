@@ -4,6 +4,12 @@ All notable changes to `geecs-scanner` are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 project adheres to semantic versioning.
 
+## [0.9.1] - 2026-09-16
+
+### Fixed
+
+- Allow Set to best only for successful recent runs, expire offers after fifteen minutes, invalidate after service-submitted moves/actions and record the requesting operator. Preserve authored presets on save, share optimizer expansion and disable Optimize when no compatible configs are available.
+
 ## [0.9.0] - 2026-09-16
 
 ### Changed

@@ -371,6 +371,9 @@
       var optimizers = $("optimizer-config");
       optimizers.textContent = ""; optimizers.appendChild(option("", "Choose an optimizer…"));
       res[7].names.forEach(function (n) { optimizers.appendChild(option(n, n)); });
+      var optimizeButton = document.querySelector('[data-mode="optimize"]');
+      optimizeButton.disabled = !res[7].names.length;
+      optimizeButton.title = res[7].names.length ? "" : "No compatible optimizer configs available";
       S.settables = res[6].items || []; S.settablesNote = res[6].detail || "";
       renderMoveVars(); renderDeviceList(""); renderActions(res[4].error || null); renderCalibration();
       renderPresetList();
@@ -708,7 +711,7 @@
     var o = S.optimization, st = S.status || {};
     $("optimization-live").hidden = !o || !o.run_uid;
     if (!o || !o.run_uid) return;
-    $("optimization-iteration").textContent = o.config + " · iteration " + o.iteration + " / " + (o.max_iterations || "—");
+    $("optimization-iteration").textContent = o.config + " · scan " + (o.scan_number || "—") + " · iteration " + o.iteration + " / " + (o.max_iterations || "—") + " · " + (o.exit_status || "running") + (o.completed_at ? " · " + new Date(o.completed_at * 1000).toLocaleString() : "") + (o.expired ? " · best offer expired" : "") + (o.invalidated_reason ? " · " + o.invalidated_reason : "");
     var body = $("optimization-values"); body.textContent = "";
     var values = Object.assign({}, o.measured, o.outputs);
     Object.keys(values).forEach(function (name) {
@@ -718,13 +721,13 @@
     });
     $("optimization-shots").textContent = Object.keys(o.valid_shots).map(function (name) { return name + ": " + o.valid_shots[name] + " valid shots"; }).join(" · ");
     var moves = Object.values(o.best_moves);
-    $("btn-set-best").disabled = !st.connected || st.re_state !== "idle" || st.items_in_queue > 0 || !o.finished || !moves.length || moves.some(function (v) { return v == null; });
+    $("btn-set-best").disabled = !st.connected || st.re_state !== "idle" || st.items_in_queue > 0 || !o.finished || o.exit_status !== "success" || o.expired || !!o.invalidated_reason || !moves.length || moves.some(function (v) { return v == null; });
     $("btn-set-best").title = moves.length ? Object.keys(o.best_moves).map(function (n) { return n + " = " + o.best_moves[n]; }).join(", ") : "No feasible best point";
   }
   $("btn-set-best").addEventListener("click", function () {
     if (!S.optimization) return;
     this.disabled = true;
-    post("/api/optimization/best", { run_uid: S.optimization.run_uid }).then(function () { refreshQueue(); }).catch(function (e) { showError(e.message); renderOptimization(); });
+    post("/api/optimization/best", { run_uid: S.optimization.run_uid, operator: operator() }).then(function () { refreshQueue(); }).catch(function (e) { showError(e.message); renderOptimization(); });
   });
 
   /* --------------------------------------------------------- submission */

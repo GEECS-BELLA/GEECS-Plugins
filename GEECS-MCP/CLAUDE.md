@@ -154,8 +154,8 @@ geecs_mcp/
 - **v1 (built — owner decisions 2026-08-22)**: `submit_scan` takes
   presets AND composed dicts from day one (the plan's presets-first
   de-risk was dropped: presets are barely used in practice), agent shot
-  cap 1,000 (`[mcp] max_shots`; optimize needs explicit
-  `max_iterations`), `stop_scan` with approval-gated `force` for
+  cap 1,000 (`[mcp] max_shots`); native optimization is submitted through
+  the scanner, and legacy optimize ScanRequests are refused, `stop_scan` with approval-gated `force` for
   foreign scans, `clear_queue` as the one remover, poll
   `scan_progress`.  The standing rules, all enforced in
   `geecs_mcp/scans/control_tools.py`: acknowledge-warnings loop (no silent

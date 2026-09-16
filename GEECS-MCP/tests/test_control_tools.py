@@ -208,7 +208,7 @@ def test_submit_legacy_optimize_refused(wired):
     optimize = dict(GOOD_REQUEST, mode="optimize", optimization={})
     result = _load(control_tools._submit_scan_impl(optimize, None, None, None))
     assert result["error_kind"] == "invalid_request"
-    assert "11_optimization.md" in result["message"]
+    assert "legacy optimization requests are retired" in result["message"]
     assert wired.submitted == []
 
 

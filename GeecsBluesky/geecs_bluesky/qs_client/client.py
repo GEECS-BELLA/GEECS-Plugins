@@ -45,9 +45,12 @@ import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Optional, Protocol, runtime_checkable
+from typing import Any, Optional, Protocol, TYPE_CHECKING, runtime_checkable
 
 from geecs_bluesky.plan_names import GEECS_PLAN_NAMES
+
+if TYPE_CHECKING:
+    from geecs_bluesky.config_resolver import ConfigsRepoResolver
 
 logger = logging.getLogger(__name__)
 
@@ -392,11 +395,13 @@ class QueueClient(Protocol):
         catalog: Optional[Mapping[str, Any]] = None,
         md: Optional[Mapping[str, Any]] = None,
         clear_pending: bool = False,
+        resolver: ConfigsRepoResolver | None = None,
     ) -> SubmitResult:
         """Expand a :class:`geecs_schemas.Preset` and queue it (:func:`~.presets.expand_preset`).
 
         *md* is extra run metadata — the client-stamped ``SubmissionRecord``
-        JSON under ``{"geecs": {"submission": ...}}``.
+        JSON under ``{"geecs": {"submission": ...}}``. Optimize presets require
+        *resolver* to resolve their config defaults and required devices.
         """
         ...
 
@@ -503,6 +508,7 @@ class StubQueueClient:
         catalog: Optional[Mapping[str, Any]] = None,
         md: Optional[Mapping[str, Any]] = None,
         clear_pending: bool = False,
+        resolver: ConfigsRepoResolver | None = None,
     ) -> SubmitResult:
         """Refuse with the missing-config message."""
         return SubmitResult(ok=False, message=_STUB_MESSAGE)
@@ -725,13 +731,14 @@ class ZmqQueueClient:
         catalog: Optional[Mapping[str, Any]] = None,
         md: Optional[Mapping[str, Any]] = None,
         clear_pending: bool = False,
+        resolver: ConfigsRepoResolver | None = None,
     ) -> SubmitResult:
         """Expand the preset and queue it; an expansion refusal is the message."""
         from geecs_bluesky.exceptions import GeecsConfigurationError
         from geecs_bluesky.qs_client.presets import expand_preset
 
         try:
-            item = expand_preset(preset, catalog=catalog, md=md)
+            item = expand_preset(preset, catalog=catalog, md=md, resolver=resolver)
         except GeecsConfigurationError as exc:
             return SubmitResult(ok=False, message=str(exc))
         return self.submit_plan(

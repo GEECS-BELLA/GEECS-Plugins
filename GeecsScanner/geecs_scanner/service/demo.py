@@ -330,7 +330,12 @@ class DemoResolver:
 
 
 def demo_preflight(
-    preset: Any, experiment: str, *, client: Any = None, catalog: Any = None
+    preset: Any,
+    experiment: str,
+    *,
+    client: Any = None,
+    catalog: Any = None,
+    resolver: Any = None,
 ) -> Any:
     """Validate by the real expansion; ask one fixed question."""
     from geecs_bluesky.qs_client import (
@@ -341,7 +346,7 @@ def demo_preflight(
 
     report = PreflightReport()
     try:
-        expand_preset(preset, catalog=catalog)
+        expand_preset(preset, catalog=catalog, resolver=resolver or DemoResolver())
         report.outcomes.append(("validate", "passed", ""))
     except Exception as exc:  # noqa: BLE001 — the refusal text is the message
         report.refusal = str(exc)
@@ -518,11 +523,12 @@ class DemoQueueClient:
         catalog: Optional[Mapping[str, Any]] = None,
         md: Optional[Mapping[str, Any]] = None,
         clear_pending: bool = False,
+        resolver: Any | None = None,
     ) -> Any:
         """Expand with the real expansion, then queue."""
         from geecs_bluesky.qs_client import expand_preset
 
-        item = expand_preset(preset, catalog=catalog, md=md)
+        item = expand_preset(preset, catalog=catalog, md=md, resolver=resolver)
         return self.submit_plan(
             item.name, args=item.args, kwargs=item.kwargs, clear_pending=clear_pending
         )
@@ -663,7 +669,7 @@ class DemoQueueClient:
         self._re_state = "running"
         self._pause_requested = False
         summary = summarize_item(item)
-        if item["name"] in _NON_RUN_PLANS and item["name"] != "optimize":
+        if item["name"] in _NON_RUN_PLANS:
             # A move, an action or a calibration opens no run: no scan number
             # is claimed, no document is emitted; the item finishes on the
             # next step with the worker's one-line report in its result.

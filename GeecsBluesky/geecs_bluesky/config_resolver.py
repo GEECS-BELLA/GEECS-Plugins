@@ -373,8 +373,15 @@ class ConfigsRepoResolver:
 
     @property
     def analysis_config_dir(self) -> Path:
-        """Analysis-config tree beside scanner_configs in the same configs repository."""
-        return self._root.parents[2] / "scan_analysis_configs"
+        """The shared Scan/ImageAnalysis config root, independent of scanner configs."""
+        from geecs_data_utils.config_roots import scan_analysis_config
+
+        root = scan_analysis_config.base_dir
+        if root is None:
+            raise GeecsConfigurationError(
+                "set SCAN_ANALYSIS_CONFIG_DIR or [Paths] scan_analysis_configs_path"
+            )
+        return root
 
     def optimizer_config_path(self, name: str) -> Path:
         """Path used to resolve an optimizer and its relative seed dumps."""
@@ -390,7 +397,7 @@ class ConfigsRepoResolver:
             return OptimizerConfig.model_validate(
                 self._load_yaml(path, "optimizer config", name)
             )
-        except ValueError as exc:
+        except (ValueError, OSError, yaml.YAMLError) as exc:
             raise GeecsConfigurationError(f"optimizer config {name!r}: {exc}") from exc
 
     def diagnostic_device(self, stem: str) -> str:
@@ -414,7 +421,15 @@ class ConfigsRepoResolver:
 
     def list_optimizer_configs(self) -> list[str]:
         """Optimizer-config names (``OptimizerConfig`` documents; sorted; ``[]`` if none)."""
-        return self._list_folder(self.OPTIMIZER_FOLDER)
+        available = []
+        for name in self._list_folder(self.OPTIMIZER_FOLDER):
+            try:
+                self.resolve_optimizer_config(name)
+            except GeecsConfigurationError as exc:
+                logger.warning("optimizer config %r is unavailable: %s", name, exc)
+            else:
+                available.append(name)
+        return available
 
     def resolve_trigger_profile(self, name: str) -> TriggerProfile:
         """Load the trigger profile *name* (new schema, else converted).

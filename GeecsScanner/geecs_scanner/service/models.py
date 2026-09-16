@@ -388,12 +388,20 @@ class OptimizationOut(BaseModel):
     best_moves: dict[str, Optional[float]] = Field(default_factory=dict)
     objectives: list[str] = Field(default_factory=list)
     finished: bool = False
+    scan_number: Optional[int] = None
+    started_at: Optional[float] = None
+    completed_at: Optional[float] = None
+    expires_at: Optional[float] = None
+    exit_status: Optional[str] = None
+    invalidated_reason: Optional[str] = None
+    expired: bool = False
 
 
 class SetBestIn(BaseModel):
     """Identify the observed run whose best physical settings should be applied."""
 
     run_uid: str
+    operator: Optional[str] = None
 
 
 class OptimizerConfigOut(BaseModel):

@@ -187,11 +187,10 @@
       "type": "object"
     },
     "ScanRequestMode": {
-      "description": "What kind of scan to run.\n\nAttributes\n----------\nSTEP : str\n    Sweep one scan variable through a list of positions, taking a batch\n    of shots at each.\nNOSCAN : str\n    Don't move anything \u2014 just collect shots for statistics.\nOPTIMIZE : str\n    Let an optimizer choose the next settings each iteration.",
+      "description": "What kind of scan to run.\n\nAttributes\n----------\nSTEP : str\n    Sweep one scan variable through a list of positions, taking a batch\n    of shots at each.\nNOSCAN : str\n    Don't move anything \u2014 just collect shots for statistics.",
       "enum": [
         "step",
-        "noscan",
-        "optimize"
+        "noscan"
       ],
       "title": "ScanRequestMode",
       "type": "string"

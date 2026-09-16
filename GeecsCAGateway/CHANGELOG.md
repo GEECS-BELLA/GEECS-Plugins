@@ -4,6 +4,12 @@ All notable changes to `geecs-ca-gateway` are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and semantic versioning.
 
 
+## [0.21.2] - 2026-09-16
+
+### Fixed
+
+- Use the shared Core LabVIEW epoch constant for timestamp conversion; PV values and timestamp semantics are unchanged.
+
 ## [0.21.1] - 2026-09-15
 
 ### Changed

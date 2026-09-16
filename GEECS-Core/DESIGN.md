@@ -70,8 +70,9 @@ Two supporting conventions:
   historical fossil of the package that first defined it — it is a
   fleet-installed contract; do not rename it. `GEECS-Data-Utils` keeps its own
   independent read of the *paths* half — deliberately not unified, because
-  data-utils must stay dependency-free and analysis machines legitimately have
-  the paths half without lab-network access.
+  analysis machines legitimately have the paths half without lab-network
+  access. Data Utils depends on Core for the pure acquisition epoch contract;
+  that dependency does not require lab configuration or network access.
 
 ## Wire-protocol knowledge
 

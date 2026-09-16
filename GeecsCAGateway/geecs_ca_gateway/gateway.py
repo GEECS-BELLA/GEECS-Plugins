@@ -48,11 +48,11 @@ from .config import GatewayConfig, VariableSpec
 from .derived import DerivedChannelSpec, ExpressionEvaluator, derived_pv_name
 from geecs_core.pv_naming import pv_name, setpoint_pv
 
-logger = logging.getLogger(__name__)
-
 # Seconds between the LabVIEW epoch (1904-01-01) and the Unix epoch (1970-01-01).
 # GEECS timestamps (e.g. `systimestamp`) are LabVIEW-epoch; subtract to get Unix.
-_LABVIEW_EPOCH_OFFSET = 2_082_844_800
+from geecs_core.db.variable_types import LABVIEW_EPOCH_OFFSET as _LABVIEW_EPOCH_OFFSET
+
+logger = logging.getLogger(__name__)
 
 # Sentinel for "no value written yet" in the deadband cache.
 _UNSET = object()

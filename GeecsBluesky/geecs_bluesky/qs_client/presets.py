@@ -63,7 +63,7 @@ from geecs_bluesky.utils import device_reference, identifier_name
 #: 0.0])``, ``submit_plan("run_action", ["Amp4_DUMP_HP"])``), never a
 #: preset — neither takes a detector list.
 PRESET_PLAN_NAMES: tuple[str, ...] = tuple(
-    n for n in GEECS_PLAN_NAMES if n not in NON_SCAN_PLAN_NAMES or n == "optimize"
+    n for n in GEECS_PLAN_NAMES if n not in NON_SCAN_PLAN_NAMES
 )
 
 
@@ -75,12 +75,15 @@ class QueueItem:
     detector bindings and the resolved scan variables) — what the preflight
     checks against the manager's device tree.  A literal string argument
     (an enum value in a ``list_scan`` point list, say) is never one.
+    ``devices`` contains the final device group, including optimizer-required
+    devices, for gateway liveness checks.
     """
 
     name: str
     args: list[Any] = field(default_factory=list)
     kwargs: dict[str, Any] = field(default_factory=dict)
     references: list[str] = field(default_factory=list)
+    devices: tuple[str, ...] = ()
 
 
 def scan_variable_reference(
@@ -164,6 +167,7 @@ def expand_preset(
     catalog: Mapping[str, Any] | None = None,
     md: Mapping[str, Any] | None = None,
     required_devices: frozenset[str] = frozenset(),
+    resolver: ConfigsRepoResolver | None = None,
 ) -> QueueItem:
     """The queue item a preset submits.
 
@@ -176,12 +180,20 @@ def expand_preset(
         names inside the plan arguments.
     md :
         Extra run metadata (the submission record under ``geecs``).
+    resolver : ConfigsRepoResolver, optional
+        Required for optimize presets; resolves defaults and required devices.
 
     Raises
     ------
     GeecsConfigurationError
         No plan call, or a plan that is not a scan verb the worker registers.
     """
+    if preset.plan is not None and preset.plan.name == "optimize":
+        if resolver is None:
+            raise GeecsConfigurationError(
+                "an optimize preset requires a configs resolver"
+            )
+        preset = prepare_optimizer_preset(preset, resolver)
     plan = preset.plan
     if plan is None:
         raise GeecsConfigurationError(
@@ -241,7 +253,11 @@ def expand_preset(
     run_md["geecs"] = geecs
     kwargs["md"] = run_md
     return QueueItem(
-        name=plan.name, args=[detectors, *args], kwargs=kwargs, references=references
+        name=plan.name,
+        args=[detectors, *args],
+        kwargs=kwargs,
+        references=references,
+        devices=tuple(d.device for d in devices),
     )
 
 

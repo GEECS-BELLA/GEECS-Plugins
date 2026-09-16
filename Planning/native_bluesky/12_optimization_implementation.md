@@ -86,8 +86,8 @@ concrete findings.
 ## Still owed before rollout
 
 No deployed service or live configs tree was changed. The hardware test used
-an isolated temporary checkout on the worker host. No PR has been opened and
-no branch has been pushed.
+an isolated temporary checkout on the worker host. PR [#920](https://github.com/GEECS-BELLA/GEECS-Plugins/pull/920) is open against
+`feature/native-bluesky-plans`; the branch is pushed and remains unmerged.
 
 1. After the schema lands, regenerate the configs repository corpus on its
    main branch: copy the keeper configurations, retain the HiResMagCam pair
@@ -102,3 +102,29 @@ no branch has been pushed.
 
 The four review/rollout units in the original brief remain useful; this local
 development branch contains their code together and is not a hardware signoff.
+
+## Review follow-up
+
+The external review prompted fixes for deployment extras, shared analysis-config
+roots, legacy corpus availability, successful/recent Set to best offers, null
+legacy request fields, the published mode contract, shared preset expansion and
+non-mutating preset saves, plan classification, role constants, epoch ownership,
+and stale documentation. Numerical warm-up now happens synchronously before
+readiness. GEST remains a direct dependency under the owner's explicit approval.
+The corpus is still a separate rollout: no native documents means Optimize is
+disabled, and the corpus integration check reports a migration-pending skip.
+
+Follow-up verification: **3,391 passed across 15 suites**. The first full run
+applied formatting fixes and exposed the portal environment's missing newly
+declared Core dependency; installing its updated lock and rerunning passed
+all **305** portal tests. Lint passed after the formatting pass. The real
+optimizer corpus reports **one migration-pending skip**, not rollout acceptance.
+A fresh-context reviewer found malformed YAML could suppress valid neighboring
+configs; after that fix it reported no surviving code findings.
+
+Set to best now requires success, expires after **15 minutes** (a revisitable
+judgment call), and is invalidated by subsequent scanner-submitted moves/actions.
+Direct gateway writes remain outside the cache's observations. Epoch ownership
+adds a documented Data Utils → Core dependency, including Core's MySQL connector
+installation dependency; the timestamp import itself performs no network I/O.
+No hardware was contacted during this review follow-up.

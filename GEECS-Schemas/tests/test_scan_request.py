@@ -202,7 +202,9 @@ class TestScanRequest:
 
     @pytest.mark.parametrize("mode", ["noscan", "optimize"])
     def test_legacy_optimization_refused(self, mode):
-        with pytest.raises(ValidationError, match="11_optimization.md"):
+        with pytest.raises(
+            ValidationError, match="legacy optimization requests are retired"
+        ):
             ScanRequest.model_validate(
                 {"mode": mode, "optimization": make_optimization_block()}
             )
@@ -428,3 +430,14 @@ class TestV1Migration:
         )
         assert "submission" not in request.model_dump(mode="json")
         assert request.schema_version == 3
+
+
+def test_legacy_null_optimization_is_dropped_on_step_round_trip():
+    assert make_step_request(optimization=None) == make_step_request()
+
+
+def test_published_modes_exclude_retired_optimization():
+    assert set(ScanRequest.model_json_schema()["$defs"]["ScanRequestMode"]["enum"]) == {
+        "step",
+        "noscan",
+    }

@@ -134,6 +134,7 @@ serves the worker and scanner. Columns must fit 60 characters after escaping
 ignoring case; violations refuse before scan claim. The complete config retains
 its original names in JSON text.
 
+The shared `OptimizationRole` enum defines the role prefixes below.
 The fixed `optimization` stream emits once per evaluated iteration, all
 numeric columns: `iteration`, `proposal:<variable>`, `measured:<variable>`,
 `output:<measurement-or-derived-name>`, `n_valid_shots:<measurement>`,
@@ -142,7 +143,9 @@ Missing/failed measurements and absent best points are NaN; the scanner
 serializes these as JSON null. `best_move` records physical positions while
 relative pseudos still have their staged offsets. Relative pseudos restore
 on unstage; the operator can later submit these physical positions through
-Set to best. Observables-only BAX and multiobjective problems have no single
+Set to best. The scanner offers this only after success, for fifteen minutes,
+and invalidates it after a service-submitted move or action. It does not monitor
+out-of-band gateway writes. Observables-only BAX and multiobjective problems have no single
 best point, so `on_finish: best` restores initial positions instead.
 
 Acquisition is rewindable up to the bin's evaluation boundary. An immediate

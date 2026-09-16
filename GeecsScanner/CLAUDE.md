@@ -131,8 +131,14 @@ bookmark each). GEECS-Console itself is gone (PR 6, 2026-09-14; tag
 
 The form selects an `OptimizerConfig` by ID; shared `prepare_optimizer_preset`
 resolves defaults and required devices before both preflight and submission.
-Required devices are saved and essential even when an existing table row says
-otherwise. ProgressCache reduces the worker's `optimization` stream; NaN
+Saved presets retain the authored devices/kwargs; expansion happens only for
+preflight/submission through the shared client seam.
+Expanded required devices have `essential=True` and `save_images=True` even
+when an authored table row says otherwise. ProgressCache reduces the worker's `optimization` stream; NaN
 becomes null for JSON. Set to best takes a run UID, rejects stale/incomplete
-runs, and submits recorded physical targets as one idle-only `mv`. The scanner
+runs, unsuccessful runs, offers older than 15 minutes, and offers invalidated
+by a service-submitted move/action. It records the requesting operator and
+submits recorded physical targets as one idle-only `mv`. The panel shows the
+scan, completion time and exit status. Out-of-band gateway writes are not
+observed by this cache; Set to best remains an explicit operator action. The scanner
 never reconstructs pseudo offsets or imports the analysis runtime.

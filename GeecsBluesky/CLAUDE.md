@@ -93,6 +93,9 @@ and embeds GEST's VOCS; Xopt and ImageAnalysis load only inside the worker's
 optional optimize path. Validation and frame subscriptions precede the scan
 claim. Measurements use actual readbacks and timestamp-matched live frames.
 The `optimization` stream and JSON config provenance follow `EVENT_SCHEMA.md`.
+Optimizer expansion takes the same configs resolver in preflight and
+`submit_preset`; saving a preset validates its authored document without expansion.
+Analysis diagnostics resolve through Data Utils' shared config-root manager.
 Relative pseudos restore on unstage; the scanner's explicit Set to best uses
 the recorded physical targets, not a relative coordinate after its zero moved.
 

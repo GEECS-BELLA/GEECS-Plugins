@@ -29,7 +29,7 @@ import logging
 import math
 import threading
 import time
-from geecs_bluesky.optimization_events import optimization_name
+from geecs_bluesky.optimization_events import OptimizationRole, optimization_name
 from collections import deque
 from collections.abc import Callable
 from typing import Any, Optional
@@ -40,6 +40,9 @@ logger = logging.getLogger("geecs_scanner.streams")
 
 #: Console lines kept for late-joining pages.
 _CONSOLE_KEEP = 400
+
+#: An explicit best move is offered for fifteen minutes after successful completion.
+SET_BEST_MAX_AGE_S = 15 * 60
 
 #: The streams whose events are shots.  A strict run's rows are ``primary``
 #: events; a gated run's ``primary`` is datum-only and its per-shot rows are
@@ -94,7 +97,18 @@ class ProgressCache:
     def optimization(self) -> OptimizationOut:
         """Copy the latest optimization record under the stream lock."""
         with self._lock:
-            return self._optimization.model_copy(deep=True)
+            result = self._optimization.model_copy(deep=True)
+            result.expired = (
+                result.expires_at is not None and self._clock() >= result.expires_at
+            )
+            return result
+
+    def invalidate_optimization(self, reason: str) -> None:
+        """Disable best moves after a subsequent service-submitted hardware change."""
+        with self._lock:
+            if self._optimization.run_uid:
+                self._optimization.invalidated_reason = reason
+                self._version += 1
 
     def console_since(self, seq: int, limit: int = 200) -> list[ConsoleLine]:
         """Console lines with ``seq`` greater than *seq*, oldest first."""
@@ -122,6 +136,8 @@ class ProgressCache:
                     self._optimization = OptimizationOut(
                         run_uid=doc.get("uid"),
                         config=doc.get("optimizer_config"),
+                        scan_number=_as_int(doc.get("scan_number")),
+                        started_at=doc.get("time", now),
                         max_iterations=doc.get("max_iterations"),
                         objectives=doc.get("optimization_objectives", []),
                         best_moves=dict.fromkeys(
@@ -171,12 +187,12 @@ class ProgressCache:
                     data = doc.get("data", {})
                     self._optimization.iteration = _as_int(data.get("iteration")) or 0
                     for field, prefix in (
-                        ("proposal", "proposal:"),
-                        ("measured", "measured:"),
-                        ("outputs", "output:"),
-                        ("valid_shots", "n_valid_shots:"),
-                        ("best", "best:"),
-                        ("best_moves", "best_move:"),
+                        ("proposal", OptimizationRole.PROPOSAL + ":"),
+                        ("measured", OptimizationRole.MEASURED + ":"),
+                        ("outputs", OptimizationRole.OUTPUT + ":"),
+                        ("valid_shots", OptimizationRole.VALID_SHOTS + ":"),
+                        ("best", OptimizationRole.BEST + ":"),
+                        ("best_moves", OptimizationRole.BEST_MOVE + ":"),
                     ):
                         setattr(
                             self._optimization,
@@ -200,8 +216,18 @@ class ProgressCache:
                         self._state["paused_reason"] = None
                     self._state["updated_at"] = now
             elif name == "stop":
-                self._optimization.finished = bool(self._optimization.run_uid)
                 status = str(doc.get("exit_status") or "")
+                if (
+                    self._optimization.run_uid
+                    and doc.get("run_start", self._optimization.run_uid)
+                    == self._optimization.run_uid
+                ):
+                    self._optimization.finished = True
+                    self._optimization.exit_status = status
+                    self._optimization.completed_at = min(now, doc.get("time", now))
+                    self._optimization.expires_at = (
+                        self._optimization.completed_at + SET_BEST_MAX_AGE_S
+                    )
                 self._state["exit_status"] = status
                 self._state["state"] = "done" if status == "success" else "aborted"
                 self._state["updated_at"] = now

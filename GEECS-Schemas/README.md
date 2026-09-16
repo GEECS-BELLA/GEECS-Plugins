@@ -103,8 +103,8 @@ the four action step types.
 The analysis documents live in the `geecs_schemas.analysis` subpackage:
 `processing_2d` (`CameraConfig` + its sections), `processing_1d`
 (`Line1DConfig`, the `Line*` sections, `Data1DLoading` — a field-for-field
-mirror of GEECS-Data-Utils' `Data1DConfig` so this package stays
-pydantic-only), `analyzers` (the `AnalyzerSpec` union and the
+mirror of GEECS-Data-Utils' `Data1DConfig` to keep data/analysis runtime
+dependencies outside this vocabulary package), `analyzers` (the `AnalyzerSpec` union and the
 `ANALYZER_SPECS` kind → model table), `renderer` (`RendererOptions`, one
 typed option set for both summary renderers), `scan_runtime`
 (`ScanRuntime`, `BackgroundSource`), `diagnostic` and `group`.  The class

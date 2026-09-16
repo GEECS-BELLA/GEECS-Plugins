@@ -35,7 +35,19 @@ def repo(tmp_path):
         d = exp / folder
         d.mkdir(parents=True)
         for name in names:
-            (d / f"{name}.yaml").write_text("{}\n")
+            doc = (
+                {
+                    "vocs": {
+                        "variables": {"Motor:Current": [-1, 1]},
+                        "objectives": {"score": "MINIMIZE"},
+                    },
+                    "measurements": {"score": {"signal": "Meter:Value"}},
+                    "generator": {"name": "random"},
+                }
+                if folder == ConfigsRepoResolver.OPTIMIZER_FOLDER
+                else {}
+            )
+            (d / f"{name}.yaml").write_text(yaml.safe_dump(doc))
     return tmp_path
 
 

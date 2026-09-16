@@ -22,7 +22,11 @@ from geecs_bluesky.exceptions import (  # noqa: E402
     GeecsDeviceDownError,
     failure_cause_text,
 )
-from geecs_bluesky.plan_names import GEECS_PLAN_NAMES, NON_SCAN_PLAN_NAMES  # noqa: E402
+from geecs_bluesky.plan_names import (
+    GEECS_PLAN_NAMES,
+    NON_SCAN_PLAN_NAMES,
+    NATIVE_SCAN_PLAN_NAMES,
+)  # noqa: E402
 from geecs_bluesky.plans.registry import (  # noqa: E402
     EXCLUDED_STOCK_PLANS,
     TriggerProfiles,
@@ -61,7 +65,9 @@ def profiles(RE: RunEngine, box: FakeBox) -> TriggerProfiles:
 def test_plan_names_are_every_expressible_stock_plan_with_the_hook() -> None:
     """GEECS_PLAN_NAMES (import-light) pins the derivation the registry uses."""
     derived = set(stock_plans_with_hook()) - EXCLUDED_STOCK_PLANS
-    assert derived == set(GEECS_PLAN_NAMES) - set(NON_SCAN_PLAN_NAMES)
+    assert derived == set(GEECS_PLAN_NAMES) - set(NON_SCAN_PLAN_NAMES) - set(
+        NATIVE_SCAN_PLAN_NAMES
+    )
     assert EXCLUDED_STOCK_PLANS <= set(stock_plans_with_hook())
 
 
@@ -73,7 +79,7 @@ def test_bound_plans_keep_the_stock_signature_minus_the_hook(profiles) -> None:
     assert bound["mv"].__name__ == "mv"
     assert list(inspect.signature(bound["run_action"]).parameters) == ["name"]
     for name in GEECS_PLAN_NAMES:
-        if name in NON_SCAN_PLAN_NAMES:
+        if name in (*NON_SCAN_PLAN_NAMES, *NATIVE_SCAN_PLAN_NAMES):
             continue
         plan = bound[name]
         assert is_plan(plan) and inspect.isgeneratorfunction(plan)
@@ -505,3 +511,22 @@ def test_failure_cause_text_carries_the_causes_notes() -> None:
     )
     bare = _RefusedPut("pv:SP: refused")
     assert failure_cause_text(bare) == "_RefusedPut: pv:SP: refused"
+
+
+def test_optimize_signature_and_classification(profiles):
+    assert "optimize" not in NON_SCAN_PLAN_NAMES
+    plan = bind_plans(profiles)["optimize"]
+    assert is_plan(plan) and inspect.isgeneratorfunction(plan)
+    parameters = inspect.signature(plan).parameters
+    assert list(parameters) == [
+        "detectors",
+        "optimizer_config",
+        "max_iterations",
+        "shots_per_step",
+        "trigger_profile",
+        "shot_period",
+        "non_essential",
+        "md",
+    ]
+    assert parameters["optimizer_config"].kind is inspect.Parameter.KEYWORD_ONLY
+    assert parameters["optimizer_config"].default is inspect.Parameter.empty

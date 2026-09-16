@@ -16,7 +16,10 @@ from bluesky import plan_stubs as bps, preprocessors as bpp
 from bluesky.protocols import Movable
 from bluesky.utils import Msg
 from geecs_bluesky.exceptions import GeecsConfigurationError
-from geecs_bluesky.optimization_events import optimization_column as _column
+from geecs_bluesky.optimization_events import (
+    OptimizationRole,
+    optimization_column as _column,
+)
 from geecs_schemas import TriggerState
 
 from .gated import non_essential_wrapper, run_bracket
@@ -295,12 +298,15 @@ def optimize_plan(
         record = OptimizationRecord(
             [
                 "iteration",
-                *[_column("best_move", n) for n in move_targets],
-                *[_column("proposal", n) for n in movables],
-                *[_column("measured", n) for n in movables],
-                *[_column("output", n) for n in compiled.output_names],
-                *[_column("n_valid_shots", n) for n in cfg.measurements],
-                *[_column("best", n) for n in [*movables, *cfg.vocs.objectives]],
+                *[_column(OptimizationRole.BEST_MOVE, n) for n in move_targets],
+                *[_column(OptimizationRole.PROPOSAL, n) for n in movables],
+                *[_column(OptimizationRole.MEASURED, n) for n in movables],
+                *[_column(OptimizationRole.OUTPUT, n) for n in compiled.output_names],
+                *[_column(OptimizationRole.VALID_SHOTS, n) for n in cfg.measurements],
+                *[
+                    _column(OptimizationRole.BEST, n)
+                    for n in [*movables, *cfg.vocs.objectives]
+                ],
             ]
         )
         pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="geecs-optimize")
@@ -372,29 +378,40 @@ def optimize_plan(
                             physical_best[move_references[name]] = best[name]
                 record.values.update(
                     {
-                        _column("best_move", n): physical_best.get(n, math.nan)
+                        _column(OptimizationRole.BEST_MOVE, n): physical_best.get(
+                            n, math.nan
+                        )
                         for n in move_targets
                     }
                 )
                 record.values.update(iteration=float(iteration))
                 record.values.update(
-                    {_column("proposal", n): v for n, v in proposal.items()}
-                )
-                record.values.update(
-                    {_column("measured", n): v for n, v in measured.items()}
-                )
-                record.values.update(
-                    {_column("output", n): v for n, v in result.outputs.items()}
+                    {
+                        _column(OptimizationRole.PROPOSAL, n): v
+                        for n, v in proposal.items()
+                    }
                 )
                 record.values.update(
                     {
-                        _column("n_valid_shots", n): float(v)
+                        _column(OptimizationRole.MEASURED, n): v
+                        for n, v in measured.items()
+                    }
+                )
+                record.values.update(
+                    {
+                        _column(OptimizationRole.OUTPUT, n): v
+                        for n, v in result.outputs.items()
+                    }
+                )
+                record.values.update(
+                    {
+                        _column(OptimizationRole.VALID_SHOTS, n): float(v)
                         for n, v in result.valid_shots.items()
                     }
                 )
                 record.values.update(
                     {
-                        _column("best", n): best.get(n, math.nan)
+                        _column(OptimizationRole.BEST, n): best.get(n, math.nan)
                         for n in [*movables, *cfg.vocs.objectives]
                     }
                 )

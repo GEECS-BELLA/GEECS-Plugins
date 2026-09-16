@@ -1,6 +1,18 @@
 """Import-light optimization stream column names, shared by worker and clients."""
 
+from enum import StrEnum
 from urllib.parse import quote, unquote
+
+
+class OptimizationRole(StrEnum):
+    """Semantic column roles shared by optimization producers and consumers."""
+
+    PROPOSAL = "proposal"
+    MEASURED = "measured"
+    OUTPUT = "output"
+    VALID_SHOTS = "n_valid_shots"
+    BEST = "best"
+    BEST_MOVE = "best_move"
 
 
 def optimization_column(prefix: str, name: str) -> str:

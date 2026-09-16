@@ -147,7 +147,7 @@ Arrows read **"depends on / imports"** — `X → Y` means X imports Y. Verified
 against each package's `[tool.poetry.dependencies]` (intra-repo path deps).
 
 ```
-GEECS-Data-Utils     →  (no intra-repo deps — foundational data layer)
+GEECS-Data-Utils     →  GEECS-Core (shared acquisition timestamp contract; foundational data layer)
 LogMaker4GoogleDocs  →  (no intra-repo deps — pure Google API wrapper)
 GEECS-Schemas        →  (no intra-repo deps — Pydantic/GEST config vocabulary)
 
@@ -246,8 +246,8 @@ gateway purely as a *service* (the PVs, via stock ophyd-async EPICS
 signals) — nothing imports the gateway's code; the DB variable-type rule
 both gateways and GeecsBluesky share lives in `geecs_core.db.variable_types`.
 
-`GEECS-Data-Utils` is the foundational layer — everything depends on it and it
-depends on nothing else in the repo. `GeecsScanner` sits at the top of the
+`GEECS-Data-Utils` is the foundational data layer; it depends only on
+`GEECS-Core` within this repository, for the shared acquisition epoch contract. `GeecsScanner` sits at the top of the
 DAQ side. `ScanAnalysis` and `ImageAnalysis` are the most actively
 developed analysis packages. `LogMaker4GoogleDocs` is optional everywhere — missing it
 causes silent skips, not errors.

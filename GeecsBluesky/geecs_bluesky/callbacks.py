@@ -637,8 +637,8 @@ class SFileCallback(_StreamCallback):
         drain_offsets: Mapping[str, float],
         finalize_timeout: float,
     ) -> None:
+        from geecs_core.db.variable_types import LABVIEW_EPOCH_OFFSET
         from geecs_data_utils.io.scan_stack import (
-            LABVIEW_EPOCH_OFFSET,
             read_stack_attributes,
             stack_scalar_variables,
         )
