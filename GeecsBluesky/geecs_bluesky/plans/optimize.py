@@ -16,6 +16,7 @@ from bluesky import plan_stubs as bps, preprocessors as bpp
 from bluesky.protocols import Movable
 from bluesky.utils import Msg
 from geecs_bluesky.exceptions import GeecsConfigurationError
+from geecs_bluesky.optimization_events import optimization_column as _column
 from geecs_schemas import TriggerState
 
 from .gated import non_essential_wrapper, run_bracket
@@ -29,12 +30,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def _column(prefix: str, name: str) -> str:
-    # event-model forbids dots and slashes in every document key, even nested.
-    encoded = name.replace("%", "%25").replace(".", "%2E").replace("/", "%2F")
-    return f"{prefix}:{encoded}"
-
-
 class OptimizationRecord:
     """Fixed columns for proposed/measured variables, outputs and best-so-far."""
 
@@ -42,6 +37,15 @@ class OptimizationRecord:
     parent = None
 
     def __init__(self, names: list[str]) -> None:
+        # Tiled adds ts_ columns and SQL identifiers are case-insensitive.
+        if any(len(name) > 60 for name in names):
+            raise GeecsConfigurationError(
+                "optimizer column names must fit 60 characters after escaping"
+            )
+        if len({name.casefold() for name in names}) != len(names):
+            raise GeecsConfigurationError(
+                "optimizer column names must be distinct ignoring case"
+            )
         self.values = dict.fromkeys(names, math.nan)
 
     async def read(self) -> dict:

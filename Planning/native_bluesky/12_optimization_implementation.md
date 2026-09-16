@@ -51,18 +51,50 @@ reference frames; and reading a full camera descriptor before prepare.
 The final review of event-key encoding, JSON provenance and QueueServer
 discovery reported **no surviving P1/P2 findings**.
 
+## Beam-free hardware smoke test — 2026-09-15
+
+With the operator confirming beam off and HTU-NoGas, an isolated copy of the
+branch ran `bax_alignment_simulation` against the real gateway: **3 iterations
+× 2 shots**, S1V bounds **−4…4**, EMQ Current_Limit.Ch1 bounds **1.2…1.7**.
+Scan010 of 26_0915, UID `53a0af7b-7101-4eab-b9a3-3f8ce92f0b42`, closed successfully.
+
+- Six primary rows, bins `1,1,2,2,3,3`, in both scalar files; three finite
+  synthetic observations in the in-folder `xopt_dump.yaml`; two valid shots
+  for both measurements in each iteration.
+- Both original magnet setpoints were **0** and were restored to **0**;
+  final readbacks were S1V **−0.00009** and EMQ **0**.
+- This exercised BAX's two random cold-start observations and one model-driven
+  proposal. As an observables-only problem it correctly offered no best point.
+- Captured documents, restoration evidence and the hardware summary are saved
+  inside Scan010 as `optimization_acceptance_{documents,restoration,summary}.json`.
+
+The live test exposed a Tiled SQL restriction: `%` in our escaped column names
+caused optimization-table creation to fail. The branch now uses one shared
+worker/client codec with `~` escapes and rejects excessive or case-colliding
+column names before scan claim. A hardware-free replay against **Tiled 0.2.14**
+(the lab version), with isolated SQLite storage, archived all **6 primary,
+3 optimization and 2 baseline** rows and the successful stop. Replaying the
+original encoding reproduced the exact SQL identifier failure. The original
+live Tiled entry remains partial; its captured documents and scalar/Xopt files
+are intact. No additional shots were taken for the archival fix.
+
+Follow-up verification: **11 codec/SQL archival tests passed**, **10 native
+optimization tests passed**, **6 scanner optimization/boundary tests passed**.
+An independent review of the codec and preclaim checks found no surviving
+concrete findings.
+
 ## Still owed before rollout
 
-No lab hardware was commanded and no deployed service or live configs tree
-was changed. No PR has been opened and no branch has been pushed.
+No deployed service or live configs tree was changed. The hardware test used
+an isolated temporary checkout on the worker host. No PR has been opened and
+no branch has been pushed.
 
 1. After the schema lands, regenerate the configs repository corpus on its
    main branch: copy the keeper configurations, retain the HiResMagCam pair
    with LEGACY headers, and resolve the ALine diagnostic prerequisite noted
    in the brief. This branch's fixtures do not constitute corpus deployment.
-2. Run `bax_alignment_simulation` with the real magnets and synthetic
-   observable, without beam. Verify movement/restoration, one s-file row per
-   shot and the in-folder `xopt_dump.yaml`.
+2. The beam-free BAX smoke test above passed. Complete any longer convergence
+   acceptance separately; three iterations do not establish optimizer quality.
 3. Run TopViewMax with beam: **10 iterations × 5 shots**, five valid frames
    in each iteration, plausible objective against saved images, and record
    RSS before/after. Check the live PVA timestamp join and cleanup on stop.

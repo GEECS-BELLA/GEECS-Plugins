@@ -29,7 +29,7 @@ import logging
 import math
 import threading
 import time
-from urllib.parse import unquote
+from geecs_bluesky.optimization_events import optimization_name
 from collections import deque
 from collections.abc import Callable
 from typing import Any, Optional
@@ -182,7 +182,7 @@ class ProgressCache:
                             self._optimization,
                             field,
                             {
-                                unquote(key[len(prefix) :]): _finite(value)
+                                optimization_name(key[len(prefix) :]): _finite(value)
                                 for key, value in data.items()
                                 if key.startswith(prefix)
                             },

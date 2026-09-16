@@ -330,9 +330,14 @@ exists; remove ebeam_source_opt, hexapod_alignment and multi_device_example.
 Validate diagnostics on the worker before an operator day. No deployed
 configs were changed by the implementation branch.
 
-**OWED hardware acceptance, in order:** run `bax_alignment_simulation` with
-an operator present, real magnet moves and no beam, verify ARMED strict
-shots, restore, primary rows and xopt_dump.yaml. Then run TopViewMax with
+**Beam-free smoke test passed:** Scan010 of 26_0915 ran
+`bax_alignment_simulation`, 3 iterations × 2 HTU-NoGas shots, and restored both
+original magnet setpoints. Scalar files and Xopt dump passed. The resulting
+Tiled column-encoding fix passed a hardware-free replay; the original live
+Tiled entry is partial. Evidence and remaining limits are recorded in
+`Planning/native_bluesky/12_optimization_implementation.md`.
+
+**OWED hardware acceptance:** run TopViewMax with
 beam, 5 shots × 10 iterations; require five valid frames per iteration,
 compare the objective with saved PNGs after the run, and record RSS before
 and after. Finally submit TopViewMax from the scanner, observe live iteration

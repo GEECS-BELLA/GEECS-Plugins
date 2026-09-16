@@ -268,5 +268,17 @@ def test_camera_measurement_refire_and_preclaim_connection(
         }
         events = [e["data"] for e in docs.docs["event"] if e["descriptor"] in streams]
         assert [e["n_valid_shots:cam"] for e in events] == [2, 2]
-        assert all(np.isfinite(e["output:cam%2Eimage_total"]) for e in events)
+        assert all(np.isfinite(e["output:cam~2Eimage_total"]) for e in events)
     assert opened == closed == [True]
+
+
+@pytest.mark.parametrize(
+    "outputs", [{"x" * 61: "current"}, {"score": "current", "Score": "current"}]
+)
+def test_unarchivable_columns_refused_before_claim(setup, outputs):
+    re, ns, box, plan, cfg, docs, folder = setup
+    cfg.derived = {"score": "current", **outputs}
+    with pytest.raises(GeecsConfigurationError, match="column names"):
+        re(plan([ns.resolve("Motor")], optimizer_config="test"))
+    assert box.fires == 0
+    assert not docs.docs["start"]

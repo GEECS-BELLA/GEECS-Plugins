@@ -44,9 +44,9 @@ def test_stream_values_best_move_and_stale_run_refusal(service, streams, manager
             "descriptor": "opt",
             "data": {
                 "iteration": 2,
-                "output:cam%2Echarge": float("nan"),
-                "measured:Motor:axis%2Evalue": 0.2,
-                "best:Motor:axis%2Evalue": 0.25,
+                "output:cam~2Echarge": float("nan"),
+                "measured:Motor:axis~2Evalue": 0.2,
+                "best:Motor:axis~2Evalue": 0.25,
                 "best_move:U_S1H:Current": 0.25,
             },
         },

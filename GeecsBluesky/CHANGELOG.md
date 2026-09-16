@@ -10,6 +10,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - Add the native strict optimize plan, live PVA frame joins, measurement compilation, Xopt ask/tell and iteration events. Preserve failed observations without training on them; cold-start unseeded models. Resolve optimizer defaults and required devices before preflight. Record physical best targets for relative pseudos, which restore on unstage. Retire legacy evaluator/config classes and ScanAnalysis optimization dependency.
 
+### Fixed
+
+- Use a shared Tiled-safe optimization column codec; reject overlong and case-colliding columns before scan claim. Verified by the beam-free Scan010 smoke test and a full hardware-free archival replay.
+
 ## [0.91.1] - 2026-09-15
 
 ### Fixed

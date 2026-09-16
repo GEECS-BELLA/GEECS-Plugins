@@ -126,9 +126,13 @@ rather than re-implementing it.
 `optimization_objectives`, `optimization_move_targets`, and the resolved
 `OptimizerConfig` as JSON text under `geecs.optimizer_json` (provenance only).
 Bluesky forbids dots and slashes in document keys at any depth; event name
-components escape `%`, `.`, `/` as `%25`, `%2E`, `%2F` respectively. The
-scanner decodes names for display; the complete config retains its original
-names in JSON text.
+components use URI escaping with `~` as the escape marker (Tiled SQL forbids
+`%`): `.`, `/`, `%`, `~`, `-` become `~2E`, `~2F`, `~25`, `~7E`, `~2D`.
+Colons and underscores remain literal. The shared `optimization_events` codec
+serves the worker and scanner. Columns must fit 60 characters after escaping
+(Tiled adds `ts_` timestamp columns with a 63-character SQL limit) and be distinct
+ignoring case; violations refuse before scan claim. The complete config retains
+its original names in JSON text.
 
 The fixed `optimization` stream emits once per evaluated iteration, all
 numeric columns: `iteration`, `proposal:<variable>`, `measured:<variable>`,

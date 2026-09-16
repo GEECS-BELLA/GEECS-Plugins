@@ -10,6 +10,10 @@ project adheres to semantic versioning.
 
 - Enable Optimize mode with config selection, strict acquisition, locked required devices, finite iteration budgets and live output/best values. Add a run-bound, idle-only Set to best action using recorded physical settings. Extend the demo and SSE bridge without numerical worker dependencies.
 
+### Fixed
+
+- Decode the worker’s Tiled-safe optimization column names through the shared import-light codec.
+
 ## [0.8.0] - 2026-09-15
 
 ### Changed
