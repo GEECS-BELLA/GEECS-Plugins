@@ -18,6 +18,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   saving on and no file plugin, the same shape as the ICT. Hot fix,
   verified live by the maintainer; no pinning test.
 
+### Changed
+
+- Gated acquisition now refuses a preset that names `U_BCaveMagSpec` with
+  `save_images: true`: as a native-saving detector without a file plugin it
+  cannot be batch-counted (`refuse_native_essentials` and the submit
+  preflight). Before this fix the same preset passed because the stitcher
+  was a snapshot device whose `save_images` flag was a silent no-op. Use
+  `acquisition='strict'`, or `save_images: false` to record its scalars
+  only.
+
 ## [0.94.1] - 2026-09-16
 
 ### Changed
