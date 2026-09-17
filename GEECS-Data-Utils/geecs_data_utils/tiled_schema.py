@@ -612,24 +612,26 @@ def is_stepped_scan(start_doc: Mapping[str, Any]) -> bool:
 
 
 def shot_axis_for_frame(frame: "pd.DataFrame") -> "pd.Series":
-    """The shot axis for a DataFrame — THE one implementation of the rule.
+    """Resolve shot identity consistently across Grid, Plot and Images.
 
-    ``scan_event_index`` when present (1-based already), else 1-based
-    row labels; union rows the event side missed carry NA there and are
-    coalesced from the s-file's own shot identity (plain, or suffixed
-    by scan_frame's collision rename) — the 0.9.1 rule: Plotly silently
-    drops points with a null x, so those rows must keep a shot axis.
-    The ``/api`` frame endpoint and the "show the code" snippet both go
-    through here; a filtered frame keeps original shot identities.
+    Native ``scan_event_index`` wins, with missing values filled from the
+    s-file identity. A suffixed ``Shotnumber (s-file)`` is unambiguously
+    the s-file key after a namespace collision and takes priority over
+    an unsuffixed column. Explicit identities also win for s-file-only
+    frames, whose row indices need not match their recorded shot numbers.
+    Only frames with no identity column use one-based row labels; applying
+    filters preserves those original labels.
     """
     import pandas as pd
 
-    if SHOT_INDEX_COLUMN in frame.columns:
-        shot = frame[SHOT_INDEX_COLUMN].copy()
-    else:
-        shot = frame.index.to_series() + 1
-    if shot.isna().any():
-        for name in ("Shotnumber", "Shotnumber (s-file)"):
-            if name in frame.columns:
-                shot = shot.fillna(pd.to_numeric(frame[name], errors="coerce"))
+    columns = [
+        name
+        for name in (SHOT_INDEX_COLUMN, "Shotnumber (s-file)", "Shotnumber")
+        if name in frame.columns
+    ]
+    if not columns:
+        return frame.index.to_series() + 1
+    shot = pd.to_numeric(frame[columns[0]], errors="coerce").copy()
+    for name in columns[1:]:
+        shot = shot.fillna(pd.to_numeric(frame[name], errors="coerce"))
     return shot

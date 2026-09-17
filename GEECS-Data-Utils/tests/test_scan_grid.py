@@ -259,3 +259,30 @@ def test_filtered_frame_preserves_original_shot_identity():
     frame = grid_frame().drop(columns="scan_event_index").iloc[3:6]
     result = grid_scan(frame, grid_start(), GridConfig(value="signal"))
     assert result.cells.set_index("bin").loc[2, "shots"] == [4, 5, 6]
+
+
+def test_sparse_sfile_uses_recorded_shots_not_row_positions():
+    frame = pd.DataFrame(
+        {
+            "Shotnumber": [4, 5],
+            "Bin #": [2, 2],
+            "slow": [0, 0],
+            "fast": [1, 1],
+            "signal": [10, 20],
+        }
+    )
+    result = grid_scan(frame, {}, GridConfig(x="fast", y="slow", value="signal"))
+    assert result.cells.iloc[0].shots == [4, 5]
+
+
+def test_suffixed_sfile_identity_wins_over_colliding_native_column():
+    from geecs_data_utils.tiled_schema import shot_axis_for_frame
+
+    frame = pd.DataFrame(
+        {
+            "scan_event_index": [1, np.nan],
+            "Shotnumber": [101, 102],
+            "Shotnumber (s-file)": [1, 2],
+        }
+    )
+    assert shot_axis_for_frame(frame).tolist() == [1, 2]
