@@ -300,7 +300,10 @@ def test_list_scan_configs_bad_kind(monkeypatch):
 
 def test_list_scan_configs_without_experiment(monkeypatch):
     monkeypatch.setattr(runtime, "get_resolver", lambda: None)
-    result = _load(read_tools._list_scan_configs_impl("save_sets"))
+    # A VALID kind, or the kind guard answers first and this never reaches
+    # the resolver-is-None branch it exists to test (0.9.0 review NEW-1:
+    # "save_sets" stopped being a kind, which silently made this vacuous).
+    result = _load(read_tools._list_scan_configs_impl("presets"))
     assert not result["ok"] and result["error_kind"] == "invalid_request"
 
 

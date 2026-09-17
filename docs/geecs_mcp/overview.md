@@ -6,7 +6,7 @@ service, the config catalogs, archived results, post-scan analysis — as
 typed tools an agent can call. It is what turns "ask the assistant how
 scan 12 is going and what it measured" from a demo into a governed,
 auditable interaction with the machine. Starting a scan is deliberately
-not part of that surface — see [No write path here](#the-safety-model).
+not part of that surface — see [No write path here](#where-it-sits-in-the-architecture).
 
 This page is a concepts-first orientation. The authoritative detail lives
 in the package alongside the code: `GEECS-MCP/CLAUDE.md` (architecture and

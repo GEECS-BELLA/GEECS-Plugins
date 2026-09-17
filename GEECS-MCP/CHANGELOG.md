@@ -38,8 +38,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `not_found: listing save_sets failed: 'ConfigsRepoResolver' object has
   no attribute 'list_save_sets'` — which an agent reads as *this
   experiment has no save sets*, not *this tool is broken*. `save_sets` is
-  dropped from `_CONFIG_KINDS`, from `_FakeResolver`, and from the four
-  places that advertised it.
+  dropped from `_CONFIG_KINDS`, from `_FakeResolver`, and from the five
+  places that advertised it — including the FastMCP `instructions`
+  string, which is the catalog description every connecting agent reads
+  first (second review round).
+- `test_list_scan_configs_without_experiment` was left **vacuous** by
+  that same fix: it passed `"save_sets"`, which now trips the
+  kind guard before reaching the `resolver is None` branch it exists to
+  test. Proven by deleting the guard and watching it still pass; it now
+  passes a valid kind and fails when the guard goes (second review
+  round — the fix for one mislabelled refusal had disarmed the test
+  protecting against another).
+- Two more `docs/sites/data_flow/` bullets in the list already corrected
+  still described a submit cap and acknowledge loop, and that map's
+  GEECS-Schemas panel still named the MCP among the packages importing
+  the models. `overview.md`'s new cross-reference pointed at
+  `#the-safety-model` while the bullet it names lives under
+  `#where-it-sits-in-the-architecture` — the anchor resolved, so the
+  build stayed quiet and the reader landed in the wrong section.
 - The error taxonomy's prose no longer describes the deleted submit path
   (`policy_refusal` is ownership/RE-state, not cap/acknowledgement; the
   `needs_acknowledgement` `extra` is gone). `task_timeout` keeps its slot

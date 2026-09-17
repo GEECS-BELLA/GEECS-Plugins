@@ -397,9 +397,9 @@ svg.has-sel .step:not(.on){opacity:.25}
   <h2>Where OSPREY plugs in</h2>
   <ul class="plain">
     <li><b>One door.</b> OSPREY reaches GEECS only through GEECS-MCP, which runs next to the queueserver and reads the same config truth the worker uses. Since geecs-mcp 0.9.0 that door is read-and-halt only — the submit verbs were deleted, not rewired.</li>
-    <li><b>Read freely, write through verbs.</b> Read tools cover scan status, history, results and config listings. Control is limited to submit, stop on scans it owns, and clear queue, each with a request cap and an acknowledge loop.</li>
+    <li><b>Read freely, halt through verbs.</b> Read tools cover scan status, history, progress, results and config listings. Control is limited to stop and pause on scans it owns, resume, and clear queue — no submission verb exists.</li>
     <li><b>Same standing as the scanner.</b> MCP is a peer client of the queueserver, never an engine internal. Anything an agent does shows up in the queue like an operator's scan.</li>
-    <li><b>Two write paths, one rule.</b> Anything with GEECS semantics, a scan or a stop, goes through MCP verbs. A single setpoint can still be written to an <code>:SP</code> PV by OSPREY's own EPICS write tool, bounded by a limits database extracted from GEECS device limits, the same way any EPICS client would.</li>
+    <li><b>Two write paths, one rule.</b> Anything with GEECS semantics — for this server, a halt — goes through MCP verbs. A single setpoint can still be written to an <code>:SP</code> PV by OSPREY's own EPICS write tool, bounded by a limits database extracted from GEECS device limits, the same way any EPICS client would.</li>
   </ul>
   <h2 style="margin-top:22px">Why EPICS in the middle</h2>
   <ul class="plain">
@@ -768,11 +768,11 @@ const INFO = {
  "name": "GEECS-Schemas",
  "role": "The typed vocabulary for describing a scan and an analysis. Pydantic only, importable from anywhere.",
  "status": "hardening",
- "does": "Defines, as versioned Pydantic models, every config kind the platform runs on: the ScanRequest itself, save sets, scan variables, trigger profiles, action plans, derived channels, and now the analysis configs. Scanner, MCP, engine, portal, ScanAnalysis and the docs generator all import the same models, so they cannot disagree about what a scan is.",
+ "does": "Defines, as versioned Pydantic models, every config kind the platform runs on: the ScanRequest itself, save sets, scan variables, trigger profiles, action plans, derived channels, and now the analysis configs. Scanner, engine, portal, ScanAnalysis and the docs generator all import the same models, so they cannot disagree about what a scan is. (GEECS-MCP no longer imports them: since geecs-mcp 0.9.0 it has no submit verb and its listing tools duck-type catalog rows.)",
  "how": [
   "Configs are schemas; YAML is just their serialization. The configs repo holds the YAML, this package holds the meaning.",
   "Declare intent, derive mechanics. Device facts such as limits, units and enum choices live in the GEECS DB and are never repeated in YAML. Unknown keys fail loudly (`extra=\"forbid\"`).",
-  "The amber arrows carry instances of these models: a request leaves the scanner or an MCP tool, is validated at the boundary, and is what the funnel plan receives.",
+  "The amber arrows carry instances of these models: a request leaves the scanner, is validated at the boundary, and is what the plan receives.",
   "A doc generator renders every field description to the reference page and CI fails if a field lacks one, so the documentation cannot drift from the code."
  ],
  "now": "The analysis configs joined the package on 2026-09-08 (the v2 analysis document with kind-discriminated analyzer specs). Scan variables are authored new-schema only as of 2026-09-04; the legacy dialect and its converter were deleted once both experiments' catalogs were regenerated.",
