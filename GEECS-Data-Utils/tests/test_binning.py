@@ -1,7 +1,7 @@
 """Hermetic tests for the pure binning core (W1c) — every err mode pinned.
 
 The values are hand-computed; these are the numbers the LabVIEW-source
-comparison will later be checked against (03 design doc, pin list #1).
+comparison will later be checked against.
 """
 
 from __future__ import annotations

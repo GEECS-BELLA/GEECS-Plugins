@@ -64,4 +64,4 @@ strict scan, then compare windowed distinct-timestamp counts across G1, G2
 deep, G2 shallow, and the LV-written files. Camera-server load during the
 run (CPU/RAM via the session-scoped sshd, or the gateway log) is part of
 the observation. Phase-0 results from 2026-08-27 (both gates PASS at 1 Hz,
-11-camera load a non-event) are recorded in the scope doc.
+11-camera load a non-event) are in the #806 PR history.

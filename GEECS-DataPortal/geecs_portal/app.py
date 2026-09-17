@@ -393,13 +393,13 @@ def create_app(
         Root of the scan-analysis configs tree for the Images tab's
         ephemeral-processing selector. ``None`` (the default) turns
         the feature OFF — the portal never falls back to the global
-        config resolution (the 03 design doc's finding 7: two
-        competing resolution paths exist, so the portal names its
-        tree explicitly). The selector also hides itself when
+        config resolution (two competing resolution paths exist, so
+        the portal names its tree explicitly). The selector also hides
+        itself when
         ImageAnalysis (the ``analysis`` extra) is not installed.
     analysis_factory : callable, optional
         ``(analyzer_id, config_dir) -> ScanAnalyzer`` for the analysis
-        runs (``/api/run/{uid}/analysis``, the 04 design). ``None``
+        runs (``/api/run/{uid}/analysis``). ``None``
         (the default) uses the real ScanAnalysis factory, which then
         also needs the ``analysis`` extra; tests inject a fake. The
         feature shares ``processing_config_dir`` — the unified
@@ -756,7 +756,7 @@ def create_app(
         }
 
     # ------------------------- analysis JSON API -------------------------
-    # One-liners over the data-utils primitives (03 design doc): every
+    # One-liners over the data-utils primitives: every
     # response is reproducible in a notebook by the snippet it carries.
 
     @app.get("/api/run/{uid}/columns")

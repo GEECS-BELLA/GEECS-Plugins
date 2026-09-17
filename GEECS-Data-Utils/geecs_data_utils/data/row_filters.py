@@ -8,8 +8,8 @@ models so the same object serializes into an endpoint query, a saved
 analysis config, and the "show the code" snippet.
 
 This module deliberately does **not** lower onto
-:func:`geecs_data_utils.data.cleaning.apply_row_filters` (the 03 design
-doc's original sketch): a mask-returning, OR-capable, explicit-NaN
+:func:`geecs_data_utils.data.cleaning.apply_row_filters`: a
+mask-returning, OR-capable, explicit-NaN
 primitive cannot be built on an AND-only frame-returning kernel, so the
 comparisons are written inline here.  The legacy tuple vocabulary stays
 for its existing consumers (``DatasetBuilder.prepare_frame`` still
@@ -24,8 +24,8 @@ duplicated column labels are refused loudly rather than silently
 compared as nanosecond integers.
 
 Porting fidelity note: GEECSplotter has per-*condition* enable toggles;
-this model carries enable at the *group* level (the 03 design's
-explicit choice) — importing a saved LabVIEW filter set drops disabled
+this model carries enable at the *group* level (an explicit choice, not
+an oversight) — importing a saved LabVIEW filter set drops disabled
 condition rows rather than carrying their disabled state.
 """
 

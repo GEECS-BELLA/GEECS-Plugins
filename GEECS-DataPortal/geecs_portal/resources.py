@@ -1,7 +1,7 @@
 """Resource viewer: (scan folder, device, shot) → a browser-displayable image.
 
-The portal's phase-4 join over the two image stores (the scope doc's
-tiering): a device's shot is served from its capture-daemon HDF5 frame
+The portal's phase-4 join over the two image stores: a device's shot is
+served from its capture-daemon HDF5 frame
 stack when one exists (Tier A, `geecs_data_utils.io.scan_stack`), else
 from its native per-shot file (Tier B, the GEECS filename convention via
 `ScanPaths.build_asset_path` — never re-derived here), while
