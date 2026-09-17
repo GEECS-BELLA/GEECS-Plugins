@@ -363,3 +363,19 @@ sharing this integer does not justify an access-library dependency here.
 - `duckdb` — available for ad-hoc Parquet queries but minimal use
 - `pydantic >= 2.0` — all data models
 - `tiled[client]` — optional `tiled` extra (`tiled_export`, `tiled_catalog`)
+
+## Two-axis geometry (`scan_grid`, 0.34.0)
+
+`grid_scan(frame, start, GridConfig, RowFilters)` is a pure calculation over the
+unfiltered union frame. Native grid metadata and product Sweep specifications
+supply planned coordinates, indexed by one-based acquisition bin (including snake
+traversal). Relative coordinates are anchored to the first available bin readback.
+Other trajectories use measured per-bin coordinates without inventing empty cells.
+Repeated XY positions remain separate visits. More than two motors is rejected.
+
+Filters affect statistics/membership only. The existing binning core computes
+independent center/error choices; quantile interval width is calculated from the
+quantiles themselves, not clipped offsets from a center outside the interval.
+Finite selected-scalar counts control error visibility. Bin identity uses one
+provider (native when available, otherwise s-file), matching Images; namespaces
+are never reconciled. Results include geometry, sample counts and member shots.

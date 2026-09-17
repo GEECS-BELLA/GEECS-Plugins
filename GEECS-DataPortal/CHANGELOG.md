@@ -3,6 +3,18 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.29.0] - 2026-09-16
+
+### Added
+
+- Grid tab with paired scalar/error heatmaps and independent average/error
+  selectors. Shared shot filters retain the complete geometry and distinguish
+  filtered, unacquired, missing-value and insufficient-sample cells.
+- Linear, logarithmic and equal-cell axis spacing in square plotting areas;
+  measured-point rendering for spiral and other nonrectangular trajectories.
+- Cell inspection, repeated-visit selection, filtered bin-image navigation,
+  URL-carried state and a reproducible notebook snippet through `/api/run/{uid}/grid`.
+
 ## [0.28.1] - 2026-09-15
 
 ### Changed
