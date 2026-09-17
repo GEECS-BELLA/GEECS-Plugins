@@ -7,6 +7,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Plot, Grid and Images share shot identity, including sparse legacy s-files
+  whose recorded shot numbers differ from row positions and suffixed column
+  names after a native/s-file collision. Notebook figures use the same rule.
+
 - Grid toolbar's send-to-scan-log button now exports the clicked average or
   error map, rather than the Plot tab's figure. Reuses the existing dialog,
   remembered log entry and view link, with map-specific captions and square
