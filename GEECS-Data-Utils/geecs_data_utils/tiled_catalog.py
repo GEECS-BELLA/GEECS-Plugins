@@ -476,10 +476,15 @@ def read_primary_scalars(primary: Any) -> Optional[Any]:
     table parts are read by name through ``primary.base`` and the arrays
     are left where they are.
 
+    Nothing about it is specific to ``primary``: any composite stream node
+    works the same way, and :func:`geecs_data_utils.tiled_export.read_run_rows`
+    passes a gated run's ``shots`` node through here.
+
     Parameters
     ----------
     primary :
-        The run's ``primary`` node (a Tiled ``CompositeClient``).
+        The run's ``primary`` node (a Tiled ``CompositeClient``), or any
+        other stream node of the run.
 
     Returns
     -------
@@ -515,8 +520,8 @@ def read_primary_scalars(primary: Any) -> Optional[Any]:
 def resolve_scan_folder(detail: RunDetail, day: date) -> Optional[Path]:
     """Resolve a run's scan folder on disk — strictly read-only.
 
-    Shared by every front-end over the catalog (the console scan
-    browser's Open button, the data portal's resource endpoints).
+    Shared by every front-end over the catalog (the data portal's resource
+    endpoints; the Qt console's scan browser before its deletion).
     Prefers the run's own ``scan_folder`` start-doc path; falls back to
     building the daily ``scans/ScanNNN`` path for the given date via
     :func:`geecs_data_utils.scan_paths.daily_scan_folder` (pure path
@@ -604,8 +609,8 @@ def metadata_rows(detail: RunDetail) -> list[tuple[str, str]]:
     Pure — reads only the already-loaded :class:`RunDetail` (summary +
     start/stop documents), never the catalog.  Rows whose source key is
     absent or empty are omitted, so legacy or aborted runs render a
-    shorter list rather than blank cells.  Shared by the console scan
-    browser (B7 table) and the data portal's run-detail view.
+    shorter list rather than blank cells.  Shared by every front-end's
+    run-detail view (the data portal today).
 
     Parameters
     ----------
@@ -629,7 +634,9 @@ def metadata_rows(detail: RunDetail) -> list[tuple[str, str]]:
         rows.append(("Experiment", summary.experiment))
     if summary.description:
         rows.append(("Description", summary.description))
-    acquisition = str(start.get("acquisition_mode") or "")
+    # Both spellings: the native scanner writes `acquisition` (strict/gated),
+    # the retired funnel wrote `acquisition_mode`.
+    acquisition = str(start.get("acquisition") or start.get("acquisition_mode") or "")
     rows.append(
         ("Mode", f"{summary.mode} · {acquisition}" if acquisition else summary.mode)
     )
@@ -645,8 +652,10 @@ def metadata_rows(detail: RunDetail) -> list[tuple[str, str]]:
         if shape and points:
             shape_text = " × ".join(str(s) for s in shape)
             rows.append(("Grid", f"{shape_text} = {points} steps"))
-    elif start.get("motor"):
-        rows.append(("Scan variable", str(start["motor"])))
+    elif tiled_schema.scan_motors(start):
+        # Plural `motors` (stock bluesky) or the funnel's singular `motor`;
+        # several entries for a correlated or grid trajectory.
+        rows.append(("Scan variable", ", ".join(tiled_schema.scan_motors(start))))
 
     num_points = start.get("num_points")
     shots_per_step = start.get("shots_per_step")

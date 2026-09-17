@@ -8,11 +8,10 @@ Run after an *intentional* schema or converter change, then review the diff:
 import json
 from pathlib import Path
 
+import yaml
+
+from geecs_schemas import ActionPlanLibrary
 from geecs_schemas.convert import (
-    convert_action_library,
-    convert_optimizer_config,
-    convert_save_element,
-    convert_scan_preset,
     convert_shot_control,
 )
 
@@ -31,48 +30,15 @@ def write(name: str, payload: dict) -> None:
 
 def main() -> None:
     """Regenerate every golden snapshot."""
-    aline = convert_save_element(FIXTURES / "save_elements/UC_Aline1.yaml")
-    write(
-        "UC_Aline1.converted.json",
-        {
-            "save_set": aline.save_set.model_dump(mode="json"),
-            "actions": {k: v.model_dump(mode="json") for k, v in aline.actions.items()},
-            "notes": aline.notes,
-        },
-    )
-
-    visa = convert_save_element(
-        FIXTURES / "save_elements/visa1_spectrometer_setup.yaml"
-    )
-    write(
-        "visa1_spectrometer_setup.converted.json",
-        {
-            "save_set": visa.save_set.model_dump(mode="json"),
-            "actions": {k: v.model_dump(mode="json") for k, v in visa.actions.items()},
-        },
-    )
-
     profile = convert_shot_control(FIXTURES / "shot_control/HTU-Normal.yaml")
     write("htu_trigger_profile.json", profile.model_dump(mode="json"))
 
-    library = convert_action_library(FIXTURES / "actions/actions_undulator.yaml")
+    library = ActionPlanLibrary.model_validate(
+        yaml.safe_load((FIXTURES / "actions/actions_undulator.yaml").read_text())
+    )
     write(
         "amp4_dump_hp_plan.json",
         library.plans["Amp4_DUMP_HP"].model_dump(mode="json"),
-    )
-
-    preset = convert_scan_preset(FIXTURES / "presets/00_focuscan.yaml")
-    write(
-        "focuscan_scan_request.json",
-        preset.scan_request.model_dump(mode="json"),
-    )
-
-    optimizer = convert_optimizer_config(
-        FIXTURES / "optimizer_configs/hexapod_alignment.yaml"
-    )
-    write(
-        "hexapod_optimization_spec.json",
-        optimizer.optimization.model_dump(mode="json"),
     )
 
 

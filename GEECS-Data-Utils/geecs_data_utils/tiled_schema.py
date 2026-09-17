@@ -271,8 +271,8 @@ def plottable_columns(frame: Any) -> list[str]:
     """Return the columns of *frame* offered as scalar-plot picks.
 
     The ONE pick-list rule shared by the scalar-plotting front-ends
-    (the console scan browser's B4, the data portal) — both consume this
-    helper, so the two cannot drift.  Schema machinery (row
+    (the data portal; the Qt console's scan browser before its deletion)
+    — every consumer takes this helper, so they cannot drift.  Schema machinery (row
     identity + companion columns) is excluded via :func:`data_columns`,
     and plottability is tolerant coercion per the dtype-tolerant
     telemetry contract ("never assume numeric") — an object-typed column
@@ -449,6 +449,43 @@ def pinned_columns(columns: Sequence[str], start_doc: Mapping[str, Any]) -> list
     return pinned
 
 
+def scan_motors(start_doc: Mapping[str, Any]) -> list[str]:
+    """The ophyd names of the devices this run stepped; empty for a motorless run.
+
+    Reads the **stock bluesky** key ``motors`` — the plural list every
+    ``bluesky.plans`` scan verb puts in its start document — and falls back to
+    the singular ``motor`` that the retired GEECS funnel wrote, so runs from
+    either backend classify the same way.
+
+    This mattered: the native-Bluesky scanner registers the stock verbs, which
+    write ``motors``, while these readers looked only for ``motor``.  Every
+    1D scan taken on the native path therefore classified as ``NOSCAN`` in the
+    data portal, contributed no scan-variable column, and reported
+    ``is_stepped() is False`` — with a perfectly correct ``ScanInfo`` ini
+    sitting beside it saying ``ScanMode = "standard"``.
+
+    Parameters
+    ----------
+    start_doc : mapping
+        The run start document.
+
+    Returns
+    -------
+    list of str
+        One entry per stepped device, in the plan's axis order (outermost
+        first); empty when nothing was stepped.
+    """
+    raw = start_doc.get("motors") or start_doc.get("motor")
+    if not raw:
+        return []
+    if isinstance(raw, str):
+        return [raw]
+    try:
+        return [str(m) for m in raw]
+    except TypeError:  # not iterable — a single non-string object
+        return [str(raw)]
+
+
 def scan_variable_columns(
     columns: Sequence[str], start_doc: Mapping[str, Any]
 ) -> list[str]:
@@ -459,8 +496,8 @@ def scan_variable_columns(
     columns : sequence of str
         All event-stream column names.
     start_doc : mapping
-        The run start document; ``motor`` is the scan-device ophyd name
-        (``None`` for statistics collection).
+        The run start document; the stepped devices come from
+        :func:`scan_motors` (``motors``, or the funnel's ``motor``).
 
     Returns
     -------
@@ -469,10 +506,9 @@ def scan_variable_columns(
         for motorless runs.  Multi-axis grids record every axis readback,
         so several columns may return.
     """
-    motor = start_doc.get("motor")
-    if not motor:
+    motors = scan_motors(start_doc)
+    if not motors:
         return []
-    motors = [motor] if isinstance(motor, str) else [str(m) for m in motor]
     matches: list[str] = []
     for column in data_columns(columns):
         if column in motors or any(column.startswith(f"{m}-") for m in motors):
@@ -498,10 +534,32 @@ def scan_mode(start_doc: Mapping[str, Any]) -> str:
     plan_name = str(start_doc.get("plan_name") or "")
     if "adaptive" in plan_name or "optimize" in plan_name:
         return "OPT"
-    motor = start_doc.get("motor")
-    if not motor:
+    motors = scan_motors(start_doc)
+    if not motors:
         return "NOSCAN"
-    if not isinstance(motor, str) and isinstance(motor, Sequence) and len(motor) > 1:
+    if plan_name == "sweep":
+        payload = start_doc.get("sweep")
+        trajectory = payload.get("trajectory") if isinstance(payload, Mapping) else None
+        if isinstance(trajectory, Mapping):
+            return (
+                "GRID"
+                if trajectory.get("kind") == "axes"
+                and trajectory.get("combine") == "product"
+                and len(trajectory.get("axes") or []) > 1
+                else "1D"
+            )
+    # `plan_pattern` is the stock bluesky discriminator and the only reliable
+    # one: `scan`/`rel_scan`/`list_scan` move N motors along ONE correlated
+    # trajectory (`inner_product`, `inner_list_product`) and are 1D however
+    # many motors they name; only `grid_scan`'s `outer_product` is a grid.
+    # (GeecsBluesky's ScanInfo writer reads `plan_pattern` the same way for
+    # Start/End/Step; it does not classify grids. Only this reader does.)
+    pattern = str(start_doc.get("plan_pattern") or "")
+    if pattern:
+        return "GRID" if pattern.startswith("outer_") else "1D"
+    # Funnel vocabulary (no plan_pattern): a list of motors, or its own
+    # grid_shape / scan_axes keys, meant a grid.
+    if len(motors) > 1:
         return "GRID"
     if start_doc.get("grid_shape") or (
         isinstance(start_doc.get("scan_axes"), Sequence)
@@ -545,6 +603,6 @@ def is_stepped_scan(start_doc: Mapping[str, Any]) -> bool:
     Returns
     -------
     bool
-        True when a motor was moved (``motor`` non-null).
+        True when a motor was stepped (see :func:`scan_motors`).
     """
-    return bool(start_doc.get("motor"))
+    return bool(scan_motors(start_doc))

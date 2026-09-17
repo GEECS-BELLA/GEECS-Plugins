@@ -3,7 +3,107 @@
 All notable changes to `geecs-core` are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and semantic versioning.
 
-## [0.4.1] - 2026-09-14
+
+## [0.8.2] - 2026-09-16
+
+### Changed
+
+- Publish the shared LabVIEW-to-Unix epoch offset for PVA timestamps and native optimizer frame joins.
+
+## [0.8.1] - 2026-09-14
+
+### Changed
+
+- Merge of `master` (21f46821) into `feature/native-bluesky-plans`: the
+  two lines were released in parallel and are listed below in version
+  order; the block marked *(master line, parallel release)* is master's
+  0.4.1, whose one change — `transport._coerce.format_float`, the
+  shortest round-trip float formatting for every set command (#819,
+  PR #897) — is now on this line too. No branch-side code changed.
+
+## [0.8.0] - 2026-09-14
+
+### Added
+
+- `pv_naming.CONNECTED_SUFFIX` / `connected_pv(experiment, device,
+  variable)` — the PVA gateway's per-image-variable subscription-state PV
+  (`<image PV>:connected`, GeecsPvaGateway 0.10.0, GEECS-Plugins#854),
+  minted beside `HDF_PLUGIN_SUFFIX` for the same reason: the server and
+  a worker-side reader (the submit preflight's liveness gate) both take
+  it from here, so the two sides cannot drift.
+
+## [0.7.0] - 2026-09-14
+
+### Added
+
+- `db.settables`: `numeric_settables(rows_by_device)` → `NumericSettable`
+  rows — the one filter (`settable` and `effective_vartype == numeric`)
+  and the one order (aliased first, alphabetical by alias, then the rest
+  by canonical `Device:Variable`) every movable picker shows. Pure logic
+  over `get_experiment_device_variables` rows, placed beside
+  `variable_types` so the web scanner, the scan MCP and later pickers
+  import one list instead of each sorting their own.
+
+- `GeecsDb.get_device_variables` / `get_experiment_device_variables` rows
+  carry **`alias`** — the per-instance `variable.alias` the DB curates as
+  the operator-facing short name (`""` when none; the type table's column
+  rides along but is unpopulated in practice). First reader: the web
+  scanner's movable panel, which lists every numeric settable alias-first
+  and shows the alias beside the canonical `Device:Variable`, never
+  instead of it (the request stores the canonical name, so a rename in
+  the DB breaks nothing).
+
+## [0.6.0] - 2026-09-12
+
+### Added
+
+- `db.scalar_policy`: `GeecsDbScalarPolicy` and the `ScalarPolicyProvider`
+  protocol — the subscribed (`get='yes'`) scalars rule, moved here from
+  `geecs_bluesky.db_runtime` beside `variable_types`.  The PVA gateway's
+  file plugin now writes a camera's subscribed scalars as per-frame
+  attributes (`Planning/native_bluesky/08_gated_batch.md` §4.4) and
+  depends on GEECS-Core alone; one home for the rule keeps a gated row's
+  columns and a strict row's columns the same by construction.  Semantics
+  unchanged: one batched query per kind, cached; a DB failure degrades to
+  empty policy with one warning.
+- `db.variable_types.scalar_attribute_variables(rows, subscribed,
+  normalize=…)` and `TIMESTAMP_LADDER`: the per-frame scalar filter beside
+  `image_variables` — the subscribed **numeric** variables of a device in
+  DB order, minus the timestamp ladder, matched to the metadata rows
+  case-insensitively (the namespace's rule; the row's spelling is kept),
+  a second name normalizing onto an earlier one's dataset dropped with a
+  warning.  Enums are excluded on
+  purpose: their wire value is the text label on both gateways.  The PVA
+  gateway builds its roster from it; the worker recovers a stack's columns
+  through it.
+
+## [0.5.1] - 2026-09-11
+
+### Added
+
+- `pv_naming.hdf_plugin_prefix(experiment, device, variable)` and
+  `HDF_PLUGIN_SUFFIX` (`:hdf1:`): the file plugin's PV prefix (#806),
+  minted here so the PVA gateway and the worker's `GeecsHdfIO` cannot
+  drift.
+- `db.variable_types.image_variables(rows)`: the camera test (image-typed
+  DB variables), the one home for the PVA gateway's served set and the
+  worker's plugin-backed rule.
+
+## [0.5.0] - 2026-09-09
+
+### Added
+
+- `geecs_core.db.variable_types`: the one DB-type rule — `effective_vartype`,
+  `VARTYPE_TO_DTYPE`, `SKIP_VARTYPES`, `CHOICE_TYPE_DESCRIPTORS` moved
+  unchanged from `geecs_ca_gateway.config`, plus a small `is_scalar_vartype`
+  helper — so the CA gateway, the PVA gateway and GeecsBluesky share it
+  without importing a gateway's config module (GEECS-Plugins#807 phase 1).
+  No behaviour change. The canonical DB source is
+  `devicetype_variable.choice_id` → the `choice` table (ids 1–4 base types,
+  5+ enum lists); `variabletype` is the secondary annotation. Known DB
+  defect recorded in the module docstring: 18 Undulator rows with
+  `variabletype='numeric'` and an option list should be `choice` (DB sweep).
+## [0.4.1] - 2026-09-14 *(master line, parallel release)*
 
 ### Fixed
 

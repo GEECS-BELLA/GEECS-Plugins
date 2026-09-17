@@ -4,7 +4,1292 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [0.78.0] - 2026-09-10
+## [0.94.0] - 2026-09-16
+
+### Changed
+
+- Register sweep and retire all moving stock scan verbs. Reuse scan_nd and shared strict/gated acquisition; validate JSON before box motion, expand axis references once, and restore relative axes before close/unstage. Record the executed Sweep and first-axis projection. Hardware acceptance remains owed.
+- Return malformed Sweep and alias-collision errors through the public client's configuration-refusal result. Record one snaking flag per motor without implying uniform, single-event grid cells.
+
+## [0.93.0] - 2026-09-16
+
+### Added
+
+- Hardware-free `trajectory.axis_positions` / `sweep_to_cycler`, the shared
+  numerical expansion for future sweep execution and scanner preview.
+  NumPy supplies range/log spacing; stock Bluesky patterns supply ordered
+  trajectories, including mixed grids, snake traversal and typed spirals.
+  Duplicate resolved axes and unrepresentable positions are refused.
+- Foundation parity tests for one-to-five axes and typed patterns. Relative
+  coordinates remain offsets in this layer; no registered plan or deployed
+  acquisition behavior changes in this release.
+
+## [0.92.2] - 2026-09-16
+
+### Fixed
+
+- Expose unavailable optimizer names with validation reasons; pin agreement between the independent wire and file epoch constants in a package that already depends on both.
+
+## [0.92.1] - 2026-09-16
+
+### Fixed
+
+- Resolve optimizer presets identically in expansion, preflight and direct submission; honor the shared analysis config root; list only valid native configs. Install optimize in worker bootstrap, warm numerical imports before readiness, classify optimize as a native scan and share event role names. Use the Core epoch contract throughout.
+
+## [0.92.0] - 2026-09-16
+
+### Changed
+
+- Add the native strict optimize plan, live PVA frame joins, measurement compilation, Xopt ask/tell and iteration events. Preserve failed observations without training on them; cold-start unseeded models. Resolve optimizer defaults and required devices before preflight. Record physical best targets for relative pseudos, which restore on unstage. Retire legacy evaluator/config classes and ScanAnalysis optimization dependency.
+
+### Fixed
+
+- Use a shared Tiled-safe optimization column codec; reject overlong and case-colliding columns before scan claim. Verified by the beam-free Scan010 smoke test and a full hardware-free archival replay.
+
+## [0.91.1] - 2026-09-15
+
+### Fixed
+
+- **The pseudo positioner's lifecycle lines are visible again** (#915):
+  `make_run_engine` sets the `geecs_bluesky` logger to INFO, so
+  `baselines captured (components zeroed)` at stage, `restoring
+  baselines` at unstage and a manual `mv`'s moves reach the worker's
+  journal even though they happen outside the run, where the root logger
+  sits at WARNING (the scan log lowers it only for the run's duration).
+- **A scan point at exactly 0 is an ordinary, checked step** (#915): the
+  agreement-check bypass for the recovery gesture (`mv <pseudo> 0` after a
+  failed restore) applies only while the pseudo is not staged, and only
+  that unstaged move clears the owed restore — a staged scan through 0
+  had cleared it too, leaving the next `stage()` free to bake a leftover
+  bump into the baseline after a failed restore (review of #918).
+  Scan005 of 26_0915 had taken the bypass mid-scan.
+- Docs: a `halt` does **not** skip unstage — the RunEngine sweeps every
+  leftover staged object on every exit path (without awaiting it on a
+  halt), so the restore runs there too and a failure in it is visible
+  only in the journal; the recovery gesture is for a *failed* restore.
+
+### Changed
+
+- The pseudo arc's brief (`Planning/native_bluesky/09_pseudo_transform.md`)
+  is deleted per the Planning rule; its rulings live in `CLAUDE.md`
+  ("Pseudo positioner rulings") and the `pseudo.py` module docstring.
+
+## [0.91.0] - 2026-09-15
+
+### Added
+
+- **The scan-variable catalog's `kind: motor` opt-in** (the pseudo arc
+  #904, build step 5; `01_device_namespace.md`'s deferred item). A plain
+  catalog entry declaring `kind: motor` binds its target as a `CaMotor`
+  even where the DB tolerance is `0`/NULL — the corpus marks the steering
+  magnets `kind: motor` and #780 says their DB tolerance is 0, so they
+  were plain setpoints with no convergence confirmation. Such a motor
+  confirms within the class default tolerance and the build WARNS naming
+  the DB row to curate. The catalog never downgrades: a positive DB
+  tolerance still binds a motor with its own value. `namespace.motor_targets(catalog)`
+  reads the opt-ins; `GeecsNamespace(..., motor_targets=…)` /
+  `from_experiment(..., motor_targets=…)` take them; the startup profile
+  reads the catalog once for the opt-ins and the pseudo nouns. An opt-in
+  no motor was bound for (unserved, read-only, non-numeric, misspelled) is
+  WARNed at build, like a stale drain offset. **Event keys:** an opted-in
+  variable's readback column is a motor's (`u_s3h-current-position`, was
+  `u_s3h-current-readback`) — both suffixes are in `EVENT_SCHEMA.md`, the
+  s-file header (`U_S3H Current`) is unchanged. Two literals now stand in
+  for the missing DB fact on such a magnet — the move confirm
+  (`DEFAULT_TOLERANCE`, 0.005) and the pseudo agreement fallback
+  (`DEFAULT_AGREEMENT_TOLERANCE`, 0.01); #780's curation retires both.
+
+## [0.90.0] - 2026-09-15
+
+### Added
+
+- **Pseudo scan variables are namespace nouns** (the pseudo arc #904,
+  build step 3). `GeecsNamespace.add_pseudos(catalog.variables)` — called
+  by the startup profile after the roster is built, best-effort like the
+  shot offsets — binds every `kind: pseudo` entry as a
+  `CaPseudoPositioner` over the Movable children the roster already
+  holds for its targets (one object per component, so the user offset
+  the bump zeroes is the child's own), under the catalog name as an
+  identifier (`ALine_e_beam_angle_offset_x`), each target's DB tolerance
+  as its agreement tolerance. An entry that cannot be built — a formula
+  that does not compile, an unserved target, a name colliding with a
+  device — is logged at ERROR and skipped; the worker still opens and the
+  submit preflight reports the missing reference. Pseudos stay out of
+  the telemetry baseline (their components are already in it).
+
+### Changed
+
+- `qs_client.presets`: a catalog pseudo expands to its namespace binding
+  (`scan_variable_reference("ALine_e_beam_angle_offset_x", catalog)` →
+  `"ALine_e_beam_angle_offset_x"`) and is recorded as a reference the
+  preflight checks against the device tree — the "pseudo axes are not
+  scannable through the namespace yet (phase 3)" refusal is gone. The
+  branch can scan composites again.
+
+## [0.89.0] - 2026-09-15
+
+### Added
+
+- **Every settable carries a user offset.** `CaSettable.offset` (and so
+  `CaMotor`, `CaConfirmSettable`): a soft signal, `0.0` until
+  `set_current_position(position)` redefines the user frame (ophyd's
+  spelling; the EPICS motor record's `.OFF`, `user = dial + offset`) —
+  nothing moves, the raw GEECS value stays the dial, `set()`/`read()`/
+  `locate()` stay in the dial frame. The primitive the pseudo positioners
+  consume; an operator-facing set-as-aligned with persistence is the
+  follow-on arc (`09_pseudo_transform.md` §3).
+- **`CaPseudoPositioner`** (`devices/ca/pseudo.py`) — a catalog
+  `kind: pseudo` entry as a pseudo positioner: an ophyd-async `Transform`
+  (`derived_to_raw` = the catalog `forward`s, `raw_to_derived` = the
+  inverse) under a `DerivedSignalFactory` over the components' readback
+  signals, the components' offsets as the transform's parameters. The
+  readback is derived from the components' live readbacks — defined
+  before any set, after a restart, after a hand move — so `locate()` is
+  real (#855's case). Component moves go through each component's own
+  `set()` (a `CaMotor` waits for the device's reply under its stall rule;
+  #910: no put budget of this class's own). `build_pseudo(name, spec,
+  resolve)` builds one from a `PseudoScanVariable`, every formula checked
+  at build: a relative `forward` must be `0` at `0` (`set(0)` restores), a
+  non-affine `forward` needs the entry's `inverse`, a supplied `inverse`
+  must undo the `forward`s at a probe value.
+- `forward_expr.affine_coefficients(expression)` — exact `(a, b)` for a
+  `forward` that is `a*x + b` in any spelling (a symbolic walk over the
+  whitelisted AST; 24 of the corpus's 26 formulas), so the software
+  inverts linear relations itself; `compile_inverse(expression, symbols)`
+  for the physicist-supplied inverse of the rest.
+- `PseudoComponentsDisagreeError` — the **disagreement check**:
+  `forward(inverse(readbacks))` against what the components read, per
+  component within its tolerance (its DB tolerance, else
+  `DEFAULT_AGREEMENT_TOLERANCE` = 0.01 in the component's units, #780)
+  **plus what the inverse propagates** — the components the inverse reads
+  settle inside their own tolerances, and that error reaches every other
+  prediction through the relation (×2 on an angle bump's S4H), so the
+  allowance is the component's tolerance plus how far its prediction
+  moves under the inverse's own uncertainty (review of #912).  Off the
+  formula *after this pseudo has moved them* fails the scan before
+  anything moves; before the first move a plain pseudo positioner warns
+  and snaps (today's behaviour), a relative one fails (its deviations were
+  just zeroed).
+- `PseudoRestorePendingError` — a relative pseudo whose restore failed or
+  never ran (a `halt` skips unstage) still owes its components their
+  baselines: the next `stage()` refuses, naming them, rather than zero
+  with the leftover bump baked in; `mv <pseudo> 0` (the offsets still
+  hold the baselines) puts them back and clears it (review of #912).
+- A component move that fails waits for the **other** components to
+  finish before the pseudo's status fails, so the restore never puts to a
+  device whose move is still in progress; the pseudo's `connect()` also
+  connects its components (they are another device's children, and a
+  derived signal's connect assumes its inputs are connected) so a pseudo
+  touched on demand works even when the telemetry connect at environment
+  open left a component out (review of #912).
+
+### Changed
+
+- **`mode: relative` = components zeroed at stage** (§3 of the brief,
+  ruled 2026-09-14): `stage()` calls `set_current_position(0.0)` on every
+  component (lazily on the first `set()`/`locate()` for an unstaged
+  caller — a manual `mv`), the readback is 0 by construction, each step
+  moves every component by its own formula from its baseline, and
+  `unstage()` puts the components back at their captured baselines — end
+  of scan and abort alike (a `halt` skips unstage by bluesky contract),
+  formula-independent, riding the components' `set()` so a failed restore
+  fails the plan visibly. `scan` and `rel_scan` over a bump are the same
+  scan (rel_scan locates 0 after stage). `mode: absolute` is a plain
+  pseudo positioner: components read in the dial frame, ends where the
+  last step left it, `rel_scan` puts it back through the inverse.
+
+### Removed
+
+- `CaPseudoMovable` — its `absolute`/`relative` branch, the per-pseudo
+  baseline capture, `restore_baselines_plan` and the direct
+  `GatewaySetpointPut` fan-out (nothing on this branch built one; the
+  positioner above replaces it in the same change).
+
+## [0.88.0] - 2026-09-15
+
+### Changed
+
+- **`CaMotor` waits for the device's reply; no client-side cap on a move**
+  (#906, the worker half — the CA gateway's `set_timeout_s` is the sibling
+  PR). The GEECS set's executed reply is the verdict: `no error`
+  completes the move (then the readback-to-tolerance confirm as before);
+  an error reply — the device's own check-values timeout included, a
+  device setting adjusted in LabVIEW and never overridden here — or a
+  put refused inside the command-ACK window fails it the moment it lands,
+  never delayed by the grace. `_DEFAULT_MOVE_TIMEOUT` (30 s: it fired on
+  Scan009 of 26_0914, a 19 mm move the device completed at 32 s) and the
+  `move_timeout` keyword are gone; three named bounds replace them, each a
+  constructor keyword with a module default: `REPLY_WAIT` (90 s — the
+  hexapod answers a finished move slowly; a readback within tolerance of
+  the target at the threshold with no reply completes the move as a lost
+  reply, logged at WARNING with the `:SP` PV; a readback still moving
+  keeps waiting), `PROGRESS_GRACE` (5 s) + `STALL_TIMEOUT` (10 s — the
+  readback stall rule, the only client-side timeout left: past the grace,
+  no movement beyond the tolerance for 10 s while short of the target
+  fails the move with `GeecsMotorTimeoutError` naming the PV, target and
+  current, before or after `REPLY_WAIT`; a readback sitting at the target
+  is never a stall), and `REPLY_CEILING` (300 s — the put's hard bound; a
+  gateway that never answered). Failure path unchanged otherwise: a
+  failed put propagates as the #868 ERROR line, no pause-and-retry.
+  `GeecsMotorTimeoutError` gains `replied` and says which phase stalled.
+  After the reply the confirm is bounded outright (grace + stall from the
+  reply) and a NaN readback never counts as progress, so a readback the
+  stall rule cannot see as stalled — a NaN, a ripple wider than the DB
+  tolerance — fails the move instead of holding the scan forever (review
+  of #909). `within_tolerance` (motor.py) is the one tolerance test;
+  `CaConfirmSettable`'s analog match now calls it.
+  Pinned on mocks: a `no error` reply at "45 s" with the readback
+  advancing completes; a silent device with a stalled readback fails at
+  grace+stall naming the PV; an error reply fails at once even while the
+  stage is moving; a rejected put fails within one poll tick; continuous
+  progress past `REPLY_WAIT` keeps waiting; the lost-reply completion;
+  the ceiling; progress resetting the stall clock — each shown to fail
+  under the corresponding break of the code.
+
+## [0.87.1] - 2026-09-15
+
+### Fixed
+
+- **`qs_client`: a submit while a plan runs is queued behind it** (#905).
+  `ZmqQueueClient._submit_item` adds the item and then calls
+  `queue_start`; while the manager is `executing_queue` that call answers
+  *RE Manager is busy* and the client treated it as a start refusal —
+  removing the item again and reporting "nothing will run", so no front
+  end could queue the next scan while one ran. A busy answer with the
+  manager's queue started (`executing_queue`, or `starting_queue` in the
+  window before the worker takes the first item) is now the success it is
+  (`queued behind the running item`, `item_uid` set); the item is removed
+  only when the queue is genuinely stopped and cannot be started (the
+  #653 path, unchanged).
+  Pinned in `tests/qs_client/test_queue_client.py::TestQueueStartFailure`.
+
+## [0.87.0] - 2026-09-14
+
+### Added
+
+- **Worker-side liveness gate before the run's first move** (#852): every
+  bound plan reads the gateway's `CONNECTED` PV once for the trigger
+  profile's device(s), every listed detector (a scalars view counts as
+  its owner) and every non-essential device, *before* the bracket drives
+  the box and before `open_run` claims a scan number. Any device the
+  gateway reports `Disconnected` refuses the run with
+  `GeecsDeviceDownError` naming every dead one — nothing driven, nothing
+  claimed, no folder. Every submission path passes through it (a preset,
+  a bare stock plan item, a script), unlike the client preflight.
+  `ShotControl` now carries one `CONNECTED` signal per device its profile
+  writes (`liveness_signals`, never a column); `CaSnapshotReadable` gains
+  `connected_status` like the detectors. `devices/ca/liveness.py` owns
+  the in-plan reader (`read_disconnected`) beside the out-of-plan probe —
+  one fail-open verdict rule; the strict refire gate uses it too.
+- **The preflight's liveness list includes the trigger profile's devices**
+  (#852): `run_submit_preflight` resolves the preset's `trigger_profile`
+  (else the experiment default) through the configs repo — a new
+  `resolver=` keyword, or the experiment's `ConfigsRepoResolver` built for
+  the check — and probes the box's devices with the preset's, so the
+  "Devices disconnected" question names a dead DG645 too. A profile that
+  cannot be resolved is logged and the preset's devices are probed alone.
+- **A failed set names its PV in the scan log** (#868, the move-side half
+  of #817): `CaSettable`, `CaMotor` and `CaConfirmSettable` log the
+  refused put — or the readback / confirm timeout — at ERROR with the
+  `:SP` PV and the cause by `str` (`_set_logged`, the one seam) before the
+  status fails. `failure_cause_text` moved to `geecs_bluesky.exceptions`
+  (importable below the plans) and now renders the cause's PEP 678 notes
+  too, so the file plugin's `WriteMessage` on a failed prepare (#894)
+  travels with the reason.
+- **The stop document's reason is the cause, not the status repr** (#868,
+  #894): `name_failed_status` (in `plans/strict`) gives a `FailedStatus`
+  its cause's text as it passes the GEECS hooks — inside the stock plan,
+  before `run_wrapper` renders `str(exc)` into the stop document — and
+  again around the run bracket for a failure outside the run, and around
+  the registered `mv` (a manual move's queue-item report reads its cause
+  too). Type, cause and traceback are untouched. `ScanEndInfo` and the portal now read
+  `CANothing: <pv>: <CA message>` instead of `<AsyncStatus …>`, and
+  `scan.log`'s last line carries the reason beside the exit status.
+
+### Fixed
+
+- **A refused CA put through the typed-signal transport read as success**
+  (found pinning #868): ophyd-async 0.19.3's `SignalW.set` runs the put
+  inside a stamina/tenacity retry context whose outcome travels through a
+  `concurrent.futures.Future`, and the stdlib re-raises a stored
+  exception only `if self._exception:` — a failed `aioca.CANothing`
+  defines `__bool__` as `ok`, so the refusal was swallowed. A refused
+  motor put then surfaced only as the readback timeout; a refused plain
+  setpoint not at all. `GatewaySetpointPut`'s signal transport now awaits
+  the connected backend's put directly, with the same bounded wait (the
+  mock seam is unchanged). Pinned with a real `aioca.CANothing`.
+
+## [0.86.1] - 2026-09-13
+
+### Changed
+
+- `ConfigsRepoResolver`'s scan-variable catalog is cached **until the file
+  changes** (mtime + size, one `stat` per call) instead of for the
+  resolver's lifetime. The resolver lives as long as its process — the web
+  scanner's (the catalog's only runtime reader; the worker binds `mv` to
+  its namespace and never opens it) — so an edited `scan_variables.yaml`
+  used to be invisible to preflight, submit and move until a restart (the
+  console-era "edit needs a restart"). Every other config kind was already
+  re-read per call; the worker's trigger profiles are still materialised
+  once at environment open, by design.
+
+## [0.86.0] - 2026-09-13
+
+### Added
+
+- `ConfigsRepoResolver.write_preset(preset, *, overwrite=False)` and
+  `preset_path(name)`: the scanner's "Save as preset" writes
+  `presets/<name>.yaml` through the resolver, so the folder keeps one
+  owner now that the Qt console's `PresetStore` is going. Same contract
+  as `write_shot_offsets` — atomic (temp file, fsync, `os.replace`), mode
+  preserved, the experiment folder never created here, the configs repo
+  is a git checkout and committing is a human act. Refuses a name that is
+  not a plain file stem and, without `overwrite`, an existing preset.
+  The atomic write is now one module-level primitive shared by both
+  writers.
+- `geecs_bluesky.action_steps.flatten_action_steps` — the compiler's
+  flatten moved to an import-light module (schema models + this package's
+  exceptions, no bluesky) so a client that must never import
+  `geecs_bluesky.plans` previews the exact step order the worker runs
+  from the same function. `plans.action_compiler` re-exports it.
+
+## [0.85.1] - 2026-09-13
+
+### Changed
+
+- Merge of `master` (d6f74211) into `feature/native-bluesky-plans`: the
+  two lines below were released in parallel and are listed in version
+  order; a block marked *(master line, parallel release)* reuses a version
+  number the branch also used for a different release.
+- Master's fixes to files the rebuild deleted (`plans/single_shot.py`,
+  `plans/step_scan.py`, `session.py` and their tests: #817/#818 refire
+  gating and the falsy-cause selection, #820 DB move tolerance) were
+  checked against the rebuilt code by reading — see the PR body for the
+  per-fix disposition.
+- `plans/strict.py`: a refused SINGLESHOT put is now ERROR-logged with its
+  cause by `str` (`failure_cause_text`, shared with the gated batch
+  message) before the `FailedStatus` propagates — the #817 line, at the
+  fire, where a waited `mv` fails.  A detector's own no-frame timeout
+  thrown into the fire propagates unlabelled, as before.  The move-side
+  half of #817 has no counterpart on this branch: #868.
+- `devices/ca/motor.py`: `TOLERANCE_SPAN_FRACTION` removed (its only
+  consumer was the deleted `GeecsSession`); `DEFAULT_TOLERANCE` is the
+  bare-constructor default only — the namespace passes the DB tolerance.
+
+## [0.85.0] - 2026-09-13
+
+Phase 3 of the native-Bluesky rebuild (GEECS-Plugins#807,
+`Planning/native_bluesky/03_clean_room_rebuild.md` §4.F): the shot-offset
+calibration and its preflight.  **Every `drain_offset` in the field read
+`0.0` before this** — phase 2c threaded the offsets through both sides of
+the s-file join; this puts real numbers into them.
+
+At 1 Hz the join windows are ±0.5 s and swallow the 0–160 ms device
+spread, so nothing was broken.  They narrow with the rep rate: at 5 Hz they
+are ±0.1 s, the same order as the spread, where an uncalibrated offset costs
+rows.  This is what makes faster running safe.
+
+### Hardware-accepted 2026-09-12
+
+Measured on HTU under `HTU-LaserOFF`, 10 shots, over UC_Amp3_IR_input,
+UC_Amp4_IR_input, UC_ModeImager and U_BCaveICT:
+
+| device | offset | scatter |
+|---|---|---|
+| `u_bcaveict` | reference | 0.8 ms |
+| `uc_amp4_ir_input` | +58.9 ms | 0.8 ms |
+| `uc_amp3_ir_input` | +96.0 ms | 1.5 ms |
+| `uc_modeimager` | +160.3 ms | 1.5 ms |
+
+Two independent runs agreed to under 1 ms per device, and Amp3 − Amp4 came
+out 37.0 / 37.1 ms against the 36 ms phase 2c measured independently.  The
+delivery path was proven end to end by `check_shot_sync`, which **failed at
+161.0 ms before** the worker loaded the measurement and **passed at 0.7 ms
+after** — file → resolver → namespace → `drain_offset` → descriptors.  A
+strict scan (Scan022) then carried the measured offsets in its run documents,
+where `geecs_data_utils.shot_join` reads them.
+
+Note for operators: the offset tracks **frame size**, so re-ROI'ing a camera
+invalidates its calibration (UC_ModeImager is un-ROI'd and drains at +160 ms;
+the ROI'd amplifier cameras at +59 / +96 ms).  Re-run after an ROI change.
+
+### Added
+
+- **`measure_shot_offsets`** (`geecs_bluesky.plans.calibration`), a
+  registered queue plan: drives the trigger box OFF, waits the device set
+  quiet, then fires single shots through `fire_and_await_shot` and reads
+  every device's `acq_timestamp`.  The spread across devices is the
+  calibration.
+
+  Several shots are averaged (default 10) because each host's clock dithers
+  around its own average by up to ~10 ms while the domain holds the averages
+  on a common target (Sam, 2026-09-13) — one shot would measure a 36 ms
+  difference to ±10 ms.  The quiet wait, which dominates the cost, is paid
+  once; the shots after it cost about a second each.  Each device's
+  peak-to-peak scatter is recorded beside its mean, so a host with a
+  timekeeping problem is visible instead of hidden inside an average.
+
+  Shots are anchored on the *mean of their own stamps* before averaging, so
+  the laser's phase drifting between shots cancels and only the
+  device-to-device differences — the quantity the join uses — survive.
+  Only complete shots contribute: a shot one device missed would shift that
+  shot's anchor and bias every other device's offset, so it is discarded and
+  retaken.
+
+  Measures and reports by default; stores only with `write=True`, so a
+  re-run cannot silently replace a good calibration with a worse one.  No
+  run is opened — no scan number, no s-file — and the box is left in
+  STANDBY however the plan ends.
+
+- **`check_shot_sync`**, the preflight (§11.7): with the box OFF and the set
+  quiet, every device still holds the stamp of the same last real shot, so
+  correcting those stalled stamps by the stored offsets says whether the
+  calibration still holds — **at no shot cost at all**.  Raises when the set
+  is out of tolerance, so a queue that puts it ahead of its scans stops
+  before taking data against a stale calibration.
+
+  A queue item, deliberately, and never a step inside a scan: it costs at
+  least the longest device timeout every time it runs (§11.2 — a device's
+  timeout event carries an unchanged stamp, which the gateway's change
+  suppression drops, so nothing announces quiescence), and running it from
+  the queue also means it cannot drive the trigger box while a scan is using
+  it.
+
+- **`ConfigsRepoResolver.resolve_shot_offsets` / `write_shot_offsets`** over
+  the experiment's `shot_offsets.yaml`.  Absent reads as "never measured"
+  (every offset stays `0.0`); an *invalid* document raises rather than
+  falling back to zeros, because a calibration that silently reverted would
+  misjoin rows with nothing in the log to say why.  The write is atomic
+  (same-directory temporary plus `os.replace`), so a reader never sees a
+  half-written document and a failure leaves the previous calibration
+  intact, and it refuses to create a missing experiment folder.
+
+- **`GeecsNamespace(drain_offsets=...)`** seeds each detector's
+  `drain_offset` at construction, and `GeecsDetector(drain_offset=...)`
+  takes it.  The startup profile now builds the resolver *before* the
+  namespace to pass them; a re-measurement therefore reaches the worker at
+  its next environment open, not mid-session.  An offset naming no detector
+  in the namespace is warned about loudly as a stale calibration — the
+  device it meant to correct would otherwise be left at `0.0` silently.
+
+### Fixed
+
+- **`GeecsDetectorScalars.trigger` now leaves fly mode**, as the parent's
+  `trigger` already did.  `fly` is one flag shared by a detector and its
+  scalars view, set by `kickoff` and cleared only by `trigger`, and
+  `wait_for_idle` returns immediately while it is set.  So a view triggered
+  after *any* gated run — the calibration's own path — reported every shot
+  complete without waiting for a stamp at all: a device that never
+  delivered was recorded with its stale stamp, with no retake and no
+  warning.  Found by the review of #861.
+
+### Changed
+
+- `GEECS_PLAN_NAMES` grows to **22** plans; the operator permissions regex
+  and `NON_SCAN_PLAN_NAMES` gain both calibration plans.  The readiness
+  check (`geecs-qserver-ensure-ready`) asserts all 22.
+
+### Found by the hardware run
+
+- **A non-scan plan's INFO logging went nowhere, so the calibration's report
+  vanished.**  A scan gets its narrative in `scan.log` because `ScanLogFile`
+  lifts the root logger to INFO while the run is open; the root logger sits
+  above INFO otherwise.  A plan that opens **no run** therefore has every
+  `logger.info` discarded — and a queueserver client cannot retrieve a plan's
+  return value either.  The first real `measure_shot_offsets` run measured ten
+  shots on hardware, completed cleanly, and produced *no observable output at
+  all*: nothing in the journal, nothing on the manager's console stream.
+  `geecs_bluesky.scan_log.plan_report_sink` attaches a stdout handler scoped to
+  one logger and lifts just that logger to INFO for the duration, so a
+  non-scan plan whose product is a report for a human can actually deliver it.
+  (`run_action` has the same hole and can adopt it.)
+
+- **A registered plan cannot carry postponed (string) annotations.** The
+  queueserver manager builds a pydantic model from each plan's signature at
+  submission and evaluates the annotations **in its own namespace**, so
+  `calibration.py`'s `from __future__ import annotations` made `queue add`
+  refuse both plans with *"`Model` is not fully defined; you should define
+  `Sequence`"* — after a completely green test suite.  The stock
+  `bluesky.plans` verbs are immune only because that module does not
+  postpone its annotations.  `geecs_bluesky.utils.resolve_annotations` now
+  gives every GEECS-defined registered plan a `__signature__` of resolved
+  objects (`run_action` included, so the rule has no exceptions), with
+  `detectors` annotated exactly as the stock verbs annotate theirs.
+
+  The existing manager-validation test covered only `count` / `scan` / `mv`,
+  which is how this got through.  It is now joined by a property test over
+  the **whole** registered tuple — no plan can drift out of it — plus a
+  queue-item validation of the two calibration plans.
+
+### Review of #861 — the guards it added
+
+- **The quiet confirmation window is sized from the trigger period**
+  (`QUIET_CONFIRM_PERIODS = 1.5`), not a flat 0.5 s.  A window shorter than
+  one period catches a box that never went OFF only when an edge happens to
+  fall inside it: at 1 Hz a phase sweep caught it in 6 runs of 12.  A second,
+  free signal was added beside it — the *whole set* advancing across a wait
+  that already exceeds the device timeout is a running box, whatever the
+  confirmation window saw.
+- **A physically impossible measurement is refused for writing.**  The
+  measured HTU set spans 0-160 ms; `MAX_PLAUSIBLE_OFFSET_S` (0.3 s) and
+  `MAX_PLAUSIBLE_SCATTER_S` (0.1 s) stop a measurement well outside it
+  from reaching the share, where it would be seeded
+  into every future join.  The table is still reported; only the write is
+  refused, and `max_offset` raises the bound deliberately.
+- **`check_shot_sync` folds whole trigger periods out** before judging.
+  STANDBY passes edges up to the moment the plan drives OFF, so a slow
+  camera can legitimately hold the previous shot; that is now named and
+  warned about rather than failing a queue.  A set too sparse to judge is
+  reported as **could not check** — `SyncVerdict.comparable` — and no
+  longer raises, because that is not a failure.  The verdict stays on the
+  pairwise spread (what the join actually consumes) and names the two
+  devices at its ends.
+- **The stamp read is a genuine uncached get.**  `bps.rd` goes through
+  ophyd-async's monitor cache, whose `get_reading` *awaits its first
+  update* — so under OFF, where the stamp PV publishes nothing by design,
+  a device whose monitor never delivered would block for the signal
+  timeout instead of returning the value the PV plainly holds.
+- **`write_shot_offsets` preserves the destination's permissions** (0644
+  for a new file) and fsyncs before the rename.  `NamedTemporaryFile`
+  creates 0600 and `os.replace` keeps the temp inode's mode, so one write
+  would have left the calibration unreadable to the operator who has to
+  commit it.  The temp file is now cleaned up on *any* failure, not only a
+  failed replace.
+- Smaller: the write capability and the profile's ARMED/SINGLESHOT writes
+  are checked **before** a measurement is spent rather than after; fewer
+  than three shots warns; `resolve_shot_offsets` joins the `ConfigResolver`
+  protocol.
+
+### Review rounds 2 and 3 (2026-09-13)
+
+Round 1's fixes were reviewer-confirmed in round 2, and round 2's in
+round 3.  Each round found a defect inside the previous round's own fix.
+
+- **`check_shot_sync` folds whole periods against the latest device, not
+  the median.**  Round 1 anchored on the set median, which is not an
+  instant any device reported: for an even-sized set it sits between the
+  groups, a device exactly one period out lands half a period from it,
+  `round(±0.5)` is `0`, nothing folds, and the plan **stopped the queue on
+  its own routine case** — while a two-period gap folded to a fabricated
+  "one ahead, one behind".  The latest corrected stamp is a real instant,
+  so every other device is a whole number of periods behind it or is
+  genuinely out.  Pinned for 1/2/3 periods, an even 2-2 split, and the
+  half-period case that must still fail.
+- **`measured_at_rate_hz` is declared by the caller, never derived** from
+  `trigger_period` — the plan fires single shots with a stamp wait between,
+  so its own spacing is not the machine's rate — and is checked positive
+  before any shot is fired.
+- **The plausibility cap is `max_offset` alone.**  Round 2 also bounded it
+  by half the trigger period; round 3 removed that: at 5 Hz a period is
+  0.2 s and the real ModeImager drain is 0.16 s, so a whole-period error
+  and a genuine slow drain are the same magnitude, and the bound refused
+  the real calibration with no escape (`max_offset` could not lift a
+  `min`).  The refusal's advice is branched — a scatter refusal is not
+  something `max_offset` can lift.
+- **Both plans preflight every trigger state they drive** — OFF and
+  STANDBY for the bracket, plus ARMED and SINGLESHOT for the measurement —
+  before any wait or shot.  A profile missing STANDBY would otherwise have
+  failed in the bracket's finalizer after the shots were spent, leaving the
+  box in the calibration state (Codex review of #861).
+- **The quiet backstop ignores never-acquired devices.**  A camera holding
+  a `0.0` stamp cannot advance, so counting it let the rest of the set
+  advance across the wait unrefused.
+- **A `chmod` the share refuses warns instead of aborting the write** and
+  throwing the shots away; `resolve_annotations` raises on an unmapped
+  parameter instead of silently dropping its annotation; one
+  `plan_report_sink` per plan, package-scoped, so the resolver's own
+  "written to <path>" reaches the worker log.
+
+## [0.84.0] - 2026-09-12
+
+Phase 2c of the native-Bluesky rebuild (GEECS-Plugins#807,
+`Planning/native_bluesky/08_gated_batch.md` §4.5, §5 item 3): the s-file of a
+gated run.  Before this a gated run wrote **no** s-file at all — the callback
+found no `primary` events and logged the skip.
+
+### Added
+
+- **`SFileCallback` writes a gated run's scalar files** from the per-shot
+  sampler's `shots` rows (the non-plugin scalars, the scanned motors'
+  readbacks, `bin_number` and the clock camera's stamp) joined to every
+  **datum-only** stream of the run — a gated run's cameras and, in either
+  mode, a non-essential camera — by offset-corrected stamp
+  (`geecs_data_utils.shot_join`).  One row per essential shot: each
+  camera's per-frame scalars and its own stamp arrive from its stack under
+  the column names a *strict* row uses, an orphan frame stays in the stack
+  and in Tiled, and a shot a camera has no frame for reads `NaN`.  A run
+  with no such stream is still written synchronously from its `primary`
+  events — nothing about a strict run changed.
+- **`StackCheckCallback` compares a gated stack's stamps with the `shots`
+  rows**, not just its frame count: the batch trims every essential stack
+  to the quota and the sampler ticks once per shot, so one frame per row
+  with nothing orphaned is the contract, and a frame the trim missed is a
+  defect the count alone hides (its own datum covers it).  A non-essential
+  stream keeps the count check alone — an orphan there is normal.
+
+- **`shot_clock_column` in the start document** of a gated run, beside
+  `shot_clock`: the row column the sampler writes the shot id into, not just
+  the device name.  The s-file writer and the offline re-export need the
+  column, and deriving it from the device name would put a second copy of
+  the naming contract in a package that cannot import it.  A run recorded
+  before this still resolves, by matching the device name.
+- **`ScanOutputs`**, what `subscribe_scan_outputs` now returns: the four
+  callbacks plus their tokens, with a `join()` that waits for the pending
+  stack reads and s-file writes.  `make_run_engine` keeps it on the
+  RunEngine as `geecs_scan_outputs`, so a shutdown can wait for work that
+  finishes on a thread instead of losing it.  **Breaking** for a caller
+  that unpacked the old four-tuple of tokens — read `.tokens`.
+
+### Changed
+
+- The two stream-reading callbacks share one piece of document bookkeeping
+  (`_StreamCallback`: the streams, their event rows, the stacks their
+  resources name with the frames their datums reference, and each object's
+  `drain_offset` from the descriptors' configuration) and one bounded wait
+  for the plugin's `finalized` attribute (`await_finalized`).  Both do
+  their file reading on a daemon thread whose failures are logged, never
+  raised — the stop document precedes `unstage`, when the plugin closes the
+  file.  A gated run's s-file therefore lands a moment after the run, and a
+  stack that never finalizes costs its own columns and a warning, never the
+  s-file.
+- Document dispatch unpacks `event_page` into its events, so a `collect`ed
+  stream's rows (the `shots` stream) reach the same hooks as a strict run's.
+  Only `primary` and `shots` events are buffered — `baseline`'s open/close
+  telemetry is not per-shot data and was never a row source.
+- Rows are kept in **arrival order** with their sequence number alongside,
+  not keyed by it: the s-file's rows are the ones the run emitted (a partial
+  row is data, `EVENT_SCHEMA.md`) while the stack check still maps a datum's
+  sequence numbers onto rows.  The RunEngine reuses a sequence number after
+  a rewind, so the two orders are not the same thing.
+- A stack's stream is attributed from its first **datum**: a
+  `StreamResource` names no descriptor (`event_model`'s schema has no such
+  field), so the resource-time lookup was dead code.
+- The finalize wait is one window for all of a run's stacks rather than one
+  each, so a three-camera run whose plugin never finalizes does not hold its
+  s-file for three timeouts.  A run that never emits a stop document has its
+  buffers evicted after a few more runs instead of held forever.
+- `SHOTS_STREAM` is re-exported from `geecs_data_utils.shot_join`, the one
+  home of that document contract.
+- The skip line for a run with no rows names the real condition: "no
+  per-shot rows in any stream".
+
+## [0.83.0] - 2026-09-12
+
+Phase 2b of the native-Bluesky rebuild (GEECS-Plugins#807,
+`Planning/native_bluesky/08_gated_batch.md` §5 item 2, as amended by #841):
+the gated batch and the non-essential stream on the worker.  Code-complete;
+the hardware acceptance (§5) is owed.
+
+### Added
+
+- `acquisition="gated"` on every bound scan verb: the box free-runs in SCAN
+  while the plugin-backed essential cameras count a batch of
+  `shots_per_step` (`count`: `num`) frames each; the plan drives it OFF
+  when every one has its quota, waits one period plus the largest drain
+  offset for the in-flight frame, trims every stack to the quota
+  (`GeecsDetector.truncate_to_quota`) and collects one datum per camera
+  per step into `primary` (`plans/gated.py`).  The run is bracketed
+  OFF → STANDBY.
+- The **per-shot sampler** (`devices/sampler.py`, `ShotSampler`): a
+  Flyable + EventCollectable over every non-plugin device of a gated step
+  — scalar-only devices, triggered scalar devices without a plugin, a
+  camera's `.scalars` view, the scanned motors' readbacks, `bin_number` —
+  clocked by an essential triggered device's `acq_timestamp` (the first
+  plugin camera, else the first triggered device; `shot_clock` in the start
+  document); one event per shot into the `shots` stream, the tick's stamp
+  as the clock column.  A gated step with no plugin camera is gated by the
+  sampler alone; a run with no triggered device is refused ("nothing counts
+  shots; use strict").
+- The **repeat-the-step resume** (Sam 2026-09-12): the gated step body is
+  not rewindable; an immediate pause drives the box OFF
+  (`ShotControl.pause`, now counting pauses), and on resume the plan sees
+  the counter advanced, settles the batch's pending statuses
+  (`GeecsDetector.abandon_step`, `ShotSampler.cancel_step`), rewinds every
+  plugin to the step's baseline (`rewind_to_step_baseline`) and retakes the
+  step from its first shot.  A deferred pause lands between steps.
+- `non_essential=[…]` on every bound scan verb (strict or gated): the
+  detectors are staged, prepared unbounded, kicked off right after
+  `open_run` and each collected alone into its own `<name>_stream` before
+  `close_run` (`non_essential_wrapper`); nothing waits on them — a
+  complete, collect or unstage that fails from the close on (a gateway
+  that went away mid-run) is logged and skipped, never the item's failure.
+- `shot_period` on every bound scan verb (GEECS-Plugins#840): the strict
+  rep-rate throttle — the plan sleeps for the remainder of the period
+  **before the detectors are triggered** (a sleep between the triggers and the
+  fire longer than the shot budget would time the shot out before it is
+  fired, 2b acceptance A8); refused with `gated`, as is a nonzero `count`
+  `delay` (the stock repeat loop would idle `(num-1)×delay` after the batch).
+- `GeecsDetector` fly mode: `kickoff` sets it (the plugin's count is the
+  completion, `wait_for_idle` a no-op), `trigger` clears it; a fly prepare
+  — a `FlyTriggerInfo` (`gated_trigger_info`, `UNBOUNDED_TRIGGER_INFO`),
+  the type says it, not the event count, so a batch of one is one too —
+  takes the streamable logic only — no per-event scalars (the sampler's
+  job) and no LabVIEW-native saving — and is refused on a camera without
+  a plugin; `complete` carries the GEECS timeout; `mark_abandoned` /
+  `abandon_step` settle a pending `complete` (the mark is synchronous, the
+  moment the plan's interrupted wait returns).  A LabVIEW-native camera
+  listed as an essential detector of a gated step is refused by the step
+  (the preflight's sentence); a device listed both as a detector and as
+  non-essential is refused by the bound plan.  `plan_names.ACQUISITION_MODES`
+  is the one spelling of the modes.
+- `qs_client.presets.expand_preset`: `PresetDevice.essential: false`
+  (GEECS-Schemas 0.22.0) expands into the plan's `non_essential` list
+  (refused with `save_images: false`); `acquisition` is validated.
+  `submit_preflight.acquisition_refusal` (in `worker_ready`): every
+  non-essential device and every essential camera of a gated run must be
+  plugin-backed (an `hdf` child in the device tree; a native camera has
+  `save` but no `hdf`), and a gated run needs an essential triggered
+  device (an `acq_timestamp` child).
+
+### Fixed
+
+- `CaSettable` / `CaMotor` implement `locate()` (bluesky's `Locatable`), so
+  the `rel_*` plans (`rel_scan`, `rel_grid_scan`, …) and
+  `reset_positions_wrapper` work: bluesky used to fall back to
+  `obj.position`, which is the readback *signal* on a `CaMotor`, and every
+  relative plan failed at its first move with `unsupported operand type(s)
+  for +: 'SignalR' and 'float'` (found on hardware, 2b broader set
+  2026-09-12, Scan017).  The readback stands in for the setpoint: the
+  gateway's `:SP` is the last put through the gateway, not where the device
+  is.  Scope: the CA settables and motors; a `CaPseudoMovable` has no
+  `locate` yet (an absolute pseudo reads NaN before its first set, so a
+  relative plan over one is still undefined — a follow-up).
+- A gated run's first arm **zeroes the plugin's count** before the batch
+  baselines: the file plugin posts `NumCaptured_RBV` only when it writes a
+  frame, never a zero at `Capture=1`, so after a session closed at *N* the
+  next arm still read *N* and the first batch counted from there (2b
+  acceptance A2: the first step trimmed to 5 + 3 frames).  The step now
+  arms, rewinds every plugin to zero inside the fresh session
+  (`GeecsDetector.zero_count`, which posts the 0) and prepares again on it.
+  The non-essential stream's arm does the same (A4: a stale baseline above
+  the run's count left the close's count wait hanging), and its complete
+  and collect are separate contingencies so a failed complete never costs
+  the datums.  The strict path does the same at its first arm of a plugin camera
+  (2b acceptance A8: the first strict shot after a closed session waited
+  for N+1 while its frame posted 1); the strict guard is keyed to the
+  plugin session (`GeecsDetector.count_zeroed`, cleared by stage/unstage),
+  so a reused plan hook zeroes again on its next run.  The plugin-side fix
+  (post 0 at arm) is GEECS-Plugins#853.
+- The gated refusal of a LabVIEW-native saving essential names it as a
+  "native-saving device", not a camera (2b acceptance A3: `U_HP_Daq`, an
+  analog device with a LabVIEW file writer, was refused as a "camera").
+- `PluginPathProvider` creates the device directory inside the claimed scan
+  folder (`mkdir(exist_ok=True)`, a missing scan folder is an error): the
+  plugin refuses to arm on a missing `FilePath`, and in a fly prepare the
+  LabVIEW-native saving logic that used to create it as a side effect of
+  the dual-write is not part of the context — found on hardware (2b
+  acceptance A1, Scan001 of 26_0912).
+
+### Changed
+
+- `StackCheckCallback` checks a datum-only stream (a gated `primary`, a
+  non-essential `<name>_stream`) by count — frames in the stack equal the
+  datums' total width — and keeps the per-row stamp check for streams with
+  events; rows and datums are tracked per stream.
+- The bound plans' docstrings and start-document metadata carry
+  `acquisition`, `non_essential`, `shot_period` and `shot_clock`.
+
+## [0.82.5] - 2026-09-12
+
+### Changed
+
+- `ConfigsRepoResolver._action_library` loads `actions.yaml` as an
+  `ActionPlanLibrary` document only; a file in the legacy `actions:`
+  dialect is refused by the schema (a `ValidationError` naming the
+  regeneration — the converter is gone, GEECS-Schemas 0.22.0; the corpus
+  was regenerated); an empty (or literal `{}`) file is an empty library,
+  as the Console reads an empty file.  `action_plan_registry` (the MCP's
+  listing) is empty only when
+  the file is absent — an unreadable or legacy file raises instead of
+  listing nothing.  The action-compiler tests read the regenerated fixture.
+
+## [0.82.4] - 2026-09-12
+
+### Fixed
+
+- `geecs-qserver-ensure-ready` heals the manager that is idle with its
+  environment open and `plans_allowed` **empty** (GEECS-Plugins#838: the
+  manager's own download of the lists from the worker timed out while the
+  host thrashed, and every submission was then refused "not in the list of
+  allowed plans" while `status` looked healthy): a list still empty or
+  incomplete after the settle window is restored once from the worker's
+  on-disk copy through `permissions_reload(restore_plans_devices=True)`
+  — the copy the worker writes at every environment open — with the
+  settle window applied again, so `systemctl restart geecs-qserver-ready`
+  recovers it without a manager restart.  (`environment_update`, the fix
+  #838 first named, re-downloads only when the worker's namespace changed
+  and is not used.)  The shared `plans_empty` verdict (Console banner,
+  MCP preflight) names that cause and that gesture; `qserver/README.md`
+  Troubleshooting carries the entry.
+
+## [0.82.3] - 2026-09-12
+
+### Changed
+
+- `GeecsDbScalarPolicy` / `ScalarPolicyProvider` moved to
+  `geecs_core.db.scalar_policy` (GEECS-Core 0.6.0); `db_runtime` keeps the
+  served-set and device-type providers.  The namespace imports the policy
+  from its new home — no behaviour change.  The PVA gateway's file plugin
+  now writes the same subscribed list as per-frame attributes
+  (GeecsPvaGateway 0.9.0), which is why the rule has one home.
+
+## [0.82.2] - 2026-09-11
+
+### Fixed
+
+- `assets.tiled_readback.read_primary_dataframe` reads the primary stream's
+  scalar table only (`geecs_data_utils.tiled_catalog.read_primary_scalars`)
+  instead of `run["primary"].read().to_dataframe()`, which downloaded every
+  camera stack and per-frame attribute array of the run and outer-joined
+  their dimensions (GEECS-Plugins#834 — the same defect the catalog had).
+  `TILED_SETUP.md`'s recipes say so.
+
+## [0.82.1] - 2026-09-11
+
+### Fixed
+
+- **The worker could not reach the file plugin's PVs through the RE
+  Manager**: the service environment carried the CA variables only, so
+  every plugin signal timed out at `connect` on the first plugin-backed
+  scan submitted after the fleet roll (the #806 acceptance had exported
+  `EPICS_PVA_ADDR_LIST` by hand).  `epics_env.apply_epics_address_config`
+  now exports `EPICS_PVA_ADDR_LIST` from the union of `config.ini`'s
+  `[pva] file_plugin_addr_list` and `[pva] addr_list` (and
+  `EPICS_PVA_AUTO_ADDR_LIST`, default **`YES`** — unlike CA, the directed
+  list is added to the broadcast search, so a developer machine that
+  carries `[pva] addr_list` for the fleet tooling still finds a local
+  server; `[pva] pva_auto_addr_list = NO` opts out) the way it exports
+  the CA variables from `[epics]` — the hosts the worker already names,
+  exported once, an explicit environment variable still winning.  Every
+  process importing `geecs_bluesky` (worker, Console, MCP) now gets the
+  variables.  The CA block no longer short-circuits a config with `[pva]`
+  but no `[epics]`; both readers go through `data_paths.read_config_entry`
+  and the new `data_paths.pva_addr_tokens` (shared with
+  `devices.hdf_plugin.file_plugin_hosts`).  On a service host the `[pva]`
+  section is now rendered by `deploy/bootstrap_host.sh` from two new
+  install-time `site.env` keys, `GEECS_PVA_ADDR_LIST` and
+  `GEECS_PVA_FILE_PLUGIN_ADDR_LIST` (`docs/platform/site_profile.md`).
+
+## [0.82.0] - 2026-09-11
+
+### Added
+
+- **`run_action` as a queue plan** (#807 phase-2 warm-up; the gap the
+  phase-1 ledger carried): the worker registers `run_action(name)` beside
+  the scan verbs (`plan_names.GEECS_PLAN_NAMES`, `NON_SCAN_PLAN_NAMES =
+  ("mv", "run_action")`).  It resolves *name* in the experiment's action
+  library and runs the compiled steps (`plans.action_compiler`) over the
+  device namespace, which is now the compiler's `SettableFactory`
+  (`GeecsNamespace.get_settable` / `get_readable`: the Movable child for
+  a settable, the served signal otherwise; a read-only variable in a
+  `set` step and an unknown device or variable raise
+  `GeecsConfigurationError`).  Every target of the flattened plan is
+  resolved and read once **before the first write**, so a typo in a later
+  step fails the item with nothing changed on the machine.  No run is
+  opened, so nothing is claimed and nothing is written.  `registry.bind_plans(profiles, resolver=,
+  settables=)` replaces `bind_strict_plans` and returns every registered
+  name; the hermetic worker registers a `run_action` that refuses, so the
+  manager's plan list is the same in every mode.  `submit_plan("run_action",
+  ["Amp4_DUMP_HP"])` works unchanged; a preset cannot name it
+  (`PRESET_PLAN_NAMES`).  The `operator` user group allows it
+  (`qserver/user_group_permissions.yaml`, now pinned to
+  `GEECS_PLAN_NAMES` by `tests/test_deploy_templates.py`).
+
+### Changed
+
+- `ConfigsRepoResolver._action_library` reads `actions.yaml` on every call
+  instead of caching it for the resolver's lifetime: the worker holds one
+  resolver, so a plan edited in the Console's action-library editor is
+  what the next `run_action` item runs.
+- `GeecsNamespace.get_settable` names the real cause when an action plan
+  sets a native-saving camera's `save` / `localsavingpath`: owned by the
+  detector's data logic, not settable from a plan.
+
+### Removed
+
+- `devices/ca/action_signals.py` (`CaActionSignalFactory`) and its test:
+  the session-era CA factory nothing used since #816 — the namespace's
+  children are the signals an action plan touches.
+
+## [0.81.1] - 2026-09-11
+
+### Changed
+
+- `TILED_SETUP.md`: the two server-side settings the file plugin's stacks
+  need (`readable_storage` covering the data share; `HDF5_USE_FILE_LOCKING=FALSE`
+  on the service), found on the #806 acceptance run and recorded where
+  the next site stands the server up.
+
+## [0.81.0] - 2026-09-11
+
+### Added
+
+- **Plugin-backed cameras** (#806, `Planning/native_bluesky/06_pva_file_plugin.md`):
+  `devices/hdf_plugin.py` — `GeecsHdfIO` (`NDFileHDF5IO` + `Rewind`,
+  `WriteStatus`, `WriteMessage`), `PluginPathProvider` (the Windows
+  directory the plugin's `FilePath` receives and the worker's `file://`
+  URI the stream resource carries, for one run folder; filename = the
+  GEECS device name, so the stock template yields `<device>/<device>.h5`)
+  and `file_plugin_hosts` (`config.ini [pva] file_plugin_addr_list`, else
+  `addr_list`).  `GeecsDetector(hdf_plugins=[(variable, provider)])` adds
+  one `GeecsHdfIO` child per image variable driven by the **stock**
+  `ADHDFDataLogic`; the namespace makes a `looks_triggerable` device with
+  a DB image variable plugin-backed when its endpoint host is in the list
+  (`DeviceRoster.endpoints`, from `get_experiment_devices`), else it keeps
+  LabVIEW-native saving.  `config.ini [Paths] geecs_pva_plugin_data_base_path`
+  is the UNC data root the plugin's service can write
+  (`data_paths.plugin_save_path`).  `p4p` rides the `ca` extra.
+- `GeecsDetector.discard_uncollected()` — rewinds every plugin to the last
+  frame a document referenced (the refire guard); `plugin_backed` and
+  `missed_shot` properties; `callbacks.StackCheckCallback` asserts at the
+  stop document, per stack, that the frames on disk are the rows' shots
+  (count and stamps) and writes the verdict to `scan.log`.
+
+### Changed
+
+- **Strict shot semantics** (Sam, 2026-09-11): a missed frame no longer
+  voids the row.  `fire_and_await_shot` awaits every device in its own
+  group and returns the ones that missed (the devices' `missed_shot`
+  flags are the census, not the exceptions the RunEngine throws); the
+  row is saved with every scalar the shot produced, the frameless
+  device's columns `NaN` (`mask_missed_shot`; the monitor cache would
+  otherwise carry the previous shot), and **no frames** (the bundler
+  wants one same-width datum per external key per event, or none — every
+  plugin is rewound before the row is read); then one more shot is taken
+  for the step, bounded by `max_refires`; the quota exhausted raises
+  `GeecsTriggerTimeoutError` naming the devices and keeps the partial
+  rows.  A `DISCONNECTED` device still aborts.
+- `STRICT_TRIGGER_INFO.exposure_timeout = DEFAULT_SHOT_TIMEOUT` (3 s): on
+  a plugin-backed camera the frame-count wait precedes the stamp wait and
+  its timeout is translated into `GeecsTriggerTimeoutError`, so a dropped
+  frame surfaces in 3 s, not 13.
+- `subscribe_scan_outputs` returns four tokens (the stack check first).
+- Review of #823: `[pva] file_plugin_addr_list` has **no** fallback to the
+  PVA fleet's `addr_list` (a listed box not yet re-bootstrapped would have
+  failed every scan at connect); the stack check takes the rows a stack
+  owns from the run's `stream_datum` documents (a partial row where the
+  camera delivered has a stamp but no frame) and runs on a thread that
+  waits for the plugin's `finalized` attribute — the stop document
+  precedes `unstage`/`Capture=0` — reading lock-free and appending its
+  verdict to `scan.log`; `mask_missed_shot` blanks booleans, numpy scalars
+  and arrays too; a failed `prepare` on a plugin-backed camera carries the
+  plugin's `WriteMessage` as an exception note; `data_paths.read_config_entry`
+  and `_translate_to` are the one config reader / path translator;
+  the camera test is `geecs_core.db.variable_types.image_variables`.
+
+### Removed
+
+- The capture daemon — `geecs_bluesky/capture/` (daemon, heartbeat,
+  discovery, subscriber, writer, `FORMAT.md`), `tests/capture/`, the
+  `capture` extra, `pyzmq`, the `geecs-capture-*` scripts — superseded by
+  the file plugin; `capture/diff.py` lives on as
+  `geecs_pva_gateway.diff`.  `Planning/data_capture/01_central_pva_capture_scope.md`
+  is marked superseded.
+
+## [0.80.1] - 2026-09-10
+
+### Fixed
+
+- `utils.settable_attribute` is the **one** rule for the attribute a
+  settable binds to (a frozen `RESERVED_DEVICE_ATTRIBUTES`, pinned to
+  `dir(GeecsDetector)` by a test): the namespace and the client seam now
+  agree, so `"UC_Amp4_IR_input:trigger"` in a preset spells
+  `UC_Amp4_IR_input.trigger_` instead of a reference the preflight refuses
+  (Codex review of #821).
+- The hardware acceptance test asserts its restore move *completed* and
+  reads the setpoint back, not merely that it queued (Codex review of
+  #822).
+
+### Added
+
+- **Phase 1 PR 3 (#807) — headless hardware acceptance of the plan
+  layer.** `tests/test_phase1_hardware.py` (`GEECS_HW=1`; fires shots): the
+  worker's own wiring drives a strict `count` and a strict `scan` of
+  `U_S1H:Current` on HTU and every GEECS output is asserted from disk
+  (claimed folder, native files named by the rows' stamps, ScanInfo keys,
+  s-file bins, scan.log, the baseline stream, ARMED → STANDBY); and a
+  `Preset` goes through a second RE Manager (`run_submit_preflight` →
+  `submit_preset` → the history item) with the same assertions.  Accepted
+  2026-09-10 (Scans 104–108 of 26_0910; `Planning/native_bluesky/05_phase1_acceptance.md`
+  M4–M6, with the runbook for the second manager and the per-shot budget:
+  ~7 ms of plan-layer work per shot, ~100 ms of margin at 1 Hz on this
+  camera, a moved step on the third edge because a 0.5 A magnet move is a
+  1.3 s blocking set).
+
+## [0.80.0] - 2026-09-10
+
+### Added
+
+- **Phase 1 PR 2 of the native-Bluesky rebuild (#807, plan of record
+  `Planning/native_bluesky/03_clean_room_rebuild.md` §4.B–§4.D, §10.7) —
+  the plan layer.** A queue item naming a stock plan and namespace
+  devices now runs a complete strict GEECS scan.
+  - `plans/registry.py` — the registration table: every stock
+    `bluesky.plans` verb with a `per_step` / `per_shot` hook that a queue
+    item can express (18 of them; `scan_nd` and the deprecated aliases
+    excluded) registered under its own name with the strict
+    `take_reading` pre-bound, the stock parameters kept minus the hook,
+    plus two keyword-only GEECS parameters: `trigger_profile` (the
+    experiment default when omitted) and `shots_per_step` (scan verbs).
+    Each bound plan brackets its run ARMED → STANDBY through the profile's
+    `ShotControl` and records the profile **key** it resolved (the
+    configs-repo stem) in the start document; `TriggerProfiles` loads one
+    device per profile in the configs repo.  `plan_names.GEECS_PLAN_NAMES` pins the table
+    (`tests/test_plan_registry.py` asserts the derivation).
+  - `plans/claim_scan.py` — `claim_scan_preprocessor` (every run claims a
+    day-scoped scan number on `open_run`; `scan_number` / `scan_id` /
+    `scan_folder` / `experiment` / `scan_tag` into the start document; a
+    failed claim refuses the run) and `GeecsScanPathProvider`, the one
+    `PathProvider` the namespace's native-saving detectors share
+    (`ScanNNN/<GEECS device>/` for the claimed run, refusing outside one).
+  - `preprocessors.scalar_headers` — the staged devices' `_column_headers`
+    (walking descendants) into the start document's
+    `geecs_scalar_headers`.
+  - `plans/strict.py` — `geecs_per_step(shot_control, shots_per_step=N)`
+    records N strict shots per position and a `bin_number` column
+    (`BinCounter`, a plain Bluesky `Readable`) — the s-file's `Bin #`;
+    `geecs_per_shot` records bin 1.
+  - `callbacks.py` — the GEECS outputs as best-effort RunEngine callbacks:
+    `ScanInfoCallback` (`ScanInfoScanNNN.ini` at start, `ScanEndInfo`
+    filled at stop; the legacy `[Scan Info]` keys derived from the stock
+    metadata — `Scan Parameter` from the first motor's header, `Start` /
+    `End` / `Step size` from `plan_pattern_args`), `SFileCallback`
+    (`ScanDataScanNNN.txt` + `analysis/sNNN.txt` from the run's own
+    primary events at the stop document — no Tiled round trip; written
+    for any exit status that produced rows), `ScanLogCallback`
+    (`scan.log` from start to stop).
+  - `X.scalars` on **every** namespace device (`devices/ca/_view.py`
+    `ScalarsView`; `GeecsDetectorScalars` on a detector): the scalars-only
+    view a preset's `save_images: false` expands to — on a detector the
+    shot wait without the files, on a scalar-only device what the device
+    reads (review of #821: the regenerated corpus flags scalar-only
+    devices too).  A view listed beside its owner's own scanned child
+    (`scan([U_S1H.scalars], U_S1H.current, …)`) yields the child's column
+    to the child — the strict `take_reading` drops what a listed view
+    already covers (`ScalarsView.covers`; verifier of the review).
+  - `GeecsNamespace.telemetry()` — the `SupplementalData` baseline list
+    (every scalar-only device and every detector's scalar signals),
+    installed by `make_run_engine(telemetry=...)` → `install_telemetry`,
+    which **connects the set once at build** and drops every member that
+    cannot connect with a warning (review of #821: a baseline read runs
+    after the claim, so one unservable device would otherwise fail every
+    run and leave a numbered folder each time): every subscribed scalar
+    of the experiment rides in the `baseline` stream at open and close.
+  - `qs_client.presets.expand_preset` — a `geecs_schemas.Preset` into the
+    stock plan queue item (device bindings, `Device:Variable` / catalog
+    names into the namespace's Movable children, `trigger_profile` and
+    `background` / `description` / `geecs` provenance); pseudo scan
+    variables refused until phase 3.  `QueueClient.submit_plan(name,
+    args, kwargs)` and `submit_preset(preset)` replace the funnel verbs;
+    `run_submit_preflight` checks the preset expands, the worker lists
+    the plan **and every device reference in the item**
+    (`QueueClient.allowed_device_names`, the manager's device tree —
+    bluesky-queueserver 0.0.25 passes an unknown device string through to
+    the plan, so the typo is caught here, before the trigger box is
+    armed; review of #821), and the preset devices' `CONNECTED` PVs.  The
+    references checked are the ones the expansion created
+    (`QueueItem.references`: detectors + resolved scan variables) — a
+    literal string argument such as an enum value in a `list_scan` point
+    list is never one; and a preset cannot name `mv` (`PRESET_PLAN_NAMES`
+    = the scan verbs; the manual move stays `submit_plan("mv", …)`)
+    (Codex review of #821).
+- `make_run_engine(experiment, claim=True, path_provider, telemetry)`
+  installs the whole GEECS scan (claim + headers + baseline + the three
+  callbacks); the startup profile builds the path provider, the
+  namespace, the trigger profiles and the bound plans
+  (`QS_DEVICE_NAMESPACE=off` stays the hermetic switch).
+- `utils.identifier_name` / `utils.device_reference` — the queue-item
+  spelling of a device or settable, shared by the namespace and the
+  client seam.
+
+### Changed
+
+- `CaSettable._column_headers` is computed from the readback signal's
+  current name (a namespace child is renamed after construction).
+- `LvNativeFileDataLogic` names the run sub-directory after the GEECS
+  device (`Scan065/UC_Amp4_IR_input/`), never the ophyd name.
+- `qserver/user_group_permissions.yaml` operator group allows exactly
+  `GEECS_PLAN_NAMES`.
+
+### Removed
+
+- `sfile_callback.py` (the Tiled-fed export; `callbacks.SFileCallback`
+  writes from the documents), the pre-scan log buffer and
+  `log_claimed_scan_failure` in `scan_log.py` (no callers since the
+  session went; `ScanLogFile` is the open/close pair the callback uses),
+  `plan_names.SCAN_REQUEST_PLAN` / `RUN_ACTION_PLAN`, the client's
+  `submit_scan` / `submit_action` / `run_action` / `move_variable` /
+  `describe_action` (the funnel verbs; a manual move is
+  `submit_plan("mv", ...)`), `config_resolver.resolve_save_set` /
+  `list_save_sets` (presets carry the device group;
+  `resolve_preset` returns a `Preset`), `db_runtime.resolve_entry_scalars`
+  / `select_telemetry_variables`, the free-run staleness preflight.
+  GEECS-Console and GEECS-MCP import unchanged; their submit paths call
+  the removed verbs and are rewired once the foundation is stable.
+
+## [0.79.0] - 2026-09-10
+
+### Removed
+
+- **Phase 1 PR 1 of the native-Bluesky rebuild (#807, plan of record
+  `Planning/native_bluesky/03_clean_room_rebuild.md` §8, §10.5) — the
+  deletions.** The `ScanRequest` funnel and everything that existed only to
+  serve it: `plans/scan_request_plan.py`, `step_scan.py`,
+  `free_run_step_scan.py`, `named_plans.py`, `pause_semantics.py`,
+  `t0_sync.py`, `orchestration.py`, `plans/liveness.py`, `session.py`
+  (`GeecsSession`), `scan_request_runner.py`, `preflight.py`,
+  `shot_controller.py`, `optimize.py`, `plans/optimize.py`, the
+  funnel-only devices (`CaGenericDetector`, `CaTriggerable`,
+  `CaAcqTimestampReadable`, `CaTelemetryReadable`, `CaTimestampedReadable`,
+  the `ShotIdSupport` / `FreeRunContributorSupport` / `NonScalarSaveSupport`
+  mixins, `ScanContext`), `ShotControlConfig` / `ShotControlState` and the
+  legacy shot-control YAML loader, the exceptions only they raised
+  (`GeecsQuiescenceTimeoutError`, `GeecsT0SyncError`,
+  `GeecsStaleDevicesError`, `GeecsUnservedVariablesError`), the
+  `function_execute` verbs (`geecs_move_variable`, `geecs_describe_action`;
+  a manual move is a stock `mv` queue item now), the two funnel-era scripts
+  and ~12.6k lines of their tests.  Scans before this carry the v1 event
+  schema (`EVENT_SCHEMA.md` describes the native shape now).
+- **Optimization glue (option B, Sam 2026-09-10):** `optimization/session_bridge.py`,
+  `optimization/worker_loader.py` and the startup profile's loader hook go
+  with the session.  The Xopt core (`evaluators`, `generators`,
+  `base_optimizer`, `config_models`, `inspection`) stays importable with
+  its tests; optimization is **not runnable** until it is re-glued to the
+  native scan path in its own phase.
+- The `qs_client` pre-submit preflight keeps only the checks that need no
+  engine: every save set resolves (`validate`), the manager is ready
+  (`worker_ready`), gateway liveness, free-run staleness.  The
+  unserved-variables and snapshot-images questions went with the runner.
+  The client's submit verbs still name the retired funnel plan, so
+  `worker_ready` refuses against this worker — correctly; the client seam
+  is rewired with the plan layer (PR 2).  The free-run staleness sample
+  now reads the **first non-snapshot save-set entry** (file order) rather
+  than the role-ordered reference device.  GEECS-Console and GEECS-MCP
+  import unchanged; the Console's save-set union preview degrades to a
+  hint (it imported the deleted runner) until the top-layer rewire.
+- The devices' `async disconnect()` teardown hook — the runner's per-scan
+  `session.disconnect` contract.  Nothing calls it, and on `GeecsDetector`
+  it detached the stamp monitor without clearing ophyd-async's connect
+  cache, so `connect_on_demand` would never re-attach it (Codex review of
+  #816).  Namespace devices live as long as the RunEngine.
+- `CaSnapshotReadable(save_control_only=...)` — the runner's snapshot-role
+  camera shape, callerless now; `GeecsDetector(native_save=True)` without
+  a path provider is the case it covered.
+
+### Changed
+
+- **The namespace builds `GeecsDetector` for every triggerable device**
+  (`looks_triggerable`), `native_save` iff the DB lists both `save` and
+  `localsavingpath` for it (§10.5) — the detector then owns those two
+  controls (never scan-settable children) and a `PathProvider` given at
+  build points its files at the run.  A subscribed settable's readback
+  joins the detector's columns through the new
+  `GeecsDetector.add_readables`.
+- `run_engine.make_run_engine` replaces `GeecsSession` as the one way to
+  build the RunEngine: `connect_on_demand` outermost, Tiled and the s-file
+  export as opt-in callbacks, no scan API of its own.
+- The startup profile registers the **stock** `bluesky.plans` verbs
+  (`count`, `scan`, `rel_scan`, `list_scan`, `rel_list_scan`, `grid_scan`,
+  `rel_grid_scan`, `list_grid_scan`, `rel_list_grid_scan`) and `mv` over
+  the namespace devices — `plan_names.GEECS_PLAN_NAMES`, which the
+  readiness check asserts; the plan layer (PR 2) rebinds the same names
+  with the strict `take_reading`.  `user_group_permissions.yaml`'s operator
+  group allows exactly those.
+- `ShotControl` absorbed `ShotController`'s write machinery (one cached
+  setter per target, ordered per-state replay, the standing state) — one
+  class, no composition; `CaPutSetter` lives beside its base in
+  `devices/ca/gateway_put.py`.  `plans/strict.py` absorbed
+  `fire_and_await_shot` and the CONNECTED refire gate;
+  `plans/claim_scan.py` holds the scan-number claim alone.
+- The `models/shot_control.py` state names are the schema's
+  `geecs_schemas.trigger_profile.TriggerState`.
+
+### Fixed
+
+- **#812 (the residual one-test stall):** the in-process startup-profile
+  test built the 0MQ document `Publisher`; a connected-but-peerless PUB
+  socket makes the zmq context's teardown block for the *next* test's
+  whole timeout.  The hermetic startup tests now run with
+  `QS_DOC_PUBLISH_ADDR=OFF`.
+- `tests/test_phase0_hardware.py` is gated on `GEECS_HW=1`, and CI's and
+  `scripts/check.sh`'s `-m` expressions now say `not hardware`: the
+  `hardware` marker alone did not protect it — an explicit `-m` on the
+  command line overrides the `addopts` deselect, and on a laptop on the
+  lab VPN the ordinary suite run fired real shots.
+- The namespace's `native_save` rule requires the two saving controls to
+  be **settable** rows (only those get a gateway `:SP`); a get-only
+  `save` row stays a plain readable (review of #816).
+
+## [0.78.1] - 2026-09-10
+
+### Fixed
+
+- **Test suite: RunEngine loop threads no longer accumulate across the run**
+  (#812). Every `RunEngine()` a test constructs starts a daemon thread running
+  its own asyncio loop forever and nothing stopped it, so by the midpoint of
+  the suite ~150 live loops were idling in `select` and the process crawled —
+  on a developer Mac a 1.4 s test took the full 180 s per-test timeout and
+  whichever test ran at that point was blamed (CI on Linux ran the same
+  suite in 3.5 min). An autouse `conftest.py` fixture now stops and joins
+  every loop a test left behind. `scripts/check.sh` prints the ten slowest
+  tests for the GeecsBluesky suite so a regression shows up as a number.
+
+## [0.78.0] - 2026-09-09
+
+### Added
+
+- **Phase 0 of the native-Bluesky rebuild (#807, plan of record
+  `Planning/native_bluesky/03_clean_room_rebuild.md`):** a GEECS acquirer as
+  a stock ophyd-async `StandardDetector`.
+  - `devices/detector.py` — `GeecsDetector` composed of the three 0.19
+    logics: `GeecsTriggerLogic` (external edges only; the calibrated drain
+    offset is its one config signal and `get_deadtime`), `GeecsAcquireLogic`
+    (a shot is `acq_timestamp` advancing; the baseline is taken
+    synchronously in `trigger()` so the plan's fire can never land in a
+    blind window), `ScalarsDataLogic` (the device's own scalars as event
+    columns) and `LvNativeFileDataLogic` (LabVIEW native saving driven from
+    a `PathProvider`: `save=on` at prepare, `save=off` at stage and
+    unstage; the device directory is created only inside an existing scan
+    folder — a missing parent raises, never a `mkdir`).  A plain
+    `bp.count([cam])` is refused at prepare — a GEECS camera cannot
+    self-trigger — unless `OPHYD_ASYNC_PRESERVE_DETECTOR_STATE=YES`, where
+    the implicit prepare takes the edge-triggered default and the shot
+    times out waiting for a fire nobody sends.
+  - `devices/shot_control.py` — `ShotControl`, the trigger box as a
+    `Movable` over the profile's named states (ordered writes via the
+    existing `ShotController.from_writes`), `Pausable` (a no-op in ARMED;
+    SCAN → OFF and back), with the standing state as a config signal.
+  - `plans/strict.py` — `geecs_take_reading`, `bps.trigger_and_read` with
+    the one GEECS difference (the `SINGLESHOT` fire between the triggers
+    and the wait) plus the bounded refire; `geecs_per_shot` /
+    `geecs_per_step` bind it into the stock `one_shot` / `one_nd_step`
+    hooks, so `bp.count` and every N-d scan plan run strict GEECS scans
+    unchanged.
+
+### Changed
+
+- `plans/single_shot.py` — the arm → fire → await → refire seam is
+  `fire_and_await_shot`, called by `geecs_single_shot` (the funnel) and by
+  `geecs_take_reading`: one implementation, two callers.
+- The refire is gated on the failed status's cause being a detector's
+  `GeecsTriggerTimeoutError` (a dropped frame); a failed **fire** (the
+  SINGLESHOT put refused) or any other failed status re-raises untouched,
+  so a refire can never issue an extra physical shot (Codex review of #811).
+- `devices/ca/triggerable.py` — `CaAcqTimestampReadable` / `CaTriggerable`
+  compose `GeecsAcquireLogic` for the stamp monitor, the synchronous
+  baseline and the shot wait instead of carrying their own copy (review of
+  #811); `_last_acq` / `_shot_queue` / `_monitoring` / `_trigger_timeout`
+  remain as views for the funnel-era callers.
+- `trigger_writes_from_profile` (TriggerProfile → `ShotControlWrites`) now
+  lives in `devices/shot_control.py` next to the device that consumes it;
+  `scan_request_runner` imports it from there.  `QUIESCE_FROM` (the
+  standing states a pause must quiesce from) has its one home in
+  `models/shot_control.py`; the device and `plans/pause_semantics.py` both
+  import it.
+- `ShotController._record_state` → `record_state` (public; the device
+  records through it so `last_state` is the one standing-state field).
+
+## [0.78.0] - 2026-09-10 (master line, parallel release)
 
 ### Fixed
 
@@ -45,8 +1330,54 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   exception and therefore truthy. It now mirrors `CANothing`'s falsiness
   and repr/str split.
 
+## [0.77.0] - 2026-09-09
 
-## [0.77.0] - 2026-09-10
+### Added
+
+- **Device namespace (native-Bluesky refactor, GEECS-Plugins#807 phase 1)** —
+  every enabled device of the experiment as a long-lived ophyd-async noun,
+  addressable by name and connected on first use, so stock `bluesky.plans`
+  verbs run under the queue server. The namespace owns no device behaviour;
+  it composes the existing device layer:
+  - `geecs_bluesky.namespace.GeecsNamespace` / `DeviceRoster`: one
+    `CaGenericDetector` (acquirers) or `CaSnapshotReadable` (everything else)
+    per device, built from the DB roster with the `db_runtime` providers'
+    served-set and subscribed-list rules; each served settable attached as a
+    `CaMotor` (positive DB tolerance) or `CaSettable` child, its column
+    header aggregated onto the parent; ophyd names and event keys follow
+    `EVENT_SCHEMA.md` (`safe_name`, e.g. `u_s1h-current-position`) while the
+    namespace binding keeps the GEECS spelling (`U_S1H`); two served variables
+    that normalise to one attribute raise at build (the gateways' PV-collision
+    rule); every variable typed by
+    `geecs_core.db.variable_types.effective_vartype` (the rule the gateway
+    typed the PV with); a settable named like a Bluesky method (`trigger`)
+    binds as `trigger_`; `resolve("U_S1H:Current")`; `export_into(globals())`.
+  - Triggerable classification (`looks_triggerable`): a device whose
+    devicetype variables mention a trigger acquires per shot, unless its
+    devicetype is a trigger source (`TRIGGER_SOURCE_DEVICETYPES`); a DB
+    `acq_timestamp` row or `DeviceRoster.triggered` overrides. Verified
+    against all 105 Undulator devices.
+  - `geecs_bluesky.preprocessors.connect_on_demand` /
+    `install_connect_on_demand`: a RunEngine preprocessor that connects a
+    namespace device the first time a plan touches it (message-level
+    `ensure_connected`; `declare_stream` args included; installed outermost).
+  - The startup profile exports the namespace (`QS_DEVICE_NAMESPACE=off`
+    skips it) and installs the preprocessor last; operators may address
+    devices/sub-devices in plan arguments (`allowed_devices: ":?.*:depth=3"`).
+  - `tests/test_namespace_hardware.py` (hardware-marked): stock `count` +
+    `list_scan` over the namespace against the live gateway — accepted
+    2026-09-09 in both the first and the composed form (3 shots at 1 Hz on `UC_Amp4_IR_input`; `U_S1H:Current`
+    −1 → 1 A in 0.5 A steps, readbacks within 0.4 mA, setpoint restored).
+
+### Changed
+
+- `CaAcqTimestampReadable`, `CaTriggerable`, `CaGenericDetector`,
+  `CaTimestampedReadable`, `CaSnapshotReadable` accept `datatypes=` (per-
+  variable CA types) and `datatype=None`; `CaSettable` accepts
+  `datatype=None`. The served set mixes numerics, enums and char-array paths
+  and one wrong child fails a device's connect.
+
+## [0.77.0] - 2026-09-10 (master line, parallel release)
 
 ### Fixed
 

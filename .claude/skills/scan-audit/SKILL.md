@@ -5,7 +5,7 @@ description: >
   scan slow", "did every shot land", "shots are skipping / landing on every
   other trigger", start-latency questions, or any per-shot acq_timestamp
   cadence analysis of a scan folder. Reads scan.log, the s-file, ScanInfo
-  ini, and optionally Tiled + the console log; needs no hardware. For error
+  ini, and optionally Tiled + the scanner's journal; needs no hardware. For error
   triage ("what went wrong / what errored") use /triage instead.
 ---
 
@@ -34,8 +34,11 @@ distilled version of that session.
 - Optional (on-network): the Tiled run via
   `geecs_data_utils.tiled_catalog.TiledScanCatalog` for column counts and
   telemetry shape.
-- The console log (`~/.config/geecs_console/logs/console.log`) for
-  submission-time context (start latency lives *before* scan.log starts).
+- The scanner service's journal on the worker host (`journalctl -u
+  geecs-scanner`) for submission-time context (start latency lives
+  *before* scan.log starts). The service logs nothing on an ordinary
+  submit; the submission timestamp is uvicorn's access line for
+  `POST /api/submit` (grep for that path).
 
 ## Analysis
 
@@ -57,9 +60,9 @@ distilled version of that session.
      delivery, save-on, arm settle); only flag if > ~2 periods.
    - deltas at T with occasional 2T — marginal cycle riding the cliff;
      report the headroom, not just the median.
-3. **Start latency** (console log): submission timestamp → "Claimed scan
-   number". > ~5 s warm is anomalous post-0.33.0 (telemetry connects are
-   batched); a cold first-scan-after-launch pays one-time CA channel
+3. **Start latency** (scanner journal): the `POST /api/submit` access
+   line → "Claimed scan number" in scan.log. > ~5 s warm is anomalous
+   (telemetry connects are batched); a cold first-scan-after-launch pays one-time CA channel
    creation and can be tens of seconds over VPN — say which case it is.
 4. **Column shape** (Tiled, optional): total vs `telemetry_*` columns and
    device count; compare to the framework cost model

@@ -44,20 +44,23 @@ def scan_folder(tmp_path):
     stacked.mkdir()
     import h5py
 
-    from geecs_data_utils.io.scan_stack import LABVIEW_EPOCH_OFFSET
+    from geecs_data_utils.io.scan_stack import (
+        FRAMES_DATASET,
+        LABVIEW_EPOCH_OFFSET,
+        TIMESTAMPS_DATASET,
+    )
 
     with h5py.File(stacked / "UC_StackCam.h5", "w") as handle:
-        handle.attrs["schema"] = "geecs-capture/1"
-        handle.attrs["finalized"] = True  # daemon-stamped completed stack
+        handle.attrs["finalized"] = True  # plugin-stamped completed stack
         # FOUR frames: a leading pre-scan extra (FORMAT.md caveat a) that
         # must NOT shift the timestamp join. Identity marker per index.
         frames = np.zeros((4, 6, 6), dtype=np.uint16)
         for index in range(4):
             frames[index, 0, index] = 1000
-        handle.create_dataset("frames", data=frames, chunks=(1, 6, 6))
+        handle.create_dataset(FRAMES_DATASET, data=frames, chunks=(1, 6, 6))
         # Stack stores UNIX epoch (its contract); event rows are LabVIEW.
         labview = np.array([_LV + 0.5, _LV + 1.0, _LV + 2.0, _LV + 3.0])
-        handle.create_dataset("acq_timestamp", data=labview - LABVIEW_EPOCH_OFFSET)
+        handle.create_dataset(TIMESTAMPS_DATASET, data=labview - LABVIEW_EPOCH_OFFSET)
 
     vendor = folder / "U_HasoWFS"
     vendor.mkdir()

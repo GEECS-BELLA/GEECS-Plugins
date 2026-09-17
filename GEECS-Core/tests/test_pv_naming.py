@@ -40,3 +40,25 @@ def test_pv_name_joins_and_drops_empty_parts() -> None:
 def test_setpoint_pv_appends_suffix() -> None:
     """Setpoint PVs are the readback name plus ``:SP``."""
     assert setpoint_pv("u_s1h:current") == "u_s1h:current:SP"
+
+
+def test_connected_pv_is_the_image_pv_plus_connected() -> None:
+    """The PVA gateway's per-variable subscription-state PV, one composition."""
+    from geecs_core.pv_naming import CONNECTED_SUFFIX, connected_pv
+
+    assert CONNECTED_SUFFIX == ":connected"
+    assert (
+        connected_pv("Undulator", "UC_Amp4 IR.input", "processed image")
+        == "undulator:uc_amp4_ir_input:processed_image:connected"
+    )
+
+
+def test_hdf_plugin_prefix_is_the_image_pv_plus_hdf1() -> None:
+    """The file plugin's prefix (#806): normalized GEECS part, areaDetector suffix."""
+    from geecs_core.pv_naming import HDF_PLUGIN_SUFFIX, hdf_plugin_prefix
+
+    assert HDF_PLUGIN_SUFFIX == ":hdf1:"
+    assert (
+        hdf_plugin_prefix("Undulator", "UC_Amp4 IR.input", "processed image")
+        == "undulator:uc_amp4_ir_input:processed_image:hdf1:"
+    )

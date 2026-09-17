@@ -35,14 +35,28 @@ geecs_pva_gateway/
                 #   probe_fleet/fleet_main = the `fleet` subcommand that
                 #   scripts/fleet_status.sh calls (lines + one role= record)
   server.py     # GeecsPvaGateway + per-camera worker: gated + supervised
-                #   subscription, decode off-loop, latest-wins posting,
-                #   version/heartbeat/restart instance PVs (restart -> exit 86)
+                #   subscription (+ :connected state per variable, DB endpoint
+                #   re-resolve at the backoff ceiling, #854), decode off-loop,
+                #   latest-wins posting (the last decoded frame is kept for
+                #   the plugin's arm, #894), version/heartbeat/restart
+                #   instance PVs (restart -> exit 86)
+  file_plugin.py # HdfFilePlugin (#806): one per image variable, the
+                #   areaDetector NDFileHDF5 PV set (+ Rewind, WriteStatus,
+                #   WriteMessage) over a single writer thread; lossless
+                #   intake before the latest-wins slot; NDFileHDF5 layout
+  diff.py       # `geecs-pva-gateway diff`: plugin stacks vs native PNGs
+                #   per scan (the rollout's parity check)
 deploy/
   bootstrap.ps1   # one-time per-box setup (venv, firewall, NSSM service with
                   #   USERPROFILE override -> service-owned profile; installs
                   #   Python 3.11 itself when `py -3.11` is missing)
-  launch.bat      # pull-on-restart launcher (reinstall from the shared
+  launch.bat      # pull-on-restart launcher (fleet pins offline from the
+                  #   share's wheel cache, then reinstall from the shared
                   #   GEECS-Plugins clone; its checked-out commit = fleet pin)
+  requirements-fleet.txt # exact pins of external deps added after bootstrap
+                  #   (the closure: --no-deps on both sides); h5py first
+  stage_wheels.sh # downloads the pins' win_amd64/cp311 wheels into
+                  #   <Active Version>/pva-wheels beside the share clone
   gen_fleet_status.py # --experiment X -> fleet_status_<x>.bob from
                   #   fleet.py's roster (DB + [pva] addr_list); rerun + commit
                   #   when the fleet changes, never hand-edit
@@ -57,6 +71,13 @@ tests/
   test_server.py  # end-to-end over a binary wire-format fake camera +
                   #   isolate=True PVA server
   test_entrypoint.py # CLI exit codes (incl. the restart code 86 contract)
+  test_file_plugin.py # the PV contract pinned by the stock ophyd-async
+                  #   ADHDFDataLogic over a real NDFileHDF5IO on pva://;
+                  #   session semantics (arming, dedupe, stale, rewind,
+                  #   counters, no directory creation, no empty file)
+  test_diff.py    # the parity tool
+  test_deploy_files.py # the launcher's package list + wheel step, the pins'
+                  #   consistency with pyproject (name and specifier)
 ```
 
 ## Architecture (one asyncio loop)
@@ -73,13 +94,56 @@ tests/
 - **Supervision**: while gated on, a supervisor loop reconnects with
   exponential backoff (0.5→30 s) whenever `wait_disconnected()` returns —
   actual socket drops only; silence is not a drop (same doctrine as the CA
-  gateway's device supervisors).
+  gateway's device supervisors; a box ARMED through a long move pushes
+  nothing for tens of seconds, #894). Each variable's `<image PV>:connected`
+  (NTEnum `Idle` / `Disconnected` / `Connected`, MAJOR alarm while down)
+  shows that subscription's state — `Idle` is "gated off, nothing known",
+  so a client wanting the verdict holds a monitor on the image PV for one
+  gating round-trip. Once the backoff sits at its ceiling the endpoint is
+  re-asked of the DB (`endpoint_resolver`, the CA gateway's idiom) and a
+  moved port redialed; a move off this host is logged, never adopted
+  (#854).
 - **Frame path**: push frame → timestamp ladder (`acq_timestamp` →
   `systimestamp`, LabVIEW→Unix, else receive time) → **latest-wins slot** per
   variable → decode (`decode_imaq_image_string`) in the default executor, off
   the event loop → `pv.post(image, timestamp=...)`. A stalled consumer drops
   stale frames; nothing ever backlogs. Completeness lives in the GEECS file
   path, not this stream.
+- **File plugin** (`file_plugin.py`, #806, design in
+  `Planning/native_bluesky/06_pva_file_plugin.md`): a second consumer of
+  the push frame with the *opposite* delivery contract — lossless within
+  a capture session — branching off in `_on_frame` **before** the
+  latest-wins slot. Per image variable: the `NDFileHDF5IO` PV set under
+  `<image PV>:hdf1:` (prefix minted by `geecs_core.pv_naming.hdf_plugin_prefix`),
+  one writer thread owning all session state and the file handle (puts
+  and frames only enqueue). `Capture=1` zeroes the session readbacks
+  (`NumCaptured_RBV` first — the stock logic baselines on it, #853),
+  retains the variable's subscription like a client and completes at
+  once on the last frame the worker decoded for the variable (that is
+  where the geometry the worker describes the stream with comes from;
+  the held frame is never written); only a never-decoded variable waits
+  for its first push, `ARM_TIMEOUT_S` at most (#894 — waiting for a push
+  on a box ARMED through a long first move failed the run's first
+  prepare; never-decoded is every camera after each gateway restart until
+  its first session gets a push — an image monitor held for one gating
+  round-trip in STANDBY seeds it); frames are deduped on `acq_timestamp` and
+  stale-filtered against a watermark set at `Capture=1` and moved by
+  `Rewind` (the refire guard: truncate to N, drop older-stamped
+  arrivals); `NumCaptured_RBV` posts after each frame is on disk;
+  `Capture=0` stamps the reconciliation counters and closes. Beside the
+  two frame stamps the plugin writes the device's **subscribed scalars**
+  per frame (`CameraSpec.scalar_variables`, from
+  `geecs_core.db.scalar_policy.GeecsDbScalarPolicy` filtered by
+  `geecs_core.db.variable_types.scalar_attribute_variables` — the same
+  rule the worker builds a device's row from; numeric types only, the
+  timestamp ladder excluded) as `<device>-hdf-<variable>-<scalar>`
+  `DOUBLE` attributes, declared in `NDAttributesFile` so the stock data
+  logic describes them as stream columns; their values come from the
+  frame's own TCP push (the one subscription is widened by the list,
+  `_CameraWorker.subscription_variables`), `NaN` when absent. Never
+  creates a directory (`CreateDirectory` is ignored); never HDF5 SWMR
+  across SMB (`SWMRMode` accepted and ignored; flush per frame, file
+  locking off). Served only where `h5py` imports (`file_plugin.available`).
 - **Identity/control PVs**: `{experiment}:pvagateway:{host_token}:version|
   heartbeat|restart` per instance — the fleet screen reads the first two
   (version skew, liveness); writing `:restart` exits 86 for the service
@@ -91,7 +155,8 @@ tests/
 - **Transport**: only `geecs_core.transport`. Never GEECS-PythonAPI
   (deprecated, slated for deletion).
 - **Images stay off the CA gateway; scalars stay off this one.** This package
-  serves image-typed variables only. If PVA scalars ever happen, that is a
+  serves image-typed variables only (the file plugin's control PVs are
+  areaDetector's, per image variable — not GEECS scalars). If PVA scalars ever happen, that is a
   deliberate design step (per-device-class PVA adoption, DESIGN.md), not a
   drive-by addition here.
 - **Text variables**: image variables must always be subscribed as

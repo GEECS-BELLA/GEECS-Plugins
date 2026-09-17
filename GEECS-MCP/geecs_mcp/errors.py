@@ -9,12 +9,16 @@ Error kinds (the planning doc's taxonomy, plus ``tiled_unreachable`` for
 the archive's network failures, which are neither the manager's nor the
 request's fault):
 
-- ``policy_refusal`` — etiquette/cap/acknowledgement; retryable by
-  changing the ask.
+- ``policy_refusal`` — ownership etiquette, or a verb refused in the
+  current RE state; retryable by changing the ask.
 - ``invalid_request`` — schema/validation; fix the request.
 - ``manager_unreachable`` — the RE Manager did not answer.
 - ``worker_refused`` — the manager accepted the RPC, the worker said no.
 - ``task_timeout`` — a bounded worker task did not finish in budget.
+  **Currently has no producer**: its only one was the deleted
+  ``move_scan_variable`` (0.9.0).  Kept in the taxonomy because it is a
+  published envelope value an agent may already branch on, and a future
+  bounded verb needs it back.
 - ``not_found`` — results/configs that do not exist.
 - ``tiled_unreachable`` — the archive did not answer.
 - ``internal_error`` — a bug in this server (the tools-never-raise
@@ -74,9 +78,8 @@ def make_ok(**payload: Any) -> str:
 def make_error(error_kind: str, message: str, **extra: Any) -> str:
     """Serialize a failure envelope: ``{"ok": false, error_kind, message}``.
 
-    ``extra`` carries structured refusal context (``pending_items``,
-    ``needs_acknowledgement``) — same strict-JSON discipline as
-    :func:`make_ok`.
+    ``extra`` carries structured refusal context (``pending_items``) —
+    same strict-JSON discipline as :func:`make_ok`.
     """
     if error_kind not in ERROR_KINDS:  # programmer error — fail loudly in tests
         raise ValueError(f"unknown error_kind {error_kind!r}")

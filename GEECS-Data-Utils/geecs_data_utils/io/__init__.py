@@ -29,7 +29,10 @@ from geecs_data_utils.io.scan_stack import (
     find_stack_file,
     is_stack_file,
     read_shot,
+    parse_attribute_name,
+    read_stack_attributes,
     read_stack_timestamps,
+    stack_scalar_variables,
 )
 
 __all__ = [
@@ -47,6 +50,9 @@ __all__ = [
     "read_imaq_image",
     "read_imaq_png_image",
     "read_shot",
+    "parse_attribute_name",
+    "read_stack_attributes",
     "read_stack_timestamps",
+    "stack_scalar_variables",
     "read_tsv_file",
 ]

@@ -1,7 +1,8 @@
 """The GEECS Data Portal FastAPI application.
 
-A second view layer over :class:`geecs_data_utils.tiled_catalog.ScanCatalog`
-(the console scan browser is the first): server-rendered pages for
+The web view layer over :class:`geecs_data_utils.tiled_catalog.ScanCatalog`
+(the Qt console's scan browser was the first, until its deletion in
+2026-09): server-rendered pages for
 day → scan → metadata/plots navigation, reachable from any browser on the
 lab network with nothing to install.
 
@@ -17,7 +18,7 @@ Architecture rules (see this package's ``CLAUDE.md`` and
 - **Column semantics live in ``geecs_data_utils.tiled_schema``** — the
   pick list is :func:`~geecs_data_utils.tiled_schema.plottable_columns`
   and coercion is :func:`~geecs_data_utils.tiled_schema.numeric_series`,
-  shared with the console's B4 so the two front-ends cannot drift.
+  one module so no front end reinterprets a column.
 - **No build chain** — server-rendered Jinja2 templates, plots rendered
   server-side to PNG via the matplotlib object API (thread-safe: no
   pyplot global state on FastAPI's threadpool); no npm, no CDN.

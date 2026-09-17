@@ -3,6 +3,207 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.33.0] - 2026-09-16
+
+### Changed
+
+- Classify new Sweep runs from structured trajectory metadata: multi-axis Cartesian products are GRID; single-axis products, correlated and patterned trajectories are 1D. Preserve historical decoding.
+
+## [0.32.2] - 2026-09-16
+
+### Fixed
+
+- Restore the independent file-format epoch constant and remove the Core/MySQL installation dependency introduced during PR review. Pin the no-intra-repo-dependencies boundary in tests.
+
+## [0.32.1] - 2026-09-16
+
+### Fixed
+
+- Re-export the shared Core LabVIEW epoch constant from the existing scan_stack API, adding a downward dependency on GEECS-Core so live and offline timestamp conversion share one definition.
+
+## [0.32.0] - 2026-09-13
+
+### Changed
+
+- Merge of `master` (d6f74211) into `feature/native-bluesky-plans`: the
+  two lines below were released in parallel and are listed in version
+  order; a block marked *(master line, parallel release)* reuses a version
+  number the branch also used for a different release.
+- `tiled_catalog` / `tiled_export` keep the branch's scalar-table-only
+  reads, the gated s-file join (#858) and the plural `motors` /
+  `plan_pattern` readers (#864); master's #851 backport of #836 carried
+  nothing the branch's versions lacked.
+- Minor, not patch: relative to the branch line this release brings
+  master's `read_scan_info_file` and `first_log_timestamp` — new public API.
+
+## [0.31.1] - 2026-09-12
+
+### Fixed
+
+- **Native-path 1D scans classified as `NOSCAN`.**  `tiled_schema.scan_mode`,
+  `scan_variable_columns` and `is_stepped_scan` read the start document's
+  singular `motor` key — what the retired GEECS funnel wrote.  The stock
+  `bluesky.plans` verbs the native-Bluesky scanner registers write **`motors`**
+  (plural, a list), so every scan taken on the native path reported as a
+  motorless run: the wrong mode chip in the data portal, no scan-variable
+  column offered as the X axis, and per-step statistics disabled — all while
+  the run's own `ScanInfo` ini correctly said `ScanMode = "standard"`.
+
+  The readers now share one `scan_motors()` helper that takes `motors` and
+  falls back to `motor`, so runs from either backend classify the same way.
+  Found in the portal on 26_0912's Scan018, a `rel_scan` over
+  `U_CompAerotech Position.Axis1` carrying
+  `motors = ['u_compaerotech-position_axis1']`.
+
+- **The Overview table lost its "Scan variable" row on a native run, and its
+  "Mode" row lost the strict/gated suffix.**  `tiled_catalog.metadata_rows` —
+  what both the console scan browser and the portal run page render — read the
+  same stale singular `motor`, and `acquisition_mode` where the native scanner
+  writes `acquisition`.  Same bug class, same package, on the very page the
+  wrong mode chip was reported from; neither row had a test.
+
+- **A multi-motor `scan` is 1D, not a grid.**  Classifying on the motor
+  *count* was safe only because the funnel wrote a list solely for grids.
+  Stock `scan` / `rel_scan` / `list_scan` correlate N motors along one
+  trajectory (`plan_pattern` `inner_product` / `inner_list_product`); only
+  `grid_scan`'s `outer_product` is a grid.  `scan_mode` now reads
+  `plan_pattern` where it exists and keeps the count-based reading for funnel
+  documents, which have none.  (Caught in review — the first version of this
+  fix turned those runs from wrongly-`NOSCAN` into wrongly-`GRID`.)
+
+## [0.31.0] - 2026-09-12
+
+Phase 2c of the native-Bluesky rebuild (GEECS-Plugins#807,
+`Planning/native_bluesky/08_gated_batch.md` §4.5): the s-file of a run whose
+per-shot values live outside its event rows.
+
+### Added
+
+- **`geecs_data_utils.shot_join`** — the one home of the rule that joins a
+  run's per-frame stream columns onto its shot rows, shared by the worker's
+  live s-file callback and by the offline re-export so the two cannot
+  drift.  `FrameColumns` (a datum-only stream source: its frames' stamps in
+  the rows' LabVIEW epoch, its per-frame columns spelled as a *strict* row
+  spells them, its drain offset), `join_frames_to_shots` (each frame to the
+  nearest row after both sides are corrected by their device's drain
+  offset — `03_clean_room_rebuild.md` §11.3/§11.4 — keep-first on a
+  duplicate), `join_window` (half the shot period, and never more than half
+  the closest gap between two rows, so two rows can never contend for one
+  frame and a run faster than the period narrows the window by itself),
+  `shot_clock_column` (the row column that identifies each shot: the device
+  the start document's `shot_clock` names, else the first detector with a
+  stamp column) and `frame_columns_from_attributes` (a stack's attribute
+  datasets → event keys: `…-frame_acq_timestamp` becomes
+  `<device>-acq_timestamp`, a subscribed scalar becomes
+  `<device>-<scalar>`).  `SHOTS_STREAM` lives here too — the stream name is
+  a document contract the plan, the callback and the re-export all share.
+- **`tiled_export.join_frame_columns`** and the `frames` / `drain_offsets`
+  arguments of `build_legacy_scalar_dataframe` and
+  `write_scalar_files`: **one** offsets map covers both sides of the join
+  (the clock device's and every source's), so the live path and the
+  re-export cannot correct by different amounts.  The joined columns are
+  appended to the rows before
+  the header map renames them, so **one** projection serves both shapes of
+  run.  One s-file row per essential shot, always: a frame with no row
+  inside the window is an orphan and stays in the stack and in Tiled (Sam,
+  2026-09-12, `08` §6 Q4), a row with no frame gets `NaN`, and a column the
+  row already carries is never overwritten (a strict run's essential camera
+  is read per shot and its row is the authority).  Orphans and duplicates
+  are logged per source with the window they were measured against.
+- **`tiled_export.read_run_rows` / `read_frame_columns` /
+  `read_drain_offsets`**: the offline re-export reads a gated run too — the
+  rows from `primary` when it has events and from `shots` otherwise, and
+  the per-frame columns of every **other** stream from its 1-D attribute
+  arrays by name (the test is "not the row stream", which is exactly what
+  `read_run_rows` decided, so the two cannot disagree about a stream whose
+  table part happens to be empty).  A frame stack, the only
+  multi-dimensional part, is never downloaded (the #836 lesson) — but its
+  *shape* is read from the node's structure metadata and the device's
+  columns are truncated to it, because Tiled builds that shape from the
+  stream datums.  So the offline path uses the same frames the worker's
+  live path does, whether or not the server clips a 1-D attribute dataset
+  to the datum range.  Drain
+  offsets are read once for the whole run from each stream node's
+  descriptor configuration — Tiled keeps it at the top of the node's
+  metadata, and a writer that nests it under `descriptors` is read too.
+
+### Changed
+
+- `write_scalar_files_from_tiled(uid)` now reproduces the s-file of a gated
+  run as well as a strict one — the same rows and the same join the worker
+  used, so a re-export is a check of the live path and not a second
+  implementation of it.
+
+## [0.30.0] - 2026-09-12
+
+### Added
+
+- `io.scan_stack.read_stack_attributes(path)`, `parse_attribute_name(name)`
+  and `stack_scalar_variables(path)` (all exported from `geecs_data_utils.io`
+  like their siblings): the read side of the plugin's per-frame scalar
+  attributes (GeecsPvaGateway 0.9.0 writes a camera's subscribed numeric
+  scalars beside the frames as `<device>-hdf-<variable>-<scalar>`,
+  `Planning/native_bluesky/08_gated_batch.md` §4.4).  Every numeric
+  attribute dataset in one open, keyed by name (non-numeric members
+  skipped); the parser splits a name into device, variable and scalar;
+  the manifest reader returns the raw GEECS names the file records behind
+  the normalized datasets.  Phase 2c's s-file writer and the hardware
+  acceptance read through these.
+
+## [0.29.1] - 2026-09-11
+
+### Fixed
+
+- **`TiledScanCatalog.load_run` and the Tiled → s-file export read the
+  primary stream's scalar table only** (`tiled_catalog.read_primary_scalars`).
+  Both used `run["primary"].read().to_dataframe()`, which downloads every
+  array part of the composite node — camera stacks and per-frame
+  attributes included — and then takes the outer product of every array's
+  dimensions: a two-camera plugin run (Scan008 of 26_0911) multiplied into
+  billions of rows and took the worker host down twice, through the
+  portal's run page.  The table parts are now read by name through
+  `primary.base`, aligned by row position; array parts are never touched.
+  Before this fix any plugin run with even one camera produced a
+  broadcast frame (1.8 M rows for a 5×600×600 stack), so row counts and
+  shot lookups over such runs were wrong as well as slow.
+
+## [0.29.0] - 2026-09-11
+
+### Changed
+
+- `io.scan_stack`: the stamp dataset is resolved, not fixed —
+  `timestamps_dataset(f)` finds `<device>-hdf-<variable>-frame_acq_timestamp`
+  (the file plugin's layout from GeecsPvaGateway 0.8, GEECS-Plugins#829)
+  or the bare `acq_timestamp` of earlier stacks; `is_stack_file`,
+  `read_stack_timestamps` and `read_shot_for_acq_timestamp` go through it.
+  `TIMESTAMPS_DATASET` stays as the bare-name spelling for the readers of
+  older files; `TIMESTAMP_SUFFIX` is the current suffix (deliberately not
+  `-acq_timestamp`, which `tiled_schema.is_acq_timestamp_column` reserves
+  for a device's event column).
+
+## [0.28.0] - 2026-09-11
+
+### Changed
+
+- `io.scan_stack` reads the areaDetector NDFileHDF5 layout the PVA
+  gateway's file plugin writes (#806): `FRAMES_DATASET =
+  "/entry/data/data"`, `ATTRIBUTES_GROUP`, `TIMESTAMPS_DATASET =
+  "/entry/instrument/NDAttributes/acq_timestamp"` — the one home for the
+  layout (the plugin and the worker's stack check import them);
+  `is_stack_file` dispatches on those datasets.  Every reader opens
+  through `open_stack` with HDF5 file locking **off** (the stacks are
+  written on Windows and read over SMB).  Callers (`ShotRef`,
+  `read_shot`, `read_shot_for_acq_timestamp`, `find_stack_file`) are
+  unchanged.
+
+### Removed
+
+- The `geecs-capture/1` layout (`/frames` + `/acq_timestamp`, `schema`
+  root attribute) written by the retired capture daemon (GeecsBluesky
+  ≤ 0.80): stacks in that layout on the share (scans since late August
+  2026) now read as "not captured" — the PNGs beside them remain the
+  record.  No converter, by the clean-slate rule.
+
 ## [0.27.1] - 2026-09-12
 
 ### Fixed
@@ -15,7 +216,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   took the worker host down (#834). Needed on master so the data portal
   can deploy from master with the logbook (#849) without regressing.
 
-## [0.27.0] - 2026-09-11
+## [0.27.0] - 2026-09-10
+
+### Added
+
+- `tiled_export.write_scalar_files(start_doc, primary_df)` — the legacy
+  scalar files (`ScanDataScanNNN.txt` + `analysis/sNNN.txt`) from a run's
+  start document and its `primary` events as a DataFrame, so the worker's
+  s-file callback writes them from the live documents at the stop
+  document (GeecsBluesky 0.80.0) with no Tiled round trip.
+  `write_scalar_files_from_tiled` is now the fetch plus that call (the
+  offline re-export).  Still a consumer of scan folders — never creates
+  one.
+
+## [0.27.0] - 2026-09-11 (master line, parallel release)
 
 ### Added
 
@@ -31,6 +245,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   than the whole file. This is the honest answer to "when did this scan
   run"; a scan folder's mtime is not, since any later pass that writes into
   the folder moves it (measured over an hour off the real start).
+
 
 ## [0.26.1] - 2026-09-04
 

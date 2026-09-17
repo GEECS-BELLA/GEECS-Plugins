@@ -3,34 +3,40 @@
 No gateway, no lab network, no aioca traffic — the CA signals run on ophyd-async
 mock backends.  The live end-to-end behavior (read/set/trigger against the real
 gateway) is exercised separately; here we pin the PV-naming contract and the
-device protocols (read / set-forwards-to-setpoint / acq_timestamp-gated trigger).
+scalar-device protocols (read / set-forwards-to-setpoint / converge).  The
+acquirer (``GeecsDetector``) has its own file, ``test_geecs_detector.py``.
 """
 
 from __future__ import annotations
 
 import asyncio
-import math
+import logging
 
 import pytest
 
 pytest.importorskip("aioca")  # CA backend needs the `ca` extra
 
-from ophyd_async.core import get_mock_put, set_mock_value  # noqa: E402
+from ophyd_async.core import (  # noqa: E402
+    callback_on_mock_put,
+    get_mock_put,
+    set_mock_put_proceeds,
+    set_mock_value,
+)
 
 from geecs_bluesky.devices.ca import (  # noqa: E402
     CaConfirmSettable,
-    CaGenericDetector,
     CaMotor,
     CaSettable,
     CaSnapshotReadable,
-    CaTimestampedReadable,
-    CaTriggerable,
 )
 from geecs_bluesky.devices.ca._pv import ca_pv  # noqa: E402
+from geecs_bluesky.devices.detector import (  # noqa: E402
+    STRICT_TRIGGER_INFO,
+    GeecsDetector,
+)
 from geecs_bluesky.exceptions import (  # noqa: E402
     GeecsConfirmTimeoutError,
     GeecsMotorTimeoutError,
-    GeecsTriggerTimeoutError,
 )
 from geecs_core.pv_naming import normalize_component, pv_name  # noqa: E402
 
@@ -71,19 +77,12 @@ async def test_every_ca_device_signal_pins_the_ca_transport() -> None:
     settable = CaSettable("U_S1H", "Current", experiment="Undulator", name="cur")
     motor = CaMotor("U_ESP_JetXYZ", "Position.Axis 1", experiment="Undulator")
     snap = CaSnapshotReadable("U_S1H", "Current", experiment="Undulator", name="s1h")
-    con = CaTimestampedReadable(
-        "UC_TopView",
-        ["centroidx"],
-        experiment="Undulator",
-        name="con",
-        save_nonscalar_data=True,
-    )
-    det = CaGenericDetector(
+    det = GeecsDetector(
         "UC_Amp2_IR_input",
         ["centroidx"],
         experiment="Undulator",
         name="amp",
-        save_nonscalar_data=True,
+        native_save=True,
     )
     signals = [
         settable.readback,
@@ -91,16 +90,13 @@ async def test_every_ca_device_signal_pins_the_ca_transport() -> None:
         motor.position,
         motor._setpoint,
         snap.current,
-        con.centroidx,
-        con.acq_timestamp,
-        con.localsavingpath,
-        con.save,
         det.centroidx,
         det.acq_timestamp,
+        det.connected_status,
         det.localsavingpath,
         det.save,
     ]
-    for device in (settable, motor, snap, con, det):
+    for device in (settable, motor, snap, det):
         await device.connect(mock=True)
     for signal in signals:
         # Mock backends wrap the CA backend: "mock+ca://<pv>".  The prefix
@@ -113,10 +109,11 @@ async def test_every_ca_device_signal_pins_the_ca_transport() -> None:
 
 async def test_ca_prefix_does_not_leak_into_event_keys_or_describe() -> None:
     """describe()/read() keys stay `<name>-<var>`; sources are single-ca://."""
-    det = CaGenericDetector(
+    det = GeecsDetector(
         "UC_Amp2_IR_input", ["centroidx"], experiment="Undulator", name="amp"
     )
     await det.connect(mock=True)
+    await det.prepare(STRICT_TRIGGER_INFO)  # a StandardDetector describes once prepared
     desc = await det.describe()
     reading = await det.read()
     assert set(desc) == {"amp-centroidx", "amp-acq_timestamp"}
@@ -125,7 +122,10 @@ async def test_ca_prefix_does_not_leak_into_event_keys_or_describe() -> None:
         "mock+ca://undulator:uc_amp2_ir_input:centroidx"
     )
     # Exporter column headers keep the legacy "Device Variable" form.
-    assert det._column_headers == {"amp-centroidx": "UC_Amp2_IR_input centroidx"}
+    assert det._column_headers == {
+        "amp-centroidx": "UC_Amp2_IR_input centroidx",
+        "amp-acq_timestamp": "UC_Amp2_IR_input acq_timestamp",
+    }
 
 
 # --------------------------------------------------------------------------
@@ -217,7 +217,8 @@ async def test_motor_arrival_exactly_on_tolerance_counts_as_arrived() -> None:
         experiment="Undulator",
         name="mode",
         tolerance=0.005,
-        move_timeout=0.3,
+        progress_grace=0.1,
+        stall_timeout=0.2,
     )
     await motor.connect(mock=True)
     set_mock_value(motor.position, -10.505)
@@ -233,7 +234,8 @@ async def test_motor_beyond_tolerance_still_times_out() -> None:
         experiment="Undulator",
         name="mode",
         tolerance=0.005,
-        move_timeout=0.3,
+        progress_grace=0.1,
+        stall_timeout=0.2,
     )
     await motor.connect(mock=True)
     set_mock_value(motor.position, -10.51)  # 0.01 out — twice the tolerance
@@ -242,18 +244,405 @@ async def test_motor_beyond_tolerance_still_times_out() -> None:
 
 
 async def test_motor_set_times_out_when_stuck() -> None:
-    """Readback never converging raises GeecsMotorTimeoutError."""
+    """A ``no error`` reply whose readback never converges: the stall rule fires.
+
+    The mock put completes at once (the reply); the readback then sits out
+    of tolerance, so the confirm stalls and names the phase.
+    """
     motor = CaMotor(
         "U_ESP_JetXYZ",
         "Position.Axis 1",
         experiment="Undulator",
         name="jet",
-        move_timeout=0.3,
+        progress_grace=0.1,
+        stall_timeout=0.2,
     )
     await motor.connect(mock=True)
     set_mock_value(motor.position, 0.0)  # stuck far from target
-    with pytest.raises(GeecsMotorTimeoutError):
+    with pytest.raises(GeecsMotorTimeoutError) as info:
         await motor.set(4.5)
+    assert info.value.replied is True
+    assert "after the device replied" in str(info.value)
+
+
+# --------------------------------------------------------------------------
+# The device's reply is the verdict; the readback stall rule is the only
+# client-side timeout (GEECS-Plugins#906)
+# --------------------------------------------------------------------------
+#
+# Timings run at 1/10 scale: PROGRESS_GRACE 5 s -> 0.5 s, STALL_TIMEOUT
+# 10 s -> 1.0 s, REPLY_WAIT 90 s -> 9 s, so a reply "at 45 s" arrives at
+# 4.5 s and the old 30 s cap would sit at 3.0 s.  The reply ceiling keeps
+# its real default unless a test is about it.
+
+_SCALE = 0.1
+_GRACE = 5.0 * _SCALE
+_STALL = 10.0 * _SCALE
+_REPLY_WAIT = 90.0 * _SCALE
+_OLD_CAP = 30.0 * _SCALE
+_PV = "undulator:u_modeimageresp:position_axis_1:SP"
+
+
+def _slow_stage(**overrides) -> CaMotor:
+    kwargs = dict(
+        device="U_ModeImagerESP",
+        variable="Position.Axis 1",
+        experiment="Undulator",
+        name="mode",
+        tolerance=0.005,
+        progress_grace=_GRACE,
+        stall_timeout=_STALL,
+        reply_wait=_REPLY_WAIT,
+    )
+    kwargs.update(overrides)
+    return CaMotor(**kwargs)
+
+
+async def _creep(motor: CaMotor, start: float, target: float, duration: float) -> None:
+    """Advance the mock readback from *start* to *target* over *duration* s.
+
+    One step per 0.1 s; every step exceeds the tolerance, so each is progress.
+    """
+    steps = max(int(duration / 0.1), 1)
+    for i in range(1, steps + 1):
+        await asyncio.sleep(duration / steps)
+        set_mock_value(motor.position, start + (target - start) * i / steps)
+
+
+def _warning_lines(caplog) -> list[str]:
+    return [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+
+
+def test_reply_wait_defaults_are_named_bounds_not_a_cap() -> None:
+    """The constants: 90 s reply wait, 5 s grace, 10 s stall, 300 s ceiling."""
+    from geecs_bluesky.devices.ca import motor as motor_module
+
+    assert motor_module.REPLY_WAIT == 90.0
+    assert motor_module.PROGRESS_GRACE == 5.0
+    assert motor_module.STALL_TIMEOUT == 10.0
+    assert motor_module.REPLY_CEILING == 300.0
+    assert not hasattr(motor_module, "_DEFAULT_MOVE_TIMEOUT")
+
+
+async def test_motor_waits_past_the_old_cap_for_a_late_no_error_reply(caplog) -> None:
+    """(a) A ``no error`` reply at "45 s" with the readback advancing completes.
+
+    Scan009 of 26_0914: a 19 mm move the device completed at 32 s, killed by
+    a 30 s client cap.  Here the readback creeps -5 → -24 the whole time and
+    the reply lands at 4.5 s scaled — 1.5× the old cap, inside the reply
+    wait: the reply path, no lost-reply warning.
+    """
+    motor = _slow_stage()
+    await motor.connect(mock=True)
+    set_mock_value(motor.position, -5.0)
+    set_mock_put_proceeds(motor._setpoint, False)  # the reply is pending
+
+    async def device() -> None:
+        await _creep(motor, -5.0, -24.0, 4.5)
+        set_mock_put_proceeds(motor._setpoint, True)  # ">>no error" at 45 s
+
+    loop = asyncio.get_running_loop()
+    task = asyncio.ensure_future(device())
+    t0 = loop.time()
+    with caplog.at_level(logging.WARNING, logger="geecs_bluesky.devices.ca"):
+        await asyncio.wait_for(motor.set(-24.0), timeout=8.0)
+    elapsed = loop.time() - t0
+    await task
+    assert _OLD_CAP < 4.5 <= elapsed < _REPLY_WAIT
+    assert await motor.position.get_value() == pytest.approx(-24.0)
+    assert _warning_lines(caplog) == []
+
+
+async def test_motor_never_answered_fails_at_grace_plus_stall_naming_the_pv(
+    caplog,
+) -> None:
+    """(b) No reply, readback stalled: GeecsMotorTimeoutError at ~grace+stall.
+
+    The one client-side timeout left.  The device's ERROR line names the
+    ``:SP`` PV; the exception names the device, the target and the current.
+    """
+    motor = _slow_stage()
+    await motor.connect(mock=True)
+    set_mock_value(motor.position, -5.0)
+    set_mock_put_proceeds(motor._setpoint, False)  # never answers
+
+    loop = asyncio.get_running_loop()
+    t0 = loop.time()
+    with caplog.at_level(logging.ERROR, logger="geecs_bluesky.devices.ca"):
+        with pytest.raises(GeecsMotorTimeoutError) as info:
+            await asyncio.wait_for(motor.set(-24.0), timeout=5.0)
+    elapsed = loop.time() - t0
+    assert _GRACE + _STALL <= elapsed < _GRACE + _STALL + 0.6
+    exc = info.value
+    assert (exc.device_name, exc.variable) == ("U_ModeImagerESP", "Position.Axis 1")
+    assert (exc.target, exc.current, exc.replied) == (-24.0, -5.0, False)
+    assert "with no reply from the device" in str(exc)
+    (line,) = _error_lines(caplog)
+    assert f"({_PV})" in line
+    assert "GeecsMotorTimeoutError: U_ModeImagerESP/Position.Axis 1" in line
+    set_mock_put_proceeds(motor._setpoint, True)  # release the cancelled put
+
+
+async def test_motor_error_reply_fails_at_once_even_while_advancing() -> None:
+    """(c) An error reply is the verdict: the move fails the moment it lands.
+
+    The readback is advancing (progress keeps the stall rule quiet), the
+    device answers with its check-values error — a device-side timeout,
+    adjusted in LabVIEW, never overridden here — and the put's failure
+    propagates untouched, before the grace has even elapsed.
+    """
+    motor = _slow_stage()
+    await motor.connect(mock=True)
+    set_mock_value(motor.position, -5.0)
+    refusal = _RefusedPut(
+        f"{_PV}: Error occurred during check values - Position.Axis 1 was not "
+        "change acording to the command. actual value= -6.485000"
+    )
+
+    async def error_reply(value, **kwargs):
+        await _creep(motor, -5.0, -6.5, 0.3)  # the stage is moving ...
+        raise refusal  # ... and then the device's check-values error lands
+
+    callback_on_mock_put(motor._setpoint, error_reply)
+    loop = asyncio.get_running_loop()
+    t0 = loop.time()
+    with pytest.raises(_RefusedPut) as info:
+        await asyncio.wait_for(motor.set(-24.0), timeout=3.0)
+    elapsed = loop.time() - t0
+    assert info.value is refusal
+    assert 0.3 <= elapsed < _GRACE  # at the reply, not the grace nor the stall
+
+
+async def test_motor_rejected_command_fails_at_once_not_after_grace_plus_stall() -> (
+    None
+):
+    """A put that fails inside the ACK window is a hard failure at once.
+
+    The GEECS set's first reply is the command ACK (GEECS-Core's 1.5 s
+    window): no ACK, a rejection (``is not a number``, an unknown
+    variable) or a dead device's write failure fails the gateway put inside
+    it.  The stall grace must neither swallow nor delay it — only a put
+    still pending past the ACK window is "waiting for the device".
+    """
+    motor = _slow_stage()
+    await motor.connect(mock=True)
+    set_mock_value(motor.position, -5.0)  # and it never moves
+    rejection = _RefusedPut(f"{_PV}: Channel write request failed")
+
+    def reject(value, **kwargs):
+        raise rejection
+
+    callback_on_mock_put(motor._setpoint, reject)
+    loop = asyncio.get_running_loop()
+    t0 = loop.time()
+    with pytest.raises(_RefusedPut) as info:
+        await asyncio.wait_for(motor.set(-24.0), timeout=3.0)
+    elapsed = loop.time() - t0
+    assert info.value is rejection
+    assert not isinstance(info.value, GeecsMotorTimeoutError)
+    assert elapsed < 0.3  # one poll tick, not grace (0.5) + stall (1.0)
+
+
+async def test_motor_keeps_waiting_past_reply_wait_while_advancing(caplog) -> None:
+    """(d) Slow but continuous progress with no reply is not a failure.
+
+    Every step exceeds the tolerance, so every stall window sees progress;
+    the wait crosses ``reply_wait`` (1 s here) with the stage still short
+    of the target — keep waiting for the reply — and completes when the
+    reply lands at 4 s, past the old cap: the reply path, no warning.
+    """
+    motor = _slow_stage(reply_wait=1.0)
+    await motor.connect(mock=True)
+    set_mock_value(motor.position, -5.0)
+    set_mock_put_proceeds(motor._setpoint, False)
+
+    async def device() -> None:
+        # The natural order: the stream shows the arrival, the reply lands a
+        # loop turn later — past reply_wait that must still be the reply
+        # path (a reply landing at the threshold wins), not a lost reply.
+        await _creep(motor, -5.0, -24.0, 4.0)
+        set_mock_put_proceeds(motor._setpoint, True)
+
+    loop = asyncio.get_running_loop()
+    task = asyncio.ensure_future(device())
+    t0 = loop.time()
+    with caplog.at_level(logging.WARNING, logger="geecs_bluesky.devices.ca"):
+        await asyncio.wait_for(motor.set(-24.0), timeout=7.0)
+    elapsed = loop.time() - t0
+    await task
+    assert elapsed >= 4.0 > _OLD_CAP
+    assert _warning_lines(caplog) == []
+
+
+async def test_motor_lost_reply_completes_at_reply_wait_when_at_target(caplog) -> None:
+    """(e) No reply ever, readback at the target before ``reply_wait``: complete.
+
+    The stage arrives at 0.8 s and sits there — never a stall — and the
+    move completes at ``reply_wait`` (2 s here) with the WARNING naming
+    the PV.
+    """
+    motor = _slow_stage(reply_wait=2.0)
+    await motor.connect(mock=True)
+    set_mock_value(motor.position, -5.0)
+    set_mock_put_proceeds(motor._setpoint, False)  # the reply is lost
+
+    loop = asyncio.get_running_loop()
+    creep = asyncio.ensure_future(_creep(motor, -5.0, -24.0, 0.8))
+    t0 = loop.time()
+    with caplog.at_level(logging.WARNING, logger="geecs_bluesky.devices.ca"):
+        await asyncio.wait_for(motor.set(-24.0), timeout=5.0)
+    elapsed = loop.time() - t0
+    await creep
+    assert 2.0 <= elapsed < 2.0 + 0.4
+    (line,) = _warning_lines(caplog)
+    assert "no reply from the device within 2 s" in line
+    assert "treating the move as complete" in line
+    assert f"({_PV})" in line
+    set_mock_put_proceeds(motor._setpoint, True)  # release the cancelled put
+
+
+async def test_motor_ceiling_fails_the_put_while_still_moving() -> None:
+    """(f) Past ``reply_wait``, still moving, no reply: the ceiling ends it.
+
+    The put's own timeout names the PV; the readback (short of the target
+    at the ceiling) never completed the move.
+    """
+    motor = _slow_stage(reply_wait=0.5, reply_ceiling=1.5)
+    await motor.connect(mock=True)
+    set_mock_value(motor.position, -5.0)
+    set_mock_put_proceeds(motor._setpoint, False)
+
+    loop = asyncio.get_running_loop()
+    creep = asyncio.ensure_future(_creep(motor, -5.0, -24.0, 3.0))
+    t0 = loop.time()
+    with pytest.raises(TimeoutError, match="position_axis_1:SP.*1.5 s"):
+        await asyncio.wait_for(motor.set(-24.0), timeout=4.0)
+    elapsed = loop.time() - t0
+    creep.cancel()
+    assert 1.5 <= elapsed < 1.5 + 0.4
+    set_mock_put_proceeds(motor._setpoint, True)
+
+
+async def test_motor_nan_readback_after_the_reply_is_bounded() -> None:
+    """A readback the stall rule cannot see (NaN) fails after the confirm budget.
+
+    The device replied ``no error``; the stream then reads NaN — never
+    within tolerance, and ``NaN != anchor`` must not count as progress.
+    Without the post-reply bound the loop waited forever (review of #909).
+    """
+    motor = _slow_stage()
+    await motor.connect(mock=True)
+    set_mock_value(motor.position, float("nan"))
+
+    loop = asyncio.get_running_loop()
+    t0 = loop.time()
+    with pytest.raises(GeecsMotorTimeoutError) as info:
+        await asyncio.wait_for(motor.set(-24.0), timeout=5.0)
+    elapsed = loop.time() - t0
+    assert _GRACE + _STALL <= elapsed < _GRACE + _STALL + 0.6
+    assert info.value.replied is True
+
+
+async def test_motor_ripple_wider_than_tolerance_after_the_reply_is_bounded() -> None:
+    """A readback flapping by more than the tolerance is not endless progress.
+
+    The device replied ``no error``; the readback then flips between two
+    values 4× the tolerance apart, never at the target.  The post-reply
+    confirm budget (grace + stall from the reply) ends it.
+    """
+    motor = _slow_stage()
+    await motor.connect(mock=True)
+    set_mock_value(motor.position, 0.0)
+
+    async def ripple() -> None:
+        i = 0
+        while True:
+            await asyncio.sleep(0.13)
+            i += 1
+            set_mock_value(motor.position, 0.02 * (i % 2))
+
+    loop = asyncio.get_running_loop()
+    task = asyncio.ensure_future(ripple())
+    t0 = loop.time()
+    try:
+        with pytest.raises(GeecsMotorTimeoutError) as info:
+            await asyncio.wait_for(motor.set(-24.0), timeout=5.0)
+    finally:
+        task.cancel()
+    elapsed = loop.time() - t0
+    assert _GRACE + _STALL <= elapsed < _GRACE + _STALL + 0.6
+    assert info.value.replied is True
+
+
+async def test_motor_nan_first_readback_then_stalled_fails_at_grace_plus_stall(
+    caplog,
+) -> None:
+    """A NaN *first* readback is never the anchor (Codex review of #909).
+
+    The stream reads NaN at the put, then — past the grace — a fixed finite
+    value short of the target; the device never replies.  The first finite
+    readback is adopted as the anchor without counting as progress, so the
+    failure lands at grace+stall from the put, not stall from the readback's
+    arrival (and never later than that: a NaN anchor compared as "moved").
+    """
+    motor = _slow_stage()
+    await motor.connect(mock=True)
+    set_mock_value(motor.position, float("nan"))
+    set_mock_put_proceeds(motor._setpoint, False)  # never answers
+
+    async def stream() -> None:
+        await asyncio.sleep(1.0)  # past the grace (0.5 s)
+        set_mock_value(motor.position, -6.0)  # finite, short of -24, and fixed
+
+    loop = asyncio.get_running_loop()
+    task = asyncio.ensure_future(stream())
+    t0 = loop.time()
+    with caplog.at_level(logging.ERROR, logger="geecs_bluesky.devices.ca"):
+        with pytest.raises(GeecsMotorTimeoutError) as info:
+            await asyncio.wait_for(motor.set(-24.0), timeout=4.0)
+    elapsed = loop.time() - t0
+    await task
+    assert _GRACE + _STALL <= elapsed < _GRACE + _STALL + 0.3  # not 1.0 + stall
+    assert (info.value.current, info.value.replied) == (-6.0, False)
+    (line,) = _error_lines(caplog)
+    assert f"({_PV})" in line
+    set_mock_put_proceeds(motor._setpoint, True)
+
+
+def test_within_tolerance_rejects_a_non_finite_target_too() -> None:
+    """Neither side of the comparison may be NaN/inf."""
+    from geecs_bluesky.devices.ca.motor import within_tolerance
+
+    nan, inf = float("nan"), float("inf")
+    assert within_tolerance(1.0, 1.0, 0.0)
+    assert not within_tolerance(nan, 1.0, 1.0)
+    assert not within_tolerance(1.0, nan, 1.0)
+    assert not within_tolerance(nan, nan, 1.0)
+    assert not within_tolerance(inf, inf, 1.0)
+
+
+async def test_motor_stall_after_progress_still_fails() -> None:
+    """Progress resets the stall clock; a stage that then stops is caught.
+
+    Creep for 0.8 s (past the grace), then stop short with no reply: the
+    failure lands ~one stall window after the last step, not grace+stall
+    from t0.
+    """
+    motor = _slow_stage()
+    await motor.connect(mock=True)
+    set_mock_value(motor.position, -5.0)
+    set_mock_put_proceeds(motor._setpoint, False)
+
+    loop = asyncio.get_running_loop()
+    creep = asyncio.ensure_future(_creep(motor, -5.0, -8.0, 0.8))
+    t0 = loop.time()
+    with pytest.raises(GeecsMotorTimeoutError) as info:
+        await asyncio.wait_for(motor.set(-24.0), timeout=5.0)
+    elapsed = loop.time() - t0
+    await creep
+    assert 0.8 + _STALL <= elapsed < 0.8 + _STALL + 0.6
+    assert info.value.current == pytest.approx(-8.0)
+    set_mock_put_proceeds(motor._setpoint, True)
 
 
 # --------------------------------------------------------------------------
@@ -351,337 +740,17 @@ async def test_confirm_discrete_match_rejects_numeric_looking_near_miss() -> Non
         await device.set("1.0")
 
 
-# --------------------------------------------------------------------------
-# CaTriggerable
-# --------------------------------------------------------------------------
+async def test_confirm_exactly_on_tolerance_counts_as_matched() -> None:
+    """The same on-boundary fix applies to the confirming poll (#820).
 
-
-async def test_trigger_completes_when_acq_timestamp_advances() -> None:
-    """trigger() blocks until acq_timestamp changes, then completes."""
-    dev = CaTriggerable(
-        "UC_Amp2_IR_input", "centroidx", experiment="Undulator", name="amp"
-    )
-    await dev.connect(mock=True)
-    set_mock_value(dev.acq_timestamp, 100.0)
-    await asyncio.sleep(0)  # deliver the monitor update
-
-    status = dev.trigger()
-    await asyncio.sleep(0.05)
-    assert not status.done
-
-    set_mock_value(dev.acq_timestamp, 101.0)  # one shot
-    await asyncio.wait_for(status, timeout=2.0)
-    assert status.done
-
-
-async def test_trigger_immediate_shot_not_missed() -> None:
-    """The strict single-shot race: a shot fired IMMEDIATELY after trigger().
-
-    trigger() must baseline synchronously before returning, so a shot landing
-    before the returned coroutine first runs (zero awaits in between here) is
-    still detected rather than being folded into the baseline and timing out.
+    |1.20 - 1.15| is 0.050000000000000044, not 0.05: an EMQ set landing
+    exactly on the 0.05 default must match, not time out.
     """
-    dev = CaTriggerable(
-        "UC_Amp2_IR_input", "centroidx", experiment="Undulator", name="amp"
-    )
-    dev._trigger_timeout = 1.0
-    await dev.connect(mock=True)
-    set_mock_value(dev.acq_timestamp, 100.0)
-    await asyncio.sleep(0)  # deliver the monitor update (cache = 100.0)
-
-    status = dev.trigger()
-    set_mock_value(dev.acq_timestamp, 101.0)  # fire NOW — no await since trigger()
-    await asyncio.wait_for(status, timeout=2.0)
-    assert status.done
-
-
-async def test_trigger_cold_cache_shot_before_coroutine_runs_not_lost() -> None:
-    """Cold-cache race: the first-ever shot fires right after trigger().
-
-    With no monitor update since subscribe (``_last_acq is None``), the old
-    cold path took a CA-get baseline inside the coroutine and THEN drained the
-    queue — discarding a shot that landed between trigger() returning and the
-    coroutine running (and/or baselining on that shot's own timestamp).  A
-    cold cache means the monitor has delivered no positive value yet, so any
-    queued positive value IS the shot: trigger() must complete, not time out.
-    """
-    dev = CaTriggerable(
-        "UC_Amp2_IR_input", "centroidx", experiment="Undulator", name="amp"
-    )
-    dev._trigger_timeout = 1.0
-    await dev.connect(mock=True)
-    assert dev._last_acq is None  # cold cache: no update since subscribe
-
-    status = dev.trigger()
-    set_mock_value(dev.acq_timestamp, 101.0)  # first shot, before the coroutine runs
-    await asyncio.wait_for(status, timeout=2.0)
-    assert status.done
-
-
-async def test_trigger_cold_cache_shot_after_coroutine_starts() -> None:
-    """Cold cache, no baseline get: a mid-wait first acquisition is the shot.
-
-    The cold path deliberately takes no CA-get baseline (a get raced the shot
-    itself: a first acquisition landing inside the get's round-trip became
-    the baseline and the strict shot timed out — flagged in PR #452 review).
-    With t0 = None the first positive monitor update completes the trigger,
-    no matter when it arrives relative to the coroutine starting.
-    """
-    dev = CaTriggerable(
-        "UC_Amp2_IR_input", "centroidx", experiment="Undulator", name="amp"
-    )
-    dev._trigger_timeout = 1.0
-    await dev.connect(mock=True)
-    assert dev._last_acq is None  # mock backend initial value is the 0.0 placeholder
-
-    status = dev.trigger()
-    await asyncio.sleep(0.05)  # coroutine is already waiting on the queue
-    set_mock_value(dev.acq_timestamp, 101.0)  # first real acquisition
-    await asyncio.wait_for(status, timeout=2.0)
-    assert status.done
-
-
-async def test_trigger_ignores_stale_updates_before_trigger() -> None:
-    """Updates queued before trigger() are drained, not mistaken for a shot."""
-    dev = CaTriggerable(
-        "UC_Amp2_IR_input", "centroidx", experiment="Undulator", name="amp"
-    )
-    dev._trigger_timeout = 0.3
-    await dev.connect(mock=True)
-    # Several pushes before the trigger — all stale by trigger() time.
-    for ts in (100.0, 101.0, 102.0):
-        set_mock_value(dev.acq_timestamp, ts)
-        await asyncio.sleep(0)
-
-    status = dev.trigger()  # baseline = 102.0; stale queue drained
-    with pytest.raises(GeecsTriggerTimeoutError):
-        await status
-
-
-async def test_trigger_times_out_when_no_shot() -> None:
-    """No acq_timestamp advance within the timeout raises GeecsTriggerTimeoutError."""
-    dev = CaTriggerable(
-        "UC_Amp2_IR_input", "centroidx", experiment="Undulator", name="amp"
-    )
-    dev._trigger_timeout = 0.2
-    await dev.connect(mock=True)
-    set_mock_value(dev.acq_timestamp, 100.0)
-    await asyncio.sleep(0)
-    with pytest.raises(GeecsTriggerTimeoutError):
-        await dev.trigger()
-
-
-# --------------------------------------------------------------------------
-# CaGenericDetector (schema-v1 companion columns over CA)
-# --------------------------------------------------------------------------
-
-
-async def _shot(det: CaGenericDetector, acq: float) -> dict:
-    """Simulate one shot: advance acq_timestamp, await trigger, return read()."""
-    status = det.trigger()
-    set_mock_value(det.acq_timestamp, acq)
-    await asyncio.wait_for(status, timeout=2.0)
-    return await det.read()
-
-
-async def test_generic_detector_companion_columns() -> None:
-    """First shot self-seeds the tracker: shot_id=1, offset=0, valid=True."""
-    det = CaGenericDetector(
-        "UC_Amp2_IR_input", ["centroidx"], experiment="Undulator", name="amp"
-    )
-    await det.connect(mock=True)
-    det.configure_shot_id(rep_rate_hz=1.0)
-    set_mock_value(det.acq_timestamp, 100.0)
-    await asyncio.sleep(0)
-
-    desc = await det.describe()
-    for key in (
-        "amp-centroidx",
-        "amp-acq_timestamp",
-        "amp-t0_acq_timestamp",
-        "amp-shot_id",
-        "amp-shot_offset",
-        "amp-valid",
-    ):
-        assert key in desc, key
-
-    reading = await det.read()  # first read self-seeds at 100.0
-    assert reading["amp-acq_timestamp"]["value"] == 100.0
-    assert reading["amp-t0_acq_timestamp"]["value"] == 100.0
-    assert reading["amp-shot_id"]["value"] == 1
-    assert reading["amp-shot_offset"]["value"] == 0
-    assert reading["amp-valid"]["value"] is True
-
-
-async def test_generic_detector_shot_id_increments() -> None:
-    """Shot IDs advance incrementally from acq_timestamp deltas (1 Hz)."""
-    det = CaGenericDetector(
-        "UC_Amp2_IR_input", ["centroidx"], experiment="Undulator", name="amp"
-    )
-    await det.connect(mock=True)
-    det.configure_shot_id(rep_rate_hz=1.0)
-    set_mock_value(det.acq_timestamp, 100.0)
-    await asyncio.sleep(0)
-    await det.read()  # seeds shot 1 at 100.0
-
-    reading = await _shot(det, 101.0)  # +1 s at 1 Hz → shot 2
-    assert reading["amp-shot_id"]["value"] == 2
-    reading = await _shot(det, 104.0)  # 3 s dead time → shot 5 (gap preserved)
-    assert reading["amp-shot_id"]["value"] == 5
-    assert reading["amp-valid"]["value"] is True
-
-
-async def test_generic_detector_without_shot_ids_is_plain() -> None:
-    """Unconfigured tracker → no companion columns (stable minimal schema)."""
-    det = CaGenericDetector(
-        "UC_Amp2_IR_input", ["centroidx"], experiment="Undulator", name="amp"
-    )
-    await det.connect(mock=True)
-    desc = await det.describe()
-    assert "amp-shot_id" not in desc
-    reading = await det.read()
-    assert "amp-shot_id" not in reading
-
-
-async def test_generic_detector_save_controls_over_ca() -> None:
-    """save_nonscalar_data=True creates CA save controls + the save-path column.
-
-    The controls read the gateway readback PV and write its :SP setpoint, so
-    the shared run wrapper can bps.mv(det.localsavingpath, path, det.save, "on")
-    exactly as with the direct backend.
-    """
-    det = CaGenericDetector(
-        "UC_Amp2_IR_input",
-        ["centroidx"],
-        experiment="Undulator",
-        name="amp",
-        save_nonscalar_data=True,
-    )
-    await det.connect(mock=True)
-
-    assert det.localsavingpath.source.endswith(
-        "undulator:uc_amp2_ir_input:localsavingpath"
-    )
-    assert det.save.source.endswith("undulator:uc_amp2_ir_input:save")
-    await det.save.set("on")
-    put = get_mock_put(det.save)
-    put.assert_called_once()
-    assert put.call_args.args[0] == "on"
-
-    det.configure_nonscalar_file_logging("/data/scans/Scan012/UC_Amp2_IR_input")
-    desc = await det.describe()
-    assert "amp-nonscalar_save_path" in desc
-    reading = await det.read()
-    assert (
-        reading["amp-nonscalar_save_path"]["value"]
-        == "/data/scans/Scan012/UC_Amp2_IR_input"
-    )
-
-
-async def test_generic_detector_no_save_controls_by_default() -> None:
-    """Without save_nonscalar_data there are no save controls or save column."""
-    det = CaGenericDetector(
-        "UC_Amp2_IR_input", ["centroidx"], experiment="Undulator", name="amp"
-    )
-    await det.connect(mock=True)
-    assert not hasattr(det, "localsavingpath")
-    desc = await det.describe()
-    assert "amp-nonscalar_save_path" not in desc
-
-
-async def test_generic_detector_dedups_timestamp_variable() -> None:
-    """acq_timestamp in variable_list maps onto the dedicated child, not a dup."""
-    det = CaGenericDetector(
-        "UC_Amp2_IR_input",
-        ["centroidx", "acq_timestamp"],
-        experiment="Undulator",
-        name="amp",
-    )
-    await det.connect(mock=True)
-    reading = await det.read()
-    assert set(reading) == {"amp-centroidx", "amp-acq_timestamp"}
-    # Exporter headers cover data variables only, not the timestamp column.
-    assert det._column_headers == {"amp-centroidx": "UC_Amp2_IR_input centroidx"}
-
-
-# --------------------------------------------------------------------------
-# CaTimestampedReadable (free-run contributor) + CaSnapshotReadable
-# --------------------------------------------------------------------------
-
-
-async def _make_ref_and_contributor() -> tuple[
-    CaGenericDetector, CaTimestampedReadable
-]:
-    """Reference + contributor pair, both seeded at shot 1 (acq=100.0)."""
-    ref = CaGenericDetector(
-        "UC_Amp2_IR_input", ["centroidx"], experiment="Undulator", name="ref"
-    )
-    con = CaTimestampedReadable(
-        "UC_TopView", ["centroidx"], experiment="Undulator", name="con"
-    )
-    await ref.connect(mock=True)
-    await con.connect(mock=True)
-    ref.configure_shot_id(rep_rate_hz=1.0)
-    con.configure_shot_id(rep_rate_hz=1.0)
-    con.set_reference(ref, grace_wait_s=0)  # no grace wait in tests
-    set_mock_value(ref.acq_timestamp, 100.0)
-    set_mock_value(con.acq_timestamp, 100.0)
-    await asyncio.sleep(0)
-    ref.seed_shot_id(100.0)
-    con.seed_shot_id(100.0)
-    return ref, con
-
-
-async def test_contributor_on_time_frame_is_valid() -> None:
-    """Contributor frame for the row's shot → shot_offset=0, valid=True."""
-    ref, con = await _make_ref_and_contributor()
-    # Shot 2 on both devices; the reference accepted it (cache advanced).
-    set_mock_value(ref.acq_timestamp, 101.0)
-    set_mock_value(con.acq_timestamp, 101.0)
-    await asyncio.sleep(0)
-
-    reading = await con.read()
-    assert reading["con-acq_timestamp"]["value"] == 101.0
-    assert reading["con-shot_id"]["value"] == 2
-    assert reading["con-shot_offset"]["value"] == 0
-    assert reading["con-valid"]["value"] is True
-
-
-async def test_contributor_late_frame_labeled_offset_minus_one() -> None:
-    """A contributor still on the previous shot → shot_offset=-1, valid=False."""
-    ref, con = await _make_ref_and_contributor()
-    # Reference saw shot 2; the contributor's frame has not arrived.
-    set_mock_value(ref.acq_timestamp, 101.0)
-    await asyncio.sleep(0)
-
-    reading = await con.read()
-    assert reading["con-shot_id"]["value"] == 1  # still shot 1
-    assert reading["con-shot_offset"]["value"] == -1
-    assert reading["con-valid"]["value"] is False
-
-
-async def test_contributor_without_reference_never_claims_valid() -> None:
-    """No reference → shot_offset NaN, valid False (never false validity)."""
-    con = CaTimestampedReadable(
-        "UC_TopView", ["centroidx"], experiment="Undulator", name="con"
-    )
-    await con.connect(mock=True)
-    con.configure_shot_id(rep_rate_hz=1.0)
-    set_mock_value(con.acq_timestamp, 100.0)
-    await asyncio.sleep(0)
-    con.seed_shot_id(100.0)
-
-    reading = await con.read()
-    assert math.isnan(reading["con-shot_offset"]["value"])
-    assert reading["con-valid"]["value"] is False
-
-
-async def test_contributor_has_no_blocking_trigger() -> None:
-    """Contributors must not gate event rows: no trigger() beyond Device's."""
-    con = CaTimestampedReadable(
-        "UC_TopView", ["centroidx"], experiment="Undulator", name="con"
-    )
-    assert not hasattr(con, "_wait_for_shot")
+    device = _emq_confirm_device(tolerance=0.05)
+    await device.connect(mock=True)
+    set_mock_value(device._confirm_readback, 1.20)
+    assert abs(1.20 - 1.15) > 0.05  # the representation error is real
+    await asyncio.wait_for(device.set(1.15), timeout=2.0)
 
 
 async def test_snapshot_reads_latest_values() -> None:
@@ -697,270 +766,143 @@ async def test_snapshot_reads_latest_values() -> None:
     assert snap.current.source.endswith("undulator:u_s1h:current")
 
 
+def test_ca_motor_locates_by_its_readback_so_relative_plans_work() -> None:
+    """``rel_scan`` stashes ``locate()`` (the streamed readback), moves about it, restores it.
+
+    Found on hardware (2b broader set, Scan017): without ``locate`` bluesky
+    fell back to ``obj.position`` — the readback signal — and every
+    ``rel_*`` plan failed at its first move.
+    """
+    import bluesky.plans as bp
+    from bluesky import RunEngine
+
+    from tests.ca_mock_helpers import connect_mock, follow_setpoint
+
+    RE = RunEngine()
+    motor = CaMotor("U_Stage", "Position.Axis1", experiment="TestExp", name="u_stage")
+    connect_mock(RE, motor)
+    set_mock_value(motor.position, 41342.0)  # where the device is
+    set_mock_value(motor._setpoint, 0.0)  # the gateway's :SP: never put through it
+    follow_setpoint(motor)
+
+    async def locate():
+        return await motor.locate()
+
+    loc = asyncio.run_coroutine_threadsafe(locate(), RE._loop).result(timeout=5)
+    assert loc == {"setpoint": 41342.0, "readback": 41342.0}
+    RE(bp.rel_scan([], motor, -20, 20, 5))
+    puts = [c.args[0] for c in get_mock_put(motor._setpoint).call_args_list]
+    assert puts == [41322.0, 41332.0, 41342.0, 41352.0, 41362.0, 41342.0]
+
+
 # --------------------------------------------------------------------------
-# Persistent-monitor lifecycle: bounded idle queue + disconnect() teardown
+# A failed set names its PV in the log (GEECS-Plugins#868)
 # --------------------------------------------------------------------------
 
 
-async def test_idle_monitor_updates_do_not_grow_queue_unboundedly() -> None:
-    """An undrained device (contributor / idle detector) keeps a bounded queue.
+class _RefusedPut(RuntimeError):
+    """The shape of a failed ``aioca.CANothing``: falsy, repr = the bare code.
 
-    Only trigger() drains _shot_queue; a free-run contributor never calls it.
-    Hundreds of monitor updates must therefore top out at the drop-oldest
-    bound, with the cache still tracking the latest value.
+    Only ``str`` carries the PV and the CA message; a truthy stand-in could
+    not catch an ``exc.__cause__ or exc`` selection (#817's bug).
     """
-    con = CaTimestampedReadable(
-        "UC_TopView", ["centroidx"], experiment="Undulator", name="con"
-    )
-    await con.connect(mock=True)
-    for i in range(500):
-        set_mock_value(con.acq_timestamp, 100.0 + i)
-    await asyncio.sleep(0)  # deliver any pending monitor callbacks
 
-    assert con._shot_queue.qsize() <= con._shot_queue_maxsize
-    assert con._last_acq == 599.0  # newest survives the drop-oldest ring
+    def __bool__(self) -> bool:
+        return False
+
+    def __repr__(self) -> str:
+        return "_RefusedPut(ECA_DISCONN)"
 
 
-async def test_trigger_completes_after_queue_saturation() -> None:
-    """A saturated idle queue must not break the trigger path.
+def _error_lines(caplog) -> list[str]:
+    return [r.getMessage() for r in caplog.records if r.levelno == logging.ERROR]
 
-    After far more idle updates than the queue bound, trigger() still drains,
-    baselines, and detects the next new timestamp (no regression from the
-    drop-oldest ring).
-    """
-    dev = CaTriggerable(
-        "UC_Amp2_IR_input", "centroidx", experiment="Undulator", name="amp"
-    )
+
+async def test_settable_refused_put_is_logged_with_the_pv_and_the_cause(
+    caplog,
+) -> None:
+    """The device's ERROR line: the ``:SP`` PV and the falsy cause by ``str``."""
+    dev = CaSettable("U_S1H", "Current", experiment="Undulator", name="cur")
     await dev.connect(mock=True)
-    for i in range(200):  # saturate the bounded queue while idle
-        set_mock_value(dev.acq_timestamp, 100.0 + i)
-    await asyncio.sleep(0)
 
-    status = dev.trigger()
-    set_mock_value(dev.acq_timestamp, 1000.0)  # fire immediately (no-blind-window)
-    await asyncio.wait_for(status, timeout=2.0)
-    assert status.done
+    def refuse(value, **kwargs):
+        raise _RefusedPut("undulator:u_s1h:current:SP: Virtual circuit disconnect")
+
+    callback_on_mock_put(dev._setpoint, refuse)
+    with caplog.at_level(logging.ERROR, logger="geecs_bluesky.devices.ca"):
+        with pytest.raises(_RefusedPut):
+            await dev.set(0.5)
+    (line,) = _error_lines(caplog)
+    assert "cur: set Current → 0.5 failed (undulator:u_s1h:current:SP)" in line
+    assert "_RefusedPut: undulator:u_s1h:current:SP: Virtual circuit disconnect" in line
+    assert "ECA_DISCONN" not in line  # the repr, never
 
 
-async def test_disconnect_unsubscribes_monitor_and_clears_state() -> None:
-    """disconnect() stops the monitor and drops cached shot state.
-
-    After disconnect, further acq_timestamp updates must produce no callback
-    activity (empty queue, cache back to the never-acquired None), and calling
-    it again must be a harmless no-op (idempotent).
-    """
-    dev = CaTriggerable(
-        "UC_Amp2_IR_input", "centroidx", experiment="Undulator", name="amp"
+async def test_motor_refused_put_and_timeout_are_logged_with_the_pv(caplog) -> None:
+    """CaMotor shares the seam: the Layer-1 put and the Layer-2 timeout both name the PV."""
+    motor = CaMotor(
+        "U_ESP_JetXYZ",
+        "Position.Axis 1",
+        experiment="Undulator",
+        name="jet",
+        progress_grace=0.1,
+        stall_timeout=0.2,
     )
+    await motor.connect(mock=True)
+    pv = "undulator:u_esp_jetxyz:position_axis_1:SP"
+
+    def refuse(value, **kwargs):
+        raise _RefusedPut(f"{pv}: no ACK within 1.5s")
+
+    callback_on_mock_put(motor._setpoint, refuse)
+    with caplog.at_level(logging.ERROR, logger="geecs_bluesky.devices.ca"):
+        with pytest.raises(_RefusedPut):
+            await motor.set(4.5)
+    (line,) = _error_lines(caplog)
+    assert f"({pv}): _RefusedPut: {pv}: no ACK within 1.5s" in line
+
+    caplog.clear()
+    callback_on_mock_put(motor._setpoint, lambda value, **kwargs: None)
+    set_mock_value(motor.position, 0.0)  # stuck far from target
+    with caplog.at_level(logging.ERROR, logger="geecs_bluesky.devices.ca"):
+        with pytest.raises(GeecsMotorTimeoutError):
+            await motor.set(4.5)
+    (line,) = _error_lines(caplog)
+    assert f"({pv}): GeecsMotorTimeoutError:" in line
+
+
+async def test_confirm_settable_refused_put_is_logged_with_the_pv(caplog) -> None:
+    """CaConfirmSettable routes through the same seam (its confirm poll is Layer 2)."""
+    dev = _emq_confirm_device(timeout=0.3)
     await dev.connect(mock=True)
-    set_mock_value(dev.acq_timestamp, 100.0)
-    await asyncio.sleep(0)
-    assert dev._last_acq == 100.0
-    assert dev._shot_queue.qsize() == 1
+    pv = "undulator:u_emqtripletbipolar:current_limit_ch1:SP"
 
-    await dev.disconnect()
-    assert dev._monitoring is False
-    assert dev._shot_queue.empty()
-    assert dev._last_acq is None
+    def refuse(value, **kwargs):
+        raise _RefusedPut(f"{pv}: Channel write request failed")
 
-    set_mock_value(dev.acq_timestamp, 101.0)  # post-teardown update
-    await asyncio.sleep(0)
-    assert dev._shot_queue.empty()  # no further callback activity
-    assert dev._last_acq is None
-
-    await dev.disconnect()  # idempotent
+    callback_on_mock_put(dev._setpoint, refuse)
+    with caplog.at_level(logging.ERROR, logger="geecs_bluesky.devices.ca"):
+        with pytest.raises(_RefusedPut):
+            await dev.set(1.0)
+    (line,) = _error_lines(caplog)
+    assert f"({pv}): _RefusedPut: {pv}: Channel write request failed" in line
 
 
-async def test_reconnect_after_disconnect_resubscribes() -> None:
-    """connect() after disconnect() restores the monitor (per-scan reuse)."""
-    dev = CaTriggerable(
-        "UC_Amp2_IR_input", "centroidx", experiment="Undulator", name="amp"
-    )
+async def test_a_successful_set_logs_no_error(caplog) -> None:
+    dev = CaSettable("U_S1H", "Current", experiment="Undulator", name="cur")
     await dev.connect(mock=True)
-    await dev.disconnect()
-
-    await dev.connect(mock=True)
-    set_mock_value(dev.acq_timestamp, 200.0)
-    await asyncio.sleep(0)
-    assert dev._last_acq == 200.0
+    with caplog.at_level(logging.ERROR, logger="geecs_bluesky.devices.ca"):
+        await dev.set(0.5)
+    assert _error_lines(caplog) == []
 
 
-async def test_all_ca_devices_define_disconnect() -> None:
-    """Every CA device type honours the per-scan teardown contract.
-
-    The runner's cleanup (``session.disconnect``) runs device.disconnect()
-    on the RE loop for every device it created; each class must expose it
-    as a coroutine that does not raise (previously an AttributeError was
-    swallowed by the caller).
-    """
-    devices = [
-        CaSnapshotReadable("U_S1H", "Current", name="snap"),
-        CaSettable("U_S1H", "Current", name="cur"),
-        CaMotor("U_ESP_JetXYZ", "Position.Axis 1", name="jet"),
-        CaTimestampedReadable("UC_TopView", ["centroidx"], name="con"),
-        CaGenericDetector("UC_Amp2_IR_input", ["centroidx"], name="det"),
-    ]
-    for dev in devices:
-        await dev.connect(mock=True)
-        assert asyncio.iscoroutinefunction(dev.disconnect), type(dev).__name__
-        await dev.disconnect()  # must not raise
-
-
-def test_saving_device_surfaces_acq_timestamp_in_sfile_headers() -> None:
-    """A file/image-saving device adds acq_timestamp as an s-file column.
-
-    Saved image filenames are stamped with acq_timestamp, so surfacing it as a
-    legacy scalar column lets saved files tie back to scan rows — an
-    images-only device otherwise contributes no scalar column at all. A
-    pure-scalar device keeps acq_timestamp as an excluded companion column.
-    """
-    saving = CaGenericDetector(
-        "UC_Amp2_IR_input",
-        ["centroidx"],
-        experiment="Undulator",
-        name="amp",
-        save_nonscalar_data=True,
+async def test_snapshot_carries_the_liveness_pv_but_never_reads_it() -> None:
+    """A scalar-only device's CONNECTED signal is for the liveness gate, not a column."""
+    gauge = CaSnapshotReadable(
+        "U_Gauge", ["Pressure"], experiment="Undulator", name="g"
     )
-    assert saving._column_headers["amp-acq_timestamp"] == (
-        "UC_Amp2_IR_input acq_timestamp"
-    )
-    assert saving._column_headers["amp-centroidx"] == "UC_Amp2_IR_input centroidx"
-
-    scalar_only = CaGenericDetector(
-        "UC_Amp2_IR_input",
-        ["centroidx"],
-        experiment="Undulator",
-        name="amp2",
-        save_nonscalar_data=False,
-    )
-    assert "amp2-acq_timestamp" not in scalar_only._column_headers
-
-    # An images-only save (no other scalars) still yields the acq_timestamp
-    # column — the one column that ties the saved frames to the rows.
-    images_only = CaGenericDetector(
-        "UC_Amp2_IR_input",
-        [],
-        experiment="Undulator",
-        name="cam",
-        save_nonscalar_data=True,
-    )
-    assert images_only._column_headers == {
-        "cam-acq_timestamp": "UC_Amp2_IR_input acq_timestamp"
-    }
-
-    # Same for the free-run contributor.
-    contributor = CaTimestampedReadable(
-        "UC_TopView",
-        ["centroidx"],
-        experiment="Undulator",
-        name="con",
-        save_nonscalar_data=True,
-    )
-    assert contributor._column_headers["con-acq_timestamp"] == (
-        "UC_TopView acq_timestamp"
-    )
-
-
-class TestSaveControlOnly:
-    """Capture-owned cameras: a save control child, nothing else save-shaped."""
-
-    def test_detector_save_control_only_shape(self) -> None:
-        det = CaGenericDetector(
-            "UC_Amp4_IR_input",
-            ["centroidx"],
-            experiment="Undulator",
-            name="cap",
-            save_nonscalar_data=False,
-            save_control_only=True,
-        )
-        assert det._save_control_only is True
-        assert det._save_nonscalar_data is False
-        assert hasattr(det, "save")
-        assert not hasattr(det, "localsavingpath")
-        # The acq_timestamp column SURVIVES the toggle: the capture stack's
-        # frames join to scan rows by it (ScanAnalysis device_hdf5) — its
-        # absence orphaned a live toggle-off scan's images from analysis
-        # (26_0828 Scan001).
-        assert det._column_headers["cap-acq_timestamp"] == (
-            "UC_Amp4_IR_input acq_timestamp"
-        )
-
-    def test_contributor_save_control_only_keeps_join_column(self) -> None:
-        con = CaTimestampedReadable(
-            "UC_Amp4_IR_input",
-            ["centroidx"],
-            experiment="Undulator",
-            name="capc",
-            save_nonscalar_data=False,
-            save_control_only=True,
-        )
-        assert con._save_control_only is True
-        assert hasattr(con, "save")
-        assert not hasattr(con, "localsavingpath")
-        assert con._column_headers["capc-acq_timestamp"] == (
-            "UC_Amp4_IR_input acq_timestamp"
-        )
-
-    def test_save_nonscalar_wins_over_control_only(self) -> None:
-        """A (mis)configured both-flags device stays a full native saver.
-
-        The acq_timestamp join column is present via either operand of the
-        gate's ``or`` — asserted below so neither side can silently drop it.
-        """
-        det = CaGenericDetector(
-            "UC_Amp4_IR_input",
-            ["centroidx"],
-            experiment="Undulator",
-            name="both",
-            save_nonscalar_data=True,
-            save_control_only=True,
-        )
-        assert det._save_nonscalar_data is True
-        assert det._save_control_only is False
-        assert hasattr(det, "localsavingpath")
-        assert det._column_headers["both-acq_timestamp"] == (
-            "UC_Amp4_IR_input acq_timestamp"
-        )
-
-    def test_contributor_save_control_only_shape(self) -> None:
-        from geecs_bluesky.devices.ca import CaTimestampedReadable
-
-        con = CaTimestampedReadable(
-            "UC_Amp4_IR_input",
-            ["centroidx"],
-            experiment="Undulator",
-            name="capc",
-            save_nonscalar_data=False,
-            save_control_only=True,
-        )
-        assert con._save_control_only is True
-        assert hasattr(con, "save")
-        assert not hasattr(con, "localsavingpath")
-
-    def test_snapshot_save_control_only_shape(self) -> None:
-        from geecs_bluesky.devices.ca import CaSnapshotReadable
-
-        snap = CaSnapshotReadable(
-            "UC_Amp4_IR_input",
-            ["exposure"],
-            experiment="Undulator",
-            name="caps",
-            save_control_only=True,
-        )
-        assert snap._save_control_only is True
-        assert hasattr(snap, "save")
-        assert not hasattr(snap, "localsavingpath")
-
-
-async def test_confirm_exactly_on_tolerance_counts_as_matched() -> None:
-    """The same on-boundary fix applies to the confirming poll.
-
-    build_movable dispatches to confirm_settable *before* motor when a scan
-    variable declares confirm, so for topology-C axes this is the arrival
-    check.  |1.20 - 1.15| is 0.050000000000000044, not 0.05.
-    """
-    device = _emq_confirm_device(tolerance=0.05)
-    await device.connect(mock=True)
-    set_mock_value(device._confirm_readback, 1.20)
-    assert abs(1.20 - 1.15) > 0.05  # the representation error is real
-    await asyncio.wait_for(device.set(1.15), timeout=2.0)
+    await gauge.connect(mock=True)
+    expected = ca_pv("Undulator", "U_Gauge", "CONNECTED").removeprefix("ca://")
+    assert gauge.connected_status.source.endswith(expected)
+    set_mock_value(gauge.connected_status, "Disconnected")
+    assert set(await gauge.read()) == {"g-pressure"}

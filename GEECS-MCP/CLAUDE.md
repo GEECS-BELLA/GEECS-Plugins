@@ -8,8 +8,8 @@ the scan-MCP planning document** (2026-08-21/22; verb surface §1, safety
 §2, phasing §4) as amended by owner decisions recorded in the CHANGELOG.
 
 Domain roadmap (add as they earn their keep, never speculatively):
-`scans/` (built: v0 read + v1 control), then candidates in rough value
-order — `health/` (gateway/Tiled/DB probes, read-only), `db/`
+`scans/` (built: read + halt; the write verbs were deleted in 0.9.0),
+then candidates in rough value order — `health/` (gateway/Tiled/DB probes, read-only), `db/`
 (device-variable metadata lookups), `logs/` (the /triage analysis as a
 tool), `analysis/` (READ + EXECUTION BUILT — the #675 figure/results verbs
 over the ScanAnalysis output tree, and the #686 `run_scan_analysis`
@@ -32,11 +32,27 @@ conventions), `archiver/` when that project reactivates.
   `devices/*`) — when a tool needs something private, promote it into a
   small public module in GeecsBluesky instead (the #668 discipline: the
   engine splits emerge from real seams, not guesses).
-- **Write-surface doctrine** (2026-07-23, amended 2026-08-25 to match
-  deployed practice — owner correction): GEECS-*semantic* writes (scans,
-  actions, manual moves, analysis) go through MCP verbs only; scans stay
-  in the GEECS engine — the MCP submits ScanRequests, never drives
-  devices shot-by-shot, and does no raw PV I/O of its own.  Channel-level
+- **This server has no write path** (2026-09-16, owner ruling).  The
+  native-Bluesky rebuild retired the `qs_client` calls behind
+  `submit_scan`, `run_action`, `describe_action` and
+  `move_scan_variable` (`submit_scan`, `submit_action`,
+  `describe_action`, `move_variable` are all gone; the submission
+  surface is `submit_plan`/`submit_preset` over `count`/`sweep`/
+  `optimize`), and `run_submit_preflight` now takes a preset rather
+  than a `ScanRequest`, which broke `validate_scan_request` too.  All
+  five verbs were **deleted** in 0.9.0 rather than rewired: **this
+  server is an experiment, not an operator surface**, so it never gates
+  a client-seam change — scans are submitted from `GeecsScanner`.  If a
+  write path is ever wanted back (#727), the reference implementation
+  to copy is `GeecsScanner/geecs_scanner/service/scanner.py` — the
+  `build_submission_record` → `md={"geecs": {"submission": ...}}` →
+  `submit_plan` shape.  What survives is read + observe + halt.
+- **Write-surface doctrine, for whenever that day comes** (2026-07-23,
+  amended 2026-08-25 to match deployed practice — owner correction):
+  GEECS-*semantic* writes (scans, actions, manual moves, analysis) go
+  through MCP verbs only; scans stay in the GEECS engine — the MCP
+  submits plans, never drives devices shot-by-shot, and does no raw PV
+  I/O of its own.  Channel-level
   setpoint writes (`caput` to `:SP` PVs) are NOT MCP territory: osprey's
   own EPICS write tool performs them, bounded by osprey's limits database
   and its own gating.  That raw path bypasses the GEECS client-side
@@ -78,11 +94,10 @@ geecs_mcp/
     read_tools.py # the v0 read tools: async wrappers (anyio.to_thread)
                   #   over sync _*_impl functions — the impls are the
                   #   tested surface
-    control_tools.py # the v1 verbs: submit (cap + etiquette + the
-                  #   acknowledge-warnings loop), stop (ownership),
-                  #   clear_queue, scan_progress — plus the v2 verbs:
-                  #   run_action/describe_action, move_scan_variable,
-                  #   pause_scan/resume_scan (ownership like stop)
+    control_tools.py # stop (ownership), clear_queue, scan_progress,
+                  #   pause_scan/resume_scan (ownership like stop).
+                  #   NO SUBMIT VERB since 0.9.0 — see the write-surface
+                  #   note below
     progress_stream.py # ProgressCache — the best-effort document-stream
                   #   + console-text-stream picture behind scan_progress
                   #   (daemon threads, zmq never touched cross-thread,
@@ -137,72 +152,59 @@ geecs_mcp/
 
 - Every tool: `async def` wrapper → `anyio.to_thread.run_sync(_impl)`;
   the impl returns a JSON string envelope.  No tool blocks on scan
-  completion — everything is request/response (submit-and-poll when v1
-  lands; the two bounded-blocking exceptions, `move_scan_variable` and
-  `stop_scan`, are v2/v1 and cap at the client's own ≤120 s budgets).
+  completion — everything is request/response; `stop_scan` is the one
+  bounded-blocking verb and caps at the client's own ≤120 s budget.
 - Result payloads are context-sized: `get_scan_result` returns metadata
   + column names + capped stats, never the full event table.
 - Field-tolerant reads of the manager's shapes (`.get` everywhere in
   history mapping) — the queueserver's payload fields are not a contract
   we own.
 
-## Verb roadmap (the planning doc's phasing, as amended by owner decisions)
+## Verb surface
 
-- **v0 (built)**: `scan_status`, `scan_history`, `get_scan_result`,
-  `list_scan_configs`, `validate_scan_request` — read-only (R),
-  auto-allow.
-- **v1 (built — owner decisions 2026-08-22)**: `submit_scan` takes
-  presets AND composed dicts from day one (the plan's presets-first
-  de-risk was dropped: presets are barely used in practice), agent shot
-  cap 1,000 (`[mcp] max_shots`; optimize needs explicit
-  `max_iterations`), `stop_scan` with approval-gated `force` for
-  foreign scans, `clear_queue` as the one remover, poll
-  `scan_progress`.  The standing rules, all enforced in
-  `geecs_mcp/scans/control_tools.py`: acknowledge-warnings loop (no silent
-  continue past a preflight question; acknowledgements stamp
-  `continued` into `SubmissionRecord.preflight`), `clear_pending=False`
-  always, ownership etiquette on stop, stop approval-only.
-  **Gating semantics (VERIFIED against osprey 2026-08-22, replacing the
-  earlier assumed story)**: profile-level custom-server `hooks:` keys
-  are silently ignored, and the interactive writes kill switch does not
-  cover custom-server tools (deny augmentation walks the framework's
-  own servers only).  The interactive gate is the native `ask` prompt
-  on every control verb (arguments visible — also the backstop for the
-  acknowledge-warnings residual); the headless gate is
-  `hook_config.json`'s `write_tools` (from the profile's `config:`) —
-  listing `submit_scan` + `clear_queue` and deliberately NOT
-  `stop_scan`, so a halt is never blocked on any path (headless by
-  designed omission; interactively because the kill switch does not
-  cover custom servers — upstream gap).  Two osprey-side issues to be
-  filed from that side: silent unknown-key acceptance, and custom
-  servers excluded from the interactive kill switch.  See
-  `deploy/DEPLOYMENT.md`.  The submitted-as identity is
-  `[mcp] client_identity` (deployment-owned, e.g.
-  `osprey-htu-assistant`) and MUST match on the queue item and the
-  `SubmissionRecord` — the ownership check compares against it.
-- **v2 (built — issue #676)**: `run_action` (Q; idle-only — an active
-  RE state refuses, because a mid-scan submission would silently queue
-  the action to auto-run when the scan finishes) with `describe_action`
-  (R; worker dry-run, needs an idle manager), `move_scan_variable` (Q;
-  the worker's `geecs_move_variable`, idle-only + blocking ≤ ~120 s,
-  non-finite values refused), `pause_scan` (S — the halt family, never
-  in `write_tools`) and `resume_scan` (Q — it restarts motion and
-  retries a failed move, so it gates like a submission), both with
-  stop's ownership etiquette (`force` only for genuinely foreign scans,
-  `forced` marks only those).  `scan_progress` gains the best-effort
-  `stream` picture from `scans/progress_stream.py`: start-doc totals
-  (`num_points × shots_per_step`, `max_iterations` fallback),
-  primary-stream `seq_num` → shots done, stop-doc exit status, and the
-  console-text stream's failed-move line as the paused reason
-  (surfaced only while actually paused — sticky otherwise).  The
-  manager poll stays authoritative; `stream.available=false` names why.
-  The HTTP entry point warms the consumer threads at startup (#685) —
-  a long-lived service must be consuming before its first start
-  document passes, or that run shows no counts.  Stdio still starts
-  them lazily on the first `scan_progress` call (owner scope on #685),
-  so a stdio session that submits before its first poll has the same
-  first-run exposure; dropping the transport gate in
-  `__main__.main` is the one-line remedy if that bites.
+**Built and live: read + observe + halt.**  `scan_status`,
+`scan_history`, `get_scan_result`, `list_scan_configs`, `scan_progress`
+(R, auto-allow); `clear_queue` and `resume_scan` (Q); `stop_scan` and
+`pause_scan` (S — the halt family); the analysis domain's
+`get_scan_analysis` / `get_scan_figure` / `list_analyzers` /
+`list_analysis_groups` (R) and `run_scan_analysis` (Q).
+
+**Deleted in 0.9.0** (see the boundaries section): `submit_scan`,
+`run_action`, `describe_action`, `move_scan_variable`,
+`validate_scan_request`.  The standing doctrine they carried — the
+acknowledge-warnings loop, `clear_pending=False` always, the agent shot
+cap — went with them; re-derive it from the planning document if a
+submit verb is ever rebuilt, and do not assume the old code was right
+about the new seam.
+
+**Ownership etiquette still binds what is left**: `stop_scan`,
+`pause_scan` and `resume_scan` compare the running item's submitted-as
+identity against `[mcp] client_identity` and refuse a foreign scan
+without `force=true`.  `resume_scan` is Q (it restarts motion);
+`pause_scan` joins `stop_scan` in the halt family.
+
+**Gating semantics (VERIFIED against osprey 2026-08-22)**:
+profile-level custom-server `hooks:` keys are silently ignored, and the
+interactive writes kill switch does not cover custom-server tools (deny
+augmentation walks the framework's own servers only).  The interactive
+gate is the native `ask` prompt on every control verb (arguments
+visible); the headless gate is `hook_config.json`'s `write_tools` (from
+the profile's `config:`) — list `QUEUE_TOOLS` and deliberately NOT the
+halt family, so a halt is never blocked on any path.  Two osprey-side
+issues to be filed from that side: silent unknown-key acceptance, and
+custom servers excluded from the interactive kill switch.  See
+`deploy/DEPLOYMENT.md`.
+
+`scan_progress` carries the best-effort `stream` picture from
+`scans/progress_stream.py`: start-doc totals, primary-stream `seq_num`
+→ shots done, stop-doc exit status, and the console-text stream's
+failed-move line as the paused reason (surfaced only while actually
+paused).  The manager poll stays authoritative; `stream.available=false`
+names why.  The HTTP entry point warms the consumer threads at startup
+(#685) — a long-lived service must be consuming before its first start
+document passes.  Stdio starts them lazily on the first `scan_progress`
+call (owner scope on #685); dropping the transport gate in
+`__main__.main` is the one-line remedy if that bites.
 
 ## Testing
 
@@ -210,5 +212,5 @@ geecs_mcp/
 patched on `runtime`; no manager, no Tiled, no configs repo.  The
 registration test asserts every `tool_names.READ_TOOLS` entry is on the
 server.  Live verification rides the phasing checklists in the planning
-doc (v0: listings match the console's dropdowns, status agrees with the
-console's pill, a known scan number resolves from the archive).
+doc (v0: listings match the scanner page's dropdowns, status agrees with
+its Now chip, a known scan number resolves from the archive).

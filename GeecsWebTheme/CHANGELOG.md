@@ -4,6 +4,14 @@ All notable changes to `geecs-web-theme` are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 project adheres to semantic versioning.
 
+## [0.6.1] - 2026-09-13
+
+### Changed
+
+- Merge of `master` into `feature/web-scanner`: the 0.4.1 surface addition
+  below (GeecsScanner's `console.html`, `scanner.css`, `scanner.js` in
+  `_SURFACES`) now runs over the tinycss2 guards of 0.5.0.
+
 ## [0.6.0] - 2026-09-13
 
 ### Added
@@ -67,6 +75,13 @@ project adheres to semantic versioning.
   `classes_used(template) - styled_classes(kit, theme, own_css)`. The HTML
   guards still need nothing.
 
+## [0.4.1] - 2026-09-13
+
+### Changed
+
+- The literal-colour walk covers the third surface: GeecsScanner's
+  `console.html`, `scanner.css` and `scanner.js` joined `_SURFACES`
+  (adding a surface means adding it there — this package's CLAUDE.md).
 ## [0.4.0] - 2026-09-13
 
 ### Added

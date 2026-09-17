@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import socket
 import struct
 import threading
 
@@ -152,13 +153,18 @@ async def test_frames_flow_and_subscription_is_gated():
                 got_real_frame.set()
 
         ctx = Context("pva", conf=gateway.conf(), useenv=False)
+        loop = asyncio.get_running_loop()
+        connected_pv = "testexp:uc_testcam:image:connected"
         try:
+            # Gated off: the subscription state is Idle (nothing is known).
+            idle = await loop.run_in_executor(None, ctx.get, connected_pv)
+            assert str(idle) == "Idle"
             sub = ctx.monitor("testexp:uc_testcam:image", on_update)
             await asyncio.wait_for(cam.connected.wait(), 5)  # gating: started
-            await asyncio.get_running_loop().run_in_executor(
-                None, got_real_frame.wait, 10
-            )
+            await loop.run_in_executor(None, got_real_frame.wait, 10)
             assert got_real_frame.is_set()
+            live = await loop.run_in_executor(None, ctx.get, connected_pv)
+            assert str(live) == "Connected" and live.raw["alarm.severity"] == 0
 
             frame = received[-1]
             assert frame.shape == IMG.shape
@@ -172,6 +178,16 @@ async def test_frames_flow_and_subscription_is_gated():
             # it onLastDisconnect) closes with the context, not the monitor.
             ctx.close()
         await asyncio.wait_for(cam.disconnected.wait(), 10)  # gating: stopped
+        ctx2 = Context("pva", conf=gateway.conf(), useenv=False)
+        try:
+            for _ in range(50):  # the supervisor's cancel lands after the socket
+                idle = await loop.run_in_executor(None, ctx2.get, connected_pv)
+                if str(idle) == "Idle":
+                    break
+                await asyncio.sleep(0.1)
+            assert str(idle) == "Idle"
+        finally:
+            ctx2.close()
     finally:
         await _shutdown(task)
         await cam.stop()
@@ -204,6 +220,76 @@ async def test_dropped_device_connection_reconnects():
             assert cam.total_connections >= 3
             assert count[0] >= 1  # real frames flowed across reconnects
             sub.close()
+        finally:
+            ctx.close()
+    finally:
+        await _shutdown(task)
+        await cam.stop()
+
+
+@pytest.mark.timeout(30)
+async def test_unreachable_device_is_re_resolved_at_the_backoff_ceiling(monkeypatch):
+    """A watched device that stays unreachable reads Disconnected (MAJOR), and
+    once the backoff sits at its ceiling the endpoint is re-asked of the DB
+    and redialed there — a camera app that came up on another port after the
+    gateway started is found without a restart (#854)."""
+    from geecs_pva_gateway import server as server_module
+
+    monkeypatch.setattr(server_module, "_RECONNECT_MIN_S", 0.05)
+    monkeypatch.setattr(server_module, "_RECONNECT_MAX_S", 0.1)
+    monkeypatch.setattr(server_module, "_ENDPOINT_RESOLVE_HOLDOFF_CYCLES", 0)
+    cam = FakeCamera()
+    await cam.start()
+    # The endpoint the DB held at startup: a port nobody listens on.
+    probe = socket.socket()
+    probe.bind(("127.0.0.1", 0))
+    dead_port = probe.getsockname()[1]
+    probe.close()
+    resolved: list[str] = []
+
+    def resolver(device: str) -> tuple[str, int]:
+        resolved.append(device)
+        return ("127.0.0.1", cam.port)
+
+    spec = CameraSpec(
+        device=DEVICE.decode(),
+        host="127.0.0.1",
+        port=dead_port,
+        experiment="testexp",
+        image_variables=["image"],
+    )
+    gateway = GeecsPvaGateway(
+        PvaGatewayConfig(experiment="testexp", cameras=[spec]),
+        endpoint_resolver=resolver,
+    )
+    task = asyncio.create_task(gateway.run(isolate=True))
+    for _ in range(100):
+        await asyncio.sleep(0.05)
+        try:
+            gateway.conf()
+            break
+        except AssertionError:
+            continue
+    try:
+        ctx = Context("pva", conf=gateway.conf(), useenv=False)
+        try:
+            states: list[tuple[str, int]] = []
+            state_sub = ctx.monitor(
+                "testexp:uc_testcam:image:connected",
+                lambda v: states.append((str(v), int(v.raw["alarm.severity"]))),
+            )
+            sub = ctx.monitor("testexp:uc_testcam:image", lambda v: None)
+            for _ in range(100):
+                if cam.total_connections >= 1:
+                    break
+                await asyncio.sleep(0.1)
+            assert cam.total_connections >= 1  # redialed on the resolved port
+            assert resolved == [DEVICE.decode()]  # once, at the ceiling
+            await asyncio.sleep(0.3)
+            assert ("Disconnected", 2) in states  # visible while unreachable
+            assert states[-1] == ("Connected", 0)
+            sub.close()
+            state_sub.close()
         finally:
             ctx.close()
     finally:
@@ -345,3 +431,47 @@ async def test_restart_pv_shuts_down_cleanly():
         if not task.done():
             await _shutdown(task)
         await cam.stop()
+
+
+def test_subscription_carries_the_scalars_only_with_a_plugin(monkeypatch) -> None:
+    """One TCP subscription: frame + stamps, plus the subscribed scalars when the
+    file plugin serves the variable (08 §4.4) — never without it."""
+    from geecs_pva_gateway import file_plugin
+    from geecs_pva_gateway.server import _CameraWorker
+
+    spec = CameraSpec(
+        device="UC_TestCam",
+        host="127.0.0.1",
+        port=1,
+        experiment="testexp",
+        scalar_variables=["MaxCounts", "acq_timestamp", "exposure"],
+    )
+    loop = asyncio.new_event_loop()
+    try:
+        worker = _CameraWorker(spec, loop)
+        try:
+            assert worker.plugins  # h5py is installed here
+            assert worker.subscription_variables("image") == [
+                "image",
+                "acq_timestamp",
+                "systimestamp",
+                "MaxCounts",
+                "exposure",
+            ]
+            assert worker.plugins["image"].scalar_variables == (
+                "MaxCounts",
+                "acq_timestamp",
+                "exposure",
+            )
+        finally:
+            for plugin in worker.plugins.values():
+                plugin.stop()
+        monkeypatch.setattr(file_plugin, "available", lambda: False)
+        bare = _CameraWorker(spec, loop)
+        assert bare.subscription_variables("image") == [
+            "image",
+            "acq_timestamp",
+            "systimestamp",
+        ]
+    finally:
+        loop.close()

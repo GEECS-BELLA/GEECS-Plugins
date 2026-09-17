@@ -11,8 +11,8 @@ first — toolchain, config file, and a smoke test.
 
     ---
 
-    Configure an experiment, build a save element, and run your first
-    NOSCAN and 1D scan with the GEECS Console. Lands the data on disk.
+    Configure an experiment, pick or compose a preset, and run your first
+    no-scan and 1D scan from the GEECS Scanner page. Lands the data on disk.
 
     [:octicons-arrow-right-24: Acquisition tutorial](acquisition.md)
 
@@ -44,7 +44,7 @@ than tucked away in their respective package tabs.
 | Joining the team, not sure | [Acquisition](acquisition.md) first, then [Analysis](analysis.md) |
 
 After either tutorial, the per-package documentation
-([GEECS Console](../geecs_console/overview.md),
+([GEECS Scanner](../geecs_scanner/overview.md),
 [Image Analysis](../image_analysis/overview.md),
 [Scan Analysis](../scan_analysis/overview.md)) covers the underlying
 concepts and APIs in depth.

@@ -35,6 +35,11 @@ class AnalyzerSpecBase(SchemaModel):
     #: Which ``image:`` section this analyzer consumes: "camera", "line", or
     #: None when it loads its own file format and takes no image section.
     image_kind: ClassVar[ImageKind] = "camera"
+    scalar_keys: ClassVar[frozenset[str]] = frozenset()
+
+    def emitted_scalars(self) -> frozenset[str]:
+        """Return the guaranteed bare scalar keys for this validated spec."""
+        return self.scalar_keys
 
 
 # ---------------------------------------------------------------------------
@@ -45,6 +50,8 @@ class AnalyzerSpecBase(SchemaModel):
 class StandardAnalyzerSpec(AnalyzerSpecBase):
     """Run the camera pipeline and report the processed frame — no extra metrics."""
 
+    scalar_keys: ClassVar[frozenset[str]] = frozenset([])
+
     image_kind: ClassVar[ImageKind] = "camera"
     kind: Literal["standard"] = Field(
         "standard", description="Processed-frame-only camera analyzer."
@@ -54,6 +61,8 @@ class StandardAnalyzerSpec(AnalyzerSpecBase):
 class TraceAnalyzerSpec(AnalyzerSpecBase):
     """Run the trace pipeline and report the processed trace, no extra metrics (the 1D peer of ``standard``)."""
 
+    scalar_keys: ClassVar[frozenset[str]] = frozenset([])
+
     image_kind: ClassVar[ImageKind] = "line"
     kind: Literal["trace"] = Field(
         "trace", description="Processed-trace-only line analyzer."
@@ -62,6 +71,10 @@ class TraceAnalyzerSpec(AnalyzerSpecBase):
 
 class LineAnalyzerSpec(AnalyzerSpecBase):
     """Run the trace pipeline and report basic trace statistics (peak, centroid, width, area)."""
+
+    scalar_keys: ClassVar[frozenset[str]] = frozenset(
+        ["CoM", "rms", "fwhm", "peak_location", "integrated_intensity", "peak_value"]
+    )
 
     image_kind: ClassVar[ImageKind] = "line"
     kind: Literal["line"] = Field("line", description="Trace statistics analyzer.")
@@ -86,6 +99,23 @@ class BeamAnalyzerSpec(AnalyzerSpecBase):
             "'y_fwhm']); unset emits all 18. Names are <axis>_<stat>."
         ),
     )
+
+    def emitted_scalars(self) -> frozenset[str]:
+        """Return enabled beam statistics and optional slope metrics."""
+        keys = {"image_total", "image_peak_value"} | {
+            f"{axis}_{stat}"
+            for axis in ("x", "y", "x_45", "y_45")
+            for stat in ("CoM", "rms", "fwhm", "peak_location")
+        }
+        if self.enabled_stats is not None:
+            keys.intersection_update(self.enabled_stats)
+        if self.compute_slopes:
+            keys.update(
+                f"image_{stat}_slope_{axis}"
+                for stat in ("com", "peak")
+                for axis in ("x", "y")
+            )
+        return frozenset(keys)
 
 
 class PolynomialCalibrationSpec(SchemaModel):
@@ -159,6 +189,10 @@ CalibrationSpec = Annotated[
 class MagSpecAnalyzerSpec(AnalyzerSpecBase):
     """Magnetic spectrometer: beam metrics plus an energy-calibrated, resampled spectrum."""
 
+    scalar_keys: ClassVar[frozenset[str]] = frozenset(
+        ["peak_energy_MeV", "mean_energy_MeV", "total_charge_au", "max_intensity"]
+    )
+
     image_kind: ClassVar[ImageKind] = "camera"
     kind: Literal["magspec"] = Field(
         "magspec", description="Energy-calibrated magnetic spectrometer analyzer."
@@ -185,6 +219,16 @@ class MagSpecAnalyzerSpec(AnalyzerSpecBase):
 
 class FrogRetrievalSpec(AnalyzerSpecBase):
     """Grenouille / FROG pulse retrieval through the vendor DLL (Windows-only at run time)."""
+
+    scalar_keys: ClassVar[frozenset[str]] = frozenset(
+        [
+            "temporal_fwhm",
+            "spectral_fwhm",
+            "frog_error",
+            "frog_iterations",
+            "tw_per_joule",
+        ]
+    )
 
     image_kind: ClassVar[ImageKind] = "camera"
     kind: Literal["frog_retrieval"] = Field(
@@ -259,9 +303,21 @@ class FrogSpectralPhaseSpec(AnalyzerSpecBase):
         description="Dead band around zero within which the sign is not flipped.",
     )
 
+    def emitted_scalars(self) -> frozenset[str]:
+        """Return dispersion coefficients through the configured fit order."""
+        names = {0: "phi0_rad", 1: "gd_fs", 2: "gdd_fs2", 3: "tod_fs3", 4: "fod_fs4"}
+        return frozenset(
+            {"flipped"}
+            | {names.get(i, f"order{i}_fs{i}") for i in range(self.fit_order + 1)}
+        )
+
 
 class IctAnalyzerSpec(AnalyzerSpecBase):
     """Integrating current transformer: charge from a scope trace by low-pass filtering and integrating."""
+
+    scalar_keys: ClassVar[frozenset[str]] = frozenset(
+        ["charge_pC", "ICT Signal Peak_us"]
+    )
 
     image_kind: ClassVar[ImageKind] = "line"
     kind: Literal["ict"] = Field("ict", description="ICT charge analyzer.")
@@ -281,6 +337,8 @@ class IctAnalyzerSpec(AnalyzerSpecBase):
 
 class LineStitcherSpec(AnalyzerSpecBase):
     """Concatenate this device's trace with its sibling devices' traces into one spectrum."""
+
+    scalar_keys: ClassVar[frozenset[str]] = frozenset([])
 
     image_kind: ClassVar[ImageKind] = "line"
     kind: Literal["line_stitcher"] = Field(
@@ -321,6 +379,8 @@ class PupilMask(SchemaModel):
 class HasoAnalyzerSpec(AnalyzerSpecBase):
     """HASO wavefront sensor: slopes to phase and Zernike terms through WaveKit (Windows, licensed)."""
 
+    scalar_keys: ClassVar[frozenset[str]] = frozenset([])
+
     image_kind: ClassVar[ImageKind] = None
     kind: Literal["haso"] = Field(
         "haso", description="HASO wavefront analyzer via WaveKit."
@@ -345,6 +405,16 @@ class HasoAnalyzerSpec(AnalyzerSpecBase):
 class DownrampPhaseSpec(AnalyzerSpecBase):
     """HTU downramp phase-map analyzer over the camera pipeline."""
 
+    scalar_keys: ClassVar[frozenset[str]] = frozenset(
+        [
+            "Plasma downramp shock_angle",
+            "Plasma downramp shock slope (phase/pixel)",
+            "Plasma downramp shock location (pixel)",
+            "Plasma downramp plateau avg (phase)",
+            "Plasma downramp peak to plateau (phase)",
+        ]
+    )
+
     image_kind: ClassVar[ImageKind] = "camera"
     kind: Literal["downramp_phase"] = Field(
         "downramp_phase", description="HTU downramp phase analyzer."
@@ -368,9 +438,18 @@ class HiResMagCamSpec(AnalyzerSpecBase):
         10.0, gt=0, description="Bow-tie fit: threshold factor."
     )
 
+    def emitted_scalars(self) -> frozenset[str]:
+        """Return beam statistics and bow-tie metrics."""
+        return BeamAnalyzerSpec().emitted_scalars() | {
+            "emittance_proxy",
+            "total_counts",
+        }
+
 
 class BCaveMagSpecStitcherSpec(AnalyzerSpecBase):
     """HTU BCave magspec camera with a Gaussian-weighted vertical lineout for optimization."""
+
+    scalar_keys: ClassVar[frozenset[str]] = frozenset([])
 
     image_kind: ClassVar[ImageKind] = "camera"
     kind: Literal["bcave_magspec_stitcher"] = Field(
@@ -387,6 +466,8 @@ class BCaveMagSpecStitcherSpec(AnalyzerSpecBase):
 class BCaveMagOptSpec(AnalyzerSpecBase):
     """HTU BCave stitched-spectrum optimizer metrics over the trace pipeline."""
 
+    scalar_keys: ClassVar[frozenset[str]] = frozenset(["objective"])
+
     image_kind: ClassVar[ImageKind] = "line"
     kind: Literal["bcave_mag_opt"] = Field(
         "bcave_mag_opt", description="HTU BCave stitched-spectrum optimizer analyzer."
@@ -395,6 +476,16 @@ class BCaveMagOptSpec(AnalyzerSpecBase):
 
 class PhaseDownrampSpec(AnalyzerSpecBase):
     """HTU phase-map processor: density from a probe phase map (reads its own TSV/phase files)."""
+
+    scalar_keys: ClassVar[frozenset[str]] = frozenset(
+        [
+            "Plasma downramp shock_angle",
+            "Plasma downramp shock slope (phase/pixel)",
+            "Plasma downramp shock location (pixel)",
+            "Plasma downramp plateau avg (phase)",
+            "Plasma downramp peak to plateau (phase)",
+        ]
+    )
 
     image_kind: ClassVar[ImageKind] = None
     kind: Literal["phase_downramp"] = Field(

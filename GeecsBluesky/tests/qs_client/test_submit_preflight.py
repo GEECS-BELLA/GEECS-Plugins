@@ -1,19 +1,12 @@
-"""Hermetic tests for the client-side pre-submit preflight (#648 decision 3).
-
-The engine seams (`validate_scan_request`, the resolver, the served-set
-provider) are monkeypatched at their `geecs_bluesky` homes — the lazy
-imports inside `submit_preflight` resolve at call time, so patching the
-source modules is enough.  CA reads are patched at `_read_pv`; the
-manager client the ``worker_ready`` check builds is patched at
-`_make_default_client` (a ready fake by default — never the real
-``[qserver]`` config of the machine running the tests).
-"""
+"""The client-side pre-submit checks over a preset (validate, worker_ready, liveness)."""
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
-from geecs_bluesky.plan_names import GEECS_PLAN_NAMES, SCAN_REQUEST_PLAN
+from geecs_bluesky.plan_names import GEECS_PLAN_NAMES
 from geecs_bluesky.qs_client import submit_preflight
 from geecs_bluesky.qs_client.client import QueueStatus, StubQueueClient
 from geecs_bluesky.qs_client.submit_preflight import (
@@ -21,18 +14,32 @@ from geecs_bluesky.qs_client.submit_preflight import (
     build_submission_record,
     run_submit_preflight,
 )
-from geecs_schemas import ScanRequest
+from geecs_bluesky.exceptions import GeecsConfigurationError
+from geecs_schemas import Preset
+from geecs_schemas.trigger_profile import TriggerProfile
 
 
 class _FakeQueueClient:
     """A manager client the worker_ready check reads (status + plan list)."""
 
-    def __init__(self, status=None, plans=None, plans_error=None):
+    def __init__(self, status=None, plans=None, plans_error=None, devices=None):
         self._status = status or QueueStatus(
             connected=True, re_state="idle", manager_state="idle", worker_exists=True
         )
         self._plans = list(GEECS_PLAN_NAMES) if plans is None else list(plans)
         self._plans_error = plans_error
+        self._devices = (
+            [
+                "UC_Cam1",
+                "UC_Cam1.scalars",
+                "UC_Cam2",
+                "UC_Cam2.scalars",
+                "U_S1H",
+                "U_S1H.current",
+            ]
+            if devices is None
+            else list(devices)
+        )
         self.closed = 0
         self.status_calls = 0
 
@@ -45,51 +52,27 @@ class _FakeQueueClient:
             raise self._plans_error
         return list(self._plans)
 
+    def allowed_device_names(self):
+        return list(self._devices)
+
     def close(self):
         self.closed += 1
 
 
-def _request(**overrides) -> ScanRequest:
-    base = dict(
-        mode="noscan",
-        shots_per_step=2,
-        acquisition="free_run",
-        save_sets=["UC_Test"],
-    )
+def _preset(**overrides) -> Preset:
+    base = {
+        "name": "p",
+        "devices": [{"device": "UC_Cam1"}, {"device": "UC_Cam2", "save_images": False}],
+        "plan": {"name": "count", "kwargs": {"num": 2}},
+    }
     base.update(overrides)
-    return ScanRequest.model_validate(base)
-
-
-_DEVICES_CONFIG = {
-    "UC_Cam1": {"variable_list": ["MeanCounts"], "synchronous": True},
-    "UC_Cam2": {"variable_list": ["Exposure"], "synchronous": False},
-}
+    return Preset.model_validate(base)
 
 
 @pytest.fixture
 def engine(monkeypatch):
-    """Patch the engine seams: validation passes, devices resolve canned."""
-
-    class _Resolver:
-        def __init__(self, experiment):
-            self.experiment = experiment
-
-    monkeypatch.setattr("geecs_bluesky.config_resolver.ConfigsRepoResolver", _Resolver)
-    monkeypatch.setattr(
-        "geecs_bluesky.scan_request_runner.validate_scan_request",
-        lambda request, resolver: (request, {}),
-    )
-    monkeypatch.setattr(
-        submit_preflight,
-        "_resolve_devices_config",
-        lambda request, resolver: dict(_DEVICES_CONFIG),
-    )
-    # Default: everything served, everything connected, trigger alive.
-    monkeypatch.setattr(
-        "geecs_bluesky.db_runtime.GeecsDbServedSetProvider",
-        _make_provider({"UC_Cam1": {"MeanCounts"}, "UC_Cam2": {"Exposure"}}),
-    )
-    reads = {"CONNECTED": "Connected", "acq_timestamp": [100.0, 101.5]}
+    """Patch the seams: the liveness probe is canned, the manager is ready."""
+    reads = {"CONNECTED": "Connected"}
 
     # The liveness check delegates to the shared probe (its own DBR_ENUM
     # datatype=str contract is pinned in tests/test_preflight_connected.py);
@@ -103,148 +86,168 @@ def engine(monkeypatch):
     monkeypatch.setattr(
         "geecs_bluesky.devices.ca.liveness.probe_disconnected", fake_probe
     )
-    monkeypatch.setattr(submit_preflight, "_read_pv", _make_pv_reader(reads))
-    monkeypatch.setattr(submit_preflight, "_STALENESS_WINDOW_S", 0.0)
-    # Default: a ready manager (environment open, every GEECS plan listed).
     monkeypatch.setattr(
         submit_preflight, "_make_default_client", lambda experiment: _FakeQueueClient()
+    )
+    # No configs repo behind the default resolver: no default profile, so the
+    # liveness list is the preset's devices alone unless a test says otherwise.
+    monkeypatch.setattr(
+        submit_preflight, "_make_default_resolver", lambda experiment: _FakeResolver()
     )
     return reads
 
 
-def _make_provider(served):
-    class _Provider:
-        def __init__(self, experiment):
-            self.experiment = experiment
+class _FakeResolver:
+    """A configs-repo resolver double: named trigger profiles + the defaults."""
 
-        def served_by_device(self):
-            return served
+    def __init__(self, profiles=None, default=None):
+        self._profiles = dict(profiles or {})
+        self._default = default
 
-    return _Provider
+    def resolve_experiment_defaults(self):
+        if self._default is None:
+            return None
+        return SimpleNamespace(trigger_profile=self._default)
+
+    def resolve_trigger_profile(self, name):
+        try:
+            return self._profiles[name]
+        except KeyError:
+            raise GeecsConfigurationError(
+                f"trigger profile {name!r} not found"
+            ) from None
 
 
-def _make_pv_reader(reads):
-    state = {"ts_calls": 0}
-
-    def _read(pv, timeout, datatype=None):
-        # _read_pv's remaining consumer is the staleness sample (native
-        # reads); CONNECTED goes through the shared probe, faked above.
-        if pv.endswith(":acq_timestamp"):
-            values = reads["acq_timestamp"]
-            value = values[min(state["ts_calls"], len(values) - 1)]
-            state["ts_calls"] += 1
-            return value
-        return None
-
-    return _read
+def _profile(
+    name: str = "HTU-Test", device: str = "U_DG645_ShotControl"
+) -> TriggerProfile:
+    return TriggerProfile.model_validate(
+        {
+            "name": name,
+            "states": {
+                "ARMED": [
+                    {"device": device, "variable": "Trigger.Source", "value": "single"}
+                ],
+                "STANDBY": [
+                    {"device": device, "variable": "Trigger.Source", "value": "edges"},
+                    {"device": "U_Shutter", "variable": "State", "value": "open"},
+                ],
+                "SINGLESHOT": [{"device": device, "variable": "Fire", "value": "on"}],
+            },
+        }
+    )
 
 
 class TestRunSubmitPreflight:
-    def test_all_green_records_three_passes(self, engine):
-        report = run_submit_preflight(_request(), "Undulator")
+    def test_all_green_records_every_pass(self, engine):
+        report = run_submit_preflight(_preset(), "Undulator")
         assert report.refusal is None
         assert report.questions == []
-        assert ("validate", "passed", "") in report.outcomes
-        assert ("snapshot_images", "passed", "") in report.outcomes
-        assert ("gateway_liveness", "passed", "") in report.outcomes
-        assert ("free_run_staleness", "passed", "") in report.outcomes
-        assert ("unserved_variables", "passed", "") in report.outcomes
-        assert ("worker_ready", "passed", "") in report.outcomes
+        assert report.outcomes == [
+            ("validate", "passed", ""),
+            ("worker_ready", "passed", ""),
+            ("gateway_liveness", "passed", ""),
+        ]
 
     def test_validation_failure_is_a_refusal(self, engine, monkeypatch):
-        def _boom(request, resolver):
-            raise ValueError("save set 'Nope' is unknown")
-
-        monkeypatch.setattr(
-            "geecs_bluesky.scan_request_runner.validate_scan_request", _boom
-        )
-        report = run_submit_preflight(_request(), "Undulator")
-        assert report.refusal is not None
-        assert "Nope" in report.refusal
-        # A refusal short-circuits — no other checks ran.
-        assert report.questions == []
-
-    def test_snapshot_images_raises_a_question_not_a_refusal(self, engine, monkeypatch):
-        """#754: images: true on a snapshot-role entry surfaces pre-submit as a warning."""
-        devices = dict(_DEVICES_CONFIG)
-        devices["UC_Slow"] = {
-            "variable_list": ["p"],
-            "synchronous": False,
-            "save_nonscalar_data": True,
-        }
         monkeypatch.setattr(
             submit_preflight,
-            "_resolve_devices_config",
-            lambda request, resolver: devices,
+            "_make_default_client",
+            lambda e: pytest.fail("manager must not be asked about an invalid preset"),
         )
-        report = run_submit_preflight(_request(), "Undulator")
-        assert report.refusal is None
-        questions = [q for q in report.questions if q.check == "snapshot_images"]
-        assert len(questions) == 1
-        assert "UC_Slow" in questions[0].message
-        assert "UC_Cam1" not in questions[0].message
-        assert "#754" in questions[0].message
-        assert not any(check == "snapshot_images" for check, _, _ in report.outcomes)
-
-    def test_unserved_variable_raises_a_question(self, engine, monkeypatch):
-        monkeypatch.setattr(
-            "geecs_bluesky.db_runtime.GeecsDbServedSetProvider",
-            _make_provider({"UC_Cam1": {"MeanCounts"}, "UC_Cam2": set()}),
-        )
-        report = run_submit_preflight(_request(), "Undulator")
-        questions = [q for q in report.questions if q.check == "unserved_variables"]
-        assert len(questions) == 1
-        assert "Exposure" in questions[0].message
-
-    def test_unknown_served_set_is_skipped_not_blocking(self, engine, monkeypatch):
-        monkeypatch.setattr(
-            "geecs_bluesky.db_runtime.GeecsDbServedSetProvider",
-            _make_provider(None),
-        )
-        report = run_submit_preflight(_request(), "Undulator")
-        assert report.refusal is None
-        assert not [q for q in report.questions if q.check == "unserved_variables"]
-        assert any(
-            check == "unserved_variables" and result == "skipped"
-            for check, result, _ in report.outcomes
-        )
+        report = run_submit_preflight(_preset(plan=None), "Undulator")
+        assert report.refusal is not None and "no plan call" in report.refusal
+        assert report.questions == [] and report.outcomes == []
 
     def test_disconnected_device_raises_a_question(self, engine):
         engine["CONNECTED"] = "Disconnected"
-        report = run_submit_preflight(_request(), "Undulator")
+        report = run_submit_preflight(_preset(), "Undulator")
         questions = [q for q in report.questions if q.check == "gateway_liveness"]
         assert len(questions) == 1
-        assert "UC_Cam1" in questions[0].message
+        assert "UC_Cam1" in questions[0].message and "UC_Cam2" in questions[0].message
 
     def test_unreadable_liveness_is_fail_open(self, engine):
         engine["CONNECTED"] = None  # CA read failed — not a verdict
-        report = run_submit_preflight(_request(), "Undulator")
+        report = run_submit_preflight(_preset(), "Undulator")
         assert not [q for q in report.questions if q.check == "gateway_liveness"]
 
-    def test_stale_trigger_raises_a_question(self, engine):
-        engine["acq_timestamp"] = [100.0, 100.0]  # not advancing
-        report = run_submit_preflight(_request(), "Undulator")
-        questions = [q for q in report.questions if q.check == "free_run_staleness"]
-        assert len(questions) == 1
-        assert "UC_Cam1" in questions[0].message
-
-    def test_strict_request_skips_staleness(self, engine):
-        report = run_submit_preflight(_request(acquisition="strict"), "Undulator")
-        assert not any(check == "free_run_staleness" for check, _, _ in report.outcomes)
-        assert not [q for q in report.questions if q.check == "free_run_staleness"]
-
-    def test_saveset_less_request_skips_device_checks(self, engine, monkeypatch):
-        monkeypatch.setattr(
-            submit_preflight,
-            "_resolve_devices_config",
-            lambda request, resolver: {},
-        )
-        report = run_submit_preflight(_request(), "Undulator")
+    def test_device_less_preset_skips_the_liveness_check(self, engine):
+        report = run_submit_preflight(_preset(devices=[]), "Undulator")
         assert report.refusal is None
         assert report.outcomes == [
             ("validate", "passed", ""),
             ("worker_ready", "passed", ""),
         ]
+
+
+class TestTriggerProfileLiveness:
+    """GEECS-Plugins#852 part 2: the box's devices are on the liveness list."""
+
+    @staticmethod
+    def _probed(monkeypatch) -> list[list[str]]:
+        calls: list[list[str]] = []
+
+        def probe(experiment, device_names, *, timeout):
+            calls.append(list(device_names))
+            return list(device_names)  # everything down: the question names all
+
+        monkeypatch.setattr(
+            "geecs_bluesky.devices.ca.liveness.probe_disconnected", probe
+        )
+        return calls
+
+    def test_the_presets_profile_devices_join_the_list(self, engine, monkeypatch):
+        calls = self._probed(monkeypatch)
+        resolver = _FakeResolver({"HTU-LaserOFF": _profile("HTU-LaserOFF")})
+        report = run_submit_preflight(
+            _preset(trigger_profile="HTU-LaserOFF"), "Undulator", resolver=resolver
+        )
+        # Every device the profile writes, after the preset's, no duplicates.
+        assert calls == [["UC_Cam1", "UC_Cam2", "U_DG645_ShotControl", "U_Shutter"]]
+        (question,) = [q for q in report.questions if q.check == "gateway_liveness"]
+        assert "U_DG645_ShotControl" in question.message
+
+    def test_the_experiment_default_profile_is_used_when_the_preset_names_none(
+        self, engine, monkeypatch
+    ):
+        calls = self._probed(monkeypatch)
+        resolver = _FakeResolver({"HTU-Test": _profile()}, default="HTU-Test")
+        run_submit_preflight(_preset(), "Undulator", resolver=resolver)
+        assert calls == [["UC_Cam1", "UC_Cam2", "U_DG645_ShotControl", "U_Shutter"]]
+
+    def test_a_device_less_preset_still_probes_the_box(self, engine, monkeypatch):
+        calls = self._probed(monkeypatch)
+        resolver = _FakeResolver({"HTU-Test": _profile()}, default="HTU-Test")
+        report = run_submit_preflight(
+            _preset(devices=[]), "Undulator", resolver=resolver
+        )
+        assert calls == [["U_DG645_ShotControl", "U_Shutter"]]
+        assert [q.check for q in report.questions] == ["gateway_liveness"]
+
+    def test_an_unresolvable_profile_is_fail_open(self, engine, monkeypatch, caplog):
+        calls = self._probed(monkeypatch)
+        resolver = _FakeResolver({})  # the named profile does not exist here
+        with caplog.at_level("WARNING", logger="geecs_bluesky.qs_client"):
+            report = run_submit_preflight(
+                _preset(trigger_profile="HTU-Missing"), "Undulator", resolver=resolver
+            )
+        assert calls == [["UC_Cam1", "UC_Cam2"]]  # the preset's devices alone
+        assert report.refusal is None
+        assert any("HTU-Missing" in r.message for r in caplog.records)
+
+    def test_the_default_resolver_seam_is_used_when_none_is_given(
+        self, engine, monkeypatch
+    ):
+        calls = self._probed(monkeypatch)
+        monkeypatch.setattr(
+            submit_preflight,
+            "_make_default_resolver",
+            lambda experiment: _FakeResolver(
+                {"HTU-Test": _profile()}, default="HTU-Test"
+            ),
+        )
+        run_submit_preflight(_preset(), "Undulator")
+        assert calls == [["UC_Cam1", "UC_Cam2", "U_DG645_ShotControl", "U_Shutter"]]
 
 
 class TestWorkerReady:
@@ -257,130 +260,142 @@ class TestWorkerReady:
             status=QueueStatus(connected=True, re_state=None, worker_exists=False)
         )
         monkeypatch.setattr(submit_preflight, "_make_default_client", lambda e: fake)
-        report = run_submit_preflight(_request(), "Undulator")
+        report = run_submit_preflight(_preset(), "Undulator")
         assert report.refusal is not None
         assert "worker environment is closed" in report.refusal
         assert "geecs-qserver-ready" in report.refusal
         assert "qserver environment open" in report.refusal
-        # the device checks never ran — nothing to ask about a dead surface
-        assert report.questions == []
-        assert not any(check == "gateway_liveness" for check, _, _ in report.outcomes)
+        assert fake.closed == 1
 
     def test_missing_plan_is_a_refusal_listing_what_is_allowed(
         self, engine, monkeypatch
     ):
-        fake = _FakeQueueClient(plans=["geecs_run_action_plan"])
+        fake = _FakeQueueClient(plans=["mv", "scan"])
         monkeypatch.setattr(submit_preflight, "_make_default_client", lambda e: fake)
-        report = run_submit_preflight(_request(), "Undulator")
+        report = run_submit_preflight(_preset(), "Undulator")
         assert report.refusal is not None
-        assert SCAN_REQUEST_PLAN in report.refusal
-        assert "geecs_run_action_plan" in report.refusal
+        assert "count" in report.refusal and "mv" in report.refusal
+
+    def test_the_presets_own_plan_is_what_is_expected(self, engine, monkeypatch):
+        fake = _FakeQueueClient(plans=["sweep"])
+        monkeypatch.setattr(submit_preflight, "_make_default_client", lambda e: fake)
+        preset = _preset(
+            plan={
+                "name": "sweep",
+                "kwargs": {
+                    "sweep": {
+                        "trajectory": {
+                            "kind": "axes",
+                            "axes": [
+                                {
+                                    "kind": "range",
+                                    "axis": "U_S1H:Current",
+                                    "start": 0,
+                                    "stop": 1,
+                                    "num": 2,
+                                }
+                            ],
+                        }
+                    }
+                },
+            }
+        )
+        report = run_submit_preflight(preset, "Undulator")
+        assert report.refusal is None
+        assert ("worker_ready", "passed", "") in report.outcomes
+
+    def test_unknown_device_reference_is_a_refusal(self, engine, monkeypatch):
+        fake = _FakeQueueClient(devices=["UC_Cam1", "UC_Cam1.scalars"])
+        monkeypatch.setattr(submit_preflight, "_make_default_client", lambda e: fake)
+        preset = _preset(
+            devices=[
+                {"device": "UC_Cam1"},
+                {"device": "UC_Typo", "save_images": False},
+            ],
+            plan={
+                "name": "sweep",
+                "kwargs": {
+                    "sweep": {
+                        "trajectory": {
+                            "kind": "axes",
+                            "axes": [
+                                {
+                                    "kind": "range",
+                                    "axis": "U_S1H:Current",
+                                    "start": 0,
+                                    "stop": 1,
+                                    "num": 2,
+                                }
+                            ],
+                        }
+                    }
+                },
+            },
+            trigger_profile="HTU-Normal",
+        )
+        report = run_submit_preflight(preset, "Undulator")
+        assert report.refusal is not None
+        assert "UC_Typo.scalars" in report.refusal and "U_S1H.current" in report.refusal
+        assert "HTU-Normal" not in report.refusal
 
     def test_unreachable_manager_is_skipped_not_refused(self, engine, monkeypatch):
         fake = _FakeQueueClient(status=QueueStatus(connected=False, detail="timeout"))
         monkeypatch.setattr(submit_preflight, "_make_default_client", lambda e: fake)
-        report = run_submit_preflight(_request(), "Undulator")
+        report = run_submit_preflight(_preset(), "Undulator")
         assert report.refusal is None
-        assert (
-            "worker_ready",
-            "skipped",
-            "manager unreachable (timeout)",
-        ) in report.outcomes
-        # the rest of the pipeline still ran
-        assert ("gateway_liveness", "passed", "") in report.outcomes
+        skipped = [o for o in report.outcomes if o[0] == "worker_ready"]
+        assert skipped and skipped[0][1] == "skipped"
 
     def test_stub_client_is_skipped(self, engine, monkeypatch):
         monkeypatch.setattr(
             submit_preflight, "_make_default_client", lambda e: StubQueueClient()
         )
-        report = run_submit_preflight(_request(), "Undulator")
+        report = run_submit_preflight(_preset(), "Undulator")
         assert report.refusal is None
-        assert any(
-            check == "worker_ready" and result == "skipped" and "[qserver]" in detail
-            for check, result, detail in report.outcomes
-        )
+        assert (
+            "worker_ready",
+            "skipped",
+            "no [qserver] config — submission is off",
+        ) in (report.outcomes)
 
     def test_unanswered_plan_list_is_skipped_with_a_note_not_passed(
         self, engine, monkeypatch
     ):
-        """plans_unknown is fail-open here (a VPN round trip timing out must
-        not block a submit) — recorded ``skipped`` with the verdict's
-        sentence, never ``passed``; the service-start assertion stays strict."""
-        fake = _FakeQueueClient(plans_error=RuntimeError("boom"))
+        fake = _FakeQueueClient(plans_error=TimeoutError("vpn"))
         monkeypatch.setattr(submit_preflight, "_make_default_client", lambda e: fake)
-        report = run_submit_preflight(_request(), "Undulator")
+        report = run_submit_preflight(_preset(), "Undulator")
         assert report.refusal is None
         outcome = next(o for o in report.outcomes if o[0] == "worker_ready")
-        assert outcome[1] == "skipped"
-        assert "could not be read" in outcome[2]
-        # the rest of the pipeline still ran
-        assert ("gateway_liveness", "passed", "") in report.outcomes
+        assert outcome[1] == "skipped" and outcome[2]
 
     def test_opening_environment_is_a_refusal_saying_retry(self, engine, monkeypatch):
         fake = _FakeQueueClient(
             status=QueueStatus(
                 connected=True,
+                re_state=None,
                 manager_state="creating_environment",
                 worker_exists=False,
-                worker_environment_state="initializing",
             )
         )
         monkeypatch.setattr(submit_preflight, "_make_default_client", lambda e: fake)
-        report = run_submit_preflight(_request(), "Undulator")
-        assert report.refusal is not None
-        assert "being opened" in report.refusal
-        assert "restart geecs-qserver-ready" not in report.refusal.split("do not")[0]
+        report = run_submit_preflight(_preset(), "Undulator")
+        assert report.refusal is not None and "retry" in report.refusal.lower()
 
     def test_empty_plan_list_is_a_refusal(self, engine, monkeypatch):
         fake = _FakeQueueClient(plans=[])
         monkeypatch.setattr(submit_preflight, "_make_default_client", lambda e: fake)
-        report = run_submit_preflight(_request(), "Undulator")
+        report = run_submit_preflight(_preset(), "Undulator")
         assert report.refusal is not None
-        assert "lists no allowed plans" in report.refusal
-
-    def test_verdict_is_the_shared_one(self, engine, monkeypatch):
-        """The preflight's sentence IS readiness_verdict's — one definition."""
-        from geecs_bluesky.qs_client.client import QueueStatus, readiness_verdict
-
-        closed = QueueStatus(connected=True, re_state=None, worker_exists=False)
-        fake = _FakeQueueClient(status=closed)
-        monkeypatch.setattr(submit_preflight, "_make_default_client", lambda e: fake)
-        report = run_submit_preflight(_request(), "Undulator")
-        assert (
-            report.refusal == readiness_verdict(closed, None, SCAN_REQUEST_PLAN).detail
-        )
 
     def test_owned_client_is_closed_but_a_passed_one_is_not(self, engine, monkeypatch):
         owned = _FakeQueueClient()
         monkeypatch.setattr(submit_preflight, "_make_default_client", lambda e: owned)
-        run_submit_preflight(_request(), "Undulator")
+        run_submit_preflight(_preset(), "Undulator")
         assert owned.closed == 1
-
         passed = _FakeQueueClient()
-        monkeypatch.setattr(
-            submit_preflight,
-            "_make_default_client",
-            lambda e: pytest.fail("a passed client must be used, not a new one"),
-        )
-        report = run_submit_preflight(_request(), "Undulator", client=passed)
-        assert passed.status_calls == 1
-        assert passed.closed == 0
+        report = run_submit_preflight(_preset(), "Undulator", client=passed)
+        assert passed.status_calls == 1 and passed.closed == 0
         assert ("worker_ready", "passed", "") in report.outcomes
-
-    def test_validation_refusal_wins_before_the_manager_is_asked(
-        self, engine, monkeypatch
-    ):
-        monkeypatch.setattr(
-            "geecs_bluesky.scan_request_runner.validate_scan_request",
-            lambda request, resolver: (_ for _ in ()).throw(ValueError("bad request")),
-        )
-        monkeypatch.setattr(
-            submit_preflight,
-            "_make_default_client",
-            lambda e: pytest.fail("manager must not be asked about an invalid request"),
-        )
-        report = run_submit_preflight(_request(), "Undulator")
-        assert report.refusal == "bad request"
 
 
 class TestBuildSubmissionRecord:
@@ -390,20 +405,13 @@ class TestBuildSubmissionRecord:
             client="geecs-console 0.21.0",
         )
         assert record.client == "geecs-console 0.21.0"
-        # The schema's documented contract: ISO 8601 WITH timezone — a naive
-        # datetime.now().isoformat() has no offset and must never appear.
         from datetime import datetime
 
         assert datetime.fromisoformat(record.submitted_at).tzinfo is not None
-        assert [o.check for o in record.preflight] == [
-            "validate",
-            "gateway_liveness",
-        ]
+        assert [o.check for o in record.preflight] == ["validate", "gateway_liveness"]
         assert record.preflight[1].result.value == "continued"
 
     def test_record_survives_the_queue_dump(self):
-        # The record travels beside the request as its own JSON dict
-        # (request/record split, geecs-schemas 0.14.0).
         from geecs_schemas import SubmissionRecord
 
         record = build_submission_record([], client="c")
@@ -416,3 +424,85 @@ class TestReportShape:
         report = PreflightReport()
         assert report.refusal is None
         assert report.outcomes == [] and report.questions == []
+
+
+class TestAcquisitionRules:
+    """The phase-2 device rules over the manager's device tree (``08`` §4.3, §4.7)."""
+
+    TREE = [
+        "UC_Plugin",
+        "UC_Plugin.scalars",
+        "UC_Plugin.hdf",
+        "UC_Plugin.acq_timestamp",
+        "UC_Native",
+        "UC_Native.scalars",
+        "UC_Native.save",
+        "UC_Native.acq_timestamp",
+        "U_ICT",
+        "U_ICT.scalars",
+        "U_ICT.acq_timestamp",
+        "U_Gauge",
+        "U_Gauge.scalars",
+    ]
+
+    def _refusal(self, preset: Preset, engine) -> str | None:
+        from geecs_bluesky.qs_client.presets import expand_preset
+        from geecs_bluesky.qs_client.submit_preflight import acquisition_refusal
+
+        return acquisition_refusal(expand_preset(preset), set(self.TREE))
+
+    def test_non_essential_needs_the_plugin(self, engine):
+        preset = _preset(
+            devices=[
+                {"device": "UC_Plugin"},
+                {"device": "UC_Native", "essential": False},
+            ]
+        )
+        refusal = self._refusal(preset, engine)
+        assert refusal and "non-essential" in refusal and "UC_Native" in refusal
+        preset = _preset(
+            devices=[
+                {"device": "UC_Native"},
+                {"device": "UC_Plugin", "essential": False},
+            ]
+        )
+        assert self._refusal(preset, engine) is None  # strict + a plugin stream
+
+    def test_gated_essential_camera_needs_the_plugin(self, engine):
+        preset = _preset(
+            devices=[{"device": "UC_Native"}, {"device": "UC_Plugin"}],
+            plan={"name": "count", "kwargs": {"num": 3, "acquisition": "gated"}},
+        )
+        refusal = self._refusal(preset, engine)
+        assert refusal and "gated" in refusal and "UC_Native" in refusal
+        # its scalars only: legal (it rides in the sampler)
+        preset = _preset(
+            devices=[
+                {"device": "UC_Native", "save_images": False},
+                {"device": "UC_Plugin"},
+            ],
+            plan={"name": "count", "kwargs": {"num": 3, "acquisition": "gated"}},
+        )
+        assert self._refusal(preset, engine) is None
+
+    def test_gated_needs_a_shot_clock(self, engine):
+        preset = _preset(
+            devices=[{"device": "U_Gauge"}],
+            plan={"name": "count", "kwargs": {"num": 3, "acquisition": "gated"}},
+        )
+        refusal = self._refusal(preset, engine)
+        assert refusal and "nothing counts shots" in refusal
+        preset = _preset(
+            devices=[{"device": "U_Gauge"}, {"device": "U_ICT", "save_images": False}],
+            plan={"name": "count", "kwargs": {"num": 3, "acquisition": "gated"}},
+        )
+        assert self._refusal(preset, engine) is None  # an ICT clocks it
+
+    def test_worker_ready_refuses_through_the_rules(self, engine, monkeypatch):
+        client = _FakeQueueClient(devices=self.TREE)
+        preset = _preset(
+            devices=[{"device": "U_Gauge"}],
+            plan={"name": "count", "kwargs": {"num": 3, "acquisition": "gated"}},
+        )
+        report = run_submit_preflight(preset, "TestExp", client=client)
+        assert report.refusal and "nothing counts shots" in report.refusal

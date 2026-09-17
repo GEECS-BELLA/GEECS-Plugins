@@ -6,24 +6,31 @@ bluesky-queueserver RE Manager, the configs repo, and the Tiled archive.
 Future domains (health, DB metadata, log triage, analysis) register on
 the same server.
 
-**v0 + v1 + v2 (current).** Read-only: `scan_status`, `scan_history`,
-`get_scan_result`, `list_scan_configs`, `validate_scan_request`,
-`scan_progress` (with per-shot counts and paused reasons from the
-worker's streams, best-effort), `get_scan_analysis` + `get_scan_figure`
-(analysis results + rendered figures — needs the data share mounted),
-`describe_action` (dry-run preview).
+**Read + halt (current).** Read-only: `scan_status`, `scan_history`,
+`get_scan_result`, `list_scan_configs`, `scan_progress` (with per-shot
+counts and paused reasons from the worker's streams, best-effort),
+`get_scan_analysis` + `get_scan_figure` (analysis results + rendered
+figures — needs the data share mounted), `list_analyzers` +
+`list_analysis_groups`.
 Control (put these under OSPREY `ask`; list the `QUEUE_TOOLS` in
-`config:` `write_tools` for headless): `submit_scan` (one scan in
-flight, 1,000-shot cap, preflight warnings need explicit
-acknowledgement), `run_action` (idle-only queue item),
-`move_scan_variable` (idle-only, blocking), `resume_scan` (restarts
-motion — gated like a submission), `clear_queue` (the one remover); the
-halt family — `stop_scan` and `pause_scan` (graceful; `force` for
-another client's scan is approval territory) — is deliberately never
-behind the headless gate. Gating semantics — what osprey actually
-enforces for custom servers — are documented in `deploy/DEPLOYMENT.md`
-(verified: hook presets and the interactive kill switch do NOT apply;
-the native ask prompt is the interactive gate).
+`config:` `write_tools` for headless): `clear_queue` (the one remover),
+`resume_scan` (restarts motion — gated like a submission),
+`run_scan_analysis`; the halt family — `stop_scan` and `pause_scan`
+(graceful; `force` for another client's scan is approval territory) — is
+deliberately never behind the headless gate. Gating semantics — what
+osprey actually enforces for custom servers — are documented in
+`deploy/DEPLOYMENT.md` (verified: hook presets and the interactive kill
+switch do NOT apply; the native ask prompt is the interactive gate).
+
+**There is no submit verb.** `submit_scan`, `run_action`,
+`describe_action`, `move_scan_variable` and `validate_scan_request` were
+removed in 0.9.0: the native-Bluesky rebuild retired the
+`geecs_bluesky.qs_client` calls behind them (its submission surface is
+now `submit_plan`/`submit_preset` over the `count`/`sweep`/`optimize`
+plans), and this server is an experiment rather than an operator
+surface, so the verbs were deleted rather than rewired. Scans are
+submitted from the **web scanner** (`GeecsScanner`, port 8300). See
+#727 if an agent-facing write path is ever wanted back.
 
 ## Run
 

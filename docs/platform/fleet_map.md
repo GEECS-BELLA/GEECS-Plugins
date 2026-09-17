@@ -25,8 +25,8 @@ back into this table.
     logbook and its `StateDirectory`; **deployed live the same evening**
     (logbook 0.10.1 / portal 0.27.1 on the host, entries moved to
     `/var/lib/geecs-logbook`); no other row was re-observed that day. The five repo-managed Linux services — CA
-    gateway, queueserver worker, capture daemon, GEECS-MCP HTTP, Data
-    Portal — run as **system** units rendered from the host's `site.env`
+    gateway, queueserver worker, GEECS-MCP HTTP, Data Portal, Logbook —
+    run as **system** units rendered from the host's `site.env`
     ([Site Profile](site_profile.md)), from the per-service-family clones
     named in [one clone per service](#one-clone-per-service) (with its two
     stated exceptions), all at `master` on that date. Also running: the
@@ -49,7 +49,6 @@ component, see the [Data Flow Map](../sites/data_flow/index.html).
 ```mermaid
 flowchart TB
     subgraph clients["Operator & analysis machines (Windows / macOS / Linux)"]
-        console["GEECS-Console"]
         phoebus["Phoebus displays"]
         nb["Python / notebooks"]
         osprey["OSPREY agents"]
@@ -65,9 +64,9 @@ flowchart TB
     subgraph worker["Worker-side services (today: the central server itself; move to the services server)"]
         qs["Queueserver stack<br/>RE Manager :60615 / :60625<br/>doc stream :5568<br/>Redis (loopback)"]
         mcp["GEECS-MCP server<br/>:8100 (HTTP mode)"]
-        capture["Capture daemon<br/>(geecs-capture)"]
         portal["GEECS Data Portal<br/>:8200 (GEECS-DataPortal)"]
         logbook["GEECS Logbook<br/>:8400 (GeecsLogbook)"]
+        scanner["GEECS Scanner<br/>:8300 (GeecsScanner — the web scanner console)"]
     end
 
     subgraph camsrv["Camera servers (DB roster: 11 hosts, 9 deployed; Windows)"]
@@ -87,25 +86,23 @@ flowchart TB
     db -- "served set, limits,<br/>vartypes" --> cagw
 
     cagw -- "CA (scalar PVs, :SP)" --> phoebus
-    cagw -- "CA" --> console
+    cagw -- "CA (readback panel)" --> scanner
     cagw -- "CA (ophyd-async devices)" --> qs
     pvagw -- "pvAccess (NTNDArray)" --> phoebus
 
-    console -- "queue API :60615" --> qs
+    scanner -- "queue API (local)" --> qs
     nb -- "queue API" --> qs
     osprey -- "MCP tools :8100" --> mcp
     mcp -- "queue API (local)" --> qs
 
     qs -- "documents (TiledWriter)" --> tiled
     qs -- "scan claim, ScanInfo,<br/>s-file export" --> nas
-    qs -- "document stream<br/>(scan gating)" --> capture
-    pvagw -- "pvAccess (deep-queue<br/>image monitors)" --> capture
-    capture -- "per-scan HDF5<br/>frame stacks" --> nas
+    qs -- "pvAccess: file-plugin PVs<br/>(FilePath, Capture, NumCaptured)" --> pvagw
+    pvagw -- "per-scan HDF5 frame stacks<br/>(the file plugin, #806)" --> nas
     cams -- "native file saving" --> nas
     devs -- "native file saving" --> nas
 
     tiled -- "HTTP API / web UI" --> browser
-    tiled -- "catalog reads" --> console
     tiled -- "catalog reads" --> nb
     tiled -- "catalog reads" --> portal
     nas -- "SMB mount" --> portal
@@ -113,6 +110,8 @@ flowchart TB
     portal -. "scan-card link + plot send (--logbook-url)" .-> logbook
     nas -- "SMB mount: scan folders read,<br/>logbook/ mirror written" --> logbook
     logbook -- "HTTP :8400" --> browser
+    scanner -- "HTTP :8300" --> browser
+    scanner -. "portal links (--portal-url)" .-> portal
     nas -- "SMB mount" --> nb
 ```
 
@@ -122,9 +121,8 @@ setpoint writes travel against the readback arrows, over the same
 connections.
 
 Planned additions (not yet deployed): a consolidated services server
-that will take the worker-side services above — the queueserver worker
-and capture daemon together (their co-location is a requirement, not a
-convenience), the MCP HTTP service, and the Data Portal. Whether the CA
+that will take the worker-side services above — the queueserver worker,
+the MCP HTTP service, and the Data Portal. Whether the CA
 gateway and Tiled follow is decided at the migration; the GEECS DB is
 LabVIEW infrastructure and stays where GEECS puts it.
 
@@ -148,6 +146,7 @@ rendered from it, never edited by hand.
 | Capture daemon (`geecs_bluesky.capture`) | 192.168.6.14 (with the worker — co-location is a **requirement**: shared filesystem view + local heartbeat) | `<root>/qs-checkout` (shares the worker's clone — the co-location requirement extends to code state) | consumes doc stream (5568) + pvAccess; no listening port | systemd `geecs-capture` | heartbeat file refreshing every ~10 s (`~/.local/state/geecs-capture/heartbeat.json` in the service user's home); discovery line in `journalctl -u geecs-capture` | [GeecsBluesky/capture/deploy/DEPLOYMENT.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsBluesky/capture/deploy/DEPLOYMENT.md) |
 | GEECS Data Portal (GEECS-DataPortal) — memory ceiling from `site.env`; links to the logbook and sends Plot-tab figures into a scan's entry (`--logbook-url`, absolute and reachable from both this process and operators' browsers), no longer hosts it | 192.168.6.14 (interim; moves with the services-server consolidation) | `<root>/portal-checkout` | HTTP 8200 | systemd `geecs-data-portal` | `GET /health` (catalog probe); any day page in a browser | [GEECS-DataPortal/DEPLOYMENT.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GEECS-DataPortal/DEPLOYMENT.md) |
 | GEECS Logbook (GeecsLogbook) — the scans book over scan folders + the ops book; its own process since 2026-09-13 (before: a router in the portal at `/log`). Entries in the unit's `StateDirectory` (`/var/lib/geecs-logbook`: `logbook.db` + `attachments/`, **the irreplaceable part — back it up**), mirrored to `<experiment>/logbook/` on the share | 192.168.6.14 (with the portal; moves with it) | `<root>/portal-checkout` (the portal's clone, own poetry env in `GeecsLogbook/` — a pull there is a deploy of both; restart both) | HTTP 8400 | systemd `geecs-logbook` | `GET /health` → `ok`, `version`, `writable` (true on a deployed host); `GET /` → 307 to today | [GeecsLogbook/deploy/DEPLOYMENT.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsLogbook/deploy/DEPLOYMENT.md) |
+| GEECS Scanner (GeecsScanner) — the web scanner console: submit / watch / stop scans from a browser, over `geecs_bluesky.qs_client`; runs from the **worker's** checkout so it submits against the plan surface that checkout defines | worker host (co-located with the RE Manager) | `<root>/qs-checkout` | HTTP 8300 | systemd `geecs-scanner` | `GET /health` (`readiness` must read `ready`); `GET /api/status` | [GeecsScanner/deploy/DEPLOYMENT.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsScanner/deploy/DEPLOYMENT.md) |
 | PVA image gateways (GeecsPvaGateway) | each deployed camera server — the roster is the DB (endpoints hosting the experiment's image devices: 11 for Undulator on 2026-09-04), the deployed set is `config.ini [pva] addr_list` (9); the other 2 hosts are *not deployed* (cameras only nominally, no instance installed) and show as such on the screen and in `scripts/fleet_status.sh` | — (installs from the lab's shared "Active Version" clone on the data share; per host only a baked venv — **the share clone's checked-out commit is the fleet pin**) | pvAccess TCP 5075 / UDP 5076 | NSSM service `GeecsPvaGateway` (auto-start, pull-on-restart) | fleet status Phoebus screen (`deploy/fleet_status_undulator.bob`, generated per experiment by `deploy/gen_fleet_status.py`) | [GeecsPvaGateway/DEPLOYMENT.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsPvaGateway/DEPLOYMENT.md) |
 | GEECS MySQL DB | 192.168.6.14 | — | 3306 | LabVIEW/GEECS infrastructure (not managed by this repo) | `scripts/lab_status.sh` (a handshake-completing probe — never a bare TCP connect, see below); any `GeecsDb` client connect | — |
 | Data share (NAS) | NAS appliance | — | SMB | storage infrastructure (not managed by this repo) | mount visible, scan folders resolvable | — |
@@ -168,7 +167,7 @@ rendered from it, never edited by hand.
     is. `scripts/lab_status.sh` therefore probes the DB with
     `scripts/mysql_probe.py` — a bounded, real handshake — and the shared
     `port_open` in `scripts/lib/net_probes.sh` refuses port 3306.
-    `1129` in a `GeecsDb` error or the console log means the block, not a
+    `1129` in a `GeecsDb` error or a service's journal means the block, not a
     network fault: ask the DB admin for `FLUSH HOSTS` (raising
     `max_connect_errors` server-side is the owner's call). This admonition
     is the one statement of the rule — the probe scripts and the
@@ -189,10 +188,8 @@ Poetry env inside it). This is deliberate, not accumulation:
   moves only at hardware-verified milestones. Each clone sits pinned at
   its service's last *verified* deploy — a per-service rollback point,
   not drift.
-- Two deliberate exceptions, each with its own isolation story: the
-  queueserver worker and capture daemon **share** their clone because
-  co-location (and co-versioning) is a requirement of the capture
-  design; the MCP server reads the worker's checkout (its config
+- One deliberate exception, with its own isolation story: the MCP
+  server reads the worker's checkout (its config
   validation must exactly match worker truth) but isolates by
   installing **non-editably into its own baked venv** — a pull never
   mutates code under the running service. The Windows PVA fleet
@@ -270,7 +267,7 @@ every step reversible. Two shapes — whether the gateway and Tiled
 follow is decided at the migration (the planned-additions paragraph
 under [The picture](#the-picture)):
 
-- **Only the worker family moves** (queueserver, capture, MCP, portal, logbook);
+- **Only the worker family moves** (queueserver, MCP, portal, logbook);
   the CA gateway, Tiled and the DB stay on the gateway's box. Bring the
   units up on the new host in the order below, verify, then stop them on
   the old box. Client side: `[qserver] host` in every `config.ini`, the
@@ -297,9 +294,8 @@ scan running:
    steps when the unit is not enabled. Do not carry a `dump.rdb` from a
    newer Redis onto an older one; start empty instead (the runbook's
    notes give the RDB-version reason).
-2. **`geecs-qserver`** (it pulls in `geecs-qserver-ready`), then
-   **`geecs-capture`**; `qserver status` (readiness, not just the port)
-   and the capture heartbeat file are the checks.
+2. **`geecs-qserver`** (it pulls in `geecs-qserver-ready`); `qserver
+   status` (readiness, not just the port) is the check.
 3. **`geecs-mcp`** from a venv baked on the new host, then
    **`geecs-data-portal`**, **`geecs-logbook`**.
 4. `scripts/fleet_status.sh` from a client pointed at the new host: every
@@ -320,8 +316,8 @@ transport:
 **Control plane — Channel Access.** The CA gateway is the single scalar
 access layer: it subscribes to every enabled GEECS device over the GEECS
 wire protocol and serves readbacks plus `:SP` setpoints as CA PVs.
-Everything that reads or writes a device value — Phoebus, the console,
-the Bluesky worker's ophyd-async devices — goes through it. The GEECS
+Everything that reads or writes a device value — Phoebus, the scanner's
+readback panel, the Bluesky worker's ophyd-async devices — goes through it. The GEECS
 MySQL DB feeds it the served set (devices, variables, limits, types).
 
 **Image plane — pvAccess.** Live camera frames deliberately bypass the
@@ -330,8 +326,8 @@ host's cameras as NTNDArray PVs (gated subscriptions, latest-wins).
 Viewers connect point-to-point; 2 MB frames never transit the control
 plane.
 
-**Orchestration plane — the queue.** Scans exist as `ScanRequest`s
-submitted to the RE Manager's queue (ZMQ, port 60615). The console,
+**Orchestration plane — the queue.** Scans exist as queue items
+submitted to the RE Manager's queue (ZMQ, port 60615). The scanner,
 notebooks, and the MCP server are all peer clients of the same queue
 API; the worker executes plans against the CA gateway's PVs and streams
 progress on the document (5568) and console-output (60625) ports.
@@ -340,13 +336,13 @@ progress on the document (5568) and console-output (60625) ports.
 save per-shot files natively to the data share while the worker writes
 scan folders, `ScanInfo`, and the exported s-file; every event document
 also lands in the Tiled catalog, which is the queryable index over what
-was taken. The capture daemon adds a second image path: it consumes the
-worker's document stream (to know when a scan is running and which
-cameras are in it) and the PVA gateways' image PVs, and writes one
-HDF5 frame stack per camera per scan into the scan folder, alongside
-the native files (dual-write; the `native_image_save` toggle governs
-whether eligible cameras also write native files, while
-proprietary-format devices — HASO, scopes — always keep native saving).
+was taken. The PVA gateways' file plugin (#806) adds the second image
+path: on each camera server the gateway writes one HDF5 frame stack per
+camera per scan into the scan folder, driven by the worker over the
+areaDetector file-plugin PVs (the camera is a stock ophyd-async
+`StandardDetector`; the run's documents reference the stack), alongside
+the native files while PNG dual-write lasts; proprietary-format devices
+— HASO, scopes — keep native saving.
 Analysis reads any of these surfaces: files via the mounted share,
 frame stacks via `geecs_data_utils` `scan_stack`, scalars and metadata
 via Tiled. The Data Portal is the zero-install reader over the same

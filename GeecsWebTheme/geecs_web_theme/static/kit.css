@@ -7,7 +7,7 @@
  * separately and disagreed on all of them — two rails (17rem fixed vs
  * 228px sticky), fifteen status class names for about five states, three
  * overlay mechanisms, and one page with no breakpoint at all. A third
- * surface (the console, once it is web-based) would have been a third
+ * surface (the scanner, the web console) would have been a third
  * set of answers.
  *
  * Rules this file lives by
@@ -229,7 +229,7 @@ body.kit{
 .kit .chip[data-state="degraded"]{color:var(--warn);background:var(--warn-soft);border-color:var(--warn-soft)}
 .kit .chip[data-state="failed"]{color:var(--crit);background:var(--crit-soft);border-color:var(--crit-soft)}
 /* Not a severity: who wrote this. The logbook already separates what an
-   analyzer wrote from what a person wrote, and the console will want the
+   analyzer wrote from what a person wrote, and the scanner will want the
    same for actions an agent submitted — that distinction carries trust,
    so it belongs in the vocabulary rather than in each surface's styling. */
 .kit .chip[data-state="agent"]{color:var(--agent);background:var(--agent-soft);border-color:var(--agent-rule)}
@@ -294,8 +294,8 @@ body.kit{
 .kit .field .hint{font-size:11.5px;color:var(--muted)}
 
 /* A vertical list of selectable things: the rail's navigation, the
- * inspector's item list, and whatever the console's device list turns out
- * to be. Styled as a NAMED component rather than by where it sits — the
+ * inspector's item list, and the scanner's device list. Styled as a
+ * NAMED component rather than by where it sits — the
  * first version of this file styled `.rail nav`, which left the inspector
  * on the reference page rendering three native browser buttons and
  * guaranteed that a third use would need a third rule.

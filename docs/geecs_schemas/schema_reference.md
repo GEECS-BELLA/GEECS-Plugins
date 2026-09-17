@@ -6,6 +6,150 @@
 
 # GEECS config schema reference
 
+## `optimizer_config`
+
+### OptimizerConfig
+
+An optimization: search space, live measurements, derived outputs and generator.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `schema_version` | `int` | no | 1 | Format version of this config file. Leave at 1 — tools update this automatically when the file format changes. |
+| `vocs` | `VOCS` | yes | — | GEST variables, objectives, constraints, constants and observables; compact input and typed canonical output are accepted. |
+| `measurements` | `dict[str, SignalMeasurement \| DiagnosticMeasurement]` | yes | — | Named live scalar or diagnostic measurements. |
+| `derived` | `dict[str, str \| PythonDerived]` | no | empty | Expressions or worker callables, in dependency order. |
+| `generator` | `OptimizerGenerator` | yes | — | The generator recipe used to propose positions. |
+| `run` | `OptimizationRun` | no | OptimizationRun(on_finish='best', seed_dumps=[], shots_per_step=5, max_iterations=None) | Run defaults and finish policy. |
+
+Example:
+
+```yaml
+schema_version: 1
+vocs:
+  variables: {"Motor:Current": [-1, 1]}
+  objectives: {camera.image_total: MAXIMIZE}
+measurements:
+  camera: {diagnostic: ExampleCamera, frames: per_bin}
+generator: {name: bayes_turbo_standard}
+run: {shots_per_step: 5, max_iterations: 20}
+```
+
+### VOCS
+
+Variables, Objectives, Constraints, and other Settings (VOCS) data structure to describe optimization problems.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `variables` | `VariableDict` | yes | — | variable names with bounds or discrete sets |
+| `objectives` | `ObjectiveDict` | no | {} | objective names with type of objective |
+| `constraints` | `ConstraintDict` | no | {} | constraint names with a list of constraint type and value |
+| `constants` | `ConstantDict` | no | {} | constant names and values passed to evaluate function |
+| `observables` | `ObservableDict` | no | {} | observables tracked alongside objectives and constraints |
+
+### SignalMeasurement
+
+A subscribed scalar in the shot reading.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `reduce` | `'mean' \| 'median' \| 'min' \| 'max' \| 'sum' \| 'std'` | no | 'mean' | Reduction of valid per-shot scalar values. |
+| `min_shots` | `int` | no | 1 | Minimum valid shots needed for a finite measurement. |
+| `signal` | `str` | yes | — | Device:Variable to read on every shot. |
+
+### DiagnosticMeasurement
+
+A diagnostic document applied to live frames.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `reduce` | `'mean' \| 'median' \| 'min' \| 'max' \| 'sum' \| 'std'` | no | 'mean' | Reduction of valid per-shot scalar values. |
+| `min_shots` | `int` | no | 1 | Minimum valid shots needed for a finite measurement. |
+| `diagnostic` | `str` | yes | — | Diagnostic document ID (file stem). |
+| `frames` | `'per_bin' \| 'per_shot'` | no | 'per_bin' | Analyze the mean frame, or analyze each frame before reducing scalars. |
+| `overrides` | `dict[str, JsonValue]` | no | empty | Processing/analyzer overrides deep-merged into the diagnostic. |
+
+### PythonDerived
+
+Worker callable over the reduced scalars, for non-expressible objectives.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `python` | `str` | yes | — | Importable module:function accepting a scalar mapping and returning a float. |
+
+### OptimizerGenerator
+
+Generator recipe and its algorithm-specific settings.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `name` | `str` | yes | — | Worker generator recipe name. |
+| `options` | `dict[str, JsonValue]` | no | empty | Recipe-specific options validated by the worker before opening a run. |
+
+### OptimizationRun
+
+Run defaults; queue-item arguments may override the iteration and shot budgets.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `on_finish` | `'best' \| 'hold'` | no | 'best' | Move to the best feasible observation, or hold; no best restores initial positions. Relative pseudos always restore on unstage. |
+| `seed_dumps` | `list[str]` | no | empty | Previous xopt_dump.yaml files; relative paths resolve beside this config. |
+| `shots_per_step` | `int` | no | 5 | Successful strict acquisitions per iteration. |
+| `max_iterations` | `int (optional)` | no | None | Iteration limit; required here or in the submitted plan arguments. |
+
+## `preset`
+
+### Preset
+
+A saved scan: the device group plus the plan call.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `schema_version` | `int` | no | 1 | Format version of this config file. Leave at 1 — tools update this automatically when the file format changes. |
+| `name` | `str` | yes | — | The name clients use to pick this preset. |
+| `description` | `str` | no | '' | What this scan is for — becomes the run's description (ScanStartInfo in the legacy ScanInfo file). |
+| `trigger_profile` | `str (optional)` | no | None | Name of the trigger profile driving the shots. Leave unset to use the experiment default (experiment_defaults.yaml). |
+| `background` | `bool` | no | False | Flag this scan as a background measurement (metadata only: ScanMode 'background' in ScanInfo, 'background' in the run). |
+| `devices` | `list[PresetDevice]` | no | empty | The devices recording this scan, one entry per device. Every subscribed scalar of each is a column of every row; each entry chooses whether its images are saved. An empty list scans with the motors' readbacks only. |
+| `plan` | `PlanCall (optional)` | no | None | The stock plan call this preset submits. Unset means a device group with no scan attached yet. |
+
+Example:
+
+```yaml
+schema_version: 1
+name: emq1_scan
+description: emq1 scan after bax alignment
+trigger_profile: HTU-Normal          # omit to use the experiment default
+devices:
+  - device: UC_ALineEBeam3           # frames saved (the default)
+  - device: UC_VisaEBeam1
+    save_images: false               # scalars only, no frames on disk
+  - device: U_BCaveICT
+plan:
+  name: scan                         # a stock bluesky plan the worker registers
+  args: ["EMQ1 Current", 1.2, 1.7, 6]  # motor (catalog name or Device:Variable), start, stop, points
+  kwargs: {shots_per_step: 20}       # rows recorded at every position
+```
+
+### PresetDevice
+
+One device of the group: it records every shot of the scan.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `device` | `str` | yes | — | GEECS device name exactly as it appears in the GEECS experiment database (MySQL), e.g. 'UC_ALineEbeam1'. |
+| `save_images` | `bool` | no | True | Save the device's images / non-scalar files (camera frames, traces) beside the scalar data. Off records the device's scalars only — its per-shot readings still land in every row; the frames stay off the disk. Meaningless for a scalar-only device (nothing to save either way). |
+| `essential` | `bool` | no | True | Wait for this device on every shot (on, the default) — a shot is not complete without its reading. Off streams the device's frames for the run's duration instead: it never holds a shot or aborts the scan, so use it for a slow or unreliable camera whose frames are welcome but not required. Off needs the images saved (a scalars-only device cannot stream). |
+
+### PlanCall
+
+The stock plan the preset runs, with its arguments.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `name` | `str` | yes | — | The stock bluesky plan to run, e.g. 'count', 'scan', 'list_scan', 'grid_scan' — one of the names the worker registers. |
+| `args` | `list[JsonValue]` | no | empty | Positional arguments after the detectors, in the plan's own order — e.g. ['EMQ1 Current', 1.2, 1.7, 6] for scan (motor, start, stop, number of points). A scan variable is a string: 'Device:Variable' or a scan-variable catalog name. |
+| `kwargs` | `dict[str, JsonValue]` | no | empty | Keyword arguments — e.g. {num: 100} for count, {shots_per_step: 10} for the scan verbs (rows recorded at every position). |
+
 ## `scan_request`
 
 ### ScanRequest
@@ -15,13 +159,12 @@ One complete scan, ready to submit: what to do, what to save, how to trigger.
 | Field | Type | Required | Default | What it does |
 |---|---|---|---|---|
 | `schema_version` | `int` | no | 3 | Format version of this config file. Leave at 3 — tools update this automatically when the file format changes. |
-| `mode` | `ScanRequestMode` | yes | — | What kind of scan: 'step' sweeps one or more axes, 'noscan' collects shots without moving anything, 'optimize' lets an algorithm pick the settings. |
-| `axes` | `list[ScanAxis]` | no | empty | For step scans: what to sweep. One entry is a simple 1-D scan; several entries form a grid visiting every combination, with the first axis as the outermost (slowest) loop and the last as the innermost (fastest). Leave empty for noscan and optimize. |
+| `mode` | `ScanRequestMode` | yes | — | What kind of scan: 'step' sweeps one or more axes, 'noscan' collects shots without moving anything. |
+| `axes` | `list[ScanAxis]` | no | empty | For step scans: what to sweep. One entry is a simple 1-D scan; several entries form a grid visiting every combination, with the first axis as the outermost (slowest) loop and the last as the innermost (fastest). Leave empty for noscan. |
 | `capture` | `CaptureSettings` | no | CaptureSettings(shots_per_step=1, acquisition=<AcquisitionMode.STRICT: 'strict'>, save_sets=[], background_telemetry=None, native_image_save=None, trigger_profile=None) | How shots are taken and what gets recorded: shots per step, acquisition discipline, save sets, telemetry and native-image toggles, and the trigger profile. Omit for a one-shot strict capture with no named save sets. |
 | `actions` | `ActionBindings` | no | ActionBindings(setup=[], per_step=[], closeout=[]) | Named action plans to run before the scan (setup), between steps (per_step), and after it (closeout). |
 | `description` | `str` | no | '' | Free-text note about this scan; it ends up in the scan's metadata and the experiment log. |
 | `background` | `bool` | no | False | Mark this scan's data as background/calibration shots so analysis can find them later. |
-| `optimization` | `OptimizationSpec (optional)` | no | None | The optimization problem definition. Required for (and only allowed with) mode 'optimize'. |
 
 Example:
 
@@ -99,98 +242,6 @@ Which named action plans run around (and inside) the scan.
 | `per_step` | `list[str]` | no | empty | Plans to run between scan steps — after each move, before the shots at that position. |
 | `closeout` | `list[str]` | no | empty | Plans to run once after the scan finishes (even on abort). |
 
-### OptimizationSpec
-
-The optimization problem: what to vary, within what limits, to improve what.
-
-| Field | Type | Required | Default | What it does |
-|---|---|---|---|---|
-| `variables` | `dict[str, tuple[float, float]]` | yes | — | What the optimizer may move and how far, as 'variable name: [lowest, highest]'. Names may be scan-variable names or 'Device:Variable' strings. |
-| `objectives` | `dict[str, str]` | no | empty | What counts as better, as 'objective name: MINIMIZE' or 'objective name: MAXIMIZE'. May be empty for algorithms that only model observables (BAX). |
-| `observables` | `list[str]` | no | empty | Extra measured quantities the algorithm should track without optimizing them, e.g. ['x_CoM']. |
-| `constraints` | `dict[str, tuple[str, float]]` | no | empty | Hard limits on measured quantities, as 'name: [LESS_THAN or GREATER_THAN, value]'. Usually empty. |
-| `evaluator` | `EvaluatorSpec` | yes | — | The analysis code that scores each iteration. |
-| `generator` | `GeneratorSpec` | yes | — | The algorithm that proposes the next settings. |
-| `max_iterations` | `int (optional)` | no | None | Stop after this many optimization iterations. Leave unset to run until stopped by hand. |
-| `seed_dump_files` | `list[str]` | no | empty | Optional earlier results (ECS dump files) used to warm-start the optimizer. Usually empty. |
-| `move_to_best_on_finish` | `bool` | no | False | After the optimization ends, drive the variables back to the best settings found. |
-
-### EvaluatorSpec
-
-Which analysis code turns raw shots into the number being optimized.
-
-| Field | Type | Required | Default | What it does |
-|---|---|---|---|---|
-| `module` | `str` | yes | — | Python import path of the evaluator module, e.g. 'geecs_bluesky.optimization.evaluators.beam_sum_counts_evaluator'. |
-| `class_name` | `str` | yes | — | Name of the evaluator class inside that module. |
-| `kwargs` | `dict` | no | empty | Settings passed to the evaluator when it is created — e.g. which diagnostics/analyzers it should read. Free-form: each evaluator documents its own options. |
-
-### GeneratorSpec
-
-Which optimization algorithm proposes the next settings.
-
-| Field | Type | Required | Default | What it does |
-|---|---|---|---|---|
-| `name` | `str` | yes | — | Name of the optimization algorithm, e.g. 'bayes_default', 'random', or 'multipoint_bax_alignment_l2'. |
-| `options` | `dict` | no | empty | Algorithm-specific tuning options. Free-form: each generator documents its own options (legacy 'xopt_config_overrides'). |
-
-## `save_set`
-
-### SaveSet
-
-The devices a scan *requires* — its participation list, not a logging list.
-
-| Field | Type | Required | Default | What it does |
-|---|---|---|---|---|
-| `schema_version` | `int` | no | 1 | Format version of this config file. Leave at 1 — tools update this automatically when the file format changes. |
-| `name` | `str` | yes | — | The name scans use to refer to this save set. |
-| `entries` | `list[SaveSetEntry]` | yes | — | The devices to record, one entry per device. |
-| `description` | `str` | no | '' | Optional note about what this save set is for. |
-
-Example:
-
-```yaml
-schema_version: 1
-name: undulator_baseline
-# the REQUIRED devices — everything else is still logged in the background
-entries:
-  - device: UC_Amp4_IR_input
-    images: true                     # images are always required-tier
-    scalars: [MaxCounts, centroidx]  # extras beyond the DB's standard telemetry
-  - device: U_HP_Daq
-    db_scalars: false                # record ONLY the listed scalars, not the DB set
-    scalars: [AnalogOutput.Channel 1]
-    at_scan_start: {Analysis: "on"}  # replace the DB's scan-start value
-    at_scan_end: {Analysis: null}    # suppress the DB's scan-end write
-  - device: U_BCaveHallProbe
-    scalars: [Field, Rawfield]
-    role: snapshot
-  - device: UC_UndulatorRad2
-    images: true
-    scalars: [MeanCounts]
-    # this device's ritual travels with it: these named plans run once
-    # before/after any scan whose save set includes this entry
-    setup: [visa1_spectrometer_setup]
-    closeout: [visa1_spectrometer_closeout]
-```
-
-### SaveSetEntry
-
-One *required* device of a scan and the guarantees it gets.
-
-| Field | Type | Required | Default | What it does |
-|---|---|---|---|---|
-| `device` | `str` | yes | — | GEECS device name exactly as it appears in the GEECS experiment database (MySQL), e.g. 'UC_ALineEbeam1'. Spelling (including case) is checked against the database when the config is loaded. |
-| `scalars` | `list[str]` | no | empty | EXTRA scalar readings to record beyond the device's standard telemetry — the variables the GEECS experiment database marks for scan logging (MySQL table expt_device_variable, get='yes'), which 'db_scalars' records by default. E.g. ['MaxCounts', 'centroidx']. Usually empty — list variables here only when you need something the database doesn't mark. |
-| `all_scalars` | `bool` | no | False | Record every scalar variable the device publishes instead of naming them one by one. If 'scalars' is also given, the explicit list wins. |
-| `images` | `bool` | no | False | Save the device's images / non-scalar files (camera frames, traces) alongside the scalar data. Ignored for an entry with role 'snapshot' (legacy synchronous: false): the snapshot role records scalars only — the scanner neither commands nor suppresses the device's own save flag. |
-| `role` | `SaveRole (optional)` | no | None | Override for how this device is synchronized with shots. Leave unset to let the scanner decide; set 'snapshot' for slow readbacks that don't produce one value per shot (scalars only — 'images' is ignored for a snapshot entry). |
-| `setup` | `list[str]` | no | empty | Names of action plans that must run before any scan that records this device — its setup ritual (turn analysis on, insert a stage, ...). The plans named by all entries of a save set are collected together, de-duplicated by name, and each runs once before the scan. |
-| `closeout` | `list[str]` | no | empty | Names of action plans that run after any scan that records this device — its cleanup ritual. Collected and de-duplicated the same way as 'setup', and run once after the scan (even on abort). |
-| `db_scalars` | `bool` | no | True | Record every variable the GEECS experiment database marks for scan logging for this device (MySQL table expt_device_variable, column get='yes') — the MC-style 'standard telemetry', and the default scalar source for a required device. The 'scalars' list adds extras on top. Turn off to record only what 'scalars' lists explicitly (converted legacy elements do this, preserving their exact old behavior). |
-| `at_scan_start` | `dict[str, str (optional)]` | no | empty | RESERVED AND NOT APPLIED in this version. The DB set-side scan start/end writes are intentionally disabled: the engine sets up triggering via the trigger profile / shot controller and camera saving via its own save-windowing, so writing the database's set='yes' start values here would race the shot controller. Kept for a possible future re-enable — a config that sets it is not an error but has no effect today (the engine logs a warning). When honored again, it would tweak the database's scan-start writes per variable (unmentioned = database value, a value = replace, null = suppress). |
-| `at_scan_end` | `dict[str, str (optional)]` | no | empty | RESERVED AND NOT APPLIED in this version — the scan-end counterpart of 'at_scan_start'. The DB set-side scan start/end writes are intentionally disabled (triggering is owned by the trigger profile / shot controller, camera saving by the scanner's save-windowing), so this has no effect today; it is kept for a possible future re-enable. When honored again, it would tweak the database's scan-end writes per variable (same three cases as 'at_scan_start'). |
-
 ## `scan_variables`
 
 ### ScanVariables
@@ -230,6 +281,7 @@ A friendly name for one device variable you can scan.
 |---|---|---|---|---|
 | `target` | `str` | yes | — | The device variable this name moves, written as 'Device:Variable', e.g. 'U_ESP_JetXYZ:Position.Axis 3'. |
 | `kind` | `'motor' \| 'setpoint'` | no | 'setpoint' | 'setpoint' = write the value and wait for the device to accept it (the default). 'motor' = additionally poll the readback until the device reports it arrived — use for real positioners. |
+| `description` | `str (optional)` | no | None | Free text for the people who edit this file: what the variable is for, units, anything the name does not say. |
 | `confirm` | `str (optional)` | no | None | Optional 'Device:Variable' that *measures* the result when it differs from the variable being set — e.g. set a supply's current limit but confirm on its measured current. Leave unset when the set variable is also the readback (the common case). Declared but not yet enforced by the engine in v1. |
 
 ### PseudoScanVariable
@@ -241,7 +293,8 @@ A friendly name that moves several devices together from one number.
 | `kind` | `'pseudo'` | yes | — | Variable type. 'pseudo' moves several devices from one number. |
 | `targets` | `list[PseudoComponent]` | yes | — | The devices this variable moves, each with its own formula. |
 | `mode` | `CompositeMode` | yes | — | 'absolute' = each device goes exactly where its formula says. 'relative' = each device is offset from where it was when the scan started. |
-| `inverse` | `str (optional)` | no | None | Optional formula recovering the scanned number from the first target's readback. Leave unset if you don't need a readback for this variable. |
+| `description` | `str (optional)` | no | None | Free text for the people who edit this file — for a steering bump, the geometry and assumptions behind the coefficients (drift lengths, equal kick per ampere), so the numbers can be audited later. |
+| `inverse` | `str (optional)` | no | None | Formula recovering the scanned number from the components' positions. Name a component by its device name when only one target uses that device ('U_ChicaneInner'), or always by its full target with every non-alphanumeric character replaced by '_' ('U_ESP302_02_Position_Axis_3'): e.g. '560968.636 * U_ChicaneInner**2 / 100**2'. Required when a 'forward' is not linear in the scanned value; leave unset for linear relations, which the software inverts itself. |
 
 ### PseudoComponent
 
@@ -502,6 +555,58 @@ One source variable bound to a symbol in a derived-channel formula.
 | `symbol` | `str` | yes | — | Python-style symbol used in the expression, e.g. 'v' for a voltage input. Must be a valid identifier and must not shadow a reserved math function or constant. |
 | `device` | `str` | yes | — | GEECS source device that provides this input variable, e.g. 'U_DaqPad1'. Inputs may span devices only when the derived channel declares stale_after. |
 | `variable` | `str` | yes | — | GEECS source variable on the input device, e.g. 'Analog Input 10'. The gateway subscribes to it even if it is not exposed as its own raw readback PV. |
+
+## `shot_offsets`
+
+### ShotOffsets
+
+The experiment's measured per-device drain offsets.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `schema_version` | `int` | no | 1 | Format version of this config file. Leave at 1 — tools update this automatically when the file format changes. |
+| `reference` | `str` | yes | — | The ophyd object name of the device the offsets are measured against — the one that stamped first. Its own offset_s is 0.0. Only differences matter, so which device this is carries no meaning beyond anchoring the numbers. |
+| `devices` | `dict[str, DeviceOffset]` | no | empty | Ophyd object name (e.g. 'uc_amp3_ir_input') → that device's measured offset. A device absent from this mapping keeps the 0.0 default, which is correct only if it really stamps with the reference. |
+| `measured_at` | `str (optional)` | no | None | ISO-8601 timestamp of the measurement, with offset. Informational, but the thing to look at when a join goes wrong: a calibration older than the last camera or server change is suspect. |
+| `trigger_profile` | `str (optional)` | no | None | Trigger profile the measurement fired through. Recorded because a profile that drives a different trigger box would measure different latencies. |
+| `trigger_rate_hz` | `float (optional)` | no | None | Rep rate the measurement was taken at, Hz. Load-bearing provenance, not decoration: a camera that pipelines — exposing the next frame while draining the last — has a rate-DEPENDENT offset. Measured on HTU 2026-09-12: an un-ROI'd camera's offset shifted 11.3 ms between 1 Hz and 5 Hz while an ROI'd one moved 0.2 ms. Calibrate at the rate you intend to run at, and compare this field against it before trusting the numbers. |
+| `description` | `str` | no | '' | Optional note about this measurement. |
+
+Example:
+
+```yaml
+schema_version: 1
+# Written by the measure_shot_offsets calibration plan, not by hand.
+reference: uc_amp3_ir_input   # stamped first; its own offset is 0.0 by definition
+devices:
+  uc_amp3_ir_input:
+    offset_s: 0.0             # seconds after the reference that this device stamps
+    scatter_s: 0.004          # peak-to-peak over the shots (host clock dither)
+    shots: 10                 # complete shots that contributed to the mean
+    geecs_device: UC_Amp3_IR_input
+  uc_amp4_ir_input:
+    offset_s: 0.036
+    scatter_s: 0.009
+    shots: 10
+    geecs_device: UC_Amp4_IR_input
+measured_at: "2026-09-13T18:22:04-07:00"
+trigger_profile: HTU-LaserOFF
+description: "after the Amp4 server rebuild"
+# Only DIFFERENCES matter: the join subtracts each device's offset from its
+# stamp before matching frames to rows, so adding a constant to every entry
+# changes nothing. A device absent here keeps 0.0.
+```
+
+### DeviceOffset
+
+One device's measured edge-to-stamp latency, relative to the reference.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `offset_s` | `float` | yes | — | Seconds after the reference device that this device stamps the same shot — the mean over the shots that contributed. The reference device's own value is 0.0. Subtracted from this device's acq_timestamp before frames are matched to shot rows. |
+| `scatter_s` | `float` | no | 0.0 | Peak-to-peak spread of this device's per-shot offset across the measurement, seconds. Expect up to ~10 ms from ordinary host clock dither; markedly more than the other devices in the set means this machine's timekeeping is worth looking at. |
+| `shots` | `int` | no | 1 | How many complete shots were averaged into this offset. A shot counts only when every device in the set delivered, so this is the same for every device of one measurement; shots that some device missed were discarded and retaken, and appear only in the calibration plan's log. |
+| `geecs_device` | `str` | no | '' | GEECS device name this offset was measured for, e.g. 'UC_Amp3_IR_input'. Informational: the mapping key is the ophyd object name the runtime uses. |
 
 ## `analysis_diagnostic`
 

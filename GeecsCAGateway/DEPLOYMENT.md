@@ -208,7 +208,7 @@ HTTP, so the monorepo is only required on machines that *submit scans*:
 | Read / write PVs | any CA client — `pip install caproto`, pyepics, EPICS base `caget`, Phoebus | nothing |
 | Live displays | Phoebus (point `EPICS_CA_ADDR_LIST` at the gateway) | nothing |
 | Read scan data | `pip install "tiled[client]"` + the API key | nothing |
-| Submit scans | GEECS-Console / GeecsBluesky | repo checkout + poetry |
+| Submit scans | the GEECS Scanner page (`:8300` on the worker host) / `geecs_bluesky.qs_client` | a browser / repo checkout + poetry |
 
 ### First contact — PVs with nothing but a CA client
 
@@ -295,9 +295,8 @@ The Scanner-GUI backend toggle formerly documented here
 un-launchable, and acquisition mode is declared per scan in the
 `ScanRequest` itself (`acquisition: free_run | strict`) rather than by
 environment variable — a request declares intent. Scans are submitted from
-**GEECS-Console** (the PySide6 operator console) or headless via
-`geecs_bluesky.session.GeecsSession.run(ScanRequest)`. (`master` still carries the
-legacy scanner line and its env toggle.)
+the **GEECS Scanner** web page (`GeecsScanner`) or headless through the
+queue client (`geecs_bluesky.qs_client`).
 
 ### Tiled — reading scan data back
 
@@ -320,12 +319,16 @@ from tiled.client import from_uri
 c = from_uri("http://192.168.6.14:8000", api_key="<key>")
 run = c.values().last()        # most recent scan
 run.metadata["start"]          # scan number, device list, mode, applied defaults…
-df = run["primary"].read().to_dataframe().reset_index()   # per-shot scalar table
+from geecs_data_utils.tiled_catalog import read_primary_scalars
+df = read_primary_scalars(run["primary"])   # per-shot scalar table
 ```
 
-(`.read()` alone returns an xarray Dataset under the deployed Tiled's
-composite-container layout — the `.to_dataframe()` step is how the repo's
-own readers get the per-shot table.)
+(Never `run["primary"].read()` on a run with camera data: under the
+deployed Tiled's composite-container layout it downloads every camera
+stack and per-frame attribute array and `.to_dataframe()` outer-joins
+their dimensions — a two-camera run took the worker host down, #834.
+`read_primary_scalars` reads the `internal` table part only, which is how
+the repo's own readers get the per-shot table.)
 
 A generic web catalog browser is served at `http://192.168.6.14:8000/ui`
 (first visit: `/ui?api_key=<key>` — the server moves the key into a cookie
@@ -333,7 +336,7 @@ and strips the URL). `GeecsBluesky/TILED_SETUP.md` is the canonical Tiled
 reference — the client recipe as well as server-side state and upgrade
 notes; if this quickstart and that file ever disagree, trust that file.
 The scan-shaped browsing workflow (day → Scan NNN → plot columns) is
-GEECS-Console's scan browser.
+the Data Portal's.
 
 ### Windows notes
 

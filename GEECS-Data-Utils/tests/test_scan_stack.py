@@ -12,41 +12,68 @@ from geecs_data_utils.io.scan_stack import (
     LABVIEW_EPOCH_OFFSET,
     ShotRef,
     find_stack_file,
+    FRAMES_DATASET,
+    TIMESTAMPS_DATASET,
     is_stack_file,
     read_shot,
     read_stack_timestamps,
 )
 
 
-def _write_stack(device_dir, n=3, schema="geecs-capture/1"):
-    """Write a minimal contract-conformant stack, as the daemon would."""
+def _write_stack(
+    device_dir, n=3, frames_dataset=FRAMES_DATASET, timestamps=TIMESTAMPS_DATASET
+):
+    """Write a minimal contract-conformant stack, as the file plugin would."""
     device_dir.mkdir(parents=True, exist_ok=True)
     path = device_dir / f"{device_dir.name}.h5"
     with h5py.File(path, "w", libver="latest") as f:
-        f.attrs["schema"] = schema
         f.attrs["device"] = device_dir.name
         f.create_dataset(
-            "frames",
+            frames_dataset,
             data=np.stack([np.full((4, 5), i, dtype=np.uint16) for i in range(n)]),
             chunks=(1, 4, 5),
         )
-        f.create_dataset("acq_timestamp", data=np.arange(n) + 1000.0)
-        f.create_dataset("recv_timestamp", data=np.arange(n) + 2000.0)
+        f.create_dataset(timestamps, data=np.arange(n) + 1000.0)
+        f.create_dataset(
+            "/entry/instrument/NDAttributes/recv_timestamp", data=np.arange(n) + 2000.0
+        )
     return path
 
 
+def test_device_prefixed_timestamps_are_the_current_layout(tmp_path) -> None:
+    """``<device>-hdf-<var>-frame_acq_timestamp`` (GeecsPvaGateway >= 0.8) reads like the bare name did."""
+    from geecs_data_utils.io.scan_stack import (
+        read_shot_for_acq_timestamp,
+        timestamps_dataset,
+    )
+
+    device_dir = tmp_path / "UC_Cam"
+    current = "/entry/instrument/NDAttributes/uc_cam-hdf-image-frame_acq_timestamp"
+    path = _write_stack(device_dir, timestamps=current)
+    assert is_stack_file(path) and find_stack_file(device_dir) == path
+    with h5py.File(path, "r") as f:
+        assert timestamps_dataset(f) == current
+    np.testing.assert_array_equal(read_stack_timestamps(path), [1000.0, 1001.0, 1002.0])
+    index, frame = read_shot_for_acq_timestamp(path, 1001.0, labview_epoch=False)
+    assert index == 1 and frame[0, 0] == 1
+    # A stack with neither spelling is not a stack.
+    with h5py.File(path, "a") as f:
+        del f[current]
+    assert not is_stack_file(path)
+
+
 def test_find_and_validate_stack(tmp_path) -> None:
-    """find_stack_file locates <device>/<device>.h5 and validates the schema."""
+    """find_stack_file locates <device>/<device>.h5 and validates the layout."""
     device_dir = tmp_path / "UC_Cam"
     path = _write_stack(device_dir)
     assert find_stack_file(device_dir) == path
     assert is_stack_file(path)
 
 
-def test_wrong_schema_is_not_a_stack(tmp_path) -> None:
-    """Dispatch is on the schema attribute, never the extension."""
+def test_wrong_layout_is_not_a_stack(tmp_path) -> None:
+    """Dispatch is on the layout's datasets, never the extension."""
     device_dir = tmp_path / "UC_Cam"
-    _write_stack(device_dir, schema="something-else/9")
+    _write_stack(device_dir, frames_dataset="/frames")
     assert find_stack_file(device_dir) is None
 
 
@@ -143,3 +170,71 @@ class TestSharedJoinHelpers:
         assert index == 1
         assert frame[0, 0] == 1
         assert read_shot_for_acq_timestamp(path, 999.0 + LABVIEW_EPOCH_OFFSET) is None
+
+
+def test_stack_attributes_read_and_parse(tmp_path) -> None:
+    """The per-frame scalars (GeecsPvaGateway >= 0.9) read beside the stamps."""
+    from geecs_data_utils.io.scan_stack import (
+        parse_attribute_name,
+        read_stack_attributes,
+    )
+
+    device_dir = tmp_path / "UC_Cam"
+    stamps = "/entry/instrument/NDAttributes/uc_cam-hdf-image-frame_acq_timestamp"
+    path = _write_stack(device_dir, timestamps=stamps)
+    with h5py.File(path, "a") as f:
+        f.create_dataset(
+            "/entry/instrument/NDAttributes/uc_cam-hdf-image-maxcounts",
+            data=[4095.0, np.nan, 4000.0],
+        )
+        # A non-numeric member (another writer's STRING attribute) is skipped.
+        f.create_dataset(
+            "/entry/instrument/NDAttributes/label", data=np.array([b"a", b"b", b"c"])
+        )
+        f.attrs["scalar_attributes"] = ["uc_cam-hdf-image-maxcounts"]
+        f.attrs["scalar_variables"] = ["MaxCounts"]
+    from geecs_data_utils.io import stack_scalar_variables  # exported like its siblings
+
+    assert stack_scalar_variables(path) == {"uc_cam-hdf-image-maxcounts": "MaxCounts"}
+    attrs = read_stack_attributes(path)
+    assert set(attrs) == {
+        "uc_cam-hdf-image-frame_acq_timestamp",
+        "recv_timestamp",
+        "uc_cam-hdf-image-maxcounts",
+    }
+    np.testing.assert_array_equal(
+        attrs["uc_cam-hdf-image-maxcounts"][[0, 2]], [4095.0, 4000.0]
+    )
+    assert np.isnan(attrs["uc_cam-hdf-image-maxcounts"][1])
+    assert parse_attribute_name("uc_cam-hdf-image-maxcounts") == (
+        "uc_cam",
+        "image",
+        "maxcounts",
+    )
+    assert parse_attribute_name("uc_cam-hdf-image-frame_acq_timestamp") == (
+        "uc_cam",
+        "image",
+        "frame_acq_timestamp",
+    )
+    assert parse_attribute_name("recv_timestamp") is None
+    assert parse_attribute_name("uc_cam-hdf-image") is None
+    # A pre-0.9 stack: stamps only, no manifest.
+    older = _write_stack(tmp_path / "UC_Old")
+    assert stack_scalar_variables(older) == {}
+    # Half a manifest is no manifest.
+    with h5py.File(older, "a") as f:
+        f.attrs["scalar_attributes"] = ["uc_old-hdf-image-x"]
+    assert stack_scalar_variables(older) == {}
+    assert set(read_stack_attributes(older)) == {"acq_timestamp", "recv_timestamp"}
+
+
+def test_file_epoch_matches_utc_epoch_difference():
+    from datetime import datetime, timezone
+
+    assert (
+        LABVIEW_EPOCH_OFFSET
+        == (
+            datetime(1970, 1, 1, tzinfo=timezone.utc)
+            - datetime(1904, 1, 1, tzinfo=timezone.utc)
+        ).total_seconds()
+    )

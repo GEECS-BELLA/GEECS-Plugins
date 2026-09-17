@@ -1,9 +1,16 @@
 """Model tests for ActionPlan and ActionPlanLibrary."""
 
+import json
+from pathlib import Path
+
 import pytest
+import yaml
 from pydantic import ValidationError
 
 from geecs_schemas import ActionPlan, ActionPlanLibrary, CheckStep, SetStep
+
+FIXTURES = Path(__file__).parent / "fixtures"
+GOLDEN = Path(__file__).parent / "golden"
 
 
 def make_plan():
@@ -83,3 +90,50 @@ class TestActionPlanLibrary:
             ActionPlanLibrary.model_validate(
                 {"plans": {"outer": {"steps": [{"do": "run", "plan": "ghost"}]}}}
             )
+
+
+class TestCorpusDocument:
+    """The Undulator library as deployed — an ``ActionPlanLibrary`` document.
+
+    The fixture is the regenerated ``action_library/actions.yaml`` (0.22.0:
+    the legacy ``actions:`` dialect and its converter are gone); the golden
+    pins one plan's exact shape so a schema change that alters what a
+    deployed file means shows up here.
+    """
+
+    def test_undulator_library_validates_with_nested_references(self):
+        document = yaml.safe_load(
+            (FIXTURES / "actions/actions_undulator.yaml").read_text()
+        )
+        assert "actions" not in document  # new schema only
+        library = ActionPlanLibrary.model_validate(document)
+        outer = library.plans["experiment_CLOSEOUT"]
+        assert all(step.do == "run" for step in outer.steps)
+        assert all(step.plan in library.plans for step in outer.steps)
+
+    def test_amp4_dump_hp_matches_golden(self):
+        document = yaml.safe_load(
+            (FIXTURES / "actions/actions_undulator.yaml").read_text()
+        )
+        library = ActionPlanLibrary.model_validate(document)
+        expected = json.loads((GOLDEN / "amp4_dump_hp_plan.json").read_text())
+        assert library.plans["Amp4_DUMP_HP"].model_dump(mode="json") == expected, (
+            "The fixture's Amp4_DUMP_HP no longer matches the golden — if the "
+            "change is intentional, regenerate with tests/generate_golden.py."
+        )
+
+    def test_legacy_dialect_is_refused_naming_the_regeneration(self):
+        """No converter: the old shape is refused by the schema itself.
+
+        The guard lives here (a ``before`` validator, the pattern
+        ``AnalysisDiagnostic._refuse_v1_layout`` set) so every consumer —
+        the worker's resolver, the Console's store, a listing — gets the
+        same message from ``model_validate`` and none carries its own.
+        """
+        with pytest.raises(ValidationError, match="legacy 'actions:' dialect"):
+            ActionPlanLibrary.model_validate(
+                {"actions": {"x": {"steps": [{"action": "wait", "wait": 1}]}}}
+            )
+        # a document that is merely incomplete gets the plain schema error
+        with pytest.raises(ValidationError, match="plans"):
+            ActionPlanLibrary.model_validate({"schema_version": 1})

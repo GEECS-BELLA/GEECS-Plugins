@@ -51,8 +51,11 @@ from geecs_data_utils.scan_log_loader import (
     parse_lines,
     parse_scan_log,
 )
+from geecs_data_utils.shot_join import FrameColumns, ShotJoin
 from geecs_data_utils.tiled_export import (
     build_legacy_scalar_dataframe,
+    join_frame_columns,
+    write_scalar_files,
     write_scalar_files_from_tiled,
 )
 from geecs_data_utils.scan_paths import daily_scan_folder
@@ -102,7 +105,11 @@ __all__ = [
     "parse_lines",
     "parse_scan_log",
     # tiled export
+    "FrameColumns",
+    "ShotJoin",
     "build_legacy_scalar_dataframe",
+    "join_frame_columns",
+    "write_scalar_files",
     "write_scalar_files_from_tiled",
     # tiled catalog (scan-shaped navigation of Bluesky runs)
     "CatalogStatus",

@@ -97,3 +97,50 @@ def setpoint_pv(readback_pv: str) -> str:
         The corresponding ``…:SP`` setpoint PV name.
     """
     return f"{readback_pv}{SETPOINT_SUFFIX}"
+
+
+#: The file plugin's PV prefix suffix — areaDetector's ``HDF1:`` under the
+#: image variable's PV (GeecsPvaGateway ``file_plugin``, #806).  The plugin's
+#: own PV names are the areaDetector ``NDFileHDF5`` suffixes verbatim (mixed
+#: case: they are the stock ophyd-async ``NDFileHDF5IO`` contract), appended
+#: to this prefix; only the GEECS part is normalized.
+HDF_PLUGIN_SUFFIX = ":hdf1:"
+
+
+def hdf_plugin_prefix(experiment: str, device: str, variable: str) -> str:
+    """Return the file plugin's PV prefix for one image variable.
+
+    ``<experiment>:<device>:<variable>:hdf1:`` — the server and the worker's
+    ``GeecsHdfIO`` both mint it here, so the two sides cannot drift.
+
+    Parameters
+    ----------
+    experiment, device, variable : str
+        Raw GEECS names; normalized by :func:`pv_name`.
+    """
+    return f"{pv_name(experiment, device, variable)}{HDF_PLUGIN_SUFFIX}"
+
+
+#: The PVA gateway's subscription-state PV suffix under an image variable's
+#: PV (``<image PV>:connected``, GeecsPvaGateway 0.10.0, #854): the state of
+#: that gateway's GEECS subscription for the variable — ``Idle`` (gated off,
+#: nothing known) / ``Disconnected`` (watched and unreachable, MAJOR alarm)
+#: / ``Connected``.  Per variable because the gateway's subscriptions are;
+#: the bare ``<device>:connected`` is the CA gateway's, for its own
+#: subscription.  Minted here, like :data:`HDF_PLUGIN_SUFFIX`, so the server
+#: and a worker-side reader (the submit preflight's liveness gate) cannot
+#: drift.
+CONNECTED_SUFFIX = ":connected"
+
+
+def connected_pv(experiment: str, device: str, variable: str) -> str:
+    """Return the PVA gateway's subscription-state PV for one image variable.
+
+    ``<experiment>:<device>:<variable>:connected``.
+
+    Parameters
+    ----------
+    experiment, device, variable : str
+        Raw GEECS names; normalized by :func:`pv_name`.
+    """
+    return f"{pv_name(experiment, device, variable)}{CONNECTED_SUFFIX}"

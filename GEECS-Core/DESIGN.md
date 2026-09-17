@@ -20,7 +20,10 @@ geecs_core/
                     #   stdlib-only (GeecsUdpClient, GeecsTcpSubscriber)
   db/               # layer 2 — the experiment MySQL database (GeecsDb,
                     #   blocking, lazy mysql-connector) + alarms.py (the
-                    #   pydantic model for the ca_alarm_limits table)
+                    #   pydantic model for the ca_alarm_limits table) +
+                    #   the two DB rules every consumer shares:
+                    #   variable_types (a variable's effective type) and
+                    #   scalar_policy (a device's subscribed get='yes' list)
   client/           # layer 3 — the entry-level synchronous GeecsDevice
                     #   over layers 1+2, and the one place a background
                     #   event loop bridges sync callers to the async
@@ -35,7 +38,7 @@ geecs_core/
 1. **Dependencies flow strictly downward.** `client` imports `transport` and
    `db`; `transport` and `db` import only the root contracts; nothing in this
    package imports `client`. External consumers (the gateways, GeecsBluesky,
-   GEECS-Console) use layers 1–2 and the contracts; only end-user scripts use
+   GeecsScanner) use layers 1–2 and the contracts; only end-user scripts use
    `client`. A change that wants an upward or sideways import is in the wrong
    place.
 

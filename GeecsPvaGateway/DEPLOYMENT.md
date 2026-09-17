@@ -66,9 +66,10 @@ resolve inside a checkout — a console session can use the share clone as
 PVA firewall ports (TCP 5075 / UDP 5076), fetches `nssm.exe`, and registers
 the `GeecsPvaGateway` service (auto-start, restart on any exit, online-rotating
 logs). If you omitted `-ConfigSource`, place `Configurations.INI` in the
-profile (rule 1); then `nssm start GeecsPvaGateway`. Note `launch.bat` is
-copied at bootstrap time — launcher changes need a re-bootstrap, package
-updates don't.
+profile (rule 1); then `C:\geecs\pva-gateway\nssm.exe start GeecsPvaGateway` (`nssm` is not on `PATH`). Note `launch.bat` is
+copied at bootstrap time — launcher changes need the stop/copy/start step
+under **Rollout** (or a re-bootstrap); package additions do not, since
+`deploy/requirements-fleet.txt` is read from the share on every restart.
 A **re**-bootstrap removes the existing service first (so pip never upgrades
 in-use files): if a later step fails, the box has no service until the
 bootstrap is re-run to completion — the failure is loud, fix and re-run.
@@ -85,14 +86,40 @@ wheels, no version files. Rollout:
 git pull            # advance the pin (or: git checkout <rev> to roll back)
 ```
 
-**Package-list changes need a per-box step**: `launch.bat` is copied
-locally at bootstrap, so a change to its pip package list (e.g. the
-GEECS-Core addition, 0.4.5) does NOT reach a box via `:restart` alone —
-either re-run the bootstrap console paste (copies the fixed launcher) or
-one-time-install the new package into the box's venv from a console
-session (the ssh session's token cannot read the share; a logged-in
-console can). Restarting a box whose launcher predates the current
-package list can crash-loop it.
+**A new external dependency is a file edit, not a box visit** (0.7.1):
+pin it in `deploy/requirements-fleet.txt`, stage its Windows wheel beside
+the share clone with `deploy/stage_wheels.sh "<Active Version dir>"` (from
+any machine with PyPI reach; writes `<Active Version>\pva-wheels\`), pull
+the clone, restart the boxes. `launch.bat` installs the pins offline from
+that cache (`--no-index`) before the reinstall, best effort like the
+reinstall itself. The first use was h5py (the file plugin, 0.7.0): the
+eight boxes rolled after 6.100 got it through this path.
+
+**Launcher changes still need a per-box step, with the service stopped**:
+`launch.bat` is copied locally at bootstrap, so a change to the launcher
+itself (its package list gained GEECS-Core at 0.4.5 and the wheel step at
+0.7.1) does NOT reach a box via `:restart` alone. From an **elevated**
+session on the box — a console, or an ssh session whose key is in
+`C:\ProgramData\ssh\administrators_authorized_keys` (an elevated session
+reads the share with the machine's credentials; a plain ssh token cannot,
+found on the first box of the 2026-09-11 roll, and the nine-box roll then
+went through elevated ssh):
+
+```powershell
+Stop-Service GeecsPvaGateway            # nssm is not on PATH: C:\geecs\pva-gateway\nssm.exe stop GeecsPvaGateway works too
+Copy-Item "\\<nas>\<share>\...\Active Version\GEECS-Plugins\GeecsPvaGateway\deploy\launch.bat" C:\geecs\pva-gateway\launch.bat -Force
+Start-Service GeecsPvaGateway
+```
+
+**Never copy over a running service and then `:restart`**: cmd reads a
+batch file by byte offset and resumes the *new* file at the *old* file's
+offset after the exe exits, so the first restart runs from the middle of
+the new launcher (skipping its wheel step, or worse) and only the next
+one runs it from the top. `bootstrap.ps1` stops the service around its
+copy for the same reason. Restarting a box whose launcher predates the
+current package list can crash-loop it (a 0.4.4 launcher never reinstalls
+GEECS-Core, which every gateway ≥ 0.5 imports — found on the 2026-09-11
+roll). `tests/test_deploy_files.py` pins what the launcher names.
 
 Then restart instances **via the `:restart` PV**, one host at a time
 (restarting one box first and watching it come back clean before the rest is
@@ -102,9 +129,10 @@ cheap insurance):
 pvput undulator:pvagateway:<ip_token>:restart 1   # e.g. 192_168_6_100
 ```
 
-The server exits with code 86, NSSM relaunches `launch.bat`, which reinstalls
-the four intra-repo packages (`GEECS-Schemas`, `GEECS-Data-Utils`,
-`GeecsCAGateway`, `GeecsPvaGateway`) from the share clone and re-resolves the DB config. Watch the instance's
+The server exits with code 86, NSSM relaunches `launch.bat`, which installs
+the fleet pins from the wheel cache, reinstalls the five intra-repo packages
+(`GEECS-Schemas`, `GEECS-Core`, `GEECS-Data-Utils`, `GeecsCAGateway`,
+`GeecsPvaGateway`) from the share clone and re-resolves the DB config. Watch the instance's
 `version` PV flip on the fleet screen (`deploy/fleet_status_<experiment>.bob`
 — one row per camera server: version, heartbeat, and a confirm-dialog restart
 button for each deployed host; HTU's `fleet_status_undulator.bob` is committed);
@@ -114,10 +142,15 @@ to the installed versions — a restart never bricks an instance.
 
 Constraints, all by design:
 
-- **External (PyPI) deps are frozen at bootstrap** — the reinstall is
-  `--no-deps` (monorepo path-dep metadata never resolves outside a checkout)
-  with `--no-build-isolation` (builds use the venv's poetry-core, so restarts
-  need no internet). A numpy/p4p bump is a re-bootstrap, not a rollout.
+- **External (PyPI) deps are frozen at bootstrap, except the fleet pins**
+  — the reinstall is `--no-deps` (monorepo path-dep metadata never resolves
+  outside a checkout) with `--no-build-isolation` (builds use the venv's
+  poetry-core, so restarts need no internet); `deploy/requirements-fleet.txt`
+  is the exception, installed offline from the share's wheel cache. A
+  numpy/p4p *bump* is still a re-bootstrap. A box whose venv lacks h5py
+  serves no `:hdf1:` PVs (`file_plugin.available` is false there) and its
+  cameras stay on LabVIEW-native saving until it is rolled and added to the
+  worker's `[pva] file_plugin_addr_list`.
 - **The share clone must be readable by the boxes' *machine accounts*** —
   LocalSystem authenticates to shares as the computer account, not a user.
   **Validated in production**: the whole fleet reinstalls from the share as
@@ -145,7 +178,7 @@ cmd /c "set USERPROFILE=C:\geecs\pva-gateway\profile&& C:\geecs\pva-gateway\venv
 ```
 
 prints the host's served PV names (DB-scoped: this box's cameras only). After
-`nssm start`, the `version`/`heartbeat` PVs answering is the end-to-end check.
+`Start-Service GeecsPvaGateway`, the `version`/`heartbeat` PVs answering is the end-to-end check.
 From any machine with p4p (over VPN, set the address list per **Client
 access** below so name search unicasts):
 
@@ -234,6 +267,37 @@ line is a tab-separated `role=PVA image gateways` record — the contract
 `scripts/fleet_status.sh` consumes for its table. Exit 0 when any host
 answered.
 
+## The file plugin (#806)
+
+Every served image variable also gets the areaDetector `NDFileHDF5` PV set
+under `<image PV>:hdf1:` (e.g. `undulator:uc_amp2_ir_input:image:hdf1:Capture`),
+plus `Rewind`, `WriteStatus`, `WriteMessage`. The worker drives it with the
+stock ophyd-async `ADHDFDataLogic`; nothing is configured on the box. Two
+deployment facts:
+
+- **The service writes as LocalSystem** (session-0 rule 1): the run folder
+  arrives in `FilePath` as a UNC path (the worker's `config.ini`
+  `[Paths] geecs_pva_plugin_data_base_path`, e.g. `\\<nas>\<share>\data`),
+  never a drive letter, and `FilePathExists_RBV` answers for it. The box's
+  **machine account** must be able to write there (it is known to read the
+  share the fleet clone lives on); if it cannot, run the service as the
+  lab's shared domain account (the `nssm set ... ObjectName` fallback
+  above) — the `USERPROFILE` override stays either way.
+- **The plugin never creates the run folder** — the worker claims it and
+  creates the device directory; a missing directory fails `Capture=1`
+  loudly (`WriteStatus` / `WriteMessage` carry the reason).
+
+Smoke test from the worker host after a re-bootstrap:
+
+```bash
+pvget undulator:uc_amp2_ir_input:image:hdf1:Capture_RBV   # exists → plugin served
+pvput undulator:uc_amp2_ir_input:image:hdf1:FilePath '\\<nas>\<share>\data\...\ScanNNN\UC_Amp2_IR_input\'
+pvget undulator:uc_amp2_ir_input:image:hdf1:FilePathExists_RBV   # true → the service can see it
+```
+
+Parity against the native PNGs, per scan, while dual-write lasts:
+`geecs-pva-gateway diff <scan folder>` (exit 1 on any mismatch).
+
 ## Instance PVs
 
 | PV | Meaning |
@@ -241,6 +305,14 @@ answered.
 | `{exp}:pvagateway:{host}:version` | Installed package version (fleet skew check) |
 | `{exp}:pvagateway:{host}:heartbeat` | Counter, +1 per 5 s (liveness) |
 | `{exp}:pvagateway:{host}:restart` | Write 1 → clean exit 86 → NSSM relaunch |
+| `{exp}:{device}:{variable}:connected` | Per image variable (0.10.0, #854): this gateway's GEECS subscription state — `Idle` (gated off: nobody watching, nothing known), `Disconnected` (a watcher holds it and the device is unreachable; MAJOR alarm) or `Connected`. To get the verdict for an idle camera, hold a monitor on its image PV for one gating round-trip (~1–2 s) and read this |
+
+A camera app started **after** its gateway (the boot-order gap, #854)
+reads `Disconnected` while watched, and since 0.10.0 a device that came
+up on another port is redialed there once the reconnect backoff reaches
+its ceiling (the DB is re-asked every ~5 min per down device) — no
+gateway restart needed for that case. A restart is still what re-scopes
+the served set (a device added to the DB, or moved to another host).
 
 `{host}` is the served endpoint IP, normalized (`192.168.6.100` →
 `192_168_6_100`).

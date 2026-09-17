@@ -1,4 +1,4 @@
-"""The v0 read-only tools: status, history, results, configs, validation.
+"""The v0 read-only tools: status, history, results, config catalogs.
 
 Conventions (the osprey bluesky-server pattern): ``async def`` tool
 wrappers whose blocking body runs via ``anyio.to_thread.run_sync``; every
@@ -42,8 +42,14 @@ async def _run_guarded(impl, *args) -> str:
 _MAX_STAT_COLUMNS = 40
 
 #: The list_scan_configs kinds and the resolver capability each maps to.
+#: ``save_sets`` is deliberately absent: the native-Bluesky rebuild removed
+#: ``config_resolver.list_save_sets`` / ``resolve_save_set`` because presets
+#: carry the device group, so listing the kind raised ``AttributeError``
+#: inside the ``except`` below and read to an agent as "this experiment has
+#: no save sets" (0.9.0 review finding).  Every kind here must name a
+#: resolver capability that exists — pinned by
+#: ``test_every_config_kind_maps_to_a_real_resolver_capability``.
 _CONFIG_KINDS = (
-    "save_sets",
     "trigger_profiles",
     "presets",
     "optimizer_configs",
@@ -297,65 +303,12 @@ def _list_scan_configs_impl(kind: str) -> str:
 
 @mcp.tool(name=tool_names.LIST_SCAN_CONFIGS)
 async def list_scan_configs(kind: str) -> str:
-    """The experiment's config catalogs — the names a ScanRequest may use.
+    """The experiment's config catalogs — the names a plan may use.
 
-    ``kind``: save_sets | trigger_profiles | presets | optimizer_configs |
+    ``kind``: trigger_profiles | presets | optimizer_configs |
     scan_variables | actions. NEVER invent catalog names — resolve them
     here. scan_variables rows carry kind/target(s) — never limits (device
     limits are hardware truth, not catalog data; absence here does NOT
     mean unbounded).
     """
     return await _run_guarded(_list_scan_configs_impl, kind)
-
-
-# ---------------------------------------------------------------------------
-# validate_scan_request
-# ---------------------------------------------------------------------------
-
-
-def _validate_scan_request_impl(request: dict) -> str:
-    """Schema validation plus the full client-side preflight — no submission."""
-    from geecs_schemas import ScanRequest
-
-    try:
-        validated = ScanRequest.model_validate(request)
-    except Exception as exc:
-        return errors.make_ok(valid=False, refusal=str(exc), warnings=[])
-    experiment = runtime.get_experiment()
-    if not experiment:
-        return errors.make_error(
-            "invalid_request",
-            "no experiment configured ([Experiment] expt in config.ini)",
-        )
-    from geecs_bluesky.qs_client import run_submit_preflight
-
-    report = run_submit_preflight(validated, experiment)
-    if report.refusal is not None:
-        return errors.make_ok(valid=False, refusal=report.refusal, warnings=[])
-    warnings = [
-        {"check": q.check, "title": q.title, "message": q.message}
-        for q in report.questions
-    ]
-    outcomes = [
-        {"check": check, "result": result, "detail": detail}
-        for check, result, detail in report.outcomes
-    ]
-    return errors.make_ok(
-        valid=True, refusal=None, warnings=warnings, outcomes=outcomes
-    )
-
-
-@mcp.tool(name=tool_names.VALIDATE_SCAN_REQUEST)
-async def validate_scan_request(request: dict) -> str:
-    """Full dry-run of a ScanRequest dict; nothing is submitted.
-
-    Runs schema validation, the engine's own validation, and the
-    client-side preflight (unserved variables, device liveness, trigger
-    staleness).
-
-    ``valid: false`` with ``refusal`` means fix the
-    request; ``warnings`` are the questions an operator would be asked
-    (each will require explicit acknowledgement at submission, once the
-    v1 submit verb exists). Costs a DB query and a few CA reads.
-    """
-    return await _run_guarded(_validate_scan_request_impl, request)

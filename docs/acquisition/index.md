@@ -6,32 +6,31 @@ scan folder and a structured Tiled run.
 
 <div class="grid cards" markdown>
 
--   :material-camera-iris:{ .lg .middle } **GEECS Console**
+-   :material-camera-iris:{ .lg .middle } **GEECS Scanner**
 
     ---
 
-    The operator application: compose save sets, run scans and
-    Xopt-driven optimizations through the Bluesky-backed engine, monitor
-    live, and set devices. The same scan requests it submits can be run
-    headlessly from your own scripts.
+    The operator front end, in a browser: pick a preset or compose a
+    scan, submit it to the Bluesky queueserver, watch it live, move a
+    device, run an action plan. The same presets it submits can be
+    queued headlessly from your own scripts.
 
-    [:octicons-arrow-right-24: Overview](../geecs_console/overview.md) ·
-    [Running scans](../geecs_console/running_scans.md) ·
-    [Save sets](../geecs_console/save_sets.md)
+    [:octicons-arrow-right-24: Overview](../geecs_scanner/overview.md) ·
+    [Running a scan](../geecs_scanner/overview.md#running-a-scan)
 
--   :material-magnify:{ .lg .middle } **Scan Browser**
+-   :material-magnify:{ .lg .middle } **Reading it back**
 
     ---
 
-    The quick-look client for recorded scans: day → scan →
-    plot / table / telemetry-drift, straight from the Tiled catalog.
-    Standalone — analysts never need the console.
+    Recorded scans are browsed in the Data Portal (day → scan →
+    metadata, scalar plots, images, from any browser) and read from
+    Python through the `ScanCatalog` layer in Data Utils.
 
-    [:octicons-arrow-right-24: Scan Browser](../geecs_console/scan_browser.md) ·
-    [Understanding the data](../geecs_console/scan_data.md)
+    [:octicons-arrow-right-24: Data Utils](../geecs_data_utils/overview.md) ·
+    [Where the data lands](../geecs_scanner/overview.md#where-the-data-lands)
 
 </div>
 
-Wondering where your data went or what a column means? Start at
-[Scan Data](../geecs_console/scan_data.md). Something misbehaving? Start
-at [Troubleshooting](../geecs_console/troubleshooting.md).
+Something misbehaving? Start at the scanner page's
+[health chips](../geecs_scanner/overview.md#when-something-is-wrong), then
+the [fleet map](../platform/fleet_map.md) for the service behind the chip.

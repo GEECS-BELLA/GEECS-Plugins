@@ -32,12 +32,11 @@ from .exceptions import (  # noqa: E402
 
 #: Names served lazily from the (heavy) device family.
 _DEVICE_EXPORTS = (
-    "CaGenericDetector",
     "CaMotor",
     "CaSettable",
     "CaSnapshotReadable",
-    "CaTimestampedReadable",
-    "CaTriggerable",
+    "GeecsDetector",
+    "ShotControl",
 )
 
 __all__ = [

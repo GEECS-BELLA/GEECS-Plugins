@@ -1,14 +1,13 @@
-"""The queueserver plan and function-verb names — import-light on purpose.
+"""The queueserver plan names the GEECS worker registers — import-light on purpose.
 
-One spelling of every name the GEECS worker registers with the RE Manager
-(``qserver/startup/startup.py`` builds its ``__all__`` from these), shared
-by the two sides that must agree with it and never with each other's heavy
-imports: the client (``qs_client`` submits :data:`SCAN_REQUEST_PLAN` and
-asks the manager whether it is *allowed*) and the service-start readiness
-check (``qserver_ready`` asserts the manager lists :data:`GEECS_PLAN_NAMES`
-after the environment opens — the invariant #793 found violated).  The plan
-*functions* live in ``geecs_bluesky.plans``; the pin that each name here
-is a real plan there is ``tests/test_plan_names.py``.
+One spelling of every name the worker's startup profile exports, shared by
+the two sides that must agree with it and never with each other's heavy
+imports: the client (``qs_client``) and the service-start readiness check
+(``qserver_ready``, which asserts the manager lists :data:`GEECS_PLAN_NAMES`
+after the environment opens — the invariant #793 found violated).
+
+The scan choices are count, sweep and optimize. Utilities do not open runs.
+Moving stock verbs are internal implementation details, never registrations.
 
 This module may depend on nothing heavier than the standard library (the
 same rule as :mod:`geecs_bluesky.log_markers`).
@@ -16,41 +15,52 @@ same rule as :mod:`geecs_bluesky.log_markers`).
 
 from __future__ import annotations
 
-#: The funnel: every ``ScanRequest`` (step, noscan, optimize) runs through
-#: it; the one plan the clients submit (``QueueClient.submit_scan``).
-SCAN_REQUEST_PLAN = "geecs_scan_request_plan"
-#: On-demand ActionPlan execution as a queue item (decision 2).
-RUN_ACTION_PLAN = "geecs_run_action_plan"
-#: The named per-mode plans (Phase 2b-ii) — same execution underneath.
-NOSCAN_PLAN = "geecs_noscan_plan"
-SCAN_PLAN = "geecs_scan_plan"
-OPTIMIZE_PLAN = "geecs_optimize_plan"
+#: The registered plans that are not scans: a queue item naming one runs no
+#: run and claims no scan number — so a preset cannot name them
+#: (``qs_client.presets.PRESET_PLAN_NAMES``).  ``mv`` and ``run_action``
+#: take no detector list at all; the two calibration plans
+#: (:data:`CALIBRATION_PLAN_NAMES`) do take one, but they take no positions
+#: and write no data, so a preset — which describes a *scan* — still cannot
+#: express them.
+NON_SCAN_PLAN_NAMES: tuple[str, ...] = (
+    "mv",
+    "run_action",
+    "measure_shot_offsets",
+    "check_shot_sync",
+)
 
-#: Every plan the worker registers, in the startup profile's export order.
+#: The once-run shot-offset plans (``03_clean_room_rebuild.md`` §4.F): the
+#: calibration that measures each device's edge-to-stamp latency, and the
+#: preflight that says whether the stored measurement still holds.  Named
+#: apart because both drive the trigger box OFF and cost at least the
+#: longest device timeout (§11.2) — never a step inside a scan.
+CALIBRATION_PLAN_NAMES: tuple[str, ...] = (
+    "measure_shot_offsets",
+    "check_shot_sync",
+)
+
+#: Native scan plans that open runs but have no stock Bluesky counterpart.
+NATIVE_SCAN_PLAN_NAMES: tuple[str, ...] = (
+    "sweep",
+    "optimize",
+)
+
+#: Every public plan the worker registers.
 GEECS_PLAN_NAMES: tuple[str, ...] = (
-    SCAN_REQUEST_PLAN,
-    RUN_ACTION_PLAN,
-    NOSCAN_PLAN,
-    SCAN_PLAN,
-    OPTIMIZE_PLAN,
+    "count",
+    *NATIVE_SCAN_PLAN_NAMES,
+    *NON_SCAN_PLAN_NAMES,
 )
 
-#: The ``function_execute`` manual verbs (not plans; idle-manager only).
-MOVE_VARIABLE_FUNCTION = "geecs_move_variable"
-DESCRIBE_ACTION_FUNCTION = "geecs_describe_action"
-GEECS_WORKER_FUNCTIONS: tuple[str, ...] = (
-    MOVE_VARIABLE_FUNCTION,
-    DESCRIBE_ACTION_FUNCTION,
-)
+#: The acquisition modes every bound scan verb accepts (``acquisition=``,
+#: ``08_gated_batch.md`` §4.1): strict single-shot, or the gated batch.
+#: Shared by the registry (the plan) and the client seam (the preset).
+ACQUISITION_MODES: tuple[str, ...] = ("strict", "gated")
 
 __all__ = [
-    "SCAN_REQUEST_PLAN",
-    "RUN_ACTION_PLAN",
-    "NOSCAN_PLAN",
-    "SCAN_PLAN",
-    "OPTIMIZE_PLAN",
+    "ACQUISITION_MODES",
+    "CALIBRATION_PLAN_NAMES",
     "GEECS_PLAN_NAMES",
-    "MOVE_VARIABLE_FUNCTION",
-    "DESCRIBE_ACTION_FUNCTION",
-    "GEECS_WORKER_FUNCTIONS",
+    "NON_SCAN_PLAN_NAMES",
+    "NATIVE_SCAN_PLAN_NAMES",
 ]

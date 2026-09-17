@@ -43,8 +43,8 @@ Start the packaged Redis on an **empty** dataset rather than downgrading the
 dump — but know what that discards. Two of the RE Manager's keys hold data
 nothing recreates:
 
-- `qs_default_plan_queue` — the **pending queue**, what the console's queue
-  panel fills. Drain it or note its contents first; do not assume it is
+- `qs_default_plan_queue` — the **pending queue**, what the scanner's Queue
+  panel shows as waiting. Drain it or note its contents first; do not assume it is
   empty. (On the 2026-09-06 migration the key was absent entirely, so
   nothing was queued — that was luck, not a property of the procedure.)
 - `qs_default_plan_history` — the record of past plans.

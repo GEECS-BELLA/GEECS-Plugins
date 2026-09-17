@@ -45,10 +45,9 @@ diagnose the package the current task is about.
 
    | Package | Install for full test suite |
    |---|---|
-   | `GeecsBluesky` | `poetry install --extras "ca tiled qserver"` |
+   | `GeecsBluesky` | `poetry install --extras "ca tiled qserver qs-client optimize"` |
    | `GeecsCAGateway` | `poetry install` (path-deps geecs-core) |
    | `GEECS-Core` | `poetry install` (self-contained) |
-   | `GEECS-Console` | `poetry install` (the optimization stack is worker-side — no console extra) |
    | `GEECS-LogTriage` | `poetry install` |
    | `GEECS-DataPortal` | `poetry install --extras analysis` (the processing-selector test class importorskips `image_analysis` without it) |
 

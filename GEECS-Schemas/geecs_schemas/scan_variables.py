@@ -18,14 +18,20 @@ an ``absolute``/``relative`` mode).
   readback never equals the setpoint (delays, DAC outputs).
 - ``kind: motor`` — blocking move *plus* readback-tolerance polling; an
   explicit opt-in for real positioners (renders to ``CaMotor``).
-- ``kind: pseudo`` — a pseudo-positioner: one scanned number fanned out to
-  several components through ``forward`` expressions.  Each expression is
-  plain arithmetic (operators, parentheses, common math functions such as
-  ``sqrt``) written in terms of ``composite_var`` — or its short alias
-  ``x`` — the scanned value; the legacy corpus's numexpr ``relation``
-  strings are all valid unchanged.  ``mode`` keeps the legacy meaning —
-  ``absolute`` sets each component to its expression's value, ``relative``
-  offsets each component from its position at scan start.
+- ``kind: pseudo`` — a pseudo positioner: one scanned number fanned out to
+  several components through ``forward`` expressions, and read back
+  through the relation's inverse.  Each expression is plain arithmetic
+  (operators, parentheses, common math functions such as ``sqrt``) written
+  in terms of ``composite_var`` — or its short alias ``x`` — the scanned
+  value; the legacy corpus's numexpr ``relation`` strings are all valid
+  unchanged.  A ``forward`` that is linear in the scanned value
+  (``a*x + b``) is inverted by the software; any other relation needs the
+  entry's ``inverse``.  ``mode`` keeps the legacy spelling — ``absolute``
+  is a plain pseudo positioner (each component goes exactly where its
+  expression says), ``relative`` zeroes each component's user offset at
+  scan start so the value is a deviation from today's alignment (the
+  steering bumps; every ``forward`` must then be ``0`` at ``0``, so
+  ``set(0)`` restores).
 
 Limits, units, and tolerances deliberately do **not** live here — device
 facts belong below the configs (gateway PV metadata; vision doc §4.3).
@@ -65,13 +71,29 @@ def _validate_target(value: str) -> str:
     ValueError
         If the string has no ``:`` separator or an empty device/variable part.
     """
+    split_device_variable(value)
+    return value
+
+
+def split_device_variable(value: str) -> tuple[str, str]:
+    """Split a canonical ``Device:Variable`` into its two parts, stripped.
+
+    The one place the repo spells the rule: the first ``:`` separates the
+    device from the variable (variable names may carry dots and spaces —
+    ``U_ESP_JetXYZ:Position.Axis 3``), and neither part may be empty.
+
+    Raises
+    ------
+    ValueError
+        If the string has no ``:`` separator or an empty device/variable part.
+    """
     device, sep, variable = value.partition(":")
     if not sep or not device.strip() or not variable.strip():
         raise ValueError(
             f"Target {value!r} must look like 'Device:Variable', e.g. "
             "'U_ESP_JetXYZ:Position.Axis 3'."
         )
-    return value
+    return device.strip(), variable.strip()
 
 
 def _validate_optional_target(value: Optional[str]) -> Optional[str]:
@@ -147,6 +169,13 @@ class ScanVariable(SchemaModel):
             "the device reports it arrived — use for real positioners."
         ),
     )
+    description: Optional[str] = Field(
+        None,
+        description=(
+            "Free text for the people who edit this file: what the variable "
+            "is for, units, anything the name does not say."
+        ),
+    )
     confirm: Optional[str] = Field(
         None,
         description=(
@@ -202,8 +231,10 @@ class PseudoScanVariable(SchemaModel):
     verbatim; the engine evaluates them with a whitelisted expression
     evaluator, and the shorter alias ``x`` may be used for the scanned
     value in new entries.
-    ``inverse`` (a readback formula recovering the scanned number from the
-    first target's position) has no legacy counterpart and is optional.
+    ``inverse`` — the scanned number as a formula of the components'
+    positions — has no legacy counterpart.  It is required only when a
+    ``forward`` is not linear in the scanned value (the R56 square root);
+    a linear relation is inverted by the software.
     """
 
     kind: Literal["pseudo"] = Field(
@@ -220,12 +251,26 @@ class PseudoScanVariable(SchemaModel):
             "scan started."
         )
     )
+    description: Optional[str] = Field(
+        None,
+        description=(
+            "Free text for the people who edit this file — for a steering "
+            "bump, the geometry and assumptions behind the coefficients "
+            "(drift lengths, equal kick per ampere), so the numbers can be "
+            "audited later."
+        ),
+    )
     inverse: Optional[str] = Field(
         None,
         description=(
-            "Optional formula recovering the scanned number from the first "
-            "target's readback. Leave unset if you don't need a readback for "
-            "this variable."
+            "Formula recovering the scanned number from the components' "
+            "positions. Name a component by its device name when only one "
+            "target uses that device ('U_ChicaneInner'), or always by its "
+            "full target with every non-alphanumeric character replaced by "
+            "'_' ('U_ESP302_02_Position_Axis_3'): e.g. "
+            "'560968.636 * U_ChicaneInner**2 / 100**2'. Required when a "
+            "'forward' is not linear in the scanned value; leave unset for "
+            "linear relations, which the software inverts itself."
         ),
     )
 

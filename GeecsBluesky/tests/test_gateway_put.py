@@ -2,7 +2,7 @@
 
 Pins the centralized addressing rule (``ca://`` stripped for raw CA, other
 schemes rejected — issue #490), each consumer's wire-value convention (the
-ShotController always-string pin must stay byte-identical — hardware-proven),
+ShotControl always-string pin must stay byte-identical — hardware-proven),
 the timeout policy, ``AsyncStatus`` wrapping, and mock behavior.
 """
 
@@ -14,12 +14,18 @@ pytest.importorskip("aioca")  # the raw transport needs the `ca` extra
 
 import aioca  # noqa: E402
 
+from ophyd_async.core import (  # noqa: E402
+    callback_on_mock_put,
+    get_mock_put,
+    set_mock_put_proceeds,
+)
+
 from geecs_bluesky.devices.ca.gateway_put import (  # noqa: E402
+    CaPutSetter,
     GatewaySetpointPut,
     bare_pv,
     wire_value,
 )
-from geecs_bluesky.shot_controller import CaPutSetter  # noqa: E402
 
 
 class _CaputRecorder:
@@ -103,7 +109,7 @@ def test_raw_transport_requires_a_timeout() -> None:
 
 async def test_shot_control_convention_is_byte_identical(caput) -> None:
     """CaPutSetter: every value goes as its wire string, 10 s default budget
-    (the hardware-proven ShotController behavior — do not drift this)."""
+    (the hardware-proven shot-control behavior — do not drift this)."""
     setter = CaPutSetter("Undulator:U_DG645_ShotControl:Amplitude_Ch_AB:SP")
     await setter.set(4.0)
     assert caput.calls == [
@@ -144,17 +150,56 @@ async def test_mock_records_instead_of_touching_ca(caput) -> None:
 # ---------------------------------------------------------------------------
 
 
-async def test_signal_transport_defers_to_signal_default_timeout() -> None:
-    """timeout=None → the signal's own default (the CaSettable behavior)."""
-    signal = _SignalRecorder()
+def _setpoint_signal():
+    """A typed ``:SP`` signal on a mock backend — the CaSettable Layer-1 shape."""
+    from ophyd_async.epics.core import epics_signal_rw
+
+    return epics_signal_rw(float, "ca://TestExp:U_S1H:Current:SP", name="sp")
+
+
+async def test_signal_transport_puts_through_the_mock_seam() -> None:
+    """The typed signal's mock backend sees the put (the tests' follow_setpoint seam)."""
+    signal = _setpoint_signal()
+    await signal.connect(mock=True)
     put = GatewaySetpointPut(signal=signal, timeout=None)
     await put.put(3.5)
-    assert signal.calls == [(3.5, {})]
+    get_mock_put(signal).assert_called_once_with(3.5)
+    assert await signal.get_value() == 3.5
 
 
-async def test_signal_transport_passes_the_move_budget_through() -> None:
-    """A per-put timeout reaches signal.set (CaMotor's move_timeout)."""
-    signal = _SignalRecorder()
+async def test_signal_transport_bounds_the_put_by_the_move_budget() -> None:
+    """A per-put timeout bounds the backend put (CaMotor's reply ceiling)."""
+    signal = _setpoint_signal()
+    await signal.connect(mock=True)
+    set_mock_put_proceeds(signal, False)  # the gateway never completes the set
     put = GatewaySetpointPut(signal=signal, timeout=None)
-    await put.put(3.5, timeout=30.0)
-    assert signal.calls == [(3.5, {"timeout": 30.0})]
+    with pytest.raises(TimeoutError, match="Current:SP.*0.2 s"):
+        await put.put(3.5, timeout=0.2)
+
+
+async def test_signal_transport_raises_a_refused_put_even_though_it_is_falsy() -> None:
+    """GEECS-Plugins#868's root: a failed ``aioca.CANothing`` is falsy.
+
+    ``signal.set()`` (ophyd-async 0.19.3) swallows it — its retry context
+    parks the outcome in a ``concurrent.futures.Future`` whose stdlib
+    ``__get_result`` re-raises only ``if self._exception:`` — and the
+    refused put reads as success.  The primitive must raise it.
+    """
+    signal = _setpoint_signal()
+    await signal.connect(mock=True)
+    refusal = aioca.CANothing("TestExp:U_S1H:Current:SP", 192)  # ECA_DISCONN
+    assert not refusal  # the shape that matters
+
+    def refuse(value, **kwargs):
+        raise refusal
+
+    callback_on_mock_put(signal, refuse)
+    put = GatewaySetpointPut(signal=signal, timeout=None)
+    with pytest.raises(aioca.CANothing) as info:
+        await put.put(3.5)
+    assert info.value is refusal
+    # The status a Movable hands the RunEngine fails too.
+    status = put.set(3.5)
+    with pytest.raises(aioca.CANothing):
+        await status
+    assert not status.success

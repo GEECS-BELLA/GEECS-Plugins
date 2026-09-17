@@ -109,158 +109,6 @@
       "title": "CaptureSettings",
       "type": "object"
     },
-    "EvaluatorSpec": {
-      "additionalProperties": false,
-      "description": "Which analysis code turns raw shots into the number being optimized.\n\nPoints at the Python evaluator class and carries its configuration.",
-      "properties": {
-        "module": {
-          "description": "Python import path of the evaluator module, e.g. 'geecs_bluesky.optimization.evaluators.beam_sum_counts_evaluator'.",
-          "title": "Module",
-          "type": "string"
-        },
-        "class": {
-          "description": "Name of the evaluator class inside that module.",
-          "title": "Class",
-          "type": "string"
-        },
-        "kwargs": {
-          "additionalProperties": true,
-          "description": "Settings passed to the evaluator when it is created \u2014 e.g. which diagnostics/analyzers it should read. Free-form: each evaluator documents its own options.",
-          "title": "Kwargs",
-          "type": "object"
-        }
-      },
-      "required": [
-        "module",
-        "class"
-      ],
-      "title": "EvaluatorSpec",
-      "type": "object"
-    },
-    "GeneratorSpec": {
-      "additionalProperties": false,
-      "description": "Which optimization algorithm proposes the next settings.\n\nNames the generator and carries its algorithm-specific options.",
-      "properties": {
-        "name": {
-          "description": "Name of the optimization algorithm, e.g. 'bayes_default', 'random', or 'multipoint_bax_alignment_l2'.",
-          "title": "Name",
-          "type": "string"
-        },
-        "options": {
-          "additionalProperties": true,
-          "description": "Algorithm-specific tuning options. Free-form: each generator documents its own options (legacy 'xopt_config_overrides').",
-          "title": "Options",
-          "type": "object"
-        }
-      },
-      "required": [
-        "name"
-      ],
-      "title": "GeneratorSpec",
-      "type": "object"
-    },
-    "OptimizationSpec": {
-      "additionalProperties": false,
-      "description": "The optimization problem: what to vary, within what limits, to improve what.\n\nOnly used when the scan's mode is ``optimize``.  Lists the variables the\noptimizer may move (with their allowed ranges), what is being minimized\nor maximized, and which algorithm drives the search.\n\nNotes\n-----\nMirrors what the legacy optimizer YAML (``BaseOptimizerConfig`` +\nXopt VOCS) could express: objectives may be empty for BAX-style\ngenerators that model ``observables`` only; ``constraints`` follow the\nVOCS ``[bound_type, value]`` form.",
-      "properties": {
-        "variables": {
-          "additionalProperties": {
-            "maxItems": 2,
-            "minItems": 2,
-            "prefixItems": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "number"
-              }
-            ],
-            "type": "array"
-          },
-          "description": "What the optimizer may move and how far, as 'variable name: [lowest, highest]'. Names may be scan-variable names or 'Device:Variable' strings.",
-          "minProperties": 1,
-          "title": "Variables",
-          "type": "object"
-        },
-        "objectives": {
-          "additionalProperties": {
-            "type": "string"
-          },
-          "description": "What counts as better, as 'objective name: MINIMIZE' or 'objective name: MAXIMIZE'. May be empty for algorithms that only model observables (BAX).",
-          "title": "Objectives",
-          "type": "object"
-        },
-        "observables": {
-          "description": "Extra measured quantities the algorithm should track without optimizing them, e.g. ['x_CoM'].",
-          "items": {
-            "type": "string"
-          },
-          "title": "Observables",
-          "type": "array"
-        },
-        "constraints": {
-          "additionalProperties": {
-            "maxItems": 2,
-            "minItems": 2,
-            "prefixItems": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "number"
-              }
-            ],
-            "type": "array"
-          },
-          "description": "Hard limits on measured quantities, as 'name: [LESS_THAN or GREATER_THAN, value]'. Usually empty.",
-          "title": "Constraints",
-          "type": "object"
-        },
-        "evaluator": {
-          "$ref": "#/$defs/EvaluatorSpec",
-          "description": "The analysis code that scores each iteration."
-        },
-        "generator": {
-          "$ref": "#/$defs/GeneratorSpec",
-          "description": "The algorithm that proposes the next settings."
-        },
-        "max_iterations": {
-          "anyOf": [
-            {
-              "minimum": 1,
-              "type": "integer"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Stop after this many optimization iterations. Leave unset to run until stopped by hand.",
-          "title": "Max Iterations"
-        },
-        "seed_dump_files": {
-          "description": "Optional earlier results (ECS dump files) used to warm-start the optimizer. Usually empty.",
-          "items": {
-            "type": "string"
-          },
-          "title": "Seed Dump Files",
-          "type": "array"
-        },
-        "move_to_best_on_finish": {
-          "default": false,
-          "description": "After the optimization ends, drive the variables back to the best settings found.",
-          "title": "Move To Best On Finish",
-          "type": "boolean"
-        }
-      },
-      "required": [
-        "variables",
-        "evaluator",
-        "generator"
-      ],
-      "title": "OptimizationSpec",
-      "type": "object"
-    },
     "PositionList": {
       "additionalProperties": false,
       "description": "Scan positions given as an explicit list of values.\n\nUse this instead of start/end/step when the positions are irregular \u2014\ne.g. ``values: [0.0, 0.5, 2.0, 8.0]``.",
@@ -339,18 +187,17 @@
       "type": "object"
     },
     "ScanRequestMode": {
-      "description": "What kind of scan to run.\n\nAttributes\n----------\nSTEP : str\n    Sweep one scan variable through a list of positions, taking a batch\n    of shots at each.\nNOSCAN : str\n    Don't move anything \u2014 just collect shots for statistics.\nOPTIMIZE : str\n    Let an optimizer choose the next settings each iteration.",
+      "description": "What kind of scan to run.\n\nAttributes\n----------\nSTEP : str\n    Sweep one scan variable through a list of positions, taking a batch\n    of shots at each.\nNOSCAN : str\n    Don't move anything \u2014 just collect shots for statistics.",
       "enum": [
         "step",
-        "noscan",
-        "optimize"
+        "noscan"
       ],
       "title": "ScanRequestMode",
       "type": "string"
     }
   },
   "additionalProperties": false,
-  "description": "One complete scan, ready to submit: what to do, what to save, how to trigger.\n\nFill in the mode (sweep / stand still / optimize), the axis (or axes) to\nsweep, how many shots per position, and the names of the save sets,\ntrigger profile, and action plans to use.  Saving a request you like\n*is* a preset.\n\nA step scan may sweep **one axis or several**.  With several axes the\nscan visits every combination (a grid): the *first* axis in the list is\nthe outermost, slowest-changing loop and the *last* axis is the\ninnermost, fastest-changing one.  ``shots_per_step`` shots are taken at\neach grid point, and each grid point is one bin in the scan data.\n\nNotes\n-----\nName-valued fields (``capture.save_sets``, ``capture.trigger_profile``,\nentries in ``actions``) are resolved against the experiment's config\nlibrary at submission time; this model checks shape and mode\nconsistency, not name existence.  ``capture.save_sets`` is a list \u2014 the\nengine resolves each named set and **unions** their devices into the\nrecorded device set (a device in more than one set is merged), so\noperators mix and match named diagnostic groups per scan.  A bare\nstring is accepted for the single-set case and stored as a one-element\nlist.\n\nGrid semantics are a plain outer product in list order.  Traversal\nordering options (snake/raster, per-axis direction) are deliberately not\nmodelled yet; a future ``ordering`` field on this model is the\nanticipated extension point.\n\nFormat v2 moved the capture-concern fields into ``capture`` and dropped\n``submission``; format v3 dropped ``trigger_variant`` (see the module\ndocstring).  One before-validator lifts every older layout \u2014 the flat\nv1 fields into ``capture``, a v1 ``submission`` key and an unset\n``trigger_variant`` dropped \u2014 so older documents keep validating; a\ndeclared ``schema_version`` \u2264 2 is normalized to 3 (even on a sparse\ndocument with nothing to lift).",
+  "description": "One complete scan, ready to submit: what to do, what to save, how to trigger.\n\nFill in the mode (sweep / stand still), the axis (or axes) to\nsweep, how many shots per position, and the names of the save sets,\ntrigger profile, and action plans to use.  Saving a request you like\n*is* a preset.\n\nA step scan may sweep **one axis or several**.  With several axes the\nscan visits every combination (a grid): the *first* axis in the list is\nthe outermost, slowest-changing loop and the *last* axis is the\ninnermost, fastest-changing one.  ``shots_per_step`` shots are taken at\neach grid point, and each grid point is one bin in the scan data.\n\nNotes\n-----\nName-valued fields (``capture.save_sets``, ``capture.trigger_profile``,\nentries in ``actions``) are resolved against the experiment's config\nlibrary at submission time; this model checks shape and mode\nconsistency, not name existence.  ``capture.save_sets`` is a list \u2014 the\nengine resolves each named set and **unions** their devices into the\nrecorded device set (a device in more than one set is merged), so\noperators mix and match named diagnostic groups per scan.  A bare\nstring is accepted for the single-set case and stored as a one-element\nlist.\n\nGrid semantics are a plain outer product in list order.  Traversal\nordering options (snake/raster, per-axis direction) are deliberately not\nmodelled yet; a future ``ordering`` field on this model is the\nanticipated extension point.\n\nFormat v2 moved the capture-concern fields into ``capture`` and dropped\n``submission``; format v3 dropped ``trigger_variant`` (see the module\ndocstring).  One before-validator lifts every older layout \u2014 the flat\nv1 fields into ``capture``, a v1 ``submission`` key and an unset\n``trigger_variant`` dropped \u2014 so older documents keep validating; a\ndeclared ``schema_version`` \u2264 2 is normalized to 3 (even on a sparse\ndocument with nothing to lift).",
   "properties": {
     "schema_version": {
       "default": 3,
@@ -360,10 +207,10 @@
     },
     "mode": {
       "$ref": "#/$defs/ScanRequestMode",
-      "description": "What kind of scan: 'step' sweeps one or more axes, 'noscan' collects shots without moving anything, 'optimize' lets an algorithm pick the settings."
+      "description": "What kind of scan: 'step' sweeps one or more axes, 'noscan' collects shots without moving anything."
     },
     "axes": {
-      "description": "For step scans: what to sweep. One entry is a simple 1-D scan; several entries form a grid visiting every combination, with the first axis as the outermost (slowest) loop and the last as the innermost (fastest). Leave empty for noscan and optimize.",
+      "description": "For step scans: what to sweep. One entry is a simple 1-D scan; several entries form a grid visiting every combination, with the first axis as the outermost (slowest) loop and the last as the innermost (fastest). Leave empty for noscan.",
       "items": {
         "$ref": "#/$defs/ScanAxis"
       },
@@ -389,18 +236,6 @@
       "description": "Mark this scan's data as background/calibration shots so analysis can find them later.",
       "title": "Background",
       "type": "boolean"
-    },
-    "optimization": {
-      "anyOf": [
-        {
-          "$ref": "#/$defs/OptimizationSpec"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
-      "description": "The optimization problem definition. Required for (and only allowed with) mode 'optimize'."
     }
   },
   "required": [

@@ -181,13 +181,21 @@ def find_geecs_run(
 
 
 def read_primary_dataframe(run: Any) -> Any:
-    """Read a Tiled run's primary stream as a pandas DataFrame."""
-    primary = run["primary"].read()
-    if hasattr(primary, "to_dataframe"):
-        return primary.to_dataframe().reset_index()
-    if hasattr(primary, "reset_index"):
-        return primary.reset_index()
-    return primary
+    """The run's primary stream **scalar table** as a pandas DataFrame.
+
+    Through :func:`geecs_data_utils.tiled_catalog.read_primary_scalars`:
+    the composite node's table part only — never ``run["primary"].read()``,
+    which downloads every camera stack and per-frame attribute array and
+    outer-joins their dimensions (GEECS-Plugins#834).  The one column this
+    module needs, ``scan_event_index``, lives in that table.  An empty
+    DataFrame when the stream has no rows.
+    """
+    import pandas as pd
+
+    from geecs_data_utils.tiled_catalog import read_primary_scalars
+
+    frame = read_primary_scalars(run["primary"])
+    return pd.DataFrame() if frame is None else frame
 
 
 def event_by_scan_event_index(primary_table: Any, shot_number: int) -> dict[str, Any]:

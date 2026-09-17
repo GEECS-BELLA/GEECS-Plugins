@@ -9,7 +9,6 @@ units/limits/dtype); hand-built configs remain possible (see ``demo.py``).
 from __future__ import annotations
 
 import logging
-from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -19,77 +18,26 @@ from geecs_core.pv_naming import normalize_component as normalize_pv_component
 
 logger = logging.getLogger(__name__)
 
-DType = Literal["float", "int", "string", "path", "enum"]
+# The DB type rule lives in GEECS-Core (moved 2026-09-09, 0.20.3 / GEECS-Core 0.5.0): one home for
+# the gateway, the PVA gateway and GeecsBluesky.  The private aliases keep this
+# module's call sites and `audit.py` unchanged.
+from geecs_core.db.variable_types import (  # noqa: E402
+    DType,
+    SKIP_VARTYPES as _SKIP_VARTYPES,
+    VARTYPE_TO_DTYPE as _VARTYPE_TO_DTYPE,
+    effective_vartype,
+)
 
 # EPICS DBR_STRING (the .DESC field's type) caps at 40 characters. A longer
 # description is truncated by CA clients, so we clip it at the source with a
 # warning rather than silently shipping something that displays wrong.
 _MAX_DESC_LENGTH = 40
 
-# GEECS `variabletype` → gateway dtype. Types absent here (image, 1darray) are
-# not scalar CA data and are skipped when building specs from the DB.
-# `path` is distinct from `string`: EPICS DBR_STRING caps at 40 characters, so
-# path variables (file/save paths routinely exceed that) are served as
-# char-array PVs — the standard EPICS long-string convention (areaDetector
-# FilePath does the same). A plain `string` stays a native 40-char string PV.
-_VARTYPE_TO_DTYPE: dict[str, DType] = {
-    "numeric": "float",
-    "string": "string",
-    "path": "path",
-    "choice": "enum",
-}
-_SKIP_VARTYPES = {"image", "1darray"}
-
 # EPICS DBR_ENUM limits: at most 16 states, each label at most 26 chars. A GEECS
 # `choice` that exceeds either can't be a CA enum, so it degrades to a string PV
 # (the option value still round-trips as text; only the dropdown is lost).
 _MAX_ENUM_STATES = 16
 _MAX_ENUM_STRING_LEN = 26
-
-# `choices` values that are bare type descriptors rather than option lists (the
-# `choice` table's low IDs double as type descriptors in the GEECS DB).
-_CHOICE_TYPE_DESCRIPTORS = _SKIP_VARTYPES | {"numeric", "string", "path"}
-
-
-def effective_vartype(variabletype: str | None, choices: str | None) -> str:
-    """Resolve the effective GEECS variable type from DB metadata.
-
-    Shared by :meth:`DeviceSpec.from_db_metadata` and the DB-hygiene audit
-    (:func:`geecs_ca_gateway.audit.audit_subscribed_variables`) so both apply
-    identical rules.
-
-    The ``choice`` table's low IDs double as type descriptors, so when
-    ``choices`` is a bare descriptor word (``image``, ``1darray``, ``numeric``,
-    ``string``, ``path``) it is the AUTHORITATIVE type — even when
-    ``variabletype`` says otherwise (e.g. ``variabletype='choice'`` with
-    ``choices='image'`` is an image variable streaming raw bytes, not a
-    one-option enum).  Otherwise trust ``variabletype``; if it is blank, a real
-    option list is a ``choice``, else fall back to ``numeric``.
-
-    Parameters
-    ----------
-    variabletype : str or None
-        The DB ``variabletype`` column (may be blank/None).
-    choices : str or None
-        The DB ``choices`` column (an option list, a bare type descriptor,
-        or blank/None).
-
-    Returns
-    -------
-    str
-        The effective type, lower-cased: one of the descriptor words above,
-        a ``variabletype`` value, or ``"choice"`` / ``"numeric"`` fallbacks.
-    """
-    vartype = (variabletype or "").strip().lower()
-    raw_choices = (choices or "").strip()
-    descriptor = raw_choices.lower()
-    if descriptor in _CHOICE_TYPE_DESCRIPTORS:
-        return descriptor
-    if vartype:
-        return vartype
-    if "," in raw_choices:
-        return "choice"
-    return "numeric"
 
 
 class VariableSpec(BaseModel):

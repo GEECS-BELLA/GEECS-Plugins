@@ -30,15 +30,41 @@ from geecs_bluesky.assets.tiled_readback import (
 )
 
 
-class _FakePrimary:
-    """Minimal Tiled primary stream shim."""
-
+class _FakeTable:
     def __init__(self, dataframe: pd.DataFrame) -> None:
         self._dataframe = dataframe
 
-    def read(self) -> pd.DataFrame:
-        """Return the fake primary event stream."""
+    def read(self, columns=None) -> pd.DataFrame:
         return self._dataframe
+
+
+class _FakeArrayPart:
+    """A camera stack node: downloading it is the #834 defect."""
+
+    def read(self):
+        raise AssertionError("an array part of the primary stream must never be read")
+
+
+class _FakePrimary:
+    """A Tiled composite ``primary`` node: one ``internal`` table plus array parts."""
+
+    def __init__(self, dataframe: pd.DataFrame) -> None:
+        self._parts = {"internal": _FakeTable(dataframe), "uc_cam": _FakeArrayPart()}
+
+    def get_contents(self) -> dict:
+        return {
+            "internal": {"attributes": {"structure_family": "table"}},
+            "uc_cam": {"attributes": {"structure_family": "array"}},
+        }
+
+    @property
+    def base(self) -> dict:
+        return self._parts
+
+    def read(self, variables=None, dim0=None):
+        raise AssertionError(
+            "primary.read() downloads every array part — never call it"
+        )
 
 
 class _FakeRun:

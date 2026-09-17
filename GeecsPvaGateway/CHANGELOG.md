@@ -3,6 +3,217 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+
+## [0.10.1] - 2026-09-16
+
+### Changed
+
+- Import the shared LabVIEW epoch offset from GEECS-Core; timestamp conversion behavior is unchanged.
+
+## [0.10.0] - 2026-09-14
+
+### Fixed
+
+- **File plugin: `Capture=1` arms on the frame the gateway already holds**
+  (GEECS-Plugins#894).  The arm needs *a* decoded frame of the variable
+  for the stream geometry, not a fresh push — and a box ARMED through a
+  long first move pushes nothing, so waiting `ARM_TIMEOUT_S` for one
+  failed the run's first `prepare` (Scan002 of 26_0914: a 26 s move, then
+  `hdf-capture didn't match True in 10.0s`).  The worker's latest-wins
+  slot now remembers the last decoded frame per variable
+  (`_CameraWorker._last_frame`, handed to the plugin as `last_frame`);
+  `_capture_on` posts the geometry from it and completes the put at once.
+  The held frame is never written (the stale watermark is stamped at the
+  arm, as before).  Only a variable the gateway has never decoded still
+  waits for its first push and fails naming the device after
+  `ARM_TIMEOUT_S`.  That state recurs, not just on a "fresh gateway": the
+  service restarts with the camera server's scheduled Windows restart and
+  nothing holds a monitor on an image PV in normal operation, so after
+  every restart cycle each camera is never-decoded until its first plugin
+  session receives a push — the first scan of the cycle whose first step
+  is a long move still fails as Scan002 did (accepted on #894 as the
+  edge; the frequency is stated here so the ruling rests on it).  A
+  monitor on the image PV for one gating round-trip while the box is in
+  STANDBY seeds the held frame — the natural job of the #852 preflight.
+  Not read from
+  the DB's ROI variables (maintainer's ruling: the decoded frame is the
+  only truth).  One property moves with it: a stack that cannot be opened
+  no longer fails the arming put (there is no arming frame to open on) —
+  the first fresh frame's open failure sets `WriteStatus` /
+  `WriteMessage` and the count never advances, so the worker's shot
+  timeout names the camera.
+- **File plugin: `NumCaptured_RBV = 0` is posted at `Capture=1`, before
+  `Capture_RBV` flips** (GEECS-Plugins#853) — areaDetector's semantics,
+  which the stock `ADHDFDataLogic` baselines `collections_written` on
+  right after the arm; the previous session's count still there made the
+  first batch of a gated run count from *N*.  `ArrayCounter(_RBV)`,
+  `UniqueId_RBV` and `FullFileName_RBV` are zeroed with it.  The worker's
+  `GeecsDetector.zero_count` guard stays for gateways rolled before this.
+
+### Added
+
+- **`<image PV>:connected` per image variable** (GEECS-Plugins#854): the
+  state of this gateway's GEECS subscription for the variable — `Idle`
+  (gated off: nobody watching, nothing known), `Disconnected` (a watcher
+  holds it and the device is unreachable or dropped; MAJOR alarm) or
+  `Connected` — so a camera app started after its gateway shows as the
+  gap it is instead of failing the scan's first arm.  A preflight that
+  holds a monitor on the image PV for one gating round-trip reads the
+  verdict here.  Per variable because the subscriptions are; never the
+  bare `<device>:connected` the CA gateway serves for its own.
+- **Endpoint re-resolve at the backoff ceiling** (GEECS-Plugins#854): a
+  watched variable whose device stays unreachable is re-asked of the DB
+  (`GeecsDb.find_device`, off-loop, 10 s budget, every 10th ceiling
+  cycle — the CA gateway's `endpoint_resolver` idiom) and redialed on a
+  moved port, so a device app that came up on another port after this
+  gateway started is found without a restart.  An endpoint that moved off
+  this host is logged, not adopted (the served set is host-scoped; a
+  restart re-scopes it).  Owed from #854: a re-subscribe when a *live*
+  subscription goes quiet past a threshold — #894 shows ≥ 26 s of
+  legitimate silence inside a capture session, so the threshold and
+  whether it may fire mid-session need a ruling first; a dead peer is
+  still the socket keepalive's to detect (~1 min).
+
+Deploy = pull the share clone and `:restart` each box (no launcher
+change, no new dependency).
+
+## [0.9.0] - 2026-09-12
+
+### Added
+
+- **File plugin: the device's subscribed scalars ride in the stack as
+  per-frame attributes** (`Planning/native_bluesky/08_gated_batch.md` §4.4,
+  phase 2 PR 2a).  Beside the two frame stamps, the plugin writes one
+  `DOUBLE` dataset per subscribed (`get='yes'`) scalar of the camera under
+  `/entry/instrument/NDAttributes/<device>-hdf-<variable>-<scalar>` and
+  declares it in `NDAttributesFile`, so the stock `ADHDFDataLogic`
+  describes each as a stream column with nothing new on the worker.  The
+  list is `CameraSpec.scalar_variables`, built at startup by
+  `geecs_core.db.variable_types.scalar_attribute_variables` (GEECS-Core
+  0.6.0, beside `image_variables`) over the subscribed list from
+  `geecs_core.db.scalar_policy.GeecsDbScalarPolicy` (moved there from
+  GeecsBluesky so the two sides cannot drift): the **numeric** subscribed
+  variables, minus the timestamp ladder the stamps already carry (an
+  enum's wire value is its text label, so enum and text columns stay
+  strict-row-only); a second variable normalizing onto an earlier one's
+  dataset name is dropped with a warning at startup, never a crash.  The
+  file's root attributes `scalar_variables` / `scalar_attributes` carry the
+  raw GEECS names behind the normalized datasets (normalization is
+  one-way; an offline reader has no DB).  The values come
+  from the same TCP push as the frame: the image variable's one
+  subscription is widened by the scalar list (`_CameraWorker.
+  subscription_variables`; still one subscription per variable, and only
+  where the plugin serves it), so an attribute row is positionally exact.
+  A variable the device did not send with a frame, or a text enum value,
+  is written `NaN`; the plugin never invents a value.  Stacks written by
+  0.8 (stamps only) read unchanged.
+
+## [0.8.0] - 2026-09-11
+
+### Changed
+
+- **File plugin: attribute names carry the device and the plugin child**
+  (GEECS-Plugins#829).  The per-frame attribute datasets and the
+  `NDAttributesFile` XML now name
+  `<device>-hdf-<variable>-frame_acq_timestamp` / `-frame_recv_timestamp`
+  (`file_plugin.attribute_names` / `attributes_xml`, both parts through
+  `geecs_core.pv_naming.normalize_component`) instead of the bare
+  `acq_timestamp` / `recv_timestamp`.  The stock `ADHDFDataLogic` turns
+  attribute names into stream data keys verbatim, so the names must be
+  unique across the cameras of one run (the bare names collided on the
+  second camera and the run failed at its descriptor after claiming a scan
+  number) and disjoint from every event column (`<device>-acq_timestamp`
+  is the camera's own CA stamp column — the review of the first fix showed
+  a stream key of that name overwriting it and breaking Tiled's
+  ingestion).  On-disk layout change: stacks written by 0.7.x keep the
+  bare name; `geecs_data_utils.io.scan_stack.timestamps_dataset` resolves
+  either.  Deploy = pull the share clone and `:restart` each box (no
+  launcher change).
+- `DEPLOYMENT.md`, the per-box launcher step: an *elevated* ssh session
+  (key in `administrators_authorized_keys`) reads the share — the earlier
+  "an ssh token cannot" was true of a plain session only — and `nssm` is
+  not on `PATH` on the boxes (`Stop-Service` / `Start-Service`, or the
+  full `nssm.exe` path).  Both learned on the 2026-09-11 fleet roll.
+
+## [0.7.1] - 2026-09-11
+
+### Added
+
+- **Fleet requirements**: `deploy/requirements-fleet.txt` (exact pins of
+  external dependencies added after a box was bootstrapped — h5py first),
+  `deploy/stage_wheels.sh` (downloads their Windows/CPython-3.11 wheels
+  into `<Active Version>/pva-wheels` beside the share clone), and a
+  `launch.bat` step that installs the pins offline from that cache before
+  the reinstall.  A new dependency is a pin, a staged wheel and a
+  restart — no per-box visit.  `tests/test_deploy_files.py` pins the
+  launcher's package list and the requirements' consistency with
+  `pyproject.toml` (the 0.4.4 fleet's launcher predated GEECS-Core and
+  would have crash-looped on the 0.7.0 restart).  Review of #824: the pin
+  file is the closure (`--no-deps` on both sides, so one unstaged
+  transitive wheel cannot block every pin); a launcher copy happens with
+  the service **stopped** — cmd reads a batch file by byte offset, so a
+  copy over a running service followed by `:restart` resumes the new file
+  mid-way (`DEPLOYMENT.md`).
+
+## [0.7.0] - 2026-09-11
+
+### Added
+
+- **The areaDetector-shaped HDF5 file plugin** (#806;
+  `Planning/native_bluesky/06_pva_file_plugin.md`): `file_plugin.HdfFilePlugin`,
+  one per served image variable, serves the full ophyd-async
+  `NDFileHDF5IO` PV set under `<image PV>:hdf1:` (the prefix minted by
+  `geecs_core.pv_naming.hdf_plugin_prefix`) plus `Rewind`, `WriteStatus`
+  and `WriteMessage`, and writes one `<device>.h5` per device per scan in
+  the NDFileHDF5 layout (`/entry/data/data`, chunked one frame per chunk;
+  `/entry/instrument/NDAttributes/acq_timestamp` + `recv_timestamp`,
+  declared through `NDAttributesFile`).  A lossless second consumer of the
+  push frame, branching off in `_on_frame` before the latest-wins slot,
+  with one writer thread: `Capture=1` retains the GEECS subscription like a
+  client and completes once a frame has been decoded (the geometry the
+  worker describes the stream with), frames dedupe on `acq_timestamp` and
+  stale-filter against a watermark, `NumCaptured_RBV` posts per frame on
+  disk, `Rewind` truncates to a count and moves the watermark (the refire
+  guard), `Capture=0` stamps the reconciliation counters.  Never creates a
+  directory; never HDF5 SWMR across SMB (`SWMRMode` accepted and ignored,
+  flush per frame, file locking off).  Pinned by a test that drives the
+  real plugin with the stock `ADHDFDataLogic` over `pva://`.
+- `geecs-pva-gateway diff <scan folder>` — the parity check of plugin
+  stacks against native PNGs (`diff.py`, moved from GeecsBluesky's
+  retired capture daemon).
+- `h5py` is a dependency: a **re-bootstrap per camera server** (PyPI deps
+  are frozen at bootstrap); a box without it serves no plugin PVs
+  (`file_plugin.available`).
+
+### Changed
+
+- `_CameraWorker.provider_entries` includes the plugin PVs; `stop()`
+  closes an open session.
+- `config.image_variables` is `geecs_core.db.variable_types.image_variables`
+  (re-exported); the stack layout constants come from
+  `geecs_data_utils.io.scan_stack`, the contract's one home.
+
+### Fixed
+
+- A second `Capture=1` arriving while the first is still arming is
+  acknowledged and ignored instead of opening a nested session (review
+  of #823).
+- A stack that cannot be opened (share refused the create, permissions)
+  is counted (`open_failures`) and reported through `WriteStatus` /
+  `WriteMessage` instead of escaping the writer thread; when it happens
+  on a fresh arming frame the `Capture=1` put fails with that reason and
+  the session and subscription are torn down — nothing leaks (Codex
+  review of #823).
+
+## [0.6.1] - 2026-09-09
+
+### Changed
+
+- `effective_vartype` is imported from `geecs_core.db.variable_types`
+  (GEECS-Core 0.5.0) instead of `geecs_ca_gateway.config`; the
+  `geecs-ca-gateway` path dependency — kept only for that helper — is
+  dropped. No behaviour change.
+
 ## [0.6.0] - 2026-09-05
 
 ### Added

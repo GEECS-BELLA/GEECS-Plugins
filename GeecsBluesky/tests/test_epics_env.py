@@ -49,6 +49,39 @@ def test_configured_auto_addr_list_respected(tmp_path):
     assert env["EPICS_CA_AUTO_ADDR_LIST"] == "YES"
 
 
+def test_pva_addr_list_is_the_union_of_the_two_pva_keys(tmp_path):
+    """The worker's [pva] hosts become EPICS_PVA_ADDR_LIST (no CA section needed)."""
+    path = _write_config(
+        tmp_path,
+        "[pva]\nfile_plugin_addr_list = 192.168.6.100, 192.168.7.161\n"
+        "addr_list = 192.168.7.161 192.168.8.197\n",
+    )
+    env: dict[str, str] = {}
+    applied = apply_epics_address_config(env=env, config_path=path)
+    assert env["EPICS_PVA_ADDR_LIST"] == "192.168.6.100 192.168.7.161 192.168.8.197"
+    assert env["EPICS_PVA_AUTO_ADDR_LIST"] == "YES"  # broadcast stays on for PVA
+    assert "EPICS_CA_ADDR_LIST" not in env
+    assert set(applied) == {"EPICS_PVA_ADDR_LIST", "EPICS_PVA_AUTO_ADDR_LIST"}
+
+
+def test_configured_pva_auto_addr_list_respected(tmp_path):
+    path = _write_config(
+        tmp_path, "[pva]\naddr_list = 192.168.6.100\npva_auto_addr_list = NO\n"
+    )
+    env: dict[str, str] = {}
+    apply_epics_address_config(env=env, config_path=path)
+    assert env["EPICS_PVA_AUTO_ADDR_LIST"] == "NO"
+
+
+def test_explicit_pva_env_var_wins(tmp_path):
+    path = _write_config(tmp_path, "[pva]\nfile_plugin_addr_list = 192.168.6.100\n")
+    env = {"EPICS_PVA_ADDR_LIST": "10.0.0.1"}
+    applied = apply_epics_address_config(env=env, config_path=path)
+    assert env["EPICS_PVA_ADDR_LIST"] == "10.0.0.1"
+    assert "EPICS_PVA_AUTO_ADDR_LIST" not in env
+    assert applied == {}
+
+
 def test_missing_file_and_section_are_noops(tmp_path):
     env: dict[str, str] = {}
     assert apply_epics_address_config(env=env, config_path=tmp_path / "nope.ini") == {}

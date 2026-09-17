@@ -26,18 +26,43 @@ __all__ = [
     "GeecsCommandFailedError",
     "GeecsDeviceNotFoundError",
     "GeecsTriggerTimeoutError",
-    "GeecsQuiescenceTimeoutError",
     "GeecsMotorTimeoutError",
     "GeecsConfirmTimeoutError",
-    "GeecsT0SyncError",
     "GeecsConfigurationError",
     "GeecsDeviceDownError",
-    "GeecsStaleDevicesError",
-    "GeecsUnservedVariablesError",
+    "PseudoComponentsDisagreeError",
+    "PseudoRestorePendingError",
     "ActionCheckFailedError",
     "ActionPlanNotFoundError",
     "ActionPlanCycleError",
+    "failure_cause_text",
 ]
+
+
+def failure_cause_text(exc: BaseException) -> str:
+    """``"Type: text"`` for what actually failed — the cause by ``str``, plus its notes.
+
+    The one rendering of a failure for the scan log and the stop document.
+    A ``bluesky.utils.FailedStatus``'s own text is the status repr, so what
+    failed lives on the cause alone; a bare exception (a device logging
+    its own refused put) is its own cause.  Two rules, both caught on
+    hardware:
+
+    - ``is not None``, never ``or``: ``aioca.CANothing`` is *falsy* for a
+      failed put, and ``exc.__cause__ or exc`` would select the useless
+      status instead (2026-09-10, GEECS-Plugins#817).
+    - ``str``, never ``repr``: ``CANothing`` carries the PV name and the CA
+      message only through ``str`` — its repr is the bare error code; and
+      the notes a device attaches (PEP 678 ``add_note`` — the file plugin's
+      ``WriteMessage`` on a failed prepare, GEECS-Plugins#894) are not part
+      of either.
+    """
+    cause = exc.__cause__ if exc.__cause__ is not None else exc
+    text = f"{type(cause).__name__}: {cause}"
+    notes = [str(n) for n in (getattr(cause, "__notes__", None) or ()) if str(n)]
+    if notes:
+        text += " (" + "; ".join(notes) + ")"
+    return text
 
 
 # ---------------------------------------------------------------------------
@@ -48,8 +73,8 @@ __all__ = [
 class GeecsTriggerTimeoutError(GeecsError):
     """``acq_timestamp`` did not advance within the trigger timeout.
 
-    Raised by :class:`~geecs_bluesky.devices.ca.triggerable.CaTriggerable`
-    when no new shot arrives within ``_trigger_timeout`` seconds.  Typical
+    Raised by :class:`~geecs_bluesky.devices.detector.GeecsAcquireLogic`
+    when no new shot arrives within ``shot_timeout`` seconds.  Typical
     causes: DG645 not firing, camera not acquiring, or trigger cable fault.
     """
 
@@ -59,32 +84,19 @@ class GeecsTriggerTimeoutError(GeecsError):
         super().__init__(message or f"{device_name}: no shot within {timeout:.1f}s")
 
 
-class GeecsQuiescenceTimeoutError(GeecsError):
-    """Free-running trigger did not stop within the timeout.
-
-    Raised by :func:`~geecs_bluesky.plans.single_shot.geecs_confirm_quiescent`
-    when device ``acq_timestamp`` values keep advancing after the shot
-    controller was put in single-shot (``ARMED``) mode — so plan-owned
-    single-shot firing cannot safely begin (a residual free-running shot would
-    be mistaken for the plan's fired shot).  Typical cause: the ``ARMED`` state
-    did not actually switch the trigger source to single-shot mode.
-    """
-
-    def __init__(self, timeout: float, message: str = "") -> None:
-        self.timeout = timeout
-        super().__init__(
-            message
-            or f"trigger still firing after {timeout:.1f}s; single-shot arm failed"
-        )
-
-
 class GeecsMotorTimeoutError(GeecsError):
-    """Motor did not reach the target position within ``move_timeout``.
+    """The readback stalled while the move was pending — the stall rule (#906).
 
     Raised by :class:`~geecs_bluesky.devices.ca.motor.CaMotor` when the
-    position polling loop expires.  Possible causes: stage stall, mechanical
-    obstruction, wrong tolerance, or very long move.  Do not auto-retry —
-    a stalled stage may need operator intervention.
+    streamed position has not moved by more than the tolerance for
+    ``stall_timeout`` seconds (after the progress grace) without reaching
+    the target: before the device's reply, the sanity bound for a device
+    that never answers; after a ``no error`` reply, the readback confirm
+    that never converged.  A move the device is still working on — the
+    readback advancing — never raises this; only a stalled axis does.
+    Possible causes: stage stall, mechanical obstruction, wrong tolerance, a
+    device that stopped answering.  Do not auto-retry — a stalled stage may
+    need operator intervention.
     """
 
     def __init__(
@@ -94,15 +106,20 @@ class GeecsMotorTimeoutError(GeecsError):
         target: float,
         current: float,
         timeout: float,
+        replied: bool = False,
     ) -> None:
         self.device_name = device_name
         self.variable = variable
         self.target = target
         self.current = current
         self.timeout = timeout
+        self.replied = replied
+        phase = (
+            "after the device replied" if replied else "with no reply from the device"
+        )
         super().__init__(
             f"{device_name}/{variable}: position {current} did not reach "
-            f"{target} within {timeout:.1f}s"
+            f"{target} — readback stalled for {timeout:.1f}s {phase}"
         )
 
 
@@ -139,27 +156,6 @@ class GeecsConfirmTimeoutError(GeecsError):
         )
 
 
-class GeecsT0SyncError(GeecsError):
-    """Coordinated t0 capture could not establish a common physical shot.
-
-    Raised by :func:`~geecs_bluesky.plans.t0_sync.geecs_t0_sync` when device
-    ``acq_timestamp`` values are spread wider than the acceptance window (the
-    cached frames do not all come from the same physical trigger) or when a
-    device has no cached ``acq_timestamp`` at all.  Never proceed unseeded —
-    shot IDs from unsynchronized t0s are not comparable across devices.
-    """
-
-    def __init__(
-        self,
-        message: str,
-        timestamps: dict[str, float | None] | None = None,
-        window_s: float | None = None,
-    ) -> None:
-        self.timestamps = timestamps or {}
-        self.window_s = window_s
-        super().__init__(message)
-
-
 # ---------------------------------------------------------------------------
 # Configuration / setup errors
 # ---------------------------------------------------------------------------
@@ -169,56 +165,45 @@ class GeecsConfigurationError(GeecsError):
     """Runtime configuration is incomplete or inconsistent."""
 
 
+class PseudoComponentsDisagreeError(GeecsError):
+    """A pseudo positioner's components do not sit on its formula.
+
+    Raised by :class:`~geecs_bluesky.devices.ca.pseudo.CaPseudoPositioner`
+    when ``forward(inverse(readbacks))`` disagrees with what the components
+    actually read by more than each component's tolerance — a component
+    moved under the scan (a hand move, another plan).  Fails the scan
+    rather than moving the other components onto a formula the operator
+    did not command (paired steering magnets are the incident class).
+    """
+
+
+class PseudoRestorePendingError(GeecsError):
+    """A relative pseudo positioner still owes its components their baselines.
+
+    Raised by ``stage()`` when the previous scan's restore did not complete
+    (a refused put — the RunEngine unstages on every exit path, halt
+    included), so zeroing now would bake the leftover bump into the next
+    baseline.
+    The components' offsets still hold the true baselines: ``mv <pseudo> 0``
+    puts them back and clears the condition.
+    """
+
+
 class GeecsDeviceDownError(GeecsError):
     """A device's gateway ``CONNECTED`` PV reports ``Disconnected``.
 
     ``CONNECTED`` is the authoritative liveness signal — CA-connect success
     never implies device liveness (PV_CONTRACT.md §1/§5; rationale in
-    ``GeecsBluesky/CLAUDE.md``).  Raised, or carried inside the pre-claim
-    operator dialog, by the pre-flight liveness check and by
-    :func:`~geecs_bluesky.plans.single_shot.geecs_single_shot` when a
+    ``GeecsBluesky/CLAUDE.md``).  Raised by the bound plans' liveness gate
+    (:func:`~geecs_bluesky.plans.registry.liveness_gate`) before a run's
+    first move when the gateway reports any of its devices down, and by
+    :func:`~geecs_bluesky.plans.strict.fire_and_await_shot` when a
     no-frame device turns out to be disconnected mid-scan.  The message is
-    operator-facing.
+    operator-facing; ``device_name`` is the first device named.
     """
 
     def __init__(self, message: str, device_name: str | None = None) -> None:
         self.device_name = device_name
-        super().__init__(message)
-
-
-class GeecsStaleDevicesError(GeecsError):
-    """Free-run sync device(s) are CONNECTED but have no fresh frames.
-
-    Carried inside the pre-claim operator dialog raised by the free-run
-    staleness check: all-stale means the trigger is probably off / not
-    free-running; a stale subset is a per-device acquisition problem.
-    Genuinely *dead* devices are :class:`GeecsDeviceDownError` territory.
-    The message is operator-facing.
-    """
-
-
-class GeecsUnservedVariablesError(GeecsError):
-    """Save-set variable(s) the gateway does not serve as PVs.
-
-    The gateway serves each enabled device's ``get='yes'`` variables plus its
-    settable control surface (``GeecsCAGateway/DEPLOYMENT.md``); a save-set
-    variable outside that set has no PV, so its detector signal can never
-    connect (a 20 s ophyd ``NotConnectedError``, observed live 2026-07-15).
-    Carried inside the pre-claim operator dialog raised by the
-    unserved-variables pre-flight check.  The message is operator-facing.
-
-    Parameters
-    ----------
-    message :
-        The operator-facing dialog body.
-    unserved :
-        ``{device: [variables]}`` — the unserved variables, by device.
-    """
-
-    def __init__(
-        self, message: str, unserved: dict[str, list[str]] | None = None
-    ) -> None:
-        self.unserved = dict(unserved or {})
         super().__init__(message)
 
 

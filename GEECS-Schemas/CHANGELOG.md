@@ -5,7 +5,153 @@ All notable changes to GEECS-Schemas are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.22.0] - 2026-09-11
+## [0.29.0] - 2026-09-16
+
+### Added
+
+- `Sweep`: a typed payload for predetermined moving scans, with one-to-many
+  range/list/log axes, correlated or grid combination, snake traversal and
+  per-axis relative flags. Correlated point counts must agree; lists retain
+  their ordering and repeated positions. Count remains separate.
+- Typed spiral, Fermat spiral, square spiral and relative x2x trajectories.
+  Validation and cheap step counts need no numerical or hardware imports;
+  Bluesky expansion belongs to GeecsBluesky. No existing schema changes shape.
+
+## [0.28.2] - 2026-09-16
+
+### Fixed
+
+- Require all six native optimizer keepers in corpus rollout acceptance; remove retired optimize-mode prose from ScanRequest and regenerate the public artifacts.
+
+## [0.28.1] - 2026-09-16
+
+### Fixed
+
+- Drop null legacy optimization fields on ordinary scans, remove the retired optimize mode from the published ScanRequest contract, and report an unmigrated optimizer corpus as a pending integration skip.
+
+## [0.28.0] - 2026-09-16
+
+Version 0.27.0 was an unreleased draft milestone; its analyzer declarations
+shipped together with the native optimization schema in 0.28.0.
+
+### Changed
+
+- Add OptimizerConfig v1 using GEST VOCS directly, ordered derived expressions and diagnostic/signal measurements. Declare analyzer scalar outputs; permit exact dotted symbols in the shared restricted expression core. Retire OptimizationSpec and the evaluator converter; regenerate schema artifacts and keeper examples.
+
+## [0.26.0] - 2026-09-15
+
+### Added
+
+- `ScanVariable.description` and `PseudoScanVariable.description`: free
+  text for the people who edit the catalog — for a steering bump, the
+  geometry and assumptions behind its coefficients (the pseudo arc,
+  `Planning/native_bluesky/09_pseudo_transform.md` §2).
+
+### Changed
+
+- `PseudoScanVariable.inverse` is now consumed: the scanned number as a
+  formula of the components' positions (a device name when only one
+  target uses it, or always the full target with non-alphanumerics
+  replaced by `_`), required when a
+  `forward` is not linear in the scanned value; linear relations are
+  inverted by the engine. The field description and the module docstring
+  say so (the previous text — "from the first target's readback", never
+  enforced — is gone). No document changes shape.
+
+## [0.25.0] - 2026-09-14
+
+### Added
+
+- `split_device_variable(value)` → `(device, variable)`: the public form
+  of the `Device:Variable` rule the target validator applies (first `:`
+  separates, neither part empty). The web scanner's readback route uses
+  it instead of a third private copy; `_validate_target` calls it too.
+
+## [0.24.0] - 2026-09-13
+
+### Changed
+
+- Merge of `master` (d6f74211) into `feature/native-bluesky-plans`: the
+  two lines below were released in parallel and are listed in version
+  order; a block marked *(master line, parallel release)* reuses a version
+  number the branch also used for a different release.
+- `geecs_schemas.__init__` exports the union: the logbook vocabulary
+  (`LogEntry`, `Book`, …) from master and `ShotOffsets` plus the
+  plan-layer exports from the branch.
+- Minor, not patch: relative to the branch line this release brings
+  master's `log_entry` schema kind and its exports — new public API.
+
+## [0.23.0] - 2026-09-13
+
+Phase 3 of the native-Bluesky rebuild (GEECS-Plugins#807,
+`Planning/native_bluesky/03_clean_room_rebuild.md` §4.F): the vocabulary for
+the measured shot offsets.
+
+### Added
+
+- **`geecs_schemas.shot_offsets`** — `ShotOffsets`, the per-experiment
+  document of each device's measured edge-to-stamp latency, and its
+  `DeviceOffset` entries (`offset_s`, the peak-to-peak `scatter_s`, the
+  `shots` that contributed, the GEECS device name).  Written by the
+  `measure_shot_offsets` calibration plan, read at worker startup into each
+  detector's `drain_offset` config signal, and ultimately what the s-file
+  join corrects stamps by (`geecs_data_utils.shot_join`).  Registered in
+  `SCHEMA_REGISTRY` under `shot_offsets`.
+
+  Two properties the model enforces, because a document violating either
+  would anchor readers differently from the measurement that wrote it: the
+  `reference` device must be among the measured devices, and its own
+  `offset_s` must be `0.0`.  Only *differences* between offsets matter to
+  the join, so the reference exists purely to anchor the set.
+
+  Also `trigger_rate_hz`: a pipelining camera's offset is rate-dependent
+  (an un-ROI'd camera shifted 11.3 ms between 1 Hz and 5 Hz on HTU while an
+  ROI'd one moved 0.2 ms), so a stored calibration is only good for the rate
+  it was taken at.  **Declared by the caller, not derived** — the calibration
+  plan fires single shots with a stamp wait between them, so its own shot
+  spacing is not the machine's rate.
+
+  No legacy dialect and no converter: the legacy scanner stored no
+  calibration at all — the sync ritual was run by hand and the numbers
+  lived in the operator's head.
+
+## [0.22.1] - 2026-09-12
+
+### Added
+
+- `PresetDevice.essential` (default `True`): an essential device is waited
+  on every shot; a non-essential one streams its frames for the run's
+  duration and never holds a shot (phase 2 of the native-Bluesky rebuild,
+  GEECS-Plugins#807, `Planning/native_bluesky/08_gated_batch.md` §4.6).
+  The client expands `essential: false` into the bound plan's
+  `non_essential` list (it needs `save_images` on).  The corpus needs no
+  regeneration: the default keeps every preset all-essential.  The
+  acquisition mode is a plan keyword (`acquisition: gated` in
+  `plan.kwargs`), not a preset field.
+
+## [0.22.0] - 2026-09-12
+
+### Removed
+
+- The action-library converter (`convert.actions`: `convert_action_library`,
+  `convert_assigned_actions`), its legacy fixtures and the corpus walk's
+  conversion pin.  Every `action_library/actions.yaml` in the configs repo
+  was regenerated once as an `ActionPlanLibrary` document (same plans, same
+  steps, same values) and `assigned_actions.yaml` — the legacy GUI's
+  pinned-button list, read by nothing — was dropped with it; the corpus is
+  authored new-schema only from here (GEECS-Plugins#827 follow-up).  The
+  corpus walk now validates every library as an `ActionPlanLibrary`;
+  `tests/fixtures/actions/actions_undulator.yaml` is that document and the
+  `Amp4_DUMP_HP` golden pins it.
+
+### Added
+
+- `ActionPlanLibrary` refuses a document in the legacy `actions:` dialect
+  from `model_validate` (a `before` validator naming the regeneration, the
+  pattern `AnalysisDiagnostic._refuse_v1_layout` set), so every consumer
+  gets the one message and none carries its own guard.
+
+## [0.22.0] - 2026-09-11 (master line, parallel release)
 
 ### Added
 
@@ -13,7 +159,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   validated) and `LogEntry.tags` (parsed from the body by the logbook at
   save). `Book` exported.
 
-## [0.21.0] - 2026-09-11
+## [0.21.0] - 2026-09-10
+
+### Added
+
+- `geecs_schemas.preset` — **`Preset`**, the saved scan: the device group
+  (`PresetDevice`: `device`, `save_images`) plus the plan call (`PlanCall`:
+  a stock bluesky plan `name`, `args`, `kwargs` with scan variables as
+  `Device:Variable` or catalog-name strings), `trigger_profile`,
+  `background`, `description`.  A preset is a queue item in waiting; one
+  without a `plan` is a device group.  Registry kind `preset`
+  (GEECS-Plugins#807, phase 1 PR 2).
+
+### Removed
+
+- `geecs_schemas.save_set` (`SaveSet`, `SaveSetEntry`, `SaveRole`), the
+  save-element converter (`convert.save_elements`) and the scan-preset
+  converter (`convert.presets`: `convert_scan_preset`,
+  `compose_save_sets`), their fixtures and golden files.  The configs
+  corpus was regenerated once as `Preset` documents (the
+  GEECS-Plugins-Configs branch `presets-v1`); per-scalar selection,
+  setup/closeout rituals and the `SaveRole` enum are gone by design
+  (plan of record §10.5).
+- `convert_optimizer_config` returns the legacy `device_requirements` as
+  a `devices: list[PresetDevice]` group instead of a `SaveSet`.
+
+## [0.21.0] - 2026-09-11 (master line, parallel release)
 
 ### Added
 
@@ -27,6 +198,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `created_at`/`edited_at`/`edited_by`/`updated_at`/`deleted_at`, and an
   optimistic-lock `version`. Registered as `log_entry` with a reference
   example.
+
 
 ## [0.20.0] - 2026-09-08
 

@@ -20,7 +20,7 @@ only as an example or a placeholder.
 
 | Side | Home | Who reads it |
 |---|---|---|
-| **Client** | `~/.config/geecs_python_api/config.ini` — `[Experiment]`, `[Paths]`, `[epics] ca_addr_list`, `[pva] addr_list`, `[tiled]`, `[qserver]`, `[mcp]` (reference: [Getting started](../tutorials/getting_started.md)) | every Python client and every service process; `scripts/lab_status.sh`, `scripts/fleet_status.sh` |
+| **Client** | `~/.config/geecs_python_api/config.ini` — `[Experiment]`, `[Paths]`, `[epics] ca_addr_list`, `[pva] addr_list` / `file_plugin_addr_list`, `[tiled]`, `[qserver]`, `[mcp]` (reference: [Getting started](../tutorials/getting_started.md)) | every Python client and every service process; `scripts/lab_status.sh`, `scripts/fleet_status.sh` |
 | **Host** | `/etc/geecs/site.env` — one file per service host, from [`deploy/site.env.example`](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/deploy/site.env.example) | every systemd unit (`EnvironmentFile=`), `deploy/render_units.sh`, `deploy/bootstrap_host.sh` |
 
 On a service host `site.env` is the root: the bootstrap renders the
@@ -54,12 +54,16 @@ Two kinds of keys, documented line by line in the example file:
   address, never the client `config.ini`.
 - **Install-time values** — the service account and its home, the
   checkout root, the absolute poetry path, the repo URL, the Tiled URI,
-  the queueserver host, the data-share mount, the configs-repo path, and
-  the portal's memory ceiling (`GEECS_PORTAL_MEMORY_HIGH` /
-  `GEECS_PORTAL_MEMORY_MAX`, rendered into the unit's `MemoryHigh=` /
-  `MemoryMax=` — resource directives take no variables either).
-  These fill the unit templates' placeholders and the rendered
-  `config.ini`; they are harmless in the process environment.
+  the queueserver host, the PVA image fleet and its file-plugin boxes
+  (`GEECS_PVA_ADDR_LIST`, `GEECS_PVA_FILE_PLUGIN_ADDR_LIST` → the
+  rendered `[pva]` section, from which `geecs_bluesky` exports
+  `EPICS_PVA_ADDR_LIST` at import), the data-share mount, the
+  configs-repo path, and the portal's memory ceiling
+  (`GEECS_PORTAL_MEMORY_HIGH` / `GEECS_PORTAL_MEMORY_MAX`, rendered into
+  the unit's `MemoryHigh=` / `MemoryMax=` — resource directives take no
+  variables either).  These fill the unit templates' placeholders and
+  the rendered `config.ini`; they are harmless in the process
+  environment.
 
 Syntax is systemd `EnvironmentFile=` syntax, which is stricter than
 shell: `KEY=VALUE` per line, comments **only on their own lines** (a
@@ -91,7 +95,7 @@ delivers them.
 |---|---|---|
 | `gateway-checkout` | CA gateway | control-room-critical, moves rarely |
 | `portal-checkout` | Data Portal **and** the logbook (its own unit and poetry env inside `GeecsLogbook/`) | iterates in days; the two web viewers ship together — a pull is a deploy of both, so restart both |
-| `qs-checkout` | queueserver worker **and** capture daemon; also the MCP server's install source | co-location and co-versioning are a requirement of the capture design; the MCP bakes a non-editable venv (`<root>/geecs-mcp-venv`) from it so a pull never mutates code under the running server |
+| `qs-checkout` | queueserver worker; also the MCP server's install source and the web scanner's (`geecs-scanner`, a client of the plan surface this checkout defines) | the MCP bakes a non-editable venv (`<root>/geecs-mcp-venv`) from it so a pull never mutates code under the running server |
 
 The root is the site's choice (`GEECS_CHECKOUT_ROOT`): the service
 account's home costs no sudo; `/opt/geecs` is the same layout with one

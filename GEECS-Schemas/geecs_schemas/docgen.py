@@ -51,6 +51,16 @@ REFERENCE_PAGE = Path("docs/geecs_schemas/schema_reference.md")
 # model's reference section. Kept here (not in docstrings) so examples can
 # be longer than a docstring comfortably allows.
 EXAMPLES: dict[str, str] = {
+    "optimizer_config": """\
+schema_version: 1
+vocs:
+  variables: {"Motor:Current": [-1, 1]}
+  objectives: {camera.image_total: MAXIMIZE}
+measurements:
+  camera: {diagnostic: ExampleCamera, frames: per_bin}
+generator: {name: bayes_turbo_standard}
+run: {shots_per_step: 5, max_iterations: 20}
+""",
     "scan_request": """\
 schema_version: 3
 mode: step
@@ -74,29 +84,20 @@ description: "jet z scan with probe"
 # v1 documents (the capture fields flat at the top level) still validate —
 # they are lifted into this shape automatically.
 """,
-    "save_set": """\
+    "preset": """\
 schema_version: 1
-name: undulator_baseline
-# the REQUIRED devices — everything else is still logged in the background
-entries:
-  - device: UC_Amp4_IR_input
-    images: true                     # images are always required-tier
-    scalars: [MaxCounts, centroidx]  # extras beyond the DB's standard telemetry
-  - device: U_HP_Daq
-    db_scalars: false                # record ONLY the listed scalars, not the DB set
-    scalars: [AnalogOutput.Channel 1]
-    at_scan_start: {Analysis: "on"}  # replace the DB's scan-start value
-    at_scan_end: {Analysis: null}    # suppress the DB's scan-end write
-  - device: U_BCaveHallProbe
-    scalars: [Field, Rawfield]
-    role: snapshot
-  - device: UC_UndulatorRad2
-    images: true
-    scalars: [MeanCounts]
-    # this device's ritual travels with it: these named plans run once
-    # before/after any scan whose save set includes this entry
-    setup: [visa1_spectrometer_setup]
-    closeout: [visa1_spectrometer_closeout]
+name: emq1_scan
+description: emq1 scan after bax alignment
+trigger_profile: HTU-Normal          # omit to use the experiment default
+devices:
+  - device: UC_ALineEBeam3           # frames saved (the default)
+  - device: UC_VisaEBeam1
+    save_images: false               # scalars only, no frames on disk
+  - device: U_BCaveICT
+plan:
+  name: scan                         # a stock bluesky plan the worker registers
+  args: ["EMQ1 Current", 1.2, 1.7, 6]  # motor (catalog name or Device:Variable), start, stop, points
+  kwargs: {shots_per_step: 20}       # rows recorded at every position
 """,
     "scan_variables": """\
 schema_version: 1
@@ -197,6 +198,28 @@ derived_channels:
     egu: Torr
     precision: 6
     description: "Convectron pressure from U_VacuumGauge analog input 0"
+""",
+    "shot_offsets": """\
+schema_version: 1
+# Written by the measure_shot_offsets calibration plan, not by hand.
+reference: uc_amp3_ir_input   # stamped first; its own offset is 0.0 by definition
+devices:
+  uc_amp3_ir_input:
+    offset_s: 0.0             # seconds after the reference that this device stamps
+    scatter_s: 0.004          # peak-to-peak over the shots (host clock dither)
+    shots: 10                 # complete shots that contributed to the mean
+    geecs_device: UC_Amp3_IR_input
+  uc_amp4_ir_input:
+    offset_s: 0.036
+    scatter_s: 0.009
+    shots: 10
+    geecs_device: UC_Amp4_IR_input
+measured_at: "2026-09-13T18:22:04-07:00"
+trigger_profile: HTU-LaserOFF
+description: "after the Amp4 server rebuild"
+# Only DIFFERENCES matter: the join subtracts each device's offset from its
+# stamp before matching frames to rows, so adding a constant to every entry
+# changes nothing. A device absent here keeps 0.0.
 """,
     "analysis_diagnostic": """\
 schema_version: 2

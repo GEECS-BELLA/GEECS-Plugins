@@ -3,42 +3,30 @@
 The corpus walk (``TestFullCorpus``) is marked ``integration``: it auto-skips
 when the sibling ``GEECS-Plugins-Configs`` checkout is absent (e.g. in CI).
 Locally this is the proof that the converters cover the real world, file by
-file, with zero skips beyond the documented empty/deviceless shot-control
-configs (which legitimately convert to "no trigger profile").
+file. Empty/deviceless shot-control configs legitimately convert to "no
+trigger profile". Retired optimizer dialects are excluded while their separate
+corpus migration is pending; every deployed native optimizer is validated.
 
-``save_devices/`` folders may mix legacy save elements with new-schema
-``SaveSet`` files (top-level ``schema_version``); ``load_save_set`` branches
-between the two exactly as geecs_bluesky's ``ConfigsRepoResolver`` does, and
-``TestSaveSetLoadDispatch`` pins that dispatch hermetically (no corpus
-needed, runs in CI).
-
-Corpus layout (as found 2026-07-07)::
+Corpus layout (regenerated 2026-09-10, GEECS-Plugins#807 phase 1 PR 2)::
 
     scanner_configs/experiments/<Experiment>/
-      save_devices/                  # save elements
+      presets/                       # Preset documents (new schema only; no converter)
       scan_devices/                  # scan_variables.yaml (new schema only; no converter)
       shot_control_configurations/   # trigger configs (incl. laser-on/off pairs)
-      action_library/                # actions.yaml + assigned_actions.yaml
-      scan_presets/                  # legacy presets
+      action_library/                # actions.yaml (ActionPlanLibrary, new schema only; no converter)
       optimizer_configs/             # Xopt optimizer configs (Undulator only)
-      multiscan_presets/             # GUI queue presets (front-end state; no converter)
       aux_configs/                   # visa plunger lookup (app data; no converter)
 """
 
 import os
+import sys
 from pathlib import Path
 
 import pytest
 import yaml
 
-from geecs_schemas import SaveSet, ScanVariables
+from geecs_schemas import ActionPlanLibrary, Preset, ScanVariables
 from geecs_schemas.convert import (
-    SchemaConversionError,
-    convert_action_library,
-    convert_assigned_actions,
-    convert_optimizer_config,
-    convert_save_element,
-    convert_scan_preset,
     convert_shot_control,
 )
 
@@ -73,93 +61,19 @@ def experiments() -> list[Path]:
     return sorted((CONFIGS / "scanner_configs" / "experiments").iterdir())
 
 
-def load_save_set(path: Path):
-    """Load one ``save_devices/`` file, whichever schema it uses.
-
-    The corpus mixes legacy save elements with new-schema ``SaveSet`` files
-    (marked by a top-level ``schema_version``), mirroring how geecs_bluesky's
-    ``ConfigsRepoResolver`` branches between the two.  Empty files normalize
-    to ``{}`` (as ``load_legacy`` and the resolver's ``_load_yaml`` both do)
-    so they fail with the converter's typed error, not a bare ``TypeError``.
-
-    Returns ``(save_set, conversion)``: *conversion* is ``None`` for
-    new-schema files, and the full ``SaveElementConversion`` for legacy ones
-    (whose *save_set* is ``None`` for action-only elements).
-    """
-    document = yaml.safe_load(path.read_text()) or {}
-    if "schema_version" in document:
-        return SaveSet.model_validate(document), None
-    result = convert_save_element(document, name=path.stem)
-    return result.save_set, result
-
-
-class TestSaveSetLoadDispatch:
-    """Hermetic pin of the dual-schema dispatch (runs without the corpus)."""
-
-    def test_new_schema_file_validates_as_save_set(self, tmp_path):
-        path = tmp_path / "new.yaml"
-        path.write_text(
-            "schema_version: 1\n"
-            "name: new\n"
-            "entries:\n"
-            "- device: UC_Device\n"
-            "  images: true\n"
-        )
-        save_set, conversion = load_save_set(path)
-        assert conversion is None
-        assert [entry.device for entry in save_set.entries] == ["UC_Device"]
-
-    def test_legacy_file_goes_through_the_converter(self, tmp_path):
-        path = tmp_path / "legacy.yaml"
-        path.write_text(
-            "Devices:\n"
-            "  UC_Device:\n"
-            "    variable_list: []\n"
-            "    save_nonscalar_data: true\n"
-        )
-        save_set, conversion = load_save_set(path)
-        assert conversion is not None
-        assert [entry.device for entry in save_set.entries] == ["UC_Device"]
-        assert save_set.entries[0].db_scalars is False
-
-    def test_empty_file_fails_with_the_converter_error(self, tmp_path):
-        path = tmp_path / "empty.yaml"
-        path.write_text("")
-        with pytest.raises(SchemaConversionError, match="empty"):
-            load_save_set(path)
-
-
 @pytest.mark.integration
 @skip_without_corpus
 class TestFullCorpus:
-    def test_every_save_element_converts(self):
-        converted = 0
+    def test_every_preset_validates(self):
+        """Every deployed preset is a valid new-schema ``Preset`` (no converter)."""
+        validated = 0
         for experiment in experiments():
-            for path in sorted(experiment.glob("save_devices/*.yaml")):
-                save_set, conversion = load_save_set(path)
-                if conversion is None:
-                    # new-schema file living in the legacy folder: already
-                    # validated by load_save_set, nothing to convert
-                    assert save_set.entries, path
-                    continue
-                assert save_set is not None or conversion.actions, path
-                # converted legacy elements preserve exact legacy behavior:
-                # explicit db_scalars=False on EVERY entry (the DB-first
-                # True default is for new configs only), start/end override
-                # maps untouched
-                for entry in save_set.entries if save_set else []:
-                    assert entry.db_scalars is False, path
-                    assert entry.at_scan_start == {}, path
-                    assert entry.at_scan_end == {}, path
-                converted += 1
-        # The corpus is a live checkout: legacy files are rewritten in place
-        # to the new schema as they migrate, so the legacy count only shrinks.
-        # Pin only that the conversion path was exercised — the per-entry
-        # assertions above do the real checking.
-        assert converted > 0, (
-            "no legacy save_devices files converted — glob broken, or corpus "
-            "migration complete (retire this legacy pin)"
-        )
+            for path in sorted(experiment.glob("presets/*.yaml")):
+                document = yaml.safe_load(path.read_text())
+                preset = Preset.model_validate(document)
+                assert preset.name, path
+                validated += 1
+        assert validated > 0
 
     def test_every_scan_variable_catalog_validates(self):
         """Every deployed catalog is a valid new-schema ``ScanVariables``.
@@ -199,51 +113,70 @@ class TestFullCorpus:
                     converted += 1
         assert converted >= 8 and no_device >= 2
 
-    def test_every_action_library_converts(self):
+    def test_every_action_library_validates(self):
+        """Every deployed action library is a new-schema ``ActionPlanLibrary``.
+
+        There is no action-library converter any more (0.22.0): the corpus
+        was regenerated once, and the legacy ``assigned_actions.yaml``
+        (the old GUI's pinned-button list) went with it.
+        """
         libraries = {}
         for experiment in experiments():
             actions = experiment / "action_library" / "actions.yaml"
             if actions.exists():
-                libraries[experiment.name] = convert_action_library(actions)
+                document = yaml.safe_load(actions.read_text())
+                assert "actions" not in document, f"{experiment.name}: legacy dialect"
+                libraries[experiment.name] = ActionPlanLibrary.model_validate(document)
+            assert not (
+                experiment / "action_library" / "assigned_actions.yaml"
+            ).exists()
         assert set(libraries) >= {"Undulator", "Thomson"}
-        for experiment in experiments():
-            assigned = experiment / "action_library" / "assigned_actions.yaml"
-            if assigned.exists():
-                convert_assigned_actions(
-                    assigned, library=libraries.get(experiment.name)
-                )
+        assert libraries["Undulator"].plans
 
-    def test_every_scan_preset_converts_and_composes(self):
-        converted = 0
-        for experiment in experiments():
-            save_sets = {
-                path.stem: load_save_set(path)[0]
-                for path in experiment.glob("save_devices/*.yaml")
-            }
-            for path in sorted(experiment.glob("scan_presets/*.yaml")):
-                known = {
-                    name: save_sets[name]
-                    for name in (convert_scan_preset(path).element_names)
-                    if name in save_sets
-                }
-                conversion = convert_scan_preset(
-                    path,
-                    save_sets=known
-                    if set(known) >= set(convert_scan_preset(path).element_names)
-                    else None,
-                )
-                assert (
-                    conversion.scan_request.capture.save_sets
-                    == conversion.element_names
-                )
-                converted += 1
-        assert converted >= 12
+    def test_every_optimizer_config_validates(self):
+        from geecs_schemas import OptimizerConfig
 
-    def test_every_optimizer_config_converts(self):
-        converted = 0
+        validated = 0
         for experiment in experiments():
             for path in sorted(experiment.glob("optimizer_configs/*.yaml")):
-                conversion = convert_optimizer_config(path)
-                assert conversion.optimization.variables, path
-                converted += 1
-        assert converted >= 11
+                text = path.read_text()
+                if text.startswith("# LEGACY"):
+                    continue
+                document = yaml.safe_load(text)
+                if isinstance(document, dict) and (
+                    "evaluator" in document or "device_requirements" in document
+                ):
+                    continue  # Retired dialect: unavailable to the resolver/UI.
+                config = OptimizerConfig.model_validate(document)
+                assert config.vocs.variables, path
+                validated += 1
+        assert validated >= 6, (
+            f"optimizer corpus migration incomplete: {validated} native configs; "
+            "deploy all six keepers before rollout acceptance"
+        )
+
+
+@pytest.mark.parametrize("native_count", [0, 1, 5, 6])
+def test_optimizer_rollout_requires_all_keepers(tmp_path, monkeypatch, native_count):
+    """Exercise the real corpus walk against absent, partial and complete rollouts."""
+    from geecs_schemas import OptimizerConfig
+
+    folder = tmp_path / "scanner_configs/experiments/Test/optimizer_configs"
+    folder.mkdir(parents=True)
+    (folder / "old.yaml").write_text("evaluator: {}")
+    document = OptimizerConfig(
+        vocs={
+            "variables": {"Motor:Current": [-1, 1]},
+            "objectives": {"score": "MINIMIZE"},
+        },
+        measurements={"score": {"signal": "Meter:Value"}},
+        generator={"name": "random"},
+    ).model_dump(mode="json")
+    for index in range(native_count):
+        (folder / f"native{index}.yaml").write_text(yaml.safe_dump(document))
+    monkeypatch.setattr(sys.modules[__name__], "CONFIGS", tmp_path)
+    if native_count < 6:
+        with pytest.raises(AssertionError, match=f"incomplete: {native_count} native"):
+            TestFullCorpus().test_every_optimizer_config_validates()
+    else:
+        TestFullCorpus().test_every_optimizer_config_validates()

@@ -1,17 +1,18 @@
 # GEECS-Schemas
 
-Versioned Pydantic models for every GEECS scanner config — scan requests,
-save sets, scan variables, trigger profiles, and action plans — plus
-converters from the legacy YAML dialects still in use (save elements, shot
-control, action libraries, presets, optimizer configs). Scan-variable
-catalogs have no converter: they are authored new-schema only (the legacy
-pair was retired 2026-09, GEECS-Plugins#779).
+Versioned Pydantic models for every GEECS scanner config — presets (the
+saved scan: device group + plan call), scan requests, scan variables,
+trigger profiles, and action plans — plus converters from the legacy YAML
+dialects still in use (shot control).
+Scan-variable catalogs, presets and action libraries have no converter:
+they are authored new-schema only (the legacy scan-device pair was retired
+2026-09, GEECS-Plugins#779; the save elements and scan presets were
+regenerated as presets once, #807; the action libraries were regenerated
+as `ActionPlanLibrary` documents once, 0.22.0).
 
 **Configs are schemas; YAML is just serialization.** This package is the
-schema layer of the target architecture. It depends on **pydantic
-only**, so the engine, the GUI, scripts, and docs tooling can all import the
-same models without dragging in hardware or analysis stacks. Nothing imports
-it yet — it lands first, consumers migrate to it converter-first.
+schema layer of the target architecture. It depends on **Pydantic and gest-api**, so the engine, the GUI, scripts, and docs tooling can all import the
+same models without dragging in hardware or analysis stacks. The runtime VOCS model is GEST’s own model; Xopt and analysis stay worker-side.
 
 ## Design principles
 
@@ -22,8 +23,7 @@ it yet — it lands first, consumers migrate to it converter-first.
 - **Declare intent, derive mechanics.** Legacy configs encoded *how*
   (`synchronous` flags, force-appended `acq_timestamp`, per-state write
   matrices, `shots_per_step` derived from rep-rate×wait). The new models
-  declare *what*; the engine derives the rest. The derivation rules are
-  documented on the models they replace (see `save_set.py`).
+  declare *what*; the engine derives the rest.
 - **Device facts live below the configs.** Limits, units, tolerances, enum
   choices, and per-variable scan policy belong to the GEECS experiment
   database (MySQL; the scan policy is the `expt_device_variable` table —
@@ -69,7 +69,7 @@ independently:
   finer-grained story lives in the changelog. Do not introduce `1.1`-style
   markers.
 - **Each document kind versions on its own.** ScanRequest is at v3 and
-  TriggerProfile at v2 (each bumped by its own removed field); SaveSet and
+  TriggerProfile at v2 (each bumped by its own removed field); Preset and
   the rest stay at v1 until their own layout changes.  The staleness test
   is one helper, `stale_schema_version` in `_base.py`, shared by every
   kind's lifting validator.
@@ -78,12 +78,12 @@ independently:
 
 | Kind (registry key) | Model | Replaces |
 |---|---|---|
-| `scan_request` | `ScanRequest` | scan presets, `ScanConfig`, GUI submission state |
-| `save_set` | `SaveSet` | save elements (`save_devices/*.yaml`) — now tier 1 of the two-tier recording model: the *required* devices with guarantees; everything else is background telemetry (soft, read-only, never waited on) |
+| `preset` | `Preset` | save elements (`save_devices/*.yaml`) + scan presets (`scan_presets/*.yaml`): the device group (`device`, `save_images`) plus the stock plan call — a saved queue item (GEECS-Plugins#807, PR 2) |
+| `scan_request` | `ScanRequest` | `ScanConfig`, GUI submission state (the MCP's funnel contract until it is rewired onto presets; the web scanner submits presets) |
 | `scan_variables` | `ScanVariables` | `scan_devices.yaml` + `composite_variables.yaml` — retired 2026-09: catalogs are authored new-schema only, there is no converter |
 | `trigger_profile` | `TriggerProfile` | shot-control configs (one profile per operating condition); states are machine states holding *ordered, multi-device* write lists |
 | `action_plan` | `ActionPlan` | one entry of the action library |
-| `action_plan_library` | `ActionPlanLibrary` | `action_library/actions.yaml` |
+| `action_plan_library` | `ActionPlanLibrary` | `action_library/actions.yaml` — regenerated once from the legacy `actions:` dialect (0.22.0) and authored new-schema only since; there is no converter |
 | `experiment_defaults` | `ExperimentDefaults` | (new — legacy kept these choices in GUI state) per-experiment fallbacks where a scan request is silent; defaults run first, then the scan's own |
 | `analysis_diagnostic` | `AnalysisDiagnostic` | the unified analysis diagnostic (`scan_analysis_configs/analyzers/<ns>/<id>.yaml`) — format v2: `analyzer:` is a closed discriminated union on `kind` (one spec model per analyzer the suite ships), `image:` is the camera / line processing section, `scan:` the typed scan-runtime section. pre-v2 files are refused — the corpus was regenerated in v2 once (0.19.0) and is authored v2-only since; there is no converter |
 | `analysis_group` | `AnalysisGroup` | analysis groups (`scan_analysis_configs/groups/<ns>/<name>.yaml`) — unchanged shape plus the `schema_version` stamp |
@@ -94,28 +94,17 @@ models for generic tooling.
 Supporting models: `ScanAxis` (a step scan sweeps one axis or several — a
 multi-axis request is an outer-product grid, first axis outermost/slowest;
 schema-side only in M1), `PositionRange` / `PositionList`, `ActionBindings`
-(setup / **per_step** / closeout slots), `OptimizationSpec` (+
-`EvaluatorSpec`, `GeneratorSpec` — covers the legacy Xopt VOCS surface),
-`SaveSetEntry` / `SaveRole` (entries carry optional `setup` / `closeout`
-action-plan name references — the device's ritual travels with it through
-composition — plus the DB scan-default surfaces: `db_scalars`, on by default
-for new configs, making the DB's scan-logging telemetry the standard scalar
-source with `scalars` as additive extras — converted legacy elements carry
-an explicit `db_scalars: false` to preserve their exact old behavior; and
-the reserved `at_scan_start` / `at_scan_end` fields, which would override
-the DB's set-side start/end writes but are **not honored in this version**
-— the set-side is disabled (triggering and camera saving are handled by the
-trigger profile / shot controller and the scanner's save-windowing), and the
-fields are kept for a possible future re-enable),
-`ScanVariable` / `PseudoScanVariable`, `TriggerWrite` /
-`TriggerState`, `DefaultActions`, and the four action
-step types.
+(setup / **per_step** / closeout slots), `OptimizerConfig` (GEST VOCS, measurements and derived outputs),
+`PresetDevice` / `PlanCall` (the preset's device group — `device`,
+`save_images` — and its stock plan call), `ScanVariable` /
+`PseudoScanVariable`, `TriggerWrite` / `TriggerState`, `DefaultActions`, and
+the four action step types.
 
 The analysis documents live in the `geecs_schemas.analysis` subpackage:
 `processing_2d` (`CameraConfig` + its sections), `processing_1d`
 (`Line1DConfig`, the `Line*` sections, `Data1DLoading` — a field-for-field
-mirror of GEECS-Data-Utils' `Data1DConfig` so this package stays
-pydantic-only), `analyzers` (the `AnalyzerSpec` union and the
+mirror of GEECS-Data-Utils' `Data1DConfig` to keep data/analysis runtime
+dependencies outside this vocabulary package), `analyzers` (the `AnalyzerSpec` union and the
 `ANALYZER_SPECS` kind → model table), `renderer` (`RendererOptions`, one
 typed option set for both summary renderers), `scan_runtime`
 (`ScanRuntime`, `BackgroundSource`), `diagnostic` and `group`.  The class
@@ -136,33 +125,14 @@ what could not be mapped — nothing is dropped silently.
 
 ```python
 from geecs_schemas.convert import (
-    convert_save_element,
     convert_shot_control,
-    convert_action_library,
-    convert_scan_preset,
-    convert_optimizer_config,
 )
-
-# Save element → SaveSet (+ extracted setup/closeout ActionPlans + notes)
-result = convert_save_element("save_devices/UC_Aline1.yaml")
-result.save_set, result.actions, result.notes
 
 # Shot control → TriggerProfile (one profile per operating condition)
 profile = convert_shot_control("shot_control_configurations/HTU-Normal.yaml")
 profile.writes_for("SCAN")
 
-# Action library → ActionPlanLibrary (nested run-references validated)
-library = convert_action_library("action_library/actions.yaml")
-
-# Preset → ScanRequest (compose the referenced elements into one SaveSet)
-preset = convert_scan_preset(
-    "scan_presets/00_focuscan.yaml",
-    save_sets={"LP-FocusDiagnostics": some_save_set},
-)
-preset.scan_request, preset.composed_save_set
-
-# Optimizer config → OptimizationSpec (+ preserved device_requirements)
-opt = convert_optimizer_config("optimizer_configs/hexapod_alignment.yaml")
+# Optimizers are authored directly as OptimizerConfig v1; the legacy evaluator dialect is retired.
 ```
 
 ## Generated reference docs
@@ -183,3 +153,21 @@ The suite is hermetic (fixtures + golden files under `tests/`). The
 additional `integration`-marked test walks the sibling
 `GEECS-Plugins-Configs` checkout and converts **every** real config file; it
 auto-skips when that checkout is absent.
+
+
+## Native optimizer documents
+
+`OptimizerConfig` v1 embeds `gest_api.vocs.VOCS` directly. Authors may spell
+bounds as `[lo, hi]`; GEST serializes its typed form. The schema package pins
+GEST 0.1 to match the worker's validated Xopt release. JSON Schema metadata
+covers this field because GEST 0.1's custom mapping types lack schema hooks.
+`measurements` selects live signals or camera diagnostics, and `derived`
+contains arithmetic expressions (including `camera.image_total`) or an
+explicit `python: module:function` callable. Expressions use exact registered
+symbols; attribute access is never executed. Python callables are trusted
+worker code and receive the reduced measurement mapping.
+
+The six keeper examples are in `tests/fixtures/optimizer_configs/`.
+Legacy evaluator/device-requirements documents are refused with a migration
+reference. `ScanRequest` no longer accepts optimization; use an `optimize`
+preset with an `optimizer_config` ID. The MCP submission migration is #727.

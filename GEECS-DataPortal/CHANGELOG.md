@@ -3,6 +3,18 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.28.1] - 2026-09-15
+
+### Changed
+
+- Merge of `master` (c4a04bb5) into `feature/native-bluesky-plans`: the
+  portal code is master's 0.28.0 (the Plot tab's send-to-logbook button
+  and its write verb, #917) plus the branch's 0.27.2–0.27.3 content (the
+  shared-helper identity pin, the post-GEECS-Console doc wording). No
+  code conflict between the two — only this file, the version, and the
+  fleet map's portal row, which master rewrote while the branch added
+  the capture-daemon row above it (both kept).
+
 ## [0.28.0] - 2026-09-15
 
 ### Added
@@ -95,6 +107,29 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   rather than awaited before the write. Safari expires the gesture
   across an await and rejects the write that follows, so copy failed
   there even on a secure page. Chrome accepts either shape.
+## [0.27.3] - 2026-09-14
+
+### Added
+
+- `tests/test_shared_helpers.py` pins by identity that the portal's
+  `resolve_scan_folder` and `metadata_rows` are GEECS-Data-Utils' shared
+  implementations. The pin lived in the Qt console's suite until that
+  package was deleted (web scanner arc PR 6).
+
+### Changed
+
+- `CLAUDE.md` / `DEPLOYMENT.md` no longer describe the portal relative to
+  the deleted GEECS-Console.
+
+## [0.27.2] - 2026-09-13
+
+### Changed
+
+- Merge of `master` (b9677ca7) into `feature/native-bluesky-plans`: the
+  portal code is master's 0.27.1 (the logbook split, #877; the
+  `--root-path` doc correction, #878) plus the branch's file-plugin
+  attribute rename (#829); `poetry.lock` relocked against the merged path
+  dependencies (geecs-data-utils 0.32.0, geecs-schemas 0.24.0).
 
 ## [0.27.1] - 2026-09-13
 
@@ -125,6 +160,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   path (`/log`, the front door's route) same-origin with the portal's own
   prefix; empty shows no link. `GET /api/run/{uid}`'s `logbook` field is
   the same URL.
+
+## [0.26.1] - 2026-09-13
+
+### Changed
+
+- Merge of `master` (d6f74211) into `feature/native-bluesky-plans`: the
+  two lines below were released in parallel and are listed in version
+  order; a block marked *(master line, parallel release)* reuses a version
+  number the branch also used for a different release.
+- Portal code is master's 0.26.0; the branch's contribution is the
+  file-plugin attribute rename (#829) and a relock of `poetry.lock`
+  against the merged path dependencies.
 
 ## [0.26.0] - 2026-09-12
 
@@ -212,6 +259,35 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   the new `log` extra. Off by default, and skipped with a warning when no
   `--experiment` is given: the logbook reads one experiment's share and
   carries no facility default.
+
+## [0.21.5] - 2026-09-12
+
+### Changed
+
+- `poetry.lock` relocked against the feature head: it recorded
+  `geecs-data-utils` 0.26.1, `geecs-schemas` 0.19.0, `imageanalysis` 2.0.0
+  and `scananalysis` 1.19.0 while the checkout carries 0.30.0 / 0.21.0 /
+  2.2.0 / 1.21.0 (the path dependencies install from the checkout either
+  way; the lock now says what a host install gets).  No dependency added
+  or removed.
+
+## [0.21.4] - 2026-09-11
+
+### Changed
+
+- The stack cache resolves the stamp dataset through
+  `scan_stack.timestamps_dataset` (either the device-prefixed or the bare
+  name, GEECS-Plugins#829).
+
+## [0.21.3] - 2026-09-11
+
+### Changed
+
+- The in-memory stack cache reads the areaDetector NDFileHDF5 layout
+  through `geecs_data_utils.io.scan_stack`'s dataset constants and its
+  lock-free `open_stack` (the stacks are written on Windows and read over
+  SMB; Codex review of #823).
+
 
 ## [0.21.2] - 2026-09-08
 

@@ -503,3 +503,22 @@ def test_from_geecs_experiment_all_variables(monkeypatch) -> None:
     by_name = {d.name: d for d in cfg.devices}
     assert {v.geecs_var for v in by_name["U_A"].variables} == {"Current", "Voltage"}
     assert {v.geecs_var for v in by_name["U_B"].variables} == {"Voltage"}
+
+
+def test_variabletype_numeric_with_an_option_list_stays_float() -> None:
+    """PV_CONTRACT §4: variabletype wins over an option list (the served type
+    today; the 18 such Undulator rows are a DB fix — variabletype='choice')."""
+    meta = [
+        {
+            "name": "FilterWheel",
+            "units": "",
+            "min": None,
+            "max": None,
+            "settable": True,
+            "variabletype": "numeric",
+            "choices": "1,2,3,4,5,6",
+        }
+    ]
+    spec = DeviceSpec.from_db_metadata("D", "h", 1, meta)
+    (var,) = spec.variables
+    assert var.dtype == "float"

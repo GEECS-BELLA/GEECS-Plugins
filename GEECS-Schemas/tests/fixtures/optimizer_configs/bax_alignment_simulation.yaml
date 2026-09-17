@@ -1,0 +1,41 @@
+schema_version: 1
+vocs:
+  variables:
+    U_S1V:Current:
+    - -4
+    - 4
+    U_EMQTripletBipolar:Current_Limit.Ch1:
+    - 1.2
+    - 1.7
+  observables:
+  - x_com_sim
+measurements:
+  s1v:
+    signal: U_S1V:Current
+  emq:
+    signal: U_EMQTripletBipolar:Current_Limit.Ch1
+derived:
+  x_com_sim:
+    python: geecs_bluesky.optimization.simulations:aline_x_com
+generator:
+  name: multipoint_bax_alignment_l2
+  options:
+    control_names:
+    - U_S1V:Current
+    measurement_name: U_EMQTripletBipolar:Current_Limit.Ch1
+    observable_names:
+    - x_com_sim
+    probe_nominal: 1.5
+    probe_grid_absolute:
+    - -0.25
+    - 0.0
+    - 0.25
+    n_control_mesh: 21
+    mesh_measurement: true
+    n_measurement_mesh: 5
+    n_monte_carlo_samples: 32
+    use_low_noise_prior: false
+run:
+  on_finish: best
+  shots_per_step: 5
+  max_iterations: 30

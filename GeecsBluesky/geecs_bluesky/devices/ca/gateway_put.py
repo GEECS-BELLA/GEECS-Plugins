@@ -4,7 +4,7 @@ Owns the ca://-vs-bare addressing rule (:func:`bare_pv` — a schemed name
 hangs raw aioca; issue #490), the wire-value conventions, the timeout policy,
 the ``AsyncStatus`` wrapping, and mock support.  Every setpoint pathway
 delegates here: ``CaSettable``/``CaMotor``'s Layer-1 signal put,
-``ShotController``'s ``CaPutSetter``, and the action factory's wire settable.
+``ShotControl``'s :class:`CaPutSetter` (below), and the action factory's wire settable.
 
 Two transports, one policy owner:
 
@@ -14,17 +14,23 @@ Two transports, one policy owner:
   scheme is rejected.  The gateway forwards ``:SP`` puts to GEECS's blocking
   UDP set and only completes the CA put when GEECS accepts (or rejects) it —
   so put-completion *is* the legacy ``wait_for_execution`` semantics.
-- **ophyd signal** (``signal=…``) — delegates to ``signal.set(...)`` on a
-  typed ``epics_signal_rw`` built from the ``ca://`` URI form (ophyd parses
-  the scheme itself; see :mod:`geecs_bluesky.devices.ca._pv`).  Used by
-  ``CaSettable``/``CaMotor`` Layer 1, whose typed signal doubles as the
-  connect-time dtype check and the mock-backend seam
-  (``tests/ca_mock_helpers.follow_setpoint``).
+- **ophyd signal** (``signal=…``) — puts through the connected backend of
+  a typed ``epics_signal_rw`` built from the ``ca://`` URI form (ophyd
+  parses the scheme itself; see :mod:`geecs_bluesky.devices.ca._pv`).
+  Used by ``CaSettable``/``CaMotor`` Layer 1, whose typed signal doubles
+  as the connect-time dtype check and the mock-backend seam
+  (``tests/ca_mock_helpers.follow_setpoint``).  **Not** ``signal.set()``:
+  see :func:`_backend_put` — ophyd-async 0.19's ``SignalW.set`` runs the
+  put inside a stamina/tenacity retry context whose result travels
+  through a ``concurrent.futures.Future``, and the stdlib re-raises a
+  stored exception only ``if self._exception:`` — a refused
+  ``aioca.CANothing`` is *falsy*, so a refused put came back as success
+  (found while pinning GEECS-Plugins#868, 2026-09-14).
 
 Wire-value conventions (the ``coerce`` parameter — each consumer's pinned,
 hardware-proven convention; do not "unify" them without live verification):
 
-- ``str`` — everything stringified: the ShotController convention (enum
+- ``str`` — everything stringified: the shot-control convention (enum
   labels pass through; the gateway's typed channel coerces numeric strings).
 - :func:`wire_value` — native numerics, wire string otherwise: the
   action-plan convention (a *string* put-with-callback to a float gateway
@@ -34,10 +40,11 @@ hardware-proven convention; do not "unify" them without live verification):
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any, Callable
 
-from ophyd_async.core import AsyncStatus
+from ophyd_async.core import DEFAULT_TIMEOUT, AsyncStatus
 
 from geecs_bluesky.devices.ca._pv import CA_TRANSPORT_PREFIX
 
@@ -91,6 +98,41 @@ def wire_value(value: Any) -> Any:
     return value if isinstance(value, (int, float)) else str(value)
 
 
+async def _backend_put(signal: Any, value: Any, timeout: float | None) -> None:
+    """Put *value* through *signal*'s connected backend, bounded by *timeout*.
+
+    The signal's own ``set()`` (ophyd-async 0.19.3) wraps the backend put
+    in ``stamina.retry_context`` — tenacity underneath, which parks each
+    attempt's outcome in a ``concurrent.futures.Future`` and re-raises it
+    through the stdlib's ``if self._exception:``.  A failed
+    ``aioca.CANothing`` defines ``__bool__`` as ``ok`` — **falsy** — so the
+    stored refusal is never raised and ``set()`` returns as if the put
+    succeeded: a refused motor put then surfaced only as the readback
+    timeout, a refused plain setpoint not at all.  The backend's put is
+    the same coroutine ``set()`` awaits, with the same bounded wait (the
+    mock backend included, so the mock seam is unchanged) and ophyd's
+    default budget when *timeout* is ``None``.
+
+    Parameters
+    ----------
+    signal :
+        A connected typed ``:SP`` signal (``epics_signal_rw``).
+    value :
+        The wire value.
+    timeout :
+        Seconds; ``None`` means ophyd-async's ``DEFAULT_TIMEOUT``.
+    """
+    backend = signal._connector.backend
+    budget = DEFAULT_TIMEOUT if timeout is None else timeout
+    try:
+        await asyncio.wait_for(backend.put(value), budget)
+    except asyncio.TimeoutError as exc:
+        source = backend.source(signal.name, read=False)
+        raise TimeoutError(
+            f"{source}: put of {value!r} did not complete within {budget} s"
+        ) from exc
+
+
 class GatewaySetpointPut:
     """Movable putting one value to a gateway setpoint PV, GEECS-blocking.
 
@@ -102,14 +144,15 @@ class GatewaySetpointPut:
         / ``signal``.
     signal : SignalRW, optional
         Ophyd-signal transport: an already-built typed ``:SP`` signal; puts
-        delegate to ``signal.set()`` (mock-aware via ``connect(mock=True)``).
+        go through its connected backend (:func:`_backend_put` — mock-aware
+        via ``connect(mock=True)``).
     coerce : callable, optional
         ``value → wire value``, applied once per put; ``None`` passes the
         value through untouched.  See the module docstring for the pinned
         conventions.
     timeout : float, optional
         Default per-put budget in seconds.  ``None`` (signal transport only)
-        defers to the signal's own default.
+        means ophyd-async's ``DEFAULT_TIMEOUT`` (10 s).
     name : str
         Movable name (Bluesky logging / message repr).
     mock : bool
@@ -153,7 +196,7 @@ class GatewaySetpointPut:
             The value to write; ``coerce`` is applied first.
         timeout : float, optional
             Per-put override of the constructor's budget (e.g. a motor's
-            ``move_timeout`` — a slow axis is not a dead one).
+            ``reply_ceiling`` — minutes: a slow axis is not a dead one).
         """
         wire = self._coerce(value) if self._coerce is not None else value
         budget = self._timeout if timeout is None else timeout
@@ -161,10 +204,7 @@ class GatewaySetpointPut:
             self.last_mock_put = str(wire)
             return
         if self._signal is not None:
-            if budget is None:
-                await self._signal.set(wire)
-            else:
-                await self._signal.set(wire, timeout=budget)
+            await _backend_put(self._signal, wire, budget)
             return
         from aioca import caput  # deferred: needs the `ca` extra
 
@@ -173,3 +213,18 @@ class GatewaySetpointPut:
     def set(self, value: Any) -> AsyncStatus:
         """Movable: put *value*; the status completes with the GEECS set."""
         return AsyncStatus(self.put(value))
+
+
+class CaPutSetter(GatewaySetpointPut):
+    """One value to one gateway setpoint PV, as its wire string.
+
+    The gateway's ``:SP`` write forwards to the GEECS UDP set and completes
+    only when GEECS accepts (or rejects) it, so put-completion carries the
+    same semantics as the direct UDP ACK.  Values go as strings (labels for
+    enum PVs; numeric strings are coerced by the gateway's typed channel) —
+    the hardware-proven shot-control convention, 10 s default budget,
+    pinned byte-for-byte by ``tests/test_gateway_put.py``.
+    """
+
+    def __init__(self, setpoint_pv: str, timeout: float = 10.0) -> None:
+        super().__init__(setpoint_pv, coerce=str, timeout=timeout)

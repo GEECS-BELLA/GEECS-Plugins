@@ -3,13 +3,14 @@
 This directory contains the user-level launch mechanics for a local
 bluesky-queueserver RE Manager, plus the startup profile itself
 (`startup/startup.py`) that turns the launched manager into a runnable GEECS
-worker: it builds the `GeecsSession`, defines the module-level `RE` the
-manager keeps alive across queue items, subscribes the Tiled/s-file/scan-log
-callbacks, registers the optimization loader when the `optimize` extra is
-installed, and exposes `geecs_scan_request_plan` — the one plan every
-`ScanRequest` (step, noscan, optimize) runs through. See
-`startup/startup.py`'s module docstring for the import-order and
-experiment-resolution contracts.
+worker: it builds the module-level `RE` the manager keeps alive across
+queue items (Tiled + s-file callbacks subscribed), exports every device of
+the experiment as a noun (`GeecsNamespace`) and registers count, sweep, optimize and utilities over them (`geecs_bluesky.plan_names.GEECS_PLAN_NAMES`).
+See `startup/startup.py`'s module docstring for the import-order and
+experiment-resolution contracts, and
+`Planning/native_bluesky/03_clean_room_rebuild.md` for where the rebuild
+stands (phase 1: the plan layer rebinds these names with the strict
+`take_reading`).
 
 ## Launch
 
@@ -55,32 +56,20 @@ geecs-qserver-ensure-ready     # opens the environment if closed, waits for idle
 adds the plan-list assertion. Under systemd the `geecs-qserver-ready`
 oneshot runs it after every manager start — `deploy/DEPLOYMENT.md` § 2.)
 
-Once the environment is open, `geecs_scan_request_plan` (the document API)
-and the three named plans — `geecs_noscan_plan`, `geecs_scan_plan`,
-`geecs_optimize_plan` (per-mode parameters, same execution underneath; Phase
-2b-ii) — are registered and
-callable; submit a `ScanRequest` dict as its sole argument, for example
-(the v2 shape groups the capture fields under `capture`; the flat v1
-layout still validates):
+Once the environment is open, the public plans are registered over the
+namespace devices — a queue item names a plan and its devices by name:
 
 ```bash
-qserver queue add plan '{"name": "geecs_scan_request_plan", "args": [{"mode": "noscan", "capture": {"shots_per_step": 2, "acquisition": "free_run", "save_sets": ["UC_Test"]}}], "item_type": "plan"}'
+qserver queue add plan '{"name": "count", "args": [["U_S1H"], 3], "item_type": "plan"}'
+qserver queue add plan '{"name": "sweep", "args": [["U_S1H"]], "kwargs": {"sweep": {"trajectory": {"kind": "axes", "axes": [{"kind": "range", "axis": "U_S1H.current", "start": -1, "stop": 1, "num": 5}]}}}, "item_type": "plan"}'
+qserver queue add plan '{"name": "mv", "args": ["U_S1H.current", 0.0], "item_type": "plan"}'
+qserver queue add plan '{"name": "run_action", "args": ["Amp4_DUMP_HP"], "item_type": "plan"}'
 qserver queue start
 ```
 
-The named plans take the same vocabulary one mode at a time — the same
-noscan through `geecs_noscan_plan`, and a 1-D sweep through
-`geecs_scan_plan` (a grid is just more axes):
-
-```bash
-qserver queue add plan '{"name": "geecs_noscan_plan", "args": [{"shots_per_step": 2, "acquisition": "free_run", "save_sets": ["UC_Test"]}], "item_type": "plan"}'
-qserver queue add plan '{"name": "geecs_scan_plan", "args": [[{"variable": "jet_z", "positions": {"start": 0, "end": 1, "step": 0.5}}], {"shots_per_step": 2, "acquisition": "free_run", "save_sets": ["UC_Test"]}], "item_type": "plan"}'
-```
-
-Every named plan assembles the canonical `ScanRequest` and runs the funnel
-underneath, so the start document, ScanInfo, and data tree are identical to
-a funnel submission of the equivalent request; the manager history names
-the plan that was submitted.
+`run_action` runs a named plan from the experiment's action library
+(`action_library/actions.yaml`, read from disk on every item) as plain
+stubs over the same devices: no run is opened, nothing is claimed.
 
 The `qserver` CLI parses that argument as a **Python literal, not JSON**:
 `null` / `true` / `false` are rejected with an unhelpful "Error occurred
@@ -110,7 +99,7 @@ dispatcher.subscribe(lambda name, doc: ...)
 dispatcher.start()  # blocking — run it in a background thread
 ```
 
-The subscription contract for clients beyond the console — firewall,
+The subscription contract for clients beyond the web scanner — firewall,
 wire format, late joiners, transport posture, stability — is
 `deploy/DEPLOYMENT.md` § "External subscribers".
 
@@ -123,47 +112,20 @@ Opt out with `QS_DOC_PROXY=OFF` (launcher) plus `QS_DOC_PUBLISH_ADDR=OFF`
 (worker). The stream is best-effort: a worker without it still runs scans
 correctly — only live GUI progress is lost.
 
-## Manual verbs (console Actions menu / Movable panel)
+## Manual moves and action plans
 
-- **Run an action** — submit `geecs_run_action_plan` as an ordinary queue
-  item (decision 2: actions are queue items, with queue provenance and
-  idle-only ordering):
-
-  ```bash
-  qserver queue add plan '{"name": "geecs_run_action_plan", "args": ["close_shutters"], "item_type": "plan"}'
-  ```
-
-- **Move a scan variable** — call `geecs_move_variable(name, value)` via
-  the manager's `function_execute` API. Deliberately *not* a plan:
-  `GeecsSession.move_variable` moves outside the RunEngine. **Foreground**
-  function execution (`run_in_background=False`, the client default)
-  requires a fully idle manager (not running, not paused) — the
-  queueserver enforcement of the old "scan in progress — move not
-  started" refusal. Background execution bypasses that gate, so the GEECS
-  plans guard the other direction themselves: both queue plans refuse to
-  start while the session's manual-move lock is held ("manual move in
-  progress — scan/action not started"). A target the gateway does not
-  serve (a misspelled variable, a pseudo component naming a variable the
-  device does not have) is refused **before** any device is built —
-  "`Device:Variable` is not served by the gateway … — move not started"
-  — the same served-set check the scan path runs over save sets (#772);
-  before that check the symptom was a 20 s `NotConnectedError` naming a
-  PV. Served set unknown (DB unreachable) → the move proceeds with a
-  warning in the worker log. Which callers reach it: the console's
-  movable panel only for **catalog** names (a raw `Device:Variable`
-  string typed there takes the panel's direct gateway put, never this
-  verb); MCP and notebook clients calling `move_variable` for any name.
-
-- **Preview an action** — `geecs_describe_action(name)` via
-  `function_execute`: pure config resolution against *this worker's*
-  configs checkout (authoritative even when a client's checkout drifted).
-  Foreground-idle-only like the move verb — clients wanting a mid-scan
-  preview must resolve client-side instead.
+A manual move is a queue item of the stock `mv` plan (above): idle-only
+ordering and queue provenance for free; an action plan is a `run_action`
+item.  The `function_execute` verbs of the retired funnel
+(`geecs_move_variable`, `geecs_describe_action`, `geecs_run_action_plan`)
+are gone with it (#807 phase 1); a step preview is client-side
+(`plans.action_compiler.flatten_action_steps`); the web scanner's actions
+panel queues `run_action` items over it.
 
 ## Troubleshooting
 
-- **Every submission fails with `Plan 'geecs_scan_request_plan' is not in
-  the list of allowed plans`** (any plan name, and `qserver status`
+- **Every submission fails with `Plan 'count' is not in the list of
+  allowed plans`** (any plan name, and `qserver status`
   otherwise looks healthy) — the worker environment is **closed**, so the
   manager's plan list is empty and every name fails validation
   identically; the message points at the plan, the cause is the
@@ -172,12 +134,35 @@ correctly — only live GUI progress is lost.
   manager this way — bluesky-queueserver never opens the environment on
   its own. Fix: `systemctl restart geecs-qserver-ready` (or
   `geecs-qserver-ensure-ready` / `qserver environment open` by hand); the
-  console's `worker_ready` preflight names this state instead of relaying
+  scanner's `worker_ready` preflight names this state instead of relaying
   the manager string (GEECS-Plugins#793). The same state without any unit
   failing: the RE worker *child* died while the manager survived — no
   systemd event fires, `geecs-qserver-ready` stays `active (exited)` from
-  its last successful run, and only the console/MCP preflight refusal
+  its last successful run, and only the scanner/MCP preflight refusal
   names the gesture (`systemctl restart geecs-qserver-ready`).
+- **Allowed plans empty while the manager is idle with its environment
+  open** (`worker_environment_exists: True`, `re_state: idle`,
+  `plans_allowed: {}` for every user group, every submission refused
+  "not in the list of allowed plans", `geecs-qserver-ready` still
+  `active (exited)`) — the manager's own **download of the plan list
+  from the worker timed out** (journal: `Failed to download the list of
+  existing plans and devices from the worker process: Timeout`), seen
+  while the host thrashed in swap (GEECS-Plugins#838). It is not a closed
+  environment and needs no restart: `systemctl restart
+  geecs-qserver-ready` — `geecs-qserver-ensure-ready` asks the manager to
+  restore the lists from the worker's on-disk copy when the list is empty
+  or incomplete with the environment up (`permissions_reload` with
+  `restore_plans_devices=True`; by hand: `qserver permissions reload
+  lists`). That copy (`existing_plans_and_devices.yaml` in the startup
+  dir) is written by the *worker* from its namespace at every environment
+  open (`--update-existing-plans-devices` default `ENVIRONMENT_OPEN`), so
+  it is the running environment's list, not a stale one. `qserver
+  environment update` is NOT the fix: the worker re-downloads only when
+  its regenerated descriptions differ from its stored copy, so on an
+  unchanged namespace it is a no-op (and it needs an idle manager). The
+  file is stale only after a deploy that changed the plan set without
+  re-opening the environment — and then the worker process is equally
+  stale, so `systemctl restart geecs-qserver` is the gesture.
 - **`queue add` returns `success: False` with no reason at the CLI** — the
   manager was launched without a permissions file, or the file lacks the
   group the client submits as (the `qserver` CLI uses `primary` by
@@ -190,26 +175,24 @@ correctly — only live GUI progress is lost.
   state`** — function execution requires a fully idle manager; it is not
   available while a plan is running *or paused*. Nothing in the GEECS
   design may rely on it mid-run.
-- **Optimize-mode requests refused with "without an optimization loader
-  registered" even though the `optimize` extra is installed** — the
-  manager process predates the install. The worker inherits the manager's
-  import state, so `environment close`/`open` is *not* enough: restart
-  the manager process itself after any `poetry install` change
-  (empirical, 2026-08-21 live checkpoint).
 - **`queue start` re-runs an old failed item, or the queue keeps
   growing** — on plan failure the manager returns the failed item to the
   *front* of the queue (default `ignore_failures: false`). Clear the
   queue (or remove the item) before resubmitting a corrected request;
   clients that blindly add-and-start will re-execute the failed item
   first.
+- **A gated (or strict) scan's first arm fails with `no frame within 8 s`
+  right after a camera server restart** — the PVA gateway's file plugin
+  arms its session on the *first frame* after `Capture=1`, and a freshly
+  restarted DG645 comes up in its external-edges default: with the laser
+  off no edge reaches the camera, so no frame ever arms the plugin (2b
+  acceptance, 2026-09-12). Fire a few shots by hand (the box in internal
+  mode, then back) before the first scan of the day; the plugin's stale
+  `NumCaptured_RBV` from the previous session is zeroed by the scan itself
+  (GEECS-Plugins#853 is the plugin-side fix). The same symptom on a
+  camera whose LabVIEW device was started *after* its gateway is the
+  gateway's subscription gap (GEECS-Plugins#854).
 - **`qserver history get` shows a literal `'...'` entry** — the CLI
   truncates long histories for display; the newest items may not be
   shown. Read history through the API (`bluesky-queueserver-api`) for
   anything programmatic.
-
-## Not yet exercised live
-
-Deliberately untested as of the 2026-08-21 live checkpoint — treat the
-first real use as a verification event: hard/immediate pause (the operator
-surface is the deferred verb), pause during an optimize-mode scan, a live
-`failed_move_policy` trigger, and `move_to_best_on_finish`.

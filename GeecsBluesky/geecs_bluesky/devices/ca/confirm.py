@@ -27,7 +27,7 @@ from ophyd_async.core import AsyncStatus
 from ophyd_async.epics.core import epics_signal_r
 
 from geecs_bluesky.devices.ca._pv import ca_pv
-from geecs_bluesky.devices.ca.motor import ULP_SLACK
+from geecs_bluesky.devices.ca.motor import within_tolerance
 from geecs_bluesky.devices.ca.settable import CaSettable
 from geecs_bluesky.exceptions import GeecsConfirmTimeoutError
 
@@ -139,9 +139,9 @@ class CaConfirmSettable(CaSettable):
             self._confirm_variable,
             self._tolerance,
         )
-        return AsyncStatus(self._set_and_confirm(value))
+        return AsyncStatus(self._set_logged(value))
 
-    async def _set_and_confirm(self, value: float) -> None:
+    async def _set_and_wait(self, value: float) -> None:
         """Put the setpoint (Layer 1), then poll the confirming variable."""
         loop = asyncio.get_running_loop()
 
@@ -179,9 +179,6 @@ class CaConfirmSettable(CaSettable):
         if self._settle_time > 0:
             await asyncio.sleep(self._settle_time)
 
-    async def disconnect(self) -> None:
-        """Per-scan teardown hook — no persistent subscription to release."""
-
 
 def _matches(
     current: ConfirmValue, target: ConfirmValue, tolerance: float, datatype: type
@@ -198,5 +195,4 @@ def _matches(
     # exactly-on-tolerance match otherwise loses to representation error
     # (|1.20 - 1.15| == 0.050000000000000044 > 0.05). This path takes
     # precedence over kind: motor for topology-C axes, so it needs the fix too.
-    slack = ULP_SLACK * max(abs(float(current)), abs(float(target)))
-    return abs(float(current) - float(target)) <= tolerance + slack
+    return within_tolerance(float(current), float(target), tolerance)

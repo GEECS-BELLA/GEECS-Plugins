@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from geecs_data_utils import tiled_schema
 
 COLUMNS = [
@@ -239,3 +241,180 @@ class TestTimestampColumns:
         assert timestamp_epoch("cam-acq_timestamp") == "labview"
         assert timestamp_epoch("UC_Amp4_IR_input acq_timestamp") == "labview"
         assert timestamp_epoch("cam-MaxCounts") is None
+
+
+class TestSteppedDevicesFromEitherBackend:
+    """The stepped-device key differs between the two GEECS scan backends.
+
+    Stock ``bluesky.plans`` verbs — which the native-Bluesky scanner registers
+    — write ``motors`` (plural, a list). The retired GEECS funnel wrote
+    ``motor`` (singular). These readers looked only for the singular key, so
+    every 1D scan taken on the native path classified as ``NOSCAN``,
+    contributed no scan-variable column, and reported ``is_stepped_scan() is
+    False`` — while its own ``ScanInfo`` ini correctly said
+    ``ScanMode = "standard"``. Found in the data portal on 26_0912's Scan018.
+    """
+
+    # Exactly what Scan018 (a native rel_scan over one axis) carries.
+    NATIVE_1D = {
+        "plan_name": "rel_scan",
+        "motors": ["u_compaerotech-position_axis1"],
+        "num_points": 5,
+        "shots_per_step": 2,
+        "acquisition": "gated",
+    }
+    FUNNEL_1D = {
+        "plan_name": "geecs_step_scan",
+        "motor": "u_compaerotech-position_axis1",
+    }
+    NATIVE_GRID = {
+        "plan_name": "grid_scan",
+        "motors": ["u_s1h-current", "u_s1v-current"],
+    }
+    NATIVE_COUNT = {"plan_name": "count", "num_points": 5}
+
+    def test_a_native_1d_scan_is_not_a_noscan(self):
+        assert tiled_schema.scan_mode(self.NATIVE_1D) == "1D"
+
+    def test_a_funnel_1d_scan_still_works(self):
+        assert tiled_schema.scan_mode(self.FUNNEL_1D) == "1D"
+
+    def test_a_native_grid_is_a_grid(self):
+        assert tiled_schema.scan_mode(self.NATIVE_GRID) == "GRID"
+
+    def test_a_motorless_run_is_still_a_noscan(self):
+        assert tiled_schema.scan_mode(self.NATIVE_COUNT) == "NOSCAN"
+
+    def test_is_stepped_scan_sees_a_native_scan(self):
+        assert tiled_schema.is_stepped_scan(self.NATIVE_1D) is True
+        assert tiled_schema.is_stepped_scan(self.FUNNEL_1D) is True
+        assert tiled_schema.is_stepped_scan(self.NATIVE_COUNT) is False
+
+    def test_the_scanned_axis_column_is_found_for_a_native_scan(self):
+        """Not just the chip: the portal could not identify the X axis either."""
+        columns = [
+            "u_compaerotech-position_axis1",
+            "uc_amp4_ir_input-meancounts",
+            "shot_index",
+        ]
+        assert tiled_schema.scan_variable_columns(columns, self.NATIVE_1D) == [
+            "u_compaerotech-position_axis1"
+        ]
+        assert tiled_schema.scan_variable_columns(columns, self.NATIVE_COUNT) == []
+
+    def test_scan_motors_normalises_both_shapes(self):
+        assert tiled_schema.scan_motors(self.NATIVE_1D) == [
+            "u_compaerotech-position_axis1"
+        ]
+        assert tiled_schema.scan_motors(self.FUNNEL_1D) == [
+            "u_compaerotech-position_axis1"
+        ]
+        assert tiled_schema.scan_motors({}) == []
+        assert tiled_schema.scan_motors({"motors": []}) == []
+
+
+class TestStockPlanPatternDecidesGrid:
+    """A list of motors is not a grid on the native path.
+
+    Stock ``scan`` / ``rel_scan`` / ``list_scan`` move N motors along ONE
+    correlated trajectory (``plan_pattern`` ``inner_product`` /
+    ``inner_list_product``) and are 1D however many motors they name; only
+    ``grid_scan``'s ``outer_product`` is a grid. The funnel had no
+    ``plan_pattern`` and only ever wrote a list for a grid, so its documents
+    keep the old reading — which is why the discriminator has to be the
+    pattern, not the motor count.
+    """
+
+    def test_a_two_motor_inner_product_scan_is_1d_not_a_grid(self):
+        assert (
+            tiled_schema.scan_mode(
+                {
+                    "plan_name": "scan",
+                    "motors": ["u_s1h-current", "u_s2h-current"],
+                    "plan_pattern": "inner_product",
+                }
+            )
+            == "1D"
+        )
+
+    def test_a_two_motor_list_scan_is_1d(self):
+        assert (
+            tiled_schema.scan_mode(
+                {
+                    "plan_name": "list_scan",
+                    "motors": ["u_s1h-current", "u_s2h-current"],
+                    "plan_pattern": "inner_list_product",
+                }
+            )
+            == "1D"
+        )
+
+    def test_an_outer_product_grid_scan_is_a_grid(self):
+        assert (
+            tiled_schema.scan_mode(
+                {
+                    "plan_name": "grid_scan",
+                    "motors": ("u_s1h-current", "u_s2h-current"),
+                    "plan_pattern": "outer_product",
+                }
+            )
+            == "GRID"
+        )
+
+    def test_a_funnel_motor_list_is_still_a_grid(self):
+        """No plan_pattern: the funnel only ever wrote a list for a grid."""
+        assert (
+            tiled_schema.scan_mode(
+                {
+                    "plan_name": "geecs_step_scan",
+                    "motor": ["u_s1h-current", "u_s2h-current"],
+                }
+            )
+            == "GRID"
+        )
+
+
+class TestScanMotorsShapes:
+    """Every shape either backend can actually put in a start document."""
+
+    def test_a_tuple_is_accepted(self):
+        """grid_scan's in-memory shape is a tuple; only JSON makes it a list."""
+        assert tiled_schema.scan_motors({"motors": ("a", "b")}) == ["a", "b"]
+
+    def test_an_empty_plural_does_not_shadow_a_populated_singular(self):
+        """A merged or patched start doc can carry both; the real one wins."""
+        assert tiled_schema.scan_motors({"motors": [], "motor": "m1"}) == ["m1"]
+        assert tiled_schema.scan_motors({"motors": None, "motor": "m1"}) == ["m1"]
+
+    def test_a_populated_plural_wins_over_a_singular(self):
+        assert tiled_schema.scan_motors({"motors": ["a"], "motor": "b"}) == ["a"]
+
+    def test_a_non_iterable_does_not_raise(self):
+        """The old code raised on this; the helper is the tolerant reader."""
+        assert tiled_schema.scan_motors({"motor": 3}) == ["3"]
+
+
+@pytest.mark.parametrize(
+    "trajectory, expected",
+    [
+        ({"kind": "axes", "combine": "zip"}, "1D"),
+        (
+            {
+                "kind": "axes",
+                "combine": "product",
+                "axes": [{"axis": "a"}, {"axis": "b"}],
+            },
+            "GRID",
+        ),
+        ({"kind": "axes", "combine": "product", "axes": [{"axis": "a"}]}, "1D"),
+        ({"kind": "spiral"}, "1D"),
+        ({"kind": "x2x"}, "1D"),
+    ],
+)
+def test_sweep_classification_uses_combination_not_motor_count(trajectory, expected):
+    start = {
+        "plan_name": "sweep",
+        "motors": ["a", "b", "c", "d", "e"],
+        "sweep": {"trajectory": trajectory},
+    }
+    assert tiled_schema.scan_mode(start) == expected

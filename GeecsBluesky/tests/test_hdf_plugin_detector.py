@@ -1,0 +1,484 @@
+"""GeecsDetector on the PVA gateway's file plugin (#806) — the worker side on mocks.
+
+The plugin itself is exercised for real in GeecsPvaGateway's
+``tests/test_file_plugin.py`` (stock ``ADHDFDataLogic`` over ``pva://``);
+here the plugin's PVs are mock signals and the contracts pinned are the
+detector's: the stock lifecycle produces stream documents, the count wait
+precedes the stamp wait and its timeout is the GEECS one, a missed shot
+reads empty, ``discard_uncollected`` rewinds to the last referenced frame,
+and the path provider hands the plugin and Tiled their two paths.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import math
+from pathlib import Path, PureWindowsPath
+
+import pytest
+
+pytest.importorskip("aioca")
+pytest.importorskip("p4p")
+
+from bluesky import RunEngine  # noqa: E402
+from ophyd_async.core import (  # noqa: E402
+    DetectorTrigger,
+    StaticFilenameProvider,
+    StaticPathProvider,
+    TriggerInfo,
+    callback_on_mock_put,
+    set_mock_value,
+)
+
+from geecs_bluesky.devices.detector import (  # noqa: E402
+    DEFAULT_SHOT_TIMEOUT,
+    STRICT_TRIGGER_INFO,
+    GeecsDetector,
+    mask_missed_shot,
+)
+from geecs_bluesky.devices.hdf_plugin import (  # noqa: E402
+    GeecsHdfIO,
+    PluginPathProvider,
+    file_plugin_hosts,
+)
+from geecs_bluesky.exceptions import GeecsTriggerTimeoutError  # noqa: E402
+from geecs_bluesky.plans.claim_scan import GeecsScanPathProvider  # noqa: E402
+from tests.ca_mock_helpers import connect_mock  # noqa: E402
+
+
+def _run(RE: RunEngine, make_awaitable):
+    async def call():
+        return await make_awaitable()
+
+    return asyncio.run_coroutine_threadsafe(call(), RE._loop).result(timeout=10.0)
+
+
+@pytest.fixture
+def RE() -> RunEngine:
+    return RunEngine()
+
+
+def _camera(RE: RunEngine, tmp_path: Path, **kwargs) -> GeecsDetector:
+    provider = StaticPathProvider(
+        StaticFilenameProvider("UC_TestCam"), tmp_path / "Scan001" / "UC_TestCam"
+    )
+    cam = GeecsDetector(
+        "UC_TestCam",
+        ["MeanCounts"],
+        experiment="TestExp",
+        name="uc_testcam",
+        hdf_plugins=[("image", provider)],
+        **kwargs,
+    )
+    connect_mock(RE, cam)
+    set_mock_value(cam.acq_timestamp, 1000.0)
+    set_mock_value(cam.hdf.file_path_exists, True)
+    set_mock_value(cam.hdf.data_type, "UInt16")
+    set_mock_value(cam.hdf.color_mode, "Mono")
+    set_mock_value(cam.hdf.array_size_x, 6)
+    set_mock_value(cam.hdf.array_size_y, 4)
+    return cam
+
+
+def test_plugin_child_and_pv_prefix(RE: RunEngine, tmp_path: Path) -> None:
+    """One GeecsHdfIO per image variable, under the naming contract's prefix."""
+    cam = _camera(RE, tmp_path)
+    assert cam.plugin_backed
+    assert isinstance(cam.hdf, GeecsHdfIO)
+    assert cam.hdf.capture.source.startswith(
+        "mock+pva://testexp:uc_testcam:image:hdf1:"
+    )
+    assert cam.hdf.rewind.source.endswith(":hdf1:Rewind")
+    assert not GeecsDetector("UC_Other", [], name="o").plugin_backed
+
+
+def test_stock_lifecycle_emits_stream_documents(RE: RunEngine, tmp_path: Path) -> None:
+    """stage → prepare → trigger → collect: capture on, one datum per shot, capture off."""
+    cam = _camera(RE, tmp_path)
+    set_mock_value(cam.meancounts, 5.0)
+    _run(RE, lambda: cam.stage())
+    _run(RE, lambda: cam.prepare(STRICT_TRIGGER_INFO))
+    assert _run(RE, lambda: cam.hdf.capture.get_value()) is True
+    assert _run(RE, lambda: cam.hdf.num_capture.get_value()) == 0  # unbounded
+    assert _run(RE, lambda: cam.hdf.file_path.get_value()).endswith("UC_TestCam/")
+    assert _run(RE, lambda: cam.hdf.file_name.get_value()) == "UC_TestCam"
+    described = _run(RE, lambda: cam.describe())
+    assert described["uc_testcam"]["external"] == "STREAM:"
+    assert described["uc_testcam"]["shape"] == [1, 4, 6]
+    assert "uc_testcam-meancounts" in described
+
+    async def shot():
+        status = cam.trigger()
+        await asyncio.sleep(0.05)
+        assert not status.done
+        set_mock_value(cam.hdf.num_captured, 1)  # the plugin wrote the frame
+        await asyncio.sleep(0.05)
+        assert not status.done  # the stamp wait comes second
+        set_mock_value(cam.acq_timestamp, 1001.0)
+        await status
+        docs = [doc async for doc in cam.collect_asset_docs()]
+        return await cam.read(), docs
+
+    reading, docs = _run(RE, lambda: shot())
+    assert reading["uc_testcam-acq_timestamp"]["value"] == 1001.0
+    assert reading["uc_testcam-meancounts"]["value"] == 5.0
+    names = [name for name, _ in docs]
+    assert names.count("stream_resource") == 1 and names.count("stream_datum") == 1
+    resource = docs[0][1]
+    assert resource["mimetype"] == "application/x-hdf5"
+    assert resource["parameters"]["dataset"] == "/entry/data/data"
+    assert resource["uri"].endswith("Scan001/UC_TestCam/UC_TestCam.h5")
+    assert docs[1][1]["indices"] == {"start": 0, "stop": 1}
+    _run(RE, lambda: cam.unstage())
+    assert _run(RE, lambda: cam.hdf.capture.get_value()) is False
+
+
+def test_count_timeout_is_the_geecs_timeout_and_the_row_reads_empty(
+    RE: RunEngine, tmp_path: Path
+) -> None:
+    """No frame counted within exposure_timeout → GeecsTriggerTimeoutError, missed, NaN."""
+    cam = _camera(RE, tmp_path)
+    set_mock_value(cam.meancounts, 5.0)
+    assert STRICT_TRIGGER_INFO.exposure_timeout == DEFAULT_SHOT_TIMEOUT
+    quick = TriggerInfo(
+        trigger=DetectorTrigger.EXTERNAL_EDGE, number_of_events=1, exposure_timeout=0.2
+    )
+    _run(RE, lambda: cam.stage())
+    _run(RE, lambda: cam.prepare(quick))
+
+    async def missed():
+        with pytest.raises(GeecsTriggerTimeoutError, match="UC_TestCam.*file plugin"):
+            await cam.trigger()
+        assert cam.missed_shot
+        reading = await cam.read()
+        # The next baseline clears the flag; the retake reads live values.
+        status = cam.trigger()
+        assert not cam.missed_shot
+        await asyncio.sleep(0.05)  # the trigger re-baselines the count first
+        set_mock_value(cam.hdf.num_captured, 1)
+        set_mock_value(cam.acq_timestamp, 1002.0)
+        await status
+        return reading, await cam.read()
+
+    empty, live = _run(RE, lambda: missed())
+    assert math.isnan(empty["uc_testcam-meancounts"]["value"])
+    assert math.isnan(empty["uc_testcam-acq_timestamp"]["value"])
+    assert live["uc_testcam-meancounts"]["value"] == 5.0
+    assert live["uc_testcam-acq_timestamp"]["value"] == 1002.0
+    _run(RE, lambda: cam.unstage())
+
+
+def test_scalars_view_reads_empty_after_a_missed_shot(
+    RE: RunEngine, tmp_path: Path
+) -> None:
+    """``X.scalars`` shares the owner's flag: the same shot, the same empty row."""
+    cam = _camera(RE, tmp_path, shot_timeout=0.2)
+    set_mock_value(cam.meancounts, 5.0)
+
+    async def missed():
+        with pytest.raises(GeecsTriggerTimeoutError):
+            await cam.scalars.trigger()
+        assert cam.scalars.missed_shot
+        return await cam.scalars.read()
+
+    reading = _run(RE, lambda: missed())
+    assert math.isnan(reading["uc_testcam-meancounts"]["value"])
+
+
+def test_discard_uncollected_rewinds_to_the_last_referenced_frame(
+    RE: RunEngine, tmp_path: Path
+) -> None:
+    """A late frame past the last datum is rewound; a delivered device is untouched."""
+    cam = _camera(RE, tmp_path)
+    rewinds: list[int] = []
+
+    def plugin_rewinds(value, **_) -> None:
+        rewinds.append(value)
+        set_mock_value(cam.hdf.num_captured, value)
+
+    callback_on_mock_put(cam.hdf.rewind, plugin_rewinds)
+    _run(RE, lambda: cam.stage())
+    _run(RE, lambda: cam.prepare(STRICT_TRIGGER_INFO))
+
+    async def scenario():
+        status = cam.trigger()
+        await asyncio.sleep(0.05)  # the trigger re-baselines the count first
+        set_mock_value(cam.hdf.num_captured, 1)
+        set_mock_value(cam.acq_timestamp, 1001.0)
+        await status
+        _ = [doc async for doc in cam.collect_asset_docs()]  # frame 0 referenced
+        set_mock_value(cam.hdf.num_captured, 2)  # a late frame nobody referenced
+        await cam.discard_uncollected()
+        return await cam.hdf.num_captured.get_value()
+
+    assert _run(RE, lambda: scenario()) == 1
+    assert rewinds == [1]
+    # Outside prepare, and without a plugin, it is a no-op.
+    _run(RE, lambda: cam.unstage())
+    plain = GeecsDetector("UC_Plain", [], name="plain")
+    connect_mock(RE, plain)
+    _run(RE, lambda: plain.discard_uncollected())
+
+
+def test_mask_missed_shot_blanks_by_type() -> None:
+    """Every kind of stale value is blanked: floats, ints, bools, numpy scalars, arrays."""
+    import numpy as np
+
+    def reading(value):
+        return {"value": value, "timestamp": 1.0, "alarm_severity": 0}
+
+    masked = mask_missed_shot(
+        {
+            "a": reading(3.5),
+            "b": reading(7),
+            "c": reading("on"),
+            "d": reading(True),
+            "e": reading(np.int64(4)),
+            "f": reading(np.arange(3.0)),
+        }
+    )
+    for key in ("a", "b", "d", "e"):
+        assert math.isnan(masked[key]["value"]), key
+    assert masked["c"]["value"] == ""
+    assert masked["f"]["value"].shape == (3,) and np.isnan(masked["f"]["value"]).all()
+
+
+def test_prepare_failure_carries_the_plugins_reason(
+    RE: RunEngine, tmp_path: Path
+) -> None:
+    """The plugin's WriteMessage rides the prepare exception as a note."""
+    cam = _camera(RE, tmp_path)
+    set_mock_value(cam.hdf.file_path_exists, False)  # the stock logic refuses
+    set_mock_value(
+        cam.hdf.write_message, "FilePath does not exist (the plugin never creates it)"
+    )
+    _run(RE, lambda: cam.stage())
+    with pytest.raises(FileNotFoundError) as info:
+        _run(RE, lambda: cam.prepare(STRICT_TRIGGER_INFO))
+    assert any(
+        "never creates it" in note for note in getattr(info.value, "__notes__", [])
+    )
+
+
+def test_plugin_path_provider_hands_out_both_paths(tmp_path: Path) -> None:
+    """Windows path for the plugin's FilePath, the worker's file URI for Tiled.
+
+    The device directory is created inside the claimed scan folder (the
+    plugin refuses a missing FilePath and a fly prepare has no native-saving
+    logic to make it); a missing scan folder is an error, never a mkdir.
+    """
+    shared = GeecsScanPathProvider()
+    shared.point_at(tmp_path / "Scan007")
+    provider = PluginPathProvider(
+        shared,
+        "UC_TestCam",
+        plugin_path=lambda local: local.replace(str(tmp_path), r"\\nas\hdna2\data"),
+    )
+    with pytest.raises(FileNotFoundError, match="claimed by the scanner"):
+        provider("uc_testcam")
+    assert not (tmp_path / "Scan007").exists()  # the invariant: no scan folder created
+    (tmp_path / "Scan007").mkdir()
+    info = provider("uc_testcam")  # the ophyd datakey is ignored
+    assert (tmp_path / "Scan007" / "UC_TestCam").is_dir()
+    provider("uc_testcam")  # idempotent
+    assert isinstance(info.directory_path, PureWindowsPath)
+    assert str(info.directory_path) == r"\\nas\hdna2\data\Scan007\UC_TestCam"
+    assert info.filename == "UC_TestCam"
+    assert info.directory_uri.startswith("file://localhost/")
+    assert info.directory_uri.endswith("/Scan007/UC_TestCam/")
+
+
+def test_file_plugin_hosts_reads_the_config_keys(tmp_path: Path) -> None:
+    ini = tmp_path / "config.ini"
+    # The PVA fleet's addr_list is NOT the plugin list (a box in it may not
+    # be re-bootstrapped): absent key → no host.
+    ini.write_text("[pva]\naddr_list = 192.168.6.100 192.168.6.101\n")
+    assert file_plugin_hosts(ini) is None
+    ini.write_text(
+        "[pva]\naddr_list = 192.168.6.100 192.168.6.101\n"
+        "file_plugin_addr_list = 192.168.6.101\n"
+    )
+    assert file_plugin_hosts(ini) == {"192.168.6.101"}
+    ini.write_text("[Paths]\ngeecs_data = x\n")
+    assert file_plugin_hosts(ini) is None
+    assert file_plugin_hosts(tmp_path / "missing.ini") is None
+
+
+# ------------------------------------------------------------- phase 2b
+def _batch_camera(
+    RE: RunEngine, tmp_path: Path, **kwargs
+) -> tuple[GeecsDetector, list[int]]:
+    cam = _camera(RE, tmp_path, **kwargs)
+    rewinds: list[int] = []
+
+    def plugin_rewinds(value, **_) -> None:
+        rewinds.append(value)
+        set_mock_value(cam.hdf.num_captured, value)
+
+    callback_on_mock_put(cam.hdf.rewind, plugin_rewinds)
+    return cam, rewinds
+
+
+def test_fly_mode_counts_and_skips_the_stamp_wait(
+    RE: RunEngine, tmp_path: Path
+) -> None:
+    """kickoff → fly; complete is done on the count alone; trigger leaves fly mode."""
+    from geecs_bluesky.devices.detector import gated_trigger_info
+
+    cam, rewinds = _batch_camera(RE, tmp_path)
+    _run(RE, lambda: cam.stage())
+    _run(RE, lambda: cam.prepare(gated_trigger_info(3)))
+    assert cam.step_baseline == 0
+    # a batch prepare describes the stream only: no per-event scalars
+    described = _run(RE, lambda: cam.describe())
+    assert "uc_testcam" in described and "uc_testcam-meancounts" not in described
+
+    async def batch():
+        assert not cam._acquire.fly
+        await cam.kickoff()
+        assert cam._acquire.fly
+        status = cam.complete()
+        for n in (1, 2):
+            await asyncio.sleep(0.02)
+            set_mock_value(cam.hdf.num_captured, n)
+        await asyncio.sleep(0.05)
+        assert not status.done
+        set_mock_value(cam.hdf.num_captured, 3)
+        await status  # no stamp advanced: the count is the completion
+        set_mock_value(cam.hdf.num_captured, 4)  # the in-flight frame
+        await cam.truncate_to_quota()
+        docs = [doc async for doc in cam.collect_asset_docs()]
+        return docs
+
+    docs = _run(RE, lambda: batch())
+    assert rewinds == [3]
+    datum = next(d for n, d in docs if n == "stream_datum")
+    assert datum["indices"] == {"start": 0, "stop": 3}
+    # a strict prepare after the batch: the context is rebuilt with the
+    # readables, and trigger leaves fly mode
+    _run(RE, lambda: cam.prepare(STRICT_TRIGGER_INFO))
+    assert "uc_testcam-meancounts" in _run(RE, lambda: cam.describe())
+
+    async def strict_shot():
+        status = cam.trigger()
+        assert not cam._acquire.fly
+        await asyncio.sleep(0.05)
+        set_mock_value(cam.hdf.num_captured, 4)
+        set_mock_value(cam.acq_timestamp, 1001.0)
+        await status
+
+    _run(RE, lambda: strict_shot())
+    _run(RE, lambda: cam.unstage())
+
+
+def test_rewind_to_step_baseline_and_abandon_step(
+    RE: RunEngine, tmp_path: Path
+) -> None:
+    """A retaken step: the partial frames leave the stack; a pending complete settles."""
+    from geecs_bluesky.devices.detector import gated_trigger_info
+
+    cam, rewinds = _batch_camera(RE, tmp_path)
+    _run(RE, lambda: cam.stage())
+    _run(RE, lambda: cam.prepare(gated_trigger_info(4, exposure_timeout=0.3)))
+
+    async def scenario():
+        await cam.kickoff()
+        status = cam.complete()
+        await asyncio.sleep(0.02)
+        set_mock_value(cam.hdf.num_captured, 2)  # two of four, then the pause
+        await asyncio.sleep(0.02)
+        await cam.abandon_step()  # settles the pending complete (no frames come)
+        assert status.done and status.success
+        await cam.rewind_to_step_baseline()
+        assert await cam.hdf.num_captured.get_value() == 0
+        # the retake: baseline is still 0, quota 4
+        await cam.prepare(gated_trigger_info(4, exposure_timeout=0.3))
+        assert cam.step_baseline == 0
+        await cam.kickoff()
+        status = cam.complete()
+        await asyncio.sleep(0.02)
+        set_mock_value(cam.hdf.num_captured, 4)
+        await status
+        return [doc async for doc in cam.collect_asset_docs()]
+
+    docs = _run(RE, lambda: scenario())
+    assert rewinds == [0]
+    datum = next(d for n, d in docs if n == "stream_datum")
+    assert datum["indices"] == {"start": 0, "stop": 4}
+    _run(RE, lambda: cam.unstage())
+
+
+def test_batch_count_timeout_is_the_geecs_error(RE: RunEngine, tmp_path: Path) -> None:
+    from geecs_bluesky.devices.detector import gated_trigger_info
+
+    cam, _ = _batch_camera(RE, tmp_path)
+    _run(RE, lambda: cam.stage())
+    _run(RE, lambda: cam.prepare(gated_trigger_info(2, exposure_timeout=0.2)))
+
+    async def scenario():
+        await cam.kickoff()
+        with pytest.raises(
+            GeecsTriggerTimeoutError, match="UC_TestCam.*counted no frame"
+        ):
+            await cam.complete()
+
+    _run(RE, lambda: scenario())
+    _run(RE, lambda: cam.unstage())
+
+
+def test_fly_prepare_refused_without_a_plugin_and_skips_native_saving(
+    RE: RunEngine, tmp_path: Path
+) -> None:
+    """A LabVIEW-native camera cannot count a batch; a plugin camera's native saving stays off."""
+    from geecs_bluesky.devices.detector import (
+        UNBOUNDED_TRIGGER_INFO,
+        gated_trigger_info,
+    )
+    from geecs_bluesky.exceptions import GeecsConfigurationError
+
+    native = GeecsDetector(
+        "UC_Native", ["MeanCounts"], name="uc_native", native_save=True
+    )
+    connect_mock(RE, native)
+    _run(RE, lambda: native.stage())
+    with pytest.raises(GeecsConfigurationError, match="no file plugin"):
+        _run(RE, lambda: native.prepare(gated_trigger_info(2)))
+    with pytest.raises(GeecsConfigurationError, match="no file plugin"):
+        _run(RE, lambda: native.prepare(UNBOUNDED_TRIGGER_INFO))
+    _run(RE, lambda: native.unstage())
+
+    provider = StaticPathProvider(
+        StaticFilenameProvider("UC_Both"), tmp_path / "Scan001" / "UC_Both"
+    )
+    (tmp_path / "Scan001").mkdir()
+    both = GeecsDetector(
+        "UC_Both",
+        ["MeanCounts"],
+        experiment="TestExp",
+        name="uc_both",
+        path_provider=provider,
+        hdf_plugins=[("image", provider)],
+    )
+    connect_mock(RE, both)
+    set_mock_value(both.hdf.file_path_exists, True)
+    set_mock_value(both.hdf.data_type, "UInt16")
+    set_mock_value(both.hdf.color_mode, "Mono")
+    _run(RE, lambda: both.stage())
+    _run(RE, lambda: both.prepare(UNBOUNDED_TRIGGER_INFO))
+    assert _run(RE, lambda: both.hdf.capture.get_value()) is True
+    assert (
+        _run(RE, lambda: both.save.get_value()) == "off"
+    )  # native saving not switched on
+    _run(RE, lambda: both.unstage())
+    # a batch of ONE (shots_per_step=1, the default) is a fly prepare too:
+    # the type says so, not the event count
+    _run(RE, lambda: both.stage())
+    _run(RE, lambda: both.prepare(gated_trigger_info(1)))
+    assert _run(RE, lambda: both.save.get_value()) == "off"
+    assert "uc_both-meancounts" not in _run(RE, lambda: both.describe())
+    _run(RE, lambda: both.unstage())
+    # a strict shot on the same camera switches native saving on
+    _run(RE, lambda: both.stage())
+    _run(RE, lambda: both.prepare(STRICT_TRIGGER_INFO))
+    assert _run(RE, lambda: both.save.get_value()) == "on"
+    _run(RE, lambda: both.unstage())

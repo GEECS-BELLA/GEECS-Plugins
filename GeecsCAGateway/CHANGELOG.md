@@ -3,7 +3,25 @@
 All notable changes to `geecs-ca-gateway` are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and semantic versioning.
 
-## [0.21.0] - 2026-09-15
+
+## [0.21.2] - 2026-09-16
+
+### Fixed
+
+- Use the shared Core LabVIEW epoch constant for timestamp conversion; PV values and timestamp semantics are unchanged.
+
+## [0.21.1] - 2026-09-15
+
+### Changed
+
+- Merge of `master` (c81a106b) into `feature/native-bluesky-plans`: the
+  two lines were released in parallel and are listed below in version
+  order. Master's 0.21.0 (#908 — the `:SP` put waits up to
+  `_SET_REPLY_CEILING_S` = 600 s for the device's executed reply, the
+  `--set-timeout` flag, the 1.5 s command-ACK budget unchanged) is now on
+  this line beside the branch's 0.20.3/0.20.4. The gateway host runs
+  master's 0.21.0; nothing branch-side changed.
+## [0.21.0] - 2026-09-15 *(master line, parallel release)*
 
 ### Changed
 
@@ -42,6 +60,23 @@ All notable changes to `geecs-ca-gateway` are documented here, following
   `::test_reply_past_the_ceiling_is_the_only_stale_discard` (the same reply
   under a 30 s ceiling reproduces the Scan009 failure, and the transport's
   "no exchange in flight" discard is reachable only past the ceiling).
+
+## [0.20.4] - 2026-09-11
+
+### Changed
+
+- `DEPLOYMENT.md`'s Tiled client recipe reads the per-shot table through
+  `geecs_data_utils.tiled_catalog.read_primary_scalars` instead of
+  `run["primary"].read().to_dataframe()` (GEECS-Plugins#834).
+
+## [0.20.3] - 2026-09-09
+
+### Changed
+
+- `effective_vartype` and the vartype tables now live in
+  `geecs_core.db.variable_types` (GEECS-Core 0.5.0); `config.py` re-exports
+  them under the old private names so call sites and `audit.py` are
+  unchanged. No behaviour change; PV_CONTRACT.md § 4 names the rule's home.
 
 ## [0.20.2] - 2026-09-04
 

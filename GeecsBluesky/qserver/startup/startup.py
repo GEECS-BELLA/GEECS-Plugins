@@ -1,21 +1,31 @@
 """bluesky-queueserver RE Manager startup profile for a GEECS worker.
 
 Loaded by ``start-re-manager --startup-dir <this directory>`` (see
-``launch_re_manager.sh``). Defines the module-level ``RE`` the manager keeps
-alive across queue items (``--keep-re`` — see ``qserver/README.md``'s
-Troubleshooting section for the silent-bounce failure mode without it) and
-registers :func:`~geecs_bluesky.plans.scan_request_plan.geecs_scan_request_plan`,
-the one plan every ``ScanRequest`` (step, noscan, optimize) runs through.
+``launch_re_manager.sh``).  Defines the module-level ``RE`` the manager
+keeps alive across queue items (``--keep-re`` — see ``qserver/README.md``'s
+Troubleshooting section for the silent-bounce failure mode without it),
+exports every device of the experiment as a noun
+(:class:`~geecs_bluesky.namespace.GeecsNamespace`) and registers the stock
+``bluesky.plans`` verbs (:data:`~geecs_bluesky.plan_names.GEECS_PLAN_NAMES`)
+over them with the strict ``take_reading`` pre-bound
+(:mod:`geecs_bluesky.plans.registry`) — ``count([UC_Amp4_IR_input], 10)``,
+``scan([UC_Amp4_IR_input], U_S1H.current, -1, 1, 5, shots_per_step=10)``,
+``mv(U_S1H.current, 0)``, ``run_action("Amp4_DUMP_HP")`` (a named plan from
+the experiment's action library, over the same devices, no run opened).
+Every run claims a GEECS scan number and leaves
+ScanInfo, the s-file, ``scan.log`` and the detectors' native files in its
+folder; every subscribed scalar of the experiment rides in the run as the
+baseline stream (``make_run_engine``).
 
 Import order is load-bearing
 -----------------------------
 ``geecs_bluesky`` is imported **first**, before anything that might pull in
-``aioca``. Its ``__init__`` calls
+``aioca``.  Its ``__init__`` calls
 :func:`~geecs_bluesky.epics_env.apply_epics_address_config`, which sets
 ``EPICS_CA_ADDR_LIST``/``EPICS_CA_AUTO_ADDR_LIST`` from
 ``~/.config/geecs_python_api/config.ini``'s ``[epics]`` section *before* the
 device imports create libca's CA context — libca reads that env var once, at
-context creation, and never again. A gateway address sourced from the GEECS
+context creation, and never again.  A gateway address sourced from the GEECS
 database instead of the config file would need a DB round trip at import
 time (a network hazard this early) and would be circular besides (the
 database itself is one of the devices CA reaches through the gateway).
@@ -26,9 +36,13 @@ Experiment resolution
 ``QS_EXPERIMENT`` wins when set (the natural queueserver/systemd knob —
 one worker process per experiment); otherwise falls back to
 ``config.ini``'s ``[Experiment] expt`` via ``GeecsPathsConfig`` (the same
-default every other headless entry point in this repo uses). Neither
+default every other headless entry point in this repo uses).  Neither
 present is a startup-time configuration error, not a runtime one: fail
 loud here rather than have every submitted plan fail identically later.
+
+``QS_DEVICE_NAMESPACE=off`` is the hermetic switch (tests, a box without DB
+or data-share reach): no namespace, no trigger profiles, no scan claim —
+the plans are registered but refuse to run.
 """
 
 from __future__ import annotations
@@ -40,52 +54,14 @@ import os
 # the module docstring above.
 import geecs_bluesky  # noqa: F401
 
-from bluesky_queueserver import parameter_annotation_decorator
-
-from geecs_bluesky.plan_names import GEECS_PLAN_NAMES, GEECS_WORKER_FUNCTIONS
-from geecs_bluesky.plans.named_plans import (
-    NOSCAN_PLAN_ANNOTATION,
-    OPTIMIZE_PLAN_ANNOTATION,
-    SCAN_PLAN_ANNOTATION,
-    geecs_noscan_plan,
-    geecs_optimize_plan,
-    geecs_scan_plan,
-)
-from geecs_bluesky.plans.scan_request_plan import (
-    RUN_ACTION_PLAN_ANNOTATION,
-    SCAN_REQUEST_PLAN_ANNOTATION,
-    geecs_run_action_plan,
-    geecs_scan_request_plan,
-    set_optimization_loader,
-    set_plan_session,
-)
-from geecs_bluesky.session import GeecsSession
-from geecs_bluesky.sfile_callback import SFileExportCallback
+from geecs_bluesky.config_resolver import ConfigsRepoResolver
+from geecs_bluesky.namespace import GeecsNamespace, motor_targets
+from geecs_bluesky.plan_names import GEECS_PLAN_NAMES
+from geecs_bluesky.plans.claim_scan import GeecsScanPathProvider
+from geecs_bluesky.plans.registry import TriggerProfiles, bind_plans
+from geecs_bluesky.run_engine import make_run_engine
 
 logger = logging.getLogger(__name__)
-
-# Queueserver parameter annotations (#727): rebinding the module-level
-# names to the decorated wrappers is what the manager's plan discovery
-# picks up, so `plans_allowed` carries the typed, described parameters
-# generic clients (OSPREY's panel) render forms from. The payloads live
-# next to the plans themselves (scan_request_plan.py — that module stays
-# queueserver-import-free by design); the wrappers stay generator
-# functions and delegate verbatim.
-geecs_scan_request_plan = parameter_annotation_decorator(SCAN_REQUEST_PLAN_ANNOTATION)(
-    geecs_scan_request_plan
-)
-geecs_run_action_plan = parameter_annotation_decorator(RUN_ACTION_PLAN_ANNOTATION)(
-    geecs_run_action_plan
-)
-# The named plans (Phase 2b-ii): per-mode vocabulary at the gate, the same
-# execution underneath (each yields from geecs_scan_request_plan).
-geecs_noscan_plan = parameter_annotation_decorator(NOSCAN_PLAN_ANNOTATION)(
-    geecs_noscan_plan
-)
-geecs_scan_plan = parameter_annotation_decorator(SCAN_PLAN_ANNOTATION)(geecs_scan_plan)
-geecs_optimize_plan = parameter_annotation_decorator(OPTIMIZE_PLAN_ANNOTATION)(
-    geecs_optimize_plan
-)
 
 
 def _resolve_experiment() -> str:
@@ -114,30 +90,106 @@ def _resolve_experiment() -> str:
 
 
 _experiment = _resolve_experiment()
+_hermetic = os.environ.get("QS_DEVICE_NAMESPACE", "db").strip().lower() == "off"
 
-# tiled=True (default): GeecsSession's own [tiled] config mechanism
-# (geecs_bluesky.tiled_integration.subscribe_tiled) subscribes a TiledWriter
-# to session.RE — best-effort, skip-with-log if the catalog is unreachable,
-# the same posture every other headless GeecsSession gets. Reused as-is
-# (not reimplemented) because session.RE, not a second RunEngine, is the
-# one this profile hands to the manager below.
-session = GeecsSession(_experiment, tiled=True)
+# ── Device namespace (GEECS-Plugins#807) ──────────────────────────────────
+# Every enabled device of the experiment as a long-lived ophyd-async noun —
+# built from the GEECS DB (loud on failure), connected on first use by the
+# connect_on_demand preprocessor make_run_engine installs outermost.  The
+# native-saving detectors share one path provider the claim preprocessor
+# points at each run's folder.
+_path_provider = GeecsScanPathProvider()
+_DEVICE_NAMES: list[str] = []
+_telemetry: list = []
+_resolver = None
+namespace = None
+if _hermetic:
+    _profiles = TriggerProfiles({})
+else:
+    # The configs repo: the trigger profiles (one ShotControl each) a plan's
+    # trigger_profile argument resolves against, the experiment default from
+    # experiment_defaults.yaml, the action library run_action reads, and the
+    # measured drain offsets.  Built BEFORE the namespace because each
+    # detector's drain_offset is seeded at construction (§4.F) — so a
+    # re-measurement reaches the worker at the next environment open, not
+    # mid-session.
+    _resolver = ConfigsRepoResolver(_experiment)
+    try:
+        _offsets = _resolver.resolve_shot_offsets()
+    except Exception:
+        # An unreadable or invalid shot_offsets.yaml must not stop the
+        # worker coming up — a scan at 1 Hz is unaffected by zero offsets.
+        # Loud, because at a tight rep rate it costs rows.
+        logger.warning(
+            "shot offsets not loaded — every drain offset stays 0.0, which "
+            "misjoins rows at a tight rep rate; fix the document or re-run "
+            "measure_shot_offsets",
+            exc_info=True,
+        )
+        _offsets = None
+    # The scan-variable catalog, read once for two things: which plain
+    # targets it declares `kind: motor` (bound as CaMotor even where the DB
+    # tolerance is 0) and its pseudo entries as nouns of their own (the
+    # pseudo arc, #904).  Best-effort like the shot offsets: an unreadable
+    # catalog costs the opt-ins and the pseudos, not the worker.
+    try:
+        _catalog = _resolver.scan_variable_catalog().variables
+    except Exception:
+        logger.warning(
+            "scan-variable catalog not loaded — no pseudo scan variable is "
+            "registered and no 'kind: motor' opt-in applies; fix the document "
+            "and reopen the environment",
+            exc_info=True,
+        )
+        _catalog = {}
+    namespace = GeecsNamespace.from_experiment(
+        _experiment,
+        path_provider=_path_provider,
+        drain_offsets=(
+            {name: entry.offset_s for name, entry in _offsets.devices.items()}
+            if _offsets is not None
+            else None
+        ),
+        motor_targets=motor_targets(_catalog),
+    )
+    namespace.add_pseudos(_catalog)
+    _DEVICE_NAMES = namespace.export_into(globals())
+    _telemetry = namespace.telemetry()
+    _profiles = TriggerProfiles.from_resolver(_resolver, experiment=_experiment)
+
+# The package's own INFO lines are the operational record of what happens
+# *outside* a run — a pseudo positioner's baselines captured at stage and
+# restored at unstage, a manual mv's moves — and the worker's root logger
+# sits at WARNING there (the scan log lowers it to INFO only for the run's
+# duration, #915).  A level is checked once, at the emitting logger, so
+# this reaches the journal whatever the root's level is.  Process policy,
+# so it lives here, not in make_run_engine.
+logging.getLogger("geecs_bluesky").setLevel(logging.INFO)
 
 # The manager's --keep-re contract needs a top-level `RE` in this module's
-# namespace; the plan preamble's own comment (scan_request_plan.py) requires
-# running on `session.RE` specifically (a different RunEngine is
-# unsupported), so the two must be the same object rather than two
-# independently-constructed RunEngines.
-RE = session.RE
+# namespace.  tiled=True: the [tiled] config mechanism
+# (geecs_bluesky.tiled_integration.subscribe_tiled) subscribes a TiledWriter
+# — best-effort, skip-with-log if the catalog is unreachable.  claim=True:
+# every run is a GEECS scan (number, folder, ScanInfo, s-file, scan.log).
+RE = make_run_engine(
+    experiment=_experiment,
+    tiled=True,
+    claim=not _hermetic,
+    path_provider=_path_provider,
+    telemetry=_telemetry,
+)
 
-set_plan_session(session)
-
-# Best-effort legacy scalar (s-file) export on every completed run — #635.
-RE.subscribe(SFileExportCallback())
+# The plans the manager discovers (every generator function in this
+# namespace is a plan to it — profile_ops.plans_from_nspace): the stock
+# verbs bound strict, under their own names, plus mv and run_action (the
+# action library over the namespace), pinned by geecs_bluesky.plan_names
+# (the readiness check asserts them).  Never import a stray generator into
+# this module.
+globals().update(bind_plans(_profiles, resolver=_resolver, settables=namespace))
 
 # ZMQ document publisher — the GUI progress stream (#648). bluesky documents
 # go to a bluesky-0MQ-proxy (started by launch_re_manager.sh alongside
-# Redis); clients (GEECS-Console) consume them with
+# Redis); clients (GeecsScanner, GEECS-MCP) consume them with
 # bluesky.callbacks.zmq.RemoteDispatcher on the proxy's out port. NOTE the
 # manager's --zmq-publish-console stream is a different thing entirely
 # (captured stdout/stderr text, not documents). Best-effort, same posture
@@ -176,89 +228,19 @@ if _doc_publish_addr.upper() != "OFF":
             exc_info=True,
         )
 
-
-def geecs_move_variable(name: str, value: float) -> dict:
-    """Manually move a scan variable — the console Movable panel's verb (#648).
-
-    Executed via the manager's ``function_execute`` API. **Foreground**
-    execution (``run_in_background=False``, the client default) requires a
-    fully idle manager — the queueserver enforcement of the session's own
-    "scan in progress — move not started" refusal; background execution
-    bypasses that gate, which is why both GEECS queue plans check the
-    session's manual-move lock before starting. Not a plan on purpose:
-    :meth:`~geecs_bluesky.session.GeecsSession.move_variable` moves outside
-    the RunEngine (the RE stays idle, guarded by the session's manual-move
-    lock), so wrapping it in a queue item would change its semantics.
-
-    Parameters
-    ----------
-    name : str
-        Catalog scan-variable name or raw ``Device:Variable``.
-    value : float
-        Target value, in the variable's own units.
-
-    Returns
-    -------
-    dict
-        ``move_variable``'s summary: ``{variable, kind, value, targets}``.
-
-    Raises
-    ------
-    GeecsUnservedVariablesError
-        The target (or a pseudo component) is not served by the gateway —
-        refused before any device is built (#772); the manager relays the
-        message as the task failure the client renders.
-    """
-    return session.move_variable(name, value)
+__all__ = ["RE", *GEECS_PLAN_NAMES, *_DEVICE_NAMES]
 
 
-def geecs_describe_action(name: str) -> list[dict]:
-    """Dry-run a named ActionPlan against *this worker's* configs (#648).
-
-    Executed via ``function_execute`` (foreground calls require an idle
-    manager). Pure config resolution — no CA, no execution. Serving it
-    worker-side means the preview describes what the worker would actually
-    run, even when a client's configs checkout has drifted.
-
-    Parameters
-    ----------
-    name : str
-        Action-plan name in the experiment's action library.
-
-    Returns
-    -------
-    list of dict
-        One dict per concrete step, in execution order (see
-        :meth:`~geecs_bluesky.session.GeecsSession.describe_action`).
-    """
-    return session.describe_action(name)
+# Import on the profile thread before readiness; concurrent numerical imports
+# can deadlock Python's module locks (the #778 incident).
+def _warm_optimizer():
+    try:
+        import xopt  # noqa: F401
+        import torch  # noqa: F401
+    except ImportError:
+        pass  # Worker installed without the optimize extra.
+    except Exception:
+        logging.getLogger(__name__).exception("optimizer warm import failed")
 
 
-# scan.log's root-logger attach + pre-claim buffer (GeecsBluesky 0.51.0,
-# geecs_bluesky/scan_log.py) needs no wiring here: geecs_scan_request_plan
-# itself calls begin_pre_scan_capture() at submission and the scan_log(...)
-# context manager attaches the per-scan file handler directly to the root
-# logger at the claim — see geecs_bluesky/scan_log.py, the mechanism itself.
-
-# Optimize-mode ScanRequests: registered only when the `optimize` extra's
-# heavy deps (xopt, ScanAnalysis) are importable — a headless worker without
-# them refuses optimize-mode requests loudly at the plan (see
-# set_optimization_loader's docstring) instead of failing mid-scan.
-from geecs_bluesky.optimization.worker_loader import (  # noqa: E402
-    make_worker_optimization_loader,
-    warm_up_optimization_stack,
-)
-
-_optimization_loader = make_worker_optimization_loader()
-set_optimization_loader(_optimization_loader)
-
-# Pre-import the stack's heavy modules (torch/botorch/xopt) off-thread now,
-# so the cold-import cost is paid here rather than freezing the worker's
-# first optimize-mode request (mirrors GEECS-Console's main.py warm-up).
-if _optimization_loader is not None:
-    warm_up_optimization_stack()
-
-# The export list is the canonical name list (geecs_bluesky.plan_names) —
-# the same tuple the readiness check (qserver_ready) asserts the manager
-# serves after `environment open`, so the two cannot drift (#793).
-__all__ = ["RE", *GEECS_PLAN_NAMES, *GEECS_WORKER_FUNCTIONS]
+_warm_optimizer()

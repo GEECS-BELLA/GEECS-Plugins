@@ -6,9 +6,10 @@ separate in your head:
 
 **Agents operating the lab.** The [GEECS MCP Server](../geecs_mcp/overview.md)
 is a deployed lab service — the same standing as the gateway or the
-console — that exposes GEECS-semantic operations (submit a scan, check its
-progress, look up archived results, run post-scan analysis) as typed tools
-an AI agent can call. An agent framework such as
+console — that exposes GEECS-semantic operations (check a scan's progress,
+look up archived results, halt a run, run post-scan analysis) as typed
+tools an AI agent can call. It deliberately has **no submit verb**:
+scans are started from the scanner console, not by an agent. An agent framework such as
 [OSPREY](../geecs_mcp/osprey.md) connects to it and puts those tools in the
 hands of an operator-facing assistant: "run the baseline analysis on
 scan 12" becomes a tool call instead of a person clicking through a GUI.

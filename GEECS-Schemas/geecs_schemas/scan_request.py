@@ -81,13 +81,10 @@ class ScanRequestMode(str, Enum):
         of shots at each.
     NOSCAN : str
         Don't move anything — just collect shots for statistics.
-    OPTIMIZE : str
-        Let an optimizer choose the next settings each iteration.
     """
 
     STEP = "step"
     NOSCAN = "noscan"
-    OPTIMIZE = "optimize"
 
 
 class AcquisitionMode(str, Enum):
@@ -368,162 +365,6 @@ class CaptureSettings(SchemaModel):
         return value
 
 
-class EvaluatorSpec(SchemaModel):
-    """Which analysis code turns raw shots into the number being optimized.
-
-    Points at the Python evaluator class and carries its configuration.
-    """
-
-    module: str = Field(
-        description=(
-            "Python import path of the evaluator module, e.g. "
-            "'geecs_bluesky.optimization.evaluators.beam_sum_counts_evaluator'."
-        )
-    )
-    class_name: str = Field(
-        alias="class",
-        description="Name of the evaluator class inside that module.",
-    )
-    kwargs: dict = Field(
-        default_factory=dict,
-        description=(
-            "Settings passed to the evaluator when it is created — e.g. "
-            "which diagnostics/analyzers it should read. Free-form: each "
-            "evaluator documents its own options."
-        ),
-    )
-
-    model_config = SchemaModel.model_config | {"populate_by_name": True}
-
-
-class GeneratorSpec(SchemaModel):
-    """Which optimization algorithm proposes the next settings.
-
-    Names the generator and carries its algorithm-specific options.
-    """
-
-    name: str = Field(
-        description=(
-            "Name of the optimization algorithm, e.g. 'bayes_default', "
-            "'random', or 'multipoint_bax_alignment_l2'."
-        )
-    )
-    options: dict = Field(
-        default_factory=dict,
-        description=(
-            "Algorithm-specific tuning options. Free-form: each generator "
-            "documents its own options (legacy 'xopt_config_overrides')."
-        ),
-    )
-
-
-class OptimizationSpec(SchemaModel):
-    """The optimization problem: what to vary, within what limits, to improve what.
-
-    Only used when the scan's mode is ``optimize``.  Lists the variables the
-    optimizer may move (with their allowed ranges), what is being minimized
-    or maximized, and which algorithm drives the search.
-
-    Notes
-    -----
-    Mirrors what the legacy optimizer YAML (``BaseOptimizerConfig`` +
-    Xopt VOCS) could express: objectives may be empty for BAX-style
-    generators that model ``observables`` only; ``constraints`` follow the
-    VOCS ``[bound_type, value]`` form.
-    """
-
-    variables: dict[str, tuple[float, float]] = Field(
-        min_length=1,
-        description=(
-            "What the optimizer may move and how far, as "
-            "'variable name: [lowest, highest]'. Names may be scan-variable "
-            "names or 'Device:Variable' strings."
-        ),
-    )
-    objectives: dict[str, str] = Field(
-        default_factory=dict,
-        description=(
-            "What counts as better, as 'objective name: MINIMIZE' or "
-            "'objective name: MAXIMIZE'. May be empty for algorithms that "
-            "only model observables (BAX)."
-        ),
-    )
-    observables: list[str] = Field(
-        default_factory=list,
-        description=(
-            "Extra measured quantities the algorithm should track without "
-            "optimizing them, e.g. ['x_CoM']."
-        ),
-    )
-    constraints: dict[str, tuple[str, float]] = Field(
-        default_factory=dict,
-        description=(
-            "Hard limits on measured quantities, as "
-            "'name: [LESS_THAN or GREATER_THAN, value]'. Usually empty."
-        ),
-    )
-    evaluator: EvaluatorSpec = Field(
-        description="The analysis code that scores each iteration."
-    )
-    generator: GeneratorSpec = Field(
-        description="The algorithm that proposes the next settings."
-    )
-    max_iterations: Optional[int] = Field(
-        None,
-        ge=1,
-        description=(
-            "Stop after this many optimization iterations. Leave unset to "
-            "run until stopped by hand."
-        ),
-    )
-    seed_dump_files: list[str] = Field(
-        default_factory=list,
-        description=(
-            "Optional earlier results (ECS dump files) used to warm-start "
-            "the optimizer. Usually empty."
-        ),
-    )
-    move_to_best_on_finish: bool = Field(
-        False,
-        description=(
-            "After the optimization ends, drive the variables back to the "
-            "best settings found."
-        ),
-    )
-
-    @model_validator(mode="after")
-    def _check_directions(self) -> "OptimizationSpec":
-        """Normalize and validate objective directions and constraint bounds.
-
-        Returns
-        -------
-        OptimizationSpec
-            The validated model with directions upper-cased.
-
-        Raises
-        ------
-        ValueError
-            If an objective direction or constraint bound type is unknown.
-        """
-        normalized = {}
-        for name, direction in self.objectives.items():
-            upper = direction.upper()
-            if upper not in ("MINIMIZE", "MAXIMIZE"):
-                raise ValueError(
-                    f"Objective {name!r} has direction {direction!r}; "
-                    "expected 'MINIMIZE' or 'MAXIMIZE'."
-                )
-            normalized[name] = upper
-        self.objectives = normalized
-        for name, (bound, _value) in self.constraints.items():
-            if bound.upper() not in ("LESS_THAN", "GREATER_THAN"):
-                raise ValueError(
-                    f"Constraint {name!r} has bound type {bound!r}; "
-                    "expected 'LESS_THAN' or 'GREATER_THAN'."
-                )
-        return self
-
-
 class PreflightCheckResult(str, Enum):
     """How one pre-submit check ended.
 
@@ -577,7 +418,7 @@ class PreflightOutcome(SchemaModel):
 class SubmissionRecord(SchemaModel):
     """Who submitted this request, when, and what the pre-submit checks said.
 
-    Filled in by the submitting client (the console, a script, an agent) at
+    Filled in by the submitting client (a front end, a script, an agent) at
     the moment the request is queued — not written by hand.  Since format
     v2 this record is **not part of the request document**: it travels
     beside the request (a separate plan parameter) — server-stamped
@@ -632,7 +473,7 @@ _TRIGGER_VARIANT_REMEDY = (
 class ScanRequest(VersionedSchemaModel):
     """One complete scan, ready to submit: what to do, what to save, how to trigger.
 
-    Fill in the mode (sweep / stand still / optimize), the axis (or axes) to
+    Fill in the mode (sweep / stand still), the axis (or axes) to
     sweep, how many shots per position, and the names of the save sets,
     trigger profile, and action plans to use.  Saving a request you like
     *is* a preset.
@@ -679,8 +520,7 @@ class ScanRequest(VersionedSchemaModel):
     mode: ScanRequestMode = Field(
         description=(
             "What kind of scan: 'step' sweeps one or more axes, 'noscan' "
-            "collects shots without moving anything, 'optimize' lets an "
-            "algorithm pick the settings."
+            "collects shots without moving anything."
         )
     )
     axes: list[ScanAxis] = Field(
@@ -689,7 +529,7 @@ class ScanRequest(VersionedSchemaModel):
             "For step scans: what to sweep. One entry is a simple 1-D scan; "
             "several entries form a grid visiting every combination, with "
             "the first axis as the outermost (slowest) loop and the last as "
-            "the innermost (fastest). Leave empty for noscan and optimize."
+            "the innermost (fastest). Leave empty for noscan."
         ),
     )
     capture: CaptureSettings = Field(
@@ -720,13 +560,6 @@ class ScanRequest(VersionedSchemaModel):
         description=(
             "Mark this scan's data as background/calibration shots so "
             "analysis can find them later."
-        ),
-    )
-    optimization: Optional[OptimizationSpec] = Field(
-        None,
-        description=(
-            "The optimization problem definition. Required for (and only "
-            "allowed with) mode 'optimize'."
         ),
     )
 
@@ -765,6 +598,13 @@ class ScanRequest(VersionedSchemaModel):
         """
         if not isinstance(data, dict):
             return data
+        if data.get("mode") == "optimize" or data.get("optimization") is not None:
+            raise ValueError(
+                "legacy optimization requests are retired; use the scanner's Optimize "
+                "mode or submit an optimize Preset with OptimizerConfig v1"
+            )
+        if "optimization" in data:
+            data = {key: value for key, value in data.items() if key != "optimization"}
         flat = [key for key in _V1_CAPTURE_FIELDS if key in data]
         stale_version = stale_schema_version(data, 3)
         capture = data.get("capture")
@@ -833,18 +673,8 @@ class ScanRequest(VersionedSchemaModel):
                 seen.add(axis.variable)
         elif self.axes:
             raise ValueError(
-                f"'axes' only applies to 'step' scans, not "
-                f"{self.mode.value!r}. (An 'optimize' scan declares its "
-                "variables inside the 'optimization' block.)"
+                f"'axes' only applies to 'step' scans, not {self.mode.value!r}."
             )
-        if self.mode is ScanRequestMode.OPTIMIZE:
-            if self.optimization is None:
-                raise ValueError(
-                    "An 'optimize' scan needs the 'optimization' block "
-                    "(variables, evaluator, generator)."
-                )
-        elif self.optimization is not None:
-            raise ValueError("'optimization' is only allowed when mode is 'optimize'.")
         return self
 
     def grid_shape(self) -> tuple[int, ...]:
@@ -853,7 +683,7 @@ class ScanRequest(VersionedSchemaModel):
         Returns
         -------
         tuple of int
-            One count per axis, in list order (empty for noscan/optimize).
+            One count per axis, in list order (empty for noscan).
         """
         # n_positions, never len(to_values()): the shape must be computable
         # without materializing a possibly-huge range (size guards call
@@ -874,28 +704,10 @@ class ScanRequest(VersionedSchemaModel):
             total *= count
         return total
 
-    def planned_shots(self) -> int | None:
-        """Total planned shots, or ``None`` when the request cannot say.
+    def planned_shots(self) -> int:
+        """Return the finite shot budget without materializing axis positions.
 
-        THE one scan-size derivation (consolidating the console's and the
-        GEECS MCP's former private counters): step/noscan =
-        ``n_steps() × shots_per_step`` (noscan is one motionless bin);
-        optimize = ``max_iterations × shots_per_step``, or ``None`` when
-        ``max_iterations`` is unset (the engine then applies its own
-        default budget — a size guard that needs a number should require
-        the field explicitly).  Never materializes positions
-        (:meth:`PositionRange.n_positions`), so it is safe on arbitrary
-        agent-composed input.
-
-        Returns
-        -------
-        int or None
-            The planned shot total, or ``None`` for an open budget.
+        Both step and noscan requests use ``n_steps() × shots_per_step``;
+        noscan has one motionless bin.
         """
-        if self.mode is ScanRequestMode.OPTIMIZE:
-            spec = self.optimization
-            iterations = spec.max_iterations if spec is not None else None
-            if not iterations:
-                return None
-            return int(iterations) * int(self.capture.shots_per_step)
         return self.n_steps() * int(self.capture.shots_per_step)

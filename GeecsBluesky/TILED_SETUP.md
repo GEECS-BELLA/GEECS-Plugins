@@ -3,7 +3,7 @@
 ## What Is This
 
 Tiled is the persistent scalar/metadata store for all GEECS Bluesky scans.
-Every scan (queue-submitted or headless `GeecsSession`) writes start/stop/event documents
+Every scan (queue-submitted or headless, on `make_run_engine(tiled=True)`) writes start/stop/event documents
 to a Tiled catalog on the DB server (`192.168.6.14`).  Data is then queryable
 from any Python session on the network without touching the raw data files.
 
@@ -27,6 +27,55 @@ from any Python session on the network without touching the raw data files.
   server; stored in `~/.config/geecs_python_api/config.ini` on all client
   machines
 
+### Serving the file plugin's stacks (verified 2026-09-11)
+
+The PVA gateway's file plugin (#806) writes each camera's frames as one
+HDF5 stack under the run folder on the data share, and the worker's
+`TiledWriter` registers that file by its `file://` URI.  Two server-side
+facts, both found by failure on the first run (Scan007 of 26_0911):
+
+1. **`readable_storage` must include the data share** as mounted on the
+   Tiled host.  Without it the array read answers 500, `Refusing to serve
+   file://…/ScanNNN/<device>/<device>.h5 because it is outside the
+   readable storage area for this server`.  `readable_storage` is an
+   argument of the catalog tree (Tiled's `CatalogConfig`; a top-level key
+   is refused by the config schema), so in `~/tiled/config.yml` it sits
+   under the tree's `args:` beside `uri:` / `writable_storage:` — the HTU
+   server's form, with its data mount as the example:
+
+   ```yaml
+   trees:
+     - path: /
+       tree: catalog
+       args:
+         uri: "sqlite:////home/<user>/tiled/catalog.db"
+         writable_storage:
+           - "/home/<user>/tiled/storage"
+           - "sqlite:////home/<user>/tiled/tabular.db"
+         readable_storage:
+           - "/home/<user>/tiled/storage"
+           - "/mnt/hdna2/data"
+         init_if_not_exists: true
+   ```
+
+2. **`HDF5_USE_FILE_LOCKING=FALSE` in the service's environment.**  The
+   stacks are written on Windows over SMB and read on Linux over the same
+   share; HDF5's file locking does not survive that path.  On a systemd
+   host, `sudo systemctl edit tiled` and add:
+
+   ```ini
+   [Service]
+   Environment=HDF5_USE_FILE_LOCKING=FALSE
+   ```
+
+   then `sudo systemctl restart tiled`.  The check: a plugin-written run's
+   array (`run[<device>]` through the same client pattern as
+   `tiled_readback.py`) reads back identical to `h5py` on the file.
+
+The Tiled server is pip-installed and unit-less as far as `deploy/` is
+concerned (no rendered unit, no `site.env` key), so these two settings
+live here, not in the deployment tree.
+
 ### Upgrading the server (verified 2026-07-12, 0.2.9 → 0.2.14)
 
 ```bash
@@ -48,10 +97,15 @@ sudo systemctl start tiled
 ```
 
 Post-upgrade verification from any client: `/api/v1/` reports the new
-`library_version`; existing runs read back (`run["primary"].read()` — the
-pattern `tiled_export.py` / `tiled_readback.py` use — survived 0.2.14's
-composite-container change; ad-hoc `run["primary"]["data"]` does **not**,
-use `.base` for raw node access).
+`library_version`; existing runs read back through
+`geecs_data_utils.tiled_catalog.read_primary_scalars(run["primary"])` —
+the pattern `tiled_catalog.py` / `tiled_export.py` / `tiled_readback.py`
+use: the composite node's `internal` table via `.base`, **never**
+`run["primary"].read()`, which downloads every camera stack and per-frame
+attribute array and outer-joins their dimensions (a two-camera plugin run
+took the worker host down, #834).  Ad-hoc `run["primary"]["data"]` does
+**not** work under 0.2.14's composite-container layout; use `.base` for
+raw node access.
 
 **The web UI lives at `/ui`, not `/`** (verified live 0.2.14): the pip
 wheel ships Tiled's built React catalog browser in `share/tiled/ui/`
@@ -62,11 +116,11 @@ root `/` is only a minimal landing page. With
 server moves the key into a cookie and strips the URL. The UI is a generic
 catalog browser (uid-oriented; metadata, tables, array previews, downloads);
 the scan-shaped quick-look workflow (day → Scan NNN → plot columns → drift)
-is the GEECS scan browser's job (GEECS-Console).
+is the Data Portal's job (GEECS-DataPortal).
 
 ### Client machines
 
-`GeecsSession` (the worker startup profile's session included) auto-reads Tiled URI + API key from
+`make_run_engine(tiled=True)` (the worker startup profile included) auto-reads Tiled URI + API key from
 `~/.config/geecs_python_api/config.ini` under `[tiled]`:
 
 ```ini
@@ -86,14 +140,15 @@ api_key = <stable key>
 - Non-scalar device events include save directory and device `acq_timestamp` ✓
 - DG645 shot control arm/disarm per step ✓
 - Catalog readable from any network-connected Python session ✓
-- GUI path complete — `GEECS-Console` submits `ScanRequest`s to the
+- GUI path complete — the operator front end (`GeecsScanner` today;
+  `GEECS-Console` when this was checked) submits to the
   queueserver worker: shot control (trigger profiles) and
   setup/per-step/closeout actions all flow
   through it (the legacy `GEECS-Scanner-GUI` path was deleted with G3) ✓
 - Scalar s-file exported from Tiled best-effort after each scan ✓
-- Hardware integration test: `tests/test_scan_request_hardware.py`
-  (replaces the deleted `test_bluesky_scanner.py`) runs a real
-  `ScanRequest` end to end against the live gateway — see its module
+- Hardware acceptance: `tests/test_phase0_hardware.py` (gated on
+  `GEECS_HW=1`) runs stock `bp.count` / `bp.list_scan` over a real camera
+  against the live gateway — see its module
   docstring for invocation; run it to verify, no standing pass is
   recorded here
 
@@ -134,9 +189,10 @@ from tiled.client import from_uri
 c = from_uri("http://192.168.6.14:8000", api_key="<key>")
 run = c.values().last()
 print(run.metadata["start"])
-df = run["primary"].read()
+from geecs_data_utils.tiled_catalog import read_primary_scalars
+df = read_primary_scalars(run["primary"])   # scalar table only — never run["primary"].read() (#834)
 
 # Run hardware integration test (requires lab network)
 cd GeecsBluesky
-poetry run pytest tests/test_scan_request_hardware.py -m integration -s
+GEECS_HW=1 poetry run python -u -m pytest tests/test_phase0_hardware.py -m hardware -s
 ```

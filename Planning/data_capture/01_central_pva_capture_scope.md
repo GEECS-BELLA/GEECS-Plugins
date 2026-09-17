@@ -1,3 +1,8 @@
+> **Superseded (2026-09-11).**  The capture daemon this document scoped was
+> replaced by the PVA gateway's areaDetector-shaped file plugin (#806,
+> `Planning/native_bluesky/06_pva_file_plugin.md`); the daemon's code and
+> unit are deleted.  Kept for the intake, dedupe and diff findings it records.
+
 # Central PVA image capture — audit & scope
 
 *Drafted 2026-08-27 from a four-surface codebase audit (PVA gateway, GeecsBluesky
@@ -160,7 +165,7 @@ plumbing, both trivial:
   pattern at `GEECS-Core/tests/test_geecs_db.py:98-129` already uses the
   Point Grey fixture value).
 - A failure-tolerant provider in `geecs_bluesky/db_runtime.py` (mirror
-  `GeecsDbScalarPolicy` `:64` — DB blip degrades, never aborts).
+  `geecs_core.db.scalar_policy.GeecsDbScalarPolicy` — DB blip degrades, never aborts).
 
 Capture-box discovery: no manifest PV exists; the daemon re-derives
 device→PV mappings from the same DB queries the gateway uses

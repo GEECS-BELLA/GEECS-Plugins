@@ -29,25 +29,27 @@ user_groups:
     forbidden_functions:
       - null
 
-  # Operator group: queue submission is restricted to GEECS-named plans,
-  # function execution to exactly the manual verbs (#648). The named plans
-  # (geecs_noscan_plan / geecs_scan_plan / geecs_optimize_plan, Phase 2b-ii)
-  # are the unit every gate sees: a group that may take noscans but not
-  # launch optimizations lists ":geecs_optimize_plan$" (and the funnel,
-  # which can carry any mode) under forbidden_plans.
+  # Operator group: queue submission is restricted to the plans the startup
+  # profile registers (geecs_bluesky.plan_names.GEECS_PLAN_NAMES — count,
+  # sweep and optimize over the device namespace, plus mv for a manual
+  # move, run_action for a named action plan, and the two once-run
+  # shot-offset plans of §4.F (measure_shot_offsets, check_shot_sync);
+  # tests/test_deploy_templates.py pins this line to that tuple); no
+  # function execution (the function verbs went with the funnel, #807).
   operator:
     allowed_plans:
-      - ":geecs_.*"
+      - ":^(count|sweep|optimize|mv|run_action|measure_shot_offsets|check_shot_sync)$"
     forbidden_plans:
       - null
-    allowed_devices: []
+    # Devices are nouns in the namespace (#807 phase 1): a plan argument may
+    # name a device or a sub-device (``U_S1H``, ``U_S1H.Current``); depth 3
+    # reaches a settable child's own children without exposing signal guts.
+    allowed_devices:
+      - ":?.*:depth=3"
     forbidden_devices:
       - null
     allowed_functions:
-      # Exactly the two manual verbs — a broader :geecs_.* would also admit
-      # the plan generators as (useless but confusing) function targets.
-      - ":geecs_move_variable$"
-      - ":geecs_describe_action$"
+      - null
     forbidden_functions:
       - null
 

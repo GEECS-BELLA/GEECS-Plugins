@@ -60,7 +60,7 @@ failure):
 sudo -u geecs -i
 cd <root>/qs-checkout/GeecsBluesky
 poetry env use python3.11
-poetry install --extras "ca tiled qserver"
+poetry install --extras "ca tiled qserver optimize"
 ```
 
 The `qserver` extra is the queueserver dependency bundle. If that extra has
@@ -96,10 +96,9 @@ At minimum, verify that the service account's config resolves:
 - the GEECS data root on the mounted data share,
 - the scanner configs repository,
 - the scan-analysis configs path (`[Paths] scan_analysis_configs_path`) —
-  required by optimize-mode requests whose evaluator uses `analyzers`
-  (`BaseOptimizerConfig` refuses those without it; analyzer-free optimize
-  requests and every other mode run fine, so the gap surfaces only on the
-  first analyzer-based optimize submission),
+  required by optimizer configs with diagnostic measurements. The native
+  measurement compiler resolves their documents under `analyzers/` before
+  claiming a scan; scalar-only optimization does not need this path,
 - database credentials through the normal `Configurations.INI` chain,
 - Tiled connection details when Tiled publishing is enabled,
 - optional `[epics] ca_addr_list` if the unit-level `EPICS_CA_ADDR_LIST`
@@ -122,7 +121,7 @@ it holds no secrets).
 ### Data share
 
 Mount the production data share before starting the manager. The worker must
-write to the same scan-folder tree used by the console path; otherwise scan
+write to the same scan-folder tree the analysis side reads; otherwise scan
 number claim, ScanInfo creation, native asset references, and s-file export
 will fail or point at the wrong location.
 
@@ -158,8 +157,11 @@ allowed plans" while `qserver status` looks healthy (live 2026-09-04,
 GEECS-Plugins#793). For GEECS a running service means ready, so the
 readiness unit runs `geecs-qserver-ensure-ready`: wait for the manager,
 open the environment if closed, wait for idle, then **assert
-`plans_allowed` lists every GEECS plan** (`geecs_bluesky.plan_names`),
-exiting non-zero with a precise message otherwise. A separate unit on
+`plans_allowed` lists every GEECS plan** (`geecs_bluesky.plan_names`) —
+restoring the lists once from the worker's on-disk copy when they read
+empty or incomplete with the environment up (a timed-out list download,
+GEECS-Plugins#838) — exiting non-zero with a precise message otherwise. A
+separate unit on
 purpose: the manager's start is never blocked by the optimize-stack import
 warm-up, a failed open shows as one failed unit rather than a crash-looping
 manager, and `systemctl restart geecs-qserver-ready` is the recovery
@@ -207,7 +209,8 @@ nothing answers on the publish port). Override the ports with
 
 ### Network ports
 
-Client machines (console GUIs) need to reach, on the worker host:
+Queue clients on other hosts (notebooks; the scanner and the MCP run on
+the worker host itself) need to reach, on the worker host:
 
 - **60615** — the RE Manager control socket (`bluesky-queueserver-api`),
 - **60625** — the manager's console-output stream (log tail / failed-move
@@ -221,7 +224,7 @@ though the proxy binds all interfaces; firewall it with the rest.
 ### External subscribers
 
 The document-stream out port (**5568**) is the supported subscription
-point for clients beyond GEECS-Console — the contract OSPREY's bridge and
+point for clients beyond the web scanner — the contract OSPREY's bridge and
 any future live-progress client build on (#727 item 3). What "supported"
 means:
 
@@ -229,12 +232,10 @@ means:
   reach the worker; the proxy is a fan-out, so subscribers never touch
   the manager socket, Redis, or the in port. Add 5568 to the same
   firewall allow rule as 60615/60625; leave 5567 closed. The in-repo
-  subscribers are the reference practice: the console's
-  `geecs_console/app/scan_monitor.py` (`DocumentStreamWorker`),
-  GEECS-MCP's `geecs_mcp/scans/progress_stream.py` (`ProgressCache`),
-  and the capture daemon (`geecs_bluesky/capture/__main__.py`, the
-  production subscriber that keys image capture on `start`/`stop`) —
-  each a `bluesky.callbacks.zmq.RemoteDispatcher` on the `doc_addr`
+  subscribers are the reference practice: the scanner's
+  `geecs_scanner/service/streams.py` (`ProgressCache`),
+  and GEECS-MCP's `geecs_mcp/scans/progress_stream.py` (`ProgressCache`)
+  — each a `bluesky.callbacks.zmq.RemoteDispatcher` on the `doc_addr`
   that `geecs_bluesky.qs_client` reads from the `[qserver]` section of
   `config.ini` (default `<host>:5568`). The `RemoteDispatcher` snippet
   lives in `../README.md`, "Document stream".
@@ -283,7 +284,7 @@ exists and is `idle` — the readiness unit opened it. Nothing to type: if
 `qserver status` shows `worker_environment_exists: False` the readiness
 unit failed, was not installed, or ran fine and the RE worker child died
 later while the manager survived (no systemd event fires for that — the
-unit stays `active (exited)`; the console/MCP preflight refusal is what
+unit stays `active (exited)`; the scanner/MCP preflight refusal is what
 names the gesture); read its journal, fix the cause, and re-run it (the
 same command a fresh clone's first deploy uses):
 
@@ -311,3 +312,36 @@ After the environment is open, submit only the smoke-test queue items approved
 for the current startup profile. Do not use a deployment host to discover
 machine-control behavior ad hoc; the manager is the production execution
 surface once this service is enabled.
+
+
+## Native optimization acceptance
+
+Install the worker's `optimize` extra alongside `ca tiled qserver`. The scanner
+needs no ImageAnalysis, Xopt or Torch dependency. The worker warms numerical
+imports on the profile thread before readiness. The PVA monitor must receive an initial image
+within five seconds before the plan arms or claims a scan; verify the host's
+PVA address configuration. Frame acquisition uses live arrays, never the
+partly-written scan files, with the camera timestamp joined within 1 ms.
+
+Copy the six v1 keeper documents from GEECS-Schemas' optimizer fixtures to
+the configs repository only after the schema change lands. Keep the two
+HiResMagCam legacy documents with a `# LEGACY` header until their diagnostic
+exists; remove ebeam_source_opt, hexapod_alignment and multi_device_example.
+Validate diagnostics on the worker before an operator day. No deployed
+configs were changed by the implementation branch. The resolver lists only
+schema-valid native configs; the scanner disables Optimize when that list is
+empty. An unmigrated legacy corpus therefore offers no broken choices.
+
+**Beam-free smoke test passed:** Scan010 of 26_0915 ran
+`bax_alignment_simulation`, 3 iterations × 2 HTU-NoGas shots, and restored both
+original magnet setpoints. Scalar files and Xopt dump passed. The resulting
+Tiled column-encoding fix passed a hardware-free replay; the original live
+Tiled entry is partial. Evidence and remaining limits are recorded in
+`Planning/native_bluesky/12_optimization_implementation.md`.
+
+**OWED hardware acceptance:** run TopViewMax with
+beam, 5 shots × 10 iterations; require five valid frames per iteration,
+compare the objective with saved PNGs after the run, and record RSS before
+and after. Finally submit TopViewMax from the scanner, observe live iteration
+and best values, and exercise Set to best once while idle. Relative-pseudo
+acceptance must show restoration followed by the explicit physical best move.

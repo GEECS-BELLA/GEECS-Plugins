@@ -1,0 +1,425 @@
+{#
+  The scanner console — one page.
+
+  Jinja renders the skeleton; static/scanner.js fills every value from the
+  API and keeps it live over /api/events. Nothing here is computed
+  server-side except the experiment name, the identity and the version.
+  Layout is the surface kit's (GeecsWebTheme): shell, panel/group/well, the
+  status words, .live/.meter/.field validation, dialog.ack. Page-only
+  classes live in static/scanner.css and never re-skin a kit class.
+#}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GEECS Scanner — {{ experiment }}</title>
+{# theme-boot.js stamps the stored palette before first paint; in <head>,
+   not deferred. Prefixed with the request's root_path so a reverse-proxy
+   mount still resolves. No CDN fonts: the token stacks carry fallbacks. #}
+<script src="{{ root }}/theme/theme-boot.js"></script>
+<link rel="stylesheet" href="{{ root }}/theme/theme.css">
+<link rel="stylesheet" href="{{ root }}/theme/kit.css">
+{# .path, not the absolute URL url_for returns: behind TLS termination an
+   absolute http:// URL is a mixed-content block. #}
+<link rel="stylesheet" href="{{ url_for('scanner_static', path='scanner.css').path }}">
+</head>
+<body class="kit" data-root="{{ root }}" data-experiment="{{ experiment }}" data-identity="{{ identity }}" data-portal="{{ portal }}">
+
+<header class="topbar">
+  <div class="topbar-in">
+    <span class="brand">GEECS Scanner <span class="exp">{{ experiment }}</span> <span class="sub">v{{ version }}</span></span>
+    <div class="health" aria-label="Service health">
+      <span class="chip" data-state="unknown" id="chip-manager" title="RE Manager: not polled yet">manager</span>
+      <span class="chip" data-state="unknown" id="chip-docs" title="Document stream: not heard yet">doc stream</span>
+    </div>
+    <label class="who">operator <input id="operator" placeholder="your name" aria-label="Operator name"></label>
+    <div data-density-picker></div>
+    <div data-theme-picker></div>
+  </div>
+</header>
+
+<div class="shell">
+
+  <nav class="rail" aria-label="Sections">
+    <div>
+      <h4>Scanner</h4>
+      <nav class="picklist">
+        <a href="#now" aria-current="page">Now</a>
+        <a href="#submit">New scan</a>
+        <a href="#queue">Queue</a>
+        <a href="#devices">Devices</a>
+        <a href="#actions">Actions</a>
+        <a href="#calib">Calibration</a>
+      </nav>
+    </div>
+    <div>
+      <h4 id="recent-h">Recent</h4>
+      <nav class="picklist recent" id="recent" aria-label="Recent scans"></nav>
+    </div>
+  </nav>
+
+  <main class="pane">
+
+    <div class="banner" data-state="error" id="page-error" hidden>
+      <span id="page-error-text"></span>
+      <span class="spacer"></span>
+      <button class="btn sm" type="button" id="page-error-close">Dismiss</button>
+    </div>
+
+    {# ============================ NOW ============================ #}
+    <section id="now" class="panel" aria-labelledby="now-h">
+      <header>
+        <span class="eyebrow" id="now-h">now</span>
+        <span class="chip lg" data-state="unknown" id="now-chip">connecting</span>
+      </header>
+      <div class="body">
+        <div class="nowhead">
+          <span class="scan" id="now-scan">—</span>
+          <span class="planline" id="now-plan">Waiting for the manager.</span>
+          <span class="spacer"></span>
+          <span class="q-by" id="now-by"></span>
+        </div>
+
+        <div class="meter" id="meter" role="progressbar" aria-valuemin="0" aria-valuemax="1" aria-valuenow="0" aria-label="Shots completed">
+          <div class="track"><i class="fill" id="meter-fill" style="width:0%"></i></div>
+          <div class="lbl"><span id="meter-l">—</span><span id="meter-r"></span></div>
+        </div>
+
+        <div class="grid tight">
+          <div class="live"><span class="k">shots</span><span class="v" id="lv-shots">—</span><span class="age" id="ag-shots"></span></div>
+          <div class="live"><span class="k">planned</span><span class="v" id="lv-planned">—</span><span class="age" id="ag-planned"></span></div>
+          <div class="live" id="live-docs"><span class="k">documents</span><span class="v" id="lv-docs">—</span><span class="age" id="ag-docs"></span></div>
+          <div class="live" id="live-manager"><span class="k">manager</span><span class="v" id="lv-manager">—</span><span class="age" id="ag-manager"></span></div>
+        </div>
+
+        <div class="row">
+          <button class="btn" type="button" id="btn-pause" disabled>Pause</button>
+          <button class="btn" type="button" id="btn-resume" hidden>Resume</button>
+          <span class="dim note" id="verb-note">Pause takes effect after the current step.</span>
+          <span class="spacer"></span>
+          <button class="btn danger" type="button" data-dialog-open="dlg-stop" id="btn-stop" disabled>Stop scan…</button>
+        </div>
+
+        <div class="group">
+          <div class="row">
+            <span class="eyebrow">tail</span>
+            <div class="seg" role="group" aria-label="Which narration" id="tail-seg">
+              <button type="button" data-tail="scanlog" aria-pressed="true" title="The run's scan.log, read from the folder the start document names">scan.log</button>
+              <button type="button" data-tail="manager" title="The RE Manager's console output">manager</button>
+            </div>
+            <span class="dim note" id="tail-note"></span>
+            <span class="spacer"></span>
+            <span class="dim note" id="paused-reason"></span>
+          </div>
+          <div class="well tail" id="tail" aria-live="polite"></div>
+        </div>
+      </div>
+      <div class="body group" id="optimization-live" hidden>
+        <div class="row"><span class="eyebrow" id="optimization-iteration"></span></div>
+        <div class="tscroll"><table><thead><tr><th>Variable / output</th><th>Latest</th><th>Best</th></tr></thead><tbody id="optimization-values"></tbody></table></div>
+        <div class="row"><span class="dim note" id="optimization-shots"></span></div>
+        <div class="tscroll"><table><caption>Recorded physical targets for Set to best</caption><thead><tr><th>Device variable</th><th>Target</th></tr></thead><tbody id="optimization-targets"></tbody></table></div>
+        <div class="row"><button class="btn" type="button" id="btn-set-best" disabled>Set to best</button>
+        <span class="dim note">Relative variables return to their starting positions. Set to best applies the recorded physical settings.</span></div>
+      </div>
+      <footer class="eyebrow" id="now-foot">state from the manager every second · shots from the document stream · two narrations, never reconciled</footer>
+    </section>
+
+    {# =========================== SUBMIT =========================== #}
+    <section id="submit" class="panel" aria-labelledby="sub-h">
+      <header>
+        <span class="eyebrow" id="sub-h">new scan</span>
+        <div class="seg" role="group" aria-label="Scan mode" id="mode">
+          <button type="button" data-mode="count" aria-pressed="false">Count</button>
+          <button type="button" data-mode="sweep" aria-pressed="false">Sweep</button>
+          <button type="button" data-mode="optimize" aria-pressed="false" disabled title="No compatible optimizer configs available">Optimize</button>
+        </div>
+        <div class="seg" role="group" aria-label="Acquisition" id="acq">
+          <button type="button" data-acq="strict" aria-pressed="true" title="Fire between trigger and wait; one row per shot">strict</button>
+          <button type="button" data-acq="gated" title="Box in SCAN, cameras count a batch; one shots row per shot">gated</button>
+        </div>
+      </header>
+      <div class="body">
+        <div class="well" id="optimizer-availability" role="status" hidden></div>
+        <div class="group" id="optimizer-form" hidden>
+          <div class="field"><label for="optimizer-config">optimizer config</label><select id="optimizer-config"><option value="">Choose an optimizer…</option></select></div>
+          <div class="field"><label for="iterations">iterations</label><input id="iterations" type="number" min="1" step="1" value="10"><span class="err" id="err-iterations">At least one iteration.</span></div>
+          <div class="field"><span class="hint" id="optimizer-note">Choose a config to see its required devices.</span></div>
+        </div>
+
+        <div id="sweep-composer" hidden>
+          <datalist id="sweep-variables"></datalist>
+          <div class="row">
+            <div class="seg" role="group" aria-label="Trajectory type">
+              <button type="button" data-sweep-tab="axes" aria-pressed="true">Axis Sweeps</button>
+              <button type="button" data-sweep-tab="patterns" aria-pressed="false">Patterns</button>
+            </div>
+            <span class="spacer"></span>
+            <details class="disc"><summary>How trajectories work</summary><p>Moving together pairs corresponding positions and requires equal point counts. A grid visits every combination, with the first axis outermost. Relative axes use offsets from the starting readback and return there when the run completes or is aborted.</p></details>
+          </div>
+          <div class="sweep-layout" id="sweep-axis-editor">
+            <div class="group">
+              <span class="eyebrow">Sweep settings</span>
+              <label class="field"><span>Combine axes</span><select id="sweep-combine"><option value="zip">Together · correlated</option><option value="product">Grid · all combinations</option></select></label>
+              <label class="note"><input id="sweep-snake" type="checkbox" disabled> Snake inner axes</label>
+              <p class="dim note">Lists retain their order and repeated values. Log bounds are decade exponents.</p>
+            </div>
+            <div><div id="sweep-axes"></div><button id="sweep-add-axis" type="button" class="btn sm">+ Add axis</button></div>
+          </div>
+          <div class="sweep-layout" id="sweep-pattern-editor" hidden>
+            <div class="group">
+              <span class="eyebrow">Pattern</span>
+              <label class="field"><span>Trajectory</span><select id="sweep-pattern"><option value="spiral">Spiral</option><option value="spiral_square">Square spiral</option><option value="spiral_fermat">Fermat spiral</option><option value="x2x">X2X</option></select></label>
+              <p class="dim note">Bluesky computes the path. X2X uses two relative axes: Y travels half X's range.</p>
+            </div>
+            <div id="sweep-pattern-fields"></div>
+          </div>
+          <div class="group">
+            <div class="row"><span class="eyebrow">Resolves</span><span id="sweep-message" role="status">Choose an axis to preview the trajectory.</span><button class="btn sm ghost" id="sweep-refresh" type="button">Refresh preview</button></div>
+            <p class="dim note" id="sweep-preview-note">Relative previews show offsets, not future absolute positions.</p>
+            <div class="sweep-plots" id="sweep-plots"></div>
+            <details class="disc"><summary>Points as a table</summary><div class="tscroll" id="sweep-table"></div></details>
+            <details class="disc"><summary>What gets submitted · Sweep payload</summary><pre class="well" id="sweep-payload"></pre></details>
+          </div>
+        </div>
+        <div class="group" id="count-options" hidden><label><input type="checkbox" id="background"> Background count</label><span class="dim note"> No variables move; recorded as no scan or background.</span></div>
+
+        <span class="eyebrow">Capture</span>
+        <div class="fields">
+          <div class="field"><label for="shots">shots per step</label><input id="shots" type="number" min="1" step="1" value="10"><span class="hint" id="shots-hint">shots_per_step</span><span class="err" id="err-shots">At least one shot.</span></div>
+          <div class="field"><label for="trig">trigger profile</label><select id="trig" title="shot_control_configurations/ · the worker learns new or edited profiles at its next environment open; a scan naming one before that is refused there"></select></div>
+          <div class="field"><label for="period">shot period</label><input id="period" type="number" min="0" step="any" placeholder="auto"><span class="hint">seconds</span></div>
+          <div class="field wide"><label for="desc">description</label><input id="desc" placeholder="what this scan is for"></div>
+        </div>
+
+        <div class="group">
+          <div class="row">
+            <span class="eyebrow" id="devices-eyebrow">devices</span>
+            <span class="spacer"></span>
+            <button class="btn sm ghost" type="button" data-drawer-open="drw-devices" id="btn-add-device">Add device…</button>
+          </div>
+          <div class="tscroll">
+            <table class="devtable">
+              <thead><tr><th>device</th><th>save images</th><th>essential</th><th></th></tr></thead>
+              <tbody id="devs"><tr><td class="dim" colspan="4">No devices — add one.</td></tr></tbody>
+            </table>
+          </div>
+          <span class="dim note">Not essential + no images is refused at expansion. A gated run needs at least one essential triggered device.</span>
+        </div>
+      </div>
+      <footer>
+        <div class="row">
+          <span class="est" id="est">—</span>
+          <span class="spacer"></span>
+          <span class="dim note" id="preset-name"></span>
+          <span class="dim note" id="presets-note"></span>
+          <select id="preset" class="preset-load" aria-label="Load a preset"><option value="" disabled selected>Loading presets…</option></select>
+          <button class="btn" type="button" data-drawer-open="drw-preset" id="btn-save-preset" disabled>Save as preset…</button>
+          <button class="btn primary" type="button" id="btn-start" disabled>Start</button>
+        </div>
+      </footer>
+    </section>
+
+    {# ============================ QUEUE ============================ #}
+    <section id="queue" class="panel" aria-labelledby="q-h">
+      <header>
+        <span class="eyebrow" id="q-h">queue</span>
+        <span class="dim note" id="q-summary">—</span>
+      </header>
+      <div class="tscroll sticky">
+        <table>
+          <thead><tr><th>state</th><th>item</th><th>by</th><th>detail</th></tr></thead>
+          <tbody id="qbody"><tr><td class="dim" colspan="4">Waiting for the manager.</td></tr></tbody>
+        </table>
+      </div>
+      <footer>
+        <div class="row">
+          <span class="dim note">The manager runs one item behind the running one; a new submission replaces the waiting item after you say so.</span>
+          <span class="spacer"></span>
+          <button class="btn danger sm" type="button" data-dialog-open="dlg-clear" id="btn-clear" disabled>Clear queue…</button>
+        </div>
+      </footer>
+    </section>
+
+    {# =================== DEVICES / ACTIONS / CALIBRATION =================== #}
+    <div class="grid trio">
+
+      <section id="devices" class="panel" aria-labelledby="d-h">
+        <header>
+          <span class="eyebrow" id="d-h">devices · move</span>
+          <span class="chip" data-state="unknown" id="mv-chip">idle only</span>
+        </header>
+        <div class="body">
+          <div class="live" id="mv-live" hidden><span class="k" id="mv-k">—</span><span class="v" id="mv-rb">—</span><span class="age" id="mv-age"></span></div>
+          <div class="fields">
+            <div class="field"><label for="mv-var">variable</label><select id="mv-var"></select><span class="hint" id="mv-hint"></span></div>
+            <div class="field"><label for="mv-val">set to</label><input id="mv-val" type="number" step="any" placeholder="value"><span class="err" id="err-mv-val">Enter a number.</span></div>
+          </div>
+          <div class="row">
+            <span class="dim note" id="mv-note">A move is an <code>mv</code> queue item: it runs only while nothing runs or waits.</span>
+            <span class="spacer"></span>
+            <button class="btn" type="button" id="btn-move" disabled>Move</button>
+          </div>
+        </div>
+        <footer class="eyebrow">readback = what the device reports over the gateway, not the setpoint · the request stores the canonical Device:Variable</footer>
+      </section>
+
+      <section id="actions" class="panel" aria-labelledby="a-h">
+        <header>
+          <span class="eyebrow" id="a-h">actions</span>
+          <span class="chip" data-state="unknown" id="act-chip">disarmed</span>
+        </header>
+        <div class="body">
+          <div class="fields">
+            <div class="field wide"><label for="action">action plan</label><select id="action"></select><span class="hint" id="actions-note">Loading the action library…</span></div>
+          </div>
+          <div class="group" id="action-preview-group" hidden>
+            <div class="row">
+              <span class="eyebrow" id="action-preview-title">preview</span>
+              <span class="spacer"></span>
+              <span class="dim note" id="action-writes"></span>
+            </div>
+            <ol class="well steps" id="action-steps"></ol>
+          </div>
+        </div>
+        <footer>
+          <div class="row">
+            <span class="dim note">Arm, then Run — a <code>run_action</code> queue item, idle only. Arming is never remembered.</span>
+            <span class="spacer"></span>
+            <button class="btn sm" type="button" id="act-arm" disabled>Arm</button>
+            <button class="btn sm primary" type="button" id="act-run" disabled>Run</button>
+          </div>
+        </footer>
+      </section>
+
+      <section id="calib" class="panel" aria-labelledby="c-h">
+        <header>
+          <span class="eyebrow" id="c-h">calibration</span>
+          <span class="chip" data-state="unknown" id="cal-chip">—</span>
+        </header>
+        <div class="body">
+          <div class="grid tight">
+            <div class="live" title="What the file in the configs tree says — the worker seeds offsets when its environment opens"><span class="k">shot offsets · file</span><span class="v" id="cal-devices">—</span><span class="age" id="cal-when"></span></div>
+            <div class="live"><span class="k">max offset</span><span class="v" id="cal-max">—</span><span class="age" id="cal-max-dev"></span></div>
+          </div>
+          <div class="fields">
+            <div class="field"><label for="cal-shots">shots to average</label><input id="cal-shots" type="number" min="1" step="1" value="10"></div>
+            <div class="field"><label for="cal-write">store the result</label><select id="cal-write"><option value="">report only</option><option value="1">write shot_offsets.yaml</option></select></div>
+          </div>
+          <p class="dim note" id="cal-set">Over the devices in the New scan table.</p>
+        </div>
+        <footer>
+          <div class="row">
+            <span class="dim note">Box OFF, no run opened. Check costs no shot.</span>
+            <span class="spacer"></span>
+            <button class="btn sm" type="button" id="cal-check" disabled>Check sync</button>
+            <button class="btn sm" type="button" data-dialog-open="dlg-measure" id="cal-measure" disabled>Measure offsets…</button>
+          </div>
+        </footer>
+      </section>
+
+    </div>
+
+    <p class="dim footnote">Keys: <kbd>P</kbd> pause / resume · <kbd>S</kbd> stop · <kbd>N</kbd> new scan · <kbd>Esc</kbd> closes a drawer.</p>
+  </main>
+</div>
+
+{# ============================ DRAWERS ============================ #}
+<div class="scrim"></div>
+
+<aside class="drawer" id="drw-devices" role="dialog" aria-modal="false" aria-labelledby="drw-devices-title" aria-hidden="true" data-open="false">
+  <header>
+    <span class="eyebrow" id="drw-devices-title">add device</span>
+    <button class="btn sm ghost" type="button" data-drawer-close>Close</button>
+  </header>
+  <div class="body">
+    <div class="field"><label for="devq">search</label><input id="devq" placeholder="UC_… or U_…" autocomplete="off"><span class="hint" id="devq-hint"></span></div>
+    <nav class="picklist" id="devlist" aria-label="Devices"></nav>
+    <span class="dim note">A device the gateway does not serve does not appear. Added rows save images and are essential until you say otherwise.</span>
+  </div>
+</aside>
+
+<aside class="drawer" id="drw-preset" role="dialog" aria-modal="false" aria-labelledby="drw-preset-title" aria-hidden="true" data-open="false">
+  <header>
+    <span class="eyebrow" id="drw-preset-title">save as preset</span>
+    <button class="btn sm ghost" type="button" data-drawer-close>Close</button>
+  </header>
+  <div class="body">
+    <div class="field"><label for="pname">name</label><input id="pname" placeholder="my_scan" autocomplete="off"><span class="err" id="err-pname">Letters, digits, _ - . only.</span></div>
+    <div class="field"><label for="pdesc">description</label><textarea id="pdesc" rows="2"></textarea></div>
+    <div class="well"><pre id="preset-yaml"></pre></div>
+    <p class="dim note" id="preset-saved"></p>
+    <div class="row end">
+      <button class="btn" type="button" data-drawer-close>Cancel</button>
+      <button class="btn primary" type="button" id="do-save-preset">Save preset</button>
+    </div>
+  </div>
+</aside>
+
+{# ============================ DIALOGS ============================ #}
+<dialog id="dlg-set-best" aria-labelledby="dlg-set-best-title">
+  <div class="body">
+    <h4 id="dlg-set-best-title">Apply these physical settings?</h4>
+    <p id="dlg-set-best-text"></p>
+    <p>This queues a move. Check its result in the queue; the recorded targets remain visible if the move fails.</p>
+    <div class="row end"><button class="btn" type="button" data-dialog-close autofocus>Cancel</button><button class="btn primary" type="button" id="do-set-best">Queue move</button></div>
+  </div>
+</dialog>
+
+<dialog id="dlg-stop" aria-labelledby="dlg-stop-title">
+  <div class="body">
+    <h4 id="dlg-stop-title">Stop <span id="dlg-stop-scan">the running scan</span>?</h4>
+    <p>Pauses at the next shot boundary, then stops gracefully. The shots already taken keep their rows; the box returns to STANDBY. This can take a while.</p>
+    <div class="row end"><button class="btn" type="button" data-dialog-close autofocus>Keep running</button><button class="btn danger" type="button" id="do-stop">Stop scan</button></div>
+  </div>
+</dialog>
+
+<dialog id="dlg-clear" aria-labelledby="dlg-clear-title">
+  <div class="body">
+    <h4 id="dlg-clear-title">Clear <span id="dlg-clear-n">the waiting items</span>?</h4>
+    <p>The running scan is not affected.</p>
+    <div class="row end"><button class="btn" type="button" data-dialog-close autofocus>Keep them</button><button class="btn danger" type="button" id="do-clear">Clear queue</button></div>
+  </div>
+</dialog>
+
+<dialog id="dlg-pending" aria-labelledby="dlg-pending-title">
+  <div class="body">
+    <h4 id="dlg-pending-title">An item is already waiting</h4>
+    <p id="dlg-pending-text">The manager runs one item behind the running one. Replace the waiting item with this scan?</p>
+    <div class="row end"><button class="btn" type="button" data-dialog-close autofocus>Keep it</button><button class="btn primary" type="button" id="do-replace">Replace and queue</button></div>
+  </div>
+</dialog>
+
+<dialog id="dlg-measure" aria-labelledby="dlg-measure-title">
+  <div class="body">
+    <h4 id="dlg-measure-title">Measure shot offsets?</h4>
+    <p id="dlg-measure-text">Drives the trigger box OFF, waits the set quiet, fires single shots and reads every device's timestamp.</p>
+    <div class="row end"><button class="btn" type="button" data-dialog-close autofocus>Not now</button><button class="btn primary" type="button" id="do-measure">Measure</button></div>
+  </div>
+</dialog>
+
+<dialog id="dlg-overwrite" aria-labelledby="dlg-overwrite-title">
+  <div class="body">
+    <h4 id="dlg-overwrite-title">Replace preset <span id="dlg-overwrite-name"></span>?</h4>
+    <p>A preset of that name already exists in the configs tree. Replacing it changes what everyone submits under that name.</p>
+    <div class="row end"><button class="btn" type="button" data-dialog-close autofocus>Keep the old one</button><button class="btn danger" type="button" id="do-overwrite">Replace</button></div>
+  </div>
+</dialog>
+
+<dialog id="dlg-ack" class="ack" aria-labelledby="dlg-ack-title">
+  <div class="body">
+    <h4 id="dlg-ack-title">Preflight found things to acknowledge</h4>
+    <p>The request is valid and the worker is ready. Each item is a question, not a refusal; tick it to continue with it on record.</p>
+    <ul class="qs" id="ack-list"></ul>
+    <p class="dim note">Acknowledged checks are stamped <code>continued</code> in the submission record that rides with the run.</p>
+    <div class="row end"><button class="btn" type="button" data-dialog-close autofocus>Cancel</button><button class="btn primary" type="button" id="do-submit" disabled>Submit to queue</button></div>
+  </div>
+</dialog>
+
+<script src="{{ root }}/theme/theme.js" defer></script>
+<script src="{{ root }}/theme/kit.js" defer></script>
+<script src="{{ url_for('scanner_static', path='trajectory-view.js').path }}" defer></script>
+<script src="{{ url_for('scanner_static', path='sweep-composer.js').path }}" defer></script>
+<script src="{{ url_for('scanner_static', path='scanner.js').path }}" defer></script>
+</body>
+</html>

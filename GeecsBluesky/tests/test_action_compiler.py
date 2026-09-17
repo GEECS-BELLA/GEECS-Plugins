@@ -29,8 +29,9 @@ from bluesky.preprocessors import msg_mutator
 from bluesky.utils import Msg
 from ophyd_async.core import soft_signal_rw
 
-from geecs_schemas.action_plan import ActionPlan
-from geecs_schemas.convert import convert_action_library
+import yaml
+
+from geecs_schemas.action_plan import ActionPlan, ActionPlanLibrary
 
 from geecs_bluesky.exceptions import (
     ActionCheckFailedError,
@@ -51,6 +52,11 @@ CORPUS_ACTIONS = (
     / "actions"
     / "actions_undulator.yaml"
 )
+
+
+def corpus_library() -> ActionPlanLibrary:
+    """The Undulator action library as deployed (an ``ActionPlanLibrary`` document)."""
+    return ActionPlanLibrary.model_validate(yaml.safe_load(CORPUS_ACTIONS.read_text()))
 
 
 # ---------------------------------------------------------------------------
@@ -452,7 +458,7 @@ def test_mock_factory_satisfies_protocol(re_and_factory) -> None:
 
 
 def test_corpus_amp4_dump_hp_end_to_end(re_and_factory) -> None:
-    """Convert the real legacy actions.yaml, compile, and run against mocks.
+    """Load the real actions.yaml, compile, and run against mocks.
 
     ``Amp4_DUMP_HP`` exercises every step type: nested ``run``
     (close/open_gaia_internal_shutters), ``set`` with the legacy default
@@ -460,7 +466,7 @@ def test_corpus_amp4_dump_hp_end_to_end(re_and_factory) -> None:
     shutters) and an independent input (the PLC interlock).
     """
     run_engine, factory = re_and_factory
-    library = convert_action_library(CORPUS_ACTIONS)
+    library = corpus_library()
     plan = library.plans["Amp4_DUMP_HP"]
 
     # Shutters: set and check hit the same variable, so the mock signal
@@ -510,7 +516,7 @@ def test_corpus_check_mismatch_aborts_mid_plan(re_and_factory) -> None:
     auto-abort). The reopen steps after the failed check must never run.
     """
     run_engine, factory = re_and_factory
-    library = convert_action_library(CORPUS_ACTIONS)
+    library = corpus_library()
     plan = library.plans["Amp4_DUMP_HP"]
 
     factory.add("U_GaiaSVEReader", "InternalShutterA")

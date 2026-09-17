@@ -1,8 +1,9 @@
 """The GEECS RE Manager client seam — for every queueserver client.
 
-Extracted from GEECS-Console (2026-08-21) because the console is just one
-client of the queue: notebooks and the GEECS MCP submit the same
-``geecs_schemas.ScanRequest`` dicts through the same verbs.  Two modules:
+Extracted from the PySide6 GEECS-Console (2026-08-21; the console itself
+was deleted 2026-09-14) because a GUI is just one client of the queue: the
+web scanner, notebooks and the GEECS MCP submit the same stock plan items
+through the same verbs.  Three modules:
 
 - :mod:`.client` — the :class:`QueueClient` protocol and its
   implementations (:class:`ZmqQueueClient` over the manager's 0MQ control
@@ -12,12 +13,15 @@ client of the queue: notebooks and the GEECS MCP submit the same
   run the GEECS plans" (#793), shared by the pre-submit ``worker_ready``
   check, the ``geecs-qserver-ready`` service-start assertion, and any
   probe script.
-- :mod:`.submit_preflight` — the client-side pre-submit checks (engine
-  validation, worker readiness — environment open + the plan allowed,
-  #793 — unserved variables, CONNECTED liveness, free-run staleness)
-  and :func:`build_submission_record`, which records client identity and
-  check outcomes into the ``SubmissionRecord`` submitted beside the
-  request (``submit_scan(request, submission=...)``) for run-metadata
+- :mod:`.presets` — :func:`expand_preset`, a saved
+  :class:`geecs_schemas.Preset` into the stock plan queue item it stands
+  for (device names, scan-variable references, the run metadata).
+- :mod:`.submit_preflight` — the client-side pre-submit checks (the
+  preset expands, worker readiness — environment open + the plan
+  allowed, #793 — CONNECTED liveness) and :func:`build_submission_record`,
+  which records client identity and check outcomes into the
+  ``SubmissionRecord`` submitted as run metadata
+  (``submit_preset(preset, md={"geecs": {"submission": ...}})``) for
   provenance.
 
 Importing this package is deliberately light: ``bluesky-queueserver-api``
@@ -30,7 +34,7 @@ client that only submits scans never pays for aioca/ophyd-async.
 # console-output stream (the console pill, the MCP's scan_progress).
 # Its definition lives in the import-light log_markers module precisely
 # so this eager re-export cannot violate the pinned light-import
-# contract (the engine home, plans.pause_semantics, pulls bluesky).
+# contract (the historical engine home pulled bluesky).
 from geecs_bluesky.log_markers import FAILED_MOVE_LOG_PREFIX
 from geecs_bluesky.qs_client.client import (
     QserverConfig,
@@ -46,6 +50,7 @@ from geecs_bluesky.qs_client.client import (
     readiness_from_reads,
     readiness_verdict,
 )
+from geecs_bluesky.qs_client.presets import QueueItem, expand_preset
 from geecs_bluesky.qs_client.submit_preflight import (
     PreflightQuestion,
     PreflightReport,
@@ -67,6 +72,8 @@ __all__ = [
     "ZmqQueueClient",
     "make_queue_client",
     "read_qserver_config",
+    "QueueItem",
+    "expand_preset",
     "PreflightQuestion",
     "PreflightReport",
     "build_submission_record",

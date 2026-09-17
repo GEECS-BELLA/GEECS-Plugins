@@ -3,13 +3,12 @@
 No manager, no network: the real client's lazy ``REManagerAPI`` is replaced
 by setting the ``_api`` cache directly (the documented injection point for
 tests), and the config reader runs against a temp home.  The submit paths
-build ``BPlan``/``BFunc`` items, so the module needs the ``qs-client``
-extra (skipped whole without it — the optimize-extra pattern).
+build ``BPlan`` items, so the module needs the ``qs-client`` extra (skipped
+whole without it — the optimize-extra pattern).
 """
 
 from __future__ import annotations
 
-import time
 from pathlib import Path
 
 import pytest
@@ -88,12 +87,9 @@ class TestStubQueueClient:
 
     def test_verbs_refuse_clearly(self):
         stub = StubQueueClient()
-        assert not stub.submit_scan({}).ok
+        assert not stub.submit_plan("count", args=[["UC_Cam"], 3]).ok
+        assert not stub.submit_preset(object()).ok
         assert not stub.request_pause()[0]
-        with pytest.raises(RuntimeError, match=r"\[qserver\]"):
-            stub.move_variable("x", 1.0)
-        with pytest.raises(RuntimeError, match=r"\[qserver\]"):
-            stub.run_action("close_shutters")
         with pytest.raises(RuntimeError, match=r"\[qserver\]"):
             stub.queue_items()
 
@@ -110,7 +106,6 @@ class _FakeManagerAPI:
         self.status_payloads: list[dict] = []
         self.queue_items: list[dict] = []
         self.running: dict | None = None
-        self.task_results: list[dict] = []
         self.raise_on_status: Exception | None = None
 
     def status(self) -> dict:
@@ -156,23 +151,20 @@ class _FakeManagerAPI:
     def re_stop(self) -> None:
         self.calls.append(("re_stop",))
 
-    def function_execute(self, item, *, user=None) -> dict:
-        self.calls.append(("function_execute", item.to_dict(), user))
-        return {"task_uid": "task-1"}
-
-    def task_result(self, uid) -> dict:
-        self.calls.append(("task_result", uid))
-        if self.task_results:
-            return self.task_results.pop(0)
-        return {"status": "running"}
-
     def plans_allowed(self, *, reload=False, user_group=None) -> dict:
         self.calls.append(("plans_allowed",))
         return {
             "success": True,
-            "plans_allowed": {
-                "geecs_scan_request_plan": {"name": "geecs_scan_request_plan"},
-                "geecs_run_action_plan": {"name": "geecs_run_action_plan"},
+            "plans_allowed": {"scan": {"name": "scan"}, "count": {"name": "count"}},
+        }
+
+    def devices_allowed(self, *, reload=False, user_group=None) -> dict:
+        self.calls.append(("devices_allowed",))
+        return {
+            "success": True,
+            "devices_allowed": {
+                "U_S1H": {"components": {"current": {}, "scalars": {}}},
+                "UC_Cam": {"components": {"scalars": {}}},
             },
         }
 
@@ -217,50 +209,95 @@ class TestZmqQueueClient:
         assert not status.connected
         assert "timeout" in status.detail
 
-    def test_submit_scan_adds_and_starts(self):
+    def test_submit_plan_adds_and_starts(self):
         fake = _FakeManagerAPI()
-        result = _client(fake).submit_scan({"mode": "noscan"})
+        result = _client(fake).submit_plan(
+            "count", args=[["UC_Cam"], 3], kwargs={"trigger_profile": "HTU-Normal"}
+        )
         assert result.ok and result.item_uid == "uid-1"
         names = [c[0] for c in fake.calls]
         assert names == ["queue_get", "item_add", "queue_start"]
         added = fake.calls[1][1]
-        assert added["name"] == "geecs_scan_request_plan"
-        assert added["args"] == [{"mode": "noscan"}]
+        assert added["name"] == "count"
+        assert added["args"] == [["UC_Cam"], 3]
+        assert added["kwargs"] == {"trigger_profile": "HTU-Normal"}
         assert fake.calls[1][2] == "test-console"
 
-    def test_submit_scan_surfaces_pending_items_without_clearing(self):
+    def test_submit_plan_refuses_a_name_the_worker_does_not_register(self):
+        fake = _FakeManagerAPI()
+        result = _client(fake).submit_plan("geecs_scan_request_plan", args=[{}])
+        assert not result.ok and "not a plan the worker registers" in result.message
+        assert fake.calls == []
+
+    def test_submit_plan_surfaces_pending_items_without_clearing(self):
         # The #648 item-3 trap: a failed item returns to the queue FRONT;
         # blind add-and-start would re-run it.
         fake = _FakeManagerAPI()
-        fake.queue_items = [{"name": "geecs_scan_request_plan", "item_uid": "old"}]
-        result = _client(fake).submit_scan({"mode": "noscan"})
+        fake.queue_items = [{"name": "count", "item_uid": "old"}]
+        result = _client(fake).submit_plan("count", args=[["UC_Cam"], 3])
         assert not result.ok
         assert result.pending_items[0]["item_uid"] == "old"
         assert ("queue_clear",) not in fake.calls
         assert not any(c[0] == "item_add" for c in fake.calls)
 
-    def test_submit_scan_clear_pending_clears_then_submits(self):
+    def test_submit_plan_clear_pending_clears_then_submits(self):
         fake = _FakeManagerAPI()
         fake.queue_items = [{"item_uid": "old"}]
-        result = _client(fake).submit_scan({"mode": "noscan"}, clear_pending=True)
+        result = _client(fake).submit_plan(
+            "count", args=[["UC_Cam"], 3], clear_pending=True
+        )
         assert result.ok
         names = [c[0] for c in fake.calls]
         assert names == ["queue_get", "queue_clear", "item_add", "queue_start"]
 
-    def test_submit_action_queues_the_action_plan(self):
+    def test_submit_preset_expands_then_queues(self):
+        from geecs_schemas import Preset
+
+        preset = Preset.model_validate(
+            {
+                "name": "p",
+                "trigger_profile": "HTU-NoGas",
+                "devices": [{"device": "UC_Cam"}],
+                "plan": {
+                    "name": "sweep",
+                    "kwargs": {
+                        "sweep": {
+                            "trajectory": {
+                                "kind": "axes",
+                                "axes": [
+                                    {
+                                        "kind": "range",
+                                        "axis": "U_S1H:Current",
+                                        "start": -1,
+                                        "stop": 1,
+                                        "num": 5,
+                                    }
+                                ],
+                            }
+                        }
+                    },
+                },
+            }
+        )
         fake = _FakeManagerAPI()
-        result = _client(fake).submit_action("close_shutters")
+        result = _client(fake).submit_preset(preset, md={"geecs": {"submission": {}}})
         assert result.ok
         added = next(c[1] for c in fake.calls if c[0] == "item_add")
-        assert added["name"] == "geecs_run_action_plan"
-        assert added["args"] == ["close_shutters"]
+        assert added["name"] == "sweep"
+        assert added["args"] == [["UC_Cam"]]
+        assert (
+            added["kwargs"]["sweep"]["trajectory"]["axes"][0]["axis"] == "U_S1H.current"
+        )
+        assert added["kwargs"]["trigger_profile"] == "HTU-NoGas"
+        assert added["kwargs"]["md"]["geecs"] == {"submission": {}, "preset": "p"}
 
-    def test_run_action_raises_the_refusal_with_pending_items(self):
-        # The raise-mapping the console's QueueSubmitter used to own.
+    def test_submit_preset_refusal_is_the_expansion_message(self):
+        from geecs_schemas import Preset
+
         fake = _FakeManagerAPI()
-        fake.queue_items = [{"item_uid": "old"}]
-        with pytest.raises(RuntimeError, match="queue not empty"):
-            _client(fake).run_action("close_shutters")
+        result = _client(fake).submit_preset(Preset(name="group"))
+        assert not result.ok and "no plan call" in result.message
+        assert fake.calls == []
 
     def test_stream_addresses_come_from_the_config(self):
         client = _client(_FakeManagerAPI())
@@ -321,45 +358,6 @@ class TestZmqQueueClient:
         ok, message = _client(fake).stop_scan()
         assert not ok and "nothing to stop" in message
 
-    def test_move_variable_runs_the_worker_function(self):
-        fake = _FakeManagerAPI()
-        fake.task_results = [
-            {"status": "running"},
-            {
-                "status": "completed",
-                "result": {
-                    "success": True,
-                    "return_value": {"variable": "u_s1h", "value": 1.0},
-                },
-            },
-        ]
-        result = _client(fake).move_variable("u_s1h", 1.0)
-        assert result == {"variable": "u_s1h", "value": 1.0}
-        executed = next(c[1] for c in fake.calls if c[0] == "function_execute")
-        assert executed["name"] == "geecs_move_variable"
-        assert executed["args"] == ["u_s1h", 1.0]
-
-    def test_worker_task_failure_raises_with_the_message(self):
-        fake = _FakeManagerAPI()
-        fake.task_results = [
-            {
-                "status": "completed",
-                "result": {"success": False, "msg": "scan in progress"},
-            }
-        ]
-        with pytest.raises(RuntimeError, match="scan in progress"):
-            _client(fake).move_variable("u_s1h", 1.0)
-
-    def test_task_timeout_raises(self, monkeypatch):
-        fake = _FakeManagerAPI()  # always "running"
-        client = _client(fake)
-        # Collapse the polling clock so the timeout path runs instantly.
-        ticks = iter([0.0, 0.1, 1000.0])
-        monkeypatch.setattr(time, "monotonic", lambda: next(ticks, 2000.0))
-        monkeypatch.setattr(time, "sleep", lambda s: None)
-        with pytest.raises(RuntimeError, match="did not finish"):
-            client.move_variable("u_s1h", 1.0)
-
 
 class TestQueueStartFailure:
     """#653 review finding 2: a start failure must never silently leave the
@@ -374,7 +372,7 @@ class TestQueueStartFailure:
             removed.append(uid)
 
         fake.item_remove = item_remove
-        result = _client(fake).submit_scan({"mode": "noscan"})
+        result = _client(fake).submit_plan("count", args=[["UC_Cam"], 1])
         assert not result.ok
         assert removed == ["uid-1"]
         assert "removed again" in result.message
@@ -387,10 +385,55 @@ class TestQueueStartFailure:
             raise RuntimeError("remove refused")
 
         fake.item_remove = item_remove
-        result = _client(fake).submit_scan({"mode": "noscan"})
+        result = _client(fake).submit_plan("count", args=[["UC_Cam"], 1])
         assert not result.ok
         assert "REMAINS queued" in result.message
         assert result.item_uid == "uid-1"
+
+    @pytest.mark.parametrize("manager_state", ["executing_queue", "starting_queue"])
+    def test_busy_while_the_queue_is_started_means_queued_behind_it(
+        self, manager_state
+    ):
+        """#905: a started queue answers busy to queue_start; the item waits behind it."""
+        fake = _FakeManagerAPI()
+        removed: list[str] = []
+        fake.queue_start = lambda: (_ for _ in ()).throw(
+            RuntimeError("Request failed: RE Manager is busy.")
+        )
+
+        def item_remove(*, uid=None, pos=None):
+            removed.append(uid)
+
+        fake.item_remove = item_remove
+        fake.status_payloads = [
+            {
+                "re_state": "running",
+                "manager_state": manager_state,
+                "worker_environment_exists": True,
+                "items_in_queue": 1,
+                "running_item_uid": "run-1",
+            }
+        ]
+        result = _client(fake).submit_plan("count", args=[["UC_Cam"], 1])
+        assert result.ok and result.item_uid == "uid-1", result
+        assert "behind the running item" in result.message
+        assert removed == [], "the queued-next item must stay queued"
+
+    def test_busy_with_a_stopped_queue_still_removes_the_item(self):
+        """The refusal path survives #905: busy + manager idle = nothing will run."""
+        fake = _FakeManagerAPI()
+        removed: list[str] = []
+        fake.queue_start = lambda: (_ for _ in ()).throw(
+            RuntimeError("Request failed: RE Manager is busy.")
+        )
+
+        def item_remove(*, uid=None, pos=None):
+            removed.append(uid)
+
+        fake.item_remove = item_remove
+        fake.status_payloads = [{"re_state": "idle", "manager_state": "idle"}]
+        result = _client(fake).submit_plan("count", args=[["UC_Cam"], 1])
+        assert not result.ok and removed == ["uid-1"]
 
 
 class TestPlanListAndClose:
@@ -398,11 +441,21 @@ class TestPlanListAndClose:
 
     def test_allowed_plan_names_are_sorted_keys(self):
         fake = _FakeManagerAPI()
-        assert _client(fake).allowed_plan_names() == [
-            "geecs_run_action_plan",
-            "geecs_scan_request_plan",
-        ]
+        assert _client(fake).allowed_plan_names() == ["count", "scan"]
         assert ("plans_allowed",) in fake.calls
+
+    def test_allowed_device_names_flatten_the_tree(self):
+        fake = _FakeManagerAPI()
+        assert _client(fake).allowed_device_names() == [
+            "UC_Cam",
+            "UC_Cam.scalars",
+            "U_S1H",
+            "U_S1H.current",
+            "U_S1H.scalars",
+        ]
+        stub = StubQueueClient()
+        with pytest.raises(RuntimeError, match="no queueserver configured"):
+            stub.allowed_device_names()
 
     def test_closed_environment_reads_as_no_plans(self):
         fake = _FakeManagerAPI()
@@ -423,12 +476,31 @@ class TestPlanListAndClose:
             stub.allowed_plan_names()
         stub.close()
 
-    def test_submit_verbs_use_the_canonical_plan_names(self):
-        from geecs_bluesky.plan_names import RUN_ACTION_PLAN, SCAN_REQUEST_PLAN
 
-        fake = _FakeManagerAPI()
-        client = _client(fake)
-        client.submit_scan({"mode": "noscan"})
-        client.submit_action("reset_plc")
-        added = [c[1]["name"] for c in fake.calls if c[0] == "item_add"]
-        assert added == [SCAN_REQUEST_PLAN, RUN_ACTION_PLAN]
+@pytest.mark.parametrize("failure", ["missing", "unequal", "alias"])
+def test_invalid_sweep_returns_submit_refusal_before_manager_calls(failure):
+    from geecs_schemas import Preset, ScanVariables
+
+    axes = [
+        {"kind": "list", "axis": "alias", "positions": [1, 2]},
+        {"kind": "list", "axis": "Other:Current", "positions": [3, 4]},
+    ]
+    if failure == "unequal":
+        axes[1]["positions"].append(5)
+    if failure == "alias":
+        axes[1]["axis"] = "Motor:Current"
+    kwargs = (
+        {}
+        if failure == "missing"
+        else {"sweep": {"trajectory": {"kind": "axes", "axes": axes}}}
+    )
+    preset = Preset.model_validate(
+        {"name": "bad-sweep", "plan": {"name": "sweep", "kwargs": kwargs}}
+    )
+    catalog = ScanVariables.model_validate(
+        {"variables": {"alias": {"kind": "setpoint", "target": "Motor:Current"}}}
+    ).variables
+    fake = _FakeManagerAPI()
+    result = _client(fake).submit_preset(preset, catalog=catalog)
+    assert not result.ok and "invalid sweep" in result.message
+    assert fake.calls == []

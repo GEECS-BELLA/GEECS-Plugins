@@ -141,7 +141,7 @@ def scan_status(end_info: Optional[str], has_scan_info: bool) -> ScanStatus:
     if lowered.startswith("fail"):
         return "failed"
     if lowered.startswith("abort"):
-        # `RE.abort()`, Ctrl-C, and the queueserver stop the console and
+        # `RE.abort()`, Ctrl-C, and the queueserver stop the scanner and
         # GEECS-MCP both expose all reach on_stop as exit_status="abort".
         # Its reason is as worth surfacing as a failure's.
         return "aborted"

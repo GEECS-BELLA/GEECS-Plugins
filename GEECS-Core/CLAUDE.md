@@ -12,7 +12,7 @@ GEECS devices needs it) and the config.ini stance. This package's value is
 what it refuses to contain.
 
 Consumers: GeecsCAGateway and GeecsPvaGateway (servers built on it),
-GeecsBluesky and GEECS-Console (`GeecsDb`, `pv_naming`, exceptions), and
+GeecsBluesky and GeecsScanner (`GeecsDb`, `pv_naming`, exceptions), and
 end-user scripts (`client`). It was extracted from GeecsCAGateway
 (2026-08-20) — the operational wire-protocol history ("quirks that bit us")
 still lives in `GeecsCAGateway/CLAUDE.md`.

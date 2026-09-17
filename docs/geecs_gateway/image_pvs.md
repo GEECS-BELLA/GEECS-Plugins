@@ -70,6 +70,21 @@ is generated per experiment from the DB roster
 (`GeecsPvaGateway/deploy/gen_fleet_status.py --experiment X` →
 `fleet_status_<x>.bob`; HTU's `fleet_status_undulator.bob` is committed).
 
+Each image variable also has a **subscription-state PV** (GeecsPvaGateway
+0.10.0):
+
+```
+[experiment:]device:variable:connected   Idle | Disconnected | Connected
+```
+
+`Idle` means gated off — nobody is watching, so nothing is known.
+`Disconnected` (MAJOR alarm) means a watcher holds the subscription and the
+device is unreachable or dropped; `Connected` means it is live. To get the
+verdict for an idle camera, hold a monitor on its image PV for one gating
+round-trip (~1–2 s) and read this. It is the PVA gateway's own subscription
+state — distinct from the CA gateway's `[experiment:]device:connected`,
+which reports *that* gateway's subscription.
+
 ## Reading images
 
 **Phoebus**: add an *Image* widget and set its PV to
@@ -121,9 +136,12 @@ camera-server fleet spans several lab subnets, so:
 The fleet list is kept once, in `config.ini` `[pva] addr_list` — the
 camera servers running an instance (the DB roster of camera-hosting
 endpoints, minus hosts where no instance was installed; see
-`GeecsPvaGateway/DEPLOYMENT.md` §Client access) — and copied from there
-into `EPICS_PVA_ADDR_LIST` or the Phoebus settings by hand; only the fleet
-tooling reads the key itself. The CA variables
+`GeecsPvaGateway/DEPLOYMENT.md` §Client access).  Any process that imports
+`geecs_bluesky` exports it, together with `[pva] file_plugin_addr_list`,
+into `EPICS_PVA_ADDR_LIST` at import (broadcast search stays on; an
+explicit environment variable wins) — the worker, the scanner and the
+MCP server included; Phoebus and other non-Python clients still take the
+value by hand.  The fleet tooling reads the key itself. The CA variables
 (`EPICS_CA_*`) belong to the scalar gateway and are unaffected — a client
 using both gateways sets both families.
 

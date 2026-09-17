@@ -5,7 +5,6 @@ from pydantic import ValidationError
 
 from geecs_schemas import (
     AcquisitionMode,
-    OptimizationSpec,
     PositionList,
     PositionRange,
     PreflightCheckResult,
@@ -172,7 +171,7 @@ class TestScanRequest:
             )
 
     def test_optimize_forbids_axes(self):
-        with pytest.raises(ValidationError, match="optimization' block"):
+        with pytest.raises(ValidationError, match="legacy optimization"):
             ScanRequest.model_validate(
                 {
                     "mode": "optimize",
@@ -201,19 +200,13 @@ class TestScanRequest:
         with pytest.raises(ValidationError, match="optimization"):
             ScanRequest.model_validate({"mode": "optimize"})
 
-    def test_optimize_round_trip(self):
-        request = ScanRequest.model_validate(
-            {"mode": "optimize", "optimization": make_optimization_block()}
-        )
-        assert request.optimization.generator.name == "bayes_default"
-
-    def test_optimization_block_forbidden_elsewhere(self):
-        with pytest.raises(ValidationError, match="only allowed"):
+    @pytest.mark.parametrize("mode", ["noscan", "optimize"])
+    def test_legacy_optimization_refused(self, mode):
+        with pytest.raises(
+            ValidationError, match="legacy optimization requests are retired"
+        ):
             ScanRequest.model_validate(
-                {
-                    "mode": "noscan",
-                    "optimization": make_optimization_block(),
-                }
+                {"mode": mode, "optimization": make_optimization_block()}
             )
 
     def test_explicit_position_list(self):
@@ -243,49 +236,6 @@ class TestPositions:
     def test_empty_value_list_rejected(self):
         with pytest.raises(ValidationError):
             PositionList(values=[])
-
-
-class TestOptimizationSpec:
-    def test_direction_normalized(self):
-        spec = OptimizationSpec.model_validate(
-            {**make_optimization_block(), "objectives": {"f": "minimize"}}
-        )
-        assert spec.objectives == {"f": "MINIMIZE"}
-
-    def test_bad_direction_rejected(self):
-        with pytest.raises(ValidationError, match="MINIMIZE"):
-            OptimizationSpec.model_validate(
-                {**make_optimization_block(), "objectives": {"f": "downhill"}}
-            )
-
-    def test_bax_shape_no_objectives(self):
-        spec = OptimizationSpec.model_validate(
-            {
-                **make_optimization_block(),
-                "objectives": {},
-                "observables": ["x_CoM"],
-                "generator": {
-                    "name": "multipoint_bax_alignment_l2",
-                    "options": {"control_names": ["U_S1H:Current"]},
-                },
-            }
-        )
-        assert spec.observables == ["x_CoM"]
-
-    def test_bad_constraint_bound_rejected(self):
-        with pytest.raises(ValidationError, match="LESS_THAN"):
-            OptimizationSpec.model_validate(
-                {
-                    **make_optimization_block(),
-                    "constraints": {"charge": ["ABOVE", 5.0]},
-                }
-            )
-
-    def test_evaluator_class_alias(self):
-        spec = OptimizationSpec.model_validate(make_optimization_block())
-        assert spec.evaluator.class_name == "MaxCountsEvaluator"
-        dumped = spec.model_dump(by_alias=True)
-        assert dumped["evaluator"]["class"] == "MaxCountsEvaluator"
 
 
 class TestSubmissionRecord:
@@ -480,3 +430,21 @@ class TestV1Migration:
         )
         assert "submission" not in request.model_dump(mode="json")
         assert request.schema_version == 3
+
+
+def test_legacy_null_optimization_is_dropped_on_step_round_trip():
+    assert make_step_request(optimization=None) == make_step_request()
+
+
+def test_published_modes_exclude_retired_optimization():
+    assert set(ScanRequest.model_json_schema()["$defs"]["ScanRequestMode"]["enum"]) == {
+        "step",
+        "noscan",
+    }
+
+
+def test_published_scan_request_prose_excludes_retired_mode():
+    schema = ScanRequest.model_json_schema()
+    assert "optimize" not in schema["description"]
+    for field in ("mode", "axes"):
+        assert "optimize" not in schema["properties"][field]["description"]
