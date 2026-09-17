@@ -43,8 +43,9 @@ partial frames away before it is retaken.  A gated step the plan abandons
 quietly instead of failing into a later message.
 
 Every per-run fact about the device is set through its own lifecycle —
-``stage → prepare → trigger → unstage`` — never from outside it (the
-second leg).  A plain ``bp.count([cam])`` is refused at prepare: a GEECS
+``stage → prepare → trigger → unstage`` — never from outside it (the second
+of the package's two rules, ``GeecsBluesky/CLAUDE.md``).  A plain
+``bp.count([cam])`` is refused at prepare: a GEECS
 camera cannot self-trigger, so the fire must come from the plan
 (:mod:`geecs_bluesky.plans.strict`).  (With
 ``OPHYD_ASYNC_PRESERVE_DETECTOR_STATE=YES`` ophyd-async takes
@@ -104,7 +105,7 @@ ACQ_TIMESTAMP = "acq_timestamp"
 
 #: Seconds a shot may take to arrive after the fire: one trigger period (the
 #: single shot fires on the *next* edge) plus the device's exposure and
-#: drain (M1).  One constant for every device until the calibration
+#: drain, measured in phase 0.  One constant for every device until the calibration
 #: phase makes it a per-device budget.
 DEFAULT_SHOT_TIMEOUT = 3.0
 
@@ -218,7 +219,7 @@ class GeecsAcquireLogic(DetectorAcquireLogic):
     shot_timeout :
         Seconds to wait for the stamp after a fire.  The hardware budget is
         one trigger period (the single shot fires on the *next* external
-        edge) plus the device's exposure and drain (M1).
+        edge) plus the device's exposure and drain, measured in phase 0.
     """
 
     _queue_maxsize: int = 128

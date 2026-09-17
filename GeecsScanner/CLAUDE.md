@@ -6,6 +6,14 @@ on the GEECS surface kit (GeecsWebTheme), a peer of the Data Portal and the
 logbook, and the operator front end (it replaced the PySide6 GEECS-Console,
 deleted 2026-09-14; #869).
 
+**The Start gate is client-side only.** `S.formable` in
+`static/scanner.js` decides whether the Start button is enabled; nothing on
+the server has an equivalent. `POST /api/submit` runs preflight and the
+acknowledgement loop, so a hand-authored preset of any shape is submittable
+today by `curl`. Treat the gate as an affordance, never a validation
+boundary — a plan-shape rule that must hold belongs in the service layer or
+the schema.
+
 ## Layout
 
 ```

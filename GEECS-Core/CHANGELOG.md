@@ -10,11 +10,13 @@ All notable changes to `geecs-core` are documented here, following
 
 - Strip the `Planning/` provenance citations from docstrings and comments: a
   docstring now states the rule itself, and the derivation stays in git
-  history. Part of the `Planning/` prune (#929, #930); no behaviour change.
-- `CLAUDE.md`: record the DB-metadata rules the scan-variable plan carried —
-  a variable's `description` lives only on `variable`, so serving one is the
-  same `devicetype_variable` → `variable` LEFT JOIN + coalesce the `:SP` set
-  flag uses, and EPICS `.DESC` caps at 40 characters and keeps no history.
+  history. Part of the `Planning/` prune (#931); no behaviour change.
+- `CLAUDE.md`: state the capability inheritance rule this package owns — the
+  `variable` row replaces the `devicetype_variable` row **wholesale**, with no
+  field-level fallback, so a type-level default under an instance row needs a
+  deliberate per-field coalesce and is a departure from the rule. What the
+  gateways serve from those rows (`.DESC`, its 40-character EPICS limit,
+  control limits) stays the gateway's contract and is pointed at, not copied.
 
 ## [0.8.2] - 2026-09-16
 

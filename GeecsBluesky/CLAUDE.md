@@ -18,7 +18,7 @@ s-file, `scan.log`, the baseline telemetry stream.  The worker registers
 the stock `bluesky.plans` verbs under their own names with the strict
 `take_reading` pre-bound (`plans/registry.py`); a client submits a stock
 plan item or a saved preset (`qs_client.submit_plan` / `submit_preset`).
-Hardware-accepted (`tests/test_phase1_hardware.py` M4–M7; the file
+Hardware-accepted (`tests/test_phase1_hardware.py`; the file
 plugin in `tests/test_806_hardware.py`); the worker runs `master` and
 nine camera-server gateways serve the plugin.  GEECS-MCP is rewired once, when the
 foundation is stable — not per step (its submit path calls the removed
@@ -121,7 +121,7 @@ the recorded physical targets, not a relative coordinate after its zero moved.
   `tests/test_gateway_put.py`); `Pausable` keyed on the standing state
   (ARMED → nothing; SCAN/STANDBY → OFF and back).  Neither
   notification ever raises.  Not a flyer: the box has no counter, so in
-  gated mode (phase 2, `08_gated_batch.md`) the plan drives it SCAN after
+  gated mode (phase 2) the plan drives it SCAN after
   the detectors' `kickoff` and OFF after their `complete`; `pause_count`
   is how a gated step learns a pause interrupted its batch.
 - **`ShotSampler`** (`devices/sampler.py`) — the gated run's record of
@@ -268,7 +268,8 @@ must never issue an extra physical shot.
   Phase-0 numbers: 1 Hz strict on a
 count; every other edge on a scan with a motor move, because the fire put
 (~200 ms) plus the move overruns the ~550 ms budget between stamp arrival
-and the next edge (M1/M2) — the plan layer recovers it, not `take_reading`.
+and the next edge (phase-0 measurement) — the plan layer recovers it, not
+`take_reading`.
 
 **Before the bracket's first move** every bound plan runs the liveness
 gate (`plans/registry.py::liveness_gate`, #852): one `CONNECTED` read for
@@ -463,8 +464,9 @@ the RunEngine loop threads a test leaves behind (#812).
   saving-mode / save-path / asset-definition P1).
 - Read quiescence in a scan step — it costs the longest device timeout;
   it belongs in the once-run calibration or a preflight.
-- Treat monitor silence as liveness — the gateway posts no timeout events
-  (M1); `CONNECTED` is the signal.
+- Treat monitor silence as liveness — a device's timeout event carries an
+  unchanged stamp, which the gateway's change suppression drops, so nothing
+  is posted at all; `CONNECTED` is the signal.
 - Put through `signal.set()` on a typed CA signal — go through
   `GatewaySetpointPut`. ophyd-async 0.19.3's `SignalW.set` runs the put
   inside a stamina/tenacity retry context whose outcome travels through

@@ -332,26 +332,6 @@ this package and must never depend on GeecsBluesky or a GUI package).
   millisecond apart defeated.  A frame no row claims is
   an **orphan**: it stays in the stack and in Tiled and is left out of the
   s-file — one s-file row per essential shot, always.
-### HDF5 over SMB — the reader's half of the contract
-
-The per-device frame stacks are written from Windows onto an SMB share and
-read back from Linux.  Three rules hold on this side, and the writer's half
-(never SWMR, flush per frame, `locking=False`) is in
-`GeecsPvaGateway/CLAUDE.md`:
-
-1. **Never read a stack while it is being written.**  Analysis reads after
-   the plugin closed the file — the `finalized` root attribute is the flag,
-   and the stop document precedes it.  Live use is the PVA stream, never
-   the file.  This is a contract, not best-effort.
-2. **Readers open lock-free**, through `scan_stack.open_stack`
-   (`locking=False`): the HDF5 lock across SMB is the known failure mode.
-   A service that reads these files (Tiled) also needs
-   `HDF5_USE_FILE_LOCKING=FALSE` in its unit environment —
-   `GeecsBluesky/TILED_SETUP.md`.
-3. **One frame per chunk** is the written layout, because the two access
-   patterns are per-shot random access (`read_shot`) and whole-stack
-   reads; whole-frame chunks serve both.
-
 - **`tiled_export`** — the legacy scalar files of a Bluesky run, live
   (`write_scalar_files` from the documents, what the worker calls) or
   offline (`write_scalar_files_from_tiled`).  The rows are `primary`'s
@@ -374,6 +354,26 @@ Data Utils has no intra-repo dependencies. `io.scan_stack.LABVIEW_EPOCH_OFFSET`
 is a file-format constant, deliberately independent of Core's wire-format
 constant. GeecsBluesky (which already depends on both) pins their equality;
 sharing this integer does not justify an access-library dependency here.
+
+## HDF5 over SMB — the reader's half of the contract
+
+The per-device frame stacks are written from Windows onto an SMB share and
+read back from Linux.  Three rules hold on this side, and the writer's half
+(never SWMR, flush per frame, `locking=False`) is in
+`GeecsPvaGateway/CLAUDE.md`:
+
+1. **Never read a stack while it is being written.**  Analysis reads after
+   the plugin closed the file — the `finalized` root attribute is the flag,
+   and the stop document precedes it.  Live use is the PVA stream, never
+   the file.  This is a contract, not best-effort.
+2. **Readers open lock-free**, through `scan_stack.open_stack`
+   (`locking=False`): the HDF5 lock across SMB is the known failure mode.
+   A service that reads these files (Tiled) also needs
+   `HDF5_USE_FILE_LOCKING=FALSE` in its unit environment —
+   `GeecsBluesky/TILED_SETUP.md`.
+3. **One frame per chunk** is the written layout, because the two access
+   patterns are per-shot random access (`read_shot`) and whole-stack
+   reads; whole-frame chunks serve both.
 
 ## Key Dependency
 

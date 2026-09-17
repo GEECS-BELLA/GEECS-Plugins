@@ -4,8 +4,8 @@ The **general GEECS MCP server** — AI-agent access to GEECS, one server
 process with domains as subpackages.  Renamed from `GEECS-Scan-MCP`
 (owner decision 2026-08-22, before anything reached master): scans are
 the first domain, not the identity.  **The spec for the scans domain is
-the scan-MCP planning document** (2026-08-21/22; verb surface §1, safety
-§2, phasing §4) as amended by owner decisions recorded in the CHANGELOG.
+this file plus the owner decisions recorded in the CHANGELOG** — the
+verb surface, the safety classes and the phasing all live here now.
 
 Domain roadmap (add as they earn their keep, never speculatively):
 `scans/` (built: read + halt; the write verbs were deleted in 0.9.0),
@@ -173,9 +173,9 @@ geecs_mcp/
 `run_action`, `describe_action`, `move_scan_variable`,
 `validate_scan_request`.  The standing doctrine they carried — the
 acknowledge-warnings loop, `clear_pending=False` always, the agent shot
-cap — went with them; re-derive it from the planning document if a
-submit verb is ever rebuilt, and do not assume the old code was right
-about the new seam.
+cap — went with them.  Re-derive it from the deleted code's own history
+(`git log -- GEECS-MCP/geecs_mcp/scans/`) if a submit verb is ever
+rebuilt, and do not assume the old code was right about the new seam.
 
 **Ownership etiquette still binds what is left**: `stop_scan`,
 `pause_scan` and `resume_scan` compare the running item's submitted-as

@@ -9,7 +9,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - Strip the `Planning/` provenance citations from docstrings and comments: a
   docstring now states the rule itself, and the derivation stays in git
-  history. Part of the `Planning/` prune (#929, #930); no behaviour change.
+  history. Part of the `Planning/` prune (#931); no behaviour change.
 - `CLAUDE.md`: record the reader's half of the HDF5-over-SMB contract (never
   read a stack mid-write, open lock-free through `scan_stack.open_stack`,
   one frame per chunk), which lived only in the deleted file-plugin design.

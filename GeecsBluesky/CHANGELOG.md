@@ -10,7 +10,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - Strip the `Planning/` provenance citations from docstrings and comments: a
   docstring now states the rule itself, and the derivation stays in git
-  history. Part of the `Planning/` prune (#929, #930); no behaviour change.
+  history. Part of the `Planning/` prune (#931); no behaviour change.
 - `CLAUDE.md` is now the design of record for the native-Bluesky rebuild:
   the arc landed on `master`, so the rules live here and the derivation is
   in the arc's merged history.

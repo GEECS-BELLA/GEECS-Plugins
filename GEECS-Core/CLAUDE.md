@@ -17,19 +17,16 @@ end-user scripts (`client`). It was extracted from GeecsCAGateway
 (2026-08-20) — the operational wire-protocol history ("quirks that bit us")
 still lives in `GeecsCAGateway/CLAUDE.md`.
 
-DB metadata the gateways serve (`db/`): a variable's **description** lives
-only on the `variable` table (per instance), never on `devicetype_variable`,
-so serving one is a `LEFT JOIN variable` + coalesce — the same
-`devicetype_variable → variable` inheritance-chain resolution the `:SP` set
-flag uses. Reuse that pattern; it is not a one-line "add a column".
-`variable.description` is `varchar(1000)` but EPICS `.DESC` caps at **40
-characters**: `VariableSpec` clips at 40 with a warning, and the ≤40
-"stable identity only" discipline has to be applied at authoring time too,
-or Phoebus shows half a sentence. A `.DESC` is a mutable label with **no
-history** — anything time-varying or provenance-bearing (a recalibration, a
-filter swap) belongs in a git-tracked config overlay or the elog, never
-there. The `alias` column is a separate handle from the description and is
-kept separate deliberately.
+The capability inheritance chain (`db/geecs_db.py::_merge_variable_rows`)
+resolves **wholesale**: when a `variable` row exists for a device+variable
+it replaces the `devicetype_variable` row in full, with no field-level
+fallback — an instance row with NULL limits means that instance has *no*
+limits. Anything wanting a type-level default under an instance row needs a
+deliberate per-field coalesce, which is a departure from this rule, not an
+instance of it. What the gateways then serve from these rows —
+`.DESC` and its 40-character EPICS limit, enum resolution, control
+limits — is the gateway's contract: `GeecsCAGateway/PV_CONTRACT.md` and
+`GeecsCAGateway/deploy/variable_description.sql`.
 
 Import hygiene: `import geecs_core.transport` must stay stdlib-only — the
 package `__init__` exports the exception tree eagerly and everything heavier

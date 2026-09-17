@@ -10,7 +10,7 @@ project adheres to semantic versioning.
 
 - Strip the `Planning/` provenance citations from docstrings and comments: a
   docstring now states the rule itself, and the derivation stays in git
-  history. Part of the `Planning/` prune (#929, #930); no behaviour change.
+  history. Part of the `Planning/` prune (#931); no behaviour change.
 
 ## [0.11.0] - 2026-09-16
 

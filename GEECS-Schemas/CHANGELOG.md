@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Strip the `Planning/` provenance citations from docstrings and comments: a
   docstring now states the rule itself, and the derivation stays in git
-  history. Part of the `Planning/` prune (#929, #930); no behaviour change.
+  history. Part of the `Planning/` prune (#931); no behaviour change.
 - `OptimizerConfig`: the legacy-shape rejection now names the action —
   re-author as a `schema_version` 1 document, or take the regenerated one
   from the configs repo — instead of citing a planning document that no

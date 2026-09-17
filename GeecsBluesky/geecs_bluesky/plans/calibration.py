@@ -18,7 +18,7 @@ Why both plans are once-run, never a scan step
 A GEECS device emits its TCP event either on a successful acquisition or,
 failing that, when its own timeout expires — and the timeout event carries
 an **unchanged** stamp, which the CA gateway's change suppression drops
-(measured in M1).  So nothing announces quiescence: the only way to
+(measured in phase 0).  So nothing announces quiescence: the only way to
 know the set is quiet is to watch the stamps not move for longer than the
 longest device timeout in it.  That is the floor on both plans' cost, and
 it is why neither may sit inside a scan.
