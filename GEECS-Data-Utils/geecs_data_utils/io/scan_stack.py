@@ -26,7 +26,7 @@ This module is the read side of that contract, deliberately small:
 
 Never writes: producing stacks is the file plugin's job alone, and a
 stack is read only after its scan has closed (never during a write —
-HDF5 across SMB, ``Planning/native_bluesky/06_pva_file_plugin.md`` §5).
+HDF5 across SMB).
 """
 
 from __future__ import annotations
@@ -147,9 +147,9 @@ def open_stack(path: "str | Path", mode: str = "r") -> "h5py.File":
     """Open a stack for reading with HDF5 file locking **off**.
 
     The stacks live on an SMB share written from Windows; the HDF5 lock is
-    the known failure mode across it (``06_pva_file_plugin.md`` §5), so
-    every reader in this module opens through here.  Read only after the
-    scan closed (the plugin's ``finalized`` root attribute).
+    the known failure mode across it, so every reader in this module opens
+    through here.  Read only after the scan closed (the plugin's ``finalized``
+    root attribute).
     """
     return h5py.File(path, mode, locking=False)
 

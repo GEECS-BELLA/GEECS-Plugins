@@ -5,6 +5,18 @@ All notable changes to GEECS-Schemas are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.29.1] - 2026-09-16
+
+### Changed
+
+- Strip the `Planning/` provenance citations from docstrings and comments: a
+  docstring now states the rule itself, and the derivation stays in git
+  history. Part of the `Planning/` prune (#931); no behaviour change.
+- `OptimizerConfig`: the legacy-shape rejection now names the action —
+  re-author as a `schema_version` 1 document, or take the regenerated one
+  from the configs repo — instead of citing a planning document that no
+  longer exists. Error message only; the rejection itself is unchanged.
+
 ## [0.29.0] - 2026-09-16
 
 ### Added

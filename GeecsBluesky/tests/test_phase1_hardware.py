@@ -20,11 +20,10 @@ Two tests, the second only with ``GEECS_HW_QSERVER`` set:
    downstream parses, the s-file with ``Bin #`` per step, ``scan.log``,
    the ``baseline`` stream, the box driven back to STANDBY after each
    run (the profile device's standing state; ARMED is observed by the
-   shots landing); and records the per-shot cadence (M2's every-other-edge on a motor scan is the
-   number PR 3 measures).
+   shots landing); and records the per-shot cadence (the every-other-edge
+   phase-0 measurement on a motor scan is the number PR 3 measures).
 2. **Through the RE Manager** — a second manager on this host
-   (``GEECS_HW_QSERVER=tcp://localhost:60635``, see the runbook in
-   ``Planning/native_bluesky/05_phase1_acceptance.md``): the client seam
+   (``GEECS_HW_QSERVER=tcp://localhost:60635``): the client seam
    expands a ``Preset`` (``run_submit_preflight`` then ``submit_preset``),
    the manager runs it, and the same files are asserted from the newest
    scan folder.
@@ -218,7 +217,7 @@ def test_plan_layer_in_process_on_hardware() -> None:
     key = f"{camera.name}-acq_timestamp"
     stamps = [e["data"][key] for e in primary]
     assert len(set(stamps)) == len(stamps), "stamps did not advance per shot"
-    # Cadence from the rows' own stamps (the shot times, §11.3), per run.
+    # Cadence from the rows' own stamps (the shot times), per run.
     count_stamps, scan_stamps = stamps[:SHOTS], stamps[SHOTS:]
     print(
         f"count cadence (s): {[round(b - a, 3) for a, b in zip(count_stamps, count_stamps[1:])]}"

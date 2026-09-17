@@ -3,10 +3,11 @@
 Tools never raise to the agent: every return is a JSON string with ``ok``
 plus either the payload or ``{error_kind, message}``.  The engine's
 message text is preserved verbatim inside ``message`` — those strings are
-the operator vocabulary (the planning doc's error-taxonomy rule).
+the operator vocabulary.
 
-Error kinds (the planning doc's taxonomy, plus ``tiled_unreachable`` for
-the archive's network failures, which are neither the manager's nor the
+Error kinds — this server's own names, chosen so an agent can branch on the
+kind without parsing ``message`` (``tiled_unreachable`` covers the
+archive's network failures, which are neither the manager's nor the
 request's fault):
 
 - ``policy_refusal`` — ownership etiquette, or a verb refused in the

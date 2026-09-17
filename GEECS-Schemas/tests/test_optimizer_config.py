@@ -63,8 +63,11 @@ def test_dotted_names_never_access_objects_or_collide():
 
 
 def test_legacy_document_refused():
-    with pytest.raises(ValueError, match="11_optimization.md"):
+    """The refusal names the action to take, not a document to go read."""
+    with pytest.raises(ValueError, match="legacy optimizer config is not loadable"):
         OptimizerConfig.model_validate({"evaluator": {}})
+    with pytest.raises(ValueError, match="schema_version 1"):
+        OptimizerConfig.model_validate({"device_requirements": {}})
 
 
 def test_diagnostic_overrides_cannot_change_device():

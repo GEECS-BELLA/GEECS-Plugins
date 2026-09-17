@@ -249,7 +249,11 @@ class OptimizerConfig(VersionedSchemaModel):
         if isinstance(data, Mapping):
             if "evaluator" in data or "device_requirements" in data:
                 raise ValueError(
-                    "legacy optimizer config is not loadable; see Planning/native_bluesky/11_optimization.md"
+                    "legacy optimizer config is not loadable: the "
+                    "'evaluator'/'device_requirements' shape was replaced by "
+                    "schema_version 1 (vocs / measurements / derived / "
+                    "generator / run) — re-author the document, or take the "
+                    "regenerated one from the configs repo"
                 )
             if data.get("schema_version", 1) != 1:
                 raise ValueError("unsupported optimizer schema_version (expected 1)")

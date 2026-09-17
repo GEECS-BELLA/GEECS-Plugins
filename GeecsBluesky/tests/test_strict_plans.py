@@ -202,7 +202,7 @@ def test_missed_frame_keeps_the_row_and_adds_a_shot(
 ) -> None:
     """Camera A misses fire 2: the row is kept with A empty, and one more shot is taken.
 
-    Design §2.1 (Sam, 2026-09-11): B's frame from shot 2 is data, not an
+    Sam, 2026-09-11: B's frame from shot 2 is data, not an
     orphan; A's columns for that row read NaN (its monitor cache would
     otherwise carry shot 1's values); the step then gets its complete row.
     """

@@ -1,13 +1,12 @@
 """The areaDetector-shaped HDF5 file plugin: one per served image variable.
 
-The second consumer of the frame the gateway already receives
-(``Planning/native_bluesky/06_pva_file_plugin.md``): it branches off the
+The second consumer of the frame the gateway already receives: it branches off the
 push callback **before** the latest-wins slot, so intake is lossless within
 a capture session, and writes one ``<device>.h5`` per device per scan in
 the NDFileHDF5 layout (``/entry/data/data`` and
 ``/entry/instrument/NDAttributes/<name>``: the frame's stamps and, since
-0.9.0, the device's subscribed scalars as pushed with the frame —
-``Planning/native_bluesky/08_gated_batch.md`` §4.4).  The PV contract is the
+0.9.0, the device's subscribed scalars as pushed with the frame).  The PV
+contract is the
 ``NDFileHDF5IO`` set ophyd-async 0.19.3 connects (every annotated suffix
 must exist, served under ``<experiment>:<device>:<variable>:hdf1:``) plus
 three GEECS PVs: ``Rewind`` (drop the frames past a count and any later
@@ -20,7 +19,7 @@ session state and the file handle.  The one thing read across threads is
 the worker's held frame (``last_frame``): a reference the loop replaces
 and the writer reads once at arm — never mutated, so no lock.
 
-Session semantics (§4 of the design):
+Session semantics:
 
 - ``Capture=1`` validates the parameters, zeroes the session readbacks
   (``NumCaptured_RBV`` first of all: the stock data logic baselines on it
@@ -52,7 +51,7 @@ ignored, and ``FilePathExists_RBV`` answers for the directory the worker
 claimed (root ``CLAUDE.md``, the scan-folder invariant).  HDF5 SWMR is
 never used across SMB: ``SWMRMode`` is accepted and ignored, the writer
 flushes per frame with file locking off, and readers open the closed
-``libver="latest"`` file afterwards (§5 of the design).
+``libver="latest"`` file afterwards.
 """
 
 from __future__ import annotations
@@ -113,7 +112,7 @@ PLUGIN_SUFFIX = HDF_PLUGIN_SUFFIX
 #: the two frame stamps (:data:`ATTRIBUTE_SUFFIXES`) and then one per
 #: subscribed scalar of the device (``CameraSpec.scalar_variables``, the
 #: DB ``get='yes'`` list — the same columns a strict row carries for that
-#: device, so a gated row is the same row; ``08_gated_batch.md`` §4.4).
+#: device, so a gated row is the same row).
 #: The stock ``ADHDFDataLogic`` turns attribute names into stream data
 #: keys verbatim, so the names must be **unique across the cameras of one
 #: run** (bare ``acq_timestamp`` collided on the second camera,

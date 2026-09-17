@@ -11,9 +11,8 @@ poetry run geecs-data-portal --experiment Undulator   # serves on :8200
 ```
 
 Requires the `[tiled]` section of `~/.config/geecs_python_api/config.ini`
-(the same file every GEECS-Plugins package reads).  Design and arc plan:
-`Planning/data_portal/01_data_portal_scope.md`; developer rules:
-`CLAUDE.md` here.
+(the same file every GEECS-Plugins package reads).  Design and developer
+rules: `CLAUDE.md` here.
 
 ## Two-dimensional scans
 

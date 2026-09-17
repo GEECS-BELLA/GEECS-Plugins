@@ -154,7 +154,7 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
         self.flag_save_data = flag_save_data
         self.file_tail = file_tail
         self.analysis_mode = analysis_mode
-        # Data-source selection (capture arc, Planning/data_capture/):
+        # Data-source selection:
         # "device_hdf5" opts in to the per-device capture frame stack
         # (<device>/<device>.h5) with automatic fallback to per-shot files;
         # None/"per_shot_files" is today's behavior, unchanged.

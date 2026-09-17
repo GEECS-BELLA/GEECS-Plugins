@@ -4,8 +4,18 @@ The web scanner console: a FastAPI service on the worker host that submits,
 watches and stops scans through `geecs_bluesky.qs_client`. The third surface
 on the GEECS surface kit (GeecsWebTheme), a peer of the Data Portal and the
 logbook, and the operator front end (it replaced the PySide6 GEECS-Console,
-deleted 2026-09-14). The arc brief is
-`Planning/native_bluesky/10_web_scanner.md` (#869); read it before changing shape.
+deleted 2026-09-14; #869).
+
+**The Start gate's form-shape check is client-side only.** `S.formable`
+in `static/scanner.js` disables the Start button for a "retired or
+unsupported preset plan"; nothing on the server has an equivalent.
+`POST /api/submit` does validate — `ScannerService.submit` runs the
+`Preset` schema, then preflight, and raises `invalid_request` on any
+refusal (an unregistered plan, a device outside the worker's tree) — but a
+preset the page refuses to build a form for is still submittable by `curl`
+if it validates and passes preflight. Treat the gate as an affordance,
+never a validation boundary: a plan-shape rule that must hold belongs in
+the service layer or the schema.
 
 ## Layout
 
@@ -47,7 +57,7 @@ deploy/           the unit template + DEPLOYMENT.md
 - **Plan-name generic.** `POST /api/submit` takes a preset whose plan call
   names any allowed plan. There is no mode enum in the API — an optimize
   plan, when it exists on the worker, is one more name and one more form
-  section, not an API change (brief §5).
+  section, not an API change.
 - **The catalog lists pseudo entries as scannable** (#879, the pseudo arc
   #904): a pseudo has no single `target`, the worker binds it as a
   namespace noun under its catalog name and `expand_preset` resolves it;

@@ -4,6 +4,14 @@ All notable changes to `geecs-mcp` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.9.1] - 2026-09-16
+
+### Changed
+
+- Strip the `Planning/` provenance citations from docstrings and comments: a
+  docstring now states the rule itself, and the derivation stays in git
+  history. Part of the `Planning/` prune (#931); no behaviour change.
+
 ## [0.9.0] - 2026-09-16
 
 ### Removed
@@ -206,6 +214,7 @@ stop/pause/resume is unchanged.
   only, so it was a phantom the queue would never run (#750 review). The writer/reader contract is now pinned in
   ScanAnalysis's suite, so a `TaskStatus.to_dict()` change fails a test
   there instead of silently drifting from this tool.
+
 ## [0.8.2] - 2026-09-01
 
 ### Fixed

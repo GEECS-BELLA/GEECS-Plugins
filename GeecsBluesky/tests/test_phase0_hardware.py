@@ -12,14 +12,13 @@ box)::
     GEECS_HW_SCAN_END=1 GEECS_HW_SCAN_STEP=0.5 GEECS_HW_SAVE=1 \\
     poetry run python -u -m pytest tests/test_phase0_hardware.py -m hardware -s
 
-What it proves (``Planning/native_bluesky/03_clean_room_rebuild.md`` §8,
-phase 0): a :class:`GeecsDetector` built for a real camera, a
+What it proves (phase 0): a :class:`GeecsDetector` built for a real camera, a
 :class:`ShotControl` built from the trigger profile, and stock
 ``bp.count`` / ``bp.list_scan`` with :func:`geecs_per_shot` /
 :func:`geecs_per_step` run a strict GEECS scan — the detector's own
 lifecycle turns native saving on and off, every row carries the shot's
 stamp, and the files land in the claimed scan folder.  Also records the
-per-shot timing the §7 budget depends on.
+per-shot timing the per-shot budget depends on.
 
 **MOVES HARDWARE** when ``GEECS_HW_SCAN_VARIABLE`` is set: the swept
 setpoint is restored to its pre-scan setpoint in a ``finally``.  With

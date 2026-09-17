@@ -29,7 +29,7 @@ There is no converter from the legacy ``actions:`` dialect any more: the
 corpus was regenerated once as ``ActionPlanLibrary`` documents (0.22.0) and
 is authored v1-only since; a consumer meeting the legacy shape refuses it.
 
-In the target architecture (vision doc §4.5) a plan compiles to Bluesky plan
+In the target architecture a plan compiles to Bluesky plan
 stubs, inheriting abort/logging/event emission for free.
 """
 

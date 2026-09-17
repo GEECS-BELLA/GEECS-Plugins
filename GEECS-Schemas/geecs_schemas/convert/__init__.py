@@ -13,7 +13,7 @@ its ``assigned_actions.yaml`` companion) is refused by its consumers.
 One module per legacy dialect; every converter accepts a parsed dict or a
 YAML path and fails loudly (:class:`SchemaConversionError`) naming exactly
 what could not be mapped.  Migration converters live next to the schemas
-they migrate (vision doc §4) so a flag day is never needed.
+they migrate so a flag day is never needed.
 """
 
 from geecs_schemas.convert._common import SchemaConversionError

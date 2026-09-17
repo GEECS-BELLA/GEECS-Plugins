@@ -25,8 +25,8 @@ each camera's stack — and its rows are the per-shot sampler's ``shots``
 events; a *non-essential* camera streams into its own ``<name>_stream``
 whichever mode the run used.  Either way the per-frame columns are joined
 onto the rows by offset-corrected stamp
-(:mod:`geecs_data_utils.shot_join`, ``Planning/native_bluesky/08_gated_batch.md``
-§4.5): one s-file row per essential shot, orphan frames left in the stack.
+(:mod:`geecs_data_utils.shot_join`): one s-file row per essential shot,
+orphan frames left in the stack.
 
 This module is a **consumer** of scan folders: it writes into an
 already-claimed ``scans/ScanNNN/`` folder but never creates one (the
@@ -190,7 +190,7 @@ def join_frame_columns(
 
     One row per shot, always: a frame with no row inside the join window is
     an orphan and is dropped here (it stays in the stack and in Tiled —
-    ``08_gated_batch.md`` §4.5, Sam's answer to §6 Q4), and a row with no
+    Sam, 2026-09-12), and a row with no
     frame from a source gets ``NaN`` in that source's columns.  Orphans and
     duplicates are logged per source; for a gated run's *essential* cameras
     both are zero by construction (the batch trims to the quota), so a
@@ -462,8 +462,7 @@ def _descriptor_drain_offsets(node: Any) -> dict[str, float]:
     2026-09-12: ``{object: {"data": {"<object>-drain_offset": …}}}``); a
     writer that nests the whole descriptor list under ``descriptors``
     instead is read as well.  Missing either way means ``0.0``, which is
-    what every offset reads until the sync calibration (``03`` §11.7,
-    §4.F) sets them.
+    what every offset reads until the sync calibration sets them.
     """
     metadata = node.metadata
     blocks = [metadata.get("configuration") or {}]

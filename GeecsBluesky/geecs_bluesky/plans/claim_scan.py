@@ -1,14 +1,13 @@
 """Claim the next day-scoped scan number and folder — the scanner-side act.
 
 Day-scoped scan numbering with a multi-writer claim protocol is one of the
-GEECS things with no native Bluesky home
-(``Planning/native_bluesky/03_clean_room_rebuild.md`` §6).  This module is
+GEECS things with no native Bluesky home.  This module is
 the **only** place in GeecsBluesky allowed to bring a ``scans/ScanNNN/``
 folder into existence (the cross-package invariant in the root
 ``CLAUDE.md``): every analysis-side consumer treats the folder as
 pre-existing.
 
-Three pieces, one job each (§4.C):
+Three pieces, one job each:
 
 - :func:`claim_scan` — the claim itself (``geecs_data_utils.ScanPaths``).
 - :class:`GeecsScanPathProvider` — the ophyd-async ``PathProvider`` every

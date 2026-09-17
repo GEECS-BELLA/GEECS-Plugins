@@ -17,6 +17,17 @@ end-user scripts (`client`). It was extracted from GeecsCAGateway
 (2026-08-20) — the operational wire-protocol history ("quirks that bit us")
 still lives in `GeecsCAGateway/CLAUDE.md`.
 
+The capability inheritance chain (`db/geecs_db.py::_merge_variable_rows`)
+resolves **wholesale**: when a `variable` row exists for a device+variable
+it replaces the `devicetype_variable` row in full, with no field-level
+fallback — an instance row with NULL limits means that instance has *no*
+limits. Anything wanting a type-level default under an instance row needs a
+deliberate per-field coalesce, which is a departure from this rule, not an
+instance of it. What the gateways then serve from these rows —
+`.DESC` and its 40-character EPICS limit, enum resolution, control
+limits — is the gateway's contract: `GeecsCAGateway/PV_CONTRACT.md` and
+`GeecsCAGateway/deploy/variable_description.sql`.
+
 Import hygiene: `import geecs_core.transport` must stay stdlib-only — the
 package `__init__` exports the exception tree eagerly and everything heavier
 lazily. Do not add eager `db`/`client` imports there.

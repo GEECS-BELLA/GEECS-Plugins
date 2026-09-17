@@ -1,4 +1,4 @@
-"""The GEECS outputs of a run, as RunEngine callbacks (plan of record §4.C).
+"""The GEECS outputs of a run, as RunEngine callbacks.
 
 Three document callbacks, each best-effort — a failure is logged and never
 raised back into the RunEngine, the scan itself is the priority:
@@ -20,7 +20,7 @@ raised back into the RunEngine, the scan itself is the priority:
   events of a gated one, and the per-frame columns of every datum-only
   stream (a gated run's cameras, a non-essential camera) are joined onto
   them by offset-corrected stamp — one row per essential shot, orphan
-  frames left in the stack (``08_gated_batch.md`` §4.5).
+  frames left in the stack.
 - :class:`ScanLogCallback` — ``scan.log`` attached from the start document
   to the stop document (:class:`geecs_bluesky.scan_log.ScanLogFile`).
 - :class:`StackCheckCallback` — at the stop document, for every image
@@ -32,8 +32,8 @@ raised back into the RunEngine, the scan itself is the priority:
   count equals the datums' total width, and a *gated* stack's stamps are
   compared with the ``shots`` rows besides (one frame per shot, none
   orphaned — the batch trims to the quota, so anything else is a defect).
-  Synchronicity is checked per scan, never assumed
-  (``06_pva_file_plugin.md`` §2.1); a mismatch is a warning in ``scan.log``.
+  Synchronicity is checked per scan, never assumed; a mismatch is a
+  warning in ``scan.log``.
 
 All four read the GEECS keys the claim preprocessor put in the start
 document (``scan_number``, ``scan_folder``, ``geecs_scalar_headers``) and
@@ -202,8 +202,8 @@ class _RunStreams:
     stacks :
         Data key → the stack it references.
     drain_offsets :
-        Object name → its ``drain_offset`` config value, seconds (``03``
-        §11.4; read from the streams' descriptor configuration).
+        Object name → its ``drain_offset`` config value, seconds (read from
+        the streams' descriptor configuration).
     """
 
     rows: dict[str, list[tuple[int, dict[str, Any]]]] = field(default_factory=dict)
@@ -413,7 +413,7 @@ def await_finalized(path: Path, timeout: float) -> bool:
     The stop document precedes ``unstage`` (``Capture=0``, when the plugin
     closes the file), so a stack must never be read at the stop document
     itself; the ``finalized`` root attribute is the plugin's "done" flag
-    (``06_pva_file_plugin.md`` §5 — read through
+    (read through
     :func:`~geecs_data_utils.io.scan_stack.open_stack`, lock-free).
 
     Parameters
@@ -584,7 +584,7 @@ class SFileCallback(_StreamCallback):
     Every **datum-only** stream of the run — a gated run's cameras, a
     non-essential camera in either mode — has its per-frame columns joined
     onto those rows by offset-corrected stamp
-    (:mod:`geecs_data_utils.shot_join`, ``08_gated_batch.md`` §4.5): one
+    (:mod:`geecs_data_utils.shot_join`): one
     s-file row per essential shot, a camera's per-frame scalars spelled as
     a strict row spells them, and a frame with no shot inside the window
     left where it is (in the stack and in Tiled, out of the s-file).
@@ -774,8 +774,7 @@ class StackCheckCallback(_StreamCallback):
     - a **gated** run's datum-only ``primary``: the count, plus the
       ``shots`` rows — the sampler ticked once per shot and the batch
       trimmed every stack to the quota, so *every* row must own exactly one
-      frame within the join window and no frame may be orphaned
-      (``08_gated_batch.md`` §4.5);
+      frame within the join window and no frame may be orphaned;
     - any other datum-only stream (a non-essential ``<name>_stream``): the
       count alone — a non-essential camera's frame for shot *k* may land
       during *k+1* and an orphan there is normal, not a defect.
@@ -784,7 +783,7 @@ class StackCheckCallback(_StreamCallback):
     finalizes and closes the file), and a run callback must not block the
     RunEngine — so the check runs on a small thread that waits, bounded,
     for the ``finalized`` root attribute before reading (lock-free, via
-    ``geecs_data_utils.io.scan_stack.open_stack``; design §5).  By then
+    ``geecs_data_utils.io.scan_stack.open_stack``).  By then
     ``scan.log`` is closed, so the verdict is appended to it directly as
     well as logged.
 

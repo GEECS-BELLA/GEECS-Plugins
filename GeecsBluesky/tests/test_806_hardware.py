@@ -3,7 +3,7 @@
 Hardware-marked **and** gated on ``GEECS_HW=1`` (it arms the trigger and
 fires shots).  Run in process on the worker host, from a checkout whose
 ``config.ini`` lists the camera's server in ``[pva] file_plugin_addr_list``
-and carries ``[Paths] geecs_pva_plugin_data_base_path`` (design §8 step 3)::
+and carries ``[Paths] geecs_pva_plugin_data_base_path``::
 
     GEECS_HW=1 GEECS_SCANNER_CONFIG_DIR=.../GEECS-Plugins-Configs/scanner_configs/experiments \\
     poetry run python -u -m pytest tests/test_806_hardware.py -m hardware -s

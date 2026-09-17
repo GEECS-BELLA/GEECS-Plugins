@@ -3,8 +3,8 @@
 The owner's doctrine amendment (2026-08-29): a diagnostic's full data for
 one scan is ~100s of MB — trivial against server RAM, while every NAS/
 Tiled round trip is the real cost.  So the portal now loads *within-scan*
-data eagerly and keeps it: the scope doc's "lazy loading is a hard rule"
-still governs *across-scan* eagerness (never thumbnail whole days), but
+data eagerly and keeps it.  "Lazy loading is a hard rule" still governs
+*across-scan* eagerness (never thumbnail whole days), but
 navigating one run's shots must not re-read the share per click.
 
 Two caches, both process-local and thread-safe (FastAPI threadpool):

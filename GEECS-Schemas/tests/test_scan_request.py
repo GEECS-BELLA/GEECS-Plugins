@@ -55,7 +55,7 @@ class TestScanRequest:
         assert again == request
 
     def test_vision_yaml_sketch_validates(self):
-        # The vision doc §4.1 sketch, updated for the axes-list shape (the
+        # The original vision sketch, updated for the axes-list shape (the
         # single variable/positions pair became a one-entry axes list when
         # grid scans were added — maintainer scope addition, 2026-07-07).
         request = ScanRequest.model_validate(
@@ -292,7 +292,7 @@ class TestSubmissionRecord:
 
 
 class TestV1Migration:
-    """The v1→v3 lifting validator (Planning/schema_refactor/00_overview.md)."""
+    """The v1→v3 lifting validator."""
 
     def test_flat_v1_layout_lifts_into_capture(self):
         request = make_step_request()  # flat layout by construction

@@ -32,8 +32,9 @@ from geecs_data_utils.geecs_paths_config import GeecsPathsConfig
 # Extend HERE when a new device format lands, never with a consumer-local
 # set.
 
-#: Vendor-SDK-only formats (the scope doc's Tier C — HASO wavefront
-#: sensors): findable, never parsed off-Windows; readers show a path card.
+#: Vendor-SDK-only formats (Tier C of the portal's resource ladder — HASO
+#: wavefront sensors): findable, never parsed off-Windows; readers show a
+#: path card.
 VENDOR_ONLY_EXTS = frozenset({"himg", "has"})
 
 # Every extension a device folder legitimately holds (what the extension

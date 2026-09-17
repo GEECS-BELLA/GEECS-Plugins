@@ -1,9 +1,7 @@
 # GEECS → EPICS CA Gateway — Design Note
 
 *Status: proof of concept, verified end-to-end against real hardware (2026-07-01).*
-*Home: this note lives with the package; the strategic framing belongs alongside
-the bluesky planning docs (`geecs-plugins-bluesky/…/Planning/`) — copy it there
-when that tree is the working context.*
+*Home: this note lives with the package.*
 
 ## Problem
 

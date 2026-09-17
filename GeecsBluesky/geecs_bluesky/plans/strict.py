@@ -5,10 +5,9 @@ scan plans' ``per_step``) take a ``take_reading`` callable whose default is
 ``bps.trigger_and_read``.  A GEECS camera acquires only when the trigger box
 fires, so the one thing GEECS changes is **where the fire goes**: between
 the triggers and the wait.  :func:`geecs_take_reading` is
-``trigger_and_read`` with that one difference plus the bounded retake
-(``Planning/native_bluesky/03_clean_room_rebuild.md`` §4.B, §11.5 — why
-free-running edges are not an exact substitute; ``06_pva_file_plugin.md``
-§2.1 — why a missed frame keeps its row and adds one).
+``trigger_and_read`` with that one difference plus the bounded retake:
+free-running edges are not an exact substitute for a fired shot, and a
+missed frame keeps its row and adds one.
 
 Everything else is the stock plan: ``bp.list_scan(dets, motor, points,
 per_step=geecs_per_step(shot_control))`` moves, checkpoints, rewinds and
@@ -121,14 +120,14 @@ def _log_non_frame_failure(exc: FailedStatus) -> None:
 def fire_and_await_shot(devices: Sequence[Any], fire: Callable):
     """Arm the waiters, fire one shot, await every device; return the ones that missed.
 
-    The one GEECS line in the scan path (§4.B): the fire sits *between* the
+    The one GEECS line in the scan path: the fire sits *between* the
     triggers and the wait, so every detector has baselined its stamp before
     the shot exists.  Each triggerable is awaited in its own group, so
     every device's outcome is known — a no-frame timeout on one device
     (:exc:`~geecs_bluesky.exceptions.GeecsTriggerTimeoutError`) does not
     hide the others'.  The devices that missed are returned; the caller
-    records the row with their columns empty and decides on another shot
-    (design §2.1).  A frameless device whose ``CONNECTED`` PV reads
+    records the row with their columns empty and decides on another shot.
+    A frameless device whose ``CONNECTED`` PV reads
     Disconnected went down mid-scan, so
     :exc:`~geecs_bluesky.exceptions.GeecsDeviceDownError` is raised instead —
     another shot cannot help.  Any other failed status (a refused
@@ -219,7 +218,7 @@ def geecs_take_reading(
 ) -> Callable[[Sequence[Any]], Any]:
     """Return a ``take_reading`` that fires the trigger box between trigger and wait.
 
-    A missed frame does not void the row (design §2.1, Sam 2026-09-11): the
+    A missed frame does not void the row (Sam 2026-09-11): the
     row is saved with every scalar the shot produced — the missing device's
     columns empty (``NaN``, stamp included) — and **one more shot** is
     taken for the step, up to *max_refires* extra shots, until a complete

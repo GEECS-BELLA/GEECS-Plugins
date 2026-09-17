@@ -197,7 +197,7 @@ async def test_stock_adhdf_data_logic_drives_the_plugin(tmp_path, monkeypatch):
 
     cam = StampedCamera()
     await cam.start()
-    # The device's subscribed scalars ride in the stack (08 §4.4): two here,
+    # The device's subscribed scalars ride in the stack: two here,
     # one of which the camera omits on the second shot.
     gateway, task = await _start_gateway(cam, ("MaxCounts", "Mean Counts"))
     # ophyd-async's PVA context reads the environment once; point it at the

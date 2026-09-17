@@ -2,8 +2,8 @@
 
 The logbook is its own service since 0.10.0 — its own port, unit and
 state directory — after riding inside the Data Portal's process as a
-router at ``/log``. The web-scanner brief's argument settled it: a write
-path holding irreplaceable data should not live inside a process the
+router at ``/log``. The argument that settled it: a write path holding
+irreplaceable data should not live inside a process the
 fleet kills on purpose (the portal's ``MemoryMax=`` is *meant* to fire).
 
 The web glue every GEECS surface shares — the ``X-Forwarded-Prefix``

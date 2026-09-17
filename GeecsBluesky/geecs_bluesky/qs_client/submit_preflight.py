@@ -38,8 +38,8 @@ Checks, in order (names are the ``PreflightOutcome.check`` vocabulary):
   list were truly empty); a client without a ``[qserver]`` config is
   skipped too.  Reads the caller's :class:`~.client.QueueClient` when
   given (``client=``), else builds and closes one from the shared config.
-  Two phase-2 rules read off the same device tree
-  (``08_gated_batch.md`` §4.3, §4.7): every ``non_essential`` device, and
+  Two phase-2 rules read off the same device tree: every ``non_essential``
+  device, and
   every essential *camera* of a ``gated`` run, must be plugin-backed (the
   tree lists the ``hdf`` child of a plugin-backed detector — a
   LabVIEW-native camera has ``save`` but no ``hdf``); and a gated run

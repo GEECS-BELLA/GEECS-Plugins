@@ -2,8 +2,7 @@
 
 Same conventions as :mod:`.read_tools` (sync ``_*_impl`` = the tested
 surface, async wrappers via the guard, JSON envelopes, engine text
-verbatim).  The safety doctrine (owner decisions 2026-08-22 + the
-planning doc §2):
+verbatim).  The safety doctrine (owner decisions 2026-08-22):
 
 - ``stop_scan`` refuses another client's scan by name unless
   ``force=true`` (approval-gated osprey-side, and always logged in the

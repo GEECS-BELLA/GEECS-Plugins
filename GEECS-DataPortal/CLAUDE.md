@@ -2,16 +2,15 @@
 
 The scan-browsing web service — read-only except explicit analysis runs
 (0.16.0): a zero-install browser view over the Tiled catalog (and, from
-phase 4, the data share's image files) for anyone on the lab network.  **The scope document is the spec**:
-`Planning/data_portal/01_data_portal_scope.md` — read it before extending
-this package; the architecture rules below are its distillation.
+phase 4, the data share's image files) for anyone on the lab network.
+**The architecture rules below are the spec** — read them before
+extending this package.
 
 ## Architecture rules
 
 - **Read-only, except explicit analysis runs, the config editor, and
   sending a plot to the logbook** (charter amendments: owner rulings
-  2026-09-01 — `Planning/data_portal/04_analysis_run_design.md` —
-  2026-09-06, and 2026-09-15).
+  2026-09-01, 2026-09-06, and 2026-09-15).
   The portal itself has no write verbs: no annotations.  Three
   exceptions, all explicit opt-ins.  (A MOUNTED scan logbook was a
   fourth, 0.22–0.26: a router at `/log` behind a `log` extra.  Since
@@ -100,7 +99,7 @@ this package; the architecture rules below are its distillation.
   `matplotlib.figure.Figure`, never pyplot: no global figure registry
   on FastAPI's threadpool) remain for `plot.png`-style endpoints;
   interactive analysis tabs render client-side from the `/api` JSON.
-- **The three-layer analysis contract** (03 design doc): pure
+- **The three-layer analysis contract**: pure
   primitives live in GEECS-Data-Utils (`scan_frame`, `row_filters`,
   `binning`) → the portal's `/api` endpoints are **one-liners over
   those primitives** (parsing/JSON chores live in
@@ -151,7 +150,7 @@ this package; the architecture rules below are its distillation.
   FastAPI runs sync endpoints on a threadpool.  Keep endpoints sync
   unless something genuinely needs async.
 - **Eager WITHIN a scan, lazy ACROSS scans** (owner amendment,
-  2026-08-29, superseding the scope doc's blanket "lazy loading is a
+  2026-08-29, superseding the arc's original blanket "lazy loading is a
   hard rule"): one diagnostic's per-scan data is ~100s of MB — trivial
   against server RAM, while every NAS/Tiled round trip is the real
   cost.  `geecs_portal.cache` holds completed runs' details
@@ -273,11 +272,12 @@ processes each member THEN averages (nonlinear-correct).  The feature
 is **explicit-opt-in**: `--processing-configs <tree>` /
 `create_app(processing_config_dir=…)` names the configs tree — the
 portal deliberately never falls back to the global config resolution
-(design doc finding 7), and ImageAnalysis rides the optional
+(two competing resolution paths exist, so the portal names its tree
+explicitly), and ImageAnalysis rides the optional
 `analysis` extra; missing either hides the selector and 404s the
 param.  Errors map honestly: unknown diagnostic 404,
 denylisted/miswired 400, analyzer failure 400 — never a 500.
-**Analysis runs** (0.16.0, the 04 design): `GET /api/run/{uid}/analysis`
+**Analysis runs** (0.16.0): `GET /api/run/{uid}/analysis`
 lists every loadable diagnostic in the same `--processing-configs`
 tree with `applicable` (its data device — `scan.device`, else the
 name — has a folder in this scan), its in-memory `job` record
@@ -384,7 +384,8 @@ must move in the same PR as any deployment change.
 
 ## The resource viewer (`resources.py`, arc phase 4)
 
-(run, device, shot) → displayable image, per the scope doc's tiering.
+(run, device, shot) → displayable image, per the Tier A/B/C ladder in
+`resources.py`.
 Since 0.12.0 the ladder resolves to raw pixels first
 (`load_shot_array` → `ShotArray`); `load_shot_image` is the
 render-one-shot wrapper over it, and per-bin averaging consumes the

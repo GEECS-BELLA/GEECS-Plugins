@@ -6,8 +6,7 @@ The web view layer over :class:`geecs_data_utils.tiled_catalog.ScanCatalog`
 day → scan → metadata/plots navigation, reachable from any browser on the
 lab network with nothing to install.
 
-Architecture rules (see this package's ``CLAUDE.md`` and
-``Planning/data_portal/01_data_portal_scope.md``):
+Architecture rules (see this package's ``CLAUDE.md``):
 
 - **Read-only by doctrine** — no write verbs; nothing on the scans path
   is ever created (repo scan-folder invariant).
@@ -395,13 +394,13 @@ def create_app(
         Root of the scan-analysis configs tree for the Images tab's
         ephemeral-processing selector. ``None`` (the default) turns
         the feature OFF — the portal never falls back to the global
-        config resolution (the 03 design doc's finding 7: two
-        competing resolution paths exist, so the portal names its
-        tree explicitly). The selector also hides itself when
+        config resolution (two competing resolution paths exist, so
+        the portal names its tree explicitly). The selector also hides
+        itself when
         ImageAnalysis (the ``analysis`` extra) is not installed.
     analysis_factory : callable, optional
         ``(analyzer_id, config_dir) -> ScanAnalyzer`` for the analysis
-        runs (``/api/run/{uid}/analysis``, the 04 design). ``None``
+        runs (``/api/run/{uid}/analysis``). ``None``
         (the default) uses the real ScanAnalysis factory, which then
         also needs the ``analysis`` extra; tests inject a fake. The
         feature shares ``processing_config_dir`` — the unified
@@ -428,7 +427,7 @@ def create_app(
         therefore explicit opt-in — ``--config-editor`` on the CLI; nothing
         without ``processing_config_dir`` and the ``analysis`` extra.
     """
-    # The analysis-run worker (04 design) outlives requests: built
+    # The analysis-run worker outlives requests: built
     # before the app so the lifespan can refuse new runs and log any
     # in-flight one at shutdown (a running job cannot be interrupted —
     # the interpreter joins the worker at exit; see DEPLOYMENT.md).
@@ -758,7 +757,7 @@ def create_app(
         }
 
     # ------------------------- analysis JSON API -------------------------
-    # One-liners over the data-utils primitives (03 design doc): every
+    # One-liners over the data-utils primitives: every
     # response is reproducible in a notebook by the snippet it carries.
 
     @app.get("/api/run/{uid}/columns")
@@ -1153,7 +1152,7 @@ def create_app(
             processing_cache[fingerprint] = valid
         return valid
 
-    # ---- analysis runs (04 design: direct ScanAnalysis execution) ----
+    # ---- analysis runs (direct ScanAnalysis execution) ----
     factory = analysis_factory or analysis_runs.scan_analysis_factory
 
     def _analysis_enabled() -> bool:
@@ -2033,7 +2032,7 @@ def create_app(
             headers=_png_headers(detail),
         )
 
-    # ---- the analysis config editor (04 design "deferred": its own arc) ----
+    # ---- the analysis config editor (deferred to its own arc) ----
     # Mounted at /configs over the processing tree. The store writes only
     # into that tree (never the scans tree); the live preview renders the
     # UNSAVED document on the current shot through the same write-free

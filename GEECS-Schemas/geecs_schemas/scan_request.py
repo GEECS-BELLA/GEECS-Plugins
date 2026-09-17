@@ -8,8 +8,8 @@ queue is a list of them.  You would edit one to save a scan you run often.
 
 Developer notes
 ---------------
-This is the one submission object of the target architecture (vision doc
-§4.1): clients build a ``ScanRequest`` and call ``session.run(request)``.
+This is the one submission object of the target architecture: clients
+build a ``ScanRequest`` and call ``session.run(request)``.
 Legacy scan presets (``Scan Mode`` / ``Start`` / ``Stop`` / ``Step Size`` /
 ``Shot per Step`` / ``Num Shots`` / ``Devices`` / ``Info``) convert into it;
 ``ScanInfo`` and run metadata become projections of it.
@@ -25,7 +25,7 @@ Design decisions carried from the legacy system:
   (``GEECS_BLUESKY_ACQUISITION_MODE``).
 - ``actions.per_step`` exists from day one: "actions between scan steps" is
   composition (a named plan at the step boundary), never a new plan type —
-  that is this schema's acceptance test (vision doc §4.5).
+  that is this schema's acceptance test.
 - Step scans declare ``axes: [ScanAxis]`` (variable + positions per axis).
   One axis is the legacy 1-D scan; several form an outer-product grid
   (first axis outermost/slowest, last innermost/fastest). The schema is
@@ -33,7 +33,7 @@ Design decisions carried from the legacy system:
   the adapting. Grid *execution* lands in a later milestone; v1 has no
   traversal-ordering options (see the class docstring).
 
-Schema v2 (the capture refactor, ``Planning/schema_refactor/00_overview.md``):
+Schema v2 (the capture refactor):
 
 - The seven capture-concern fields (``shots_per_step``, ``acquisition``,
   ``save_sets``, ``background_telemetry``, ``native_image_save``,

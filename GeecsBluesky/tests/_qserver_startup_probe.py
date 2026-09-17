@@ -119,7 +119,7 @@ def main() -> None:
                 return
             continue
         if name in CALIBRATION_PLAN_NAMES:
-            # The two once-run shot-offset plans (§4.F) are GEECS plans, not
+            # The two once-run shot-offset plans are GEECS plans, not
             # stock verbs: they take a detector list but no positions and no
             # strict hook, so the stock-verb assertions below do not apply.
             parameters = inspect.signature(plan).parameters

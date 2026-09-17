@@ -582,7 +582,7 @@ def test_a_gated_scan_writes_its_s_file_from_the_shots_rows_and_the_stacks(
     sampler's ``shots`` stream (the gauge, the motor's readback, the bin and
     the clock camera's stamp) and each camera's per-frame scalars are joined
     on from the stack the plugin wrote.  The second camera stamps 120 ms
-    after the clock (cross-device drain, ``03`` §11.4) and still joins,
+    after the clock (cross-device drain) and still joins,
     bringing its own stamp column with it; the in-flight frame after OFF has
     no shot row and stays out of the s-file.
     """
@@ -1010,7 +1010,7 @@ def test_the_offline_re_export_reproduces_the_live_s_file_of_a_gated_run(
 def test_a_gated_run_with_a_non_essential_camera_joins_both_stream_shapes(
     RE, gated_worker, tmp_path
 ):
-    """08 §4.3 allows both mechanisms in one run; nothing covered the pair.
+    """Both stream shapes are allowed in one run; nothing covered the pair.
 
     The gated camera's stack is referenced by the datum-only ``primary`` and
     the streamed camera's by its own ``<name>_stream``: two different stream

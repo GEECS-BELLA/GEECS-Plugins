@@ -4,6 +4,20 @@ All notable changes to `geecs-core` are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and semantic versioning.
 
 
+## [0.8.3] - 2026-09-16
+
+### Changed
+
+- Strip the `Planning/` provenance citations from docstrings and comments: a
+  docstring now states the rule itself, and the derivation stays in git
+  history. Part of the `Planning/` prune (#931); no behaviour change.
+- `CLAUDE.md`: state the capability inheritance rule this package owns — the
+  `variable` row replaces the `devicetype_variable` row **wholesale**, with no
+  field-level fallback, so a type-level default under an instance row needs a
+  deliberate per-field coalesce and is a departure from the rule. What the
+  gateways serve from those rows (`.DESC`, its 40-character EPICS limit,
+  control limits) stays the gateway's contract and is pointed at, not copied.
+
 ## [0.8.2] - 2026-09-16
 
 ### Changed
@@ -103,6 +117,7 @@ All notable changes to `geecs-core` are documented here, following
   5+ enum lists); `variabletype` is the secondary annotation. Known DB
   defect recorded in the module docstring: 18 Undulator rows with
   `variabletype='numeric'` and an option list should be `choice` (DB sweep).
+
 ## [0.4.1] - 2026-09-14 *(master line, parallel release)*
 
 ### Fixed

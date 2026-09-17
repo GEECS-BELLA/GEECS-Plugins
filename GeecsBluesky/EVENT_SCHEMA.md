@@ -1,7 +1,6 @@
 # GEECS Bluesky documents — what a run carries
 
-The native shape (phase 1 of the rebuild, GEECS-Plugins#807; plan of
-record `Planning/native_bluesky/03_clean_room_rebuild.md` §4): a run is
+The native shape (phase 1 of the rebuild, GEECS-Plugins#807): a run is
 whatever the stock `bluesky.plans` verb emits over the namespace's
 devices, and every GEECS fact rides in the places Bluesky already has for
 it.  There is no GEECS schema version any more — consumers read the
@@ -71,7 +70,7 @@ readers for historical runs. No existing event column changes meaning.
 
 Every `GeecsDetector` records its drain offset
 (`<det>-drain_offset`, seconds — the calibrated edge-to-stamp latency, `0.0`
-until measured, §4.F); the `ShotControl` device records the standing
+until measured); the `ShotControl` device records the standing
 trigger state (`shot_control-state`) when it is read.
 
 ## Event stream `primary`
@@ -79,7 +78,7 @@ trigger state (`shot_control-state`) when it is read.
 | Column | Meaning |
 |---|---|
 | `<det>-<variable>` | The detector's DB-subscribed scalars, one column each (`safe_name`-mangled: `uc_amp4_ir_input-meancounts`) |
-| `<det>-acq_timestamp` | The shot stamp: the join key for that detector's files and for cross-device alignment after the drain offset (§11.3) |
+| `<det>-acq_timestamp` | The shot stamp: the join key for that detector's files and for cross-device alignment after the drain offset |
 | `<det>` | A plugin-backed camera's frames (#806): an external `STREAM:` key — the row's frame is the stream datum's index into `ScanNNN/<device>/<device>.h5` (`/entry/data/data`); `<det>-<variable>` for a second image variable. Absent from a partial row (see below) |
 | `<det>-nonscalar_save_path` | The directory the detector's native files landed in this run — present only when the detector saved natively (`geecs_data_utils.tiled_schema.COMPANION_SUFFIXES` names the suffix) |
 | `<device>-<variable>` | A scalar-only device's subscribed readbacks (`CaSnapshotReadable`) |
@@ -109,7 +108,7 @@ to rows by that stamp — never by position.
 A gated run has no `primary` events at all: the box free-runs and the
 plugin-backed cameras count the frames they write, so `primary` carries
 only their stacks as stream datums.  The per-shot record is the sampler's
-`shots` stream instead (`08_gated_batch.md` §4.7) — **one event per shot**,
+`shots` stream instead — **one event per shot**,
 arriving as event *pages* from a `collect`: the latest value of every
 non-plugin subscribed signal, the scanned motors' readbacks,
 `bin_number`, and the clock device's `acq_timestamp`, which is the shot id
@@ -119,7 +118,7 @@ repeated here; they ride in its stack as per-frame attributes
 
 The s-file of such a run is the `shots` rows with each stack's per-frame
 columns joined on by offset-corrected stamp
-(`geecs_data_utils.shot_join`, §4.5): the attribute
+(`geecs_data_utils.shot_join`): the attribute
 `<ophyd>-hdf-<variable>-frame_acq_timestamp` becomes the column
 `<ophyd>-acq_timestamp` and a subscribed scalar becomes
 `<ophyd>-<scalar>` — the same spellings a strict row uses, so one header
@@ -134,7 +133,7 @@ Every subscribed scalar of the experiment, read at the open and the close
 of every run (`SupplementalData(baseline=namespace.telemetry())`): each
 scalar-only device's columns and each detector's scalar signals, under the
 same keys as in `primary`.  Two rows per run.  Which of them should be
-per-event monitors instead is decided from measurement (§10.4), not up
+per-event monitors instead is decided from measurement (#929), not up
 front.
 
 ## Legacy `Device Variable` headers

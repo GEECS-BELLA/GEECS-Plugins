@@ -4,6 +4,14 @@ All notable changes to `geecs-ca-gateway` are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and semantic versioning.
 
 
+## [0.21.3] - 2026-09-16
+
+### Changed
+
+- `DESIGN.md`: drop the stale pointer to the bluesky clone's `Planning/`
+  tree. The `PV_CONTRACT.md` section references throughout the package are
+  unchanged — that document is live.
+
 ## [0.21.2] - 2026-09-16
 
 ### Fixed
@@ -21,6 +29,7 @@ All notable changes to `geecs-ca-gateway` are documented here, following
   `--set-timeout` flag, the 1.5 s command-ACK budget unchanged) is now on
   this line beside the branch's 0.20.3/0.20.4. The gateway host runs
   master's 0.21.0; nothing branch-side changed.
+
 ## [0.21.0] - 2026-09-15 *(master line, parallel release)*
 
 ### Changed

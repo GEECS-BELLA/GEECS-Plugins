@@ -1,7 +1,7 @@
 """geecs_schemas — versioned Pydantic models for every GEECS scanner config.
 
 Configs are schemas; YAML is just serialization.  This package is the single
-home of the models (vision doc §4): presets (the saved scan: device group +
+home of the models: presets (the saved scan: device group +
 plan call), scan requests, scan variables, trigger profiles, action plans,
 and gateway derived channels — plus converters from the legacy YAML
 dialects still in use (``geecs_schemas.convert``; scan variables, presets

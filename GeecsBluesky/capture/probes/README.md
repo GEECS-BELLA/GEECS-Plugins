@@ -1,7 +1,7 @@
 # Phase-0 capture probes
 
-Empirical gates for the central PVA image-capture arc
-(`Planning/data_capture/01_central_pva_capture_scope.md`). Both scripts are
+Empirical gates for the central PVA image-capture arc (superseded by the
+per-host PVA file plugin, #806). Both scripts are
 read-only standalone tools, run from the **GeecsPvaGateway** poetry env
 (it carries `geecs-core`, `geecs-ca-gateway`, and `p4p`):
 
@@ -64,4 +64,4 @@ strict scan, then compare windowed distinct-timestamp counts across G1, G2
 deep, G2 shallow, and the LV-written files. Camera-server load during the
 run (CPU/RAM via the session-scoped sshd, or the gateway log) is part of
 the observation. Phase-0 results from 2026-08-27 (both gates PASS at 1 Hz,
-11-camera load a non-event) are recorded in the scope doc.
+11-camera load a non-event) are what retired this probe pair.

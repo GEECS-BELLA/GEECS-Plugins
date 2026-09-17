@@ -64,16 +64,42 @@ historical record, not instruction: leave them.)
 open questions, deferred items, strategy that code and CLAUDE.md files
 don't yet record. When a plan is executed (or abandoned), delete its
 directory in the PR that finishes the work; anything still load-bearing
-moves to the owning package's `CLAUDE.md` or the docs site first.
-(Post-M6 the folder lives on the mainline like everything else — the old
-"purged before reaching master" rule died with the two-branch layout;
-delete-when-executed is the whole discipline. Audited 2026-07-13: five
-executed/superseded plans deleted; the survivors each hold live
-deferred-work or strategy content. Re-audited 2026-08-21
-post-queueserver-migration: ten executed plan files deleted
-(acquisition_modes, cutover 00+02, external_assets) with load-bearing
-content extracted to package docs; survivors each hold live deferred
-work.)
+moves to the owning package's `CLAUDE.md` or the docs site first. The
+folder's own `README.md` states the discipline and survives every audit
+(git does not track empty directories, so pruning everything would take
+the convention with it).
+
+**Docstrings state the rule, not its provenance.** A docstring says what
+the invariant *is*, in a sentence that stands on its own — never
+`see Planning/x.md §4.4`. A reader chasing that pointer must either spend
+a read on a several-hundred-line design doc or risk missing the
+constraint, and they pay that tax on every future read. The three homes
+for "why": the invariant goes in the docstring, the derivation stays in
+git history (deleting a plan does not destroy it, and a `git log`
+reference cannot dangle the way a path can), and a rule that binds more
+than one package goes in a `CLAUDE.md`.
+
+Audits (post-M6 the folder lives on the mainline like everything else —
+the old "purged before reaching master" rule died with the two-branch
+layout; delete-when-executed is the whole discipline):
+
+- **2026-07-13** — five executed/superseded plans deleted; the survivors
+  each hold live deferred-work or strategy content.
+- **2026-08-21**, post-queueserver-migration — ten executed plan files
+  deleted (acquisition_modes, cutover 00+02, external_assets) with
+  load-bearing content extracted to package docs.
+- **2026-09-16**, post-native-Bluesky — all 32 remaining files deleted
+  across seven directories: the arcs they planned are on `master`
+  (native_bluesky, data_portal), self-declared superseded
+  (data_capture), or stale against deleted code (device_read_path,
+  schema_refactor, cutover_strategy). Load-bearing content moved first —
+  the DB-metadata join and `.DESC` rules to `GEECS-Core/CLAUDE.md`, the
+  reader-side HDF5-over-SMB rules to `GEECS-Data-Utils/CLAUDE.md`, the
+  two genuinely open items to issues #929 and #930 — and ~140 `Planning/`
+  provenance citations were stripped out of docstrings rather than
+  repointed, which is what the docstring rule above now forbids
+  regrowing. CHANGELOG citations were left dangling on purpose: like the
+  dead branch names, they are historical record, not instruction.
 
 ## Every PR that changes a package
 

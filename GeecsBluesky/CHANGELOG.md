@@ -4,6 +4,17 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.94.1] - 2026-09-16
+
+### Changed
+
+- Strip the `Planning/` provenance citations from docstrings and comments: a
+  docstring now states the rule itself, and the derivation stays in git
+  history. Part of the `Planning/` prune (#931); no behaviour change.
+- `CLAUDE.md` is now the design of record for the native-Bluesky rebuild:
+  the arc landed on `master`, so the rules live here and the derivation is
+  in the arc's merged history.
+
 ## [0.94.0] - 2026-09-16
 
 ### Changed
@@ -1669,6 +1680,7 @@ the hardware acceptance (§5) is owed.
   (GEECS-Schemas 0.15.0: TriggerProfile v2, ScanRequest v3). One profile
   file per operating condition, named in `trigger_profile`, is the only
   shape; older documents lift automatically.
+
 ## [0.71.1] - 2026-09-01
 
 ### Documentation
@@ -1736,6 +1748,7 @@ the hardware acceptance (§5) is owed.
   disconnect coroutines); optimize provisioning/skip tests and telemetry
   tests moved onto the plan suite's mock RunEngine; the document-parity
   tests now compare `session.run` against the queue call shape.
+
 ## [0.70.2] - 2026-09-01
 
 ### Fixed

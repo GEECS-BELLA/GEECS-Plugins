@@ -427,7 +427,7 @@ class TestReportShape:
 
 
 class TestAcquisitionRules:
-    """The phase-2 device rules over the manager's device tree (``08`` §4.3, §4.7)."""
+    """The phase-2 device rules over the manager's device tree."""
 
     TREE = [
         "UC_Plugin",

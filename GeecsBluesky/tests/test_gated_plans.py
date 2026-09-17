@@ -1,6 +1,6 @@
 """The gated batch and the non-essential stream on mocks (phase 2b, #807).
 
-``08_gated_batch.md`` §4.2 / §4.3 / §4.7 driven through the stock plans:
+Driven through the stock plans:
 the fake trigger box free-runs a pacer while it stands in SCAN (every edge
 advances every camera's stamp and every plugin-backed camera's frame
 count), stops it on OFF and lets **one more edge** land shortly after —

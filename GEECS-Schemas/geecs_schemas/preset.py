@@ -5,8 +5,8 @@ The same scan is run often, so it is saved once: which devices record
 arguments, under which trigger profile.  A preset **is** a queue item in
 waiting — the client expands it into ``plan(detectors, *args, **kwargs)``
 against the worker's device namespace at submission and the plan's
-arguments are the scan's one description (GEECS-Plugins#807, plan of record
-§4.D, §10.5).  You would edit one when a routine measurement changes
+arguments are the scan's one description (GEECS-Plugins#807).  You would
+edit one when a routine measurement changes
 shape: a new diagnostic joins the group, the sweep range moves, a camera's
 frames stop being worth the disk.
 
@@ -16,7 +16,7 @@ did **not** survive, deliberately: per-scalar selection (every subscribed
 scalar of every device in the run is recorded, and the s-file carries all
 of them), and setup/closeout rituals and the ``SaveRole`` enum (an
 explicit action plan is its own queue item).  What phase 2 added
-(GEECS-Plugins#807, ``08_gated_batch.md`` §4.6): ``essential`` on each
+(GEECS-Plugins#807): ``essential`` on each
 device — an essential device is waited on every shot, a non-essential
 one streams its frames for the run and never holds a shot — and the
 acquisition mode as a plan keyword (``acquisition: gated`` in

@@ -1,9 +1,8 @@
 """Gated batch acquisition as the stock ``take_reading`` hook, and the non-essential stream.
 
-Phase 2 of the native-Bluesky rebuild (``Planning/native_bluesky/08_gated_batch.md``
-§4.2, §4.3, §4.7; ``03_clean_room_rebuild.md`` §10.9).  Strict single-shot
+Phase 2 of the native-Bluesky rebuild.  Strict single-shot
 (:mod:`geecs_bluesky.plans.strict`) fires the box once per row and holds
-1 Hz only at short exposures (``05`` M6/M7); the **gated batch** lets the
+1 Hz only at short exposures; the **gated batch** lets the
 box free-run in SCAN while the plugin-backed cameras count the frames they
 write, and drives it OFF when every essential detector has its quota —
 exact by construction, because arming precedes the edges and the frames
@@ -50,7 +49,7 @@ pending ``complete`` statuses settle instead of failing into a later
 message), rewinds every plugin to the step's baseline and **retakes the
 step from its first shot**.
 
-The **non-essential stream** (§4.3) is the run-long job: the detectors
+The **non-essential stream** is the run-long job: the detectors
 listed ``non_essential=[…]`` are staged, prepared unbounded, kicked off
 right after ``open_run`` (the box is quiet then, so no frame lands between
 prepare and kickoff — which would make the kickoff refuse), completed and

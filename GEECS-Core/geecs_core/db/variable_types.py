@@ -141,8 +141,7 @@ def scalar_attribute_variables(
 
     The subscribed (``get='yes'``) list in DB order — the list the worker's
     namespace makes a device's event columns from, so a gated row and a
-    strict row carry the same numeric columns for that device
-    (``Planning/native_bluesky/08_gated_batch.md`` §4.4) — restricted to
+    strict row carry the same numeric columns for that device — restricted to
     :data:`SCALAR_ATTRIBUTE_VARTYPES` and minus :data:`TIMESTAMP_LADDER`
     (already the frame's stamp attributes).  Names match the metadata
     rows **case-insensitively** — the GEECS DB spells the same variable
