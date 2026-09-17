@@ -96,6 +96,17 @@ TRIGGER_SOURCE_DEVICETYPES: frozenset[str] = frozenset(
     {"dg645", "dg535", "highland t564 ddg", "tdk-lambda z bipolar"}
 )
 
+#: Devicetypes that acquire per shot with no trigger-named DB variable: they
+#: consume other triggered devices' frames and push ``acq_timestamp`` in
+#: lockstep with them.  The MagSpec stitcher builds one stitched image per
+#: shot from the three magspec cameras and stamps it with the cameras'
+#: ``acq_timestamp`` (live 2026-09-17: identical to Cam1's, every shot), yet
+#: its DB rows mention no trigger, so the name rule read it as a snapshot
+#: device and nothing drove its native saving (Scan004 of 26_0917 had no
+#: ``U_BCaveMagSpec/`` folder).  Whole devicetype, lower-cased.
+#: :func:`looks_triggerable` includes them.
+TRIGGERED_DEVICETYPES: frozenset[str] = frozenset({"magspecstitcher"})
+
 #: Served scalar dtype (the gateway's vocabulary) → the Python type ophyd-async
 #: declares.  ``str`` on an enum PV reads the label with the choices as
 #: metadata; ``str`` on a char-array (path) PV is the long-string convention.
@@ -152,15 +163,20 @@ def looks_triggerable(rows: Sequence[Mapping[str, Any]], devicetype: str = "") -
     whose devicetype variables mention a trigger (``trigger``,
     ``TriggerDelay``, ``EnableTrigger``, …) is a triggered acquirer —
     cameras, spectrometers, ICT scopes, DAQ pads — unless its devicetype is a
-    trigger *source* (:data:`TRIGGER_SOURCE_DEVICETYPES`).  A DB row named
+    trigger *source* (:data:`TRIGGER_SOURCE_DEVICETYPES`), or its devicetype
+    is a known frame consumer (:data:`TRIGGERED_DEVICETYPES`) — the one miss
+    the name rule has: a device that acquires per shot off other devices'
+    frames has no trigger variable of its own.  A DB row named
     ``acq_timestamp`` is authoritative once the DB grows it.  Checked live
-    against every Undulator device pushing ``acq_timestamp``: no misses; the
-    extras were idle acquirers and the excluded sources.
+    against every Undulator device pushing ``acq_timestamp``: the extras were
+    idle acquirers and the excluded sources.
     """
     names = [str(r["name"]) for r in rows]
     if any(n.lower() == ACQ_TIMESTAMP_VARIABLE for n in names):
         return True
     kind = devicetype.strip().lower()
+    if kind in TRIGGERED_DEVICETYPES:
+        return True
     if any(source in kind for source in TRIGGER_SOURCE_DEVICETYPES):
         return False
     return any(_TRIGGER_VARIABLE.search(n) for n in names)
