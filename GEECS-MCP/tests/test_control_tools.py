@@ -1,10 +1,9 @@
-"""Hermetic tests for the v1 control tools.
+"""Hermetic tests for the control tools: halt, clear-queue, progress.
 
 Same seams as the read-tool suite: fakes patched on ``runtime``, JSON
-envelopes asserted.  The submission flow's engine seams
-(``run_submit_preflight`` / ``build_submission_record``) are patched at
-their ``geecs_bluesky.qs_client`` home — the impl from-imports at call
-time.
+envelopes asserted.  The write verbs these tests used to cover were
+deleted in 0.9.0 — ``_FakeClient`` is now pinned against the real
+``QueueClient`` protocol so it cannot outlive the seam again.
 """
 
 from __future__ import annotations
@@ -15,7 +14,6 @@ from types import SimpleNamespace
 
 import pytest
 
-from geecs_bluesky import qs_client
 from geecs_mcp import runtime
 from geecs_mcp.scans import control_tools
 
@@ -31,14 +29,6 @@ def _load(payload: str) -> dict:
     return json.loads(payload)
 
 
-GOOD_REQUEST = {
-    "mode": "noscan",
-    "shots_per_step": 5,
-    "acquisition": "free_run",
-    "save_sets": ["Amp4In"],
-}
-
-
 @dataclass
 class _FakeClient:
     re_state: str = "idle"
@@ -46,21 +36,10 @@ class _FakeClient:
     queue: list = field(default_factory=list)
     running: dict | None = None
     history: list = field(default_factory=list)
-    submitted: list = field(default_factory=list)
-    submit_ok: bool = True
     stop_result: tuple = (True, "stop requested (from paused)")
     cleared: int = 0
-    # v2 seams
     doc_addr: str | None = None
     info_addr: str | None = None
-    actions_submitted: list = field(default_factory=list)
-    action_ok: bool = True
-    action_pending: list = field(default_factory=list)
-    describe_steps: list = field(default_factory=list)
-    describe_error: str | None = None
-    moves: list = field(default_factory=list)
-    move_error: str | None = None
-    move_result: dict = field(default_factory=lambda: {"variable": "jet_z"})
     pause_result: tuple = (True, "pause requested")
     resume_result: tuple = (True, "resumed")
 
@@ -84,53 +63,12 @@ class _FakeClient:
     def history_items(self):
         return list(self.history)
 
-    def submit_scan(self, request, *, submission=None, clear_pending=False):
-        assert clear_pending is False  # the doctrine: never clear implicitly
-        self.submitted.append(request)
-        self.submissions = getattr(self, "submissions", [])
-        self.submissions.append(submission)
-        if self.submit_ok:
-            return SimpleNamespace(
-                ok=True, message="queued", item_uid="uid-9", pending_items=[]
-            )
-        return SimpleNamespace(
-            ok=False, message="refused", item_uid=None, pending_items=[]
-        )
-
     def stop_scan(self):
         return self.stop_result
 
     def clear_queue(self):
         self.cleared += 1
         return True, "queue cleared"
-
-    def submit_action(self, name):
-        self.actions_submitted.append(name)
-        if self.action_pending:
-            return SimpleNamespace(
-                ok=False,
-                message="queue not empty",
-                item_uid=None,
-                pending_items=list(self.action_pending),
-            )
-        if self.action_ok:
-            return SimpleNamespace(
-                ok=True, message="queued", item_uid="act-1", pending_items=[]
-            )
-        return SimpleNamespace(
-            ok=False, message="unknown action", item_uid=None, pending_items=[]
-        )
-
-    def describe_action(self, name):
-        if self.describe_error:
-            raise RuntimeError(self.describe_error)
-        return list(self.describe_steps)
-
-    def move_variable(self, name, value):
-        if self.move_error:
-            raise RuntimeError(self.move_error)
-        self.moves.append((name, value))
-        return dict(self.move_result)
 
     def request_pause(self):
         return self.pause_result
@@ -141,189 +79,11 @@ class _FakeClient:
 
 @pytest.fixture
 def wired(monkeypatch):
-    """A connected idle manager + experiment + pass-through preflight."""
+    """A connected idle manager + a configured experiment."""
     client = _FakeClient()
     monkeypatch.setattr(runtime, "get_queue_client", lambda: client)
     monkeypatch.setattr(runtime, "get_experiment", lambda: "Test")
-    monkeypatch.setattr(
-        "geecs_bluesky.qs_client.run_submit_preflight",
-        lambda req, exp: qs_client.PreflightReport(
-            outcomes=[("validate", "passed", "")]
-        ),
-    )
     return client
-
-
-# ---------------------------------------------------------------------------
-# submit_scan
-# ---------------------------------------------------------------------------
-
-
-def test_submit_happy_path_stamps_and_queues(wired):
-    result = _load(control_tools._submit_scan_impl(GOOD_REQUEST, None, None, None))
-    assert result["ok"] and result["item_uid"] == "uid-9"
-    assert result["planned_shots"] == 5
-    (submitted,) = wired.submitted
-    assert "submission" not in submitted  # request/record split (schemas 0.14.0)
-    (record,) = wired.submissions
-    assert record["client"] == runtime.client_identity()
-    assert [o["check"] for o in record["preflight"]] == ["validate"]
-
-
-def test_submit_requires_exactly_one_selector(wired):
-    both = _load(control_tools._submit_scan_impl(GOOD_REQUEST, "preset", None, None))
-    neither = _load(control_tools._submit_scan_impl(None, None, None, None))
-    assert both["error_kind"] == "invalid_request"
-    assert neither["error_kind"] == "invalid_request"
-
-
-def test_submit_preset_resolves_via_resolver(wired, monkeypatch):
-    from geecs_schemas import ScanRequest
-
-    preset_request = ScanRequest.model_validate(GOOD_REQUEST)
-    resolver = SimpleNamespace(resolve_preset=lambda name: preset_request)
-    monkeypatch.setattr(runtime, "get_resolver", lambda: resolver)
-    result = _load(
-        control_tools._submit_scan_impl(None, "smoke", "override text", None)
-    )
-    assert result["ok"]
-    assert wired.submitted[0]["description"] == "override text"
-
-
-def test_submit_enforces_the_shot_cap(wired, monkeypatch):
-    monkeypatch.setattr(runtime, "max_shots", lambda: 10)
-    big = dict(
-        GOOD_REQUEST,
-        mode="step",
-        axes=[{"variable": "jet_z", "positions": {"start": 0, "end": 9, "step": 1}}],
-        shots_per_step=5,
-    )
-    result = _load(control_tools._submit_scan_impl(big, None, None, None))
-    assert result["error_kind"] == "policy_refusal"
-    assert "50" in result["message"] and "10" in result["message"]
-    assert wired.submitted == []
-
-
-def test_submit_legacy_optimize_refused(wired):
-    optimize = dict(GOOD_REQUEST, mode="optimize", optimization={})
-    result = _load(control_tools._submit_scan_impl(optimize, None, None, None))
-    assert result["error_kind"] == "invalid_request"
-    assert "legacy optimization requests are retired" in result["message"]
-    assert wired.submitted == []
-
-
-def test_submit_pathological_range_is_counted_not_expanded(wired):
-    # Review HIGH: {start: 0, end: 1e15, step: 1e-9} validates cleanly;
-    # the cap must refuse it arithmetically — expanding it to count it
-    # would OOM the server inside its own guard. Completing at all IS the
-    # assertion (the old code would hang here).
-    huge = dict(
-        GOOD_REQUEST,
-        mode="step",
-        axes=[
-            {
-                "variable": "jet_z",
-                "positions": {"start": 0.0, "end": 1.0e15, "step": 1.0e-9},
-            }
-        ],
-    )
-    result = _load(control_tools._submit_scan_impl(huge, None, None, None))
-    assert result["error_kind"] == "policy_refusal"
-    assert wired.submitted == []
-
-
-def test_submit_unknown_acknowledgement_names_refused(wired):
-    result = _load(
-        control_tools._submit_scan_impl(GOOD_REQUEST, None, None, ["not_a_check"])
-    )
-    assert result["error_kind"] == "invalid_request"
-    assert "not_a_check" in result["message"]
-    assert wired.submitted == []
-
-
-def test_submit_refuses_while_running_or_queued(wired):
-    wired.re_state = "running"
-    result = _load(control_tools._submit_scan_impl(GOOD_REQUEST, None, None, None))
-    assert result["error_kind"] == "policy_refusal" and "active" in result["message"]
-
-    wired.re_state = "idle"
-    wired.queue = [
-        {"item_uid": "old", "name": "geecs_scan_request_plan", "user": "console"}
-    ]
-    result = _load(control_tools._submit_scan_impl(GOOD_REQUEST, None, None, None))
-    assert result["error_kind"] == "policy_refusal"
-    assert result["pending_items"][0]["item_uid"] == "old"
-    assert wired.submitted == []
-
-
-def test_submit_warnings_need_acknowledgement(wired, monkeypatch):
-    report = qs_client.PreflightReport(
-        outcomes=[("validate", "passed", "")],
-        questions=[
-            qs_client.PreflightQuestion(
-                check="free_run_staleness",
-                title="Trigger looks stopped",
-                message="acq_timestamp did not advance. Continue anyway?",
-            )
-        ],
-    )
-    monkeypatch.setattr(
-        "geecs_bluesky.qs_client.run_submit_preflight", lambda req, exp: report
-    )
-    first = _load(control_tools._submit_scan_impl(GOOD_REQUEST, None, None, None))
-    assert first["error_kind"] == "policy_refusal"
-    assert first["needs_acknowledgement"][0]["check"] == "free_run_staleness"
-    assert wired.submitted == []
-
-    second = _load(
-        control_tools._submit_scan_impl(
-            GOOD_REQUEST, None, None, ["free_run_staleness"]
-        )
-    )
-    assert second["ok"]
-    record = wired.submissions[0]
-    by_check = {o["check"]: o["result"] for o in record["preflight"]}
-    assert by_check["free_run_staleness"] == "continued"
-
-
-def test_submit_snapshot_images_warning_is_acknowledgeable(wired, monkeypatch):
-    """#754: the preflight's snapshot_images question must be in the ack vocabulary."""
-    report = qs_client.PreflightReport(
-        outcomes=[("validate", "passed", "")],
-        questions=[
-            qs_client.PreflightQuestion(
-                check="snapshot_images",
-                title="Images requested on snapshot-role devices",
-                message="`images: true` is IGNORED for snapshot-role entries ['UC_Slow']",
-            )
-        ],
-    )
-    monkeypatch.setattr(
-        "geecs_bluesky.qs_client.run_submit_preflight", lambda req, exp: report
-    )
-    first = _load(control_tools._submit_scan_impl(GOOD_REQUEST, None, None, None))
-    assert first["error_kind"] == "policy_refusal"
-    assert first["needs_acknowledgement"][0]["check"] == "snapshot_images"
-    assert wired.submitted == []
-
-    second = _load(
-        control_tools._submit_scan_impl(GOOD_REQUEST, None, None, ["snapshot_images"])
-    )
-    assert second["ok"], second
-    record = wired.submissions[0]
-    by_check = {o["check"]: o["result"] for o in record["preflight"]}
-    assert by_check["snapshot_images"] == "continued"
-
-
-def test_submit_engine_refusal_verbatim(wired, monkeypatch):
-    monkeypatch.setattr(
-        "geecs_bluesky.qs_client.run_submit_preflight",
-        lambda req, exp: qs_client.PreflightReport(
-            refusal="save set 'Nope' is unknown"
-        ),
-    )
-    result = _load(control_tools._submit_scan_impl(GOOD_REQUEST, None, None, None))
-    assert result["error_kind"] == "invalid_request" and "Nope" in result["message"]
 
 
 # ---------------------------------------------------------------------------
@@ -402,109 +162,6 @@ def test_scan_progress_shapes(wired):
     wired.connected = False
     result = _load(control_tools._scan_progress_impl())
     assert result["state"] == "unknown" and "timeout" in result["detail"]
-
-
-# ---------------------------------------------------------------------------
-# run_action / describe_action (v2)
-# ---------------------------------------------------------------------------
-
-
-def test_run_action_happy_path(wired):
-    result = _load(control_tools._run_action_impl("Insert Screen"))
-    assert result["ok"] and result["item_uid"] == "act-1"
-    assert wired.actions_submitted == ["Insert Screen"]
-    assert result["submitted_as"] == runtime.client_identity()
-
-
-def test_run_action_refused_while_scan_active(wired):
-    # Submitting mid-scan would silently queue the action to auto-run the
-    # moment the scan finishes — the guard this pins.
-    wired.re_state = "running"
-    result = _load(control_tools._run_action_impl("Insert Screen"))
-    assert result["error_kind"] == "policy_refusal" and "idle-only" in result["message"]
-    assert wired.actions_submitted == []
-
-
-def test_run_action_pending_items_surfaced(wired):
-    wired.action_pending = [
-        {"item_uid": "old", "name": "geecs_scan_request_plan", "user": "console"}
-    ]
-    result = _load(control_tools._run_action_impl("Insert Screen"))
-    assert result["error_kind"] == "policy_refusal"
-    assert result["pending_items"][0]["item_uid"] == "old"
-
-
-def test_run_action_blank_name_refused(wired):
-    result = _load(control_tools._run_action_impl("  "))
-    assert result["error_kind"] == "invalid_request"
-
-
-def test_run_action_worker_refusal_verbatim(wired):
-    wired.action_ok = False
-    result = _load(control_tools._run_action_impl("Bogus"))
-    assert result["error_kind"] == "worker_refused"
-    assert result["message"] == "unknown action"
-
-
-def test_describe_action_returns_steps(wired):
-    wired.describe_steps = [
-        {"kind": "set", "device": "U_Screen4", "variable": "position", "value": "IN"}
-    ]
-    result = _load(control_tools._describe_action_impl("Insert Screen"))
-    assert result["ok"] and result["step_count"] == 1
-    assert result["steps"][0]["device"] == "U_Screen4"
-
-
-def test_describe_action_failure_is_worker_refused(wired):
-    wired.describe_error = "manager busy: RE state is running"
-    result = _load(control_tools._describe_action_impl("Insert Screen"))
-    assert result["error_kind"] == "worker_refused" and "busy" in result["message"]
-
-
-# ---------------------------------------------------------------------------
-# move_scan_variable (v2)
-# ---------------------------------------------------------------------------
-
-
-def test_move_variable_happy_path(wired):
-    result = _load(control_tools._move_scan_variable_impl("jet_z", 12.5))
-    assert result["ok"] and result["requested"] == 12.5
-    assert result["result"] == {"variable": "jet_z"}
-    assert wired.moves == [("jet_z", 12.5)]
-
-
-def test_move_variable_nonfinite_refused(wired):
-    for bad in (float("nan"), float("inf")):
-        result = _load(control_tools._move_scan_variable_impl("jet_z", bad))
-        assert result["error_kind"] == "invalid_request"
-    assert wired.moves == []
-
-
-def test_move_variable_non_number_refused(wired):
-    result = _load(control_tools._move_scan_variable_impl("jet_z", "twelve"))
-    assert result["error_kind"] == "invalid_request"
-    assert wired.moves == []
-
-
-def test_move_variable_worker_failure_verbatim(wired):
-    wired.move_error = "manual-move lock held"
-    result = _load(control_tools._move_scan_variable_impl("jet_z", 1.0))
-    assert result["error_kind"] == "worker_refused" and "lock" in result["message"]
-
-
-def test_move_variable_timeout_is_task_timeout(wired):
-    wired.move_error = "worker task did not finish within 120 s"
-    result = _load(control_tools._move_scan_variable_impl("jet_z", 1.0))
-    assert result["error_kind"] == "task_timeout"
-
-
-def test_names_are_submitted_stripped(wired):
-    # Validated stripped ⇒ submitted stripped — " Insert Screen " must
-    # not reach the worker as an unknown padded name.
-    result = _load(control_tools._run_action_impl("  Insert Screen  "))
-    assert result["ok"] and wired.actions_submitted == ["Insert Screen"]
-    result = _load(control_tools._move_scan_variable_impl(" jet_z ", 1.0))
-    assert result["ok"] and wired.moves[-1] == ("jet_z", 1.0)
 
 
 # ---------------------------------------------------------------------------
@@ -665,3 +322,28 @@ def test_all_control_tools_registered():
         tool_names.SCAN_PROGRESS,
     ):
         assert name in registered, f"{name} not registered"
+
+
+def test_the_fake_client_only_promises_verbs_the_real_client_has():
+    """The fake may not outlive the seam it stands in for.
+
+    The native-Bluesky rebuild removed ``submit_scan``, ``submit_action``,
+    ``move_variable`` and ``describe_action`` from the queue client, and
+    this suite stayed green for two days because ``_FakeClient`` still
+    defined all four — the tools under test called methods that no longer
+    existed anywhere in production.  Pin the fake's surface to the
+    protocol so the next removal fails here instead of at runtime.
+    """
+    from geecs_bluesky.qs_client import QueueClient
+
+    fake = {
+        name
+        for name in vars(_FakeClient)
+        if callable(getattr(_FakeClient, name)) and not name.startswith("_")
+    }
+    missing = sorted(name for name in fake if not hasattr(QueueClient, name))
+    assert not missing, (
+        f"_FakeClient promises {missing}, which QueueClient does not have — "
+        "either the protocol lost a verb the tools still call, or the fake "
+        "grew a method of its own"
+    )

@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "geecs-mcp"
-version = "0.8.10"
+version = "0.9.0"
 description = "MCP server exposing GEECS scan submission, monitoring, and config discovery to AI agents (OSPREY)"
 authors = ["Sam Barber <sbarber@lbl.gov>"]
 readme = "README.md"
@@ -36,7 +36,8 @@ geecs-bluesky = { path = "../GeecsBluesky", develop = true, extras = ["qs-client
 # Completed-run lookup (get_scan_result): TiledScanCatalog over the archive.
 geecs-data-utils = { path = "../GEECS-Data-Utils", develop = true, extras = ["tiled"] }
 
-# The one submission shape (ScanRequest) — validation at the tool boundary.
+# The config vocabulary the listing tools render (scan-variable rows).
+# No longer a submission shape: this server has no submit verb (#727).
 geecs-schemas = { path = "../GEECS-Schemas", develop = true }
 
 # On-demand ScanAnalysis execution (#686: run_scan_analysis + the

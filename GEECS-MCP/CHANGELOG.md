@@ -4,6 +4,56 @@ All notable changes to `geecs-mcp` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.9.0] - 2026-09-16
+
+### Removed
+
+- **Every write verb** — `submit_scan`, `run_action`, `describe_action`,
+  `move_scan_variable` and `validate_scan_request`.  The native-Bluesky
+  rebuild removed the `geecs_bluesky.qs_client` calls all five stood on
+  (`submit_scan`, `submit_action`, `describe_action`, `move_variable` are
+  gone; the submission surface is now `submit_plan` / `submit_preset`
+  over the `count` / `sweep` / `optimize` plans), and
+  `run_submit_preflight` takes a preset rather than a `ScanRequest`.
+  The four control verbs would have raised `AttributeError` on their
+  first call and `validate_scan_request` would have run the preflight
+  against the wrong document.
+  They are **deleted rather than rewired** by owner ruling
+  (2026-09-16): this server was spun up as an experiment, not an
+  operator surface, so it gates no client-seam change.  Scans are
+  submitted from the web scanner (`GeecsScanner`).  See #727 if an
+  agent-facing write path is ever wanted back — the shape to copy is
+  `GeecsScanner/geecs_scanner/service/scanner.py`.
+- The doctrine those verbs carried (the acknowledge-warnings loop, the
+  1,000-shot agent cap, `clear_pending=False`, idle-only writes) went
+  with them, along with `_task_error_kind` and the `GOOD_REQUEST`
+  fixture.  `[mcp] max_shots` is now unread.
+
+### What survives
+
+Read + observe + halt: `scan_status`, `scan_history`, `get_scan_result`,
+`list_scan_configs`, `scan_progress`, `stop_scan`, `pause_scan`,
+`resume_scan`, `clear_queue`, and the whole analysis domain
+(`get_scan_analysis`, `get_scan_figure`, `list_analyzers`,
+`list_analysis_groups`, `run_scan_analysis`).  Ownership etiquette on
+stop/pause/resume is unchanged.
+
+### Added
+
+- `test_the_fake_client_only_promises_verbs_the_real_client_has` — the
+  suite stayed green through this breakage because `_FakeClient` still
+  defined all four removed methods, so the tools were tested against a
+  seam that no longer existed.  The new test asserts every public method
+  on the fake exists on the `QueueClient` protocol; verified to fail
+  when a removed verb is put back on the fake.
+
+### Changed
+
+- `deploy/DEPLOYMENT.md` permission lists, the README verb inventory and
+  the server's `instructions` string drop the removed tools.  A profile
+  deployed before 0.9.0 names tools this server no longer registers —
+  inert, but drop those entries.
+
 ## [0.8.10] - 2026-09-16
 
 ### Fixed

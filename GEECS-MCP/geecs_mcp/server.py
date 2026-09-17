@@ -24,15 +24,14 @@ logger = logging.getLogger("geecs_mcp")
 mcp = FastMCP(
     "geecs",
     instructions=(
-        "Access to the GEECS scan service. Read tools: manager/queue "
-        "status, recent scan history, completed-run results from the Tiled "
-        "archive, the experiment's config catalogs (save sets, trigger "
-        "profiles, presets, scan variables, actions), full dry-run "
-        "validation of a ScanRequest. Control verbs: "
-        "submit_scan (one scan in flight, capped, preflight warnings need "
-        "explicit acknowledgement), stop_scan (graceful; another client's "
-        "scan needs force=true and an operator's say-so), clear_queue "
-        "(the only remover), scan_progress. Analysis domain: "
+        "Read access to the GEECS scan service, plus the halt verbs. Read "
+        "tools: manager/queue status, recent scan history, completed-run "
+        "results from the Tiled archive, the experiment's config catalogs "
+        "(save sets, trigger profiles, presets, optimizer configs, scan "
+        "variables, actions), scan_progress. Control verbs: stop_scan "
+        "(graceful; another client's scan needs force=true and an "
+        "operator's say-so), pause_scan / resume_scan (same ownership "
+        "etiquette), clear_queue (the only remover). Analysis domain: "
         "get_scan_analysis (task statuses + output tree) and "
         "get_scan_figure (a figure REFERENCE — metadata plus a fetch "
         "URL served by this same server; thumbnail=true for a bounded "
@@ -41,8 +40,9 @@ mcp = FastMCP(
         "for one existing scan, detached — poll get_scan_analysis for "
         "progress; analyzer/group names come from list_analyzers / "
         "list_analysis_groups). "
-        "Names must come from the listing tools — never invent catalog "
-        "names."
+        "There is NO submit verb: scans are submitted from the web "
+        "scanner, not from here. Names must come from the listing tools "
+        "— never invent catalog names."
     ),
 )
 
@@ -58,5 +58,5 @@ def create_server() -> FastMCP:
         read_tools,
     )
 
-    logger.info("geecs MCP server initialised (v0 read + v1 control tools)")
+    logger.info("geecs MCP server initialised (read + halt tools; no submit verb)")
     return mcp
