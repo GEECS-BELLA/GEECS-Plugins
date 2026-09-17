@@ -4,6 +4,20 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.94.2] - 2026-09-17
+
+### Fixed
+
+- `looks_triggerable` gains `TRIGGERED_DEVICETYPES`, an allowlist of
+  devicetypes that acquire per shot off other devices' frames and so carry
+  no trigger-named DB variable of their own. First entry: `MagSpecStitcher`.
+  `U_BCaveMagSpec` pushes `acq_timestamp` in lockstep with the magspec
+  cameras (live 2026-09-17) but the name rule built it as a snapshot
+  readable, so nothing drove its native saving and Scan004 of 26_0917 wrote
+  no `U_BCaveMagSpec/` folder. It is now a `GeecsDetector` with native
+  saving on and no file plugin, the same shape as the ICT. Hot fix,
+  verified live by the maintainer; no pinning test.
+
 ## [0.94.1] - 2026-09-16
 
 ### Changed
