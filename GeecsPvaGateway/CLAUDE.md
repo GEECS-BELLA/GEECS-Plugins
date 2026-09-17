@@ -109,8 +109,7 @@ tests/
   the event loop → `pv.post(image, timestamp=...)`. A stalled consumer drops
   stale frames; nothing ever backlogs. Completeness lives in the GEECS file
   path, not this stream.
-- **File plugin** (`file_plugin.py`, #806, design in
-  `Planning/native_bluesky/06_pva_file_plugin.md`): a second consumer of
+- **File plugin** (`file_plugin.py`, #806): a second consumer of
   the push frame with the *opposite* delivery contract — lossless within
   a capture session — branching off in `_on_frame` **before** the
   latest-wins slot. Per image variable: the `NDFileHDF5IO` PV set under

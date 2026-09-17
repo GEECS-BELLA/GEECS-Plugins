@@ -14,7 +14,7 @@ analog (float) match by tolerance, discrete (string) match by exact equality.
 
 Defaults (``tolerance=0.05``, ``timeout=10.0``) are sized from a live no-beam
 characterization of ``U_EMQTripletBipolar:Current.ChN`` (details in
-``GeecsBluesky/CLAUDE.md`` and ``Planning/scan_variable_metadata/``).
+``GeecsBluesky/CLAUDE.md``).
 """
 
 from __future__ import annotations

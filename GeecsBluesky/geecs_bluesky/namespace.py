@@ -4,11 +4,10 @@ Built once at queue-server ``environment open`` (or by a headless session)
 from the GEECS DB roster and exported into the worker namespace so stock
 plans can be given devices **by name** — ``count([UC_Amp4_IR_input])``,
 ``scan([...], U_S1H.Current, -1, 1, 5)`` — exactly as the queue server
-expects.  Design: ``Planning/native_bluesky/01_device_namespace.md`` and the
-device-layer audit beside it.
+expects.
 
 The namespace owns **no device behaviour**.  It composes the existing
-device layer (``Planning/native_bluesky/01a_device_layer_audit.md``):
+device layer:
 
 * a device that acquires per shot (:func:`looks_triggerable`) is a
   :class:`~geecs_bluesky.devices.detector.GeecsDetector` — a stock
@@ -16,7 +15,7 @@ device layer (``Planning/native_bluesky/01a_device_layer_audit.md``):
   to advance; ``native_save`` iff the DB lists both ``save`` and
   ``localsavingpath`` for it (so the gateway serves their ``:SP``), in
   which case the detector owns those two controls and a ``PathProvider``
-  given at build points its files at the run (§4.A of the plan of record);
+  given at build points its files at the run;
 * any other device is a
   :class:`~geecs_bluesky.devices.ca.snapshot.CaSnapshotReadable`;
 * each served **settable** variable is attached to that object as a child
@@ -323,7 +322,7 @@ class GeecsNamespace:
     drain_offsets :
         Ophyd object name → that device's measured edge-to-stamp latency in
         seconds (the experiment's ``shot_offsets.yaml``, written by the
-        ``measure_shot_offsets`` plan; ``03`` §4.F).  Seeded into each
+        ``measure_shot_offsets`` plan).  Seeded into each
         detector's ``drain_offset`` config signal at construction, so it
         rides in every descriptor and the s-file join corrects by it.  A
         device the mapping does not name keeps ``0.0`` — what every device
@@ -508,7 +507,7 @@ class GeecsNamespace:
         }
         native_save = triggered and NATIVE_SAVE_VARIABLES <= settable_names
         if native_save:
-            # The detector owns the saving controls (§10.5 namespace rule).
+            # The detector owns the saving controls, not the namespace.
             typed = {
                 n: v for n, v in typed.items() if n.lower() not in NATIVE_SAVE_VARIABLES
             }
@@ -834,7 +833,7 @@ class GeecsNamespace:
     def telemetry(self) -> list[Any]:
         """Every subscribed scalar of the experiment, readable without a trigger.
 
-        The ``SupplementalData`` baseline list (plan of record §4.B): each
+        The ``SupplementalData`` baseline list: each
         scalar-only device whole, and each detector's scalar **signals**
         individually — a detector itself is ``Triggerable`` and a baseline
         read would wait for a shot that ARMED never delivers.

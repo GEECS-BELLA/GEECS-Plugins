@@ -1,4 +1,4 @@
-"""The shot-offset calibration and its preflight (phase 3, #807 §4.F).
+"""The shot-offset calibration and its preflight (phase 3, #807).
 
 Two layers, tested apart:
 

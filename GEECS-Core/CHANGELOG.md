@@ -4,6 +4,18 @@ All notable changes to `geecs-core` are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and semantic versioning.
 
 
+## [0.8.3] - 2026-09-16
+
+### Changed
+
+- Strip the `Planning/` provenance citations from docstrings and comments: a
+  docstring now states the rule itself, and the derivation stays in git
+  history. Part of the `Planning/` prune (#929, #930); no behaviour change.
+- `CLAUDE.md`: record the DB-metadata rules the scan-variable plan carried —
+  a variable's `description` lives only on `variable`, so serving one is the
+  same `devicetype_variable` → `variable` LEFT JOIN + coalesce the `:SP` set
+  flag uses, and EPICS `.DESC` caps at 40 characters and keeps no history.
+
 ## [0.8.2] - 2026-09-16
 
 ### Changed
@@ -103,6 +115,7 @@ All notable changes to `geecs-core` are documented here, following
   5+ enum lists); `variabletype` is the secondary annotation. Known DB
   defect recorded in the module docstring: 18 Undulator rows with
   `variabletype='numeric'` and an option list should be `choice` (DB sweep).
+
 ## [0.4.1] - 2026-09-14 *(master line, parallel release)*
 
 ### Fixed

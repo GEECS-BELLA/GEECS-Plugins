@@ -9,8 +9,7 @@ wire strings; a state with no writes is "not defined" for this box.  The
 adapter lives beside the device that consumes it
 (:func:`~geecs_bluesky.devices.shot_control.trigger_writes_from_profile`).
 
-The five state names are the schema's :class:`TriggerState`
-(``Planning/native_bluesky/03_clean_room_rebuild.md`` §11.1): OFF is the
+The five state names are the schema's :class:`TriggerState`: OFF is the
 only quiet state, STANDBY and SCAN pass external edges, ARMED is the
 single-shot source for strict acquisition, SINGLESHOT is the momentary fire.
 """

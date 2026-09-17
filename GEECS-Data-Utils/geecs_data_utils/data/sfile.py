@@ -10,9 +10,8 @@ union frame (:mod:`geecs_data_utils.scan_frame`) keeps both without
 reconciliation.
 
 Before this module the read and the path convention were duplicated in
-``ScanData.load_scalars`` and twice in ScanAnalysis
-(``base.py`` — see ``Planning/data_portal/03_analysis_tabs_design.md``,
-finding 2).  Consolidate here; the writer-side sites
+``ScanData.load_scalars`` and twice in ScanAnalysis (``base.py``).
+Consolidate here; the writer-side sites
 (``copy_fresh_sfile_to_analysis``, ``tiled_export``) are deliberately
 out of scope.  Strictly read-only (repo scan-folder invariant).
 """

@@ -1,7 +1,6 @@
 """Analysis-tab endpoint helpers: param parsing, JSON shaping, snippets.
 
-The middle of the three-layer contract
-(``Planning/data_portal/03_analysis_tabs_design.md``): the ``/api``
+The middle of the three-layer contract: the ``/api``
 endpoints are one-liners over the pure data-utils primitives
 (:func:`~geecs_data_utils.scan_frame.scan_frame`,
 :func:`~geecs_data_utils.data.row_filters.filter_mask`,

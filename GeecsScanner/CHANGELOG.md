@@ -4,6 +4,14 @@ All notable changes to `geecs-scanner` are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 project adheres to semantic versioning.
 
+## [0.11.1] - 2026-09-16
+
+### Changed
+
+- Strip the `Planning/` provenance citations from docstrings and comments: a
+  docstring now states the rule itself, and the derivation stays in git
+  history. Part of the `Planning/` prune (#929, #930); no behaviour change.
+
 ## [0.11.0] - 2026-09-16
 
 ### Added

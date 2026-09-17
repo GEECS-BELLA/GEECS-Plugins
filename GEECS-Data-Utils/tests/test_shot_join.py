@@ -1,4 +1,4 @@
-"""The shot join: frames onto rows by offset-corrected stamp (08 §4.5)."""
+"""The shot join: frames onto rows by offset-corrected stamp."""
 
 from __future__ import annotations
 

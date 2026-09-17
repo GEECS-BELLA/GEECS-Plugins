@@ -1,7 +1,7 @@
 """Analysis runs: ScanAnalysis executed directly from the portal.
 
-The run model of ``Planning/data_portal/04_analysis_run_design.md``:
-a browser click runs ONE scan analyzer on ONE scan by calling
+The run model: a browser click runs ONE scan analyzer on ONE scan by
+calling
 ``ScanAnalyzer.run_analysis`` directly — no task-queue participation
 (no status records, claim locks, heartbeats or Google Doc uploads;
 those live in ``scan_analysis.task_queue.run_worklist``, which this

@@ -34,7 +34,7 @@ an ``absolute``/``relative`` mode).
   ``set(0)`` restores).
 
 Limits, units, and tolerances deliberately do **not** live here — device
-facts belong below the configs (gateway PV metadata; vision doc §4.3).
+facts belong below the configs (gateway PV metadata).
 
 The optional ``confirm`` field on a simple :class:`ScanVariable` is the one
 place a scan variable names a *second* device variable: it covers the case

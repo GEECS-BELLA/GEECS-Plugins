@@ -1,7 +1,6 @@
 """OR-of-AND row filters — GEECSplotter's filter model, one home.
 
-The analysis-tabs filter vocabulary
-(``Planning/data_portal/03_analysis_tabs_design.md``, W1b): named
+The analysis-tabs filter vocabulary: named
 **groups** of AND conditions, groups OR together, each condition a
 ``within``/``outside`` numeric bounds pair on one column — exactly the
 LabVIEW tool's "outer indexes OR, inner AND" semantics, as Pydantic

@@ -1,12 +1,11 @@
 """The union-with-provenance scan frame — one scan, every column source.
 
-THE substrate of the analysis-tabs arc
-(``Planning/data_portal/03_analysis_tabs_design.md``): a scan's scalar
-columns from every provider, side by side, each column tagged with
-where it came from.  Providers today: the Bluesky event table (a
-``RunDetail`` from :mod:`geecs_data_utils.tiled_catalog`) and the
-legacy s-file (:mod:`geecs_data_utils.data.sfile`); ephemeral analysis
-results join later as a third tag, ``"computed"``.
+THE substrate of the analysis-tabs arc: a scan's scalar columns from every
+provider, side by side, each column tagged with where it came from.
+Providers today: the Bluesky event table (a ``RunDetail`` from
+:mod:`geecs_data_utils.tiled_catalog`) and the legacy s-file
+(:mod:`geecs_data_utils.data.sfile`); ephemeral analysis results join
+later as a third tag, ``"computed"``.
 
 Doctrine (settled with the owner, 2026-08-29/30): **union, never
 reconciliation** — the two namespaces share no column names by

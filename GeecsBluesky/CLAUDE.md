@@ -2,13 +2,12 @@
 
 Bridges the GEECS hardware control system to the
 [Bluesky](https://blueskyproject.io/) experiment orchestration ecosystem.
-The package is being rebuilt as a **native Bluesky application**
-(GEECS-Plugins#807).  The plan of record is
-`Planning/native_bluesky/03_clean_room_rebuild.md` — read its §3
-(the evidence), §4 (the design), §10 (every decision) and §11 (the hardware
-facts) before proposing a change here; it carries a staleness rule (a PR
-that changes direction edits it in the same PR).  Phase-0 measurements are
-in `04_phase0_measurements.md`.
+The package was rebuilt as a **native Bluesky application**
+(GEECS-Plugins#807, landed on `master` 2026-09-16).  This file is the
+design of record: the rules below are the ones the rebuild settled, and a
+PR that changes direction edits them in the same PR.  The derivation —
+the evidence, the alternatives, the phase-0 measurements — is in the
+arc's merged history (`git log --grep '#807'`).
 
 **Where things stand (phase 1 complete and deployed, 2026-09-11):** a
 queue item naming a stock plan and namespace devices runs a complete
@@ -19,17 +18,14 @@ s-file, `scan.log`, the baseline telemetry stream.  The worker registers
 the stock `bluesky.plans` verbs under their own names with the strict
 `take_reading` pre-bound (`plans/registry.py`); a client submits a stock
 plan item or a saved preset (`qs_client.submit_plan` / `submit_preset`).
-Hardware-accepted (`tests/test_phase1_hardware.py`,
-`Planning/native_bluesky/05_phase1_acceptance.md` M4–M7; the file plugin
-in `07_806_acceptance.md`); the worker runs the feature branch at the
-#823 merge and nine camera-server gateways serve the plugin
-(`03_clean_room_rebuild.md` §2).  GEECS-MCP is rewired once, when the
+Hardware-accepted (`tests/test_phase1_hardware.py` M4–M7; the file
+plugin in `tests/test_806_hardware.py`); the worker runs `master` and
+nine camera-server gateways serve the plugin.  GEECS-MCP is rewired once, when the
 foundation is stable — not per step (its submit path calls the removed
 funnel verbs meanwhile); the Console was deleted instead (2026-09-14) and
 GeecsScanner, the web scanner, submits presets.  Per-shot budget: ~7 ms of
 plan-layer work; the camera exposure sets the margin at 1 Hz — strict
-single-shot is not the 1 Hz mode, phase 2's gated batch is
-(`08_gated_batch.md`, designed 2026-09-11).
+single-shot is not the 1 Hz mode, phase 2's gated batch is.
 
 ## The two rules
 
@@ -42,7 +38,7 @@ single-shot is not the 1 Hz mode, phase 2's gated batch is
    device configures it for a run — no preamble writes `save` or
    `localsavingpath`.
 
-Twelve of #809's twenty-one review findings had those two causes (§3).
+Twelve of #809's twenty-one review findings had those two causes.
 
 ## Package Layout
 
@@ -85,7 +81,7 @@ geecs_bluesky/
 qserver/                    # the worker: launcher, startup profile, permissions, deploy/
 ```
 
-## Devices (§4.A)
+## Devices
 
 The bound `optimize` plan in `plans/optimize.py` runs strict acquisition in
 one run, with one bin per iteration. `OptimizerConfig` lives in GEECS-Schemas
@@ -109,7 +105,7 @@ the recorded physical targets, not a relative coordinate after its zero moved.
   `ScalarsDataLogic` (the DB-subscribed scalars + the stamp as columns) and
   `LvNativeFileDataLogic` (LabVIEW-native saving: `save=on` at prepare from
   a `PathProvider`, `save=off` at stage and unstage; a per-event reading of
-  the directory — there is no write-complete readback, §10.1).  It refuses
+  the directory — there is no write-complete readback).  It refuses
   a bare `bp.count([cam])` at prepare: a GEECS camera cannot self-trigger.
   `connected_status` reads the gateway's `CONNECTED` PV — the liveness
   signal, never a column.  `stage()` stages the scalar signals so per-shot
@@ -118,18 +114,18 @@ the recorded physical targets, not a relative coordinate after its zero moved.
   the gateway posts data before the stamp, caproto and aioca deliver FIFO,
   so when the stamp advance arrives every cache holds that frame or newer).
 - **`ShotControl`** — `Movable` over the trigger profile's states (`OFF`,
-  `STANDBY`, `SCAN`, `ARMED`, `SINGLESHOT` — §11.1: OFF is the only quiet
+  `STANDBY`, `SCAN`, `ARMED`, `SINGLESHOT` — OFF is the only quiet
   state, STANDBY is the machine's idle and passes edges), replaying each
   state's ordered writes through one cached `CaPutSetter` per target (every
   value as its wire string, 10 s budget — hardware-proven, pinned by
   `tests/test_gateway_put.py`); `Pausable` keyed on the standing state
-  (§10.3: ARMED → nothing; SCAN/STANDBY → OFF and back).  Neither
+  (ARMED → nothing; SCAN/STANDBY → OFF and back).  Neither
   notification ever raises.  Not a flyer: the box has no counter, so in
   gated mode (phase 2, `08_gated_batch.md`) the plan drives it SCAN after
   the detectors' `kickoff` and OFF after their `complete`; `pause_count`
   is how a gated step learns a pause interrupted its batch.
 - **`ShotSampler`** (`devices/sampler.py`) — the gated run's record of
-  every device without a plugin (phase 2b, `08` §4.7): Flyable +
+  every device without a plugin (phase 2b): Flyable +
   EventCollectable, clocked by an essential triggered device's
   `acq_timestamp`, one `shots` event per tick with the latest cached
   reading of every member (scalar-only devices, triggered scalars, `.scalars`
@@ -224,7 +220,7 @@ the recorded physical targets, not a relative coordinate after its zero moved.
   - Hardware-accepted 2026-09-15 (Scans 5–9 of 26_0915: bump, aborted bump
     with restore, `rel_scan` over a plain pseudo, R56 on the chicane).
 
-## The scan path (§4.B)
+## The scan path
 
 ### Sweep execution (2026-09-16 cutover; hardware acceptance owed)
 
@@ -282,8 +278,8 @@ rule in `devices/ca/liveness.py` (`read_disconnected`, fail-open — only
 the exact `Disconnected` string counts). A dead device refuses the run
 with `GeecsDeviceDownError` naming every dead one, before the box is
 driven and before `open_run` claims a scan number — so nothing is
-claimed and no folder exists. The §11.2 rule against reading quiescence
-in a scan does not apply: this is the liveness PV, read once per run.
+claimed and no folder exists. The rule against reading quiescence in a
+scan does not apply: this is the liveness PV, read once per run.
 **A failure's name**: a `FailedStatus` is given its cause's `str` (plus
 notes — `exceptions.failure_cause_text`, the one rendering) as it passes
 the GEECS hooks (`plans/strict.py::name_failed_status`), inside the
@@ -292,7 +288,7 @@ stock `run_wrapper` that writes `str(exc)` into the stop document, so
 `<AsyncStatus …>` (#868, #894); the settables log a failed set at ERROR
 with the `:SP` PV before the status fails (`CaSettable._set_logged`).
 
-**Gated** (`plans/gated.py`, phase 2b, `08_gated_batch.md` §4.2 / §4.7):
+**Gated** (`plans/gated.py`, phase 2b):
 each run bracketed OFF → STANDBY; per step the box free-runs in SCAN while
 the plugin-backed essential cameras count `shots_per_step` frames each —
 
@@ -324,7 +320,7 @@ prepare it lacks, per plan, never RunEngine-level
 `SupplementalData.flyers`; nothing waits on them.  `shot_period` is the
 strict rep-rate throttle (#840).
 
-**The s-file of a run with stream data** (phase 2c, `08` §4.5): the rows
+**The s-file of a run with stream data** (phase 2c): the rows
 are `primary`'s events when it has them and the sampler's `shots` events
 otherwise, and every **datum-only** stream's per-frame columns are joined
 onto them by offset-corrected stamp — the join itself is
@@ -343,7 +339,7 @@ with no datum-only stream is still written synchronously.
 `StackCheckCallback` checks a non-essential stream by count and a *gated*
 stack by count **and** stamps — one frame per `shots` row, none orphaned.
 
-## The GEECS scan (§4.C): one claim, three files, one telemetry stream
+## The GEECS scan: one claim, three files, one telemetry stream
 
 `make_run_engine(experiment, claim=True, path_provider=…, telemetry=…)`
 installs, in this order: the `claim_scan` preprocessor (**every run
@@ -403,7 +399,7 @@ failed-items-requeue-at-front, CLI parses Python literals not JSON).
 One-shot blocking CA reads go through `devices/ca/oneshot.py` (one
 persistent reader loop, never a per-call `asyncio.run`).
 
-## What stays GEECS (§6)
+## What stays GEECS
 
 The DB as the roster's source of truth (`db_runtime`); day-scoped scan
 numbering (`plans/claim_scan.py` — **the one place a `scans/ScanNNN/`
@@ -416,7 +412,7 @@ touches devices **only** through the gateway's CA PVs and never imports the
 gateway (circular).
 
 **Images:** a camera whose host serves the PVA gateway's file plugin
-(#806, `Planning/native_bluesky/06_pva_file_plugin.md`) writes one HDF5
+(#806) writes one HDF5
 stack per scan through the **stock** `ADHDFDataLogic` over
 `devices/hdf_plugin.GeecsHdfIO`; the run's stream documents reference it
 and Tiled reads it with its stock adapter.  The rule is the namespace's:
@@ -465,8 +461,8 @@ the RunEngine loop threads a test leaves behind (#812).
 - Re-derive the scan from a request worker-side (a second description).
 - Configure a device for a run from outside its lifecycle (a leak: #809's
   saving-mode / save-path / asset-definition P1).
-- Read quiescence in a scan step — it costs the longest device timeout
-  (§11.2); it belongs in the once-run calibration or a preflight.
+- Read quiescence in a scan step — it costs the longest device timeout;
+  it belongs in the once-run calibration or a preflight.
 - Treat monitor silence as liveness — the gateway posts no timeout events
   (M1); `CONNECTED` is the signal.
 - Put through `signal.set()` on a typed CA signal — go through
@@ -481,7 +477,7 @@ the RunEngine loop threads a test leaves behind (#812).
   puts) — a refused one reads as success there today.
 - Import anything from `geecs_scanner` (deleted 2026-08-20; pinned by
   `tests/test_dependency_direction.py`) or hold on to a funnel idiom
-  because "we already built it" (§9).
+  because "we already built it".
 
 Optimizer listings retain validation errors through `optimizer_config_listing()`;
 the names-only listing delegates to it. The epoch equality test lives here because

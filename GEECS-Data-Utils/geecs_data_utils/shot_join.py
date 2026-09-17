@@ -3,7 +3,7 @@
 A strict run records every essential device in the ``primary`` event rows,
 so its s-file is those rows renamed (:mod:`geecs_data_utils.tiled_export`).
 Two shapes of the native-Bluesky scanner put per-shot values *outside* the
-rows instead (``Planning/native_bluesky/08_gated_batch.md`` §4.5):
+rows instead:
 
 - a **gated** run's frames and their per-frame scalars live in each
   plugin-backed camera's stack, referenced by a datum-only stream with no
@@ -13,8 +13,8 @@ rows instead (``Planning/native_bluesky/08_gated_batch.md`` §4.5):
 
 Both are joined to the rows by the one shot identity GEECS has, the
 device's ``acq_timestamp``.  Cross-device stamps of one shot differ by a
-per-device constant — the camera's drain offset
-(``03_clean_room_rebuild.md`` §11.3/§11.4) — so the join corrects each
+per-device constant — the camera's drain offset — so the join corrects
+each
 side by its own offset and matches each row to the **nearest** frame
 inside that row's own window.
 
@@ -29,7 +29,7 @@ carry the "a frame belongs to one row" invariant on its own.
 A frame no row claims is an **orphan**: the extra edge at a step's end, a
 frame taken during an interrupted step, a non-essential camera's frame for
 a shot nobody recorded.  It stays in the stack and in Tiled and is left out
-of the s-file (Sam, 2026-09-12, ``08`` §6 Q4): one s-file row per
+of the s-file (Sam, 2026-09-12): one s-file row per
 essential shot, always.
 
 Pure arithmetic over arrays — no I/O, no Bluesky, no pandas — so both the
@@ -289,8 +289,8 @@ def join_frames_to_shots(
 ) -> ShotJoin:
     """Pair each row with one frame inside its window, nearest pair first.
 
-    Both sides are corrected by their device's drain offset first (``03``
-    §11.4: the stamp is the trigger's arrival plus a per-device constant),
+    Both sides are corrected by their device's drain offset first (the
+    stamp is the trigger's arrival plus a per-device constant),
     so after the correction one shot's stamps land within NTP jitter of
     each other.
 

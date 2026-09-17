@@ -1,36 +1,35 @@
 """GeecsDetector — a GEECS acquirer as a stock ophyd-async ``StandardDetector``.
 
-ophyd-async 0.19 composes a detector from three logics
-(``Planning/native_bluesky/03_clean_room_rebuild.md`` §4.A, §7):
+ophyd-async 0.19 composes a detector from three logics:
 
 - :class:`GeecsTriggerLogic` — external edges only.  The DG645 fires,
   LabVIEW acquires; there is nothing to program.  Its one config signal is
   the calibrated **drain offset**, the per-device constant between the edge
-  and the stamp (§11.4), which ``get_deadtime`` returns so a plan can budget
+  and the stamp, which ``get_deadtime`` returns so a plan can budget
   the per-shot wait.
 - :class:`GeecsAcquireLogic` — the GEECS shot contract: a shot **is**
-  ``acq_timestamp`` advancing (§11.3).  LabVIEW is always acquiring, so
+  ``acq_timestamp`` advancing.  LabVIEW is always acquiring, so
   ``start_acquiring``/``ensure_stopped`` are no-ops; what this logic owns is
   the wait, and the synchronous baseline that makes the wait exact.
 - data logics — :class:`ScalarsDataLogic` reads the device's own scalar
   variables into the event row; :class:`LvNativeFileDataLogic` drives
   LabVIEW's native file saving (``localsavingpath`` / ``save``) from a
   ``PathProvider``; and, for a camera whose host serves the PVA gateway's
-  file plugin (#806, ``Planning/native_bluesky/06_pva_file_plugin.md``),
-  the **stock** ``ADHDFDataLogic`` over :class:`~geecs_bluesky.devices.hdf_plugin.GeecsHdfIO`
+  file plugin (#806), the **stock** ``ADHDFDataLogic`` over
+  :class:`~geecs_bluesky.devices.hdf_plugin.GeecsHdfIO`
   — one per image variable, nothing of ours in the data path.
 
 A missed shot (no frame within the timeout, the device still live) does not
 void the row: the acquire logic remembers it until the next baseline and
 the scalar columns of that device read ``NaN`` for that row — the partial
 row the strict plan records (scalars only, no frames) before taking one
-more shot for the step (design §2.1).  On a plugin-backed camera the count wait precedes the
+more shot for the step.  On a plugin-backed camera the count wait precedes the
 stamp wait, so a dropped frame surfaces as the count timeout;
 :meth:`GeecsDetector.trigger` translates it into the GEECS timeout the
 plan's refire gate understands, and :meth:`GeecsDetector.discard_uncollected`
 is the late-frame guard the plan calls before the retake.
 
-In a **gated** batch (phase 2, ``08_gated_batch.md`` §4.2) the same
+In a **gated** batch (phase 2) the same
 device flies: ``prepare(number_of_events=N)`` baselines the plugin's count,
 ``kickoff`` arms the quota and switches the acquire logic to *fly mode*
 (``complete`` returns when the plugin has counted the quota — the stamp
@@ -44,7 +43,7 @@ partial frames away before it is retaken.  A gated step the plan abandons
 quietly instead of failing into a later message.
 
 Every per-run fact about the device is set through its own lifecycle —
-``stage → prepare → trigger → unstage`` — never from outside it (§3, the
+``stage → prepare → trigger → unstage`` — never from outside it (the
 second leg).  A plain ``bp.count([cam])`` is refused at prepare: a GEECS
 camera cannot self-trigger, so the fire must come from the plan
 (:mod:`geecs_bluesky.plans.strict`).  (With
@@ -105,7 +104,7 @@ ACQ_TIMESTAMP = "acq_timestamp"
 
 #: Seconds a shot may take to arrive after the fire: one trigger period (the
 #: single shot fires on the *next* edge) plus the device's exposure and
-#: drain (§7, M1).  One constant for every device until the calibration
+#: drain (M1).  One constant for every device until the calibration
 #: phase makes it a per-device budget.
 DEFAULT_SHOT_TIMEOUT = 3.0
 
@@ -167,7 +166,7 @@ class GeecsTriggerLogic(DetectorTriggerLogic):
     ----------
     drain_offset :
         Signal carrying the device's edge-to-stamp latency in seconds
-        (calibrated once, §4.F; ``0.0`` until then).
+        (calibrated once by ``measure_shot_offsets``; ``0.0`` until then).
     """
 
     def __init__(self, drain_offset: SignalR[float]) -> None:
@@ -219,7 +218,7 @@ class GeecsAcquireLogic(DetectorAcquireLogic):
     shot_timeout :
         Seconds to wait for the stamp after a fire.  The hardware budget is
         one trigger period (the single shot fires on the *next* external
-        edge) plus the device's exposure and drain (§7, M1).
+        edge) plus the device's exposure and drain (M1).
     """
 
     _queue_maxsize: int = 128
@@ -313,7 +312,7 @@ class GeecsAcquireLogic(DetectorAcquireLogic):
         the first positive arrival *is* the shot; ``baseline()`` already
         drained anything older.
 
-        In fly mode the count *is* the completion (§4.2): returns at once.
+        In fly mode the count *is* the completion: returns at once.
         """
         if self.fly:
             return
@@ -430,8 +429,8 @@ class LvNativeFileDataLogic(DetectorDataLogic):
 
     The device writes its own files (one per shot, named with the stamp —
     ``geecs_data_utils.native_files``) once ``localsavingpath`` points at a
-    directory and ``save`` is on.  There is no write-complete readback
-    (§10.1), so the provider is a per-event reading — the save directory —
+    directory and ``save`` is on.  There is no write-complete readback, so
+    the provider is a per-event reading — the save directory —
     and files join to rows by stamp.  Opened in ``prepare`` from the path
     provider; closed (``save=off``) by :meth:`stop`, which ``stage`` and
     ``unstage`` both call, so a stale ``save=on`` left by a crash is switched
@@ -612,7 +611,7 @@ class GeecsDetector(StandardDetector):
         Seconds to wait for the stamp after a fire.
     drain_offset :
         This device's measured edge-to-stamp latency in seconds, relative to
-        the calibration's reference device (``03`` §4.F; the
+        the calibration's reference device (the
         ``measure_shot_offsets`` plan writes it, the namespace reads it out
         of the experiment's ``shot_offsets.yaml``).  It is the initial value
         of the ``drain_offset`` config signal, which rides in every
@@ -801,7 +800,7 @@ class GeecsDetector(StandardDetector):
         quota, one included) or an unbounded stream (a non-essential
         detector) — produces data through the plugin's stream only: the
         per-event readables — the scalar columns
-        (a gated run's rows come from the sampler, ``08`` §4.7) and
+        (a gated run's rows come from the sampler) and
         LabVIEW-native saving (the plugin counts the frames; native saving
         would write every edge's frame unbounded) — are left out, where the
         stock logic would refuse ("Multiple collections not supported") or
@@ -883,7 +882,7 @@ class GeecsDetector(StandardDetector):
 
         The mode cannot be read off the prepare (a gated step with one shot
         prepares with ``number_of_events=1``, the strict signature), so it
-        is explicit: ``kickoff`` sets it, ``trigger`` clears it (§4.2).  A
+        is explicit: ``kickoff`` sets it, ``trigger`` clears it.  A
         stale ``missed`` from a strict run's last shot is cleared too — no
         row of this stream is a shot the plan fired.
         """
@@ -977,7 +976,7 @@ class GeecsDetector(StandardDetector):
     async def truncate_to_quota(self) -> None:
         """Rewind every plugin to ``baseline + quota``: the step's frames, exactly.
 
-        The gated step's trim (§4.2): after ``complete`` returned and the box
+        The gated step's trim: after ``complete`` returned and the box
         went OFF, at most one more edge was in flight; once it has landed
         (the plan waits one period plus the drain offset), every frame past
         the quota is truncated and a later arrival is stale to the plugin.
@@ -1013,7 +1012,7 @@ class GeecsDetector(StandardDetector):
     async def rewind_to_step_baseline(self) -> None:
         """Rewind every plugin to the count the step's prepare baselined.
 
-        The repeated-step path (§4.2, Sam 2026-09-12): after an immediate
+        The repeated-step path (Sam 2026-09-12): after an immediate
         pause the step is retaken from its first shot, so the partial frames
         (and any edge that slipped in between the resume and the OFF) leave
         the stack first.  A no-op without a plugin or outside ``prepare``.
@@ -1063,7 +1062,7 @@ class GeecsDetector(StandardDetector):
     async def discard_uncollected(self) -> None:
         """Rewind every plugin to the last frame a document referenced.
 
-        The late-frame guard (design §2.1): called by the plan on every
+        The late-frame guard: called by the plan on every
         plugin-backed device of a partial shot, before the retake fires.  A
         delivered frame no row referenced and a late frame of the missed shot
         are truncated alike, and one that arrives later is stale to the

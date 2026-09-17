@@ -1,19 +1,19 @@
 """ShotControl — the trigger box as an ophyd-async device.
 
-One device, the protocols Bluesky already has for it
-(``Planning/native_bluesky/03_clean_room_rebuild.md`` §4.A):
+One device, the protocols Bluesky already has for it:
 
 - **Movable** over the profile's named states: ``bps.mv(shot_control,
   "ARMED")`` replays that state's ordered ``(device, variable, value)``
   writes, each completing before the next (the TriggerProfile semantics).
   ``"SINGLESHOT"`` is the momentary fire — a move that never becomes the
   standing state.
-- **Pausable**, keyed on the standing state (§10.3): ``ARMED`` (strict) is
+- **Pausable**, keyed on the standing state: ``ARMED`` (strict) is
   quiescent by construction — the single-shot source cannot free-run — so
   the RunEngine pausing simply stops the plan firing and ``pause()`` does
   nothing.  ``SCAN`` and ``STANDBY`` both pass external edges
-  (:data:`~geecs_bluesky.models.shot_control.QUIESCE_FROM`; §11.1 — STANDBY is the machine's idle state, not a
-  quiet one), so a pause there drives ``OFF`` and ``resume()`` restores
+  (:data:`~geecs_bluesky.models.shot_control.QUIESCE_FROM` — STANDBY is
+  the machine's idle state, not a quiet one), so a pause there drives
+  ``OFF`` and ``resume()`` restores
   what the plan had.  The RunEngine calls both on every Pausable it has
   seen in a message (bluesky 1.15.0 ``run_engine.py``), so being the
   ``set`` target is enough to be paused.  Neither notification ever raises:
@@ -184,8 +184,8 @@ class ShotControl(StandardReadable):
             self.state, self._set_state = soft_signal_r_and_setter(str, "")
         self._resume_to: str | None = None
         #: How many RunEngine pauses this box has seen — a gated step reads it
-        #: before and after its batch to learn it was interrupted (§4.2:
-        #: an immediate pause mid-batch means the step is retaken).
+        #: before and after its batch to learn it was interrupted (an
+        #: immediate pause mid-batch means the step is retaken).
         self.pause_count = 0
         super().__init__(name=name)
 

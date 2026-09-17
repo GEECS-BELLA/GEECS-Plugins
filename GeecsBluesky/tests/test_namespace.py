@@ -2,8 +2,7 @@
 
 Built from an explicit roster (no DB); the DB path is exercised with a fake
 ``GeecsDb`` so the loud-failure contract is pinned without a database.
-Pins the hardware-derived rules of
-``Planning/native_bluesky/01_device_namespace.md``: served-set children,
+Pins the hardware-derived rules of the namespace: served-set children,
 DB-derived types, protocol-name collisions, the triggerable shortcut.
 """
 
@@ -199,7 +198,7 @@ def test_variable_and_resolve_accept_either_spelling() -> None:
 
 
 def test_native_save_iff_the_db_lists_both_saving_controls() -> None:
-    """§10.5: `save` + `localsavingpath` served → the detector owns them."""
+    """`save` + `localsavingpath` served → the detector owns them."""
     rows = list(ROSTER.variables["UC_TestCam"]) + [
         row("save", settable=True, choices="on,off")
     ]
@@ -455,7 +454,7 @@ def test_measured_drain_offsets_reach_the_detectors() -> None:
     This is the delivery path of ``shot_offsets.yaml``: the resolver's
     document becomes this mapping, which becomes each detector's
     ``drain_offset``, which rides in every descriptor and is what the s-file
-    join corrects stamps by (``03`` §4.F).  A namespace that dropped the
+    join corrects stamps by.  A namespace that dropped the
     mapping would leave every device at 0.0 — exactly the state the
     calibration exists to end — with nothing failing to say so.
     """

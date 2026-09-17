@@ -1,7 +1,7 @@
 """GEECS Scanner — the web scanner console's service layer and HTTP API.
 
 The third web surface on the GEECS surface kit, and the replacement for
-the PySide6 GEECS-Console (``Planning/native_bluesky/10_web_scanner.md``, #869).
+the PySide6 GEECS-Console (#869).
 Two layers, one seam:
 
 - :mod:`geecs_scanner.service` — pure Python over
@@ -14,7 +14,7 @@ Two layers, one seam:
   the manager and the document stream say, and (from 0.2.0) the page.
 
 Invariants the API keeps (the whole point of the rebuild's client-side
-expansion, ``03_clean_room_rebuild.md`` §4.D): the client expands a
+expansion): the client expands a
 :class:`geecs_schemas.Preset`; nothing worker-side re-derives detectors or
 points.  The scanner never binds a variable to a device itself — it always
 goes through :func:`geecs_bluesky.qs_client.expand_preset` and the

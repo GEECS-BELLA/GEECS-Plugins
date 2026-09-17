@@ -20,7 +20,7 @@ There is no legacy YAML dialect behind this model — the legacy scanner kept
 these choices in GUI state — so there is no converter for it.
 
 The mirrored closeout ordering is deliberate (ratified with the action
-execution milestone): the four setup layers (vision doc §4.4b) nest like
+execution milestone): the four setup layers nest like
 context managers.  On the way in the order is defaults → save-set entry
 rituals → the scan's own setup; on the way out it is the exact reverse —
 the scan's own closeout → entry rituals → defaults.  A defaults closeout

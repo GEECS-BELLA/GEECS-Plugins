@@ -6,11 +6,10 @@ orchestration ecosystem via [ophyd-async](https://ophyd-async.readthedocs.io/).
 Devices are **CA-backed**: they consume the PVs served by
 [`GeecsCAGateway`](../GeecsCAGateway) (the GEECS access layer) as a standard
 EPICS IOC — stock `epics_signal_r/rw` under the hood, no bespoke transport.
-This package is being rebuilt as a **native Bluesky application**
-(GEECS-Plugins#807; plan of record
-`Planning/native_bluesky/03_clean_room_rebuild.md`): the scan path is the
-stock `bluesky.plans` verbs over ophyd-async devices, and the only GEECS
-line in it is the fire between trigger and wait.  It owns:
+This package was rebuilt as a **native Bluesky application**
+(GEECS-Plugins#807): the scan path is the stock `bluesky.plans` verbs over
+ophyd-async devices, and the only GEECS line in it is the fire between
+trigger and wait.  It owns:
 
 - `namespace.py` — `GeecsNamespace`: every device of the experiment as a
   long-lived noun built from the GEECS DB; an acquirer is a `GeecsDetector`
@@ -40,14 +39,14 @@ line in it is the fire between trigger and wait.  It owns:
 
 Phase 0 (one camera as a `GeecsDetector`, strict shots under stock
 `bp.count` / `bp.list_scan`) is hardware-accepted
-(`Planning/native_bluesky/04_phase0_measurements.md`).  Phase 1 PR 1
+(`tests/test_phase0_hardware.py`).  Phase 1 PR 1
 deleted the `ScanRequest` funnel, the free-run mode, `GeecsSession` and
 the funnel-only devices; PR 2 added the plan layer — the stock plans
 registered strict under their own names, every run claiming a scan
 number, the ScanInfo / s-file / `scan.log` callbacks, the baseline
 telemetry stream, presets as the saved queue item.  PR 3 accepted it on
 HTU (Scans 104–108 of 26_0910, in process and through a second RE
-Manager — `Planning/native_bluesky/05_phase1_acceptance.md`).
+Manager — `tests/test_phase1_hardware.py`).
 
 ## Requirements
 

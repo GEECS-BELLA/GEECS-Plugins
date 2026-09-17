@@ -435,7 +435,7 @@ async def test_restart_pv_shuts_down_cleanly():
 
 def test_subscription_carries_the_scalars_only_with_a_plugin(monkeypatch) -> None:
     """One TCP subscription: frame + stamps, plus the subscribed scalars when the
-    file plugin serves the variable (08 §4.4) — never without it."""
+    file plugin serves the variable — never without it."""
     from geecs_pva_gateway import file_plugin
     from geecs_pva_gateway.server import _CameraWorker
 

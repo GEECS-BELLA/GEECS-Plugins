@@ -3,11 +3,11 @@
 A GEECS device's ``acq_timestamp`` is the shot's identity in everything but
 name, but two devices stamp the *same* shot at different times: the stamp is
 the trigger's arrival plus however long that device took to drain the frame,
-a per-device constant (``03_clean_room_rebuild.md`` §11.3/§11.4).  The
-constant differs by tens to hundreds of milliseconds across a camera set —
-37 ms between two ROI'd amplifier cameras, 160 ms out to an un-ROI'd large
-chip, all measured on HTU 2026-09-12.  It tracks frame size, so re-ROI'ing a
-camera invalidates its calibration.
+a per-device constant.  The constant differs by tens to hundreds of
+milliseconds across a camera set — 37 ms between two ROI'd amplifier
+cameras, 160 ms out to an un-ROI'd large chip, all measured on HTU
+2026-09-12.  It tracks frame size, so re-ROI'ing a camera invalidates its
+calibration.
 
 Joining frames to shot rows therefore corrects each side by its own offset
 before matching (``geecs_data_utils.shot_join``).  Until this document

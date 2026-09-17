@@ -3,9 +3,9 @@
 Tools never raise to the agent: every return is a JSON string with ``ok``
 plus either the payload or ``{error_kind, message}``.  The engine's
 message text is preserved verbatim inside ``message`` — those strings are
-the operator vocabulary (the planning doc's error-taxonomy rule).
+the operator vocabulary, and the taxonomy below is spelled in their terms.
 
-Error kinds (the planning doc's taxonomy, plus ``tiled_unreachable`` for
+Error kinds (plus ``tiled_unreachable`` for
 the archive's network failures, which are neither the manager's nor the
 request's fault):
 

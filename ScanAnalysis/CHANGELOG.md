@@ -3,6 +3,14 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.23.1] - 2026-09-16
+
+### Changed
+
+- Strip the `Planning/` provenance citations from docstrings and comments: a
+  docstring now states the rule itself, and the derivation stays in git
+  history. Part of the `Planning/` prune (#929, #930); no behaviour change.
+
 ## [1.23.0] - 2026-09-13
 
 ### Removed
@@ -842,6 +850,7 @@ loader/factory/models are deleted.
   flag is dropped everywhere — only `analysis_status/` is ever auto-created,
   and only inside an already-visible scan folder. Invariant pinned by new
   tests in `tests/test_task_queue.py::TestScanFolderCreationInvariant`.
+
 ## [1.3.6] — 2026-05-20
 
 ### Changed

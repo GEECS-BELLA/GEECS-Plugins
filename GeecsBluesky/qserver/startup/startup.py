@@ -110,7 +110,7 @@ else:
     # trigger_profile argument resolves against, the experiment default from
     # experiment_defaults.yaml, the action library run_action reads, and the
     # measured drain offsets.  Built BEFORE the namespace because each
-    # detector's drain_offset is seeded at construction (§4.F) — so a
+    # detector's drain_offset is seeded at construction — so a
     # re-measurement reaches the worker at the next environment open, not
     # mid-session.
     _resolver = ConfigsRepoResolver(_experiment)

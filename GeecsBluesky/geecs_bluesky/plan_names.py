@@ -29,11 +29,11 @@ NON_SCAN_PLAN_NAMES: tuple[str, ...] = (
     "check_shot_sync",
 )
 
-#: The once-run shot-offset plans (``03_clean_room_rebuild.md`` §4.F): the
+#: The once-run shot-offset plans: the
 #: calibration that measures each device's edge-to-stamp latency, and the
 #: preflight that says whether the stored measurement still holds.  Named
 #: apart because both drive the trigger box OFF and cost at least the
-#: longest device timeout (§11.2) — never a step inside a scan.
+#: longest device timeout — never a step inside a scan.
 CALIBRATION_PLAN_NAMES: tuple[str, ...] = (
     "measure_shot_offsets",
     "check_shot_sync",
@@ -52,8 +52,8 @@ GEECS_PLAN_NAMES: tuple[str, ...] = (
     *NON_SCAN_PLAN_NAMES,
 )
 
-#: The acquisition modes every bound scan verb accepts (``acquisition=``,
-#: ``08_gated_batch.md`` §4.1): strict single-shot, or the gated batch.
+#: The acquisition modes every bound scan verb accepts (``acquisition=``):
+#: strict single-shot, or the gated batch.
 #: Shared by the registry (the plan) and the client seam (the preset).
 ACQUISITION_MODES: tuple[str, ...] = ("strict", "gated")
 

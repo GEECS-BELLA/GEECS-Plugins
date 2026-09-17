@@ -124,7 +124,7 @@ def test_standing_state_is_configuration(
 def test_pause_is_a_no_op_in_strict_mode(
     RE: RunEngine, shot_control: ShotControl
 ) -> None:
-    """ARMED: the plan simply stops firing; the box is left alone (§10.3)."""
+    """ARMED: the plan simply stops firing; the box is left alone."""
     RE(mv(shot_control, "ARMED"))
     n = len(Recorder.log)
     _run(RE, lambda: shot_control.pause())
@@ -187,7 +187,7 @@ def test_stop_from_a_paused_gated_run_does_not_leak_into_the_next(
 def test_pause_from_standby_quiesces_too(
     RE: RunEngine, shot_control: ShotControl
 ) -> None:
-    """STANDBY passes external edges (§11.1): a pause there drives OFF as well."""
+    """STANDBY passes external edges: a pause there drives OFF as well."""
     RE(mv(shot_control, "STANDBY"))
     _run(RE, lambda: shot_control.pause())
     assert shot_control.standing_state == "OFF"

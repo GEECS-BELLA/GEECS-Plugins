@@ -1,14 +1,14 @@
 """One RunEngine with the GEECS pieces installed — the worker's and the tests'.
 
 The successor of the deleted ``GeecsSession`` (phase 1 of the native-Bluesky
-rebuild, ``Planning/native_bluesky/03_clean_room_rebuild.md`` §10.5): no
+rebuild): no
 scan API of its own, just a stock :class:`~bluesky.run_engine.RunEngine`
 with the GEECS preprocessors and callbacks installed.  Scans are the stock
 ``bluesky.plans`` verbs (bound strict by :mod:`geecs_bluesky.plans.registry`)
 over the namespace's devices; everything per-run is the plan's arguments
 and the devices' own lifecycles.
 
-What ``claim=True`` installs (§4.C) — the GEECS scan, as three preprocessors
+What ``claim=True`` installs — the GEECS scan, as three preprocessors
 and three callbacks, each with one job:
 
 - :func:`~geecs_bluesky.plans.claim_scan.claim_scan_preprocessor` — every
@@ -18,7 +18,7 @@ and three callbacks, each with one job:
 - :func:`~geecs_bluesky.preprocessors.scalar_headers` — the legacy
   ``Device Variable`` header map into the start document;
 - :class:`~bluesky.preprocessors.SupplementalData` with *telemetry* as the
-  baseline (read at open and close of every run, §4.B) — **connected once,
+  baseline (read at open and close of every run) — **connected once,
   here**, and any member that cannot connect dropped with a warning, so a
   device the gateway does not serve fails loudly at build time instead of
   failing every run after its scan number was claimed;

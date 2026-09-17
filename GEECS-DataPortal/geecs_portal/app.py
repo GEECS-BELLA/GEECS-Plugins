@@ -6,8 +6,7 @@ The web view layer over :class:`geecs_data_utils.tiled_catalog.ScanCatalog`
 day → scan → metadata/plots navigation, reachable from any browser on the
 lab network with nothing to install.
 
-Architecture rules (see this package's ``CLAUDE.md`` and
-``Planning/data_portal/01_data_portal_scope.md``):
+Architecture rules (see this package's ``CLAUDE.md``):
 
 - **Read-only by doctrine** — no write verbs; nothing on the scans path
   is ever created (repo scan-folder invariant).

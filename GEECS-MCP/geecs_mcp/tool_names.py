@@ -4,7 +4,7 @@ The osprey ``bluesky_tool_names.py`` pattern: profile permission lists and
 hook matchers import these symbols instead of retyping strings, so a
 rename cannot silently strand a permission entry.
 
-Safety classes (the planning doc's vocabulary): **R** read-only
+Safety classes: **R** read-only
 (auto-allow), **Q** queueing (`ask`), **S** stop direction (`ask`; see
 the verified gating semantics on ``STOP_TOOLS``).
 """

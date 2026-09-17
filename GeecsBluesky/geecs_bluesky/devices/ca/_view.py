@@ -1,7 +1,7 @@
 """``ScalarsView`` — a device's scalars-only view, addressable as ``X.scalars``.
 
 Every namespace device carries one so a preset's ``save_images: false``
-expands to ``X.scalars`` whatever the device is (plan of record §4.D): on
+expands to ``X.scalars`` whatever the device is: on
 a :class:`~geecs_bluesky.devices.detector.GeecsDetector` the view waits
 for the shot and writes no files; on a scalar-only device it reads what
 the device reads.  A childless ophyd-async ``Device``: the RE Manager

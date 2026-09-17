@@ -3,6 +3,14 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.28.2] - 2026-09-16
+
+### Changed
+
+- Strip the `Planning/` provenance citations from docstrings and comments: a
+  docstring now states the rule itself, and the derivation stays in git
+  history. Part of the `Planning/` prune (#929, #930); no behaviour change.
+
 ## [0.28.1] - 2026-09-15
 
 ### Changed
@@ -107,6 +115,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   rather than awaited before the write. Safari expires the gesture
   across an await and rejects the write that follows, so copy failed
   there even on a secure page. Chrome accepts either shape.
+
 ## [0.27.3] - 2026-09-14
 
 ### Added

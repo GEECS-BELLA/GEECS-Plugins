@@ -1,7 +1,7 @@
 # Phase-0 capture probes
 
-Empirical gates for the central PVA image-capture arc
-(`Planning/data_capture/01_central_pva_capture_scope.md`). Both scripts are
+Empirical gates for the central PVA image-capture arc (superseded by the
+per-host PVA file plugin, #806). Both scripts are
 read-only standalone tools, run from the **GeecsPvaGateway** poetry env
 (it carries `geecs-core`, `geecs-ca-gateway`, and `p4p`):
 

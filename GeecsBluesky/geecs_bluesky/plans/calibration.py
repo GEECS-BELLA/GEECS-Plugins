@@ -2,8 +2,7 @@
 
 Two devices stamp the *same* shot at different times: ``acq_timestamp`` is
 the trigger's arrival plus that device's own frame-drain latency, a
-per-device constant of tens of milliseconds
-(``Planning/native_bluesky/03_clean_room_rebuild.md`` §11.3/§11.4).  The
+per-device constant of tens of milliseconds.  The
 s-file join corrects each side by that constant before matching frames to
 rows (:mod:`geecs_data_utils.shot_join`), and until this module ran every
 constant in the field read ``0.0``.
@@ -19,7 +18,7 @@ Why both plans are once-run, never a scan step
 A GEECS device emits its TCP event either on a successful acquisition or,
 failing that, when its own timeout expires — and the timeout event carries
 an **unchanged** stamp, which the CA gateway's change suppression drops
-(§11.2, measured in M1).  So nothing announces quiescence: the only way to
+(measured in M1).  So nothing announces quiescence: the only way to
 know the set is quiet is to watch the stamps not move for longer than the
 longest device timeout in it.  That is the floor on both plans' cost, and
 it is why neither may sit inside a scan.
@@ -29,7 +28,7 @@ it is why neither may sit inside a scan.
     every device's stamp.  The spread across devices *is* the calibration.
 
 :func:`check_shot_sync_plan`
-    Sam's validation shortcut (§11.7), and it costs no shot at all: with
+    Sam's validation shortcut, and it costs no shot at all: with
     the box OFF and the set quiet, every device still holds the stamp of
     the **last real shot**, so correcting those stalled stamps by the
     stored offsets and comparing the results says whether the stored
@@ -89,13 +88,13 @@ logger = logging.getLogger(__name__)
 REPORT_LOGGER = "geecs_bluesky"
 
 #: The timeout a GEECS device falls back on when no acquisition arrives —
-#: 1.5 s for ~95 % of them (§11.2).  Not discoverable: the experiment DB
+#: 1.5 s for ~95 % of them.  Not discoverable: the experiment DB
 #: carries no timeout column, so this is the documented constant, and a set
 #: containing a slower device wants an explicit ``quiet_time``.
 DEVICE_TIMEOUT_S = 1.5
 
 #: Added to :data:`DEVICE_TIMEOUT_S` for the drain of a frame already in
-#: flight when the box went OFF (§11.4: the TCP message is sent when the
+#: flight when the box went OFF (the TCP message is sent when the
 #: exposure completes, so a long exposure lands most of a second late).
 QUIET_MARGIN_S = 0.75
 
@@ -141,8 +140,8 @@ MAX_PLAUSIBLE_SCATTER_S = 0.1
 #: carries the full ~10 ms dither; warned about, not refused.
 MIN_USEFUL_SHOTS = 3
 
-#: Default tolerance for :func:`check_shot_sync_plan`.  §11.7 quotes ~200 ms
-#: for the by-eye version; 50 ms is well clear of the ~10 ms dither and
+#: Default tolerance for :func:`check_shot_sync_plan`.  The by-eye version
+#: Sam used quotes ~200 ms; 50 ms is well clear of the ~10 ms dither and
 #: still catches a device a whole shot out of step.
 DEFAULT_SYNC_TOLERANCE_S = 0.05
 
@@ -389,7 +388,7 @@ def sync_verdict_from_stamps(
     With the box OFF and the set quiet, every device holds the stamp of the
     same last real shot.  Correcting each by its stored offset should
     therefore collapse them onto one instant, to within NTP jitter and the
-    hosts' own dither (§11.3).  A device that lands outside is
+    hosts' own dither.  A device that lands outside is
     mis-calibrated, and its rows will misjoin once the windows tighten.
 
     Two refinements over "is the range inside the tolerance", both from the
@@ -597,7 +596,7 @@ def _refuse_implausible(
     """Refuse to *store* a measurement outside the physically possible range.
 
     A drain offset is a frame-drain latency, and the measured HTU set spans
-    0 to 160 ms (2026-09-12; the un-ROI'd camera is the slow one, §4.F).  A
+    0 to 160 ms (2026-09-12; the un-ROI'd camera is the slow one).  A
     measurement far outside that is not an unusual camera — it is a device
     that latched a different edge, or a stamp wait that did not wait — and
     it would be seeded into every future run's join.  The numbers are
@@ -714,7 +713,7 @@ def _read_stamps(views: Sequence[Any]):
     exists — which it always does here, because ``GeecsAcquireLogic.attach``
     subscribes at connect.  Under OFF the stamp PV publishes nothing at all
     (a device's timeout event carries an unchanged stamp and the gateway's
-    change suppression drops it, §11.2), so the cache holds whatever the
+    change suppression drops it), so the cache holds whatever the
     monitor last delivered rather than what the PV holds now.  In practice a
     CA monitor delivers an initial update at subscribe, so the two agree —
     which is why the plan's own connect-touch (``bps.read(view)``) works
@@ -748,8 +747,8 @@ def _settle_quiet(views: Sequence[Any], quiet_time: float, confirm_time: float):
     """Plan: wait the set quiet with the box already OFF; return the stalled stamps.
 
     Costs at least the longest device timeout, by construction — there is no
-    event to wait for, because the timeout events never reach the gateway
-    (§11.2).  So: wait it out, then prove the set is still by re-reading
+    event to wait for, because the timeout events never reach the gateway.
+    So: wait it out, then prove the set is still by re-reading
     over a confirmation window.  A stamp that advanced in that window means
     edges are still arriving, which makes every number this plan would
     produce meaningless.
@@ -768,7 +767,7 @@ def _settle_quiet(views: Sequence[Any], quiet_time: float, confirm_time: float):
     before = yield from _read_stamps(views)
     logger.info(
         "waiting %.3g s for the device set to go quiet (the longest device "
-        "timeout — nothing announces quiescence, §11.2), then confirming "
+        "timeout — nothing announces quiescence), then confirming "
         "over %.3g s",
         quiet_time,
         confirm_time,
@@ -831,7 +830,7 @@ def _settle_quiet(views: Sequence[Any], quiet_time: float, confirm_time: float):
 def measure_shot_offsets_plan(
     profiles: Any, resolver: Any | None
 ) -> Callable[..., Any]:
-    """Build the ``measure_shot_offsets`` queue plan (§4.F).
+    """Build the ``measure_shot_offsets`` queue plan.
 
     Parameters
     ----------
@@ -1077,7 +1076,7 @@ def measure_shot_offsets_plan(
 
 
 def check_shot_sync_plan(profiles: Any) -> Callable[..., Any]:
-    """Build the ``check_shot_sync`` queue plan — the preflight of §4.F/§11.7.
+    """Build the ``check_shot_sync`` queue plan — the calibration's preflight.
 
     Parameters
     ----------
@@ -1110,8 +1109,8 @@ def check_shot_sync_plan(profiles: Any) -> Callable[..., Any]:
         warned about, not failed.
 
         This is a **queue item**, deliberately — never a step inside a scan.
-        It costs at least the longest device timeout every time it runs
-        (§11.2), and running it from the queue also means it cannot drive
+        It costs at least the longest device timeout every time it runs, and
+        running it from the queue also means it cannot drive
         the trigger box while a scan is using it.
 
         Raises when a device is out of tolerance, so a queue that puts this

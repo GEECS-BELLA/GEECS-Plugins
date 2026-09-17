@@ -3,6 +3,17 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.33.1] - 2026-09-16
+
+### Changed
+
+- Strip the `Planning/` provenance citations from docstrings and comments: a
+  docstring now states the rule itself, and the derivation stays in git
+  history. Part of the `Planning/` prune (#929, #930); no behaviour change.
+- `CLAUDE.md`: record the reader's half of the HDF5-over-SMB contract (never
+  read a stack mid-write, open lock-free through `scan_stack.open_stack`,
+  one frame per chunk), which lived only in the deleted file-plugin design.
+
 ## [0.33.0] - 2026-09-16
 
 ### Changed
@@ -778,6 +789,7 @@ implementation each, consumed by ScanAnalysis and the data portal:
 ### Removed
 - Unused `ScanPaths.data_dict`, `ScanPaths.data_frame`, and
   `ScanPaths.get_device_data()`. No external callers within the monorepo.
+
 ## [0.6.4] — 2026-05-21
 
 ### Changed

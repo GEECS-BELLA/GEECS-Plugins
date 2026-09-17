@@ -1,7 +1,6 @@
 """Per-bin aggregation — the pure core of the binned plot.
 
-The analysis-tabs flagship primitive
-(``Planning/data_portal/03_analysis_tabs_design.md``, W1c):
+The analysis-tabs flagship primitive:
 :func:`bin_frame` takes any frame plus a :class:`BinningConfig` and
 returns centers with asymmetric error bands — frame in, result out,
 no instance state.  It replaces the former stateful

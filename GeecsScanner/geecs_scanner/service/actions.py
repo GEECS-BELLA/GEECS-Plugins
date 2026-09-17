@@ -1,7 +1,7 @@
 """The action-plan preview: the worker's step order, described for the page.
 
-``03 §4``: a manual move is a stock ``mv`` queue item and *a preview is
-client-side resolver work*.  The walk itself is
+A manual move is a stock ``mv`` queue item and *a preview is client-side
+resolver work*.  The walk itself is
 :func:`geecs_bluesky.action_steps.flatten_action_steps` — import-light, the
 same function the worker's compiler executes, so the preview and the run
 cannot drift; this module only turns each flattened step into the words

@@ -1,15 +1,13 @@
 """The dual-write diff: file-plugin stacks vs native PNGs, per scan.
 
-The rollout's parity tool (``Planning/native_bluesky/06_pva_file_plugin.md``
-§8, step 4; ``geecs-pva-gateway diff``).  For every device folder in a scan
-that holds a stack written by the file plugin, join the
+The rollout's parity tool (``geecs-pva-gateway diff``).  For every device
+folder in a scan that holds a stack written by the file plugin, join the
 stack's per-frame ``acq_timestamp``s against the native per-shot files'
 filename timestamps — the analysis join's exact contract: canonical
 millisecond keys plus its \u00b11 ms candidate tolerance — and pixel-compare every matched pair (IMAQ-decoded PNG vs stack
 frame — proven bit-identical on healthy dual-writes). One verdict line per
 device, optionally appended to a JSONL evidence log; a non-zero exit on
-any mismatch. Weeks of clean log entries are the PNG-deprecation gate
-(the superseded ``Planning/data_capture/01_central_pva_capture_scope.md`` called this Phase 6).
+any mismatch. Weeks of clean log entries are the PNG-deprecation gate.
 
 Vocabulary (per device):
 

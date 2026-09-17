@@ -604,7 +604,7 @@ class ConfigsRepoResolver:
         """Load ``<experiment>/shot_offsets.yaml``; ``None`` if never measured.
 
         The per-device edge-to-stamp latencies the ``measure_shot_offsets``
-        calibration plan writes (``03`` §4.F).  ``None`` — the state of
+        calibration plan writes.  ``None`` — the state of
         every experiment until the plan is first run — leaves every
         detector's ``drain_offset`` at ``0.0``, which is what the join
         assumed before this document existed.

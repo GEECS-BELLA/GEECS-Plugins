@@ -336,8 +336,8 @@ empty. An unmigrated legacy corpus therefore offers no broken choices.
 `bax_alignment_simulation`, 3 iterations × 2 HTU-NoGas shots, and restored both
 original magnet setpoints. Scalar files and Xopt dump passed. The resulting
 Tiled column-encoding fix passed a hardware-free replay; the original live
-Tiled entry is partial. Evidence and remaining limits are recorded in
-`Planning/native_bluesky/12_optimization_implementation.md`.
+Tiled entry is partial. Evidence and remaining limits are in the #880 /
+#920 PR history.
 
 **OWED hardware acceptance:** run TopViewMax with
 beam, 5 shots × 10 iterations; require five valid frames per iteration,

@@ -1,7 +1,6 @@
 # GEECS Bluesky documents — what a run carries
 
-The native shape (phase 1 of the rebuild, GEECS-Plugins#807; plan of
-record `Planning/native_bluesky/03_clean_room_rebuild.md` §4): a run is
+The native shape (phase 1 of the rebuild, GEECS-Plugins#807): a run is
 whatever the stock `bluesky.plans` verb emits over the namespace's
 devices, and every GEECS fact rides in the places Bluesky already has for
 it.  There is no GEECS schema version any more — consumers read the

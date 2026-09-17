@@ -4,7 +4,7 @@ The web scanner console: submit, watch and stop GEECS scans from a browser.
 A FastAPI service on the worker host over the queueserver client
 (`geecs_bluesky.qs_client`), the third web surface on the GEECS surface kit
 beside the Data Portal and the logbook, and the operator front end (it
-replaced the PySide6 GEECS-Console, deleted 2026-09-14). Arc brief: `Planning/native_bluesky/10_web_scanner.md` (#869).
+replaced the PySide6 GEECS-Console, deleted 2026-09-14; #869).
 
 ## What it is
 

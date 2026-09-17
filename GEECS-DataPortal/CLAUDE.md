@@ -2,16 +2,15 @@
 
 The scan-browsing web service — read-only except explicit analysis runs
 (0.16.0): a zero-install browser view over the Tiled catalog (and, from
-phase 4, the data share's image files) for anyone on the lab network.  **The scope document is the spec**:
-`Planning/data_portal/01_data_portal_scope.md` — read it before extending
-this package; the architecture rules below are its distillation.
+phase 4, the data share's image files) for anyone on the lab network.
+**The architecture rules below are the spec** — read them before
+extending this package.
 
 ## Architecture rules
 
 - **Read-only, except explicit analysis runs, the config editor, and
   sending a plot to the logbook** (charter amendments: owner rulings
-  2026-09-01 — `Planning/data_portal/04_analysis_run_design.md` —
-  2026-09-06, and 2026-09-15).
+  2026-09-01, 2026-09-06, and 2026-09-15).
   The portal itself has no write verbs: no annotations.  Three
   exceptions, all explicit opt-ins.  (A MOUNTED scan logbook was a
   fourth, 0.22–0.26: a router at `/log` behind a `log` extra.  Since

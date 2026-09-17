@@ -3,7 +3,7 @@
 A :class:`geecs_schemas.Preset` is a saved scan: the device group plus the
 plan call.  The worker registers stock plans over namespace devices by
 **name** (:data:`~geecs_bluesky.plan_names.GEECS_PLAN_NAMES`), so
-submission is a translation of names, nothing more (plan of record §4.D):
+submission is a translation of names, nothing more:
 
 - each device of the group becomes its namespace binding —
   ``UC_Amp4_IR_input``, or ``UC_Amp4_IR_input.scalars`` when
@@ -11,7 +11,7 @@ submission is a translation of names, nothing more (plan of record §4.D):
   carries: on a detector the shot wait without the files, on a
   scalar-only device what the device reads); an ``essential: false``
   device goes to the bound plan's ``non_essential`` list instead (phase
-  2, ``08_gated_batch.md`` §4.6 — streamed for the run, never waited on;
+  2 — streamed for the run, never waited on;
   it needs its frames, so ``save_images: false`` there is refused);
 - ``acquisition`` (``strict`` / ``gated``) and ``shot_period`` ride in
   ``plan.kwargs`` like ``shots_per_step`` does;

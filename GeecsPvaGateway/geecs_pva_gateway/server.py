@@ -282,7 +282,7 @@ class _CameraWorker:
         The frame, the timestamp ladder, and — where the file plugin serves
         the variable — the device's subscribed scalars, so the per-frame
         attributes come from the same push as the frame
-        (``08_gated_batch.md`` §4.4: still one subscription, no second stream).
+        (still one subscription, no second stream).
         """
         names = [var, *_TIMESTAMP_VARS]
         if var in self._plugins:

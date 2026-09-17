@@ -1,7 +1,6 @@
 """ShotSampler — one event per shot for every device that has no plugin.
 
-The gated batch (``Planning/native_bluesky/08_gated_batch.md`` §4.7, Sam's
-answer to §6 Q1) has no per-shot ``create/read/save``: the box free-runs
+The gated batch has no per-shot ``create/read/save``: the box free-runs
 and the plugin-backed cameras count their own frames.  Every *other*
 device of the run — the scalar-only devices (magnets, gauges, stages at
 their own ~5 Hz cadence), the triggered scalar devices without a plugin
@@ -16,7 +15,7 @@ collect`` verbs (``Flyable`` + ``EventCollectable`` + ``Preparable``):
 - **Row.**  On each tick, the latest cached reading of every member (the
   strict row's rule: *the latest value of every subscribed non-plugin
   signal, into a row the trigger generated*), plus the clock's own stamp
-  column so the row joins to the cameras' frames by stamp (§4.5).
+  column so the row joins to the cameras' frames by stamp.
 - **Quota.**  ``prepare(N)`` sets the step's shot count; ``complete`` is
   done after *N* ticks, or fails with
   :exc:`~geecs_bluesky.exceptions.GeecsTriggerTimeoutError` when the clock
