@@ -24,7 +24,10 @@ Column families (schema v1):
 
 from __future__ import annotations
 
-from typing import Any, Mapping, Optional, Sequence
+from typing import TYPE_CHECKING, Any, Mapping, Optional, Sequence
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 #: The ``geecs_event_schema`` version this module targets.
 TARGET_SCHEMA_VERSION = 1
@@ -606,3 +609,27 @@ def is_stepped_scan(start_doc: Mapping[str, Any]) -> bool:
         True when a motor was stepped (see :func:`scan_motors`).
     """
     return bool(scan_motors(start_doc))
+
+
+def shot_axis_for_frame(frame: "pd.DataFrame") -> "pd.Series":
+    """The shot axis for a DataFrame — THE one implementation of the rule.
+
+    ``scan_event_index`` when present (1-based already), else 1-based
+    row labels; union rows the event side missed carry NA there and are
+    coalesced from the s-file's own shot identity (plain, or suffixed
+    by scan_frame's collision rename) — the 0.9.1 rule: Plotly silently
+    drops points with a null x, so those rows must keep a shot axis.
+    The ``/api`` frame endpoint and the "show the code" snippet both go
+    through here; a filtered frame keeps original shot identities.
+    """
+    import pandas as pd
+
+    if SHOT_INDEX_COLUMN in frame.columns:
+        shot = frame[SHOT_INDEX_COLUMN].copy()
+    else:
+        shot = frame.index.to_series() + 1
+    if shot.isna().any():
+        for name in ("Shotnumber", "Shotnumber (s-file)"):
+            if name in frame.columns:
+                shot = shot.fillna(pd.to_numeric(frame[name], errors="coerce"))
+    return shot

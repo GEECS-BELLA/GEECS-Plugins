@@ -207,3 +207,11 @@ def test_log_and_index_coordinates():
     assert fig["layout"]["xaxis"]["ticktext"] == ["2", "4"]
     assert fig["data"][0]["x"] == [-0.5, 0.5, 1.5]
     assert fig["data"][0]["y"] == pytest.approx([10**-0.5, 10**0.5, 10**1.5])
+
+
+def test_grid_and_images_share_shot_identity_resolver():
+    from geecs_data_utils import scan_grid, tiled_schema
+    from geecs_portal import figures
+
+    assert scan_grid.shot_axis_for_frame is tiled_schema.shot_axis_for_frame
+    assert figures.shot_axis_for_frame is tiled_schema.shot_axis_for_frame

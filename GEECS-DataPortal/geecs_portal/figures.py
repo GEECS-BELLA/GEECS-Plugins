@@ -35,12 +35,12 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Mapping, Optional, Sequence
 
 if TYPE_CHECKING:  # pandas is runtime-optional here (local imports)
-    import pandas as pd
-
     from geecs_data_utils.scan_grid import GridResult
 
 import plotly.graph_objects as go
 import plotly.io as pio
+
+from geecs_data_utils.tiled_schema import shot_axis_for_frame
 
 
 #: The notebook trace palette — still injected into the page as the
@@ -523,32 +523,6 @@ def _apply_display(
             and value > 0
         ):
             layout[key] = float(value)
-
-
-def shot_axis_for_frame(frame: "pd.DataFrame") -> "pd.Series":
-    """The shot axis for a DataFrame — THE one implementation of the rule.
-
-    ``scan_event_index`` when present (1-based already), else 1-based
-    row labels; union rows the event side missed carry NA there and are
-    coalesced from the s-file's own shot identity (plain, or suffixed
-    by scan_frame's collision rename) — the 0.9.1 rule: Plotly silently
-    drops points with a null x, so those rows must keep a shot axis.
-    The ``/api`` frame endpoint and the "show the code" snippet both go
-    through here; a filtered frame keeps original shot identities.
-    """
-    import pandas as pd
-
-    from geecs_data_utils.tiled_schema import SHOT_INDEX_COLUMN
-
-    if SHOT_INDEX_COLUMN in frame.columns:
-        shot = frame[SHOT_INDEX_COLUMN].copy()
-    else:
-        shot = frame.index.to_series() + 1
-    if shot.isna().any():
-        for name in ("Shotnumber", "Shotnumber (s-file)"):
-            if name in frame.columns:
-                shot = shot.fillna(pd.to_numeric(frame[name], errors="coerce"))
-    return shot
 
 
 def _shot_axis(series: Mapping, y: Sequence[str], shot: Optional[Sequence]) -> Sequence:

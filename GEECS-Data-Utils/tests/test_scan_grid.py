@@ -236,3 +236,26 @@ def test_iqr_uses_quartiles_even_after_custom_percentiles():
     result = grid_scan(grid_frame(), grid_start(), cfg)
     assert result.config.lower == 0.25 and result.config.upper == 0.75
     assert result.cells.iloc[0].error == 4
+
+
+def test_sfile_collision_preserves_member_shots():
+    frame = pd.DataFrame(
+        {
+            "scan_event_index": [1, np.nan],
+            "Shotnumber": [101, np.nan],
+            "Shotnumber (s-file)": [1, 2],
+            "Bin #": [1, 2],
+            "slow": [0, 0],
+            "fast": [1, 2],
+            "signal": [10, 20],
+        }
+    )
+    result = grid_scan(frame, {}, GridConfig(x="fast", y="slow", value="signal"))
+    assert result.cells.iloc[1]["count"] == 1
+    assert result.cells.iloc[1].shots == [2]
+
+
+def test_filtered_frame_preserves_original_shot_identity():
+    frame = grid_frame().drop(columns="scan_event_index").iloc[3:6]
+    result = grid_scan(frame, grid_start(), GridConfig(value="signal"))
+    assert result.cells.set_index("bin").loc[2, "shots"] == [4, 5, 6]

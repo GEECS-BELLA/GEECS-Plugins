@@ -870,7 +870,7 @@ def create_app(
             else:
                 series[column] = analysis.jsonable_values(full[mask])
         # The shot-axis rule (scan_event_index, NA-coalesced from the
-        # s-file's Shotnumber) lives in figures.shot_axis_for_frame —
+        # s-file's Shotnumber) lives in tiled_schema.shot_axis_for_frame —
         # ONE implementation, shared with the notebook snippet's path.
         shot_values = analysis.jsonable_values(
             figures.shot_axis_for_frame(pf.frame)[mask]

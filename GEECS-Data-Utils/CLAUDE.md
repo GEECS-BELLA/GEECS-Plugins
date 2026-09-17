@@ -379,3 +379,6 @@ quantiles themselves, not clipped offsets from a center outside the interval.
 Finite selected-scalar counts control error visibility. Bin identity uses one
 provider (native when available, otherwise s-file), matching Images; namespaces
 are never reconciled. Results include geometry, sample counts and member shots.
+`tiled_schema.shot_axis_for_frame` is the shared shot-identity resolver used by
+Grid and re-exported by the portal figures module for Plot/Images and notebooks.
+It preserves the union frame's suffixed s-file fallback after name collisions.

@@ -21,6 +21,7 @@ from geecs_data_utils.tiled_schema import (
     numeric_series,
     scan_motors,
     scan_variable_columns,
+    shot_axis_for_frame,
 )
 
 MAX_GRID_CELLS = 20_000
@@ -229,12 +230,7 @@ def grid_scan(
     if ((bins.dropna() < 1) | (bins.dropna() % 1 != 0)).any():
         raise ValueError("Acquisition bin numbers must be positive integers.")
     work["__bin__"] = bins
-    shots = pd.Series(np.nan, index=frame.index)
-    for column in ("scan_event_index", "Shotnumber"):
-        if column in frame:
-            shots = shots.fillna(pd.to_numeric(frame[column], errors="coerce"))
-    if shots.isna().all():
-        shots = pd.Series(range(1, len(frame) + 1), index=frame.index)
+    shots = shot_axis_for_frame(frame)
     mask = filter_mask(frame, filters or RowFilters())
     observed = work.groupby("__bin__")[[x, y]].mean()
     notes = []
