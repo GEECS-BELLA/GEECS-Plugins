@@ -3,7 +3,7 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [0.33.1] - 2026-09-16
+## [0.34.1] - 2026-09-16
 
 ### Changed
 
@@ -13,6 +13,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `CLAUDE.md`: record the reader's half of the HDF5-over-SMB contract (never
   read a stack mid-write, open lock-free through `scan_stack.open_stack`,
   one frame per chunk), which lived only in the deleted file-plugin design.
+
+## [0.34.0] - 2026-09-16
+
+### Added
+
+- Shared shot-identity resolution for Grid, Plot and Images, preserving s-file
+  shot numbers when the union frame renames a colliding native column.
+
+- Pure `scan_grid` geometry/statistics API for native two-axis grids, including
+  snaking, nonuniform lists, logarithmic and relative Sweep axes, repeated
+  positions and interrupted scans. Filters change samples without erasing cells.
+- Independent mean/median and standard deviation, SEM, scaled MAD or quantile
+  error statistics using the existing binning core. Nonrectangular trajectories
+  retain measured positions without interpolation.
 
 ## [0.33.0] - 2026-09-16
 

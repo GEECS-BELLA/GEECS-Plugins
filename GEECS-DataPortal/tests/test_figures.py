@@ -144,13 +144,11 @@ class TestShotsFigure:
         frame = pd.DataFrame({"a": [1.0, 2.0, 3.0]}, index=[0, 4, 9])
         fig = _fig_dict(shots_figure(frame, ["a"]))
         assert fig["data"][0]["x"] == [1, 5, 10]
-        # A DataFrame follows the ENDPOINT's rule (scan_event_index
-        # else index+1; Shotnumber only coalesces NA cells) — a frame
-        # with Shotnumber but no event index gets row labels, exactly
-        # as /api serves it.  Plain mappings (the /api payload shape)
-        # still honor an explicit Shotnumber key.
+        # DataFrames and mappings honor explicit legacy identities too.
+        # A sparse s-file's row positions are not its recorded shot numbers;
+        # Grid, Images and notebook plots must refer to the same shots.
         with_shot = pd.DataFrame({"a": [1.0, 2.0], "Shotnumber": [11, 12]})
-        assert _fig_dict(shots_figure(with_shot, ["a"]))["data"][0]["x"] == [1, 2]
+        assert _fig_dict(shots_figure(with_shot, ["a"]))["data"][0]["x"] == [11, 12]
         as_mapping = {"a": [1.0, 2.0], "Shotnumber": [11, 12]}
         assert _fig_dict(shots_figure(as_mapping, ["a"]))["data"][0]["x"] == [11, 12]
 

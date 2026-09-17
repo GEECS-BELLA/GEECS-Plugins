@@ -407,3 +407,26 @@ eager-thumbnail a scan from native files.  Device names are validated
 against the scan folder's actual subfolders (path-traversal guard), and
 every lookup — hit or miss — must leave the tree untouched (pinned in
 `tests/test_resources.py`).
+
+## Grid tab (0.29.0)
+
+`GET /api/run/{uid}/grid` consumes strict JSON `gridcfg` (Data Utils `GridConfig`)
+and the existing `filters`/`day` parameters. It returns complete cell geometry,
+counts, member shots, independent center/error statistics, paired server-authored
+figures and a notebook snippet. `gridcfg` and selected `gridbin` travel in run URLs. `imagebin` independently
+records explicit cell-to-Images navigation; merely opening Grid never filters
+the image gallery, and changing the bin definition clears this image selection.
+`templates/grid_script.html` is included by `run.html`; it only handles controls,
+selection, sizing and Plotly rendering. Numerical work stays in `scan_grid`.
+
+Grid geometry is resolved before filters. Both maps share coordinates and selection
+but use independent color scales. Figure edges preserve nonuniform/log spacing;
+equal-cell mode labels indices with physical values. Square refers to pixel area,
+not equal physical units. No interpolation is applied to arbitrary trajectories.
+The Images link uses the same acquisition-bin column and filters as Grid, keeping
+original bin indices for the image endpoint. Higher-dimensional slicing is deferred.
+
+The shared send-to-log modebar action exports its clicked Plotly host (Plot,
+Grid average or Grid error), through the same dialog and remembered browser
+entry. Grid captions identify the scalar, statistic, axes and visit; exports
+retain square plotting areas independently of the Plot tab's display settings.

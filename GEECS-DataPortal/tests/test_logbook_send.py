@@ -717,3 +717,79 @@ class TestTheDayParamSurvivesTheSend:
         page = _client().get(f"/run/{_UID}").text
         send = page[page.index("/api/run/${UID}/logbook") :][:400]
         assert 'searchParams.set("day", DAY)' in send
+
+
+@pytest.mark.parametrize("host_id", ["plotdiv", "grid-center", "grid-uncertainty"])
+def test_toolbar_sends_clicked_figure(host_id, tmp_path):
+    """The shared dialog must export its invoking host, including Grid maps."""
+    import shutil
+    import subprocess
+
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node is required for the browser-handler regression")
+    page = _client().get(f"/run/{_UID}").text
+    sender = page[
+        page.index("const LOGBOOK_SEND =") : page.index("function flashNote(")
+    ]
+    harness = r"""
+const assert = require('node:assert/strict');
+const UID = 'uid-002', ROOT = '/portal', DAY = '2026-07-12', EXPORT_SCALE = 2;
+const S = {y:['signal'], x:'fast', view:'shot'};
+const DEFAULT_X = 'fast';
+const GRID_DATA = {config:{value:'signal',x:'fast',y:'slow',average:'median',visit:2},error_label:'Standard deviation'};
+const prettyName = name => name;
+const elements = new Map();
+const document = {getElementById(id) {
+  if (!elements.has(id)) elements.set(id, {id, value:'', hidden:false,
+    classList:{add(){}}, focus(){}, layout:{margin:{l:65,r:14,t:12,b:110}}});
+  return elements.get(id);
+}};
+const storage = new Map();
+const localStorage = {getItem:key=>storage.get(key),setItem:(key,value)=>storage.set(key,value)};
+const location = {href:'http://portal.example/portal/run/uid-002?tab=grid&gridcfg=kept&filters=kept',origin:'http://portal.example'};
+const window = {open:()=>null};
+const closeModals = ()=>{};
+const flashNote = ()=>{};
+const dispCfg = ()=>({width:900,height:300});
+let exported, posted;
+const Plotly = {toImage:async(gd,opts)=>{exported={id:gd.id,...opts};return 'data:image/png;base64,stub';}};
+const fetch = async(url,options)=>{posted={url:String(url),...JSON.parse(options.body)};return {ok:true,json:async()=>({entry_id:'saved',url:'http://logbook.example/entry/saved',appended:false})};};
+"""
+    assertions = r"""
+(async()=>{
+  const host = document.getElementById(HOST_ID);
+  remember(ENTRY_KEY, 'existing');
+  openSendToLogbook(host);
+  const caption = document.getElementById('sl-caption').value;
+  document.getElementById('sl-author').value = 'Ada';
+  await confirmSendToLogbook();
+  assert.equal(exported.id, HOST_ID);
+  assert.equal(posted.image, 'data:image/png;base64,stub');
+  assert.equal(posted.entry, 'existing');
+  assert.equal(posted.source_url, location.href);
+  assert.equal(posted.url, 'http://portal.example/portal/api/run/uid-002/logbook?day=2026-07-12');
+  assert.equal(remembered(ENTRY_KEY), 'saved');
+  if (HOST_ID === 'plotdiv') {
+    assert.equal(caption, 'signal vs fast');
+    assert.equal(exported.width, 900);assert.equal(exported.height, 300);
+  } else {
+    assert.equal(exported.width-65-14, exported.height-12-110);
+    assert.ok(caption.includes(HOST_ID === 'grid-center' ? 'median' : 'Standard deviation'));
+    assert.ok(caption.includes('signal'));assert.ok(caption.includes('visit 2'));
+  }
+})().catch(err=>{console.error(err);process.exit(1);});
+"""
+    script = tmp_path / "sender.cjs"
+    script.write_text(
+        harness
+        + sender
+        + "\nconst HOST_ID = "
+        + json.dumps(host_id)
+        + ";\n"
+        + assertions
+    )
+    result = subprocess.run(
+        [node, str(script)], capture_output=True, text=True, timeout=20
+    )
+    assert result.returncode == 0, result.stdout + result.stderr

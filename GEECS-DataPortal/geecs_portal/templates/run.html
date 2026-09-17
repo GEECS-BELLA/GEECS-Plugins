@@ -127,6 +127,20 @@
   .bincard { margin: 0; background: var(--surface); border: 1px solid var(--rule);
              border-radius: 4px; padding: 0.4rem; }
   .bincard figcaption { font-size: 11px; padding-top: 0.3rem; text-align: center; }
+  .gridcontrols { display:flex; flex-wrap:wrap; gap:0.7rem; margin-bottom:0.8rem; }
+  .gridcontrols [hidden] { display:none; }
+  .gridcontrols label { display:flex; flex-direction:column; gap:0.2rem; font-size:12px; color:var(--muted); min-width:0; }
+  .gridcontrols select, .gridcontrols input { background:var(--surface); color:var(--ink); border:1px solid var(--rule); border-radius:3px; padding:0.3rem; max-width:19rem; }
+  .gridmaps { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:1rem; }
+  .gridmaps > div { min-width:0; }
+  .gridmaps h3 { font-size:13px; font-weight:500; margin:0; }
+  .gridinspect { background:var(--surface); border:1px solid var(--rule); border-radius:4px; padding:0.8rem; margin-top:0.7rem; }
+  .gridinspect .values { display:flex; gap:1.2rem; flex-wrap:wrap; margin-top:0.5rem; font-size:12px; }
+  .gridinspect select { max-width:100%; }
+  .gridnotes { font-size:12px; color:var(--muted); margin:0.6rem 0; }
+  @media(max-width:1050px) { .frame { grid-template-columns:13rem minmax(0,1fr); } }
+  @media(max-width:850px) { .frame { grid-template-columns:1fr; } .rail { border-right:0; } }
+  @media(max-width:620px) { .gridmaps { grid-template-columns:1fr; } .gridcontrols label { flex:1 1 130px; } .gridcontrols select { width:100%; } .tabs { flex-wrap:wrap; } }
 </style>
 <script src="{{ root }}/static/plotly-cartesian-3.1.1.min.js"></script>
 {% endblock %}
@@ -176,6 +190,7 @@
     <div class="tabs">
       <button class="tab" data-pane="overview" onclick="setTab('overview')">Overview</button>
       <button class="tab" data-pane="plot" onclick="setTab('plot')">Plot</button>
+      <button class="tab" data-pane="grid" onclick="setTab('grid')">Grid</button>
       <button class="tab" data-pane="images" onclick="setTab('images')">Images</button>
       {% if analysis_enabled %}
       <button class="tab" data-pane="analysis" onclick="setTab('analysis')">Analysis</button>
@@ -221,11 +236,55 @@
       <datalist id="all-cols"></datalist>
     </section>
 
+    <section class="pane" id="pane-grid">
+      <div class="gridcontrols">
+        <label>Scalar<select id="grid-value" onchange="changeGrid('value',this.value)"><option value="">Choose a scalar…</option></select></label>
+        <label>X axis<select id="grid-x" onchange="changeGrid('x',this.value)"></select></label>
+        <label>Y axis<select id="grid-y" onchange="changeGrid('y',this.value)"></select></label>
+      </div>
+      <div class="gridcontrols">
+        <label>Average<select id="grid-average" onchange="changeGrid('average',this.value)"><option value="median">Median</option><option value="mean">Mean</option></select></label>
+        <label>Error statistic<select id="grid-error" onchange="changeGrid('error',this.value)"><option value="iqr">25–75% interval (IQR)</option><option value="std">Standard deviation</option><option value="stderr">Standard error of mean</option><option value="mad">Scaled MAD</option><option value="percentile">Percentile interval</option></select></label>
+        <label>X spacing<select id="grid-xscale" onchange="changeGrid('xscale',this.value)"><option value="linear">Linear coordinates</option><option value="log">Logarithmic coordinates</option><option value="index">Equal cells · indexed</option></select></label>
+        <label>Y spacing<select id="grid-yscale" onchange="changeGrid('yscale',this.value)"><option value="linear">Linear coordinates</option><option value="log">Logarithmic coordinates</option><option value="index">Equal cells · indexed</option></select></label>
+        <label>Error map<select id="grid-error_view" onchange="changeGrid('error_view',this.value)"><option value="width">Full interval width</option><option value="low">Lower error</option><option value="high">Upper error</option></select></label>
+      </div>
+      <details>
+        <summary class="dim">Grid settings</summary>
+        <div class="gridcontrols">
+          <label>Lower percentile<input id="grid-lower" type="number" min="0" max="100" step="1" value="25" onchange="changeGridNumber('lower',this)"></label>
+          <label>Upper percentile<input id="grid-upper" type="number" min="0" max="100" step="1" value="75" onchange="changeGridNumber('upper',this)"></label>
+          <label>Minimum shots for error<input id="grid-min_count" type="number" min="1" value="3" onchange="changeGridNumber('min_count',this)"></label>
+          <label>Visit<select id="grid-visit" onchange="changeGrid('visit',Number(this.value))"><option value="1">1</option></select></label>
+        </div>
+      </details>
+      <p id="grid-message" class="gridnotes" role="status"></p>
+      <div id="grid-results" hidden>
+        <div class="gridmaps">
+          <div><h3 id="grid-center-title"></h3><div id="grid-center"></div></div>
+          <div><h3 id="grid-error-title"></h3><div id="grid-uncertainty"></div></div>
+        </div>
+        <div class="gridnotes">× Not acquired · ⁄ All shots filtered · □ No finite scalar · ○ Insufficient shots for error</div>
+        <div class="gridinspect">
+          <label>Selected cell <select class="act" id="grid-cell" onchange="selectGridBin(Number(this.value))"></select></label>
+          <button type="button" class="act" onclick="stepGridBin(-1)" aria-label="Previous grid bin">‹</button>
+          <button type="button" class="act" onclick="stepGridBin(1)" aria-label="Next grid bin">›</button>
+          <div id="grid-cell-values" class="values" aria-live="polite"></div>
+          <details><summary>Member shots passing filters</summary><div id="grid-members" class="mono"></div></details>
+          <button type="button" class="act" id="grid-open-images" onclick="gridOpenImages()">View this bin’s images</button>
+        </div>
+        <p id="grid-notes" class="gridnotes"></p>
+        <button class="act" type="button" onclick="document.getElementById('grid-code').classList.toggle('on')">show the code</button>
+        <div id="grid-code" class="codebox"></div>
+      </div>
+    </section>
+
     <section class="pane" id="pane-images">
+      <div id="grid-image-selection" class="gridnotes"></div>
       {% if devices %}
       <p>
         {% for dev in devices %}
-        <a class="mono" href="{{ root }}/run/{{ uid }}?{{ qs(device=dev, shot=1, tab="images") }}">{{ dev }}</a>{{ " · " if not loop.last }}
+        <a class="mono carry" href="{{ root }}/run/{{ uid }}?{{ qs(device=dev, shot=1, tab="images") }}">{{ dev }}</a>{{ " · " if not loop.last }}
         {% endfor %}
       </p>
       {% if sel_device %}
@@ -554,6 +613,7 @@ const LOGBOOK_SEND = {{ logbook_send | tojson }};
 const SEND_WIDTH = 720, SEND_HEIGHT = 460;
 const AUTHOR_KEY = "geecs-portal:author";
 const ENTRY_KEY = "geecs-portal:logentry:" + UID;
+let SEND_PLOT = null;
 
 /** localStorage, treated as a convenience that may not be there. */
 function remembered(key) {
@@ -564,19 +624,25 @@ function remember(key, value) {
 }
 
 /** What the plot shows, for the alt text of the image in the note. */
-function plotCaption() {
+function plotCaption(gd) {
+  if (gd && ["grid-center", "grid-uncertainty"].includes(gd.id) && GRID_DATA) {
+    const cfg = GRID_DATA.config;
+    const statistic = gd.id === "grid-center" ? cfg.average : GRID_DATA.error_label;
+    return `${prettyName(cfg.value)} · ${statistic} vs ${prettyName(cfg.x)} / ${prettyName(cfg.y)} · visit ${cfg.visit}`;
+  }
   const ys = S.y.map(prettyName).join(", ");
   if (!ys) return "plot";
   const x = prettyName(S.x || DEFAULT_X || "shot");
   return `${ys} vs ${x}${S.view === "binned" ? " (binned)" : ""}`;
 }
 
-function openSendToLogbook() {
+function openSendToLogbook(gd) {
+  SEND_PLOT = gd || document.getElementById("plotdiv");
   const form = document.getElementById("sl-form");
   const done = document.getElementById("sl-done");
   form.hidden = false; done.hidden = true;
   document.getElementById("sl-author").value = remembered(AUTHOR_KEY);
-  document.getElementById("sl-caption").value = plotCaption();
+  document.getElementById("sl-caption").value = plotCaption(SEND_PLOT);
   // The choice only exists once this page has an entry to add to.
   const row = document.getElementById("sl-targetrow");
   row.hidden = !remembered(ENTRY_KEY);
@@ -596,13 +662,16 @@ async function confirmSendToLogbook() {
   btn.textContent = "sending…";
   try {
     const d = dispCfg();
-    // getElementById, not plotHost(): that one CLEARS the div when a
-    // message is in it, which is not what reading a plot should do.
-    const image = await Plotly.toImage(document.getElementById("plotdiv"), {
+    const isGrid = ["grid-center", "grid-uncertainty"].includes(SEND_PLOT.id);
+    // Grid exports retain square plotting areas independently of the
+    // Plot tab's display settings. Every toolbar uses this same path.
+    const margin = SEND_PLOT.layout.margin;
+    const image = await Plotly.toImage(SEND_PLOT, {
       format: "png",
       scale: EXPORT_SCALE,
-      width: d.width > 0 ? d.width : SEND_WIDTH,
-      height: d.height > 0 ? d.height : SEND_HEIGHT,
+      width: isGrid ? SEND_WIDTH : (d.width > 0 ? d.width : SEND_WIDTH),
+      height: isGrid ? SEND_WIDTH - margin.l - margin.r + margin.t + margin.b
+        : (d.height > 0 ? d.height : SEND_HEIGHT),
     });
     // DAY like every other /api/run call: a run whose start doc has no
     // usable time resolves its day ONLY from this param, and the page
@@ -717,6 +786,9 @@ function readState() {
     bincfg: p.get("bincfg") || "",
     display: p.get("display") || "",
     processing: p.get("processing") || "",
+    gridcfg: p.get("gridcfg") || "",
+    gridbin: p.get("gridbin") || "",
+    imagebin: p.get("imagebin") || "",
   };
 }
 
@@ -725,7 +797,7 @@ function writeState() {
   // not analysis states — there is deliberately no popstate handler.
   // Shared/bookmarked links restore everything via readState().
   const p = new URLSearchParams(location.search);
-  ["y", "x", "view", "filters", "bincfg", "display", "processing", "tab"].forEach(k => p.delete(k));
+  ["y", "x", "view", "filters", "bincfg", "display", "processing", "tab", "gridcfg", "gridbin", "imagebin"].forEach(k => p.delete(k));
   S.y.forEach(v => p.append("y", v));
   if (S.x) p.set("x", S.x);
   if (S.view !== "shot") p.set("view", S.view);
@@ -733,6 +805,9 @@ function writeState() {
   if (S.bincfg) p.set("bincfg", S.bincfg);
   if (S.display) p.set("display", S.display);
   if (S.processing) p.set("processing", S.processing);
+  if (S.gridcfg) p.set("gridcfg", S.gridcfg);
+  if (S.gridbin) p.set("gridbin", S.gridbin);
+  if (S.imagebin) p.set("imagebin", S.imagebin);
   if (S.tab !== "plot") p.set("tab", S.tab);
   history.replaceState(null, "", location.pathname + "?" + p.toString());
   // Server-rendered stepper links must carry the latest state too —
@@ -743,6 +818,16 @@ function writeState() {
   if (procField) procField.value = S.processing;
   const dispField = document.getElementById("dispfield");
   if (dispField) dispField.value = S.display;
+  document.querySelectorAll("#imgshot form").forEach(form => {
+    form.querySelectorAll("[data-sticky-analysis]").forEach(el => el.remove());
+    ["gridcfg", "gridbin", "imagebin", "filters", "bincfg", "view", "x", "y"].forEach(key => {
+      p.getAll(key).forEach(value => {
+        const input = document.createElement("input"); input.type = "hidden";
+        input.name = key; input.value = value; input.dataset.stickyAnalysis = "true";
+        form.appendChild(input);
+      });
+    });
+  });
 }
 
 function syncRailLinks(p) {
@@ -750,7 +835,7 @@ function syncRailLinks(p) {
   // shot steppers) that must carry client-side analysis state too.
   document.querySelectorAll("a.act, a.carry").forEach(a => {
     const url = new URL(a.href, location.origin);
-    ["y", "x", "view", "filters", "bincfg", "display", "processing", "tab"].forEach(k => url.searchParams.delete(k));
+    ["y", "x", "view", "filters", "bincfg", "display", "processing", "tab", "gridcfg", "gridbin", "imagebin"].forEach(k => url.searchParams.delete(k));
     S.y.forEach(v => url.searchParams.append("y", v));
     if (S.x) url.searchParams.set("x", S.x);
     if (S.view !== "shot") url.searchParams.set("view", S.view);
@@ -758,6 +843,9 @@ function syncRailLinks(p) {
     if (S.bincfg) url.searchParams.set("bincfg", S.bincfg);
     if (S.display) url.searchParams.set("display", S.display);
     if (S.processing) url.searchParams.set("processing", S.processing);
+    if (S.gridcfg) url.searchParams.set("gridcfg", S.gridcfg);
+    if (S.gridbin) url.searchParams.set("gridbin", S.gridbin);
+    if (S.imagebin) url.searchParams.set("imagebin", S.imagebin);
     if (S.tab !== "plot") url.searchParams.set("tab", S.tab);
     a.href = url.pathname + "?" + url.searchParams.toString();
   });
@@ -1032,6 +1120,7 @@ function setTab(tab) {
   document.querySelectorAll(".pane").forEach(pane => pane.classList.toggle("on", pane.id === "pane-" + tab));
   writeState();
   if (tab === "plot") refresh();
+  if (tab === "grid") refreshGrid();
   refreshImages();
   if (tab === "analysis") refreshAnalysis(true);
 }
@@ -1139,12 +1228,14 @@ function imgFailed(img) {
 function refreshImages() {
   const shotBox = document.getElementById("imgshot");
   const grid = document.getElementById("imggrid");
-  if (!shotBox || !SEL_DEVICE) return;  // no device / vendor / unrenderable
   const binned = S.view === "bin";
+  document.getElementById("grid-image-selection").innerHTML = S.imagebin && binned
+    ? `Grid selection: bin ${esc(S.imagebin)} <button class="act" onclick="S.imagebin='';writeState();refreshImages()">show all bins</button>` : "";
+  if (!shotBox || !SEL_DEVICE) return;  // no device / vendor / unrenderable
   shotBox.hidden = binned;
   grid.hidden = !binned;
   if (!binned || S.tab !== "images") return;
-  const key = JSON.stringify([SEL_DEVICE, S.filters, S.bincfg, S.processing, S.display]);
+  const key = JSON.stringify([SEL_DEVICE, S.filters, S.bincfg, S.processing, S.display, S.imagebin]);
   if (key === IMG_KEY) return;
   IMG_KEY = key;  // set before the fetch: dedupes the boot's setTab+setView pair
   const params = new URLSearchParams({ device: SEL_DEVICE });
@@ -1153,11 +1244,12 @@ function refreshImages() {
   grid.innerHTML = `<div class="plotmsg">loading bins…</div>`;
   api("bin-images", params).then(data => {
     if (key !== IMG_KEY) return;  // superseded in flight — never render stale bins
-    if (!data.bins.length) {
+    if (!data.bins.length || (S.imagebin && !data.bins.some(b => String(b.bin) === String(S.imagebin)))) {
       grid.innerHTML = `<div class="plotmsg">no bins (check filters / bin column)</div>`;
       return;
     }
     grid.innerHTML = data.bins.map((b, i) => {
+      if (S.imagebin && String(b.bin) !== String(S.imagebin)) return "";
       const q = new URLSearchParams({ device: SEL_DEVICE, bin: i, v: VERSION });
       if (S.filters) q.set("filters", S.filters);
       if (S.bincfg) q.set("bincfg", S.bincfg);
@@ -1340,6 +1432,7 @@ function drawFigure(data) {
 }
 window.addEventListener("geecs:theme", () => {
   if (LAST_FIGURE && S.tab === "plot" && S.y.length) drawFigure(LAST_FIGURE);
+  if (GRID_DATA && S.tab === "grid") drawGrid();
 });
 
 function showPlotError(err) {
@@ -1361,7 +1454,7 @@ function renderChips() {
 function setFilters(model) {
   const active = (model.groups || []).length;
   S.filters = active || model.nan_policy !== "exclude" ? JSON.stringify(model) : "";
-  renderChips(); writeState(); updatePassCount(); refresh(); refreshImages();
+  renderChips(); writeState(); updatePassCount(); refresh(); refreshImages(); refreshGrid();
 }
 
 function toggleGroup(i, on) {
@@ -1474,6 +1567,7 @@ function applyBinset() {
   const minCount = parseInt(document.getElementById("bs-min").value, 10);
   if (Number.isFinite(minCount) && minCount > 1) cfg.min_count = minCount;
   S.bincfg = Object.keys(cfg).length ? JSON.stringify(cfg) : "";
+  S.imagebin = "";  // new bin definitions replace an explicit Grid image selection
   closeModals(); writeState();
   if (S.view !== "bin") setView("bin"); else { refresh(); refreshImages(); }
 }
@@ -1552,6 +1646,8 @@ function closeModals() {
 }
 
 // ---------------- utilities + boot ----------------
+{% include "grid_script.html" %}
+
 function esc(s) {
   return String(s).replace(/[&<>"']/g, ch => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
@@ -1562,6 +1658,7 @@ document.getElementById("colfilter").addEventListener("input", renderPicker);
 
 api("columns", {}).then(data => {
   COLUMNS = data.columns;
+  bootGrid(data.grid_axes || []);
   DEFAULT_X = data.default_x || "";
   if (!S.x && DEFAULT_X) S.x = DEFAULT_X;
   document.getElementById("xcol").value = S.x;
@@ -1574,7 +1671,7 @@ api("columns", {}).then(data => {
   renderPicker();
   renderPicked();  // chips re-label once pretty names are known
   BOOTED = true;
-  refresh();
+  refresh(); refreshGrid();
 }).catch(err => {
   document.getElementById("providers").innerHTML =
     `<span class="error">columns: ${esc(err.message)}</span>`;
