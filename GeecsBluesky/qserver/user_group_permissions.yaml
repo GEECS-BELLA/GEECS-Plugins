@@ -33,7 +33,7 @@ user_groups:
   # profile registers (geecs_bluesky.plan_names.GEECS_PLAN_NAMES — count,
   # sweep and optimize over the device namespace, plus mv for a manual
   # move, run_action for a named action plan, and the two once-run
-  # once-run shot-offset plans (measure_shot_offsets, check_shot_sync);
+  # shot-offset plans (measure_shot_offsets, check_shot_sync);
   # tests/test_deploy_templates.py pins this line to that tuple); no
   # function execution (the function verbs went with the funnel, #807).
   operator:
