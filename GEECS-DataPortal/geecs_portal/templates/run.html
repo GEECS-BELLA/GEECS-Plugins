@@ -613,6 +613,7 @@ const LOGBOOK_SEND = {{ logbook_send | tojson }};
 const SEND_WIDTH = 720, SEND_HEIGHT = 460;
 const AUTHOR_KEY = "geecs-portal:author";
 const ENTRY_KEY = "geecs-portal:logentry:" + UID;
+let SEND_PLOT = null;
 
 /** localStorage, treated as a convenience that may not be there. */
 function remembered(key) {
@@ -623,19 +624,25 @@ function remember(key, value) {
 }
 
 /** What the plot shows, for the alt text of the image in the note. */
-function plotCaption() {
+function plotCaption(gd) {
+  if (gd && ["grid-center", "grid-uncertainty"].includes(gd.id) && GRID_DATA) {
+    const cfg = GRID_DATA.config;
+    const statistic = gd.id === "grid-center" ? cfg.average : GRID_DATA.error_label;
+    return `${prettyName(cfg.value)} · ${statistic} vs ${prettyName(cfg.x)} / ${prettyName(cfg.y)} · visit ${cfg.visit}`;
+  }
   const ys = S.y.map(prettyName).join(", ");
   if (!ys) return "plot";
   const x = prettyName(S.x || DEFAULT_X || "shot");
   return `${ys} vs ${x}${S.view === "binned" ? " (binned)" : ""}`;
 }
 
-function openSendToLogbook() {
+function openSendToLogbook(gd) {
+  SEND_PLOT = gd || document.getElementById("plotdiv");
   const form = document.getElementById("sl-form");
   const done = document.getElementById("sl-done");
   form.hidden = false; done.hidden = true;
   document.getElementById("sl-author").value = remembered(AUTHOR_KEY);
-  document.getElementById("sl-caption").value = plotCaption();
+  document.getElementById("sl-caption").value = plotCaption(SEND_PLOT);
   // The choice only exists once this page has an entry to add to.
   const row = document.getElementById("sl-targetrow");
   row.hidden = !remembered(ENTRY_KEY);
@@ -655,13 +662,16 @@ async function confirmSendToLogbook() {
   btn.textContent = "sending…";
   try {
     const d = dispCfg();
-    // getElementById, not plotHost(): that one CLEARS the div when a
-    // message is in it, which is not what reading a plot should do.
-    const image = await Plotly.toImage(document.getElementById("plotdiv"), {
+    const isGrid = ["grid-center", "grid-uncertainty"].includes(SEND_PLOT.id);
+    // Grid exports retain square plotting areas independently of the
+    // Plot tab's display settings. Every toolbar uses this same path.
+    const margin = SEND_PLOT.layout.margin;
+    const image = await Plotly.toImage(SEND_PLOT, {
       format: "png",
       scale: EXPORT_SCALE,
-      width: d.width > 0 ? d.width : SEND_WIDTH,
-      height: d.height > 0 ? d.height : SEND_HEIGHT,
+      width: isGrid ? SEND_WIDTH : (d.width > 0 ? d.width : SEND_WIDTH),
+      height: isGrid ? SEND_WIDTH - margin.l - margin.r + margin.t + margin.b
+        : (d.height > 0 ? d.height : SEND_HEIGHT),
     });
     // DAY like every other /api/run call: a run whose start doc has no
     // usable time resolves its day ONLY from this param, and the page

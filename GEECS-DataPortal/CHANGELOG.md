@@ -3,6 +3,15 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.29.1] - 2026-09-16
+
+### Fixed
+
+- Grid toolbar's send-to-scan-log button now exports the clicked average or
+  error map, rather than the Plot tab's figure. Reuses the existing dialog,
+  remembered log entry and view link, with map-specific captions and square
+  plotting areas in the exported PNG.
+
 ## [0.29.0] - 2026-09-16
 
 ### Added

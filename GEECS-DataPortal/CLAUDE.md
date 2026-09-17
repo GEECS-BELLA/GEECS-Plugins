@@ -422,3 +422,8 @@ equal-cell mode labels indices with physical values. Square refers to pixel area
 not equal physical units. No interpolation is applied to arbitrary trajectories.
 The Images link uses the same acquisition-bin column and filters as Grid, keeping
 original bin indices for the image endpoint. Higher-dimensional slicing is deferred.
+
+The shared send-to-log modebar action exports its clicked Plotly host (Plot,
+Grid average or Grid error), through the same dialog and remembered browser
+entry. Grid captions identify the scalar, statistic, axes and visit; exports
+retain square plotting areas independently of the Plot tab's display settings.

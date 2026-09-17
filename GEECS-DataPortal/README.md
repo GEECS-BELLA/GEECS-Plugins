@@ -34,3 +34,7 @@ standard error of the mean, even when the displayed average is a median.
 
 This release supports two-axis scans; higher-dimensional slicing is deferred.
 ScanInfo and ScanAnalysis's first-motor labels are unchanged.
+
+Each Grid map has the same **send to scan log** toolbar button as Plot. It sends
+the selected map with its statistic caption and a link back to the filtered view;
+you can append both maps to the same log entry.
