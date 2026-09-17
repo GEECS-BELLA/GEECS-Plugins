@@ -5,8 +5,10 @@
     feature branch (GEECS-Plugins#807, phase 1 PR 2) a scan is a stock
     bluesky plan item — a **preset** (device group + plan call) expanded by
     the client — and save sets no longer exist; the web scanner submits
-    presets today, the MCP is rewired onto them once that foundation is
-    stable (GEECS-Plugins#727), and this page is rewritten with it.
+    presets today, and this page is rewritten with that foundation. The
+    MCP is **not** being rewired onto it: its write verbs were deleted in
+    geecs-mcp 0.9.0 (GEECS-Plugins#727) because that server is an
+    experiment, not an operator surface.
 
 This page explains, in plain language, how a scan is described and what happens
 to its data when it runs on the new engine. If you want the map of the five

@@ -4,6 +4,128 @@ All notable changes to `geecs-mcp` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.9.0] - 2026-09-16
+
+### Removed
+
+- **Every write verb** — `submit_scan`, `run_action`, `describe_action`,
+  `move_scan_variable` and `validate_scan_request`.  The native-Bluesky
+  rebuild removed the `geecs_bluesky.qs_client` calls all five stood on
+  (`submit_scan`, `submit_action`, `describe_action`, `move_variable` are
+  gone; the submission surface is now `submit_plan` / `submit_preset`
+  over the `count` / `sweep` / `optimize` plans), and
+  `run_submit_preflight` takes a preset rather than a `ScanRequest`.
+  The four control verbs would have raised `AttributeError` on their
+  first call and `validate_scan_request` would have run the preflight
+  against the wrong document.
+  They are **deleted rather than rewired** by owner ruling
+  (2026-09-16): this server was spun up as an experiment, not an
+  operator surface, so it gates no client-seam change.  Scans are
+  submitted from the web scanner (`GeecsScanner`).  See #727 if an
+  agent-facing write path is ever wanted back — the shape to copy is
+  `GeecsScanner/geecs_scanner/service/scanner.py`.
+- The doctrine those verbs carried (the acknowledge-warnings loop, the
+  1,000-shot agent cap, `clear_pending=False`, idle-only writes) went
+  with them, along with `_task_error_kind` and the `GOOD_REQUEST`
+  fixture.  `[mcp] max_shots` is now unread.
+
+### Fixed (adversarial review of this PR)
+
+- **A sixth tool was broken by the same rebuild, and this PR had
+  re-advertised it.** `list_scan_configs(kind="save_sets")` routed to
+  `ConfigsRepoResolver.list_save_sets`, removed alongside the client
+  verbs (presets carry the device group). It answered
+  `not_found: listing save_sets failed: 'ConfigsRepoResolver' object has
+  no attribute 'list_save_sets'` — which an agent reads as *this
+  experiment has no save sets*, not *this tool is broken*. `save_sets` is
+  dropped from `_CONFIG_KINDS`, from `_FakeResolver`, and from the five
+  places that advertised it — including the FastMCP `instructions`
+  string, which is the catalog description every connecting agent reads
+  first (second review round).
+- `test_list_scan_configs_without_experiment` was left **vacuous** by
+  that same fix: it passed `"save_sets"`, which now trips the
+  kind guard before reaching the `resolver is None` branch it exists to
+  test. Proven by deleting the guard and watching it still pass; it now
+  passes a valid kind and fails when the guard goes (second review
+  round — the fix for one mislabelled refusal had disarmed the test
+  protecting against another).
+- Two more `docs/sites/data_flow/` bullets in the list already corrected
+  still described a submit cap and acknowledge loop, and that map's
+  GEECS-Schemas panel still named the MCP among the packages importing
+  the models. `overview.md`'s new cross-reference pointed at
+  `#the-safety-model` while the bullet it names lives under
+  `#where-it-sits-in-the-architecture` — the anchor resolved, so the
+  build stayed quiet and the reader landed in the wrong section.
+- The error taxonomy's prose no longer describes the deleted submit path
+  (`policy_refusal` is ownership/RE-state, not cap/acknowledgement; the
+  `needs_acknowledgement` `extra` is gone). `task_timeout` keeps its slot
+  in `ERROR_KINDS` with a note that it currently has no producer — it is
+  a published envelope value an agent may branch on.
+- Root `CLAUDE.md` called `resume_scan` and `clear_queue` "halt verbs"
+  and the server "READ-ONLY", contradicting `tool_names.py`, which
+  classifies resume as **Q, not S** because it restarts motion. It now
+  reads "the halt family (stop/pause) + three gated go verbs".
+- Four published surfaces outside `docs/geecs_mcp/` still sold the submit
+  path: `docs/agentic/index.md`, both `docs/geecs_schemas/` admonitions
+  (which said the MCP "is rewired onto" presets — it is not, it was
+  deleted), and the `docs/sites/data_flow/` map, which drew an
+  OSPREY→queue submission arrow this arc removes.
+- `pyproject.toml`'s published description said "scan submission"; the
+  `geecs-schemas` dependency comment claimed a runtime import that does
+  not exist (nothing under `geecs_mcp/` imports it — the listing tools
+  duck-type catalog rows; it is test-only, now labelled as such).
+- The note added to `tool_names.py` had been spliced into the middle of
+  the `QUEUE_TOOLS` comment's sentence.
+
+### Added (adversarial review of this PR)
+
+- **`tests/test_seam_pins.py`** — the fake-vs-real assertions, in one
+  module instead of beside each double, because the review found the
+  drift a *second* time (`_FakeResolver.list_save_sets`) one file over
+  from the first. It pins all three doubles' public methods against
+  `QueueClient` / `ConfigsRepoResolver`, both fabricated `status()`
+  objects against `QueueStatus`'s real fields (the unpinned half: a
+  renamed field left the suite green and every reader raising
+  `AttributeError` in production), and — closing a pre-existing gap —
+  that the safety groups *partition* the registered tools, so a tool can
+  no longer ship in neither `allow` nor `ask`/`write_tools`.
+  Each assertion was verified to fail against its own drift.
+- `test_every_config_kind_maps_to_a_real_resolver_capability` — every
+  advertised `list_scan_configs` kind must name a capability the **real**
+  resolver has, checked against the class rather than the fake.
+
+**Known gap, waived:** the pins check *names*, not signatures or return
+shapes — a `request_pause()` returning a `SubmitResult` instead of
+`(ok, message)` would pass and still break the tuple unpack. Pinning
+shapes wants a typed conformance helper beside the protocol in
+GeecsBluesky, so the scanner's `DemoQueueClient` gets it too; that is a
+cross-package change.
+
+### What survives
+
+Read + observe + halt: `scan_status`, `scan_history`, `get_scan_result`,
+`list_scan_configs`, `scan_progress`, `stop_scan`, `pause_scan`,
+`resume_scan`, `clear_queue`, and the whole analysis domain
+(`get_scan_analysis`, `get_scan_figure`, `list_analyzers`,
+`list_analysis_groups`, `run_scan_analysis`).  Ownership etiquette on
+stop/pause/resume is unchanged.
+
+### Added
+
+- `test_the_fake_client_only_promises_verbs_the_real_client_has` — the
+  suite stayed green through this breakage because `_FakeClient` still
+  defined all four removed methods, so the tools were tested against a
+  seam that no longer existed.  The new test asserts every public method
+  on the fake exists on the `QueueClient` protocol; verified to fail
+  when a removed verb is put back on the fake.
+
+### Changed
+
+- `deploy/DEPLOYMENT.md` permission lists, the README verb inventory and
+  the server's `instructions` string drop the removed tools.  A profile
+  deployed before 0.9.0 names tools this server no longer registers —
+  inert, but drop those entries.
+
 ## [0.8.10] - 2026-09-16
 
 ### Fixed

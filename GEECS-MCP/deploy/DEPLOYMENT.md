@@ -18,10 +18,11 @@ mcp_servers:
     transport: http
     permissions:
       allow: [scan_status, scan_history, get_scan_result,
-              list_scan_configs, validate_scan_request, scan_progress,
-              get_scan_analysis, get_scan_figure, describe_action]
-      ask:   [submit_scan, stop_scan, clear_queue,
-              run_action, move_scan_variable, pause_scan, resume_scan]
+              list_scan_configs, scan_progress,
+              get_scan_analysis, get_scan_figure,
+              list_analyzers, list_analysis_groups]
+      ask:   [stop_scan, clear_queue, pause_scan, resume_scan,
+              run_scan_analysis]
 ```
 
 (The lists mirror `geecs_mcp/tool_names.py` — `READ_TOOLS` under
@@ -36,10 +37,10 @@ either (the framework's deny augmentation walks its own
 `FRAMEWORK_SERVERS` only). The actual gates are therefore:
 
 - **Interactive**: the native `ask` permission prompt on every control
-  verb — a human sees each `submit_scan`/`stop_scan`/`clear_queue`/
-  `run_action`/`move_scan_variable`/`pause_scan`/`resume_scan` call
-  with its arguments (this is also the backstop for the
-  acknowledge-warnings residual). The halt family (`stop_scan`,
+  verb — a human sees each `stop_scan`/`clear_queue`/`pause_scan`/
+  `resume_scan`/`run_scan_analysis` call with its arguments. The
+  server has no submission verb to gate (see the note below). The
+  halt family (`stop_scan`,
   `pause_scan`) is NOT behind the kill switch on either path:
   interactively because the kill switch does not cover custom servers
   (upstream gap), headless by the deliberate `write_tools` omission
@@ -47,17 +48,16 @@ either (the framework's deny augmentation walks its own
 - **Headless** (`osprey query`): the framework reads
   `hook_config.json`'s `write_tools` (populated from the profile's
   `config:`) — list every `tool_names.QUEUE_TOOLS` entry there
-  (`submit_scan`, `clear_queue`, and since 0.5.0 `run_action`,
-  `move_scan_variable`, `resume_scan` — resume restarts motion, so it
-  gates like a submission) and **deliberately NOT the halt family**
-  (`stop_scan`, `pause_scan`): exempt by omission, so a halt is never
-  blocked on any path. E.g. `write_tools: [mcp__geecs__submit_scan,
-  mcp__geecs__clear_queue, mcp__geecs__run_action,
-  mcp__geecs__move_scan_variable, mcp__geecs__resume_scan,
-  mcp__geecs__run_scan_analysis]` (the
-  deployed htu profile predates 0.5.0 and lists the first two —
-  extend it when the v2 verbs and 0.7.0's `run_scan_analysis`
-  deploy).  This is the ONLY headless
+  (`clear_queue`, `resume_scan` — resume restarts motion, so it gates
+  like a submission — and `run_scan_analysis`) and **deliberately NOT
+  the halt family** (`stop_scan`, `pause_scan`): exempt by omission, so
+  a halt is never blocked on any path. E.g.
+  `write_tools: [mcp__geecs__clear_queue, mcp__geecs__resume_scan,
+  mcp__geecs__run_scan_analysis]`.  **A profile deployed before 0.9.0
+  names removed tools** (`submit_scan`, `run_action`,
+  `move_scan_variable`, `describe_action`, `validate_scan_request`):
+  drop those entries — a permission naming a tool the server does not
+  register is inert, but it misreads as a capability that exists.  This is the ONLY headless
   gate — a profile missing these entries leaves an unattended agent's
   writes ungated.
 
@@ -110,7 +110,8 @@ sudo systemctl daemon-reload && sudo systemctl enable --now geecs-mcp
 Config is the standard `~/.config/geecs_python_api/config.ini` of the
 service user: `[Experiment] expt`, `[qserver] host`, `[tiled]`, the
 configs-repo path, and `[mcp] client_identity` (e.g.
-`osprey-htu-assistant`) + optional `[mcp] max_shots`.
+`osprey-htu-assistant`).  `[mcp] max_shots` is no longer read — it
+capped agent submissions, and 0.9.0 removed the submit verb.
 
 Update ritual: `git pull` in the checkout, re-run the pip install (the
 install is non-editable by design — a pull never mutates code under the

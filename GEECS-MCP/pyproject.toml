@@ -1,7 +1,7 @@
 [tool.poetry]
 name = "geecs-mcp"
-version = "0.8.10"
-description = "MCP server exposing GEECS scan submission, monitoring, and config discovery to AI agents (OSPREY)"
+version = "0.9.0"
+description = "MCP server exposing GEECS scan monitoring, halting, config discovery and analysis to AI agents (OSPREY)"
 authors = ["Sam Barber <sbarber@lbl.gov>"]
 readme = "README.md"
 packages = [{ include = "geecs_mcp" }]
@@ -36,7 +36,13 @@ geecs-bluesky = { path = "../GeecsBluesky", develop = true, extras = ["qs-client
 # Completed-run lookup (get_scan_result): TiledScanCatalog over the archive.
 geecs-data-utils = { path = "../GEECS-Data-Utils", develop = true, extras = ["tiled"] }
 
-# The one submission shape (ScanRequest) — validation at the tool boundary.
+# TEST-ONLY since 0.9.0 (honest labelling, review finding): nothing under
+# geecs_mcp/ imports geecs_schemas — the listing tools duck-type catalog
+# rows with getattr.  The suite builds REAL ScanVariable/PseudoScanVariable
+# models on purpose, so the row builder is tested against what a resolver
+# can actually produce.  Kept a main dependency because the resolver it
+# reads returns those models at runtime; move it to the dev group if that
+# ever stops being true.
 geecs-schemas = { path = "../GEECS-Schemas", develop = true }
 
 # On-demand ScanAnalysis execution (#686: run_scan_analysis + the

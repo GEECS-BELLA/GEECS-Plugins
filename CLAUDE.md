@@ -16,7 +16,7 @@ tooling. Each subdirectory is an independent Python package with its own
 | `GEECS-Core/` | The GEECS access **library**: UDP/TCP wire protocol (`transport/`), experiment DB (`db/GeecsDb`), PV naming contract, the one `GeecsError` tree, and the `FakeGeecsServer` test double — extracted from GeecsCAGateway 2026-08-20; see its `DESIGN.md` for the layering rules — plus the thin synchronous `GeecsDevice` client (`client/`), the successor to GEECS-PythonAPI's device objects |
 | `GeecsCAGateway/` | The caproto CA gateway serving GEECS devices as PVs (readback + `:SP`) for Phoebus/Archiver/ophyd-async, built on GEECS-Core — see its `PV_CONTRACT.md` (client API contract), `DEPLOYMENT.md`, and `DESIGN.md` |
 | `GeecsPvaGateway/` | The PVA peer of GeecsCAGateway: distributed pvAccess server on each Windows camera server, exposing that host's GEECS camera images as NTNDArray PVs (gated subscriptions, latest-wins). Images stay off the central CA gateway by design |
-| `GEECS-MCP/` | The general GEECS MCP server for AI agents (OSPREY) — domains as modules, scans first: read tools (status/history/results/config listings/validation) + control verbs (submit with cap/etiquette/acknowledge-loop, ownership-gated stop, clear_queue) over `geecs_bluesky.qs_client` + the resolver + Tiled. Osprey integrates via `profile.yml` — central HTTP (the multi-machine mode) or stdio; see its `deploy/DEPLOYMENT.md` |
+| `GEECS-MCP/` | The general GEECS MCP server for AI agents (OSPREY) — domains as modules, scans first: read tools (status/history/results/config listings/progress) + the halt family (stop/pause) + three gated go verbs (ownership-gated `resume_scan`, `clear_queue`, `run_scan_analysis`) + the analysis domain, over `geecs_bluesky.qs_client` + the resolver + Tiled. **An experiment, not an operator surface — it has no submit verb** (the write verbs were deleted in 0.9.0 when the native-Bluesky rebuild retired the client calls behind them; #727) and it never gates a client-seam change. Osprey integrates via `profile.yml` — central HTTP (the multi-machine mode) or stdio; see its `deploy/DEPLOYMENT.md` |
 | `GeecsScanner/` | The web scanner console (FastAPI, port 8300 on the worker host): submit, watch and stop scans from a browser over `geecs_bluesky.qs_client` — the third surface on the GEECS surface kit and the operator front end (it replaced the PySide6 GEECS-Console, deleted 2026-09-14). A service layer (`geecs_scanner.service`: pure Python, every answer a Pydantic model) under a JSON API + an SSE stream that reduces the worker's pickled document stream to JSON; a `--demo` manager for development. Arc brief: `Planning/native_bluesky/10_web_scanner.md` (#869) |
 | `GEECS-DataPortal/` | Scan-browsing web service (FastAPI, port 8200 on the worker host), read-only except explicit ScanAnalysis runs from its Analysis tab: day → scan → metadata/scalar plots/images in any browser, over the `ScanCatalog` layer in GEECS-Data-Utils. Arc spec: `Planning/data_portal/` |
 | `GeecsWebTheme/` | The shared look of every GEECS web surface, in two layers. `theme.css` settles **colour**: three themes (`bella` red/black, `laser` 532 nm green, `plasma` hydrogen Balmer), each light and dark, plus the picker. `kit.css` settles **everything else** — page shell, the three containers by role, one status vocabulary (`queued/running/ok/degraded/failed/unknown` + `agent`), controls, tables, the five pane states (incl. `stale` and `denied`), and the **overlay ladder** (`details` → inspector → drawer → `<dialog>` → route; take the lowest rung that fits). `kit.html` is its reference page, static beside the stylesheets so any host mounting it serves it at `<mount>/kit.html`. No runtime dependencies. Two rules it exists to enforce: surfaces style **through tokens, never with a literal colour**, and every kit rule is scoped to `.kit` so a surface adopts page by page — both pinned by its own tests, which walk the portal's and the editor's templates too. **Read its `CLAUDE.md` before building a new web surface** |
@@ -216,12 +216,17 @@ ScanAnalysis         →  GEECS-Data-Utils, ImageAnalysis, GEECS-Schemas,
                         + GeecsWebTheme via that same extra — the theme
                         has no dependencies, so the edge is one-way)
 GEECS-MCP            →  GeecsBluesky (qs-client + ca extras — the queue
-                        client, preflight, config resolver/listings),
+                        client, config resolver/listings),
                         GEECS-Data-Utils (tiled extra — results lookup),
-                        GEECS-Schemas (ScanRequest validation at the
-                        tool boundary) — a peer CLIENT of the
-                        queueserver, same standing as the scanner;
-                        never imports engine internals
+                        GEECS-Schemas (TEST-ONLY since 0.9.0 — the
+                        listing tools duck-type catalog rows; nothing
+                        under geecs_mcp/ imports it) — reads the
+                        queueserver, halts it (stop/pause), and has
+                        three gated go verbs (resume_scan, clear_queue,
+                        run_scan_analysis); no submit path since 0.9.0,
+                        and never imports engine internals.  An
+                        experiment: nothing operational depends on it,
+                        so it gates no change
 GeecsScanner         →  GeecsBluesky (qs-client + ca extras — the queue
                         client, expand_preset, the preflight, the configs
                         resolver, plan_names), GEECS-Schemas (Preset,

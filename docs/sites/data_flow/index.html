@@ -136,7 +136,7 @@ svg.has-sel .step:not(.on){opacity:.25}
 </header>
 
 <figure>
-<svg viewBox="0 0 1220 716" role="img" aria-label="Left to right: GEECS LabVIEW devices and cameras feed the CA and PVA gateways, which feed the Bluesky queueserver and capture daemon. Scan requests come from the web scanner or from OSPREY through GEECS-MCP. Results flow down into Tiled and the NAS scan folder, and are read back by the Data Portal, notebooks, ScanAnalysis and MCP.">
+<svg viewBox="0 0 1220 716" role="img" aria-label="Left to right: GEECS LabVIEW devices and cameras feed the CA and PVA gateways, which feed the Bluesky queueserver and capture daemon. Scan requests come from the web scanner; OSPREY reads and halts through GEECS-MCP but cannot submit. Results flow down into Tiled and the NAS scan folder, and are read back by the Data Portal, notebooks, ScanAnalysis and MCP.">
   <defs>
     <marker id="ah-teal" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="m-teal"/></marker>
     <marker id="ah-amber" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="m-amber"/></marker>
@@ -384,7 +384,7 @@ svg.has-sel .step:not(.on){opacity:.25}
 <section>
   <h2>One scan, end to end</h2>
   <ol class="steps">
-    <li><span class="n">1</span><span><b>A request enters the queue.</b> An operator submits from the scanner page, or OSPREY calls a GEECS-MCP tool. Both go through the same queue API to the RE Manager, so the engine cannot tell them apart.</span></li>
+    <li><span class="n">1</span><span><b>A request enters the queue.</b> An operator submits from the scanner page — the only submitting surface. GEECS-MCP reads and halts the queue but has no submit verb, so an agent observes and can stop a run, never start one.</span></li>
     <li><span class="n">2</span><span><b>The engine drives hardware through PVs.</b> Setpoints are written to <code>:SP</code> PVs on the CA gateway, which relays them to the LabVIEW device over the GEECS wire protocol and mirrors the readbacks.</span></li>
     <li><span class="n">3</span><span><b>Every shot lands in three places.</b> Readings become Bluesky documents in Tiled. The capture daemon pulls images from the PVA gateways into HDF5 stacks. LabVIEW devices keep saving their native per-shot files.</span></li>
     <li><span class="n">4</span><span><b>The engine owns the scan folder.</b> It alone claims <code>ScanNNN</code>, writes ScanInfo and exports the s-file. Analysis code only ever reads that folder.</span></li>
@@ -396,10 +396,10 @@ svg.has-sel .step:not(.on){opacity:.25}
 <section>
   <h2>Where OSPREY plugs in</h2>
   <ul class="plain">
-    <li><b>One door.</b> OSPREY reaches GEECS only through GEECS-MCP, which runs next to the queueserver and validates every request against the same config truth the worker uses.</li>
-    <li><b>Read freely, write through verbs.</b> Read tools cover scan status, history, results and config listings. Control is limited to submit, stop on scans it owns, and clear queue, each with a request cap and an acknowledge loop.</li>
+    <li><b>One door.</b> OSPREY reaches GEECS only through GEECS-MCP, which runs next to the queueserver and reads the same config truth the worker uses. Since geecs-mcp 0.9.0 that door is read-and-halt only — the submit verbs were deleted, not rewired.</li>
+    <li><b>Read freely, halt through verbs.</b> Read tools cover scan status, history, progress, results and config listings. Control is limited to stop and pause on scans it owns, resume, and clear queue — no submission verb exists.</li>
     <li><b>Same standing as the scanner.</b> MCP is a peer client of the queueserver, never an engine internal. Anything an agent does shows up in the queue like an operator's scan.</li>
-    <li><b>Two write paths, one rule.</b> Anything with GEECS semantics, a scan or a stop, goes through MCP verbs. A single setpoint can still be written to an <code>:SP</code> PV by OSPREY's own EPICS write tool, bounded by a limits database extracted from GEECS device limits, the same way any EPICS client would.</li>
+    <li><b>Two write paths, one rule.</b> Anything with GEECS semantics — for this server, a halt — goes through MCP verbs. A single setpoint can still be written to an <code>:SP</code> PV by OSPREY's own EPICS write tool, bounded by a limits database extracted from GEECS device limits, the same way any EPICS client would.</li>
   </ul>
   <h2 style="margin-top:22px">Why EPICS in the middle</h2>
   <ul class="plain">
@@ -654,15 +654,15 @@ const INFO = {
  },
  "mcp": {
   "name": "GEECS-MCP",
-  "role": "The tool surface AI agents use to work with GEECS.",
+  "role": "The read-and-halt tool surface AI agents use to observe GEECS. Submission is the scanner's job.",
   "status": "developing",
-  "does": "Exposes GEECS to agents as a fixed, reviewable set of tools: read scan status, history, results and config listings; validate a request; submit, stop and clear the queue.",
+  "does": "Exposes GEECS to agents as a fixed, reviewable set of tools: read scan status, history, progress, results and config listings; stop, pause, resume and clear the queue; read and run post-scan analysis. No submit verb.",
   "how": [
    "A client, never an engine. Every tool goes through the same queue client, config resolver and Tiled catalog the scanner uses, never engine internals.",
    "Runs as a systemd HTTP service on port 8100 next to the queueserver, installed non-editably from the worker's own clone so its config validation matches worker truth exactly. A stdio mode exists for single-machine use.",
-   "Control verbs carry etiquette: a submission cap, an acknowledge loop for pre-submit warnings, and stop limited to scans the caller owns. Every queue item is stamped with the client identity."
+   "Control verbs carry etiquette: stop, pause and resume are limited to scans the caller owns, with an approval-gated force for a foreign run, compared against the configured client identity."
   ],
-  "now": "Deployed on the interim host. Scans are the first domain. A 2026-09-04 release aligned the acknowledgeable checks with the engine's newest pre-submit warning.",
+  "now": "Deployed on the interim host. Scans are the first domain. geecs-mcp 0.9.0 (2026-09-16) deleted every write verb: the native-Bluesky rebuild retired the queue-client calls behind them, and this server is an experiment rather than an operator surface, so they were removed rather than rewired.",
   "next": [
    "Live checks against the deployed queueserver from an agent session.",
    "Domains added as they earn their keep: health, DB, logs (the triage report as a tool), deeper analysis over Tiled, archiver when that project reactivates.",
@@ -768,11 +768,11 @@ const INFO = {
  "name": "GEECS-Schemas",
  "role": "The typed vocabulary for describing a scan and an analysis. Pydantic only, importable from anywhere.",
  "status": "hardening",
- "does": "Defines, as versioned Pydantic models, every config kind the platform runs on: the ScanRequest itself, save sets, scan variables, trigger profiles, action plans, derived channels, and now the analysis configs. Scanner, MCP, engine, portal, ScanAnalysis and the docs generator all import the same models, so they cannot disagree about what a scan is.",
+ "does": "Defines, as versioned Pydantic models, every config kind the platform runs on: the ScanRequest itself, save sets, scan variables, trigger profiles, action plans, derived channels, and now the analysis configs. Scanner, engine, portal, ScanAnalysis and the docs generator all import the same models, so they cannot disagree about what a scan is. (GEECS-MCP no longer imports them: since geecs-mcp 0.9.0 it has no submit verb and its listing tools duck-type catalog rows.)",
  "how": [
   "Configs are schemas; YAML is just their serialization. The configs repo holds the YAML, this package holds the meaning.",
   "Declare intent, derive mechanics. Device facts such as limits, units and enum choices live in the GEECS DB and are never repeated in YAML. Unknown keys fail loudly (`extra=\"forbid\"`).",
-  "The amber arrows carry instances of these models: a request leaves the scanner or an MCP tool, is validated at the boundary, and is what the funnel plan receives.",
+  "The amber arrows carry instances of these models: a request leaves the scanner, is validated at the boundary, and is what the plan receives.",
   "A doc generator renders every field description to the reference page and CI fails if a field lacks one, so the documentation cannot drift from the code."
  ],
  "now": "The analysis configs joined the package on 2026-09-08 (the v2 analysis document with kind-discriminated analyzer specs). Scan variables are authored new-schema only as of 2026-09-04; the legacy dialect and its converter were deleted once both experiments' catalogs were regenerated.",

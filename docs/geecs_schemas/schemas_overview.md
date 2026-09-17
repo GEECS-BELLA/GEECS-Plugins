@@ -5,10 +5,11 @@
     device group *plus* the plan call — a saved queue item) in GEECS-Schemas
     0.21.0 (GEECS-Plugins#807, native-Bluesky rebuild phase 1 PR 2); see
     the `preset` section of the [Schema reference](schema_reference.md).
-    The scan-request funnel this page describes is what the MCP still
-    submits until it is rewired onto presets (GEECS-Plugins#727); the web
-    scanner already submits presets, and the worker on the feature branch
-    runs stock bluesky plans over them.
+    The scan-request funnel this page describes now has **no submitter
+    left**: the web scanner submits presets, the worker runs its own
+    plans over them, and geecs-mcp 0.9.0 deleted the MCP's write verbs
+    rather than rewiring them (GEECS-Plugins#727). The document survives
+    as a schema and in archived run metadata.
 
 Everything the scanner does is driven by five kinds of config file. Each one
 answers a single question, and a scan is just those answers put together.

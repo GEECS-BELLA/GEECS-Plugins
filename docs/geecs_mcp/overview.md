@@ -3,9 +3,10 @@
 **GEECS-MCP** is the general GEECS server for AI agents: one deployed
 service that exposes the lab's GEECS-semantic operations — the scan
 service, the config catalogs, archived results, post-scan analysis — as
-typed tools an agent can call. It is what turns "ask the assistant to run
-a scan and tell me what it measured" from a demo into a governed,
-auditable interaction with the machine.
+typed tools an agent can call. It is what turns "ask the assistant how
+scan 12 is going and what it measured" from a demo into a governed,
+auditable interaction with the machine. Starting a scan is deliberately
+not part of that surface — see [No write path here](#where-it-sits-in-the-architecture).
 
 This page is a concepts-first orientation. The authoritative detail lives
 in the package alongside the code: `GEECS-MCP/CLAUDE.md` (architecture and
@@ -37,11 +38,12 @@ with generic EPICS tools can read any process variable without this server
 existing. But raw PV access cannot express the operations that actually
 matter:
 
-- "Run a 1D scan of the jet position using the `Amp4In` save set" — that
-  is a **ScanRequest** submitted to the queueserver, not a PV write.
+- "Is a scan running, how far along is it, and whose is it?" — that is
+  the **queueserver's** manager state and document stream, not a PV
+  read.
 - "What did scan 12 measure?" — that is a **Tiled archive** lookup with
   the run's metadata and per-column statistics.
-- "Which save sets and trigger profiles exist for this experiment?" —
+- "Which presets and trigger profiles exist for this experiment?" —
   that is the **configs repository**, resolved and validated the same way
   the web scanner does it.
 - "Run the standard analysis on this scan" — that is the **ScanAnalysis
@@ -55,9 +57,10 @@ bounded setpoint writes (see the
 
 ## Where it sits in the architecture
 
-The server is a **peer client of the queueserver, with the same standing
-as the web scanner** — and never an engine. It submits `ScanRequest`s through
-the same client seam the scanner uses (`geecs_bluesky.qs_client`),
+The server is a **read-and-halt client of the queueserver** — and never
+an engine. It reads status, history and progress, and can halt a run,
+through the same client seam the web scanner uses
+(`geecs_bluesky.qs_client`); since 0.9.0 it has no submit verb,
 resolves configs through the same resolver, and reads results from the
 same Tiled catalog. Scan execution stays entirely in the GEECS engine (the
 queueserver worker); the MCP never drives devices shot-by-shot.
@@ -79,8 +82,8 @@ flowchart LR
     end
     O -- "MCP tool calls" --> S
     O -- "MCP tool calls" --> A
-    S -- "qs_client (submit / status / stop)" --> Q
-    S -- "resolver (listings / validation)" --> C
+    S -- "qs_client (status / progress / stop)" --> Q
+    S -- "resolver (config listings)" --> C
     S -- "results" --> T
     A -- "statuses / figures / analysis runs" --> D
     Q -- "writes scans" --> D
@@ -88,11 +91,15 @@ flowchart LR
 
 Two standing doctrines shape everything above:
 
-- **Write-surface doctrine.** GEECS-*semantic* writes — scans, actions,
-  manual moves, analysis — go through MCP verbs only, each a named,
-  gated tool with its own refusal logic, and scans stay in the GEECS
-  engine. Channel-level setpoint writes are deliberately *not* MCP
-  territory: the agent framework's own EPICS write tool can set gateway
+- **No write path here.** This server had submit / action / manual-move
+  verbs; 0.9.0 removed them when the native-Bluesky rebuild retired the
+  client calls behind them, and they were deleted rather than rewired
+  because the server is an experiment rather than an operator surface.
+  Scans are submitted from the **web scanner**. The doctrine for
+  whenever an agent-facing write path returns (#727): GEECS-*semantic*
+  writes go through named, gated MCP verbs with their own refusal logic,
+  and scans stay in the GEECS engine. Channel-level setpoint writes are
+  deliberately *not* MCP territory: the agent framework's own EPICS write tool can set gateway
   `:SP` PVs directly, bounded by its limits database and gating — but
   that raw path bypasses the GEECS client-side hardening (put-failure
   visibility, confirm/pseudo semantics, mid-scan refusals), which is
@@ -110,7 +117,7 @@ their keep, never speculatively:
 
 | Domain | Status | What it covers |
 |---|---|---|
-| [Scan service](scan_service.md) | Built (v0 read, v1 control, v2 verbs) | Status, history, results, config listings, request validation, submit/stop/queue, actions, manual moves, pause/resume |
+| [Scan service](scan_service.md) | Built (read + halt) | Status, history, results, config listings, progress; stop/pause/resume and clear_queue. **No submit verb** since 0.9.0 |
 | [Analysis](analysis.md) | Built (read + execution) | Task statuses and output trees, figures, on-demand ScanAnalysis execution |
 | Health / DB / Logs | Candidates | Gateway and archive probes, device-variable metadata, log triage as a tool |
 
@@ -126,11 +133,13 @@ it is gated (`geecs_mcp/tool_names.py` is the one place the names and
 class groupings are spelled; anything listing tool names elsewhere is
 kept in step with it):
 
-- **R — read-only.** Status, listings, results, figures, dry-runs. Safe
+- **R — read-only.** Status, listings, results, figures, progress. Safe
   to auto-allow; calling them changes nothing.
 - **Q — queueing.** Anything that starts work or changes state:
-  `submit_scan`, `clear_queue`, `run_action`, `move_scan_variable`,
-  `resume_scan`, `run_scan_analysis`. Interactively these surface a
+  `clear_queue`, `resume_scan`, `run_scan_analysis`. (The submit-side
+  verbs — `submit_scan`, `run_action`, `move_scan_variable` — were
+  removed in 0.9.0; see [the scan service](scan_service.md).)
+  Interactively these surface a
   native *ask* prompt (a human sees each call with its arguments before
   it runs); headless/unattended operation gates them through the agent
   framework's explicit `write_tools` list (a tool listed there is
@@ -141,15 +150,11 @@ kept in step with it):
   — a halt must never be blocked on any path. Making the machine quieter
   is always allowed.
 
-On top of the classes sit per-verb protections: submissions carry a shot
-cap and an **acknowledge-warnings loop** (the server never silently
-continues past a preflight question — the agent must explicitly
-acknowledge, and the acknowledgement is stamped into the run's
-`SubmissionRecord` for provenance); stop and resume carry **ownership
-etiquette** (another client's scan needs `force=true`, which is
-approval-gated). Every run submitted through the server is attributed to
-a configured client identity, so runs trace back to the agent that
-started them.
+On top of the classes sit per-verb protections: stop, pause and resume
+carry **ownership etiquette** — a scan this deployment did not submit is
+foreign, and halting it needs `force=true`, which is approval-gated. The
+comparison is against a configured client identity, so a halt is never
+aimed at another client's run by accident.
 
 ## Conventions every tool follows
 
@@ -162,9 +167,10 @@ started them.
   and capped statistics — never full event tables; figures return
   *references* (path + fetch URL) rather than image bytes, with a
   bounded thumbnail as an explicit opt-in. Anything truncated says so.
-- **No tool blocks on completion.** Long work is submit-and-poll: a
-  submit tool returns as soon as the work is enqueued, and a read tool
-  polls progress. A stuck tool call cannot wedge an agent conversation.
+- **No tool blocks on completion.** Long work is request-and-poll: a
+  tool that starts work returns as soon as it is enqueued, and a read
+  tool polls progress. A stuck tool call cannot wedge an agent
+  conversation.
 - **Everything degrades honestly.** The server always starts; an
   unconfigured or unreachable dependency turns the affected tools into
   clear refusals that name what is missing, never crashes.

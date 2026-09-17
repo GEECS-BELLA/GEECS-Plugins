@@ -38,10 +38,6 @@ _USER_CONFIG_PATH = Path("~/.config/geecs_python_api/config.ini")
 #: value, or stop_scan's ownership check would never match.
 CLIENT_IDENTITY = f"geecs-mcp {__version__}"
 
-#: The agent scan-size cap default (owner decision 2026-08-22:
-#: conservative first posture).  Override: ``[mcp] max_shots``.
-DEFAULT_MAX_SHOTS = 1000
-
 _cache: dict[str, Any] = {}
 # First-use builds race under FastMCP's concurrent tool dispatch (one agent
 # turn can issue parallel calls); without the lock two threads could each
@@ -85,9 +81,9 @@ def _read_mcp_option(option: str) -> Optional[str]:
     """One ``[mcp]`` option from the shared config, or ``None``.
 
     A leftover ``[scan_mcp]`` section (the pre-rename spelling, 0.2.0)
-    is IGNORED but warned about once — a stricter ``max_shots`` or a
-    custom ``client_identity`` written there would otherwise silently
-    revert to defaults (review finding on the rename PR).
+    is IGNORED but warned about once — a custom ``client_identity``
+    written there would otherwise silently revert to the default
+    (review finding on the rename PR).
     """
     global _warned_old_section
     path = _USER_CONFIG_PATH.expanduser()
@@ -119,26 +115,6 @@ def client_identity() -> str:
         "client_identity",
         lambda: _read_mcp_option("client_identity") or CLIENT_IDENTITY,
     )
-
-
-def max_shots() -> int:
-    """The agent scan-size cap (``[mcp] max_shots``, default 1000)."""
-
-    def build() -> int:
-        raw = _read_mcp_option("max_shots")
-        try:
-            return int(raw) if raw else DEFAULT_MAX_SHOTS
-        except ValueError:
-            # A deployment that intended a STRICTER cap must not silently
-            # run at the default (review finding) — warn loudly.
-            logger.warning(
-                "[mcp] max_shots = %r is not an integer — using the default of %d",
-                raw,
-                DEFAULT_MAX_SHOTS,
-            )
-            return DEFAULT_MAX_SHOTS
-
-    return _cached("max_shots", build)
 
 
 def get_queue_client() -> Any:
