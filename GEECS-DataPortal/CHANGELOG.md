@@ -7,6 +7,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Opening Grid no longer silently narrows the Images gallery. Only explicit
+  cell-to-Images navigation applies a bin selection, which survives reloads
+  separately from the selected map cell and resets when bin definitions change.
+- Empty or invalid numeric Grid edits retain the last valid maps and URL state.
+
 - Plot, Grid and Images share shot identity, including sparse legacy s-files
   whose recorded shot numbers differ from row positions and suffixed column
   names after a native/s-file collision. Notebook figures use the same rule.

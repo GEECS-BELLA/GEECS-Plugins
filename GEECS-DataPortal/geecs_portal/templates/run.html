@@ -252,9 +252,9 @@
       <details>
         <summary class="dim">Grid settings</summary>
         <div class="gridcontrols">
-          <label>Lower percentile<input id="grid-lower" type="number" min="0" max="100" step="1" value="25" onchange="changeGrid('lower',Number(this.value)/100)"></label>
-          <label>Upper percentile<input id="grid-upper" type="number" min="0" max="100" step="1" value="75" onchange="changeGrid('upper',Number(this.value)/100)"></label>
-          <label>Minimum shots for error<input id="grid-min_count" type="number" min="1" value="3" onchange="changeGrid('min_count',Number(this.value))"></label>
+          <label>Lower percentile<input id="grid-lower" type="number" min="0" max="100" step="1" value="25" onchange="changeGridNumber('lower',this)"></label>
+          <label>Upper percentile<input id="grid-upper" type="number" min="0" max="100" step="1" value="75" onchange="changeGridNumber('upper',this)"></label>
+          <label>Minimum shots for error<input id="grid-min_count" type="number" min="1" value="3" onchange="changeGridNumber('min_count',this)"></label>
           <label>Visit<select id="grid-visit" onchange="changeGrid('visit',Number(this.value))"><option value="1">1</option></select></label>
         </div>
       </details>
@@ -788,6 +788,7 @@ function readState() {
     processing: p.get("processing") || "",
     gridcfg: p.get("gridcfg") || "",
     gridbin: p.get("gridbin") || "",
+    imagebin: p.get("imagebin") || "",
   };
 }
 
@@ -796,7 +797,7 @@ function writeState() {
   // not analysis states — there is deliberately no popstate handler.
   // Shared/bookmarked links restore everything via readState().
   const p = new URLSearchParams(location.search);
-  ["y", "x", "view", "filters", "bincfg", "display", "processing", "tab", "gridcfg", "gridbin"].forEach(k => p.delete(k));
+  ["y", "x", "view", "filters", "bincfg", "display", "processing", "tab", "gridcfg", "gridbin", "imagebin"].forEach(k => p.delete(k));
   S.y.forEach(v => p.append("y", v));
   if (S.x) p.set("x", S.x);
   if (S.view !== "shot") p.set("view", S.view);
@@ -806,6 +807,7 @@ function writeState() {
   if (S.processing) p.set("processing", S.processing);
   if (S.gridcfg) p.set("gridcfg", S.gridcfg);
   if (S.gridbin) p.set("gridbin", S.gridbin);
+  if (S.imagebin) p.set("imagebin", S.imagebin);
   if (S.tab !== "plot") p.set("tab", S.tab);
   history.replaceState(null, "", location.pathname + "?" + p.toString());
   // Server-rendered stepper links must carry the latest state too —
@@ -818,7 +820,7 @@ function writeState() {
   if (dispField) dispField.value = S.display;
   document.querySelectorAll("#imgshot form").forEach(form => {
     form.querySelectorAll("[data-sticky-analysis]").forEach(el => el.remove());
-    ["gridcfg", "gridbin", "filters", "bincfg", "view", "x", "y"].forEach(key => {
+    ["gridcfg", "gridbin", "imagebin", "filters", "bincfg", "view", "x", "y"].forEach(key => {
       p.getAll(key).forEach(value => {
         const input = document.createElement("input"); input.type = "hidden";
         input.name = key; input.value = value; input.dataset.stickyAnalysis = "true";
@@ -833,7 +835,7 @@ function syncRailLinks(p) {
   // shot steppers) that must carry client-side analysis state too.
   document.querySelectorAll("a.act, a.carry").forEach(a => {
     const url = new URL(a.href, location.origin);
-    ["y", "x", "view", "filters", "bincfg", "display", "processing", "tab", "gridcfg", "gridbin"].forEach(k => url.searchParams.delete(k));
+    ["y", "x", "view", "filters", "bincfg", "display", "processing", "tab", "gridcfg", "gridbin", "imagebin"].forEach(k => url.searchParams.delete(k));
     S.y.forEach(v => url.searchParams.append("y", v));
     if (S.x) url.searchParams.set("x", S.x);
     if (S.view !== "shot") url.searchParams.set("view", S.view);
@@ -843,6 +845,7 @@ function syncRailLinks(p) {
     if (S.processing) url.searchParams.set("processing", S.processing);
     if (S.gridcfg) url.searchParams.set("gridcfg", S.gridcfg);
     if (S.gridbin) url.searchParams.set("gridbin", S.gridbin);
+    if (S.imagebin) url.searchParams.set("imagebin", S.imagebin);
     if (S.tab !== "plot") url.searchParams.set("tab", S.tab);
     a.href = url.pathname + "?" + url.searchParams.toString();
   });
@@ -1226,13 +1229,13 @@ function refreshImages() {
   const shotBox = document.getElementById("imgshot");
   const grid = document.getElementById("imggrid");
   const binned = S.view === "bin";
-  document.getElementById("grid-image-selection").innerHTML = S.gridbin && binned
-    ? `Grid selection: bin ${esc(S.gridbin)} <button class="act" onclick="S.gridbin='';writeState();refreshImages()">show all bins</button>` : "";
+  document.getElementById("grid-image-selection").innerHTML = S.imagebin && binned
+    ? `Grid selection: bin ${esc(S.imagebin)} <button class="act" onclick="S.imagebin='';writeState();refreshImages()">show all bins</button>` : "";
   if (!shotBox || !SEL_DEVICE) return;  // no device / vendor / unrenderable
   shotBox.hidden = binned;
   grid.hidden = !binned;
   if (!binned || S.tab !== "images") return;
-  const key = JSON.stringify([SEL_DEVICE, S.filters, S.bincfg, S.processing, S.display, S.gridbin]);
+  const key = JSON.stringify([SEL_DEVICE, S.filters, S.bincfg, S.processing, S.display, S.imagebin]);
   if (key === IMG_KEY) return;
   IMG_KEY = key;  // set before the fetch: dedupes the boot's setTab+setView pair
   const params = new URLSearchParams({ device: SEL_DEVICE });
@@ -1241,12 +1244,12 @@ function refreshImages() {
   grid.innerHTML = `<div class="plotmsg">loading bins…</div>`;
   api("bin-images", params).then(data => {
     if (key !== IMG_KEY) return;  // superseded in flight — never render stale bins
-    if (!data.bins.length || (S.gridbin && !data.bins.some(b => String(b.bin) === String(S.gridbin)))) {
+    if (!data.bins.length || (S.imagebin && !data.bins.some(b => String(b.bin) === String(S.imagebin)))) {
       grid.innerHTML = `<div class="plotmsg">no bins (check filters / bin column)</div>`;
       return;
     }
     grid.innerHTML = data.bins.map((b, i) => {
-      if (S.gridbin && String(b.bin) !== String(S.gridbin)) return "";
+      if (S.imagebin && String(b.bin) !== String(S.imagebin)) return "";
       const q = new URLSearchParams({ device: SEL_DEVICE, bin: i, v: VERSION });
       if (S.filters) q.set("filters", S.filters);
       if (S.bincfg) q.set("bincfg", S.bincfg);
@@ -1564,6 +1567,7 @@ function applyBinset() {
   const minCount = parseInt(document.getElementById("bs-min").value, 10);
   if (Number.isFinite(minCount) && minCount > 1) cfg.min_count = minCount;
   S.bincfg = Object.keys(cfg).length ? JSON.stringify(cfg) : "";
+  S.imagebin = "";  // new bin definitions replace an explicit Grid image selection
   closeModals(); writeState();
   if (S.view !== "bin") setView("bin"); else { refresh(); refreshImages(); }
 }

@@ -412,7 +412,9 @@ every lookup — hit or miss — must leave the tree untouched (pinned in
 `GET /api/run/{uid}/grid` consumes strict JSON `gridcfg` (Data Utils `GridConfig`)
 and the existing `filters`/`day` parameters. It returns complete cell geometry,
 counts, member shots, independent center/error statistics, paired server-authored
-figures and a notebook snippet. `gridcfg` and selected `gridbin` travel in run URLs.
+figures and a notebook snippet. `gridcfg` and selected `gridbin` travel in run URLs. `imagebin` independently
+records explicit cell-to-Images navigation; merely opening Grid never filters
+the image gallery, and changing the bin definition clears this image selection.
 `templates/grid_script.html` is included by `run.html`; it only handles controls,
 selection, sizing and Plotly rendering. Numerical work stays in `scan_grid`.
 

@@ -106,13 +106,13 @@ def test_grid_state_and_prefix_are_preserved():
     cfg = json.dumps({"value": "signal"})
     r = client.get(
         "/run/uid-002",
-        params={"tab": "grid", "gridcfg": cfg, "gridbin": "2"},
+        params={"tab": "grid", "gridcfg": cfg, "gridbin": "2", "imagebin": "2"},
         headers={"X-Forwarded-Prefix": "/portal"},
     )
     assert r.status_code == 200
     assert 'data-pane="grid"' in r.text
     assert 'id="grid-average"' in r.text and 'id="grid-error"' in r.text
-    assert "gridcfg=" in r.text and "gridbin=2" in r.text
+    assert "gridcfg=" in r.text and "gridbin=2" in r.text and "imagebin=2" in r.text
     assert "/portal/static/plotly" in r.text
 
 

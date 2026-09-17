@@ -1693,6 +1693,7 @@ def create_app(
         processing: str = "",
         gridcfg: str = "",
         gridbin: str = "",
+        imagebin: str = "",
     ) -> HTMLResponse:
         """One run: the rail + tabs (Overview / Plot / Images).
 
@@ -1765,6 +1766,7 @@ def create_app(
             "processing": processing,
             "gridcfg": gridcfg,
             "gridbin": gridbin,
+            "imagebin": imagebin,
             "device": sel_device,
             "shot": shot if sel_device else "",
             "filter": filter,  # the day list's filter, carried for the back link

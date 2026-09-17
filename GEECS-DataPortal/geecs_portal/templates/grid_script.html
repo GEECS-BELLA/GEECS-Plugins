@@ -34,6 +34,27 @@ function syncGridErrorControls() {
   gridControl("error_view").parentElement.hidden = !interval;
   ["lower", "upper"].forEach(name => { gridControl(name).disabled = gridControl("error").value !== "percentile"; });
 }
+function changeGridNumber(name, input) {
+  const cfg = gridConfig();
+  const defaults = {lower:0.25, upper:0.75, min_count:3};
+  const factor = name === "min_count" ? 1 : 100;
+  const restore = () => { input.value = (cfg[name] ?? defaults[name]) * factor; };
+  // An empty edit is not zero. Preserve the last applied map and shareable URL.
+  if (!input.value.trim()) { restore(); return; }
+  const value = Number(input.value) / factor;
+  const lower = name === "lower" ? value : (cfg.lower ?? defaults.lower);
+  const upper = name === "upper" ? value : (cfg.upper ?? defaults.upper);
+  const valid = Number.isFinite(value) && (name === "min_count"
+    ? Number.isInteger(value) && value >= 1
+    : value >= 0 && value <= 1 && lower < upper);
+  if (!valid) {
+    restore();
+    flashNote(name === "min_count" ? "Minimum shots must be a whole number of at least 1."
+      : "Percentiles must be between 0 and 100, with lower below upper.");
+    return;
+  }
+  changeGrid(name, value);
+}
 function changeGrid(name, value) {
   const cfg = gridConfig(); cfg[name] = value;
   if (name === "error" && value === "iqr") { cfg.lower = 0.25; cfg.upper = 0.75; gridControl("lower").value = 25; gridControl("upper").value = 75; }
@@ -131,6 +152,7 @@ function stepGridBin(delta) {
 function gridOpenImages() {
   if (!GRID_DATA) return;
   S.bincfg = JSON.stringify({bin_col:GRID_DATA.bin_column, min_count:1});
+  S.imagebin = S.gridbin;  // explicit navigation, separate from map selection
   S.view = "bin";
   setView("bin"); setTab("images");
 }
