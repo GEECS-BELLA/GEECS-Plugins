@@ -1,5 +1,6 @@
 """Execute Grid controls to pin cross-tab state and invalid-edit behavior."""
 
+from html.parser import HTMLParser
 import json
 from pathlib import Path
 import shutil
@@ -131,3 +132,38 @@ if(expected===null){{
 """
     )
     run_js(tmp_path, body)
+
+
+class GridNumberInputs(HTMLParser):
+    """Collect the ``onchange`` handler of every ``<input>`` carrying an id."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.handlers: dict[str, str] = {}
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        """Record ``onchange`` for an identified input element."""
+        attributes = dict(attrs)
+        if tag == "input" and attributes.get("id"):
+            self.handlers[attributes["id"]] = attributes.get("onchange") or ""
+
+
+@pytest.mark.parametrize("field", ["grid-lower", "grid-upper", "grid-min_count"])
+def test_grid_number_inputs_call_the_validator(field):
+    """Pin the wiring: a validator the inputs bypass guards nothing.
+
+    ``test_numeric_edits_preserve_last_valid_state`` calls
+    ``changeGridNumber`` directly, so it stays green even if an input is
+    rewired to ``changeGrid(..., Number(this.value))`` -- the shape that
+    let an empty field write ``0`` into the config and the shared URL.
+    """
+    parser = GridNumberInputs()
+    parser.feed((TEMPLATES / "run.html").read_text())
+    handler = parser.handlers[field]
+    assert handler.startswith("changeGridNumber("), (
+        f"{field} must route through the validator, got: {handler}"
+    )
+    assert "Number(this" not in handler, (
+        f"{field} coerces its own value instead of letting the validator "
+        f"reject empty and out-of-range input, got: {handler}"
+    )
