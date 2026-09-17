@@ -211,6 +211,6 @@ call (owner scope on #685); dropping the transport gate in
 `poetry run pytest` — hermetic: the impls are tested against fakes
 patched on `runtime`; no manager, no Tiled, no configs repo.  The
 registration test asserts every `tool_names.READ_TOOLS` entry is on the
-server.  Live verification rides the phasing checklists in the planning
-doc (v0: listings match the scanner page's dropdowns, status agrees with
-its Now chip, a known scan number resolves from the archive).
+server.  Live verification for v0: listings match the scanner page's
+dropdowns, status agrees with its Now chip, and a known scan number
+resolves from the archive.

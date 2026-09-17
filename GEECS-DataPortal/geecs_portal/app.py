@@ -426,7 +426,7 @@ def create_app(
         therefore explicit opt-in — ``--config-editor`` on the CLI; nothing
         without ``processing_config_dir`` and the ``analysis`` extra.
     """
-    # The analysis-run worker (04 design) outlives requests: built
+    # The analysis-run worker outlives requests: built
     # before the app so the lifespan can refuse new runs and log any
     # in-flight one at shutdown (a running job cannot be interrupted —
     # the interpreter joins the worker at exit; see DEPLOYMENT.md).
@@ -1107,7 +1107,7 @@ def create_app(
             processing_cache[fingerprint] = valid
         return valid
 
-    # ---- analysis runs (04 design: direct ScanAnalysis execution) ----
+    # ---- analysis runs (direct ScanAnalysis execution) ----
     factory = analysis_factory or analysis_runs.scan_analysis_factory
 
     def _analysis_enabled() -> bool:
@@ -1981,7 +1981,7 @@ def create_app(
             headers=_png_headers(detail),
         )
 
-    # ---- the analysis config editor (04 design "deferred": its own arc) ----
+    # ---- the analysis config editor (deferred to its own arc) ----
     # Mounted at /configs over the processing tree. The store writes only
     # into that tree (never the scans tree); the live preview renders the
     # UNSAVED document on the current shot through the same write-free

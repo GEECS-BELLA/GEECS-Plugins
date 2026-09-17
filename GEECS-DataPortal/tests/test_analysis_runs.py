@@ -1,4 +1,4 @@
-"""Analysis runs: the 04-design run model over a fake analyzer.
+"""Analysis runs: one analyzer on one scan, over a fake analyzer.
 
 No share, no hardware, no ScanAnalysis needed for the endpoint ladder
 (the factory seam is injected); the one test that builds the REAL

@@ -26,8 +26,8 @@ scananalysis = { path = "../ScanAnalysis", develop = true, optional = true }
 
 [tool.poetry.extras]
 # The Images tab's ephemeral-processing selector (run_diagnostic_ephemeral)
-# AND the Analysis tab's runs (ScanAnalysis executed directly — the 04
-# design); without it the portal serves raw images, the selector stays
+# AND the Analysis tab's runs (ScanAnalysis executed directly);
+# without it the portal serves raw images, the selector stays
 # hidden and the run endpoints 404.
 analysis = ["imageanalysis", "scananalysis"]
 
