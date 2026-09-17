@@ -25,10 +25,40 @@ from typing import Any, Optional
 
 from geecs_data_utils.data.binning import BinningConfig
 from geecs_data_utils.data.row_filters import RowFilters
+from geecs_data_utils.scan_grid import GridConfig
 
 
 class BadParam(ValueError):
     """A malformed query parameter — the app renders it as HTTP 400."""
+
+
+def parse_gridcfg(raw: str) -> GridConfig:
+    """Validate all URL-carried grid fields before numerical work."""
+    try:
+        return GridConfig.model_validate_json(raw) if raw else GridConfig()
+    except ValueError as exc:
+        raise BadParam(f"bad gridcfg param: {exc}") from exc
+
+
+def grid_code(
+    uid: str,
+    run_day: Optional[str],
+    cfg: GridConfig,
+    filters: RowFilters,
+    pretty: dict[str, str] | None = None,
+) -> str:
+    """Reproduce geometry, filtered statistics and both figures in a notebook."""
+    return (
+        _snippet_prelude(uid, run_day)
+        + "from geecs_data_utils.scan_grid import GridConfig, grid_scan\n"
+        + "from geecs_data_utils.data.row_filters import RowFilters\n"
+        + "from geecs_portal.figures import grid_figures\n"
+        + f"cfg = GridConfig.model_validate_json({cfg.model_dump_json()!r})\n"
+        + f"filters = RowFilters.model_validate_json({filters.model_dump_json()!r})\n"
+        + "result = grid_scan(pf.frame, detail.start_doc, cfg, filters)\n"
+        + f"figures = grid_figures(result, pretty={pretty!r})\n"
+        + "for figure in figures.values():\n    figure.show()\n"
+    )
 
 
 def parse_filters(raw: str) -> RowFilters:

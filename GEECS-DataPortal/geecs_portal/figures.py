@@ -35,10 +35,13 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Mapping, Optional, Sequence
 
 if TYPE_CHECKING:  # pandas is runtime-optional here (local imports)
-    import pandas as pd
+    from geecs_data_utils.scan_grid import GridResult
 
 import plotly.graph_objects as go
 import plotly.io as pio
+
+from geecs_data_utils.tiled_schema import shot_axis_for_frame
+
 
 #: The notebook trace palette — still injected into the page as the
 #: server's list (a pinned contract) and the JS-off / notebook fallback.
@@ -147,6 +150,203 @@ def _bare_figure() -> go.Figure:
     notebook ``fig.show()`` render the same figure as the page.
     """
     return go.Figure(layout={"template": pio.templates["none"]})
+
+
+def grid_error_label(result: GridResult) -> str:
+    """Name the actual spread measure independently of the center estimator."""
+    cfg = result.config
+    if cfg.error in ("iqr", "percentile"):
+        interval = f"{cfg.lower * 100:g}–{cfg.upper * 100:g}%"
+        return {
+            "width": f"{interval} interval width",
+            "low": f"Lower error · {cfg.average} − Q{cfg.lower * 100:g} (≥ 0)",
+            "high": f"Upper error · Q{cfg.upper * 100:g} − {cfg.average} (≥ 0)",
+        }[cfg.error_view]
+    return {
+        "std": "Standard deviation",
+        "stderr": "Standard error of the mean",
+        "mad": "Scaled median absolute deviation",
+    }[cfg.error]
+
+
+def _grid_axis(values: list[float], scale: str) -> tuple[list, list]:
+    """Cell centers and edges; logarithmic edges are geometric midpoints."""
+    import numpy as np
+
+    if not values:
+        return [], []
+    coords = (
+        np.arange(len(values), dtype=float) if scale == "index" else np.asarray(values)
+    )
+    transformed = np.log10(coords) if scale == "log" else coords
+    if len(coords) == 1:
+        edges = np.array([transformed[0] - 0.5, transformed[0] + 0.5])
+    else:
+        middle = (transformed[1:] + transformed[:-1]) / 2
+        edges = np.r_[
+            2 * transformed[0] - middle[0], middle, 2 * transformed[-1] - middle[-1]
+        ]
+    return coords.tolist(), (10**edges if scale == "log" else edges).tolist()
+
+
+def grid_figures(
+    result: GridResult,
+    *,
+    pretty: Optional[Mapping[str, str]] = None,
+    palette: Palette = NOTEBOOK_PALETTE,
+) -> dict[str, go.Figure]:
+    """Author paired maps of a scalar and its independently selected error.
+
+    Rectangular grids use explicit cell edges, including nonuniform/log axes.
+    Other trajectories show measured points. Missing cells carry status marks;
+    deliberate repeated visits are selected, never silently averaged together.
+    """
+    import numpy as np
+
+    cfg = result.config
+    cells = result.cells[result.cells.visit == cfg.visit]
+    figures = {}
+    xs, xe = _grid_axis(result.x_values, cfg.xscale)
+    ys, ye = _grid_axis(result.y_values, cfg.yscale)
+    ix = {v: i for i, v in enumerate(result.x_values)}
+    iy = {v: i for i, v in enumerate(result.y_values)}
+    px = [xs[ix[v]] for v in cells.x]
+    py = [ys[iy[v]] for v in cells.y]
+    custom = [
+        [int(r.bin), r.x, r.y, int(r["count"]), r.status] for _, r in cells.iterrows()
+    ]
+    for measure, colorscale in (("center", "Viridis"), ("error", "Magma")):
+        fig = _bare_figure()
+        hover = (
+            "Bin %{customdata[0]}<br>X %{customdata[1]} · Y %{customdata[2]}"
+            "<br>n=%{customdata[3]} · %{customdata[4]}<extra></extra>"
+        )
+        if result.kind == "grid":
+            z = [[None] * len(xs) for _ in ys]
+            cd = [[None] * len(xs) for _ in ys]
+            for _, row in cells.iterrows():
+                i, j = ix[row.x], iy[row.y]
+                z[j][i] = float(row[measure]) if np.isfinite(row[measure]) else None
+                cd[j][i] = [int(row.bin), row.x, row.y, int(row["count"]), row.status]
+            fig.add_heatmap(
+                x=xe,
+                y=ye,
+                z=z,
+                customdata=cd,
+                colorscale=colorscale,
+                zsmooth=False,
+                connectgaps=False,
+                hoverongaps=False,
+                hovertemplate="%{z:.5g}<br>" + hover,
+                colorbar={
+                    "orientation": "h",
+                    "yref": "container",
+                    "y": 0,
+                    "yanchor": "bottom",
+                    "thickness": 10,
+                },
+                zmin=0 if measure == "error" else None,
+            )
+        else:
+            finite = np.isfinite(cells[measure].astype(float))
+            fig.add_scatter(
+                x=[v for v, ok in zip(px, finite) if ok],
+                y=[v for v, ok in zip(py, finite) if ok],
+                customdata=[v for v, ok in zip(custom, finite) if ok],
+                mode="markers",
+                marker={
+                    "color": [float(v) for v in cells.loc[finite, measure]],
+                    "colorscale": colorscale,
+                    "size": 12,
+                    "showscale": True,
+                    "colorbar": {
+                        "orientation": "h",
+                        "yref": "container",
+                        "y": 0,
+                        "yanchor": "bottom",
+                        "thickness": 10,
+                    },
+                    "cmin": 0 if measure == "error" else None,
+                },
+                hovertemplate=hover,
+                showlegend=False,
+            )
+        # A marker remains clickable even where the heatmap has no value.
+        absent = ~np.isfinite(cells[measure].astype(float))
+        fig.add_scatter(
+            x=[v for v, missing in zip(px, absent) if missing],
+            y=[v for v, missing in zip(py, absent) if missing],
+            customdata=[v for v, missing in zip(custom, absent) if missing],
+            mode="markers",
+            showlegend=False,
+            marker={
+                "color": palette.font,
+                "size": 10,
+                "line": {"width": 2},
+                "symbol": [
+                    {
+                        "unacquired": "x",
+                        "filtered": "line-ne",
+                        "low_count": "circle-open",
+                    }.get(s, "square-open")
+                    for s in cells.loc[absent, "status"]
+                ],
+            },
+            hovertemplate=hover,
+        )
+        # Reserved selection overlay; the page only moves this UI marker.
+        fig.add_scatter(
+            x=[],
+            y=[],
+            mode="markers",
+            showlegend=False,
+            hoverinfo="skip",
+            marker={
+                "symbol": "square-open",
+                "size": 20,
+                "color": palette.trace[0],
+                "line": {"width": 2},
+            },
+            meta="grid-selection",
+        )
+        layout = base_layout(palette)
+        layout.update(
+            showlegend=False,
+            margin={"t": 12, "r": 14, "b": 110, "l": 65},
+            uirevision=f"{cfg.x}/{cfg.y}/{cfg.xscale}/{cfg.yscale}/{cfg.visit}",
+        )
+        for axis, values, edges, scale, label in (
+            ("xaxis", result.x_values, xe, cfg.xscale, cfg.x),
+            ("yaxis", result.y_values, ye, cfg.yscale, cfg.y),
+        ):
+            layout[axis] = {
+                "title": {
+                    "text": _pretty(pretty, label)
+                    + (" · indexed" if scale == "index" else "")
+                },
+                "type": "log" if scale == "log" else "linear",
+                "gridcolor": palette.grid_soft,
+                "zeroline": False,
+            }
+            if edges:
+                limits = [edges[0], edges[-1]]
+                layout[axis]["range"] = (
+                    np.log10(limits).tolist() if scale == "log" else limits
+                )
+            if scale in ("index", "log"):
+                step = max(1, math.ceil(len(values) / 7))
+                layout[axis].update(
+                    tickmode="array",
+                    tickvals=(
+                        list(range(0, len(values), step))
+                        if scale == "index"
+                        else values[::step]
+                    ),
+                    ticktext=[f"{v:g}" for v in values[::step]],
+                )
+        fig.update_layout(layout)
+        figures[measure] = fig
+    return figures
 
 
 def base_layout(palette: Palette) -> dict:
@@ -323,32 +523,6 @@ def _apply_display(
             and value > 0
         ):
             layout[key] = float(value)
-
-
-def shot_axis_for_frame(frame: "pd.DataFrame") -> "pd.Series":
-    """The shot axis for a DataFrame — THE one implementation of the rule.
-
-    ``scan_event_index`` when present (1-based already), else 1-based
-    row labels; union rows the event side missed carry NA there and are
-    coalesced from the s-file's own shot identity (plain, or suffixed
-    by scan_frame's collision rename) — the 0.9.1 rule: Plotly silently
-    drops points with a null x, so those rows must keep a shot axis.
-    The ``/api`` frame endpoint and the "show the code" snippet both go
-    through here; a filtered frame keeps original shot identities.
-    """
-    import pandas as pd
-
-    from geecs_data_utils.tiled_schema import SHOT_INDEX_COLUMN
-
-    if SHOT_INDEX_COLUMN in frame.columns:
-        shot = frame[SHOT_INDEX_COLUMN].copy()
-    else:
-        shot = frame.index.to_series() + 1
-    if shot.isna().any():
-        for name in ("Shotnumber", "Shotnumber (s-file)"):
-            if name in frame.columns:
-                shot = shot.fillna(pd.to_numeric(frame[name], errors="coerce"))
-    return shot
 
 
 def _shot_axis(series: Mapping, y: Sequence[str], shot: Optional[Sequence]) -> Sequence:

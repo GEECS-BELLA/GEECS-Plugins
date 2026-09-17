@@ -1,0 +1,163 @@
+// Grid view: all numerical work and figures are supplied by /api/grid.
+let GRID_DATA = null;
+let GRID_REQUEST = 0;
+function gridConfig() {
+  try { return JSON.parse(S.gridcfg || "{}"); } catch (_) { return {}; }
+}
+function gridControl(name) { return document.getElementById("grid-" + name); }
+function bootGrid(axes) {
+  const cfg = gridConfig();
+  if (!cfg.x && axes.length >= 2) cfg.x = axes[axes.length - 1];
+  if (!cfg.y && axes.length >= 2) cfg.y = axes[0];
+  if (!cfg.value && S.y.length) cfg.value = S.y[0];
+  ["value", "x", "y"].forEach(name => {
+    const select = gridControl(name);
+    select.replaceChildren(new Option(name === "value" ? "Choose a scalar…" : "Choose an axis…", ""));
+    COLUMNS.filter(c => !c.timestamp).forEach(c => select.add(new Option(c.pretty || c.name, c.name)));
+    if (cfg[name] && !COLUMNS.some(c => c.name === cfg[name])) select.add(new Option(cfg[name] + " (unavailable)", cfg[name]));
+    select.value = cfg[name] || "";
+  });
+  ["average", "error", "xscale", "yscale", "error_view", "min_count"].forEach(name => {
+    if (cfg[name] !== undefined) gridControl(name).value = cfg[name];
+  });
+  ["lower", "upper"].forEach(name => {
+    if (cfg[name] !== undefined) gridControl(name).value = cfg[name] * 100;
+  });
+  if (cfg.visit) gridControl("visit").replaceChildren(new Option(String(cfg.visit), cfg.visit));
+  // Keep malformed bookmarks intact so the API returns a useful error.
+  try { JSON.parse(S.gridcfg || "{}"); S.gridcfg = JSON.stringify(cfg); } catch (_) {}
+  syncGridErrorControls();
+}
+function syncGridErrorControls() {
+  const interval = ["iqr", "percentile"].includes(gridControl("error").value);
+  gridControl("error_view").disabled = !interval;
+  gridControl("error_view").parentElement.hidden = !interval;
+  ["lower", "upper"].forEach(name => { gridControl(name).disabled = gridControl("error").value !== "percentile"; });
+}
+function changeGridNumber(name, input) {
+  const cfg = gridConfig();
+  const defaults = {lower:0.25, upper:0.75, min_count:3};
+  const factor = name === "min_count" ? 1 : 100;
+  const restore = () => { input.value = (cfg[name] ?? defaults[name]) * factor; };
+  // An empty edit is not zero. Preserve the last applied map and shareable URL.
+  if (!input.value.trim()) { restore(); return; }
+  const value = Number(input.value) / factor;
+  const lower = name === "lower" ? value : (cfg.lower ?? defaults.lower);
+  const upper = name === "upper" ? value : (cfg.upper ?? defaults.upper);
+  const valid = Number.isFinite(value) && (name === "min_count"
+    ? Number.isInteger(value) && value >= 1
+    : value >= 0 && value <= 1 && lower < upper);
+  if (!valid) {
+    restore();
+    flashNote(name === "min_count" ? "Minimum shots must be a whole number of at least 1."
+      : "Percentiles must be between 0 and 100, with lower below upper.");
+    return;
+  }
+  changeGrid(name, value);
+}
+function changeGrid(name, value) {
+  const cfg = gridConfig(); cfg[name] = value;
+  if (name === "error" && value === "iqr") { cfg.lower = 0.25; cfg.upper = 0.75; gridControl("lower").value = 25; gridControl("upper").value = 75; }
+  if (["x", "y", "visit"].includes(name)) S.gridbin = "";
+  S.gridcfg = JSON.stringify(cfg);
+  syncGridErrorControls(); writeState(); refreshGrid();
+}
+async function refreshGrid() {
+  if (!BOOTED || S.tab !== "grid") return;
+  const serial = ++GRID_REQUEST;
+  const cfg = gridConfig();
+  gridControl("results").hidden = true;
+  GRID_DATA = null;
+  if (!cfg.value) { gridControl("message").textContent = "Choose a scalar to display its average and error across two scan axes."; return; }
+  gridControl("message").textContent = "Loading grid…";
+  try {
+    const data = await api("grid", {gridcfg:S.gridcfg, filters:S.filters});
+    if (serial !== GRID_REQUEST || S.tab !== "grid") return;
+    GRID_DATA = data;
+    S.gridcfg = JSON.stringify(data.config);
+    gridControl("visit").replaceChildren(...Array.from({length:data.visits}, (_,i) => new Option(String(i+1), i+1)));
+    gridControl("visit").value = data.config.visit;
+    const cells = data.cells.filter(c => c.visit === data.config.visit);
+    if (!cells.some(c => String(c.bin) === String(S.gridbin))) S.gridbin = cells.length ? String(cells[0].bin) : "";
+    gridControl("cell").replaceChildren(...cells.map(c => new Option("Bin " + c.bin + " · " + c.x + " / " + c.y, c.bin)));
+    gridControl("message").textContent = cells.length ? (data.kind === "grid" ? "One cell = one scan position" : "Measured positions · no interpolation") : "No positions in this visit.";
+    gridControl("results").hidden = !cells.length;
+    gridControl("center-title").textContent = (data.config.average === "mean" ? "Mean" : "Median") + " · " + (data.pretty[data.config.value] || data.config.value);
+    gridControl("error-title").textContent = data.error_label;
+    gridControl("notes").textContent = data.notes.join(" ") + " Square plotting areas; independent color scales.";
+    gridControl("code").textContent = data.code;
+    setPassCount(data.pass, data.total);
+    writeState();
+    if (cells.length) await drawGrid();
+  } catch (err) {
+    if (serial !== GRID_REQUEST) return;
+    gridControl("message").textContent = err.message;
+  }
+}
+async function drawGrid() {
+  if (!GRID_DATA || S.tab !== "grid") return;
+  const data = GRID_DATA;
+  await Promise.all([["center","center"],["error","uncertainty"]].map(async ([name, hostName]) => {
+    const host = gridControl(hostName);
+    const fig = resolveThemeTokens(JSON.parse(JSON.stringify(data.figures[name])));
+    // Equal pixel lengths of the plotting areas, independent of axis units.
+    const width = host.clientWidth;
+    const m = fig.layout.margin;
+    fig.layout.width = width;
+    fig.layout.height = Math.max(200, width - m.l - m.r + m.t + m.b);
+    await Plotly.react(host, fig.data, fig.layout, PLOT_CONFIG);
+    host.removeAllListeners("plotly_click");
+    host.on("plotly_click", event => {
+      const cd = event.points[0] && event.points[0].customdata;
+      if (cd) selectGridBin(cd[0]);
+    });
+  }));
+  if (data === GRID_DATA) selectGridBin(S.gridbin, false);
+}
+function selectGridBin(bin, persist = true) {
+  if (!GRID_DATA) return;
+  const c = GRID_DATA.cells.find(c => c.bin === Number(bin) && c.visit === GRID_DATA.config.visit);
+  if (!c) return;
+  S.gridbin = String(c.bin);
+  gridControl("cell").value = c.bin;
+  const fmt = v => v === null ? "—" : Number(v).toLocaleString(undefined, {maximumSignificantDigits:5});
+  const cfg = GRID_DATA.config;
+  const lines = [
+    ["Coordinates", fmt(c.x) + " / " + fmt(c.y)],
+    ["Readbacks", fmt(c.x_readback) + " / " + fmt(c.y_readback)],
+    [cfg.average === "mean" ? "Mean" : "Median", fmt(c.center)],
+    [GRID_DATA.error_label, fmt(c.error)],
+    ["Lower / upper error", c.count >= cfg.min_count ? fmt(c.err_low) + " / " + fmt(c.err_high) : "insufficient samples"],
+    ["Valid / passing / acquired", c.count + " / " + c.passing + " / " + c.acquired],
+  ];
+  gridControl("cell-values").innerHTML = lines.map(([k,v]) => "<span><span class='dim'>" + esc(k) + "</span><br>" + esc(v) + "</span>").join("");
+  gridControl("members").textContent = c.shots.length ? c.shots.join(", ") : "No member shots pass the filters.";
+  gridControl("open-images").disabled = !c.shots.length;
+  ["center","uncertainty"].forEach(name => {
+    const host = gridControl(name);
+    if (!host.data) return;
+    const x = cfg.xscale === "index" ? GRID_DATA.x_values.indexOf(c.x) : c.x;
+    const y = cfg.yscale === "index" ? GRID_DATA.y_values.indexOf(c.y) : c.y;
+    Plotly.restyle(host, {x:[[x]], y:[[y]]}, [host.data.length-1]);
+  });
+  if (persist) writeState();
+}
+function stepGridBin(delta) {
+  if (!GRID_DATA) return;
+  const cells = GRID_DATA.cells.filter(c => c.visit === GRID_DATA.config.visit);
+  const index = cells.findIndex(c => c.bin === Number(S.gridbin));
+  const next = cells[Math.max(0, Math.min(cells.length-1, index+delta))];
+  if (next) selectGridBin(next.bin);
+}
+function gridOpenImages() {
+  if (!GRID_DATA) return;
+  S.bincfg = JSON.stringify({bin_col:GRID_DATA.bin_column, min_count:1});
+  S.imagebin = S.gridbin;  // explicit navigation, separate from map selection
+  S.view = "bin";
+  setView("bin"); setTab("images");
+}
+let GRID_WIDTH = 0;
+new ResizeObserver(entries => {
+  const width = entries[0].contentRect.width;
+  if (width > 0 && Math.abs(width-GRID_WIDTH)>1) { GRID_WIDTH=width; drawGrid(); }
+}).observe(document.querySelector(".gridmaps"));

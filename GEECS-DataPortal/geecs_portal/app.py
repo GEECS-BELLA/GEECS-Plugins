@@ -55,6 +55,7 @@ from geecs_data_utils.data.binning import bin_frame, compute_bin_key
 from geecs_data_utils.data.row_filters import filter_mask
 from geecs_data_utils.io.images import average_frames
 from geecs_data_utils.scan_frame import PROVENANCE_RUN, scan_frame
+from geecs_data_utils.scan_grid import grid_axes, grid_scan
 from geecs_data_utils.tiled_catalog import (
     RunDetail,
     RunSummary,
@@ -787,9 +788,53 @@ def create_app(
         payload = {
             "columns": columns,
             "default_x": _default_x(detail, [c["name"] for c in columns]),
+            "grid_axes": grid_axes(list(pf.frame.columns), detail.start_doc),
             "total": len(pf.frame),
         }
         return JSONResponse(payload, headers=_UNION_HEADERS)
+
+    @app.get("/api/run/{uid}/grid")
+    def api_grid(
+        uid: str, gridcfg: str = "", filters: str = "", day: str = ""
+    ) -> JSONResponse:
+        """Two-axis geometry, filtered scalar statistics and paired figures."""
+        detail = _load_run(uid)
+        pf, run_day = _union(detail, day)
+        try:
+            cfg = analysis.parse_gridcfg(gridcfg)
+            flt = analysis.parse_filters(filters)
+            result = grid_scan(pf.frame, detail.start_doc, cfg, flt)
+        except KeyError as exc:
+            raise HTTPException(
+                status_code=404, detail=f"no grid column: {exc}"
+            ) from exc
+        except (ValueError, TypeError, IndexError, OverflowError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        pretty = _pretty_names(
+            detail, pf, [result.config.x, result.config.y, cfg.value]
+        )
+        payload = {
+            "cells": result.cells.to_dict("records"),
+            "config": result.config.model_dump(),
+            "kind": result.kind,
+            "x_values": result.x_values,
+            "y_values": result.y_values,
+            "visits": result.visits,
+            "pass": result.passing,
+            "total": result.total,
+            "bin_column": result.bin_column,
+            "notes": result.notes,
+            "error_label": figures.grid_error_label(result),
+            "pretty": pretty,
+            "figures": {
+                name: figures.page_figure(fig)
+                for name, fig in figures.grid_figures(
+                    result, pretty=pretty, palette=figures.THEMED_PALETTE
+                ).items()
+            },
+            "code": analysis.grid_code(uid, run_day, result.config, flt, pretty),
+        }
+        return JSONResponse(analysis.jsonable_document(payload), headers=_UNION_HEADERS)
 
     @app.get("/api/run/{uid}/frame")
     def api_frame(
@@ -825,7 +870,7 @@ def create_app(
             else:
                 series[column] = analysis.jsonable_values(full[mask])
         # The shot-axis rule (scan_event_index, NA-coalesced from the
-        # s-file's Shotnumber) lives in figures.shot_axis_for_frame —
+        # s-file's Shotnumber) lives in tiled_schema.shot_axis_for_frame —
         # ONE implementation, shared with the notebook snippet's path.
         shot_values = analysis.jsonable_values(
             figures.shot_axis_for_frame(pf.frame)[mask]
@@ -1646,6 +1691,9 @@ def create_app(
         view: str = "",
         display: str = "",
         processing: str = "",
+        gridcfg: str = "",
+        gridbin: str = "",
+        imagebin: str = "",
     ) -> HTMLResponse:
         """One run: the rail + tabs (Overview / Plot / Images).
 
@@ -1716,6 +1764,9 @@ def create_app(
             "bincfg": bincfg,
             "display": display,
             "processing": processing,
+            "gridcfg": gridcfg,
+            "gridbin": gridbin,
+            "imagebin": imagebin,
             "device": sel_device,
             "shot": shot if sel_device else "",
             "filter": filter,  # the day list's filter, carried for the back link
@@ -1745,7 +1796,7 @@ def create_app(
                 ),
                 "tab": (
                     tab
-                    if tab in ("overview", "plot", "images")
+                    if tab in ("overview", "plot", "grid", "images")
                     or (tab == "analysis" and analysis_enabled)
                     else "plot"
                 ),

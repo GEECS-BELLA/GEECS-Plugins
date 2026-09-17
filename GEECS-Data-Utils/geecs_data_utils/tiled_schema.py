@@ -24,7 +24,10 @@ Column families (schema v1):
 
 from __future__ import annotations
 
-from typing import Any, Mapping, Optional, Sequence
+from typing import TYPE_CHECKING, Any, Mapping, Optional, Sequence
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 #: The ``geecs_event_schema`` version this module targets.
 TARGET_SCHEMA_VERSION = 1
@@ -606,3 +609,29 @@ def is_stepped_scan(start_doc: Mapping[str, Any]) -> bool:
         True when a motor was stepped (see :func:`scan_motors`).
     """
     return bool(scan_motors(start_doc))
+
+
+def shot_axis_for_frame(frame: "pd.DataFrame") -> "pd.Series":
+    """Resolve shot identity consistently across Grid, Plot and Images.
+
+    Native ``scan_event_index`` wins, with missing values filled from the
+    s-file identity. A suffixed ``Shotnumber (s-file)`` is unambiguously
+    the s-file key after a namespace collision and takes priority over
+    an unsuffixed column. Explicit identities also win for s-file-only
+    frames, whose row indices need not match their recorded shot numbers.
+    Only frames with no identity column use one-based row labels; applying
+    filters preserves those original labels.
+    """
+    import pandas as pd
+
+    columns = [
+        name
+        for name in (SHOT_INDEX_COLUMN, "Shotnumber (s-file)", "Shotnumber")
+        if name in frame.columns
+    ]
+    if not columns:
+        return frame.index.to_series() + 1
+    shot = pd.to_numeric(frame[columns[0]], errors="coerce").copy()
+    for name in columns[1:]:
+        shot = shot.fillna(pd.to_numeric(frame[name], errors="coerce"))
+    return shot

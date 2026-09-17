@@ -3,6 +3,36 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.29.1] - 2026-09-16
+
+### Fixed
+
+- Opening Grid no longer silently narrows the Images gallery. Only explicit
+  cell-to-Images navigation applies a bin selection, which survives reloads
+  separately from the selected map cell and resets when bin definitions change.
+- Empty or invalid numeric Grid edits retain the last valid maps and URL state.
+
+- Plot, Grid and Images share shot identity, including sparse legacy s-files
+  whose recorded shot numbers differ from row positions and suffixed column
+  names after a native/s-file collision. Notebook figures use the same rule.
+
+- Grid toolbar's send-to-scan-log button now exports the clicked average or
+  error map, rather than the Plot tab's figure. Reuses the existing dialog,
+  remembered log entry and view link, with map-specific captions and square
+  plotting areas in the exported PNG.
+
+## [0.29.0] - 2026-09-16
+
+### Added
+
+- Grid tab with paired scalar/error heatmaps and independent average/error
+  selectors. Shared shot filters retain the complete geometry and distinguish
+  filtered, unacquired, missing-value and insufficient-sample cells.
+- Linear, logarithmic and equal-cell axis spacing in square plotting areas;
+  measured-point rendering for spiral and other nonrectangular trajectories.
+- Cell inspection, repeated-visit selection, filtered bin-image navigation,
+  URL-carried state and a reproducible notebook snippet through `/api/run/{uid}/grid`.
+
 ## [0.28.1] - 2026-09-15
 
 ### Changed
