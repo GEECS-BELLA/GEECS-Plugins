@@ -224,9 +224,6 @@ def test_get_scan_result_catalog_failure_is_tiled_unreachable(monkeypatch):
 
 
 class _FakeResolver:
-    def list_save_sets(self):
-        return ["Amp4In"]
-
     def list_trigger_profiles(self):
         return ["HTU-LaserOFF"]
 
@@ -270,7 +267,6 @@ class _FakeResolver:
 def test_list_scan_configs_all_kinds(monkeypatch):
     monkeypatch.setattr(runtime, "get_resolver", lambda: _FakeResolver())
     monkeypatch.setattr(runtime, "get_experiment", lambda: "Test")
-    assert _load(read_tools._list_scan_configs_impl("save_sets"))["names"] == ["Amp4In"]
     assert _load(read_tools._list_scan_configs_impl("trigger_profiles"))["names"] == [
         "HTU-LaserOFF"
     ]
@@ -392,3 +388,35 @@ def test_make_ok_is_strict_json_for_nonfinite_floats():
     assert parsed["x"] is None and parsed["y"] is None
     assert parsed["nested"]["a"] == [1.0, None, {"b": None}]
     assert parsed["fine"] == 2.5
+
+
+def test_every_config_kind_maps_to_a_real_resolver_capability():
+    """A listed kind must name a capability the REAL resolver has.
+
+    0.9.0 review finding, and the same drift as the queue-client fake:
+    ``save_sets`` stayed in ``_CONFIG_KINDS`` after the native-Bluesky
+    rebuild removed ``ConfigsRepoResolver.list_save_sets`` (presets carry
+    the device group).  ``_FakeResolver`` still defined it, so the suite
+    was green while the real tool answered
+    ``not_found: listing save_sets failed: 'ConfigsRepoResolver' object
+    has no attribute 'list_save_sets'`` — which an agent reads as "this
+    experiment has no save sets", not "this tool is broken".
+
+    Checked against the real class, never the fake — that is the point.
+    """
+    from geecs_bluesky.config_resolver import ConfigsRepoResolver
+
+    # The two kinds the impl routes by hand, and the capability each needs.
+    special = {
+        "scan_variables": "scan_variable_catalog",
+        "actions": "action_plan_registry",
+    }
+    missing = []
+    for kind in read_tools._CONFIG_KINDS:
+        capability = special.get(kind, f"list_{kind}")
+        if not hasattr(ConfigsRepoResolver, capability):
+            missing.append(f"{kind} -> ConfigsRepoResolver.{capability}")
+    assert not missing, (
+        "list_scan_configs advertises kinds the real resolver cannot serve: "
+        + "; ".join(missing)
+    )

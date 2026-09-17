@@ -29,6 +29,62 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   with them, along with `_task_error_kind` and the `GOOD_REQUEST`
   fixture.  `[mcp] max_shots` is now unread.
 
+### Fixed (adversarial review of this PR)
+
+- **A sixth tool was broken by the same rebuild, and this PR had
+  re-advertised it.** `list_scan_configs(kind="save_sets")` routed to
+  `ConfigsRepoResolver.list_save_sets`, removed alongside the client
+  verbs (presets carry the device group). It answered
+  `not_found: listing save_sets failed: 'ConfigsRepoResolver' object has
+  no attribute 'list_save_sets'` — which an agent reads as *this
+  experiment has no save sets*, not *this tool is broken*. `save_sets` is
+  dropped from `_CONFIG_KINDS`, from `_FakeResolver`, and from the four
+  places that advertised it.
+- The error taxonomy's prose no longer describes the deleted submit path
+  (`policy_refusal` is ownership/RE-state, not cap/acknowledgement; the
+  `needs_acknowledgement` `extra` is gone). `task_timeout` keeps its slot
+  in `ERROR_KINDS` with a note that it currently has no producer — it is
+  a published envelope value an agent may branch on.
+- Root `CLAUDE.md` called `resume_scan` and `clear_queue` "halt verbs"
+  and the server "READ-ONLY", contradicting `tool_names.py`, which
+  classifies resume as **Q, not S** because it restarts motion. It now
+  reads "the halt family (stop/pause) + three gated go verbs".
+- Four published surfaces outside `docs/geecs_mcp/` still sold the submit
+  path: `docs/agentic/index.md`, both `docs/geecs_schemas/` admonitions
+  (which said the MCP "is rewired onto" presets — it is not, it was
+  deleted), and the `docs/sites/data_flow/` map, which drew an
+  OSPREY→queue submission arrow this arc removes.
+- `pyproject.toml`'s published description said "scan submission"; the
+  `geecs-schemas` dependency comment claimed a runtime import that does
+  not exist (nothing under `geecs_mcp/` imports it — the listing tools
+  duck-type catalog rows; it is test-only, now labelled as such).
+- The note added to `tool_names.py` had been spliced into the middle of
+  the `QUEUE_TOOLS` comment's sentence.
+
+### Added (adversarial review of this PR)
+
+- **`tests/test_seam_pins.py`** — the fake-vs-real assertions, in one
+  module instead of beside each double, because the review found the
+  drift a *second* time (`_FakeResolver.list_save_sets`) one file over
+  from the first. It pins all three doubles' public methods against
+  `QueueClient` / `ConfigsRepoResolver`, both fabricated `status()`
+  objects against `QueueStatus`'s real fields (the unpinned half: a
+  renamed field left the suite green and every reader raising
+  `AttributeError` in production), and — closing a pre-existing gap —
+  that the safety groups *partition* the registered tools, so a tool can
+  no longer ship in neither `allow` nor `ask`/`write_tools`.
+  Each assertion was verified to fail against its own drift.
+- `test_every_config_kind_maps_to_a_real_resolver_capability` — every
+  advertised `list_scan_configs` kind must name a capability the **real**
+  resolver has, checked against the class rather than the fake.
+
+**Known gap, waived:** the pins check *names*, not signatures or return
+shapes — a `request_pause()` returning a `SubmitResult` instead of
+`(ok, message)` would pass and still break the tuple unpack. Pinning
+shapes wants a typed conformance helper beside the protocol in
+GeecsBluesky, so the scanner's `DemoQueueClient` gets it too; that is a
+cross-package change.
+
 ### What survives
 
 Read + observe + halt: `scan_status`, `scan_history`, `get_scan_result`,

@@ -31,7 +31,7 @@ direction (asked, never blockable).
 | `scan_status` | The RE Manager's picture: manager/RunEngine state, queue length, the running item |
 | `scan_history` | Recent queue history items, newest last, field-tolerant |
 | `get_scan_result` | A completed run from the Tiled archive: metadata, column names, capped per-column statistics — never the full event table |
-| `list_scan_configs` | The experiment's config catalogs, by kind: save sets, trigger profiles, presets, optimizer configs, scan variables, actions |
+| `list_scan_configs` | The experiment's config catalogs, by kind: trigger profiles, presets, optimizer configs, scan variables, actions. (Save sets are **not** a kind — the rebuild removed them; a preset carries its device group) |
 | `scan_progress` | Poll-friendly progress: manager state plus a best-effort per-shot picture from the worker's document stream (planned totals, shots completed, exit status, and — while paused — the failed-move reason) |
 
 Names always come from `list_scan_configs` — an agent is told never to

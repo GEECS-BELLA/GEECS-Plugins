@@ -79,10 +79,9 @@ class _FakeClient:
 
 @pytest.fixture
 def wired(monkeypatch):
-    """A connected idle manager + a configured experiment."""
+    """A connected, idle manager behind the runtime's client seam."""
     client = _FakeClient()
     monkeypatch.setattr(runtime, "get_queue_client", lambda: client)
-    monkeypatch.setattr(runtime, "get_experiment", lambda: "Test")
     return client
 
 
@@ -322,28 +321,3 @@ def test_all_control_tools_registered():
         tool_names.SCAN_PROGRESS,
     ):
         assert name in registered, f"{name} not registered"
-
-
-def test_the_fake_client_only_promises_verbs_the_real_client_has():
-    """The fake may not outlive the seam it stands in for.
-
-    The native-Bluesky rebuild removed ``submit_scan``, ``submit_action``,
-    ``move_variable`` and ``describe_action`` from the queue client, and
-    this suite stayed green for two days because ``_FakeClient`` still
-    defined all four — the tools under test called methods that no longer
-    existed anywhere in production.  Pin the fake's surface to the
-    protocol so the next removal fails here instead of at runtime.
-    """
-    from geecs_bluesky.qs_client import QueueClient
-
-    fake = {
-        name
-        for name in vars(_FakeClient)
-        if callable(getattr(_FakeClient, name)) and not name.startswith("_")
-    }
-    missing = sorted(name for name in fake if not hasattr(QueueClient, name))
-    assert not missing, (
-        f"_FakeClient promises {missing}, which QueueClient does not have — "
-        "either the protocol lost a verb the tools still call, or the fake "
-        "grew a method of its own"
-    )

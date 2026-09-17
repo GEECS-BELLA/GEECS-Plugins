@@ -66,7 +66,7 @@ With the server connected, the assistant can carry conversations like:
 
 - *"Is anything running right now? What's in the queue?"* —
   `scan_status`, `scan_history`.
-- *"Run a no-scan with the Amp4In save set, 20 shots."* — **not this
+- *"Run a no-scan with the Amp4In preset, 20 shots."* — **not this
   server's job.** There is no submit verb (0.9.0); the agent reads the
   real names from `list_scan_configs` and an operator starts the scan
   from the web scanner.

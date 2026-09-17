@@ -42,8 +42,14 @@ async def _run_guarded(impl, *args) -> str:
 _MAX_STAT_COLUMNS = 40
 
 #: The list_scan_configs kinds and the resolver capability each maps to.
+#: ``save_sets`` is deliberately absent: the native-Bluesky rebuild removed
+#: ``config_resolver.list_save_sets`` / ``resolve_save_set`` because presets
+#: carry the device group, so listing the kind raised ``AttributeError``
+#: inside the ``except`` below and read to an agent as "this experiment has
+#: no save sets" (0.9.0 review finding).  Every kind here must name a
+#: resolver capability that exists — pinned by
+#: ``test_every_config_kind_maps_to_a_real_resolver_capability``.
 _CONFIG_KINDS = (
-    "save_sets",
     "trigger_profiles",
     "presets",
     "optimizer_configs",
@@ -299,7 +305,7 @@ def _list_scan_configs_impl(kind: str) -> str:
 async def list_scan_configs(kind: str) -> str:
     """The experiment's config catalogs — the names a plan may use.
 
-    ``kind``: save_sets | trigger_profiles | presets | optimizer_configs |
+    ``kind``: trigger_profiles | presets | optimizer_configs |
     scan_variables | actions. NEVER invent catalog names — resolve them
     here. scan_variables rows carry kind/target(s) — never limits (device
     limits are hardware truth, not catalog data; absence here does NOT

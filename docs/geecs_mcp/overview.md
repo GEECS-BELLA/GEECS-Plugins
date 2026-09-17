@@ -3,9 +3,10 @@
 **GEECS-MCP** is the general GEECS server for AI agents: one deployed
 service that exposes the lab's GEECS-semantic operations — the scan
 service, the config catalogs, archived results, post-scan analysis — as
-typed tools an agent can call. It is what turns "ask the assistant to run
-a scan and tell me what it measured" from a demo into a governed,
-auditable interaction with the machine.
+typed tools an agent can call. It is what turns "ask the assistant how
+scan 12 is going and what it measured" from a demo into a governed,
+auditable interaction with the machine. Starting a scan is deliberately
+not part of that surface — see [No write path here](#the-safety-model).
 
 This page is a concepts-first orientation. The authoritative detail lives
 in the package alongside the code: `GEECS-MCP/CLAUDE.md` (architecture and
@@ -42,7 +43,7 @@ matter:
   read.
 - "What did scan 12 measure?" — that is a **Tiled archive** lookup with
   the run's metadata and per-column statistics.
-- "Which save sets and trigger profiles exist for this experiment?" —
+- "Which presets and trigger profiles exist for this experiment?" —
   that is the **configs repository**, resolved and validated the same way
   the web scanner does it.
 - "Run the standard analysis on this scan" — that is the **ScanAnalysis
@@ -82,7 +83,7 @@ flowchart LR
     O -- "MCP tool calls" --> S
     O -- "MCP tool calls" --> A
     S -- "qs_client (status / progress / stop)" --> Q
-    S -- "resolver (listings / validation)" --> C
+    S -- "resolver (config listings)" --> C
     S -- "results" --> T
     A -- "statuses / figures / analysis runs" --> D
     Q -- "writes scans" --> D

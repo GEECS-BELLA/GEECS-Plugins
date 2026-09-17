@@ -39,10 +39,11 @@ READ_TOOLS = (
     LIST_ANALYSIS_GROUPS,
 )
 
-#: Queueing tools (Q) — `ask` interactively; listed in `write_tools`
 #: The server has no submission verb: the native-Bluesky rebuild retired
-#: the client calls behind submit_scan / run_action / move_scan_variable
+#: the client calls behind submit_scan / run_action / move_scan_variable,
 #: and they were deleted rather than rewired (#727).
+#:
+#: Queueing tools (Q) — `ask` interactively; listed in `write_tools`
 #: (hook_config.json, from the profile's `config:`) for the headless
 #: gate (hook presets do NOT attach to custom servers — see STOP_TOOLS
 #: below / DEPLOYMENT.md).  resume_scan is Q, not S: it *restarts*
