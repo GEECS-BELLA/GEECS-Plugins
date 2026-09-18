@@ -249,8 +249,29 @@ and probing it live. This is the concrete design for `interpSpec` / `interpDiv`
 (the names chosen to match the existing native-file asset fields in
 `geecs_bluesky/assets/registry.py`).
 
-**The wire shape — a fourth array format, and the best of them.** `testarray`
-arrived as **189 rows x 2 columns of nested-bracket ASCII**:
+**Confirmed on the real variables (2026-09-18).** `interpDiv` and `interpSpec`
+are live on `UC_BCaveMagSpecCam1` in this exact format. `interpDiv`: **189 x 2**,
+column 0 the angle axis -23.5..+23.5 at a uniform 0.25 step, fixed by camera
+geometry. `interpSpec`: **1 x 2** with the magnet off, **285 x 2** with a
+simulated field (energy axis 51.56..122.56 MeV at a 0.25 MeV step) - span/`dE`,
+exactly as described below. Both changed on every push. A device restart was
+needed before the new variables appeared over TCP: the first start after a
+wiring change writes the names to the DB, and only the *next* start serves them
+(Sam) - so "DB row present, name absent from the push frame" is an expected
+intermediate state, not a fault.
+
+**The axis is uniform within a shot and moves between shots.** An earlier draft
+of this section said a non-uniform axis rides in column 0; that is wrong in a
+way worth correcting. The *physical* energy axis is non-linear, which is
+precisely why the device interpolates onto a **linear `dE` grid** - so what
+arrives is uniformly spaced, with a shot-dependent start, stop and length. The
+practical consequence is unchanged (no single axis can be shared across shots,
+so it must be stored per shot) and conservative rebinning is *easier* than it
+would be for a ragged grid.
+
+**The wire shape - a fourth array format, and the best of them.** `testarray`
+(the same lineout under a test name) arrived as **189 rows x 2 columns of
+nested-bracket ASCII**:
 `[[-2.350000E+1,0.000000E+0], [-2.325000E+1,0.000000E+0], ...]`, 5197 B,
 column 0 an axis (-23.5..+23.5, uniform step 0.25 - the same 189 rows as this
 camera's `ImageInterp`), column 1 the value. One variable carries **both the
@@ -278,6 +299,24 @@ covers, and the NaN tail compresses to nothing under the stacks' existing
 shuffle+gzip - 189x2 is ~3 KB/shot, padded ~16 KB raw, against 7.9 MB for one
 raw camera frame. The plugin will need a float `NDDataType` (areaDetector has
 Float64); today it only ever sees uint8/uint16.
+
+**A 1 x 2 payload is a valid value and must never crash anything (Sam,
+2026-09-18).** It is the shape `interpSpec` defaults to when the magnet is off
+- observed live - so it will occur routinely, including *mid-scan* if a magnet
+trips. The padding design absorbs it for free: a 1-row frame pads to
+`(2048, 2)` like any other, so the PV shape, the descriptor and the stack shape
+are all unchanged and no frame is dropped. Without padding, a mid-scan
+285 -> 1 -> 285 transition would fail every frame after the trip against the
+session's frozen shape. Three guards, each explicit:
+
+1. **The decoder accepts `n >= 1` rows.** A single row is not an error. (The
+   first parser written in this session raised on exactly this case - a real
+   warning, not a hypothetical.)
+2. **Padding treats `n = 1` as ordinary.** No special case, no counter.
+3. **Analysis treats `n < 2` as no-data**, not as a spectrum: with one point
+   there is no bin width, so any rebinning or `dE` computation must return
+   NaN / skip rather than divide by zero. Counting non-NaN rows distinguishes
+   "one valid row plus padding" from a real spectrum.
 
 **2048 is a policy ceiling, not a physical one** (an earlier draft of this
 section claimed the chip width bounded it - wrong, the interp grid is
