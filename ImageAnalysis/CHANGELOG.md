@@ -3,6 +3,48 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.4.0] - 2026-09-17
+
+### Added
+
+- `BCaveMagSpecCam1Analyzer` (`analyzers/Undulator/bcave_magspec_cam1_analyzer.py`,
+  kind `bcave_magspec_cam1`) — bow-tie emittance analysis for
+  `UC_BCaveMagSpecCam1`, a device acquired in five Undulator scanner presets
+  that until now had no analyzer. A `BeamAnalyzer` subclass that applies the
+  spec's `count_threshold` to the processed frame and fits it with the
+  existing `BowtieFitAlgorithm`, reporting the emittance proxy plus the
+  fitted waist, divergence, waist position and fit quality.
+
+  Deliberately a sibling of `HiResMagCamAnalyzer` rather than a second
+  config on that kind: the two cameras share the algorithm but not their
+  tuning, so keeping them separate means B-cave changes cannot regress
+  HiResMagCam.
+
+### Changed
+
+- `BowtieFitAlgorithm` now reports where the beam sits vertically, not only
+  how large it is. `BowtieFitResult` gains two fields: `y0`, the vertical
+  position of the beam at the fitted waist column (where the beam is imaged
+  into the spectrometer), and `centers`, the per-column intensity-weighted
+  vertical track it is read from.
+
+  The per-column centroid was already computed inside `extract_profile` for
+  the clearance check and then discarded; it is now returned. `y0` is
+  obtained from it by `BowtieFitAlgorithm.center_at(x0, centers,
+  valid_mask)`, which linearly interpolates the track at the fractional
+  waist column. It deliberately does **not** extrapolate: outside the span
+  of columns that entered the fit, and whenever the fit failed, `y0` is
+  NaN rather than a projected value that would read like a measurement.
+
+  Two signature changes, both additive at the end: `extract_profile` returns
+  a 4-tuple (`…, centers`) and `get_last_profile` the same, so positional
+  access to the existing first three entries is unchanged. The only
+  in-repo callers are the two bow-tie analyzers.
+
+  `HiResMagCamAnalyzer` is behaviourally untouched — it keeps reporting the
+  emittance proxy alone. Only `BCaveMagSpecCam1Analyzer` emits the new
+  `bowtie_y0` scalar (and a `bowtie_centers` render array).
+
 ## [2.3.0] - 2026-09-16
 
 ### Changed

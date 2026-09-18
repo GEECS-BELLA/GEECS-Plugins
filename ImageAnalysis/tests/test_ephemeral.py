@@ -257,6 +257,7 @@ class TestRenderedEphemeral:
             "image_analysis.analyzers.standard_analyzer.StandardAnalyzer",
             "image_analysis.analyzers.beam_analyzer.BeamAnalyzer",
             "image_analysis.analyzers.Undulator.hi_res_mag_cam_analyzer.HiResMagCamAnalyzer",
+            "image_analysis.analyzers.Undulator.bcave_magspec_cam1_analyzer.BCaveMagSpecCam1Analyzer",
             "image_analysis.analyzers.magspec_manual_calib_analyzer.MagSpecManualCalibAnalyzer",
         ],
     )

@@ -67,6 +67,49 @@
       "title": "BCaveMagOptSpec",
       "type": "object"
     },
+    "BCaveMagSpecCam1Spec": {
+      "additionalProperties": false,
+      "description": "HTU B-cave magspec camera 1: beam metrics plus a bow-tie fit of the dispersed trace.",
+      "properties": {
+        "kind": {
+          "const": "bcave_magspec_cam1",
+          "default": "bcave_magspec_cam1",
+          "description": "HTU BCaveMagSpecCam1 bow-tie analyzer.",
+          "title": "Kind",
+          "type": "string"
+        },
+        "n_beam_size_clearance": {
+          "default": 4,
+          "description": "Bow-tie fit: how many vertical beam sizes must fit inside the frame for a column to count toward the fit.",
+          "minimum": 0,
+          "title": "N Beam Size Clearance",
+          "type": "integer"
+        },
+        "min_total_counts": {
+          "default": 2500.0,
+          "description": "Bow-tie fit: skip columns with fewer total counts than this.",
+          "minimum": 0,
+          "title": "Min Total Counts",
+          "type": "number"
+        },
+        "threshold_factor": {
+          "default": 10.0,
+          "description": "Bow-tie fit: threshold factor.",
+          "exclusiveMinimum": 0,
+          "title": "Threshold Factor",
+          "type": "number"
+        },
+        "count_threshold": {
+          "default": 10.0,
+          "description": "Zero every pixel below this count before the bow-tie fit \u2014 the noise floor left after background subtraction.",
+          "minimum": 0,
+          "title": "Count Threshold",
+          "type": "number"
+        }
+      },
+      "title": "BCaveMagSpecCam1Spec",
+      "type": "object"
+    },
     "BCaveMagSpecStitcherSpec": {
       "additionalProperties": false,
       "description": "HTU BCave magspec camera with a Gaussian-weighted vertical lineout for optimization.",
@@ -2486,6 +2529,7 @@
       "discriminator": {
         "mapping": {
           "bcave_mag_opt": "#/$defs/BCaveMagOptSpec",
+          "bcave_magspec_cam1": "#/$defs/BCaveMagSpecCam1Spec",
           "bcave_magspec_stitcher": "#/$defs/BCaveMagSpecStitcherSpec",
           "beam": "#/$defs/BeamAnalyzerSpec",
           "downramp_phase": "#/$defs/DownrampPhaseSpec",
@@ -2539,6 +2583,9 @@
         },
         {
           "$ref": "#/$defs/HiResMagCamSpec"
+        },
+        {
+          "$ref": "#/$defs/BCaveMagSpecCam1Spec"
         },
         {
           "$ref": "#/$defs/BCaveMagSpecStitcherSpec"

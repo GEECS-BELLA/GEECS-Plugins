@@ -446,6 +446,51 @@ class HiResMagCamSpec(AnalyzerSpecBase):
         }
 
 
+class BCaveMagSpecCam1Spec(AnalyzerSpecBase):
+    """HTU B-cave magspec camera 1: beam metrics plus a bow-tie fit of the dispersed trace."""
+
+    image_kind: ClassVar[ImageKind] = "camera"
+    kind: Literal["bcave_magspec_cam1"] = Field(
+        "bcave_magspec_cam1", description="HTU BCaveMagSpecCam1 bow-tie analyzer."
+    )
+    n_beam_size_clearance: int = Field(
+        4,
+        ge=0,
+        description=(
+            "Bow-tie fit: how many vertical beam sizes must fit inside the "
+            "frame for a column to count toward the fit."
+        ),
+    )
+    min_total_counts: float = Field(
+        2500.0,
+        ge=0,
+        description="Bow-tie fit: skip columns with fewer total counts than this.",
+    )
+    threshold_factor: float = Field(
+        10.0, gt=0, description="Bow-tie fit: threshold factor."
+    )
+    count_threshold: float = Field(
+        10.0,
+        ge=0,
+        description=(
+            "Zero every pixel below this count before the bow-tie fit — the "
+            "noise floor left after background subtraction."
+        ),
+    )
+
+    def emitted_scalars(self) -> frozenset[str]:
+        """Return beam statistics plus the bow-tie fit parameters."""
+        return BeamAnalyzerSpec().emitted_scalars() | {
+            "emittance_proxy",
+            "total_counts",
+            "bowtie_w0",
+            "bowtie_theta",
+            "bowtie_x0",
+            "bowtie_y0",
+            "bowtie_r_squared",
+        }
+
+
 class BCaveMagSpecStitcherSpec(AnalyzerSpecBase):
     """HTU BCave magspec camera with a Gaussian-weighted vertical lineout for optimization."""
 
@@ -524,6 +569,7 @@ AnalyzerSpec = Annotated[
         HasoAnalyzerSpec,
         DownrampPhaseSpec,
         HiResMagCamSpec,
+        BCaveMagSpecCam1Spec,
         BCaveMagSpecStitcherSpec,
         BCaveMagOptSpec,
         PhaseDownrampSpec,
@@ -545,6 +591,7 @@ __all__ = [
     "AnalyzerSpecBase",
     "ArrayCalibrationSpec",
     "BCaveMagOptSpec",
+    "BCaveMagSpecCam1Spec",
     "BCaveMagSpecStitcherSpec",
     "BeamAnalyzerSpec",
     "CalibrationSpec",

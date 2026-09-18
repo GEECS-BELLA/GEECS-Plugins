@@ -5,6 +5,26 @@ All notable changes to GEECS-Schemas are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.30.0] - 2026-09-17
+
+### Added
+
+- `BCaveMagSpecCam1Spec` — the analyzer spec for `UC_BCaveMagSpecCam1`
+  (kind `bcave_magspec_cam1`), the B-cave magspec camera 1 bow-tie
+  analyzer. A sibling of `HiResMagCamSpec` rather than a reuse of it: the
+  two cameras share the bow-tie algorithm but not their tuning, so the
+  specs stay separate and B-cave parameter changes cannot regress
+  HiResMagCam. Two deliberate differences from the HiResMagCam spec: the
+  noise-floor threshold is a field (`count_threshold`) instead of a
+  hardcoded 10 counts, and the fitted bow-tie parameters (`bowtie_w0`,
+  `bowtie_theta`, `bowtie_x0`, `bowtie_y0`, `bowtie_r_squared`) are
+  declared as emitted scalars alongside the emittance proxy.
+
+  `bowtie_y0` is the vertical position of the beam at the waist column —
+  where the beam is imaged into the spectrometer. The value is a row index
+  of the *processed* frame, so any ROI crop in the camera config is already
+  applied to it.
+
 ## [0.29.1] - 2026-09-16
 
 ### Changed
