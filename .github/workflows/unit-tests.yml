@@ -159,19 +159,7 @@ jobs:
               # live measurement compiler with the real Xopt/GEST
               # generators, not an import skip.
               poetry install --with dev --extras qserver --extras qs-client \
-                --extras ca --extras tiled --extras optimize
-              # torch is pinned to PyTorch's CPU index on Linux, because the
-              # default wheel is the CUDA build and drags fifteen nvidia-*
-              # packages plus triton that nothing here ever loads — no
-              # runner has a GPU. That pin is a lock detail, so it can
-              # regress silently on any relock; the only visible symptom
-              # would be a slow install and a cache too big to keep. Assert
-              # it instead.
-              if poetry run pip list --format=freeze 2>/dev/null \
-                   | grep -iE '^(nvidia-|triton)=='; then
-                echo "::error::CUDA packages installed — the CPU-only torch pin regressed (see GeecsBluesky/pyproject.toml)"
-                exit 1
-              fi ;;
+                --extras ca --extras tiled --extras optimize ;;
             GEECS-MCP)
               # analysis-run: the #686 execution-slice tests importorskip
               # without it — install it so CI actually runs them.

@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "geecs-bluesky"
-version = "0.97.0"
+version = "0.96.0"
 description = "Bluesky / ophyd-async bridge for the GEECS control system"
 authors = ["Sam Barber <sbarber@lbl.gov>"]
 readme = "README.md"
@@ -46,37 +46,6 @@ aioca = { version = ">=1.7", optional = true }
 xopt = { version = "^3.1", optional = true }
 gest-api = { version = ">=0.1,<0.2", optional = true }
 
-# torch arrives transitively (xopt -> botorch -> torch), and PyPI's default
-# Linux wheel is the CUDA build: it drags fifteen nvidia-* packages plus
-# triton, none of which is ever loaded without an NVIDIA GPU. Neither the
-# worker nor a CI runner has one. Declared directly here — the only way to
-# pin a transitive package's source — against PyTorch's CPU index, which
-# carries every platform this repo runs on (manylinux_2_28_x86_64, macOS
-# arm64, win_amd64). Measured: the download set for this package's CI leg
-# was 8.4 GB with the CUDA build, against GitHub's 10 GB cache cap.
-#
-# If a GPU box ever runs the optimizer, drop the `source` key here and
-# relock — nothing else changes, and the optimize tests are identical
-# either way (they exercise ask/tell and the measurement compiler, not
-# GPU maths).
-# Split by platform because the +cpu index carries no macOS wheels for
-# current versions — macOS torch is CPU-only on PyPI already (there is no
-# CUDA build for it), so a developer's Mac resolves from PyPI exactly as
-# before. Only Linux, where the default wheel is the CUDA one, is
-# redirected. Verified: a single-source form locked with zero macOS
-# wheels, which would have broken `--extras optimize` on a Mac.
-# Split by platform. The +cpu index publishes Linux wheels as
-# "X.Y.Z+cpu" but macOS wheels as plain "X.Y.Z", and a lock entry holds ONE
-# version — so a single source at <2.11 locked 2.10.0+cpu and broke macOS
-# outright (`poetry install --extras optimize` exits 1, "38 wheel(s) were
-# skipped as your project's environment does not support the identified abi
-# tags"). macOS torch on PyPI is CPU-only anyway (there is no CUDA build for
-# it), so only Linux needs redirecting.
-torch = [
-    { version = ">=2.4", source = "pytorch-cpu", markers = "platform_system == 'Linux'", optional = true },
-    { version = ">=2.4", markers = "platform_system != 'Linux'", optional = true },
-]
-
 # The queueserver worker (GeecsBluesky/qserver/) — RE Manager itself, not a
 # runtime import of geecs_bluesky. Pinned to the release validated by the
 # 2026-08-20 RE Manager sandbox spike (operational contract: qserver/README.md
@@ -98,17 +67,10 @@ bluesky-queueserver-api = { version = "^0.0.13", optional = true }
 # clients", and the worker needs both.
 p4p = { version = ">=4.1", optional = true }
 
-# priority = "explicit": used ONLY by packages that name it (torch, above).
-# Every other dependency continues to resolve from PyPI as before.
-[[tool.poetry.source]]
-name = "pytorch-cpu"
-url = "https://download.pytorch.org/whl/cpu"
-priority = "explicit"
-
 [tool.poetry.extras]
 tiled = ["tiled"]
 ca = ["aioca", "p4p"]
-optimize = ["xopt", "gest-api", "imageanalysis", "torch"]
+optimize = ["xopt", "gest-api", "imageanalysis"]
 qserver = ["bluesky-queueserver"]
 qs-client = ["bluesky-queueserver-api"]
 
